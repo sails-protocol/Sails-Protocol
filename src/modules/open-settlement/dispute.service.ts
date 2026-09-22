@@ -501,15 +501,22 @@ export class DisputeService {
       // This ruling decided WHO is entitled and HOW MUCH — never WHERE.
       if (ruling === 'RELEASE') {
         if (needsSignatureCollection) {
+          // Issue #254 - disputeId is NOT threaded through the signature-collection path
+          // (initiateRelease -> EscrowPendingTransaction -> submitTransactionSignature()'s own,
+          // separate, later emitEscrowTransition() call) - a disclosed residual (LIGHTNING_HODL/
+          // SAFE_GUARD_EVM) reported in Issue #254's own delivery, not silently left unexplained.
           await escrowService.initiateRelease(dispute.escrowId, undefined, triggeredBy)
         } else {
-          await escrowService.releaseFunds(dispute.escrowId, undefined, triggeredBy)
+          // Issue #254 - dispute.id is real, immutable, generation-scoped provenance: it travels with
+          // the settlement.escrow.released event itself, so a later appeal() mutating Dispute can never
+          // retroactively change what this specific release meant.
+          await escrowService.releaseFunds(dispute.escrowId, undefined, triggeredBy, dispute.id)
         }
       } else if (ruling === 'REFUND') {
         if (needsSignatureCollection) {
           await escrowService.initiateRefund(dispute.escrowId, triggeredBy, undefined)
         } else {
-          await escrowService.refundFunds(dispute.escrowId, triggeredBy)
+          await escrowService.refundFunds(dispute.escrowId, triggeredBy, dispute.id)
         }
       } else if (ruling === 'SPLIT') {
         // RFC-021 D9 — the third §1.9 option finally has a real settlement
@@ -1004,16 +1011,27 @@ export class DisputeService {
    * (projectionKey, subjectId)), and a genuine race between two concurrent callers for the same dispute is
    * resolved by applyEventProjectionOnce()'s own unique-constraint claim, not by anything here.
    *
-   * Disclosed, bounded residual (FOLLOW-UP, not BLOCKER — see Issue #253's own delivery report): this only
-   * ever inspects a dispute's CURRENT (id, appealRound). If a crash leaves round N's finalize missing AND a
-   * human calls appeal() again (bumping to round N+1) BEFORE this ever runs once, round N's own
-   * previousRuling/previousArbiterId snapshot is overwritten by round N+1's own appeal() call before this
-   * function ever gets a chance to see it - an operationally narrow window (requires a human appeal
-   * action to land before any reconciliation tick), not a crash/replay/concurrency case, and out of this
-   * mission's scope to close (would require a full ruling-history table, a genuine schema change).
+   * **Corrected/Implemented (Issue #254, semantic-provenance review):** this section previously disclosed
+   * a residual - "if a human calls appeal() before this ever runs once, round N's own snapshot is
+   * overwritten and unrecoverable" - as an accepted, out-of-scope gap. #254's own investigation proved it
+   * is real but structurally BOUNDED, not open-ended: `applyRuling()`'s fund-movement call can only ever
+   * succeed ONCE per escrow (VALID_TRANSITIONS has zero outgoing edges from every terminal escrow status),
+   * so a dispute can only ever reach `status: 'RESOLVED'` for real exactly once - meaning at most ONE
+   * `appeal()` call can EVER succeed for any given dispute (appeal() itself requires `status: 'RESOLVED'`,
+   * and every later resolution attempt against the now-terminal escrow structurally fails and reverts back
+   * to APPEALED, so a SECOND appeal is never reachable). This makes the missing generation ALWAYS round 0
+   * (the one and only real resolution), and round 0's OWN previousRuling/previousArbiterId are ALWAYS null
+   * (nothing preceded the very first resolution - `shouldSlash` inside finalizeResolveDispute() is
+   * therefore always false for this branch, correctly: a first-instance ruling never slashes anyone).
+   * The second query below closes this for real: an APPEALED dispute's CURRENT previousRuling/
+   * previousArbiterId (written by appeal()'s own one-time capture of round 0's ruling/arbiter, durable and
+   * never overwritten again since a second appeal is unreachable) is round 0's real, historical data -
+   * reused as-is, no schema change, no new provenance field.
    */
   async recoverMissingRulingFinalization(limit = 200): Promise<{ recovered: string[]; failed: Array<{ disputeId: string; error: string }>; held: string[] }> {
-    const candidates = await prisma.$queryRaw<Array<{ id: string; escrowId: string; appealRound: number; previousRuling: DisputeRuling | null; previousArbiterId: string | null; arbiterId: string | null; ruling: DisputeRuling | null }>>`
+    type Candidate = { id: string; escrowId: string; appealRound: number; previousRuling: DisputeRuling | null; previousArbiterId: string | null; arbiterId: string | null; ruling: DisputeRuling | null }
+
+    const resolvedCandidates = await prisma.$queryRaw<Candidate[]>`
       SELECT d.id, d."escrowId", d."appealRound", d."previousRuling", d."previousArbiterId", d."arbiterId", d.ruling
       FROM disputes d
       WHERE d.status = 'RESOLVED'
@@ -1023,10 +1041,26 @@ export class DisputeService {
       ORDER BY d."resolvedAt" ASC NULLS LAST
       LIMIT ${limit}`
 
+    // The one bounded "appealed before recovery" case proven above: the dispute is now APPEALED, but
+    // round (appealRound - 1) — always round 0, structurally — never had its own finalize claim recorded.
+    // previousRuling/previousArbiterId ARE round 0's own real ruling/arbiter (appeal()'s own durable
+    // capture); round 0's own previousRuling/previousArbiterId are always null (see this method's own
+    // header comment) - never re-derived from anything else.
+    const appealedCandidates = await prisma.$queryRaw<Candidate[]>`
+      SELECT d.id, d."escrowId", (d."appealRound" - 1) AS "appealRound", NULL::text AS "previousRuling", NULL::text AS "previousArbiterId",
+             d."previousArbiterId" AS "arbiterId", d."previousRuling" AS ruling
+      FROM disputes d
+      WHERE d.status = 'APPEALED' AND d."appealRound" >= 1 AND d."previousRuling" IS NOT NULL AND d."previousArbiterId" IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM event_projection_claims c
+          WHERE c."eventId" = d.id AND c."projectionKey" = 'dispute.ruling-finalized' AND c."subjectId" = (d."appealRound" - 1)::text)
+      ORDER BY d."resolvedAt" ASC NULLS LAST
+      LIMIT ${limit}`
+
     const recovered: string[] = []
     const failed: Array<{ disputeId: string; error: string }> = []
-    for (const candidate of candidates) {
-      if (!candidate.arbiterId || !candidate.ruling) continue // structurally shouldn't happen for a RESOLVED dispute - skip rather than guess
+    for (const candidate of [...resolvedCandidates, ...appealedCandidates]) {
+      if (!candidate.arbiterId || !candidate.ruling) continue // structurally shouldn't happen - skip rather than guess
       try {
         await this.finalizeResolveDispute(candidate, candidate.arbiterId, candidate.ruling)
         recovered.push(candidate.id)

@@ -13,6 +13,9 @@ import { intentEngine } from '../../core/intent-engine'
 import { config } from '../../config'
 import { escrowsCreatedTotal, escrowsReleasedTotal, escrowsRefundedTotal, disputesOpenedTotal, qvacDetectionFailuresTotal } from '../metrics'
 import { childLogger } from '../logger'
+// Issue #254 - a plain, lightweight, CJS-compatible workspace package already statically imported by
+// dispute.service.ts (via dispute-outcome.ts) today, not a new heavy/ESM dependency for this file.
+import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from '../../modules/open-settlement/discretionary-authority'
 
 const log = childLogger('handlers')
 
@@ -199,16 +202,57 @@ async function accrueFeeFloor(tx: ProjectionTx, buyerId: string, sellerId: strin
   })
 }
 
+/**
+ * Issue #254 - immutable, generation-correct provenance for "was this settlement.escrow.released/refunded
+ * event actually caused by a real dispute ruling?" NEVER derived from CURRENT mutable Dispute state
+ * (Dispute.status/ruling/arbiterId): appeal() can legitimately reopen a RESOLVED dispute (moving status to
+ * APPEALED, clearing ruling) at any time, including while THIS event's own projection is still delayed
+ * (crash/PASS-3 redelivery, or simply a slower handler) - a query against the row's CURRENT state would
+ * then silently misclassify a real disputed release/refund as an ordinary cooperative one (or vice versa),
+ * producing an exactly-once but WRONG reputation outcome. Three layered, priority-ordered immutable
+ * sources, checked in order of how strong the guarantee is:
+ *
+ *   1. eventDisputeId - the settlement event's OWN payload.disputeId (escrow.service.ts's
+ *      releaseFunds()/refundFunds(), MOCK/WDK_USDT_EVM only). Set by dispute.service.ts's applyRuling() at
+ *      the exact moment fund movement is triggered - event-carried and race-free by construction, since it
+ *      travels with the durable event itself rather than being looked up later.
+ *   2. semantic_transition_records (MULTISIG's existing Core-authoritative provenance,
+ *      dispute-outcome.ts/M8-R) - committed BEFORE the settlement action is ever dispatched (that file's
+ *      own "STRICTLY PRECEDES... calling any settlement action" ordering) and append-only/immutable from
+ *      that point on (a reverted ruling deletes its own row via revertDisputeRulingRecord(), never mutates
+ *      it) - reused as-is, no schema change.
+ *   3. DISCLOSED RESIDUAL: LIGHTNING_HODL/SAFE_GUARD_EVM (dispute.service.ts's needsSignatureCollection
+ *      branch for those two rails) have no equivalent pre-commit immutable record today - the disputeId
+ *      would need to survive the async EscrowPendingTransaction signature-collection window, which
+ *      requires a genuine schema addition (EscrowPendingTransaction.disputeId) out of Issue #254's own
+ *      scope (see its delivery report's BLOCKER classification). Falls back to the SAME mutable-Dispute
+ *      query this codebase used before this pass - not a new guess, the pre-existing, already-disclosed
+ *      behavior, unchanged for exactly these two rails.
+ */
+async function wasCausedByDisputeRuling(escrowId: string, tradeId: string, eventDisputeId: string | undefined, legacyRuling: 'RELEASE' | 'REFUND'): Promise<boolean> {
+  if (eventDisputeId) return true
+
+  const coreRecord = await prisma.semanticTransitionRecord.findFirst({
+    where: { interactionId: escrowId, transitionType: ESCROW_DISPUTE_RULING_TRANSITION_TYPE },
+    select: { id: true },
+  })
+  if (coreRecord) return true
+
+  const legacy = await prisma.dispute.findFirst({
+    where: { tradeId, status: 'RESOLVED', ruling: legacyRuling },
+    select: { id: true },
+  })
+  return !!legacy
+}
+
 /** Outcome Engine for the released path (RFC-007 D8): a RELEASE ruling means
  *  the buyer won and the seller lost; a plain release (no dispute) means
  *  both parties completed cleanly. RFC-021 D7 — the losing seller's active
  *  vouches (if any) get burned via vouchService, applying the same
  *  "skin-in-the-game" reasoning D3 uses for arbiters to peer vouches. */
-async function applyReleaseOutcomes(effectId: string, tradeId: string, buyerId: string, sellerId: string): Promise<void> {
-  const resolvedRelease = await prisma.dispute.findFirst({
-    where: { tradeId, status: 'RESOLVED', ruling: 'RELEASE' },
-  })
-  if (resolvedRelease) {
+async function applyReleaseOutcomes(effectId: string, tradeId: string, buyerId: string, sellerId: string, escrowId: string, eventDisputeId: string | undefined): Promise<void> {
+  const disputed = await wasCausedByDisputeRuling(escrowId, tradeId, eventDisputeId, 'RELEASE')
+  if (disputed) {
     await reputationService.recordOutcomeOnce(effectId, tradeId, buyerId, 'POSITIVE')
     await reputationService.recordOutcomeOnce(effectId, tradeId, sellerId, 'NEGATIVE')
     await vouchService.burnVouchesForOnce(effectId, sellerId)
@@ -224,14 +268,12 @@ async function applyReleaseOutcomes(effectId: string, tradeId: string, buyerId: 
  *  either party. RFC-021 D7 — same vouch-burn reasoning as released, for
  *  the buyer instead of the seller.
  *
- *  Returns the resolved Dispute row (or null) so the caller can branch on
+ *  Returns whether this was a disputed refund so the caller can branch on
  *  "did this come from a dispute ruling?" for the Intent FAILED transition's
  *  `reason` field — same as the original inline implementation did. */
-async function applyRefundOutcomes(effectId: string, tradeId: string, buyerId: string, sellerId: string): Promise<{ id: string } | null> {
-  const resolvedRefund = await prisma.dispute.findFirst({
-    where: { tradeId, status: 'RESOLVED', ruling: 'REFUND' },
-  })
-  if (resolvedRefund) {
+async function applyRefundOutcomes(effectId: string, tradeId: string, buyerId: string, sellerId: string, escrowId: string, eventDisputeId: string | undefined): Promise<boolean> {
+  const disputed = await wasCausedByDisputeRuling(escrowId, tradeId, eventDisputeId, 'REFUND')
+  if (disputed) {
     await reputationService.recordOutcomeOnce(effectId, tradeId, sellerId, 'POSITIVE')
     await reputationService.recordOutcomeOnce(effectId, tradeId, buyerId, 'NEGATIVE')
     await vouchService.burnVouchesForOnce(effectId, buyerId)
@@ -239,7 +281,7 @@ async function applyRefundOutcomes(effectId: string, tradeId: string, buyerId: s
     await reputationService.recordOutcomeOnce(effectId, tradeId, buyerId, 'NEUTRAL')
     await reputationService.recordOutcomeOnce(effectId, tradeId, sellerId, 'NEUTRAL')
   }
-  return resolvedRefund
+  return disputed
 }
 
 // ─── Issue #294/#298 - projection identity helpers ───────────────────────────────────────────
@@ -361,7 +403,7 @@ export function registerEventHandlers(): void {
       }, payload.tradeId)   // correlationId (RFC-010)
     )
 
-    await applyReleaseOutcomes(effectId, payload.tradeId, trade.buyerId, trade.sellerId)
+    await applyReleaseOutcomes(effectId, payload.tradeId, trade.buyerId, trade.sellerId, payload.escrowId, payload.disputeId)
 
     if (trade.intentId) {
       await fulfillIntent(trade.intentId, payload.escrowId, 'RELEASED')
@@ -400,7 +442,7 @@ export function registerEventHandlers(): void {
     const trade = await prisma.trade.findUnique({ where: { id: payload.tradeId } })
     if (!trade) return
 
-    const resolvedRefund = await applyRefundOutcomes(effectIdentity(event), payload.tradeId, trade.buyerId, trade.sellerId)
+    const resolvedRefund = await applyRefundOutcomes(effectIdentity(event), payload.tradeId, trade.buyerId, trade.sellerId, payload.escrowId, payload.disputeId)
 
     if (trade.intentId) {
       await ensureIntentCommitted(trade.intentId, payload.escrowId)

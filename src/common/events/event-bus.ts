@@ -61,6 +61,15 @@ export interface SettlementEscrowStatusChangedEvent {
   // Issue #298 - id of the EscrowEvent transition claim that produced this event: the stable
   // identity recovery uses to tell 'claimed' from 'published' from 'projected'.
   transitionId?: string
+  // Issue #254 - set ONLY by a direct-call-rail (MOCK/WDK_USDT_EVM) settlement action driven by a real
+  // dispute ruling (dispute.service.ts's applyRuling(), never a cooperative seller action) - captured at
+  // the exact moment fund movement is triggered, immutable and event-carried from that point forward.
+  // A later appeal() mutating Dispute.status/ruling can never retroactively change what THIS event means:
+  // common/events/handlers.ts's reputation-outcome derivation reads this field instead of re-querying
+  // current (mutable) Dispute state. Absent for a plain, non-disputed release/refund, and absent for the
+  // signature-collection rails (MULTISIG has its own immutable semantic_transition_records provenance;
+  // LIGHTNING_HODL/SAFE_GUARD_EVM are a disclosed residual - see handlers.ts's own comment).
+  disputeId?: string
 }
 
 

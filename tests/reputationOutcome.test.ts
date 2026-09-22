@@ -19,6 +19,10 @@ const mockTradeUpdate = jest.fn()
 const mockTradeFindUnique = jest.fn()
 const mockProjectEscrowStatus = jest.fn().mockResolvedValue({ applied: true })
 const mockDisputeFindFirst = jest.fn()
+// Issue #254 - checked BEFORE the legacy mockDisputeFindFirst fallback; null by default so every existing
+// test in this file (which asserts against the legacy Dispute-based query) is unaffected unless a test
+// explicitly wants to exercise the new MULTISIG semantic_transition_records provenance path instead.
+const mockSemanticTransitionRecordFindFirst = jest.fn().mockResolvedValue(null)
 const mockUserUpdate = jest.fn()
 const mockEscrowFindUnique = jest.fn()
 // RFC-021 D7 — vouch.service.ts's burn is now applied from the same
@@ -57,6 +61,7 @@ jest.mock('../src/common/database', () => ({
       findUnique: (...args: unknown[]) => mockTradeFindUnique(...args),
     },
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
+    semanticTransitionRecord: { findFirst: (...args: unknown[]) => mockSemanticTransitionRecordFindFirst(...args) },
     user: { update: (...args: unknown[]) => mockUserUpdate(...args) },
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
     // burnVouchesForOnce() reads the vouchee's vouches outside any claim transaction, and asks the claim store

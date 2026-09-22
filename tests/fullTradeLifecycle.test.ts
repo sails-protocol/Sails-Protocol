@@ -148,6 +148,12 @@ const intents = makeTable('intent', { expiresAt: null })
 // here), matching this file's own "every table round-trips for real"
 // discipline rather than a separately-mocked no-op.
 const vouches = makeTable('vouch', { burnedAt: null })
+// Issue #254 - checked by handlers.ts's wasCausedByDisputeRuling() before the legacy Dispute-based
+// fallback query. Empty here (this file's escrows are all MOCK-typed, per createEscrow()'s own
+// mockEscrow-aware default — no MULTISIG dispute-ruling Core-authoritative path ever runs, so no
+// semantic_transition_records row ever exists), same "table round-trips for real, empty is a real
+// answer too" convention this file already uses for feePolicyVersion/vouch/escrowParticipantKey above.
+const semanticTransitionRecords = makeTable('semanticTransitionRecord')
 // Missão 11 Fase 9.3 — markPaymentSent()/initiateRelease()/initiateSplit()
 // now re-check funding uncertainty (empty here is correct: no test in
 // this file ever records reorg-sweep evidence, same "table round-trips
@@ -314,6 +320,7 @@ jest.mock('../src/common/database', () => ({
     feePolicyVersion: feePolicyVersions,
     payoutAddress: payoutAddresses,
     dispute: disputes,
+    semanticTransitionRecord: semanticTransitionRecords,
     intent: intents,
     intentEvent: intentEvents,
     vouch: vouches,
