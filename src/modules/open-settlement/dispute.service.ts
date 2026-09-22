@@ -21,6 +21,7 @@
 import { prisma } from '../../common/database'
 import { NotFoundError, ValidationError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
+import { applyEventProjectionOnce } from '../../common/events/event-projection'
 import { escrowService } from './escrow.service'
 import { config } from '../../config'
 import { TrustedArbitratorProvider, type ArbitrationProvider } from './arbitration-provider'
@@ -893,9 +894,24 @@ export class DisputeService {
   /**
    * The post-settlement bookkeeping shared by BOTH the Core-authoritative
    * (MULTISIG) and legacy (`applyRuling()`) paths — arbiter track record,
-   * appeal-slashing, and appeal-fee settlement. Extracted unchanged
-   * (mission M8-R) so neither path duplicates it and both stay
-   * byte-for-byte identical in behavior to before this migration.
+   * appeal-slashing, and appeal-fee settlement.
+   *
+   * Issue #253 - previously this ran as a plain sequence of independent, non-idempotent writes with no
+   * durable identity of its own: a crash strictly after resolveDispute()'s own RESOLVED write committed
+   * but before this method finished left rulingsTotal/rulingsOverturned/collateral/reputation/appeal-fee
+   * bookkeeping silently, permanently missing - and, unlike every other completion path in this codebase,
+   * nothing could ever retry it (resolveDispute()'s own top-of-method guard rejects a dispute that is
+   * already RESOLVED, so a caller retry never reaches this method again). Now wrapped in ONE atomic
+   * claim+effect transaction, reusing the SAME event_projection_claims identity applyEventProjectionOnce()
+   * already provides for durable-event-sourced projections (handlers.ts) - keyed here on
+   * (disputeId, 'dispute.ruling-finalized', String(appealRound)) instead of a durable eventId, since this
+   * bookkeeping is driven directly by a synchronous service call, not an event handler. (disputeId,
+   * appealRound) is a real, immutable "one ruling occurred for this dispute at this generation" identity -
+   * a later appeal() moves to a NEW appealRound, never reusing this one. recoverMissingRulingFinalization()
+   * below is the discovery/recovery mechanism: it finds RESOLVED disputes with no claim for their current
+   * (id, appealRound) and re-drives this exact method, the same "claimed but not yet applied" pattern PASS 3
+   * (escrow-settlement-reconciliation.service.ts's reconcileIncompleteProjections()) already established for
+   * escrow-transition projections.
    */
   private async finalizeResolveDispute(
     dispute: { id: string; escrowId: string; appealRound: number; previousRuling: DisputeRuling | null; previousArbiterId: string | null },
@@ -903,22 +919,6 @@ export class DisputeService {
     ruling: DisputeRuling,
   ): Promise<void> {
     const { provider, escrow: providerEscrow } = await this.providerForEscrow(dispute.escrowId)
-    // RFC-021 D6/D4 — feeds the arbiter's track record on every real
-    // resolution, correct or not (optional: only market mode has an
-    // ArbiterProfile to update; trusted-list mode silently skips this).
-    // feeObserved reads the escrow fresh — a RELEASE ruling's
-    // escrowService.releaseFunds() call above has already computed and
-    // persisted Escrow.feeCharged (Phase 0) by this point; REFUND never
-    // charges a fee, so this is correctly undefined for those.
-    if (provider.recordRuling) {
-      // Runtime resolution already loaded the escrow to choose the effective
-      // rail policy. Direct provider injection keeps the old best-effort
-      // accounting read instead of making repository availability a new
-      // prerequisite for every test/caller.
-      const resolvedEscrow = providerEscrow ?? await this.repo.findById(dispute.escrowId)
-      const feeObserved = resolvedEscrow?.feeCharged ? String(resolvedEscrow.feeCharged) : undefined
-      await provider.recordRuling(arbiterId, feeObserved)
-    }
 
     // RFC-021 D6 — an appeal round reversing the ruling being appealed is
     // real evidence the original arbiter got it wrong; slash them.
@@ -929,34 +929,106 @@ export class DisputeService {
     // appeal is denied and nothing is slashed (the requester's already-
     // computed appealFeeRequired was the real cost of a frivolous
     // appeal).
-    if (
-      dispute.previousRuling &&
-      dispute.previousRuling !== ruling &&
-      dispute.previousArbiterId &&
-      provider.slash
-    ) {
-      await provider.slash(dispute.previousArbiterId)
-    }
+    const shouldSlash = !!(dispute.previousRuling && dispute.previousRuling !== ruling && dispute.previousArbiterId && provider.slash)
+    let slashOutcome: { participantId: string; forfeitedCollateral: string; newCollateral: string; newReputation: number } | undefined
 
-    // RFC-021 D6 — real appeal-fee settlement, closing the "computed and
-    // returned but never collected" gap (appeal()'s own doc comment,
-    // BACKLOG.md). Only appealed disputes (appealRound > 0) have a fee
-    // row to settle at all. Same comparison the slashing check above
-    // already makes: the appeal panel reaching the SAME ruling means the
-    // appeal was denied (frivolous) — FORFEITED, the real cost this fee
-    // exists to impose; a different ruling means the appellant was right
-    // to appeal — REFUNDED. Real bookkeeping, not a simulated one — same
-    // "computed and persisted, not actually routed on-chain" precedent
-    // the Protocol Fee accounting foundation already established: no
-    // SettlementProvider here has a real configured treasury/arbitrator-
-    // reserve address to move anything to.
-    if (dispute.appealRound > 0) {
-      const outcome = dispute.previousRuling && dispute.previousRuling !== ruling ? 'REFUNDED' : 'FORFEITED'
-      await prisma.disputeAppealFee.updateMany({
-        where: { disputeId: dispute.id, appealRound: dispute.appealRound, outcome: null },
-        data: { outcome, settledAt: new Date() },
-      })
+    const applied = await applyEventProjectionOnce(dispute.id, 'dispute.ruling-finalized', String(dispute.appealRound), async (tx) => {
+      // RFC-021 D6/D4 — feeds the arbiter's track record on every real
+      // resolution, correct or not (optional: only market mode has an
+      // ArbiterProfile to update; trusted-list mode silently skips this).
+      // feeObserved reads the escrow fresh — a RELEASE ruling's
+      // escrowService.releaseFunds() call above has already computed and
+      // persisted Escrow.feeCharged (Phase 0) by this point; REFUND never
+      // charges a fee, so this is correctly undefined for those.
+      if (provider.recordRuling) {
+        // Runtime resolution already loaded the escrow to choose the effective
+        // rail policy. Direct provider injection keeps the old best-effort
+        // accounting read instead of making repository availability a new
+        // prerequisite for every test/caller.
+        const resolvedEscrow = providerEscrow ?? await this.repo.findById(dispute.escrowId)
+        const feeObserved = resolvedEscrow?.feeCharged ? String(resolvedEscrow.feeCharged) : undefined
+        await provider.recordRuling(arbiterId, feeObserved, tx)
+      }
+
+      if (shouldSlash) {
+        const result = await provider.slash!(dispute.previousArbiterId!, tx) as { monetaryCollateral: string; arbiterReputation: number; forfeitedCollateral: string }
+        slashOutcome = {
+          participantId: dispute.previousArbiterId!,
+          forfeitedCollateral: result.forfeitedCollateral,
+          newCollateral: result.monetaryCollateral,
+          newReputation: result.arbiterReputation,
+        }
+      }
+
+      // RFC-021 D6 — real appeal-fee settlement, closing the "computed and
+      // returned but never collected" gap (appeal()'s own doc comment,
+      // BACKLOG.md). Only appealed disputes (appealRound > 0) have a fee
+      // row to settle at all. Same comparison the slashing check above
+      // already makes: the appeal panel reaching the SAME ruling means the
+      // appeal was denied (frivolous) — FORFEITED, the real cost this fee
+      // exists to impose; a different ruling means the appellant was right
+      // to appeal — REFUNDED. Real bookkeeping, not a simulated one — same
+      // "computed and persisted, not actually routed on-chain" precedent
+      // the Protocol Fee accounting foundation already established: no
+      // SettlementProvider here has a real configured treasury/arbitrator-
+      // reserve address to move anything to.
+      if (dispute.appealRound > 0) {
+        const outcome = dispute.previousRuling && dispute.previousRuling !== ruling ? 'REFUNDED' : 'FORFEITED'
+        await tx.disputeAppealFee.updateMany({
+          where: { disputeId: dispute.id, appealRound: dispute.appealRound, outcome: null },
+          data: { outcome, settledAt: new Date() },
+        })
+      }
+    })
+
+    // Emitted only by the call that actually applied the claim (same "write inside the transaction, emit
+    // after commit, only on the winning call" shape reputation.service.ts's recordOutcomeOnce() and
+    // vouch.service.ts's burnVouchesForOnce() already use) — a redelivery/redrive that finds the claim
+    // already applied never re-emits.
+    if (applied && slashOutcome) {
+      await eventBus.emit('arbiter.slashed', slashOutcome, slashOutcome.participantId)
     }
+  }
+
+  /**
+   * Issue #253 - discovery/recovery for finalizeResolveDispute()'s durable claim: finds every currently
+   * RESOLVED dispute whose (id, current appealRound) has no 'dispute.ruling-finalized' claim yet, and
+   * re-drives the exact same bookkeeping. Bounded and safe to call repeatedly/concurrently/periodically -
+   * a dispute already finalized is excluded by the WHERE NOT EXISTS below (cheap, indexed on
+   * (projectionKey, subjectId)), and a genuine race between two concurrent callers for the same dispute is
+   * resolved by applyEventProjectionOnce()'s own unique-constraint claim, not by anything here.
+   *
+   * Disclosed, bounded residual (FOLLOW-UP, not BLOCKER — see Issue #253's own delivery report): this only
+   * ever inspects a dispute's CURRENT (id, appealRound). If a crash leaves round N's finalize missing AND a
+   * human calls appeal() again (bumping to round N+1) BEFORE this ever runs once, round N's own
+   * previousRuling/previousArbiterId snapshot is overwritten by round N+1's own appeal() call before this
+   * function ever gets a chance to see it - an operationally narrow window (requires a human appeal
+   * action to land before any reconciliation tick), not a crash/replay/concurrency case, and out of this
+   * mission's scope to close (would require a full ruling-history table, a genuine schema change).
+   */
+  async recoverMissingRulingFinalization(limit = 200): Promise<{ recovered: string[]; failed: Array<{ disputeId: string; error: string }> }> {
+    const candidates = await prisma.$queryRaw<Array<{ id: string; escrowId: string; appealRound: number; previousRuling: DisputeRuling | null; previousArbiterId: string | null; arbiterId: string | null; ruling: DisputeRuling | null }>>`
+      SELECT d.id, d."escrowId", d."appealRound", d."previousRuling", d."previousArbiterId", d."arbiterId", d.ruling
+      FROM disputes d
+      WHERE d.status = 'RESOLVED'
+        AND NOT EXISTS (
+          SELECT 1 FROM event_projection_claims c
+          WHERE c."eventId" = d.id AND c."projectionKey" = 'dispute.ruling-finalized' AND c."subjectId" = d."appealRound"::text)
+      ORDER BY d."resolvedAt" ASC NULLS LAST
+      LIMIT ${limit}`
+
+    const recovered: string[] = []
+    const failed: Array<{ disputeId: string; error: string }> = []
+    for (const candidate of candidates) {
+      if (!candidate.arbiterId || !candidate.ruling) continue // structurally shouldn't happen for a RESOLVED dispute - skip rather than guess
+      try {
+        await this.finalizeResolveDispute(candidate, candidate.arbiterId, candidate.ruling)
+        recovered.push(candidate.id)
+      } catch (err) {
+        failed.push({ disputeId: candidate.id, error: err instanceof Error ? err.message : String(err) })
+      }
+    }
+    return { recovered, failed }
   }
 
   /**

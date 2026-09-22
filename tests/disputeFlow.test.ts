@@ -83,15 +83,24 @@ const mockEscrowParticipantKeyFindUnique = jest.fn().mockResolvedValue(null)
 // mockDisputeUpdateMany/mockDisputeFindUnique continues to observe the
 // same calls, now made via `tx` instead of the top-level `prisma` object.
 const mockExecuteRaw = jest.fn().mockResolvedValue(0)
+// Issue #253 - finalizeResolveDispute() now also runs inside a prisma.$transaction() (via
+// applyEventProjectionOnce()'s own claim+effect transaction), routed through this SAME mockTransaction —
+// eventProjectionClaim.createMany defaults to `{ count: 1 }` (a fresh, unclaimed claim) so the existing
+// recordRuling()/slash()/appeal-fee assertions below continue to observe those calls actually happening.
+const mockEventProjectionClaimCreateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
   fn({
     $executeRaw: (...args: unknown[]) => mockExecuteRaw(...args),
     disputeAppealFee: {
       create: (...args: unknown[]) => mockDisputeAppealFeeCreate(...args),
+      updateMany: (...args: unknown[]) => mockDisputeAppealFeeUpdateMany(...args),
     },
     dispute: {
       findUnique: (...args: unknown[]) => mockDisputeFindUnique(...args),
       updateMany: (...args: unknown[]) => mockDisputeUpdateMany(...args),
+    },
+    eventProjectionClaim: {
+      createMany: (...args: unknown[]) => mockEventProjectionClaimCreateMany(...args),
     },
   })
 )
@@ -743,8 +752,8 @@ describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)'
     const [sig12, issuedAt12] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'new-arbiter', 'REFUND')
     await marketService.resolveDispute('dispute-1', 'new-arbiter', 'REFUND', undefined, undefined, undefined, sig12, issuedAt12)
 
-    expect(mockSlash).toHaveBeenCalledWith('original-arbiter')
-    expect(mockRecordRuling).toHaveBeenCalledWith('new-arbiter', undefined)
+    expect(mockSlash).toHaveBeenCalledWith('original-arbiter', expect.anything())
+    expect(mockRecordRuling).toHaveBeenCalledWith('new-arbiter', undefined, expect.anything())
   })
 
   it('does NOT slash when the appeal panel upholds the original ruling — a denied, not frivolous-punished, appeal', async () => {
@@ -758,7 +767,7 @@ describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)'
     await marketService.resolveDispute('dispute-1', 'new-arbiter', 'RELEASE', 'bc1qbuyer', undefined, undefined, sig13, issuedAt13)
 
     expect(mockSlash).not.toHaveBeenCalled()
-    expect(mockRecordRuling).toHaveBeenCalledWith('new-arbiter', undefined)
+    expect(mockRecordRuling).toHaveBeenCalledWith('new-arbiter', undefined, expect.anything())
   })
 
   it('does not attempt to slash on an ordinary first-instance (non-appeal) resolution', async () => {
@@ -772,7 +781,7 @@ describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)'
     await marketService.resolveDispute('dispute-1', 'arbiter-1', 'REFUND', undefined, undefined, undefined, sig14, issuedAt14)
 
     expect(mockSlash).not.toHaveBeenCalled()
-    expect(mockRecordRuling).toHaveBeenCalledWith('arbiter-1', undefined)
+    expect(mockRecordRuling).toHaveBeenCalledWith('arbiter-1', undefined, expect.anything())
   })
 
   // RFC-021 D4, Phase 3 — the arbiter-side half of cumulativeFeesObserved.
@@ -787,7 +796,7 @@ describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)'
     const [sig15, issuedAt15] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'RELEASE')
     await marketService.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', 'bc1qbuyer', undefined, undefined, sig15, issuedAt15)
 
-    expect(mockRecordRuling).toHaveBeenCalledWith('arbiter-1', '0.5')
+    expect(mockRecordRuling).toHaveBeenCalledWith('arbiter-1', '0.5', expect.anything())
   })
 })
 

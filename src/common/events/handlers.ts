@@ -40,6 +40,11 @@ const INTENT_LIFECYCLE_TRIGGER = 'system:trade-lifecycle'
  *                                   RFC-021 D7 — burns the losing seller's
  *                                   active vouch, if any, on a dispute loss)
  *   - settlement.escrow.disputed  → OpenP2P reacts (Trade.status = DISPUTED)
+ *                                   OpenReputation reacts (disputeCount += 1 for
+ *                                   both sides — Issue #253, moved inline here
+ *                                   from a separate openp2p.trade.disputed
+ *                                   consumer so it shares this transition's own
+ *                                   PASS 3 recovery, see recordDisputeCount())
  *   - settlement.escrow.refunded  → OpenP2P reacts (Trade.status = CANCELLED)
  *                                   OpenReputation reacts (recordOutcome() —
  *                                   dispute-aware, see below; RFC-021 D7 —
@@ -131,6 +136,26 @@ async function recordTradeCompletion(tx: ProjectionTx, buyerId: string, sellerId
   await tx.user.update({
     where: { id: sellerId },
     data: { totalTrades: { increment: 1 }, totalVolumeBtc: { increment: amount } },
+  })
+}
+
+/** Issue #253 - increments disputeCount for both sides, exactly once per (durable eventId, tradeId) — the
+ *  same atomic claim+effect shape as recordTradeCompletion() above. Previously this ran from a SEPARATE,
+ *  non-durable `eventBus.on('openp2p.trade.disputed', ...)` handler with no idempotency claim of its own:
+ *  a crash between the two increments (or any failure after the notification event was durably published)
+ *  silently lost the effect forever, since nothing ever re-drove that derived notification event. Moved
+ *  inline to the settlement.escrow.disputed onDurable() handler itself so it is covered by the SAME PASS 3
+ *  recovery (reconcileIncompleteProjections()) that already re-drives every other projection of that
+ *  transition when markTransitionProjected() was never reached. Sequential, matching
+ *  recordTradeCompletion()'s own call-order convention. */
+async function recordDisputeCount(tx: ProjectionTx, buyerId: string, sellerId: string): Promise<void> {
+  await tx.user.update({
+    where: { id: buyerId },
+    data: { disputeCount: { increment: 1 } },
+  })
+  await tx.user.update({
+    where: { id: sellerId },
+    data: { disputeCount: { increment: 1 } },
   })
 }
 
@@ -345,6 +370,16 @@ export function registerEventHandlers(): void {
   eventBus.onDurable('settlement.escrow.disputed', async (event) => {
     const payload = event.payload
     await projectTrade(event, payload.tradeId, payload.escrowId)
+    const trade = await prisma.trade.findUnique({ where: { id: payload.tradeId } })
+
+    if (trade) {
+      // Issue #253 - atomic claim+effect, recovered by PASS 3 (reconcileIncompleteProjections()) alongside
+      // every other projection of this same transition — see recordDisputeCount()'s own comment for why
+      // this moved off the old openp2p.trade.disputed consumer.
+      await applyEventProjectionOnce(event.eventId, 'dispute.count', payload.tradeId, (tx) =>
+        recordDisputeCount(tx, trade.buyerId, trade.sellerId)
+      )
+    }
 
     await emitOnce(event, 'trade.disputed-notification', payload.tradeId, () =>
       eventBus.emit('openp2p.trade.disputed', {
@@ -398,22 +433,6 @@ export function registerEventHandlers(): void {
       await fulfillIntent(trade.intentId, payload.escrowId, 'SPLIT')
     }
     await markTransitionProjected(event)
-  })
-
-  eventBus.on('openp2p.trade.disputed', async (payload) => {
-    const trade = await prisma.trade.findUnique({ where: { id: payload.tradeId } })
-    if (!trade) return
-    // Sequential for the same call-order contract the helpers above
-    // preserve — tests/reputationOutcome.test.ts and tests/routes.test.ts
-    // both filter mockUserUpdate.mock.calls in the order they fire.
-    await prisma.user.update({
-      where: { id: trade.buyerId },
-      data: { disputeCount: { increment: 1 } },
-    })
-    await prisma.user.update({
-      where: { id: trade.sellerId },
-      data: { disputeCount: { increment: 1 } },
-    })
   })
 
   // ── Sails OpenSettlement: QVAC-assisted dispute auto-resolution (RFC-021 D8) ──
