@@ -221,13 +221,18 @@ async function accrueFeeFloor(tx: ProjectionTx, buyerId: string, sellerId: strin
  *      own "STRICTLY PRECEDES... calling any settlement action" ordering) and append-only/immutable from
  *      that point on (a reverted ruling deletes its own row via revertDisputeRulingRecord(), never mutates
  *      it) - reused as-is, no schema change.
- *   3. DISCLOSED RESIDUAL: LIGHTNING_HODL/SAFE_GUARD_EVM (dispute.service.ts's needsSignatureCollection
- *      branch for those two rails) have no equivalent pre-commit immutable record today - the disputeId
- *      would need to survive the async EscrowPendingTransaction signature-collection window, which
- *      requires a genuine schema addition (EscrowPendingTransaction.disputeId) out of Issue #254's own
- *      scope (see its delivery report's BLOCKER classification). Falls back to the SAME mutable-Dispute
- *      query this codebase used before this pass - not a new guess, the pre-existing, already-disclosed
- *      behavior, unchanged for exactly these two rails.
+ *   3. Legacy/defense-in-depth fallback: the SAME mutable-Dispute query this codebase used before Issue
+ *      #254. **Corrected/Implemented (Issue #254B, 2026-09-22):** this section previously disclosed
+ *      LIGHTNING_HODL/SAFE_GUARD_EVM as an unfixed BLOCKER, reasoning that closing them would require a
+ *      new EscrowPendingTransaction.disputeId schema column. Discovery proved that column (and
+ *      rulingAppealRound/rulingArbiterId/rulingOutcome/rulingAuthoritySignature/rulingAuthorityIssuedAt)
+ *      already existed - ADR-005/#218's own write-time provenance for the Economic Disposition Commit
+ *      Gate, captured by initiateSignatureCollectionCore() the moment a disputed pending operation is
+ *      created, immutable thereafter. escrow-pending-tx.ts's submitTransactionSignature() now threads
+ *      pending.disputeId onto the settlement event exactly like source #1 above - MULTISIG/LIGHTNING_HODL/
+ *      SAFE_GUARD_EVM (every rail that finalizes through that function) all reach source #1 now; only a
+ *      row from before this fix shipped, or an as-yet-untraced code path, would ever still need this
+ *      fallback.
  */
 async function wasCausedByDisputeRuling(escrowId: string, tradeId: string, eventDisputeId: string | undefined, legacyRuling: 'RELEASE' | 'REFUND'): Promise<boolean> {
   if (eventDisputeId) return true
