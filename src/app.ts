@@ -33,6 +33,7 @@ import { escrowService } from './modules/open-settlement/escrow.service'
 import { reconcilePendingSettlements } from './modules/open-settlement/escrow-settlement-reconciliation.service'
 import { recoverUnpublishedIntentEvents } from './core/intent-publication-recovery'
 import { assertArbitrationModeCompatibleWithAvailableRails } from './modules/open-settlement/escrow-providers'
+import { assertMarketArbitrationCollateralProductionEligible } from './modules/open-settlement/arbitration-policy'
 import { getDisputeService } from './modules/open-settlement/dispute.service'
 import { sweepMultisigFeeConfirmations } from './modules/open-settlement/multisig-fee-confirmation-job'
 import { sweepMultisigFeeReorgs } from './modules/open-settlement/multisig-fee-reorg-sweep'
@@ -80,6 +81,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     config.settlement.arbitrationMode,
     config.settlement.arbitrationPolicyByEscrowType,
   )
+
+  // Issue #255 — same "loud startup validation failure" mandate as the check above, closing a
+  // different concern: market-mode collateral is caller-declared bookkeeping, not economically backed
+  // (see arbitration-policy.ts's own comment on this function for the full trace/evidence).
+  assertMarketArbitrationCollateralProductionEligible(config.settlement.arbitrationMode, config.isProduction)
 
   const app = Fastify({
     logger: {
