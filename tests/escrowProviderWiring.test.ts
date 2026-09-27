@@ -604,6 +604,10 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
   // string MOCK" (both produce byte-identical outward behavior for every
   // input that exists today) — the mission explicitly forbids adding a
   // second real provider classification just to create that difference.
+  // **Corrected (Issue #220, 2026-09-27):** #220 classified three more real
+  // rails as production-ineligible on policy grounds (not to create a test
+  // difference), so the outcome-based test at the end of this block can now
+  // prove genericity directly as well.
   describe('eligibility check is generic — not a MOCK-only regression (Issue #229 R3)', () => {
     it('assertDeploymentEligible() itself is driven purely by set membership, not a hardcoded MOCK comparison', () => {
       isProductionFlag = true
@@ -666,6 +670,38 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
       isProductionFlag = true
       expect(() => getSettlementProvider('MULTISIG')).not.toThrow()
       expect(resolveEscrowType('BTC' as any, 'MULTISIG' as any)).toBe('MULTISIG')
+    })
+
+    // Issue #220 — the three reference-only/testnet-only rails, each refused
+    // in production with its OWN true reason (never the MOCK "fabricates
+    // settlement success" message, which would be false for them), at both
+    // provider registries (dispatch) — and allowed outside production.
+    it.each([
+      ['LIGHTNING_HODL', /testnet \(mutinynet\) only/],
+      ['SAFE_GUARD_EVM', /testnet-target only/],
+      ['WDK_USDT_EVM', /server-custodial reference implementation/],
+    ])('%s is refused in production at both registries with its own reason, and allowed outside production (Issue #220)', (type, reason) => {
+      isProductionFlag = true
+      expect(() => assertDeploymentEligible(type)).toThrow(/not economically eligible in production/)
+      expect(() => assertDeploymentEligible(type)).toThrow(reason)
+      expect(() => assertDeploymentEligible(type)).not.toThrow(/fabricates settlement success/)
+      expect(() => getSettlementProvider(type)).toThrow(reason)
+      expect(() => getSignatureCollectionProvider(type)).toThrow(reason)
+
+      isProductionFlag = false
+      expect(() => assertDeploymentEligible(type)).not.toThrow()
+      expect(() => getSettlementProvider(type)).not.toThrow()
+    })
+
+    // The concrete #220 finding: with no explicit type, production used to
+    // route LN_BTC to LIGHTNING_HODL (RECOMMENDED_ESCROW_TYPE) — a rail its own
+    // provider declares testnet-only. Creation now fails closed instead.
+    it('production creation with NO explicit type refuses LN_BTC (default-routed to LIGHTNING_HODL) instead of silently selecting a testnet-only rail (Issue #220)', () => {
+      mockEscrowFeatureFlag = false
+      isProductionFlag = true
+      expect(() => resolveEscrowType('LN_BTC' as any, undefined)).toThrow(/testnet \(mutinynet\) only/)
+      isProductionFlag = false
+      expect(resolveEscrowType('LN_BTC' as any, undefined)).toBe('LIGHTNING_HODL')
     })
   })
 })
