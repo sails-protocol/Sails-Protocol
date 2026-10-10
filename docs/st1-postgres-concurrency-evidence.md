@@ -86,3 +86,7 @@ Commit `27c0fb4943aa1a51f38afc4e800f8a63a3c584c1` adds mocked transactional-boun
 ## ST-1 additional PostgreSQL scenario staged, not run
 
 Commit `339170e8b2977820499b4ae6be54a5caaba647fb` adds ST1-G: two independent Prisma/module instances concurrently call production `deletePendingRoundIfStillUnsigned()` against a real PostgreSQL fixture intentionally missing a durable Outcome; both must return `PROVENANCE_REJECTED`, preserve the pending row and signature count, and preserve that result on replay. This is a *staged test*, not a PASS. Existing T3/T3b/T4/T5/T6 still demand deletion of a missing-Outcome fixture, which is incompatible with CTO-authorized fail-closed policy; they must be replaced with real authoritative Outcome fixture/prod ruling setup, not weakened to synthetic `outcomeContent`. The workflow still has no exact-HEAD run. Do not claim `READY_FOR_CTO_ST1_AUTHORITY_IMPLEMENTATION_REVIEW`.
+
+## ST-1 immutable Outcome binding hardening (UNEXECUTED)
+
+Commits `af345086203f1f3ef0e2c5491e5de8829d4d27c5` and `96cae6779a1dcfd3353531c2cff48f545e396b82` tighten the cleanup predicate: the live Dispute authority issuance timestamp must match the pending generation, and the durable SemanticTransitionRecord must have `toState=RESOLVED` and an Outcome ruling matching the pending generation. Unit regressions reject a mismatched immutable ruling and a changed issuance timestamp. No CI or real PostgreSQL evidence has been obtained on this HEAD. Existing integration fixtures are not yet authoritative. Preserve BLOCKED and no FREEZE.
