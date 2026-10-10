@@ -112,7 +112,7 @@ export async function deletePendingRoundIfStillUnsigned(
   return prisma.$transaction(async (tx) => {
     // Economic disposition first, escrow signer lock second: D -> E.
     // Hold both through generation, Outcome, authorization and conditional delete.
-    const dispositionKey = economicDispositionLockKey(escrowId)
+    const dispositionKey = economicDispositionLockKey(generation.disputeId)
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dispositionKey})::bigint)`
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
     // Re-read the operation AND live dispute under the same lock used by signers.
