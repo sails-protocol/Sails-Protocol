@@ -36,6 +36,7 @@ const mockPendingDelete = jest.fn()
 const mockPendingStillThere = jest.fn()
 const mockDisputeFindUnique = jest.fn()
 const mockCommittedFindUnique = jest.fn()
+const mockDurableOutcomeFindUnique = jest.fn()
 const mockLock = jest.fn().mockResolvedValue(0)
 const mockDisputeFindFirst = jest.fn()
 jest.mock('../src/common/database', () => ({
@@ -54,6 +55,7 @@ jest.mock('../src/common/database', () => ({
       },
       dispute: { findUnique: (...args: unknown[]) => mockDisputeFindUnique(...args) },
       economicDispositionAuthorization: { findUnique: (...args: unknown[]) => mockCommittedFindUnique(...args) },
+      semanticTransitionRecord: { findUnique: (...args: unknown[]) => mockDurableOutcomeFindUnique(...args) },
     }),
   },
 }))
@@ -91,6 +93,7 @@ beforeEach(() => {
   mockPendingStillThere.mockResolvedValue(pendingFixture())
   mockDisputeFindUnique.mockResolvedValue(RESOLVED_DISPUTE)
   mockCommittedFindUnique.mockResolvedValue(null)
+  mockDurableOutcomeFindUnique.mockResolvedValue(RULING_ROW_WITH_OUTCOME)
 })
 
 const CONDITIONAL_DELETE = { where: { id: 'pending-1', escrowId: 'escrow-1', signatures: { none: {} }, disputeId: 'dispute-1', rulingAppealRound: 0, rulingArbiterId: 'arbiter-1', rulingOutcome: 'RELEASE', rulingAuthoritySignature: 'authority-1', rulingAuthorityIssuedAt: new Date('2026-10-01T00:00:00Z') } }
@@ -134,7 +137,7 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     const report = await reconcileStalePendingDisputeTranslations()
 
     expect(report.reconciled).toEqual([{ escrowId: 'escrow-1', pendingTransactionId: 'pending-1', verdict: 'DELETED_GUARD_FAILED' }])
-    expect(mockLock).toHaveBeenCalledTimes(1) // escrow-scoped advisory lock before the delete
+    expect(mockLock).toHaveBeenCalledTimes(2) // economic disposition D, then escrow E
     expect(mockPendingDelete).toHaveBeenCalledWith(CONDITIONAL_DELETE)
   })
 
@@ -148,24 +151,27 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     expect(mockPendingDelete).not.toHaveBeenCalled()
   })
 
-  it('a RESOLVED dispute exists but has no durable Core-authoritative Outcome record — deleted (zero signatures, no fund-movement risk), reported distinctly as DELETED_NO_OUTCOME, never folded into a guard-failure', async () => {
+  it('a RESOLVED dispute without a durable Outcome fails closed and preserves the pending', async () => {
     mockPendingFindMany.mockResolvedValue([pendingFixture()])
     mockLoadDisputeRulingRecord.mockResolvedValue(null)
 
     const report = await reconcileStalePendingDisputeTranslations()
 
-    expect(report.reconciled).toEqual([{ escrowId: 'escrow-1', pendingTransactionId: 'pending-1', verdict: 'DELETED_NO_OUTCOME' }])
-    expect(mockPendingDelete).toHaveBeenCalledWith(CONDITIONAL_DELETE)
+    expect(report.reconciled).toEqual([])
+    expect(report.failed).toEqual([{ escrowId: 'escrow-1', error: 'missing durable Core-authoritative Outcome; refusing cleanup' }])
+    expect(mockPendingDelete).not.toHaveBeenCalled()
     expect(mockValidateTranslatedOutputsAgainstOutcome).not.toHaveBeenCalled()
   })
 
-  it('a ruling row exists but outcomeContent is null — same DELETED_NO_OUTCOME path, not a crash', async () => {
+  it('a ruling row with null outcomeContent fails closed and preserves the pending', async () => {
     mockPendingFindMany.mockResolvedValue([pendingFixture()])
     mockLoadDisputeRulingRecord.mockResolvedValue({ outcomeContent: null })
 
     const report = await reconcileStalePendingDisputeTranslations()
 
-    expect(report.reconciled).toEqual([{ escrowId: 'escrow-1', pendingTransactionId: 'pending-1', verdict: 'DELETED_NO_OUTCOME' }])
+    expect(report.reconciled).toEqual([])
+    expect(report.failed).toEqual([{ escrowId: 'escrow-1', error: 'missing durable Core-authoritative Outcome; refusing cleanup' }])
+    expect(mockPendingDelete).not.toHaveBeenCalled()
   })
 
   it('fromDisputeRulingRow() produces a record with no Outcome despite outcomeContent being present — reported as failed, not silently deleted or crashed on', async () => {
@@ -210,7 +216,6 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
 
   it('a round a concurrent run already cleaned is reported as already cleaned, not as deleted by this run', async () => {
     mockPendingFindMany.mockResolvedValue([pendingFixture()])
-    mockLoadDisputeRulingRecord.mockResolvedValue(null)
     mockPendingDelete.mockResolvedValueOnce({ count: 0 })
     mockPendingStillThere.mockResolvedValueOnce(pendingFixture()).mockResolvedValueOnce(null)
 
