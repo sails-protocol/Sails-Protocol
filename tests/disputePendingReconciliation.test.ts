@@ -60,7 +60,7 @@ jest.mock('../src/common/database', () => ({
   },
 }))
 
-import { reconcileStalePendingDisputeTranslations } from '../src/modules/open-settlement/dispute-pending-reconciliation'
+import { reconcileStalePendingDisputeTranslations, deletePendingRoundIfStillUnsigned } from '../src/modules/open-settlement/dispute-pending-reconciliation'
 
 const SIX_MIN_AGO = new Date(Date.now() - 6 * 60 * 1000)
 const NOW = new Date()
@@ -235,5 +235,35 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
 
     expect(report.reconciled).toEqual([])
     expect(report.failed).toEqual([{ escrowId: 'escrow-1', error: 'connection lost' }])
+  })
+})
+
+describe('ST-1 transactional cleanup authority (mocked service boundary; PostgreSQL proof separate)', () => {
+  const authority = () => ({
+    disputeId: 'dispute-1',
+    rulingAppealRound: 0,
+    rulingArbiterId: 'arbiter-1',
+    rulingOutcome: 'RELEASE',
+    rulingAuthoritySignature: 'authority-1',
+    rulingAuthorityIssuedAt: new Date('2026-10-01T00:00:00Z'),
+  })
+
+  it('refuses deletion when the durable Outcome disappears between scan and locked transaction', async () => {
+    mockDurableOutcomeFindUnique.mockResolvedValue(null)
+    expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('PROVENANCE_REJECTED')
+    expect(mockLock).toHaveBeenCalledTimes(2)
+    expect(mockPendingDelete).not.toHaveBeenCalled()
+  })
+
+  it('refuses deletion when a committed economic disposition authorization exists', async () => {
+    mockCommittedFindUnique.mockResolvedValue({ id: 'committed-1' })
+    expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('PROVENANCE_REJECTED')
+    expect(mockPendingDelete).not.toHaveBeenCalled()
+  })
+
+  it('refuses deletion when the dispute generation advances after the snapshot', async () => {
+    mockDisputeFindUnique.mockResolvedValue({ ...RESOLVED_DISPUTE, appealRound: 1 })
+    expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('PROVENANCE_REJECTED')
+    expect(mockPendingDelete).not.toHaveBeenCalled()
   })
 })
