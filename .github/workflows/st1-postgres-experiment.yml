@@ -8,6 +8,7 @@ on:
       - 'scripts/st1-postgres-lock-probe.cjs'
       - 'tests/integration/staleDisputeCleanupSignatureRace.test.ts'
       - 'src/modules/open-settlement/dispute-pending-reconciliation.ts'
+      - 'docs/st1-postgres-concurrency-evidence.md'
   workflow_dispatch:
 
 permissions:
@@ -39,6 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -52,15 +54,25 @@ jobs:
       - name: Record exact SHA and PostgreSQL version
         run: |
           echo "HEAD=$(git rev-parse HEAD)"
+          echo "EVENT_SHA=${{ github.sha }}"
+          echo "EXPECTED_BRANCH_HEAD=${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"
           node -e "require('pg').Client && console.log('pg client present')"
           node -e "const {Client}=require('pg');(async()=>{const c=new Client({connectionString:process.env.ST1_TEST_DATABASE_URL});await c.connect();console.log('PostgreSQL version:',(await c.query('SHOW server_version')).rows[0]);await c.end()})().catch(e=>{console.error(e);process.exit(1)})"
       - name: Run ST-1 lock probe
         run: node scripts/st1-postgres-lock-probe.cjs 2>&1 | tee st1-lock-probe.log
+        shell: bash
+      - name: Run focused ST-1 production integration gates
+        run: |
+          set -o pipefail
+          node --max-old-space-size=6144 node_modules/jest/bin/jest.js --runInBand --no-coverage tests/integration/staleDisputeCleanupSignatureRace.test.ts 2>&1 | tee st1-production-integration.log
         shell: bash
       - name: Upload raw lock evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: st1-postgres-probe-${{ github.sha }}
-          path: st1-lock-probe.log
+          path: |
+            st1-lock-probe.log
+            st1-production-integration.log
           if-no-files-found: warn
