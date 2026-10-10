@@ -248,6 +248,19 @@ describe('ST-1 transactional cleanup authority (mocked service boundary; Postgre
     rulingAuthorityIssuedAt: new Date('2026-10-01T00:00:00Z'),
   })
 
+  it('preserves a signed pending even if the caller snapshot had zero signatures', async () => {
+    mockPendingStillThere.mockResolvedValue(pendingFixture({ signatures: [{ participantId: 'buyer-1' }] }))
+    expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('SIGNED_MEANWHILE')
+    expect(mockDurableOutcomeFindUnique).not.toHaveBeenCalled()
+    expect(mockPendingDelete).not.toHaveBeenCalled()
+  })
+
+  it('reports an already deleted pending without recreating economic state', async () => {
+    mockPendingStillThere.mockResolvedValue(null)
+    expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('ALREADY_GONE')
+    expect(mockPendingDelete).not.toHaveBeenCalled()
+  })
+
   it('refuses deletion when the durable Outcome disappears between scan and locked transaction', async () => {
     mockDurableOutcomeFindUnique.mockResolvedValue(null)
     expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('PROVENANCE_REJECTED')
