@@ -171,8 +171,8 @@ export async function reconcileStalePendingDisputeTranslations(): Promise<StaleP
   const report: StalePendingReconciliationReport = { reconciled: [], skippedTooYoung: [], skippedHasSignatures: [], alreadyCleaned: [], failed: [] }
 
   // #244 - a delete the snapshot below decided on is reported by what the lock-protected re-check found.
-  const deleteUnlessSigned = async (pending: { id: string; escrowId: string }, verdict: 'DELETED_GUARD_FAILED' | 'DELETED_NO_OUTCOME'): Promise<boolean> => {
-    const generation = recordedGeneration(pending as Parameters<typeof recordedGeneration>[0])
+  const deleteUnlessSigned = async (pending: { id: string; escrowId: string } & Parameters<typeof recordedGeneration>[0], verdict: 'DELETED_GUARD_FAILED' | 'DELETED_NO_OUTCOME'): Promise<boolean> => {
+    const generation = recordedGeneration(pending)
     if (!generation) {
       report.failed.push({ escrowId: pending.escrowId, error: 'missing or ambiguous pending ruling provenance; refusing cleanup' })
       return false
