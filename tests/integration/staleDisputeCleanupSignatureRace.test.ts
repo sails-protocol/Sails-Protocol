@@ -332,6 +332,41 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
   })
 
+  it('ST1-F waits for the economic disposition D lock and rejects a generation advanced before acquisition', async () => {
+    pg.requirePostgres('D-lock generation serialization')
+    const { escrow, pending } = await fixture()
+    const authority = await generation(pending.id)
+    const { economicDispositionLockKey } = require('../../src/modules/open-settlement/economic-disposition-authority')
+    const key = economicDispositionLockKey(authority.disputeId)
+    let release!: () => void
+    let acquired!: () => void
+    const held = new Promise<void>((resolve) => { acquired = resolve })
+    const released = new Promise<void>((resolve) => { release = resolve })
+    const holder = prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key})::bigint)`
+      acquired()
+      await released
+    }, { timeout: 30_000 })
+    await held
+    try {
+      const cleaner = deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)
+      await untilWaiting(1)
+      // The mutation is a deterministic proxy for the appeal commit; this
+      // does NOT substitute for the production appeal() race proof.
+      await prisma.dispute.update({
+        where: { id: authority.disputeId },
+        data: { appealRound: authority.rulingAppealRound + 1 },
+      })
+      release()
+      await holder
+      expect(await cleaner).toBe('PROVENANCE_REJECTED')
+      expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    } finally {
+      release()
+      await holder
+    }
+  })
+
   it('ST1-D requires a durable Outcome before deleting an unsigned dispute round (known provisional gap)', async () => {
     pg.requirePostgres('missing Outcome fail closed')
     const { escrow, pending } = await fixture()
