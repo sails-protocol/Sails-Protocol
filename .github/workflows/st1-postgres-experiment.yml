@@ -1,0 +1,66 @@
+name: ST-1 Experimental PostgreSQL Probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/st1-postgres-experiment.yml'
+      - 'scripts/st1-postgres-lock-probe.cjs'
+      - 'tests/integration/staleDisputeCleanupSignatureRace.test.ts'
+      - 'src/modules/open-settlement/dispute-pending-reconciliation.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  st1-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: sails_protocol
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sails_protocol"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/sails_protocol
+      ST1_TEST_DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/sails_protocol
+      SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Generate Prisma client
+        run: npm run db:generate
+      - name: Apply disposable database migrations
+        run: npm run db:migrate
+      - name: Record exact SHA and PostgreSQL version
+        run: |
+          echo "HEAD=$(git rev-parse HEAD)"
+          node -e "require('pg').Client && console.log('pg client present')"
+          node -e "const {Client}=require('pg');(async()=>{const c=new Client({connectionString:process.env.ST1_TEST_DATABASE_URL});await c.connect();console.log('PostgreSQL version:',(await c.query('SHOW server_version')).rows[0]);await c.end()})().catch(e=>{console.error(e);process.exit(1)})"
+      - name: Run ST-1 lock probe
+        run: node scripts/st1-postgres-lock-probe.cjs 2>&1 | tee st1-lock-probe.log
+        shell: bash
+      - name: Upload raw lock evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: st1-postgres-probe-${{ github.sha }}
+          path: st1-lock-probe.log
+          if-no-files-found: warn
