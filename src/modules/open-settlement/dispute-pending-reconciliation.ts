@@ -46,6 +46,8 @@ import { prisma } from '../../common/database'
 import { config } from '../../config'
 import { networkFor } from './multisig.provider'
 import { loadDisputeRulingRecord, fromDisputeRulingRow } from './dispute-outcome'
+import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from './discretionary-authority'
+import { economicDispositionLockKey } from './economic-disposition-authority'
 import { validateTranslatedOutputsAgainstOutcome } from './dispatch-translation-guard'
 import { childLogger } from '../../common/logger'
 
@@ -59,7 +61,7 @@ const log = childLogger('dispute-pending-reconciliation')
 const MIN_AGE_MS = 5 * 60 * 1000
 
 export interface StalePendingReconciliationReport {
-  reconciled: Array<{ escrowId: string; pendingTransactionId: string; verdict: 'DELETED_GUARD_FAILED' | 'LEFT_GUARD_PASSED' | 'DELETED_NO_OUTCOME' }>
+  reconciled: Array<{ escrowId: string; pendingTransactionId: string; verdict: 'DELETED_GUARD_FAILED' | 'LEFT_GUARD_PASSED' }>
   skippedTooYoung: string[]
   skippedHasSignatures: string[]
   /** #244 - the round was already gone at the delete point (a concurrent run cleaned it). */
@@ -108,6 +110,10 @@ export async function deletePendingRoundIfStillUnsigned(
   // Legacy callers cannot authorize deletion from a bare pending ID.
   if (!generation) return 'PROVENANCE_REJECTED'
   return prisma.$transaction(async (tx) => {
+    // Economic disposition first, escrow signer lock second: D -> E.
+    // Hold both through generation, Outcome, authorization and conditional delete.
+    const dispositionKey = economicDispositionLockKey(escrowId)
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dispositionKey})::bigint)`
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
     // Re-read the operation AND live dispute under the same lock used by signers.
     const pending = await tx.escrowPendingTransaction.findUnique({
@@ -136,6 +142,14 @@ export async function deletePendingRoundIfStillUnsigned(
         dispute.authoritySignature !== generation.rulingAuthoritySignature) {
       return 'PROVENANCE_REJECTED'
     }
+    const durableOutcome = await tx.semanticTransitionRecord.findUnique({
+      where: { interactionId_transitionType_appealRound: {
+        interactionId: escrowId,
+        transitionType: ESCROW_DISPUTE_RULING_TRANSITION_TYPE,
+        appealRound: generation.rulingAppealRound,
+      } },
+    })
+    if (!durableOutcome?.outcomeContent) return 'PROVENANCE_REJECTED'
     const committed = await tx.economicDispositionAuthorization.findUnique({
       where: { pendingOperationId: pendingTransactionId },
     })
@@ -171,7 +185,7 @@ export async function reconcileStalePendingDisputeTranslations(): Promise<StaleP
   const report: StalePendingReconciliationReport = { reconciled: [], skippedTooYoung: [], skippedHasSignatures: [], alreadyCleaned: [], failed: [] }
 
   // #244 - a delete the snapshot below decided on is reported by what the lock-protected re-check found.
-  const deleteUnlessSigned = async (pending: { id: string; escrowId: string } & Parameters<typeof recordedGeneration>[0], verdict: 'DELETED_GUARD_FAILED' | 'DELETED_NO_OUTCOME'): Promise<boolean> => {
+  const deleteUnlessSigned = async (pending: { id: string; escrowId: string } & Parameters<typeof recordedGeneration>[0], verdict: 'DELETED_GUARD_FAILED'): Promise<boolean> => {
     const generation = recordedGeneration(pending)
     if (!generation) {
       report.failed.push({ escrowId: pending.escrowId, error: 'missing or ambiguous pending ruling provenance; refusing cleanup' })
@@ -230,17 +244,9 @@ export async function reconcileStalePendingDisputeTranslations(): Promise<StaleP
 
       const row = await loadDisputeRulingRecord(pending.escrowId, generation.rulingAppealRound)
       if (!row || !row.outcomeContent) {
-        // A RESOLVED dispute with no durable Core-authoritative Outcome
-        // at all — this pending row cannot possibly have been created by
-        // applyRulingCoreAuthoritative() (which never persists one
-        // without first committing the Outcome in the SAME transaction).
-        // Something outside this module's own model created it; deletion
-        // is still safe (zero signatures, zero fund-movement risk) but
-        // reported distinctly for visibility, never silently folded into
-        // the ordinary "guard failed" case.
-        if (await deleteUnlessSigned(pending, 'DELETED_NO_OUTCOME')) {
-          log.error({ msg: 'M9: stale pending transaction with no durable Core-authoritative Outcome — deleted (zero signatures, no fund-movement risk)', escrowId: pending.escrowId })
-        }
+        // No immutable Outcome means no deletion authority, regardless of signatures.
+        report.failed.push({ escrowId: pending.escrowId, error: 'missing durable Core-authoritative Outcome; refusing cleanup' })
+        log.error({ msg: 'M9: missing durable Outcome; pending preserved for investigation', escrowId: pending.escrowId })
         continue
       }
 
