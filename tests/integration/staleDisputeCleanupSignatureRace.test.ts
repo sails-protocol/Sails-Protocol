@@ -380,6 +380,21 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
   })
 
+  it('ST1-G multiple workers preserve a pending round without a durable Outcome, including replay', async () => {
+    pg.requirePostgres('multiple workers fail-closed without Outcome')
+    const { escrow, pending } = await fixture()
+    const authority = await generation(pending.id)
+    const before = await roundState(pending.id)
+    const outcomes = await Promise.all([
+      deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority),
+      restarted!.deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority),
+    ])
+    expect(outcomes).toEqual(['PROVENANCE_REJECTED', 'PROVENANCE_REJECTED'])
+    expect(await roundState(pending.id)).toEqual(before)
+    expect(await restarted!.deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(pending.id, restarted!.prisma)).toEqual(before)
+  })
+
   it('ST1-E refuses a provenance-less cooperative pending round', async () => {
     pg.requirePostgres('ambiguous cooperative provenance')
     const { escrow, pending } = await fixture()
