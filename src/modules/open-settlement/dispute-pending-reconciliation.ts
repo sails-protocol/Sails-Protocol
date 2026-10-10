@@ -139,7 +139,9 @@ export async function deletePendingRoundIfStillUnsigned(
         dispute.appealRound !== generation.rulingAppealRound ||
         dispute.arbiterId !== generation.rulingArbiterId ||
         dispute.ruling !== generation.rulingOutcome ||
-        dispute.authoritySignature !== generation.rulingAuthoritySignature) {
+        dispute.authoritySignature !== generation.rulingAuthoritySignature ||
+        !dispute.authorityIssuedAt ||
+        dispute.authorityIssuedAt.getTime() !== generation.rulingAuthorityIssuedAt.getTime()) {
       return 'PROVENANCE_REJECTED'
     }
     const durableOutcome = await tx.semanticTransitionRecord.findUnique({
@@ -149,7 +151,11 @@ export async function deletePendingRoundIfStillUnsigned(
         appealRound: generation.rulingAppealRound,
       } },
     })
-    if (!durableOutcome?.outcomeContent) return 'PROVENANCE_REJECTED'
+    // Existence alone is insufficient: the immutable record must describe this ruling.
+    const content = durableOutcome?.outcomeContent
+    if (!content || typeof content !== 'object' || Array.isArray(content) ||
+        !('ruling' in content) || content.ruling !== generation.rulingOutcome ||
+        durableOutcome?.toState !== 'RESOLVED') return 'PROVENANCE_REJECTED'
     const committed = await tx.economicDispositionAuthorization.findUnique({
       where: { pendingOperationId: pendingTransactionId },
     })
