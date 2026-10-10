@@ -80,8 +80,8 @@ function pendingFixture(overrides: Record<string, any> = {}) {
   }
 }
 
-const RESOLVED_DISPUTE = { id: 'dispute-1', escrowId: 'escrow-1', status: 'RESOLVED', appealRound: 0, arbiterId: 'arbiter-1', ruling: 'RELEASE', authoritySignature: 'authority-1' }
-const RULING_ROW_WITH_OUTCOME = { outcomeContent: { ruling: 'RELEASE' } }
+const RESOLVED_DISPUTE = { id: 'dispute-1', escrowId: 'escrow-1', status: 'RESOLVED', appealRound: 0, arbiterId: 'arbiter-1', ruling: 'RELEASE', authoritySignature: 'authority-1', authorityIssuedAt: new Date('2026-10-01T00:00:00Z') }
+const RULING_ROW_WITH_OUTCOME = { outcomeContent: { ruling: 'RELEASE' }, toState: 'RESOLVED' }
 const FAKE_RECORD_WITH_OUTCOME = { outcome: { content: { ruling: 'RELEASE' } } }
 
 beforeEach(() => {
@@ -265,6 +265,18 @@ describe('ST-1 transactional cleanup authority (mocked service boundary; Postgre
     mockDurableOutcomeFindUnique.mockResolvedValue(null)
     expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('PROVENANCE_REJECTED')
     expect(mockLock).toHaveBeenCalledTimes(2)
+    expect(mockPendingDelete).not.toHaveBeenCalled()
+  })
+
+  it('refuses an Outcome whose immutable ruling differs from the pending generation', async () => {
+    mockDurableOutcomeFindUnique.mockResolvedValue({ outcomeContent: { ruling: 'REFUND' }, toState: 'RESOLVED' })
+    expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('PROVENANCE_REJECTED')
+    expect(mockPendingDelete).not.toHaveBeenCalled()
+  })
+
+  it('refuses a changed authority issuance timestamp despite matching signature', async () => {
+    mockDisputeFindUnique.mockResolvedValue({ ...RESOLVED_DISPUTE, authorityIssuedAt: new Date('2026-10-02T00:00:00Z') })
+    expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('PROVENANCE_REJECTED')
     expect(mockPendingDelete).not.toHaveBeenCalled()
   })
 
