@@ -6,7 +6,7 @@ Scope: experiment only. No production modifications in this branch.
 
 ## Execution status
 
-**NOT EXECUTED.** No PostgreSQL server or ST1_TEST_DATABASE_URL is available in the present execution environment. There is no exact-head CI run and no passing application-level concurrency proof.
+**LOCK PROBE EXECUTED AND GREEN ON PR MERGE SHA; PRODUCTION INTEGRATION NOT EXECUTED.** The isolated GitHub Actions run #38090384206 completed successfully on 2026-10-10. The workflow was associated with branch HEAD `e6795092a2a706f1d2cde9c23f1d54b898bdee9f`, but `git rev-parse HEAD` in the job printed the temporary PR merge commit `c486ebd0d812ab80ed5b5dfe5a2ee6d4ae4f23c3`. This is **not** exact branch HEAD CI. PostgreSQL `SHOW server_version` returned `16.15`. The D->E two-worker advisory lock scenario passed and `pg_locks` showed PID 537 waiting on an advisory lock (`granted=false`) held by PID 536. The deliberately reversed E->D vs D->E scenario emitted `EXPECTED_DEADLOCK` with SQLSTATE `40P01` and `acquired`. The bounded retry scenario reported PASS at `attempt:1`; it **did not demonstrate a retry after an actual 40P01**. All application-level economic tests remain unexecuted in this workflow. Raw logs: https://github.com/sails-protocol/Sails-Protocol/actions/runs/38090384206 ; uploaded artifact ID `11683623173` (artifact SHA-256 `e5715075dafc5d7b93e1100b84bbc5e07f78908d23cc10f8e400a0bb9dc0c873`). The temporary PR #434 was closed without merge because its historical diff spanned 127 commits / 290 files. No new PR or trigger is authorized.
 
 ## Experimental lock probe
 
@@ -16,7 +16,7 @@ ST1_TEST_DATABASE_URL='postgresql://user:pass@localhost:5432/st1_disposable' nod
 
 The probe covers (1) D->E ordering across independent connections, (2) an intentional E->D / D->E deadlock yielding SQLSTATE 40P01, and (3) bounded retry after transaction abort. The probe does not write production tables. It must run only against a disposable DB.
 
-## Mandatory application-level real-Postgres matrix (UNIMPLEMENTED / NOT EXECUTED)
+## Mandatory application-level real-Postgres matrix (NOT EXECUTED IN ST-1 WORKFLOW; some historical tests exist but do not prove ST-1 predicate)
 
 | Scenario | Barrier / scheduling | Required assertion |
 |---|---|---|
@@ -39,8 +39,10 @@ Each application-level test must log PID, SQLSTATE, event sequence, `pg_locks`, 
 
 1. The provisional cleanup holds E but not D. It cannot serialize appeal N->N+1.
 2. The provisional `DELETED_NO_OUTCOME` path must fail closed under the CTO's new predicate.
-3. D->E global cycle absence remains unproved for implicit row/FK locks and indirect calls.
+3. D->E global cycle absence remains unproved for implicit row/FK locks and indirect calls. The lock probe does not exercise row/FK locks.
 4. No app-level N/N+1, signer, reversal, cooperative, restart or multiworker test exists in this experiment.
-5. No exact-head CI, mutation proof, independent Opus review, merge or FREEZE.
+5. Green synthetic probe ran on PR merge SHA, not exact branch HEAD; no exact-head production integration CI, mutation proof, independent Opus review, merge or FREEZE.
+6. The reported bounded retry PASS used attempt 1 and is not proof of actual 40P01 recovery.
+7. Existing `tests/integration/staleDisputeCleanupSignatureRace.test.ts` has real production signer/cleanup entry points and advisory-lock barriers, but the ST-1 workflow did not execute it and its historical assertions cannot substitute for the N/N+1 D->E authority predicate.
 
-**Gate: BLOCKED. STOP for CTO decision / execution environment.**
+**Gate: LOCK PROBE PASS (PR merge SHA only); ST-1 ECONOMIC INTEGRATION BLOCKED.** The branch-only `workflow_dispatch` cannot be assumed runnable through the available connector: no dispatch action is exposed; the prior PR trigger was closed and the CTO prohibited another PR. No additional run is claimed.
