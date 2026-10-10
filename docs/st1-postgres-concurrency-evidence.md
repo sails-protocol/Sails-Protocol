@@ -35,12 +35,18 @@ The probe covers (1) D->E ordering across independent connections, (2) an intent
 
 Each application-level test must log PID, SQLSTATE, event sequence, `pg_locks`, final pending/signature/dispute/outcome/authorization state and economic-effect counts. Require `lock_timeout` and `statement_timeout` and deterministic barriers. A test using mocks only is not acceptance evidence.
 
+## New application-level regression cases (UNEXECUTED)
+
+On experimental branch commits `b7649aa5`, `bb9f3d8`, and `dd377536`, the existing real-PostgreSQL test suite `tests/integration/staleDisputeCleanupSignatureRace.test.ts` gained ST1-A through ST1-E. These invoke the actual production deletion function and assert: missing caller generation rejection, mismatched supplied generation rejection, changed durable dispute generation rejection, **missing SemanticTransitionRecord must fail closed**, and provenance-less pending rejection. They have **not** been executed. ST1-D is an intentionally red acceptance gate against the current provisional implementation: the current function checks dispute, signature and committed authorization but does not require a durable Outcome before deletion. The test is not evidence of a runtime failure until actually executed. The fixture uses a direct dispute update in ST1-C, not a real `appeal()` concurrency race. ST1-E tests ambiguous provenance, not an independently created cooperative economic operation.
+
+A future run must execute the focused suite against a disposable PostgreSQL database, preserve raw logs, then test the actual `appeal()` and reversal entry points with deterministic barriers and record row/FK lock graphs. No PASS can be assigned based solely on these added tests. No frozen economic authority was changed.
+
 ## Open material findings
 
 1. The provisional cleanup holds E but not D. It cannot serialize appeal N->N+1.
 2. The provisional `DELETED_NO_OUTCOME` path must fail closed under the CTO's new predicate.
 3. D->E global cycle absence remains unproved for implicit row/FK locks and indirect calls. The lock probe does not exercise row/FK locks.
-4. No app-level N/N+1, signer, reversal, cooperative, restart or multiworker test exists in this experiment.
+4. Historical signer/multiworker/restart integration tests exist, and ST1-A..E are now authored, but none was executed in the ST-1 CI; N/N+1 appeal and reversal production races remain unproven.
 5. Green synthetic probe ran on PR merge SHA, not exact branch HEAD; no exact-head production integration CI, mutation proof, independent Opus review, merge or FREEZE.
 6. The reported bounded retry PASS used attempt 1 and is not proof of actual 40P01 recovery.
 7. Existing `tests/integration/staleDisputeCleanupSignatureRace.test.ts` has real production signer/cleanup entry points and advisory-lock barriers, but the ST-1 workflow did not execute it and its historical assertions cannot substitute for the N/N+1 D->E authority predicate.
