@@ -49,6 +49,8 @@ jobs:
         run: npm ci
       - name: Generate Prisma client
         run: npm run db:generate
+      - name: Compile project and ST-1 production code
+        run: npm run build
       - name: Apply disposable database migrations
         run: npm run db:migrate
       - name: Record exact SHA and PostgreSQL version
