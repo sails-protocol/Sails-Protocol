@@ -90,3 +90,7 @@ Commit `339170e8b2977820499b4ae6be54a5caaba647fb` adds ST1-G: two independent Pr
 ## ST-1 immutable Outcome binding hardening (UNEXECUTED)
 
 Commits `af345086203f1f3ef0e2c5491e5de8829d4d27c5` and `96cae6779a1dcfd3353531c2cff48f545e396b82` tighten the cleanup predicate: the live Dispute authority issuance timestamp must match the pending generation, and the durable SemanticTransitionRecord must have `toState=RESOLVED` and an Outcome ruling matching the pending generation. Unit regressions reject a mismatched immutable ruling and a changed issuance timestamp. No CI or real PostgreSQL evidence has been obtained on this HEAD. Existing integration fixtures are not yet authoritative. Preserve BLOCKED and no FREEZE.
+
+## ST-1 fixture conflict resolved as fail-closed negative proof, not positive deletion proof
+
+Commit `2f7b9a39e7ab0a9d13d91d28e14ccb08deaa1732` replaces historical T3/T3b/T4/T5/T6 assertions that demanded deletion of a pending operation without any durable Core-authoritative Outcome. The revised real-Postgres scenarios assert the CTO-required fail-closed preservation under signer ordering, concurrent workers and independent-module replay. This does NOT count as evidence of the authorized positive deletion path: that still requires a legitimate `commitAuthoritativeDisputeRuling()` record with attributed authority, signature and bound Outcome, plus proof that a failed translation guard can delete safely. No suite was executed on this commit; no exact-HEAD CI, no production appeal N/N+1 or reversal race proof. Do not merge or FREEZE.
