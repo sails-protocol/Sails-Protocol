@@ -45,6 +45,10 @@ A future run must execute the focused suite against a disposable PostgreSQL data
 
 Commit `be107205` updates the isolated ST-1 workflow to checkout the PR head SHA rather than the synthetic merge SHA, assert the checkout matches the expected SHA, execute the focused real-PostgreSQL integration suite after the synthetic probe, and upload both raw logs even if the integration step fails. The focused suite contains intentionally failing ST1-D (missing durable Outcome) against provisional production code; an all-green run is **not expected** until the policy conflict is resolved with CTO authority. This commit did not trigger a new run. Existing GitHub connector actions expose rerun of an old job but no workflow_dispatch, and rerunning the old run would not test the new HEAD. Do not claim CI PASS or rerun old evidence as new proof.
 
+## Historical CI failures inspected (not exact current HEAD)
+
+The historical PR run also had failing general CI jobs: `CI Tests` run #38090384074, job #114325438195, and `CI` run #38090383969, job #114325437697. In `CI Tests`, Jest could not compile `src/modules/open-settlement/dispute-pending-reconciliation.ts:175` because the helper accepted `{id, escrowId}` and cast it to full pending provenance (TS2352). This is a concrete defect, separate from ST-1 economic proof. Experimental commit `46899f7c` corrects the helper argument type to require complete provenance and removes the unsafe cast. This is **not validated by a new run**. The broader CI jobs remain failures and must not be described as green. The previous synthetic probe run was separately green.
+
 ## Open material findings
 
 1. The provisional cleanup holds E but not D. It cannot serialize appeal N->N+1.
