@@ -303,6 +303,35 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     expect(await roundState(signed.pending.id, fresh.prisma)).toEqual({ pending: true, signatures: 1 })
   })
 
+  // ── ST-1 provisional authority fail-closed regressions (NOT the D->E concurrency proof) ──
+
+  it('ST1-A rejects deletion without a complete caller generation and preserves the pending row', async () => {
+    pg.requirePostgres('missing caller provenance')
+    const { escrow, pending } = await fixture()
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id)).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+  })
+
+  it('ST1-B rejects a mismatched appeal generation and preserves the pending row', async () => {
+    pg.requirePostgres('mismatched generation')
+    const { escrow, pending } = await fixture()
+    const authority = await generation(pending.id)
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id, {
+      ...authority, rulingAppealRound: authority.rulingAppealRound + 1,
+    })).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+  })
+
+  it('ST1-C rejects deletion when the durable dispute generation has advanced', async () => {
+    pg.requirePostgres('durable generation mismatch')
+    const { escrow, pending } = await fixture()
+    const authority = await generation(pending.id)
+    // Fixture mutation only: this is NOT a real appeal() race or an authority proof.
+    await prisma.dispute.update({ where: { id: authority.disputeId }, data: { appealRound: authority.rulingAppealRound + 1 } })
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+  })
+
   // ── T7: no economic step under the lock ────────────────────────────────────────────────────────
 
   it('T7 the escrow lock is released before the first post-signature gate (and so before any provider/economic step)', async () => {
