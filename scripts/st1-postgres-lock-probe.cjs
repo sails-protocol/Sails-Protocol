@@ -61,21 +61,38 @@ async function main() {
     console.log(JSON.stringify({ scenario: 'deliberate E->D vs D->E', result: 'EXPECTED_DEADLOCK', sqlstates: [left, right] }))
     await rollback(a); await rollback(b)
 
-    // Bounded retry after 40P01, using the approved D -> E order.
-    let attempt = 0, committed = false
-    while (!committed && attempt < 3) {
+    // Retry the actual 40P01 victim, not an unrelated fresh transaction.
+    // PostgreSQL marks that transaction aborted; it must be rolled back
+    // before the next attempt. The winner must release its transaction too.
+    const victim = left === '40P01' ? a : b
+    assert.notEqual(left === '40P01', right === '40P01', 'exactly one deadlock victim expected')
+    let aborted = false
+    try {
+      await victim.query('SELECT 1')
+    } catch (e) {
+      assert.equal(e.code, '25P02', 'deadlock victim must remain aborted until rollback')
+      aborted = true
+    }
+    assert.ok(aborted, 'must observe the aborted transaction')
+    // The first attempt demonstrably failed with 40P01 above.
+    const maxAttempts = 3
+    let attempt = 1, committed = false
+    while (!committed && attempt < maxAttempts) {
       attempt++
       try {
-        await begin(a); await lock(a, dispute); await lock(a, escrow)
-        await a.query('COMMIT'); committed = true
+        await begin(victim)
+        await lock(victim, dispute)
+        await lock(victim, escrow)
+        await victim.query('COMMIT')
+        committed = true
       } catch (e) {
-        await rollback(a)
-        if (e.code !== '40P01' || attempt === 3) throw e
+        await rollback(victim)
+        if (e.code !== '40P01' || attempt === maxAttempts) throw e
         await sleep(25 * attempt)
       }
     }
-    assert.ok(committed)
-    console.log(JSON.stringify({ scenario: 'bounded retry', result: 'PASS', attempt }))
+    assert.ok(committed && attempt >= 2, 'retry must follow a real 40P01')
+    console.log(JSON.stringify({ scenario: 'bounded retry after actual 40P01', result: 'PASS', sqlstate: '40P01', attempt }))
   } finally {
     await rollback(a); await rollback(b)
     await Promise.allSettled([a.end(), b.end(), observer.end()])
