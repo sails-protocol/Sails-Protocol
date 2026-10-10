@@ -59,7 +59,7 @@ async function main() {
     const [left, right] = await Promise.all([waitD, waitE])
     assert.ok([left, right].includes('40P01'), 'expected SQLSTATE 40P01')
     console.log(JSON.stringify({ scenario: 'deliberate E->D vs D->E', result: 'EXPECTED_DEADLOCK', sqlstates: [left, right] }))
-    await rollback(a); await rollback(b)
+    // Keep the victim's aborted transaction open until SQLSTATE 25P02 is observed.
 
     // Retry the actual 40P01 victim, not an unrelated fresh transaction.
     // PostgreSQL marks that transaction aborted; it must be rolled back
@@ -74,6 +74,7 @@ async function main() {
       aborted = true
     }
     assert.ok(aborted, 'must observe the aborted transaction')
+    await rollback(a); await rollback(b)
     // The first attempt demonstrably failed with 40P01 above.
     const maxAttempts = 3
     let attempt = 1, committed = false
