@@ -338,8 +338,9 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     const authority = await generation(pending.id)
     // The fixture intentionally has no SemanticTransitionRecord. No synthetic Outcome is inserted.
     // CTO policy: absence of an authoritative Outcome must NEVER authorize deletion.
-    const before = await prisma.semanticTransitionRecord.count({ where: { interactionId: escrow.id } })
-    expect(before).toBe(0)
+    const { loadDisputeRulingRecord } = require('../../src/modules/open-settlement/dispute-outcome')
+    const durableOutcome = await loadDisputeRulingRecord(escrow.id, authority.rulingAppealRound)
+    expect(durableOutcome).toBeNull()
     expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)).toBe('PROVENANCE_REJECTED')
     expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
   })
