@@ -41,6 +41,10 @@ On experimental branch commits `b7649aa5`, `bb9f3d8`, and `dd377536`, the existi
 
 A future run must execute the focused suite against a disposable PostgreSQL database, preserve raw logs, then test the actual `appeal()` and reversal entry points with deterministic barriers and record row/FK lock graphs. No PASS can be assigned based solely on these added tests. No frozen economic authority was changed.
 
+## CI preparation on experimental branch (NOT RUN)
+
+Commit `be107205` updates the isolated ST-1 workflow to checkout the PR head SHA rather than the synthetic merge SHA, assert the checkout matches the expected SHA, execute the focused real-PostgreSQL integration suite after the synthetic probe, and upload both raw logs even if the integration step fails. The focused suite contains intentionally failing ST1-D (missing durable Outcome) against provisional production code; an all-green run is **not expected** until the policy conflict is resolved with CTO authority. This commit did not trigger a new run. Existing GitHub connector actions expose rerun of an old job but no workflow_dispatch, and rerunning the old run would not test the new HEAD. Do not claim CI PASS or rerun old evidence as new proof.
+
 ## Open material findings
 
 1. The provisional cleanup holds E but not D. It cannot serialize appeal N->N+1.
