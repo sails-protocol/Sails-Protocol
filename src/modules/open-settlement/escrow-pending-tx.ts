@@ -27,6 +27,7 @@ import { identifyFeeOutput, networkFor } from './multisig.provider'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { authorizePendingExecution } from './capability-execution-authorization'
 import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
+import { assertRoundBoundToDisputeAuthority } from './disputed-outcome-binding'
 import { childLogger } from '../../common/logger'
 
 const log = childLogger('escrow-pending-tx')
@@ -109,8 +110,10 @@ async function initiateSignatureCollectionCore(
   // in submitTransactionSignature(). null for an ordinary cooperative
   // operation — ADR-005 §9 does not redefine that authority.
   let disputedRulingProvenance: Record<string, unknown> = {}
+  let disputedDispute: Awaited<ReturnType<typeof assertDisputedDispositionAuthority>> = null
   if (escrow.status === 'DISPUTED') {
     const dispute = await assertDisputedDispositionAuthority(trade.id, escrow.status, triggeredBy)
+    disputedDispute = dispute
     if (dispute) {
       disputedRulingProvenance = {
         disputeId: dispute.id,
@@ -180,6 +183,32 @@ async function initiateSignatureCollectionCore(
             `Escrow ${escrowId}'s funding evidence became uncertain (reorg or replacement detected) while this request was in flight — refusing to build a pending ${kind} transaction. Refunding, raising a dispute, or waiting for reconfirmation remain available.`
           )
         }
+      }
+      // AUD-1 - construction boundary, inside the escrow-locked write and after the funding-uncertainty re-check: a
+      // round that contradicts the signed ruling of this dispute is never persisted (it would otherwise occupy the
+      // escrow's one pending slot until the gate refused it). Execution re-judges the stored round independently
+      // (economic-disposition-authority.ts); this only keeps such a round from existing. Reads only: no new lock.
+      // While the dispute holds no resolved ruling there is nothing to contradict and construction is unchanged: such a
+      // round records no ruling, so the gate can never authorize it (its recorded generation must equal a RESOLVED
+      // ruling) - it is inert, not executable.
+      if (disputedRulingProvenance.disputeId !== undefined && disputedDispute && disputedDispute.status === 'RESOLVED') {
+        await assertRoundBoundToDisputeAuthority(tx, {
+          escrowId,
+          escrowType: escrow.type,
+          kind,
+          unsignedPsbtBase64: result.psbtBase64,
+          minerFeeSats: result.minerFeeSats ?? null,
+          buyerBps: typeof extraData?.buyerBps === 'number' ? extraData.buyerBps : null,
+          disputeId: disputedDispute.id,
+          rulingAppealRound: disputedDispute.appealRound,
+          rulingOutcome: disputedDispute.ruling,
+        }, {
+          id: disputedDispute.id,
+          escrowId: disputedDispute.escrowId,
+          status: disputedDispute.status,
+          ruling: disputedDispute.ruling,
+          authorityBuyerBps: disputedDispute.authorityBuyerBps,
+        })
       }
       const current = await tx.escrowPendingTransaction.findUnique({ where: { escrowId }, include: { signatures: { select: { participantId: true } } } })
       if (current) {

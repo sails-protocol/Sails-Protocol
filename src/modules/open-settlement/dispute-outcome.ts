@@ -80,7 +80,7 @@ import {
   buildOutcomeDestinationBinding,
   buildAttributedArbitrationTransitionRecord,
 } from './economic-outcome'
-import { economicDispositionLockKey } from './economic-disposition-authority'
+import { economicDispositionLockKey } from './economic-disposition-lock'
 
 type SemanticTransitionRecordRow = NonNullable<Awaited<ReturnType<typeof prisma.semanticTransitionRecord.findUnique>>>
 

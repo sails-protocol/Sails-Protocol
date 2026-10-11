@@ -153,6 +153,16 @@ The experiment is complete as an experiment. This file is evidence for the CTO's
 acceptance, a merge approval or a FREEZE. Exact-head CI: PR #435 (`CI Tests`); the isolated probe workflow cannot run
 for a PR whose base is not `main`.
 
+## 8. AUD-1 corrective (separate branch `fix/aud1-disputed-outcome-binding`, not part of PR #435)
+
+The independent audit of this ledger's HEAD (`1704beb`) found AUD-1: execution was bound to the ruling generation,
+not to the Outcome's content, so a refund could execute against a signed RELEASE (probes P3 / P3b). It is corrected
+on its own branch (see CHANGELOG, "AUD-1"): one shared validator at the construction boundary and inside the ADR-005
+gate, covering the live finalization, the C8 recovery and the reuse of a committed authorization. Consequences for the
+statements above: the module header's claim that a RESOLVED dispute proves where a round came from is now backed by
+the construction boundary for every dispute-provenance round; the deletion this ledger proves remains economically
+neutral only because the binding exists. ST1-R1 (liveness) and ST1-R2 (unbound deleters) are unchanged by it.
+
 ## Appendix A - ledger entries written by a parallel session on this branch (preserved verbatim)
 
 Between the baseline probe and this revision another session pushed 22 commits to this branch
