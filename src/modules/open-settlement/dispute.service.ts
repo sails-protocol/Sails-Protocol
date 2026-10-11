@@ -46,6 +46,11 @@ import { economicDispositionLockKey } from './economic-disposition-authority'
 import { assertDisputeDispatchEligible } from './dispute-dispatch'
 import { assertTranslationMatchesOutcome } from './dispatch-translation-guard'
 import { networkFor } from './multisig.provider'
+import { deletePendingRoundIfStillUnsigned } from './dispute-pending-reconciliation'
+
+// ST1-R2: a failed deletion proof must not trigger the generic ruling-revert path.
+// It is an operational anomaly, not evidence that the durable ruling can be undone.
+class St1R2DeletionRefused extends Error {}
 
 // RFC-021 D6 — appeal fee, PROTOCOL_ECONOMY.md §4.4's own arbitration-fee
 // baseline (1-2% of the disputed amount, charged as Escrow.feeCharged by
@@ -693,7 +698,7 @@ export class DisputeService {
       const buyerDestination = commitResult.destinations.find((d) => d.beneficiary === buyerId)?.destination
       const sellerDestination = commitResult.destinations.find((d) => d.beneficiary === sellerId)?.destination
 
-      let pending: { unsignedPsbtBase64: string; minerFeeSats: number | null }
+      let pending: Awaited<ReturnType<typeof escrowService.initiateRelease>>
       if (payload.outcome === 'RELEASE') {
         pending = await escrowService.initiateRelease(dispute.escrowId, buyerDestination, payload.authorityId)
       } else if (payload.outcome === 'REFUND') {
@@ -719,10 +724,28 @@ export class DisputeService {
         // actually blocks dispatch (mission §19: "blocked before
         // broadcast if translated intent is inspectable" — it was, and
         // this is the block).
-        await prisma.escrowPendingTransaction.deleteMany({ where: { escrowId: dispute.escrowId } })
+        const generation = pending.disputeId && pending.rulingAppealRound !== null &&
+          pending.rulingArbiterId && pending.rulingOutcome &&
+          pending.rulingAuthoritySignature && pending.rulingAuthorityIssuedAt
+          ? {
+              disputeId: pending.disputeId,
+              rulingAppealRound: pending.rulingAppealRound,
+              rulingArbiterId: pending.rulingArbiterId,
+              rulingOutcome: pending.rulingOutcome,
+              rulingAuthoritySignature: pending.rulingAuthoritySignature,
+              rulingAuthorityIssuedAt: pending.rulingAuthorityIssuedAt,
+            }
+          : undefined
+        const deletion = await deletePendingRoundIfStillUnsigned(pending.id, dispute.escrowId, generation)
+        if (deletion !== 'DELETED' && deletion !== 'ALREADY_GONE') {
+          throw new St1R2DeletionRefused(
+            `ST1-R2: guard rejected pending ${pending.id} but exact-generation deletion was refused (${deletion}); preserve durable authority for reconciliation`,
+          )
+        }
         throw guardErr
       }
     } catch (err) {
+      if (err instanceof St1R2DeletionRefused) throw err
       // Same revert discipline as applyRuling()'s own catch above,
       // extended to also delete the durable Core record this method
       // additionally created — a reverted ruling must never leave a
