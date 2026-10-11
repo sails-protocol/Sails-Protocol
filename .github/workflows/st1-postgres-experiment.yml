@@ -7,6 +7,7 @@ on:
       - '.github/workflows/st1-postgres-experiment.yml'
       - 'scripts/st1-postgres-lock-probe.cjs'
       - 'tests/integration/staleDisputeCleanupSignatureRace.test.ts'
+      - 'tests/integration/st1TemporalCleanupAuthority.test.ts'
       - 'src/modules/open-settlement/dispute-pending-reconciliation.ts'
       - 'docs/st1-postgres-concurrency-evidence.md'
   workflow_dispatch:
@@ -74,7 +75,7 @@ jobs:
       - name: Run focused ST-1 production integration gates
         run: |
           set -o pipefail
-          node --max-old-space-size=6144 node_modules/jest/bin/jest.js --runInBand --no-coverage tests/integration/staleDisputeCleanupSignatureRace.test.ts 2>&1 | tee st1-production-integration.log
+          node --max-old-space-size=6144 node_modules/jest/bin/jest.js --runInBand --no-coverage tests/integration/staleDisputeCleanupSignatureRace.test.ts tests/integration/st1TemporalCleanupAuthority.test.ts 2>&1 | tee st1-production-integration.log
         shell: bash
       - name: Upload raw lock evidence
         if: always()
