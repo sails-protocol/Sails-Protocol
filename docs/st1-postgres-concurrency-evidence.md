@@ -36,14 +36,20 @@ shows neither ST-1 temporal safety nor the absence of deadlocks in the real func
 and then **E** (`hashtext(escrowId)`), with `lock_timeout` 3 s:
 
 1. the exact round (id + escrow) exists with zero signatures and is exactly the recorded ruling generation;
-2. the dispute row (read `FOR UPDATE`) is still `RESOLVED` for that generation (round, arbiter, ruling, signature, escrow);
+2. the dispute row (read `FOR UPDATE`) is still `RESOLVED` for that generation (round, arbiter, ruling, signature,
+   authority issuance time, escrow);
 3. no committed Economic Disposition Authorization names the round;
-4. the generation's own durable Outcome (read through the transaction, by the generation's appeal round) exists;
+4. the generation's own durable Outcome (read through the transaction, by the generation's appeal round) exists and is
+   the `RESOLVED` transition of that very ruling;
 5. the translation guard, re-run on the stored PSBT, still rejects it - only then the conditional delete (same
    generation, zero signatures).
 
 Anything that cannot be proven returns without deleting. `DELETED_NO_OUTCOME` no longer exists: an absent or empty
-Outcome is reported as failed (`OUTCOME_ABSENT`). A guard that passes leaves the round alone (`GUARD_PASSED`).
+Outcome is `OUTCOME_ABSENT`, an Outcome of another ruling or transition is `OUTCOME_MISMATCH`, both reported as failed.
+A guard that passes leaves the round alone (`GUARD_PASSED`).
+
+Two checks (the Outcome's ruling and `RESOLVED` transition, the dispute's authority issuance time) were taken from the
+parallel session's implementation; everything else in this function is the superset described above.
 
 ## 3. Transactional graph (production code, as read and as observed)
 
@@ -67,55 +73,63 @@ Empirical evidence for the order, from `pg_locks` (test L1): with E held elsewhe
 with D held elsewhere it holds nothing and waits on D. Test X1 records the lock acquisitions of the production
 transactions of five actors and asserts: `D -> E` observed, `E -> D` never, advisory subgraph acyclic. Row-level edges
 are logged per table only - a table-level order is not a deadlock criterion (a cycle needs the same row in opposite
-order), so they are evidence for review, not a predicate.
+order), so they are evidence for review, not a predicate. (A first version of X1 asserted acyclicity over the
+table-level edges too; it failed on false cycles between unrelated rows and was narrowed to the advisory locks.)
 
 ## 4. Real-PostgreSQL test matrix
 
 `tests/integration/st1TemporalCleanupAuthority.test.ts` (production escrow/trade/dispute services, real `resolveDispute()`
 commit and dispatch, real `appeal()`, `submitTransactionSignature()`, `authorizeDisputedPendingExecution()`; an explorer
 stub serves one funding UTXO). Interleavings forced by holding D or E on a separate connection and confirming through
-`pg_locks` that each contender is queued, in a known order, before releasing.
+`pg_locks` that each contender is queued, in a known order, before releasing. 25 tests, plus the 19 tests of
+`staleDisputeCleanupSignatureRace.test.ts` (the original T1-T7 and ST1-A..K), plus `disputePendingReconciliation.test.ts`
+(unit, 31 tests). 75 tests, all passing in the last local run.
 
 | Mission item | Tests | Assertion |
 |---|---|---|
 | (1) N / N+1 | N1, N2 | a nomination for generation N cannot touch the round of N+1 (id and generation); N+1 is judged against its own Outcome |
-| (2) concurrent appeal | A1, A2, A3, A4, A5 | appeal first -> cleanup rejects; cleanup first -> decides under the proven authority, appeal proceeds; between nomination and decision -> rejects; status-only writer -> rejects; a writer outside D -> the row lock makes the cleanup wait, then reject |
-| (3) signatures | S1, S2, S3 (+ the 8 tests of `staleDisputeCleanupSignatureRace`) | signer first -> signature durable, round kept; cleanup first -> signer fails closed with no orphan; signature after an appeal is kept |
+| (2) concurrent appeal | A1, A2, A3, A4, A5, ST1-C, ST1-F | appeal first -> cleanup rejects; cleanup first -> decides under the proven authority, appeal proceeds; between nomination and decision -> rejects; status-only writer -> rejects; a writer outside D -> the row lock makes the cleanup wait, then reject |
+| (3) signatures | S1, S2, S3, T2, T3, T3b, ST1-K | signer first -> signature durable, round kept; cleanup first -> signer fails closed with no orphan; signature after an appeal is kept |
 | (4) reversal / committed effects | V1, V2 | a production revert after the round was persisted -> cleanup has no authority; a committed authorization is never deleted, before or after an appeal |
-| (5) absent Outcome | O1 | fails closed, reported, no `DELETED_NO_OUTCOME` |
-| (6) ambiguous provenance | P1, P2 | partial / absent / foreign provenance -> never deleted |
-| (7) multiple reconcilers | M1, M2 | six concurrent decisions -> one delete; three full reconcilers -> one delete reported once |
-| (8) restart / replay | R1, R2 | backend killed holding D and waiting on E -> nothing changed, no lock survives, an independent module graph converges once; replays change nothing durable |
+| (5) absent Outcome | O1, ST1-D, ST1-G, ST1-K | fails closed, reported, no `DELETED_NO_OUTCOME` |
+| (6) ambiguous provenance | P1, P2, ST1-A, ST1-B, ST1-E, ST1-H, ST1-I, ST1-J | partial / absent / foreign provenance, changed issuance, transplanted round, Outcome of another ruling -> never deleted |
+| (7) multiple reconcilers | M1, M2, T4, T5 | six concurrent decisions -> one delete; three full reconcilers -> one delete reported once |
+| (8) restart / replay | R1, R2, T6, ST1-G | backend killed holding D and waiting on E -> nothing changed, no lock survives, an independent module graph converges once; replays change nothing durable |
 | (9) deadlocks | L1, X1, G1, G2, K1 | order observed; advisory graph acyclic; stress (4 escrows x cleanup, cleanup, signer-then-gate, appeal) with no `40P01` / `55P03`; control: an inverted acquirer IS detected as a deadlock; a stalled holder yields a bounded lock timeout |
+| finding | V3 | the orphan of a reverted ruling is reclaimable by nothing (ST1-R1) |
 
 ## 5. Mutation evidence
 
-16 defects injected into `dispute-pending-reconciliation.ts`, each run against the three suites
-(`disputePendingReconciliation`, `st1TemporalCleanupAuthority`, `staleDisputeCleanupSignatureRace`). **16 of 16 killed.**
-Two survived the first sweep (dispute status not checked; dispute row not `FOR UPDATE`); tests A4 and A5 were added and
-kill them.
+19 defects injected into `dispute-pending-reconciliation.ts`, each run against the three suites
+(`disputePendingReconciliation`, `st1TemporalCleanupAuthority`, `staleDisputeCleanupSignatureRace`), on the final source.
+**19 of 19 killed.** On the earlier (pre-merge) sweep two survived (dispute status not checked; dispute row not
+`FOR UPDATE`); tests A4 and A5 were added and kill them.
 
-| Mutant | Killed by |
+| Mutant | Killed by (real PostgreSQL first, then unit) |
 |---|---|
-| M01 no dispute lock | L1, A1, K1, G2, unit |
+| M01 no dispute lock | L1, A1, A2, K1, G2, ST1-F, unit |
 | M02 order inverted | L1, A1, X1, G2, unit |
 | M03 no escrow lock | L1, S1, R1, G2, T2, T3, T3b, unit |
 | M04 dispute status not checked | A4 |
-| M05 dispute appeal round not checked | unit |
-| M06 dispute escrow not checked | P2, unit |
-| M07 dispute authority signature not checked | unit |
-| M08 Outcome of round 0 instead of the round's own | N2 |
-| M09 absent Outcome deletes | O1, unit |
+| M05 dispute appeal round not checked | ST1-C, ST1-F, unit |
+| M06 dispute escrow not checked | P2, ST1-K, unit |
+| M07 dispute authority signature not checked | unit only |
+| M08 Outcome of round 0 instead of the round's own | N1, N2 |
+| M09 absent Outcome deletes | O1, ST1-D, ST1-G, ST1-K, unit |
 | M10 signatures not re-checked | S1, S3, T2, T6, unit |
 | M11 committed authorization ignored | V2, unit |
-| M12 generation not compared | unit |
-| M13 delete by escrow, not by round | unit |
+| M12 generation not compared | unit only |
+| M13 delete by escrow, not by round | T3, T3b, T4, unit |
 | M14 guard not re-run | N2, unit |
 | M15 dispute row not locked | A5 |
 | M16 lock wait unbounded | K1 |
+| M17 dispute authority issuance not checked | ST1-H, unit |
+| M18 Outcome ruling not compared to the round's | ST1-J, unit |
+| M19 Outcome transition state not checked | unit only |
 
-Honest note: M05, M07, M12 and M13 are killed by the unit suite only; the real-PostgreSQL suite does not drive those
-particular defects. They are properties of a pure comparison; the unit mocks are the right instrument for them.
+Honest note: M07, M12 and M19 are killed by the unit suite only. M07 is also covered cryptographically in production
+(the authority signature commits to the issuance time, which M17 does cover end to end); M12 and M19 are pure comparisons
+the unit mocks are the right instrument for.
 
 ## 6. Material findings and residual risks - none hidden
 
@@ -123,16 +137,19 @@ particular defects. They are properties of a pure comparison; the unit mocks are
 |---|---|---|
 | ST1-R1 | **High (liveness), pre-existing** | The round of a ruling that was reverted, or whose generation was appealed, is reclaimable by **nothing**. The cleanup does not nominate it (dispute not `RESOLVED`) and, being generation-bound, would reject it anyway; C4 recovery skips it (`blocksRulingDispatch`); the next ruling is refused by the dispatch gate (`dispatch already occurred for this exact semantic authorization`) or by `assertSupersedableByThisDispatch`. Test V3 reproduces it through production code. Safety is intact (the gate refuses the orphan's execution); the escrow is stuck. Needs a Tier-3 decision: a "dead generation" reclaim under D + E, bounded by zero signatures and no committed authorization. Not implemented here: it is a new authority rule, not a revalidation of an existing one. |
 | ST1-R2 | Medium | Two deleters are unbound and unlocked: `deleteMany({ where: { escrowId } })` after a failed translation guard in `applyRulingCoreAuthoritative()` and in C4 recovery. They hold no D/E lock, do not bind the round id or generation, and cascade-delete signatures. They delete the round just created, but nothing proves it is still that round. Same class as #244; same in both lineages (ST1-F6). Out of this mission's authorized scope (the provisional cleanup only). |
-| ST1-R3 | Medium (reachability) | Generation N+1 is unreachable for MULTISIG today: `appeal()` refuses an escrow with a script-committed arbiter identity (database trigger forbids deleting it) and the dispatch refuses one without. The N / N+1 tests therefore use a legacy-shaped fixture (trigger bypassed for the fixture transaction, `session_replication_role`) and persist round N+1 with the provenance copy the dispatch makes. The cleanup's contract is generation-bound regardless; this is what proves it. |
+| ST1-R3 | Medium (reachability) | Generation N+1 is unreachable for MULTISIG today: `appeal()` refuses an escrow with a script-committed arbiter identity (a database trigger forbids deleting it) and the dispatch refuses one without (`no persisted arbiter public-key commitment`). The N / N+1 tests therefore use a legacy-shaped fixture (trigger bypassed for the fixture transaction, `session_replication_role`) and persist round N+1 with the provenance copy the dispatch makes. The cleanup's contract is generation-bound regardless; this is what proves it. |
 | ST1-R4 | Low | The economic gate does not verify the round still exists: invoked on a stale row object it commits an authorization for a deleted round. In production it runs only for a round that has all its signatures, which the cleanup never deletes. |
 | ST1-R5 | Low | A sweep now takes D and E for every nominated round, including legitimate guard-passing ones, for the duration of a PSBT parse. Contention is bounded (3 s lock timeout) and brief; the alternative (deciding the pass case outside the locks) was rejected as two code paths. |
 | ST1-R6 | Info | The provisional cleanup had never run in CI before this mission. Its unit suite had one failing test (a mock once-queue leaked between tests after the call order changed); fixed. |
 | ST1-R7 | Info | "No cycle found" is not "no cycle exists": the stress and the recording cover the actors of this graph; row-level order is evidenced per table, not per row. |
+| ST1-R8 | Info (process) | Two sessions wrote to this branch concurrently (22 + 27 commits by another session while this work was in progress). Both lines were integrated by rebase, nothing was force-pushed, the other session's tests were kept (ported where its fixture assumed no Outcome). Two writers on one branch is a risk of its own and should be settled by the CTO. |
+| ST1-R9 | Info (environment) | The local full lanes (unit 8 suites, PostgreSQL 7-8 suites) fail the same suites with and without this change (a Windows/`node_modules` environment effect and shared-database leftovers); the authoritative read is the exact-head CI of PR #435. |
 
 ## 7. Gate
 
 The experiment is complete as an experiment. This file is evidence for the CTO's review; it is not an ST-1 temporal
-acceptance, a merge approval or a FREEZE.
+acceptance, a merge approval or a FREEZE. Exact-head CI: PR #435 (`CI Tests`); the isolated probe workflow cannot run
+for a PR whose base is not `main`.
 
 ## Appendix A - ledger entries written by a parallel session on this branch (preserved verbatim)
 
