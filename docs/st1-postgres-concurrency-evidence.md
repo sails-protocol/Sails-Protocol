@@ -227,35 +227,35 @@ Commit `3d8b3f72eea374cac48167c71dea4c84c25f6cbd` changes only `scripts/st1-post
 
 The CTO explicitly authorized fail-closed missing-Outcome correction and experimental D→E locking. Commits `1d4530ad`, `253d0b75`, `cbbe6c71` implement the following on the isolated branch: remove `DELETED_NO_OUTCOME` deletion and log a failed reconciliation while preserving the pending row; acquire economic-disposition advisory lock by **dispute ID** before escrow advisory lock; inside that same transaction recheck pending generation, dispute, durable SemanticTransitionRecord Outcome and committed economic authorization before conditional delete; align unit mocks and missing-Outcome expectations. These changes are **not CI-tested**. The existing real-Postgres integration fixture lacks a durable Outcome for historical positive-delete cases; those tests must be made authoritative before claiming PASS. No N/N+1 actual appeal/reversal barrier test or indirect row/FK lock graph has been executed. Prior synthetic retry commits `3d8b3f72` and `894eda65` also remain unexecuted. The ST-1 experimental branch is not a release or freeze candidate.
 
-## ST-1 additional safety regressions (UNEXECUTED)
+### ST-1 additional safety regressions (UNEXECUTED)
 
 Commit `27c0fb4943aa1a51f38afc4e800f8a63a3c584c1` adds mocked transactional-boundary assertions for (1) durable Outcome disappearing after scan but before the locked delete, (2) an already-committed economic disposition authorization, and (3) a changed dispute generation. All must reject deletion. These tests are unit regression only, not PostgreSQL concurrency proof. Earlier `8b79e139` adds a real-Postgres D-lock wait barrier using a fixture mutation rather than production appeal(); `c5aa32f6` adds the unit lane to the isolated workflow. No execution or exact-head CI result is available for these changes. Historical T3/T3b/T4/T5/T6 positive-deletion fixtures still lack an authoritative durable Outcome; do not report them as passing until a legitimate Outcome fixture or real ruling path exists. No PR merge, deploy, restack or FREEZE.
 
-## ST-1 additional PostgreSQL scenario staged, not run
+### ST-1 additional PostgreSQL scenario staged, not run
 
 Commit `339170e8b2977820499b4ae6be54a5caaba647fb` adds ST1-G: two independent Prisma/module instances concurrently call production `deletePendingRoundIfStillUnsigned()` against a real PostgreSQL fixture intentionally missing a durable Outcome; both must return `PROVENANCE_REJECTED`, preserve the pending row and signature count, and preserve that result on replay. This is a *staged test*, not a PASS. Existing T3/T3b/T4/T5/T6 still demand deletion of a missing-Outcome fixture, which is incompatible with CTO-authorized fail-closed policy; they must be replaced with real authoritative Outcome fixture/prod ruling setup, not weakened to synthetic `outcomeContent`. The workflow still has no exact-HEAD run. Do not claim `READY_FOR_CTO_ST1_AUTHORITY_IMPLEMENTATION_REVIEW`.
 
-## ST-1 immutable Outcome binding hardening (UNEXECUTED)
+### ST-1 immutable Outcome binding hardening (UNEXECUTED)
 
 Commits `af345086203f1f3ef0e2c5491e5de8829d4d27c5` and `96cae6779a1dcfd3353531c2cff48f545e396b82` tighten the cleanup predicate: the live Dispute authority issuance timestamp must match the pending generation, and the durable SemanticTransitionRecord must have `toState=RESOLVED` and an Outcome ruling matching the pending generation. Unit regressions reject a mismatched immutable ruling and a changed issuance timestamp. No CI or real PostgreSQL evidence has been obtained on this HEAD. Existing integration fixtures are not yet authoritative. Preserve BLOCKED and no FREEZE.
 
-## ST-1 fixture conflict resolved as fail-closed negative proof, not positive deletion proof
+### ST-1 fixture conflict resolved as fail-closed negative proof, not positive deletion proof
 
 Commit `2f7b9a39e7ab0a9d13d91d28e14ccb08deaa1732` replaces historical T3/T3b/T4/T5/T6 assertions that demanded deletion of a pending operation without any durable Core-authoritative Outcome. The revised real-Postgres scenarios assert the CTO-required fail-closed preservation under signer ordering, concurrent workers and independent-module replay. This does NOT count as evidence of the authorized positive deletion path: that still requires a legitimate `commitAuthoritativeDisputeRuling()` record with attributed authority, signature and bound Outcome, plus proof that a failed translation guard can delete safely. No suite was executed on this commit; no exact-HEAD CI, no production appeal N/N+1 or reversal race proof. Do not merge or FREEZE.
 
-## ST-1 fixture issuance and malformed record guards (UNEXECUTED)
+### ST-1 fixture issuance and malformed record guards (UNEXECUTED)
 
 `c2abacac74b80ed3d981aa6a90df295dbb3ef32f` aligns the synthetic PostgreSQL fixture's Dispute `authorityIssuedAt` with the pending generation (previously only `resolvedAt` was set, making the newer authority-time revalidation reject even before checking missing Outcome). This fixture remains deliberately without a durable Outcome and is not positive deletion proof. `fd1ff39350107475d869d4550463d4b21da4ef6f` adds unit guards for a non-RESOLVED transition and malformed JSON without a ruling. All are unexecuted. An actual signed and attributed authority decision, production appeal/reversal interleavings, crash/replay and exact-HEAD CI remain required before READY or FREEZE.
 
-## ST-1 stale documentation corrected and mocked positive branch (UNEXECUTED)
+### ST-1 stale documentation corrected and mocked positive branch (UNEXECUTED)
 
 `c4f5f168294a53717c63d3a197fa90cfc3e85030` removes the unsafe historical assertion that zero signatures alone authorizes unconditional deletion, explicitly documenting D→E, immutable Outcome, generation and economic authorization checks. `a3651b0d4fd5291b9363eecb39731e19dbba1b62` adds a unit-level positive-branch assertion using a mocked terminal Outcome, not a real economic authority or Postgres proof. Neither test nor build was executed. A real attributed signature, production-created SemanticTransitionRecord and N/N+1, reversal, crash/replay, `40P01`/`25P02` and exact-HEAD CI remain open. This branch must remain BLOCKED, with no READY/FREEZE.
 
-## ST-1 legacy/cross-escrow/provenance negative unit regressions (UNEXECUTED)
+### ST-1 legacy/cross-escrow/provenance negative unit regressions (UNEXECUTED)
 
 `5e3f9cd1719a4ca08455fc3d4ec3bf2b15cc4f64` adds mocked service-boundary tests that reject missing caller generation before lock acquisition, an escrowId mismatch before Outcome lookup, and changed pending authority signature before Outcome lookup. These do not replace real PostgreSQL proof. No execution evidence or exact-head CI; positive attributed Outcome, N/N+1 appeal, reversal and crash/replay remain unresolved. Keep PR #343 BLOCKED.
 
-## ST-1 scan-time authority consistency (UNEXECUTED)
+### ST-1 scan-time authority consistency (UNEXECUTED)
 
 `ce140c437f53bcec04716d4148ea39e27e2e45d3` requires the scan's live RESOLVED Dispute to match the pending authority issuance timestamp, and requires the loaded immutable Outcome to match the pending ruling and terminal RESOLVED state before translation. This is defense in depth; only the D→E transactional revalidation authorizes destructive effects. `007854004bb8425e3aa59b3c864b1b4a679a7d34` adds mocked negative regressions for ruling mismatch and nonterminal record. Not run; no exact-head CI or real positive PostgreSQL authority proof. PR #343 remains BLOCKED.
 
@@ -263,6 +263,6 @@ Commit `2f7b9a39e7ab0a9d13d91d28e14ccb08deaa1732` replaces historical T3/T3b/T4/
 
 `183a6d2d24ef0189e8e56095eca9dd8a969378b6` adds real-Postgres tests (not yet run) that mutate the Dispute's live authority issuance timestamp and attempt cleanup using a different escrow ID. Both must reject with the original and unrelated pending rounds preserved. These are negative synthetic fixture tests, not real authority issuance, production appeal/reversal or positive deletion evidence. Do not infer execution success or FREEZE.
 
-## ST-1 exact authority issuance scan predicate (UNEXECUTED)
+### ST-1 exact authority issuance scan predicate (UNEXECUTED)
 
 `cec69db4e0be8d938e4ed805621d032dcb91161c` asserts that scan-time `dispute.findFirst` includes `authorityIssuedAt` equal to the pending ruling generation, and does not load Outcome or delete after a failed re-check. Production `commitAuthoritativeDisputeRuling` writes this field from `new Date(payload.issuedAt)`. This is mocked negative coverage only. CI and real-Postgres authority positive/appeal/reversal evidence are still absent. No approval or FREEZE.
