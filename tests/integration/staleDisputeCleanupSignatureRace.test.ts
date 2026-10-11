@@ -352,6 +352,28 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
   })
 
+  it('ST1-H rejects a changed live authority issuance timestamp on real PostgreSQL', async () => {
+    pg.requirePostgres('authority timestamp drift')
+    const { escrow, pending } = await fixture()
+    const authority = await generation(pending.id)
+    await prisma.dispute.update({
+      where: { id: authority.disputeId },
+      data: { authorityIssuedAt: new Date(authority.rulingAuthorityIssuedAt.getTime() + 1000) },
+    })
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+  })
+
+  it('ST1-I rejects a pending row transplanted to another escrow without deleting it', async () => {
+    pg.requirePostgres('escrow provenance mismatch')
+    const original = await fixture()
+    const another = await fixture()
+    const authority = await generation(original.pending.id)
+    expect(await deletePendingRoundIfStillUnsigned(original.pending.id, another.escrow.id, authority)).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(original.pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await roundState(another.pending.id)).toEqual({ pending: true, signatures: 0 })
+  })
+
   it('ST1-G multiple workers preserve a pending round without a durable Outcome, including replay', async () => {
     pg.requirePostgres('multiple workers fail-closed without Outcome')
     const { escrow, pending } = await fixture()
