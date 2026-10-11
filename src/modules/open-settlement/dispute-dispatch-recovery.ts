@@ -282,7 +282,7 @@ export async function reconcileMissingDispatch(limit: number = DISPATCH_RECOVERY
             }
           : undefined
         const deletion = await deletePendingRoundIfStillUnsigned(pending.id, dispute.escrowId, generation)
-        if (deletion !== 'DELETED' && deletion !== 'ALREADY_GONE') {
+        if (deletion !== 'DELETED') {
           report.failed.push({
             escrowId: dispute.escrowId,
             error: `ST1-R2 guard rejection; exact pending preserved: ${deletion}`,
