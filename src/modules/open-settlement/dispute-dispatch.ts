@@ -46,6 +46,21 @@ async function checkDisputeRulingAlreadyDispatched(escrowId: string): Promise<bo
   return false
 }
 
+async function recordIfRulingsOwnRoundExists(escrowId: string, appealRound: number) {
+  const [dispute, escrow, pending] = await Promise.all([
+    prisma.dispute.findFirst({ where: { escrowId }, select: { id: true, status: true, appealRound: true, arbiterId: true, ruling: true, authoritySignature: true } }),
+    prisma.escrow.findUnique({ where: { id: escrowId }, select: { status: true } }),
+    prisma.escrowPendingTransaction.findUnique({ where: { escrowId }, select: { disputeId: true, rulingAppealRound: true, rulingArbiterId: true, rulingOutcome: true, rulingAuthoritySignature: true } }),
+  ])
+  if (!dispute || !escrow || !pending) return null
+  if (escrow.status !== 'DISPUTED') return null
+  if (dispute.status !== 'RESOLVED' || dispute.appealRound !== appealRound || !dispute.ruling || !dispute.authoritySignature) return null
+  if (pending.disputeId !== dispute.id || pending.rulingAppealRound !== appealRound || pending.rulingArbiterId !== dispute.arbiterId ||
+      pending.rulingOutcome !== dispute.ruling || pending.rulingAuthoritySignature !== dispute.authoritySignature) return null
+  const row = await loadDisputeRulingRecord(escrowId, appealRound)
+  return row ? fromDisputeRulingRow(row) : null
+}
+
 export type DisputeDispatchResult =
   | { readonly eligible: true; readonly record: TransitionRecord<{ readonly escrowId: string }, ArbitrationOutcomeContent, readonly BeneficiaryDestination[]> }
   | { readonly eligible: false; readonly reason: string }
@@ -80,6 +95,12 @@ export async function evaluateDisputeDispatchEligibility(escrowId: string, appea
 export async function assertDisputeDispatchEligible(escrowId: string, appealRound: number): Promise<TransitionRecord<{ readonly escrowId: string }, ArbitrationOutcomeContent, readonly BeneficiaryDestination[]>> {
   const result = await evaluateDisputeDispatchEligibility(escrowId, appealRound)
   if (!result.eligible) {
+    // AUD1X-R2 (AR-01) - "already dispatched" by THIS ruling's own round is what the live flow is here to achieve,
+    // not a reason to revert the ruling: the C4 recovery or the arbiter's initiate-* may have built it between the
+    // commit and this check. A pre-check on durable facts only; whether the round really is this dispatch is proven
+    // under the dispute and escrow locks by the construction itself (proveRoundIsThisDispatch()).
+    const own = await recordIfRulingsOwnRoundExists(escrowId, appealRound)
+    if (own) return own
     throw new EscrowError(`Dispatch eligibility check failed for escrow ${escrowId}: ${result.reason}`)
   }
   return result.record

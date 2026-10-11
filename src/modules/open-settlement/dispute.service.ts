@@ -42,6 +42,7 @@ import {
 } from './arbitration-authority'
 import { Prisma } from '@prisma/client'
 import { commitAuthoritativeDisputeRuling, revertDisputeRulingRecord } from './dispute-outcome'
+import { decideRulingRevert } from './ruling-dispatch-authority'
 import { economicDispositionLockKey } from './economic-disposition-authority'
 import { assertDisputeDispatchEligible } from './dispute-dispatch'
 import { assertTranslationMatchesOutcome } from './dispatch-translation-guard'
@@ -751,8 +752,19 @@ export class DisputeService {
       // cleared, or drop a proposal that really was displaced. The
       // proposal fields themselves need no restoring: the ruling claim
       // never touches them, and nothing can change them while RESOLVED.
+      const revert = { preserved: false }
       await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
+
+        // AUD1X-R2 (AR-01/AR-03) - an operational failure of THIS call's dispatch may undo the ruling only while
+        // nothing durable depends on it. Decided here, under the dispute lock and the escrow lock: a round of this
+        // generation (the other executor's dispatch) or a committed economic authorization (claim, signature and
+        // broadcast all follow it) keeps the ruling and its Outcome; the original error is still surfaced.
+        const decision = await decideRulingRevert(tx, { escrowId: dispute.escrowId, disputeId: dispute.id, appealRound: dispute.appealRound })
+        if (decision.action === 'PRESERVE') {
+          revert.preserved = true
+          return
+        }
 
         await tx.dispute.updateMany({
           where: {
@@ -765,8 +777,8 @@ export class DisputeService {
           },
           data: { ...(await rulingRevertTarget(tx, dispute.escrowId, commitResult.displacedStatus)), ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
         })
+        await revertDisputeRulingRecord(dispute.escrowId, dispute.appealRound, tx)
       })
-      await revertDisputeRulingRecord(dispute.escrowId, dispute.appealRound)
       throw err
     }
 
