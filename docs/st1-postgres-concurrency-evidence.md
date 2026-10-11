@@ -106,3 +106,7 @@ Commit `2f7b9a39e7ab0a9d13d91d28e14ccb08deaa1732` replaces historical T3/T3b/T4/
 ## ST-1 legacy/cross-escrow/provenance negative unit regressions (UNEXECUTED)
 
 `5e3f9cd1719a4ca08455fc3d4ec3bf2b15cc4f64` adds mocked service-boundary tests that reject missing caller generation before lock acquisition, an escrowId mismatch before Outcome lookup, and changed pending authority signature before Outcome lookup. These do not replace real PostgreSQL proof. No execution evidence or exact-head CI; positive attributed Outcome, N/N+1 appeal, reversal and crash/replay remain unresolved. Keep PR #343 BLOCKED.
+
+## ST-1 scan-time authority consistency (UNEXECUTED)
+
+`ce140c437f53bcec04716d4148ea39e27e2e45d3` requires the scan's live RESOLVED Dispute to match the pending authority issuance timestamp, and requires the loaded immutable Outcome to match the pending ruling and terminal RESOLVED state before translation. This is defense in depth; only the D→E transactional revalidation authorizes destructive effects. `007854004bb8425e3aa59b3c864b1b4a679a7d34` adds mocked negative regressions for ruling mismatch and nonterminal record. Not run; no exact-head CI or real positive PostgreSQL authority proof. PR #343 remains BLOCKED.
