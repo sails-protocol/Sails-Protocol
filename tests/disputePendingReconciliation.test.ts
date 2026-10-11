@@ -274,6 +274,18 @@ describe('ST-1 transactional cleanup authority (mocked service boundary; Postgre
     expect(mockPendingDelete).not.toHaveBeenCalled()
   })
 
+  it('refuses a durable record that is not a RESOLVED transition', async () => {
+    mockDurableOutcomeFindUnique.mockResolvedValue({ outcomeContent: { ruling: 'RELEASE' }, toState: 'OPEN' })
+    expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('PROVENANCE_REJECTED')
+    expect(mockPendingDelete).not.toHaveBeenCalled()
+  })
+
+  it('refuses an Outcome without a typed ruling instead of treating non-null JSON as authority', async () => {
+    mockDurableOutcomeFindUnique.mockResolvedValue({ outcomeContent: { allocations: [] }, toState: 'RESOLVED' })
+    expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('PROVENANCE_REJECTED')
+    expect(mockPendingDelete).not.toHaveBeenCalled()
+  })
+
   it('refuses a changed authority issuance timestamp despite matching signature', async () => {
     mockDisputeFindUnique.mockResolvedValue({ ...RESOLVED_DISPUTE, authorityIssuedAt: new Date('2026-10-02T00:00:00Z') })
     expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('PROVENANCE_REJECTED')
