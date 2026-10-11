@@ -28,7 +28,6 @@ import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { authorizePendingExecution } from './capability-execution-authorization'
 import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
 import { assertRoundBoundToDisputeAuthority } from './disputed-outcome-binding'
-import { proveRoundIsThisDispatch, type LockedDispute } from './ruling-dispatch-authority'
 import { childLogger } from '../../common/logger'
 
 const log = childLogger('escrow-pending-tx')
@@ -158,10 +157,7 @@ async function initiateSignatureCollectionCore(
   // decision is re-made under the escrow lock below; this is the cheap fail-fast.
   const arbitratedDispatch = disputedRulingProvenance.disputeId !== undefined
   const existingPending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId }, include: { signatures: { select: { participantId: true } } } })
-  // AUD1X-R2 (AR-01) - a round of THIS dispute is not an obstacle to be refused here: it is either this ruling's
-  // own dispatch, built by another executor (adopted below, under the locks) or a divergent one (refused there).
-  const existingIsThisDisputes = disputedMultisig && arbitratedDispatch && existingPending?.disputeId === disputedDispute!.id
-  if (existingPending && !existingIsThisDisputes) assertSupersedableByThisDispatch(existingPending, arbitratedDispatch, escrowId)
+  if (existingPending) assertSupersedableByThisDispatch(existingPending, arbitratedDispatch, escrowId)
 
   const { buyerPubkey, sellerPubkey, arbiterPubkey } = await loadParticipantPubkeys(escrowId)
   // Missão 11 Fase 5.3 §A — restores context this function already HAD
@@ -213,7 +209,6 @@ async function initiateSignatureCollectionCore(
       // before the PSBT was built is only what this round was built FOR: if the generation moved, or the ruling is not
       // (any longer) resolved, nothing is persisted.
       let judgedDispute: { id: string; escrowId: string; status: string; appealRound: number; ruling: string | null; authorityBuyerBps: number | null } | null = disputedDispute
-      let lockedDispute: LockedDispute | null = null
       if (disputedMultisig) {
         const [live] = await tx.$queryRaw<Array<{
           escrowId: string; status: string; appealRound: number; arbiterId: string | null; ruling: string | null
@@ -236,32 +231,6 @@ async function initiateSignatureCollectionCore(
           )
         }
         judgedDispute = { id: snap.id, escrowId: live.escrowId, status: live.status, appealRound: live.appealRound, ruling: live.ruling, authorityBuyerBps: live.authorityBuyerBps }
-        lockedDispute = { id: snap.id, ...live }
-      }
-      const current = await tx.escrowPendingTransaction.findUnique({ where: { escrowId }, include: { signatures: { select: { participantId: true } } } })
-      // AUD1X-R2 (AR-01) - idempotent dispatch. A round of this very dispute that already exists (the C4 recovery or the
-      // arbiter's own initiate-* built it between this ruling's commit and this write) is this ruling's dispatch -
-      // never a failure to revert the ruling over - but ONLY when it is, proven under the locks, the round this ruling
-      // decided: same generation, signed ruling, kind, destinations, SPLIT allocation, fee decision and initiator, and
-      // the AUD-1 binding passes against the durable Outcome. Anything else is refused with the reasons.
-      if (current && lockedDispute && arbitratedDispatch && current.disputeId === lockedDispute.id) {
-        const proof = await proveRoundIsThisDispatch(tx, current, lockedDispute, {
-          escrowId, escrowType: escrow.type, kind, triggeredBy,
-          toAddress: result.toAddress ?? null,
-          toAddressSecondary: result.toAddressSecondary ?? null,
-          buyerBps: typeof extraData?.buyerBps === 'number' ? extraData.buyerBps : null,
-          feeCollectionSats: result.feeCollection?.feeSats ?? null,
-          feeCollectionWaived: result.feeCollection?.waived ?? null,
-        })
-        if (proof.ok) {
-          log.info({ msg: 'AUD1X-R2: the ruling\'s dispatch already exists and is exactly this round - adopted, nothing persisted', escrowId, roundId: current.id, kind })
-          return tx.escrowPendingTransaction.findUniqueOrThrow({ where: { id: current.id } })
-        }
-        log.error({ msg: 'AUD1X-R2: a round of this dispute exists but is not this ruling\'s dispatch - refused, not adopted', escrowId, roundId: current.id, reasons: proof.reasons })
-        throw new EscrowError(
-          `Escrow ${escrowId} already has a pending ${current.kind} transaction awaiting signatures, and it is not the dispatch of this ruling ` +
-          `(${proof.reasons.join('; ')}); it is not adopted.`
-        )
       }
       // AUD-1 - construction boundary, inside the escrow-locked write and after the funding-uncertainty re-check: a
       // round that contradicts the signed ruling of this dispute is never persisted (it would otherwise occupy the
@@ -289,6 +258,7 @@ async function initiateSignatureCollectionCore(
           authorityBuyerBps: judgedDispute.authorityBuyerBps,
         })
       }
+      const current = await tx.escrowPendingTransaction.findUnique({ where: { escrowId }, include: { signatures: { select: { participantId: true } } } })
       if (current) {
         assertSupersedableByThisDispatch(current, arbitratedDispatch, escrowId)
         await tx.escrowPendingTransaction.delete({ where: { id: current.id } })

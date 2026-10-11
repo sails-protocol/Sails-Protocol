@@ -752,17 +752,30 @@ export class DisputeService {
       // cleared, or drop a proposal that really was displaced. The
       // proposal fields themselves need no restoring: the ruling claim
       // never touches them, and nothing can change them while RESOLVED.
-      const revert = { preserved: false }
+      const resolution: { adopted: boolean; refusal: Error | null } = { adopted: false, refusal: null }
       await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
 
-        // AUD1X-R2 (AR-01/AR-03) - an operational failure of THIS call's dispatch may undo the ruling only while
-        // nothing durable depends on it. Decided here, under the dispute lock and the escrow lock: a round of this
-        // generation (the other executor's dispatch) or a committed economic authorization (claim, signature and
-        // broadcast all follow it) keeps the ruling and its Outcome; the original error is still surfaced.
-        const decision = await decideRulingRevert(tx, { escrowId: dispute.escrowId, disputeId: dispute.id, appealRound: dispute.appealRound })
+        // AUD1X-R2 (AR-01/AR-03) - an operational failure of THIS call's dispatch may undo the ruling only while nothing
+        // durable depends on it. Decided here, under the dispute lock and the escrow lock: a dispatch that already
+        // exists (C4's or an initiate-*'s round, proven to be exactly this ruling's, or a committed economic
+        // authorization) means the dispatch is done - the ruling and its Outcome stand and the call succeeds; a
+        // divergent round of this generation keeps the ruling and is refused with the reasons.
+        const decision = await decideRulingRevert(tx, { escrowId: dispute.escrowId, disputeId: dispute.id, appealRound: dispute.appealRound, authoritySignature }, {
+          escrowId: dispute.escrowId,
+          escrowType: 'MULTISIG',
+          kind: payload.outcome === 'RELEASE' ? 'release' : payload.outcome === 'REFUND' ? 'refund' : 'split',
+          triggeredBy: payload.authorityId,
+          toAddress: (payload.outcome === 'REFUND' ? commitResult.destinations.find((d) => d.beneficiary === sellerId) : commitResult.destinations.find((d) => d.beneficiary === buyerId))?.destination ?? null,
+          toAddressSecondary: payload.outcome === 'SPLIT' ? (commitResult.destinations.find((d) => d.beneficiary === sellerId)?.destination ?? null) : null,
+          buyerBps: payload.outcome === 'SPLIT' ? (payload.buyerBps ?? null) : null,
+        })
+        if (decision.action === 'ADOPT') {
+          resolution.adopted = true
+          return
+        }
         if (decision.action === 'PRESERVE') {
-          revert.preserved = true
+          resolution.refusal = decision.error
           return
         }
 
@@ -779,7 +792,8 @@ export class DisputeService {
         })
         await revertDisputeRulingRecord(dispute.escrowId, dispute.appealRound, tx)
       })
-      throw err
+      if (resolution.refusal) throw resolution.refusal
+      if (!resolution.adopted) throw err
     }
 
     await eventBus.emit('dispute.resolved', {
