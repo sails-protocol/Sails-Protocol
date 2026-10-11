@@ -13,14 +13,14 @@
  * escrow, (b) belong to an escrow with a RESOLVED Dispute (the durable
  * signal that `applyRulingCoreAuthoritative()`'s own commit path, not
  * some other flow, is what created it), and (c) have ZERO signatures
- * collected — a necessary but NOT sufficient condition for deletion.
- * A matching durable Core-authoritative Outcome, live ruling generation,
- * and absence of a committed economic disposition are also mandatory.
+ * collected — a necessary but NOT sufficient condition for deletion:
+ * the exact ruling generation, its durable Outcome and the absence of a
+ * committed economic disposition are re-proven under the dispute and
+ * escrow locks as well (deletePendingRoundIfStillUnsigned()).
  * `escrow-pending-tx.ts`'s own
  * `submitTransactionSignature()` is the ONLY code path that can ever
  * move funds for a signature-collection escrow, and it structurally
  * cannot have run yet if no required signer has submitted anything.
- * This does not authorize cleanup without the independent authority checks.
  *
  * WHY RE-RUNNING THE GUARD IS SAFE AND CONCLUSIVE (never a guess): the
  * translation guard (`dispatch-translation-guard.ts`,
@@ -49,7 +49,6 @@ import { prisma } from '../../common/database'
 import { config } from '../../config'
 import { networkFor } from './multisig.provider'
 import { loadDisputeRulingRecord, fromDisputeRulingRow } from './dispute-outcome'
-import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from './discretionary-authority'
 import { economicDispositionLockKey } from './economic-disposition-authority'
 import { validateTranslatedOutputsAgainstOutcome } from './dispatch-translation-guard'
 import { childLogger } from '../../common/logger'
@@ -72,16 +71,18 @@ export interface StalePendingReconciliationReport {
   failed: Array<{ escrowId: string; error: string }>
 }
 
-export type StalePendingDeleteResult = 'DELETED' | 'SIGNED_MEANWHILE' | 'ALREADY_GONE'
+export type StalePendingDeleteResult =
+  | 'DELETED'
+  | 'SIGNED_MEANWHILE'
+  | 'ALREADY_GONE'
+  | 'PROVENANCE_REJECTED'
+  /** ST-1 - no durable Core-authoritative Outcome (or one without content): authority cannot be proven, nothing is deleted. */
+  | 'OUTCOME_ABSENT'
+  /** ST-1 - an Outcome exists but is not a RESOLVED transition for THIS ruling: inconsistent durable state, nothing is deleted. */
+  | 'OUTCOME_MISMATCH'
+  /** The round, re-validated against its own durable Outcome under the locks, is a legitimate pending round. */
+  | 'GUARD_PASSED'
 
-/**
- * Issue #244 / ST-1 - the only deletion entrypoint. The snapshot never authorizes deletion.
- * The transaction acquires the economic-disposition advisory lock D before the signer/escrow
- * advisory lock E, rechecks the exact ruling generation and immutable Outcome, verifies no
- * economic authorization was committed, then conditionally deletes only a still-unsigned round.
- * A signature committed first preserves the round; a signer arriving after an authorized delete
- * finds no pending round and must reject without persisting an orphan signature.
- */
 type PendingGeneration = {
   disputeId: string
   rulingAppealRound: number
@@ -105,20 +106,39 @@ function recordedGeneration(pending: {
   return pending as PendingGeneration
 }
 
+// A lock wait is bounded: the sweep must never hang behind a stalled transaction on the dispute or escrow lock.
+// A timed-out attempt is reported as failed and retried by the next sweep; nothing was deleted.
+const CLEANUP_LOCK_TIMEOUT_MS = 3000
+
+/**
+ * Issues #244 / ST-1 - the only way this module deletes a pending round. The candidate snapshot never
+ * authorizes the delete by itself. The decision is taken inside ONE transaction, after the same two advisory
+ * locks - always in this order - that every other writer of this authority graph takes:
+ *
+ *   1. D, `economic-disposition:<disputeId>` - the lock appeal() and the Outcome commit hold, so the dispute's
+ *      authority cannot move while this decision is taken (ADR-005 s3).
+ *   2. E, `hashtext(escrowId)` - withEscrowFundingLock(), the lock submitTransactionSignature() holds while it
+ *      accepts a signature, so no signature can be accepted into this round until this transaction ends.
+ *
+ * Under both it re-proves, from durable state only: the exact pending round (id + escrow) still exists with
+ * zero signatures; it is still exactly the recorded ruling generation; the dispute is still RESOLVED for that
+ * generation (the dispute row is read FOR UPDATE); no committed Economic Disposition Authorization names it;
+ * the generation's own durable Outcome still exists; and the translation guard, re-run on the stored PSBT,
+ * still rejects it. Any step that cannot be proven fails closed - nothing is deleted - and the delete itself is
+ * conditional on the same generation and on zero signatures.
+ */
 export async function deletePendingRoundIfStillUnsigned(
   pendingTransactionId: string,
   escrowId: string,
   generation?: PendingGeneration,
-): Promise<StalePendingDeleteResult | 'PROVENANCE_REJECTED'> {
+): Promise<StalePendingDeleteResult> {
   // Legacy callers cannot authorize deletion from a bare pending ID.
   if (!generation) return 'PROVENANCE_REJECTED'
   return prisma.$transaction(async (tx) => {
-    // Economic disposition first, escrow signer lock second: D -> E.
-    // Hold both through generation, Outcome, authorization and conditional delete.
-    const dispositionKey = economicDispositionLockKey(generation.disputeId)
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dispositionKey})::bigint)`
+    await tx.$executeRaw`SELECT set_config('lock_timeout', ${String(CLEANUP_LOCK_TIMEOUT_MS)}, true)`
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(generation.disputeId)})::bigint)`
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
-    // Re-read the operation AND live dispute under the same lock used by signers.
+
     const pending = await tx.escrowPendingTransaction.findUnique({
       where: { id: pendingTransactionId },
       include: { signatures: true },
@@ -136,7 +156,12 @@ export async function deletePendingRoundIfStillUnsigned(
         current.rulingAuthorityIssuedAt.getTime() !== generation.rulingAuthorityIssuedAt.getTime()) {
       return 'PROVENANCE_REJECTED'
     }
-    const dispute = await tx.dispute.findUnique({ where: { id: generation.disputeId } })
+
+    const [dispute] = await tx.$queryRaw<Array<{
+      escrowId: string; status: string; appealRound: number; arbiterId: string | null; ruling: string | null
+      authoritySignature: string | null; authorityIssuedAt: Date | null
+    }>>`SELECT "escrowId", status::text AS status, "appealRound", "arbiterId", ruling::text AS ruling, "authoritySignature", "authorityIssuedAt"
+        FROM disputes WHERE id = ${generation.disputeId} FOR UPDATE`
     if (!dispute || dispute.escrowId !== escrowId ||
         dispute.status !== 'RESOLVED' ||
         dispute.appealRound !== generation.rulingAppealRound ||
@@ -147,22 +172,24 @@ export async function deletePendingRoundIfStillUnsigned(
         dispute.authorityIssuedAt.getTime() !== generation.rulingAuthorityIssuedAt.getTime()) {
       return 'PROVENANCE_REJECTED'
     }
-    const durableOutcome = await tx.semanticTransitionRecord.findUnique({
-      where: { interactionId_transitionType_appealRound: {
-        interactionId: escrowId,
-        transitionType: ESCROW_DISPUTE_RULING_TRANSITION_TYPE,
-        appealRound: generation.rulingAppealRound,
-      } },
-    })
-    // Existence alone is insufficient: the immutable record must describe this ruling.
-    const content = durableOutcome?.outcomeContent
-    if (!content || typeof content !== 'object' || Array.isArray(content) ||
-        !('ruling' in content) || content.ruling !== generation.rulingOutcome ||
-        durableOutcome?.toState !== 'RESOLVED') return 'PROVENANCE_REJECTED'
     const committed = await tx.economicDispositionAuthorization.findUnique({
       where: { pendingOperationId: pendingTransactionId },
     })
     if (committed) return 'PROVENANCE_REJECTED'
+
+    // The Outcome and the guard are re-evaluated HERE, under the locks, from durable state: a verdict taken
+    // from the candidate snapshot is only a nomination.
+    const row = await loadDisputeRulingRecord(escrowId, generation.rulingAppealRound, tx)
+    if (!row || !row.outcomeContent) return 'OUTCOME_ABSENT'
+    // Existence is not enough: the immutable record must be the RESOLVED transition of this very ruling.
+    const content = row.outcomeContent as { ruling?: unknown } | null
+    if (row.toState !== 'RESOLVED' || typeof content !== 'object' || content === null || Array.isArray(content) ||
+        content.ruling !== generation.rulingOutcome) return 'OUTCOME_MISMATCH'
+    const record = fromDisputeRulingRow(row)
+    if (!record.outcome) return 'OUTCOME_ABSENT'
+    const verdict = validateTranslatedOutputsAgainstOutcome(pending.unsignedPsbtBase64, record.outcome, networkFor(config.multisig.network))
+    if (verdict.ok) return 'GUARD_PASSED'
+
     const { count } = await tx.escrowPendingTransaction.deleteMany({
       where: {
         id: pendingTransactionId, escrowId, signatures: { none: {} },
@@ -174,7 +201,10 @@ export async function deletePendingRoundIfStillUnsigned(
         rulingAuthorityIssuedAt: generation.rulingAuthorityIssuedAt,
       },
     })
-    if (count === 1) return 'DELETED'
+    if (count === 1) {
+      log.error({ msg: 'M9: stale pending transaction failed re-validation against its own durable Outcome - deleted (zero signatures, generation and authority re-proven under the dispute and escrow locks)', escrowId, mismatches: verdict.mismatches })
+      return 'DELETED'
+    }
     const stillThere = await tx.escrowPendingTransaction.findUnique({ where: { id: pendingTransactionId }, select: { id: true } })
     return stillThere ? 'SIGNED_MEANWHILE' : 'ALREADY_GONE'
   })
@@ -193,28 +223,10 @@ export async function deletePendingRoundIfStillUnsigned(
 export async function reconcileStalePendingDisputeTranslations(): Promise<StalePendingReconciliationReport> {
   const report: StalePendingReconciliationReport = { reconciled: [], skippedTooYoung: [], skippedHasSignatures: [], alreadyCleaned: [], failed: [] }
 
-  // #244 - a delete the snapshot below decided on is reported by what the lock-protected re-check found.
-  const deleteUnlessSigned = async (pending: { id: string; escrowId: string } & Parameters<typeof recordedGeneration>[0], verdict: 'DELETED_GUARD_FAILED'): Promise<boolean> => {
-    const generation = recordedGeneration(pending)
-    if (!generation) {
-      report.failed.push({ escrowId: pending.escrowId, error: 'missing or ambiguous pending ruling provenance; refusing cleanup' })
-      return false
-    }
-    const outcome = await deletePendingRoundIfStillUnsigned(pending.id, pending.escrowId, generation)
-    if (outcome === 'DELETED') {
-      report.reconciled.push({ escrowId: pending.escrowId, pendingTransactionId: pending.id, verdict })
-      return true
-    }
-    if (outcome === 'PROVENANCE_REJECTED') report.failed.push({ escrowId: pending.escrowId, error: 'pending ruling generation no longer authorizes cleanup' })
-    else if (outcome === 'SIGNED_MEANWHILE') report.skippedHasSignatures.push(pending.escrowId)
-    else report.alreadyCleaned.push(pending.escrowId)
-    return false
-  }
-
   // Candidates: any pending row for a MULTISIG escrow with a RESOLVED
   // dispute. Signature count and age are checked per-row below (cheaper
   // to express precisely in code than in a single complex query, and
-  // this table is never large — one row per escrow, at most).
+  // this table is never large - one row per escrow, at most).
   const candidates = await prisma.escrowPendingTransaction.findMany({
     where: { escrow: { type: 'MULTISIG', disputes: { some: { status: 'RESOLVED' } } } },
     include: { signatures: true, escrow: true },
@@ -237,54 +249,34 @@ export async function reconcileStalePendingDisputeTranslations(): Promise<StaleP
         report.failed.push({ escrowId: pending.escrowId, error: 'missing or ambiguous pending ruling provenance; refusing cleanup' })
         continue
       }
-      const dispute = await prisma.dispute.findFirst({
-        where: { id: generation.disputeId, escrowId: pending.escrowId, status: 'RESOLVED',
-          appealRound: generation.rulingAppealRound, arbiterId: generation.rulingArbiterId,
-          ruling: generation.rulingOutcome as typeof pending.rulingOutcome,
-          authoritySignature: generation.rulingAuthoritySignature,
-          authorityIssuedAt: generation.rulingAuthorityIssuedAt },
-      })
-      if (!dispute) {
-        // Structurally shouldn't happen (the candidate query itself
-        // requires one) — a genuine anomaly if it does. Fail closed,
-        // never delete on an assumption.
-        report.failed.push({ escrowId: pending.escrowId, error: 'candidate query matched but no RESOLVED dispute found on re-check' })
-        continue
-      }
 
-      const row = await loadDisputeRulingRecord(pending.escrowId, generation.rulingAppealRound)
-      if (!row || !row.outcomeContent) {
-        // No immutable Outcome means no deletion authority, regardless of signatures.
-        report.failed.push({ escrowId: pending.escrowId, error: 'missing durable Core-authoritative Outcome; refusing cleanup' })
-        log.error({ msg: 'M9: missing durable Outcome; pending preserved for investigation', escrowId: pending.escrowId })
-        continue
-      }
-
-      // Scan-time semantic consistency is only a filter; the D→E transaction
-      // independently rechecks live authority before any destructive effect.
-      const rowContent = row.outcomeContent
-      if (row.toState !== 'RESOLVED' ||
-          typeof rowContent !== 'object' || Array.isArray(rowContent) ||
-          !('ruling' in rowContent) || rowContent.ruling !== generation.rulingOutcome) {
-        report.failed.push({ escrowId: pending.escrowId, error: 'durable Outcome does not match pending ruling generation; refusing cleanup' })
-        continue
-      }
-
-      const record = fromDisputeRulingRow(row)
-      if (!record.outcome) {
-        report.failed.push({ escrowId: pending.escrowId, error: 'durable record has no Outcome despite outcomeContent being present' })
-        continue
-      }
-
-      const network = networkFor(config.multisig.network)
-      const result = validateTranslatedOutputsAgainstOutcome(pending.unsignedPsbtBase64, record.outcome, network)
-
-      if (result.ok) {
-        report.reconciled.push({ escrowId: pending.escrowId, pendingTransactionId: pending.id, verdict: 'LEFT_GUARD_PASSED' })
-      } else {
-        if (await deleteUnlessSigned(pending, 'DELETED_GUARD_FAILED')) {
-          log.error({ msg: 'M9: stale pending transaction failed re-validation against its own durable Outcome — deleted (zero signatures, no fund-movement risk)', escrowId: pending.escrowId, mismatches: result.mismatches })
-        }
+      // Everything above is the snapshot: it nominates. The decision - generation, dispute, Outcome, guard,
+      // signatures - is taken inside deletePendingRoundIfStillUnsigned(), under the dispute and escrow locks.
+      const result = await deletePendingRoundIfStillUnsigned(pending.id, pending.escrowId, generation)
+      switch (result) {
+        case 'DELETED':
+          report.reconciled.push({ escrowId: pending.escrowId, pendingTransactionId: pending.id, verdict: 'DELETED_GUARD_FAILED' })
+          break
+        case 'GUARD_PASSED':
+          report.reconciled.push({ escrowId: pending.escrowId, pendingTransactionId: pending.id, verdict: 'LEFT_GUARD_PASSED' })
+          break
+        case 'SIGNED_MEANWHILE':
+          report.skippedHasSignatures.push(pending.escrowId)
+          break
+        case 'ALREADY_GONE':
+          report.alreadyCleaned.push(pending.escrowId)
+          break
+        case 'OUTCOME_ABSENT':
+          // Fail closed. A pending round whose own durable Outcome cannot be read is not provably stale; it is
+          // reported and left for a human, never deleted on an assumption.
+          report.failed.push({ escrowId: pending.escrowId, error: 'no durable Core-authoritative Outcome for the pending ruling generation; refusing cleanup' })
+          break
+        case 'OUTCOME_MISMATCH':
+          report.failed.push({ escrowId: pending.escrowId, error: 'durable Outcome does not match pending ruling generation; refusing cleanup' })
+          break
+        case 'PROVENANCE_REJECTED':
+          report.failed.push({ escrowId: pending.escrowId, error: 'pending ruling generation no longer authorizes cleanup' })
+          break
       }
     } catch (err) {
       report.failed.push({ escrowId: pending.escrowId, error: err instanceof Error ? err.message : String(err) })
