@@ -114,3 +114,7 @@ Commit `2f7b9a39e7ab0a9d13d91d28e14ccb08deaa1732` replaces historical T3/T3b/T4/
 ## ST1-H/I PostgreSQL regressions (UNEXECUTED)
 
 `183a6d2d24ef0189e8e56095eca9dd8a969378b6` adds real-Postgres tests (not yet run) that mutate the Dispute's live authority issuance timestamp and attempt cleanup using a different escrow ID. Both must reject with the original and unrelated pending rounds preserved. These are negative synthetic fixture tests, not real authority issuance, production appeal/reversal or positive deletion evidence. Do not infer execution success or FREEZE.
+
+## ST-1 exact authority issuance scan predicate (UNEXECUTED)
+
+`cec69db4e0be8d938e4ed805621d032dcb91161c` asserts that scan-time `dispute.findFirst` includes `authorityIssuedAt` equal to the pending ruling generation, and does not load Outcome or delete after a failed re-check. Production `commitAuthoritativeDisputeRuling` writes this field from `new Date(payload.issuedAt)`. This is mocked negative coverage only. CI and real-Postgres authority positive/appeal/reversal evidence are still absent. No approval or FREEZE.
