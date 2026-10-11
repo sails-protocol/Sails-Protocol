@@ -98,3 +98,7 @@ Commit `2f7b9a39e7ab0a9d13d91d28e14ccb08deaa1732` replaces historical T3/T3b/T4/
 ## ST-1 fixture issuance and malformed record guards (UNEXECUTED)
 
 `c2abacac74b80ed3d981aa6a90df295dbb3ef32f` aligns the synthetic PostgreSQL fixture's Dispute `authorityIssuedAt` with the pending generation (previously only `resolvedAt` was set, making the newer authority-time revalidation reject even before checking missing Outcome). This fixture remains deliberately without a durable Outcome and is not positive deletion proof. `fd1ff39350107475d869d4550463d4b21da4ef6f` adds unit guards for a non-RESOLVED transition and malformed JSON without a ruling. All are unexecuted. An actual signed and attributed authority decision, production appeal/reversal interleavings, crash/replay and exact-HEAD CI remain required before READY or FREEZE.
+
+## ST-1 stale documentation corrected and mocked positive branch (UNEXECUTED)
+
+`c4f5f168294a53717c63d3a197fa90cfc3e85030` removes the unsafe historical assertion that zero signatures alone authorizes unconditional deletion, explicitly documenting D→E, immutable Outcome, generation and economic authorization checks. `a3651b0d4fd5291b9363eecb39731e19dbba1b62` adds a unit-level positive-branch assertion using a mocked terminal Outcome, not a real economic authority or Postgres proof. Neither test nor build was executed. A real attributed signature, production-created SemanticTransitionRecord and N/N+1, reversal, crash/replay, `40P01`/`25P02` and exact-HEAD CI remain open. This branch must remain BLOCKED, with no READY/FREEZE.
