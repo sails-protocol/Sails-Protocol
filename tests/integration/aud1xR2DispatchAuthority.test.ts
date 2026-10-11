@@ -45,6 +45,8 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
   let loadDisputeRulingRecord: (escrowId: string, round: number) => Promise<any>
   let submitTransactionSignature: (escrowId: string, participantId: string, signedPsbtBase64: string) => Promise<any>
   let reconcileMissingDispatch: () => Promise<any>
+  let reconcilePendingSettlements: (options?: { projectionGraceMs?: number }) => Promise<any>
+  let economicDispositionOperationDigest: (pending: any) => string
   let authorizeDisputedPendingExecution: (pending: any) => Promise<any>
   let loadParticipantPubkeys: (escrowId: string) => Promise<any>
   let escrowRepository: any
@@ -80,7 +82,8 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     ;({ commitAuthoritativeDisputeRuling, loadDisputeRulingRecord } = require('../../src/modules/open-settlement/dispute-outcome'))
     ;({ submitTransactionSignature } = require('../../src/modules/open-settlement/escrow-pending-tx'))
     ;({ reconcileMissingDispatch } = require('../../src/modules/open-settlement/dispute-dispatch-recovery'))
-    ;({ authorizeDisputedPendingExecution } = require('../../src/modules/open-settlement/economic-disposition-authority'))
+    ;({ authorizeDisputedPendingExecution, economicDispositionOperationDigest } = require('../../src/modules/open-settlement/economic-disposition-authority'))
+    ;({ reconcilePendingSettlements } = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service'))
     ;({ loadParticipantPubkeys } = require('../../src/modules/open-settlement/escrow-lifecycle'))
     ;({ escrowRepository } = require('../../src/modules/open-settlement/escrow-repository'))
     ;({ multisigProvider } = require('../../src/modules/open-settlement/multisig.provider'))
@@ -603,5 +606,75 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     expect(!refused.ok && refused.error).toMatch(/Invalid escrow transition/)
     expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: o.escrowId } })).toBe(1) // not 2
     expect(broadcasts).toHaveLength(1)
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+  // AR-05 - PASS 1 produces the arbiter signature only under an authorization that still describes its round
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+  /** PASS 1 (and every pass after it) until this escrow has been visited; what was reported about it is returned. */
+  async function runPass1Until(o: Opened) {
+    const manualReview: any[] = []
+    for (let i = 0; i < 80; i++) {
+      const report = await reconcilePendingSettlements({ projectionGraceMs: 50 * 365 * 24 * 3600 * 1000 })
+      manualReview.push(...(report.requiresManualReview ?? []).filter((r: any) => r.escrowId === o.escrowId))
+      const row = await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId }, select: { settlementRecoveryAttemptedAt: true } })
+      if (row.settlementRecoveryAttemptedAt) break
+    }
+    return { manualReview }
+  }
+
+  /** A terminal escrow whose claim happened and whose broadcast never did: the shape PASS 1 exists for. */
+  async function terminalWithoutBroadcast(label: string) {
+    const o = await openedDispute(label)
+    await resolve(o, 'RELEASE')()
+    const round = await roundOf(o)
+    await prisma.escrowTransactionSignature.create({ data: { pendingTxId: round.id, participantId: o.buyerId, signedPsbtBase64: sign(round.unsignedPsbtBase64, buyerKey) } })
+    await prisma.escrow.update({ where: { id: o.escrowId }, data: { status: 'COMPLETED' } }) // FAULT INJECTION: claimed, then the process died
+    chain(o.txid)
+    return { o, round }
+  }
+
+  it('AR-05 control: under the authorization the gate committed for the round, PASS 1 still completes the recovery (one broadcast, valid witness)', async () => {
+    const { o, round } = await terminalWithoutBroadcast('a5-control')
+    await authorizeDisputedPendingExecution(round)
+
+    await runPass1Until(o)
+
+    expect(broadcasts).toHaveLength(1)
+    await verifyBroadcastWitness(o, pubHex(buyerKey))
+    expect(paidTo()[0]).toEqual([o.buyerDestination])
+  })
+
+  it('AR-05 an authorization committed for a CONTRADICTING ruling (the shape the pre-AUD-1 gate could leave) is never a means to sign: manual review, no broadcast', async () => {
+    const { o, round } = await terminalWithoutBroadcast('a5-contradicting')
+    // FAULT INJECTION: an authorization whose ruling contradicts the round it names, digest otherwise genuine
+    await prisma.economicDispositionAuthorization.create({
+      data: {
+        pendingOperationId: round.id, escrowId: o.escrowId, disputeId: o.disputeId, appealRound: 0, arbiterId: o.arbiterId,
+        ruling: 'REFUND', operationDigest: economicDispositionOperationDigest(round),
+      },
+    })
+
+    const seen = await runPass1Until(o)
+
+    expect(broadcasts).toHaveLength(0)
+    expect(JSON.stringify(seen.manualReview)).toMatch(/no execution authorization supplied the arbiter signature/)
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })).txReleaseId).toBeNull()
+  })
+
+  it('AR-05 an authorization whose digest does not describe this round is not a means to sign either', async () => {
+    const { o, round } = await terminalWithoutBroadcast('a5-digest')
+    await prisma.economicDispositionAuthorization.create({
+      data: {
+        pendingOperationId: round.id, escrowId: o.escrowId, disputeId: o.disputeId, appealRound: 0, arbiterId: o.arbiterId,
+        ruling: 'RELEASE', operationDigest: 'f'.repeat(64),
+      },
+    })
+
+    const seen = await runPass1Until(o)
+
+    expect(broadcasts).toHaveLength(0)
+    expect(JSON.stringify(seen.manualReview)).toMatch(/no execution authorization supplied the arbiter signature/)
   })
 })
