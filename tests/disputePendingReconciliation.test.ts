@@ -151,6 +151,20 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     expect(mockPendingDelete).not.toHaveBeenCalled()
   })
 
+  it('rejects scan-time authority issuance drift before loading the Outcome', async () => {
+    mockPendingFindMany.mockResolvedValue([pendingFixture()])
+    mockDisputeFindFirst.mockResolvedValue(null)
+    const report = await reconcileStalePendingDisputeTranslations()
+    expect(report.failed).toEqual([{ escrowId: 'escrow-1', error: 'candidate query matched but no RESOLVED dispute found on re-check' }])
+    expect(mockLoadDisputeRulingRecord).not.toHaveBeenCalled()
+    expect(mockPendingDelete).not.toHaveBeenCalled()
+    expect(mockDisputeFindFirst).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        authorityIssuedAt: new Date('2026-10-01T00:00:00Z'),
+      }),
+    })
+  })
+
   it('rejects scan-time Outcome ruling drift before translating or deleting', async () => {
     mockPendingFindMany.mockResolvedValue([pendingFixture()])
     mockLoadDisputeRulingRecord.mockResolvedValue({ outcomeContent: { ruling: 'REFUND' }, toState: 'RESOLVED' })
