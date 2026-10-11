@@ -110,3 +110,7 @@ Commit `2f7b9a39e7ab0a9d13d91d28e14ccb08deaa1732` replaces historical T3/T3b/T4/
 ## ST-1 scan-time authority consistency (UNEXECUTED)
 
 `ce140c437f53bcec04716d4148ea39e27e2e45d3` requires the scan's live RESOLVED Dispute to match the pending authority issuance timestamp, and requires the loaded immutable Outcome to match the pending ruling and terminal RESOLVED state before translation. This is defense in depth; only the D→E transactional revalidation authorizes destructive effects. `007854004bb8425e3aa59b3c864b1b4a679a7d34` adds mocked negative regressions for ruling mismatch and nonterminal record. Not run; no exact-head CI or real positive PostgreSQL authority proof. PR #343 remains BLOCKED.
+
+## ST1-H/I PostgreSQL regressions (UNEXECUTED)
+
+`183a6d2d24ef0189e8e56095eca9dd8a969378b6` adds real-Postgres tests (not yet run) that mutate the Dispute's live authority issuance timestamp and attempt cleanup using a different escrow ID. Both must reject with the original and unrelated pending rounds preserved. These are negative synthetic fixture tests, not real authority issuance, production appeal/reversal or positive deletion evidence. Do not infer execution success or FREEZE.
