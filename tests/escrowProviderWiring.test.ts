@@ -43,6 +43,14 @@ jest.mock('../src/config', () => ({
   },
 }))
 
+// AUD-1 - the disputed-round binding (disputed-outcome-binding.ts) is proven on its own: tests/disputedOutcomeBinding.test.ts
+// (unit) and tests/integration/disputedOutcomeBinding.test.ts (PostgreSQL, production paths). Here a PSBT STRING stands
+// in for a round, so it is stubbed to the one fact this file is about: the call is made.
+const mockAssertRoundBound = jest.fn().mockResolvedValue(undefined)
+jest.mock('../src/modules/open-settlement/disputed-outcome-binding', () => ({
+  assertRoundBoundToDisputeAuthority: (...args: unknown[]) => mockAssertRoundBound(...args),
+}))
+
 jest.mock('@tetherto/wdk-wallet-evm', () => ({
   __esModule: true,
   default: class FakeWalletManagerEvm {},

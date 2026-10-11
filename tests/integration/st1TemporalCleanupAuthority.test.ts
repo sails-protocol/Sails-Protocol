@@ -714,9 +714,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
   it('V2 a committed Economic Disposition Authorization names the round: the cleanup never deletes it, before or after an appeal', async () => {
     const o = await openedDispute('v2')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    // The production gate commits the authorization of the legitimate round (AUD-1: it refuses one that contradicts
+    // its Outcome); only then does the round become stale.
+    await authorizeDisputedPendingExecution(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } }))
     await stale(pending.id, o)
-    const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
-    await authorizeDisputedPendingExecution(row) // the production gate commits the authorization
     expect(await edaCount(o)).toBe(1)
 
     expect(await decide(pending.id, o.escrowId, await generationOf(pending.id))).toBe('PROVENANCE_REJECTED')

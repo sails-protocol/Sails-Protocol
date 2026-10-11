@@ -19,6 +19,34 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **AUD-1 — a signed, durable dispute Outcome is binding economic authority (disputed disposition binding).**
+  - **Found by the ST-1 independent audit (probes P3 / P3b), reproduced on real PostgreSQL:** the assigned arbiter,
+    holding only a session, could start a REFUND round on an escrow whose current signed ruling was RELEASE
+    (`initiate-refund` checked the arbiter's identity, not the ruling). Every later step - signature, ADR-005 gate,
+    finalization, broadcast - compared only the ruling GENERATION, never what the round does. The seller's
+    signature then executed it (escrow REFUNDED, paid to the seller). Reachable in the C4 window (Outcome committed,
+    round not yet persisted) and right after the ST-1 cleanup deleted a stale round.
+  - **Fix - one shared validator, `disputed-outcome-binding.ts`, called at both boundaries:**
+    - *Construction* (`initiateSignatureCollectionCore`, before a round is persisted): a round that contradicts the
+      signed ruling is never stored (it would otherwise also occupy the escrow's one pending slot).
+    - *Execution* (the ADR-005 gate, inside its dispute-locked transaction, before any claim or provider call - the
+      live finalization and the C8 recovery both pass through it): the stored round is re-judged against the live
+      ruling and the durable Outcome, independently of construction. The reuse of an already committed
+      authorization is judged too, so an authorization committed by earlier code is not a way around it.
+    - *What is bound* (existing authority only): every rail - the round's kind is the ruling's kind, the round
+      carries the dispute's ruling, a SPLIT round carries the ruling's signed buyer share, the dispute is the
+      escrow's own, and the ruling is RESOLVED; MULTISIG (the only rail that commits a durable Outcome) - the Outcome
+      of that appeal round exists, is the RESOLVED transition of that ruling, and the stored transaction pays
+      exactly its destinations and amounts, through the same translation guard the live dispatch and C4 use.
+    - Fails closed; nothing is persisted, authorized, claimed or broadcast on a refusal.
+  - **Not changed:** the Outcome's definition, settlement or fee policy, lock order (the gate takes the same dispute
+    lock; the lock-key function moved to a leaf module only to avoid an import cycle), signature semantics,
+    committed authorizations and idempotency. Convergence to a transaction already on the network (C8 / PASS 1)
+    stays ungated by design: it records an effect that already happened.
+  - **Residual, stated:** LIGHTNING_HODL / SAFE_GUARD_EVM commit no durable Outcome, so only the kind / ruling / bps
+    binding applies to them; a MULTISIG round persisted by earlier code with no Outcome now fails closed at
+    execution (nothing to execute against). Tests: `tests/disputedOutcomeBinding.test.ts` (unit, structural) and
+    `tests/integration/disputedOutcomeBinding.test.ts` (18 real-PostgreSQL scenarios with economic-effect counts).
 - **#235 R7H-E3 — seller authorization, PaymentAccount binding and payment-method reconciliation of escrow creation.**
   - **Seller only:** only the trade's seller creates its escrow (`escrow.service.ts` `createEscrow`). The caller is
     the authenticated session, or the DB-derived `trade.sellerId` for internal callers; a payload field never

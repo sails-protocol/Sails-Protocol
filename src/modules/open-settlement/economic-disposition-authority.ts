@@ -56,6 +56,10 @@ import { createHash } from 'crypto'
 import { prisma } from '../../common/database'
 import { EscrowError } from '../../common/errors'
 import { isCompleteBilateralIntent } from './pending-round-supersession'
+import { economicDispositionLockKey } from './economic-disposition-lock'
+import { assertRoundBoundToDisputeAuthority } from './disputed-outcome-binding'
+
+export { economicDispositionLockKey }
 
 type DisputedPendingFacts = {
   id: string
@@ -76,10 +80,6 @@ type DisputedPendingFacts = {
   rulingOutcome: string | null
   rulingAuthoritySignature: string | null
   rulingAuthorityIssuedAt: Date | null
-}
-
-export function economicDispositionLockKey(disputeId: string): string {
-  return `economic-disposition:${disputeId}`
 }
 
 /**
@@ -118,6 +118,29 @@ export function economicDispositionOperationDigest(pending: DisputedPendingFacts
     rulingAuthorityIssuedAt: pending.rulingAuthorityIssuedAt ? pending.rulingAuthorityIssuedAt.toISOString() : null,
   })
   return createHash('sha256').update(canonical).digest('hex')
+}
+
+/** AUD-1: the stored round, judged against the ruling facts given, through the transaction that holds the dispute lock. */
+async function assertBound(
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  pending: DisputedPendingFacts,
+  dispute: { id: string; escrowId: string; status: string; ruling: string | null; authorityBuyerBps: number | null },
+): Promise<void> {
+  const escrowRow = await tx.escrow.findUnique({ where: { id: pending.escrowId }, select: { type: true } })
+  if (!escrowRow) {
+    throw new EscrowError(`Escrow ${pending.escrowId} not found while committing economic disposition authority for pending operation ${pending.id}`)
+  }
+  await assertRoundBoundToDisputeAuthority(tx, {
+    escrowId: pending.escrowId,
+    escrowType: escrowRow.type,
+    kind: pending.kind,
+    unsignedPsbtBase64: pending.unsignedPsbtBase64,
+    minerFeeSats: pending.minerFeeSats,
+    buyerBps: pending.buyerBps,
+    disputeId: pending.disputeId,
+    rulingAppealRound: pending.rulingAppealRound,
+    rulingOutcome: pending.rulingOutcome,
+  }, dispute)
 }
 
 export async function authorizeDisputedPendingExecution(pending: DisputedPendingFacts) {
@@ -175,6 +198,13 @@ export async function authorizeDisputedPendingExecution(pending: DisputedPending
           `Pending operation ${pending.id} no longer matches its committed economic disposition authorization`
         )
       }
+      // AUD-1 - a committed authorization is an authorization to execute THIS operation, not proof that the operation
+      // is what the ruling decided: an authorization committed by earlier code for a round that contradicts its ruling
+      // must not become a way around the binding. The generation recorded in the authorization is judged (the live
+      // dispute is deliberately not consulted, ADR-005 s4); its durable Outcome is immutable, so the verdict is stable.
+      await assertBound(tx, pending, {
+        id: existing.disputeId, escrowId: existing.escrowId, status: 'RESOLVED', ruling: existing.ruling, authorityBuyerBps: null,
+      })
       return existing
     }
 
@@ -205,6 +235,17 @@ export async function authorizeDisputedPendingExecution(pending: DisputedPending
         'pending operation whose Economic Disposition Authority has been superseded (ADR-005).'
       )
     }
+
+    // AUD-1 - a current generation is not enough: the round must also BE what that ruling decided (kind, SPLIT bps and,
+    // on MULTISIG, destinations and amounts of the durable Outcome). Judged here, under the dispute lock, from the
+    // stored round and the live ruling - never from construction having checked. See disputed-outcome-binding.ts.
+    await assertBound(tx, pending, {
+      id: currentDispute.id,
+      escrowId: currentDispute.escrowId,
+      status: currentDispute.status,
+      ruling: currentDispute.ruling,
+      authorityBuyerBps: currentDispute.authorityBuyerBps,
+    })
 
     return tx.economicDispositionAuthorization.create({
       data: {

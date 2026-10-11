@@ -846,7 +846,7 @@ export class EscrowService {
   // common/events/handlers.ts's reputation-outcome derivation never needs to re-query CURRENT (mutable,
   // appeal()-reinterpretable) Dispute state. Absent for every cooperative, non-disputed release.
   async releaseFunds(escrowId: string, toAddress: string | undefined, triggeredBy: string, disputeId?: string) {
-    const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
+    const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy, { kind: 'release' })
     assertDirectlyExecutable(escrow, 'release')
     assertEscrowTransition(escrow.status, 'COMPLETED')
     assertWdkOutboundCaller(escrow, 'release', [toAddress])
@@ -1032,7 +1032,7 @@ export class EscrowService {
 
   // Issue #254 - disputeId, same additive/optional shape and reason as releaseFunds()'s own comment above.
   async refundFunds(escrowId: string, triggeredBy: string, disputeId?: string) {
-    const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
+    const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy, { kind: 'refund' })
     assertDirectlyExecutable(escrow, 'refund')
     assertEscrowTransition(escrow.status, 'REFUNDED')
     // #235 R7G-F6B — DF2: a refund of a never-locked escrow must not become a second economic operation
@@ -1109,7 +1109,7 @@ export class EscrowService {
     if (!(buyerBps > 0 && buyerBps < 10000)) {
       throw new ValidationError('buyerBps must be strictly between 0 and 10000 for a real split — use release/refund for an all-or-nothing outcome')
     }
-    const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
+    const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy, { kind: 'split', buyerBps })
     assertDirectlyExecutable(escrow, 'split')
     assertEscrowTransition(escrow.status, 'SPLIT')
     assertWdkOutboundCaller(escrow, 'split', [buyerAddress, sellerAddress])
