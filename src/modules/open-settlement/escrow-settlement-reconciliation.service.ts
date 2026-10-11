@@ -19,6 +19,20 @@ import { childLogger } from '../../common/logger'
 import { authorizePendingExecution } from './capability-execution-authorization'
 import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
 
+/**
+ * AUD1X-H1 - the arbiter identity of the Economic Disposition Authorization committed for this exact pending round,
+ * if the gate ever committed one. PASS 1 - the recovery of an escrow the live path ALREADY claimed into a terminal
+ * status after its gates - may complete a disputed round only under it: the authorization row is created by one
+ * place only (the ADR-005 gate, which also judges AUD-1's binding), is keyed by the round's immutable id, and a round
+ * persisted by earlier code carries its arbiter signature already (nothing to add). No authorization -> undefined ->
+ * the provider cannot sign. The correspondence catch-up deliberately does not use it (it needs outputs only).
+ */
+async function committedExecutionIdentity(round: { id: string; disputeId: string | null }): Promise<string | undefined> {
+  if (!round.disputeId) return undefined // a cooperative round has no arbiter and no authorization
+  const row = await prisma.economicDispositionAuthorization.findUnique({ where: { pendingOperationId: round.id }, select: { arbiterId: true } })
+  return row?.arbiterId
+}
+
 const log = childLogger('escrow-settlement-reconciliation')
 
 /**
@@ -393,10 +407,13 @@ export async function reconcileUnclaimedFullySignedPending(report: Reconciliatio
           pending.unsignedPsbtBase64,
           signedList as string[],
           async () => {
-            await authorizeDisputedPendingExecution(pending)
+            const economicAuthorization = await authorizeDisputedPendingExecution(pending)
             await authorizePendingExecution(pending)
             await claimEscrowTransition(escrow.id, escrow.status, targetStatus)
             claimedBeforeBroadcast = true
+            // AUD1X-H1 - the arbiter signature of a disputed round is produced only from the authorization this
+            // very gate pass committed or re-read, after the claim, immediately before the broadcast.
+            return economicAuthorization ? { arbiterExecutionIdentity: economicAuthorization.arbiterId } : undefined
           }
         )
       } catch (err) {
@@ -558,6 +575,9 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
     buyerPubkey, sellerPubkey, arbiterPubkey, multisigAddr: escrow.multisigAddr,
     txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
     status: escrow.status,
+    // AUD1X-H1 - recovery of a terminal escrow completes a disputed round only under an authorization the gate
+    // already committed for it (the claim that made the escrow terminal came after it). None -> no arbiter signature.
+    arbiterExecutionIdentity: await committedExecutionIdentity(pending),
   }
 
   const result = await multisigProvider.reconcilePendingSettlement(input, pending.unsignedPsbtBase64, signedList as string[])
@@ -1038,6 +1058,9 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
                 buyerPubkey, sellerPubkey, arbiterPubkey, multisigAddr: escrow.multisigAddr,
                 txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
                 status: escrow.status,
+                // AUD1X-H1 - no arbiterExecutionIdentity: this pass needs the transaction's OUTPUTS only. Without it
+                // the provider converges from the unsigned serialization (same txid, same outputs) and can never
+                // become the first broadcaster of a round from a pass that did not run the gate.
               },
               pendingForCorrespondence.unsignedPsbtBase64, signedList
             )

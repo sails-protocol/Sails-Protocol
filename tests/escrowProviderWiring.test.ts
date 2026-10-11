@@ -132,6 +132,8 @@ const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' }
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockTradeFindUnique = jest.fn()
 const mockDisputeFindFirst = jest.fn().mockResolvedValue(null)
+// AUD1X-H1 - the FOR UPDATE re-read of the dispute a disputed MULTISIG round is built under (the transaction's $queryRaw).
+let mockLockedDisputeRows: unknown[] = []
 const mockFeePolicyVersionFindMany = jest.fn().mockResolvedValue([])
 const mockParticipantKeyUpsert = jest.fn()
 const mockParticipantKeyFindMany = jest.fn()
@@ -219,7 +221,11 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     // The event store checks, in its publish transaction, whether the escrow transition already has a
     // durable event (one event per transition, migration 20260930130000); none has, here.
     // #235 R7H-E3 - the repository's binding check; the binding itself is proven on real PostgreSQL (escrowSellerPaymentBinding.test.ts).
-    $queryRaw: jest.fn(async (strings: TemplateStringsArray) => (strings.join('?').includes('escrow_economic_binding_violation') ? [{ violation: null, governed: mockBindingGoverned }] : [])),
+    $queryRaw: jest.fn(async (strings: TemplateStringsArray) => {
+      const sql = strings.join('?')
+      if (sql.includes('FROM disputes')) return mockLockedDisputeRows
+      return sql.includes('escrow_economic_binding_violation') ? [{ violation: null, governed: mockBindingGoverned }] : []
+    }),
   })
 )
 
@@ -1424,10 +1430,17 @@ describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT
 
   it('builds an unsigned split PSBT via the provider and persists both payout addresses', async () => {
     mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'DISPUTED' })
+    // AUD1X-H1 - a disputed MULTISIG round is built only for a RESOLVED, signed ruling (re-read under the locks).
+    const ruled = {
+      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', arbiterId: 'arbiter-1', status: 'RESOLVED', appealRound: 0,
+      ruling: 'SPLIT', authoritySignature: 'sig-0', authorityIssuedAt: new Date('2026-09-18T00:00:00.000Z'), authorityBuyerBps: 6000,
+    }
+    mockDisputeFindFirst.mockResolvedValue(ruled)
+    mockLockedDisputeRows = [ruled]
     // Real MultisigProvider.buildUnsignedSplit() only requires ONE more
-    // signer alongside the arbiter's pre-embedded one (still a 2-of-3
-    // script — see that method's own comment); mocked here as buyer-1,
-    // matching its real default pairing.
+    // signer alongside the platform arbiter's signature, added at execution
+    // since AUD1X-H1 (still a 2-of-3 script — see that method's own
+    // comment); mocked here as buyer-1, matching its real default pairing.
     mockBuildUnsignedSplit.mockResolvedValue({ psbtBase64: 'unsigned-split-psbt', requiredSigners: ['buyer-1'] })
     mockPendingTxCreate.mockResolvedValue({ id: 'ptx-3', escrowId: 'escrow-1', kind: 'split', requiredSigners: ['buyer-1'] })
 
@@ -1449,16 +1462,14 @@ describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT
         // this path (it wasn't stored anywhere before this pass).
         buyerBps: 6000,
         // ADR-005 / #218 — ruling-generation provenance snapshotted
-        // because this escrow is DISPUTED. mockDisputeFindFirst's own
-        // fixture above only sets {id, tradeId, arbiterId} — the other
-        // generation fields are genuinely undefined on that row, exactly
-        // as a real Dispute predating this ADR would report them.
+        // because this escrow is DISPUTED: the RESOLVED, signed ruling
+        // above (AUD1X-H1 - a disputed MULTISIG round exists only for one).
         disputeId: 'dispute-1',
-        rulingAppealRound: undefined,
+        rulingAppealRound: 0,
         rulingArbiterId: 'arbiter-1',
-        rulingOutcome: undefined,
-        rulingAuthoritySignature: undefined,
-        rulingAuthorityIssuedAt: undefined,
+        rulingOutcome: 'SPLIT',
+        rulingAuthoritySignature: 'sig-0',
+        rulingAuthorityIssuedAt: new Date('2026-09-18T00:00:00.000Z'),
       },
     })
     expect(result.id).toBe('ptx-3')

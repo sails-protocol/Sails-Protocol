@@ -265,8 +265,10 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
 
     const txid = createHash('sha256').update(escrow.id).digest('hex')
     await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'DISPUTED', txLockId: txid, txLockVout: 0 } })
+    // AUD1X-H1 - a disputed MULTISIG round is built only for a RESOLVED, signed ruling, so the fixture holds one
+    // (the identity-vs-commitment check below is reached after that gate, exactly as before it).
     await prisma.dispute.create({
-      data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'fixture', arbiterId: arbiterIdForDispute },
+      data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'fixture', arbiterId: arbiterIdForDispute, status: 'RESOLVED', ruling: 'RELEASE', resolvedAt: new Date(), appealRound: 0, authoritySignature: 'sig-fixture', authorityIssuedAt: new Date() },
     })
     return { escrow, buyer, seller, trade, txid }
   }
@@ -276,8 +278,13 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     const { escrow, buyer, txid } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
     mockExplorerFetch(txid)
 
-    const pending = await escrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)
-    expect(pending.requiredSigners).toEqual([buyer.id])
+    // AUD1X-H1 - the identity check passes (the provider builds the round); what stops the construction now is the
+    // ruling binding: this fixture's dispute is RESOLVED on paper but has no durable Core-authoritative Outcome, and
+    // a disputed MULTISIG round is persisted only against one. The full accepted path, with a real Outcome, a real
+    // signature and a real execution, is proved in tests/integration/aud1xBearerCapability.test.ts (B3).
+    await expect(escrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)).rejects.toThrow(/no durable Core-authoritative Outcome/)
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: escrow.id } })).toBeNull()
+    void buyer
   })
 
   it('2. wrong triggeredBy arbiter (assigned to the dispute, but not the identity baked into the script) -> rejected', async () => {
@@ -343,7 +350,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     })
     await prisma.escrowParticipantKey.create({ data: { escrowId: escrow.id, role: 'buyer', participantId: buyer.id, pubkey: buyerPubkeyHex } })
     await prisma.escrowParticipantKey.create({ data: { escrowId: escrow.id, role: 'seller', participantId: seller.id, pubkey: sellerPubkeyHex } })
-    await prisma.dispute.create({ data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'fixture', arbiterId: DEFAULT_ARBITER_ID } })
+    await prisma.dispute.create({ data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'fixture', arbiterId: DEFAULT_ARBITER_ID, status: 'RESOLVED', ruling: 'RELEASE', resolvedAt: new Date(), appealRound: 0, authoritySignature: 'sig-fixture', authorityIssuedAt: new Date() } })
 
     const arbiterRow = await prisma.escrowParticipantKey.findUnique({ where: { escrowId_role: { escrowId: escrow.id, role: 'arbiter' } } })
     expect(arbiterRow).toBeNull() // confirms this fixture is genuinely legacy-shaped

@@ -241,7 +241,9 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
       // this escrow's script (ARBITER_ID, matching TRUSTED_ARBITRATORS
       // set at the top of this file), and isSellerOrAssignedArbiter()
       // requires a real Dispute row naming that same arbiter.
-      await prisma.dispute.create({ data: { tradeId, escrowId, openedBy: buyerId, reason: 'test fixture', arbiterId: ARBITER_ID } })
+      // AUD1X-H1 - a disputed MULTISIG round is built only for a RESOLVED ruling; the funding-uncertainty
+      // re-check this test races is the first thing the locked write does after taking its locks.
+      await prisma.dispute.create({ data: { tradeId, escrowId, openedBy: buyerId, reason: 'test fixture', arbiterId: ARBITER_ID, status: 'RESOLVED', ruling: 'SPLIT', resolvedAt: new Date(), appealRound: 0, authoritySignature: 'sig-fixture', authorityIssuedAt: new Date() } })
 
       const reorgWrite = simulateEvidenceWriteUnderLock(escrowId, 'REORGED_INVALIDATED', 80)
       await tick(15)

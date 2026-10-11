@@ -13,6 +13,7 @@ import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../core/capab
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import { claimEscrowTransitionRecord, computeEscrowEventHash } from './escrow-transition-claim'
 import { assertDispositionMatchesRuling } from './disposition-ruling-binding'
+import { economicDispositionLockKey } from './economic-disposition-lock'
 
 /**
  * Sails OpenSettlement — Escrow lifecycle shared helpers
@@ -281,11 +282,21 @@ export async function assertFundingNotUncertain(escrowId: string, escrowType: st
 // adversarial "two workers, different escrows" test) — this is
 // deliberately NOT a global lock, matching the CTO's explicit
 // requirement that the mechanism stay scoped to the affected escrow.
+//
+// AUD1X-H1 - `disputeLockId`: a writer whose decision depends on a dispute's economic authority (the construction of
+// a disputed MULTISIG round) must read that authority under the dispute's own ADR-005 lock, or a ruling committed
+// between its snapshot and its write is not seen. Every holder of both locks in this code base takes the dispute's
+// (D) first and the escrow's (E) second - the ST-1 cleanup, the ruling-revert paths, the Outcome commit's record
+// write - so this takes them in that order, in one transaction, and nothing takes E then D: no cycle is possible.
 export async function withEscrowFundingLock<T>(
   escrowId: string,
-  fn: (tx: Prisma.TransactionClient) => Promise<T>
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  opts?: { disputeLockId?: string }
 ): Promise<T> {
   return prisma.$transaction(async (tx) => {
+    if (opts?.disputeLockId) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(opts.disputeLockId)})::bigint)`
+    }
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
     return fn(tx)
   })

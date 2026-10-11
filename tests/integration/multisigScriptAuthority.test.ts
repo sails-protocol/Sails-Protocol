@@ -500,7 +500,7 @@ describe('#235 R7G-B2A — MULTISIG script authority (real PostgreSQL, real cryp
     expect(await sigRows(pf.id)).toBe(1)
   })
 
-  it('S3/O: disputed release/SPLIT — the arbiter pre-signature over the frozen script validates; a buyer signature completes a VALID spend; a tampered arbiter signature blocks finalization before broadcast', async () => {
+  it('S3/O: disputed release/SPLIT — no arbiter signature in the round; the platform signs the frozen script at execution and a buyer signature completes a VALID spend; a round persisted before AUD1X-H1 (embedded signature) validates as-is; a tampered or client-injected arbiter signature is refused before broadcast', async () => {
     pg.requirePostgres('S3')
     const f = await locked('s3')
     const row = await escrowRow(f.e.id)
@@ -509,20 +509,37 @@ describe('#235 R7G-B2A — MULTISIG script authority (real PostgreSQL, real cryp
     for (const build of [() => multisigProvider.buildUnsignedRelease(input, payout('buyer')), () => multisigProvider.buildUnsignedSplit(input, payout('buyer'), payout('seller'), 4000)]) {
       const { psbtBase64, requiredSigners } = await build()
       expect(requiredSigners).toEqual([f.buyer.id])
+      // AUD1X-H1: the round carries NO arbiter signature (it used to be pre-embedded, a bearer capability)
+      expect(bitcoin.Psbt.fromBase64(psbtBase64, { network: NET }).data.inputs[0].partialSig ?? []).toHaveLength(0)
       const buyerSigned = signCopy(psbtBase64, f.keys.buyer)
-      expect(() => multisigProvider.validatePartialSignature(input, psbtBase64, buyerSigned, hex(f.keys.buyer))).not.toThrow() // S3: arbiter sig already in the round is accepted as-is
+      expect(() => multisigProvider.validatePartialSignature(input, psbtBase64, buyerSigned, hex(f.keys.buyer))).not.toThrow()
+      // Without an execution authorization the provider cannot complete it: 1 of 2.
+      const unsignedBefore = broadcasts.length
+      await expect(multisigProvider.finalizeRelease(input, psbtBase64, [buyerSigned])).rejects.toThrow(/failed to combine\/finalize/)
+      expect(broadcasts.length).toBe(unsignedBefore)
+      // With one (the arbiter of the authorization the gate committed) the platform signs the frozen script's round
+      // and the buyer's signature completes a VALID spend.
       const before = broadcasts.length
-      const done = await multisigProvider.finalizeRelease(input, psbtBase64, [buyerSigned])
+      const done = await multisigProvider.finalizeRelease({ ...input, arbiterExecutionIdentity: input.triggeredBy }, psbtBase64, [buyerSigned])
       expect(validateSpend(done.rawTxHex, f.addr).valid).toBe(true)
       expect(broadcasts.length).toBe(before + 1)
-      // A tampered pre-signature (arbiter key, wrong message) is caught at finalization, before broadcast.
-      const tampered = bitcoin.Psbt.fromBase64(psbtBase64, { network: NET })
-      const arb = tampered.data.inputs[0].partialSig![0]
-      const bad = bitcoin.Psbt.fromBase64(tampered.toBase64(), { network: NET })
+
+      // A round persisted BEFORE AUD1X-H1 embeds the arbiter signature: S3 - it validates as-is and finalizes unchanged.
+      const legacy = bitcoin.Psbt.fromBase64(psbtBase64, { network: NET })
+      legacy.signInput(0, multisigProvider.deriveArbiterKey(input.triggeredBy))
+      const legacyB64 = legacy.toBase64()
+      expect(() => multisigProvider.validatePartialSignature(input, legacyB64, signCopy(legacyB64, f.keys.buyer), hex(f.keys.buyer))).not.toThrow()
+      // A tampered embedded signature (arbiter key, wrong message) is caught at finalization, before broadcast.
+      const arb = legacy.data.inputs[0].partialSig![0]
+      const bad = bitcoin.Psbt.fromBase64(legacyB64, { network: NET })
       bad.data.inputs[0].partialSig = [{ pubkey: arb.pubkey, signature: der(keyOf('not-the-arbiter'), roundSighash(psbtBase64)) }]
       const n = broadcasts.length
       await expect(multisigProvider.finalizeRelease(input, bad.toBase64(), [signCopy(bad.toBase64(), f.keys.buyer)])).rejects.toThrow(/does not verify/)
       expect(broadcasts.length).toBe(n)
+
+      // A client cannot inject an arbiter signature into a round that holds none: refused at validation, not stored.
+      const injected = withSig(buyerSigned, Buffer.from(arb.pubkey), der(keyOf('not-the-arbiter'), roundSighash(psbtBase64)))
+      expect(() => multisigProvider.validatePartialSignature(input, psbtBase64, injected, hex(f.keys.buyer))).toThrow(/signature for a key other than yours/)
     }
   })
 

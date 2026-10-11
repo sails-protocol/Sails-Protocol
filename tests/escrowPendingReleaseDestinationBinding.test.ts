@@ -115,6 +115,10 @@ const mockSignatureFindMany = jest.fn((_arg?: unknown) => Promise.resolve(signat
 // calls prisma.dispute.findUnique({ where: { id } }) directly.
 const mockDisputeFindUniqueLive = jest.fn()
 const mockEdaFindUnique = jest.fn().mockResolvedValue(null)
+// AUD1X-H1 - a disputed MULTISIG round is built only for a RESOLVED ruling, re-read under the dispute and escrow locks
+// (the FOR UPDATE row read is the transaction's $queryRaw) after both advisory locks were taken, dispute first.
+const mockExecuteRaw = jest.fn().mockResolvedValue(0)
+let mockLockedDisputeRows: unknown[] = []
 const mockEdaCreate = jest.fn((...args: unknown[]) => {
   const { data } = args[0] as { data: Record<string, unknown> }
   return Promise.resolve({ id: 'eda-1', authorizedAt: new Date(), ...data })
@@ -160,7 +164,8 @@ jest.mock('../src/common/database', () => ({
       callback({
         // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
         eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
-        $executeRaw: jest.fn().mockResolvedValue(0),
+        $executeRaw: (...args: unknown[]) => mockExecuteRaw(...args),
+        $queryRaw: () => Promise.resolve(mockLockedDisputeRows),
         // Issue #291 - persistSettlementResult() reads then writes the escrow inside its own locked transaction.
         escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args), update: (...args: unknown[]) => mockEscrowUpdate(...args) },
         escrowEvent: {
@@ -199,6 +204,20 @@ const BUYER_ID = 'buyer-1'
 const SELLER_ID = 'seller-1'
 const TRADE_ROW = { id: TRADE_ID, buyerId: BUYER_ID, sellerId: SELLER_ID }
 
+// A dispute holding a RESOLVED, signed ruling - what a disputed MULTISIG round is built for (AUD1X-H1).
+function resolvedDispute(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'dispute-1', tradeId: TRADE_ID, escrowId: ESCROW_ID, status: 'RESOLVED', arbiterId: 'arbiter-1', appealRound: 0,
+    ruling: 'RELEASE', authoritySignature: 'sig-0', authorityIssuedAt: new Date('2026-09-18T00:00:00.000Z'), authorityBuyerBps: null,
+    ...overrides,
+  }
+}
+// The same dispute as the initiate-time snapshot AND as the row the construction re-reads under the locks.
+function setDispute(row: Record<string, unknown>, locked: Record<string, unknown> = row) {
+  mockDisputeFindFirst.mockResolvedValue(row)
+  mockLockedDisputeRows = [locked]
+}
+
 function escrowRow(overrides: Record<string, unknown> = {}) {
   return {
     id: ESCROW_ID, tradeId: TRADE_ID, type: 'MULTISIG', status: 'PAYMENT_PENDING',
@@ -214,6 +233,7 @@ describe('escrow-pending-tx.ts — disputed disposition authority', () => {
     signatureStore = []
     mockTradeFindUnique.mockResolvedValue(TRADE_ROW)
     mockDisputeFindFirst.mockResolvedValue(null)
+    mockLockedDisputeRows = []
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' }))
     mockEscrowFundingEvidenceFindMany.mockResolvedValue([])
     mockPendingTxFindUnique.mockResolvedValue(null)
@@ -243,14 +263,57 @@ describe('escrow-pending-tx.ts — disputed disposition authority', () => {
     expect(mockPendingTxCreate).not.toHaveBeenCalled()
   })
 
-  it('keeps the current assigned arbiter authorized for initiateRelease', async () => {
-    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1' })
+  it('keeps the current assigned arbiter authorized for initiateRelease (a RESOLVED, signed ruling exists)', async () => {
+    setDispute(resolvedDispute())
 
     const pending: any = await escrowService.initiateRelease(ESCROW_ID, undefined, 'arbiter-1')
 
     expect(pending.toAddress).toBe('address-A')
     expect(mockBuildUnsignedRelease).toHaveBeenCalled()
     expect(mockPendingTxCreate).toHaveBeenCalledTimes(1)
+  })
+
+  // AUD1X-H1 (A) - the audit's probe F1: the assigned arbiter's session alone obtained an arbiter-signed transaction
+  // BEFORE any ruling existed. No round is built for a dispute that holds no resolved, signed ruling.
+  it('AUD1X-H1: refuses to build a disputed MULTISIG round while the dispute holds no resolved ruling - nothing is built or persisted', async () => {
+    setDispute(resolvedDispute({ status: 'OPENED', ruling: null, authoritySignature: null, authorityIssuedAt: null }))
+
+    await expect(escrowService.initiateRefund(ESCROW_ID, 'arbiter-1')).rejects.toThrow(/AUD-1 \(H1\).*no resolved, signed ruling/)
+
+    expect(mockBuildUnsignedRelease).not.toHaveBeenCalled()
+    expect(mockPendingTxCreate).not.toHaveBeenCalled()
+    expect(mockExecuteRaw).not.toHaveBeenCalled() // no lock was even needed
+  })
+
+  // AUD1X-H1 (A) - the audit's probe F3: the snapshot was RESOLVED/RELEASE when the round was built, a newer
+  // generation committed before the write. The authoritative re-read under the locks refuses.
+  it.each([
+    ['an appeal moved the dispute to a new generation', { status: 'APPEALED', appealRound: 1, arbiterId: 'arbiter-2', ruling: null, authoritySignature: null, authorityIssuedAt: null }],
+    ['the ruling was reverted', { status: 'OPENED', ruling: null, authoritySignature: null, authorityIssuedAt: null }],
+    ['the same generation was re-ruled with another signed ruling', { ruling: 'REFUND', authoritySignature: 'sig-other' }],
+    ['the arbiter was reassigned within the generation', { arbiterId: 'arbiter-2' }],
+    ['the generation number moved with the ruling unchanged', { appealRound: 1 }],
+    ['the dispute is no longer RESOLVED while every ruling field is intact', { status: 'APPEALED' }],
+    ['the dispute row is another escrow\'s', { escrowId: 'another-escrow' }],
+    ['the ruling alone changed', { ruling: 'REFUND' }],
+    ['the signed authority was replaced', { authoritySignature: 'sig-other' }],
+    ['the authority was re-issued', { authorityIssuedAt: new Date('2026-10-01T00:00:00.000Z') }],
+  ])('AUD1X-H1: the authority is re-read under the locks - %s between the snapshot and the write: nothing is persisted', async (_name, drift) => {
+    const snapshot = resolvedDispute()
+    setDispute(snapshot, { ...snapshot, ...drift })
+
+    await expect(escrowService.initiateRelease(ESCROW_ID, undefined, 'arbiter-1')).rejects.toThrow(/AUD-1 \(H1\).*not what this release round was built for/)
+
+    expect(mockPendingTxCreate).not.toHaveBeenCalled()
+  })
+
+  it('AUD1X-H1: the dispute lock is taken BEFORE the escrow lock, in the same transaction (global order D -> E)', async () => {
+    setDispute(resolvedDispute())
+
+    await escrowService.initiateRelease(ESCROW_ID, undefined, 'arbiter-1')
+
+    const lockKeys = mockExecuteRaw.mock.calls.map((c) => c.slice(1)).flat()
+    expect(lockKeys.slice(0, 2)).toEqual(['economic-disposition:dispute-1', ESCROW_ID])
   })
 
   // ADR-005 / #218 — the ruling-generation provenance snapshot captured
@@ -260,10 +323,7 @@ describe('escrow-pending-tx.ts — disputed disposition authority', () => {
   // escrow-lifecycle.ts's assertDisputedDispositionAuthority() returns,
   // not just that it doesn't throw.
   it('snapshots the ruling generation onto the pending row when created from a disputed ruling', async () => {
-    mockDisputeFindFirst.mockResolvedValue({
-      id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1',
-      appealRound: 0, ruling: 'RELEASE', authoritySignature: 'sig-0', authorityIssuedAt: new Date('2026-09-18T00:00:00.000Z'),
-    })
+    setDispute(resolvedDispute())
 
     await escrowService.initiateRelease(ESCROW_ID, undefined, 'arbiter-1')
 
@@ -303,11 +363,9 @@ describe('escrow-pending-tx.ts submitTransactionSignature() — Economic Disposi
 
   async function createDisputedPending(generation: { appealRound: number; arbiterId: string; ruling: string; authoritySignature: string }) {
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' }))
-    mockDisputeFindFirst.mockResolvedValue({
-      id: 'dispute-1', tradeId: TRADE_ID, arbiterId: generation.arbiterId,
-      appealRound: generation.appealRound, ruling: generation.ruling, authoritySignature: generation.authoritySignature,
-      authorityIssuedAt: new Date('2026-09-18T00:00:00.000Z'),
-    })
+    setDispute(resolvedDispute({
+      arbiterId: generation.arbiterId, appealRound: generation.appealRound, ruling: generation.ruling, authoritySignature: generation.authoritySignature,
+    }))
     await escrowService.initiateRelease(ESCROW_ID, undefined, generation.arbiterId)
     // submitTransactionSignature() re-fetches escrow.status directly —
     // still DISPUTED until the atomic claim inside it transitions it.
@@ -325,6 +383,25 @@ describe('escrow-pending-tx.ts submitTransactionSignature() — Economic Disposi
     expect(mockEdaCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ disputeId: 'dispute-1', appealRound: 0, arbiterId: 'arbiter-1', ruling: 'RELEASE' }),
     })
+    // AUD1X-H1 (B) - the provider is told, by the authorization this very gate pass committed, which arbiter to sign
+    // for at execution; it was never told so at construction.
+    expect(mockFinalizeRelease).toHaveBeenCalledWith(
+      expect.objectContaining({ arbiterExecutionIdentity: 'arbiter-1' }), expect.anything(), expect.anything(), expect.anything(),
+    )
+  })
+
+  it('AUD1X-H1: a cooperative round (no authorization) is finalized without any arbiter identity', async () => {
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'PAYMENT_PENDING' }))
+    mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
+    mockEscrowUpdate.mockResolvedValue(escrowRow({ status: 'COMPLETED' }))
+    mockBuildUnsignedRelease.mockResolvedValue({ psbtBase64: 'psbt-stub', requiredSigners: [BUYER_ID] })
+    await escrowService.initiateRelease(ESCROW_ID, undefined, SELLER_ID)
+    mockDisputeFindFirst.mockResolvedValue(null)
+
+    await escrowService.submitTransactionSignature(ESCROW_ID, BUYER_ID, 'signed-psbt-buyer')
+
+    const finalizeInput = mockFinalizeRelease.mock.calls[0][0] as Record<string, unknown>
+    expect(finalizeInput.arbiterExecutionIdentity).toBeUndefined()
   })
 
   it('fails closed — even with ADR-004 Capability enforcement disabled — when an appeal moved the dispute to a new generation before every signature arrived', async () => {

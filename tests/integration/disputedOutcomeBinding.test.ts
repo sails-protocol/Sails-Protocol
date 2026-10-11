@@ -384,18 +384,14 @@ describe('AUD-1 disputed economic Outcome binding - real PostgreSQL', () => {
     expect(await effects(o)).toEqual(before)
   })
 
-  it('W before any ruling a round can still be created (unchanged), but it is inert: the gate never authorizes a round that records no ruling', async () => {
+  it('W (superseded by AUD1X-H1) before any ruling NO round is built for a disputed MULTISIG escrow - the audit showed such a round was not inert: it carried the arbiter signature', async () => {
     const o = await openedDispute('prior')
-    // Dispute OPENED: nothing to contradict, construction behaves as it always did (Missao 11 Fase 5.3's accepted case).
-    const round = await escrowService.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId)
-    expect(round).toMatchObject({ kind: 'release', rulingOutcome: null })
-    chain(o.txid)
     const before = await effects(o)
 
-    await expect(submitTransactionSignature(o.escrowId, o.buyerId, await sign(round.unsignedPsbtBase64, buyerKey)))
-      .rejects.toThrow(/no longer current|AUD-1|no recorded/)
+    await expect(escrowService.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId)).rejects.toThrow(/AUD-1 \(H1\)/)
 
-    expect(await effects(o)).toMatchObject({ status: 'DISPUTED', txReleaseId: null, broadcasts: 0, authorizations: 0, rounds: before.rounds })
+    expect(await effects(o)).toEqual(before)
+    expect(before).toMatchObject({ status: 'DISPUTED', rounds: 0, authorizations: 0, broadcasts: 0 })
   })
 
   it('M a ruling whose durable Outcome is absent has no authority to dispatch: construction fails closed', async () => {
@@ -635,6 +631,9 @@ describe('AUD-1 disputed economic Outcome binding - real PostgreSQL', () => {
     await untilWaiting(1)
     const appeal = appealService().appeal(o.disputeId, o.buyerId).then((v: any) => v, (e: Error) => e)
     await untilWaiting(2)
+    // AUD1X-H1: the execution needs the escrow's own arbiter commitment (a production escrow always holds it; appeal()'s
+    // fixture removes it only for its own pre-check, which has run by now) - give it back before the signer proceeds.
+    while (removedCommitments.length) await prisma.escrowParticipantKey.create({ data: removedCommitments.pop()! })
     await release()
 
     expect((await signer).complete).toBe(true)
