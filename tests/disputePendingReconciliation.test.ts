@@ -274,6 +274,18 @@ describe('ST-1 transactional cleanup authority (mocked service boundary; Postgre
     expect(mockPendingDelete).not.toHaveBeenCalled()
   })
 
+  it('accepts a matching terminal Outcome only when all locked authority guards pass', async () => {
+    expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('DELETED')
+    expect(mockDurableOutcomeFindUnique).toHaveBeenCalledWith({
+      where: { interactionId_transitionType_appealRound: {
+        interactionId: 'escrow-1',
+        transitionType: expect.any(String),
+        appealRound: 0,
+      } },
+    })
+    expect(mockPendingDelete).toHaveBeenCalledWith(CONDITIONAL_DELETE)
+  })
+
   it('refuses a durable record that is not a RESOLVED transition', async () => {
     mockDurableOutcomeFindUnique.mockResolvedValue({ outcomeContent: { ruling: 'RELEASE' }, toState: 'OPEN' })
     expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('PROVENANCE_REJECTED')
