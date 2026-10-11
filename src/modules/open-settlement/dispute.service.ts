@@ -745,7 +745,12 @@ export class DisputeService {
         throw guardErr
       }
     } catch (err) {
-      if (err instanceof St1R2DeletionRefused) throw err
+      if (err instanceof St1R2DeletionRefused) {
+        // A signed, replaced, committed or otherwise unprovable round cannot be erased.
+        // The durable ruling must remain available for explicit reconciliation.
+        // Do not execute the generic rollback against an authority we did not prove safe to unwind.
+        throw err
+      }
       // Same revert discipline as applyRuling()'s own catch above,
       // extended to also delete the durable Core record this method
       // additionally created — a reverted ruling must never leave a
