@@ -83,6 +83,14 @@ jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
 }))
 
 const mockEscrowFindUnique = jest.fn()
+// AUD1X-R2 (AR-04) - the escrow's status is re-read FOR UPDATE inside the persisting transaction (tx.$queryRaw). Against
+// this stub database that read returns the escrow the test seeded: the last row mockEscrowFindUnique returned (peeked
+// from its results, so no queued value is consumed).
+async function mockLockedEscrowRead(): Promise<unknown[]> {
+  const results = mockEscrowFindUnique.mock.results
+  const last: any = results.length ? await results[results.length - 1].value : null
+  return last ? [{ status: last.status }] : []
+}
 const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowUpdate = jest.fn()
 const mockTradeFindUnique = jest.fn()
@@ -165,7 +173,7 @@ jest.mock('../src/common/database', () => ({
         // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
         eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
         $executeRaw: (...args: unknown[]) => mockExecuteRaw(...args),
-        $queryRaw: () => Promise.resolve(mockLockedDisputeRows),
+        $queryRaw: (strings: TemplateStringsArray) => (strings.join('?').includes('FROM escrows WHERE id') && strings.join('?').includes('FOR UPDATE')) ? mockLockedEscrowRead() : Promise.resolve(mockLockedDisputeRows),
         // Issue #291 - persistSettlementResult() reads then writes the escrow inside its own locked transaction.
         escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args), update: (...args: unknown[]) => mockEscrowUpdate(...args) },
         escrowEvent: {

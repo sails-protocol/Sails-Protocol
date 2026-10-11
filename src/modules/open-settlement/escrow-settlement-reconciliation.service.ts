@@ -17,7 +17,8 @@ import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { childLogger } from '../../common/logger'
 import { authorizePendingExecution } from './capability-execution-authorization'
-import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
+import { authorizeDisputedPendingExecution, economicDispositionOperationDigest } from './economic-disposition-authority'
+import { assertRoundBoundToDisputeAuthority } from './disputed-outcome-binding'
 
 /**
  * AUD1X-H1 - the arbiter identity of the Economic Disposition Authorization committed for this exact pending round,
@@ -27,10 +28,41 @@ import { authorizeDisputedPendingExecution } from './economic-disposition-author
  * persisted by earlier code carries its arbiter signature already (nothing to add). No authorization -> undefined ->
  * the provider cannot sign. The correspondence catch-up deliberately does not use it (it needs outputs only).
  */
-async function committedExecutionIdentity(round: { id: string; disputeId: string | null }): Promise<string | undefined> {
+async function committedExecutionIdentity(
+  round: Parameters<typeof economicDispositionOperationDigest>[0],
+): Promise<string | undefined> {
   if (!round.disputeId) return undefined // a cooperative round has no arbiter and no authorization
-  const row = await prisma.economicDispositionAuthorization.findUnique({ where: { pendingOperationId: round.id }, select: { arbiterId: true } })
-  return row?.arbiterId
+  const row = await prisma.economicDispositionAuthorization.findUnique({
+    where: { pendingOperationId: round.id },
+    select: { arbiterId: true, escrowId: true, disputeId: true, ruling: true, operationDigest: true },
+  })
+  if (!row) return undefined
+  // AUD1X-R2 (AR-05) - the two checks the gate's own REUSE path makes before it hands an existing authorization
+  // back (economic-disposition-authority.ts): it is this operation's (escrow, dispute, digest of the immutable
+  // round) and the round is still what the authorized ruling decided (AUD-1 binding against the durable Outcome).
+  // An authorization that fails either is never a means to produce the arbiter signature; the round goes to
+  // manual review exactly as one with no authorization. A rule on SIGNING only: recovering a transaction that is
+  // already on the network needs no identity and is unaffected.
+  try {
+    if (row.escrowId !== round.escrowId || row.disputeId !== round.disputeId || row.operationDigest !== economicDispositionOperationDigest(round)) {
+      throw new Error('the committed authorization does not describe this round')
+    }
+    await assertRoundBoundToDisputeAuthority(prisma, {
+      escrowId: round.escrowId,
+      escrowType: 'MULTISIG',
+      kind: round.kind,
+      unsignedPsbtBase64: round.unsignedPsbtBase64,
+      minerFeeSats: round.minerFeeSats,
+      buyerBps: round.buyerBps,
+      disputeId: round.disputeId,
+      rulingAppealRound: round.rulingAppealRound,
+      rulingOutcome: round.rulingOutcome,
+    }, { id: row.disputeId, escrowId: row.escrowId, status: 'RESOLVED', ruling: row.ruling, authorityBuyerBps: null })
+  } catch (err) {
+    log.error({ msg: 'AUD1X-R2: a committed authorization no longer describes its round or contradicts its ruling - the arbiter signature is not produced', escrowId: round.escrowId, roundId: round.id, err: err instanceof Error ? err.message : String(err) })
+    return undefined
+  }
+  return row.arbiterId
 }
 
 const log = childLogger('escrow-settlement-reconciliation')

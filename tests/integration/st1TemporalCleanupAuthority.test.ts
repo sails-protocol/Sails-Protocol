@@ -652,27 +652,31 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
   // (4) reversal of the authority; already committed economic effects
   // ════════════════════════════════════════════════════════════════════════════════════════════════
 
-  it('V1 production reversal after the round was persisted: the cleanup, nominated before the reversal, no longer has authority and deletes nothing', async () => {
-    const o = await openedDispute('v1')
-    // FAULT INJECTION: the dispatch fails after the round was persisted (the window the guard-failure cleanup,
-    // itself failing, leaves): the real initiateRelease() runs, then the call throws. The ruling is then reverted
-    // by production code (dispute.service.ts's revert transaction and revertDisputeRulingRecord()).
-    const realInitiate = escrowService.initiateRelease.bind(escrowService)
-    jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
-      await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
-      throw new Error('injected: failure after the round was persisted')
+  /**
+   * AUD1X-R2 - a ruling whose dispatch failed AFTER its round was persisted is no longer reverted by production code
+   * (the round is the dispatch: it is adopted, the ruling and its Outcome stand). The state these ST-1 tests are about -
+   * a round surviving a reverted ruling - can therefore only come from state written by earlier code, and is injected
+   * here exactly as the old revert transaction left it: dispute back to OPENED with the signed authority cleared, the
+   * Outcome record deleted, the round untouched.
+   */
+  async function injectReversedRulingWithSurvivingRound(o: Opened) {
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await prisma.$transaction(async (tx: any) => {
+      await tx.dispute.update({
+        where: { id: o.disputeId },
+        data: { status: 'OPENED', ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
+      })
+      await tx.semanticTransitionRecord.deleteMany({ where: { interactionId: o.escrowId } })
     })
-    const dispute = await prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })
-    const issuedAt = new Date().toISOString()
-    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
-    const signature = signAuthorityDecision(payload, arbiterKp.secretKey)
-    await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signature, issuedAt))
-      .rejects.toThrow(/injected/)
-    jest.restoreAllMocks()
+    return pending
+  }
 
+  it('V1 reversal after the round was persisted (state injected: production no longer produces it): the cleanup, nominated before the reversal, no longer has authority and deletes nothing', async () => {
+    const o = await openedDispute('v1')
+    await injectReversedRulingWithSurvivingRound(o)
     const orphan = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
     expect(orphan.disputeId).toBe(o.disputeId) // the round of the reverted ruling survived
-    expect((await disputeOf(o)).status).not.toBe('RESOLVED') // production reverted the authority
+    expect((await disputeOf(o)).status).not.toBe('RESOLVED') // the authority was reverted
     expect((await disputeOf(o)).ruling).toBeNull()
     expect(await outcomeRecords(o)).toBe(0)
 
@@ -683,20 +687,13 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
 
   it('V3 FINDING (liveness, not safety): the orphan of a reverted ruling is reclaimable by nothing - the next ruling of the arbiter is refused by that very round', async () => {
     const o = await openedDispute('v3')
-    const realInitiate = escrowService.initiateRelease.bind(escrowService)
-    const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
-      await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
-      throw new Error('injected: failure after the round was persisted')
-    })
     const sign = async () => {
       const dispute = await prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })
       const issuedAt = new Date().toISOString()
       const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
       return { signature: signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt }
     }
-    const first = await sign()
-    await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, first.signature, first.issuedAt)).rejects.toThrow(/injected/)
-    failing.mockRestore()
+    await injectReversedRulingWithSurvivingRound(o)
     const orphan = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
 
     // Neither the cleanup (the dispute is not RESOLVED, so the round is not even nominated, and its generation
@@ -886,12 +883,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       await age(p1.id)
       await decide(p1.id, f1.escrowId, await generationOf(p1.id))
 
-      // Flow 2: a ruling whose dispatch fails after the round was persisted (the revert path), then the cleanup.
+      // Flow 2: a ruling whose dispatch fails before any round exists (the revert path, AUD1X-R2 state 1).
       const f2 = await openedDispute('x1b'); escrowIds.add(f2.escrowId)
-      const realInitiate = escrowService.initiateRelease.bind(escrowService)
-      const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
-        await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
-        throw new Error('injected: failure after the round was persisted')
+      const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async () => {
+        throw new Error('injected: failure before the round was persisted')
       })
       const d2 = await prisma.dispute.findUniqueOrThrow({ where: { id: f2.disputeId } })
       const issuedAt = new Date().toISOString()

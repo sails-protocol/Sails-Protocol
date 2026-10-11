@@ -19,6 +19,33 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **AUD1X-R2 — dispatch authority and recovery (AR-01, AR-03, AR-04; AR-05 analysed and hardened).** Found by the
+  independent adversarial review of AUD1X-H1; design, lock inventory and linearization points in
+  `docs/aud1x-r2-dispatch-authority.md`.
+  - **AR-01 (High):** the live resolve flow, the C4 dispatch recovery and the arbiter's own `initiate-*` can all build
+    the round of one committed ruling. The live flow took "someone else already built it" for its own failure and
+    **reverted the signed ruling and deleted its Outcome**, stranding the other executor's round (the dispute could
+    never be executed or re-ruled). Its failure handler now decides under the dispute and escrow locks
+    (`decideRulingRevert`): a round of this ruling that is **proven** its dispatch (same generation, signed authority,
+    kind, destinations, SPLIT allocation, initiator and the AUD-1 binding on the stored PSBT) is adopted and the call
+    succeeds; a divergent round of the generation is refused with the reasons and the ruling is preserved; only when
+    nothing durable depends on the ruling is it reverted, as before.
+  - **AR-03 (Medium):** the revert could also run after an authorization, a claim or a broadcast of that round,
+    leaving an executed ruling with no ruling and no Outcome on record. A terminal escrow with an authorization of the
+    generation is now recognised as executed; the revert and the Outcome-record deletion are one transaction.
+  - **AR-04 (Low):** the escrow status was read before the PSBT was built and not re-read under the locks. It is now
+    re-read `FOR UPDATE` inside the persisting transaction, and `submit` refuses an impossible transition before any
+    gate can mint an authorization.
+  - **AR-05 (Low), hardening:** PASS 1 produced the arbiter signature on the existence of an authorization alone. On
+    the previous code an authorization whose ruling contradicts its round, or whose digest does not describe it (shapes
+    only earlier code could leave), led to a broadcast. It now makes the two checks of the gate's own reuse path
+    first; it governs signing only, recovery of a transaction already on the network is unchanged.
+  - **Unchanged:** `initiate-*` (one round per escrow), the arbiter signature exists only at execution (H1), the
+    witness, ADR-004/ADR-005, #239D bilateral rights, lock order D → E.
+  - **Evidence:** `tests/integration/aud1xR2DispatchAuthority.test.ts` (real PostgreSQL, deterministic barriers); the
+    audit's race is a permanent regression; run against the previous code 13 of its first 19 scenarios fail.
+  - **Not in this change:** H1-R1 (legacy PSBT policy), the historical inventory (AR-02), H1-R2, M1, M2, ST1-R1,
+    ST1-R2 (the Gatekeeper's PR #436: no overlapping hunk, trial merge clean).
 - **AUD1X-H1 — the MULTISIG platform arbiter signature is no longer a bearer capability (found by the independent
   audit of AUD-1, PR #437).**
   - **Found, reproduced on real PostgreSQL (probes F1 / F2 / F3):** on MULTISIG - the only production-selectable

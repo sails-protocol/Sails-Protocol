@@ -398,8 +398,14 @@ export function fromDisputeRulingRow(row: SemanticTransitionRecordRow): Transiti
 }
 
 /** Deletes a committed record — used ONLY by `dispute.service.ts`'s existing revert-on-failure path, mirroring exactly how it already reverts the Dispute's own authority fields on a downstream settlement-action failure. Never called for any other reason. */
-export async function revertDisputeRulingRecord(escrowId: string, appealRound: number): Promise<void> {
-  await prisma.semanticTransitionRecord.deleteMany({
+export async function revertDisputeRulingRecord(
+  escrowId: string,
+  appealRound: number,
+  // AUD1X-R2 - the revert may run inside the transaction that decides it (and reverts the dispute row), so the
+  // record can never outlive - or be deleted without - the ruling it records.
+  client: Pick<Prisma.TransactionClient, 'semanticTransitionRecord'> = prisma,
+): Promise<void> {
+  await client.semanticTransitionRecord.deleteMany({
     where: { interactionId: escrowId, transitionType: ESCROW_DISPUTE_RULING_TRANSITION_TYPE, appealRound },
   })
 }

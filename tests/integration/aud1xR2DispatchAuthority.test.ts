@@ -1,0 +1,767 @@
+// AUD1X-R2 - dispatch authority and recovery, on real PostgreSQL and the production services.
+//
+// The independent adversarial review of AUD1X-H1 found three defects around one race: the live resolve flow, the C4
+// dispatch recovery and the assigned arbiter's own initiate-* can all build the signing round of one committed ruling.
+//   AR-01  the live flow took "someone else already built it" for ITS failure and reverted the signed ruling (and
+//          deleted its Outcome), stranding the other executor's round;
+//   AR-03  the same revert could erase the record of an execution whose authorization (even claim/broadcast) was
+//          already committed;
+//   AR-04  a round could be persisted on an escrow that had meanwhile become terminal (a second authorization followed).
+// Every scenario below is a deterministic barrier (a paused call, never a sleep) around the REAL production code: the
+// dispute resolve flow, C4 (reconcileMissingDispatch), initiate-*, the ADR-005/ADR-004 gates, the claim, the provider's
+// real PSBT construction/finalization, the ST-1 cleanup. What is not real: the chain (an explorer stub that records
+// every broadcast) and each fault injection, named where used (a pause, an injected throw, or a legacy-shaped row).
+import { PrismaClient } from '@prisma/client'
+import * as bitcoin from 'bitcoinjs-lib'
+import * as ecc from '@bitcoinerlab/secp256k1'
+import { createHash } from 'crypto'
+import nacl from 'tweetnacl'
+import { ECPairFactory } from 'ecpair'
+import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
+import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
+import { boundOfferInput, sellerPixAccount } from './economicFixtures'
+
+bitcoin.initEccLib(ecc)
+const ECPair = ECPairFactory(ecc)
+const NET = bitcoin.networks.testnet
+const keyOf = (label: string) => ECPair.fromPrivateKey(createHash('sha256').update(`r2-${label}`).digest())
+const pubHex = (k: { publicKey: Uint8Array }) => Buffer.from(k.publicKey).toString('hex')
+const destination = (label: string) => bitcoin.payments.p2wpkh({ pubkey: Buffer.from(keyOf(label).publicKey), network: NET }).address!
+const addrOf = (script: Uint8Array) => { try { return bitcoin.address.fromOutputScript(script, NET) } catch { return 'non-standard' } }
+
+type Ruling = 'RELEASE' | 'REFUND' | 'SPLIT'
+
+describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
+  jest.setTimeout(300_000)
+
+  const pg = createPostgresIntegrationHarness()
+  let dbAvailable = false
+  let prisma: PrismaClient
+  let escrowService: any, identityService: any, liquidityRouter: any, tradeService: any, payoutAddressService: any
+  let getDisputeService: () => any
+  let signAuthorityDecision: (payload: unknown, secretKey: Uint8Array) => string
+  let commitAuthoritativeDisputeRuling: (...args: any[]) => Promise<{ committed: boolean }>
+  let loadDisputeRulingRecord: (escrowId: string, round: number) => Promise<any>
+  let submitTransactionSignature: (escrowId: string, participantId: string, signedPsbtBase64: string) => Promise<any>
+  let reconcileMissingDispatch: () => Promise<any>
+  let reconcilePendingSettlements: (options?: { projectionGraceMs?: number }) => Promise<any>
+  let economicDispositionOperationDigest: (pending: any) => string
+  let economicDispositionLockKey: (disputeId: string) => string
+  let deletePendingRoundIfStillUnsigned: (pendingId: string, escrowId: string, generation: any) => Promise<string>
+  let authorizeDisputedPendingExecution: (pending: any) => Promise<any>
+  let loadParticipantPubkeys: (escrowId: string) => Promise<any>
+  let escrowRepository: any
+  let multisigProvider: any
+  let dispatchModule: any
+  let restarted: { prisma: PrismaClient; submitTransactionSignature: typeof submitTransactionSignature; initiateRelease: (...a: any[]) => Promise<any>; redis: { quit(): Promise<unknown> } } | undefined
+
+  const ARBITER_ID = 'r2-arbiter-1'
+  const ARBITER2_ID = 'r2-arbiter-2'
+  const arbiterKp = nacl.sign.keyPair()
+  const arbiter2Kp = nacl.sign.keyPair()
+  const buyerKey = keyOf('buyer')
+  const sellerKey = keyOf('seller')
+  let realFetch: typeof fetch
+  const broadcasts: string[] = []
+  let seq = 0
+
+  beforeAll(async () => {
+    process.env.MOCK_ESCROW = 'false'
+    process.env.MULTISIG_SEED = process.env.MULTISIG_SEED || 'r2-seed'
+    process.env.TRUSTED_ARBITRATORS = `${ARBITER_ID},${ARBITER2_ID}`
+    await pg.probe()
+    dbAvailable = pg.isAvailable()
+    if (!dbAvailable) return
+    ;({ prisma } = require('../../src/common/database'))
+    ;({ escrowService } = require('../../src/modules/open-settlement/escrow.service'))
+    ;({ identityService } = require('../../src/modules/open-identity/identity.service'))
+    ;({ liquidityRouter } = require('../../src/modules/open-liquidity/liquidity.service'))
+    ;({ tradeService } = require('../../src/modules/open-p2p/trade.service'))
+    ;({ getDisputeService } = require('../../src/modules/open-settlement/dispute.service'))
+    ;({ payoutAddressService } = require('../../src/modules/open-settlement/payout-address.service'))
+    ;({ signAuthorityDecision } = require('../../src/modules/open-settlement/arbitration-authority'))
+    ;({ commitAuthoritativeDisputeRuling, loadDisputeRulingRecord } = require('../../src/modules/open-settlement/dispute-outcome'))
+    ;({ submitTransactionSignature } = require('../../src/modules/open-settlement/escrow-pending-tx'))
+    ;({ reconcileMissingDispatch } = require('../../src/modules/open-settlement/dispute-dispatch-recovery'))
+    ;({ authorizeDisputedPendingExecution, economicDispositionOperationDigest, economicDispositionLockKey } = require('../../src/modules/open-settlement/economic-disposition-authority'))
+    ;({ deletePendingRoundIfStillUnsigned } = require('../../src/modules/open-settlement/dispute-pending-reconciliation'))
+    ;({ reconcilePendingSettlements } = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service'))
+    ;({ loadParticipantPubkeys } = require('../../src/modules/open-settlement/escrow-lifecycle'))
+    ;({ escrowRepository } = require('../../src/modules/open-settlement/escrow-repository'))
+    ;({ multisigProvider } = require('../../src/modules/open-settlement/multisig.provider'))
+    dispatchModule = require('../../src/modules/open-settlement/dispute-dispatch')
+    const { intentEngine } = require('../../src/core/intent-engine')
+    const { OpenP2PTradeIntentHandler } = require('../../src/modules/open-p2p/intent-handler')
+    intentEngine.registerHandler(OpenP2PTradeIntentHandler)
+    require('../../src/common/events/handlers').registerEventHandlers()
+    jest.isolateModules(() => {
+      const pendingTx = require('../../src/modules/open-settlement/escrow-pending-tx')
+      restarted = {
+        prisma: require('../../src/common/database').prisma,
+        submitTransactionSignature: pendingTx.submitTransactionSignature,
+        initiateRelease: pendingTx.initiateRelease,
+        redis: require('../../src/common/redis').redis,
+      }
+    })
+    for (const [id, kp] of [[ARBITER_ID, arbiterKp], [ARBITER2_ID, arbiter2Kp]] as const) {
+      await prisma.user.upsert({ where: { id }, update: { publicKey: pubHex(kp) }, create: { id, publicKey: pubHex(kp), displayName: `R2 arbiter ${id}` } })
+    }
+  })
+  beforeEach(() => { realFetch = global.fetch; broadcasts.length = 0 })
+  afterEach(() => { global.fetch = realFetch; jest.restoreAllMocks() })
+  afterAll(async () => {
+    if (dbAvailable) {
+      await prisma.$disconnect()
+      if (restarted) {
+        await restarted.prisma.$disconnect()
+        await restarted.redis.quit().catch(() => {})
+      }
+      await closeTestRedis()
+    }
+  })
+
+  // ── chain stub: one funding UTXO per escrow; every broadcast recorded; unknown txids are 404 ──────────────────
+  function chain(txid: string): void {
+    global.fetch = jest.fn(async (url: string, init?: { method?: string; body?: string }) => {
+      if (init?.method === 'POST' && url.endsWith('/tx')) {
+        const spent = Buffer.from(bitcoin.Transaction.fromHex(String(init.body)).ins[0].hash).reverse().toString('hex')
+        if (spent !== txid) return { ok: false, status: 400, text: async () => 'not this test\'s outpoint', json: async () => ({}) } as any
+        broadcasts.push(String(init.body)); return { ok: true, text: async () => 'stub' } as any
+      }
+      if (url.includes('/blocks/tip/height')) return { ok: true, text: async () => '100' } as any
+      if (url.includes(`/tx/${txid}/status`)) return { ok: true, json: async () => ({ confirmed: true, block_height: 100 }) } as any
+      if (url.includes('/v1/fees/recommended')) return { ok: true, json: async () => ({ halfHourFee: 5, fastestFee: 8 }) } as any
+      if (/\/tx\/[0-9a-f]{64}(\/status|\/outspend\/\d+)?$/.test(url)) return { ok: false, status: 404, text: async () => 'not found', json: async () => ({}) } as any
+      return { ok: true, json: async () => [{ txid, vout: 0, value: 100_000, status: { confirmed: true } }] } as any
+    }) as any
+  }
+
+  // ── fixtures ─────────────────────────────────────────────────────────────────────────────────────────────────
+  interface Opened { escrowId: string; tradeId: string; disputeId: string; buyerId: string; sellerId: string; arbiterId: string; buyerDestination: string; sellerDestination: string; txid: string }
+  async function openedDispute(label: string): Promise<Opened> {
+    pg.requirePostgres(label)
+    seq += 1
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const offer = await liquidityRouter.createOffer({
+      userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001',
+      ...boundOfferInput(await sellerPixAccount(prisma, seller.id)),
+    })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
+    await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, pubHex(buyerKey), MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, pubHex(sellerKey), MULTISIG_CAPABILITY_PROFILE_V1)
+    const txid = createHash('sha256').update(`r2-${label}-${Date.now()}-${seq}`).digest('hex')
+    chain(txid)
+    await escrowService.lockFunds(escrow.id, seller.id)
+    const dispute = await getDisputeService().raiseDispute(trade.id, buyer.id, `R2 ${label}`)
+    const buyerDestination = destination(`buyer-${label}-${seq}`)
+    const sellerDestination = destination(`seller-${label}-${seq}`)
+    await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', buyerDestination)
+    await payoutAddressService.setPayoutAddress(seller.id, 'BTC', sellerDestination)
+    return { escrowId: escrow.id, tradeId: trade.id, disputeId: dispute.id, buyerId: buyer.id, sellerId: seller.id, arbiterId: dispute.arbiterId, buyerDestination, sellerDestination, txid }
+  }
+  const payloadFor = (o: Opened, ruling: Ruling, bps: number | null, at = new Date()) =>
+    ({ disputeId: o.disputeId, escrowId: o.escrowId, appealRound: 0, authorityId: o.arbiterId, outcome: ruling, buyerBps: bps, issuedAt: at.toISOString() })
+  /** The live resolve flow (production path): the call a test pauses, races and lets fail. */
+  function resolve(o: Opened, ruling: Ruling, bps: number | null = null) {
+    const payload = payloadFor(o, ruling, bps)
+    const signature = signAuthorityDecision(payload, arbiterKp.secretKey)
+    return () => getDisputeService().resolveDispute(o.disputeId, o.arbiterId, ruling, undefined, undefined, bps ?? undefined, signature, payload.issuedAt)
+  }
+  /** The C4 window: the production Outcome commit ran (RESOLVED, durable record) and nothing else. */
+  async function commitOnly(o: Opened, ruling: Ruling, bps: number | null = null): Promise<void> {
+    const payload = payloadFor(o, ruling, bps)
+    const row = await prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })
+    const committed = await commitAuthoritativeDisputeRuling(
+      { id: o.disputeId, escrowId: o.escrowId, status: row.status, appealRound: 0 },
+      payload, signAuthorityDecision(payload, arbiterKp.secretKey), pubHex(arbiterKp), '100000', 'BTC', o.buyerId, o.sellerId,
+    )
+    expect(committed.committed).toBe(true)
+  }
+  const partialSigPubkeys = (psbtBase64: string): string[] =>
+    (bitcoin.Psbt.fromBase64(psbtBase64, { network: NET }).data.inputs[0].partialSig ?? []).map((p) => Buffer.from(p.pubkey).toString('hex'))
+  const sign = (psbtBase64: string, key: ReturnType<typeof keyOf>) => { const p = bitcoin.Psbt.fromBase64(psbtBase64, { network: NET }); p.signInput(0, key); return p.toBase64() }
+  const paidTo = () => broadcasts.map((hex) => bitcoin.Transaction.fromHex(hex).outs.map((out) => addrOf(out.script)))
+
+  /** Every count that would move if a disposition were authorized, executed or erased. */
+  async function effects(o: Opened) {
+    const escrow = await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })
+    const dispute = await prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })
+    const rounds = await prisma.escrowPendingTransaction.findMany({ where: { escrowId: o.escrowId } })
+    return {
+      escrow: escrow.status as string,
+      txReleaseId: escrow.txReleaseId as string | null,
+      dispute: dispute.status as string,
+      ruling: dispute.ruling as string | null,
+      outcome: (await loadDisputeRulingRecord(o.escrowId, 0)) ? 'present' : 'absent',
+      roundIds: rounds.map((r: any) => r.id as string),
+      roundEmbedsArbiterSignature: rounds.some((r: any) => partialSigPubkeys(r.unsignedPsbtBase64).length > 0),
+      signatures: await prisma.escrowTransactionSignature.count({ where: { pendingTx: { escrowId: o.escrowId } } }),
+      authorizations: await prisma.economicDispositionAuthorization.count({ where: { escrowId: o.escrowId } }),
+      broadcasts: broadcasts.length,
+    }
+  }
+  const settle = <T>(p: Promise<T>) => p.then((v) => ({ ok: true as const, v }), (e: Error) => ({ ok: false as const, error: e.message }))
+
+  /** Pauses the first call of obj[method] for this escrow until go() (proceeds) or fail(err) (throws instead). */
+  function hold(obj: any, method: string, matches: (args: any[]) => boolean) {
+    let settleGate!: (v: 'go' | Error) => void
+    const gate = new Promise<'go' | Error>((r) => { settleGate = r })
+    let reached!: () => void
+    const atPause = new Promise<void>((r) => { reached = r })
+    const real = obj[method].bind(obj)
+    let used = false
+    jest.spyOn(obj, method).mockImplementation(async (...args: any[]) => {
+      if (!used && matches(args)) {
+        used = true
+        reached()
+        const verdict = await gate
+        if (verdict !== 'go') throw verdict
+      }
+      return real(...args)
+    })
+    return { atPause, go: () => settleGate('go'), fail: (e: Error) => settleGate(e) }
+  }
+  const forEscrow = (o: Opened) => (args: any[]) => args[0]?.id === o.escrowId || args[0] === o.escrowId
+
+  async function c4Until(o: Opened) {
+    let last: any
+    for (let i = 0; i < 60; i++) {
+      last = await reconcileMissingDispatch()
+      if (last.claimed.includes(o.escrowId)) return last
+    }
+    return last
+  }
+  const mine = (o: Opened, rows: any[] | undefined) => (rows ?? []).filter((x: any) => x.escrowId === o.escrowId)
+  const roundOf = (o: Opened) => prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+
+  /** The witness of the broadcast transaction, verified signature by signature against the escrow's own script. */
+  async function verifyBroadcastWitness(o: Opened, partyPubkey: string) {
+    const tx = bitcoin.Transaction.fromHex(broadcasts[0])
+    const witness = tx.ins[0].witness
+    expect(witness).toHaveLength(4)
+    const witnessScript = Buffer.from(witness[3])
+    const arbiterPubkey = (await loadParticipantPubkeys(o.escrowId)).arbiterPubkey as string
+    const hash = tx.hashForWitnessV0(0, witnessScript, 100_000n, bitcoin.Transaction.SIGHASH_ALL)
+    const signers = [witness[1], witness[2]].map((w) => {
+      const { signature, hashType } = bitcoin.script.signature.decode(Buffer.from(w))
+      expect(hashType).toBe(bitcoin.Transaction.SIGHASH_ALL)
+      return [arbiterPubkey, partyPubkey].find((k) => ecc.verify(hash, Buffer.from(k, 'hex'), signature))
+    })
+    expect(new Set(signers)).toEqual(new Set([arbiterPubkey, partyPubkey]))
+  }
+
+  /** FAULT INJECTION - a round of the dispute's current generation, persisted the way the construction would, with a chosen payout. */
+  async function persistRound(o: Opened, opts: { kind: 'release' | 'refund'; payTo: string; recordedRuling?: string; authoritySignature?: string; ruled?: boolean }) {
+    const escrow = await escrowRepository.findById(o.escrowId)
+    const dispute = await prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })
+    const keys = await loadParticipantPubkeys(o.escrowId)
+    const record = { ...escrow, status: 'DISPUTED', buyerId: o.buyerId, sellerId: o.sellerId, ...keys, triggeredBy: o.arbiterId }
+    chain(o.txid)
+    const built = opts.kind === 'refund' ? await multisigProvider.buildUnsignedRefund(record, opts.payTo) : await multisigProvider.buildUnsignedRelease(record, opts.payTo)
+    return prisma.escrowPendingTransaction.create({
+      data: {
+        escrowId: o.escrowId, kind: opts.kind, toAddress: opts.payTo, unsignedPsbtBase64: built.psbtBase64, requiredSigners: built.requiredSigners,
+        triggeredBy: o.arbiterId, minerFeeSats: built.minerFeeSats, signaturesConfidential: true, disputeId: dispute.id,
+        rulingAppealRound: dispute.appealRound, rulingArbiterId: dispute.arbiterId,
+        rulingOutcome: (opts.recordedRuling ?? dispute.ruling) as any,
+        rulingAuthoritySignature: opts.authoritySignature ?? dispute.authoritySignature,
+        rulingAuthorityIssuedAt: dispute.authorityIssuedAt,
+      } as any,
+    })
+  }
+
+  const KINDS = [
+    ['RELEASE', null, 'buyer', 'buildUnsignedRelease', 'initiateRelease'],
+    ['REFUND', null, 'seller', 'buildUnsignedRefund', 'initiateRefund'],
+    ['SPLIT', 3000, 'buyer', 'buildUnsignedSplit', 'initiateSplit'],
+  ] as const
+  const signerOf = (o: Opened, role: 'buyer' | 'seller') => role === 'buyer' ? { key: buyerKey, id: o.buyerId } : { key: sellerKey, id: o.sellerId }
+  const destinationsOf = (o: Opened, ruling: Ruling) =>
+    ruling === 'RELEASE' ? [o.buyerDestination] : ruling === 'REFUND' ? [o.sellerDestination] : [o.buyerDestination, o.sellerDestination]
+
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+  // AR-01 - dispatch is idempotent
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+  it.each(KINDS)('AR-01 %s: C4 builds the round while the live flow is still building - the live flow adopts it, the ruling and its Outcome stand, the round executes exactly once', async (ruling, bps, role, buildMethod) => {
+    const o = await openedDispute(`a1-${ruling.toLowerCase()}`)
+    chain(o.txid)
+    // FAULT-INJECTION POINT (a pause, not a mock of behaviour): the live flow's own PSBT build is slow.
+    const pause = hold(multisigProvider, buildMethod, forEscrow(o))
+    const live = settle(resolve(o, ruling, bps)())
+    await pause.atPause
+    expect(await effects(o)).toMatchObject({ dispute: 'RESOLVED', outcome: 'present', roundIds: [] })
+    const c4 = await c4Until(o)
+    const c4Round = await roundOf(o)
+    expect(mine(o, c4.resumed)).toHaveLength(1)
+    pause.go()
+
+    const result = await live
+
+    expect(result.ok).toBe(true) // before AUD1X-R2: "already has a pending ... transaction awaiting signatures", and the ruling reverted
+    const after = await effects(o)
+    expect(after).toMatchObject({ dispute: 'RESOLVED', ruling, outcome: 'present', roundIds: [c4Round.id], authorizations: 0, broadcasts: 0, escrow: 'DISPUTED' })
+    expect(after.roundEmbedsArbiterSignature).toBe(false)
+
+    const signer = signerOf(o, role)
+    chain(o.txid)
+    expect((await submitTransactionSignature(o.escrowId, signer.id, sign(c4Round.unsignedPsbtBase64, signer.key))).complete).toBe(true)
+    expect(await effects(o)).toMatchObject({ escrow: ruling === 'RELEASE' ? 'COMPLETED' : ruling === 'REFUND' ? 'REFUNDED' : 'SPLIT', broadcasts: 1, authorizations: 1, dispute: 'RESOLVED', outcome: 'present' })
+    expect(paidTo()[0].sort()).toEqual(destinationsOf(o, ruling).sort())
+    await verifyBroadcastWitness(o, pubHex(signer.key))
+  })
+
+  it('AR-01 the other order: C4 builds between the Outcome commit and the live flow\'s dispatch-eligibility check - the live flow still succeeds', async () => {
+    const o = await openedDispute('a1-eligibility')
+    chain(o.txid)
+    const pause = hold(dispatchModule, 'assertDisputeDispatchEligible', forEscrow(o))
+    const live = settle(resolve(o, 'RELEASE')())
+    await pause.atPause
+    await c4Until(o)
+    const c4Round = await roundOf(o)
+    pause.go()
+
+    const result = await live
+
+    expect(result.ok).toBe(true) // before: "Dispatch eligibility check failed ... dispatch already occurred" and the ruling reverted
+    expect(await effects(o)).toMatchObject({ dispute: 'RESOLVED', outcome: 'present', roundIds: [c4Round.id], authorizations: 0, broadcasts: 0 })
+  })
+
+  it('AR-01 the live flow first: C4 finds the dispatch done and creates nothing; a repeated initiate is refused as before (one round per escrow) and changes nothing', async () => {
+    const o = await openedDispute('a1-live-first')
+    await resolve(o, 'RELEASE')()
+    const first = await roundOf(o)
+
+    const c4 = await c4Until(o)
+    expect(mine(o, c4.resumed)).toEqual([])
+    const again = await settle(escrowService.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId))
+
+    expect(again.ok).toBe(false)
+    expect(!again.ok && again.error).toMatch(/already has a pending/)
+    expect((await effects(o)).roundIds).toEqual([first.id])
+    expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: o.escrowId } })).toBe(0)
+  })
+
+  it('AR-01 two executors build at the same instant (both reach the provider build before either writes): exactly one round is created, the other is told it lost', async () => {
+    const o = await openedDispute('a1-two-builders')
+    await commitOnly(o, 'RELEASE')
+    chain(o.txid)
+    let arrived = 0
+    let open!: () => void
+    const bothArrived = new Promise<void>((r) => { open = r })
+    const real = multisigProvider.buildUnsignedRelease.bind(multisigProvider)
+    jest.spyOn(multisigProvider, 'buildUnsignedRelease').mockImplementation(async (...args: any[]) => {
+      if (args[0]?.id !== o.escrowId) return real(...args)
+      arrived += 1
+      if (arrived === 2) open()
+      await bothArrived
+      return real(...args)
+    })
+
+    const [a, b] = await Promise.all([
+      settle(escrowService.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId)),
+      settle(escrowService.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId)),
+    ])
+
+    expect(arrived).toBe(2)
+    expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1)
+    const loser = a.ok ? b : a
+    expect(!loser.ok && loser.error).toMatch(/already has a pending/)
+    expect((await effects(o)).roundIds).toHaveLength(1)
+  })
+
+  it('AR-01 two C4 workers at once: one round, no failure, no authorization', async () => {
+    const o = await openedDispute('a1-two-c4')
+    await commitOnly(o, 'RELEASE')
+    chain(o.txid)
+
+    const [r1, r2] = await Promise.all([c4Until(o), c4Until(o)])
+
+    expect(mine(o, r1.failed)).toEqual([])
+    expect(mine(o, r2.failed)).toEqual([])
+    expect(mine(o, r1.resumed).length + mine(o, r2.resumed).length).toBeLessThanOrEqual(1)
+    const after = await effects(o)
+    expect(after.roundIds).toHaveLength(1)
+    expect(after).toMatchObject({ dispute: 'RESOLVED', authorizations: 0, broadcasts: 0 })
+  })
+
+  it('AR-01 retry after restart: a fresh module graph (no memory of the first) creates no second round and no authorization', async () => {
+    const o = await openedDispute('a1-restart')
+    await commitOnly(o, 'RELEASE')
+    chain(o.txid)
+    await c4Until(o)
+    const first = await roundOf(o)
+
+    const again = await settle(restarted!.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId))
+
+    expect(again.ok).toBe(false)
+    expect(!again.ok && again.error).toMatch(/already has a pending/)
+    expect(await effects(o)).toMatchObject({ roundIds: [first.id], authorizations: 0, dispute: 'RESOLVED', outcome: 'present' })
+  })
+
+  it('AR-01 a round of this generation that is NOT the ruling dispatch is refused with the reasons and never adopted - and the ruling is preserved, not reverted (wrong payee; wrong kind)', async () => {
+    for (const variant of ['payee', 'kind'] as const) {
+      const o = await openedDispute(`a1-divergent-${variant}`)
+      chain(o.txid)
+      const pause = hold(multisigProvider, 'buildUnsignedRelease', forEscrow(o))
+      const live = settle(resolve(o, 'RELEASE')())
+      await pause.atPause
+      // a divergent round of the committed generation appears (a legacy or foreign writer): the live flow must not take it for its own
+      const divergent = variant === 'payee'
+        ? await persistRound(o, { kind: 'release', payTo: destination('attacker') })
+        : await persistRound(o, { kind: 'refund', payTo: o.sellerDestination, recordedRuling: 'RELEASE' })
+      pause.go()
+
+      const result = await live
+
+      expect(result.ok).toBe(false)
+      expect(!result.ok && result.error).toMatch(/not the dispatch of the ruling/)
+      expect(!result.ok && result.error).toMatch(variant === 'payee' ? /destination|AUD-1/ : /is a refund, this dispatch is a release|AUD-1/)
+      const after = await effects(o)
+      expect(after).toMatchObject({ dispute: 'RESOLVED', ruling: 'RELEASE', outcome: 'present', roundIds: [divergent.id], authorizations: 0, broadcasts: 0 })
+    }
+  })
+
+  it('AR-01 a round of a superseded or different signed authority is not adopted (stale generation), and cannot execute', async () => {
+    const o = await openedDispute('a1-stale')
+    chain(o.txid)
+    const pause = hold(multisigProvider, 'buildUnsignedRelease', forEscrow(o))
+    const live = settle(resolve(o, 'RELEASE')())
+    await pause.atPause
+    const stale = await persistRound(o, { kind: 'release', payTo: o.buyerDestination, authoritySignature: 'stale-authority-signature' })
+    pause.go()
+
+    const result = await live
+    expect(result.ok).toBe(false) // a round recording ANOTHER authority is not this generation's: there is nothing to adopt...
+    // ...and it is not this ruling's round, so the failure is state 1: the ruling is reverted as before (the stale round is
+    // the ST1-R1 residual - nothing here removes it)
+    expect((await effects(o)).dispute).toBe('OPENED')
+    const executed = await settle(submitTransactionSignature(o.escrowId, o.buyerId, sign(stale.unsignedPsbtBase64, buyerKey)))
+    expect(executed.ok).toBe(false)
+    expect(await effects(o)).toMatchObject({ escrow: 'DISPUTED', authorizations: 0, broadcasts: 0 })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+  // AR-03 - a dispatch failure does not revoke a committed authority
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+  it('AR-03 state 1 is unchanged: a failure before any round or authorization exists still reverts the ruling, and the arbiter can re-rule and dispatch', async () => {
+    const o = await openedDispute('a3-state1')
+    chain(o.txid)
+    const pause = hold(multisigProvider, 'buildUnsignedRelease', forEscrow(o))
+    const live = settle(resolve(o, 'RELEASE')())
+    await pause.atPause
+    pause.fail(new Error('injected: the explorer is unreachable'))
+
+    const result = await live
+
+    expect(result.ok).toBe(false)
+    expect(await effects(o)).toMatchObject({ dispute: 'OPENED', ruling: null, outcome: 'absent', roundIds: [], authorizations: 0 })
+    // the arbiter's honest retry is not blocked by anything left behind
+    chain(o.txid)
+    await resolve(o, 'RELEASE')()
+    expect(await effects(o)).toMatchObject({ dispute: 'RESOLVED', outcome: 'present' })
+    expect((await effects(o)).roundIds).toHaveLength(1)
+  })
+
+  it('AR-03 a failure AFTER the round was persisted (the response is lost): the dispatch exists and is proven, so the call succeeds; ruling, Outcome and round stand and the round executes', async () => {
+    const o = await openedDispute('a3-after-construction')
+    chain(o.txid)
+    // FAULT INJECTION: the real initiate runs to completion, then the call is made to fail
+    const real = escrowService.initiateRelease.bind(escrowService)
+    jest.spyOn(escrowService, 'initiateRelease').mockImplementationOnce(async (...args: any[]) => {
+      await real(...args)
+      throw new Error('injected: connection lost after the round was persisted')
+    })
+
+    const result = await settle(resolve(o, 'RELEASE')())
+
+    expect(result.ok).toBe(true)
+    const after = await effects(o)
+    expect(after).toMatchObject({ dispute: 'RESOLVED', ruling: 'RELEASE', outcome: 'present', authorizations: 0, broadcasts: 0 })
+    expect(after.roundIds).toHaveLength(1)
+
+    const round = await roundOf(o)
+    chain(o.txid)
+    expect((await submitTransactionSignature(o.escrowId, o.buyerId, sign(round.unsignedPsbtBase64, buyerKey))).complete).toBe(true)
+    expect(await effects(o)).toMatchObject({ escrow: 'COMPLETED', broadcasts: 1, authorizations: 1, dispute: 'RESOLVED', outcome: 'present' })
+  })
+
+  // The live flow fails at each stage the OTHER executor's round has reached. Every stage keeps the ruling and the Outcome.
+  it.each([
+    ['a stored signature (no authorization yet)', 'signature'],
+    ['a committed authorization (gate passed, nothing claimed)', 'authorization'],
+    ['a claimed transition (the provider is mid-broadcast)', 'claim'],
+    ['a broadcast and confirmed settlement', 'broadcast'],
+  ] as const)('AR-03 revert versus %s: the ruling and its Outcome are preserved and the execution completes with one broadcast', async (_name, stage) => {
+    const o = await openedDispute(`a3-${stage}`)
+    chain(o.txid)
+    const pause = hold(multisigProvider, 'buildUnsignedRelease', forEscrow(o))
+    const live = settle(resolve(o, 'RELEASE')())
+    await pause.atPause
+    await c4Until(o)
+    const round = await roundOf(o)
+    const buyerCopy = sign(round.unsignedPsbtBase64, buyerKey)
+    chain(o.txid)
+
+    let execution: Promise<any> | undefined
+    let finalize: ReturnType<typeof hold> | undefined
+    if (stage === 'signature') {
+      await prisma.escrowTransactionSignature.create({ data: { pendingTxId: round.id, participantId: o.buyerId, signedPsbtBase64: buyerCopy } })
+    } else if (stage === 'authorization') {
+      await prisma.escrowTransactionSignature.create({ data: { pendingTxId: round.id, participantId: o.buyerId, signedPsbtBase64: buyerCopy } })
+      await authorizeDisputedPendingExecution(round) // what the live gate commits immediately before its claim
+    } else if (stage === 'claim') {
+      finalize = hold(multisigProvider, 'finalizeRelease', forEscrow(o))
+      execution = settle(submitTransactionSignature(o.escrowId, o.buyerId, buyerCopy))
+      await finalize.atPause
+      expect(await effects(o)).toMatchObject({ escrow: 'COMPLETED', authorizations: 1, broadcasts: 0 }) // claimed, not broadcast
+    } else {
+      expect((await submitTransactionSignature(o.escrowId, o.buyerId, buyerCopy)).complete).toBe(true)
+      expect(await effects(o)).toMatchObject({ escrow: 'COMPLETED', broadcasts: 1, authorizations: 1 })
+    }
+
+    pause.fail(new Error('injected: the live flow own dispatch fails'))
+    const liveResult = await live
+
+    expect(liveResult.ok).toBe(true) // the dispatch exists (proven round, or a committed authorization): the call is an idempotent success...
+    const during = await effects(o)
+    expect(during).toMatchObject({ dispute: 'RESOLVED', ruling: 'RELEASE', outcome: 'present' }) // ...and nothing durable is undone
+    if (stage !== 'claim' && stage !== 'broadcast') expect(during.roundIds).toEqual([round.id])
+
+    if (stage === 'claim') {
+      finalize!.go()
+      expect((await execution!).ok).toBe(true)
+    } else if (stage !== 'broadcast') {
+      expect((await submitTransactionSignature(o.escrowId, o.buyerId, buyerCopy)).complete).toBe(true)
+    }
+    const final = await effects(o)
+    expect(final).toMatchObject({ escrow: 'COMPLETED', dispute: 'RESOLVED', ruling: 'RELEASE', outcome: 'present', broadcasts: 1, authorizations: 1 })
+    expect(final.txReleaseId).not.toBeNull()
+    expect(paidTo()[0]).toEqual([o.buyerDestination])
+    await verifyBroadcastWitness(o, pubHex(buyerKey))
+  })
+
+  it.each([
+    ['REFUND', null, 'seller', 'buildUnsignedRefund', 'REFUNDED'],
+    ['SPLIT', 3000, 'buyer', 'buildUnsignedSplit', 'SPLIT'],
+  ] as const)('AR-03 %s: the dispatch failed after its round was executed to the end - ruling and Outcome stand, the call is an idempotent success', async (ruling, bps, role, buildMethod, terminal) => {
+    const o = await openedDispute(`a3-settled-${ruling.toLowerCase()}`)
+    chain(o.txid)
+    const pause = hold(multisigProvider, buildMethod, forEscrow(o))
+    const live = settle(resolve(o, ruling, bps)())
+    await pause.atPause
+    await c4Until(o)
+    const round = await roundOf(o)
+    const signer = signerOf(o, role)
+    chain(o.txid)
+    expect((await submitTransactionSignature(o.escrowId, signer.id, sign(round.unsignedPsbtBase64, signer.key))).complete).toBe(true)
+    expect(await effects(o)).toMatchObject({ escrow: terminal, broadcasts: 1, authorizations: 1, roundIds: [] })
+    pause.fail(new Error('injected: the live flow own dispatch fails'))
+
+    const result = await live
+
+    expect(result.ok).toBe(true)
+    expect(await effects(o)).toMatchObject({ escrow: terminal, dispute: 'RESOLVED', ruling, outcome: 'present', broadcasts: 1, authorizations: 1 })
+  })
+
+  it('AR-03 replay after a partial failure and a restart: the authorization is reused, one broadcast, one authorization', async () => {
+    const o = await openedDispute('a3-replay')
+    await resolve(o, 'RELEASE')()
+    const round = await roundOf(o)
+    const buyerCopy = sign(round.unsignedPsbtBase64, buyerKey)
+    chain(o.txid)
+    // FAULT INJECTION: the provider fails after the gate committed the authorization and the claim was taken (the claim is reverted)
+    jest.spyOn(multisigProvider, 'finalizeRelease').mockImplementationOnce(async () => { throw new Error('injected: provider failure after the authorization') })
+    expect((await settle(submitTransactionSignature(o.escrowId, o.buyerId, buyerCopy))).ok).toBe(false)
+    expect(await effects(o)).toMatchObject({ escrow: 'DISPUTED', authorizations: 1, broadcasts: 0, dispute: 'RESOLVED', outcome: 'present' })
+    jest.restoreAllMocks()
+    chain(o.txid)
+
+    const first = await restarted!.submitTransactionSignature(o.escrowId, o.buyerId, buyerCopy)
+    const replay = await settle(submitTransactionSignature(o.escrowId, o.buyerId, buyerCopy))
+
+    expect(first.complete).toBe(true)
+    expect(replay.ok).toBe(false) // nothing left to execute
+    expect(await effects(o)).toMatchObject({ escrow: 'COMPLETED', authorizations: 1, broadcasts: 1 })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+  // AR-04 - no round, and no new authorization, for an escrow that is already terminal
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+  it('AR-04 an initiate that read the escrow before it was settled persists nothing once the escrow is terminal, and mints no second authorization', async () => {
+    const o = await openedDispute('a4-construction')
+    await commitOnly(o, 'RELEASE')
+    chain(o.txid)
+    const pause = hold(multisigProvider, 'buildUnsignedRelease', forEscrow(o))
+    const late = settle(escrowService.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId))
+    await pause.atPause
+    // meanwhile C4's round is signed and executed to the end
+    await c4Until(o)
+    const round = await roundOf(o)
+    chain(o.txid)
+    expect((await submitTransactionSignature(o.escrowId, o.buyerId, sign(round.unsignedPsbtBase64, buyerKey))).complete).toBe(true)
+    expect(await effects(o)).toMatchObject({ escrow: 'COMPLETED', broadcasts: 1, authorizations: 1, roundIds: [] })
+    pause.go()
+
+    const result = await late
+
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.error).toMatch(/Invalid escrow transition/)
+    expect(await effects(o)).toMatchObject({ escrow: 'COMPLETED', broadcasts: 1, authorizations: 1, roundIds: [], dispute: 'RESOLVED', outcome: 'present' })
+  })
+
+  it('AR-04 a round that already sits on a terminal escrow cannot obtain an authorization: refused before the gate', async () => {
+    const o = await openedDispute('a4-execution')
+    await resolve(o, 'RELEASE')()
+    const real = await roundOf(o)
+    chain(o.txid)
+    expect((await submitTransactionSignature(o.escrowId, o.buyerId, sign(real.unsignedPsbtBase64, buyerKey))).complete).toBe(true)
+    expect(await effects(o)).toMatchObject({ escrow: 'COMPLETED', authorizations: 1, broadcasts: 1 })
+    // FAULT INJECTION: the orphan the audit's A2b produced (a second round persisted after the settlement)
+    const orphan = await persistRound(o, { kind: 'release', payTo: o.buyerDestination })
+
+    const refused = await settle(submitTransactionSignature(o.escrowId, o.buyerId, sign(orphan.unsignedPsbtBase64, buyerKey)))
+
+    expect(refused.ok).toBe(false)
+    expect(!refused.ok && refused.error).toMatch(/Invalid escrow transition/)
+    expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: o.escrowId } })).toBe(1) // not 2
+    expect(broadcasts).toHaveLength(1)
+  })
+
+
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+  // Lock order, behaviourally: the construction is held right after its FIRST advisory lock while the real ST-1 cleanup
+  // (D then E) is started. D-then-E cannot deadlock; a construction that took E first would (PostgreSQL 40P01).
+  // A suite that merely did not observe a deadlock proves nothing: this one fails against the reversed order.
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+  it('LOCK construction (paused after its first advisory lock) versus the ST-1 cleanup: the construction takes the dispute lock first and nothing deadlocks', async () => {
+    const o = await openedDispute('lock-order')
+    await commitOnly(o, 'RELEASE')
+    chain(o.txid)
+    const dKey = economicDispositionLockKey(o.disputeId)
+    let first: 'D' | 'E' | null = null
+    let resume!: () => void
+    const resumed = new Promise<void>((r) => { resume = r })
+    let held!: () => void
+    const isHeld = new Promise<void>((r) => { held = r })
+    const realTransaction = prisma.$transaction.bind(prisma)
+    let armed = true
+    // FAULT-INJECTION POINT (a pause only): the first advisory lock taken for this dispute or escrow, inside any
+    // transaction, is observed and the transaction is held there.
+    jest.spyOn(prisma, '$transaction').mockImplementation(((fn: any, opts: any) => {
+      if (typeof fn !== 'function' || !armed) return realTransaction(fn, opts)
+      return realTransaction(async (tx: any) => fn(new Proxy(tx, {
+        get(target, prop) {
+          const value = Reflect.get(target, prop)
+          if (prop !== '$executeRaw' || !armed) return typeof value === 'function' ? value.bind(target) : value
+          return async (strings: TemplateStringsArray, ...values: unknown[]) => {
+            const out = await value.call(target, strings, ...values)
+            if (armed && /pg_advisory_xact_lock/.test(strings.join('?')) && (values.includes(o.escrowId) || values.includes(dKey))) {
+              armed = false
+              first = values.includes(dKey) ? 'D' : 'E'
+              held()
+              await resumed
+            }
+            return out
+          }
+        },
+      })), opts)
+    }) as any)
+    const construct = settle(escrowService.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId))
+    await isHeld
+    jest.restoreAllMocks() // the cleanup runs on the real client
+    chain(o.txid)
+    const generation = { disputeId: o.disputeId, rulingAppealRound: 0, rulingArbiterId: o.arbiterId, rulingOutcome: 'RELEASE', rulingAuthoritySignature: 'x', rulingAuthorityIssuedAt: new Date() }
+    const cleanup = settle(deletePendingRoundIfStillUnsigned('00000000-0000-0000-0000-000000000000', o.escrowId, generation))
+    // the cleanup must be queued on the lock the construction holds before the construction continues
+    for (let i = 0; i < 500; i++) {
+      const [{ n }] = await prisma.$queryRaw<Array<{ n: number }>>`SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`
+      if (n >= 1) break
+      await new Promise((r) => setTimeout(r, 10))
+    }
+    resume()
+
+    const [c, k] = await Promise.all([construct, cleanup])
+
+    expect(first).toBe('D')
+    expect([c, k].some((x) => !x.ok && /deadlock detected|40P01/i.test(x.error))).toBe(false)
+    expect(c.ok).toBe(true)
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+  // AR-05 - PASS 1 produces the arbiter signature only under an authorization that still describes its round
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+  /** PASS 1 (and every pass after it) until this escrow has been visited; what was reported about it is returned. */
+  async function runPass1Until(o: Opened) {
+    const manualReview: any[] = []
+    for (let i = 0; i < 80; i++) {
+      const report = await reconcilePendingSettlements({ projectionGraceMs: 50 * 365 * 24 * 3600 * 1000 })
+      manualReview.push(...(report.requiresManualReview ?? []).filter((r: any) => r.escrowId === o.escrowId))
+      const row = await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId }, select: { settlementRecoveryAttemptedAt: true } })
+      if (row.settlementRecoveryAttemptedAt) break
+    }
+    return { manualReview }
+  }
+
+  /** A terminal escrow whose claim happened and whose broadcast never did: the shape PASS 1 exists for. */
+  async function terminalWithoutBroadcast(label: string) {
+    const o = await openedDispute(label)
+    await resolve(o, 'RELEASE')()
+    const round = await roundOf(o)
+    await prisma.escrowTransactionSignature.create({ data: { pendingTxId: round.id, participantId: o.buyerId, signedPsbtBase64: sign(round.unsignedPsbtBase64, buyerKey) } })
+    await prisma.escrow.update({ where: { id: o.escrowId }, data: { status: 'COMPLETED' } }) // FAULT INJECTION: claimed, then the process died
+    chain(o.txid)
+    return { o, round }
+  }
+
+  it('AR-05 control: under the authorization the gate committed for the round, PASS 1 still completes the recovery (one broadcast, valid witness)', async () => {
+    const { o, round } = await terminalWithoutBroadcast('a5-control')
+    await authorizeDisputedPendingExecution(round)
+
+    await runPass1Until(o)
+
+    expect(broadcasts).toHaveLength(1)
+    await verifyBroadcastWitness(o, pubHex(buyerKey))
+    expect(paidTo()[0]).toEqual([o.buyerDestination])
+  })
+
+  it('AR-05 an authorization committed for a CONTRADICTING ruling (the shape the pre-AUD-1 gate could leave) is never a means to sign: manual review, no broadcast', async () => {
+    const { o, round } = await terminalWithoutBroadcast('a5-contradicting')
+    // FAULT INJECTION: an authorization whose ruling contradicts the round it names, digest otherwise genuine
+    await prisma.economicDispositionAuthorization.create({
+      data: {
+        pendingOperationId: round.id, escrowId: o.escrowId, disputeId: o.disputeId, appealRound: 0, arbiterId: o.arbiterId,
+        ruling: 'REFUND', operationDigest: economicDispositionOperationDigest(round),
+      },
+    })
+
+    const seen = await runPass1Until(o)
+
+    expect(broadcasts).toHaveLength(0)
+    expect(JSON.stringify(seen.manualReview)).toMatch(/no execution authorization supplied the arbiter signature/)
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })).txReleaseId).toBeNull()
+  })
+
+  it('AR-05 an authorization whose digest does not describe this round is not a means to sign either', async () => {
+    const { o, round } = await terminalWithoutBroadcast('a5-digest')
+    await prisma.economicDispositionAuthorization.create({
+      data: {
+        pendingOperationId: round.id, escrowId: o.escrowId, disputeId: o.disputeId, appealRound: 0, arbiterId: o.arbiterId,
+        ruling: 'RELEASE', operationDigest: 'f'.repeat(64),
+      },
+    })
+
+    const seen = await runPass1Until(o)
+
+    expect(broadcasts).toHaveLength(0)
+    expect(JSON.stringify(seen.manualReview)).toMatch(/no execution authorization supplied the arbiter signature/)
+  })
+})

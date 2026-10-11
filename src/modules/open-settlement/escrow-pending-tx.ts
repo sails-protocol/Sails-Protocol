@@ -196,6 +196,13 @@ async function initiateSignatureCollectionCore(
           )
         }
       }
+      // AUD1X-R2 (AR-04) - the escrow's status was read before the PSBT was built and before these locks; it is
+      // judged again HERE, with the row locked, in the transaction that persists the round: an escrow that has
+      // meanwhile been claimed or settled accepts no new round (and so no second authorization for it). The row lock
+      // makes a claim wait for this transaction instead of landing between this read and the insert.
+      const [lockedEscrow] = await tx.$queryRaw<Array<{ status: string }>>`SELECT status::text AS status FROM escrows WHERE id = ${escrowId} FOR UPDATE`
+      if (!lockedEscrow) throw new NotFoundError('Escrow', escrowId)
+      assertEscrowTransition(lockedEscrow.status, targetStatus as any)
       // AUD1X-H1 (A) - the authoritative re-read. The dispute lock (taken before the escrow lock, see
       // withEscrowFundingLock) serializes this write with every writer of a ruling's generation (commit, appeal,
       // revert); the row is read FOR UPDATE after the escrow lock, the order the ST-1 cleanup uses. The snapshot taken
@@ -529,6 +536,10 @@ export async function submitTransactionSignature(escrowId: string, participantId
     throw new EscrowError(`Escrow type '${escrow.type}' has a pending transaction but no registered SignatureCollectionProvider`)
   }
   const targetStatus = pending.kind === 'release' ? 'COMPLETED' : pending.kind === 'refund' ? 'REFUNDED' : 'SPLIT'
+
+  // AUD1X-R2 (AR-04) - before any gate: a round whose transition the escrow's status no longer allows (it is
+  // already terminal) must not even obtain a new authorization; the claim below would refuse it anyway.
+  assertEscrowTransition(escrow.status, targetStatus)
 
   // Validate that the provider supports the required finalization method
   if (pending.kind === 'split' && !provider.finalizeSplit) {
