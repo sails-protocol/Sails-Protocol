@@ -233,7 +233,7 @@ export async function reconcileMissingDispatch(limit: number = DISPATCH_RECOVERY
         continue
       }
 
-      let pending: { unsignedPsbtBase64: string; minerFeeSats: number | null }
+      let pending: Awaited<ReturnType<typeof escrowService.initiateRelease>>
       try {
         if (ruling === 'RELEASE') {
           pending = await escrowService.initiateRelease(dispute.escrowId, buyerDestination, triggeredBy)
