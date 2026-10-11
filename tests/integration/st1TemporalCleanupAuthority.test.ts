@@ -108,7 +108,18 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
   })
 
   beforeEach(() => { realFetch = global.fetch })
-  afterEach(() => { global.fetch = realFetch; jest.restoreAllMocks() })
+  afterEach(async () => {
+    global.fetch = realFetch
+    jest.restoreAllMocks()
+    // The database is shared with every other suite of the lane, and some of them classify EVERY escrow in it
+    // (multisigScriptAuthority's PREFLIGHT counts escrows whose script lacks an arbiter commitment as violating).
+    // A legacy-shaped fixture must therefore give its commitment back: inserting the row is allowed, only
+    // deleting or changing it is refused.
+    while (removedArbiterCommitments.length) {
+      const row = removedArbiterCommitments.pop()!
+      await prisma.escrowParticipantKey.create({ data: row })
+    }
+  })
 
   afterAll(async () => {
     if (dbAvailable) {
@@ -184,7 +195,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
    * removed with the trigger bypassed for this one transaction (session_replication_role needs a superuser, as
    * the test database user is) to reach the state of an escrow that predates the commitment.
    */
+  const removedArbiterCommitments: Array<{ escrowId: string; role: string; participantId: string; pubkey: string }> = []
   const makeAppealable = (o: Opened) => prisma.$transaction(async (tx) => {
+    const commitment = await tx.escrowParticipantKey.findUnique({ where: { escrowId_role: { escrowId: o.escrowId, role: 'arbiter' } } })
+    if (commitment) removedArbiterCommitments.push({ escrowId: commitment.escrowId, role: commitment.role, participantId: commitment.participantId, pubkey: commitment.pubkey })
     await tx.$executeRaw`SET LOCAL session_replication_role = replica`
     await tx.escrowParticipantKey.deleteMany({ where: { escrowId: o.escrowId, role: 'arbiter' } })
   })
