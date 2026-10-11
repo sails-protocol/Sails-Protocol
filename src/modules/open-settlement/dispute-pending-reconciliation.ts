@@ -13,11 +13,14 @@
  * escrow, (b) belong to an escrow with a RESOLVED Dispute (the durable
  * signal that `applyRulingCoreAuthoritative()`'s own commit path, not
  * some other flow, is what created it), and (c) have ZERO signatures
- * collected — the durable, checkable fact that makes deletion
- * unconditionally safe: `escrow-pending-tx.ts`'s own
+ * collected — a necessary but NOT sufficient condition for deletion.
+ * A matching durable Core-authoritative Outcome, live ruling generation,
+ * and absence of a committed economic disposition are also mandatory.
+ * `escrow-pending-tx.ts`'s own
  * `submitTransactionSignature()` is the ONLY code path that can ever
  * move funds for a signature-collection escrow, and it structurally
  * cannot have run yet if no required signer has submitted anything.
+ * This does not authorize cleanup without the independent authority checks.
  *
  * WHY RE-RUNNING THE GUARD IS SAFE AND CONCLUSIVE (never a guess): the
  * translation guard (`dispatch-translation-guard.ts`,
@@ -72,12 +75,12 @@ export interface StalePendingReconciliationReport {
 export type StalePendingDeleteResult = 'DELETED' | 'SIGNED_MEANWHILE' | 'ALREADY_GONE'
 
 /**
- * Issue #244 - the only way this module deletes a pending round. The candidate snapshot (zero
- * signatures when it was read) never authorizes the delete by itself: under the escrow-scoped advisory
- * lock (the same key as withEscrowFundingLock(), escrow-lifecycle.ts, which submitTransactionSignature()
- * holds while it accepts a signature), the delete re-proves - in one statement - that this exact round
- * (id + escrow) still exists and still has zero durable signatures. A signature accepted before the lock
- * makes it match 0 rows; a signer arriving after finds the round gone and fails closed.
+ * Issue #244 / ST-1 - the only deletion entrypoint. The snapshot never authorizes deletion.
+ * The transaction acquires the economic-disposition advisory lock D before the signer/escrow
+ * advisory lock E, rechecks the exact ruling generation and immutable Outcome, verifies no
+ * economic authorization was committed, then conditionally deletes only a still-unsigned round.
+ * A signature committed first preserves the round; a signer arriving after an authorized delete
+ * finds no pending round and must reject without persisting an orphan signature.
  */
 type PendingGeneration = {
   disputeId: string
