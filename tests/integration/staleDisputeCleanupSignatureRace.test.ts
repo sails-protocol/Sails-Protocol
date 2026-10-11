@@ -11,7 +11,13 @@
 // in the shared database, and this suite only touches rows it created.
 //
 // "Restart" means an independent module graph with its own PrismaClient (jest.isolateModules), not an OS crash.
+//
+// ST-1: cleanup now re-proves the ruling generation AND its durable Outcome under the locks, so every round here
+// belongs to a dispute whose ruling was committed through the production commitAuthoritativeDisputeRuling()
+// (real signed authority decision, real Outcome record). The round's transaction pays an address that is not
+// the Outcome's destination: the stale, guard-failing round this cleanup exists to remove.
 import { PrismaClient } from '@prisma/client'
+import nacl from 'tweetnacl'
 import { createHash, randomBytes } from 'crypto'
 import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from '@bitcoinerlab/secp256k1'
@@ -26,6 +32,8 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
   let dbAvailable = false
   let prisma: PrismaClient
   let submitTransactionSignature: typeof import('../../src/modules/open-settlement/escrow-pending-tx').submitTransactionSignature
+  let commitAuthoritativeDisputeRuling: typeof import('../../src/modules/open-settlement/dispute-outcome').commitAuthoritativeDisputeRuling
+  let signAuthorityDecision: typeof import('../../src/modules/open-settlement/arbitration-authority').signAuthorityDecision
   let deletePendingRoundIfStillUnsigned: typeof import('../../src/modules/open-settlement/dispute-pending-reconciliation').deletePendingRoundIfStillUnsigned
   let restarted: {
     prisma: PrismaClient
@@ -39,6 +47,8 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     if (!dbAvailable) return
     ;({ prisma } = require('../../src/common/database'))
     ;({ submitTransactionSignature } = require('../../src/modules/open-settlement/escrow-pending-tx'))
+    ;({ commitAuthoritativeDisputeRuling } = require('../../src/modules/open-settlement/dispute-outcome'))
+    ;({ signAuthorityDecision } = require('../../src/modules/open-settlement/arbitration-authority'))
     ;({ deletePendingRoundIfStillUnsigned } = require('../../src/modules/open-settlement/dispute-pending-reconciliation'))
     jest.isolateModules(() => {
       restarted = {
@@ -69,6 +79,7 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
   const ECPair = ECPairFactory(ecc)
   const keyOf = (label: string) => ECPair.fromPrivateKey(createHash('sha256').update(`r244-${label}`).digest())
   const buyerKey = keyOf('buyer'), sellerKey = keyOf('seller'), arbiterKey = keyOf('arbiter')
+  const arbiterAuthorityKey = nacl.sign.keyPair() // the arbiter's identity key: signs the authority decision
   const network = () => {
     const { config } = require('../../src/config')
     return require('../../src/modules/open-settlement/multisig.provider').networkFor(config.multisig.network) as bitcoin.Network
@@ -108,9 +119,21 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
       { escrowId: escrow.id, role: 'arbiter', participantId: arbiter.id, pubkey: Buffer.from(arbiterKey.publicKey).toString('hex') },
     ] })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    const dispute = await prisma.dispute.create({
-      data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: '#244', arbiterId: arbiter.id, status: 'RESOLVED', ruling: 'RELEASE', resolvedAt: new Date() },
+    const opened = await prisma.dispute.create({
+      data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: '#244', arbiterId: arbiter.id, status: 'ARBITRATED' },
     })
+    // The buyer's registered destination is NOT the address the stored round pays: the round is stale.
+    await prisma.payoutAddress.create({
+      data: { participantId: buyer.id, asset: 'BTC', address: bitcoin.payments.p2wpkh({ pubkey: Buffer.from(keyOf('buyer-payout').publicKey), network: network() }).address! },
+    })
+    const payload = { disputeId: opened.id, escrowId: escrow.id, appealRound: 0, authorityId: arbiter.id, outcome: 'RELEASE' as const, buyerBps: null, issuedAt: new Date().toISOString() }
+    const authoritySignature = signAuthorityDecision(payload, arbiterAuthorityKey.secretKey)
+    const committedRuling = await commitAuthoritativeDisputeRuling(
+      { id: opened.id, escrowId: escrow.id, status: opened.status, appealRound: 0 },
+      payload, authoritySignature, Buffer.from(arbiterAuthorityKey.publicKey).toString('hex'), '100000', 'BTC', buyer.id, seller.id,
+    )
+    expect(committedRuling.committed).toBe(true)
+    const dispute = await prisma.dispute.findUniqueOrThrow({ where: { id: opened.id } })
     const pending = await prisma.escrowPendingTransaction.create({
       data: {
         escrowId: escrow.id, kind: 'release', toAddress: 'bc1qtest', unsignedPsbtBase64: round('release'),
@@ -119,6 +142,7 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
         // #239D refuses cooperative signatures once a dispute exists, so a provenance-less round here would
         // test a path that no longer accepts signatures at all.
         disputeId: dispute.id, rulingAppealRound: 0, rulingArbiterId: arbiter.id, rulingOutcome: 'RELEASE',
+        rulingAuthoritySignature: dispute.authoritySignature, rulingAuthorityIssuedAt: dispute.authorityIssuedAt,
         createdAt: new Date(Date.now() - 10 * 60 * 1000),
       },
     })
@@ -130,10 +154,24 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     signatures: await client.escrowTransactionSignature.count({ where: { pendingTxId: pendingId } }),
   })
 
+  async function generation(pendingId: string) {
+    const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pendingId } })
+    if (!row.disputeId || row.rulingAppealRound === null || !row.rulingArbiterId ||
+        !row.rulingOutcome || !row.rulingAuthoritySignature || !row.rulingAuthorityIssuedAt) {
+      throw new Error('test fixture missing complete ruling provenance')
+    }
+    return {
+      disputeId: row.disputeId, rulingAppealRound: row.rulingAppealRound,
+      rulingArbiterId: row.rulingArbiterId, rulingOutcome: row.rulingOutcome,
+      rulingAuthoritySignature: row.rulingAuthoritySignature,
+      rulingAuthorityIssuedAt: row.rulingAuthorityIssuedAt,
+    }
+  }
+
   /** Cleanup as the reconciler runs it: a candidate snapshot first, then the lock-protected delete decision. */
   async function cleanup(pendingId: string, escrowId: string) {
     const snapshot = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pendingId }, include: { signatures: true } })
-    return { snapshotSignatures: snapshot.signatures.length, outcome: await deletePendingRoundIfStillUnsigned(pendingId, escrowId) }
+    return { snapshotSignatures: snapshot.signatures.length, outcome: await deletePendingRoundIfStillUnsigned(pendingId, escrowId, await generation(pendingId)) }
   }
 
   // ── deterministic interleaving harness ──────────────────────────────────────────────────────────
@@ -249,8 +287,9 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     pg.requirePostgres('genuinely stale')
     const { escrow, pending } = await fixture()
 
-    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id)).toBe('DELETED')
-    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id)).toBe('ALREADY_GONE')
+    const authority = await generation(pending.id)
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)).toBe('DELETED')
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)).toBe('ALREADY_GONE')
     expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
   })
 
@@ -258,9 +297,10 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     pg.requirePostgres('concurrent cleanup')
     const { escrow, pending } = await fixture()
 
+    const authority = await generation(pending.id)
     const outcomes = await Promise.all([
-      deletePendingRoundIfStillUnsigned(pending.id, escrow.id),
-      deletePendingRoundIfStillUnsigned(pending.id, escrow.id),
+      deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority),
+      deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority),
     ])
 
     expect(outcomes.sort()).toEqual(['ALREADY_GONE', 'DELETED'])
@@ -274,14 +314,182 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     const signed = await fixture()
     await submitTransactionSignature(signed.escrow.id, signed.buyer.id, buyerSigns(signed.pending.unsignedPsbtBase64))
     const unsigned = await fixture()
-    expect(await deletePendingRoundIfStillUnsigned(unsigned.pending.id, unsigned.escrow.id)).toBe('DELETED')
+    const unsignedAuthority = await generation(unsigned.pending.id)
+    const signedAuthority = await generation(signed.pending.id)
+    expect(await deletePendingRoundIfStillUnsigned(unsigned.pending.id, unsigned.escrow.id, unsignedAuthority)).toBe('DELETED')
 
     const fresh = restarted!
     expect(await roundState(signed.pending.id, fresh.prisma)).toEqual({ pending: true, signatures: 1 })
     expect(await roundState(unsigned.pending.id, fresh.prisma)).toEqual({ pending: false, signatures: 0 })
-    expect(await fresh.deletePendingRoundIfStillUnsigned(signed.pending.id, signed.escrow.id)).toBe('SIGNED_MEANWHILE')
-    expect(await fresh.deletePendingRoundIfStillUnsigned(unsigned.pending.id, unsigned.escrow.id)).toBe('ALREADY_GONE')
+    expect(await fresh.deletePendingRoundIfStillUnsigned(signed.pending.id, signed.escrow.id, signedAuthority)).toBe('SIGNED_MEANWHILE')
+    expect(await fresh.deletePendingRoundIfStillUnsigned(unsigned.pending.id, unsigned.escrow.id, unsignedAuthority)).toBe('ALREADY_GONE')
     expect(await roundState(signed.pending.id, fresh.prisma)).toEqual({ pending: true, signatures: 1 })
+  })
+
+  // ── ST-1 provisional authority fail-closed regressions (NOT the D->E concurrency proof) ──
+
+  it('ST1-A rejects deletion without a complete caller generation and preserves the pending row', async () => {
+    pg.requirePostgres('missing caller provenance')
+    const { escrow, pending } = await fixture()
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id)).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+  })
+
+  it('ST1-B rejects a mismatched appeal generation and preserves the pending row', async () => {
+    pg.requirePostgres('mismatched generation')
+    const { escrow, pending } = await fixture()
+    const authority = await generation(pending.id)
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id, {
+      ...authority, rulingAppealRound: authority.rulingAppealRound + 1,
+    })).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+  })
+
+  it('ST1-C rejects deletion when the durable dispute generation has advanced', async () => {
+    pg.requirePostgres('durable generation mismatch')
+    const { escrow, pending } = await fixture()
+    const authority = await generation(pending.id)
+    // Fixture mutation only: this is NOT a real appeal() race or an authority proof.
+    await prisma.dispute.update({ where: { id: authority.disputeId }, data: { appealRound: authority.rulingAppealRound + 1 } })
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+  })
+
+  it('ST1-D requires a durable Outcome before deleting an unsigned dispute round (fail closed, nothing deleted)', async () => {
+    pg.requirePostgres('missing Outcome fail closed')
+    const { escrow, pending } = await fixture()
+    const authority = await generation(pending.id)
+    // The fixture's ruling was committed with a real Outcome record; production's own deleter of a ruling
+    // record removes it. CTO policy: absence of an authoritative Outcome must NEVER authorize deletion.
+    const { loadDisputeRulingRecord, revertDisputeRulingRecord } = require('../../src/modules/open-settlement/dispute-outcome')
+    await revertDisputeRulingRecord(escrow.id, authority.rulingAppealRound)
+    const durableOutcome = await loadDisputeRulingRecord(escrow.id, authority.rulingAppealRound)
+    expect(durableOutcome).toBeNull()
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)).toBe('OUTCOME_ABSENT')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+  })
+
+  it('ST1-E refuses a provenance-less cooperative pending round', async () => {
+    pg.requirePostgres('ambiguous cooperative provenance')
+    const { escrow, pending } = await fixture()
+    const authority = await generation(pending.id)
+    await prisma.escrowPendingTransaction.update({
+      where: { id: pending.id },
+      data: {
+        disputeId: null, rulingAppealRound: null, rulingArbiterId: null,
+        rulingOutcome: null, rulingAuthoritySignature: null, rulingAuthorityIssuedAt: null,
+      },
+    })
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+  })
+
+  // ── ST-1: ported from the parallel session's ledger (adapted to a fixture that commits a real Outcome) ──
+
+  /** The ruling's Outcome record is removed with production's own deleter: a RESOLVED dispute with no Outcome. */
+  const withoutOutcome = async (escrowId: string, appealRound = 0) => {
+    const { revertDisputeRulingRecord } = require('../../src/modules/open-settlement/dispute-outcome')
+    await revertDisputeRulingRecord(escrowId, appealRound)
+  }
+
+  it('ST1-F waits for the economic disposition D lock and rejects a generation advanced before acquisition', async () => {
+    pg.requirePostgres('D-lock generation serialization')
+    const { escrow, pending } = await fixture()
+    const authority = await generation(pending.id)
+    const { economicDispositionLockKey } = require('../../src/modules/open-settlement/economic-disposition-authority')
+    const key = economicDispositionLockKey(authority.disputeId)
+    let release!: () => void
+    let acquired!: () => void
+    const held = new Promise<void>((resolve) => { acquired = resolve })
+    const released = new Promise<void>((resolve) => { release = resolve })
+    const holder = prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key})::bigint)`
+      acquired()
+      await released
+    }, { timeout: 30_000 })
+    await held
+    try {
+      const cleaner = deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)
+      await untilWaiting(1)
+      // The mutation is a deterministic proxy for the appeal commit; the production appeal() race is
+      // proven in st1TemporalCleanupAuthority.test.ts (A1-A3).
+      await prisma.dispute.update({
+        where: { id: authority.disputeId },
+        data: { appealRound: authority.rulingAppealRound + 1 },
+      })
+      release()
+      await holder
+      expect(await cleaner).toBe('PROVENANCE_REJECTED')
+      expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    } finally {
+      release()
+      await holder
+    }
+  })
+
+  it('ST1-H rejects a changed live authority issuance timestamp on real PostgreSQL', async () => {
+    pg.requirePostgres('authority timestamp drift')
+    const { escrow, pending } = await fixture()
+    const authority = await generation(pending.id)
+    await prisma.dispute.update({
+      where: { id: authority.disputeId },
+      data: { authorityIssuedAt: new Date(authority.rulingAuthorityIssuedAt.getTime() + 1000) },
+    })
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+  })
+
+  it('ST1-I rejects a pending row transplanted to another escrow without deleting it', async () => {
+    pg.requirePostgres('escrow provenance mismatch')
+    const original = await fixture()
+    const another = await fixture()
+    const authority = await generation(original.pending.id)
+    expect(await deletePendingRoundIfStillUnsigned(original.pending.id, another.escrow.id, authority)).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(original.pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await roundState(another.pending.id)).toEqual({ pending: true, signatures: 0 })
+  })
+
+  it('ST1-J an Outcome record of another ruling than the one the round carries is inconsistent durable state: rejected, nothing deleted', async () => {
+    pg.requirePostgres('Outcome ruling mismatch')
+    const { escrow, pending } = await fixture()
+    const authority = await generation(pending.id)
+    // FAULT INJECTION: the immutable record says REFUND while the dispute and the round say RELEASE.
+    await prisma.$executeRaw`UPDATE semantic_transition_records SET "outcomeContent" = jsonb_set("outcomeContent", '{ruling}', '"REFUND"')
+      WHERE "interactionId" = ${escrow.id} AND "transitionType" = 'escrow.dispute.rule' AND "appealRound" = 0`
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)).toBe('OUTCOME_MISMATCH')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+  })
+
+  it('ST1-K missing Outcome: the cleanup queued before a signer preserves the round and the signer succeeds', async () => {
+    pg.requirePostgres('missing Outcome vs signer')
+    const { escrow, pending, buyer } = await fixture()
+    await withoutOutcome(escrow.id)
+    const release = await holdEscrowLock(escrow.id)
+    const cleaner = cleanup(pending.id, escrow.id)
+    await untilWaiting(1)
+    const signer = submitTransactionSignature(escrow.id, buyer.id, buyerSigns(pending.unsignedPsbtBase64))
+    await untilWaiting(2)
+    await release()
+    expect(await cleaner).toEqual({ snapshotSignatures: 0, outcome: 'OUTCOME_ABSENT' })
+    expect(await signer).toMatchObject({ complete: false, submittedCount: 1 })
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 1 })
+  })
+
+  it('ST1-G multiple workers preserve a round without a durable Outcome, including replay and an independent module graph', async () => {
+    pg.requirePostgres('multiple workers fail-closed without Outcome')
+    const { escrow, pending } = await fixture()
+    await withoutOutcome(escrow.id)
+    const authority = await generation(pending.id)
+    const before = await roundState(pending.id)
+    const outcomes = await Promise.all([
+      deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority),
+      restarted!.deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority),
+      deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority),
+    ])
+    expect(outcomes).toEqual(['OUTCOME_ABSENT', 'OUTCOME_ABSENT', 'OUTCOME_ABSENT'])
+    expect(await roundState(pending.id)).toEqual(before)
+    expect(await restarted!.deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)).toBe('OUTCOME_ABSENT')
+    expect(await roundState(pending.id, restarted!.prisma)).toEqual(before)
   })
 
   // ── T7: no economic step under the lock ────────────────────────────────────────────────────────

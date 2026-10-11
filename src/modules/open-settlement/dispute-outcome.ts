@@ -344,9 +344,16 @@ export async function commitAuthoritativeDisputeRuling(
  * record back from durable storage — never reuses the in-memory objects
  * built during commit. This is what lets the M8 dispatch gate prove it
  * is reading persistence, not transient request memory (mission §16).
+ *
+ * `client` lets a caller that already holds a transaction (ST-1's stale-round cleanup, which re-reads the Outcome
+ * under the dispute and escrow locks) read through it; the default is the shared client, as before.
  */
-export async function loadDisputeRulingRecord(escrowId: string, appealRound: number): Promise<SemanticTransitionRecordRow | null> {
-  return prisma.semanticTransitionRecord.findUnique({
+export async function loadDisputeRulingRecord(
+  escrowId: string,
+  appealRound: number,
+  client: Pick<Prisma.TransactionClient, 'semanticTransitionRecord'> = prisma,
+): Promise<SemanticTransitionRecordRow | null> {
+  return client.semanticTransitionRecord.findUnique({
     where: {
       interactionId_transitionType_appealRound: {
         interactionId: escrowId,
