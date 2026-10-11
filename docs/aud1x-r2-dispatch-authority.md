@@ -75,8 +75,9 @@ Nothing of #436 was copied, rewritten or superseded.
 | dispute **row** | `disputes` row `FOR UPDATE` | commit, resolve claim, construction, cleanup, `decideRulingRevert` (always after D) |
 
 No path takes E before D, no path takes a dispute row before D, and nothing holds the escrow row while waiting for D
-or E: no cycle. The behavioural proof is `tests/integration/staleDisputeCleanupSignatureRace` / AUD1X-H1 K1/L-tests plus
-the audit's A4 probe (a reversed order produces PostgreSQL `40P01`).
+or E: no cycle. Behavioural proof: `LOCK` in `tests/integration/aud1xR2DispatchAuthority.test.ts` holds the real
+construction right after its first advisory lock and starts the real ST-1 cleanup; a reversed order (E before D)
+produces PostgreSQL `40P01` there (mutant L01 of the H1 review), which AUD1X-H1's K1 never detected.
 
 **Linearization points.**
 
@@ -125,3 +126,13 @@ two checks the gate's own reuse path makes: escrow/dispute/digest match, and the
 authorization's ruling. It governs **signing only**: a transaction already on the network is still recovered without an
 identity. No new authority, no change to what a valid authorization authorizes; the set of recoveries that complete can
 only shrink in states that were contradictory. It is a separate commit and can be dropped independently.
+
+## Tests of earlier missions that changed, and why
+
+`tests/integration/st1TemporalCleanupAuthority.test.ts` V1 / V3 / X1 (Gatekeeper's ST-1 evidence, assertions
+unchanged): they produced "a round surviving a reverted ruling" through a dispatch failure **after** the round was
+persisted - exactly the path AUD1X-R2 closes (the round is then the dispatch and the ruling stands). V1/V3 now inject
+the durable state the old revert left (the state earlier code could have written); X1 takes the revert path through a
+failure before any round exists. Three unit fixtures (`escrowPendingReleaseDestinationBinding`, `escrowProviderWiring`,
+`disputeDestinationAuthorityConformance`) answer the new escrow-row re-read. ST1-R1 (a stranded round of a reverted
+ruling has no reclaim policy) is **not** closed - only its production trigger without an attacker is.
