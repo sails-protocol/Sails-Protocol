@@ -371,7 +371,7 @@ describe('AUD-1 disputed economic Outcome binding - real PostgreSQL', () => {
     expect(await effects(o)).toEqual(before)
   })
 
-  it('G a generation that was appealed gets no round: construction needs a RESOLVED ruling', async () => {
+  it('G the former arbiter of an appealed generation gets no round', async () => {
     const o = await openedDispute('gen')
     await commitOnly(o, 'RELEASE')
     await makeAppealable(o)
@@ -382,6 +382,20 @@ describe('AUD-1 disputed economic Outcome binding - real PostgreSQL', () => {
     await expect(escrowService.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId)).rejects.toThrow(/AUD-1|no resolved ruling|Forbidden|not the current assigned arbiter/)
     await expect(escrowService.initiateRefund(o.escrowId, o.arbiterId, o.sellerDestination)).rejects.toThrow()
     expect(await effects(o)).toEqual(before)
+  })
+
+  it('W before any ruling a round can still be created (unchanged), but it is inert: the gate never authorizes a round that records no ruling', async () => {
+    const o = await openedDispute('prior')
+    // Dispute OPENED: nothing to contradict, construction behaves as it always did (Missao 11 Fase 5.3's accepted case).
+    const round = await escrowService.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId)
+    expect(round).toMatchObject({ kind: 'release', rulingOutcome: null })
+    chain(o.txid)
+    const before = await effects(o)
+
+    await expect(submitTransactionSignature(o.escrowId, o.buyerId, await sign(round.unsignedPsbtBase64, buyerKey)))
+      .rejects.toThrow(/no longer current|AUD-1|no recorded/)
+
+    expect(await effects(o)).toMatchObject({ status: 'DISPUTED', txReleaseId: null, broadcasts: 0, authorizations: 0, rounds: before.rounds })
   })
 
   it('M a ruling whose durable Outcome is absent has no authority to dispatch: construction fails closed', async () => {

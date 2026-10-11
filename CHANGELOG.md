@@ -28,7 +28,9 @@ All notable changes to this project will be documented in this file.
     round not yet persisted) and right after the ST-1 cleanup deleted a stale round.
   - **Fix - one shared validator, `disputed-outcome-binding.ts`, called at both boundaries:**
     - *Construction* (`initiateSignatureCollectionCore`, before a round is persisted): a round that contradicts the
-      signed ruling is never stored (it would otherwise also occupy the escrow's one pending slot).
+      signed ruling is never stored (it would otherwise also occupy the escrow's one pending slot). While the dispute
+      holds no resolved ruling there is nothing to contradict and construction is unchanged; such a round records no
+      ruling and can never be authorized at execution.
     - *Execution* (the ADR-005 gate, inside its dispute-locked transaction, before any claim or provider call - the
       live finalization and the C8 recovery both pass through it): the stored round is re-judged against the live
       ruling and the durable Outcome, independently of construction. The reuse of an already committed

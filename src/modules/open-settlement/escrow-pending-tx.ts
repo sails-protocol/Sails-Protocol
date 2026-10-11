@@ -188,7 +188,10 @@ async function initiateSignatureCollectionCore(
       // round that contradicts the signed ruling of this dispute is never persisted (it would otherwise occupy the
       // escrow's one pending slot until the gate refused it). Execution re-judges the stored round independently
       // (economic-disposition-authority.ts); this only keeps such a round from existing. Reads only: no new lock.
-      if (disputedRulingProvenance.disputeId !== undefined && disputedDispute) {
+      // While the dispute holds no resolved ruling there is nothing to contradict and construction is unchanged: such a
+      // round records no ruling, so the gate can never authorize it (its recorded generation must equal a RESOLVED
+      // ruling) - it is inert, not executable.
+      if (disputedRulingProvenance.disputeId !== undefined && disputedDispute && disputedDispute.status === 'RESOLVED') {
         await assertRoundBoundToDisputeAuthority(tx, {
           escrowId,
           escrowType: escrow.type,
