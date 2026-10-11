@@ -736,7 +736,16 @@ export class DisputeService {
               rulingAuthorityIssuedAt: pending.rulingAuthorityIssuedAt,
             }
           : undefined
-        const deletion = await deletePendingRoundIfStillUnsigned(pending.id, dispute.escrowId, generation)
+        let deletion: Awaited<ReturnType<typeof deletePendingRoundIfStillUnsigned>>
+        try {
+          deletion = await deletePendingRoundIfStillUnsigned(pending.id, dispute.escrowId, generation)
+        } catch (cleanupErr) {
+          // A lock timeout or database failure proves nothing about this pending.
+          // Never fall into the generic ruling rollback after an unproven cleanup.
+          throw new St1R2DeletionRefused(
+            `ST1-R2: deletion proof failed for pending ${pending.id}; preserve ruling for reconciliation: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`,
+          )
+        }
         if (deletion !== 'DELETED') {
           throw new St1R2DeletionRefused(
             `ST1-R2: guard rejected pending ${pending.id} but exact-generation deletion was refused (${deletion}); preserve durable authority for reconciliation`,
