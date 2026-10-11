@@ -19,6 +19,45 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **AUD1X-H1 — the MULTISIG platform arbiter signature is no longer a bearer capability (found by the independent
+  audit of AUD-1, PR #437).**
+  - **Found, reproduced on real PostgreSQL (probes F1 / F2 / F3):** on MULTISIG - the only production-selectable
+    rail - the platform arbiter signature was built INTO a disputed round at construction (`buildUnsignedRelease/
+    Refund/Split` signed input 0). Before any signed ruling existed, the assigned arbiter's session alone obtained,
+    from `initiate-refund`, a transaction its beneficiary completed OUTSIDE Sails with their own key (a valid 2-of-3
+    witness); the round then blocked the honest ruling for good, survived a committed Outcome, and a construction that
+    read the dispute before a ruling committed persisted its round after it. Rejection inside Sails (the AUD-1
+    gate) never revoked such a transaction.
+  - **(A) Containment:** a disputed MULTISIG round is built only for a RESOLVED, signed ruling. The construction's
+    write now takes the dispute's ADR-005 lock and then the escrow's - one transaction, the order every other holder of
+    both already uses (ST-1 cleanup, ruling revert, Outcome commit's record write: no E-then-D exists, no cycle) - and
+    re-reads the dispute `FOR UPDATE` there: a generation that moved, or a ruling no longer resolved, since the
+    snapshot persists nothing. The AUD-1 binding (kind, Outcome destinations and amounts) is judged against that
+    locked row.
+  - **(B) Structural:** the arbiter signature is produced at EXECUTION only - `MultisigProvider.
+    addArbiterSignatureAtExecution()`, in memory, over the stored round (never over data a client supplied),
+    SIGHASH_ALL, after the ADR-005/ADR-004 gates and the AUD-1 binding, from the authorization that gate pass
+    committed or re-read (its arbiter identity). Nothing is persisted, returned or logged. Construction, the pending
+    lookup, the participants' stored copies and every initiate response carry no platform signature.
+    Convergence to a transaction already on the network, and the unclaimed-round recovery's existence check, are
+    decided from the unsigned transaction's id (a segwit txid does not commit to witnesses) and never need the key.
+  - **Unchanged (proved):** the client signing protocol (`signEscrowPsbt`, BIP143 SIGHASH_ALL, `verifySigningIntent`
+    never required the arbiter signature to be present); the finalized transaction is byte-identical to the one the
+    pre-embedded signature produced; cooperative 2-of-3 rounds and #239D bilateral intent; ADR-005 s4 reuse of a
+    committed authorization; idempotency; fee and settlement policy.
+  - **Consequence to know:** completing a disputed settlement now needs Sails (its arbiter key) at execution time,
+    not only at ruling time. A beneficiary can no longer finish a disputed round alone from a stored PSBT - that was
+    the vulnerability. The buyer+seller cooperative exit is untouched.
+  - **Legacy, not changed:** rounds persisted before this change keep their embedded signature (and so do the
+    participants' stored copies): they still execute through the same gates, are not re-signed, and cannot be
+    revoked by Sails. `docs/aud1x-h1-legacy-exposure-inventory.md` and `scripts/aud1x-h1-legacy-inventory.sql` are the
+    read-only plan (Q1-Q8) to size that exposure; nothing was deleted or rewritten.
+  - **Not in this change (tracked separately):** LIGHTNING_HODL / SAFE_GUARD_EVM still pre-sign at build (both
+    production-ineligible); #239D bilateral round vs a committed Outcome (M1, precedence); detection of
+    contradicting broadcasts and out-of-band spends (M2); a direct-release test (N01) and mutation-evidence quality.
+    Tests: `tests/integration/aud1xBearerCapability.test.ts` (18 real-PostgreSQL scenarios, F1/F2/F3 permanent),
+    `tests/multisigProvider.test.ts` (provider, witness byte-identity), `tests/aud1xBearerCapability.test.ts`
+    (structural).
 - **AUD-1 — a signed, durable dispute Outcome is binding economic authority (disputed disposition binding).**
   - **Found by the ST-1 independent audit (probes P3 / P3b), reproduced on real PostgreSQL:** the assigned arbiter,
     holding only a session, could start a REFUND round on an escrow whose current signed ruling was RELEASE
@@ -28,9 +67,11 @@ All notable changes to this project will be documented in this file.
     round not yet persisted) and right after the ST-1 cleanup deleted a stale round.
   - **Fix - one shared validator, `disputed-outcome-binding.ts`, called at both boundaries:**
     - *Construction* (`initiateSignatureCollectionCore`, before a round is persisted): a round that contradicts the
-      signed ruling is never stored (it would otherwise also occupy the escrow's one pending slot). While the dispute
-      holds no resolved ruling there is nothing to contradict and construction is unchanged; such a round records no
-      ruling and can never be authorized at execution.
+      signed ruling is never stored (it would otherwise also occupy the escrow's one pending slot). *Corrected
+      (AUD1X-H1):* this originally left a disputed MULTISIG round creatable before any ruling ("inert"); the audit
+      showed it was not - it carried the arbiter signature. A disputed MULTISIG round is now built only for a
+      RESOLVED ruling; on the other rails, while the dispute holds no resolved ruling, construction is unchanged and
+      such a round records no ruling and can never be authorized at execution.
     - *Execution* (the ADR-005 gate, inside its dispute-locked transaction, before any claim or provider call - the
       live finalization and the C8 recovery both pass through it): the stored round is re-judged against the live
       ruling and the durable Outcome, independently of construction. The reuse of an already committed
@@ -48,7 +89,7 @@ All notable changes to this project will be documented in this file.
   - **Residual, stated:** LIGHTNING_HODL / SAFE_GUARD_EVM commit no durable Outcome, so only the kind / ruling / bps
     binding applies to them; a MULTISIG round persisted by earlier code with no Outcome now fails closed at
     execution (nothing to execute against). Tests: `tests/disputedOutcomeBinding.test.ts` (unit, structural) and
-    `tests/integration/disputedOutcomeBinding.test.ts` (18 real-PostgreSQL scenarios with economic-effect counts).
+    `tests/integration/disputedOutcomeBinding.test.ts` (22 real-PostgreSQL scenarios with economic-effect counts; this entry said 18 - stale).
 - **#235 R7H-E3 — seller authorization, PaymentAccount binding and payment-method reconciliation of escrow creation.**
   - **Seller only:** only the trade's seller creates its escrow (`escrow.service.ts` `createEscrow`). The caller is
     the authenticated session, or the DB-derived `trade.sellerId` for internal callers; a payload field never

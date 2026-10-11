@@ -584,9 +584,13 @@ their own independently-signed copy, upserted into
 then deletes this row (`onDelete: Cascade` clears its signatures too) —
 a completed round leaves no pending row behind, only `Escrow.txReleaseId`
 as the durable record. On a `DISPUTED` release/refund, `requiredSigners`
-has only one entry (the arbiter's own signature is pre-embedded in
-`unsignedPsbtBase64` at build time, since the arbiter's key is still
-server-derived); a `DISPUTED` split (RFC-021 D9) is the same shape, one
+has only one entry (the arbiter's own signature is **not** in
+`unsignedPsbtBase64`: **Corrigido/Implementado 2026-10-11 (AUD1X-H1)** — it
+used to be pre-embedded at build time, which made the stored PSBT a
+one-signature bearer transaction; the platform now adds it at execution,
+in memory, after the ADR-005/ADR-004 gates, since the arbiter's key is
+still server-derived. Rounds persisted before that change still carry
+it); a `DISPUTED` split (RFC-021 D9) is the same shape, one
 entry, for a real cryptographic reason, not a stylistic mirror — see
 that RFC's own D9 section for why a 2-of-3 script can't take a third
 independent signature on top of the arbiter's.

@@ -163,6 +163,19 @@ statements above: the module header's claim that a RESOLVED dispute proves where
 the construction boundary for every dispute-provenance round; the deletion this ledger proves remains economically
 neutral only because the binding exists. ST1-R1 (liveness) and ST1-R2 (unbound deleters) are unchanged by it.
 
+## 9. AUD1X-H1 corrective (separate branch `fix/aud1x-h1-multisig-bearer-capability`, not part of PR #435)
+
+The independent audit of AUD-1 found that on MULTISIG the platform arbiter signature was built into a disputed round at
+construction, so the construction - not the gate - was the economic boundary (CHANGELOG, "AUD1X-H1"). Consequences for
+this ledger: (a) the statement in section 8 that the module header's claim "is now backed by the construction boundary
+for every dispute-provenance round" is true for a disputed MULTISIG round only from this change on (a pre-ruling round
+used to be creatable and carried the arbiter signature); (b) the cleanup this ledger proves deletes rounds of a
+ruling's generation - deleting a round that already embeds the arbiter signature does not revoke it, so for rounds
+persisted before AUD1X-H1 the liveness question (ST1-R1) and the safety question are different questions, and the
+read-only inventory in `docs/aud1x-h1-legacy-exposure-inventory.md` sizes the second; (c) construction now holds the
+dispute lock (D) and then the escrow lock (E), the order the cleanup above uses - there is no E-then-D holder.
+ST1-R1 / ST1-R2 are unchanged and remain with the Gatekeeper.
+
 ## Appendix A - ledger entries written by a parallel session on this branch (preserved verbatim)
 
 Between the baseline probe and this revision another session pushed 22 commits to this branch
