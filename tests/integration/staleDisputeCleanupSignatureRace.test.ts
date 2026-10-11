@@ -109,7 +109,7 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     ] })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
     const dispute = await prisma.dispute.create({
-      data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: '#244', arbiterId: arbiter.id, status: 'RESOLVED', ruling: 'RELEASE', authoritySignature: 'st1-test-authority', resolvedAt: new Date() },
+      data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: '#244', arbiterId: arbiter.id, status: 'RESOLVED', ruling: 'RELEASE', authoritySignature: 'st1-test-authority', resolvedAt: new Date(), authorityIssuedAt: new Date() },
     })
     const pending = await prisma.escrowPendingTransaction.create({
       data: {
@@ -119,7 +119,7 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
         // #239D refuses cooperative signatures once a dispute exists, so a provenance-less round here would
         // test a path that no longer accepts signatures at all.
         disputeId: dispute.id, rulingAppealRound: 0, rulingArbiterId: arbiter.id, rulingOutcome: 'RELEASE',
-        rulingAuthoritySignature: 'st1-test-authority', rulingAuthorityIssuedAt: dispute.resolvedAt,
+        rulingAuthoritySignature: 'st1-test-authority', rulingAuthorityIssuedAt: dispute.authorityIssuedAt,
         createdAt: new Date(Date.now() - 10 * 60 * 1000),
       },
     })
