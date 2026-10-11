@@ -73,6 +73,7 @@ import { evaluateDisputeDispatchEligibility } from './dispute-dispatch'
 import { blocksRulingDispatch } from './pending-round-supersession'
 import { assertTranslationMatchesOutcome, TranslationGuardError } from './dispatch-translation-guard'
 import { networkFor } from './multisig.provider'
+import { deletePendingRoundIfStillUnsigned } from './dispute-pending-reconciliation'
 import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from './discretionary-authority'
 import { childLogger } from '../../common/logger'
 
@@ -268,7 +269,27 @@ export async function reconcileMissingDispatch(limit: number = DISPATCH_RECOVERY
       try {
         assertTranslationMatchesOutcome(pending.unsignedPsbtBase64, outcome, network, pending.minerFeeSats ?? undefined)
       } catch (guardErr) {
-        await prisma.escrowPendingTransaction.deleteMany({ where: { escrowId: dispute.escrowId } })
+        const generation = pending.disputeId && pending.rulingAppealRound !== null &&
+          pending.rulingArbiterId && pending.rulingOutcome &&
+          pending.rulingAuthoritySignature && pending.rulingAuthorityIssuedAt
+          ? {
+              disputeId: pending.disputeId,
+              rulingAppealRound: pending.rulingAppealRound,
+              rulingArbiterId: pending.rulingArbiterId,
+              rulingOutcome: pending.rulingOutcome,
+              rulingAuthoritySignature: pending.rulingAuthoritySignature,
+              rulingAuthorityIssuedAt: pending.rulingAuthorityIssuedAt,
+            }
+          : undefined
+        const deletion = await deletePendingRoundIfStillUnsigned(pending.id, dispute.escrowId, generation)
+        if (deletion !== 'DELETED' && deletion !== 'ALREADY_GONE') {
+          report.failed.push({
+            escrowId: dispute.escrowId,
+            error: `ST1-R2 guard rejection; exact pending preserved: ${deletion}`,
+          })
+          log.error({ msg: 'ST1-R2: guarded C4 deletion refused; pending preserved', escrowId: dispute.escrowId, pendingId: pending.id, deletion })
+          continue
+        }
         const mismatches = guardErr instanceof TranslationGuardError ? guardErr.mismatches : [guardErr instanceof Error ? guardErr.message : String(guardErr)]
         report.guardFailed.push({ escrowId: dispute.escrowId, mismatches })
         log.error({ msg: 'M9-R: resumed dispatch failed re-validation against its own durable Outcome — deleted, zero signatures collected yet, no fund-movement risk', escrowId: dispute.escrowId, mismatches })
