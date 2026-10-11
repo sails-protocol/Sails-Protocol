@@ -737,7 +737,7 @@ export class DisputeService {
             }
           : undefined
         const deletion = await deletePendingRoundIfStillUnsigned(pending.id, dispute.escrowId, generation)
-        if (deletion !== 'DELETED' && deletion !== 'ALREADY_GONE') {
+        if (deletion !== 'DELETED') {
           throw new St1R2DeletionRefused(
             `ST1-R2: guard rejected pending ${pending.id} but exact-generation deletion was refused (${deletion}); preserve durable authority for reconciliation`,
           )
