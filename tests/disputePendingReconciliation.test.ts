@@ -151,6 +151,24 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     expect(mockPendingDelete).not.toHaveBeenCalled()
   })
 
+  it('rejects scan-time Outcome ruling drift before translating or deleting', async () => {
+    mockPendingFindMany.mockResolvedValue([pendingFixture()])
+    mockLoadDisputeRulingRecord.mockResolvedValue({ outcomeContent: { ruling: 'REFUND' }, toState: 'RESOLVED' })
+    const report = await reconcileStalePendingDisputeTranslations()
+    expect(report.failed).toEqual([{ escrowId: 'escrow-1', error: 'durable Outcome does not match pending ruling generation; refusing cleanup' }])
+    expect(mockValidateTranslatedOutputsAgainstOutcome).not.toHaveBeenCalled()
+    expect(mockPendingDelete).not.toHaveBeenCalled()
+  })
+
+  it('rejects a nonterminal scan-time Outcome even when its ruling matches', async () => {
+    mockPendingFindMany.mockResolvedValue([pendingFixture()])
+    mockLoadDisputeRulingRecord.mockResolvedValue({ outcomeContent: { ruling: 'RELEASE' }, toState: 'OPEN' })
+    const report = await reconcileStalePendingDisputeTranslations()
+    expect(report.failed).toEqual([{ escrowId: 'escrow-1', error: 'durable Outcome does not match pending ruling generation; refusing cleanup' }])
+    expect(mockValidateTranslatedOutputsAgainstOutcome).not.toHaveBeenCalled()
+    expect(mockPendingDelete).not.toHaveBeenCalled()
+  })
+
   it('a RESOLVED dispute without a durable Outcome fails closed and preserves the pending', async () => {
     mockPendingFindMany.mockResolvedValue([pendingFixture()])
     mockLoadDisputeRulingRecord.mockResolvedValue(null)
