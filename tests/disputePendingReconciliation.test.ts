@@ -248,6 +248,26 @@ describe('ST-1 transactional cleanup authority (mocked service boundary; Postgre
     rulingAuthorityIssuedAt: new Date('2026-10-01T00:00:00Z'),
   })
 
+  it('refuses legacy callers without complete generation before acquiring locks', async () => {
+    expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1')).toBe('PROVENANCE_REJECTED')
+    expect(mockLock).not.toHaveBeenCalled()
+    expect(mockPendingDelete).not.toHaveBeenCalled()
+  })
+
+  it('refuses an escrow mismatch before checking durable authority or deleting', async () => {
+    mockPendingStillThere.mockResolvedValue(pendingFixture({ escrowId: 'other-escrow' }))
+    expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('PROVENANCE_REJECTED')
+    expect(mockDurableOutcomeFindUnique).not.toHaveBeenCalled()
+    expect(mockPendingDelete).not.toHaveBeenCalled()
+  })
+
+  it('refuses changed authority signature on the pending operation', async () => {
+    mockPendingStillThere.mockResolvedValue(pendingFixture({ rulingAuthoritySignature: 'other-signature' }))
+    expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('PROVENANCE_REJECTED')
+    expect(mockDurableOutcomeFindUnique).not.toHaveBeenCalled()
+    expect(mockPendingDelete).not.toHaveBeenCalled()
+  })
+
   it('preserves a signed pending even if the caller snapshot had zero signatures', async () => {
     mockPendingStillThere.mockResolvedValue(pendingFixture({ signatures: [{ participantId: 'buyer-1' }] }))
     expect(await deletePendingRoundIfStillUnsigned('pending-1', 'escrow-1', authority())).toBe('SIGNED_MEANWHILE')
