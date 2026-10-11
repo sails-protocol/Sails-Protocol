@@ -47,6 +47,8 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
   let reconcileMissingDispatch: () => Promise<any>
   let reconcilePendingSettlements: (options?: { projectionGraceMs?: number }) => Promise<any>
   let economicDispositionOperationDigest: (pending: any) => string
+  let economicDispositionLockKey: (disputeId: string) => string
+  let deletePendingRoundIfStillUnsigned: (pendingId: string, escrowId: string, generation: any) => Promise<string>
   let authorizeDisputedPendingExecution: (pending: any) => Promise<any>
   let loadParticipantPubkeys: (escrowId: string) => Promise<any>
   let escrowRepository: any
@@ -82,7 +84,8 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     ;({ commitAuthoritativeDisputeRuling, loadDisputeRulingRecord } = require('../../src/modules/open-settlement/dispute-outcome'))
     ;({ submitTransactionSignature } = require('../../src/modules/open-settlement/escrow-pending-tx'))
     ;({ reconcileMissingDispatch } = require('../../src/modules/open-settlement/dispute-dispatch-recovery'))
-    ;({ authorizeDisputedPendingExecution, economicDispositionOperationDigest } = require('../../src/modules/open-settlement/economic-disposition-authority'))
+    ;({ authorizeDisputedPendingExecution, economicDispositionOperationDigest, economicDispositionLockKey } = require('../../src/modules/open-settlement/economic-disposition-authority'))
+    ;({ deletePendingRoundIfStillUnsigned } = require('../../src/modules/open-settlement/dispute-pending-reconciliation'))
     ;({ reconcilePendingSettlements } = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service'))
     ;({ loadParticipantPubkeys } = require('../../src/modules/open-settlement/escrow-lifecycle'))
     ;({ escrowRepository } = require('../../src/modules/open-settlement/escrow-repository'))
@@ -543,6 +546,29 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     await verifyBroadcastWitness(o, pubHex(buyerKey))
   })
 
+  it.each([
+    ['REFUND', null, 'seller', 'buildUnsignedRefund', 'REFUNDED'],
+    ['SPLIT', 3000, 'buyer', 'buildUnsignedSplit', 'SPLIT'],
+  ] as const)('AR-03 %s: the dispatch failed after its round was executed to the end - ruling and Outcome stand, the call is an idempotent success', async (ruling, bps, role, buildMethod, terminal) => {
+    const o = await openedDispute(`a3-settled-${ruling.toLowerCase()}`)
+    chain(o.txid)
+    const pause = hold(multisigProvider, buildMethod, forEscrow(o))
+    const live = settle(resolve(o, ruling, bps)())
+    await pause.atPause
+    await c4Until(o)
+    const round = await roundOf(o)
+    const signer = signerOf(o, role)
+    chain(o.txid)
+    expect((await submitTransactionSignature(o.escrowId, signer.id, sign(round.unsignedPsbtBase64, signer.key))).complete).toBe(true)
+    expect(await effects(o)).toMatchObject({ escrow: terminal, broadcasts: 1, authorizations: 1, roundIds: [] })
+    pause.fail(new Error('injected: the live flow own dispatch fails'))
+
+    const result = await live
+
+    expect(result.ok).toBe(true)
+    expect(await effects(o)).toMatchObject({ escrow: terminal, dispute: 'RESOLVED', ruling, outcome: 'present', broadcasts: 1, authorizations: 1 })
+  })
+
   it('AR-03 replay after a partial failure and a restart: the authorization is reused, one broadcast, one authorization', async () => {
     const o = await openedDispute('a3-replay')
     await resolve(o, 'RELEASE')()
@@ -606,6 +632,67 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     expect(!refused.ok && refused.error).toMatch(/Invalid escrow transition/)
     expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: o.escrowId } })).toBe(1) // not 2
     expect(broadcasts).toHaveLength(1)
+  })
+
+
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+  // Lock order, behaviourally: the construction is held right after its FIRST advisory lock while the real ST-1 cleanup
+  // (D then E) is started. D-then-E cannot deadlock; a construction that took E first would (PostgreSQL 40P01).
+  // A suite that merely did not observe a deadlock proves nothing: this one fails against the reversed order.
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+  it('LOCK construction (paused after its first advisory lock) versus the ST-1 cleanup: the construction takes the dispute lock first and nothing deadlocks', async () => {
+    const o = await openedDispute('lock-order')
+    await commitOnly(o, 'RELEASE')
+    chain(o.txid)
+    const dKey = economicDispositionLockKey(o.disputeId)
+    let first: 'D' | 'E' | null = null
+    let resume!: () => void
+    const resumed = new Promise<void>((r) => { resume = r })
+    let held!: () => void
+    const isHeld = new Promise<void>((r) => { held = r })
+    const realTransaction = prisma.$transaction.bind(prisma)
+    let armed = true
+    // FAULT-INJECTION POINT (a pause only): the first advisory lock taken for this dispute or escrow, inside any
+    // transaction, is observed and the transaction is held there.
+    jest.spyOn(prisma, '$transaction').mockImplementation(((fn: any, opts: any) => {
+      if (typeof fn !== 'function' || !armed) return realTransaction(fn, opts)
+      return realTransaction(async (tx: any) => fn(new Proxy(tx, {
+        get(target, prop) {
+          const value = Reflect.get(target, prop)
+          if (prop !== '$executeRaw' || !armed) return typeof value === 'function' ? value.bind(target) : value
+          return async (strings: TemplateStringsArray, ...values: unknown[]) => {
+            const out = await value.call(target, strings, ...values)
+            if (armed && /pg_advisory_xact_lock/.test(strings.join('?')) && (values.includes(o.escrowId) || values.includes(dKey))) {
+              armed = false
+              first = values.includes(dKey) ? 'D' : 'E'
+              held()
+              await resumed
+            }
+            return out
+          }
+        },
+      })), opts)
+    }) as any)
+    const construct = settle(escrowService.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId))
+    await isHeld
+    jest.restoreAllMocks() // the cleanup runs on the real client
+    chain(o.txid)
+    const generation = { disputeId: o.disputeId, rulingAppealRound: 0, rulingArbiterId: o.arbiterId, rulingOutcome: 'RELEASE', rulingAuthoritySignature: 'x', rulingAuthorityIssuedAt: new Date() }
+    const cleanup = settle(deletePendingRoundIfStillUnsigned('00000000-0000-0000-0000-000000000000', o.escrowId, generation))
+    // the cleanup must be queued on the lock the construction holds before the construction continues
+    for (let i = 0; i < 500; i++) {
+      const [{ n }] = await prisma.$queryRaw<Array<{ n: number }>>`SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`
+      if (n >= 1) break
+      await new Promise((r) => setTimeout(r, 10))
+    }
+    resume()
+
+    const [c, k] = await Promise.all([construct, cleanup])
+
+    expect(first).toBe('D')
+    expect([c, k].some((x) => !x.ok && /deadlock detected|40P01/i.test(x.error))).toBe(false)
+    expect(c.ok).toBe(true)
   })
 
   // ═══════════════════════════════════════════════════════════════════════════════════════════════════

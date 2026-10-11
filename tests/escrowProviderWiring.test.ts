@@ -125,6 +125,14 @@ jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
 }))
 
 const mockEscrowFindUnique = jest.fn()
+// AUD1X-R2 (AR-04) - the escrow's status is re-read FOR UPDATE inside the persisting transaction (tx.$queryRaw). Against
+// this stub database that read returns the escrow the test seeded: the last row mockEscrowFindUnique returned (peeked
+// from its results, so no queued value is consumed).
+async function mockLockedEscrowRead(): Promise<unknown[]> {
+  const results = mockEscrowFindUnique.mock.results
+  const last: any = results.length ? await results[results.length - 1].value : null
+  return last ? [{ status: last.status }] : []
+}
 const mockEscrowUpdate = jest.fn()
 const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowCreate = jest.fn()
@@ -224,6 +232,7 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     $queryRaw: jest.fn(async (strings: TemplateStringsArray) => {
       const sql = strings.join('?')
       if (sql.includes('FROM disputes')) return mockLockedDisputeRows
+      if ((sql.includes('FROM escrows WHERE id') && sql.includes('FOR UPDATE'))) return mockLockedEscrowRead()
       return sql.includes('escrow_economic_binding_violation') ? [{ violation: null, governed: mockBindingGoverned }] : []
     }),
   })
