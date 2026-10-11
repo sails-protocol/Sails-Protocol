@@ -241,7 +241,8 @@ export async function reconcileStalePendingDisputeTranslations(): Promise<StaleP
         where: { id: generation.disputeId, escrowId: pending.escrowId, status: 'RESOLVED',
           appealRound: generation.rulingAppealRound, arbiterId: generation.rulingArbiterId,
           ruling: generation.rulingOutcome as typeof pending.rulingOutcome,
-          authoritySignature: generation.rulingAuthoritySignature },
+          authoritySignature: generation.rulingAuthoritySignature,
+          authorityIssuedAt: generation.rulingAuthorityIssuedAt },
       })
       if (!dispute) {
         // Structurally shouldn't happen (the candidate query itself
@@ -256,6 +257,16 @@ export async function reconcileStalePendingDisputeTranslations(): Promise<StaleP
         // No immutable Outcome means no deletion authority, regardless of signatures.
         report.failed.push({ escrowId: pending.escrowId, error: 'missing durable Core-authoritative Outcome; refusing cleanup' })
         log.error({ msg: 'M9: missing durable Outcome; pending preserved for investigation', escrowId: pending.escrowId })
+        continue
+      }
+
+      // Scan-time semantic consistency is only a filter; the D→E transaction
+      // independently rechecks live authority before any destructive effect.
+      const rowContent = row.outcomeContent
+      if (row.toState !== 'RESOLVED' ||
+          typeof rowContent !== 'object' || Array.isArray(rowContent) ||
+          !('ruling' in rowContent) || rowContent.ruling !== generation.rulingOutcome) {
+        report.failed.push({ escrowId: pending.escrowId, error: 'durable Outcome does not match pending ruling generation; refusing cleanup' })
         continue
       }
 
