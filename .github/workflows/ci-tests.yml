@@ -88,13 +88,32 @@ jobs:
         run: npm run db:generate
       - name: Apply database migrations
         run: npm run db:migrate
-      - name: Run tests (capture output)
+      # Keep both canonical test commands. Separating the lanes identifies
+      # stalls and bounds runaway output without weakening assertions.
+      - name: Run unit tests (bounded diagnostic)
+        timeout-minutes: 35
         run: |
-          set -o pipefail
-          npm test 2>&1 | tee jest-output.txt
+          set +e
+          npm run test:unit > unit-output.txt 2>&1
+          result=$?
+          echo "Unit test exit code: $result"
+          tail -n 200 unit-output.txt
+          exit "$result"
+      - name: Run PostgreSQL integration tests (bounded diagnostic)
+        timeout-minutes: 45
+        run: |
+          set +e
+          npm run test:integration:postgres > postgres-output.txt 2>&1
+          result=$?
+          echo "PostgreSQL integration exit code: $result"
+          tail -n 200 postgres-output.txt
+          exit "$result"
       - name: Upload test logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: jest-output
-          path: jest-output.txt
+          path: |
+            unit-output.txt
+            postgres-output.txt
+          retention-days: 7
