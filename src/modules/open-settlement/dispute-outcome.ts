@@ -397,15 +397,31 @@ export function fromDisputeRulingRow(row: SemanticTransitionRecordRow): Transiti
   })
 }
 
-/** Deletes a committed record — used ONLY by `dispute.service.ts`'s existing revert-on-failure path, mirroring exactly how it already reverts the Dispute's own authority fields on a downstream settlement-action failure. Never called for any other reason. */
+/**
+ * Deletes a committed record — used ONLY by `dispute.service.ts`'s existing revert-on-failure path, mirroring exactly how it already reverts the Dispute's own authority fields on a downstream settlement-action failure. Never called for any other reason.
+ *
+ * AUD1X-R4: (escrow, transition type, appeal round) names a SLOT, not an authority - another ruling of the same round
+ * (or a later one) occupies the same key. `authoritySignature` binds the deletion to the authority that committed the
+ * record: the record carries the raw Ed25519 signature it was attributed under (`attributionRawProof`, the very string
+ * `disputes.authoritySignature` holds), so only that authority's record matches. Production's one caller always passes
+ * it (revertCommittedRuling, ruling-dispatch-authority.ts); the unbound form is kept for the fault-injection helpers of
+ * the integration suites. Returns how many records were deleted (0 or 1).
+ */
 export async function revertDisputeRulingRecord(
   escrowId: string,
   appealRound: number,
   // AUD1X-R2 - the revert may run inside the transaction that decides it (and reverts the dispute row), so the
   // record can never outlive - or be deleted without - the ruling it records.
   client: Pick<Prisma.TransactionClient, 'semanticTransitionRecord'> = prisma,
-): Promise<void> {
-  await client.semanticTransitionRecord.deleteMany({
-    where: { interactionId: escrowId, transitionType: ESCROW_DISPUTE_RULING_TRANSITION_TYPE, appealRound },
+  authoritySignature?: string,
+): Promise<number> {
+  const deleted = await client.semanticTransitionRecord.deleteMany({
+    where: {
+      interactionId: escrowId,
+      transitionType: ESCROW_DISPUTE_RULING_TRANSITION_TYPE,
+      appealRound,
+      ...(authoritySignature === undefined ? {} : { attributionRawProof: authoritySignature }),
+    },
   })
+  return deleted.count
 }

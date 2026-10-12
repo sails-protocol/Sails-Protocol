@@ -1105,7 +1105,6 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
   // Every scenario below is real PostgreSQL and the production services; each fault injection is named.
   // ═══════════════════════════════════════════════════════════════════════════════════════════════════
 
-  const outcomeModule = () => require('../../src/modules/open-settlement/dispute-outcome')
   const disputeRowOf = (o: Opened) => prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })
 
   /** Every durable fact a revert (or a refused revert) could move: the dispute, both rounds' Outcome records, effects, events. */
@@ -1165,21 +1164,38 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     }
   }
 
-  /** Holds the revert's record deletion (the handler already holds D and E and has reverted the dispute row). */
-  function holdRecordDeletion(onReached?: () => Promise<void>) {
-    const mod = outcomeModule()
-    const real = mod.revertDisputeRulingRecord
-    let reached!: () => void
-    const atDeletion = new Promise<void>((r) => { reached = r })
-    let open!: () => void
-    const gate = new Promise<void>((r) => { open = r })
-    jest.spyOn(mod, 'revertDisputeRulingRecord').mockImplementation(async (...args: any[]) => {
-      reached()
-      if (onReached) await onReached()
+  /**
+   * A row lock on the Outcome record of this escrow, held by a connection that is none of the handler's: the handler's
+   * DELETE queues behind it - at exactly the statement under test, whatever the code around it looks like. `then` runs
+   * inside the holder's transaction right before it commits (so a change made there is what the queued DELETE then
+   * re-evaluates its predicate against, as PostgreSQL does for a row updated by a concurrent committed transaction).
+   */
+  function holdRecordRowLock(o: Opened, then?: (tx: any) => Promise<void>) {
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    let locked!: () => void
+    const held = new Promise<void>((r) => { locked = r })
+    const done = prisma.$transaction(async (tx: any) => {
+      await tx.$executeRaw`SET LOCAL session_replication_role = replica`
+      await tx.$queryRaw`SELECT id FROM semantic_transition_records WHERE "interactionId" = ${o.escrowId} FOR UPDATE`
+      locked()
       await gate
-      return real(...args)
-    })
-    return { atDeletion, release: open }
+      if (then) await then(tx)
+    }, { timeout: 120_000, maxWait: 30_000 })
+    return { held, release, done }
+  }
+
+  /** Waits until the revert's DELETE of the Outcome record is queued behind a lock: the handler holds D and E and has reverted the dispute row. */
+  async function waitForRecordDeletionBlocked(timeoutMs = 30_000) {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const [{ n }] = await prisma.$queryRaw<{ n: bigint }[]>`
+        SELECT count(*)::bigint AS n FROM pg_stat_activity
+        WHERE wait_event_type = 'Lock' AND query ILIKE 'DELETE FROM%semantic_transition_records%'`
+      if (Number(n) >= 1) return
+      if (Date.now() > deadline) throw new Error('the handler never reached the deletion of the Outcome record')
+      await new Promise((r) => setTimeout(r, 25))
+    }
   }
 
   it('R4-1 the dispute no longer holds this ruling (update matches nothing) while its Outcome record exists: nothing is deleted, nothing is reverted, the call fails', async () => {
@@ -1284,14 +1300,19 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     const { o, signature, failDispatch } = await pausedAfterCommit('r4-substituted')
     const events = emittedEvents()
     // FAULT INJECTION, from a connection that holds none of the handler's locks: after the handler decided and reverted the
-    // dispute row, and before it deletes the record, the record at (escrow, round) becomes another authority's
-    holdRecordDeletion(async () => {
-      await inject(async (tx) => { await tx.semanticTransitionRecord.updateMany({ where: { interactionId: o.escrowId }, data: { attributionRawProof: 'another-authority-signature' } }) })
-    }).release()
+    // dispute row, and while its DELETE of the record is queued, the record at (escrow, round) becomes another authority's
+    const lock = holdRecordRowLock(o, async (tx) => {
+      await tx.semanticTransitionRecord.updateMany({ where: { interactionId: o.escrowId }, data: { attributionRawProof: 'another-authority-signature' } })
+    })
+    await lock.held
     const before = await revertSnapshot(o)
     expect(before.outcome0?.proof).toBe(signature)
 
-    const result = await failDispatch()
+    const live = failDispatch()
+    await waitForRecordDeletionBlocked()
+    lock.release()
+    await lock.done
+    const result = await live
 
     expect(result.ok).toBe(false)
     const after = await revertSnapshot(o)
@@ -1305,12 +1326,14 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     const { o, priorStatus, failDispatch } = await pausedAfterCommit('r4-c4')
     chain(o.txid)
     let c4Settled = false
-    const gate = holdRecordDeletion()
+    const lock = holdRecordRowLock(o)
+    await lock.held
     const live = failDispatch()
-    await gate.atDeletion // the handler holds D then E, has reverted the dispute row and not yet the record
+    await waitForRecordDeletionBlocked() // the handler holds D then E, has reverted the dispute row and not yet the record
     const c4 = reconcileMissingDispatch().then((v: any) => { c4Settled = true; return v })
     await waitForLockWaiter(() => c4Settled)
-    gate.release()
+    lock.release()
+    await lock.done
 
     const [result] = await Promise.all([live, c4])
 
@@ -1327,18 +1350,22 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     const generation = { disputeId: stale.disputeId, rulingAppealRound: stale.rulingAppealRound, rulingArbiterId: stale.rulingArbiterId, rulingOutcome: stale.rulingOutcome, rulingAuthoritySignature: stale.rulingAuthoritySignature, rulingAuthorityIssuedAt: stale.rulingAuthorityIssuedAt }
     await prisma.escrowPendingTransaction.update({ where: { id: stale.id }, data: { createdAt: new Date(Date.now() - 10 * 60 * 1000) } })
     expect((await revertSnapshot(o)).outcome0?.proof).toBe(signature)
-    const gate = holdRecordDeletion()
+    const lock = holdRecordRowLock(o)
+    await lock.held
     const live = failDispatch()
-    await gate.atDeletion
+    await waitForRecordDeletionBlocked()
     let cleanupSettled = false
     const cleanup = settle(deletePendingRoundIfStillUnsigned(stale.id, o.escrowId, generation)).then((v) => { cleanupSettled = true; return v })
     await waitForLockWaiter(() => cleanupSettled)
-    gate.release()
+    lock.release()
+    await lock.done
 
     const [result, cleaned] = await Promise.all([live, cleanup])
 
     expect(result.ok).toBe(false)
-    expect(cleaned.ok).toBe(true) // it completed (no deadlock, no lock timeout); the verdict is whatever the generation proof gives
+    // it completed (no deadlock, no lock timeout) and decided under the authority it proved: a round of an earlier
+    // ruling is deleted or rejected by provenance, never "guard passed" and never left to sign
+    expect(cleaned.ok && ['DELETED', 'ALREADY_GONE', 'PROVENANCE_REJECTED']).toContain(cleaned.ok ? cleaned.v : undefined)
     const after = await revertSnapshot(o)
     expect(after.dispute).toMatchObject({ status: priorStatus, ruling: null, signature: null })
     expect(after.outcome0).toBeNull()
