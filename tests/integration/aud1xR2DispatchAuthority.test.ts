@@ -1093,4 +1093,290 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     expect(paidTo()).toEqual([[o.buyerDestination]])
     await verifyBroadcastWitness(o, pubHex(buyerKey))
   })
+
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+  // AUD1X-R4 - the revert of a committed ruling deletes ITS Outcome, and only if it was reverted
+  //
+  // Finding A (Gatekeeper, independent review of #440/#441): the failure handler of the live resolve flow ran
+  //   updateMany(dispute WHERE status/ruling/arbiter/round/signature = this ruling)   <- result not looked at
+  //   revertDisputeRulingRecord(escrow, round)                                        <- unconditional, by round only
+  // so when the update matched nothing (the dispute no longer holds THIS ruling: another ruling of the same round, an
+  // appeal's later generation, any other writer) the delete still removed whatever record sat at (escrow, round).
+  // Every scenario below is real PostgreSQL and the production services; each fault injection is named.
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+  const outcomeModule = () => require('../../src/modules/open-settlement/dispute-outcome')
+  const disputeRowOf = (o: Opened) => prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })
+
+  /** Every durable fact a revert (or a refused revert) could move: the dispute, both rounds' Outcome records, effects, events. */
+  async function revertSnapshot(o: Opened) {
+    const d = await disputeRowOf(o)
+    const record = async (round: number) => {
+      const r = await loadDisputeRulingRecord(o.escrowId, round)
+      return r ? { proof: r.attributionRawProof as string, ruling: (r.outcomeContent as any)?.ruling as string } : null
+    }
+    return {
+      dispute: { status: d.status as string, ruling: d.ruling as string | null, round: d.appealRound, signature: d.authoritySignature as string | null, arbiter: d.arbiterId as string | null },
+      outcome0: await record(0),
+      outcome1: await record(1),
+      effects: await effects(o),
+      escrowEvents: await prisma.escrowEvent.count({ where: { escrowId: o.escrowId } }),
+    }
+  }
+
+  /** The names of the events emitted from now on (the real bus still receives them). */
+  function emittedEvents(): () => string[] {
+    const { eventBus } = require('../../src/common/events/event-bus')
+    const names: string[] = []
+    const real = eventBus.emit.bind(eventBus)
+    jest.spyOn(eventBus, 'emit').mockImplementation(async (...args: any[]) => { names.push(String(args[0])); return real(...args) })
+    return () => names
+  }
+
+  /**
+   * The live resolve flow, held right after the Core-authoritative commit (dispute RESOLVED with this signature, its
+   * Outcome record durable, locks released) and before its dispatch builds anything: the exact window in which the
+   * failure handler of that call later runs.
+   */
+  async function pausedAfterCommit(label: string) {
+    const o = await openedDispute(label)
+    chain(o.txid)
+    const priorStatus = (await disputeRowOf(o)).status as string
+    const pause = hold(multisigProvider, 'buildUnsignedRelease', forEscrow(o))
+    const live = settle(resolve(o, 'RELEASE')())
+    await pause.atPause
+    const committed = await disputeRowOf(o)
+    expect(committed).toMatchObject({ status: 'RESOLVED', ruling: 'RELEASE' })
+    return {
+      o, priorStatus, live, signature: committed.authoritySignature as string,
+      /** the dispatch of THIS call fails: its failure handler decides and reverts */
+      failDispatch: () => { pause.fail(new Error('injected: the dispatch of this ruling failed')); return live },
+    }
+  }
+
+  /** Waits until some backend is queued behind an advisory lock (a deterministic barrier, no sleeping on a guess). */
+  async function waitForLockWaiter(until?: () => boolean, timeoutMs = 20_000) {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const [{ n }] = await prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*)::bigint AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted`
+      if (Number(n) >= 1 || (until && until())) return Number(n)
+      if (Date.now() > deadline) throw new Error('no backend ever queued behind an advisory lock')
+      await new Promise((r) => setTimeout(r, 25))
+    }
+  }
+
+  /** Holds the revert's record deletion (the handler already holds D and E and has reverted the dispute row). */
+  function holdRecordDeletion(onReached?: () => Promise<void>) {
+    const mod = outcomeModule()
+    const real = mod.revertDisputeRulingRecord
+    let reached!: () => void
+    const atDeletion = new Promise<void>((r) => { reached = r })
+    let open!: () => void
+    const gate = new Promise<void>((r) => { open = r })
+    jest.spyOn(mod, 'revertDisputeRulingRecord').mockImplementation(async (...args: any[]) => {
+      reached()
+      if (onReached) await onReached()
+      await gate
+      return real(...args)
+    })
+    return { atDeletion, release: open }
+  }
+
+  it('R4-1 the dispute no longer holds this ruling (update matches nothing) while its Outcome record exists: nothing is deleted, nothing is reverted, the call fails', async () => {
+    const { o, failDispatch } = await pausedAfterCommit('r4-count0')
+    const events = emittedEvents()
+    // FAULT INJECTION: another writer moved the dispute off this ruling (status/signature) and left the record behind
+    await inject(async (tx) => { await tx.dispute.update({ where: { id: o.disputeId }, data: { status: 'OPENED', ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null } }) })
+    const before = await revertSnapshot(o)
+    expect(before.outcome0).not.toBeNull()
+
+    const result = await failDispatch()
+
+    expect(result.ok).toBe(false)
+    expect(await revertSnapshot(o)).toEqual(before) // the dispute and its Outcome stand; no effect, no event row, no broadcast
+    expect(events()).not.toContain('dispute.resolved')
+  })
+
+  it('R4-2 the update matches exactly this ruling and the record is its own: the revert is applied once and completely, and the ruling can be redriven after a restart', async () => {
+    const { o, priorStatus, signature, failDispatch } = await pausedAfterCommit('r4-count1')
+    const events = emittedEvents()
+    const record = await loadDisputeRulingRecord(o.escrowId, 0)
+    expect(record.attributionRawProof).toBe(signature) // the record carries the authority it was committed under
+
+    const result = await failDispatch()
+
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.error).toMatch(/injected: the dispatch of this ruling failed/)
+    expect(await revertSnapshot(o)).toMatchObject({
+      dispute: { status: priorStatus, ruling: null, signature: null }, outcome0: null, outcome1: null,
+      effects: { escrow: 'DISPUTED', roundIds: [], authorizations: 0, broadcasts: 0, signatures: 0 },
+    })
+    expect(events()).not.toContain('dispute.resolved')
+
+    // restart + redrive: the arbiter's own re-submission of the same decision commits again and executes once
+    chain(o.txid)
+    await resolve(o, 'RELEASE')()
+    const round = await roundOf(o)
+    expect((await restarted!.submitTransactionSignature(o.escrowId, o.buyerId, sign(round.unsignedPsbtBase64, buyerKey))).complete).toBe(true)
+    expect(broadcasts).toHaveLength(1)
+    expect(paidTo()[0]).toEqual([o.buyerDestination])
+  })
+
+  it('R4-3 generation N+1: an appeal supersedes the ruling while its dispatch is held; the failing call of generation N neither reverts nor erases anything of N+1, nor the record of N', async () => {
+    const { o, signature, failDispatch } = await pausedAfterCommit('r4-generation')
+    const events = emittedEvents()
+    // production appeal (the escrow's arbiter commitment removed with its trigger bypassed: the legacy shape appeal() accepts) and the production commit of generation 1
+    await inject(async (tx) => { await tx.escrowParticipantKey.deleteMany({ where: { escrowId: o.escrowId, role: 'arbiter' } }) })
+    const { DisputeService } = require('../../src/modules/open-settlement/dispute.service')
+    const service = new DisputeService({ name: 'r4-stub', arbitrators: [ARBITER_ID, ARBITER2_ID], async assign() { return ARBITER_ID }, async assignAppealPanel() { return ARBITER2_ID } })
+    const appealed = await service.appeal(o.disputeId, o.buyerId)
+    expect(appealed.dispute).toMatchObject({ status: 'APPEALED', appealRound: 1, arbiterId: ARBITER2_ID })
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: 1, authorityId: ARBITER2_ID, outcome: 'REFUND', buyerBps: null, issuedAt: new Date().toISOString() }
+    const secondSignature = signAuthorityDecision(payload, arbiter2Kp.secretKey)
+    const committed = await commitAuthoritativeDisputeRuling(
+      { id: o.disputeId, escrowId: o.escrowId, status: 'APPEALED', appealRound: 1 },
+      payload, secondSignature, pubHex(arbiter2Kp), '100000', 'BTC', o.buyerId, o.sellerId,
+    )
+    expect(committed.committed).toBe(true)
+    const before = await revertSnapshot(o)
+    expect(before.dispute).toMatchObject({ status: 'RESOLVED', round: 1, ruling: 'REFUND', signature: secondSignature })
+    expect(before.outcome0?.proof).toBe(signature)
+    expect(before.outcome1?.proof).toBe(secondSignature)
+
+    const result = await failDispatch()
+
+    expect(result.ok).toBe(false)
+    expect(await revertSnapshot(o)).toEqual(before) // generation 1 untouched; generation 0's record is history, not erased
+    expect(events()).not.toContain('dispute.resolved')
+  })
+
+  it('R4-4 the same appeal round now holds ANOTHER signed ruling: its dispute and its Outcome stand, the failing call of the earlier ruling changes nothing, and the standing ruling is then executed after a restart', async () => {
+    const { o, signature, failDispatch } = await pausedAfterCommit('r4-signature')
+    const events = emittedEvents()
+    // FAULT INJECTION: the earlier code's revert of the first ruling (dispute reopened, its records deleted); the arbiter then
+    // re-rules the same appeal round (production commit: another signature, another Outcome record at the same key)
+    await legacyRevert(o, { dropTerminalRecord: false })
+    await commitOnly(o, 'REFUND')
+    const standing = await disputeRowOf(o)
+    expect(standing).toMatchObject({ status: 'RESOLVED', ruling: 'REFUND', appealRound: 0 })
+    expect(standing.authoritySignature).not.toBe(signature)
+    const before = await revertSnapshot(o)
+    expect(before.outcome0).toEqual({ proof: standing.authoritySignature, ruling: 'REFUND' })
+
+    const result = await failDispatch()
+
+    expect(result.ok).toBe(false)
+    expect(await revertSnapshot(o)).toEqual(before) // the Outcome of the standing ruling was not deleted by another authority's failure
+    expect(events()).not.toContain('dispute.resolved')
+
+    // restart + redrive: C4 dispatches the standing ruling; the seller completes it; one broadcast, to the seller
+    chain(o.txid)
+    await c4Until(o)
+    const round = await roundOf(o)
+    expect(round).toMatchObject({ kind: 'refund', rulingOutcome: 'REFUND', rulingAuthoritySignature: standing.authoritySignature })
+    chain(o.txid)
+    expect((await restarted!.submitTransactionSignature(o.escrowId, o.sellerId, sign(round.unsignedPsbtBase64, sellerKey))).complete).toBe(true)
+    expect(broadcasts).toHaveLength(1)
+    expect(paidTo()[0]).toEqual([o.sellerDestination])
+  })
+
+  it('R4-5 the Outcome record is replaced between the decision and the deletion: the record of the other authority is not deleted and the dispute revert is rolled back with it', async () => {
+    const { o, signature, failDispatch } = await pausedAfterCommit('r4-substituted')
+    const events = emittedEvents()
+    // FAULT INJECTION, from a connection that holds none of the handler's locks: after the handler decided and reverted the
+    // dispute row, and before it deletes the record, the record at (escrow, round) becomes another authority's
+    holdRecordDeletion(async () => {
+      await inject(async (tx) => { await tx.semanticTransitionRecord.updateMany({ where: { interactionId: o.escrowId }, data: { attributionRawProof: 'another-authority-signature' } }) })
+    }).release()
+    const before = await revertSnapshot(o)
+    expect(before.outcome0?.proof).toBe(signature)
+
+    const result = await failDispatch()
+
+    expect(result.ok).toBe(false)
+    const after = await revertSnapshot(o)
+    expect(after.dispute).toEqual(before.dispute) // no partial revert: the dispute still holds the ruling
+    expect(after.outcome0).toEqual({ proof: 'another-authority-signature', ruling: 'RELEASE' }) // the other authority's record stands
+    expect(after.effects).toEqual(before.effects)
+    expect(events()).not.toContain('dispute.resolved')
+  })
+
+  it('R4-6 C4 and the failure handler: C4 queued behind the handler (which holds D and E mid-revert) builds nothing from the ruling being reverted', async () => {
+    const { o, priorStatus, failDispatch } = await pausedAfterCommit('r4-c4')
+    chain(o.txid)
+    let c4Settled = false
+    const gate = holdRecordDeletion()
+    const live = failDispatch()
+    await gate.atDeletion // the handler holds D then E, has reverted the dispute row and not yet the record
+    const c4 = reconcileMissingDispatch().then((v: any) => { c4Settled = true; return v })
+    await waitForLockWaiter(() => c4Settled)
+    gate.release()
+
+    const [result] = await Promise.all([live, c4])
+
+    expect(result.ok).toBe(false)
+    expect(await revertSnapshot(o)).toMatchObject({
+      dispute: { status: priorStatus, ruling: null, signature: null }, outcome0: null,
+      effects: { roundIds: [], authorizations: 0, broadcasts: 0, signatures: 0, escrow: 'DISPUTED' },
+    })
+  })
+
+  it('R4-7 the ST-1 cleanup of a stale round of an earlier ruling, started while the handler holds D and E: no deadlock, no extra effect, a consistent end state', async () => {
+    const { o, priorStatus, signature, failDispatch } = await pausedAfterCommit('r4-cleanup')
+    const stale = await persistRound(o, { kind: 'release', payTo: o.buyerDestination, authoritySignature: 'an-earlier-reverted-ruling' })
+    const generation = { disputeId: stale.disputeId, rulingAppealRound: stale.rulingAppealRound, rulingArbiterId: stale.rulingArbiterId, rulingOutcome: stale.rulingOutcome, rulingAuthoritySignature: stale.rulingAuthoritySignature, rulingAuthorityIssuedAt: stale.rulingAuthorityIssuedAt }
+    await prisma.escrowPendingTransaction.update({ where: { id: stale.id }, data: { createdAt: new Date(Date.now() - 10 * 60 * 1000) } })
+    expect((await revertSnapshot(o)).outcome0?.proof).toBe(signature)
+    const gate = holdRecordDeletion()
+    const live = failDispatch()
+    await gate.atDeletion
+    let cleanupSettled = false
+    const cleanup = settle(deletePendingRoundIfStillUnsigned(stale.id, o.escrowId, generation)).then((v) => { cleanupSettled = true; return v })
+    await waitForLockWaiter(() => cleanupSettled)
+    gate.release()
+
+    const [result, cleaned] = await Promise.all([live, cleanup])
+
+    expect(result.ok).toBe(false)
+    expect(cleaned.ok).toBe(true) // it completed (no deadlock, no lock timeout); the verdict is whatever the generation proof gives
+    const after = await revertSnapshot(o)
+    expect(after.dispute).toMatchObject({ status: priorStatus, ruling: null, signature: null })
+    expect(after.outcome0).toBeNull()
+    expect(after.effects).toMatchObject({ authorizations: 0, broadcasts: 0, signatures: 0, escrow: 'DISPUTED' })
+  })
+
+  it('R4-8 two attempts to revert the same committed ruling at once (the unit the handler uses): exactly one reverts, the other is refused and changes nothing, no deadlock', async () => {
+    const authority = require('../../src/modules/open-settlement/ruling-dispatch-authority')
+    const { o, priorStatus, signature, failDispatch } = await pausedAfterCommit('r4-twice')
+    const dispute = await disputeRowOf(o)
+    const attempt = () => prisma.$transaction(async (tx: any) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(o.disputeId)})::bigint)`
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${o.escrowId})::bigint)`
+      await authority.revertCommittedRuling(tx, {
+        disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, arbiterId: dispute.arbiterId, ruling: 'RELEASE', authoritySignature: signature,
+      }, { status: priorStatus, ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null }, new Error('injected'))
+    })
+
+    const settled = await Promise.allSettled([attempt(), attempt()])
+
+    expect(settled.filter((s) => s.status === 'fulfilled')).toHaveLength(1)
+    expect(settled.filter((s) => s.status === 'rejected')).toHaveLength(1)
+    expect(await revertSnapshot(o)).toMatchObject({ dispute: { status: priorStatus, ruling: null, signature: null }, outcome0: null })
+    expect((await failDispatch()).ok).toBe(false) // the original call still fails cleanly (its own revert finds nothing to do)
+    expect(await revertSnapshot(o)).toMatchObject({ dispute: { status: priorStatus, ruling: null }, outcome0: null, effects: { authorizations: 0, broadcasts: 0, roundIds: [] } })
+  })
+
+  it('R4-9 a record that carries no attribution at all is not "this ruling\'s": it is not deleted either', async () => {
+    const { o, failDispatch } = await pausedAfterCommit('r4-noproof')
+    // FAULT INJECTION: a record whose proof column was never written (the column is nullable)
+    await inject(async (tx) => { await tx.semanticTransitionRecord.updateMany({ where: { interactionId: o.escrowId }, data: { attributionRawProof: null } }) })
+    const before = await revertSnapshot(o)
+
+    const result = await failDispatch()
+
+    expect(result.ok).toBe(false)
+    const after = await revertSnapshot(o)
+    expect(after.dispute).toEqual(before.dispute)
+    expect(await prisma.semanticTransitionRecord.count({ where: { interactionId: o.escrowId } })).toBe(1)
+  })
 })
