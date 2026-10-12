@@ -28,11 +28,27 @@
  * process/instance sharing this Redis, not just within one.
  */
 import { atomicConsume } from '../redis/atomic-consume'
+import { redis } from '../redis'
 
 const WS_TICKET_PREFIX = 'auth:ws-ticket:'
+const SESSION_PREFIX = 'auth:session:'
 
 export async function resolveParticipantFromTicket(ticket: string | undefined): Promise<string | null> {
   if (!ticket) return null
   const key = `${WS_TICKET_PREFIX}${ticket}`
-  return atomicConsume(key)
+  const raw = await atomicConsume(key)
+  if (!raw) return null
+
+  let record: { participantId?: unknown; sessionToken?: unknown }
+  try {
+    record = JSON.parse(raw) as { participantId?: unknown; sessionToken?: unknown }
+  } catch {
+    return null
+  }
+  if (typeof record.participantId !== 'string' || typeof record.sessionToken !== 'string' || record.participantId.length === 0 || record.sessionToken.length === 0) {
+    return null
+  }
+
+  const sessionParticipantId = await redis.get(`${SESSION_PREFIX}${record.sessionToken}`)
+  return sessionParticipantId === record.participantId ? record.participantId : null
 }
