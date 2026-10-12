@@ -91,7 +91,11 @@ jobs:
           # Bisect the first 63: candidate disputed MULTISIG suite is index 6.
           run_group pg-first-6 0 6
           run_group pg-dispute-outcome-only 6 7
-          run_group pg-remaining-first-63 7 63
+          # Bisect remaining 56 suites without changing preflight or test order.
+          run_group pg-07-to-20 7 21
+          run_group pg-21-to-34 21 35
+          run_group pg-35-to-48 35 49
+          run_group pg-49-to-62 49 63
           run_group pg-before-multisig 63 66
           run_group pg-multisig-only 66 67
           run_group pg-after-multisig 67 85
