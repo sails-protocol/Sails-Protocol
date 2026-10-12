@@ -1,3 +1,4 @@
+import { withPersistedFundingAddress } from './helpers/persistedFundingAddress'
 /**
  * MultisigProvider — real 2-of-3 Bitcoin P2WSH script/PSBT logic.
  *
@@ -39,7 +40,7 @@ const SELLER2_PUBKEY = '022704740d198905f841d3c4a82afd828398130d62190d9142761158
 function loadProvider(env: Record<string, string | undefined>) {
   jest.resetModules()
   process.env = { ...ORIGINAL_ENV, MOCK_ESCROW: 'false', ...env }
-  return require('../src/modules/open-settlement/multisig.provider')
+  return withPersistedFundingAddress(require('../src/modules/open-settlement/multisig.provider'))
 }
 
 afterAll(() => {
@@ -535,7 +536,7 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     // exact transaction it constructed and sent, never the provider's
     // claim.
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => 'f'.repeat(64) })
-    const result = await multisigProvider.finalizeRelease({ tradeId: 't1' }, psbtBase64, [buyerCopy.toBase64(), sellerCopy.toBase64()])
+    const result = await multisigProvider.finalizeRelease({ tradeId: 't1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey }, psbtBase64, [buyerCopy.toBase64(), sellerCopy.toBase64()])
     expect(result.txId).not.toBe('f'.repeat(64))
     expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
   })
@@ -553,7 +554,7 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     buyerCopy.signInput(0, buyerKey)
 
     await expect(
-      multisigProvider.finalizeRelease({ tradeId: 't1' }, psbtBase64, [buyerCopy.toBase64()])
+      multisigProvider.finalizeRelease({ tradeId: 't1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey }, psbtBase64, [buyerCopy.toBase64()])
     ).rejects.toThrow('failed to combine/finalize')
   })
 
@@ -591,7 +592,7 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
     // R6 — same deliberately-wrong-provider-response proof as above.
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '3'.repeat(64) })
-    const result = await multisigProvider.finalizeRelease({ tradeId: 't1' }, psbtBase64, [buyerCopy.toBase64()])
+    const result = await multisigProvider.finalizeRelease({ tradeId: 't1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey }, psbtBase64, [buyerCopy.toBase64()])
     expect(result.txId).not.toBe('3'.repeat(64))
     expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
   })
@@ -731,7 +732,7 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
     // R6 — same deliberately-wrong-provider-response proof as above.
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '6'.repeat(64) })
-    const result = await multisigProvider.finalizeRefund({ tradeId: 't1' }, psbtBase64, [sellerCopy.toBase64(), buyerCopy.toBase64()])
+    const result = await multisigProvider.finalizeRefund({ tradeId: 't1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey }, psbtBase64, [sellerCopy.toBase64(), buyerCopy.toBase64()])
     expect(result.txId).not.toBe('6'.repeat(64))
     expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
   })
@@ -752,7 +753,7 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
     // R6 — same deliberately-wrong-provider-response proof as above.
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '8'.repeat(64) })
-    const result = await multisigProvider.finalizeRefund({ tradeId: 't1' }, psbtBase64, [sellerCopy.toBase64()])
+    const result = await multisigProvider.finalizeRefund({ tradeId: 't1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey }, psbtBase64, [sellerCopy.toBase64()])
     expect(result.txId).not.toBe('8'.repeat(64))
     expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
   })
@@ -815,7 +816,7 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
       // R6 — same deliberately-wrong-provider-response proof as above.
       fetchMock.mockResolvedValueOnce({ ok: true, text: async () => 'bb'.repeat(32) })
-      const result = await multisigProvider.finalizeSplit({ tradeId: 't1' }, psbtBase64, [buyerCopy.toBase64()])
+      const result = await multisigProvider.finalizeSplit({ tradeId: 't1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey }, psbtBase64, [buyerCopy.toBase64()])
       expect(result.txId).not.toBe('bb'.repeat(32))
       expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
     })
@@ -833,7 +834,7 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
       )
 
       await expect(
-        multisigProvider.finalizeSplit({ tradeId: 't1' }, psbtBase64, [])
+        multisigProvider.finalizeSplit({ tradeId: 't1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey }, psbtBase64, [])
       ).rejects.toThrow('failed to combine/finalize')
     })
   })

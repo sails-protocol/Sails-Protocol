@@ -288,8 +288,8 @@ const DISPUTE_EVIDENCE_SCHEMA = {
   type: 'object',
   properties: {
     recommendation: { type: 'string', enum: ['RELEASE', 'REFUND', 'INCONCLUSIVE'] },
-    confidence: { type: 'number' },
-    reasoning: { type: 'string' },
+    confidence: { type: 'number', minimum: 0, maximum: 1 },
+    reasoning: { type: 'string', maxLength: 2000 },
   },
   required: ['recommendation', 'confidence', 'reasoning'],
 } as const
@@ -512,13 +512,33 @@ end dispute data.
 
 Respond with your assessment as JSON matching the requested schema.`
 
-    return this.structuredCompletion<DisputeEvidenceAssessment>(
+    const raw = await this.structuredCompletion<unknown>(
       DISPUTE_EVIDENCE_SYSTEM_PROMPT,
       prompt,
       'dispute_evidence_assessment',
       DISPUTE_EVIDENCE_SCHEMA,
       onProgress
     )
+
+    // #310 — grammar-constrained model output is still untrusted at the
+    // protocol boundary. Validate the exact semantics the workflow relies on.
+    if (!raw || typeof raw !== 'object') throw new Error('Invalid QVAC dispute assessment')
+    const value = raw as Record<string, unknown>
+    if (!['RELEASE', 'REFUND', 'INCONCLUSIVE'].includes(String(value.recommendation))) {
+      throw new Error('Invalid QVAC dispute recommendation')
+    }
+    if (typeof value.confidence !== 'number' || !Number.isFinite(value.confidence) || value.confidence < 0 || value.confidence > 1) {
+      throw new Error('Invalid QVAC dispute confidence')
+    }
+    if (typeof value.reasoning !== 'string' || value.reasoning.length > 2000) {
+      throw new Error('Invalid QVAC dispute reasoning')
+    }
+
+    return {
+      recommendation: value.recommendation as DisputeEvidenceAssessment['recommendation'],
+      confidence: value.confidence,
+      reasoning: value.reasoning,
+    }
   }
 
   // Frees the model's memory (GPU/CPU) — call when done with a batch of

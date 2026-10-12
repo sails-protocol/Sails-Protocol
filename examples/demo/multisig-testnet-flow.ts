@@ -410,7 +410,7 @@ export async function main() {
   type PendingRelease = { unsignedPsbtBase64: string; requiredSigners: string[]; toAddress: string }
   let pending: PendingRelease | undefined
   try {
-    pending = await escrowService.getPendingTransaction(escrowId)
+    pending = await escrowService.getPendingTransaction(escrowId, sellerId) // only the unsigned PSBT is used here
   } catch {
     pending = undefined
   }

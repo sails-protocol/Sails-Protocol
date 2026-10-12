@@ -189,6 +189,12 @@ export class SailsIntentFacade {
    * header correction above. Passing it has no effect; the buyer's own
    * registered `PayoutAddress` (`settlement.setPayoutAddress()`) is what
    * actually determines where a release pays out.
+   *
+   * Pass the trade's own Intent (`trade.tradeIntentId`): it resolves to exactly that trade for either party.
+   * An Offer Intent is shared by every trade of the offer and resolves only to the caller's own trade when they
+   * have exactly one (409 AMBIGUOUS_INTENT otherwise). The Intent a TAKER created through `createIntent()` /
+   * `proposeTrade()` (RFC-023) is a separate, free-standing buyer-side Intent that no trade references, so it
+   * resolves to nothing (404) — use `trade.tradeIntentId`.
    */
   async releaseAsset(intentId: string, toAddress?: string): Promise<Escrow> {
     const trade = await this.transport.get<Trade>(`/v1/openp2p/trades/by-intent/${intentId}`, undefined, true)
@@ -207,6 +213,8 @@ export class SailsIntentFacade {
    * dispute on that Trade's Escrow — the same route
    * `settlement.dispute(escrowId, reason)` calls, so both paths return an
    * identical, real Dispute.
+   *
+   * See `releaseAsset()` for which Intent id resolves a trade deterministically: `trade.tradeIntentId`.
    */
   async dispute(intentId: string, reason: string): Promise<Dispute> {
     const trade = await this.transport.get<Trade>(`/v1/openp2p/trades/by-intent/${intentId}`, undefined, true)

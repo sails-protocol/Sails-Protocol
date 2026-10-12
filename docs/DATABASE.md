@@ -711,6 +711,8 @@ model PaymentAccount {
   signed          Boolean       @default(false)
   signedBy        String?       // the counterparty/arbiter (or RFC-021 D7 voucher) who attested this account
   signedAt        DateTime?
+  attestationSource PaymentAccountAttestationSource? // #235 R7C — PEER | VOUCHER | LEGACY; null while unsigned
+  attestedTradeId   String?                          // #235 R7C — the trade that authorized a PEER attestation
   firstUsedAt     DateTime      @default(now())
   completedTrades Int           @default(0)
   chargebacks     Int           @default(0)
@@ -722,6 +724,54 @@ model PaymentAccount {
   @@map("payment_accounts")
 }
 ```
+
+**#235 R7C — binding and attestation authority.** A PaymentAccount is the
+fiat receiver's (seller's) rail. The seller binds it to a trade when the
+trade is created — `Offer.paymentAccountId` on a SELL offer (copied to the
+Trade), the taker's selection on a BUY offer — and it is stored on
+`Trade.sellerPaymentAccountId`, checked for ownership and payment method,
+fixed at insert (`trades_seller_payment_account_write_once_guard`). Only
+the buyer of a clean COMPLETED trade (escrow released, no dispute ever)
+may attest that trade's bound account (`attestationSource = PEER`,
+`attestedTradeId`); the write is conditional on `signed = false` and
+write-once (`payment_accounts_attestation_write_once_guard`,
+`payment_accounts_attestation_check`). RFC-021 D7 vouching is recorded as
+`VOUCHER`; rows signed before R7C were backfilled `LEGACY` (their origin is
+not recorded). The server cannot prove a client-computed hash matches the
+free-text payment details actually paid to: the buyer's attestation, made
+with the hash of what they paid, is that witness. An unbound trade (none
+declared, or created before R7C) can never attest.
+
+**#235 R7D (N2) — `completedTrades` is production truth.** Its only writer
+is `paymentAccountService.recordCleanBoundCompletion()`, called by the
+`settlement.escrow.released` handler: the trade's bound account gains one
+completed trade when the escrow is COMPLETED and no dispute ever existed,
+exactly once per (COMPLETED transition, trade) through an
+`event_projection_claims` claim committed with the increment; PASS 3
+re-drives it after a crash. Unbound trades, refunds, cancellations,
+SPLITs and post-dispute releases count nothing. Existing counter values
+are untouched (no backfill).
+
+**Chargebacks — fail-closed by CTO policy (Day-0).**
+`PaymentAccount.chargebacks` remains an input recognized by the trust ramp
+(`computeTradeLimit()`: any `chargebacks > 0` caps the account at
+`SIGNED_TRADE_LIMIT`, and existing values are honoured as they are), but
+Day-0 has no canonical fiat-reversal authority able to produce new values.
+Escrow refund, cancellation, dispute, ruling, SPLIT, MOOT and fee reversal
+do not constitute a chargeback: a chargeback is a fact of the fiat rail,
+and an unknown fiat outcome is not a chargeback. Until a specific
+authorized primitive/source exists, the protocol stays fail-closed and
+never increments this counter (no production writer exists; a structural
+test fails if one is added).
+
+Future chargeback support requires a separate canonical fiat-reversal
+authority with provenance, immutable trade/account binding, authorization,
+idempotency, exactly-once semantics and restart/replay safety. Such a
+primitive would at least bind each reversal to its `tradeId` and to that
+trade's `sellerPaymentAccountId`, record its provenance and the defined
+source/authority that asserted it, be idempotent and exactly-once, survive
+replay/restart, and be contestable where applicable. It is outside #235
+R7D and is not implemented.
 
 Modeled directly on Bisq's real "Payment account age witness"/account
 signing — a SEPARATE risk dimension from `User.reputationScore`: this

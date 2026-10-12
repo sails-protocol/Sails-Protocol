@@ -36,6 +36,8 @@ import {
   NoSuchKey,
   NotFound,
   type S3ClientConfig,
+  type GetObjectCommandOutput,
+  type HeadObjectCommandOutput,
 } from '@aws-sdk/client-s3'
 import type { EvidenceProvider, EvidenceProviderHealth, EvidenceObjectMetadata, StoredMedia } from './evidence-provider'
 import { EvidenceStorageError } from '../../common/errors'
@@ -47,6 +49,8 @@ export interface S3EvidenceProviderConfig {
   accessKeyId: string
   secretAccessKey: string
   forcePathStyle: boolean
+  /** Optional deployment-owned bound for one SDK operation. No Sails default is invented here. */
+  requestTimeoutMs?: number
 }
 
 export class S3EvidenceProvider implements EvidenceProvider {
@@ -54,9 +58,14 @@ export class S3EvidenceProvider implements EvidenceProvider {
 
   private readonly client: S3Client
   private readonly bucket: string
+  private readonly requestTimeoutMs?: number
 
   constructor(cfg: S3EvidenceProviderConfig) {
     this.bucket = cfg.bucket
+    if (cfg.requestTimeoutMs !== undefined && (!Number.isFinite(cfg.requestTimeoutMs) || cfg.requestTimeoutMs <= 0)) {
+      throw new Error('S3 evidence requestTimeoutMs must be a positive finite number when configured')
+    }
+    this.requestTimeoutMs = cfg.requestTimeoutMs
     const clientConfig: S3ClientConfig = {
       region: cfg.region,
       credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
@@ -70,6 +79,30 @@ export class S3EvidenceProvider implements EvidenceProvider {
     this.client = new S3Client(clientConfig)
   }
 
+  /**
+   * Execute one SDK operation with an optional deployment-owned deadline.
+   * Abort is cancellation of the local request, not evidence that a remote
+   * write/delete did not commit. Callers therefore still receive UNAVAILABLE
+   * and must reconcile ambiguous mutation outcomes rather than safe-retry them.
+   */
+  private async send<T>(command: unknown): Promise<T> {
+    if (this.requestTimeoutMs === undefined) {
+      return this.client.send(command as never) as Promise<T>
+    }
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      // Invoke the SDK first so the request has installed its abort listener
+      // before the deadline can fire. This also keeps very small configured
+      // bounds deterministic under scheduler pressure.
+      const operation = this.client.send(command as never, { abortSignal: controller.signal }) as Promise<T>
+      timer = setTimeout(() => controller.abort(), this.requestTimeoutMs)
+      return await operation
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }
+
   async store(media: Uint8Array, mimeType: string): Promise<StoredMedia> {
     const sha256 = createHash('sha256').update(media).digest('hex')
     // Content-addressed key — same identity scheme as
@@ -79,7 +112,7 @@ export class S3EvidenceProvider implements EvidenceProvider {
     const extension = mimeTypeExtension(mimeType)
     const key = `${sha256}${extension}`
     try {
-      await this.client.send(
+      await this.send(
         new PutObjectCommand({
           Bucket: this.bucket,
           Key: key,
@@ -95,7 +128,7 @@ export class S3EvidenceProvider implements EvidenceProvider {
 
   async retrieve(uri: string): Promise<Uint8Array> {
     try {
-      const result = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: uri }))
+      const result = await this.send<GetObjectCommandOutput>(new GetObjectCommand({ Bucket: this.bucket, Key: uri }))
       if (!result.Body) {
         throw new EvidenceStorageError(`Evidence storage returned no body for ${uri}`, 'UNAVAILABLE')
       }
@@ -118,7 +151,7 @@ export class S3EvidenceProvider implements EvidenceProvider {
   // already covers both names plus the raw status-code fallback.
   async stat(uri: string): Promise<EvidenceObjectMetadata> {
     try {
-      const result = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: uri }))
+      const result = await this.send<HeadObjectCommandOutput>(new HeadObjectCommand({ Bucket: this.bucket, Key: uri }))
       return { size: result.ContentLength ?? 0 }
     } catch (err) {
       if (err instanceof NotFound || isNotFoundError(err)) {
@@ -135,7 +168,7 @@ export class S3EvidenceProvider implements EvidenceProvider {
       // NOT_FOUND special-casing is needed here, matching
       // LocalFilesystemEvidenceProvider's own idempotent delete()
       // contract.
-      await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: uri }))
+      await this.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: uri }))
     } catch (err) {
       throw new EvidenceStorageError(`Evidence storage unavailable while deleting ${uri}: ${(err as Error).message}`, 'UNAVAILABLE')
     }
@@ -147,7 +180,7 @@ export class S3EvidenceProvider implements EvidenceProvider {
   // touching any object. Never throws — reported via `healthy: false`.
   async health(): Promise<EvidenceProviderHealth> {
     try {
-      await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }))
+      await this.send(new HeadBucketCommand({ Bucket: this.bucket }))
       return { healthy: true }
     } catch (err) {
       return { healthy: false, detail: (err as Error).message }

@@ -68,6 +68,10 @@ const REQUIRED_DB_NATIVE_TRIGGERS: RequiredTrigger[] = [
   // tests/integration/custodyAttestationFoundation.test.ts — same
   // division of labor as every other row here.
   { trigger: 'custody_attestations_immutability_guard', table: 'custody_attestations', function: 'custody_attestations_enforce_immutability' },
+  // #235 R7C — write-once payment-account attestation and trade ↔ account binding. Behavioral proof
+  // lives in tests/integration/paymentAccountBindingAuthority.test.ts.
+  { trigger: 'payment_accounts_attestation_write_once_guard', table: 'payment_accounts', function: 'payment_accounts_enforce_attestation_write_once' },
+  { trigger: 'trades_seller_payment_account_write_once_guard', table: 'trades', function: 'trades_enforce_seller_payment_account_write_once' },
 ]
 
 interface TriggerCatalogRow {

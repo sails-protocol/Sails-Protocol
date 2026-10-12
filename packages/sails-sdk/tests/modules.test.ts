@@ -950,12 +950,27 @@ describe('SailsArbitrationModule', () => {
 
 describe('SailsOpenP2PModule — reconcileTrade()', () => {
   it('reconcileTrade() posts sinceMessageCreatedAt to /v1/openp2p/trades/:id/reconcile with auth', async () => {
-    const fetchImpl = fakeFetch(200, { success: true, data: [{ id: 'msg-1', tradeId: 'trade-1', senderId: 'seller', content: 'Payment sent', msgType: 'TEXT', timestamp: '2026-08-01T00:00:00Z' }] })
+    // The real ReconciliationResult shape (reconciliation.service.ts) —
+    // this mock used to be a bare message array, matching the SDK's old
+    // (wrong) Message[] declaration instead of what the route returns.
+    const fetchImpl = fakeFetch(200, {
+      success: true,
+      data: {
+        tradeId: 'trade-1',
+        currentTradeStatus: 'ACTIVE',
+        currentEscrowStatus: 'FUNDS_LOCKED',
+        missedMessages: [{ id: 'msg-1', senderId: 'seller', content: 'Payment sent', msgType: 'TEXT', createdAt: '2026-08-01T00:00:00.000Z' }],
+      },
+    })
     const openp2p = new SailsOpenP2PModule(authedTransport(fetchImpl))
 
     const result = await openp2p.reconcileTrade('trade-1', new Date('2026-07-01T00:00:00Z'))
 
-    expect(result).toHaveLength(1)
+    expect(result.tradeId).toBe('trade-1')
+    expect(result.currentTradeStatus).toBe('ACTIVE')
+    expect(result.currentEscrowStatus).toBe('FUNDS_LOCKED')
+    expect(result.missedMessages).toHaveLength(1)
+    expect(result.missedMessages[0].createdAt).toBe('2026-08-01T00:00:00.000Z')
     const [url, init] = fetchImpl.mock.calls[0]
     expect(url).toBe('http://localhost:3000/v1/openp2p/trades/trade-1/reconcile')
     expect(init.method).toBe('POST')

@@ -36,7 +36,8 @@ export type EscrowType = 'MULTISIG' | 'LIGHTNING_HODL' | 'LIQUID_COVENANT' | 'WD
 // design rationale.
 export type EscrowStatus = 'CREATED' | 'FUNDS_LOCKED' | 'PAYMENT_PENDING' | 'COMPLETED' | 'DISPUTED' | 'REFUNDED' | 'SPLIT' | 'EXPIRED'
 export type PaymentMethod = 'PIX' | 'TED' | 'BANK_TRANSFER' | 'CRYPTO_DIRECT' | 'LIGHTNING_DIRECT' | 'CASH' | 'OTHER'
-export type DisputeStatus = 'OPENED' | 'EVIDENCE_SUBMITTED' | 'ARBITRATED' | 'RESOLVED' | 'APPEALED' | 'AUTO_PROPOSED'
+// #239D - MOOT: terminal; a prior authoritative economic disposition became final without any ruling deciding the dispute.
+export type DisputeStatus = 'OPENED' | 'EVIDENCE_SUBMITTED' | 'ARBITRATED' | 'RESOLVED' | 'APPEALED' | 'AUTO_PROPOSED' | 'MOOT'
 export type DisputeRuling = 'RELEASE' | 'REFUND' | 'SPLIT'
 // prisma/schema.prisma's FeePayerModel/FeeEconomicBasis enums — currently
 // single-value (only SELLER_PAYS / SELLER_DELIVERED_VALUE are defined),
@@ -81,6 +82,8 @@ export interface Offer {
   status: OfferStatus
   network: string | null
   description: string | null
+  /** #235 R7C — SELL offers: the seller's declared PaymentAccount (internal id). */
+  paymentAccountId?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -99,6 +102,20 @@ export interface Trade {
   network: string | null
   completedAt: string | null
   cancelledAt: string | null
+  /** #235 R7C — the seller's PaymentAccount bound to this trade (internal id); null if none was declared. */
+  sellerPaymentAccountId?: string | null
+  /**
+   * RFC-018 — the Intent of the Offer this trade was taken from. Shared by every trade of that offer (and, for trades
+   * admitted before RFC-018 Amendment A1, the Intent that carried their lifecycle): do not use it to identify one trade.
+   */
+  intentId?: string | null
+  /**
+   * #235 R7H-NF-E3C-5 (RFC-018 Amendment A1) — this trade's OWN Intent, created atomically with it: independent of every
+   * other trade on the same offer, never reused. `null` / absent for trades admitted before the amendment (their
+   * lifecycle follows `intentId`; nothing is back-filled). Prefer it for `intent-facade` calls (`dispute`,
+   * `releaseAsset`) and `openp2p.getTradeByIntent`: it resolves to exactly this trade for either party.
+   */
+  tradeIntentId?: string | null
   createdAt: string
   updatedAt: string
   // Only populated by openp2p.getTrade() (GET /v1/openp2p/trades/:id) —
@@ -280,7 +297,9 @@ export interface EscrowTransactionSignature {
   id: string
   pendingTxId: string
   participantId: string
-  signedPsbtBase64: string
+  // #239D - present only on the caller's own entry in getPendingTransaction(): another participant's
+  // signature is never returned (it would let the reader complete the transaction outside Sails).
+  signedPsbtBase64?: string
   createdAt: string
 }
 
@@ -359,6 +378,22 @@ export interface Message {
   msgType: string
   readAt: string | null
   createdAt: string
+}
+
+// POST /v1/openp2p/trades/:id/reconcile's real response shape
+// (open-p2p/reconciliation.service.ts's ReconciliationResult). A missed
+// message carries no tradeId/readAt, unlike a persisted `Message` row.
+export interface TradeReconciliation {
+  tradeId: string
+  currentTradeStatus: TradeStatus
+  currentEscrowStatus: EscrowStatus | null
+  missedMessages: Array<{
+    id: string
+    senderId: string
+    content: string
+    msgType: string
+    createdAt: string
+  }>
 }
 
 // GET /v1/openp2p/chat/:tradeId/messages's real pagination shape

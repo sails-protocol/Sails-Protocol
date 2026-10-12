@@ -197,7 +197,8 @@ describe('Public OfferDetail disclosure boundary (Technical Debt #61)', () => {
       const res = await app.inject({ method: 'GET', url: '/v1/liquidity/offers/offer-1' })
       const data = JSON.parse(res.body).data
       expect(Object.keys(data).sort()).toEqual(
-        ['asset', 'createdAt', 'description', 'id', 'maxAmount', 'minAmount', 'network', 'paymentMethod', 'priceBrl', 'priceUsd', 'seller', 'side', 'status', 'updatedAt'].sort()
+        // #235 R7H-E3C — paymentAccountBound: whether the SELL maker committed an account, never which one.
+        ['asset', 'createdAt', 'description', 'id', 'maxAmount', 'minAmount', 'network', 'paymentAccountBound', 'paymentMethod', 'priceBrl', 'priceUsd', 'seller', 'side', 'status', 'updatedAt'].sort()
       )
       expect(Object.keys(data.seller).sort()).toEqual(
         ['disputeRate', 'displayName', 'id', 'peerId', 'publicKey', 'reputationScore', 'totalTrades', 'verified'].sort()

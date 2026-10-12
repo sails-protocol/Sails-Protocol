@@ -16,6 +16,7 @@ import { getDisputeService } from './dispute.service'
 import { loadDisputeRulingRecord } from './dispute-outcome'
 import { marketArbitrationProvider } from './market-arbitration.provider'
 import { paymentAccountService } from './payment-account.service'
+import { readEconomicPolicy } from './economic-policy'
 import { payoutAddressService } from './payout-address.service'
 import { tradeService } from '../open-p2p/trade.service'
 import { requireAuth } from '../../common/middleware/auth'
@@ -27,6 +28,7 @@ import { docsOnlySchema } from '../../common/openapi'
 import { MAX_PAGE_LIMIT } from '../../common/pagination'
 import { positiveDecimalString } from '../../common/validation'
 import { evidenceDescriptorInputSchema } from './evidence-descriptor-schema'
+import { cancelResidualRecovery, getResidualRecovery, observeResidualValue, proposeResidualRecovery, submitResidualRecoverySignature } from './multisig-residual-recovery'
 
 // CTO_DUE_DILIGENCE_REPORT.md A-SEC-05, closed 2026-08-08 — see
 // config/index.ts's own comment on `rateLimit.criticalMax` for the full
@@ -72,6 +74,10 @@ export const createEscrowSchema = z.object({
   lockedAmount: positiveDecimalString('lockedAmount'),
   asset: z.enum(ASSET_TYPE_VALUES),
   network: z.string().optional(),
+  // Master Backlog R5 — accepted-but-inert, same status as releaseSchema's
+  // toAddress below: still parsed so existing clients sending it are not
+  // a 400, never read. The timelock is DEFAULT_TIMELOCK_HOURS, frozen on
+  // the escrow by createEscrow().
   timelockHours: z.number().optional(),
 })
 
@@ -207,6 +213,10 @@ const arbiterProfileParamsSchema = z.object({ participantId: z.string().min(1) }
 
 const accountHashParamsSchema = z.object({ accountHash: z.string().min(1) })
 
+// #235 R7C — the trade whose clean completion authorizes the attestation. A selector only: the
+// buyer, the bound account and the completion are all read from durable state.
+const attestPaymentAccountSchema = z.object({ tradeId: z.string().min(1) })
+
 const payoutAddressParamsSchema = z.object({
   participantId: z.string().min(1),
   asset: z.string().min(1),
@@ -221,6 +231,14 @@ const payoutAddressParamsSchema = z.object({
 
 /** Path-param schema used by every escrow/dispute/arbitration route below. */
 const idParam = z.object({ id: z.string().min(1) })
+
+// #235 R7G F8A — residual value on a MULTISIG script: the outpoint and the destination the participants choose.
+const proposeResidualRecoverySchema = z.object({
+  txid: z.string().regex(/^[0-9a-f]{64}$/),
+  vout: z.number().int().min(0),
+  destination: z.string().min(1),
+})
+const residualRecoverySignatureSchema = z.object({ signedPsbtBase64: z.string().min(1) })
 
 /** Pulls the authenticated participantId off the request, set by
  *  requireAuth's preHandler. Cast to string per the same pattern every other
@@ -399,6 +417,51 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(200).send(success(result))
   })
 
+  // #235 R7G F8A — MULTISIG_RESIDUAL_VALUE_RECOVERY_V1: value on an escrow's original script outside its canonical
+  // funding outpoint is recovered only by its buyer AND seller together (multisig-residual-recovery.ts). Every route
+  // is participant-only; none returns a signed PSBT.
+  app.get('/v1/settlement/escrow/:id/residual-value', {
+    preHandler: requireAuth,
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
+  }, async (request, reply) => {
+    const { id } = idParam.parse(request.params)
+    return reply.code(200).send(success(await observeResidualValue(id, participantId(request))))
+  })
+
+  app.post('/v1/settlement/escrow/:id/residual-recoveries', {
+    preHandler: requireAuth,
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, body: proposeResidualRecoverySchema }),
+  }, async (request, reply) => {
+    const { id } = idParam.parse(request.params)
+    const body = proposeResidualRecoverySchema.parse(request.body)
+    return reply.code(201).send(success(await proposeResidualRecovery(id, participantId(request), body)))
+  })
+
+  app.get('/v1/settlement/residual-recoveries/:id', {
+    preHandler: requireAuth,
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
+  }, async (request, reply) => {
+    const { id } = idParam.parse(request.params)
+    return reply.code(200).send(success(await getResidualRecovery(id, participantId(request))))
+  })
+
+  app.post('/v1/settlement/residual-recoveries/:id/signature', {
+    preHandler: requireAuth,
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, body: residualRecoverySignatureSchema }),
+  }, async (request, reply) => {
+    const { id } = idParam.parse(request.params)
+    const body = residualRecoverySignatureSchema.parse(request.body)
+    return reply.code(200).send(success(await submitResidualRecoverySignature(id, participantId(request), body.signedPsbtBase64)))
+  })
+
+  app.post('/v1/settlement/residual-recoveries/:id/cancel', {
+    preHandler: requireAuth,
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
+  }, async (request, reply) => {
+    const { id } = idParam.parse(request.params)
+    return reply.code(200).send(success(await cancelResidualRecovery(id, participantId(request))))
+  })
+
   // Missão 07.6 release-readiness audit — found unauthenticated, same
   // exposure class Missão 06.8 already fixed on GET /v1/settlement/escrow/:id
   // above (this route was simply missed at the time): the pending
@@ -421,7 +484,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     if (!isParty && !isAssignedArbiter) {
       throw new ForbiddenError(`${callerId} is not authorized to view escrow ${id}'s pending transaction`)
     }
-    const pending = await escrowService.getPendingTransaction(id)
+    const pending = await escrowService.getPendingTransaction(id, callerId) // #239D X1 - the caller's own signature only
     return reply.code(200).send(success(pending))
   })
 
@@ -771,6 +834,14 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   // fields were removed (ownerId, signedBy, id, moduleId, protocolVersion,
   // updatedAt) and why: verifying a payment rail's trust history never
   // required knowing which platform identity owns or attested it.
+  // #235 R7H-E3B — the trade-limit policy in force (governed rails, eligible payment methods), public and read-only:
+  // clients use it to tell which offers can carry a protected escrow; escrow creation re-checks it in the database.
+  app.get('/v1/settlement/economic-policy', {
+    ...docsOnlySchema({ tags: ['open-settlement'] }),
+  }, async (_request, reply) => {
+    return reply.code(200).send(success(await readEconomicPolicy()))
+  })
+
   app.get('/v1/settlement/payment-accounts/:accountHash', {
     ...docsOnlySchema({ tags: ['open-settlement'], params: accountHashParamsSchema }),
   }, async (request, reply) => {
@@ -781,14 +852,17 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
 
   // RFC-021 D1's narrow-attestation framing: the caller attests a
   // specific completed trade, not the account owner's general
-  // trustworthiness.
+  // trustworthiness. #235 R7C — only the buyer of `tradeId`, a clean
+  // COMPLETED trade bound to this exact account, may attest it; see
+  // paymentAccountService.attestFromTrade().
   app.post('/v1/settlement/payment-accounts/:accountHash/sign', {
     preHandler: requireAuth,
-    ...docsOnlySchema({ tags: ['open-settlement'], params: accountHashParamsSchema }),
+    ...docsOnlySchema({ tags: ['open-settlement'], params: accountHashParamsSchema, body: attestPaymentAccountSchema }),
   }, async (request, reply) => {
     const { accountHash } = accountHashParamsSchema.parse(request.params)
+    const { tradeId } = attestPaymentAccountSchema.parse(request.body ?? {})
     const caller = participantId(request)
-    const account = await paymentAccountService.signPaymentAccount(accountHash, caller)
+    const account = await paymentAccountService.attestFromTrade(tradeId, accountHash, caller)
     // Missão 11 Fase 9.6 — same INV-OP-10 gap as the POST .../payment-accounts
     // route above, found in the same sweep: the signer attesting an
     // account is very often NOT its owner (RFC-021 D1 — an arbiter or

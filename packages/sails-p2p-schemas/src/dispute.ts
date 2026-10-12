@@ -28,7 +28,8 @@
 // correct 6 values; only this package's own copy had drifted. Reconciled
 // here, not duplicated — see `tests/disputeStatusParity.test.ts` for the
 // test proving this against the real Prisma enum going forward.
-export type DisputeStatus = 'OPENED' | 'EVIDENCE_SUBMITTED' | 'ARBITRATED' | 'RESOLVED' | 'APPEALED' | 'AUTO_PROPOSED'
+// #239D - MOOT: terminal; a prior authoritative economic disposition became final without any ruling deciding the dispute.
+export type DisputeStatus = 'OPENED' | 'EVIDENCE_SUBMITTED' | 'ARBITRATED' | 'RESOLVED' | 'APPEALED' | 'AUTO_PROPOSED' | 'MOOT'
 
 // RELEASE = buyer wins (asset released to them) = "dispute_resolved_buyer"
 // REFUND  = seller wins (asset returned to them) = "dispute_resolved_seller"

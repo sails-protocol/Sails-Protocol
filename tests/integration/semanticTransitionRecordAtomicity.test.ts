@@ -16,6 +16,7 @@
 // isolation, per mission §37 ("Testability before authority").
 
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferRow, boundTradeRow, sellerPixAccount } from './economicFixtures'
 import {
   createTransitionRecord,
   createInteractionId,
@@ -26,6 +27,8 @@ import {
   SAILS_TIMELOCK_EVALUATOR_IDENTITY,
   SAILS_SEMANTIC_PROFILE_IDENTITY,
 } from '@sails/core'
+
+const EXPIRY_TRANSITION = { triggeredBy: 'system:expiry-sweeper', eventName: 'settlement.escrow.expired' }
 
 describe('Sails Core Implementation Program M3.5 — SemanticTransitionRecord atomicity (real Postgres)', () => {
   jest.setTimeout(60_000)
@@ -86,10 +89,12 @@ describe('Sails Core Implementation Program M3.5 — SemanticTransitionRecord at
     const s = suffix()
     const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-str-${s}` } })
     const seller = await prisma.user.create({ data: { publicKey: `pk-seller-str-${s}` } })
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
-    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const acct = await sellerPixAccount(prisma, seller.id)
+    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', ...boundOfferRow(acct) } })
+    const trade = await prisma.trade.create({ data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
     const escrow = await prisma.escrow.create({
-      data: { tradeId: trade.id, type: 'MULTISIG', status: 'FUNDS_LOCKED', asset: 'BTC', lockedAmount: '0.001', timelockHours: 1, expiresAt: new Date(Date.now() - 60_000) },
+      // #235 R7G F8A: expiresAt only ever lands together with the funding outpoint (lockFunds())
+      data: { tradeId: trade.id, type: 'MULTISIG', status: 'FUNDS_LOCKED', asset: 'BTC', lockedAmount: '0.001', timelockHours: 1, expiresAt: new Date(Date.now() - 60_000), txLockId: require('crypto').randomBytes(32).toString('hex'), txLockVout: 0 },
     })
     return { escrow }
   }
@@ -100,7 +105,7 @@ describe('Sails Core Implementation Program M3.5 — SemanticTransitionRecord at
     const deadlineMs = Date.now() - 60_000
     const evaluationTimeMs = Date.now()
 
-    const result = await commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(escrow.id, deadlineMs, evaluationTimeMs))
+    const result = await commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(escrow.id, deadlineMs, evaluationTimeMs), EXPIRY_TRANSITION)
 
     expect(result.committed).toBe(true)
     const updated = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
@@ -147,7 +152,7 @@ describe('Sails Core Implementation Program M3.5 — SemanticTransitionRecord at
     })
 
     await expect(
-      commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(escrow.id, Date.now() - 1000, Date.now())),
+      commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(escrow.id, Date.now() - 1000, Date.now()), EXPIRY_TRANSITION),
     ).rejects.toThrow()
 
     // The State claim inside the SAME failed transaction must not have
@@ -160,6 +165,27 @@ describe('Sails Core Implementation Program M3.5 — SemanticTransitionRecord at
     const allRecordsForThisEscrow = await prisma.semanticTransitionRecord.findMany({ where: { interactionId: escrow.id } })
     expect(allRecordsForThisEscrow).toHaveLength(1)
     expect(allRecordsForThisEscrow[0].rulesetName).toBe('preexisting')
+    // nor did its claimed transition
+    expect(await prisma.escrowEvent.count({ where: { escrowId: escrow.id } })).toBe(0)
+  })
+
+  it('the claimed transition commits with the State and the Record (one EscrowEvent, one PASS 3 marker), and a transition-claim failure rolls all three back', async () => {
+    requirePostgres('transition claim is part of the atomic unit')
+    const { escrow } = await fixtureFundsLockedMultisigEscrow()
+    const result = await commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(escrow.id, Date.now() - 1000, Date.now()), EXPIRY_TRANSITION)
+    expect(result.committed).toBe(true)
+    const transitions = await prisma.escrowEvent.findMany({ where: { escrowId: escrow.id, toStatus: 'EXPIRED' } })
+    expect(transitions.map((t) => t.id)).toEqual([(result as { transitionId: string }).transitionId])
+    expect(await prisma.eventProjectionClaim.count({ where: { eventId: transitions[0].id, projectionKey: 'transition.claimed', subjectId: escrow.id } })).toBe(1)
+
+    // an EXPIRED transition already recorded (by hand) for an escrow still FUNDS_LOCKED: fail closed, commit nothing
+    const { escrow: other } = await fixtureFundsLockedMultisigEscrow()
+    await prisma.escrowEvent.create({ data: { escrowId: other.id, fromStatus: 'FUNDS_LOCKED', toStatus: 'EXPIRED', triggeredBy: 'by-hand' } })
+    await expect(
+      commitAuthoritativeEscrowTimelockExpiry(other.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(other.id, Date.now() - 1000, Date.now()), EXPIRY_TRANSITION),
+    ).rejects.toThrow(/already has a EXPIRED transition/)
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: other.id } })).status).toBe('FUNDS_LOCKED')
+    expect(await semanticTransitionRecordRepository.findByInteractionAndTransitionType(other.id, 'escrow.timelock.expire')).toBeNull()
   })
 
   it('P2/AA — a real lost race leaves no orphaned Record: the escrow is claimed by a concurrent transition first, and the second attempt commits nothing', async () => {
@@ -170,19 +196,20 @@ describe('Sails Core Implementation Program M3.5 — SemanticTransitionRecord at
     // the time our attempt's own claimTransition() runs.
     await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'DISPUTED' } })
 
-    const result = await commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(escrow.id, Date.now() - 1000, Date.now()))
+    const result = await commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(escrow.id, Date.now() - 1000, Date.now()), EXPIRY_TRANSITION)
 
     expect(result).toEqual({ committed: false, reason: 'STATE_TRANSITION_LOST_RACE' })
     const stillDisputed = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
     expect(stillDisputed.status).toBe('DISPUTED') // untouched by our lost attempt
     const record = await semanticTransitionRecordRepository.findByInteractionAndTransitionType(escrow.id, 'escrow.timelock.expire')
     expect(record).toBeNull() // no Record was ever created for a transition that did not happen
+    expect(await prisma.escrowEvent.count({ where: { escrowId: escrow.id, toStatus: 'EXPIRED' } })).toBe(0) // nor a transition
   })
 
   it('AA/§39 — the real UNIQUE constraint on (interactionId, transitionType) rejects a real duplicate Record', async () => {
     requirePostgres('real duplicate rejection')
     const { escrow } = await fixtureFundsLockedMultisigEscrow()
-    const first = await commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(escrow.id, Date.now() - 1000, Date.now()))
+    const first = await commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(escrow.id, Date.now() - 1000, Date.now()), EXPIRY_TRANSITION)
     expect(first.committed).toBe(true)
 
     // Attempting to record the SAME transition again (e.g. a naive
@@ -219,8 +246,8 @@ describe('Sails Core Implementation Program M3.5 — SemanticTransitionRecord at
     // first wins; the other's UPDATE re-evaluates the WHERE clause
     // against the now-changed row and affects 0 rows.
     const [resultA, resultB] = await Promise.all([
-      commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(escrow.id, Date.now() - 2000, Date.now())),
-      commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(escrow.id, Date.now() - 1000, Date.now())),
+      commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(escrow.id, Date.now() - 2000, Date.now()), EXPIRY_TRANSITION),
+      commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', buildRecord(escrow.id, Date.now() - 1000, Date.now()), EXPIRY_TRANSITION),
     ])
 
     const committedResults = [resultA, resultB].filter((r) => r.committed)
@@ -241,8 +268,9 @@ describe('Sails Core Implementation Program M3.5 — SemanticTransitionRecord at
     const s = suffix()
     const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-legacy-${s}` } })
     const seller = await prisma.user.create({ data: { publicKey: `pk-seller-legacy-${s}` } })
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
-    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const acct = await sellerPixAccount(prisma, seller.id)
+    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', ...boundOfferRow(acct) } })
+    const trade = await prisma.trade.create({ data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
     const historicalEscrow = await prisma.escrow.create({
       data: { tradeId: trade.id, type: 'MOCK', status: 'COMPLETED', asset: 'BTC', lockedAmount: '0.001' },
     })

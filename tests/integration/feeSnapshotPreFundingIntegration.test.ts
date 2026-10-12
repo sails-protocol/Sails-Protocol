@@ -22,6 +22,7 @@
 
 import { PrismaClient, Prisma } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferRow, boundTradeRow, sellerPixAccount } from './economicFixtures'
 
 const COLLECTIBLE_ADDRESS = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
 
@@ -59,14 +60,18 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     pg.requirePostgres(name)
   }
 
-  async function createFixtureTrade(suffix: string) {
+  // #235 R7F-B — createEscrow() now requires lockedAmount to equal the
+  // trade's own amount, so the fixture trade carries the amount each test
+  // escrows (0.001 BTC by default; 0.01 BTC where Fmax must clear dust).
+  async function createFixtureTrade(suffix: string, amount = '0.001', totalUsd = '65') {
     const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-fase41-${suffix}` } })
     const seller = await prisma.user.create({ data: { publicKey: `pk-seller-fase41-${suffix}` } })
+    const acct = await sellerPixAccount(prisma, seller.id)
     const offer = await prisma.offer.create({
-      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' },
+      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', ...boundOfferRow(acct) },
     })
     const trade = await prisma.trade.create({
-      data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' },
+      data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount, priceUsd: '65000', totalUsd },
     })
     return { trade, buyer, seller }
   }
@@ -116,7 +121,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     const suffix = `t1-${Date.now()}`
     const { trade, buyer } = await createFixtureTrade(suffix)
 
-    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, buyer.id)
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, trade.sellerId)
 
     expect(escrow.feePolicyVersionId).toBeNull()
     expect(escrow.snapshotFeeCollectionAddress).toBeNull()
@@ -131,10 +136,10 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
     const suffix = `t2-${Date.now()}`
     await createPublishedPolicy('MULTISIG')
-    const { trade, buyer } = await createFixtureTrade(suffix)
+    const { trade, buyer } = await createFixtureTrade(suffix, '0.01', '650')
 
     // 0.01 BTC = 1,000,000 sats; rate=0.004 -> Fmax=4,000 sats, well above dust.
-    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, buyer.id)
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, trade.sellerId)
 
     expect(escrow.feePolicyVersionId).not.toBeNull()
     expect(escrow.snapshotProtocolFeeRate?.toString()).toBe('0.004')
@@ -149,9 +154,9 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     config.settlement.protocolFeeCollectionAddress = undefined
     const suffix = `t3-${Date.now()}`
     await createPublishedPolicy('MULTISIG')
-    const { trade, buyer } = await createFixtureTrade(suffix)
+    const { trade, buyer } = await createFixtureTrade(suffix, '0.01', '650')
 
-    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, buyer.id)
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, trade.sellerId)
 
     expect(escrow.feePolicyVersionId).not.toBeNull()
     expect(escrow.snapshotProtocolFeeRate?.toString()).toBe('0.004') // the REAL rate, never zeroed
@@ -207,9 +212,9 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
     const suffix = `t5-${Date.now()}`
     await createPublishedPolicy('MULTISIG')
-    const { trade, buyer } = await createFixtureTrade(suffix)
+    const { trade, buyer } = await createFixtureTrade(suffix, '0.01', '650')
 
-    const first = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, buyer.id)
+    const first = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, trade.sellerId)
     expect(first.feePolicyVersionId).not.toBeNull()
 
     // This isolated service-level test never registers the real event
@@ -223,7 +228,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     // application-level guard is exercised end-to-end by
     // tests/fullTradeLifecycle.test.ts, which does wire the real handlers.
     await expect(
-      escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, buyer.id)
+      escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, trade.sellerId)
     ).rejects.toThrow(/Trade already has an escrow|Unique constraint failed.*tradeId/)
 
     const rows = await prisma.escrow.findMany({ where: { tradeId: trade.id } })

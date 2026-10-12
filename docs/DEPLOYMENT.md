@@ -65,6 +65,8 @@ RATE_LIMIT_AUTH_MAX=10
 RATE_LIMIT_AUTH_WINDOW=1 minute
 MOCK_ESCROW=true
 MOCK_SETTLEMENT=true
+# Required in production: escrow timelock policy in whole hours (>= 1),
+# frozen on each escrow at creation (Master Backlog R5).
 DEFAULT_TIMELOCK_HOURS=24
 AUTO_SETTLE_ON_MATCH=false
 TRUSTED_ARBITRATORS=
@@ -98,6 +100,70 @@ what `.env.example` shows. Registered only as optional future DX
 hardening — e.g. an inline comment in `.env.example` itself flagging
 these three values as dev-only — not authorized or scheduled by this
 note.
+
+### 2.1 Database credentials and the price collector (#235 R7H-E2)
+
+Migration `20261016120000_economic_authority_roles` creates two group roles
+(`NOLOGIN`; no password is ever stored in a migration):
+
+| Role | Used by | Can |
+|---|---|---|
+| `sails_app` | the application (`DATABASE_URL`) | read and write every application table; **read only** on valuation quotes, price observations and trade-limit policy rows; insert-only on exposure reservations |
+| `sails_quote_collector` | the price collector (`QUOTE_COLLECTOR_DATABASE_URL`) | read the policy in force; insert valuation quotes and price observations; nothing else |
+
+Migrations keep running as the schema owner (section 3). To separate the
+runtime credentials, create one login per role, as the owner:
+
+```sql
+CREATE ROLE sails_app_login LOGIN PASSWORD '<secret>' IN ROLE sails_app;
+CREATE ROLE sails_collector_login LOGIN PASSWORD '<other secret>' IN ROLE sails_quote_collector;
+```
+
+Then point `DATABASE_URL` at `sails_app_login` and set
+`QUOTE_COLLECTOR_DATABASE_URL` to `sails_collector_login`. It must differ from
+`DATABASE_URL`, or config load refuses to start.
+
+While the application still connects as the owner, it logs an
+`economic authority is not separated` error on every start. Until then, the
+application credential can publish valuation quotes.
+
+```bash
+QUOTE_COLLECTOR_DATABASE_URL=postgresql://sails_collector_login:<other secret>@host:5432/sails_protocol
+QUOTE_COLLECTOR_INTERVAL_MS=10000   # how often each node attempts the current 30 s window
+QUOTE_SOURCE_TIMEOUT_MS=3000        # per exchange request (the publication bound is 10 s)
+```
+
+When `QUOTE_COLLECTOR_DATABASE_URL` is unset, no collector runs. No quote is
+then published, so nothing new can be authorized once the newest quote passes
+its maximum age. Existing escrows settle, dispute and recover without any
+quote.
+
+Every node may run the collector: the nodes publish one canonical quote per
+window between them.
+
+Check the exchanges from wherever the service runs:
+
+```bash
+npm run price:smoke
+```
+
+### 2.2 Trade-scoped Intent admission (B2): deployment prerequisites (#235 R7H-NF-E3C-5)
+
+The audited B2 scope is **technically frozen** (RFC-018 Amendment A1). It is **not authorized for deployment**. The five
+items below are mandatory prerequisites. **None is satisfied by this document or by the audit.** No production
+environment was independently inspected, and nothing here claims production readiness.
+
+| # | Prerequisite | How it is established | Status |
+|---|---|---|---|
+| 1 | Non-overlapping cutover (G-C1, R-2) | Every pre-B2 and pre-corrective instance is stopped **before** any B2 instance is started, and none remains active. A pre-B2 instance moves the *offer* Intent for B2 trades and keeps writing legacy-shaped trades and claims; a pre-corrective instance's attribution write is refused by the database (`23514`) and answers 500. A rolling or mixed-version deploy is not permitted. | NOT SATISFIED |
+| 2 | No historical inferred attribution (R-1) | `SELECT count(*) FROM idempotency_reconciliation_audit WHERE decision <> 'UNRESOLVED';` returns **0** on the target database (equivalently `ALTER TABLE idempotency_reconciliation_audit VALIDATE CONSTRAINT idempotency_reconciliation_audit_unresolved_only;` succeeds). Migration `20261018140000` is forward-only: it does not undo an attribution that a pre-corrective build already persisted. | NOT VERIFIED on any environment |
+| 3 | PostgreSQL session `TimeZone = UTC` (C-L2) | `SHOW TimeZone;` returns `UTC` on the application's connection (database, role and pool settings), until the admission-timestamp hardening is done. The B2 claim row's `createdAt` / `completedAt` use the session-local clock (measured +14 h and -12 h from the trade under UTC+14 / UTC-12 sessions). | NOT VERIFIED |
+| 4 | B-1 resolved and verified | An offer cancelled or paused after validation, or inside the admission transaction, must refuse admission. Pre-existing: reproduced identically on the pre-B2 baseline `3ef9959`. Separate mission; must be resolved **before production exposure**. | OPEN |
+| 5 | Explicit CTO authorization for deployment | A written CTO decision naming the exact commit. | NOT GRANTED |
+
+Rollback note (R-3): the manual rollback comment in migration `20261018140000_legacy_claim_unresolved_only` re-adds the
+old CHECK with validation, which fails once any `UNRESOLVED` row exists. Do not rely on it as written; the migration file
+itself is not edited (it is already applied elsewhere).
 
 ## 3. Setup
 
@@ -549,6 +615,15 @@ Deliberately **not** set for this deployment: `WDK_SEED_PHRASE`,
 providers inert, consistent with the decision to bring exactly one real
 custody path live at a time.
 
+**Updated (Issue #220, 2026-09-27):** this is no longer only a
+configuration convention. With `NODE_ENV=production`, the application
+itself refuses to create or settle `LIGHTNING_HODL`, `SAFE_GUARD_EVM`, and
+`WDK_USDT_EVM` escrows (`escrow-providers.ts`'s
+`PRODUCTION_INELIGIBLE_TYPES`), regardless of which secrets are set. In
+production, `LN_BTC` and `USDT_ERC20` escrow creation therefore fails with
+an explicit "not economically eligible in production" error; `BTC` via
+`MULTISIG` is the only production settlement rail.
+
 ## 9. Multi-Instance Deployment (Missão 08B, 2026-08-17)
 
 Section 8's deployment above runs a single App Runner instance. Running
@@ -624,7 +699,10 @@ process. What makes this true, and what still doesn't:
   set `EVIDENCE_PROVIDER=s3` plus `EVIDENCE_S3_BUCKET`/
   `EVIDENCE_S3_ACCESS_KEY_ID`/`EVIDENCE_S3_SECRET_ACCESS_KEY` (and
   `EVIDENCE_S3_ENDPOINT`/`EVIDENCE_S3_REGION`/`EVIDENCE_S3_FORCE_PATH_STYLE`
-  for a non-AWS S3-compatible vendor).
+  for a non-AWS S3-compatible vendor). `EVIDENCE_S3_REQUEST_TIMEOUT_MS` is an optional
+  operator-selected per-request cancellation bound; there is intentionally no protocol
+  default. For mutating S3 operations, expiry means the local request was cancelled and
+  the remote outcome remains unknown — it is not proof that a write/delete did not commit.
 
 None of the above requires sticky sessions at the load balancer — any
 instance can serve any HTTP request or accept any new WebSocket

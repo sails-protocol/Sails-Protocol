@@ -41,7 +41,18 @@ jest.mock('../src/common/events/event-bus', () => ({
   eventBus: { emit: (...args: unknown[]) => mockEmit(...args) },
 }))
 jest.mock('../src/modules/open-settlement/escrow.service', () => ({
-  escrowService: { openDispute: jest.fn().mockResolvedValue({}) },
+  // Issue #238 - raiseDispute() establishes the Dispute inside openDisputeEstablishing()'s transaction;
+  // this mock records the same openDispute() call and runs `establish` against the mocked prisma (as tx).
+  escrowService: (() => {
+    const openDispute = jest.fn().mockResolvedValue({})
+    return {
+      openDispute,
+      openDisputeEstablishing: async (escrowId: string, by: string, reason: string, establish: (tx: unknown) => Promise<unknown>) => {
+        await openDispute(escrowId, by, reason)
+        return establish(require('../src/common/database').prisma)
+      },
+    }
+  })(),
 }))
 
 import { DisputeService } from '../src/modules/open-settlement/dispute.service'
@@ -72,7 +83,8 @@ describe('DisputeService — script-committed arbiter always wins over Arbitrati
     const service = new DisputeService(provider)
     await service.raiseDispute('trade-1', 'buyer-1', 'reason')
 
-    expect(provider.assign).toHaveBeenCalledWith('dispute-1', 'trade-1')
+    // #238 - assigned inside the dispute-opening transaction, so the provider receives that tx.
+    expect(provider.assign).toHaveBeenCalledWith('dispute-1', 'trade-1', expect.anything())
     expect(mockDisputeUpdate).toHaveBeenCalledWith({ where: { id: 'dispute-1' }, data: { arbiterId: 'arb-configured' } })
   })
 

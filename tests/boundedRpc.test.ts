@@ -11,6 +11,8 @@ import * as net from 'net'
 import { FetchRequest, JsonRpcProvider } from 'ethers'
 import { boundedFetch, withBoundedRetry, BoundedRpcTimeoutError } from '../src/modules/open-settlement/bounded-rpc'
 
+const MAX_BYTES = 16 * 1024 // every boundedFetch call declares its response-size bound; these mocked bodies are a few bytes
+
 // A fetch stand-in that genuinely never resolves on its own — it only
 // settles if its AbortSignal fires, exactly like a real hung TCP
 // connection under a real AbortController-backed fetch. This is what
@@ -40,7 +42,7 @@ describe('boundedFetch() — raw fetch() calls (multisig explorer, EVM bundler)'
   it('1. a hung request actually aborts and times out, rather than hanging forever', async () => {
     global.fetch = hangingFetch() as unknown as typeof fetch
     await expect(
-      boundedFetch('https://explorer.example/tx/abc/status', {}, { timeoutMs: 30 })
+      boundedFetch('https://explorer.example/tx/abc/status', {}, { maxResponseBytes: MAX_BYTES, timeoutMs: 30 })
     ).rejects.toThrow(BoundedRpcTimeoutError)
   })
 
@@ -48,6 +50,7 @@ describe('boundedFetch() — raw fetch() calls (multisig explorer, EVM bundler)'
     const fetchMock = jest.fn().mockResolvedValue({ ok: false, status: 503 })
     global.fetch = fetchMock as unknown as typeof fetch
     const res = await boundedFetch('https://explorer.example/tx/abc/status', {}, {
+      maxResponseBytes: MAX_BYTES,
       timeoutMs: 100,
       retry: { attempts: 3, backoffMs: 1 },
     })
@@ -59,6 +62,7 @@ describe('boundedFetch() — raw fetch() calls (multisig explorer, EVM bundler)'
     const fetchMock = jest.fn().mockResolvedValue({ ok: true, status: 200 })
     global.fetch = fetchMock as unknown as typeof fetch
     const res = await boundedFetch('https://explorer.example/tx/abc/status', {}, {
+      maxResponseBytes: MAX_BYTES,
       timeoutMs: 100,
       retry: { attempts: 3, backoffMs: 1 },
     })
@@ -70,6 +74,7 @@ describe('boundedFetch() — raw fetch() calls (multisig explorer, EVM bundler)'
     const fetchMock = jest.fn().mockResolvedValue({ ok: false, status: 404 })
     global.fetch = fetchMock as unknown as typeof fetch
     const res = await boundedFetch('https://explorer.example/tx/abc/status', {}, {
+      maxResponseBytes: MAX_BYTES,
       timeoutMs: 100,
       retry: { attempts: 3, backoffMs: 1 },
     })
@@ -80,7 +85,7 @@ describe('boundedFetch() — raw fetch() calls (multisig explorer, EVM bundler)'
   it('5. a broadcast/submission call (no retry authorized) times out but is NEVER retried', async () => {
     global.fetch = hangingFetch() as unknown as typeof fetch
     await expect(
-      boundedFetch('https://explorer.example/tx', { method: 'POST', body: 'deadbeef' }, { timeoutMs: 30 })
+      boundedFetch('https://explorer.example/tx', { method: 'POST', body: 'deadbeef' }, { maxResponseBytes: MAX_BYTES, timeoutMs: 30 })
     ).rejects.toThrow(BoundedRpcTimeoutError)
     expect((global.fetch as jest.Mock)).toHaveBeenCalledTimes(1) // exactly once — no automatic retry of a submission
   })
@@ -88,7 +93,7 @@ describe('boundedFetch() — raw fetch() calls (multisig explorer, EVM bundler)'
   it('6. a broadcast/submission call that gets a transient 503 is NOT retried (retry is opt-in, never inferred)', async () => {
     const fetchMock = jest.fn().mockResolvedValue({ ok: false, status: 503 })
     global.fetch = fetchMock as unknown as typeof fetch
-    const res = await boundedFetch('https://explorer.example/tx', { method: 'POST', body: 'deadbeef' }, { timeoutMs: 100 })
+    const res = await boundedFetch('https://explorer.example/tx', { method: 'POST', body: 'deadbeef' }, { maxResponseBytes: MAX_BYTES, timeoutMs: 100 })
     expect(res.status).toBe(503)
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
@@ -97,14 +102,14 @@ describe('boundedFetch() — raw fetch() calls (multisig explorer, EVM bundler)'
     const fetchMock = jest.fn().mockRejectedValue(new Error('ECONNRESET'))
     global.fetch = fetchMock as unknown as typeof fetch
     await expect(
-      boundedFetch('https://explorer.example/tx/abc/status', {}, { timeoutMs: 100, retry: { attempts: 2, backoffMs: 1 } })
+      boundedFetch('https://explorer.example/tx/abc/status', {}, { maxResponseBytes: MAX_BYTES, timeoutMs: 100, retry: { attempts: 2, backoffMs: 1 } })
     ).rejects.toThrow('ECONNRESET')
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('8. no fake success is produced — a timeout never resolves, it always rejects', async () => {
     global.fetch = hangingFetch() as unknown as typeof fetch
-    const outcome = await boundedFetch('https://explorer.example/tx/abc/status', {}, { timeoutMs: 20 }).then(
+    const outcome = await boundedFetch('https://explorer.example/tx/abc/status', {}, { maxResponseBytes: MAX_BYTES, timeoutMs: 20 }).then(
       () => 'resolved',
       () => 'rejected'
     )

@@ -91,12 +91,17 @@ function makeTable(idPrefix: string, defaults: Record<string, unknown> = {}) {
     // matchesWhereClause rather than adding a second updateMany variant —
     // same "real conditional-update semantics, not a stub" discipline this
     // table's own comment above already commits to.
+    // #247/#248 - escrow-repository.ts's claimDirectExecution() matches `OR: [...]` alternatives and
+    // `field: null`; a column this fake row never set reads as NULL, as an unset column does in SQL.
     updateMany: jest.fn(async ({ where, data }: any) => {
-      const matchesWhereClause = (r: any) =>
-        Object.entries(where).every(([k, v]) =>
-          v && typeof v === 'object' && 'not' in (v as any) ? r[k] !== (v as any).not : r[k] === v
+      const matchesWhereClause = (r: any, clause: any = where): boolean =>
+        Object.entries(clause).every(([k, v]) =>
+          k === 'OR' ? (v as any[]).some((alternative) => matchesWhereClause(r, alternative))
+            : v && typeof v === 'object' && 'not' in (v as any) ? r[k] !== (v as any).not
+            : v === null ? r[k] === null || r[k] === undefined
+            : r[k] === v
         )
-      const matches = [...rows.values()].filter(matchesWhereClause)
+      const matches = [...rows.values()].filter((r) => matchesWhereClause(r))
       for (const row of matches) {
         const merged = { ...row, ...data, updatedAt: new Date() }
         rows.set(row.id, merged)
@@ -142,6 +147,12 @@ const intents = makeTable('intent', { expiresAt: null })
 // here), matching this file's own "every table round-trips for real"
 // discipline rather than a separately-mocked no-op.
 const vouches = makeTable('vouch', { burnedAt: null })
+// Issue #254 - checked by handlers.ts's wasCausedByDisputeRuling() before the legacy Dispute-based
+// fallback query. Empty here (this file's escrows are all MOCK-typed, per createEscrow()'s own
+// mockEscrow-aware default — no MULTISIG dispute-ruling Core-authoritative path ever runs, so no
+// semantic_transition_records row ever exists), same "table round-trips for real, empty is a real
+// answer too" convention this file already uses for feePolicyVersion/vouch/escrowParticipantKey above.
+const semanticTransitionRecords = makeTable('semanticTransitionRecord')
 // Missão 11 Fase 9.3 — markPaymentSent()/initiateRelease()/initiateSplit()
 // now re-check funding uncertainty (empty here is correct: no test in
 // this file ever records reorg-sweep evidence, same "table round-trips
@@ -199,6 +210,37 @@ const intentEvents = {
 // last-match-by-correlationId shape as intentEvents above, for the same
 // reason (publish() needs the most recent prior row for a correlationId
 // to chain prevHash, not just any match).
+// Issue #298 - event_projection_claims with the REAL semantics the property depends on: a unique
+// (eventId, projectionKey, subjectId) identity; createMany({skipDuplicates}) reports how many rows were
+// actually inserted (0 for an already-claimed identity), exactly like INSERT ... ON CONFLICT DO NOTHING.
+const projectionClaimKeys = new Set<string>()
+const projectionClaimRows: any[] = []
+const eventProjectionClaims = {
+  rows: { clear: () => { projectionClaimKeys.clear(); projectionClaimRows.length = 0 } },
+  create: jest.fn(async ({ data }: any) => {
+    const key = `${data.eventId}|${data.projectionKey}|${data.subjectId}`
+    if (projectionClaimKeys.has(key)) throw new Error(`Unique constraint failed on ${key}`)
+    projectionClaimKeys.add(key)
+    const row = { id: `claim-${projectionClaimRows.length + 1}`, appliedAt: new Date(), ...data }
+    projectionClaimRows.push(row)
+    return { ...row }
+  }),
+  createMany: jest.fn(async ({ data }: any) => {
+    let count = 0
+    for (const d of data) {
+      const key = `${d.eventId}|${d.projectionKey}|${d.subjectId}`
+      if (projectionClaimKeys.has(key)) continue
+      projectionClaimKeys.add(key)
+      projectionClaimRows.push({ id: `claim-${projectionClaimRows.length + 1}`, appliedAt: new Date(), ...d })
+      count++
+    }
+    return { count }
+  }),
+  findMany: jest.fn(async ({ where = {} }: any = {}) =>
+    projectionClaimRows.filter((r) => Object.entries(where).every(([k, v]) => (v && typeof v === 'object') ? true : r[k] === v)).map((r) => ({ ...r }))
+  ),
+}
+
 const durableEventRows: any[] = []
 let durableEventSeq = 0
 const durableEventRecords = {
@@ -214,6 +256,8 @@ const durableEventRecords = {
   findMany: jest.fn(async ({ where }: any) => {
     return durableEventRows.filter((r) => r.correlationId === where.correlationId)
   }),
+  // Issue #298 - PostgresEventStore.redeliver() reloads a durable event by id.
+  findUnique: jest.fn(async ({ where }: any) => durableEventRows.find((r) => r.id === where.id) ?? null),
 }
 
 // PostgresEventStore.publish() (Missão 05.8) wraps its write in a real
@@ -244,7 +288,25 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     // visible to a later unlocked read exactly like a real Prisma
     // transaction would be — same discipline as escrow/escrowEvent above.
     dispute: disputes,
+    // Issue #298 - the claim marker and every projection claim go through the real unique-identity table above;
+    // projections mutate the same in-memory tables the rest of the flow reads.
+    eventProjectionClaim: eventProjectionClaims,
+    user: users,
+    trade: trades,
+    vouch: vouches,
+    // #235 R7H-NF-E3C-5 - trade admission creates the trade's OWN Intent (and its IntentEvents) in this transaction;
+    // the same real in-memory tables the rest of the flow reads, so a later lifecycle transition sees them.
+    intent: intents,
+    intentEvent: intentEvents,
     $executeRaw: jest.fn().mockResolvedValue(0),
+    // The ruling path's SELECT ... FOR UPDATE of the dispute it displaces, answered from the same fake table.
+    $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      // #235 R7H-E3 - the repository's binding check; the binding itself is proven on real PostgreSQL (escrowSellerPaymentBinding.test.ts).
+      if (strings.join('?').includes('escrow_economic_binding_violation')) return [{ violation: null, governed: false }]
+      if (!strings.join('?').includes('FROM disputes')) return []
+      const row: any = await disputes.findUnique({ where: { id: values[0] as string } } as any)
+      return row ? [{ status: row.status, appealRound: row.appealRound, arbiterId: row.arbiterId ?? null }] : []
+    },
   })
 )
 
@@ -260,10 +322,12 @@ jest.mock('../src/common/database', () => ({
     feePolicyVersion: feePolicyVersions,
     payoutAddress: payoutAddresses,
     dispute: disputes,
+    semanticTransitionRecord: semanticTransitionRecords,
     intent: intents,
     intentEvent: intentEvents,
     vouch: vouches,
     durableEventRecord: durableEventRecords,
+    eventProjectionClaim: eventProjectionClaims,
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
   },
 }))
@@ -400,7 +464,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   jest.clearAllMocks()
-  ;[users, offers, trades, escrows, escrowEvents, escrowParticipantKeys, disputes, intents].forEach((t) => t.rows.clear())
+  ;[users, offers, trades, escrows, escrowEvents, escrowParticipantKeys, disputes, intents, eventProjectionClaims].forEach((t) => t.rows.clear())
   intentEventRows.length = 0
   seedUsers()
 })
@@ -437,7 +501,14 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
       amount: '20',
     })
     expect(trade.intentId).toBe(offer.intentId)
-    expect(intents.rows.get(offer.intentId)?.status).toBe('NEGOTIATING')
+    expect(intents.rows.get(trade.tradeIntentId)?.status).toBe('NEGOTIATING')
+    // #235 R7H-NF-E3C-5 — RFC-018 Amendment A1 (CTO-approved retarget of the Intent assertions in this file): the
+    // trade's lifecycle is carried by ITS OWN Intent (tradeIntentId, parented to the offer's); the offer's Intent
+    // is the advertisement's and no trade ever transitions it.
+    expect(trade.tradeIntentId).toBeTruthy()
+    expect(trade.tradeIntentId).not.toBe(offer.intentId)
+    expect(intents.rows.get(trade.tradeIntentId)?.parentIntentId).toBe(offer.intentId)
+    expect(intents.rows.get(offer.intentId)?.status).toBe('COORDINATED')
 
     // 6-8. Escrow locks, (emulated) PIX payment happens, settlement
     // finalizes — the real orchestrator, the same function
@@ -468,7 +539,7 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
     // The Intent this whole chain started from reached its own real
     // terminal state — not left behind by any of the 4 modules it passed
     // through (RFC-018's entire point).
-    expect(intents.rows.get(offer.intentId)?.status).toBe('FULFILLED')
+    expect(intents.rows.get(trade.tradeIntentId)?.status).toBe('FULFILLED')
   })
 
   it('a dispute raised after escrow locks resolves through the real chain — proves the Trade.escrowId fix end to end', async () => {
@@ -500,7 +571,7 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
 
     await escrowService.lockFunds(escrow.id, 'seller-1')
     await flush()
-    expect(intents.rows.get(offer.intentId)?.status).toBe('COMMITTED')
+    expect(intents.rows.get(trade.tradeIntentId)?.status).toBe('COMMITTED')
 
     const disputeService = new DisputeService(new TrustedArbitratorProvider(['arbiter-1']))
     const dispute = await disputeService.raiseDispute(trade.id, 'buyer-1', 'PIX payment never arrived')
@@ -514,7 +585,7 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
     expect(resolved.status).toBe('RESOLVED')
     expect(escrows.rows.get(escrow.id)?.status).toBe('REFUNDED')
     expect(trades.rows.get(trade.id)?.status).toBe('CANCELLED')
-    expect(intents.rows.get(offer.intentId)?.status).toBe('FAILED')
+    expect(intents.rows.get(trade.tradeIntentId)?.status).toBe('FAILED')
 
     // RFC-007 D9 — a REFUND ruling means the seller won, the buyer lost.
     expect(users.rows.get('seller-1')?.reputationScore).toBe(2)
@@ -586,7 +657,7 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
     expect(users.rows.get('buyer-1')?.reputationScore).toBe(0)
     expect(users.rows.get('seller-1')?.reputationScore).toBe(0)
 
-    expect(intents.rows.get(offer.intentId)?.status).toBe('FULFILLED')
+    expect(intents.rows.get(trade.tradeIntentId)?.status).toBe('FULFILLED')
   })
 })
 
@@ -600,7 +671,7 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
 // queues commonly redeliver on at-least-once semantics — these tests put
 // that future requirement under pressure now, before it's built, rather
 // than discovering it live.
-describe('Event replay / idempotency stress test — not reachable today, a real requirement before any durable EventStore ships', () => {
+describe('Event replay / idempotency — durable-event redelivery must never duplicate an effect (Issue #298)', () => {
   // registerEventHandlers() already ran once in this file's top-level
   // beforeAll (above) — eventBus is a module-level singleton shared by
   // every describe block in this file, so calling it again here would
@@ -611,7 +682,7 @@ describe('Event replay / idempotency stress test — not reachable today, a real
 
   beforeEach(() => {
     jest.clearAllMocks()
-    ;[users, offers, trades, escrows, escrowEvents, escrowParticipantKeys, disputes, intents].forEach((t) => t.rows.clear())
+    ;[users, offers, trades, escrows, escrowEvents, escrowParticipantKeys, disputes, intents, eventProjectionClaims].forEach((t) => t.rows.clear())
     intentEventRows.length = 0
     seedUsers()
   })
@@ -624,7 +695,7 @@ describe('Event replay / idempotency stress test — not reachable today, a real
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, lockedAmount: '20', asset: 'USDT_ERC20' }, 'seller-1')
     await escrowService.lockFunds(escrow.id, 'seller-1')
     await flush()
-    expect(intents.rows.get(offer.intentId)?.status).toBe('COMMITTED')
+    expect(intents.rows.get(trade.tradeIntentId)?.status).toBe('COMMITTED')
 
     // Redeliver the exact same event a second time — simulates a durable
     // queue's at-least-once retry, not something this test fabricates
@@ -639,34 +710,36 @@ describe('Event replay / idempotency stress test — not reachable today, a real
     // subscribe() catches and logs it (console.error, expected in this
     // test's output), and the Intent is left exactly where it was.
     // Protected by construction, not by anything built for this test.
-    expect(intents.rows.get(offer.intentId)?.status).toBe('COMMITTED')
+    expect(intents.rows.get(trade.tradeIntentId)?.status).toBe('COMMITTED')
   })
 
-  it('BAD (known, tracked gap — not fixed here): a duplicate settlement.escrow.released double-counts reputation', async () => {
+  it('INVARIANT (Issue #298, was the "BAD known gap"): the SAME durable settlement.escrow.released event redelivered N times - including concurrently and by a second consumer - applies each additive effect exactly once', async () => {
     const offer = await liquidityRouter.createOffer({
       userId: 'seller-1', asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1.00', minAmount: '10', maxAmount: '100', paymentMethod: 'PIX',
     })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: 'buyer-1', amount: '20' })
-    const result = await executeSettlement({ tradeId: trade.id, buyerReceivingAddress: '0xBuyerTestnetAddress' })
+    await executeSettlement({ tradeId: trade.id, buyerReceivingAddress: '0xBuyerTestnetAddress' })
     await flush()
     expect(users.rows.get('buyer-1')?.reputationScore).toBe(2)
     expect(users.rows.get('seller-1')?.reputationScore).toBe(2)
+    const totalTradesBefore = users.rows.get('buyer-1')?.totalTrades
+    const volumeBefore = users.rows.get('buyer-1')?.totalVolumeBtc
+    expect(totalTradesBefore).toBe(1)
 
-    // Redeliver settlement.escrow.released — unlike the Intent side above,
-    // nothing here checks "have I already recorded this outcome."
-    // reputation.service.ts's recordOutcome() is a bare increment with no
-    // idempotency key (no eventId tracked, no "already applied" guard).
-    await eventBus.emit('settlement.escrow.released', {
-      escrowId: result.escrowId, tradeId: trade.id, from: 'PAYMENT_PENDING', to: 'COMPLETED', triggeredBy: 'seller-1',
-    }, trade.id)
+    // Redeliver the exact same durable event (a durable queue's at-least-once retry, a lost ack, or another
+    // instance receiving it over the cross-instance fanout): same eventId, so the projection claims collide.
+    const released = durableEventRows.find((r) => r.eventName === 'settlement.escrow.released')
+    expect(released).toBeDefined()
+    const results = await Promise.all(Array.from({ length: 5 }, () => eventBus.redeliver(released.id)))
+    expect(results.every(Boolean)).toBe(true)
+    await flush()
     await flush()
 
-    // This IS the bug the "replay de evento" scenario predicted — asserted
-    // here deliberately, as documentation of a real, currently-unreachable
-    // risk (docs/BACKLOG.md), not as an accepted outcome. Before any
-    // durable, redelivering EventStore ships, recordOutcome()'s callers
-    // need an idempotency key (eventId) check first.
-    expect(users.rows.get('buyer-1')?.reputationScore).toBe(4)
-    expect(users.rows.get('seller-1')?.reputationScore).toBe(4)
+    // Previously this DID double-count (asserted as 4/4 as a documented gap). Now it cannot.
+    expect(users.rows.get('buyer-1')?.reputationScore).toBe(2)
+    expect(users.rows.get('seller-1')?.reputationScore).toBe(2)
+    expect(users.rows.get('buyer-1')?.totalTrades).toBe(totalTradesBefore)
+    expect(users.rows.get('buyer-1')?.totalVolumeBtc).toBe(volumeBefore)
+    expect(trades.rows.get(trade.id)?.status).toBe('COMPLETED')
   })
 })
