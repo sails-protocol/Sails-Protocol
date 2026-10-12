@@ -88,6 +88,7 @@ jobs:
         run: npm run db:generate
       - name: Apply database migrations
         run: npm run db:migrate
+      # ST1-R2: trigger exact-head CI after bounding the formerly unbounded test step.
       # Keep both canonical test commands. Separating the lanes identifies
       # stalls and bounds runaway output without weakening assertions.
       - name: Run unit tests (bounded diagnostic)
