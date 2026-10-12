@@ -88,7 +88,10 @@ jobs:
             # Snapshot exits 1 on P1-P8 by design. Preserve evidence and continue.
             if [ "$snapshot_rc" -gt 1 ]; then failed=1; fi
           }
-          run_group pg-first-63 0 63
+          # Bisect the first 63: candidate disputed MULTISIG suite is index 6.
+          run_group pg-first-6 0 6
+          run_group pg-dispute-outcome-only 6 7
+          run_group pg-remaining-first-63 7 63
           run_group pg-before-multisig 63 66
           run_group pg-multisig-only 66 67
           run_group pg-after-multisig 67 85
