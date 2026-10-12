@@ -64,6 +64,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
   const buyerKey = keyOf('buyer')
   const sellerKey = keyOf('seller')
   let realFetch: typeof fetch
+  const displacedArbiterKeys = new Map<string, any>()
 
   beforeAll(async () => {
     process.env.MOCK_ESCROW = 'false'
@@ -112,6 +113,18 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
 
   afterAll(async () => {
     if (dbAvailable) {
+      // Restore the exact arbiter commitment removed by the legacy appeal fixture.
+      // Do not let a synthetic P3 violation escape into the shared PG lane.
+      for (const [escrowId, original] of displacedArbiterKeys) {
+        await prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SET LOCAL session_replication_role = replica`
+          const current = await tx.escrowParticipantKey.findFirst({ where: { escrowId, role: 'arbiter' } })
+          if (current && (current.id !== original.id || current.pubkey !== original.pubkey)) {
+            throw new Error(`ST1 fixture arbiter commitment changed unexpectedly for ${escrowId}`)
+          }
+          if (!current) await tx.escrowParticipantKey.create({ data: original })
+        })
+      }
       await prisma.$disconnect()
       if (restarted) {
         await restarted.prisma.$disconnect()
@@ -186,7 +199,11 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
    */
   const makeAppealable = (o: Opened) => prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SET LOCAL session_replication_role = replica`
-    await tx.escrowParticipantKey.deleteMany({ where: { escrowId: o.escrowId, role: 'arbiter' } })
+    const original = await tx.escrowParticipantKey.findFirst({ where: { escrowId: o.escrowId, role: 'arbiter' } })
+    if (!original) throw new Error(`ST1 fixture missing original arbiter commitment for ${o.escrowId}`)
+    const deleted = await tx.escrowParticipantKey.deleteMany({ where: { escrowId: o.escrowId, role: 'arbiter' } })
+    if (deleted.count !== 1) throw new Error(`ST1 fixture expected one arbiter commitment for ${o.escrowId}`)
+    displacedArbiterKeys.set(o.escrowId, original)
   })
   /** A DisputeService whose appeal panel is ARBITER2 (the market provider is not the subject here). */
   const appealService = () => new DisputeService({
