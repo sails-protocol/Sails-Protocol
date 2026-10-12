@@ -10,10 +10,22 @@ const mockBinding = jest.fn(async (..._args: unknown[]) => undefined)
 jest.mock('../src/modules/open-settlement/disputed-outcome-binding', () => ({
   assertRoundBoundToDisputeAuthority: (...args: unknown[]) => mockBinding(...args),
 }))
+// AUD1X-R4: the record deleter and loader are stubbed for the unit-level proofs of revertCommittedRuling(); the
+// predicate they apply is proved on real PostgreSQL (tests/integration/aud1xR2DispatchAuthority.test.ts, R4-*).
+const mockDeleteRecord = jest.fn(async (..._args: unknown[]) => 1)
+const mockLoadRecord = jest.fn(async (..._args: unknown[]) => null as unknown)
+jest.mock('../src/modules/open-settlement/dispute-outcome', () => ({
+  revertDisputeRulingRecord: (...args: unknown[]) => mockDeleteRecord(...args),
+  loadDisputeRulingRecord: (...args: unknown[]) => mockLoadRecord(...args),
+}))
 
+import * as fs from 'fs'
+import * as path from 'path'
 import {
   proveRoundIsThisDispatch,
   decideRulingRevert,
+  revertCommittedRuling,
+  type CommittedRuling,
   authorizationIdentityGaps,
   type CommittedAuthorizationEvidence,
   type ExistingRound,
@@ -38,7 +50,11 @@ const round: ExistingRound = {
 }
 const tx = {} as never
 
-beforeEach(() => { mockBinding.mockReset(); mockBinding.mockResolvedValue(undefined) })
+beforeEach(() => {
+  mockBinding.mockReset(); mockBinding.mockResolvedValue(undefined)
+  mockDeleteRecord.mockReset(); mockDeleteRecord.mockResolvedValue(1)
+  mockLoadRecord.mockReset(); mockLoadRecord.mockResolvedValue(null)
+})
 
 describe('proveRoundIsThisDispatch - exactly the round the ruling decided', () => {
   it('accepts the round that matches on every fact, and judges the stored PSBT against the live ruling', async () => {
@@ -304,5 +320,92 @@ describe('authorizationIdentityGaps - AUD1X-R3, every compared fact on its own',
     expect(gaps.contradictions).toEqual([])
     expect(gaps.unproven).toEqual([])
     expect(gaps.execution.join(' | ')).toMatch(reason)
+  })
+})
+
+describe('revertCommittedRuling - AUD1X-R4, the unit that carries out a REVERT', () => {
+  const committed: CommittedRuling = {
+    disputeId: 'dispute-1', escrowId: 'escrow-1', appealRound: 0, arbiterId: 'arbiter-1', ruling: 'RELEASE', authoritySignature: 'sig-1',
+  }
+  const restore = { status: 'OPENED', ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null } as never
+  const txWith = (count: number) => {
+    const updateMany = jest.fn(async (..._a: unknown[]) => ({ count }))
+    return { tx: { dispute: { updateMany } } as never, updateMany }
+  }
+
+  it('the update names exactly the ruling this call committed - status, ruling, arbiter, appeal round and signed authority - and carries the restore data', async () => {
+    const { tx, updateMany } = txWith(1)
+
+    await revertCommittedRuling(tx, committed, restore, new Error('dispatch failed'))
+
+    expect(updateMany).toHaveBeenCalledTimes(1)
+    expect(updateMany.mock.calls[0][0]).toEqual({
+      where: { id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE', arbiterId: 'arbiter-1', appealRound: 0, authoritySignature: 'sig-1' },
+      data: restore,
+    })
+  })
+
+  it('the record is deleted only after the update applied, bound to the same signed authority', async () => {
+    const { tx, updateMany } = txWith(1)
+
+    await revertCommittedRuling(tx, committed, restore, new Error('x'))
+
+    expect(mockDeleteRecord).toHaveBeenCalledTimes(1)
+    expect(mockDeleteRecord.mock.calls[0]).toEqual(['escrow-1', 0, tx, 'sig-1'])
+    expect(mockDeleteRecord.mock.invocationCallOrder[0]).toBeGreaterThan(updateMany.mock.invocationCallOrder[0])
+  })
+
+  it.each([0, 2])('an update that matched %i rows: the call fails, nothing is deleted, nothing is even looked up, the original failure is carried', async (count) => {
+    const { tx } = txWith(count)
+
+    await expect(revertCommittedRuling(tx, committed, restore, new Error('provider exploded')))
+      .rejects.toThrow(/no longer holds the ruling this call committed.*no Outcome record was deleted.*provider exploded/)
+
+    expect(mockDeleteRecord).not.toHaveBeenCalled()
+    expect(mockLoadRecord).not.toHaveBeenCalled()
+  })
+
+  it('a record that exists and is another authority\'s (nothing of this authority deleted): the error rolls the whole unit back', async () => {
+    const { tx } = txWith(1)
+    mockDeleteRecord.mockResolvedValue(0)
+    mockLoadRecord.mockResolvedValue({ attributionRawProof: 'another-authority' })
+
+    await expect(revertCommittedRuling(tx, committed, restore, 'a non-Error failure'))
+      .rejects.toThrow(/not the record of the ruling this call committed.*rolled back.*a non-Error failure/)
+  })
+
+  it('no record at all (already gone): the dispute revert stands - nothing is left to delete', async () => {
+    const { tx } = txWith(1)
+    mockDeleteRecord.mockResolvedValue(0)
+    mockLoadRecord.mockResolvedValue(null)
+
+    await expect(revertCommittedRuling(tx, committed, restore, new Error('x'))).resolves.toBeUndefined()
+  })
+})
+
+describe('AUD1X-R4 structure - the one production deleter of an Outcome record', () => {
+  const root = path.join(__dirname, '..', 'src')
+  /** The code of a file: comments removed (a comment may name a function it does not call). */
+  const code = (file: string) => fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+  const read = (rel: string) => code(path.join(root, rel))
+  const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true })
+    .flatMap((e) => e.isDirectory() ? walk(path.join(dir, e.name)) : e.name.endsWith('.ts') ? [path.join(dir, e.name)] : [])
+
+  it('only revertCommittedRuling calls revertDisputeRulingRecord in production, and it always passes the signed authority', () => {
+    const callers = walk(root).filter((f) => /\brevertDisputeRulingRecord\(/.test(code(f)) && !f.endsWith('dispute-outcome.ts'))
+    expect(callers.map((f) => path.relative(root, f).replace(/\\/g, '/'))).toEqual(['modules/open-settlement/ruling-dispatch-authority.ts'])
+    expect(read('modules/open-settlement/ruling-dispatch-authority.ts'))
+      .toContain('revertDisputeRulingRecord(committed.escrowId, committed.appealRound, tx, committed.authoritySignature)')
+  })
+
+  it('no production code deletes a semantic transition record by any other statement', () => {
+    const deleters = walk(root).filter((f) => /semanticTransitionRecord\.(deleteMany|delete)\(/.test(code(f)))
+    expect(deleters.map((f) => path.relative(root, f).replace(/\\/g, '/'))).toEqual(['modules/open-settlement/dispute-outcome.ts'])
+  })
+
+  it('the failure handler of the live flow delegates to the unit; it does not update the dispute or delete a record itself', () => {
+    const service = read('modules/open-settlement/dispute.service.ts')
+    expect(service).toContain('await revertCommittedRuling(')
+    expect(service).not.toMatch(/\brevertDisputeRulingRecord\(/)
   })
 })

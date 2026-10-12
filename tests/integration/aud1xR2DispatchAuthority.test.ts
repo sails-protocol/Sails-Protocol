@@ -1266,18 +1266,19 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     expect(events()).not.toContain('dispute.resolved')
   })
 
-  it('R4-4 the same appeal round now holds ANOTHER signed ruling: its dispute and its Outcome stand, the failing call of the earlier ruling changes nothing, and the standing ruling is then executed after a restart', async () => {
+  it('R4-4 the same appeal round, the same ruling and the same arbiter, signed AGAIN: its dispute and its Outcome stand, the failing call of the earlier signature changes nothing, and the standing ruling is then executed after a restart', async () => {
     const { o, signature, failDispatch } = await pausedAfterCommit('r4-signature')
     const events = emittedEvents()
     // FAULT INJECTION: the earlier code's revert of the first ruling (dispute reopened, its records deleted); the arbiter then
-    // re-rules the same appeal round (production commit: another signature, another Outcome record at the same key)
+    // re-signs the same decision for the same appeal round (production commit: another signature, another Outcome record at
+    // the same key) - the only thing that tells the two authorities apart is the signed authority itself
     await legacyRevert(o, { dropTerminalRecord: false })
-    await commitOnly(o, 'REFUND')
+    await commitOnly(o, 'RELEASE')
     const standing = await disputeRowOf(o)
-    expect(standing).toMatchObject({ status: 'RESOLVED', ruling: 'REFUND', appealRound: 0 })
+    expect(standing).toMatchObject({ status: 'RESOLVED', ruling: 'RELEASE', appealRound: 0, arbiterId: o.arbiterId })
     expect(standing.authoritySignature).not.toBe(signature)
     const before = await revertSnapshot(o)
-    expect(before.outcome0).toEqual({ proof: standing.authoritySignature, ruling: 'REFUND' })
+    expect(before.outcome0).toEqual({ proof: standing.authoritySignature, ruling: 'RELEASE' })
 
     const result = await failDispatch()
 
@@ -1285,15 +1286,30 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     expect(await revertSnapshot(o)).toEqual(before) // the Outcome of the standing ruling was not deleted by another authority's failure
     expect(events()).not.toContain('dispute.resolved')
 
-    // restart + redrive: C4 dispatches the standing ruling; the seller completes it; one broadcast, to the seller
+    // restart + redrive: C4 dispatches the standing ruling; the buyer completes it; one broadcast, to the buyer
     chain(o.txid)
     await c4Until(o)
     const round = await roundOf(o)
-    expect(round).toMatchObject({ kind: 'refund', rulingOutcome: 'REFUND', rulingAuthoritySignature: standing.authoritySignature })
+    expect(round).toMatchObject({ kind: 'release', rulingOutcome: 'RELEASE', rulingAuthoritySignature: standing.authoritySignature })
     chain(o.txid)
-    expect((await restarted!.submitTransactionSignature(o.escrowId, o.sellerId, sign(round.unsignedPsbtBase64, sellerKey))).complete).toBe(true)
+    expect((await restarted!.submitTransactionSignature(o.escrowId, o.buyerId, sign(round.unsignedPsbtBase64, buyerKey))).complete).toBe(true)
     expect(broadcasts).toHaveLength(1)
-    expect(paidTo()[0]).toEqual([o.sellerDestination])
+    expect(paidTo()[0]).toEqual([o.buyerDestination])
+  })
+
+  it('R4-4b the same appeal round now holds ANOTHER RULING (REFUND, signed after the RELEASE): the standing dispute and Outcome are not touched by the failing RELEASE call', async () => {
+    const { o, failDispatch } = await pausedAfterCommit('r4-ruling')
+    // FAULT INJECTION: as R4-4, but the standing authority rules the opposite disposition
+    await legacyRevert(o, { dropTerminalRecord: false })
+    await commitOnly(o, 'REFUND')
+    const standing = await disputeRowOf(o)
+    expect(standing).toMatchObject({ status: 'RESOLVED', ruling: 'REFUND', appealRound: 0 })
+    const before = await revertSnapshot(o)
+
+    const result = await failDispatch()
+
+    expect(result.ok).toBe(false)
+    expect(await revertSnapshot(o)).toEqual(before)
   })
 
   it('R4-5 the Outcome record is replaced between the decision and the deletion: the record of the other authority is not deleted and the dispute revert is rolled back with it', async () => {
