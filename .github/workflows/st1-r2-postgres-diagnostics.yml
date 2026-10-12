@@ -53,13 +53,18 @@ jobs:
           mkdir -p st1-r2-evidence
           npx ts-node --transpile-only scripts/st1-r2-preflight-snapshot.ts after-migrations > st1-r2-evidence/after-migrations.json
       - name: Unit lane
-        run: npm run test:unit
+        run: |
+          set +e
+          npm run test:unit > st1-r2-evidence/unit-jest.log 2>&1
+          result=$?
+          echo "UNIT_TEST_EXIT=$result" >> "$GITHUB_ENV"
+          exit 0
       - name: Snapshot after unit lane
         if: always()
         run: |
           npx ts-node --transpile-only scripts/st1-r2-preflight-snapshot.ts after-unit > st1-r2-evidence/after-unit.json
       - name: PostgreSQL integration lane
-        if: success()
+        if: always() && env.DATABASE_URL != ''
         run: |
           set +e
           npm run test:integration:postgres > st1-r2-evidence/postgres-jest.log 2>&1
@@ -77,9 +82,13 @@ jobs:
           name: st1-r2-postgres-evidence
           path: st1-r2-evidence/
           if-no-files-found: warn
-      - name: Preserve PostgreSQL failure
+      - name: Preserve unit and PostgreSQL failures
         if: always()
         run: |
+          if [ "${UNIT_TEST_EXIT:-0}" != "0" ]; then
+            echo "Unit lane failed; see evidence artifact."
+            exit 1
+          fi
           if [ "${PG_TEST_EXIT:-0}" != "0" ]; then
             echo "PostgreSQL integration lane failed; see evidence artifact."
             exit 1
