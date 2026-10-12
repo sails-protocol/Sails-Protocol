@@ -63,13 +63,36 @@ jobs:
         if: always()
         run: |
           npx ts-node --transpile-only scripts/st1-r2-preflight-snapshot.ts after-unit > st1-r2-evidence/after-unit.json
-      - name: PostgreSQL integration lane
+      - name: PostgreSQL integration lane, isolated checkpoints
         if: always() && env.DATABASE_URL != ''
+        shell: bash
         run: |
           set +e
-          npm run test:integration:postgres > st1-r2-evidence/postgres-jest.log 2>&1
-          result=$?
-          echo "PG_TEST_EXIT=$result" >> "$GITHUB_ENV"
+          # Keep the canonical package.json file order. Run sequentially against
+          # the SAME disposable PG instance to identify when P3 rows appear.
+          mapfile -t suites < <(node -e "const s=require('./package.json').scripts['test:integration:postgres']; console.log((s.match(/tests\\/integration\\/[^\\s]+\\.test\\.ts/g)||[]).join('\\n'))")
+          if [ "${#suites[@]}" -ne 85 ] || [ "${suites[66]}" != "tests/integration/multisigScriptAuthority.test.ts" ]; then
+            echo "PG_TEST_EXIT=1" >> "$GITHUB_ENV"
+            echo "Unexpected suite ordering: fail closed" >&2
+            exit 1
+          fi
+          failed=0
+          run_group() {
+            local label="$1" start="$2" end="$3"
+            local count=$((end-start))
+            node --max-old-space-size=6144 node_modules/jest/bin/jest.js --runInBand --runTestsByPath "${suites[@]:start:count}" > "st1-r2-evidence/${label}-jest.log" 2>&1
+            local rc=$?
+            if [ "$rc" -ne 0 ]; then failed=1; fi
+            npx ts-node --transpile-only scripts/st1-r2-preflight-snapshot.ts "$label" > "st1-r2-evidence/${label}-snapshot.json"
+            local snapshot_rc=$?
+            # Snapshot exits 1 on P1-P8 by design. Preserve evidence and continue.
+            if [ "$snapshot_rc" -gt 1 ]; then failed=1; fi
+          }
+          run_group pg-first-63 0 63
+          run_group pg-before-multisig 63 66
+          run_group pg-multisig-only 66 67
+          run_group pg-after-multisig 67 85
+          echo "PG_TEST_EXIT=$failed" >> "$GITHUB_ENV"
           exit 0
       - name: Snapshot after PostgreSQL lane
         if: always()
