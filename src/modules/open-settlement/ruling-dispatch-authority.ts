@@ -13,9 +13,11 @@
  * committed - and REFUSES to undo what the durable ledger already shows.
  *
  *   proveRoundIsThisDispatch()  - a round that already exists is this ruling's dispatch only if it is, field by field,
- *                                 the round the ruling decided (generation, signed ruling, kind, destinations, bps,
- *                                 initiator) AND the AUD-1 binding passes against the locked dispute and the durable
- *                                 Outcome. Anything else is refused with the reasons, never accepted by id or kind.
+ *                                 the round the ruling decided (generation, signed ruling, kind, bps, initiator) AND
+ *                                 the AUD-1 binding passes against the locked dispute and the durable Outcome - which
+ *                                 judges the destinations and amounts the transaction actually pays. Anything else is
+ *                                 refused with the reasons, never accepted by id or kind. (The row's destination copy
+ *                                 is metadata: a disagreement is reported, AUD1X-R3.)
  *   decideRulingRevert()        - what an operational failure of the live dispatch may do to the ruling, decided under
  *                                 the dispute and escrow locks: ADOPT (the dispatch exists: success), PRESERVE (a
  *                                 round of this generation exists but is not this dispatch: keep the ruling, refuse
@@ -23,6 +25,7 @@
  */
 import type { Prisma } from '@prisma/client'
 import { assertRoundBoundToDisputeAuthority } from './disputed-outcome-binding'
+import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from './discretionary-authority'
 import { EscrowError } from '../../common/errors'
 import { childLogger } from '../../common/logger'
 
@@ -78,7 +81,8 @@ export interface ExistingRound {
   rulingAuthorityIssuedAt: Date | null
 }
 
-export type DispatchProof = { ok: true } | { ok: false; reasons: string[] }
+/** `warnings`: row metadata that disagrees with the dispatch but moves no money (AUD1X-R3, AR2-03), reported, never a refusal. */
+export type DispatchProof = { ok: true; warnings: string[] } | { ok: false; reasons: string[] }
 
 const same = <T>(a: T | null | undefined, b: T | null | undefined) => (a ?? null) === (b ?? null)
 
@@ -88,6 +92,7 @@ const same = <T>(a: T | null | undefined, b: T | null | undefined) => (a ?? null
  */
 export async function proveRoundIsThisDispatch(tx: Tx, existing: ExistingRound, dispute: LockedDispute, intent: DispatchIntent): Promise<DispatchProof> {
   const reasons: string[] = []
+  const warnings: string[] = []
   const need = (ok: boolean, why: string) => { if (!ok) reasons.push(why) }
 
   need(existing.escrowId === intent.escrowId && dispute.escrowId === intent.escrowId, 'round or dispute belongs to another escrow')
@@ -100,8 +105,11 @@ export async function proveRoundIsThisDispatch(tx: Tx, existing: ExistingRound, 
   need(!!existing.rulingAuthorityIssuedAt && !!dispute.authorityIssuedAt && existing.rulingAuthorityIssuedAt.getTime() === dispute.authorityIssuedAt.getTime(), 'round records another authority issue time')
   need(existing.kind === intent.kind, `round is a ${existing.kind}, this dispatch is a ${intent.kind}`)
   need(existing.triggeredBy === intent.triggeredBy, 'round was initiated by another identity')
-  need(same(existing.toAddress, intent.toAddress), 'round pays another primary destination')
-  need(same(existing.toAddressSecondary, intent.toAddressSecondary), 'round pays another secondary destination')
+  // AUD1X-R3 (AR2-03) - the row's toAddress/toAddressSecondary are a copy written at construction; no executor pays
+  // from them. What the round pays is its transaction, judged below against the durable Outcome (destinations and
+  // amounts). A disagreeing copy is reported, it neither proves nor refutes the dispatch.
+  if (!same(existing.toAddress, intent.toAddress)) warnings.push('the round row records another primary destination than the Outcome (metadata only; the transaction is judged against the Outcome)')
+  if (!same(existing.toAddressSecondary, intent.toAddressSecondary)) warnings.push('the round row records another secondary destination than the Outcome (metadata only; the transaction is judged against the Outcome)')
   need(same(existing.buyerBps, intent.buyerBps), 'round carries another SPLIT allocation')
   if (intent.feeCollectionSats !== undefined || intent.feeCollectionWaived !== undefined) {
     need(same(existing.feeCollectionSats, intent.feeCollectionSats) && same(existing.feeCollectionWaived, intent.feeCollectionWaived), 'round carries another protocol-fee decision')
@@ -128,7 +136,51 @@ export async function proveRoundIsThisDispatch(tx: Tx, existing: ExistingRound, 
       reasons.push(`AUD-1 binding: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
-  return reasons.length === 0 ? { ok: true } : { ok: false, reasons }
+  return reasons.length === 0 ? { ok: true, warnings } : { ok: false, reasons }
+}
+
+/** A committed authorization of the decided generation, with the ruling identity the gate recorded (AUD1X-R3). */
+export interface CommittedAuthorizationEvidence {
+  id: string
+  pendingOperationId: string
+  arbiterId: string
+  ruling: string
+  rulingAuthoritySignature: string | null
+  outcomeRecordId: string | null
+  /** id of the durable Outcome record of that appeal round as it exists now (null: none) */
+  currentOutcomeRecordId: string | null
+}
+
+const TERMINAL_STATUS_OF_RULING: Record<string, string> = { RELEASE: 'COMPLETED', REFUND: 'REFUNDED', SPLIT: 'SPLIT' }
+
+/**
+ * Is `authorization` the authorization of exactly the ruling being decided, and did the escrow end the way that ruling
+ * decided? Identity is cryptographic and durable, never inferred from a generation number or a time: the authority
+ * signature the gate recorded is this ruling's (it signs dispute, escrow, appeal round, arbiter, ruling, SPLIT bps and
+ * issue time) and the durable Outcome record it judged is the one this ruling committed (destinations and amounts).
+ * Returns the reasons it is not; an authorization committed before the gate recorded identity proves nothing.
+ */
+export function authorizationIdentityGaps(
+  authorization: CommittedAuthorizationEvidence,
+  dispute: LockedDispute,
+  escrow: { status: string; txReleaseId: string | null },
+  authoritySignature: string,
+): { identity: string[]; execution: string[] } {
+  const identity: string[] = []
+  const need = (ok: boolean, why: string) => { if (!ok) identity.push(why) }
+  need(dispute.status === 'RESOLVED' && !!dispute.ruling && dispute.authoritySignature === authoritySignature, 'the dispute no longer holds the ruling being decided')
+  if (!authorization.rulingAuthoritySignature || !authorization.outcomeRecordId) {
+    identity.push('the authorization predates recorded ruling identity (legacy): which ruling it authorized is not proven')
+  } else {
+    need(authorization.rulingAuthoritySignature === authoritySignature, 'the authorization was committed under another signed ruling')
+    need(authorization.outcomeRecordId === authorization.currentOutcomeRecordId, 'the authorization was judged against another durable Outcome record')
+  }
+  need(authorization.ruling === dispute.ruling, `the authorization is for ruling ${authorization.ruling}, the dispute's is ${dispute.ruling ?? 'none'}`)
+  need(authorization.arbiterId === dispute.arbiterId, 'the authorization was committed for another arbiter')
+  const execution: string[] = []
+  if (escrow.status !== TERMINAL_STATUS_OF_RULING[dispute.ruling ?? '']) execution.push(`the escrow ended ${escrow.status}, not as ruling ${dispute.ruling ?? 'none'} decides`)
+  if (!escrow.txReleaseId) execution.push('no executed transaction is recorded on the escrow')
+  return { identity, execution }
 }
 
 export type RulingRevertDecision =
@@ -153,7 +205,14 @@ export type RulingRevertDecision =
  *                                                                    cleanup removes it if the guard fails and C4
  *                                                                    re-dispatches (reverting would strand it)
  *   4. no round any more, the escrow is terminal and an Economic
- *      Disposition Authorization of this generation was committed  -> ADOPT: the round was executed to the end
+ *      Disposition Authorization PROVEN to be this ruling's was
+ *      committed (recorded authority signature and Outcome record
+ *      equal to this ruling's; AUD1X-R3) and the escrow ended as
+ *      this ruling decides, with an executed transaction            -> ADOPT: the round was executed to the end
+ *      ... the same authorization, execution not proven             -> PRESERVE (reported, never success)
+ *      ... only authorizations not proven to be this ruling's
+ *      (another ruling, another Outcome record, legacy rows
+ *      without recorded identity)                                   -> REVERT (never adopted; nothing erased)
  * A terminal escrow with NO authorization of this generation is the #239D bilateral case and keeps its existing
  * handling (the revert restores MOOT through rulingRevertTarget()).
  */
@@ -165,16 +224,17 @@ export async function decideRulingRevert(
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${ids.escrowId})::bigint)`
   const logIds = { escrowId: ids.escrowId, disputeId: ids.disputeId, appealRound: ids.appealRound }
   const round = await tx.escrowPendingTransaction.findUnique({ where: { escrowId: ids.escrowId } })
-  if (round && round.disputeId === ids.disputeId && round.rulingAppealRound === ids.appealRound && round.rulingAuthoritySignature === ids.authoritySignature) {
-    const [dispute] = await tx.$queryRaw<LockedDispute[]>`
+  const lockedDispute = async () => (await tx.$queryRaw<LockedDispute[]>`
       SELECT id, "escrowId", status::text AS status, "appealRound", "arbiterId", ruling::text AS ruling,
              "authoritySignature", "authorityIssuedAt", "authorityBuyerBps"
-      FROM disputes WHERE id = ${ids.disputeId} FOR UPDATE`
+      FROM disputes WHERE id = ${ids.disputeId} FOR UPDATE`)[0]
+  if (round && round.disputeId === ids.disputeId && round.rulingAppealRound === ids.appealRound && round.rulingAuthoritySignature === ids.authoritySignature) {
+    const dispute = await lockedDispute()
     const proof: DispatchProof = dispute
       ? await proveRoundIsThisDispatch(tx, round, dispute, intent)
       : { ok: false, reasons: ['the dispute row is missing'] }
     if (proof.ok) {
-      log.warn({ msg: 'AUD1X-R2: a dispatch failure did not revert the ruling - its dispatch exists and is proven to be exactly this round', ...logIds, roundId: round.id })
+      log.warn({ msg: 'AUD1X-R2: a dispatch failure did not revert the ruling - its dispatch exists and is proven to be exactly this round', ...logIds, roundId: round.id, ...(proof.warnings.length ? { metadataWarnings: proof.warnings } : {}) })
       return { action: 'ADOPT', reason: 'EQUIVALENT_ROUND' }
     }
     log.error({ msg: 'AUD1X-R2: a round of this ruling exists but is not its dispatch - refused, ruling preserved for reconciliation', ...logIds, roundId: round.id, reasons: proof.reasons })
@@ -186,14 +246,49 @@ export async function decideRulingRevert(
       ),
     }
   }
-  const escrow = await tx.escrow.findUnique({ where: { id: ids.escrowId }, select: { status: true } })
+  const escrow = await tx.escrow.findUnique({ where: { id: ids.escrowId }, select: { status: true, txReleaseId: true } })
   if (escrow && ['COMPLETED', 'REFUNDED', 'SPLIT'].includes(escrow.status)) {
-    const authorization = await tx.economicDispositionAuthorization.findFirst({
-      where: { escrowId: ids.escrowId, disputeId: ids.disputeId, appealRound: ids.appealRound }, select: { id: true },
-    })
-    if (authorization) {
-      log.warn({ msg: 'AUD1X-R2: a dispatch failure did not revert the ruling - its round was already authorized and executed', ...logIds, escrowStatus: escrow.status })
-      return { action: 'ADOPT', reason: 'AUTHORIZATION_COMMITTED' }
+    // AUD1X-R3 (AR2-01) - an authorization of the same appeal round is not this ruling's by its generation number: a
+    // ruling committed after an earlier one was executed (legacy revert) shares it. Each one is judged on the identity
+    // the gate recorded; only an authorization proven to be THIS ruling's, on an escrow that ended as this ruling
+    // decides, makes the dispatch done.
+    const authorizations = await tx.$queryRaw<CommittedAuthorizationEvidence[]>`
+      SELECT a.id, a."pendingOperationId", a."arbiterId", a.ruling::text AS ruling, a."rulingAuthoritySignature", a."outcomeRecordId",
+             (SELECT r.id FROM semantic_transition_records r
+              WHERE r."interactionId" = a."escrowId" AND r."transitionType" = ${ESCROW_DISPUTE_RULING_TRANSITION_TYPE}
+                AND r."appealRound" = a."appealRound") AS "currentOutcomeRecordId"
+      FROM economic_disposition_authorizations a
+      WHERE a."escrowId" = ${ids.escrowId} AND a."disputeId" = ${ids.disputeId} AND a."appealRound" = ${ids.appealRound}
+      ORDER BY a.id`
+    if (authorizations.length > 0) {
+      const dispute = await lockedDispute()
+      const judged = authorizations.map((authorization) => ({
+        authorization,
+        gaps: dispute
+          ? authorizationIdentityGaps(authorization, dispute, escrow, ids.authoritySignature)
+          : { identity: ['the dispute row is missing'], execution: [] },
+      }))
+      const evidence = judged.map(({ authorization, gaps }) => ({ authorizationId: authorization.id, pendingOperationId: authorization.pendingOperationId, ruling: authorization.ruling, ...gaps }))
+      const proven = judged.find(({ gaps }) => gaps.identity.length === 0)
+      if (proven && proven.gaps.execution.length === 0) {
+        log.warn({ msg: 'AUD1X-R3: a dispatch failure did not revert the ruling - an authorization proven to be this ruling\'s was executed', ...logIds, escrowStatus: escrow.status, authorizationId: proven.authorization.id })
+        return { action: 'ADOPT', reason: 'AUTHORIZATION_COMMITTED' }
+      }
+      if (proven) {
+        // This ruling's own authority was committed, but its execution is not proven on the escrow: neither success
+        // nor revert (which would erase a committed authority, ADR-005 s4). Kept for reconciliation, reported.
+        log.error({ msg: 'AUD1X-R3: this ruling\'s authorization is committed but its execution is not proven - ruling preserved, not reported as settled', ...logIds, escrowStatus: escrow.status, evidence })
+        return {
+          action: 'PRESERVE',
+          error: new EscrowError(
+            `Escrow ${ids.escrowId} carries a committed authorization of this ruling whose execution is not proven ` +
+            `(${proven.gaps.execution.join('; ')}); the ruling is preserved for reconciliation and is not reported as settled.`
+          ),
+        }
+      }
+      // No authorization is proven to be this ruling's: the executed disposition belongs to another authority. This
+      // ruling is not adopted; the revert below leaves every committed authorization and its history untouched.
+      log.error({ msg: 'AUD1X-R3: the escrow was executed under an authorization not proven to be this ruling\'s - not adopted, ruling reverted', ...logIds, escrowStatus: escrow.status, evidence })
     }
   }
   return { action: 'REVERT' }

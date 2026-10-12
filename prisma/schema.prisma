@@ -2649,6 +2649,11 @@ model EconomicDispositionAuthorization {
   ruling             DisputeRuling
   operationDigest    String
   authorizedAt       DateTime      @default(now())
+  // AUD1X-R3 (AR2-01) - which signed ruling this authorized: the generation's authority signature and the id of the
+  // durable Outcome record (semantic_transition_records) the gate judged the round against. Null on rows committed
+  // before 2026-10-19: such a row proves no ruling identity and is never taken as one.
+  rulingAuthoritySignature String?
+  outcomeRecordId          String?
 
   @@index([escrowId])
   @@index([disputeId])

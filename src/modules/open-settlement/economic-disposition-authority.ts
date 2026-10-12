@@ -58,6 +58,7 @@ import { EscrowError } from '../../common/errors'
 import { isCompleteBilateralIntent } from './pending-round-supersession'
 import { economicDispositionLockKey } from './economic-disposition-lock'
 import { assertRoundBoundToDisputeAuthority } from './disputed-outcome-binding'
+import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from './discretionary-authority'
 
 export { economicDispositionLockKey }
 
@@ -247,7 +248,7 @@ export async function authorizeDisputedPendingExecution(pending: DisputedPending
       authorityBuyerBps: currentDispute.authorityBuyerBps,
     })
 
-    return tx.economicDispositionAuthorization.create({
+    const authorization = await tx.economicDispositionAuthorization.create({
       data: {
         pendingOperationId: pending.id,
         escrowId: pending.escrowId,
@@ -258,5 +259,18 @@ export async function authorizeDisputedPendingExecution(pending: DisputedPending
         operationDigest,
       },
     })
+    // AUD1X-R3 (AR2-01) - which signed ruling this authorization is: the generation's authority signature (checked
+    // equal to the live dispute's just above) and the durable Outcome record the binding judged the round against
+    // (null on rails that commit no Outcome). Same transaction, same dispute lock: never written for another ruling.
+    await tx.$executeRaw`
+      UPDATE economic_disposition_authorizations
+      SET "rulingAuthoritySignature" = ${currentDispute.authoritySignature},
+          "outcomeRecordId" = (
+            SELECT id FROM semantic_transition_records
+            WHERE "interactionId" = ${pending.escrowId}
+              AND "transitionType" = ${ESCROW_DISPUTE_RULING_TRANSITION_TYPE}
+              AND "appealRound" = ${currentDispute.appealRound})
+      WHERE id = ${authorization.id}`
+    return authorization
   })
 }
