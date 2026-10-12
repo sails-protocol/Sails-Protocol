@@ -19,6 +19,8 @@ import { childLogger } from '../../common/logger'
 import { authorizePendingExecution } from './capability-execution-authorization'
 import { authorizeDisputedPendingExecution, economicDispositionOperationDigest } from './economic-disposition-authority'
 import { assertRoundBoundToDisputeAuthority } from './disputed-outcome-binding'
+import { assertDispositionMatchesRuling } from './disposition-ruling-binding'
+import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from './discretionary-authority'
 
 /**
  * AUD1X-H1 - the arbiter identity of the Economic Disposition Authorization committed for this exact pending round,
@@ -47,6 +49,28 @@ async function committedExecutionIdentity(
     if (row.escrowId !== round.escrowId || row.disputeId !== round.disputeId || row.operationDigest !== economicDispositionOperationDigest(round)) {
       throw new Error('the committed authorization does not describe this round')
     }
+    // AUD1X-R3 (AR2-02) - the binding needs the durable Outcome. When that Outcome no longer exists (an earlier code's
+    // revert deleted it after the attempt was committed) the binding cannot be judged NOW - but the gate recorded that
+    // it judged it THEN: the authorization names the signed ruling and the Outcome record it was bound to, and its
+    // digest pins every field of this round. That committed attempt survives the later revocation (ADR-005 s4). An
+    // authorization without that record (committed before it existed) proves nothing here and stays refused.
+    const [evidence] = await prisma.$queryRaw<{ rulingAuthoritySignature: string | null; outcomeRecordId: string | null; currentOutcomeRecordId: string | null }[]>`
+      SELECT a."rulingAuthoritySignature", a."outcomeRecordId",
+             (SELECT r.id FROM semantic_transition_records r
+              WHERE r."interactionId" = a."escrowId" AND r."transitionType" = ${ESCROW_DISPUTE_RULING_TRANSITION_TYPE}
+                AND r."appealRound" = a."appealRound") AS "currentOutcomeRecordId"
+      FROM economic_disposition_authorizations a WHERE a."pendingOperationId" = ${round.id}`
+    if (evidence && evidence.currentOutcomeRecordId === null) {
+      if (!evidence.rulingAuthoritySignature || !evidence.outcomeRecordId) {
+        throw new Error('the Outcome is gone and the authorization predates recorded ruling identity: which ruling it was bound to is not proven')
+      }
+      if (evidence.rulingAuthoritySignature !== round.rulingAuthoritySignature || row.ruling !== round.rulingOutcome) {
+        throw new Error('the authorization was committed under another signed ruling than the round records')
+      }
+      assertDispositionMatchesRuling(round.kind, round.buyerBps, { id: row.disputeId, ruling: row.ruling, authorityBuyerBps: null }, `pending ${round.kind} round of escrow ${round.escrowId}`)
+      log.warn({ msg: 'AUD1X-R3: completing a committed attempt whose Outcome was deleted after its authorization - bound at authorization time (recorded), ADR-005 s4', escrowId: round.escrowId, roundId: round.id, outcomeRecordId: evidence.outcomeRecordId })
+      return row.arbiterId
+    }
     await assertRoundBoundToDisputeAuthority(prisma, {
       escrowId: round.escrowId,
       escrowType: 'MULTISIG',
@@ -59,7 +83,7 @@ async function committedExecutionIdentity(
       rulingOutcome: round.rulingOutcome,
     }, { id: row.disputeId, escrowId: row.escrowId, status: 'RESOLVED', ruling: row.ruling, authorityBuyerBps: null })
   } catch (err) {
-    log.error({ msg: 'AUD1X-R2: a committed authorization no longer describes its round or contradicts its ruling - the arbiter signature is not produced', escrowId: round.escrowId, roundId: round.id, err: err instanceof Error ? err.message : String(err) })
+    log.error({ msg: 'AUD1X-R2: a committed authorization no longer describes its round, contradicts its ruling or cannot be proven bound to it - the arbiter signature is not produced', escrowId: round.escrowId, roundId: round.id, err: err instanceof Error ? err.message : String(err) })
     return undefined
   }
   return row.arbiterId

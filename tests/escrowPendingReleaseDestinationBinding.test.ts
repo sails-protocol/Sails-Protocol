@@ -196,6 +196,8 @@ jest.mock('../src/common/database', () => ({
           findUnique: (...args: unknown[]) => mockEdaFindUnique(...args),
           create: (...args: unknown[]) => mockEdaCreate(...args),
         },
+        // AUD1X-R3 - the gate records the id of the durable Outcome record it judged (the binding is stubbed here).
+        semanticTransitionRecord: { findUnique: jest.fn().mockResolvedValue(null) },
       }),
   },
 }))
