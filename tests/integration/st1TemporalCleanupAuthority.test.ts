@@ -119,9 +119,9 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
         await prisma.$transaction(async (tx) => {
           await tx.$executeRaw`SET LOCAL session_replication_role = replica`
           const current = await tx.escrowParticipantKey.findFirst({ where: { escrowId, role: 'arbiter' } })
-          if (current && (current.id !== original.id || current.pubkey !== original.pubkey)) {
-            throw new Error(`ST1 fixture arbiter commitment changed unexpectedly for ${escrowId}`)
-          }
+          // An appeal may install a new arbiter commitment for the next generation.
+          // Preserve it: restoring the previous key would rewrite current authority.
+          // The original absence must still be repaired when no commitment exists.
           if (!current) await tx.escrowParticipantKey.create({ data: original })
         })
       }
