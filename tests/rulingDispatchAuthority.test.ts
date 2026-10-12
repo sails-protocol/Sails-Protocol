@@ -196,17 +196,26 @@ describe('decideRulingRevert - what a dispatch failure may do to a committed rul
 
   it.each<[string, Partial<CommittedAuthorizationEvidence>, Partial<LockedDispute>]>([
     ['an authorization of another signed ruling (same appeal round)', { rulingAuthoritySignature: 'sig-0' }, {}],
-    ['an authorization judged against another durable Outcome record', { outcomeRecordId: 'outcome-0' }, {}],
-    ['an authorization whose Outcome record no longer exists', { currentOutcomeRecordId: null }, {}],
-    ['a legacy authorization without recorded ruling identity', { rulingAuthoritySignature: null, outcomeRecordId: null }, {}],
-    ['a legacy authorization with only part of the identity', { outcomeRecordId: null }, {}],
     ['an authorization of another ruling (REFUND executed, RELEASE decided)', { ruling: 'REFUND' }, {}],
+    ['a legacy authorization of another ruling', { ruling: 'REFUND', rulingAuthoritySignature: null, outcomeRecordId: null }, {}],
     ['an authorization of another arbiter', { arbiterId: 'arbiter-2' }, {}],
+    ['a legacy authorization of another arbiter', { arbiterId: 'arbiter-2', rulingAuthoritySignature: null, outcomeRecordId: null }, {}],
     ['a dispute that no longer holds the decided ruling', {}, { authoritySignature: 'sig-2' }],
     ['a dispute that is no longer resolved', {}, { status: 'OPENED' }],
-  ])('state 4 - %s: never ADOPT, REVERT', async (_name, authorizationPatch, disputePatch) => {
+  ])('state 4 - %s (positive contradiction): never ADOPT, REVERT', async (_name, authorizationPatch, disputePatch) => {
     expect(await decideRulingRevert(fakeTx({ round: null, escrowStatus: 'COMPLETED', dispute: { ...dispute, ...disputePatch }, authorizations: [authorizationPatch] }), ids, intent))
       .toEqual({ action: 'REVERT' })
+  })
+
+  it.each<[string, Partial<CommittedAuthorizationEvidence>, RegExp]>([
+    ['a legacy authorization without recorded ruling identity, same ruling and arbiter', { rulingAuthoritySignature: null, outcomeRecordId: null }, /legacy/],
+    ['a legacy authorization with only part of the identity', { outcomeRecordId: null }, /legacy/],
+    ['this signed ruling judged against another durable Outcome record (deleted and committed again)', { outcomeRecordId: 'outcome-0' }, /another durable Outcome record/],
+    ['this signed ruling whose Outcome record no longer exists', { currentOutcomeRecordId: null }, /another durable Outcome record/],
+  ])('state 4 - %s (undeterminable): never ADOPT, never REVERT - PRESERVE, nothing erased', async (_name, authorizationPatch, reason) => {
+    const decision = await decideRulingRevert(fakeTx({ round: null, escrowStatus: 'COMPLETED', authorizations: [authorizationPatch] }), ids, intent)
+    expect(decision.action).toBe('PRESERVE')
+    expect(decision.action === 'PRESERVE' && decision.error.message).toMatch(reason)
   })
 
   it('state 4 - REFUND executed, RELEASE now ruled, both proven to different signatures (the AR2-01 reproduction): REVERT', async () => {
@@ -226,6 +235,11 @@ describe('decideRulingRevert - what a dispatch failure may do to a committed rul
   it('state 4 - a legacy authorization beside this ruling\'s proven one: the proven one decides (ADOPT); the legacy row is never the reason', async () => {
     expect(await decideRulingRevert(fakeTx({ round: null, escrowStatus: 'COMPLETED', authorizations: [{ id: 'eda-0', rulingAuthoritySignature: null, outcomeRecordId: null }, {}] }), ids, intent))
       .toEqual({ action: 'ADOPT', reason: 'AUTHORIZATION_COMMITTED' })
+  })
+
+  it('state 4 - a contradicting authorization beside an undeterminable one: PRESERVE (the undeterminable one may be this ruling\'s)', async () => {
+    const decision = await decideRulingRevert(fakeTx({ round: null, escrowStatus: 'COMPLETED', authorizations: [{ id: 'eda-0', rulingAuthoritySignature: 'sig-0' }, { rulingAuthoritySignature: null, outcomeRecordId: null }] }), ids, intent)
+    expect(decision.action).toBe('PRESERVE')
   })
 
   it('state 4 - a missing dispute row proves nothing: REVERT, never ADOPT', async () => {
@@ -254,23 +268,31 @@ describe('authorizationIdentityGaps - AUD1X-R3, every compared fact on its own',
   const executed = { status: 'COMPLETED', txReleaseId: 'f'.repeat(64) }
 
   it('no gap for the decided ruling\'s own executed authorization', () => {
-    expect(authorizationIdentityGaps(a, dispute, executed, 'sig-1')).toEqual({ identity: [], execution: [] })
+    expect(authorizationIdentityGaps(a, dispute, executed, 'sig-1')).toEqual({ contradictions: [], unproven: [], execution: [] })
   })
 
   it.each<[string, Partial<CommittedAuthorizationEvidence>, Partial<LockedDispute>, string, RegExp]>([
     ['signature', { rulingAuthoritySignature: 'sig-0' }, {}, 'sig-1', /another signed ruling/],
-    ['Outcome record', { outcomeRecordId: 'outcome-0' }, {}, 'sig-1', /another durable Outcome record/],
-    ['Outcome record gone', { currentOutcomeRecordId: null }, {}, 'sig-1', /another durable Outcome record/],
-    ['legacy signature', { rulingAuthoritySignature: null }, {}, 'sig-1', /legacy/],
-    ['legacy Outcome record', { outcomeRecordId: null }, {}, 'sig-1', /legacy/],
     ['ruling', { ruling: 'SPLIT' }, {}, 'sig-1', /for ruling SPLIT/],
     ['arbiter', { arbiterId: 'arbiter-2' }, {}, 'sig-1', /another arbiter/],
+    ['legacy row of another ruling', { ruling: 'REFUND', rulingAuthoritySignature: null, outcomeRecordId: null }, {}, 'sig-1', /for ruling REFUND/],
     ['decided signature not the dispute\'s', {}, {}, 'sig-9', /no longer holds the ruling being decided/],
     ['dispute not resolved', {}, { status: 'APPEALED' }, 'sig-1', /no longer holds/],
     ['dispute without ruling', {}, { ruling: null }, 'sig-1', /no longer holds/],
-  ])('identity gap: %s', (_name, patch, disputePatch, sig, reason) => {
+  ])('contradiction: %s', (_name, patch, disputePatch, sig, reason) => {
     const gaps = authorizationIdentityGaps({ ...a, ...patch }, { ...dispute, ...disputePatch }, executed, sig)
-    expect(gaps.identity.join(' | ')).toMatch(reason)
+    expect(gaps.contradictions.join(' | ')).toMatch(reason)
+  })
+
+  it.each<[string, Partial<CommittedAuthorizationEvidence>, RegExp]>([
+    ['Outcome record', { outcomeRecordId: 'outcome-0' }, /another durable Outcome record/],
+    ['Outcome record gone', { currentOutcomeRecordId: null }, /another durable Outcome record/],
+    ['legacy signature', { rulingAuthoritySignature: null }, /legacy/],
+    ['legacy Outcome record', { outcomeRecordId: null }, /legacy/],
+  ])('unproven, not contradicted: %s', (_name, patch, reason) => {
+    const gaps = authorizationIdentityGaps({ ...a, ...patch }, dispute, executed, 'sig-1')
+    expect(gaps.contradictions).toEqual([])
+    expect(gaps.unproven.join(' | ')).toMatch(reason)
   })
 
   it.each<[string, { status: string; txReleaseId: string | null }, RegExp]>([
@@ -279,7 +301,8 @@ describe('authorizationIdentityGaps - AUD1X-R3, every compared fact on its own',
     ['no executed transaction', { status: 'COMPLETED', txReleaseId: null }, /no executed transaction/],
   ])('execution gap: %s', (_name, escrow, reason) => {
     const gaps = authorizationIdentityGaps(a, dispute, escrow, 'sig-1')
-    expect(gaps.identity).toEqual([])
+    expect(gaps.contradictions).toEqual([])
+    expect(gaps.unproven).toEqual([])
     expect(gaps.execution.join(' | ')).toMatch(reason)
   })
 })

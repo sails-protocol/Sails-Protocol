@@ -158,29 +158,39 @@ const TERMINAL_STATUS_OF_RULING: Record<string, string> = { RELEASE: 'COMPLETED'
  * decided? Identity is cryptographic and durable, never inferred from a generation number or a time: the authority
  * signature the gate recorded is this ruling's (it signs dispute, escrow, appeal round, arbiter, ruling, SPLIT bps and
  * issue time) and the durable Outcome record it judged is the one this ruling committed (destinations and amounts).
- * Returns the reasons it is not; an authorization committed before the gate recorded identity proves nothing.
+ *
+ *   contradictions - the authorization is positively another ruling's (another signature, ruling or arbiter), or the
+ *                    dispute no longer holds the ruling being decided;
+ *   unproven       - nothing contradicts, but the identity cannot be proven: a row committed before the gate recorded
+ *                    identity (legacy), or this very signed ruling judged against an Outcome record that is no longer
+ *                    the current one (the Outcome was deleted and committed again);
+ *   execution      - the identity holds, but the escrow did not end as this ruling decides, or no executed transaction
+ *                    is recorded.
  */
 export function authorizationIdentityGaps(
   authorization: CommittedAuthorizationEvidence,
   dispute: LockedDispute,
   escrow: { status: string; txReleaseId: string | null },
   authoritySignature: string,
-): { identity: string[]; execution: string[] } {
-  const identity: string[] = []
-  const need = (ok: boolean, why: string) => { if (!ok) identity.push(why) }
-  need(dispute.status === 'RESOLVED' && !!dispute.ruling && dispute.authoritySignature === authoritySignature, 'the dispute no longer holds the ruling being decided')
-  if (!authorization.rulingAuthoritySignature || !authorization.outcomeRecordId) {
-    identity.push('the authorization predates recorded ruling identity (legacy): which ruling it authorized is not proven')
-  } else {
-    need(authorization.rulingAuthoritySignature === authoritySignature, 'the authorization was committed under another signed ruling')
-    need(authorization.outcomeRecordId === authorization.currentOutcomeRecordId, 'the authorization was judged against another durable Outcome record')
+): { contradictions: string[]; unproven: string[]; execution: string[] } {
+  const contradictions: string[] = []
+  const unproven: string[] = []
+  const contradict = (ok: boolean, why: string) => { if (!ok) contradictions.push(why) }
+  contradict(dispute.status === 'RESOLVED' && !!dispute.ruling && dispute.authoritySignature === authoritySignature, 'the dispute no longer holds the ruling being decided')
+  contradict(authorization.ruling === dispute.ruling, `the authorization is for ruling ${authorization.ruling}, the dispute's is ${dispute.ruling ?? 'none'}`)
+  contradict(authorization.arbiterId === dispute.arbiterId, 'the authorization was committed for another arbiter')
+  if (authorization.rulingAuthoritySignature) {
+    contradict(authorization.rulingAuthoritySignature === authoritySignature, 'the authorization was committed under another signed ruling')
   }
-  need(authorization.ruling === dispute.ruling, `the authorization is for ruling ${authorization.ruling}, the dispute's is ${dispute.ruling ?? 'none'}`)
-  need(authorization.arbiterId === dispute.arbiterId, 'the authorization was committed for another arbiter')
+  if (!authorization.rulingAuthoritySignature || !authorization.outcomeRecordId) {
+    unproven.push('the authorization predates recorded ruling identity (legacy): which ruling it authorized is not proven')
+  } else if (authorization.outcomeRecordId !== authorization.currentOutcomeRecordId) {
+    unproven.push('the authorization was judged against another durable Outcome record than the current one')
+  }
   const execution: string[] = []
   if (escrow.status !== TERMINAL_STATUS_OF_RULING[dispute.ruling ?? '']) execution.push(`the escrow ended ${escrow.status}, not as ruling ${dispute.ruling ?? 'none'} decides`)
   if (!escrow.txReleaseId) execution.push('no executed transaction is recorded on the escrow')
-  return { identity, execution }
+  return { contradictions, unproven, execution }
 }
 
 export type RulingRevertDecision =
@@ -209,10 +219,12 @@ export type RulingRevertDecision =
  *      committed (recorded authority signature and Outcome record
  *      equal to this ruling's; AUD1X-R3) and the escrow ended as
  *      this ruling decides, with an executed transaction            -> ADOPT: the round was executed to the end
- *      ... the same authorization, execution not proven             -> PRESERVE (reported, never success)
- *      ... only authorizations not proven to be this ruling's
- *      (another ruling, another Outcome record, legacy rows
- *      without recorded identity)                                   -> REVERT (never adopted; nothing erased)
+ *      ... the same authorization, execution not proven, or an
+ *      authorization that may be this ruling's but cannot be proven
+ *      (legacy row without recorded identity; this signature judged
+ *      against an Outcome record that is no longer current)          -> PRESERVE (reported, never success, nothing erased)
+ *      ... only authorizations positively of another ruling
+ *      (another signature, ruling or arbiter)                       -> REVERT (never adopted; their history untouched)
  * A terminal escrow with NO authorization of this generation is the #239D bilateral case and keeps its existing
  * handling (the revert restores MOOT through rulingRevertTarget()).
  */
@@ -266,29 +278,33 @@ export async function decideRulingRevert(
         authorization,
         gaps: dispute
           ? authorizationIdentityGaps(authorization, dispute, escrow, ids.authoritySignature)
-          : { identity: ['the dispute row is missing'], execution: [] },
+          : { contradictions: ['the dispute row is missing'], unproven: [], execution: [] },
       }))
       const evidence = judged.map(({ authorization, gaps }) => ({ authorizationId: authorization.id, pendingOperationId: authorization.pendingOperationId, ruling: authorization.ruling, ...gaps }))
-      const proven = judged.find(({ gaps }) => gaps.identity.length === 0)
+      const proven = judged.find(({ gaps }) => gaps.contradictions.length === 0 && gaps.unproven.length === 0)
       if (proven && proven.gaps.execution.length === 0) {
         log.warn({ msg: 'AUD1X-R3: a dispatch failure did not revert the ruling - an authorization proven to be this ruling\'s was executed', ...logIds, escrowStatus: escrow.status, authorizationId: proven.authorization.id })
         return { action: 'ADOPT', reason: 'AUTHORIZATION_COMMITTED' }
       }
-      if (proven) {
-        // This ruling's own authority was committed, but its execution is not proven on the escrow: neither success
-        // nor revert (which would erase a committed authority, ADR-005 s4). Kept for reconciliation, reported.
-        log.error({ msg: 'AUD1X-R3: this ruling\'s authorization is committed but its execution is not proven - ruling preserved, not reported as settled', ...logIds, escrowStatus: escrow.status, evidence })
+      // Neither success nor revert: this ruling's own authority was committed but its execution is not proven, or an
+      // authorization that may be this ruling's cannot be proven either way. Reverting would delete the Outcome of a
+      // ruling that may be the executed one (the erasure AR-03 closed); adopting would report an unproven settlement.
+      // The ruling, its Outcome and every authorization are kept; the call fails; reconciliation decides.
+      const undecidable = proven ?? judged.find(({ gaps }) => gaps.contradictions.length === 0)
+      if (undecidable) {
+        const why = proven ? proven.gaps.execution : undecidable.gaps.unproven
+        log.error({ msg: 'AUD1X-R3: the escrow was executed under an authorization that may be this ruling\'s but is not proven - ruling preserved, not reported as settled', ...logIds, escrowStatus: escrow.status, evidence })
         return {
           action: 'PRESERVE',
           error: new EscrowError(
-            `Escrow ${ids.escrowId} carries a committed authorization of this ruling whose execution is not proven ` +
-            `(${proven.gaps.execution.join('; ')}); the ruling is preserved for reconciliation and is not reported as settled.`
+            `Escrow ${ids.escrowId} was executed under a committed authorization that is not proven to be this ruling's executed dispatch ` +
+            `(${why.join('; ')}); the ruling and its Outcome are preserved for reconciliation and are not reported as settled.`
           ),
         }
       }
-      // No authorization is proven to be this ruling's: the executed disposition belongs to another authority. This
+      // Every authorization is positively another ruling's: the executed disposition belongs to another authority. This
       // ruling is not adopted; the revert below leaves every committed authorization and its history untouched.
-      log.error({ msg: 'AUD1X-R3: the escrow was executed under an authorization not proven to be this ruling\'s - not adopted, ruling reverted', ...logIds, escrowStatus: escrow.status, evidence })
+      log.error({ msg: 'AUD1X-R3: the escrow was executed under another ruling\'s authorization - not adopted, ruling reverted', ...logIds, escrowStatus: escrow.status, evidence })
     }
   }
   return { action: 'REVERT' }
