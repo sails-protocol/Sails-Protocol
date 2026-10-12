@@ -999,6 +999,7 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     ['its recorded signed ruling is another one', (o: Opened) => prisma.$executeRaw`UPDATE economic_disposition_authorizations SET "rulingAuthoritySignature" = 'another-ruling' WHERE "escrowId" = ${o.escrowId}`],
     ['its digest does not describe the round', (o: Opened) => inject(async (tx) => { await tx.economicDispositionAuthorization.updateMany({ where: { escrowId: o.escrowId }, data: { operationDigest: 'f'.repeat(64) } }) })],
     ['it predates recorded ruling identity (legacy: which ruling it was bound to is not proven)', (o: Opened) => forgetIdentity(o)],
+    ['it records the signed ruling but no Outcome record (never bound to an Outcome)', (o: Opened) => prisma.$executeRaw`UPDATE economic_disposition_authorizations SET "outcomeRecordId" = NULL WHERE "escrowId" = ${o.escrowId}`],
   ] as const)('AR2-02 the Outcome is gone and the authorization %s: never a means to sign - manual review, no broadcast, not settled', async (_name, tamper) => {
     const { o } = await committedNotBroadcast(`r3-a2-refuse-${seq}`)
     await legacyRevert(o, { dropTerminalRecord: false })
