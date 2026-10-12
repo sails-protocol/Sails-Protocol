@@ -1,0 +1,86 @@
+name: ST1-R2 PostgreSQL Diagnostics
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/st1-r2-preflight-snapshot.ts'
+      - '.github/workflows/st1-r2-postgres-diagnostics.yml'
+  workflow_dispatch:
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: sails_protocol
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+      SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
+      TRUSTED_ARBITRATORS: k6-test-arbiter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @sails/core -w @satsails/p2p-schemas -w @satsails/p2p-trading-sdk
+      - run: npm run db:generate
+      - run: npm run db:migrate
+      - name: Snapshot after migrations
+        run: |
+          mkdir -p st1-r2-evidence
+          npx ts-node --transpile-only scripts/st1-r2-preflight-snapshot.ts after-migrations > st1-r2-evidence/after-migrations.json
+      - name: Unit lane
+        run: npm run test:unit
+      - name: Snapshot after unit lane
+        if: always()
+        run: |
+          npx ts-node --transpile-only scripts/st1-r2-preflight-snapshot.ts after-unit > st1-r2-evidence/after-unit.json
+      - name: PostgreSQL integration lane
+        if: success()
+        run: |
+          set +e
+          npm run test:integration:postgres > st1-r2-evidence/postgres-jest.log 2>&1
+          result=$?
+          echo "PG_TEST_EXIT=$result" >> "$GITHUB_ENV"
+          exit 0
+      - name: Snapshot after PostgreSQL lane
+        if: always()
+        run: |
+          npx ts-node --transpile-only scripts/st1-r2-preflight-snapshot.ts after-postgres > st1-r2-evidence/after-postgres.json
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: st1-r2-postgres-evidence
+          path: st1-r2-evidence/
+          if-no-files-found: warn
+      - name: Preserve PostgreSQL failure
+        if: always()
+        run: |
+          if [ "${PG_TEST_EXIT:-0}" != "0" ]; then
+            echo "PostgreSQL integration lane failed; see evidence artifact."
+            exit 1
+          fi
