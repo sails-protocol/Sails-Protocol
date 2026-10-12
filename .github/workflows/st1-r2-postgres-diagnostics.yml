@@ -70,7 +70,7 @@ jobs:
           set +e
           # Keep the canonical package.json file order. Run sequentially against
           # the SAME disposable PG instance to identify when P3 rows appear.
-          mapfile -t suites < <(node -e "const s=require('./package.json').scripts['test:integration:postgres']; console.log((s.match(/tests\\/integration\\/[^\\s]+\\.test\\.ts/g)||[]).join('\\n'))")
+          mapfile -t suites < <(node -e 'const s=require("./package.json").scripts["test:integration:postgres"]; console.log(s.split(/\s+/).filter(x=>x.startsWith("tests/integration/") && x.endsWith(".test.ts")).join("\n"))')
           if [ "${#suites[@]}" -ne 85 ] || [ "${suites[66]}" != "tests/integration/multisigScriptAuthority.test.ts" ]; then
             echo "PG_TEST_EXIT=1" >> "$GITHUB_ENV"
             echo "Unexpected suite ordering: fail closed" >&2
