@@ -1107,6 +1107,16 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
 
   const disputeRowOf = (o: Opened) => prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })
 
+  // The database is shared with the other suites of the lane (multisigScriptAuthority's PREFLIGHT counts every escrow
+  // without a script-committed arbiter identity): what a probe removes to reach a legacy shape it puts back.
+  const removedArbiterCommitments: Array<{ escrowId: string; role: string; participantId: string; pubkey: string }> = []
+  afterEach(async () => {
+    while (removedArbiterCommitments.length) {
+      const row = removedArbiterCommitments.pop()!
+      await prisma.escrowParticipantKey.create({ data: row })
+    }
+  })
+
   /** Every durable fact a revert (or a refused revert) could move: the dispute, both rounds' Outcome records, effects, events. */
   async function revertSnapshot(o: Opened) {
     const d = await disputeRowOf(o)
@@ -1244,7 +1254,11 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     const { o, signature, failDispatch } = await pausedAfterCommit('r4-generation')
     const events = emittedEvents()
     // production appeal (the escrow's arbiter commitment removed with its trigger bypassed: the legacy shape appeal() accepts) and the production commit of generation 1
-    await inject(async (tx) => { await tx.escrowParticipantKey.deleteMany({ where: { escrowId: o.escrowId, role: 'arbiter' } }) })
+    await inject(async (tx) => {
+      const commitment = await tx.escrowParticipantKey.findUnique({ where: { escrowId_role: { escrowId: o.escrowId, role: 'arbiter' } } })
+      if (commitment) removedArbiterCommitments.push({ escrowId: commitment.escrowId, role: commitment.role, participantId: commitment.participantId, pubkey: commitment.pubkey })
+      await tx.escrowParticipantKey.deleteMany({ where: { escrowId: o.escrowId, role: 'arbiter' } })
+    })
     const { DisputeService } = require('../../src/modules/open-settlement/dispute.service')
     const service = new DisputeService({ name: 'r4-stub', arbitrators: [ARBITER_ID, ARBITER2_ID], async assign() { return ARBITER_ID }, async assignAppealPanel() { return ARBITER2_ID } })
     const appealed = await service.appeal(o.disputeId, o.buyerId)
