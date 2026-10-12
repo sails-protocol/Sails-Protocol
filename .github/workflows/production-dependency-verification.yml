@@ -1,10 +1,13 @@
-name: PR 446 production dependency verification
+name: Production dependency verification
 
 on:
   pull_request:
     branches: [main]
     paths:
-      - ".github/workflows/pr446-production-dependency-verification.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "**/package.json"
+      - ".github/workflows/production-dependency-verification.yml"
   workflow_dispatch:
 
 permissions:
@@ -14,10 +17,10 @@ jobs:
   production-dependency-verification:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out exact PR 446 source
+      - name: Check out exact source SHA
         uses: actions/checkout@v4
         with:
-          ref: 72ae110cd31af6105702ccfe29a390c1f6b3f9ab
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: reference
 
       - name: Set up Node.js
@@ -26,7 +29,9 @@ jobs:
           node-version: "24"
 
       - name: Verify checked out SHA
-        run: test "$(git -C reference rev-parse HEAD)" = '72ae110cd31af6105702ccfe29a390c1f6b3f9ab'
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git -C reference rev-parse HEAD)" = "$EXPECTED_SHA"
 
       - name: Install production dependencies cleanly
         working-directory: reference
@@ -50,4 +55,19 @@ jobs:
 
       - name: Audit production dependency graph
         working-directory: reference
-        run: npm audit --omit=dev --no-fund --no-progress
+        run: |
+          set +e
+          npm audit --omit=dev --json --no-fund --no-progress > production-audit.json
+          audit_status=$?
+          set -e
+          cat production-audit.json
+          exit "$audit_status"
+
+      - name: Preserve production audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-dependency-audit
+          path: reference/production-audit.json
+          if-no-files-found: warn
+          retention-days: 7
