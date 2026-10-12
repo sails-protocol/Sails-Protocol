@@ -1209,6 +1209,8 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     const result = await failDispatch()
 
     expect(result.ok).toBe(false)
+    // fail-closed AND diagnosable: the refusal names what it protected and carries the dispatch failure it replaced
+    expect(!result.ok && result.error).toMatch(/no longer holds the ruling this call committed.*no Outcome record was deleted.*injected: the dispatch of this ruling failed/)
     expect(await revertSnapshot(o)).toEqual(before) // the dispute and its Outcome stand; no effect, no event row, no broadcast
     expect(events()).not.toContain('dispute.resolved')
   })
