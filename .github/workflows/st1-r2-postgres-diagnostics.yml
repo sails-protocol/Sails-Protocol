@@ -97,7 +97,10 @@ jobs:
           run_group pg-35-to-48 35 49
           # Narrow first P3 appearance to one of the final fourteen suites.
           run_group pg-49-to-52 49 53
-          run_group pg-53-to-56 53 57
+          run_group pg-53-only 53 54
+          run_group pg-54-only 54 55
+          run_group pg-55-only 55 56
+          run_group pg-56-only 56 57
           run_group pg-57-to-59 57 60
           run_group pg-60-to-62 60 63
           run_group pg-before-multisig 63 66
