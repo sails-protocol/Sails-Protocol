@@ -1011,6 +1011,19 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     expect((await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })).txReleaseId).toBeNull()
   })
 
+  it('AR2-02 the Outcome is PRESENT but no longer what the round pays: the recorded identity is no substitute for the binding - refused, no broadcast', async () => {
+    const { o } = await committedNotBroadcast('r3-a2-present-contradiction')
+    // FAULT INJECTION: the durable Outcome of that appeal round names another buyer destination than the round pays
+    const outcome = await loadDisputeRulingRecord(o.escrowId, 0)
+    const rebound = JSON.parse(JSON.stringify(outcome.outcomeDestinationBinding).split(o.buyerDestination).join(destination('attacker-outcome')))
+    await inject(async (tx) => { await tx.semanticTransitionRecord.update({ where: { id: outcome.id }, data: { outcomeDestinationBinding: rebound } }) })
+
+    const seen = await runPass1Until(o)
+
+    expect(broadcasts).toHaveLength(0)
+    expect(JSON.stringify(seen.manualReview)).toMatch(/no execution authorization supplied the arbiter signature/)
+  })
+
   it('AR2-02 the transaction is already on the network (crash after broadcast) and the authorization is legacy: converges with no signature and no broadcast', async () => {
     const { o, round } = await committedNotBroadcast('r3-a2-on-chain')
     await legacyRevert(o, { dropTerminalRecord: false })
