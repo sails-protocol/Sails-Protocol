@@ -1,0 +1,53 @@
+name: PR 446 production dependency verification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/pr446-production-dependency-verification.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-dependency-verification:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact PR 446 source
+        uses: actions/checkout@v4
+        with:
+          ref: 72ae110cd31af6105702ccfe29a390c1f6b3f9ab
+          path: reference
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Verify checked out SHA
+        run: test "$(git -C reference rev-parse HEAD)" = '72ae110cd31af6105702ccfe29a390c1f6b3f9ab'
+
+      - name: Install production dependencies cleanly
+        working-directory: reference
+        run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund --no-progress
+
+      - name: Report physically installed Prisma dependency paths
+        working-directory: reference
+        run: |
+          node <<'NODE'
+          const lock = require('./node_modules/.package-lock.json');
+          const wanted = ['prisma', '@prisma/config', 'mysql2', 'deepmerge-ts'];
+
+          for (const name of wanted) {
+            const suffix = `/node_modules/${name}`;
+            const matches = Object.entries(lock.packages)
+              .filter(([path]) => path === `node_modules/${name}` || path.endsWith(suffix))
+              .map(([path, pkg]) => ({ path, version: pkg.version }));
+            console.log(JSON.stringify({ name, physicallyInstalled: matches.length > 0, matches }));
+          }
+          NODE
+
+      - name: Audit production dependency graph
+        working-directory: reference
+        run: npm audit --omit=dev --no-fund --no-progress
