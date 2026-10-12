@@ -764,4 +764,319 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     expect(broadcasts).toHaveLength(0)
     expect(JSON.stringify(seen.manualReview)).toMatch(/no execution authorization supplied the arbiter signature/)
   })
+
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+  // AUD1X-R3 - economic truth (AR2-01), recovery of a committed attempt (AR2-02), destination metadata (AR2-03)
+  //
+  // The R2 adversarial gate found that an authorization of the same appeal round was taken for THIS ruling's executed
+  // dispatch by its generation number alone. Each scenario below builds the durable state on the production services
+  // and, where earlier code is the only author of a state, injects it (named FAULT INJECTION; triggers bypassed with
+  // session_replication_role = replica, the way a legacy writer would have left it).
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+  async function inject(fn: (tx: any) => Promise<void>) {
+    await prisma.$transaction(async (tx: any) => {
+      await tx.$executeRaw`SET LOCAL session_replication_role = replica`
+      await fn(tx)
+    })
+  }
+  /** FAULT INJECTION - the pre-R2 revert of an executed ruling: dispute back to OPENED, its Outcome deleted (and, if the
+   *  process died before it, no terminal claim record - so a later revert has no MOOT to land on). */
+  const legacyRevert = (o: Opened, opts: { dropTerminalRecord: boolean }) => inject(async (tx) => {
+    await tx.dispute.update({ where: { id: o.disputeId }, data: { status: 'OPENED', ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null } })
+    await tx.semanticTransitionRecord.deleteMany({ where: { interactionId: o.escrowId } })
+    if (opts.dropTerminalRecord) await tx.escrowEvent.deleteMany({ where: { escrowId: o.escrowId, toStatus: { in: ['COMPLETED', 'REFUNDED', 'SPLIT'] } } })
+  })
+  /** FAULT INJECTION - an authorization committed before the gate recorded which ruling it authorized. */
+  const forgetIdentity = (o: Opened) => prisma.$executeRaw`
+    UPDATE economic_disposition_authorizations SET "rulingAuthoritySignature" = NULL, "outcomeRecordId" = NULL WHERE "escrowId" = ${o.escrowId}`
+  const authorizationsOf = (o: Opened) => prisma.$queryRaw<{ id: string; pendingOperationId: string; ruling: string; arbiterId: string; rulingAuthoritySignature: string | null; outcomeRecordId: string | null; operationDigest: string }[]>`
+    SELECT id, "pendingOperationId", ruling::text AS ruling, "arbiterId", "rulingAuthoritySignature", "outcomeRecordId", "operationDigest"
+    FROM economic_disposition_authorizations WHERE "escrowId" = ${o.escrowId} ORDER BY "authorizedAt", id`
+  /** The live flow, then the beneficiary's signature: the ruling is executed to the end on the production path. */
+  async function executeRuling(o: Opened, ruling: Ruling, bps: number | null, role: 'buyer' | 'seller') {
+    chain(o.txid)
+    await resolve(o, ruling, bps)()
+    const round = await roundOf(o)
+    const signer = signerOf(o, role)
+    chain(o.txid)
+    expect((await submitTransactionSignature(o.escrowId, signer.id, sign(round.unsignedPsbtBase64, signer.key))).complete).toBe(true)
+    return round
+  }
+  function resolveAs(o: Opened, arbiterId: string, kp: nacl.SignKeyPair, ruling: Ruling, bps: number | null = null) {
+    const payload = { ...payloadFor(o, ruling, bps), authorityId: arbiterId }
+    const signature = signAuthorityDecision(payload, kp.secretKey)
+    return () => getDisputeService().resolveDispute(o.disputeId, arbiterId, ruling, undefined, undefined, bps ?? undefined, signature, payload.issuedAt)
+  }
+  const TERMINAL: Record<Ruling, string> = { RELEASE: 'COMPLETED', REFUND: 'REFUNDED', SPLIT: 'SPLIT' }
+
+  it('R3 the gate records, in its own transaction, the signed ruling and the durable Outcome record it authorized', async () => {
+    const o = await openedDispute('r3-identity')
+    await executeRuling(o, 'RELEASE', null, 'buyer')
+
+    const [authorization] = await authorizationsOf(o)
+    const dispute = await prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })
+    const outcome = await loadDisputeRulingRecord(o.escrowId, 0)
+
+    expect(authorization.rulingAuthoritySignature).toBe(dispute.authoritySignature)
+    expect(authorization.outcomeRecordId).toBe(outcome.id)
+  })
+
+  // ─── AR2-01: a later ruling of the same appeal round is never taken for the executed one ───────────────────────
+
+  it.each([
+    ['REFUND executed (seller paid), RELEASE now ruled', 'REFUND', null, 'seller', 'RELEASE', null],
+    ['RELEASE executed (buyer paid), REFUND now ruled', 'RELEASE', null, 'buyer', 'REFUND', null],
+    ['SPLIT 30% executed, SPLIT 70% now ruled (another allocation)', 'SPLIT', 3000, 'buyer', 'SPLIT', 7000],
+    ['RELEASE executed, RELEASE ruled again (same appeal round and arbiter, another signature)', 'RELEASE', null, 'buyer', 'RELEASE', null],
+  ] as const)('AR2-01 %s: the new ruling is not adopted - error, ruling reverted, the executed authorization untouched, no fund movement', async (_name, first, firstBps, role, second, secondBps) => {
+    const o = await openedDispute(`r3-a1-${first.toLowerCase()}-${second.toLowerCase()}-${secondBps ?? 0}`)
+    await executeRuling(o, first, firstBps, role)
+    const executedAuthority = await authorizationsOf(o)
+    const paid = paidTo()
+    await legacyRevert(o, { dropTerminalRecord: true })
+
+    const result = await settle(resolve(o, second, secondBps)())
+
+    expect(result.ok).toBe(false)
+    expect(await effects(o)).toMatchObject({ escrow: TERMINAL[first], dispute: 'OPENED', ruling: null, outcome: 'absent', broadcasts: 1, authorizations: 1 })
+    expect(await authorizationsOf(o)).toEqual(executedAuthority) // the historical authority is not erased or rewritten
+    expect(paidTo()).toEqual(paid)
+  })
+
+  it('AR2-01 with the terminal claim record still present the revert lands on MOOT (the escrow is already disposed of)', async () => {
+    const o = await openedDispute('r3-a1-moot')
+    await executeRuling(o, 'REFUND', null, 'seller')
+    await legacyRevert(o, { dropTerminalRecord: false })
+
+    const result = await settle(resolve(o, 'RELEASE')())
+
+    expect(result.ok).toBe(false)
+    expect(await effects(o)).toMatchObject({ escrow: 'REFUNDED', dispute: 'MOOT', ruling: null, outcome: 'absent', broadcasts: 1, authorizations: 1 })
+  })
+
+  it('AR2-01 same kind, another recipient: RELEASE paid to the old address, RELEASE ruled again after the buyer changed address - not adopted', async () => {
+    const o = await openedDispute('r3-a1-recipient')
+    await executeRuling(o, 'RELEASE', null, 'buyer')
+    await legacyRevert(o, { dropTerminalRecord: true })
+    const newAddress = destination(`buyer-moved-${seq}`)
+    await payoutAddressService.setPayoutAddress(o.buyerId, 'BTC', newAddress)
+
+    const result = await settle(resolve(o, 'RELEASE')())
+
+    expect(result.ok).toBe(false)
+    expect(await effects(o)).toMatchObject({ escrow: 'COMPLETED', dispute: 'OPENED', outcome: 'absent', broadcasts: 1 })
+    expect(paidTo()).toEqual([[o.buyerDestination]])
+  })
+
+  it('AR2-01 the same ruling by another arbiter: never adopted', async () => {
+    const o = await openedDispute('r3-a1-arbiter')
+    await executeRuling(o, 'RELEASE', null, 'buyer')
+    await legacyRevert(o, { dropTerminalRecord: true })
+    await inject(async (tx) => { await tx.dispute.update({ where: { id: o.disputeId }, data: { arbiterId: ARBITER2_ID } }) })
+
+    const result = await settle(resolveAs(o, ARBITER2_ID, arbiter2Kp, 'RELEASE')())
+
+    expect(result.ok).toBe(false)
+    const after = await effects(o)
+    expect(after).toMatchObject({ escrow: 'COMPLETED', broadcasts: 1, authorizations: 1 })
+    expect(after.dispute).not.toBe('RESOLVED')
+    expect(after.outcome).toBe('absent')
+  })
+
+  it('AR2-01 the identical signed ruling committed again (new Outcome record): not proven either way - error, ruling and Outcome preserved, nothing erased', async () => {
+    const o = await openedDispute('r3-a1-replay')
+    chain(o.txid)
+    const sameRuling = resolve(o, 'RELEASE')
+    await sameRuling()
+    const round = await roundOf(o)
+    chain(o.txid)
+    expect((await submitTransactionSignature(o.escrowId, o.buyerId, sign(round.unsignedPsbtBase64, buyerKey))).complete).toBe(true)
+    await legacyRevert(o, { dropTerminalRecord: true })
+
+    const result = await settle(sameRuling())
+
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.error).toMatch(/not proven to be this ruling's executed dispatch.*another durable Outcome record/)
+    expect(await effects(o)).toMatchObject({ escrow: 'COMPLETED', dispute: 'RESOLVED', ruling: 'RELEASE', outcome: 'present', broadcasts: 1, authorizations: 1 })
+  })
+
+  /** The R2 AR-03 shape: the live flow's own dispatch fails after C4's round of the same ruling was executed. */
+  async function executedWhileLiveFlowPaused(label: string) {
+    const o = await openedDispute(label)
+    chain(o.txid)
+    const pause = hold(multisigProvider, 'buildUnsignedRelease', forEscrow(o))
+    const live = settle(resolve(o, 'RELEASE')())
+    await pause.atPause
+    await c4Until(o)
+    const round = await roundOf(o)
+    chain(o.txid)
+    expect((await submitTransactionSignature(o.escrowId, o.buyerId, sign(round.unsignedPsbtBase64, buyerKey))).complete).toBe(true)
+    return { o, finish: async () => { pause.fail(new Error('injected: the live flow own dispatch fails')); return live } }
+  }
+
+  it('AR2-01 a legacy authorization (no recorded identity) of the same ruling and arbiter: not adopted and not reverted - error, ruling and Outcome preserved', async () => {
+    const { o, finish } = await executedWhileLiveFlowPaused('r3-a1-legacy-same')
+    await forgetIdentity(o)
+
+    const result = await finish()
+
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.error).toMatch(/legacy/)
+    expect(await effects(o)).toMatchObject({ escrow: 'COMPLETED', dispute: 'RESOLVED', ruling: 'RELEASE', outcome: 'present', broadcasts: 1, authorizations: 1 })
+  })
+
+  it('AR2-01 a legacy authorization of ANOTHER ruling: a positive contradiction - reverted as before #440', async () => {
+    const o = await openedDispute('r3-a1-legacy-other')
+    await executeRuling(o, 'REFUND', null, 'seller')
+    await forgetIdentity(o)
+    await legacyRevert(o, { dropTerminalRecord: true })
+
+    const result = await settle(resolve(o, 'RELEASE')())
+
+    expect(result.ok).toBe(false)
+    expect(await effects(o)).toMatchObject({ escrow: 'REFUNDED', dispute: 'OPENED', outcome: 'absent', broadcasts: 1, authorizations: 1 })
+  })
+
+  it('AR2-01 this ruling\'s own authorization but no executed transaction recorded on the escrow: never reported as settled - error, ruling preserved', async () => {
+    const { o, finish } = await executedWhileLiveFlowPaused('r3-a1-unexecuted')
+    await inject(async (tx) => { await tx.escrow.update({ where: { id: o.escrowId }, data: { txReleaseId: null } }) })
+
+    const result = await finish()
+
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.error).toMatch(/no executed transaction is recorded/)
+    expect(await effects(o)).toMatchObject({ escrow: 'COMPLETED', dispute: 'RESOLVED', ruling: 'RELEASE', outcome: 'present', broadcasts: 1 })
+  })
+
+  it('AR2-01 control: this ruling\'s own authorization, executed - adopted (the R2 AR-03 contract, now on proven identity)', async () => {
+    const { o, finish } = await executedWhileLiveFlowPaused('r3-a1-control')
+
+    const result = await finish()
+
+    expect(result.ok).toBe(true)
+    expect(await effects(o)).toMatchObject({ escrow: 'COMPLETED', dispute: 'RESOLVED', ruling: 'RELEASE', outcome: 'present', broadcasts: 1, authorizations: 1 })
+  })
+
+  // ─── AR2-02: PASS 1 and a committed attempt whose Outcome was deleted after its authorization ─────────────────
+
+  /** Claimed (terminal), signature collected, authorized by the real gate - and the process died before the broadcast. */
+  async function committedNotBroadcast(label: string) {
+    const { o, round } = await terminalWithoutBroadcast(label)
+    await authorizeDisputedPendingExecution(round)
+    return { o, round }
+  }
+
+  it('AR2-02 the committed attempt whose Outcome a legacy revert deleted is completed by PASS 1: one broadcast, valid witness, to the authorized destination; a restarted reconciler broadcasts nothing more', async () => {
+    const { o } = await committedNotBroadcast('r3-a2-recover')
+    await legacyRevert(o, { dropTerminalRecord: false })
+
+    await runPass1Until(o)
+    await runPass1Until(o) // a restarted reconciler finds nothing left to do
+
+    expect(broadcasts).toHaveLength(1)
+    await verifyBroadcastWitness(o, pubHex(buyerKey))
+    expect(paidTo()[0]).toEqual([o.buyerDestination])
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })).txReleaseId).toBe(bitcoin.Transaction.fromHex(broadcasts[0]).getId())
+  })
+
+  it('AR2-02 concurrent reconcilers on that attempt: every broadcast is the one authorized transaction (same bytes, same txid) and one result is persisted', async () => {
+    // PASS 1's contract is at-least-once against chain truth (its header): racing instances may each send the SAME
+    // transaction before either sees it on the network. This stub never reports it as known, so the race is maximal.
+    const { o } = await committedNotBroadcast('r3-a2-concurrent')
+    await legacyRevert(o, { dropTerminalRecord: false })
+
+    await Promise.all([runPass1Until(o), runPass1Until(o), runPass1Until(o)])
+
+    expect(broadcasts.length).toBeGreaterThanOrEqual(1)
+    expect(new Set(broadcasts).size).toBe(1) // byte-identical: no second disposition, no second signature
+    expect(paidTo()[0]).toEqual([o.buyerDestination])
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })).txReleaseId).toBe(bitcoin.Transaction.fromHex(broadcasts[0]).getId())
+  })
+
+  it.each([
+    ['its recorded ruling contradicts the round', (o: Opened) => inject(async (tx) => { await tx.economicDispositionAuthorization.updateMany({ where: { escrowId: o.escrowId }, data: { ruling: 'REFUND' } }) })],
+    ['its recorded signed ruling is another one', (o: Opened) => prisma.$executeRaw`UPDATE economic_disposition_authorizations SET "rulingAuthoritySignature" = 'another-ruling' WHERE "escrowId" = ${o.escrowId}`],
+    ['its digest does not describe the round', (o: Opened) => inject(async (tx) => { await tx.economicDispositionAuthorization.updateMany({ where: { escrowId: o.escrowId }, data: { operationDigest: 'f'.repeat(64) } }) })],
+    ['it predates recorded ruling identity (legacy: which ruling it was bound to is not proven)', (o: Opened) => forgetIdentity(o)],
+  ] as const)('AR2-02 the Outcome is gone and the authorization %s: never a means to sign - manual review, no broadcast, not settled', async (_name, tamper) => {
+    const { o } = await committedNotBroadcast(`r3-a2-refuse-${seq}`)
+    await legacyRevert(o, { dropTerminalRecord: false })
+    await tamper(o)
+
+    const seen = await runPass1Until(o)
+
+    expect(broadcasts).toHaveLength(0)
+    expect(JSON.stringify(seen.manualReview)).toMatch(/no execution authorization supplied the arbiter signature/)
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })).txReleaseId).toBeNull()
+  })
+
+  it('AR2-02 the transaction is already on the network (crash after broadcast) and the authorization is legacy: converges with no signature and no broadcast', async () => {
+    const { o, round } = await committedNotBroadcast('r3-a2-on-chain')
+    await legacyRevert(o, { dropTerminalRecord: false })
+    await forgetIdentity(o)
+    const roundTxid = bitcoin.Transaction.fromBuffer(Buffer.from(bitcoin.Psbt.fromBase64(round.unsignedPsbtBase64, { network: NET }).data.globalMap.unsignedTx.toBuffer())).getId()
+    const stub = global.fetch
+    global.fetch = (async (url: string, init?: any) => (String(url).includes(`/tx/${roundTxid}/status`)
+      ? { ok: true, json: async () => ({ confirmed: true, block_height: 101 }) } as any
+      : (stub as any)(url, init))) as any
+
+    await runPass1Until(o)
+
+    expect(broadcasts).toHaveLength(0)
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })).txReleaseId).toBe(roundTxid)
+  })
+
+  // ─── AR2-03: the round row's destination copy is metadata; the transaction is what pays ──────────────────────
+
+  /** The live flow paused at construction while a round of the same ruling is persisted with a chosen payout/copy. */
+  async function liveFlowMeetsRound(label: string, payTo: (o: Opened) => string, copy: (o: Opened) => string) {
+    const o = await openedDispute(label)
+    chain(o.txid)
+    const pause = hold(multisigProvider, 'buildUnsignedRelease', forEscrow(o))
+    const live = settle(resolve(o, 'RELEASE')())
+    await pause.atPause
+    const round = await persistRound(o, { kind: 'release', payTo: payTo(o) })
+    await inject(async (tx) => { await tx.escrowPendingTransaction.update({ where: { id: round.id }, data: { toAddress: copy(o) } }) })
+    pause.go()
+    return { o, round, result: await live }
+  }
+
+  it('AR2-03 a stale destination copy over a transaction that pays the Outcome: the live flow succeeds, the ruling stands, the round pays the Outcome destination', async () => {
+    const { o, round, result } = await liveFlowMeetsRound('r3-a3-copy', (x) => x.buyerDestination, () => destination('documentary-only'))
+
+    expect(result.ok).toBe(true)
+    expect(await effects(o)).toMatchObject({ dispute: 'RESOLVED', ruling: 'RELEASE', outcome: 'present', roundIds: [round.id] })
+    chain(o.txid)
+    expect((await submitTransactionSignature(o.escrowId, o.buyerId, sign(round.unsignedPsbtBase64, buyerKey))).complete).toBe(true)
+    expect(paidTo()).toEqual([[o.buyerDestination]])
+    await verifyBroadcastWitness(o, pubHex(buyerKey))
+  })
+
+  it('AR2-03 a correct destination copy over a transaction that pays someone else: refused (error, ruling preserved) and never executed', async () => {
+    const { o, round, result } = await liveFlowMeetsRound('r3-a3-psbt', () => destination('attacker-r3'), (x) => x.buyerDestination)
+
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.error).toMatch(/AUD-1 binding/)
+    expect(await effects(o)).toMatchObject({ dispute: 'RESOLVED', ruling: 'RELEASE', outcome: 'present', roundIds: [round.id] })
+    chain(o.txid)
+    const exec = await settle(submitTransactionSignature(o.escrowId, o.buyerId, sign(round.unsignedPsbtBase64, buyerKey)))
+    expect(exec.ok).toBe(false)
+    expect(broadcasts).toHaveLength(0)
+  })
+
+  it('AR2-03 recovery of the stale-copy round (claimed, crash before broadcast): PASS 1 pays the Outcome destination once', async () => {
+    const { o, round, result } = await liveFlowMeetsRound('r3-a3-recovery', (x) => x.buyerDestination, () => destination('documentary-only-2'))
+    expect(result.ok).toBe(true)
+    await prisma.escrowTransactionSignature.create({ data: { pendingTxId: round.id, participantId: o.buyerId, signedPsbtBase64: sign(round.unsignedPsbtBase64, buyerKey) } })
+    await authorizeDisputedPendingExecution(await roundOf(o)) // the stored row, with its stale copy (the digest covers it)
+    await prisma.escrow.update({ where: { id: o.escrowId }, data: { status: 'COMPLETED' } }) // FAULT INJECTION: claimed, then the process died
+    chain(o.txid)
+
+    await runPass1Until(o)
+    await runPass1Until(o)
+
+    expect(paidTo()).toEqual([[o.buyerDestination]])
+    await verifyBroadcastWitness(o, pubHex(buyerKey))
+  })
 })
