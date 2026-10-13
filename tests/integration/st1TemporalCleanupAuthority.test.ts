@@ -792,6 +792,23 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(1)
   })
 
+  it('P1c a forged authority signature in the nominated generation cannot delete a pending round', async () => {
+    const o = await openedDispute('p1c')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await stale(pending.id, o)
+    const generation = await generationOf(pending.id)
+
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId, {
+      ...generation, rulingAuthoritySignature: generation.rulingAuthoritySignature + '-forged',
+    })).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(1)
+
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId, generation)).toBe('DELETED')
+    expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(1)
+  })
+
   it('P2 a round whose recorded provenance names another escrow\'s dispute is rejected even though it is internally consistent', async () => {
     const mine = await openedDispute('p2a')
     const other = await openedDispute('p2b')
