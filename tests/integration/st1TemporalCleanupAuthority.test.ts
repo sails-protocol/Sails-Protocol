@@ -691,7 +691,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     // economic outputs. This is durable input to the same production guard used by cleanup.
     await prisma.escrowPendingTransaction.update({
       where: { id: pending.id },
-      data: { minerFeeSats: BigInt(stored.minerFeeSats ?? 0) + 1n },
+      data: { minerFeeSats: Number(stored.minerFeeSats ?? 0) + 1 },
     })
     expect(await decide(pending.id, o.escrowId, await generationOf(pending.id))).toBe('DELETED')
     expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
