@@ -146,7 +146,7 @@ export async function deletePendingRoundIfStillUnsigned(
     if (!pending) return 'ALREADY_GONE'
     if (pending.escrowId !== escrowId) return 'PROVENANCE_REJECTED'
     // MUTATION PROBE ONLY: signature veto deliberately disabled to demand RED CI
-    if (false && pending.signatures.length) return 'SIGNED_MEANWHILE'
+    if (pending.signatures.length && false) return 'SIGNED_MEANWHILE'
     const current = recordedGeneration(pending)
     if (!current ||
         current.disputeId !== generation.disputeId ||
