@@ -245,9 +245,18 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
       pendingId = pending.id
       // Fault injection at the real C4 dispatch boundary: mutate both
       // persisted translation and returned translation before the guard.
-      const psbt = bitcoin.Psbt.fromBase64(pending.unsignedPsbtBase64, { network: bitcoin.networks.testnet })
-      psbt.setVersion(1)
-      const malformed = psbt.toBase64()
+      const original = bitcoin.Psbt.fromBase64(pending.unsignedPsbtBase64, { network: bitcoin.networks.testnet })
+      const input = original.data.inputs[0]
+      const redirected = new bitcoin.Psbt({ network: bitcoin.networks.testnet })
+      redirected.addInput({
+        hash: original.txInputs[0].hash, index: original.txInputs[0].index,
+        witnessUtxo: input.witnessUtxo!, witnessScript: input.witnessScript!,
+      })
+      redirected.addOutput({
+        address: testnetAddress('st1-r2-c4-unauthorized-beneficiary'),
+        value: BigInt(original.txOutputs[0].value),
+      })
+      const malformed = redirected.toBase64()
       await prisma.escrowPendingTransaction.update({ where: { id: pending.id }, data: { unsignedPsbtBase64: malformed } })
       return { ...result, unsignedPsbtBase64: malformed }
     })
