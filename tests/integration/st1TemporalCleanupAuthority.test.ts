@@ -655,6 +655,30 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
   // (4) reversal of the authority; already committed economic effects
   // ════════════════════════════════════════════════════════════════════════════════════════════════
 
+  it('E1 production resolveDispute guard failure deletes only its unsigned exact round before reverting authority', async () => {
+    const o = await openedDispute('e1')
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    let persistedId: string | undefined
+    jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      const result = await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+      persistedId = pending.id
+      // Inject an invalid translation precisely after production persists it and
+      // before resolveDispute's own guard inspects it. No helper is called by the test.
+      await corrupt(pending.id)
+      return result
+    })
+    const dispute = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    const signature = signAuthorityDecision(payload, arbiterKp.secretKey)
+    await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signature, issuedAt)).rejects.toThrow()
+    expect(persistedId).toBeDefined()
+    expect(await roundState(persistedId!)).toEqual({ pending: false, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(0)
+    expect((await disputeOf(o)).status).not.toBe('RESOLVED')
+  })
+
   it('V1 production reversal after the round was persisted: the cleanup, nominated before the reversal, no longer has authority and deletes nothing', async () => {
     const o = await openedDispute('v1')
     // FAULT INJECTION: the dispatch fails after the round was persisted (the window the guard-failure cleanup,
