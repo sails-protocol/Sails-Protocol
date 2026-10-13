@@ -826,6 +826,19 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(1)
   })
 
+  it('P1e an exact generation is not permission to delete a translation that still passes its Outcome guard', async () => {
+    const o = await openedDispute('p1e')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const generation = await generationOf(pending.id)
+
+    // The candidate is unsigned and has exact provenance, but its production
+    // translation is intact. The outcome guard must veto deletion.
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId, generation)).toBe('GUARD_PASSED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(1)
+  })
+
   it('P2 a round whose recorded provenance names another escrow\'s dispute is rejected even though it is internally consistent', async () => {
     const mine = await openedDispute('p2a')
     const other = await openedDispute('p2b')
