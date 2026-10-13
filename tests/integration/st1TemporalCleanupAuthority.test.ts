@@ -683,6 +683,22 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect((await disputeOf(o)).status).not.toBe('RESOLVED')
   })
 
+  it('F1 declared miner fee mismatch rejects exact unsigned round without erasing its ruling before proof', async () => {
+    const o = await openedDispute('fee-mismatch')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const stored = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+    // Fault injection: the declared fee no longer agrees with the signed transaction's
+    // economic outputs. This is durable input to the same production guard used by cleanup.
+    await prisma.escrowPendingTransaction.update({
+      where: { id: pending.id },
+      data: { minerFeeSats: (stored.minerFeeSats ?? 0n) + 1n },
+    })
+    expect(await decide(pending.id, o.escrowId, await generationOf(pending.id))).toBe('DELETED')
+    expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(1)
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+  })
+
   it('E2 production resolveDispute refuses cleanup of a signed round and preserves the committed ruling', async () => {
     const o = await openedDispute('e2')
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
