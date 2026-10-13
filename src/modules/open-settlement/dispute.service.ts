@@ -754,6 +754,29 @@ export class DisputeService {
         throw guardErr
       }
     } catch (err) {
+      // A dispatch call can persist a pending transaction and then throw before
+      // returning it. Without a proven absence of durable pending state, reverting
+      // the Outcome strands that pending and blocks every retry (ST1-R2 V3).
+      // Fail closed: preserve the committed authority for explicit recovery.
+      // This check is intentionally conservative; it does not authorize deletion.
+      if (!(err instanceof St1R2DeletionRefused)) {
+        try {
+          const persistedPending = await prisma.escrowPendingTransaction.findUnique({
+            where: { escrowId: dispute.escrowId },
+            select: { id: true },
+          })
+          if (persistedPending) {
+            throw new St1R2DeletionRefused(
+              `ST1-R2 V3: dispatch failed after pending ${persistedPending.id} was persisted; preserve durable ruling for reconciliation`,
+            )
+          }
+        } catch (probeErr) {
+          if (probeErr instanceof St1R2DeletionRefused) throw probeErr
+          throw new St1R2DeletionRefused(
+            `ST1-R2 V3: pending-state proof unavailable; preserve durable ruling for reconciliation: ${probeErr instanceof Error ? probeErr.message : String(probeErr)}`,
+          )
+        }
+      }
       if (err instanceof St1R2DeletionRefused) {
         // A signed, replaced, committed or otherwise unprovable round cannot be erased.
         // The durable ruling must remain available for explicit reconciliation.
