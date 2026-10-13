@@ -781,7 +781,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     await stale(pending.id, o)
     const generation = await generationOf(pending.id)
 
-    expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId)).toBe('PROVENANCE_REJECTED')
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId, undefined)).toBe('PROVENANCE_REJECTED')
     expect(await deletePendingRoundIfStillUnsigned(pending.id, other.escrowId, generation)).toBe('PROVENANCE_REJECTED')
     expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
     expect(await outcomeRecords(o)).toBe(1)
