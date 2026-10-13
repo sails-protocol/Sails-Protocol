@@ -695,7 +695,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       // Simulate a signer winning the race before the service guard runs.
       // An existing signature is durable economic evidence: deletion must refuse.
       await prisma.escrowTransactionSignature.create({
-        data: { pendingTransactionId: pending.id, participantId: o.buyerId, signature: 'st1-e2-race-proof' },
+        data: { pendingTxId: pending.id, participantId: o.buyerId, signedPsbtBase64: 'st1-e2-race-proof' },
       })
       const corrupted = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
       return { ...(result as object), unsignedPsbtBase64: corrupted.unsignedPsbtBase64 }
