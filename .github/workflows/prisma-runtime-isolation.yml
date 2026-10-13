@@ -2,7 +2,7 @@ name: Prisma runtime isolation
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, security/dependabot-integrated-candidate]
     paths:
       - "Dockerfile"
       - "package.json"

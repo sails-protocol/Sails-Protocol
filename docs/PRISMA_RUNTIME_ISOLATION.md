@@ -46,7 +46,9 @@ migration, or test dependency advisories; it is not converted into a
 passing audit or confused with the production image's dependency audit.
 The production dependency verification workflow audits the same
 `--omit=dev --omit=optional` installation profile used by the Docker
-runtime prune.
+runtime prune. Both workflows include `security/dependabot-integrated-candidate`
+as a pull-request target so the checks execute on a draft stacked on PR #449;
+the repository's CI and CodeQL pull-request filters include the same target.
 
 ## Baseline inventory and advisories
 

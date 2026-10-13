@@ -2,7 +2,7 @@ name: Production dependency verification
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, security/dependabot-integrated-candidate]
     paths:
       - "package.json"
       - "package-lock.json"
