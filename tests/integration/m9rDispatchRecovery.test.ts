@@ -234,6 +234,37 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
     ).rejects.toThrow(/already resolved/)
   })
 
+  it('ST1-R2 C4 production guard rejects a mismatched resumed PSBT, deletes only unsigned pending and preserves Outcome', async () => {
+    requirePostgres('ST1-R2 C4 guard')
+    const { escrowId, disputeId } = await makeUndispatchedDisputedEscrow('st1-r2-c4-guard', 'RELEASE')
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    let pendingId: string | undefined
+    const spy = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: Parameters<typeof escrowService.initiateRelease>) => {
+      const result = await realInitiate(...args)
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId } })
+      pendingId = pending.id
+      // Fault injection at the real C4 dispatch boundary: mutate both
+      // persisted translation and returned translation before the guard.
+      const psbt = bitcoin.Psbt.fromBase64(pending.unsignedPsbtBase64, { network: bitcoin.networks.testnet })
+      psbt.setVersion(1)
+      const malformed = psbt.toBase64()
+      await prisma.escrowPendingTransaction.update({ where: { id: pending.id }, data: { unsignedPsbtBase64: malformed } })
+      return { ...result, unsignedPsbtBase64: malformed }
+    })
+    try {
+      const report = await sweepUntilClaimed(escrowId)
+      expect(report.guardFailed).toEqual(expect.arrayContaining([{ escrowId, mismatches: expect.any(Array) }]))
+      expect(pendingId).toBeDefined()
+      expect(await prisma.escrowPendingTransaction.findUnique({ where: { id: pendingId! } })).toBeNull()
+      expect((await prisma.dispute.findUniqueOrThrow({ where: { id: disputeId } })).status).toBe('RESOLVED')
+      expect(await prisma.semanticTransitionRecord.findUnique({
+        where: { interactionId_transitionType_appealRound: { interactionId: escrowId, transitionType: 'escrow.dispute.rule', appealRound: 0 } },
+      })).not.toBeNull()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('RESUME_AUTHORIZED_DISPATCH: RELEASE — resumes using the historical destination, never re-consults current PayoutAddress', async () => {
     requirePostgres('C4 RELEASE recovery')
     const { escrowId, buyerId } = await makeUndispatchedDisputedEscrow('release', 'RELEASE')
