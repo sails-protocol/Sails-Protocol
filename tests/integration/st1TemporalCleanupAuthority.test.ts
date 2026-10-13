@@ -666,7 +666,11 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       // Inject an invalid translation precisely after production persists it and
       // before resolveDispute's own guard inspects it. No helper is called by the test.
       await corrupt(pending.id)
-      return result
+      // The service guards the returned translation, not a second DB read.
+      // Reflect the corrupted persisted PSBT in the production service's
+      // return value so both guard inputs and durable bytes are identical.
+      const corrupted = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+      return { ...(result as object), unsignedPsbtBase64: corrupted.unsignedPsbtBase64 }
     })
     const dispute = await disputeOf(o)
     const issuedAt = new Date().toISOString()
