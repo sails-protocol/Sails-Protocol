@@ -1,0 +1,73 @@
+name: Prisma runtime isolation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - "package.json"
+      - "package-lock.json"
+      - "prisma/**"
+      - "scripts/migrate-deploy-safe.sh"
+      - "scripts/prisma-runtime-isolation.sh"
+      - ".github/workflows/prisma-runtime-isolation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-image-and-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact source SHA
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Build and exercise the isolated runtime image
+        run: |
+          set -o pipefail
+          bash scripts/prisma-runtime-isolation.sh 2>&1 | tee prisma-runtime-isolation-report.txt
+      - name: Preserve runtime and PostgreSQL evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prisma-runtime-isolation-report
+          path: prisma-runtime-isolation-report.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+  build-dependency-advisory-inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: reference
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Audit the complete build, migration, and test dependency graph
+        working-directory: reference
+        run: |
+          set +e
+          npm audit --json --no-fund --no-progress > build-dependency-audit.json
+          audit_status=$?
+          set -e
+          printf 'npm audit exit code: %s\n' "$audit_status"
+          cat build-dependency-audit.json
+          exit "$audit_status"
+      - name: Preserve unsuppressed build dependency audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prisma-build-dependency-audit
+          path: reference/build-dependency-audit.json
+          if-no-files-found: warn
+          retention-days: 14
