@@ -683,6 +683,35 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect((await disputeOf(o)).status).not.toBe('RESOLVED')
   })
 
+  it('E2 production resolveDispute refuses cleanup of a signed round and preserves the committed ruling', async () => {
+    const o = await openedDispute('e2')
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    let persistedId: string | undefined
+    jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      const result = await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+      persistedId = pending.id
+      await corrupt(pending.id)
+      // Simulate a signer winning the race before the service guard runs.
+      // An existing signature is durable economic evidence: deletion must refuse.
+      await prisma.escrowTransactionSignature.create({
+        data: { pendingTransactionId: pending.id, participantId: o.buyerId, signature: 'st1-e2-race-proof' },
+      })
+      const corrupted = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+      return { ...(result as object), unsignedPsbtBase64: corrupted.unsignedPsbtBase64 }
+    })
+    const dispute = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    const signature = signAuthorityDecision(payload, arbiterKp.secretKey)
+    await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signature, issuedAt))
+      .rejects.toThrow(/ST1-R2|deletion proof|SIGNED_MEANWHILE/i)
+    expect(persistedId).toBeDefined()
+    expect(await roundState(persistedId!)).toEqual({ pending: true, signatures: 1 })
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+  })
+
   it('V1 production reversal after the round was persisted: the cleanup, nominated before the reversal, no longer has authority and deletes nothing', async () => {
     const o = await openedDispute('v1')
     // FAULT INJECTION: the dispatch fails after the round was persisted (the window the guard-failure cleanup,
