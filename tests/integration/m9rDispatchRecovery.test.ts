@@ -274,6 +274,51 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
     }
   })
 
+  it('ST1-R2 C4 signed round refuses deletion and preserves committed Outcome', async () => {
+    requirePostgres('ST1-R2 C4 signed refusal')
+    const { escrowId, disputeId, buyerId } = await makeUndispatchedDisputedEscrow('st1-r2-c4-signed', 'RELEASE')
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    let pendingId: string | undefined
+    const spy = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: Parameters<typeof escrowService.initiateRelease>) => {
+      const result = await realInitiate(...args)
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId } })
+      pendingId = pending.id
+      const original = bitcoin.Psbt.fromBase64(pending.unsignedPsbtBase64, { network: bitcoin.networks.testnet })
+      const input = original.data.inputs[0]
+      const redirected = new bitcoin.Psbt({ network: bitcoin.networks.testnet })
+      redirected.addInput({
+        hash: original.txInputs[0].hash, index: original.txInputs[0].index,
+        witnessUtxo: input.witnessUtxo!, witnessScript: input.witnessScript!,
+      })
+      redirected.addOutput({
+        address: testnetAddress('st1-r2-c4-signed-unauthorized'),
+        value: BigInt(original.txOutputs[0].value),
+      })
+      const malformed = redirected.toBase64()
+      await prisma.escrowPendingTransaction.update({ where: { id: pending.id }, data: { unsignedPsbtBase64: malformed } })
+      // Durable concurrent signature must make the exact-generation delete fail closed.
+      await prisma.escrowTransactionSignature.create({
+        data: { pendingTxId: pending.id, participantId: buyerId, signedPsbtBase64: 'st1-r2-c4-signed-race' },
+      })
+      return { ...result, unsignedPsbtBase64: malformed }
+    })
+    try {
+      const report = await sweepUntilClaimed(escrowId)
+      expect(report.failed).toEqual(expect.arrayContaining([
+        expect.objectContaining({ escrowId, error: expect.stringMatching(/ST1-R2.*SIGNED_MEANWHILE/) }),
+      ]))
+      expect(pendingId).toBeDefined()
+      expect(await prisma.escrowPendingTransaction.findUnique({ where: { id: pendingId! } })).not.toBeNull()
+      expect(await prisma.escrowTransactionSignature.count({ where: { pendingTxId: pendingId! } })).toBe(1)
+      expect((await prisma.dispute.findUniqueOrThrow({ where: { id: disputeId } })).status).toBe('RESOLVED')
+      expect(await prisma.semanticTransitionRecord.findUnique({
+        where: { interactionId_transitionType_appealRound: { interactionId: escrowId, transitionType: 'escrow.dispute.rule', appealRound: 0 } },
+      })).not.toBeNull()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('RESUME_AUTHORIZED_DISPATCH: RELEASE — resumes using the historical destination, never re-consults current PayoutAddress', async () => {
     requirePostgres('C4 RELEASE recovery')
     const { escrowId, buyerId } = await makeUndispatchedDisputedEscrow('release', 'RELEASE')
