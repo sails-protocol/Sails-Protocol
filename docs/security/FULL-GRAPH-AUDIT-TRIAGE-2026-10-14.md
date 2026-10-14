@@ -45,3 +45,21 @@ PR #458 exact HEAD `f9d6a54bb831489188e205a9341b41e0088e6df6`, workflow `3855956
 The raw `candidate-full-audit.json` reports **34 vulnerable package records: 7 high, 21 moderate, 6 low, 0 critical**, versus the prior full-graph baseline of **35: 8 high, 21 moderate, 6 low, 0 critical**. The `ts-node-dev` package record is absent. This is a **one-record reduction in high-severity findings**, not an audit PASS. The 34 remaining package records still make the full graph **FAIL / STOP**.
 
 On the same original PR HEAD, CI, CI Tests, Node 24 TypeScript watch candidate, production dependency verification and the Docker/PostgreSQL runtime isolation job completed successfully; the full-graph advisory inventory job failed as expected. The actual removal is still **not committed** to PR #458, so these post-removal results are candidate evidence, not proof of an updated PR HEAD. Keep all approval gates and independent review in place.
+
+## Raw audit differential verified
+
+Compared the raw `build-dependency-audit.json` from PR #457 workflow `38503462565` (artifact `11866509337`) against the candidate `candidate-full-audit.json` from PR #458 workflow `38559563846` (artifact `11891953081`), matching vulnerability record keys and severity fields:
+
+| Metric | Baseline | Removal candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Vulnerable package records | 35 | 34 | -1 |
+| High | 8 | 7 | -1 |
+| Moderate | 21 | 21 | 0 |
+| Low | 6 | 6 | 0 |
+| Critical | 0 | 0 | 0 |
+| Dependency records, total | 2,200 | 2,189 | -11 |
+| Dev dependency records | 1,373 | 1,362 | -11 |
+| Production dependency records | 719 | 719 | 0 |
+| Optional dependency records | 275 | 275 | 0 |
+
+Set comparison: **removed vulnerable package record: `ts-node-dev` only**; **added: none**; **no severity changes** among the remaining 34 records. This is a graph comparison, not an exploitability assessment, nor evidence that the modified lockfile is committed. Audit gate remains **FAIL / STOP**.
