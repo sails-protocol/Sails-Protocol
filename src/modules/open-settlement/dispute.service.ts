@@ -798,9 +798,23 @@ export class DisputeService {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dispute.escrowId})::bigint)`
         const pending = await tx.escrowPendingTransaction.findUnique({
-          where: { escrowId: dispute.escrowId }, select: { id: true },
+          where: { escrowId: dispute.escrowId },
+          select: {
+            id: true, disputeId: true, rulingAppealRound: true,
+            rulingArbiterId: true, rulingOutcome: true,
+            rulingAuthoritySignature: true, rulingAuthorityIssuedAt: true,
+          },
         })
-        if (pending) return false
+        // A pre-existing cooperative signing round is NOT proof that
+        // this ruling's dispatch happened. Preserve authority only for
+        // the exact generation this invocation committed.
+        if (pending &&
+            pending.disputeId === dispute.id &&
+            pending.rulingAppealRound === dispute.appealRound &&
+            pending.rulingArbiterId === payload.authorityId &&
+            pending.rulingOutcome === payload.outcome &&
+            pending.rulingAuthoritySignature === authoritySignature &&
+            pending.rulingAuthorityIssuedAt?.getTime() === new Date(payload.issuedAt).getTime()) return false
         const reverted = await tx.dispute.updateMany({
           where: {
             id: dispute.id,
