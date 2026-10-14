@@ -21,6 +21,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+      - name: Install locked development dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Verify TypeScript preload and transpilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --require ts-node/register/transpile-only -e 'require("typescript"); console.log("ts-node preload PASS")'
+          dir="$(mktemp -d)"
+          trap 'rm -rf "$dir"' EXIT
+          printf 'const candidate: number = 24; console.log("TS_PRELOAD_" + candidate);\n' > "$dir/watch-candidate.ts"
+          node --require ts-node/register/transpile-only "$dir/watch-candidate.ts" | grep -q TS_PRELOAD_24
       - name: Verify candidate command and native watch restart
         shell: bash
         run: |
