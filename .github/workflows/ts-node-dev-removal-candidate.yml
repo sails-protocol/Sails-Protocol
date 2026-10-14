@@ -1,0 +1,44 @@
+name: ts-node-dev removal lockfile candidate
+
+on:
+  pull_request:
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/ts-node-dev-removal-candidate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generate-reviewable-patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Produce candidate manifest and lockfile changes without committing
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e 'const p=require("./package.json"); if(!p.devDependencies?.["ts-node-dev"]) process.exit(1); if(!p.scripts?.["dev:node24-candidate"]) process.exit(1)'
+          npm uninstall --save-dev --package-lock-only --ignore-scripts --no-audit --no-fund ts-node-dev
+          node -e 'const p=require("./package.json"); if(p.devDependencies?.["ts-node-dev"]) process.exit(1); if(!p.devDependencies?.["ts-node"]) process.exit(1); p.scripts.dev=p.scripts["dev:node24-candidate"]; delete p.scripts["dev:node24-candidate"]; require("fs").writeFileSync("package.json",JSON.stringify(p,null,2)+"\n")'
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          git diff --check
+          git diff -- package.json package-lock.json > ts-node-dev-removal.patch
+          test -s ts-node-dev-removal.patch
+          node -e 'const p=require("./package-lock.json"); if(p.packages?.["node_modules/ts-node-dev"]) process.exit(1); console.log("ts-node-dev absent from candidate lockfile")'
+          git status --short
+      - name: Upload reviewable patch only
+        uses: actions/upload-artifact@v4
+        with:
+          name: ts-node-dev-removal-patch
+          path: ts-node-dev-removal.patch
+          if-no-files-found: error
