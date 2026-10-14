@@ -53,3 +53,11 @@ An unrelated Codespace previously contained **22 unpublished local changes** inv
 2. Inspect full raw JSON of #460 and compare against targeted candidate. Prioritize compatible *individual* patches and actual functional tests.
 3. If a candidate reduces findings, implement in separate DRAFT PR and run all exact-head gates; otherwise record why not and advance to another root.
 4. Keep #461 and this handoff current, including explicit red/green and remaining count. Never call the full audit green until truly zero.
+
+## 2026-10-14 follow-up: audit root-cause classification
+
+Raw full-graph baseline JSON from #469 artifact `11900741901` confirms the 34 vulnerable package records cluster by **four direct roots**: `artillery` (including `braces`, `csv-parse`, `js-yaml`, `sprintf-js`), `prisma` (including `mysql2`, `deepmerge-ts`), `jest`/`ts-jest` (Jest transform/coverage chain), and `vite-plugin-node-polyfills` (including `elliptic` and browser crypto polyfills). `npm audit` suggests **unsafe major downgrades** (Artillery 0.0.2, Prisma 6.19.3, Jest 25, ts-jest 27, polyfills 0.2.0); **do not execute npm audit fix --force**.
+
+#467 elliptic probe: both workflows PASS, audit unchanged 34 -> 34, no package findings added/removed. #469 braces probe: both workflows PASS, audit unchanged 34 -> 34, no package findings added/removed; candidate patch includes unrelated lockfile reshuffling, so reject as a remediation. #470 csv-parse probe in progress at this writing; refresh checks and raw artifact before interpreting.
+
+**Priority shift:** stop multiplying no-op targeted probes after #470. Next action should be an **architecture-preserving root-level fix** or a controlled isolation/removal proof for a *direct* vulnerable tool (Artillery, Jest/ts-jest, Prisma CLI, UI polyfill). Preserve actual functionality and independent security review; measure full graph on committed exact HEAD. Track confirmed remediation separately from evidence-only probes.
