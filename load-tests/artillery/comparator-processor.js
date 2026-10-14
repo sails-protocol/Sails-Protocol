@@ -37,8 +37,8 @@ async function setupCurrentAuthenticatedUser(context, events) {
     context.vars.sessionToken = authenticated.sessionToken;
   } catch (error) {
     // Never print bearer tokens or server response bodies.
-    events.emit('error', 'current-auth comparator setup failed: ' + error.message);
-    throw error;
+    events.emit('error', 'current-auth comparator setup failed (details redacted)');
+    throw Error('current-auth comparator setup failed (details redacted)');
   }
 }
 module.exports = { setupCurrentAuthenticatedUser };
