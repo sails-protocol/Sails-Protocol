@@ -61,3 +61,14 @@ Raw full-graph baseline JSON from #469 artifact `11900741901` confirms the 34 vu
 #467 elliptic probe: both workflows PASS, audit unchanged 34 -> 34, no package findings added/removed. #469 braces probe: both workflows PASS, audit unchanged 34 -> 34, no package findings added/removed; candidate patch includes unrelated lockfile reshuffling, so reject as a remediation. #470 csv-parse probe in progress at this writing; refresh checks and raw artifact before interpreting.
 
 **Priority shift:** stop multiplying no-op targeted probes after #470. Next action should be an **architecture-preserving root-level fix** or a controlled isolation/removal proof for a *direct* vulnerable tool (Artillery, Jest/ts-jest, Prisma CLI, UI polyfill). Preserve actual functionality and independent security review; measure full graph on committed exact HEAD. Track confirmed remediation separately from evidence-only probes.
+
+## 2026-10-14 root-level implementation planning (after #471)
+
+The direct Artillery removal experiment (#471, run `38578034930`) was still running when last checked; do not claim a reduction until its raw artifact is reviewed. The csv-parse probe #470 (run `38576988382`) also remained in progress.
+
+**Verified functional replacement contract from repository source:**
+- `load-tests/artillery/intent-api.yml`: 20s at 5 arrivals/s warm-up, then 30s at 20 arrivals/s; each VU creates an Ed25519 participant, requests and signs the UTF-8 challenge string, authenticates, POSTs `/v1/intents` with bearer token and expects 201, captures ID, DELETEs `/v1/intents/{id}` and expects 200. Assets BTC, USDT_ERC20, LN_BTC.
+- `load-tests/artillery/chat-ws.yml`: 20s at 5 arrivals/s, then 30s at 15 arrivals/s; `pregenerate-users.js` creates 50 authenticated users, `processor.js` chooses session on WS connect `/v1/openp2p/chat?token=...`, sends PING, expects real service behavior. Preserve authenticated WS handshake, PING/PONG verification, rate/latency/error reporting.
+- Scripts `loadtest:intent`, `loadtest:ws:prep`, `loadtest:ws` currently depend on Artillery; a removal-only PR is **not acceptable**. Replacement needs measured equivalence with a running backend, not mock traffic.
+
+**Next implementation:** after #471 audit quantifies benefit, develop a dedicated replacement candidate for both load scripts, validate against real service, then remove Artillery only if feature parity and full audit delta are proved on exact HEAD. Avoid simply switching to another vulnerable tool or hiding dev dependencies from full audit.
