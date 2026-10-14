@@ -859,6 +859,57 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(1)
   })
 
+  it('V3-PG PostgreSQL division-by-zero aborts the real D-to-E rollback transaction atomically', async () => {
+    const o = await openedDispute('v3-pg-atomic')
+    const before = await disputeOf(o)
+    const realTransaction = prisma.$transaction.bind(prisma)
+    let databaseFaultAttempted = false
+    // Trigger a real SQLSTATE 22012 inside the same live PostgreSQL
+    // transaction, at the Outcome-delete boundary AFTER dispute.updateMany.
+    const transactionSpy = jest.spyOn(prisma, '$transaction').mockImplementation(((callback: any, options?: any) => {
+      if (typeof callback !== 'function') return (realTransaction as any)(callback, options)
+      return (realTransaction as any)((tx: any) => callback(new Proxy(tx, {
+        get(target, prop) {
+          if (prop === 'semanticTransitionRecord') {
+            return new Proxy(target.semanticTransitionRecord, {
+              get(delegate, method) {
+                if (method === 'deleteMany') return async (args: any) => {
+                  if (args?.where?.interactionId === o.escrowId &&
+                      args?.where?.transitionType === 'escrow.dispute.rule') {
+                    databaseFaultAttempted = true
+                    await tx.$executeRawUnsafe('SELECT 1 / 0')
+                    throw new Error('PostgreSQL unexpectedly accepted division by zero')
+                  }
+                  return delegate.deleteMany(args)
+                }
+                const value = (delegate as any)[method]
+                return typeof value === 'function' ? value.bind(delegate) : value
+              },
+            })
+          }
+          const value = (target as any)[prop]
+          return typeof value === 'function' ? value.bind(target) : value
+        },
+      })), options)
+    }) as any)
+    const dispatch = jest.spyOn(escrowService, 'initiateRelease')
+      .mockRejectedValueOnce(new Error('injected: no pending persisted'))
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: before.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/division by zero/i)
+    } finally {
+      dispatch.mockRestore()
+      transactionSpy.mockRestore()
+    }
+    expect(databaseFaultAttempted).toBe(true)
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect((await disputeOf(o)).authoritySignature).toBeTruthy()
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+  })
+
   it('V3-E durable economic authorization refuses rollback even when dispatch loses its pending round', async () => {
     const o = await openedDispute('v3-eda-no-pending')
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
