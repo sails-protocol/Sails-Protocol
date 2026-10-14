@@ -1,0 +1,50 @@
+name: Jest and ts-jest advisory probe
+on:
+  push:
+    branches: [security/jest-audit-probe]
+  pull_request:
+    branches: [security/ts-node-dev-removal-validated]
+permissions:
+  contents: read
+jobs:
+  jest-compatible-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Compare npm-compatible Jest graph and run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm audit --json > jest-baseline-audit.json || true
+          npm update jest ts-jest babel-jest --package-lock-only --ignore-scripts --no-audit --no-fund
+          git diff --check
+          git diff -- package.json package-lock.json > jest-update-candidate.patch
+          node -e 'const l=require("./package-lock.json"); console.log("jest",l.packages["node_modules/jest"]?.version,"ts-jest",l.packages["node_modules/ts-jest"]?.version)'
+          npm ci --no-audit --no-fund
+          npm run build -w @sails/core -w @satsails/p2p-schemas -w @satsails/p2p-trading-sdk
+          npm run db:generate
+          npm audit --json > jest-candidate-audit.json || true
+          node <<'NODE'
+          const fs=require('fs'), b=JSON.parse(fs.readFileSync('jest-baseline-audit.json')), a=JSON.parse(fs.readFileSync('jest-candidate-audit.json'));
+          const before=b.vulnerabilities||{},after=a.vulnerabilities||{};
+          const result={baseline:b.metadata?.vulnerabilities,candidate:a.metadata?.vulnerabilities,removed:Object.keys(before).filter(k=>!after[k]),added:Object.keys(after).filter(k=>!before[k]),changed:Object.keys(after).filter(k=>before[k]&&before[k].severity!==after[k].severity)};
+          fs.writeFileSync('jest-probe-summary.json',JSON.stringify(result,null,2)+'\n');
+          console.log(JSON.stringify(result,null,2));
+          NODE
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jest-audit-probe
+          path: |
+            jest-baseline-audit.json
+            jest-candidate-audit.json
+            jest-probe-summary.json
+            jest-update-candidate.patch
+          if-no-files-found: warn
