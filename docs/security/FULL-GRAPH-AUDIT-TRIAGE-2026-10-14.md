@@ -21,3 +21,9 @@ Source: PR #455, exact HEAD `a1dad13aac82627ed7e53ff33673a755c9d6ad3c`, Prisma r
 ## Constraints
 
 No production changes in this document. No claims that all 35 findings are exploitable in production. No unverified waiver, blanket override, blind major downgrade, merge, deploy or freeze. Preserve any residual findings visibly as STOP.
+
+## Reconfirmed on Node 24 CI parity candidate
+
+PR #457, HEAD `88d72521fb10bd9c7a3e801c91ff596532bfba6d`, workflow `38503462565`, artifact `11866509337` (`build-dependency-audit.json`) independently reproduces **35** vulnerable package records (8 high, 21 moderate, 6 low, 0 critical), from **2,200** dependency records (719 production, 1,373 dev, 275 optional; categories can overlap). Production dependency verification in workflow `38503462569` passed; full graph remains **FAIL**.
+
+Direct package records flagged in that audit: `artillery` (high), `prisma` (high), `ts-node-dev` (high, no npm audit fix), `jest` (moderate), `ts-jest` (moderate), `vite-plugin-node-polyfills` (low). Transitive high records include `@prisma/config`, `mysql2`, `deepmerge-ts`, `braces` and `chokidar`. The JSON `fixAvailable` suggestions for Prisma, Artillery, Jest, ts-jest and Vite polyfills are downgrades, **not** validated safe remediations. These are package records, not 35 unique CVEs. Preserve the raw artifact and do not infer deployed exploitability from the full graph alone.
