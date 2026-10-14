@@ -72,3 +72,9 @@ The direct Artillery removal experiment (#471, run `38578034930`) was still runn
 - Scripts `loadtest:intent`, `loadtest:ws:prep`, `loadtest:ws` currently depend on Artillery; a removal-only PR is **not acceptable**. Replacement needs measured equivalence with a running backend, not mock traffic.
 
 **Next implementation:** after #471 audit quantifies benefit, develop a dedicated replacement candidate for both load scripts, validate against real service, then remove Artillery only if feature parity and full audit delta are proved on exact HEAD. Avoid simply switching to another vulnerable tool or hiding dev dependencies from full audit.
+
+## 2026-10-14 decisive Artillery root-isolation evidence
+
+#470 raw artifact `11900413741`: compatible csv-parse update stays 4.16.3 and **34 -> 34**, no removed/added vulnerabilities. Both workflows PASS, no remediation.
+
+#471 raw artifact `11902502817`: **npm uninstall artillery --save-dev** on an ephemeral runner yields **34 -> 30** (7 high -> 4 high, 21 moderate -> 20 moderate, 6 low unchanged; no new vulnerabilities). Removed vulnerable package records: `artillery`, `braces`, `chokidar`, `csv-parse`. This is a **measured potential 4/35 = 11.43 percentage points**, taking total reduction from 1/35 = 2.86% to 5/35 = 14.29% **only if** a real load-test replacement passes. The raw summary explicitly reports `artilleryScriptBroken: true`, so **do not adopt uninstall-only patch**. Workflow was still in progress when artifact was read, and CI Tests also in progress; re-check conclusions before review. Next implement full authenticated HTTP/WS load-test parity, then rerun unsuppressed full audit and real-service load tests. Never claim 30 vulnerabilities on committed HEAD until a tested replacement is committed.
