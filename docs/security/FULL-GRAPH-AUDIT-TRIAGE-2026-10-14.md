@@ -1,0 +1,88 @@
+# Full dependency graph: remediation triage (evidence, not waiver)
+
+Source: PR #455, exact HEAD `a1dad13aac82627ed7e53ff33673a755c9d6ad3c`, Prisma runtime isolation workflow run 38501243667, build-dependency-advisory-inventory job 115648467843. Date: 2026-10-14.
+
+## Verified status
+
+- `npm audit --json` exits 1: **35 vulnerable package records** (8 high, 21 moderate, 6 low, 0 critical). This is a full build/migration/test graph audit, **not** a production-image finding count.
+- In the same run, `runtime-image-and-postgres` succeeded. CI, CI Tests, CodeQL and production dependency verification succeeded on this exact PR HEAD.
+- These are separate security gates. Runtime isolation reduces deployed exposure but does **not** make the full graph audit green. Keep the latter **FAIL / STOP**.
+- Prisma CLI 7.10.0 reaches vulnerable `mysql2` through optional/config dependencies; `npm audit` suggests Prisma 6.19.3 as a semver-major fix. **Do not apply that downgrade automatically**: the repository uses Prisma 7 adapter-pg and must preserve schema, migrations and client compatibility.
+- The audit also identifies `ts-node-dev` (via chokidar; no automatic fix), `ts-jest` (Jest dependency chain), `sprintf-js` (via argparse/artillery) and `vite-plugin-node-polyfills` (via node-stdlib-browser). Some suggested fixes are breaking downgrades.
+
+## Ordered remediation gates
+
+1. **Prisma/build tooling:** investigate a compatible patched upstream graph or a supported optional-dependency omission limited to the build stage. Verify generation, 37 migrations, PostgreSQL restart and exact-head CI. Never remove the audit or ignore vulnerable packages to manufacture PASS.
+2. **Dev-only watchers:** determine whether `ts-node-dev` is still required; replace with a supported Node 24-compatible watch flow only after proving development startup and preserving behavior. Regenerate lockfile via npm, not by hand.
+3. **Test/load/UI tooling:** isolate `ts-jest`, Artillery/sprintf-js and Vite polyfill chains into separate candidate PRs, regenerate lockfile and run exact-head CI and integration tests for each.
+4. **Re-audit both graphs:** run the unsuppressed full `npm audit --json` and deployed-image inventory independently; retain JSON artifacts, counts and affected dependency paths.
+5. **Gatekeeper:** independent review before any merge, deployment or security sign-off.
+
+## Constraints
+
+No production changes in this document. No claims that all 35 findings are exploitable in production. No unverified waiver, blanket override, blind major downgrade, merge, deploy or freeze. Preserve any residual findings visibly as STOP.
+
+## Reconfirmed on Node 24 CI parity candidate
+
+PR #457, HEAD `88d72521fb10bd9c7a3e801c91ff596532bfba6d`, workflow `38503462565`, artifact `11866509337` (`build-dependency-audit.json`) independently reproduces **35** vulnerable package records (8 high, 21 moderate, 6 low, 0 critical), from **2,200** dependency records (719 production, 1,373 dev, 275 optional; categories can overlap). Production dependency verification in workflow `38503462569` passed; full graph remains **FAIL**.
+
+Direct package records flagged in that audit: `artillery` (high), `prisma` (high), `ts-node-dev` (high, no npm audit fix), `jest` (moderate), `ts-jest` (moderate), `vite-plugin-node-polyfills` (low). Transitive high records include `@prisma/config`, `mysql2`, `deepmerge-ts`, `braces` and `chokidar`. The JSON `fixAvailable` suggestions for Prisma, Artillery, Jest, ts-jest and Vite polyfills are downgrades, **not** validated safe remediations. These are package records, not 35 unique CVEs. Preserve the raw artifact and do not infer deployed exploitability from the full graph alone.
+
+## Parallel candidate tracking (non-interfering)
+
+PR #458, branch `security/replace-ts-node-dev-candidate`, is an **unmerged, draft, stacked candidate** on #457. Its original candidate HEAD `4841da04aa16a1790448fe09fec213aec3aec91d` passed primary CI, CI Tests, Node 24 TypeScript watch smoke, production dependency verification, and the Docker/PostgreSQL runtime job. The full graph audit remained FAIL. These successes validate the **additive candidate command**, not the final removal of `ts-node-dev`.
+
+At PR #458 HEAD `24ba0fb322d9def2c68904dd979a9a3fd0ea6e7f`, workflow run `38559363749` generated a review-only patch artifact `11891617120` for removal of `ts-node-dev` and regeneration of `package-lock.json`. This is **not a committed dependency removal**.
+
+At HEAD `f9d6a54bb831489188e205a9341b41e0088e6df6`, run `38559563846` began verifying `npm ci` with the modified candidate lockfile and capturing an unsuppressed candidate full audit. At the time of this note, the `npm ci` verification was still **in progress**; do not infer PASS or an improved finding count. Production dependency verification `38559563828` passed on this HEAD; other jobs were in progress.
+
+**Independent decision gate:** Do not apply the generated patch, merge, deploy, or claim vulnerability reduction until candidate `npm ci` passes, its audit artifact is inspected, and runtime behavior is verified. Preserve the original 35-record full-graph baseline until a newer raw audit provides authoritative counts. Avoid concurrent edits to PR #458 while its exact-head verification runs.
+
+## Verified post-removal candidate audit
+
+PR #458 exact HEAD `f9d6a54bb831489188e205a9341b41e0088e6df6`, workflow `38559563846`, produced review-only lockfile patch artifact `11891803237` and unsuppressed candidate audit artifact `11891953081`. The workflow completed **SUCCESS**, including `npm ci` on the generated lockfile and TypeScript entrypoint transpilation.
+
+The raw `candidate-full-audit.json` reports **34 vulnerable package records: 7 high, 21 moderate, 6 low, 0 critical**, versus the prior full-graph baseline of **35: 8 high, 21 moderate, 6 low, 0 critical**. The `ts-node-dev` package record is absent. This is a **one-record reduction in high-severity findings**, not an audit PASS. The 34 remaining package records still make the full graph **FAIL / STOP**.
+
+On the same original PR HEAD, CI, CI Tests, Node 24 TypeScript watch candidate, production dependency verification and the Docker/PostgreSQL runtime isolation job completed successfully; the full-graph advisory inventory job failed as expected. The actual removal is still **not committed** to PR #458, so these post-removal results are candidate evidence, not proof of an updated PR HEAD. Keep all approval gates and independent review in place.
+
+## Raw audit differential verified
+
+Compared the raw `build-dependency-audit.json` from PR #457 workflow `38503462565` (artifact `11866509337`) against the candidate `candidate-full-audit.json` from PR #458 workflow `38559563846` (artifact `11891953081`), matching vulnerability record keys and severity fields:
+
+| Metric | Baseline | Removal candidate | Delta |
+| --- | ---: | ---: | ---: |
+| Vulnerable package records | 35 | 34 | -1 |
+| High | 8 | 7 | -1 |
+| Moderate | 21 | 21 | 0 |
+| Low | 6 | 6 | 0 |
+| Critical | 0 | 0 | 0 |
+| Dependency records, total | 2,200 | 2,189 | -11 |
+| Dev dependency records | 1,373 | 1,362 | -11 |
+| Production dependency records | 719 | 719 | 0 |
+| Optional dependency records | 275 | 275 | 0 |
+
+Set comparison: **removed vulnerable package record: `ts-node-dev` only**; **added: none**; **no severity changes** among the remaining 34 records. This is a graph comparison, not an exploitability assessment, nor evidence that the modified lockfile is committed. Audit gate remains **FAIL / STOP**.
+
+## Actual dependency-removal PR (pending exact-head gates)
+
+Draft PR **#460** (`security/ts-node-dev-removal-validated`), stacked on draft PR #458, applies the removal in `package.json` and `package-lock.json` together. The committed lockfile blob is `5687e1c2cb1146dfe05b5bf4d9481ab727f1aebd`, matching the candidate lockfile generated by npm in workflow `38559563846`. The original additive `dev:node24-candidate` script is promoted to `dev`; the former `ts-node-dev` dependency is removed. This is an **actual DRAFT implementation**, not a merged fix.
+
+Exact HEAD `7567c67a2af6b45d706ac0a599cf94ae1f62ef59` has newly triggered CI, CI Tests, Node 24 watch, production dependency verification, Prisma runtime isolation and an unsuppressed full-graph audit of the **committed** lockfile. At the time of this note, these runs are queued/in progress; **no exact-head PASS is claimed**. The full audit is expected to remain nonzero based on the independently tested candidate's 34 findings, but its exact-head result must be checked.
+
+**Next gate:** require exact-head `npm ci` PASS, watch smoke PASS, CI and CI Tests PASS, Docker/PostgreSQL runtime PASS, production inventory PASS, and an inspected full-audit JSON. Preserve any residual full-audit FAIL. No merge/deploy/freeze without independent review and explicit authorization.
+
+## PR #460 exact-head verification: implementation confirmed, full audit STOP
+
+On draft PR #460 HEAD `7567c67a2af6b45d706ac0a599cf94ae1f62ef59`, all relevant jobs have completed:
+
+- CI run `38561936106`: **PASS**.
+- CI Tests run `38561936273`: **PASS**.
+- Node 24 native watch restart smoke run `38561936123`: **PASS**.
+- Production dependency verification run `38561936350`: **PASS**.
+- Prisma runtime isolation run `38561936382`: Docker/PostgreSQL runtime job **PASS**, complete build-dependency advisory inventory job **FAIL**.
+- Committed-removal verification run `38561936422`: manifest/lockfile verification and `npm ci` **PASS**; unsuppressed full audit step **FAIL**, so the workflow overall **FAIL** by design.
+
+The raw `committed-removal-audit.json` artifact `11892957118` from run `38561936422` was inspected: **34 vulnerable package records** (7 high, 21 moderate, 6 low, 0 critical), **2,189 dependency records** (719 prod, 1,362 dev, 275 optional), with **no `ts-node-dev` vulnerability record**. This confirms the prior review-only candidate's counts on the actual committed HEAD.
+
+**CTO gate:** watcher replacement and lockfile regeneration are technically validated on their exact HEAD. This does **not** clear the 34 residual full-graph findings. Keep PR #460 **DRAFT**, full-audit **FAIL / STOP**, and require independent review before any merge/deploy/freeze.
