@@ -788,10 +788,20 @@ export class DisputeService {
       // cleared, or drop a proposal that really was displaced. The
       // proposal fields themselves need no restoring: the ruling claim
       // never touches them, and nothing can change them while RESOLVED.
-      await prisma.$transaction(async (tx) => {
+      // V3: the dispatch adapter may persist a pending PSBT and throw before
+      // returning. A generic rollback would strand that round without its
+      // Outcome, making both reconciliation and retry impossible. Inspect
+      // durable state under D -> E locks before any reversal. If a pending
+      // exists, preserve the committed authority for recovery, regardless
+      // of whether it is signed or the translation guard would pass.
+      const mayRevert = await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
-
-        await tx.dispute.updateMany({
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dispute.escrowId})::bigint)`
+        const pending = await tx.escrowPendingTransaction.findUnique({
+          where: { escrowId: dispute.escrowId }, select: { id: true },
+        })
+        if (pending) return false
+        const reverted = await tx.dispute.updateMany({
           where: {
             id: dispute.id,
             status: 'RESOLVED',
@@ -802,7 +812,13 @@ export class DisputeService {
           },
           data: { ...(await rulingRevertTarget(tx, dispute.escrowId, commitResult.displacedStatus)), ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
         })
+        return reverted.count === 1
       })
+      if (!mayRevert) {
+        throw new St1R2DeletionRefused(
+          `ST1-R2 V3: dispatch failure cannot prove a safe ruling rollback for dispute ${dispute.id}; preserve durable authority for recovery`,
+        )
+      }
       await revertDisputeRulingRecord(dispute.escrowId, dispute.appealRound)
       throw err
     }
