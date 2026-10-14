@@ -19,3 +19,9 @@ This harness is **not approved for production use** and does not replace Artille
 5. Validate parity with original load scripts and run full unsuppressed `npm audit` at exact HEAD **after** a reviewed Artillery removal and lockfile regeneration. The #471 ephemeral audit reduction (34 → 30) is not evidence of functional parity or an approved fix.
 
 **Known risk:** existing per-IP and shared identity rate limits may intentionally reject bulk identity registration; the native harness currently does not model these rate limits or isolate test users by independent network identities. A green syntax/build CI is not an end-to-end load-test pass. Do not merge or remove Artillery until the runtime gate passes.
+
+## Confirmed rate-limit blocker (source-verified)
+
+`src/config/index.ts` sets `RATE_LIMIT_AUTH_MAX=10` and `RATE_LIMIT_AUTH_WINDOW_MS=60000` by default. Registration challenge, registration, login challenge and authentication all use `authRateLimit`, a shared Redis-backed tier. Each fresh virtual user therefore consumes multiple auth-tier requests. The inherited Artillery arrival schedules (5/s then 20/s) will trigger the default security limit, even with a healthy backend. **Do not disable or bypass rate limiting to get a green benchmark.**
+
+The current harness is a **functional candidate, not a validated load-test replacement**. To validate safely, first run a low-volume correctness rehearsal that respects the configured auth budget, then obtain an explicit, documented decision for a dedicated benchmark environment and its rate-limit policy. The sustained throughput test must not claim success under the default auth limit. WS sessions can be pre-generated gradually within the limit and then exercised using single-use WS tickets; ticket minting itself has its own security and operational limits to validate. A run returning 429 is a meaningful protection result, not evidence that the load generator is broken.
