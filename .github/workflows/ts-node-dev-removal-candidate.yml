@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  generate-reviewable-patch:
+  verify-committed-removal:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -23,49 +23,22 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-      - name: Produce candidate manifest and lockfile changes without committing
+      - name: Verify committed manifest and lockfile
         shell: bash
         run: |
           set -euo pipefail
-          node -e 'const p=require("./package.json"); if(!p.devDependencies?.["ts-node-dev"]) process.exit(1); if(!p.scripts?.["dev:node24-candidate"]) process.exit(1)'
-          npm uninstall --save-dev --package-lock-only --ignore-scripts --no-audit --no-fund ts-node-dev
-          node -e 'const p=require("./package.json"); if(p.devDependencies?.["ts-node-dev"]) process.exit(1); if(!p.devDependencies?.["ts-node"]) process.exit(1); p.scripts.dev=p.scripts["dev:node24-candidate"]; delete p.scripts["dev:node24-candidate"]; require("fs").writeFileSync("package.json",JSON.stringify(p,null,2)+"\n")'
-          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-          git diff --check
-          git diff -- package.json package-lock.json > ts-node-dev-removal.patch
-          test -s ts-node-dev-removal.patch
-          node -e 'const p=require("./package-lock.json"); if(p.packages?.["node_modules/ts-node-dev"]) process.exit(1); console.log("ts-node-dev absent from candidate lockfile")'
-          git status --short
-      - name: Verify candidate lockfile installation and TypeScript startup primitive
-        shell: bash
-        run: |
-          set -euo pipefail
+          node -e 'const p=require("./package.json"),l=require("./package-lock.json"); if(p.devDependencies?.["ts-node-dev"] || l.packages?.["node_modules/ts-node-dev"] || l.packages?.[""]?.devDependencies?.["ts-node-dev"]) process.exit(1); if(p.scripts.dev!=="node --watch --require ts-node/register/transpile-only src/main.ts" || !p.devDependencies?.["ts-node"]) process.exit(1)'
           npm ci --no-audit --no-fund
-          node -e 'const p=require("./package.json"); if(p.devDependencies?.["ts-node-dev"] || p.scripts.dev!=="node --watch --require ts-node/register/transpile-only src/main.ts") process.exit(1)'
-          node --require ts-node/register/transpile-only -e 'const ts=require("typescript"),fs=require("fs"); const code=ts.transpileModule(fs.readFileSync("src/main.ts","utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText; if(!code.includes("startServer")) process.exit(1)'
-          if test -d node_modules/ts-node-dev; then echo "Removed dependency unexpectedly installed"; exit 1; fi
-          echo "Candidate lockfile npm ci and entrypoint transpilation PASS"
-      - name: Capture unsuppressed candidate audit result
+          test ! -d node_modules/ts-node-dev
+          node --require ts-node/register/transpile-only -e 'const ts=require("typescript"),fs=require("fs"); const out=ts.transpileModule(fs.readFileSync("src/main.ts","utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText; if(!out.includes("startServer")) process.exit(1)'
+      - name: Run full dependency audit without suppressing failure
         shell: bash
         run: |
-          set +e
-          npm audit --json > candidate-full-audit.json
-          status=$?
-          set -e
-          echo "Full audit exit code: $status"
-          node -e 'const a=require("./candidate-full-audit.json"); console.log(JSON.stringify(a.metadata?.vulnerabilities || {},null,2))'
-          # Keep the audit failure visible without treating known debt as a clean pass.
-          test "$status" -eq 0 || echo "::warning::Candidate full dependency audit remains nonzero; remediation is incomplete."
-      - name: Upload candidate audit evidence
+          npm audit --json > committed-removal-audit.json
+      - name: Upload exact-head audit evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ts-node-dev-removal-audit
-          path: candidate-full-audit.json
+          name: committed-ts-node-dev-removal-audit
+          path: committed-removal-audit.json
           if-no-files-found: warn
-      - name: Upload reviewable patch only
-        uses: actions/upload-artifact@v4
-        with:
-          name: ts-node-dev-removal-patch
-          path: ts-node-dev-removal.patch
-          if-no-files-found: error
