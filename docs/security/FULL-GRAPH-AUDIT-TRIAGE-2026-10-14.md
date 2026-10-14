@@ -27,3 +27,13 @@ No production changes in this document. No claims that all 35 findings are explo
 PR #457, HEAD `88d72521fb10bd9c7a3e801c91ff596532bfba6d`, workflow `38503462565`, artifact `11866509337` (`build-dependency-audit.json`) independently reproduces **35** vulnerable package records (8 high, 21 moderate, 6 low, 0 critical), from **2,200** dependency records (719 production, 1,373 dev, 275 optional; categories can overlap). Production dependency verification in workflow `38503462569` passed; full graph remains **FAIL**.
 
 Direct package records flagged in that audit: `artillery` (high), `prisma` (high), `ts-node-dev` (high, no npm audit fix), `jest` (moderate), `ts-jest` (moderate), `vite-plugin-node-polyfills` (low). Transitive high records include `@prisma/config`, `mysql2`, `deepmerge-ts`, `braces` and `chokidar`. The JSON `fixAvailable` suggestions for Prisma, Artillery, Jest, ts-jest and Vite polyfills are downgrades, **not** validated safe remediations. These are package records, not 35 unique CVEs. Preserve the raw artifact and do not infer deployed exploitability from the full graph alone.
+
+## Parallel candidate tracking (non-interfering)
+
+PR #458, branch `security/replace-ts-node-dev-candidate`, is an **unmerged, draft, stacked candidate** on #457. Its original candidate HEAD `4841da04aa16a1790448fe09fec213aec3aec91d` passed primary CI, CI Tests, Node 24 TypeScript watch smoke, production dependency verification, and the Docker/PostgreSQL runtime job. The full graph audit remained FAIL. These successes validate the **additive candidate command**, not the final removal of `ts-node-dev`.
+
+At PR #458 HEAD `24ba0fb322d9def2c68904dd979a9a3fd0ea6e7f`, workflow run `38559363749` generated a review-only patch artifact `11891617120` for removal of `ts-node-dev` and regeneration of `package-lock.json`. This is **not a committed dependency removal**.
+
+At HEAD `f9d6a54bb831489188e205a9341b41e0088e6df6`, run `38559563846` began verifying `npm ci` with the modified candidate lockfile and capturing an unsuppressed candidate full audit. At the time of this note, the `npm ci` verification was still **in progress**; do not infer PASS or an improved finding count. Production dependency verification `38559563828` passed on this HEAD; other jobs were in progress.
+
+**Independent decision gate:** Do not apply the generated patch, merge, deploy, or claim vulnerability reduction until candidate `npm ci` passes, its audit artifact is inspected, and runtime behavior is verified. Preserve the original 35-record full-graph baseline until a newer raw audit provides authoritative counts. Avoid concurrent edits to PR #458 while its exact-head verification runs.
