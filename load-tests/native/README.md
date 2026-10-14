@@ -29,3 +29,20 @@ The current harness is a **functional candidate, not a validated load-test repla
 ## Low-intensity real-service correctness gate
 
 Run `node load-tests/native/run.js smoke` against a **fresh isolated local backend** with PostgreSQL and Redis. It creates one Ed25519 identity using the current registration PoP challenge, authenticates, creates and cancels one intent, obtains a fresh single-use WS ticket and requires a PONG. It reuses the same session across HTTP and WS, so it normally consumes only **four** shared auth-tier calls instead of creating a second user. It still may encounter other rate limits or domain constraints; never mask failures. This is a functional smoke test, **not a throughput benchmark** and does not yet prove Artillery replacement parity.
+
+## Parity audit after real-service smoke (2026-10-14)
+
+Evidence: PR #472 exact HEAD `493d67be57847d5c02ccb3df4f6f7e09331b044b`, workflow **Native load harness candidate verification** run **38605416486**, job **candidate**, step **Real-service smoke with disposable PostgreSQL and Redis**: SUCCESS. The independent **CI Tests** run **38605416603** also succeeded. This proves one real backend identity, intent create/delete and WebSocket PING/PONG with disposable PostgreSQL/Redis, not a throughput or sustained-load claim.
+
+| Original Artillery coverage | Native candidate | Gate |
+| --- | --- | --- |
+| HTTP warm-up 20 s × 5 arrivals/s, sustained 30 s × 20/s | `intent` has matching phases | Shape configured; sustained run not executed |
+| Fresh Ed25519 challenge-response identity per HTTP arrival | `authenticate()` signs registration and login challenges | One identity verified in smoke; bulk auth rate limit blocks default load |
+| POST /v1/intents 201 and DELETE /v1/intents/:id 200 | `intent()` asserts status and returned ID | Verified in smoke |
+| WS warm-up 20 s × 5/s, sustained 30 s × 15/s | `ws` has matching phases | Shape configured; sustained run not executed |
+| Pre-authenticated WS pool and PING | `prep` creates real sessions; `websocket()` uses one-time ticket and requires PONG | Single connection verified; pool and concurrency unverified |
+| Artillery HTTP/WS engine reports | Native counts, p50/p95/p99, bounded in-flight | Not statistically compared on equivalent runs |
+
+**Explicit blocker:** `RATE_LIMIT_AUTH_MAX=10` / 60 s is a shared Redis-backed limit. The 5/s and 20/s fresh-identity phases cannot be considered application throughput at default security settings. Do not bypass or silently raise limits. For a future dedicated, disposable load benchmark, CTO must explicitly approve the isolated test policy, target capacity, run budget, and treatment of expected HTTP 429 responses. Run the original Artillery and native candidate under equivalent approved conditions; collect request and connection success rates, errors, latency percentiles, arrival throughput, CPU/memory, and Redis/Postgres telemetry. Compare actual results and failure modes before any package removal. Keep the independent k6 suite unchanged.
+
+**Security guard:** native targets must remain loopback. Never commit `load-tests/native/users.json` (contains bearer tokens), upload it as a CI artifact, or log session tokens. The smoke CI does not run `prep` and does not create that file. The candidate does not replace Artillery until sustained parity is demonstrated.
