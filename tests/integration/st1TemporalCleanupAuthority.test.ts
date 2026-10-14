@@ -828,6 +828,37 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 1 })
   })
 
+  it('V3-R repeated restart-style reconciliation preserves the same valid generation without duplicate dispatch', async () => {
+    const o = await openedDispute('v3-repeat')
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
+      throw new Error('injected: after persisted dispatch')
+    })
+    const dispute = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/ST1-R2 V3/)
+    } finally {
+      failing.mockRestore()
+    }
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    await age(pending.id)
+    const reports = await reconcileScoped([o.escrowId], 2)
+    for (const report of reports) {
+      expect(report.failed).toEqual([])
+      expect(report.reconciled).toEqual(expect.arrayContaining([
+        expect.objectContaining({ escrowId: o.escrowId, verdict: 'LEFT_GUARD_PASSED' }),
+      ]))
+    }
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+  })
+
   it('V3-G an older generation cannot authorize deletion after appeal advances the dispute', async () => {
     const o = await openedDispute('v3-generation')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
