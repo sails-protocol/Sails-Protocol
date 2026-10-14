@@ -32,3 +32,18 @@ Native smoke and tiny rehearsal have succeeded; these are not sustained throughp
 ## Naming
 
 Sails Pulse is the internal umbrella name for protocol-specific test policy and scenarios. It does not imply that the load-generation engine is proprietary.
+
+
+## Open-source license and commercial-use gate (2026-10)
+
+Official upstream repositories identify k6 as AGPL-3.0 and most Artillery code as MPL-2.0. Artillery also has Azure-related modules under BSL with separate commercial/production restrictions. Do not assume one license covers every package or module.
+
+Sails Pulse is intended as internal engineering orchestration, not a hosted load-testing product. Candidate k6 integration must use an unmodified, independently executed CLI process with separate configuration and outputs; do not link, vendor, fork, embed or patch k6 into a proprietary binary without a new legal review. Separation reduces but does not categorically eliminate copyleft questions: architecture, distribution and the nature of communication matter. Do not claim that AGPL automatically requires publication of the entire Sails Protocol, or that CLI invocation is an unconditional legal safe harbor.
+
+Before adopting k6: verify the exact release and its notices, artifact provenance and hashes; review any extensions and transitive license obligations; document whether binary/script/container images are distributed to third parties, and whether any modified covered software is made available over a network. Escalate ambiguous combinations, third-party distribution or SaaS productization to qualified counsel. Keep Artillery's component-specific licensing in the same review.
+
+Sources:
+- https://github.com/grafana/k6 (AGPL-3.0)
+- https://github.com/artilleryio/artillery (mostly MPL-2.0; Azure exceptions)
+- https://github.com/artilleryio/artillery/blob/main/LICENSE-BSL.txt
+- https://www.gnu.org/licenses/gpl-faq.en.html (separate programs versus combined works)
