@@ -12,7 +12,7 @@ This harness is **not approved for production use** and does not replace Artille
 
 ## Safe execution (dedicated disposable environment only)
 
-1. Provision disposable isolated Postgres and Redis, with the exact target backend build. Confirm this is **not production**.
+1. Provision disposable isolated Postgres and Redis, with the exact target backend build. Confirm this is **not production**. The harness now **rejects non-loopback HTTP and WebSocket targets before issuing requests**; use a locally bound isolated service, not public staging or production URLs.
 2. Verify registration rate limits are compatible with the requested arrival rates. **Never disable security controls to make a benchmark pass**; if limits are intentionally triggered, record the result and adjust the benchmark design with explicit CTO review.
 3. Set `SAILS_LOAD_HTTP_TARGET` and `SAILS_LOAD_WS_TARGET` to the isolated backend. Run `node load-tests/native/run.js intent`, then `node load-tests/native/run.js prep 50`, then `node load-tests/native/run.js ws`. Pre-generated `users.json` contains bearer tokens: keep it out of Git, artifacts and logs, delete it after test.
 4. Capture success/error counts, p50/p95/p99, throughput and service logs. Test negative paths: invalid registration proof, replayed WS ticket, expired session, server disconnect, invalid JSON, and overload.
