@@ -27,7 +27,7 @@ const request = async (route, method, body, token, expected) => {
   const start = performance.now();
   const res = await fetch(BASE + route, { method, headers: { ...(body ? {'Content-Type':'application/json'} : {}), ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15000) });
   const text = await res.text();
-  assert(res.status === expected, method + ' ' + route + ': HTTP ' + res.status + ' expected ' + expected + ' ' + text.slice(0,300));
+  assert(res.status === expected, method + ' ' + route + ': HTTP ' + res.status + ' expected ' + expected);
   let data; try { data = text ? JSON.parse(text) : {}; } catch { throw Error('Invalid JSON: ' + route); }
   return { data, ms: performance.now() - start };
 };
@@ -72,7 +72,7 @@ async function websocket(user) {
     ws.addEventListener('message', event => {
       let msg; try { msg=JSON.parse(event.data); } catch { return finish(Error('Invalid WebSocket JSON')); }
       if (msg.type === 'PONG') finish();
-      else if (msg.type === 'ERROR') finish(Error('WebSocket ERROR: ' + JSON.stringify(msg)));
+      else if (msg.type === 'ERROR') finish(Error('WebSocket application ERROR (details redacted)'));
     });
     ws.addEventListener('error', () => finish(Error('WebSocket transport error')));
     ws.addEventListener('close', () => { if (!done) finish(Error('WebSocket closed before PONG')); });
