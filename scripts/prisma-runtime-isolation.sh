@@ -62,6 +62,11 @@ done
 docker build --target builder --tag "$builder_image" .
 builder_built=1
 docker run --rm --entrypoint npx "$builder_image" prisma --version
+actual_builder_node="$(docker run --rm --entrypoint node "$builder_image" -p 'process.versions.node.split(".")[0]')"
+if [[ "$actual_builder_node" != '24' ]]; then
+  echo "Expected Node 24 in builder, got Node $actual_builder_node" >&2
+  exit 1
+fi
 docker run --rm --entrypoint node "$builder_image" -e '
   const { PrismaClient } = require("@prisma/client");
   if (typeof PrismaClient !== "function") throw new Error("Generated Prisma Client is unavailable");
@@ -70,6 +75,11 @@ docker run --rm --entrypoint node "$builder_image" -e '
 
 docker build --target runtime --tag "$runtime_image" .
 runtime_built=1
+actual_runtime_node="$(docker run --rm --entrypoint node "$runtime_image" -p 'process.versions.node.split(".")[0]')"
+if [[ "$actual_runtime_node" != '24' ]]; then
+  echo "Expected Node 24 in runtime, got Node $actual_runtime_node" >&2
+  exit 1
+fi
 image_command="$(docker image inspect --format '{{json .Config.Cmd}}' "$runtime_image")"
 printf 'runtime image command: %s\n' "$image_command"
 if [[ "$image_command" != '["node","dist/src/main.js"]' ]]; then
