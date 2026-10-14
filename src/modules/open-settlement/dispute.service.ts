@@ -829,14 +829,25 @@ export class DisputeService {
           },
           data: { ...(await rulingRevertTarget(tx, dispute.escrowId, commitResult.displacedStatus)), ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
         })
-        return reverted.count === 1
+        if (reverted.count !== 1) return false
+        // The Outcome belongs to the same generation as this ruling.
+        // Remove it before releasing D -> E locks: a later generation
+        // must never observe a reverted dispute with the old Outcome,
+        // nor have its own Outcome deleted by a delayed outer catch.
+        await tx.semanticTransitionRecord.deleteMany({
+          where: {
+            interactionId: dispute.escrowId,
+            transitionType: 'ESCROW_DISPUTE_RULING',
+            appealRound: dispute.appealRound,
+          },
+        })
+        return true
       })
       if (!mayRevert) {
         throw new St1R2DeletionRefused(
           `ST1-R2 V3: dispatch failure cannot prove a safe ruling rollback for dispute ${dispute.id}; preserve durable authority for recovery`,
         )
       }
-      await revertDisputeRulingRecord(dispute.escrowId, dispute.appealRound)
       throw err
     }
 
