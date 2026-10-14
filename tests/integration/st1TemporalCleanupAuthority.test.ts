@@ -699,6 +699,23 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect((await disputeOf(o)).status).toBe('RESOLVED')
   })
 
+  it('F2 signed pending with mismatched miner fee is never deleted by fee-parity cleanup', async () => {
+    const o = await openedDispute('fee-signed')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const stored = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+    await prisma.escrowPendingTransaction.update({
+      where: { id: pending.id },
+      data: { minerFeeSats: Number(stored.minerFeeSats ?? 0) + 1 },
+    })
+    await prisma.escrowTransactionSignature.create({
+      data: { pendingTxId: pending.id, participantId: o.buyerId, signedPsbtBase64: 'st1-f2-signed-veto' },
+    })
+    expect(await decide(pending.id, o.escrowId, await generationOf(pending.id))).toBe('SIGNED_MEANWHILE')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 1 })
+    expect(await outcomeRecords(o)).toBe(1)
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+  })
+
   it('E2 production resolveDispute refuses cleanup of a signed round and preserves the committed ruling', async () => {
     const o = await openedDispute('e2')
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
