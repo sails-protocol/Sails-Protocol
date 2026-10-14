@@ -49,6 +49,18 @@ jobs:
           if SAILS_LOAD_WS_TARGET=ws://localhost:3000/?ticket=secret node load-tests/native/run.js smoke > /tmp/query-guard.out 2>&1; then echo 'Target query accepted'; exit 1; fi
           grep -q 'Target URL must not contain path, query or fragment' /tmp/query-guard.out
           node -e "require('node:assert/strict').equal(typeof WebSocket,'function')"
+          # No live backend required: verify session-pool fail-closed checks before any WS request.
+          mkdir -p /tmp/sails-load-guard
+          cp load-tests/native/run.js /tmp/sails-load-guard/run.js
+          printf '[{"sessionToken":"test-only"}]' > /tmp/sails-load-guard/users.json
+          chmod 0644 /tmp/sails-load-guard/users.json
+          if node /tmp/sails-load-guard/run.js ws > /tmp/pool-permissions.out 2>&1; then echo 'World-readable session pool accepted'; exit 1; fi
+          grep -q 'Session pool permissions must be private' /tmp/pool-permissions.out
+          chmod 0600 /tmp/sails-load-guard/users.json
+          printf '[{}]' > /tmp/sails-load-guard/users.json
+          if node /tmp/sails-load-guard/run.js ws > /tmp/pool-schema.out 2>&1; then echo 'Invalid session pool accepted'; exit 1; fi
+          grep -q 'Invalid session pool' /tmp/pool-schema.out
+          rm -rf /tmp/sails-load-guard
       - name: Install dependencies with existing script policy (fail closed)
         run: npm ci --no-audit --no-fund
       - name: Generate Prisma client and build
