@@ -8,6 +8,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 const BASE = process.env.SAILS_LOAD_HTTP_TARGET || 'http://localhost:3000';
 const WSBASE = process.env.SAILS_LOAD_WS_TARGET || 'ws://localhost:3000';
+// Hard stop before any load is issued: this candidate must never target public endpoints.
+function requireLocalTarget(raw, protocols) {
+  const url = new URL(raw);
+  assert(protocols.includes(url.protocol), 'Unsupported target protocol: ' + url.protocol);
+  assert(['localhost', '127.0.0.1', '[::1]'].includes(url.hostname), 'Load testing is restricted to loopback targets');
+  assert(!url.username && !url.password, 'Target URL must not contain credentials');
+}
+function validateTargets() {
+  requireLocalTarget(BASE, ['http:']);
+  requireLocalTarget(WSBASE, ['ws:']);
+}
+
 const phases = [{ duration: 20, rate: 5 }, { duration: 30, rate: 20 }];
 const wsPhases = [{ duration: 20, rate: 5 }, { duration: 30, rate: 15 }];
 const toHex = b => Buffer.from(b).toString('hex');
@@ -94,6 +106,7 @@ async function runPhases(name, config, work) {
   if(failed>0 || succeeded===0) process.exitCode=1;
 }
 async function main(){
+  validateTargets();
   const mode=process.argv[2];
   if(mode==='intent') return runPhases('authenticated-intent',phases,intent);
   if(mode==='ws'){
