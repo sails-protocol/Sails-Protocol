@@ -134,6 +134,8 @@ COPY --from=pruned --chown=node:node /app/node_modules ./node_modules
 COPY --from=pruned --chown=node:node /app/dist ./dist
 COPY --from=pruned --chown=node:node /app/prisma ./prisma
 COPY --from=pruned --chown=node:node /app/package.json ./package.json
+COPY --from=pruned --chown=node:node /app/packages/sails-core/dist ./packages/sails-core/dist
+COPY --from=pruned --chown=node:node /app/packages/sails-core/package.json ./packages/sails-core/package.json
 COPY --from=pruned --chown=node:node /app/packages/sails-p2p-schemas/dist ./packages/sails-p2p-schemas/dist
 COPY --from=pruned --chown=node:node /app/packages/sails-p2p-schemas/package.json ./packages/sails-p2p-schemas/package.json
 COPY --from=pruned --chown=node:node /app/packages/sails-sdk/dist ./packages/sails-sdk/dist
