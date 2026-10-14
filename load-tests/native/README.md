@@ -63,3 +63,15 @@ Exact HEAD `6bf6158865caa4f9ec84b1aff5dc538267af84b5`, workflow run `38622816063
 | Isolated WS ticket/PING/PONG | 2 | 2 | 0 | 4.1 ms | 17.6 ms | 17.6 ms | 1 |
 
 These are **two observations per scenario**, not statistically meaningful percentiles or a sustained parity result. They do not measure Artillery performance, production capacity or scalability. No Artillery dependency was removed. Next: perform equivalent, explicitly bounded comparisons in the disposable environment while preserving security limits and documenting intentional HTTP 429 behavior. Never silently widen rate limits or interpret this 4/4 rehearsal as throughput certification.
+
+## Source-to-source comparator audit (2026-10-14)
+
+Compared the candidate with the actual inherited files `load-tests/artillery/intent-api.yml`, `load-tests/artillery/chat-ws.yml` and `load-tests/artillery/processor.js`. **The legacy scenarios are not protocol-equivalent today.** This is a comparator validity blocker, not a reason to relax security:
+
+1. Legacy HTTP `setupAuthenticatedUser` posts directly to `/v1/identity/participants` without the required registration challenge or PoP signature and does not assert its HTTP response. The native candidate correctly uses `register-challenge` and signed registration. A legacy failure cannot be interpreted as a native regression or vice versa.
+2. Legacy WS `pickChatSession` places the bearer `sessionToken` in `?token=` on the WebSocket URL. The native candidate correctly exchanges it for a single-use `ws-ticket` and connects with `?ticket=`. Do **not** restore bearer-token URLs to manufacture parity.
+3. Legacy WS only sends PING and waits one second; it does not explicitly assert receipt of PONG. The native candidate requires PONG and fails on transport/application errors.
+4. Legacy Artillery HTTP expects 201/200 for intent operations but its authentication setup catches and emits errors; registration response and session token are not asserted as strongly as the native candidate.
+5. Arrival shapes match (HTTP 20×5 + 30×20; WS 20×5 + 30×15), but matching phase configuration **does not** imply equivalent authenticated work, security posture or success accounting.
+
+**Required next gate:** introduce a separate, reviewed **test-only** Artillery comparator using current registration PoP, one-time WS tickets and explicit response/PONG assertions. Do not silently change the legacy baseline or production configuration. Run both on equivalent fresh disposable backends, under the same explicit security-limit policy, with request budgets and logs documented. Until then, report functional correctness of the native candidate but **no Artillery/native throughput or latency parity**. Keep PR #472 DRAFT and retain Artillery.
