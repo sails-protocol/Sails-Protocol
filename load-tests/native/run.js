@@ -1,7 +1,6 @@
 'use strict';
 // Node 24 native load harness candidate. No Artillery or third-party load generator.
 // Preserve the authenticated flows, phase arrivals, assertions and metrics.
-const nacl = require('tweetnacl');
 const { performance } = require('node:perf_hooks');
 const { randomInt } = require('node:crypto');
 const fs = require('node:fs');
@@ -33,6 +32,8 @@ const request = async (route, method, body, token, expected) => {
   return { data, ms: performance.now() - start };
 };
 async function authenticate(i) {
+  // Load only for real authentication; target guards must run without npm install.
+  const nacl = require('tweetnacl');
   const kp = nacl.sign.keyPair();
   const publicKey = toHex(kp.publicKey);
   // Original Artillery processor does not assert registration status. Here fail closed.
