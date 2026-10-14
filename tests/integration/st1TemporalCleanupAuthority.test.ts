@@ -745,33 +745,29 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(1)
   })
 
-  it('V1 production reversal after the round was persisted: the cleanup, nominated before the reversal, no longer has authority and deletes nothing', async () => {
+  it('V1 after-persist throw never erases the committed Outcome; cleanup cannot delete a valid pending', async () => {
     const o = await openedDispute('v1')
-    // FAULT INJECTION: the dispatch fails after the round was persisted (the window the guard-failure cleanup,
-    // itself failing, leaves): the real initiateRelease() runs, then the call throws. The ruling is then reverted
-    // by production code (dispute.service.ts's revert transaction and revertDisputeRulingRecord()).
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
-    jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+    const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
       await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
       throw new Error('injected: failure after the round was persisted')
     })
     const dispute = await prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })
     const issuedAt = new Date().toISOString()
     const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
-    const signature = signAuthorityDecision(payload, arbiterKp.secretKey)
-    await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signature, issuedAt))
-      .rejects.toThrow(/injected/)
-    jest.restoreAllMocks()
-
-    const orphan = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
-    expect(orphan.disputeId).toBe(o.disputeId) // the round of the reverted ruling survived
-    expect((await disputeOf(o)).status).not.toBe('RESOLVED') // production reverted the authority
-    expect((await disputeOf(o)).ruling).toBeNull()
-    expect(await outcomeRecords(o)).toBe(0)
-
-    await stale(orphan.id, o)
-    expect(await decide(orphan.id, o.escrowId, await generationOf(orphan.id))).toBe('PROVENANCE_REJECTED')
-    expect(await roundState(orphan.id)).toEqual({ pending: true, signatures: 0 })
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/ST1-R2 V3/)
+    } finally {
+      failing.mockRestore()
+    }
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    expect(pending.disputeId).toBe(o.disputeId)
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+    await stale(pending.id, o)
+    expect(await decide(pending.id, o.escrowId, await generationOf(pending.id))).toBe('GUARD_PASSED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
   })
 
   it('V3 after-persist dispatch throw preserves exact durable authority and pending for restart recovery', async () => {
@@ -1043,7 +1039,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       await age(p1.id)
       await decide(p1.id, f1.escrowId, await generationOf(p1.id))
 
-      // Flow 2: a ruling whose dispatch fails after the round was persisted (the revert path), then the cleanup.
+      // Flow 2: after-persist dispatch failure preserves the ruling under D -> E locks.
       const f2 = await openedDispute('x1b'); escrowIds.add(f2.escrowId)
       const realInitiate = escrowService.initiateRelease.bind(escrowService)
       const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
@@ -1053,7 +1049,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       const d2 = await prisma.dispute.findUniqueOrThrow({ where: { id: f2.disputeId } })
       const issuedAt = new Date().toISOString()
       const payload2 = { disputeId: f2.disputeId, escrowId: f2.escrowId, appealRound: d2.appealRound, authorityId: f2.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
-      await expect(getDisputeService().resolveDispute(f2.disputeId, f2.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload2, arbiterKp.secretKey), issuedAt)).rejects.toThrow(/injected/)
+      await expect(getDisputeService().resolveDispute(f2.disputeId, f2.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload2, arbiterKp.secretKey), issuedAt)).rejects.toThrow(/ST1-R2 V3/)
       failing.mockRestore()
 
       // Flow 3: a stale round, an appeal, the cleanup, and the real entry point.
