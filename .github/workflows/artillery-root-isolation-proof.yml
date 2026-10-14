@@ -1,0 +1,48 @@
+name: Artillery root isolation proof
+on:
+  push:
+    branches: [security/artillery-root-isolation-proof]
+  pull_request:
+    branches: [security/ts-node-dev-removal-validated]
+permissions:
+  contents: read
+jobs:
+  root-isolation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Test root removal without changing committed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm audit --json > artillery-before-audit.json || true
+          npm uninstall artillery --save-dev --ignore-scripts --no-audit --no-fund
+          git diff --check
+          git diff -- package.json package-lock.json > artillery-removal-candidate.patch
+          npm ci --no-audit --no-fund
+          npm audit --json > artillery-after-audit.json || true
+          node <<'NODE'
+          const fs=require('fs'),before=JSON.parse(fs.readFileSync('artillery-before-audit.json')),after=JSON.parse(fs.readFileSync('artillery-after-audit.json'));
+          const a=before.vulnerabilities||{},b=after.vulnerabilities||{};
+          const report={baseline:before.metadata?.vulnerabilities,candidate:after.metadata?.vulnerabilities,removed:Object.keys(a).filter(k=>!b[k]),added:Object.keys(b).filter(k=>!a[k]),artilleryScriptBroken:!fs.existsSync('node_modules/.bin/artillery'),note:'NOT a valid remediation until load tests have a safe supported replacement; only tests blast radius'};
+          fs.writeFileSync('artillery-isolation-summary.json',JSON.stringify(report,null,2)+'\n');
+          console.log(JSON.stringify(report,null,2));
+          if (Object.keys(b).some(k=>!a[k])) process.exitCode=1;
+          NODE
+      - name: Upload exact comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: artillery-root-isolation-evidence
+          path: |
+            artillery-before-audit.json
+            artillery-after-audit.json
+            artillery-isolation-summary.json
+            artillery-removal-candidate.patch
+          if-no-files-found: warn
