@@ -1,6 +1,9 @@
 name: Artillery advisory remediation probe
 
 on:
+  pull_request:
+    branches:
+      - security/ts-node-dev-removal-validated
   push:
     branches:
       - security/artillery-audit-remediation-probe
