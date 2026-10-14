@@ -774,34 +774,34 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await roundState(orphan.id)).toEqual({ pending: true, signatures: 0 })
   })
 
-  it('V3 FINDING (liveness, not safety): the orphan of a reverted ruling is reclaimable by nothing - the next ruling of the arbiter is refused by that very round', async () => {
+  it('V3 after-persist dispatch throw preserves exact durable authority and pending for restart recovery', async () => {
     const o = await openedDispute('v3')
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
     const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
       await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
       throw new Error('injected: failure after the round was persisted')
     })
-    const sign = async () => {
-      const dispute = await prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })
-      const issuedAt = new Date().toISOString()
-      const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
-      return { signature: signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt }
+    const dispute = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    const signature = signAuthorityDecision(payload, arbiterKp.secretKey)
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signature, issuedAt))
+        .rejects.toThrow(/ST1-R2 V3/)
+    } finally {
+      failing.mockRestore()
     }
-    const first = await sign()
-    await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, first.signature, first.issuedAt)).rejects.toThrow(/injected/)
-    failing.mockRestore()
-    const orphan = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
-
-    // Neither the cleanup (the dispute is not RESOLVED, so the round is not even nominated, and its generation
-    // is no longer current) nor the next ruling (the dispatch gate sees a round already recorded for this
-    // authorization; a ruling's own round is never superseded) can move it.
-    await age(orphan.id)
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+    await age(pending.id)
     const [report] = await reconcileScoped([o.escrowId])
-    expect(report).toEqual({ reconciled: [], skippedTooYoung: [], skippedHasSignatures: [], alreadyCleaned: [], failed: [] })
-    const second = await sign()
-    await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, second.signature, second.issuedAt))
-      .rejects.toThrow(/dispatch already occurred for this exact semantic authorization|already has a pending release transaction awaiting signatures/)
-    expect(await roundState(orphan.id)).toEqual({ pending: true, signatures: 0 })
+    expect(report.reconciled).toEqual(expect.arrayContaining([
+      expect.objectContaining({ escrowId: o.escrowId, verdict: 'LEFT_GUARD_PASSED' }),
+    ]))
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(1)
   })
 
   it('V2 a committed Economic Disposition Authorization names the round: the cleanup never deletes it, before or after an appeal', async () => {
