@@ -20,6 +20,12 @@ This checkpoint is a test plan, **not** execution evidence. It must not be count
 5. **Mutation sensitivity:** On disposable branches, remove the exact-generation guard and separately split Outcome deletion outside the transaction. Each mutation must produce a meaningful failing assertion (RED), while the unchanged implementation passes (GREEN). Compile failures are not behavioral RED evidence.
 6. **Regression and exact-head CI:** Run unit + complete real-Postgres integration lanes, including cooperative RACE-B/L/L2, security preflight and the ST1 suite. Record the exact branch HEAD SHA, workflow run ID, failed/passed counts, and any residual finding.
 
+## Newly verified fixture limitation (2026-10-14)
+
+The ST1 integration fixture `makeAppealable()` deliberately bypasses a PostgreSQL trigger using `SET LOCAL session_replication_role = replica` and removes the script-committed arbiter key. Its own source comment explains that a newly created production MULTISIG escrow normally has an immutable arbiter commitment, so `appeal()` cannot reach N+1 on that production path today. **V3-G proves the conditional cleanup guard against an artificially reachable historical/legacy state, not that ordinary production MULTISIG appeal can reach that state.** Keep this distinction in the audit; do not remove the fixture because legacy or migrated state still merits defensive proof.
+
+The R1 case terminates a PostgreSQL backend holding a lock, whereas V3-I uses `jest.isolateModules()`. Neither is an OS-process restart of the full reconciler. The missing process-level proof remains a separate release gate.
+
 ## Mandatory gate
 
 Do not merge PR #436, close #453, or claim 100% until all six items have reproducible evidence, with no weakened tests or bypassed preflight. Any finding must be documented with severity, reproducer, owner and disposition.
