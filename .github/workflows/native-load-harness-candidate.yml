@@ -25,6 +25,10 @@ jobs:
           grep -q 'restricted to loopback targets' /tmp/load-host-guard.out
           if SAILS_LOAD_WS_TARGET=wss://example.com node load-tests/native/run.js ws > /tmp/ws-guard.out 2>&1; then echo 'Unsafe WS target accepted'; exit 1; fi
           grep -q 'Unsupported target protocol' /tmp/ws-guard.out
+          if SAILS_LOAD_WS_TARGET=ws://example.com node load-tests/native/run.js ws > /tmp/ws-host-guard.out 2>&1; then echo 'Nonlocal WS host accepted'; exit 1; fi
+          grep -q 'restricted to loopback targets' /tmp/ws-host-guard.out
+          if SAILS_LOAD_HTTP_TARGET=http://user:password@localhost:3000 node load-tests/native/run.js intent > /tmp/credential-guard.out 2>&1; then echo 'Embedded credentials accepted'; exit 1; fi
+          grep -q 'Target URL must not contain credentials' /tmp/credential-guard.out
           node -e "require('node:assert/strict').equal(typeof WebSocket,'function')"
       - name: Install dependencies with existing script policy (fail closed)
         run: npm ci --no-audit --no-fund
