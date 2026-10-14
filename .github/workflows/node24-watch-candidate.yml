@@ -42,7 +42,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node -e 'const p=require("./package.json"); if(p.scripts["dev:node24-candidate"]!=="node --watch --require ts-node/register/transpile-only src/main.ts") process.exit(1)'
+          node -e 'const p=require("./package.json"); if(p.scripts.dev!=="node --watch --require ts-node/register/transpile-only src/main.ts") process.exit(1)'
           dir="$(mktemp -d ./node24-watch-candidate.XXXXXX)"
           printf 'const phase: string = "ONE"; console.log("WATCH_SMOKE_" + phase);\n' > "$dir/watch-smoke.ts"
           node --watch --require ts-node/register/transpile-only "$dir/watch-smoke.ts" > "$dir/watch.log" 2>&1 &

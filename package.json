@@ -31,8 +31,7 @@
   "scripts": {
     "build": "npm run build -w @sails/core && npm run build -w @satsails/p2p-schemas && npm run build -w @satsails/p2p-trading-sdk && tsc",
     "start": "node dist/src/main.js",
-    "dev": "ts-node-dev --respawn --transpile-only src/main.ts",
-    "dev:node24-candidate": "node --watch --require ts-node/register/transpile-only src/main.ts",
+    "dev": "node --watch --require ts-node/register/transpile-only src/main.ts",
     "prepare": "husky install",
     "lint": "eslint . --ext .ts --fix",
     "format": "prettier --write .",
@@ -119,7 +118,6 @@
     "redis-memory-server": "^0.17.0",
     "ts-jest": "^29.4.11",
     "ts-node": "^10.9.2",
-    "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3"
   },
   "overrides": {
