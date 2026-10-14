@@ -1,0 +1,48 @@
+name: Elliptic targeted advisory probe
+on:
+  push:
+    branches: [security/elliptic-targeted-audit-probe]
+  pull_request:
+    branches: [security/ts-node-dev-removal-validated]
+permissions:
+  contents: read
+jobs:
+  probe-elliptic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Compare narrowly targeted elliptic candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm audit --json > elliptic-baseline-audit.json || true
+          node -e 'const l=require("./package-lock.json"); console.log("baseline elliptic",l.packages["node_modules/elliptic"]?.version)'
+          npm update elliptic --package-lock-only --ignore-scripts --no-audit --no-fund
+          git diff --check
+          git diff -- package.json package-lock.json > elliptic-candidate.patch
+          npm ci --no-audit --no-fund
+          npm audit --json > elliptic-candidate-audit.json || true
+          node <<'NODE'
+          const fs=require('fs'), b=JSON.parse(fs.readFileSync('elliptic-baseline-audit.json')), a=JSON.parse(fs.readFileSync('elliptic-candidate-audit.json'));
+          const before=b.vulnerabilities||{},after=a.vulnerabilities||{};
+          const result={baseline:b.metadata?.vulnerabilities,candidate:a.metadata?.vulnerabilities,elliptic:require('./package-lock.json').packages['node_modules/elliptic']?.version,removed:Object.keys(before).filter(k=>!after[k]),added:Object.keys(after).filter(k=>!before[k]),changed:Object.keys(after).filter(k=>before[k]&&before[k].severity!==after[k].severity)};
+          fs.writeFileSync('elliptic-probe-summary.json',JSON.stringify(result,null,2)+'\n');
+          console.log(JSON.stringify(result,null,2));
+          NODE
+      - name: Upload raw evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: elliptic-targeted-probe
+          path: |
+            elliptic-baseline-audit.json
+            elliptic-candidate-audit.json
+            elliptic-probe-summary.json
+            elliptic-candidate.patch
+          if-no-files-found: warn
