@@ -17,9 +17,9 @@
 # Layer-cache optimization (added 2026-08-07, preserves behavior):
 #   - package*.json copies happen BEFORE `npm ci`, so a source-only change
 #     does not invalidate the dependency install layer.
-#   - Multi-stage builder -> pruned -> runtime stays unchanged: production
-#     image still gets the slim node_modules tree, devDependencies still
-#     pruned.
+#   - Multi-stage builder -> pruned -> runtime keeps Prisma CLI and its
+#     tooling dependencies in the builder for generate/migrations, while
+#     the serving image omits dev and optional dependencies.
 #   - Non-root user (`node`) added to the runtime stage so a future
 #     container-escape doesn't land as root inside the host namespace.
 
@@ -84,7 +84,10 @@ RUN npm run build
 # has, defeating the entire reason to target `builder` in the first
 # place).
 FROM builder AS pruned
-RUN npm prune --omit=dev
+# Prisma CLI is an optional peer of @prisma/client. npm otherwise retains
+# it (and its CLI-only dependency tree) during a production-only prune.
+# Runtime queries use the generated client with PrismaPg, not the CLI.
+RUN npm prune --omit=dev --omit=optional
 
 # ---- syntax=docker/dockerfile:1.6
 FROM node:20-bookworm-slim AS runtime
@@ -131,6 +134,8 @@ COPY --from=pruned --chown=node:node /app/node_modules ./node_modules
 COPY --from=pruned --chown=node:node /app/dist ./dist
 COPY --from=pruned --chown=node:node /app/prisma ./prisma
 COPY --from=pruned --chown=node:node /app/package.json ./package.json
+COPY --from=pruned --chown=node:node /app/packages/sails-core/dist ./packages/sails-core/dist
+COPY --from=pruned --chown=node:node /app/packages/sails-core/package.json ./packages/sails-core/package.json
 COPY --from=pruned --chown=node:node /app/packages/sails-p2p-schemas/dist ./packages/sails-p2p-schemas/dist
 COPY --from=pruned --chown=node:node /app/packages/sails-p2p-schemas/package.json ./packages/sails-p2p-schemas/package.json
 COPY --from=pruned --chown=node:node /app/packages/sails-sdk/dist ./packages/sails-sdk/dist
