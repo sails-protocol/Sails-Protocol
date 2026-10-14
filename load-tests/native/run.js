@@ -91,8 +91,9 @@ async function runPhases(name, config, work) {
       const due=begin + n*1000/phase.rate;
       const delay=due-performance.now();
       if (delay>0) await new Promise(r=>setTimeout(r,delay));
+      const i=++issued;
       if (inflight>=maxInFlight) { failed++; failures.push('overload: max in-flight'); continue; }
-      const i=++issued, start=performance.now();
+      const start=performance.now();
       inflight++; maxObserved=Math.max(maxObserved,inflight);
       const task=Promise.resolve().then(()=>work(i)).then(()=>{succeeded++;durations.push(performance.now()-start);},err=>{failed++;failures.push(String(err.message||err));}).finally(()=>{inflight--;tasks.delete(task);});
       tasks.add(task);
