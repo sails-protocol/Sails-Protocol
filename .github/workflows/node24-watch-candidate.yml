@@ -1,0 +1,47 @@
+name: Node 24 native watch candidate
+
+on:
+  pull_request:
+    paths:
+      - "package.json"
+      - ".github/workflows/node24-watch-candidate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  watch-restart-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Verify candidate command and native watch restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e 'const p=require("./package.json"); if(p.scripts["dev:node24-candidate"]!=="node --watch --require ts-node/register/transpile-only src/main.ts") process.exit(1)'
+          dir="$(mktemp -d)"
+          printf 'console.log("WATCH_SMOKE_ONE")\n' > "$dir/watch-smoke.cjs"
+          node --watch "$dir/watch-smoke.cjs" > "$dir/watch.log" 2>&1 &
+          watcher=$!
+          trap 'kill "$watcher" 2>/dev/null || true; wait "$watcher" 2>/dev/null || true; rm -rf "$dir"' EXIT
+          for i in $(seq 1 40); do
+            if grep -q WATCH_SMOKE_ONE "$dir/watch.log"; then break; fi
+            kill -0 "$watcher" 2>/dev/null || { cat "$dir/watch.log"; exit 1; }
+            sleep 0.25
+          done
+          grep -q WATCH_SMOKE_ONE "$dir/watch.log"
+          printf 'console.log("WATCH_SMOKE_TWO")\n' > "$dir/watch-smoke.cjs"
+          for i in $(seq 1 40); do
+            if grep -q WATCH_SMOKE_TWO "$dir/watch.log"; then break; fi
+            kill -0 "$watcher" 2>/dev/null || { cat "$dir/watch.log"; exit 1; }
+            sleep 0.25
+          done
+          grep -q WATCH_SMOKE_TWO "$dir/watch.log"
+          echo "Node 24 native watch restart PASS"
