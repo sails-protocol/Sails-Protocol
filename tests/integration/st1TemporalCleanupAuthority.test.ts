@@ -843,6 +843,20 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(afterFault.authoritySignature).toBeTruthy()
     expect(await outcomeRecords(o)).toBe(1)
     expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+
+    // Remove the injected fault, then retry the same signed decision. The
+    // original ruling is still durable and must not be duplicated or erased.
+    // A repeated call must not manufacture a second Outcome or pending round.
+    const dispatchRetry = jest.spyOn(escrowService, 'initiateRelease')
+      .mockRejectedValueOnce(new Error('injected: retry dispatch unavailable'))
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow()
+    } finally {
+      dispatchRetry.mockRestore()
+    }
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
   })
 
   it('V3-E durable economic authorization refuses rollback even when dispatch loses its pending round', async () => {
