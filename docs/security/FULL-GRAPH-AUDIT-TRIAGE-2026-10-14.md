@@ -37,3 +37,11 @@ At PR #458 HEAD `24ba0fb322d9def2c68904dd979a9a3fd0ea6e7f`, workflow run `385593
 At HEAD `f9d6a54bb831489188e205a9341b41e0088e6df6`, run `38559563846` began verifying `npm ci` with the modified candidate lockfile and capturing an unsuppressed candidate full audit. At the time of this note, the `npm ci` verification was still **in progress**; do not infer PASS or an improved finding count. Production dependency verification `38559563828` passed on this HEAD; other jobs were in progress.
 
 **Independent decision gate:** Do not apply the generated patch, merge, deploy, or claim vulnerability reduction until candidate `npm ci` passes, its audit artifact is inspected, and runtime behavior is verified. Preserve the original 35-record full-graph baseline until a newer raw audit provides authoritative counts. Avoid concurrent edits to PR #458 while its exact-head verification runs.
+
+## Verified post-removal candidate audit
+
+PR #458 exact HEAD `f9d6a54bb831489188e205a9341b41e0088e6df6`, workflow `38559563846`, produced review-only lockfile patch artifact `11891803237` and unsuppressed candidate audit artifact `11891953081`. The workflow completed **SUCCESS**, including `npm ci` on the generated lockfile and TypeScript entrypoint transpilation.
+
+The raw `candidate-full-audit.json` reports **34 vulnerable package records: 7 high, 21 moderate, 6 low, 0 critical**, versus the prior full-graph baseline of **35: 8 high, 21 moderate, 6 low, 0 critical**. The `ts-node-dev` package record is absent. This is a **one-record reduction in high-severity findings**, not an audit PASS. The 34 remaining package records still make the full graph **FAIL / STOP**.
+
+On the same original PR HEAD, CI, CI Tests, Node 24 TypeScript watch candidate, production dependency verification and the Docker/PostgreSQL runtime isolation job completed successfully; the full-graph advisory inventory job failed as expected. The actual removal is still **not committed** to PR #458, so these post-removal results are candidate evidence, not proof of an updated PR HEAD. Keep all approval gates and independent review in place.
