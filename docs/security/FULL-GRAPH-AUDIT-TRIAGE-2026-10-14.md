@@ -71,3 +71,18 @@ Draft PR **#460** (`security/ts-node-dev-removal-validated`), stacked on draft P
 Exact HEAD `7567c67a2af6b45d706ac0a599cf94ae1f62ef59` has newly triggered CI, CI Tests, Node 24 watch, production dependency verification, Prisma runtime isolation and an unsuppressed full-graph audit of the **committed** lockfile. At the time of this note, these runs are queued/in progress; **no exact-head PASS is claimed**. The full audit is expected to remain nonzero based on the independently tested candidate's 34 findings, but its exact-head result must be checked.
 
 **Next gate:** require exact-head `npm ci` PASS, watch smoke PASS, CI and CI Tests PASS, Docker/PostgreSQL runtime PASS, production inventory PASS, and an inspected full-audit JSON. Preserve any residual full-audit FAIL. No merge/deploy/freeze without independent review and explicit authorization.
+
+## PR #460 exact-head verification: implementation confirmed, full audit STOP
+
+On draft PR #460 HEAD `7567c67a2af6b45d706ac0a599cf94ae1f62ef59`, all relevant jobs have completed:
+
+- CI run `38561936106`: **PASS**.
+- CI Tests run `38561936273`: **PASS**.
+- Node 24 native watch restart smoke run `38561936123`: **PASS**.
+- Production dependency verification run `38561936350`: **PASS**.
+- Prisma runtime isolation run `38561936382`: Docker/PostgreSQL runtime job **PASS**, complete build-dependency advisory inventory job **FAIL**.
+- Committed-removal verification run `38561936422`: manifest/lockfile verification and `npm ci` **PASS**; unsuppressed full audit step **FAIL**, so the workflow overall **FAIL** by design.
+
+The raw `committed-removal-audit.json` artifact `11892957118` from run `38561936422` was inspected: **34 vulnerable package records** (7 high, 21 moderate, 6 low, 0 critical), **2,189 dependency records** (719 prod, 1,362 dev, 275 optional), with **no `ts-node-dev` vulnerability record**. This confirms the prior review-only candidate's counts on the actual committed HEAD.
+
+**CTO gate:** watcher replacement and lockfile regeneration are technically validated on their exact HEAD. This does **not** clear the 34 residual full-graph findings. Keep PR #460 **DRAFT**, full-audit **FAIL / STOP**, and require independent review before any merge/deploy/freeze.
