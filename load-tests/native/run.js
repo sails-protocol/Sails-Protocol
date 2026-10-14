@@ -102,6 +102,9 @@ async function runPhases(name, config, work) {
     if(remaining>0) await new Promise(r=>setTimeout(r,remaining));
   }
   await Promise.all(tasks);
+  const expectedArrivals=config.reduce((total,phase)=>total+phase.duration*phase.rate,0);
+  assert(issued===expectedArrivals, 'Arrival accounting mismatch');
+  assert(succeeded+failed===issued, 'Outcome accounting mismatch');
   durations.sort((a,b)=>a-b);
   const percentile=p=>durations.length?Number(durations[Math.ceil(durations.length*p)-1].toFixed(1)):null;
   const report={scenario:name,issued,succeeded,failed,maxInFlight:maxObserved,p50Ms:percentile(.5),p95Ms:percentile(.95),p99Ms:percentile(.99),sampleErrors:failures.slice(0,10)};
