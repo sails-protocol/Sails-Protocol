@@ -34,6 +34,8 @@ jobs:
       - name: Dependency-free syntax and safety guard checks
         run: |
           node --check load-tests/native/run.js
+          node --check load-tests/artillery/comparator-processor.js
+          node -e "const p=require('./load-tests/artillery/comparator-processor.js');if(typeof p.setupCurrentAuthenticatedUser!=='function')process.exit(1)"
           if SAILS_LOAD_HTTP_TARGET=https://example.com node load-tests/native/run.js intent > /tmp/load-guard.out 2>&1; then echo 'Unsafe target accepted'; exit 1; fi
           grep -q 'Unsupported target protocol' /tmp/load-guard.out
           if SAILS_LOAD_HTTP_TARGET=http://example.com node load-tests/native/run.js intent > /tmp/load-host-guard.out 2>&1; then echo 'Nonlocal HTTP host accepted'; exit 1; fi
