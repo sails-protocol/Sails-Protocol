@@ -1,5 +1,7 @@
 name: Prisma 7 advisory remediation probe
 on:
+  push:
+    branches: [security/prisma7-advisory-probe]
   pull_request:
     branches: [security/ts-node-dev-removal-validated]
   workflow_dispatch:
