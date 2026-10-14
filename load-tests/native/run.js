@@ -13,6 +13,7 @@ function requireLocalTarget(raw, protocols) {
   assert(protocols.includes(url.protocol), 'Unsupported target protocol: ' + url.protocol);
   assert(['localhost', '127.0.0.1', '[::1]'].includes(url.hostname), 'Load testing is restricted to loopback targets');
   assert(!url.username && !url.password, 'Target URL must not contain credentials');
+  assert(!url.search && !url.hash && (url.pathname === '/' || url.pathname === ''), 'Target URL must not contain path, query or fragment');
 }
 function validateTargets() {
   requireLocalTarget(BASE, ['http:']);
@@ -119,15 +120,21 @@ async function main(){
   }
   if(mode==='intent') return runPhases('authenticated-intent',phases,intent);
   if(mode==='ws'){
-    const users=JSON.parse(fs.readFileSync(path.join(__dirname,'users.json'),'utf8'));
+    const poolPath=path.join(__dirname,'users.json');
+    const stats=fs.statSync(poolPath);
+    assert(stats.isFile(), 'Session pool must be a regular file');
+    if (process.platform !== 'win32') assert((stats.mode & 0o077) === 0, 'Session pool permissions must be private (0600)');
+    const users=JSON.parse(fs.readFileSync(poolPath,'utf8'));
     assert(Array.isArray(users)&&users.length>0,'No pre-authenticated users; run prep');
+    assert(users.every(u=>u && typeof u.sessionToken==='string' && u.sessionToken.length>0), 'Invalid session pool');
     return runPhases('authenticated-ws-ping-pong',wsPhases,i=>websocket(users[randomInt(users.length)]));
   }
   if(mode==='prep'){
     const count=Number(process.argv[3]||50);
     assert(Number.isInteger(count)&&count>0&&count<=1000,'Invalid prep count');
     const users=[];for(let i=0;i<count;i++)users.push(await authenticate(i));
-    fs.writeFileSync(path.join(__dirname,'users.json'),JSON.stringify(users,null,2),{mode:0o600});
+    const poolPath=path.join(__dirname,'users.json');
+    fs.writeFileSync(poolPath,JSON.stringify(users,null,2),{mode:0o600,flag:'wx'});
     console.log('Prepared '+users.length+' authenticated sessions');
     return;
   }
