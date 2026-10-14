@@ -16,6 +16,7 @@ playwright/.cache/
 packages/sails-sdk/docs-api/
 *.tgz
 load-tests/artillery/users.json
+load-tests/native/users.json
 coverage/
 *.tsbuildinfo
 .next/
