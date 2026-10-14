@@ -1,0 +1,36 @@
+name: Native load harness candidate verification
+on:
+  push:
+    branches: [security/artillery-native-loadtest-replacement]
+  pull_request:
+    branches: [security/ts-node-dev-removal-validated]
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install and syntax-check harness
+        run: |
+          npm ci --no-audit --no-fund
+          node --check load-tests/native/run.js
+          node -e "require('node:assert/strict').equal(typeof WebSocket,'function')"
+          npm run build
+          npx prisma generate
+      - name: Baseline security evidence (no dependency removal yet)
+        shell: bash
+        run: |
+          npm audit --json > native-load-candidate-audit.json || true
+          node -e "const a=require('./native-load-candidate-audit.json');console.log(JSON.stringify(a.metadata?.vulnerabilities));"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-load-harness-baseline
+          path: native-load-candidate-audit.json
+          if-no-files-found: warn
