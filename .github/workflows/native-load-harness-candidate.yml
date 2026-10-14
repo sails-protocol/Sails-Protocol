@@ -60,6 +60,11 @@ jobs:
           printf '[{}]' > /tmp/sails-load-guard/users.json
           if node /tmp/sails-load-guard/run.js ws > /tmp/pool-schema.out 2>&1; then echo 'Invalid session pool accepted'; exit 1; fi
           grep -q 'Invalid session pool' /tmp/pool-schema.out
+          printf '[{"sessionToken":"test-only"}]' > /tmp/sails-load-guard/real-pool.json
+          rm /tmp/sails-load-guard/users.json
+          ln -s real-pool.json /tmp/sails-load-guard/users.json
+          if node /tmp/sails-load-guard/run.js ws > /tmp/pool-symlink.out 2>&1; then echo 'Symlinked session pool accepted'; exit 1; fi
+          grep -q 'Session pool must not be a symlink' /tmp/pool-symlink.out
           rm -rf /tmp/sails-load-guard
       - name: Install dependencies with existing script policy (fail closed)
         run: npm ci --no-audit --no-fund
