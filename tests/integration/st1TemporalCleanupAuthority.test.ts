@@ -791,6 +791,60 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(0)
   })
 
+  it('V3-A injected Outcome deletion failure rolls back the dispute update atomically', async () => {
+    const o = await openedDispute('v3-atomic-fault')
+    const before = await disputeOf(o)
+    const realTransaction = prisma.$transaction.bind(prisma)
+    let injected = false
+    // Intercept only the transaction that deletes this escrow's ruling Outcome.
+    // The actual dispute update and database transaction still execute against PostgreSQL.
+    const transactionSpy = jest.spyOn(prisma, '$transaction').mockImplementation(((callback: any, options?: any) => {
+      if (typeof callback !== 'function') return (realTransaction as any)(callback, options)
+      return (realTransaction as any)(async (tx: any) => callback(new Proxy(tx, {
+        get(target, prop) {
+          if (prop === 'semanticTransitionRecord') {
+            return new Proxy(target.semanticTransitionRecord, {
+              get(delegate, method) {
+                if (method === 'deleteMany') return async (args: any) => {
+                  if (args?.where?.interactionId === o.escrowId &&
+                      args?.where?.transitionType === 'escrow.dispute.rule') {
+                    injected = true
+                    throw new Error('injected: atomic Outcome deletion failure')
+                  }
+                  return delegate.deleteMany(args)
+                }
+                const value = (delegate as any)[method]
+                return typeof value === 'function' ? value.bind(delegate) : value
+              },
+            })
+          }
+          const value = (target as any)[prop]
+          return typeof value === 'function' ? value.bind(target) : value
+        },
+      })), options)
+    }) as any)
+    const dispatch = jest.spyOn(escrowService, 'initiateRelease')
+      .mockRejectedValueOnce(new Error('injected: dispatch failed before pending persistence'))
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: before.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/atomic Outcome deletion failure/)
+    } finally {
+      dispatch.mockRestore()
+      transactionSpy.mockRestore()
+    }
+    expect(injected).toBe(true)
+    // If updateMany were committed before deleteMany, this would incorrectly
+    // restore OPEN while leaving the committed Outcome behind.
+    const afterFault = await disputeOf(o)
+    expect(afterFault.status).toBe('RESOLVED')
+    expect(afterFault.ruling).toBe('RELEASE')
+    expect(afterFault.authoritySignature).toBeTruthy()
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+  })
+
   it('V3-E durable economic authorization refuses rollback even when dispatch loses its pending round', async () => {
     const o = await openedDispute('v3-eda-no-pending')
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
