@@ -20,6 +20,10 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           node --check load-tests/native/run.js
+          if SAILS_LOAD_HTTP_TARGET=https://example.com node load-tests/native/run.js intent > /tmp/load-guard.out 2>&1; then echo 'Unsafe target accepted'; exit 1; fi
+          grep -q 'restricted to loopback targets' /tmp/load-guard.out
+          if SAILS_LOAD_WS_TARGET=wss://example.com node load-tests/native/run.js ws > /tmp/ws-guard.out 2>&1; then echo 'Unsafe WS target accepted'; exit 1; fi
+          grep -q 'Unsupported target protocol' /tmp/ws-guard.out
           node -e "require('node:assert/strict').equal(typeof WebSocket,'function')"
           npx prisma generate
           npm run build
