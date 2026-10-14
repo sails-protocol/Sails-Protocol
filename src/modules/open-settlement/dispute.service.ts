@@ -42,6 +42,7 @@ import {
 } from './arbitration-authority'
 import { Prisma } from '@prisma/client'
 import { commitAuthoritativeDisputeRuling, revertDisputeRulingRecord } from './dispute-outcome'
+import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from './discretionary-authority'
 import { economicDispositionLockKey } from './economic-disposition-authority'
 import { assertDisputeDispatchEligible } from './dispute-dispatch'
 import { assertTranslationMatchesOutcome } from './dispatch-translation-guard'
@@ -837,7 +838,7 @@ export class DisputeService {
         await tx.semanticTransitionRecord.deleteMany({
           where: {
             interactionId: dispute.escrowId,
-            transitionType: 'ESCROW_DISPUTE_RULING',
+            transitionType: ESCROW_DISPUTE_RULING_TRANSITION_TYPE,
             appealRound: dispute.appealRound,
           },
         })
