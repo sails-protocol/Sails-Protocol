@@ -771,6 +771,26 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
   })
 
+  it('V3-N no-persist dispatch failure reverts the exact ruling and Outcome without orphan pending', async () => {
+    const o = await openedDispute('v3-no-persist')
+    const before = await disputeOf(o)
+    const failure = jest.spyOn(escrowService, 'initiateRelease').mockRejectedValueOnce(new Error('injected: dispatch rejected before persistence'))
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: before.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/dispatch rejected before persistence/)
+    } finally {
+      failure.mockRestore()
+    }
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+    const after = await disputeOf(o)
+    expect(after.status).toBe(before.status)
+    expect(after.ruling).toBeNull()
+    expect(after.authoritySignature).toBeNull()
+    expect(await outcomeRecords(o)).toBe(0)
+  })
+
   it('V3 after-persist dispatch throw preserves exact durable authority and pending for restart recovery', async () => {
     const o = await openedDispute('v3')
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
