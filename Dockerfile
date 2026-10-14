@@ -24,7 +24,7 @@
 #     container-escape doesn't land as root inside the host namespace.
 
 # ---- syntax=docker/dockerfile:1.6 ----
-FROM node:20-bookworm-slim AS builder
+FROM node:24-bookworm-slim AS builder
 
 # python3/make/g++: required to build this project's native addons
 # (sodium-native, tiny-secp256k1) from source when no matching prebuilt
@@ -90,7 +90,7 @@ FROM builder AS pruned
 RUN npm prune --omit=dev --omit=optional
 
 # ---- syntax=docker/dockerfile:1.6
-FROM node:20-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 
 # OCI labels - indexable by `docker inspect` / registry searches, also
 # surface in Docker Desktop and any container-image scanner (trivy,
