@@ -32,6 +32,12 @@ jobs:
           trap 'rm -rf "$dir"' EXIT
           printf 'const candidate: number = 24; console.log("TS_PRELOAD_" + candidate);\n' > "$dir/watch-candidate.ts"
           node --require ts-node/register/transpile-only "$dir/watch-candidate.ts" | grep -q TS_PRELOAD_24
+      - name: Verify real application entrypoint TypeScript load
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Resolve imports without calling startServer(), which would require live DB/Redis.
+          node --require ts-node/register/transpile-only -e 'const fs=require("fs"); const ts=require("typescript"); const source=fs.readFileSync("src/main.ts","utf8"); const result=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}); if(!result.outputText.includes("startServer")) process.exit(1); console.log("Application entrypoint TypeScript transpilation PASS")'
       - name: Verify candidate command and native watch restart
         shell: bash
         run: |
