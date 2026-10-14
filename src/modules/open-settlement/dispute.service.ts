@@ -808,6 +808,16 @@ export class DisputeService {
             rulingAuthoritySignature: true, rulingAuthorityIssuedAt: true,
           },
         })
+        // Fail closed when any economic disposition authorization is already durable
+        // for this escrow. A missing/replaced pending is not evidence that an
+        // authorization was never committed; authorization is indexed by its
+        // pending operation ID and must survive later pending lifecycle changes.
+        // Conservative escrow-wide check also protects older generations.
+        const committedEconomicAuthority = await tx.economicDispositionAuthorization.findFirst({
+          where: { escrowId: dispute.escrowId },
+          select: { id: true },
+        })
+        if (committedEconomicAuthority) return false
         // A pre-existing cooperative signing round is NOT proof that
         // this ruling's dispatch happened. Preserve authority only for
         // the exact generation this invocation committed.
