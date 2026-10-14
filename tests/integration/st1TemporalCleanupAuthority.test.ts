@@ -791,6 +791,33 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(0)
   })
 
+  it('V3-E durable economic authorization refuses rollback even when dispatch loses its pending round', async () => {
+    const o = await openedDispute('v3-eda-no-pending')
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+      await authorizeDisputedPendingExecution(pending)
+      expect(await edaCount(o)).toBe(1)
+      // Fault injection: emulate pending lifecycle loss after a durable economic
+      // authorization. This is an adversarial state, not claimed as a normal path.
+      await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } })
+      throw new Error('injected: authorized pending disappeared before dispatch returned')
+    })
+    const before = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: before.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/ST1-R2 V3/)
+    } finally {
+      failing.mockRestore()
+    }
+    expect(await edaCount(o)).toBe(1)
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+  })
+
   it('V3 after-persist dispatch throw preserves exact durable authority and pending for restart recovery', async () => {
     const o = await openedDispute('v3')
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
