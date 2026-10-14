@@ -52,3 +52,14 @@ Evidence: PR #472 exact HEAD `493d67be57847d5c02ccb3df4f6f7e09331b044b`, workflo
 PR #472 HEAD `636e7b4e03519dcf02fe394f9ffa58c176db3108` passed both independent workflows: **Native load harness candidate verification** run `38616526024` and **CI Tests** run `38616526259` (conclusion: success). This includes the real-service smoke and the session-pool permission, schema and symlink guards. The harness also now counts rejected overload arrivals in `issued` and enforces `issued === scheduled arrivals` and `succeeded + failed === issued` before publishing phase metrics. These checks validate accounting logic, **not** a sustained benchmark.
 
 **Benchmark decision gate (not yet authorized):** record in the issue/PR an explicit approval naming (1) disposable isolated environment and local target, (2) permissible request/connection budget and duration, (3) auth/WS ticket rate-limit policy without weakening production, (4) equivalent Artillery/native configurations, (5) pass/fail thresholds for success, 429 classification, p50/p95/p99, throughput and resource use, and (6) evidence retention/redaction for bearer sessions. Until then, do not run sustained phases, remove Artillery, or claim parity. A 429 from an intentional security limit is classified as a protection event, not automatically a performance defect.
+
+## CTO-approved bounded rehearsal evidence (2026-10-14)
+
+Exact HEAD `6bf6158865caa4f9ec84b1aff5dc538267af84b5`, workflow run `38622816063`, job `116054358932`: **success**; independent CI Tests run `38622816429`: **success**. The disposable PostgreSQL 16 / Redis 7 job ran real-service smoke and `bench-small` without modifying the production security policy.
+
+| Scenario | Issued | Success | Failed | p50 | p95 | p99 | Max in-flight |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Isolated HTTP intent create/delete | 2 | 2 | 0 | 27.2 ms | 31.5 ms | 31.5 ms | 1 |
+| Isolated WS ticket/PING/PONG | 2 | 2 | 0 | 4.1 ms | 17.6 ms | 17.6 ms | 1 |
+
+These are **two observations per scenario**, not statistically meaningful percentiles or a sustained parity result. They do not measure Artillery performance, production capacity or scalability. No Artillery dependency was removed. Next: perform equivalent, explicitly bounded comparisons in the disposable environment while preserving security limits and documenting intentional HTTP 429 behavior. Never silently widen rate limits or interpret this 4/4 rehearsal as throughput certification.
