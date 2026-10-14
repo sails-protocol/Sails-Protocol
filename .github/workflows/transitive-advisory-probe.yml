@@ -1,0 +1,47 @@
+name: Targeted transitive advisory probe
+on:
+  push:
+    branches: [security/targeted-transitive-advisory-probe]
+  pull_request:
+    branches: [security/ts-node-dev-removal-validated]
+permissions:
+  contents: read
+jobs:
+  compatible-transitive-updates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Resolve only compatible transitive updates and compare unsuppressed audits
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm audit --json > baseline-transitive-audit.json || true
+          npm update --package-lock-only --ignore-scripts --no-audit --no-fund
+          git diff --check
+          git diff -- package.json package-lock.json > compatible-transitive-update.patch
+          npm ci --no-audit --no-fund
+          npm audit --json > candidate-transitive-audit.json || true
+          node <<'NODE'
+          const fs=require('fs'), b=JSON.parse(fs.readFileSync('baseline-transitive-audit.json')), a=JSON.parse(fs.readFileSync('candidate-transitive-audit.json'));
+          const before=b.vulnerabilities||{},after=a.vulnerabilities||{};
+          const result={baseline:b.metadata?.vulnerabilities,candidate:a.metadata?.vulnerabilities,removed:Object.keys(before).filter(k=>!after[k]),added:Object.keys(after).filter(k=>!before[k]),changed:Object.keys(after).filter(k=>before[k]&&before[k].severity!==after[k].severity)};
+          fs.writeFileSync('transitive-probe-summary.json',JSON.stringify(result,null,2)+'\n');
+          console.log(JSON.stringify(result,null,2));
+          NODE
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatible-transitive-probe
+          path: |
+            baseline-transitive-audit.json
+            candidate-transitive-audit.json
+            transitive-probe-summary.json
+            compatible-transitive-update.patch
+          if-no-files-found: warn
