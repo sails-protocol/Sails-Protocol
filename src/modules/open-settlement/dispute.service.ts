@@ -791,9 +791,12 @@ export class DisputeService {
       // V3: the dispatch adapter may persist a pending PSBT and throw before
       // returning. A generic rollback would strand that round without its
       // Outcome, making both reconciliation and retry impossible. Inspect
-      // durable state under D -> E locks before any reversal. If a pending
-      // exists, preserve the committed authority for recovery, regardless
-      // of whether it is signed or the translation guard would pass.
+      // durable state under D -> E locks before any reversal. Preserve
+      // authority only when the pending belongs to this exact committed
+      // ruling generation. A pre-existing cooperative round is not proof
+      // of this ruling's dispatch and must not suppress a valid rollback.
+      // Signature and translation safety remain owned by the locked
+      // reconciliation guard, never by this catch block.
       const mayRevert = await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dispute.escrowId})::bigint)`
