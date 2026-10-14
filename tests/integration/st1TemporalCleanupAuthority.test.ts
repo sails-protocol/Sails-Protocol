@@ -800,6 +800,34 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(1)
   })
 
+  it('V3-S a signature persisted before dispatch throws is never lost by the rollback path', async () => {
+    const o = await openedDispute('v3-signed')
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+      await prisma.escrowTransactionSignature.create({
+        data: { pendingTxId: pending.id, participantId: o.buyerId, signedPsbtBase64: 'st1-v3-signed-before-throw' },
+      })
+      throw new Error('injected: signed after persist')
+    })
+    const dispute = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/ST1-R2 V3/)
+    } finally {
+      failing.mockRestore()
+    }
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 1 })
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await decide(pending.id, o.escrowId, await generationOf(pending.id))).toBe('SIGNED_MEANWHILE')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 1 })
+  })
+
   it('V2 a committed Economic Disposition Authorization names the round: the cleanup never deletes it, before or after an appeal', async () => {
     const o = await openedDispute('v2')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
