@@ -24,7 +24,12 @@ async function authenticate(i) {
   const kp = nacl.sign.keyPair();
   const publicKey = toHex(kp.publicKey);
   // Original Artillery processor does not assert registration status. Here fail closed.
-  await request('/v1/identity/participants', 'POST', { publicKey, displayName: 'loadtest-' + i + '-' + publicKey.slice(0,8) }, null, 201);
+  const displayName = 'loadtest-' + i + '-' + publicKey.slice(0,8);
+  const registration = await request('/v1/identity/register-challenge', 'POST', { publicKey }, null, 200);
+  assert(typeof registration.data?.data?.challenge === 'string', 'Missing registration challenge');
+  const registrationMessage = Buffer.from('sails-registration-proof-of-possession:v1:' + registration.data.data.challenge + ':' + displayName, 'utf8');
+  const registrationSignature = toHex(nacl.sign.detached(registrationMessage, kp.secretKey));
+  await request('/v1/identity/participants', 'POST', { publicKey, displayName, signature: registrationSignature }, null, 201);
   const challenge = await request('/v1/identity/challenge', 'POST', { publicKey }, null, 200);
   assert(typeof challenge.data?.data?.challenge === 'string', 'Missing challenge');
   const signature = toHex(nacl.sign.detached(Buffer.from(challenge.data.data.challenge, 'utf8'), kp.secretKey));
@@ -40,9 +45,12 @@ async function intent(i) {
   assert(typeof id === 'string' && id.length > 0, 'Missing intent ID');
   await request('/v1/intents/' + encodeURIComponent(id), 'DELETE', undefined, user.sessionToken, 200);
 }
-function websocket(user) {
+async function websocket(user) {
+  const issued = await request('/v1/identity/ws-ticket', 'POST', undefined, user.sessionToken, 200);
+  const ticket = issued.data?.data?.ticket;
+  assert(typeof ticket === 'string' && ticket.length > 0, 'Missing single-use WS ticket');
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(WSBASE + '/v1/openp2p/chat?token=' + encodeURIComponent(user.sessionToken));
+    const ws = new WebSocket(WSBASE + '/v1/openp2p/chat?ticket=' + encodeURIComponent(ticket));
     const started = performance.now();
     let done = false;
     const timeout = setTimeout(() => finish(Error('WebSocket PONG timeout')), 15000);
