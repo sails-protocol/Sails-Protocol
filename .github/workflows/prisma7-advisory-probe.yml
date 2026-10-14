@@ -1,0 +1,49 @@
+name: Prisma 7 advisory remediation probe
+on:
+  pull_request:
+    branches: [security/ts-node-dev-removal-validated]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe-prisma:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Resolve compatible Prisma 7 patch without committing
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm audit --json > prisma-baseline-audit.json || true
+          node -e 'const p=require("./package.json"); for(const k of ["prisma","@prisma/client","@prisma/adapter-pg"]){const v=p.dependencies?.[k]||p.devDependencies?.[k]; if(!v||!v.includes("7."))process.exit(1)}'
+          npm update prisma @prisma/client @prisma/adapter-pg --package-lock-only --ignore-scripts --no-audit --no-fund
+          git diff --check
+          git diff -- package.json package-lock.json > prisma7-update-candidate.patch
+          node -e 'const l=require("./package-lock.json"); for(const k of ["prisma","@prisma/client","@prisma/adapter-pg"]){const v=l.packages["node_modules/"+k]?.version; console.log(k,v); if(!v?.startsWith("7.")) process.exit(1)}'
+          npm ci --no-audit --no-fund
+          npm run db:generate
+          npm audit --json > prisma-candidate-audit.json || true
+          node <<'NODE'
+          const fs=require('fs'), b=JSON.parse(fs.readFileSync('prisma-baseline-audit.json')), a=JSON.parse(fs.readFileSync('prisma-candidate-audit.json'));
+          const before=b.vulnerabilities||{}, after=a.vulnerabilities||{};
+          const result={baseline:b.metadata?.vulnerabilities,candidate:a.metadata?.vulnerabilities,removed:Object.keys(before).filter(k=>!after[k]),added:Object.keys(after).filter(k=>!before[k]),changed:Object.keys(after).filter(k=>before[k]&&before[k].severity!==after[k].severity).map(k=>({name:k,before:before[k].severity,after:after[k].severity}))};
+          fs.writeFileSync('prisma7-probe-summary.json',JSON.stringify(result,null,2)+'\n');
+          console.log(JSON.stringify(result,null,2));
+          NODE
+      - name: Upload Prisma 7 candidate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prisma7-advisory-probe
+          path: |
+            prisma-baseline-audit.json
+            prisma-candidate-audit.json
+            prisma7-probe-summary.json
+            prisma7-update-candidate.patch
+          if-no-files-found: warn
