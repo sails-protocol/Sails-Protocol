@@ -36,6 +36,33 @@ jobs:
           test -s ts-node-dev-removal.patch
           node -e 'const p=require("./package-lock.json"); if(p.packages?.["node_modules/ts-node-dev"]) process.exit(1); console.log("ts-node-dev absent from candidate lockfile")'
           git status --short
+      - name: Verify candidate lockfile installation and TypeScript startup primitive
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          node -e 'const p=require("./package.json"); if(p.devDependencies?.["ts-node-dev"] || p.scripts.dev!=="node --watch --require ts-node/register/transpile-only src/main.ts") process.exit(1)'
+          node --require ts-node/register/transpile-only -e 'const ts=require("typescript"),fs=require("fs"); const code=ts.transpileModule(fs.readFileSync("src/main.ts","utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText; if(!code.includes("startServer")) process.exit(1)'
+          if test -d node_modules/ts-node-dev; then echo "Removed dependency unexpectedly installed"; exit 1; fi
+          echo "Candidate lockfile npm ci and entrypoint transpilation PASS"
+      - name: Capture unsuppressed candidate audit result
+        shell: bash
+        run: |
+          set +e
+          npm audit --json > candidate-full-audit.json
+          status=$?
+          set -e
+          echo "Full audit exit code: $status"
+          node -e 'const a=require("./candidate-full-audit.json"); console.log(JSON.stringify(a.metadata?.vulnerabilities || {},null,2))'
+          # Keep the audit failure visible without treating known debt as a clean pass.
+          test "$status" -eq 0 || echo "::warning::Candidate full dependency audit remains nonzero; remediation is incomplete."
+      - name: Upload candidate audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ts-node-dev-removal-audit
+          path: candidate-full-audit.json
+          if-no-files-found: warn
       - name: Upload reviewable patch only
         uses: actions/upload-artifact@v4
         with:
