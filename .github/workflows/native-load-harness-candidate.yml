@@ -21,8 +21,8 @@ jobs:
           npm ci --no-audit --no-fund
           node --check load-tests/native/run.js
           node -e "require('node:assert/strict').equal(typeof WebSocket,'function')"
-          npm run build
           npx prisma generate
+          npm run build
       - name: Baseline security evidence (no dependency removal yet)
         shell: bash
         run: |
