@@ -49,8 +49,8 @@ async function authenticate(i) {
   assert(typeof auth.data?.data?.sessionToken === 'string', 'Missing sessionToken');
   return { publicKey, sessionToken: auth.data.data.sessionToken };
 }
-async function intent(i) {
-  const user = await authenticate(i);
+async function intent(i, existingUser) {
+  const user = existingUser || await authenticate(i);
   const assets = ['BTC', 'USDT_ERC20', 'LN_BTC'];
   const created = await request('/v1/intents', 'POST', { type: 'TradeIntent', payload: { asset: assets[randomInt(assets.length)], side:'BUY', maxValue:'100', currency:'USD' } }, user.sessionToken, 201);
   const id = created.data?.data?.id;
@@ -108,6 +108,14 @@ async function runPhases(name, config, work) {
 async function main(){
   validateTargets();
   const mode=process.argv[2];
+  if(mode==='smoke') {
+    // One user, four auth-tier calls total; avoids defeating the default shared 10/min limit.
+    const user = await authenticate('smoke');
+    await intent('smoke', user);
+    await websocket(user);
+    console.log(JSON.stringify({scenario:'authenticated-smoke',identity:'PASS',intent:'PASS',websocketPingPong:'PASS'}));
+    return;
+  }
   if(mode==='intent') return runPhases('authenticated-intent',phases,intent);
   if(mode==='ws'){
     const users=JSON.parse(fs.readFileSync(path.join(__dirname,'users.json'),'utf8'));
@@ -122,6 +130,6 @@ async function main(){
     console.log('Prepared '+users.length+' authenticated sessions');
     return;
   }
-  throw Error('Usage: node load-tests/native/run.js intent|prep [count]|ws');
+  throw Error('Usage: node load-tests/native/run.js smoke|intent|prep [count]|ws');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});
