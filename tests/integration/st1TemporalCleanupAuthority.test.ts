@@ -55,7 +55,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
   let commitAuthoritativeDisputeRuling: (...args: any[]) => Promise<{ committed: boolean }>
   let deletePendingRoundIfStillUnsigned: (pendingId: string, escrowId: string, generation: any) => Promise<string>
   let reconcileStalePendingDisputeTranslations: () => Promise<any>
-  let restarted: { prisma: PrismaClient; deletePendingRoundIfStillUnsigned: typeof deletePendingRoundIfStillUnsigned; redis: { quit(): Promise<unknown> } } | undefined
+  let restarted: { prisma: PrismaClient; deletePendingRoundIfStillUnsigned: typeof deletePendingRoundIfStillUnsigned; reconcileStalePendingDisputeTranslations: typeof reconcileStalePendingDisputeTranslations; redis: { quit(): Promise<unknown> } } | undefined
 
   const ARBITER_ID = 'st1-temporal-arbiter-1'
   const ARBITER2_ID = 'st1-temporal-arbiter-2'
@@ -95,6 +95,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       restarted = {
         prisma: require('../../src/common/database').prisma,
         deletePendingRoundIfStillUnsigned: require('../../src/modules/open-settlement/dispute-pending-reconciliation').deletePendingRoundIfStillUnsigned,
+        reconcileStalePendingDisputeTranslations: require('../../src/modules/open-settlement/dispute-pending-reconciliation').reconcileStalePendingDisputeTranslations,
         redis: require('../../src/common/redis').redis,
       }
     })
@@ -855,6 +856,45 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     }
     expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
     expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+  })
+
+  it('V3-I independent module graph reconciles an after-persist throw using only durable state', async () => {
+    const o = await openedDispute('v3-isolated')
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
+      throw new Error('injected: after persisted dispatch')
+    })
+    const dispute = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/ST1-R2 V3/)
+    } finally {
+      failing.mockRestore()
+    }
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    await age(pending.id)
+    // The separately loaded module graph uses a different Prisma client.
+    // Scope the scan to this escrow without substituting the reconciler.
+    const independent = restarted!
+    const delegate: any = independent.prisma.escrowPendingTransaction
+    const realFindMany = delegate.findMany.bind(delegate)
+    const spy = jest.spyOn(delegate, 'findMany').mockImplementation((args: any) =>
+      realFindMany({ ...args, where: { AND: [args?.where ?? {}, { escrowId: o.escrowId }] } }))
+    try {
+      const report = await independent.reconcileStalePendingDisputeTranslations()
+      expect(report.failed).toEqual([])
+      expect(report.reconciled).toEqual(expect.arrayContaining([
+        expect.objectContaining({ escrowId: o.escrowId, verdict: 'LEFT_GUARD_PASSED' }),
+      ]))
+    } finally {
+      spy.mockRestore()
+    }
+    expect(await roundState(pending.id, independent.prisma)).toEqual({ pending: true, signatures: 0 })
     expect((await disputeOf(o)).status).toBe('RESOLVED')
     expect(await outcomeRecords(o)).toBe(1)
   })
