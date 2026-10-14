@@ -745,7 +745,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(1)
   })
 
-  it('V1 after-persist throw never erases the committed Outcome; cleanup cannot delete a valid pending', async () => {
+  it('V1 after-persist throw never erases the committed Outcome; cleanup deletes an invalid unsigned pending', async () => {
     const o = await openedDispute('v1')
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
     const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
@@ -766,8 +766,8 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect((await disputeOf(o)).status).toBe('RESOLVED')
     expect(await outcomeRecords(o)).toBe(1)
     await stale(pending.id, o)
-    expect(await decide(pending.id, o.escrowId, await generationOf(pending.id))).toBe('GUARD_PASSED')
-    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await decide(pending.id, o.escrowId, await generationOf(pending.id))).toBe('DELETED')
+    expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
   })
 
   it('V3 after-persist dispatch throw preserves exact durable authority and pending for restart recovery', async () => {
