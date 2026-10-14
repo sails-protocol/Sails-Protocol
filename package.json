@@ -32,6 +32,7 @@
     "build": "npm run build -w @sails/core && npm run build -w @satsails/p2p-schemas && npm run build -w @satsails/p2p-trading-sdk && tsc",
     "start": "node dist/src/main.js",
     "dev": "ts-node-dev --respawn --transpile-only src/main.ts",
+    "dev:node24-candidate": "node --watch --require ts-node/register/transpile-only src/main.ts",
     "prepare": "husky install",
     "lint": "eslint . --ext .ts --fix",
     "format": "prettier --write .",
