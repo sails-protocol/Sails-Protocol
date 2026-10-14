@@ -44,6 +44,10 @@ jobs:
           grep -q 'restricted to loopback targets' /tmp/ws-host-guard.out
           if SAILS_LOAD_HTTP_TARGET=http://user:password@localhost:3000 node load-tests/native/run.js intent > /tmp/credential-guard.out 2>&1; then echo 'Embedded credentials accepted'; exit 1; fi
           grep -q 'Target URL must not contain credentials' /tmp/credential-guard.out
+          if SAILS_LOAD_HTTP_TARGET=http://localhost:3000/other node load-tests/native/run.js smoke > /tmp/path-guard.out 2>&1; then echo 'Target path accepted'; exit 1; fi
+          grep -q 'Target URL must not contain path, query or fragment' /tmp/path-guard.out
+          if SAILS_LOAD_WS_TARGET=ws://localhost:3000/?ticket=secret node load-tests/native/run.js smoke > /tmp/query-guard.out 2>&1; then echo 'Target query accepted'; exit 1; fi
+          grep -q 'Target URL must not contain path, query or fragment' /tmp/query-guard.out
           node -e "require('node:assert/strict').equal(typeof WebSocket,'function')"
       - name: Install dependencies with existing script policy (fail closed)
         run: npm ci --no-audit --no-fund
