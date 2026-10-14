@@ -122,6 +122,15 @@ async function main(){
     console.log(JSON.stringify({scenario:'authenticated-smoke',identity:'PASS',intent:'PASS',websocketPingPong:'PASS'}));
     return;
   }
+  if(mode==='bench-small') {
+    // CTO-approved isolated rehearsal: 1 real identity (4 auth calls), at most
+    // 2 sequential HTTP intent round-trips and 2 sequential WS PING/PONGs.
+    // Never use this low-volume correctness result to claim sustained parity.
+    const user=await authenticate('bench-small');
+    await runPhases('isolated-http-rehearsal',[{duration:2,rate:1}],i=>intent(i,user));
+    await runPhases('isolated-ws-rehearsal',[{duration:2,rate:1}],()=>websocket(user));
+    return;
+  }
   if(mode==='intent') return runPhases('authenticated-intent',phases,intent);
   if(mode==='ws'){
     const poolPath=path.join(__dirname,'users.json');
@@ -143,6 +152,6 @@ async function main(){
     console.log('Prepared '+users.length+' authenticated sessions');
     return;
   }
-  throw Error('Usage: node load-tests/native/run.js smoke|intent|prep [count]|ws');
+  throw Error('Usage: node load-tests/native/run.js smoke|bench-small|intent|prep [count]|ws');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});
