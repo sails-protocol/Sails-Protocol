@@ -94,6 +94,9 @@ jobs:
           done
           if [ "$ready" -ne 1 ]; then echo 'API readiness timeout'; exit 1; fi
           timeout 90s node load-tests/native/run.js smoke
+          # Approved isolated bounded benchmark rehearsal, separate from sustained parity.
+          # Fresh isolated Redis/Postgres; one auth identity, 2 HTTP and 2 WS arrivals.
+          timeout 90s node load-tests/native/run.js bench-small
       - name: Baseline security evidence (no dependency removal yet)
         shell: bash
         run: |
