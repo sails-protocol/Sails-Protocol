@@ -1,0 +1,19 @@
+# Candidate WS comparator. Not a PASS/PONG parity gate until Artillery's receive
+# assertion is verified against a disposable backend. Do not run in production.
+# First run: node load-tests/artillery/prepare-bounded-ws.js
+# Remove bounded-ws-users.json immediately after the disposable test.
+config:
+  target: "ws://127.0.0.1:3000"
+  processor: "./ws-bounded-processor.js"
+  phases:
+    - duration: 2
+      arrivalRate: 1
+      name: Bounded two-arrival WS rehearsal
+scenarios:
+  - name: "Current one-time-ticket WS PING candidate"
+    engine: "ws"
+    flow:
+      - connect:
+          function: "connectWithFreshTicket"
+      - send: '{"type":"PING","payload":{}}'
+      - think: 1
