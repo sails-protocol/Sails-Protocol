@@ -1,0 +1,64 @@
+name: Node 24 native watch candidate
+
+on:
+  pull_request:
+    paths:
+      - "package.json"
+      - ".github/workflows/node24-watch-candidate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  watch-restart-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install locked development dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Verify TypeScript preload and transpilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --require ts-node/register/transpile-only -e 'require("typescript"); console.log("ts-node preload PASS")'
+          dir="$(mktemp -d ./node24-watch-candidate.XXXXXX)"
+          trap 'rm -rf "$dir"' EXIT
+          printf 'const candidate: number = 24; console.log("TS_PRELOAD_" + candidate);\n' > "$dir/watch-candidate.ts"
+          node --require ts-node/register/transpile-only "$dir/watch-candidate.ts" | grep -q TS_PRELOAD_24
+      - name: Verify real application entrypoint TypeScript load
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Resolve imports without calling startServer(), which would require live DB/Redis.
+          node --require ts-node/register/transpile-only -e 'const fs=require("fs"); const ts=require("typescript"); const source=fs.readFileSync("src/main.ts","utf8"); const result=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}); if(!result.outputText.includes("startServer")) process.exit(1); console.log("Application entrypoint TypeScript transpilation PASS")'
+      - name: Verify candidate command and native watch restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e 'const p=require("./package.json"); if(p.scripts["dev:node24-candidate"]!=="node --watch --require ts-node/register/transpile-only src/main.ts") process.exit(1)'
+          dir="$(mktemp -d ./node24-watch-candidate.XXXXXX)"
+          printf 'const phase: string = "ONE"; console.log("WATCH_SMOKE_" + phase);\n' > "$dir/watch-smoke.ts"
+          node --watch --require ts-node/register/transpile-only "$dir/watch-smoke.ts" > "$dir/watch.log" 2>&1 &
+          watcher=$!
+          trap 'kill "$watcher" 2>/dev/null || true; wait "$watcher" 2>/dev/null || true; rm -rf "$dir"' EXIT
+          for i in $(seq 1 40); do
+            if grep -q WATCH_SMOKE_ONE "$dir/watch.log"; then break; fi
+            kill -0 "$watcher" 2>/dev/null || { cat "$dir/watch.log"; exit 1; }
+            sleep 0.25
+          done
+          grep -q WATCH_SMOKE_ONE "$dir/watch.log"
+          printf 'const phase: string = "TWO"; console.log("WATCH_SMOKE_" + phase);\n' > "$dir/watch-smoke.ts"
+          for i in $(seq 1 40); do
+            if grep -q WATCH_SMOKE_TWO "$dir/watch.log"; then break; fi
+            kill -0 "$watcher" 2>/dev/null || { cat "$dir/watch.log"; exit 1; }
+            sleep 0.25
+          done
+          grep -q WATCH_SMOKE_TWO "$dir/watch.log"
+          echo "Node 24 native watch restart PASS"
