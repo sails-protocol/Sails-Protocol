@@ -121,7 +121,8 @@ async function main(){
   if(mode==='intent') return runPhases('authenticated-intent',phases,intent);
   if(mode==='ws'){
     const poolPath=path.join(__dirname,'users.json');
-    const stats=fs.statSync(poolPath);
+    const stats=fs.lstatSync(poolPath);
+    assert(!stats.isSymbolicLink(), 'Session pool must not be a symlink');
     assert(stats.isFile(), 'Session pool must be a regular file');
     if (process.platform !== 'win32') assert((stats.mode & 0o077) === 0, 'Session pool permissions must be private (0600)');
     const users=JSON.parse(fs.readFileSync(poolPath,'utf8'));
