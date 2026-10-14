@@ -828,6 +828,18 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 1 })
   })
 
+  it('V3-G an older generation cannot authorize deletion after appeal advances the dispute', async () => {
+    const o = await openedDispute('v3-generation')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const oldGeneration = await generationOf(pending.id)
+    await stale(pending.id, o)
+    await makeAppealable(o)
+    await appealService().appeal(o.disputeId, o.buyerId)
+    expect((await disputeOf(o)).status).not.toBe('RESOLVED')
+    expect(await decide(pending.id, o.escrowId, oldGeneration)).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+  })
+
   it('V2 a committed Economic Disposition Authorization names the round: the cleanup never deletes it, before or after an appeal', async () => {
     const o = await openedDispute('v2')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
