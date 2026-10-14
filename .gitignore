@@ -17,6 +17,7 @@ packages/sails-sdk/docs-api/
 *.tgz
 load-tests/artillery/users.json
 load-tests/native/users.json
+load-tests/artillery/bounded-ws-users.json
 coverage/
 *.tsbuildinfo
 .next/
