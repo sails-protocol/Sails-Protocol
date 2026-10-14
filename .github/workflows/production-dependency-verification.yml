@@ -2,11 +2,12 @@ name: Production dependency verification
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, security/dependabot-integrated-candidate]
     paths:
       - "package.json"
       - "package-lock.json"
       - "**/package.json"
+      - "Dockerfile"
       - ".github/workflows/production-dependency-verification.yml"
   workflow_dispatch:
 
@@ -35,29 +36,35 @@ jobs:
 
       - name: Install production dependencies cleanly
         working-directory: reference
-        run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund --no-progress
+        run: npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund --no-progress
 
       - name: Report physically installed Prisma dependency paths
         working-directory: reference
         run: |
           node <<'NODE'
           const lock = require('./node_modules/.package-lock.json');
-          const wanted = ['prisma', '@prisma/config', 'mysql2', 'deepmerge-ts'];
+          const forbidden = ['prisma', '@prisma/config', 'mysql2', 'deepmerge-ts'];
+          const required = ['@prisma/client', '@prisma/adapter-pg', '@prisma/client-runtime-utils', 'pg'];
 
-          for (const name of wanted) {
+          let failed = false;
+          for (const name of [...forbidden, ...required]) {
             const suffix = `/node_modules/${name}`;
             const matches = Object.entries(lock.packages)
               .filter(([path]) => path === `node_modules/${name}` || path.endsWith(suffix))
               .map(([path, pkg]) => ({ path, version: pkg.version }));
-            console.log(JSON.stringify({ name, physicallyInstalled: matches.length > 0, matches }));
+            const physicallyInstalled = matches.length > 0;
+            const mustBeInstalled = required.includes(name);
+            console.log(JSON.stringify({ name, physicallyInstalled, expected: mustBeInstalled ? 'present' : 'absent', matches }));
+            if (physicallyInstalled !== mustBeInstalled) failed = true;
           }
+          if (failed) process.exitCode = 1;
           NODE
 
       - name: Audit production dependency graph
         working-directory: reference
         run: |
           set +e
-          npm audit --omit=dev --json --no-fund --no-progress > production-audit.json
+          npm audit --omit=dev --omit=optional --json --no-fund --no-progress > production-audit.json
           audit_status=$?
           set -e
           cat production-audit.json
