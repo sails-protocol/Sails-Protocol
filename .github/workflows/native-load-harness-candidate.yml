@@ -342,6 +342,22 @@ jobs:
           NODE
       - name: Install pinned k6 runner for bounded real-service proof
         uses: grafana/setup-k6-action@v1
+      - name: Record resolved k6 executable provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          k6_path="$(command -v k6)"
+          test -n "$k6_path"
+          test -f "$k6_path"
+          {
+            printf 'runner=%s\n' 'ubuntu-latest'
+            printf 'k6_version='
+            k6 version
+            printf 'k6_sha256='
+            sha256sum "$k6_path" | cut -d ' ' -f 1
+          } > k6-executable-provenance.txt
+          # No token-bearing URLs, secrets or environment dumps.
+          cat k6-executable-provenance.txt
       - name: Prove k6 PONG assertion fails against non-PONG loopback fixture
         shell: bash
         run: |
@@ -418,5 +434,5 @@ jobs:
         if: always()
         with:
           name: native-load-harness-baseline
-          path: native-load-candidate-audit.json
+          path: |\n            native-load-candidate-audit.json\n            k6-executable-provenance.txt
           if-no-files-found: warn
