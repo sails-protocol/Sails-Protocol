@@ -487,11 +487,11 @@ jobs:
           };
           console.log('k6 bounded Intent sanitized error signatures:',JSON.stringify(signatures));
           const naclFailurePhase={
-            bundler: /(?:could not resolve|cannot find|module not found|unknown module)[^\\n]*?(?:tweetnacl|nacl-fast)/i.test(log),
-            import: /(?:import|require|initializ)[^\\n]*?(?:tweetnacl|nacl-fast)/i.test(log),
-            cryptoInit: /(?:tweetnacl|nacl-fast)[^\\n]*?(?:crypto|random|prng)/i.test(log),
-            gojaRuntime: /(?:tweetnacl|nacl-fast)[^\\n]*?(?:GoError|TypeError|ReferenceError)/i.test(log),
-            errorContext: /(?:level=error|ERRO\\[)[^\\n]*?(?:tweetnacl|nacl-fast)/i.test(log),
+            bundler: log.includes('tweetnacl') && /could not resolve|cannot find|module not found|unknown module/i.test(log),
+            import: log.includes('tweetnacl') && /import|require|initializ/i.test(log),
+            cryptoInit: log.includes('tweetnacl') && /crypto|random|prng/i.test(log),
+            gojaRuntime: log.includes('tweetnacl') && /GoError|TypeError|ReferenceError/i.test(log),
+            errorContext: log.includes('tweetnacl') && /level=error|ERRO/i.test(log),
           };
           console.log('k6 bounded Intent module failure types:',JSON.stringify(moduleFailureTypes));
           console.log('k6 bounded Intent nacl failure phase:',JSON.stringify(naclFailurePhase));
