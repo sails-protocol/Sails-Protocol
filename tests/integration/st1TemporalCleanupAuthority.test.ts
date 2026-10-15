@@ -904,8 +904,13 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       transactionSpy.mockRestore()
     }
     expect(databaseFaultAttempted).toBe(true)
-    expect((await disputeOf(o)).status).toBe('RESOLVED')
-    expect((await disputeOf(o)).authoritySignature).toBeTruthy()
+    // The PostgreSQL error must roll back the *entire* dispute mutation,
+    // not merely preserve status while silently altering the generation.
+    const afterSqlFault = await disputeOf(o)
+    expect(afterSqlFault.status).toBe('RESOLVED')
+    expect(afterSqlFault.ruling).toBe('RELEASE')
+    expect(afterSqlFault.appealRound).toBe(before.appealRound)
+    expect(afterSqlFault.authoritySignature).toBeTruthy()
     expect(await outcomeRecords(o)).toBe(1)
     expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
 
