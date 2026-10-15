@@ -1401,11 +1401,12 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
         child!.on('close', (code, signal) => done({ code, signal }))
       })
       // Bound the lock-wait observation: a child startup failure must not stall the PG lane indefinitely.
+      let waitTimeout: ReturnType<typeof setTimeout> | undefined
       const waitResult = await Promise.race([
         untilWaiting(1).then(() => 'waiting' as const),
         exited.then(() => 'exited' as const),
-        new Promise<'timeout'>(done => setTimeout(() => done('timeout'), 45_000)),
-      ])
+        new Promise<'timeout'>(done => { waitTimeout = setTimeout(() => done('timeout'), 45_000) }),
+      ]).finally(() => { if (waitTimeout) clearTimeout(waitTimeout) })
       if (waitResult !== 'waiting') {
         throw new Error(`R1-K child did not reach advisory lock (${waitResult}); stdout=${childStdout.slice(-2000)} stderr=${childStderr.slice(-2000)}`)
       }
