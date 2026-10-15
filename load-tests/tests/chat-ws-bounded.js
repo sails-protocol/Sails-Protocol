@@ -33,10 +33,16 @@ export default function (data) {
   if (!check(ticketRes, { 'ticket: HTTP 200': r => r.status === 200 })) throw new Error('WS ticket request rejected')
   const ticket = ticketRes.json('data.ticket')
   if (typeof ticket !== 'string' || !ticket) throw new Error('Missing WS ticket')
+  assertApplicationPong(`${WS_BASE}/v1/openp2p/chat?ticket=${encodeURIComponent(ticket)}`)
+
+}
+
+/** Exported for an isolated deliberately non-PONG WebSocket fixture. */
+export function assertApplicationPong(url) {
   let pong = false
   let appError = false
   let opened = false
-  const result = ws.connect(`${WS_BASE}/v1/openp2p/chat?ticket=${encodeURIComponent(ticket)}`, {
+  const result = ws.connect(url, {
     tags: { name: 'authenticated_chat_ws' },
   }, socket => {
     socket.on('open', () => {
