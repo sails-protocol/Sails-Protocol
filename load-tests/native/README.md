@@ -89,3 +89,8 @@ The bounded Artillery WS candidate now uses a private one-user session pool and 
 ### Bounded PONG assertion hardening
 
 The test-only `assertPongFromSocket` primitive now rejects out-of-range timeouts and accepts a `PONG` based on its message type, matching the existing native harness. CI covers wrong-message-type and timeout-boundary negatives. This is **unit-level** evidence only; no claim of Artillery engine integration or live WS parity is made. The actual server PONG shape must be verified before using this primitive as a production-representative assertion.
+
+
+### Comparator configuration drift guard
+
+CI checks that the bounded Artillery candidates remain exactly one HTTP and one WS scenario, each at one arrival per second for two seconds, targeting loopback. The HTTP flow must authenticate with current PoP and retain explicit 201/200 create/cancel expectations; the WS flow must remain connect-ticket, PING, and wait, clearly labeled PONG-unverified. A green configuration guard **does not** prove either Artillery scenario was executed. Actual execution and negative receive proof remain mandatory gates.
