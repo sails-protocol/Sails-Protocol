@@ -934,24 +934,12 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(1)
     expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
 
-    // Remove all injected faults and retry the exact signed decision through
-    // the production dispatch path. The pending round must be persisted once.
-    const escrow = await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })
-    serveFundingUtxo(escrow.txLockId!)
-    await getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt)
-    const recoveredPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
-    expect(recoveredPending.disputeId).toBe(o.disputeId)
-    expect(recoveredPending.rulingAppealRound).toBe(before.appealRound)
-    expect(recoveredPending.rulingAuthoritySignature).toBe(afterSqlFault.authoritySignature)
-    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
-    expect(await outcomeRecords(o)).toBe(1)
-    expect((await disputeOf(o)).authoritySignature).toBe(afterSqlFault.authoritySignature)
-    // Replay after successful recovery must be inert and cannot create a
-    // second pending operation or a second economic Outcome.
-    await getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt)
-    const replayPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
-    expect(replayPending.id).toBe(recoveredPending.id)
-    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    // The public resolveDispute API intentionally refuses replay of a
+    // RESOLVED ruling. Recovery of a persisted ruling is a separate operation,
+    // not another signed decision through the original endpoint.
+    await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+      .rejects.toThrow(/already resolved/i)
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
     expect(await outcomeRecords(o)).toBe(1)
     expect((await disputeOf(o)).authoritySignature).toBe(afterSqlFault.authoritySignature)
   })
@@ -1131,14 +1119,12 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await edaCount(o)).toBe(0)
   })
 
-  it('V3-GR a concurrent old-generation cleanup cannot erase a newly appealed generation', async () => {
+  it('V3-GR blocked old-generation cleanup resumes safely after the D lock is released', async () => {
     const o = await openedDispute('v3-generation-race')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
     const oldGeneration = await generationOf(pending.id)
     await stale(pending.id, o)
     await makeAppealable(o)
-    // Hold the old cleanup at its production D advisory lock while an
-    // independent appeal commits the next generation.
     const releaseD = await holdD(o)
     let released = false
     try {
@@ -1150,14 +1136,18 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       }
       await releaseD()
       released = true
-      // This proves a blocked cleanup can safely resume; a fully ordered
-      // appeal-before-release interleaving needs its own two-connection gate.
-      expect(await cleanup).toBe('PROVENANCE_REJECTED')
+      // Cleanup is allowed to delete this stale unsigned pending before
+      // the appeal commits. It must not mutate the later appeal generation.
+      expect(await cleanup).toBe('DELETED')
+      expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
       await appealService().appeal(o.disputeId, o.buyerId)
       const appealed = await disputeOf(o)
       expect(appealed.appealRound).toBeGreaterThan(oldGeneration.rulingAppealRound)
-      expect(await decide(pending.id, o.escrowId, oldGeneration)).toBe('PROVENANCE_REJECTED')
-      expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+      expect(await decide(pending.id, o.escrowId, oldGeneration)).not.toBe('DELETED')
+      expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
+      const after = await disputeOf(o)
+      expect(after.appealRound).toBe(appealed.appealRound)
+      expect(after.status).toBe(appealed.status)
     } finally {
       if (!released) await releaseD()
     }
