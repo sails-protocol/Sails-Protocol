@@ -933,6 +933,19 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(afterReplay.authoritySignature).toBe(afterSqlFault.authoritySignature)
     expect(await outcomeRecords(o)).toBe(1)
     expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+
+    // Remove all injected faults and retry the exact signed decision through
+    // the production dispatch path. The pending round must be persisted once.
+    const escrow = await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })
+    serveFundingUtxo(escrow.txLockId!)
+    await getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt)
+    const recoveredPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    expect(recoveredPending.disputeId).toBe(o.disputeId)
+    expect(recoveredPending.rulingAppealRound).toBe(before.appealRound)
+    expect(recoveredPending.rulingAuthoritySignature).toBe(afterSqlFault.authoritySignature)
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect((await disputeOf(o)).authoritySignature).toBe(afterSqlFault.authoritySignature)
   })
 
   it('V3-E durable economic authorization refuses rollback even when dispatch loses its pending round', async () => {
