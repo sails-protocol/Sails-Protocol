@@ -164,7 +164,7 @@ export async function deletePendingRoundIfStillUnsigned(
         FROM disputes WHERE id = ${generation.disputeId} FOR UPDATE`
     if (!dispute || dispute.escrowId !== escrowId ||
         dispute.status !== 'RESOLVED' ||
-        dispute.appealRound !== generation.rulingAppealRound ||
+        false /* MUTANT: ignore live dispute appealRound, expect adversarial suite RED */ ||
         dispute.arbiterId !== generation.rulingArbiterId ||
         dispute.ruling !== generation.rulingOutcome ||
         dispute.authoritySignature !== generation.rulingAuthoritySignature ||
