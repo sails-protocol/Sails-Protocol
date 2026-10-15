@@ -1124,6 +1124,35 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await disputeOf(o)).toEqual(before)
     expect(await outcomeRecords(o)).toBe(1)
     expect(await edaCount(o)).toBe(0)
+    // Repeat the recovery from another fresh OS process after the writer's
+    // SIGKILL. No duplicate pending, signature, Outcome, or dispatch may emerge.
+    const replay = await new Promise<{ code: number | null; output: string; errors: string }>((done, reject) => {
+      const worker = spawn(process.execPath, ['-e', recoveryCode], {
+        cwd: resolve(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let output = ''; let errors = ''
+      worker.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
+      worker.stderr.on('data', (chunk: Buffer) => { errors += chunk.toString() })
+      const watchdog = setTimeout(() => worker.kill('SIGKILL'), 60_000)
+      worker.on('error', e => { clearTimeout(watchdog); reject(e) })
+      worker.on('close', code => { clearTimeout(watchdog); done({ code, output, errors }) })
+    })
+    expect({ code: replay.code, errors: replay.errors.slice(-2000) }).toEqual({ code: 0, errors: expect.any(String) })
+    const replayLine = replay.output.split('\n').find(x => x.startsWith('ST1_RECOVERY:'))
+    expect(replayLine).toBeDefined()
+    const replayReport = JSON.parse(replayLine!.slice('ST1_RECOVERY:'.length))
+    expect(replayReport.reconciled).not.toContainEqual(expect.objectContaining({
+      escrowId: o.escrowId, verdict: 'DELETED_GUARD_FAILED',
+    }))
+    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: marker } })).toEqual(agedPending)
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect(await roundState(marker)).toEqual({ pending: true, signatures: 0 })
+    expect(await generationOf(marker)).toEqual(generation)
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
   })
 
   it('V3-OS a fresh OS process preserves the exact persisted ruling after a writer-side post-persist failure', async () => {
