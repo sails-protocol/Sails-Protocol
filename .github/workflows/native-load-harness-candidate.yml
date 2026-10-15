@@ -486,7 +486,15 @@ jobs:
             networkBeforeAuth: /(?:dial tcp|connection refused|connection reset)/i.test(log),
           };
           console.log('k6 bounded Intent sanitized error signatures:',JSON.stringify(signatures));
+          const naclFailurePhase={
+            bundler: /(?:could not resolve|cannot find|module not found|unknown module)[^\\n]*?(?:tweetnacl|nacl-fast)/i.test(log),
+            import: /(?:import|require|initializ)[^\\n]*?(?:tweetnacl|nacl-fast)/i.test(log),
+            cryptoInit: /(?:tweetnacl|nacl-fast)[^\\n]*?(?:crypto|random|prng)/i.test(log),
+            gojaRuntime: /(?:tweetnacl|nacl-fast)[^\\n]*?(?:GoError|TypeError|ReferenceError)/i.test(log),
+            errorContext: /(?:level=error|ERRO\\[)[^\\n]*?(?:tweetnacl|nacl-fast)/i.test(log),
+          };
           console.log('k6 bounded Intent module failure types:',JSON.stringify(moduleFailureTypes));
+          console.log('k6 bounded Intent nacl failure phase:',JSON.stringify(naclFailurePhase));
           NODE
             echo 'k6 real-service Intent smoke failed; logs withheld to protect credentials'; exit 1;
           }
