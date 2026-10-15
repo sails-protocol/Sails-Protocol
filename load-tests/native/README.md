@@ -88,4 +88,4 @@ The bounded Artillery WS candidate now uses a private one-user session pool and 
 
 ### Bounded PONG assertion hardening
 
-The test-only `assertPongFromSocket` primitive now rejects out-of-range timeouts and does not accept a `PONG` lacking an object payload. CI covers the malformed-response and timeout-boundary negatives. This is **unit-level** evidence only; no claim of Artillery engine integration or live WS parity is made. The actual server PONG shape must be verified before using this primitive as a production-representative assertion.
+The test-only `assertPongFromSocket` primitive now rejects out-of-range timeouts and accepts a `PONG` based on its message type, matching the existing native harness. CI covers wrong-message-type and timeout-boundary negatives. This is **unit-level** evidence only; no claim of Artillery engine integration or live WS parity is made. The actual server PONG shape must be verified before using this primitive as a production-representative assertion.
