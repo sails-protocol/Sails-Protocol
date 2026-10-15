@@ -1338,7 +1338,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       child.on('close', (code) => { clearTimeout(watchdog); done({ code, stdout, stderr }) })
     })
     expect({ exitCode: childResult.code, stderr: childResult.stderr.slice(-4000) }).toEqual({ exitCode: 0, stderr: expect.any(String) })
-    const resultLine = childResult.stdout.split('\\n').find(line => line.startsWith('ST1_CHILD_RESULT:'))
+    const resultLine = childResult.stdout.split('\n').find(line => line.startsWith('ST1_CHILD_RESULT:'))
     expect(resultLine).toBeDefined()
     const report = JSON.parse(resultLine!.slice('ST1_CHILD_RESULT:'.length))
     expect(report.reconciled).toContainEqual({
