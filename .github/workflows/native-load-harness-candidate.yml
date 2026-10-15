@@ -160,6 +160,26 @@ jobs:
           console.log('Installed WS engine receive-related source locations (paths only):',JSON.stringify(matches.slice(0,40)));
           console.log('Inspection is diagnostic, not proof of an assertion hook');
           NODE
+      - name: Identify resolved Artillery WS engine package
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const path=require('node:path');
+          const pkg=require('./node_modules/artillery/package.json');
+          const deps={...pkg.dependencies,...pkg.optionalDependencies};
+          console.log('Artillery version:',pkg.version);
+          console.log('WS-related dependency names:',Object.keys(deps).filter(x=>/ws|websocket|engine/i.test(x)).sort().join(',')||'(none)');
+          const candidates=['@artilleryio/engine-ws','artillery-engine-ws','ws'];
+          for(const name of candidates){
+            try{
+              const resolved=require.resolve(name,{paths:[path.resolve('node_modules/artillery'),process.cwd()]});
+              console.log('Resolved module:',name,path.relative(process.cwd(),resolved));
+            }catch{console.log('Module not directly resolvable:',name);}
+          }
+          const dirs=['node_modules/artillery/lib','node_modules/artillery/dist','node_modules/@artilleryio'];
+          for(const dir of dirs)if(fs.existsSync(dir))console.log('Present package directory:',dir);
+          NODE
       - name: Bound Artillery candidate scope and prevent false WS parity
         shell: bash
         run: |
