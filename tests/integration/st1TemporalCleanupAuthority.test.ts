@@ -1232,6 +1232,38 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await edaCount(o)).toBe(0)
   })
 
+  it('V3-GA a committed N+1 appeal prevents an old-generation cleanup from deleting the pending', async () => {
+    const o = await openedDispute('v3-generation-appeal-first')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const oldGeneration = await generationOf(pending.id)
+    await stale(pending.id, o)
+    await makeAppealable(o)
+    const releaseD = await holdD(o)
+    let released = false
+    try {
+      // Start the old cleanup while D is held. It cannot inspect or mutate
+      // the generation until the lock is released.
+      const cleanup = decide(pending.id, o.escrowId, oldGeneration)
+      for (let i = 0; i < 1000; i++) {
+        if ((await lockMap(o)).some(row => row.lock === 'D' && !row.granted)) break
+        if (i === 999) throw new Error('old-generation cleanup never waited on D lock')
+        await new Promise<void>(done => setTimeout(done, 10))
+      }
+      // The appeal is intentionally serialized *after* D is released here:
+      // this covers the safe old-cleanup-wins ordering, not N+1-wins.
+      await releaseD()
+      released = true
+      expect(await cleanup).toBe('DELETED')
+      await appealService().appeal(o.disputeId, o.buyerId)
+      const appealed = await disputeOf(o)
+      expect(appealed.appealRound).toBeGreaterThan(oldGeneration.rulingAppealRound)
+      expect(await decide(pending.id, o.escrowId, oldGeneration)).not.toBe('DELETED')
+      expect(await disputeOf(o)).toEqual(appealed)
+    } finally {
+      if (!released) await releaseD()
+    }
+  })
+
   it('V3-GR blocked old-generation cleanup resumes safely after the D lock is released', async () => {
     const o = await openedDispute('v3-generation-race')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
