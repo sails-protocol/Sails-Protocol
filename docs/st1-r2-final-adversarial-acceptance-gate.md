@@ -36,7 +36,7 @@ This checkpoint is a test plan, **not** execution evidence. It must not be count
 ## OS SIGKILL / second-process recovery checkpoint
 
 - **GREEN:** `522bc401ad929eb3d034d743e05dbbbf49660c7f`, [run 38669531625](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38669531625). R1-K SIGKILLs a separate Node.js process after a real ruling is durable and while the cleanup is waiting on an E advisory lock. It asserts that the ruling, pending round, Outcome, and EDA state remain intact.
-- **PENDING CI:** `9b7c4f73648206dfb32886a6409f1810924f3ace`, [run 38673827478](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38673827478). This extends R1-K so a **second independent OS process** runs the real reconciler after SIGKILL, then checks the exact pending ID, Outcome, unchanged dispute, no EDA, and an ALREADY_GONE replay. The migration and unit steps are GREEN; real PostgreSQL integration is still running at this checkpoint.
+- **GREEN:** `9b7c4f73648206dfb32886a6409f1810924f3ace`, [run 38673827478](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38673827478). A **second independent OS process** runs the real reconciler after SIGKILL, verifying the exact pending ID, Outcome, unchanged dispute, no EDA and ALREADY_GONE replay.
 - **Remaining Gate 1 distinction:** the process killed in R1-K is the *cleanup worker*, not the *original ruling writer*. The exact required writer-process crash at the post-commit boundary remains unproven even if R1-K becomes GREEN. Do not close Gate 1 by conflating these failure windows.
 
 ## Confirmed second-process recovery (2026-10-15)
@@ -44,6 +44,17 @@ This checkpoint is a test plan, **not** execution evidence. It must not be count
 - **GREEN exact HEAD:** `9b7c4f73648206dfb32886a6409f1810924f3ace`, [workflow 38673827478](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38673827478). R1-K SIGKILLs an OS cleanup worker while PostgreSQL E-lock-blocked, then a separate OS process with a fresh module graph/Prisma connection runs the real reconciliation entrypoint. It asserts the same pending ID was deleted, subsequent replay is ALREADY_GONE, dispute and Outcome unchanged, and no EDA.
 - **Scope restriction:** the original ruling was created by the Jest parent before worker startup. This is strong cleanup-crash recovery evidence, **not** a post-commit writer-process crash. Gate 1 is still PARTIAL.
 - No GREEN evidence from this run is automatically transferable to a later documentation or code HEAD. Do not merge until the final SHA's full CI and remaining gates are accepted.
+
+## Current measurable acceptance checkpoint (2026-10-15)
+
+**Evidence-weighted engineering progress estimate: 65% (provisional, not a formal gate score).** This is an estimate of remaining adversarial verification work, **not** a measured acceptance rate; formal gate closure is **0/6** until the six cases are individually signed off. The estimate must not be extrapolated to production readiness or merge approval.
+
+- **GREEN:** `60ff912936a97800395803f914f70220ba492d8e`, [run 38681101815](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38681101815): full reconciler replay after OS recovery is inert.
+- **GREEN:** `067d2cd35d4b888755e2eed6b995f69d5aa23ebb`, [run 38684309285](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38684309285): child diagnostic capture and bounded lock wait.
+- **GREEN:** `593bf42c9efe32cb9b570812b15c8a37ded8bb34`, [run 38684323205](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38684323205): watchdog cleanup.
+- **IN PROGRESS at this checkpoint:** `f9b496833c9155ea94f7109d9dd0904e7745270e` [run 38687269993](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38687269993) and `3be8f68bfa7a9b4bbb0f8935eadb4cad394f2763` [run 38687283298](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38687283298). Both had successful migrations and unit lanes; PG integration was still running. These changes scope the observed waiter to the target E advisory lock and assert uniqueness.
+- **No claim of Gate 1 closure:** the ruling writer was not the killed OS process. Gates 2-5 retain their documented outstanding adversarial cases; Gate 6 must be repeated on the final SHA.
+- **Next acceptance order:** writer post-commit SIGKILL -> successful SQL-fault recovery -> N/N+1 interleaving -> two behavioral mutations RED -> final exact-head CI. Record failures and do not merge on a green partial subset.
 
 ## Required executable acceptance cases
 
