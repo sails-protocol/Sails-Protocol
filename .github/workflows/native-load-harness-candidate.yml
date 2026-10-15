@@ -446,6 +446,20 @@ jobs:
           done
           if [ "$ready" -ne 1 ]; then echo 'k6 API readiness timeout'; exit 1; fi
           timeout 90s k6 run --quiet -e BASE_URL=http://127.0.0.1:3000 load-tests/tests/intent-bounded.js > /tmp/sails-k6-intent.log 2>&1 || {
+            # Print fixed-category diagnostics only; never expose auth material.
+            node <<'NODE'
+          const fs=require('node:fs');
+          const log=fs.readFileSync('/tmp/sails-k6-intent.log','utf8');
+          const categories={
+            moduleLoad: /(?:could not resolve|unknown module|module not found|syntaxerror)/i.test(log),
+            authFailure: /(?:authentication failed|registration failed|\\b401\\b|\\b403\\b)/i.test(log),
+            rateLimit: /(?:\\b429\\b|too many requests|rate.limit)/i.test(log),
+            intentFailure: /(?:intent.*(?:failed|rejected)|(?:failed|rejected).*intent)/i.test(log),
+            deadline: /(?:timeout|timed out|deadline exceeded)/i.test(log),
+            assertionThreshold: /(?:thresholds on metrics|thresholds have been crossed)/i.test(log),
+          };
+          console.log('k6 bounded Intent sanitized failure classification:',JSON.stringify(categories));
+          NODE
             echo 'k6 real-service Intent smoke failed; logs withheld to protect credentials'; exit 1;
           }
           # Intent setup consumes four auth-tier calls. WS setup consumes
