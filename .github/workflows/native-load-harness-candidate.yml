@@ -34,6 +34,7 @@ jobs:
       - name: Dependency-free syntax and safety guard checks
         run: |
           node --check load-tests/native/run.js
+          node --check load-tests/tests/chat-ws-bounded.js
           node --check load-tests/artillery/comparator-processor.js
           node --check load-tests/artillery/prepare-bounded-ws.js
           node --check load-tests/artillery/ws-bounded-processor.js
