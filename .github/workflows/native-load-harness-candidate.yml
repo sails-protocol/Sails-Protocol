@@ -425,6 +425,49 @@ jobs:
             exit 1
           fi
           echo 'k6 negative proof PASS: missing PONG fails closed'
+      - name: Isolate k6 Ed25519 CSPRNG compatibility before authenticated smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          # No credentials or network requests. Distinguish loader failures from
+          # secure RNG and Ed25519 signing before starting the real backend.
+          cat > load-tests/tests/crypto-preflight.js <<'EOF'
+          import { check } from 'k6'
+          globalThis.self = globalThis
+          const nacl = require('../../node_modules/tweetnacl/nacl-fast.js')
+          if (!globalThis.crypto || typeof globalThis.crypto.getRandomValues !== 'function') {
+            throw new Error('K6_CRYPTO_PREFLIGHT_WEBCRYPTO_UNAVAILABLE')
+          }
+          nacl.setPRNG((buffer, length) => {
+            for (let i = 0; i < length; i += 65536) {
+              globalThis.crypto.getRandomValues(buffer.subarray(i, Math.min(i + 65536, length)))
+            }
+          })
+          export const options = { vus: 1, iterations: 1, thresholds: { checks: ['rate==1'] } }
+          export default function () {
+            const pair = nacl.sign.keyPair()
+            const message = new Uint8Array([83, 97, 105, 108, 115])
+            const signature = nacl.sign.detached(message, pair.secretKey)
+            check(signature, { 'ed25519 sign and verify': sig => nacl.sign.detached.verify(message, sig, pair.publicKey) })
+          }
+          EOF
+          if ! timeout 30s k6 run --quiet load-tests/tests/crypto-preflight.js > /tmp/sails-k6-crypto-preflight.log 2>&1; then
+            node <<'NODE'
+          const fs=require('node:fs');
+          const log=fs.readFileSync('/tmp/sails-k6-crypto-preflight.log','utf8');
+          const reasons={
+            webcryptoUnavailable: log.includes('K6_CRYPTO_PREFLIGHT_WEBCRYPTO_UNAVAILABLE'),
+            moduleResolution: /unknown module|could not resolve|module not found/i.test(log),
+            tweetnaclInitialization: /tweetnacl|nacl-fast/i.test(log),
+            prngUnavailable: /no PRNG|random source|random bytes|getRandomValues/i.test(log),
+            runtimeException: /GoError|TypeError|ReferenceError|SyntaxError/i.test(log),
+            signatureCheck: /thresholds on metrics|thresholds have been crossed/i.test(log),
+          };
+          console.log('k6 isolated Ed25519 preflight failure:',JSON.stringify(reasons));
+          NODE
+            echo 'k6 isolated Ed25519 preflight failed; raw logs withheld'; exit 1
+          fi
+          echo 'k6 isolated Ed25519 preflight PASS'
       - name: Execute bounded k6 Intent and WS PONG on real disposable backend
         env:
           NODE_ENV: development
