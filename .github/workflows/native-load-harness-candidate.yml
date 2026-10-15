@@ -367,6 +367,12 @@ jobs:
           k6_path="$(command -v k6)"
           test -n "$k6_path"
           test -f "$k6_path"
+          expected_version="v1.2.3"
+          installed_version="$(k6 version)"
+          case "$installed_version" in
+            *"$expected_version"*) ;;
+            *) echo 'Expected pinned k6 version was not installed'; exit 1 ;;
+          esac
           {
             printf 'runner=%s\n' 'ubuntu-latest'
             printf 'k6_version='
