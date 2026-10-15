@@ -1058,6 +1058,8 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(report.reconciled).toContainEqual(expect.objectContaining({
       escrowId: o.escrowId, pendingTransactionId: pending.id, verdict: 'LEFT_GUARD_PASSED',
     }))
+    // A committed generation must not be changed by the recovery worker.
+    // Compare both the pending row and its parent dispute, not just counts.
     const afterPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
     expect(afterPending.rulingAuthoritySignature).toBe(generation.rulingAuthoritySignature)
     expect(afterPending.rulingAppealRound).toBe(generation.rulingAppealRound)
