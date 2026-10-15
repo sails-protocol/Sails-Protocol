@@ -1339,7 +1339,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     })
     expect({ exitCode: childResult.code, stderr: childResult.stderr.slice(-4000) }).toEqual({ exitCode: 0, stderr: expect.any(String) })
     const resultLine = childResult.stdout.split('\n').find(line => line.startsWith('ST1_CHILD_RESULT:'))
-    expect(resultLine).toBeDefined()
+    expect({ foundResultLine: Boolean(resultLine), exitCode: childResult.code, stdoutTail: childResult.stdout.slice(-2000), stderrTail: childResult.stderr.slice(-2000) }).toEqual({ foundResultLine: true, exitCode: 0, stdoutTail: expect.any(String), stderrTail: expect.any(String) })
     const report = JSON.parse(resultLine!.slice('ST1_CHILD_RESULT:'.length))
     expect(report.reconciled).toContainEqual({
       escrowId: o.escrowId, pendingTransactionId: pending.id, verdict: 'DELETED_GUARD_FAILED',
