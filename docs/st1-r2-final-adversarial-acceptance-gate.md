@@ -11,6 +11,20 @@ This checkpoint is a test plan, **not** execution evidence. It must not be count
 - The `resolveDispute()` error handler locks D then E, conditionally reverts the exact dispute generation, and deletes the associated Outcome in the same database transaction.
 - The Outcome key is `(interactionId, transitionType, appealRound)`; this is not by itself proof that no durable economic authorization can be invalidated.
 
+## Exact-head execution checkpoint (2026-10-14)
+
+- **GREEN:** `c17dea0ca74ac0b499cf4b5f1c846e876636a907`, [GitHub Actions run 38657825715](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38657825715), job `116171691835`: database migrations, bounded unit lane, real-PostgreSQL integration lane and log upload all SUCCESS.
+- **GREEN:** `857172f6b2d41f068e004e42f06b0d589b252b33`, [run 38653139351](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38653139351): V3-PG injects a **real PostgreSQL division-by-zero SQL error** inside the D→E rollback transaction, after the Dispute update and before Outcome deletion. The assertion requires original RESOLVED ruling, signature and one Outcome to survive.
+- **GREEN:** `c17dea0` strengthens post-fault signed-decision replay: ruling remains RESOLVED/RELEASE, signature survives, exactly one Outcome remains, no pending exists. **This is a rejected replay under another dispatch fault, not proof of successful retry/exactly-once execution.**
+- Gate 2 is therefore **PARTIAL**, not closed. The existing SQL injection is executed through the transaction's live PostgreSQL connection but intercepted at the Prisma delegate boundary. A successful recovery after removal of the fault and exact-once dispatch are still required.
+- Gate 1 is **OPEN**: R1 kills a PostgreSQL backend; V3-I isolates Jest modules. Neither starts a new OS process after forcibly terminating the first.
+- Gate 3 is **PARTIAL**: V3-E proves fail-closed with injected EDA/pending-loss state; production reachability and pending N+1 replacement remain unproven.
+- Gate 4 is **PARTIAL**: synthetic legacy appeal N+1 coverage exists; deterministic old-catch pause across connections remains unproven.
+- Gate 5 is **OPEN**: no disposable-branch behavioral mutation RED/GREEN evidence.
+- Gate 6 is **GREEN for c17dea0 only** and must be repeated on final acceptance HEAD.
+
+**Do not equate 99% implementation maturity with 6/6 acceptance gates.** This checkpoint records evidence and residual blockers without changing the merge gate.
+
 ## Required executable acceptance cases
 
 1. **OS-process restart:** Process A creates a real pending ruling round and is forcibly terminated after persistence. Process B starts from a fresh module graph and a fresh Prisma pool and runs the real reconciliation entrypoint. Assert the same pending ID, same generation, same Outcome, no lost signature, no duplicate dispatch, and stable replay. Do not use Jest isolation as a substitute.
