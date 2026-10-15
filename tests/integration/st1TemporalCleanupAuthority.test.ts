@@ -1453,6 +1453,47 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     }
   })
 
+  it('V3-GI a queued N+1 appeal commits before an old N cleanup blocked on the same D lock', async () => {
+    const o = await openedDispute('v3-generation-interleave')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const oldGeneration = await generationOf(pending.id)
+    await stale(pending.id, o)
+    await makeAppealable(o)
+    const beforePending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+    const outcomeCount = await outcomeRecords(o)
+    const releaseD = await holdD(o)
+    let released = false
+    try {
+      // Queue the production appeal first while D is held, then queue
+      // the old cleanup behind it. Both use independent DB transactions.
+      const appeal = appealService().appeal(o.disputeId, o.buyerId)
+      for (let i = 0; i < 1000; i++) {
+        if ((await lockMap(o)).some(row => row.lock === 'D' && !row.granted)) break
+        if (i === 999) throw new Error('N+1 appeal never waited on D lock')
+        await new Promise<void>(done => setTimeout(done, 10))
+      }
+      const cleanup = decide(pending.id, o.escrowId, oldGeneration)
+      for (let i = 0; i < 1000; i++) {
+        if ((await lockMap(o)).filter(row => row.lock === 'D' && !row.granted).length >= 2) break
+        if (i === 999) throw new Error('old N cleanup never queued behind the appeal')
+        await new Promise<void>(done => setTimeout(done, 10))
+      }
+      await releaseD()
+      released = true
+      await appeal
+      const appealed = await disputeOf(o)
+      expect(appealed.appealRound).toBeGreaterThan(oldGeneration.rulingAppealRound)
+      expect(appealed.status).toBe('APPEALED')
+      expect(await cleanup).toBe('PROVENANCE_REJECTED')
+      expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })).toEqual(beforePending)
+      expect(await disputeOf(o)).toEqual(appealed)
+      expect(await outcomeRecords(o)).toBe(outcomeCount)
+      expect(await edaCount(o)).toBe(0)
+    } finally {
+      if (!released) await releaseD()
+    }
+  })
+
   it('V2 a committed Economic Disposition Authorization names the round: the cleanup never deletes it, before or after an appeal', async () => {
     const o = await openedDispute('v2')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
