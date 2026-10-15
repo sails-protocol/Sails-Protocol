@@ -1013,6 +1013,117 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(1)
   })
 
+  it('V3-WK SIGKILLs the actual writer OS process after its real pending persists, then recovers independently', async () => {
+    const o = await openedDispute('v3-writer-sigkill')
+    const escrow = await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })
+    const dispute = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    const signature = signAuthorityDecision(payload, arbiterKp.secretKey)
+    const { spawn } = require('child_process') as typeof import('child_process')
+    const { resolve } = require('path') as typeof import('path')
+    const childCode = String.raw`
+      require('ts-node/register/transpile-only')
+      const { prisma } = require('./src/common/database')
+      const { escrowService } = require('./src/modules/open-settlement/escrow.service')
+      const { getDisputeService } = require('./src/modules/open-settlement/dispute.service')
+      const { intentEngine } = require('./src/core/intent-engine')
+      const { OpenP2PTradeIntentHandler } = require('./src/modules/open-p2p/intent-handler')
+      intentEngine.registerHandler(OpenP2PTradeIntentHandler)
+      require('./src/common/events/handlers').registerEventHandlers()
+      const txid = process.env.ST1_WRITER_TXID
+      global.fetch = async url => {
+        const path = String(url)
+        if (path.includes('/blocks/tip/height')) return { ok: true, text: async () => '100' }
+        if (path.includes('/tx/' + txid + '/status')) return { ok: true, json: async () => ({ confirmed: true, block_height: 100 }) }
+        if (path.includes('/v1/fees/recommended')) return { ok: true, json: async () => ({ halfHourFee: 5, fastestFee: 8 }) }
+        return { ok: true, json: async () => [{ txid, vout: 0, value: 100000, status: { confirmed: true } }] }
+      }
+      const realInitiate = escrowService.initiateRelease.bind(escrowService)
+      escrowService.initiateRelease = async (...args) => {
+        const result = await realInitiate(...args)
+        const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: process.env.ST1_WRITER_ESCROW } })
+        process.stdout.write('ST1_WRITER_PERSISTED:' + row.id + '\\n')
+        await new Promise(() => {})
+        return result
+      }
+      getDisputeService().resolveDispute(
+        process.env.ST1_WRITER_DISPUTE, process.env.ST1_WRITER_ARBITER, 'RELEASE',
+        undefined, undefined, undefined, process.env.ST1_WRITER_SIGNATURE,
+        process.env.ST1_WRITER_ISSUED_AT
+      ).catch(e => { process.stderr.write(String(e.stack || e)); process.exit(1) })
+    `
+    const child = spawn(process.execPath, ['-e', childCode], {
+      cwd: resolve(__dirname, '../..'),
+      env: {
+        ...process.env, MOCK_ESCROW: 'false',
+        MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed',
+        TRUSTED_ARBITRATORS: process.env.TRUSTED_ARBITRATORS || ARBITER_ID,
+        ST1_WRITER_TXID: escrow.txLockId!, ST1_WRITER_ESCROW: o.escrowId,
+        ST1_WRITER_DISPUTE: o.disputeId, ST1_WRITER_ARBITER: o.arbiterId,
+        ST1_WRITER_SIGNATURE: signature, ST1_WRITER_ISSUED_AT: issuedAt,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    const marker = await new Promise<string>((done, reject) => {
+      const watchdog = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('writer never persisted: ' + stderr.slice(-2000))) }, 60_000)
+      child.stdout.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString()
+        const match = stdout.match(/ST1_WRITER_PERSISTED:([^\r\n]+)/)
+        if (match) { clearTimeout(watchdog); done(match[1]) }
+      })
+      child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+      child.on('error', err => { clearTimeout(watchdog); reject(err) })
+      child.on('exit', code => { if (!stdout.includes('ST1_WRITER_PERSISTED:')) { clearTimeout(watchdog); reject(new Error('writer exited ' + code + ': ' + stderr.slice(-2000))) } })
+    })
+    const killed = new Promise<{ signal: NodeJS.Signals | null }>((done) => child.once('close', (_code, signal) => done({ signal })))
+    child.kill('SIGKILL')
+    expect((await killed).signal).toBe('SIGKILL')
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: marker } })
+    const before = await disputeOf(o)
+    const generation = await generationOf(marker)
+    expect(before.status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+    await age(marker)
+    const recoveryCode = String.raw`
+      require('ts-node/register/transpile-only')
+      const { prisma } = require('./src/common/database')
+      const { reconcileStalePendingDisputeTranslations } = require('./src/modules/open-settlement/dispute-pending-reconciliation')
+      reconcileStalePendingDisputeTranslations().then(async report => {
+        process.stdout.write('ST1_RECOVERY:' + JSON.stringify(report) + '\\n')
+        await prisma.$disconnect()
+        process.exit(0)
+      }).catch(async e => { process.stderr.write(String(e.stack || e)); await prisma.$disconnect(); process.exit(1) })
+    `
+    const recovered = await new Promise<{ code: number | null; output: string; errors: string }>((done, reject) => {
+      const worker = spawn(process.execPath, ['-e', recoveryCode], {
+        cwd: resolve(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let output = ''; let errors = ''
+      worker.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
+      worker.stderr.on('data', (chunk: Buffer) => { errors += chunk.toString() })
+      const watchdog = setTimeout(() => worker.kill('SIGKILL'), 60_000)
+      worker.on('error', e => { clearTimeout(watchdog); reject(e) })
+      worker.on('close', code => { clearTimeout(watchdog); done({ code, output, errors }) })
+    })
+    expect(recovered.code).toBe(0)
+    const line = recovered.output.split('\n').find(x => x.startsWith('ST1_RECOVERY:'))
+    expect(line).toBeDefined()
+    const report = JSON.parse(line!.slice('ST1_RECOVERY:'.length))
+    expect(report.reconciled).toContainEqual(expect.objectContaining({
+      escrowId: o.escrowId, pendingTransactionId: marker, verdict: 'LEFT_GUARD_PASSED',
+    }))
+    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: marker } })).toEqual(pending)
+    expect(await generationOf(marker)).toEqual(generation)
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
+  })
+
   it('V3-OS a fresh OS process preserves the exact persisted ruling after a writer-side post-persist failure', async () => {
     const o = await openedDispute('v3-os-post-persist')
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
