@@ -44,6 +44,13 @@ PostgreSQL/Redis-backed API, separated from earlier comparator traffic by
 the normal auth-limit window. Both require real-service PASS before
 promotion; CI syntax-only checks do not count as parity evidence.
 
+**k6 negative gate:** `load-tests/tests/chat-ws-no-pong-negative.js`
+uses `load-tests/native/non-pong-fixture.cjs` (loopback-only, no real
+credentials). The CI expects k6 to exit nonzero **for the specific missing
+PONG assertion**, not merely due to a setup/import/transport failure.
+A positive real-service WS run and this negative fixture must both PASS
+before PONG parity is considered proven.
+
 **Removal gates:** port the missing Intent and authenticated chat WebSocket
 workloads to k6; establish positive and deliberately negative PONG evidence;
 verify fail-closed identity, auth, ticket and target safety; compare outcomes
