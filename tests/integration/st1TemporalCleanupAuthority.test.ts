@@ -1301,6 +1301,54 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(1)
   })
 
+  it('R1-P a fresh OS child process executes the real reconciliation entrypoint against persisted state', async () => {
+    const o = await openedDispute('r1-os-child')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await stale(pending.id, o)
+    const before = await disputeOf(o)
+    const { spawn } = require('child_process') as typeof import('child_process')
+    const { resolve } = require('path') as typeof import('path')
+    const childCode = `
+      require('ts-node/register/transpile-only')
+      const { prisma } = require('./src/common/database')
+      const { reconcileStalePendingDisputeTranslations } = require('./src/modules/open-settlement/dispute-pending-reconciliation')
+      ;(async () => {
+        const result = await reconcileStalePendingDisputeTranslations()
+        process.stdout.write('ST1_CHILD_RESULT:' + JSON.stringify(result) + '\\n')
+        await prisma.$disconnect()
+        process.exit(0)
+      })().catch(async err => {
+        process.stderr.write(String(err.stack || err) + '\\n')
+        await prisma.$disconnect().catch(() => {})
+        process.exit(1)
+      })
+    `
+    const childResult = await new Promise<{ code: number | null; stdout: string; stderr: string }>((done, reject) => {
+      const child = spawn(process.execPath, ['-e', childCode], {
+        cwd: resolve(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let stdout = ''
+      let stderr = ''
+      child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+      child.on('error', reject)
+      child.on('close', (code) => done({ code, stdout, stderr }))
+    })
+    expect(childResult.code).toBe(0)
+    const resultLine = childResult.stdout.split('\\n').find(line => line.startsWith('ST1_CHILD_RESULT:'))
+    expect(resultLine).toBeDefined()
+    const report = JSON.parse(resultLine!.slice('ST1_CHILD_RESULT:'.length))
+    expect(report.reconciled).toContainEqual({
+      escrowId: o.escrowId, pendingTransactionId: pending.id, verdict: 'DELETED_GUARD_FAILED',
+    })
+    expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
+  })
+
   it('R2 replaying the whole sweep after the round is gone changes nothing durable', async () => {
     const o = await openedDispute('r2')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
