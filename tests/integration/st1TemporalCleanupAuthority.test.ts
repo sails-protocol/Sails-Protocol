@@ -1087,6 +1087,8 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(before.status).toBe('RESOLVED')
     expect(await outcomeRecords(o)).toBe(1)
     await age(marker)
+    const agedPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: marker } })
+    expect(agedPending.id).toBe(pending.id)
     const recoveryCode = String.raw`
       require('ts-node/register/transpile-only')
       const { prisma } = require('./src/common/database')
@@ -1117,7 +1119,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(report.reconciled).toContainEqual(expect.objectContaining({
       escrowId: o.escrowId, pendingTransactionId: marker, verdict: 'LEFT_GUARD_PASSED',
     }))
-    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: marker } })).toEqual(pending)
+    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: marker } })).toEqual(agedPending)
     expect(await generationOf(marker)).toEqual(generation)
     expect(await disputeOf(o)).toEqual(before)
     expect(await outcomeRecords(o)).toBe(1)
