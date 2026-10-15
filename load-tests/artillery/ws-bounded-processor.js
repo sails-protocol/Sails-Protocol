@@ -20,4 +20,23 @@ function connectWithFreshTicket(wsArgs,context,callback){
     wsArgs.target='ws://127.0.0.1:3000/v1/openp2p/chat?ticket='+encodeURIComponent(ticket);
   })().then(()=>callback(null),()=>callback(Error('Bounded WS ticket setup failed (details redacted)')));
 }
-module.exports={connectWithFreshTicket};
+// Fail-closed PONG assertion for an Artillery WS engine that exposes the
+// underlying socket to a custom processor hook. Not wired into the scenario
+// until engine semantics are verified; never label send+think as PONG proof.
+function assertPongFromSocket(ws,{timeoutMs=15000}={}){
+  if(!ws||typeof ws.on!=='function'||typeof ws.send!=='function') throw Error('Unsupported WebSocket assertion interface');
+  return new Promise((resolve,reject)=>{
+    let finished=false;
+    const timer=setTimeout(()=>finish(Error('PONG timeout')),timeoutMs);
+    function finish(err){if(finished)return;finished=true;clearTimeout(timer);ws.off?.('message',onMessage);ws.off?.('close',onClose);ws.off?.('error',onError);err?reject(err):resolve();}
+    function onMessage(raw){let data;try{data=JSON.parse(String(raw));}catch{return finish(Error('Invalid WS JSON'));}
+      if(data?.type==='PONG')finish();
+      else if(data?.type==='ERROR')finish(Error('WS application ERROR (redacted)'));
+    }
+    function onClose(){finish(Error('WS closed before PONG'));}
+    function onError(){finish(Error('WS transport error'));}
+    ws.on('message',onMessage);ws.on('close',onClose);ws.on('error',onError);
+    try{ws.send(JSON.stringify({type:'PING',payload:{}}));}catch{finish(Error('WS send failed'));}
+  });
+}
+module.exports={connectWithFreshTicket,assertPongFromSocket};
