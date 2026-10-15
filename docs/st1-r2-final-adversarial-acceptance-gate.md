@@ -25,6 +25,14 @@ This checkpoint is a test plan, **not** execution evidence. It must not be count
 
 **Do not equate 99% implementation maturity with 6/6 acceptance gates.** This checkpoint records evidence and residual blockers without changing the merge gate.
 
+## OS-process reconciler checkpoint (2026-10-14)
+
+- **GREEN:** `cc5179ef60cbf65ab120624a6a73e0e82ad011dd`, [GitHub Actions run 38666051639](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38666051639). This validates R1-P: a fresh Node.js OS child, a separate Prisma connection, and the real reconciliation entrypoint against persisted PostgreSQL state.
+- Earlier RED runs 38662074916, 38663058395 and 38664117043 exposed a test-output parser defect: splitting on the literal backslash-n rather than the actual newline. The parser fix is covered by the GREEN run above.
+- The R1-P follow-up also asserts stable replay after the child exits. **It does not kill process A after a ruling is committed**; Gate 1 remains PARTIAL.
+- `b20c132` adds child stdout/stderr diagnostics; its exact-head CI must be checked separately. No subsequent commit inherits an earlier run's GREEN status.
+- Required next step: a deterministic OS-level SIGKILL of process A at a proven post-commit boundary, followed by process B's fresh Prisma pool, real reconciliation, generation/signature/Outcome preservation, and repeatable replay.
+
 ## Required executable acceptance cases
 
 1. **OS-process restart:** Process A creates a real pending ruling round and is forcibly terminated after persistence. Process B starts from a fresh module graph and a fresh Prisma pool and runs the real reconciliation entrypoint. Assert the same pending ID, same generation, same Outcome, no lost signature, no duplicate dispatch, and stable replay. Do not use Jest isolation as a substitute.
