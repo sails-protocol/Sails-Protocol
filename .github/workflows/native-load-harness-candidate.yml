@@ -397,8 +397,8 @@ jobs:
           const fs=require('node:fs');
           const log=fs.readFileSync('/tmp/sails-k6-ws.log','utf8');
           const categories={
-            rateLimit: /(?:\\b429\\b|too many requests|rate.limit)/i.test(log),
-            authFailure: /(?:authentication failed|\\b401\\b|\\b403\\b)/i.test(log),
+            rateLimit: /(?:\b429\b|too many requests|rate.limit)/i.test(log),
+            authFailure: /(?:authentication failed|\b401\b|\b403\b)/i.test(log),
             ticketFailure: /(?:WS ticket request rejected|Missing WS ticket)/.test(log),
             pongFailure: /Authenticated WS PONG protocol check failed/.test(log),
             deadline: /(?:timeout|timed out|deadline exceeded)/i.test(log),
