@@ -113,7 +113,7 @@ jobs:
             assert.equal(fs.existsSync(file),false,'No stale session pool permitted');
             fs.writeFileSync(file,'[{"sessionToken":"test-only"}]',{mode:0o644,flag:'wx'});
             try {
-              assert.match((await test()).message,/Private session pool required/);
+              assert.match((await test()).message,/Bounded WS ticket setup failed/);
             } finally {fs.unlinkSync(file);}
             fs.writeFileSync(file,'[{}]',{mode:0o600,flag:'wx'});
             try {
