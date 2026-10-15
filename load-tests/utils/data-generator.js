@@ -88,7 +88,20 @@ export function generateTestUser(baseUrl, tag) {
   const publicKey = bytesToHex(keyPair.publicKey)
   const displayName = `k6-${tag || 'user'}-${publicKey.slice(0, 8)}`
 
-  const regRes = http.post(`${baseUrl}/v1/identity/participants`, JSON.stringify({ publicKey, displayName }), {
+  // Registration is proof-of-possession protected. A bare publicKey/displayName
+  // request is no longer accepted by the live protocol.
+  const regChallengeRes = http.post(`${baseUrl}/v1/identity/register-challenge`, JSON.stringify({ publicKey }), {
+    headers: { 'Content-Type': 'application/json' },
+    tags: { name: 'identity_register_challenge' },
+  })
+  if (!check(regChallengeRes, { 'register challenge: 200': (r) => r.status === 200 })) return null
+  const registrationChallenge = regChallengeRes.json('data.challenge')
+  if (typeof registrationChallenge !== 'string' || !registrationChallenge) throw new Error('Missing registration challenge')
+  const registrationMessage = `sails-registration-proof-of-possession:v1:${registrationChallenge}:${displayName}`
+  const registrationSignature = bytesToHex(nacl.sign.detached(utf8Bytes(registrationMessage), keyPair.secretKey))
+  const regRes = http.post(`${baseUrl}/v1/identity/participants`, JSON.stringify({
+    publicKey, displayName, signature: registrationSignature,
+  }), {
     headers: { 'Content-Type': 'application/json' },
     tags: { name: 'identity_register' },
   })
