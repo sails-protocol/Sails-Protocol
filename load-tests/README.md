@@ -37,6 +37,13 @@ validated against the disposable real backend and a deliberately non-PONG
 negative fixture before being accepted as an Artillery replacement. It
 is not a sustained load benchmark; never log the ticket-bearing URL.
 
+**Bounded k6 Intent candidate:** `load-tests/tests/intent-bounded.js` executes
+one real PoP-authenticated Intent create/cancel round trip on loopback.
+The dedicated CI job runs both bounded k6 scripts against a disposable
+PostgreSQL/Redis-backed API, separated from earlier comparator traffic by
+the normal auth-limit window. Both require real-service PASS before
+promotion; CI syntax-only checks do not count as parity evidence.
+
 **Removal gates:** port the missing Intent and authenticated chat WebSocket
 workloads to k6; establish positive and deliberately negative PONG evidence;
 verify fail-closed identity, auth, ticket and target safety; compare outcomes
