@@ -844,7 +844,7 @@ export class DisputeService {
         // Remove it before releasing D -> E locks: a later generation
         // must never observe a reverted dispute with the old Outcome,
         // nor have its own Outcome deleted by a delayed outer catch.
-        await tx.semanticTransitionRecord.deleteMany({
+        await prisma.semanticTransitionRecord.deleteMany({ /* MUTANT: Outcome delete outside rollback transaction */
           where: {
             interactionId: dispute.escrowId,
             transitionType: 'escrow.dispute.rule',
