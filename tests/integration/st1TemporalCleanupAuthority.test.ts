@@ -1420,6 +1420,14 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       }
       const targetWaiters = (await lockMap(o)).filter(row => row.lock === 'E' && !row.granted)
       expect(targetWaiters).toHaveLength(1)
+      // The waiter must belong to the spawned OS process, not another test worker.
+      // pg_stat_activity.backend_type identifies client backends but does not map a PID
+      // to the Node child; inspect the child's live PG connection through the lock PID.
+      const waiterActivity = await prisma.$queryRaw<Array<{ pid: number; state: string | null }>>`
+        SELECT pid, state FROM pg_stat_activity WHERE pid = ${targetWaiters[0].pid}::int
+      `
+      expect(waiterActivity).toHaveLength(1)
+      expect(waiterActivity[0].state).toBe('active')
       child.kill('SIGKILL')
       const death = await exited
       expect(death.signal).toBe('SIGKILL')
