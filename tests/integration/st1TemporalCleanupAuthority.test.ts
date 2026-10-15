@@ -919,9 +919,14 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     } finally {
       retryFailure.mockRestore()
     }
-    // A repeated decision may be rejected by the service's status gate;
-    // either way it cannot silently corrupt the durable ruling or Outcome.
-    expect(await outcomeRecords(o)).toBeLessThanOrEqual(1)
+    // A repeated decision must not erase the durable authority established
+    // before the database fault or manufacture a second Outcome.
+    const afterReplay = await disputeOf(o)
+    expect(afterReplay.status).toBe('RESOLVED')
+    expect(afterReplay.ruling).toBe('RELEASE')
+    expect(afterReplay.authoritySignature).toBeTruthy()
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
   })
 
   it('V3-E durable economic authorization refuses rollback even when dispatch loses its pending round', async () => {
