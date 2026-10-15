@@ -477,7 +477,16 @@ jobs:
             k6Runner: safeLines.some(line=>/executor|scenario|invalid|unsupported|unexpected/i.test(line)),
           };
           console.log('k6 bounded Intent sanitized failure classification:',JSON.stringify(categories));
+          const moduleFailureTypes={
+            requireCrypto: /(?:require|module|import)[^\\n]{0,90}(?:crypto|node:crypto)/i.test(log),
+            tweetnacl: /tweetnacl|nacl-fast/i.test(log),
+            randomSource: /(?:no PRNG|secure random|random bytes|random source|getRandomValues)/i.test(log),
+            unsupportedRequire: /(?:unknown module|cannot find module|module not found|could not resolve|unsupported module)/i.test(log),
+            scriptException: /(?:GoError|TypeError|ReferenceError|SyntaxError)/i.test(log),
+            networkBeforeAuth: /(?:dial tcp|connection refused|connection reset)/i.test(log),
+          };
           console.log('k6 bounded Intent sanitized error signatures:',JSON.stringify(signatures));
+          console.log('k6 bounded Intent module failure types:',JSON.stringify(moduleFailureTypes));
           NODE
             echo 'k6 real-service Intent smoke failed; logs withheld to protect credentials'; exit 1;
           }
