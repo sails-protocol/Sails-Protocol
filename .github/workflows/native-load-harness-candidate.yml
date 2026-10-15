@@ -468,7 +468,16 @@ jobs:
             signalOrExit: /(?:signal:|exit status|context canceled|interrupt)/i.test(log),
             transportFailure: /(?:connection refused|connection reset|dial tcp|network error|no such host)/i.test(log),
           };
+          const safeLines=log.split('\\n').filter(line=>/level=error|level=warning|\\berror\\b|\\bfailed\\b/i.test(line));
+          const signatures={
+            gojaModule: safeLines.some(line=>/GoError|module|import|require|crypto|tweetnacl/i.test(line)),
+            runtimeSetup: safeLines.some(line=>/setup|initialize|init context/i.test(line)),
+            httpTransport: safeLines.some(line=>/request|dial|connection|socket|http/i.test(line)),
+            serverSide: safeLines.some(line=>/internal server|database|postgres|redis/i.test(line)),
+            k6Runner: safeLines.some(line=>/executor|scenario|invalid|unsupported|unexpected/i.test(line)),
+          };
           console.log('k6 bounded Intent sanitized failure classification:',JSON.stringify(categories));
+          console.log('k6 bounded Intent sanitized error signatures:',JSON.stringify(signatures));
           NODE
             echo 'k6 real-service Intent smoke failed; logs withheld to protect credentials'; exit 1;
           }
