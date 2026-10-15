@@ -1433,6 +1433,16 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await disputeOf(o)).toEqual(before)
     expect(await outcomeRecords(o)).toBe(1)
     expect(await edaCount(o)).toBe(0)
+    // Re-enter the actual reconciliation entrypoint after the recovered process exits.
+    // The old generation must not be nominated or mutated again.
+    const [postRecoveryReplay] = await reconcileScoped([o.escrowId])
+    expect(postRecoveryReplay).toEqual({
+      reconciled: [], skippedTooYoung: [], skippedHasSignatures: [], alreadyCleaned: [], failed: [],
+    })
+    expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
   })
 
   it('R2 replaying the whole sweep after the round is gone changes nothing durable', async () => {
