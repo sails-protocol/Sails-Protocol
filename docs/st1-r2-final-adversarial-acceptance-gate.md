@@ -100,3 +100,12 @@ NO MATERIAL FINDING UNDER THE RUG.
 - **IN PROGRESS when inspected:** `aff32618fb292028f709e81f428e65bc0e025e14`, [workflow #38798462004](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38798462004). V3-GI queues a production appeal ahead of stale N cleanup while both wait on economic D, then checks the old cleanup rejects the superseded generation and preserves pending, dispute, Outcome and EDA count. Do not count this test as GREEN until the run completes.
 - **Scope limitation:** V3-GI uses the test-only `makeAppealable` legacy fixture; it does not prove that a new script-committed MULTISIG escrow can appeal. The production appeal path explicitly rejects immutable committed-arbiter identity.
 - **Unclosed:** Gate 2 successful recovery/exactly-once dispatch, Gate 3 production reachability, Gate 5 two isolated behavioral mutations RED, and Gate 6 final HEAD CI. Formal acceptance stays **0/6** pending sign-off; PR #436 stays DRAFT, NO MERGE, NO FREEZE.
+
+## Gate 5 mutation execution checkpoint (2026-10-15)
+
+Two intentionally broken implementations are isolated from PR #436:
+
+1. `experiment/st1-r2-mutation-remove-generation-guard` at `cb2152247a3386bd2c208ca7323862ccef815907`: disables the live dispute appeal-round comparison in `deletePendingRoundIfStillUnsigned`. This is only one of several guards, so an unchanged GREEN suite would not by itself prove mutation sensitivity.
+2. `experiment/st1-r2-mutation-outcome-outside-transaction` at `b5187b94b8df2c711843c787e74d83e08bb18445`: replaces the transaction-scoped Outcome deletion with a root Prisma client deletion inside the interactive transaction callback, deliberately breaking the atomicity invariant and potentially causing lock contention.
+
+**Execution evidence is absent:** no pull-request-triggered GitHub Actions runs were returned for either mutation SHA. Branch creation and code mutation do not count as behavioral RED. Do not close Gate 5 or claim a passing baseline comparison until both mutations are executed with captured failures and the unchanged implementation's equivalent suite passes. Run mutations only in disposable branches; never merge their commits into the acceptance branch.
