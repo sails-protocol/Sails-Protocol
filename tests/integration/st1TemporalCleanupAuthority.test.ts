@@ -956,7 +956,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     // not another signed decision through the original endpoint.
     await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
       .rejects.toThrow(/already resolved/i)
-    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+    expect((await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })).id).toBe(resumedPending.id)
     expect(await outcomeRecords(o)).toBe(1)
     expect((await disputeOf(o)).authoritySignature).toBe(afterSqlFault.authoritySignature)
   })
