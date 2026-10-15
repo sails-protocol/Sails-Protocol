@@ -93,3 +93,10 @@ The R1 case terminates a PostgreSQL backend holding a lock, whereas V3-I uses `j
 Do not merge PR #436, close #453, or claim 100% until all six items have reproducible evidence, with no weakened tests or bypassed preflight. Any finding must be documented with severity, reproducer, owner and disposition.
 
 NO MATERIAL FINDING UNDER THE RUG.
+
+## Writer SIGKILL and deterministic N/N+1 checkpoint (2026-10-15)
+
+- **GREEN:** `4261e4490498a79635f7adbd2f0a7b426024280f`, [workflow #38796336315](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38796336315), completed SUCCESS. V3-WK launches the actual ruling writer in a separate Node OS process, waits for the persisted pending marker, SIGKILLs the writer, then runs recovery in two independent OS processes. The test checks stable pending identity/generation, Outcome, unsigned round, no EDA and no duplicate pending. **This is strong Gate 1 evidence**, subject to formal gate-by-gate review and final exact-head CI.
+- **IN PROGRESS when inspected:** `aff32618fb292028f709e81f428e65bc0e025e14`, [workflow #38798462004](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38798462004). V3-GI queues a production appeal ahead of stale N cleanup while both wait on economic D, then checks the old cleanup rejects the superseded generation and preserves pending, dispute, Outcome and EDA count. Do not count this test as GREEN until the run completes.
+- **Scope limitation:** V3-GI uses the test-only `makeAppealable` legacy fixture; it does not prove that a new script-committed MULTISIG escrow can appeal. The production appeal path explicitly rejects immutable committed-arbiter identity.
+- **Unclosed:** Gate 2 successful recovery/exactly-once dispatch, Gate 3 production reachability, Gate 5 two isolated behavioral mutations RED, and Gate 6 final HEAD CI. Formal acceptance stays **0/6** pending sign-off; PR #436 stays DRAFT, NO MERGE, NO FREEZE.
