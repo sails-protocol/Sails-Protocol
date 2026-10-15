@@ -967,7 +967,19 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       failing.mockRestore()
     }
     expect(await edaCount(o)).toBe(1)
-    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    const preserved = await disputeOf(o)
+    expect(preserved.status).toBe('RESOLVED')
+    expect(preserved.ruling).toBe('RELEASE')
+    expect(preserved.appealRound).toBe(before.appealRound)
+    expect(preserved.authoritySignature).toBeTruthy()
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+    // The recovery sweep must not erase a committed economic authorization
+    // merely because its originating pending row is absent.
+    const [recovery] = await reconcileScoped([o.escrowId])
+    expect(recovery.reconciled).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    expect(await edaCount(o)).toBe(1)
+    expect(await disputeOf(o)).toEqual(preserved)
     expect(await outcomeRecords(o)).toBe(1)
   })
 
