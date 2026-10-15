@@ -937,10 +937,18 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     // Gate 2: use the production C4 reconciler, not the rejected public
     // resolveDispute replay, to recover the committed ruling with no pending.
     const { reconcileMissingDispatch } = require('../../src/modules/open-settlement/dispute-dispatch-recovery')
-    const recovered = await reconcileMissingDispatch(100)
-    expect(recovered.resumed).toEqual(expect.arrayContaining([
+    // Race the first recovery itself: both workers see a committed Outcome
+    // with no pending. At most one can create the authoritative round.
+    const [firstRecoveryA, firstRecoveryB] = await Promise.all([
+      reconcileMissingDispatch(100),
+      reconcileMissingDispatch(100),
+    ])
+    const firstResumes = [firstRecoveryA, firstRecoveryB].flatMap((report: any) =>
+      report.resumed.filter((entry: any) => entry.escrowId === o.escrowId))
+    expect(firstResumes).toEqual([
       expect.objectContaining({ escrowId: o.escrowId, disputeId: o.disputeId, ruling: 'RELEASE' }),
-    ]))
+    ])
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
     const resumedPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
     expect(resumedPending.disputeId).toBe(o.disputeId)
     expect(resumedPending.rulingAppealRound).toBe(before.appealRound)
