@@ -457,6 +457,11 @@ jobs:
             intentFailure: /(?:intent.*(?:failed|rejected)|(?:failed|rejected).*intent)/i.test(log),
             deadline: /(?:timeout|timed out|deadline exceeded)/i.test(log),
             assertionThreshold: /(?:thresholds on metrics|thresholds have been crossed)/i.test(log),
+            javascriptRuntime: /(?:TypeError|ReferenceError|GoError|cannot read properties|not a function)/i.test(log),
+            runtimePanic: /(?:panic:|fatal error:|out of memory)/i.test(log),
+            httpFailure: /(?:HTTP [45][0-9][0-9]|status[=: ]+[45][0-9][0-9])/i.test(log),
+            setupFailure: /(?:setup\(\)|setup function|setup failed|error in setup)/i.test(log),
+            uncaughtException: /(?:uncaught|exception|ERRO\[)/i.test(log),
           };
           console.log('k6 bounded Intent sanitized failure classification:',JSON.stringify(categories));
           NODE
