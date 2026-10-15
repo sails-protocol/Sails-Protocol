@@ -391,7 +391,22 @@ jobs:
           sleep 65
           timeout 90s k6 run --quiet -e BASE_URL=http://127.0.0.1:3000 load-tests/tests/chat-ws-bounded.js > /tmp/sails-k6-ws.log 2>&1 || {
             # Keep logs private: k6 may print the one-time ticket in a WS URL.
-            echo 'k6 real-service WS PONG smoke failed; logs withheld to protect ticket URLs'; exit 1;
+            # Report only a fixed allowlist of classifications. Never echo raw k6 output,
+          # WebSocket URLs, bearer sessions, or one-time tickets.
+          node <<'NODE'
+          const fs=require('node:fs');
+          const log=fs.readFileSync('/tmp/sails-k6-ws.log','utf8');
+          const categories={
+            rateLimit: /(?:\\b429\\b|too many requests|rate.limit)/i.test(log),
+            authFailure: /(?:authentication failed|\\b401\\b|\\b403\\b)/i.test(log),
+            ticketFailure: /(?:WS ticket request rejected|Missing WS ticket)/.test(log),
+            pongFailure: /Authenticated WS PONG protocol check failed/.test(log),
+            deadline: /(?:timeout|timed out|deadline exceeded)/i.test(log),
+            assertionThreshold: /(?:thresholds on metrics|thresholds have been crossed)/i.test(log),
+          };
+          console.log('k6 bounded WS sanitized failure classification:',JSON.stringify(categories));
+          NODE
+          echo 'k6 real-service WS PONG smoke failed; raw logs withheld to protect ticket URLs'; exit 1;
           }
           echo 'k6 real-service bounded Intent and WS PONG PASS (one iteration each)'
       - name: Baseline security evidence (no dependency removal yet)
