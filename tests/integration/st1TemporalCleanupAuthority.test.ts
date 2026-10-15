@@ -1400,10 +1400,18 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
         child!.on('error', reject)
         child!.on('close', (code, signal) => done({ code, signal }))
       })
-      // Bound the lock-wait observation: a child startup failure must not stall the PG lane indefinitely.
+      // Observe this escrow's E-lock waiter, not an unrelated suite's advisory lock.
+      // The child must still be alive when PostgreSQL reports the blocked worker.
       let waitTimeout: ReturnType<typeof setTimeout> | undefined
+      const waitForTarget = (async (): Promise<'waiting'> => {
+        for (let i = 0; i < 1000; i++) {
+          if ((await lockMap(o)).some(row => row.lock === 'E' && !row.granted)) return 'waiting'
+          await new Promise<void>(done => setTimeout(done, 10))
+        }
+        throw new Error('R1-K child did not wait on the target escrow E lock')
+      })()
       const waitResult = await Promise.race([
-        untilWaiting(1).then(() => 'waiting' as const),
+        waitForTarget,
         exited.then(() => 'exited' as const),
         new Promise<'timeout'>(done => { waitTimeout = setTimeout(() => done('timeout'), 45_000) }),
       ]).finally(() => { if (waitTimeout) clearTimeout(waitTimeout) })
