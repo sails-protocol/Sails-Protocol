@@ -5,9 +5,9 @@
  * file itself moved from src/routes/intentRoutes.ts 2026-08-10),
  * same round trip load-tests/artillery/intent-api.yml already proved out
  * with Artillery. `setup()`
- * registers one real, authenticated identity once per run (not once per
- * iteration/VU) — every iteration reuses that same session, since this
- * test is about Intent API throughput, not auth throughput (see
+ * registers one real, PoP-authenticated identity once per run (not once
+ * per iteration/VU) — every iteration reuses that same session, since
+ * this test is about Intent API throughput, not auth throughput (see
  * reconciliation.js/trade-lifecycle.js for flows where a fresh identity
  * per iteration is the actual point).
  *
