@@ -64,6 +64,15 @@ This checkpoint is a test plan, **not** execution evidence. It must not be count
 - `28484f76cfd6d51c038b6282c4941f5da14b5457`: additionally requires the target waiter PID to be present as an active `pg_stat_activity` backend before SIGKILL. **This does not establish that the backend belongs to the child OS process**; there is no child-to-backend PID correlation in the test. Do not overclaim identity or Gate 1 completion.
 - Formal gate score remains **0/6**; engineering progress estimate **65%**, provisional and unchanged.
 
+## Exact-head CI recovery and current boundary (2026-10-15)
+
+- **GREEN:** `948af31b4758e9b09af718be9d856bc21c7e8f7d`, [workflow #38750655417](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38750655417), rerun of failed jobs completed SUCCESS. The initial attempt failed in `tests/integration/docker.test.ts` during Docker image `npm ci --ignore-scripts`; the available logs do not establish its root cause. Do not classify it as an ST1 logic failure or assume an external registry outage without evidence.
+- **GREEN:** `396cd1893e34e0c8e177b136bea0bb8a21f42947`, [workflow #38742610103](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38742610103): V3-OS recovery through two separate fresh Node OS processes after an **in-process simulated post-persist writer exception**. Exact pending identity, generation, authority signature, Outcome count and unchanged parent dispute are asserted in subsequent HEADs.
+- **Boundary:** neither V3-OS nor R1-K kills the **actual writer OS process** after it commits the ruling. Gate 1 remains OPEN. Do not count independent reconciler processes as the writer crash.
+- **Boundary:** V3-PG proves SQL rollback and rejected replay. The public `resolveDispute` endpoint intentionally rejects already RESOLVED disputes, so a second call is not a successful dispatch retry. Gate 2 remains OPEN until a valid recovery path is proven.
+- **Boundary:** the V3-GR D-lock test currently releases the lock **before** the appeal, so it cannot prove appeal N+1 wins the old catch race. Gate 4 remains OPEN.
+- **Formal gate closure: 0/6.** PR #436 remains DRAFT, NO MERGE, NO FREEZE. Next implementation must target a missing adversarial case, not add redundant assertions or cosmetic test comments.
+
 ## Required executable acceptance cases
 
 1. **OS-process restart:** Process A creates a real pending ruling round and is forcibly terminated after persistence. Process B starts from a fresh module graph and a fresh Prisma pool and runs the real reconciliation entrypoint. Assert the same pending ID, same generation, same Outcome, no lost signature, no duplicate dispatch, and stable replay. Do not use Jest isolation as a substitute.
