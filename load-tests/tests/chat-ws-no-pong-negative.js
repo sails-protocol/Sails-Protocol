@@ -3,7 +3,7 @@
  * that upgrades but never emits application PONG. k6 MUST exit nonzero.
  * Never run against production or interpret failure as load performance.
  */
-import { assertApplicationPong } from './chat-ws-bounded.js'
+import { assertApplicationPong } from './ws-pong-assertion.js'
 export const options = {
   scenarios: { no_pong_negative: { executor: 'shared-iterations', vus: 1, iterations: 1, maxDuration: '10s' } },
   thresholds: { checks: ['rate==1'] },
