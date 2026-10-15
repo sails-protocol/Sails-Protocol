@@ -934,6 +934,23 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(1)
     expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
 
+    // Gate 2: use the production C4 reconciler, not the rejected public
+    // resolveDispute replay, to recover the committed ruling with no pending.
+    const { reconcileMissingDispatch } = require('../../src/modules/open-settlement/dispute-dispatch-recovery')
+    const recovered = await reconcileMissingDispatch(100)
+    expect(recovered.resumed).toEqual(expect.arrayContaining([
+      expect.objectContaining({ escrowId: o.escrowId, disputeId: o.disputeId, ruling: 'RELEASE' }),
+    ]))
+    const resumedPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    expect(resumedPending.disputeId).toBe(o.disputeId)
+    expect(resumedPending.rulingAppealRound).toBe(before.appealRound)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect((await disputeOf(o)).authoritySignature).toBe(afterSqlFault.authoritySignature)
+    const replayRecovery = await reconcileMissingDispatch(100)
+    expect(replayRecovery.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    expect((await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })).id).toBe(resumedPending.id)
+    expect(await outcomeRecords(o)).toBe(1)
+
     // The public resolveDispute API intentionally refuses replay of a
     // RESOLVED ruling. Recovery of a persisted ruling is a separate operation,
     // not another signed decision through the original endpoint.
