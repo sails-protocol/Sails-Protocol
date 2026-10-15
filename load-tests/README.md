@@ -8,17 +8,49 @@ same "mock only the database boundary a unit test needs to, never the
 thing actually being proven" discipline this repo's e2e (Playwright) and
 load-tests/artillery/ (Artillery) suites already established.
 
-This is a **second, separate load-testing tool alongside
-`load-tests/artillery/`** (Artillery, moved from the former top-level
-`loadtest/` — PRODUCTION_READINESS_FIXES.md item 19, closed 2026-08-08,
-so both suites live under one parent directory), not a replacement —
-nothing in this repo's docs/RFCs planned a k6 suite before this phase;
-it was a net-new ask. The two don't overlap in what they test today:
-`load-tests/artillery/` covers Intent API
-throughput and the chat WebSocket; this suite adds trade/escrow
-lifecycle, reconciliation, and reputation lookups, plus k6's
-purpose-built load-*shape* scenarios (ramps, spikes, soak) that
-Artillery's phase config can't express as directly.
+## Target architecture: k6 + Sails TestKit
+
+**Decision (2026-10-15):** k6 is the primary load/performance runner. **Sails
+TestKit** is a small, test-only Node.js helper layer for protocol-specific
+identity/Ed25519 proof-of-possession, authentication, one-time WebSocket
+tickets, fixture setup and fail-closed protocol assertions when these cannot
+be expressed safely and simply inside k6. It is **not** a second load engine:
+no virtual-user scheduler, arrival-rate implementation, latency percentile
+engine, dashboards or independent throughput benchmarks should be maintained
+in TestKit. Prefer direct k6 implementations when practical.
+
+**Migration status: NOT COMPLETE.** The existing k6 suite covers
+trade/escrow lifecycle, reconciliation and reputation, while the legacy
+Artillery suite covers Intent API and chat WebSocket. The candidate
+`load-tests/native/run.js` still contains a temporary load scheduler; this
+is **transitional evidence only**, not the approved long-term TestKit shape.
+Do not rename it to TestKit and declare the migration complete. The
+Artillery bounded HTTP and WS comparators are retained as baselines. In
+particular, the bounded Artillery WS candidate sends PING but does **not**
+assert receipt of PONG; it must not be presented as protocol parity.
+
+**Removal gates:** port the missing Intent and authenticated chat WebSocket
+workloads to k6; establish positive and deliberately negative PONG evidence;
+verify fail-closed identity, auth, ticket and target safety; compare outcomes
+against the real-backend legacy baseline; establish a safe, explicitly
+approved rate-limit/benchmark policy for sustained load; then review the
+Artillery dependency and lockfile removal. No production rate-limit changes,
+merge or deployment are authorized by this document.
+
+**Maintenance boundary:** TestKit follows protocol contract changes and
+security fixes only; CI verifies its helpers. k6 owns concurrency, load
+shapes, thresholds, metrics and reports. No always-on TestKit service or
+independent infrastructure.
+
+### Historical suite context
+
+The k6 suite was originally introduced as a second tool alongside
+`load-tests/artillery/` (Artillery moved from the former top-level
+`loadtest/` under PRODUCTION_READINESS_FIXES.md item 19 on 2026-08-08).
+At that time the suites covered different areas: Artillery covered Intent
+API and chat WebSocket, while k6 added trade/escrow lifecycle,
+reconciliation, reputation and dedicated load shapes. The target
+architecture above supersedes that earlier coexistence decision.
 
 ## Prerequisites
 
