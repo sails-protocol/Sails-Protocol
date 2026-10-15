@@ -72,7 +72,26 @@ jobs:
       - name: Install dependencies with existing script policy (fail closed)
         run: npm ci --no-audit --no-fund
       - name: Validate comparator exports after dependency installation
-        run: node -e "const p=require('./load-tests/artillery/comparator-processor.js');if(typeof p.setupCurrentAuthenticatedUser!=='function')process.exit(1);const w=require('./load-tests/artillery/ws-bounded-processor.js');if(typeof w.connectWithFreshTicket!=='function')process.exit(1)"
+        run: node -e "const p=require('./load-tests/artillery/comparator-processor.js');if(typeof p.setupCurrentAuthenticatedUser!=='function')process.exit(1);const w=require('./load-tests/artillery/ws-bounded-processor.js');if(typeof w.connectWithFreshTicket!=='function'||typeof w.assertPongFromSocket!=='function')process.exit(1)"
+      - name: Fail-closed WebSocket PONG assertion unit proofs
+        shell: bash
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          const {EventEmitter} = require('node:events');
+          const {assertPongFromSocket} = require('./load-tests/artillery/ws-bounded-processor.js');
+          const fake = () => { const ws=new EventEmitter();ws.send=()=>{};return ws; };
+          (async()=>{
+            const good=fake();const ok=assertPongFromSocket(good,{timeoutMs:100});
+            good.emit('message',JSON.stringify({type:'PONG'}));await ok;
+            const missing=fake();await assert.rejects(assertPongFromSocket(missing,{timeoutMs:15}),/PONG timeout/);
+            const bad=fake();const rejected=assertPongFromSocket(bad,{timeoutMs:100});
+            bad.emit('message',JSON.stringify({type:'ERROR'}));await assert.rejects(rejected,/application ERROR/);
+            const closed=fake();const early=assertPongFromSocket(closed,{timeoutMs:100});
+            closed.emit('close');await assert.rejects(early,/closed before PONG/);
+            console.log('PONG assertion primitive: positive, timeout, ERROR, early-close PASS');
+          })().catch(()=>process.exit(1));
+          NODE
       - name: Generate Prisma client and build
         run: |
           npx prisma generate
