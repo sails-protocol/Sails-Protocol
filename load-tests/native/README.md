@@ -75,3 +75,12 @@ Compared the candidate with the actual inherited files `load-tests/artillery/int
 5. Arrival shapes match (HTTP 20×5 + 30×20; WS 20×5 + 30×15), but matching phase configuration **does not** imply equivalent authenticated work, security posture or success accounting.
 
 **Required next gate:** introduce a separate, reviewed **test-only** Artillery comparator using current registration PoP, one-time WS tickets and explicit response/PONG assertions. Do not silently change the legacy baseline or production configuration. Run both on equivalent fresh disposable backends, under the same explicit security-limit policy, with request budgets and logs documented. Until then, report functional correctness of the native candidate but **no Artillery/native throughput or latency parity**. Keep PR #472 DRAFT and retain Artillery.
+
+
+## WS comparator assertion boundary (2026-10-14)
+
+The bounded Artillery WS candidate now uses a private one-user session pool and a fresh single-use WS ticket per connection, but its YAML still sends PING followed by a wait. **This does not assert PONG.** The exported `assertPongFromSocket()` primitive has positive and negative unit proofs (timeout, ERROR, early close), but is not invoked by the installed Artillery WS engine. Its unit PASS must not be represented as Artillery WS integration PASS.
+
+**Gate to promote:** inspect the exact installed Artillery WS engine for a supported receive/assertion hook, wire the assertion to that hook without logging ticket URLs, then prove a deliberately non-responding disposable WS server fails the scenario. If no supported hook exists, explicitly mark Artillery WS parity unsupported and use the native harness or a reviewed external engine for this portion. Do not patch private engine internals, change production rate limits, or remove Artillery based on the bounded candidate alone.
+
+**Separate auth windows:** the HTTP comparator registers two identities (8 shared auth-tier calls); WS preparation registers one (4 calls). Running both within the same 60-second default shared auth window exceeds 10 and creates expected 429 responses. Use fresh isolated Redis/backend or wait for the auth window between tests. Do not classify rate-limit protection as a throughput regression.
