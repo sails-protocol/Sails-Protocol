@@ -463,5 +463,7 @@ jobs:
         if: always()
         with:
           name: native-load-harness-baseline
-          path: |\n            native-load-candidate-audit.json\n            k6-executable-provenance.txt
+          path: |
+            native-load-candidate-audit.json
+            k6-executable-provenance.txt
           if-no-files-found: warn
