@@ -1043,7 +1043,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       escrowService.initiateRelease = async (...args) => {
         const result = await realInitiate(...args)
         const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: process.env.ST1_WRITER_ESCROW } })
-        process.stdout.write('ST1_WRITER_PERSISTED:' + row.id + '\\n')
+        process.stdout.write('ST1_WRITER_PERSISTED:' + row.id + '\n')
         await new Promise(() => {})
         return result
       }
@@ -1092,7 +1092,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       const { prisma } = require('./src/common/database')
       const { reconcileStalePendingDisputeTranslations } = require('./src/modules/open-settlement/dispute-pending-reconciliation')
       reconcileStalePendingDisputeTranslations().then(async report => {
-        process.stdout.write('ST1_RECOVERY:' + JSON.stringify(report) + '\\n')
+        process.stdout.write('ST1_RECOVERY:' + JSON.stringify(report) + '\n')
         await prisma.$disconnect()
         process.exit(0)
       }).catch(async e => { process.stderr.write(String(e.stack || e)); await prisma.$disconnect(); process.exit(1) })
