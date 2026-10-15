@@ -10,7 +10,7 @@ config:
       arrivalRate: 1
       name: Bounded two-arrival WS rehearsal
 scenarios:
-  - name: "Current one-time-ticket WS PING candidate"
+  - name: "Current one-time-ticket WS PING candidate (PONG not asserted)"
     engine: "ws"
     flow:
       - connect:
