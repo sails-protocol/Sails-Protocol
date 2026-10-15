@@ -409,6 +409,11 @@ jobs:
             # This fixture uses no credentials. Emit only bounded diagnostic categories,
             # never raw k6 logs or ticket-bearing URLs.
             if grep -Eqi 'module|import|resolve|syntax' /tmp/sails-k6-negative.log; then
+              if grep -Eqi 'unknown module|could not resolve|module specifier|module not found' /tmp/sails-k6-negative.log; then
+                echo 'DIAGNOSTIC: module resolution error detected'
+              elif grep -Eqi 'syntaxerror|unexpected token' /tmp/sails-k6-negative.log; then
+                echo 'DIAGNOSTIC: JavaScript syntax error detected'
+              fi
               echo 'DIAGNOSTIC: k6 module/import/syntax failure suspected'
             elif grep -Eqi 'connect|refused|timeout|handshake' /tmp/sails-k6-negative.log; then
               echo 'DIAGNOSTIC: k6 transport/handshake failure suspected'
