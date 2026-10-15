@@ -56,6 +56,14 @@ This checkpoint is a test plan, **not** execution evidence. It must not be count
 - **No claim of Gate 1 closure:** the ruling writer was not the killed OS process. Gates 2-5 retain their documented outstanding adversarial cases; Gate 6 must be repeated on the final SHA.
 - **Next acceptance order:** writer post-commit SIGKILL -> successful SQL-fault recovery -> N/N+1 interleaving -> two behavioral mutations RED -> final exact-head CI. Record failures and do not merge on a green partial subset.
 
+## Target-lock and active-backend evidence checkpoint (2026-10-15)
+
+- `f9b496833c9155ea94f7109d9dd0904e7745270e`, [run 38687269993](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38687269993): migrations, unit tests, real-PostgreSQL integration, and log upload individually succeeded; workflow overall was still reported **in_progress** at inspection. Do not label overall GREEN until completed.
+- `3be8f68bfa7a9b4bbb0f8935eadb4cad394f2763`, [run 38687283298](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38687283298): migrations/unit GREEN, integration still running at inspection. Target E-lock waiter count assertion added.
+- `2b8812884a8c434cf2b8742b3b6a131ddd472e5b`, [run 38688636312](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38688636312): migrations GREEN, unit in progress at inspection.
+- `28484f76cfd6d51c038b6282c4941f5da14b5457`: additionally requires the target waiter PID to be present as an active `pg_stat_activity` backend before SIGKILL. **This does not establish that the backend belongs to the child OS process**; there is no child-to-backend PID correlation in the test. Do not overclaim identity or Gate 1 completion.
+- Formal gate score remains **0/6**; engineering progress estimate **65%**, provisional and unchanged.
+
 ## Required executable acceptance cases
 
 1. **OS-process restart:** Process A creates a real pending ruling round and is forcibly terminated after persistence. Process B starts from a fresh module graph and a fresh Prisma pool and runs the real reconciliation entrypoint. Assert the same pending ID, same generation, same Outcome, no lost signature, no duplicate dispatch, and stable replay. Do not use Jest isolation as a substitute.
