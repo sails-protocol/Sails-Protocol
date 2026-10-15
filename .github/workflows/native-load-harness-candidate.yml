@@ -211,6 +211,42 @@ jobs:
           assert.equal(errors.length,0,'No Artillery error counters');
           console.log('Bounded real-service Artillery HTTP comparator: 2 completed, 0 failures');
           NODE
+      - name: Execute bounded Artillery WS candidate against disposable backend
+        env:
+          NODE_ENV: development
+          DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/sails_protocol
+          REDIS_URL: redis://127.0.0.1:6379
+        shell: bash
+        run: |
+          set -euo pipefail
+          # HTTP comparator consumed eight auth requests. Wait for the shared
+          # auth window; never weaken production security settings.
+          sleep 65
+          node dist/src/main.js > /tmp/sails-artillery-ws-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; rm -f load-tests/artillery/bounded-ws-users.json' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then echo 'WS candidate API exited'; exit 1; fi
+            if (echo > /dev/tcp/127.0.0.1/3000) >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then echo 'WS candidate API readiness timeout'; exit 1; fi
+          node load-tests/artillery/prepare-bounded-ws.js
+          timeout 90s ./node_modules/.bin/artillery run load-tests/artillery/chat-ws-bounded-comparator.yml --output /tmp/sails-artillery-bounded-ws.json > /tmp/sails-artillery-ws-output.log 2>&1 || {
+            echo 'Artillery WS candidate failed (logs retained locally only)'; exit 1;
+          }
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const fs=require('node:fs');
+          const report=JSON.parse(fs.readFileSync('/tmp/sails-artillery-bounded-ws.json','utf8'));
+          const counters=report.aggregate?.counters||{};
+          assert.equal(counters['vusers.completed']||0,2,'Exactly two WS candidate virtual users must complete');
+          assert.equal(counters['vusers.failed']||0,0,'No failed WS candidate virtual users');
+          const errors=Object.entries(counters).filter(([k,v])=>/(errors\\.|failed|unexpected_response)/.test(k)&&Number(v)>0);
+          assert.equal(errors.length,0,'No Artillery WS candidate error counters');
+          console.log('Bounded Artillery WS candidate completed 2 users, 0 errors; PONG NOT asserted');
+          NODE
       - name: Baseline security evidence (no dependency removal yet)
         shell: bash
         run: |
