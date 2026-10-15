@@ -1064,6 +1064,35 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await disputeOf(o)).toEqual(before)
     expect(await outcomeRecords(o)).toBe(1)
     expect(await edaCount(o)).toBe(0)
+    // A second independent recovery process must be idempotent: no new
+    // pending, signature, Outcome, or economic authorization may appear.
+    const replay = await new Promise<{ code: number | null; stdout: string; stderr: string }>((done, reject) => {
+      const child = spawn(process.execPath, ['-e', childCode], {
+        cwd: resolve(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let stdout = ''; let stderr = ''
+      child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+      const watchdog = setTimeout(() => child.kill('SIGKILL'), 60_000)
+      child.on('error', err => { clearTimeout(watchdog); reject(err) })
+      child.on('close', code => { clearTimeout(watchdog); done({ code, stdout, stderr }) })
+    })
+    expect({ code: replay.code, stderr: replay.stderr.slice(-2000) }).toEqual({ code: 0, stderr: expect.any(String) })
+    const replayLine = replay.stdout.split('\n').find(x => x.startsWith('ST1_V3_OS_RESULT:'))
+    expect(replayLine).toBeDefined()
+    const replayReport = JSON.parse(replayLine!.slice('ST1_V3_OS_RESULT:'.length))
+    expect(replayReport.reconciled).not.toContainEqual(expect.objectContaining({
+      escrowId: o.escrowId, verdict: 'DELETED_GUARD_FAILED',
+    }))
+    const replayPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    expect(replayPending.id).toBe(pending.id)
+    expect(replayPending.rulingAuthoritySignature).toBe(generation.rulingAuthoritySignature)
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
   })
 
   it('V3-S a signature persisted before dispatch throws is never lost by the rollback path', async () => {
