@@ -353,8 +353,14 @@ jobs:
           const source = fs.readFileSync('.github/workflows/native-load-harness-candidate.yml', 'utf8');
           const refs = [...source.matchAll(/^\s*uses:\s*(grafana\/setup-k6-action@\S+)/gm)].map(m => m[1]);
           if (refs.length !== 1) throw new Error('Expected exactly one k6 setup action');
-          if (!/^grafana\/setup-k6-action@[a-f0-9]{40}$/.test(refs[0])) {
-            console.error('k6 setup action is not pinned to a full immutable commit SHA');
+          const expectedAction = 'grafana/setup-k6-action@db07bd9765aac508ef18982e52ab937fe633a065';
+          if (refs[0] !== expectedAction) {
+            console.error('k6 setup action differs from reviewed immutable commit');
+            process.exit(1);
+          }
+          const versions = [...source.matchAll(/^\s*k6-version:\s*['"]?([^\s'"]+)['"]?\s*$/gm)].map(m => m[1]);
+          if (versions.length !== 1 || versions[0] !== '1.2.3') {
+            console.error('k6 version differs from reviewed pinned release');
             process.exit(1);
           }
           console.log('k6 setup action immutable reference verified');
