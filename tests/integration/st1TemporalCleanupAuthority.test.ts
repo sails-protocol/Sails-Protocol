@@ -1360,6 +1360,61 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await edaCount(o)).toBe(0)
   })
 
+  it('R1-K an OS process is SIGKILLed after a durable ruling, and a fresh process reconciles without changing authority', async () => {
+    const o = await openedDispute('r1-killed-child')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await stale(pending.id, o)
+    const generation = await generationOf(pending.id)
+    const before = await disputeOf(o)
+    const { spawn } = require('child_process') as typeof import('child_process')
+    const { resolve } = require('path') as typeof import('path')
+    const childCode = `
+      require('ts-node/register/transpile-only')
+      const { prisma } = require('./src/common/database')
+      const { reconcileStalePendingDisputeTranslations } = require('./src/modules/open-settlement/dispute-pending-reconciliation')
+      ;(async () => {
+        const result = await reconcileStalePendingDisputeTranslations()
+        process.stdout.write('ST1_CHILD_RESULT:' + JSON.stringify(result) + '\\n')
+        await prisma.$disconnect()
+        process.exit(0)
+      })().catch(async err => {
+        process.stderr.write(String(err.stack || err) + '\\n')
+        await prisma.$disconnect().catch(() => {})
+        process.exit(1)
+      })
+    `
+    // A holds the real E lock, preventing any cleanup mutation by process B.
+    // B must be demonstrably waiting on that lock before the OS kills it.
+    const releaseE = await holdE(o)
+    let child: import('child_process').ChildProcessWithoutNullStreams | undefined
+    try {
+      child = spawn(process.execPath, ['-e', childCode], {
+        cwd: resolve(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', TRUSTED_ARBITRATORS: process.env.TRUSTED_ARBITRATORS || '' },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((done, reject) => {
+        child!.on('error', reject)
+        child!.on('close', (code, signal) => done({ code, signal }))
+      })
+      await untilWaiting(1)
+      child.kill('SIGKILL')
+      const death = await exited
+      expect(death.signal).toBe('SIGKILL')
+    } finally {
+      if (child && !child.killed) child.kill('SIGKILL')
+      await releaseE()
+    }
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId, generation)).toBe('DELETED')
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId, generation)).toBe('ALREADY_GONE')
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+  })
+
   it('R2 replaying the whole sweep after the round is gone changes nothing durable', async () => {
     const o = await openedDispute('r2')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
