@@ -92,6 +92,27 @@ jobs:
             console.log('PONG assertion primitive: positive, timeout, ERROR, early-close PASS');
           })().catch(()=>process.exit(1));
           NODE
+      - name: Bound Artillery candidate scope and prevent false WS parity
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const yaml=require('yaml');
+          const root='load-tests/artillery/';
+          const http=yaml.parse(fs.readFileSync(root+'intent-api-bounded-comparator.yml','utf8'));
+          const ws=yaml.parse(fs.readFileSync(root+'chat-ws-bounded-comparator.yml','utf8'));
+          for(const [name,cfg] of [['HTTP',http],['WS',ws]]){
+            assert.equal(cfg.config.phases.length,1,name+' single phase');
+            assert.equal(cfg.config.phases[0].duration,2,name+' bounded duration');
+            assert.equal(cfg.config.phases[0].arrivalRate,1,name+' bounded rate');
+            assert.match(cfg.config.target,/^(http|ws):\\/\\/127\\.0\\.0\\.1:3000$/,name+' loopback only');
+          }
+          assert.equal(http.scenarios[0].flow[0].function,'setupCurrentAuthenticatedUser');
+          assert.equal(ws.scenarios[0].flow[0].connect.function,'connectWithFreshTicket');
+          assert.match(ws.scenarios[0].name,/PONG not asserted/);
+          console.log('Artillery candidate bounds and non-parity labeling PASS');
+          NODE
       - name: Generate Prisma client and build
         run: |
           npx prisma generate
