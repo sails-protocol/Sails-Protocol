@@ -341,7 +341,7 @@ jobs:
           console.log('Bounded Artillery WS candidate completed 2 users, 0 errors; PONG NOT asserted');
           NODE
       - name: Install pinned k6 runner for bounded real-service proof
-        uses: grafana/setup-k6-action@v1
+        uses: grafana/setup-k6-action@db07bd9765aac508ef18982e52ab937fe633a065 # v1.2.1
       - name: Enforce pinned k6 setup action reference
         shell: bash
         run: |
