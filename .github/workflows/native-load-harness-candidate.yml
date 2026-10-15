@@ -36,6 +36,8 @@ jobs:
           node --check load-tests/native/run.js
           node --check load-tests/tests/chat-ws-bounded.js
           node --check load-tests/tests/intent-bounded.js
+          node --check load-tests/tests/chat-ws-no-pong-negative.js
+          node --check load-tests/native/non-pong-fixture.cjs
           node --check load-tests/artillery/comparator-processor.js
           node --check load-tests/artillery/prepare-bounded-ws.js
           node --check load-tests/artillery/ws-bounded-processor.js
@@ -340,6 +342,27 @@ jobs:
           NODE
       - name: Install pinned k6 runner for bounded real-service proof
         uses: grafana/setup-k6-action@v1
+      - name: Prove k6 PONG assertion fails against non-PONG loopback fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          node load-tests/native/non-pong-fixture.cjs > /tmp/sails-non-pong-fixture.log 2>&1 &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 30); do
+            if ! kill -0 "$fixture_pid" 2>/dev/null; then echo 'Non-PONG fixture exited'; exit 1; fi
+            if (echo > /dev/tcp/127.0.0.1/39871) >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then echo 'Non-PONG fixture readiness timeout'; exit 1; fi
+          if timeout 30s k6 run --quiet load-tests/tests/chat-ws-no-pong-negative.js > /tmp/sails-k6-negative.log 2>&1; then
+            echo 'FAIL: k6 accepted missing application PONG'; exit 1
+          fi
+          if ! grep -q 'Authenticated WS PONG protocol check failed' /tmp/sails-k6-negative.log; then
+            echo 'FAIL: negative test did not fail for missing PONG'; exit 1
+          fi
+          echo 'k6 negative proof PASS: missing PONG fails closed'
       - name: Execute bounded k6 Intent and WS PONG on real disposable backend
         env:
           NODE_ENV: development
