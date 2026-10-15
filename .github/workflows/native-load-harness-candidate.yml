@@ -451,7 +451,14 @@ jobs:
             check(signature, { 'ed25519 sign and verify': sig => nacl.sign.detached.verify(message, sig, pair.publicKey) })
           }
           EOF
-          if ! timeout 30s k6 run --quiet load-tests/tests/crypto-preflight.js > /tmp/sails-k6-crypto-preflight.log 2>&1; then
+          # Check the actual dependency path before k6 runs; no secret material.
+          node <<'NODE'
+          const fs=require('node:fs');
+          for(const path of ['node_modules/tweetnacl/nacl-fast.js','load-tests/tests/crypto-preflight.js']){
+            console.log('k6 preflight file presence:',JSON.stringify({file:path,exists:fs.existsSync(path)}));
+          }
+          NODE
+                    if ! timeout 30s k6 run --quiet load-tests/tests/crypto-preflight.js > /tmp/sails-k6-crypto-preflight.log 2>&1; then
             node <<'NODE'
           const fs=require('node:fs');
           const log=fs.readFileSync('/tmp/sails-k6-crypto-preflight.log','utf8');
