@@ -386,7 +386,11 @@ jobs:
           timeout 90s k6 run --quiet -e BASE_URL=http://127.0.0.1:3000 load-tests/tests/intent-bounded.js > /tmp/sails-k6-intent.log 2>&1 || {
             echo 'k6 real-service Intent smoke failed; logs withheld to protect credentials'; exit 1;
           }
+          # Intent setup consumes four auth-tier calls. WS setup consumes
+          # another four; wait for the shared window before the second k6 run.
+          sleep 65
           timeout 90s k6 run --quiet -e BASE_URL=http://127.0.0.1:3000 load-tests/tests/chat-ws-bounded.js > /tmp/sails-k6-ws.log 2>&1 || {
+            # Keep logs private: k6 may print the one-time ticket in a WS URL.
             echo 'k6 real-service WS PONG smoke failed; logs withheld to protect ticket URLs'; exit 1;
           }
           echo 'k6 real-service bounded Intent and WS PONG PASS (one iteration each)'
