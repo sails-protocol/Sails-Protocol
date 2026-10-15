@@ -946,10 +946,19 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(resumedPending.rulingAppealRound).toBe(before.appealRound)
     expect(await outcomeRecords(o)).toBe(1)
     expect((await disputeOf(o)).authoritySignature).toBe(afterSqlFault.authoritySignature)
-    const replayRecovery = await reconcileMissingDispatch(100)
-    expect(replayRecovery.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    // Two independent recovery invocations must observe the durable pending
+    // rather than creating a second dispatch or altering economic authority.
+    const [replayRecoveryA, replayRecoveryB] = await Promise.all([
+      reconcileMissingDispatch(100),
+      reconcileMissingDispatch(100),
+    ])
+    for (const replayRecovery of [replayRecoveryA, replayRecoveryB]) {
+      expect(replayRecovery.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    }
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
     expect((await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })).id).toBe(resumedPending.id)
     expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
 
     // The public resolveDispute API intentionally refuses replay of a
     // RESOLVED ruling. Recovery of a persisted ruling is a separate operation,
