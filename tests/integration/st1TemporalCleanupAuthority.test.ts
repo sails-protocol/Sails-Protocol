@@ -1232,7 +1232,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await edaCount(o)).toBe(0)
   })
 
-  it('V3-GA a committed N+1 appeal prevents an old-generation cleanup from deleting the pending', async () => {
+  it('V3-GA serialized old-generation cleanup completes before a subsequent N+1 appeal', async () => {
     const o = await openedDispute('v3-generation-appeal-first')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
     const oldGeneration = await generationOf(pending.id)
