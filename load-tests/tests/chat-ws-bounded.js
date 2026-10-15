@@ -5,10 +5,10 @@
  * Run against an isolated local backend; never print ticket-bearing URLs.
  */
 import http from 'k6/http'
-import ws from 'k6/ws'
 import { check } from 'k6'
 import { BASE_URL } from '../k6.config.js'
 import { generateTestUser, authHeaders } from '../utils/data-generator.js'
+import { assertApplicationPong } from './ws-pong-assertion.js'
 
 if (!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(BASE_URL)) {
   throw new Error('Bounded WS test requires loopback HTTP target')
@@ -42,33 +42,3 @@ export default function (data) {
 
 }
 
-/** Exported for an isolated deliberately non-PONG WebSocket fixture. */
-export function assertApplicationPong(url) {
-  let pong = false
-  let appError = false
-  let opened = false
-  const result = ws.connect(url, {
-    tags: { name: 'authenticated_chat_ws' },
-  }, socket => {
-    socket.on('open', () => {
-      opened = true
-      socket.send(JSON.stringify({ type: 'PING', payload: {} }))
-    })
-    socket.on('message', raw => {
-      let message
-      try { message = JSON.parse(raw) } catch { appError = true; socket.close(); return }
-      if (message?.type === 'PONG') { pong = true; socket.close() }
-      else if (message?.type === 'ERROR') { appError = true; socket.close() }
-    })
-    socket.setTimeout(() => { socket.close() }, 15000)
-  })
-  check({ opened, pong, appError, status: result && result.status }, {
-    'WS upgrade: 101': v => v.status === 101,
-    'WS opened': v => v.opened,
-    'application PONG received': v => v.pong,
-    'no application error': v => !v.appError,
-  })
-  if (!opened || !pong || appError || !result || result.status !== 101) {
-    throw new Error('Authenticated WS PONG protocol check failed (details redacted)')
-  }
-}
