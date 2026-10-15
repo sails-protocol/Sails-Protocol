@@ -455,20 +455,22 @@ jobs:
             node <<'NODE'
           const fs=require('node:fs');
           const log=fs.readFileSync('/tmp/sails-k6-crypto-preflight.log','utf8');
+          // String matching only: diagnostics must never fail due to a malformed regex.
+          const lower=log.toLowerCase();
+          const has=(...terms)=>terms.some(term=>lower.includes(term.toLowerCase()));
           const reasons={
-            webcryptoUnavailable: log.includes('K6_CRYPTO_PREFLIGHT_WEBCRYPTO_UNAVAILABLE'),
-            moduleResolution: /unknown module|could not resolve|module not found/i.test(log),
-            tweetnaclInitialization: /tweetnacl|nacl-fast/i.test(log),
-            filePathContext: /file:\/\/|\.js:[0-9]+|\.js\([0-9]+\)/i.test(log),
-            errorLevel: /level=error|ERRO\\[/i.test(log),
-            gojaRuntime: /GoError|Goja|runtime/i.test(log),
-            requireFailure: /require|module|import/i.test(log),
-            cryptoReference: /crypto|self|globalThis/i.test(log),
-            permissionOrFilesystem: /permission denied|no such file|open .* failed/i.test(log),
-            parseFailure: /unexpected token|parsing|syntax/i.test(log),
-            prngUnavailable: /no PRNG|random source|random bytes|getRandomValues/i.test(log),
-            runtimeException: /GoError|TypeError|ReferenceError|SyntaxError/i.test(log),
-            signatureCheck: /thresholds on metrics|thresholds have been crossed/i.test(log),
+            webcryptoUnavailable: has('K6_CRYPTO_PREFLIGHT_WEBCRYPTO_UNAVAILABLE'),
+            moduleResolution: has('unknown module','could not resolve','module not found'),
+            tweetnaclInitialization: has('tweetnacl','nacl-fast'),
+            errorLevel: has('level=error','erro['),
+            gojaRuntime: has('goerror','goja','runtime'),
+            requireFailure: has('require','module','import'),
+            cryptoReference: has('crypto','self','globalthis'),
+            permissionOrFilesystem: has('permission denied','no such file'),
+            parseFailure: has('unexpected token','parsing','syntax'),
+            prngUnavailable: has('no prng','random source','random bytes','getrandomvalues'),
+            runtimeException: has('goerror','typeerror','referenceerror','syntaxerror'),
+            signatureCheck: has('thresholds on metrics','thresholds have been crossed'),
           };
           console.log('k6 isolated Ed25519 preflight failure:',JSON.stringify(reasons));
           NODE
