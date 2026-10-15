@@ -455,6 +455,19 @@ jobs:
             node <<'NODE'
           const fs=require('node:fs');
           const log=fs.readFileSync('/tmp/sails-k6-crypto-preflight.log','utf8');
+          // This fixture has no credentials or network calls. Emit only the
+          // allowlisted, literal module-resolution error, never a raw log line.
+          const allowed=[
+            'The moduleSpecifier "../../node_modules/tweetnacl/nacl-fast.js" couldn\'t be found on local disk.',
+            'GoError: The moduleSpecifier "../../node_modules/tweetnacl/nacl-fast.js" couldn\'t be found on local disk.',
+          ];
+          console.log('k6 preflight known module error:',allowed.some(msg=>log.includes(msg)));
+          console.log('k6 preflight error fingerprints:',JSON.stringify({
+            fileNotFound: log.toLowerCase().includes('no such file'),
+            moduleSpecifier: log.includes('moduleSpecifier'),
+            cannotOpen: log.toLowerCase().includes('open') && log.toLowerCase().includes('failed'),
+            relativePath: log.includes('../../node_modules/tweetnacl/nacl-fast.js'),
+          }));
           // String matching only: diagnostics must never fail due to a malformed regex.
           const lower=log.toLowerCase();
           const has=(...terms)=>terms.some(term=>lower.includes(term.toLowerCase()));
