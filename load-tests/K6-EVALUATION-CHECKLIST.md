@@ -23,3 +23,22 @@ The hybrid option must have no security regressions, meet required protocol cove
 - Native workflow and general CI: passed at 9846c5b3f666f4c16ddc025f355c78dbccc2ca51.
 - k6 binary provenance, scenario implementation, WS assertion and comparative benchmark: NOT YET VERIFIED.
 - No decision to uninstall Artillery, merge, deploy or change rate limits.
+
+## CTO transition evidence — 2026-10-15 (PR #472)
+
+- Candidate HEAD observed: `9f4b6338d2fb9ea02e2e2052ddbbf0a03e3f2373`. This is an observation, not an acceptance SHA.
+- CI Tests run 38740919931 and Native load harness run 38740919937 were **in progress** at the CTO review; do not infer PASS or FAIL from pending jobs.
+- In the native load run, dependency-free syntax and safety guard checks **PASSED** on that HEAD. The older syntax failure (run 38732929803, job 116414916066, chat-ws-bounded.js line 31) predates this HEAD and must not be treated as a current failure.
+- Source inspection confirms bounded k6 Intent and WS candidates, an explicit application PONG assertion, a negative no-PONG fixture, and disposable PostgreSQL/Redis workflow configuration. These are **implementation observations**, not runtime acceptance.
+- `load-tests/native/run.js` still implements its own `runPhases` scheduler. This is transitional only; k6 remains the sole approved load executor, while Sails TestKit may provide protocol-specific fixtures and checks.
+- **Gate: BLOCKED until exact-HEAD jobs complete and positive Intent/WS, specific negative no-PONG, security and comparator evidence are inspected.** Artillery remains installed. No merge, deploy, production rate-limit change, or economic/escrow modification authorized.
+- Claude's read-only scalability/event-architecture mission is tracked in #473 with #253 and #269; Kafka/Redpanda adoption remains undecided.
+
+### CTO continuation procedure
+
+1. Check both run conclusions and job logs on the exact PR HEAD; do not fix historical failures blindly.
+2. For any red gate, record job, step, error and SHA, then apply the minimal safe fix and rerun.
+3. Require positive real-service k6 Intent and WS PONG plus a negative fixture that fails specifically for missing PONG.
+4. Review authentication limits, secret-safe artifacts and Artillery comparison before any removal proposal.
+5. After acceptance, simplify the temporary native scheduler into protocol-only TestKit utilities; seek explicit authorization for merge/deploy.
+
