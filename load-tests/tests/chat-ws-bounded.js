@@ -30,7 +30,7 @@ export default function (data) {
   // JSON Content-Type requires a valid JSON body; null can be rejected by Fastify.\n  const ticketRes = http.post(`${BASE_URL}/v1/identity/ws-ticket`, '{}', {
     ...authHeaders(data), tags: { name: 'ws_ticket' },
   })
-  if (!check(ticketRes, { 'ticket: HTTP 200': r => r.status === 200 })) throw new Error('WS ticket request rejected')
+  if (!check(ticketRes, { 'ticket: HTTP 200': r => r.status === 200 })) {\n    // Status class only: no response body, token, ticket or URL in CI output.\n    const status = ticketRes.status\n    throw new Error(`WS ticket request rejected (HTTP ${Number.isInteger(status) ? status : 'unknown'})`)\n  }
   const ticket = ticketRes.json('data.ticket')
   if (typeof ticket !== 'string' || !ticket) throw new Error('Missing WS ticket')
   assertApplicationPong(`${WS_BASE}/v1/openp2p/chat?ticket=${encodeURIComponent(ticket)}`)
