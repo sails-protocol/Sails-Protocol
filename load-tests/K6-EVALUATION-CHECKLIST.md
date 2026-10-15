@@ -51,3 +51,11 @@ Inspection of `.github/workflows/native-load-harness-candidate.yml` confirms the
 
 **Residual gate:** the workflow currently uses `grafana/setup-k6-action@v1` without an explicitly pinned action commit or k6 artifact digest in the workflow. The supply-chain/provenance acceptance item above remains OPEN. Also OPEN: comparable sustained load shapes, p50/p95/p99, arrival rates, saturation and resource measurements, review of the duplicate native `runPhases` scheduler, and authorized dependency removal. No merge/deploy/production-limit change.
 
+
+## CTO exact-HEAD follow-up — 2026-10-15
+
+- PR #472 HEAD `494ab7e82bb6b6f3b1d572e841f9afd212d3865f` verified DRAFT and unmerged.
+- GitHub commit-associated PR runs returned CI Tests `38752828157`: **completed / success** (job `test`). This is not the k6 load harness workflow.
+- The candidate workflow now records `k6 version` and SHA-256 of the resolved executable into `k6-executable-provenance.txt`, included in the baseline artifact. **Implementation verified in source; execution and artifact contents NOT VERIFIED on this HEAD.**
+- The commit-associated PR-run endpoint did not return a load-harness run. This absence is not evidence of a failed or successful run, because the endpoint is filtered to PR-triggered runs and first page.
+- Keep CONDITIONAL / NO MERGE. Next: obtain exact-HEAD load workflow result and inspect provenance artifact, then pin the setup action and k6 version under a reviewed update; benchmark parity and duplicate scheduler remain OPEN.
