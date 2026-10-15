@@ -96,6 +96,32 @@ jobs:
             console.log('PONG assertion primitive: positive, wrong-type, timeout bounds, timeout, ERROR, early-close PASS');
           })().catch(()=>process.exit(1));
           NODE
+      - name: Fail-closed WS session-pool negative proof
+        shell: bash
+        run: |
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const fs=require('node:fs');
+          const path=require('node:path');
+          const {connectWithFreshTicket}=require('./load-tests/artillery/ws-bounded-processor.js');
+          const root=path.join(process.cwd(),'load-tests/artillery');
+          const file=path.join(root,'bounded-ws-users.json');
+          const test=()=>new Promise(resolve=>{
+            connectWithFreshTicket({}, {}, err=>resolve(err));
+          });
+          (async()=>{
+            assert.equal(fs.existsSync(file),false,'No stale session pool permitted');
+            fs.writeFileSync(file,'[{"sessionToken":"test-only"}]',{mode:0o644,flag:'wx'});
+            try {
+              assert.match((await test()).message,/Private session pool required/);
+            } finally {fs.unlinkSync(file);}
+            fs.writeFileSync(file,'[{}]',{mode:0o600,flag:'wx'});
+            try {
+              assert.match((await test()).message,/Bounded WS ticket setup failed/);
+            } finally {fs.unlinkSync(file);}
+            console.log('WS session-pool permission and malformed-schema negatives PASS (no network requests)');
+          })().catch(()=>process.exit(1));
+          NODE
       - name: Bound Artillery candidate scope and prevent false WS parity
         shell: bash
         run: |
