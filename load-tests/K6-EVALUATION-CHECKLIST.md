@@ -42,3 +42,12 @@ The hybrid option must have no security regressions, meet required protocol cove
 4. Review authentication limits, secret-safe artifacts and Artillery comparison before any removal proposal.
 5. After acceptance, simplify the temporary native scheduler into protocol-only TestKit utilities; seek explicit authorization for merge/deploy.
 
+
+## Evidence reconciliation — 2026-10-15, completed runs
+
+The previously pending jobs finished **successfully**: CI Tests run `38740919931` and Native load harness candidate run `38740919937`, both on implementation HEAD `9f4b6338d2fb9ea02e2e2052ddbbf0a03e3f2373`. This does not assert a rerun on the later documentation-only HEAD.
+
+Inspection of `.github/workflows/native-load-harness-candidate.yml` confirms the successful candidate job includes: real disposable PostgreSQL/Redis service, bounded Artillery HTTP and WS comparator runs, a deliberately failing k6 non-PONG fixture whose failure classification is asserted, and bounded k6 real-service Intent and authenticated WS PONG runs. The Artillery WS comparator **does not** assert PONG and is deliberately labeled non-parity. Do not infer sustained throughput equivalence from bounded one-iteration k6 smoke checks.
+
+**Residual gate:** the workflow currently uses `grafana/setup-k6-action@v1` without an explicitly pinned action commit or k6 artifact digest in the workflow. The supply-chain/provenance acceptance item above remains OPEN. Also OPEN: comparable sustained load shapes, p50/p95/p99, arrival rates, saturation and resource measurements, review of the duplicate native `runPhases` scheduler, and authorized dependency removal. No merge/deploy/production-limit change.
+
