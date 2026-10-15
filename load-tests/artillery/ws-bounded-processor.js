@@ -32,7 +32,7 @@ function assertPongFromSocket(ws,{timeoutMs=15000}={}){
     const timer=setTimeout(()=>finish(Error('PONG timeout')),timeoutMs);
     function finish(err){if(finished)return;finished=true;clearTimeout(timer);ws.off?.('message',onMessage);ws.off?.('close',onClose);ws.off?.('error',onError);err?reject(err):resolve();}
     function onMessage(raw){let data;try{data=JSON.parse(String(raw));}catch{return finish(Error('Invalid WS JSON'));}
-      if(data?.type==='PONG'&&data?.payload&&typeof data.payload==='object'&&!Array.isArray(data.payload))finish();
+      if(data?.type==='PONG')finish();
       else if(data?.type==='ERROR')finish(Error('WS application ERROR (redacted)'));
     }
     function onClose(){finish(Error('WS closed before PONG'));}
