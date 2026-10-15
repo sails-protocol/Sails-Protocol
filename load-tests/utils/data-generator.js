@@ -31,7 +31,7 @@
  *    `import` line is written — so `require()` is used for tweetnacl
  *    here instead (executes in the position it's written), not `import`.
  *
- * Signing detail carried over unchanged from processor.js: the server
+ * Registration now additionally signs the PoP domain-separated message\n * `sails-registration-proof-of-possession:v1:<challenge>:<displayName>`\n * before participant creation; this is required by the live server.\n *\n * Signing detail carried over unchanged from processor.js: the server
  * verifies against the UTF-8 bytes of the challenge *string* itself,
  * not the raw bytes the returned hex represents (a hex round-trip is a
  * documented no-op — see common/middleware/auth.ts).
