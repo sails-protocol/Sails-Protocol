@@ -84,3 +84,8 @@ The bounded Artillery WS candidate now uses a private one-user session pool and 
 **Gate to promote:** inspect the exact installed Artillery WS engine for a supported receive/assertion hook, wire the assertion to that hook without logging ticket URLs, then prove a deliberately non-responding disposable WS server fails the scenario. If no supported hook exists, explicitly mark Artillery WS parity unsupported and use the native harness or a reviewed external engine for this portion. Do not patch private engine internals, change production rate limits, or remove Artillery based on the bounded candidate alone.
 
 **Separate auth windows:** the HTTP comparator registers two identities (8 shared auth-tier calls); WS preparation registers one (4 calls). Running both within the same 60-second default shared auth window exceeds 10 and creates expected 429 responses. Use fresh isolated Redis/backend or wait for the auth window between tests. Do not classify rate-limit protection as a throughput regression.
+
+
+### Bounded PONG assertion hardening
+
+The test-only `assertPongFromSocket` primitive now rejects out-of-range timeouts and does not accept a `PONG` lacking an object payload. CI covers the malformed-response and timeout-boundary negatives. This is **unit-level** evidence only; no claim of Artillery engine integration or live WS parity is made. The actual server PONG shape must be verified before using this primitive as a production-representative assertion.
