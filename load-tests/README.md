@@ -29,6 +29,14 @@ Artillery bounded HTTP and WS comparators are retained as baselines. In
 particular, the bounded Artillery WS candidate sends PING but does **not**
 assert receipt of PONG; it must not be presented as protocol parity.
 
+**Bounded k6 WS candidate:** `load-tests/tests/chat-ws-bounded.js` creates a
+real PoP identity, requests a single-use ticket, opens an authenticated
+WebSocket, sends application PING and asserts application PONG on that same
+connection. It runs one iteration against loopback only and must be
+validated against the disposable real backend and a deliberately non-PONG
+negative fixture before being accepted as an Artillery replacement. It
+is not a sustained load benchmark; never log the ticket-bearing URL.
+
 **Removal gates:** port the missing Intent and authenticated chat WebSocket
 workloads to k6; establish positive and deliberately negative PONG evidence;
 verify fail-closed identity, auth, ticket and target safety; compare outcomes
