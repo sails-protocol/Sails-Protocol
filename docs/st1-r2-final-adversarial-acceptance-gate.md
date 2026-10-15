@@ -124,3 +124,9 @@ Disposable PR [#477](https://github.com/sails-protocol/Sails-Protocol/pull/477),
 - Mutation A [#476](https://github.com/sails-protocol/Sails-Protocol/pull/476), workflow 38804688317: behaviorally RED in `disputePendingReconciliation.test.ts` after removing the live generation guard.
 - Mutation B [#477](https://github.com/sails-protocol/Sails-Protocol/pull/477), workflow 38804700194: RED in V3-A/V3-PG because the root-client Outcome delete bypassed transaction-scoped fault injection. This does not independently demonstrate an actual improper deletion; review strength of kill before formal acceptance.
 - Both experiment PRs must remain unmerged. Latest documentation HEAD requires its own CI; no earlier SHA's GREEN can certify it. Gate 5 still awaits signoff on mutation B evidence; Gate 6 awaits final exact-head GREEN and remaining adversarial gates.
+
+### Exact-head CI checkpoint (2026-10-15)
+
+- **GREEN:** documentation HEAD `fcdedf5030f6beb83f2ded6838bcab9f4adadbe5`, [workflow 38810022974](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38810022974), job `116680608327` completed SUCCESS, including real-PostgreSQL integration. This validates that HEAD only; it does not close the outstanding adversarial acceptance gates.
+- The mutation comparison now has unchanged GREEN at `fcdedf5`, mutation A behavioral RED at `cb21522`, and mutation B RED at `b5187b9` with the previously documented transaction-delegate fault-hook limitation. Keep both experimental PRs DRAFT/unmerged and require independent Gate 5 review.
+- Gate 6 is not closed: final exact-head CI must run again after all acceptance changes and gates 1–5 signoff. **NO MERGE / NO FREEZE.**
