@@ -18,6 +18,7 @@ function connectWithFreshTicket(wsArgs,context,callback){
     const ticket=payload?.data?.ticket;
     if(typeof ticket!=='string'||!ticket) throw Error('Missing one-time WS ticket');
     wsArgs.target='ws://127.0.0.1:3000/v1/openp2p/chat?ticket='+encodeURIComponent(ticket);
+    // The ticket URL is a bearer capability: do not emit wsArgs or this URL to logs.
   })().then(()=>callback(null),()=>callback(Error('Bounded WS ticket setup failed (details redacted)')));
 }
 // Fail-closed PONG assertion for an Artillery WS engine that exposes the
