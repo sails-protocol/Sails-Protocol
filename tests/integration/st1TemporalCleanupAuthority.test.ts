@@ -1131,6 +1131,38 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await edaCount(o)).toBe(0)
   })
 
+  it('V3-GR a concurrent old-generation cleanup cannot erase a newly appealed generation', async () => {
+    const o = await openedDispute('v3-generation-race')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const oldGeneration = await generationOf(pending.id)
+    await stale(pending.id, o)
+    await makeAppealable(o)
+    // Hold the old cleanup at its production D advisory lock while an
+    // independent appeal commits the next generation.
+    const releaseD = await holdD(o)
+    let released = false
+    try {
+      const cleanup = decide(pending.id, o.escrowId, oldGeneration)
+      for (let i = 0; i < 1000; i++) {
+        if ((await lockMap(o)).some(row => row.lock === 'D' && !row.granted)) break
+        if (i === 999) throw new Error('old-generation cleanup never waited on D lock')
+        await new Promise<void>(done => setTimeout(done, 10))
+      }
+      await releaseD()
+      released = true
+      // This proves a blocked cleanup can safely resume; a fully ordered
+      // appeal-before-release interleaving needs its own two-connection gate.
+      expect(await cleanup).toBe('PROVENANCE_REJECTED')
+      await appealService().appeal(o.disputeId, o.buyerId)
+      const appealed = await disputeOf(o)
+      expect(appealed.appealRound).toBeGreaterThan(oldGeneration.rulingAppealRound)
+      expect(await decide(pending.id, o.escrowId, oldGeneration)).toBe('PROVENANCE_REJECTED')
+      expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    } finally {
+      if (!released) await releaseD()
+    }
+  })
+
   it('V2 a committed Economic Disposition Authorization names the round: the cleanup never deletes it, before or after an appeal', async () => {
     const o = await openedDispute('v2')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
