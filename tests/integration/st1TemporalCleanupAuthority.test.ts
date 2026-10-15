@@ -1393,11 +1393,22 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
         env: { ...process.env, MOCK_ESCROW: 'false', TRUSTED_ARBITRATORS: process.env.TRUSTED_ARBITRATORS || '' },
         stdio: ['pipe', 'pipe', 'pipe'],
       })
+      let childStdout = ''; let childStderr = ''
+      child.stdout.on('data', (chunk: Buffer) => { childStdout += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => { childStderr += chunk.toString() })
       const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((done, reject) => {
         child!.on('error', reject)
         child!.on('close', (code, signal) => done({ code, signal }))
       })
-      await untilWaiting(1)
+      // Bound the lock-wait observation: a child startup failure must not stall the PG lane indefinitely.
+      const waitResult = await Promise.race([
+        untilWaiting(1).then(() => 'waiting' as const),
+        exited.then(() => 'exited' as const),
+        new Promise<'timeout'>(done => setTimeout(() => done('timeout'), 45_000)),
+      ])
+      if (waitResult !== 'waiting') {
+        throw new Error(`R1-K child did not reach advisory lock (${waitResult}); stdout=${childStdout.slice(-2000)} stderr=${childStderr.slice(-2000)}`)
+      }
       child.kill('SIGKILL')
       const death = await exited
       expect(death.signal).toBe('SIGKILL')
