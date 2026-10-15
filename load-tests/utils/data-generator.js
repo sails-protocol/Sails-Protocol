@@ -39,9 +39,21 @@
 import http from 'k6/http'
 import { check } from 'k6'
 
+// k6 exposes WebCrypto, but tweetnacl's UMD loader may select the Node
+// require('crypto') path because Goja also defines require. Explicitly
+// supply the CSPRNG from k6 WebCrypto after module initialization.
 globalThis.self = globalThis
 // eslint-disable-next-line
 const nacl = require('../../node_modules/tweetnacl/nacl-fast.js')
+if (!globalThis.crypto || typeof globalThis.crypto.getRandomValues !== 'function') {
+  throw new Error('k6 WebCrypto secure random source unavailable')
+}
+nacl.setPRNG((buffer, length) => {
+  const maxChunk = 65536 // WebCrypto getRandomValues per-call quota
+  for (let offset = 0; offset < length; offset += maxChunk) {
+    globalThis.crypto.getRandomValues(buffer.subarray(offset, Math.min(offset + maxChunk, length)))
+  }
+})
 
 // Real AssetType enum — src/core/intent.routes.ts's tradeIntentPayloadSchema
 // (which is also what liquidity/trade/settlement routes constrain to at
