@@ -1253,6 +1253,17 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await disputeOf(o)).toEqual(appealed)
     expect(await outcomeRecords(o)).toBe(outcomeCount)
     expect(await edaCount(o)).toBe(0)
+    // Exercise the production sweep as well as the direct guarded deleter.
+    // A stale worker must not reinterpret the old pending as deletable after
+    // the appeal has committed a new generation.
+    const [recovery] = await reconcileScoped([o.escrowId])
+    expect(recovery.reconciled).not.toContainEqual(expect.objectContaining({
+      escrowId: o.escrowId,
+      verdict: 'DELETED_GUARD_FAILED',
+    }))
+    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })).toEqual(pendingBefore)
+    expect(await disputeOf(o)).toEqual(appealed)
+    expect(await outcomeRecords(o)).toBe(outcomeCount)
   })
 
   it('V3-GR blocked old-generation cleanup resumes safely after the D lock is released', async () => {
