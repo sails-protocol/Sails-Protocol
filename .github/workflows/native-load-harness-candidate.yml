@@ -461,7 +461,12 @@ jobs:
             runtimePanic: /(?:panic:|fatal error:|out of memory)/i.test(log),
             httpFailure: /(?:HTTP [45][0-9][0-9]|status[=: ]+[45][0-9][0-9])/i.test(log),
             setupFailure: /(?:setup\(\)|setup function|setup failed|error in setup)/i.test(log),
-            uncaughtException: /(?:uncaught|exception|ERRO\[)/i.test(log),
+            uncaughtException: /(?:uncaught|exception|ERRO\\[)/i.test(log),
+            thresholdFailure: /(?:threshold|checks.*rate|sails_intent_success)/i.test(log),
+            runtimeErrorLine: /(?:level=error|level=warning|\\berror\\b|\\bfailed\\b)/i.test(log),
+            requestCheckFailed: /(?:✗|failed checks|checks.*[0-9]+\\.[0-9]+%)/i.test(log),
+            signalOrExit: /(?:signal:|exit status|context canceled|interrupt)/i.test(log),
+            transportFailure: /(?:connection refused|connection reset|dial tcp|network error|no such host)/i.test(log),
           };
           console.log('k6 bounded Intent sanitized failure classification:',JSON.stringify(categories));
           NODE
