@@ -1118,9 +1118,17 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     await stale(pending.id, o)
     await makeAppealable(o)
     await appealService().appeal(o.disputeId, o.buyerId)
-    expect((await disputeOf(o)).status).not.toBe('RESOLVED')
+    const appealed = await disputeOf(o)
+    expect(appealed.status).not.toBe('RESOLVED')
+    expect(appealed.appealRound).toBeGreaterThan(oldGeneration.rulingAppealRound)
+    const outcomeBefore = await outcomeRecords(o)
     expect(await decide(pending.id, o.escrowId, oldGeneration)).toBe('PROVENANCE_REJECTED')
     expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(outcomeBefore)
+    const after = await disputeOf(o)
+    expect(after.appealRound).toBe(appealed.appealRound)
+    expect(after.status).toBe(appealed.status)
+    expect(await edaCount(o)).toBe(0)
   })
 
   it('V2 a committed Economic Disposition Authorization names the round: the cleanup never deletes it, before or after an appeal', async () => {
