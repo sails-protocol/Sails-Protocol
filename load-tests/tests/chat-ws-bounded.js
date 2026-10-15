@@ -27,7 +27,7 @@ export function setup() {
 }
 
 export default function (data) {
-  const ticketRes = http.post(`${BASE_URL}/v1/identity/ws-ticket`, null, {
+  // JSON Content-Type requires a valid JSON body; null can be rejected by Fastify.\n  const ticketRes = http.post(`${BASE_URL}/v1/identity/ws-ticket`, '{}', {
     ...authHeaders(data), tags: { name: 'ws_ticket' },
   })
   if (!check(ticketRes, { 'ticket: HTTP 200': r => r.status === 200 })) throw new Error('WS ticket request rejected')
