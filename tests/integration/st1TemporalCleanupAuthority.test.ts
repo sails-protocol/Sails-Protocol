@@ -1409,10 +1409,30 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await disputeOf(o)).toEqual(before)
     expect(await outcomeRecords(o)).toBe(1)
     expect(await edaCount(o)).toBe(0)
-    expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId, generation)).toBe('DELETED')
+    // Recovery must be performed by a fresh OS process, not the Jest parent.
+    const recovery = await new Promise<{ code: number | null; stdout: string; stderr: string }>((done, reject) => {
+      const worker = spawn(process.execPath, ['-e', childCode], {
+        cwd: resolve(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', TRUSTED_ARBITRATORS: process.env.TRUSTED_ARBITRATORS || '' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let stdout = ''; let stderr = ''
+      const watchdog = setTimeout(() => worker.kill('SIGKILL'), 60_000)
+      worker.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+      worker.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+      worker.on('error', err => { clearTimeout(watchdog); reject(err) })
+      worker.on('close', code => { clearTimeout(watchdog); done({ code, stdout, stderr }) })
+    })
+    expect({ code: recovery.code, stderr: recovery.stderr.slice(-2000) }).toEqual({ code: 0, stderr: expect.any(String) })
+    const marker = recovery.stdout.split('\n').find(line => line.startsWith('ST1_CHILD_RESULT:'))
+    expect(marker).toBeDefined()
+    const report = JSON.parse(marker!.slice('ST1_CHILD_RESULT:'.length))
+    expect(report.reconciled).toContainEqual({ escrowId: o.escrowId, pendingTransactionId: pending.id, verdict: 'DELETED_GUARD_FAILED' })
+    expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
     expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId, generation)).toBe('ALREADY_GONE')
     expect(await disputeOf(o)).toEqual(before)
     expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
   })
 
   it('R2 replaying the whole sweep after the round is gone changes nothing durable', async () => {
