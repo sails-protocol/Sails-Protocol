@@ -10,8 +10,6 @@ config:
     - duration: 2
       arrivalRate: 1
       name: Bounded two-arrival correctness rehearsal
-  variables:
-    asset: ["BTC", "USDT_ERC20", "LN_BTC"]
 scenarios:
   - name: "Current PoP authenticated intent create and cancel (bounded)"
     flow:
