@@ -106,7 +106,7 @@ jobs:
             assert.equal(cfg.config.phases.length,1,name+' single phase');
             assert.equal(cfg.config.phases[0].duration,2,name+' bounded duration');
             assert.equal(cfg.config.phases[0].arrivalRate,1,name+' bounded rate');
-            assert.match(cfg.config.target,/^(http|ws):\\/\\/127\\.0\\.0\\.1:3000$/,name+' loopback only');
+            assert.equal(cfg.config.target,(name==='HTTP'?'http':'ws')+'://127.0.0.1:3000',name+' loopback only');
           }
           assert.equal(http.scenarios[0].flow[0].function,'setupCurrentAuthenticatedUser');
           assert.equal(ws.scenarios[0].flow[0].connect.function,'connectWithFreshTicket');
