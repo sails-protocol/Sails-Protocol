@@ -113,6 +113,24 @@ jobs:
           assert.match(ws.scenarios[0].name,/PONG not asserted/);
           console.log('Artillery candidate bounds and non-parity labeling PASS');
           NODE
+      - name: Verify Artillery WS engine assertion integration boundary
+        shell: bash
+        run: |
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const fs=require('node:fs');
+          const yaml=require('yaml');
+          const ws=yaml.parse(fs.readFileSync('load-tests/artillery/chat-ws-bounded-comparator.yml','utf8'));
+          const flow=ws.scenarios[0].flow;
+          assert.equal(flow[0].connect.function,'connectWithFreshTicket');
+          const processor=require('./load-tests/artillery/ws-bounded-processor.js');
+          assert.equal(typeof processor.assertPongFromSocket,'function');
+          // This intentionally blocks promotion until an engine-supported PONG
+          // assertion is integrated and exercised against a nonresponding server.
+          const wired=flow.some(step=>step?.function==='assertPongFromSocket'||step?.send?.function==='assertPongFromSocket');
+          assert.equal(wired,false,'Candidate unexpectedly changed: review WS engine hook and negative proof before enabling');
+          console.log('WS candidate remains PONG-unverified; parity promotion blocked (expected)');
+          NODE
       - name: Generate Prisma client and build
         run: |
           npx prisma generate
