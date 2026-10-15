@@ -1001,6 +1001,71 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(1)
   })
 
+  it('V3-OS a fresh OS process preserves the exact persisted ruling after a writer-side post-persist failure', async () => {
+    const o = await openedDispute('v3-os-post-persist')
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
+      throw new Error('injected: writer returned failure after durable pending')
+    })
+    const dispute = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/ST1-R2 V3/)
+    } finally {
+      failing.mockRestore()
+    }
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    const before = await disputeOf(o)
+    const generation = await generationOf(pending.id)
+    await age(pending.id)
+    const { spawn } = require('child_process') as typeof import('child_process')
+    const { resolve } = require('path') as typeof import('path')
+    const childCode = `
+      require('ts-node/register/transpile-only')
+      const { prisma } = require('./src/common/database')
+      const { reconcileStalePendingDisputeTranslations } = require('./src/modules/open-settlement/dispute-pending-reconciliation')
+      ;(async () => {
+        const report = await reconcileStalePendingDisputeTranslations()
+        process.stdout.write('ST1_V3_OS_RESULT:' + JSON.stringify(report) + '\\n')
+        await prisma.$disconnect()
+        process.exit(0)
+      })().catch(async err => {
+        process.stderr.write(String(err.stack || err) + '\\n')
+        await prisma.$disconnect().catch(() => {})
+        process.exit(1)
+      })
+    `
+    const result = await new Promise<{ code: number | null; stdout: string; stderr: string }>((done, reject) => {
+      const child = spawn(process.execPath, ['-e', childCode], {
+        cwd: resolve(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let stdout = ''; let stderr = ''
+      child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+      const watchdog = setTimeout(() => child.kill('SIGKILL'), 60_000)
+      child.on('error', err => { clearTimeout(watchdog); reject(err) })
+      child.on('close', code => { clearTimeout(watchdog); done({ code, stdout, stderr }) })
+    })
+    expect({ code: result.code, stderr: result.stderr.slice(-2000) }).toEqual({ code: 0, stderr: expect.any(String) })
+    const line = result.stdout.split('\n').find(x => x.startsWith('ST1_V3_OS_RESULT:'))
+    expect(line).toBeDefined()
+    const report = JSON.parse(line!.slice('ST1_V3_OS_RESULT:'.length))
+    expect(report.reconciled).toContainEqual(expect.objectContaining({
+      escrowId: o.escrowId, pendingTransactionId: pending.id, verdict: 'LEFT_GUARD_PASSED',
+    }))
+    const afterPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+    expect(afterPending.rulingAuthoritySignature).toBe(generation.rulingAuthoritySignature)
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
+  })
+
   it('V3-S a signature persisted before dispatch throws is never lost by the rollback path', async () => {
     const o = await openedDispute('v3-signed')
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
