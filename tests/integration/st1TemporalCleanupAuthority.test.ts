@@ -1264,6 +1264,17 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })).toEqual(pendingBefore)
     expect(await disputeOf(o)).toEqual(appealed)
     expect(await outcomeRecords(o)).toBe(outcomeCount)
+    // Idempotent replay: a second sweep must not reinterpret the N+1 state
+    // as permission to delete the old pending or its economic Outcome.
+    const [secondRecovery] = await reconcileScoped([o.escrowId])
+    expect(secondRecovery.reconciled).not.toContainEqual(expect.objectContaining({
+      escrowId: o.escrowId,
+      verdict: 'DELETED_GUARD_FAILED',
+    }))
+    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })).toEqual(pendingBefore)
+    expect(await disputeOf(o)).toEqual(appealed)
+    expect(await outcomeRecords(o)).toBe(outcomeCount)
+    expect(await edaCount(o)).toBe(0)
   })
 
   it('V3-GR blocked old-generation cleanup resumes safely after the D lock is released', async () => {
