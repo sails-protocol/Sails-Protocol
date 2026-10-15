@@ -1232,36 +1232,27 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await edaCount(o)).toBe(0)
   })
 
-  it('V3-GA serialized old-generation cleanup completes before a subsequent N+1 appeal', async () => {
+  it('V3-GA an N+1 appeal committed first makes an old-generation cleanup fail closed', async () => {
     const o = await openedDispute('v3-generation-appeal-first')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
     const oldGeneration = await generationOf(pending.id)
     await stale(pending.id, o)
     await makeAppealable(o)
-    const releaseD = await holdD(o)
-    let released = false
-    try {
-      // Start the old cleanup while D is held. It cannot inspect or mutate
-      // the generation until the lock is released.
-      const cleanup = decide(pending.id, o.escrowId, oldGeneration)
-      for (let i = 0; i < 1000; i++) {
-        if ((await lockMap(o)).some(row => row.lock === 'D' && !row.granted)) break
-        if (i === 999) throw new Error('old-generation cleanup never waited on D lock')
-        await new Promise<void>(done => setTimeout(done, 10))
-      }
-      // The appeal is intentionally serialized *after* D is released here:
-      // this covers the safe old-cleanup-wins ordering, not N+1-wins.
-      await releaseD()
-      released = true
-      expect(await cleanup).toBe('DELETED')
-      await appealService().appeal(o.disputeId, o.buyerId)
-      const appealed = await disputeOf(o)
-      expect(appealed.appealRound).toBeGreaterThan(oldGeneration.rulingAppealRound)
-      expect(await decide(pending.id, o.escrowId, oldGeneration)).not.toBe('DELETED')
-      expect(await disputeOf(o)).toEqual(appealed)
-    } finally {
-      if (!released) await releaseD()
-    }
+    // The legacy MULTISIG appeal fixture advances the generation using the
+    // actual appeal service. It must commit before old cleanup is invoked.
+    await appealService().appeal(o.disputeId, o.buyerId)
+    const appealed = await disputeOf(o)
+    expect(appealed.appealRound).toBeGreaterThan(oldGeneration.rulingAppealRound)
+    expect(appealed.status).not.toBe('RESOLVED')
+    const outcomeCount = await outcomeRecords(o)
+    const pendingBefore = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+    // The stale N decision cannot delete a pending or rewrite an N+1 dispute.
+    const verdict = await decide(pending.id, o.escrowId, oldGeneration)
+    expect(verdict).toBe('PROVENANCE_REJECTED')
+    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })).toEqual(pendingBefore)
+    expect(await disputeOf(o)).toEqual(appealed)
+    expect(await outcomeRecords(o)).toBe(outcomeCount)
+    expect(await edaCount(o)).toBe(0)
   })
 
   it('V3-GR blocked old-generation cleanup resumes safely after the D lock is released', async () => {
