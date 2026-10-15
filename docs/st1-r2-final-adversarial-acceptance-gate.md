@@ -137,3 +137,9 @@ Disposable PR [#477](https://github.com/sails-protocol/Sails-Protocol/pull/477),
 - V3-E invokes real `initiateRelease` and persists EDA, but deliberately deletes the pending row via direct test Prisma injection. That establishes fail-closed behavior for an adversarial state, **not** a production-reachable loss of pending. Gate 3 requires identifying a normal production code path or proving impossibility under the actual lifecycle and database constraints.
 - Gate 2 acceptance must name and invoke a legitimate persisted-ruling recovery entrypoint with fault removed, then assert exactly-once economic authorization/dispatch under fresh process/connection and replay; if none exists, record a design gap rather than fabricating successful retry.
 - Exact-head CI for `a77dcd4` was still in progress when inspected ([workflow 38813892789](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38813892789)); no GREEN claim until completion.
+
+### Recovery-path code inspection (2026-10-15)
+
+- Inspected `src/modules/open-settlement/dispute-pending-reconciliation.ts`: `deletePendingRoundIfStillUnsigned()` is a guarded **cleanup** operation for an existing unsigned pending, with dispute/escrow locks and generation/Outcome/EDA checks. It is not an entrypoint to re-dispatch a persisted RESOLVED ruling with **no** pending after the D→E SQL fault.
+- The reconciler's documented `GUARD_PASSED` behavior preserves a legitimate unsigned pending awaiting signatures; it does not manufacture a missing pending. Consequently, V3-PG's post-fault `pending=null` state is **not** recovered by this cleanup API. A separate safe replay/re-dispatch design or proof that this state must remain operator-review-only is required before Gate 2 can close.
+- No production change authorized by this inspection. Do not mislabel a rejected `resolveDispute` replay or a cleanup-only reconciliation as successful economic recovery.
