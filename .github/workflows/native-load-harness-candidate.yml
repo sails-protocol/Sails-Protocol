@@ -350,11 +350,10 @@ jobs:
           set -euo pipefail
           node <<'NODE'
           const fs = require('node:fs');
-          const yaml = require('yaml');
-          const workflow = yaml.parse(fs.readFileSync('.github/workflows/native-load-harness-candidate.yml', 'utf8'));
-          const step = workflow.jobs.candidate.steps.find(s => typeof s.uses === 'string' && s.uses.startsWith('grafana/setup-k6-action@'));
-          if (!step) throw new Error('Missing k6 setup action');
-          if (!/^grafana\/setup-k6-action@[a-f0-9]{40}$/.test(step.uses)) {
+          const source = fs.readFileSync('.github/workflows/native-load-harness-candidate.yml', 'utf8');
+          const refs = [...source.matchAll(/^\s*uses:\s*(grafana\/setup-k6-action@\S+)/gm)].map(m => m[1]);
+          if (refs.length !== 1) throw new Error('Expected exactly one k6 setup action');
+          if (!/^grafana\/setup-k6-action@[a-f0-9]{40}$/.test(refs[0])) {
             console.error('k6 setup action is not pinned to a full immutable commit SHA');
             process.exit(1);
           }
