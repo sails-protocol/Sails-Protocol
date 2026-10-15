@@ -119,7 +119,17 @@ jobs:
             try {
               assert.match((await test()).message,/Bounded WS ticket setup failed/);
             } finally {fs.unlinkSync(file);}
-            console.log('WS session-pool permission and malformed-schema negatives PASS (no network requests)');
+            fs.writeFileSync(file,'[{"sessionToken":"test-only"}]',{mode:0o600,flag:'wx'});
+            const link=path.join(root,'bounded-ws-users-symlink-target.json');
+            try {
+              fs.renameSync(file,link);
+              fs.symlinkSync(link,file);
+              assert.match((await test()).message,/Bounded WS ticket setup failed/);
+            } finally {
+              fs.rmSync(file,{force:true});
+              fs.rmSync(link,{force:true});
+            }
+            console.log('WS session-pool permissions, malformed-schema, symlink negatives PASS (no network requests)');
           })().catch(()=>process.exit(1));
           NODE
       - name: Bound Artillery candidate scope and prevent false WS parity
