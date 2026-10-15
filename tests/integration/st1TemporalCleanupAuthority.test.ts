@@ -1418,6 +1418,8 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       if (waitResult !== 'waiting') {
         throw new Error(`R1-K child did not reach advisory lock (${waitResult}); stdout=${childStdout.slice(-2000)} stderr=${childStderr.slice(-2000)}`)
       }
+      const targetWaiters = (await lockMap(o)).filter(row => row.lock === 'E' && !row.granted)
+      expect(targetWaiters).toHaveLength(1)
       child.kill('SIGKILL')
       const death = await exited
       expect(death.signal).toBe('SIGKILL')
