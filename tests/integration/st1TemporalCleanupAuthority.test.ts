@@ -1261,6 +1261,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
     await authorizeDisputedPendingExecution(row) // the production gate commits the authorization
     expect(await edaCount(o)).toBe(1)
+    const authorizedPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+    const authorizedGeneration = await generationOf(pending.id)
+    const authorizedOutcomeCount = await outcomeRecords(o)
+    expect(authorizedOutcomeCount).toBe(1)
 
     expect(await decide(pending.id, o.escrowId, await generationOf(pending.id))).toBe('PROVENANCE_REJECTED')
     await makeAppealable(o)
@@ -1268,6 +1272,11 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await decide(pending.id, o.escrowId, await generationOf(pending.id))).toBe('PROVENANCE_REJECTED')
     expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
     expect(await edaCount(o)).toBe(1)
+    const preservedPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+    expect(preservedPending.id).toBe(authorizedPending.id)
+    expect(preservedPending.rulingAuthoritySignature).toBe(authorizedPending.rulingAuthoritySignature)
+    expect(await generationOf(pending.id)).toEqual(authorizedGeneration)
+    expect(await outcomeRecords(o)).toBe(authorizedOutcomeCount)
   })
 
   // ════════════════════════════════════════════════════════════════════════════════════════════════
