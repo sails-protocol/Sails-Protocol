@@ -83,9 +83,9 @@ jobs:
           const fake = () => { const ws=new EventEmitter();ws.send=()=>{};return ws; };
           (async()=>{
             const good=fake();const ok=assertPongFromSocket(good,{timeoutMs:100});
-            good.emit('message',JSON.stringify({type:'PONG',payload:{}}));await ok;
+            good.emit('message',JSON.stringify({type:'PONG'}));await ok;
             const malformed=fake();const malformedResult=assertPongFromSocket(malformed,{timeoutMs:20});
-            malformed.emit('message',JSON.stringify({type:'PONG'}));
+            malformed.emit('message',JSON.stringify({type:'PING'}));
             await assert.rejects(malformedResult,/PONG timeout/);
             assert.throws(()=>assertPongFromSocket(fake(),{timeoutMs:30001}),/Invalid bounded PONG timeout/);
             const missing=fake();await assert.rejects(assertPongFromSocket(missing,{timeoutMs:15}),/PONG timeout/);
@@ -93,7 +93,7 @@ jobs:
             bad.emit('message',JSON.stringify({type:'ERROR'}));await assert.rejects(rejected,/application ERROR/);
             const closed=fake();const early=assertPongFromSocket(closed,{timeoutMs:100});
             closed.emit('close');await assert.rejects(early,/closed before PONG/);
-            console.log('PONG assertion primitive: positive, malformed, timeout bounds, timeout, ERROR, early-close PASS');
+            console.log('PONG assertion primitive: positive, wrong-type, timeout bounds, timeout, ERROR, early-close PASS');
           })().catch(()=>process.exit(1));
           NODE
       - name: Bound Artillery candidate scope and prevent false WS parity
