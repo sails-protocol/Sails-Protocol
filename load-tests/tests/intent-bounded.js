@@ -9,7 +9,7 @@ if (!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(BASE_URL)) {
 export const options = {
   ...baseOptions,
   scenarios: { bounded_intent: { executor: 'shared-iterations', vus: 1, iterations: 1, maxDuration: '30s' } },
-  thresholds: { checks: ['rate==1'], sails_intent_success: ['rate==1'] },
+  thresholds: { checks: ['rate==1'], sails_intent_success: ['rate==1'], http_req_failed: ['rate==0'] },
 }
 export function setup() {
   const user = generateTestUser(BASE_URL, 'bounded-intent')
