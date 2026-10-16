@@ -335,3 +335,16 @@ Exact-head GitHub Actions evidence:
 - `dc233559b3b18b488dca11fde1b4e899ecbe707c`: run [38941742946](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38941742946), **SUCCESS**, unit and PostgreSQL integration.
 
 **Important remaining Gate 1 distinction:** V3-WK proves real writer SIGKILL **after** the pending transaction persists; V3-PG proves first recovery in an independent OS process **without** pending, but constructs that state through controlled dispatch failure and PostgreSQL fault, not by killing the writer between the durable Outcome commit and the first pending write. A combined real-writer pre-pending SIGKILL plus fresh-process first recovery is **not yet proven**. This gap must not be marked accepted merely because the above CI runs are green. Formal Gate 3 and Gate 4 adversarial limitations remain as documented. **NO MERGE / NO FREEZE.**
+
+
+## 2026-10-16 — Gate 1 pre-pending writer SIGKILL validated on real PostgreSQL
+
+The new `V3-PRE` integration scenario starts the actual `resolveDispute` writer in a child OS process. A test-only interception at `escrowService.initiateRelease` checks the **committed signed Dispute and Outcome** in PostgreSQL, and checks that no pending transaction exists, then blocks the writer. The parent issues a real `SIGKILL` and verifies the durable state before launching the **first** C4 reconciliation in a fresh OS process with a new Prisma pool. It asserts a single pending transaction tied to the exact dispute ID, appeal round, arbiter, outcome, signature and issued-at timestamp; a second independent C4 replay must not resume again or change the pending, Outcome, signature, or pre-signature EDA count.
+
+Exact-head CI evidence, unit and real PostgreSQL integration both **SUCCESS**:
+
+- [38949028917](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38949028917), HEAD `49abf083f8ab55e711df0def89de6d663825e891`.
+- [38949273022](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38949273022), HEAD `e4926a0f64c9a0592970411038d06553be057082`.
+- [38949477864](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38949477864), HEAD `67f9c3e1fc33e9018ba4bb7cf3ce05ecb675ed73`.
+
+**Gate 1 evidence is now green for both sides of the pending-write boundary** (V3-PRE before pending; V3-WK after pending). Scope caveat: V3-PRE intercepts the adapter entry point in the test process, without modifying production code; it does not prove every instruction-level crash point or every settlement rail. Gate 3/4 residuals and full final acceptance review remain open. **NO MERGE / NO FREEZE** until the full gate matrix is accepted.
