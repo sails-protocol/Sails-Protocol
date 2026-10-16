@@ -407,3 +407,12 @@ No production lock or EDA schema changes are authorized by this review alone. Ga
 ## 2026-10-16 — V3-E3 exact-head PostgreSQL acceptance evidence
 
 `99858bdd93b2489e131caeeba938ba73d7d79a7f`, run [38963900030](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38963900030), **SUCCESS**: unit tests and real PostgreSQL integration tests both green. V3-E3 ran two concurrent production C4 sweeps against a real database after a committed EDA's pending row was adversarially removed. Neither sweep claimed or resumed the escrow; EDA, ruling, and Outcome remained unchanged and no pending was rebuilt. This accepts **only** the pre-existing-EDA exclusion scenario, not a mid-flight EDA commit, production-natural pending loss, or provider exactly-once. Gate 3 remains **OPEN** pending reachability and serialization evidence. Gate 4 remains **OPEN** pending normal-path appeal reachability. **NO MERGE / NO FREEZE.**
+
+
+## 2026-10-16 — Gate 4 normal-path reachability and product decision
+
+Inspected the actual `DisputeService.appeal()` precondition. Before selecting any appeal panel, it invokes `findCommittedArbiterId(escrowId)` and **throws** if the escrow has a script-committed arbiter. This is an explicit cryptographic guard: a new arbiter identity cannot sign the existing MULTISIG script. `V3-GI` obtains N+1 by `makeAppealable()`, which executes `SET LOCAL session_replication_role = replica` and deletes the arbiter commitment. That is an intentional legacy-state fixture, **not a reachable new-write production appeal**.
+
+Gate 4 acceptance must therefore distinguish two claims: (A) for new script-committed MULTISIG escrows, the product behavior is **appeal refused**, which should be regression-tested without bypassing the trigger; (B) for genuinely legacy no-commitment escrows, N+1 may be reachable, and the existing `V3-GI` demonstrates generation-safe cleanup only under its simulated legacy fixture. Do not rewrite the appeal guard or promise N+1 support on immutable-script MULTISIG as part of ST1. A change to the arbitration model requires an explicit product/security architecture decision and separate design.
+
+Remaining action: add a negative normal-path appeal regression assertion using the intact arbiter commitment, with no dispute/Outcome/pending mutation; then decide whether Gate 4's legacy simulation is sufficient for the supported legacy scope. **NO MERGE / NO FREEZE.**
