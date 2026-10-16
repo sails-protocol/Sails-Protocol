@@ -1,10 +1,6 @@
 'use strict';
-// Node 24 native load harness candidate. No Artillery or third-party load generator.
-// Preserve the authenticated flows, phase arrivals, assertions and metrics.
+// Node 24 protocol-only smoke. k6 owns load scheduling and performance metrics.
 const { performance } = require('node:perf_hooks');
-const { randomInt } = require('node:crypto');
-const fs = require('node:fs');
-const path = require('node:path');
 const BASE = process.env.SAILS_LOAD_HTTP_TARGET || 'http://localhost:3000';
 const WSBASE = process.env.SAILS_LOAD_WS_TARGET || 'ws://localhost:3000';
 // Shared TestKit safety guard; checked before any load is issued.
@@ -16,8 +12,6 @@ function validateTargets() {
   requireLoopbackTarget(WSBASE, ['ws:']);
 }
 
-const phases = [{ duration: 20, rate: 5 }, { duration: 30, rate: 20 }];
-const wsPhases = [{ duration: 20, rate: 5 }, { duration: 30, rate: 15 }];
 const toHex = b => Buffer.from(b).toString('hex');
 const assert = (ok, message) => { if (!ok) throw Error(message); };
 const request = async (route, method, body, token, expected) => {
@@ -75,38 +69,6 @@ async function websocket(user) {
     ws.addEventListener('close', () => { if (!done) finish(Error('WebSocket closed before PONG')); });
   });
 }
-async function runPhases(name, config, work) {
-  const maxInFlight = Number(process.env.SAILS_LOAD_MAX_INFLIGHT || 100);
-  assert(Number.isInteger(maxInFlight) && maxInFlight > 0, 'Invalid max in-flight');
-  let issued=0, succeeded=0, failed=0, inflight=0, maxObserved=0;
-  const durations=[], failures=[], tasks=new Set();
-  for (const phase of config) {
-    const begin=performance.now();
-    const count=phase.duration*phase.rate;
-    for (let n=0;n<count;n++) {
-      const due=begin + n*1000/phase.rate;
-      const delay=due-performance.now();
-      if (delay>0) await new Promise(r=>setTimeout(r,delay));
-      const i=++issued;
-      if (inflight>=maxInFlight) { failed++; failures.push('overload: max in-flight'); continue; }
-      const start=performance.now();
-      inflight++; maxObserved=Math.max(maxObserved,inflight);
-      const task=Promise.resolve().then(()=>work(i)).then(()=>{succeeded++;durations.push(performance.now()-start);},err=>{failed++;failures.push(String(err.message||err));}).finally(()=>{inflight--;tasks.delete(task);});
-      tasks.add(task);
-    }
-    const remaining=begin+phase.duration*1000-performance.now();
-    if(remaining>0) await new Promise(r=>setTimeout(r,remaining));
-  }
-  await Promise.all(tasks);
-  const expectedArrivals=config.reduce((total,phase)=>total+phase.duration*phase.rate,0);
-  assert(issued===expectedArrivals, 'Arrival accounting mismatch');
-  assert(succeeded+failed===issued, 'Outcome accounting mismatch');
-  durations.sort((a,b)=>a-b);
-  const percentile=p=>durations.length?Number(durations[Math.ceil(durations.length*p)-1].toFixed(1)):null;
-  const report={scenario:name,issued,succeeded,failed,maxInFlight:maxObserved,p50Ms:percentile(.5),p95Ms:percentile(.95),p99Ms:percentile(.99),sampleErrors:failures.slice(0,10)};
-  console.log(JSON.stringify(report,null,2));
-  if(failed>0 || succeeded===0) process.exitCode=1;
-}
 async function main(){
   validateTargets();
   const mode=process.argv[2];
@@ -118,36 +80,6 @@ async function main(){
     console.log(JSON.stringify({scenario:'authenticated-smoke',identity:'PASS',intent:'PASS',websocketPingPong:'PASS'}));
     return;
   }
-  if(mode==='bench-small') {
-    // CTO-approved isolated rehearsal: 1 real identity (4 auth calls), at most
-    // 2 sequential HTTP intent round-trips and 2 sequential WS PING/PONGs.
-    // Never use this low-volume correctness result to claim sustained parity.
-    const user=await authenticate('bench-small');
-    await runPhases('isolated-http-rehearsal',[{duration:2,rate:1}],i=>intent(i,user));
-    await runPhases('isolated-ws-rehearsal',[{duration:2,rate:1}],()=>websocket(user));
-    return;
-  }
-  if(mode==='intent') return runPhases('authenticated-intent',phases,intent);
-  if(mode==='ws'){
-    const poolPath=path.join(__dirname,'users.json');
-    const stats=fs.lstatSync(poolPath);
-    assert(!stats.isSymbolicLink(), 'Session pool must not be a symlink');
-    assert(stats.isFile(), 'Session pool must be a regular file');
-    if (process.platform !== 'win32') assert((stats.mode & 0o077) === 0, 'Session pool permissions must be private (0600)');
-    const users=JSON.parse(fs.readFileSync(poolPath,'utf8'));
-    assert(Array.isArray(users)&&users.length>0,'No pre-authenticated users; run prep');
-    assert(users.every(u=>u && typeof u.sessionToken==='string' && u.sessionToken.length>0), 'Invalid session pool');
-    return runPhases('authenticated-ws-ping-pong',wsPhases,i=>websocket(users[randomInt(users.length)]));
-  }
-  if(mode==='prep'){
-    const count=Number(process.argv[3]||50);
-    assert(Number.isInteger(count)&&count>0&&count<=1000,'Invalid prep count');
-    const users=[];for(let i=0;i<count;i++)users.push(await authenticate(i));
-    const poolPath=path.join(__dirname,'users.json');
-    fs.writeFileSync(poolPath,JSON.stringify(users,null,2),{mode:0o600,flag:'wx'});
-    console.log('Prepared '+users.length+' authenticated sessions');
-    return;
-  }
-  throw Error('Usage: node load-tests/native/run.js smoke|bench-small|intent|prep [count]|ws');
+  throw Error('Usage: node load-tests/native/run.js smoke (protocol-only; use k6 for load)');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});
