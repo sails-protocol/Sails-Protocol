@@ -322,3 +322,16 @@ The direct provider's `claimDirectExecution` freezes intent; on exception, non-W
 - `688dc03a89a16b5182d7d98123dd3556c3ed78ae`, [CI #38932803392](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38932803392): unit **SUCCESS**, PostgreSQL **IN PROGRESS** at inspection. V3-PG now requires a fresh OS process and Prisma pool to perform the **first** C4 recovery while signed ruling/Outcome are persisted and pending is absent; later in-process workers must not redispatch. Do not mark this new proof green before PostgreSQL completes.
 - The new V3-PG test does **not** kill the original writer process at that specific pre-pending point; the signed/Outcome/no-pending state is produced by injected dispatch failure and SQL rollback. A literal crash-at-that-window SIGKILL remains a separate adversarial scenario.
 - All six formal gates remain subject to evidence review and final exact-head CI. **NO MERGE / NO FREEZE**.
+
+
+## 2026-10-16 — Fresh-process C4 recovery CI closure (evidence only)
+
+The first recovery after a durable signed ruling and Outcome with **no pending transaction** now runs in a fresh operating-system process with a separate Prisma pool. The child initializes the real intent/event handlers and uses only a deterministic Bitcoin explorer transport fixture; it invokes the production `reconcileMissingDispatch(100)` and asserts the target escrow is claimed and resumed, with no target failure. In-process concurrent replays must not create another dispatch.
+
+Exact-head GitHub Actions evidence:
+
+- `0fd95c452ffc9ef1a12e1ce2736f5e528fc51d30`: run [38941283090](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38941283090), **SUCCESS**, unit and PostgreSQL integration.
+- `339c04d5469ec21a33ae1fee881033b0dc61883e`: run [38941653640](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38941653640), **SUCCESS**, unit and PostgreSQL integration.
+- `dc233559b3b18b488dca11fde1b4e899ecbe707c`: run [38941742946](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38941742946), **SUCCESS**, unit and PostgreSQL integration.
+
+**Important remaining Gate 1 distinction:** V3-WK proves real writer SIGKILL **after** the pending transaction persists; V3-PG proves first recovery in an independent OS process **without** pending, but constructs that state through controlled dispatch failure and PostgreSQL fault, not by killing the writer between the durable Outcome commit and the first pending write. A combined real-writer pre-pending SIGKILL plus fresh-process first recovery is **not yet proven**. This gap must not be marked accepted merely because the above CI runs are green. Formal Gate 3 and Gate 4 adversarial limitations remain as documented. **NO MERGE / NO FREEZE.**
