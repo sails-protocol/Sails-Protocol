@@ -1718,6 +1718,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     await makeAppealable(o)
     const beforePending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
     const outcomeCount = await outcomeRecords(o)
+    const originalDispute = await disputeOf(o)
+    const originalOutcome = await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })
     const releaseD = await holdD(o)
     let released = false
     try {
@@ -1744,7 +1748,11 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       expect(await cleanup).toBe('PROVENANCE_REJECTED')
       expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })).toEqual(beforePending)
       expect(await disputeOf(o)).toEqual(appealed)
+      expect(appealed.appealRound).toBe(originalDispute.appealRound + 1)
       expect(await outcomeRecords(o)).toBe(outcomeCount)
+      expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+        where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+      })).toEqual(originalOutcome)
       expect(await edaCount(o)).toBe(0)
     } finally {
       if (!released) await releaseD()
