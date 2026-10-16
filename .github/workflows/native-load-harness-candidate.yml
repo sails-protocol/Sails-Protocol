@@ -640,7 +640,9 @@ jobs:
               missing,
               durationQuantilesPresent:quantiles,
               configuredQuantiles:configuredQuantiles.filter(key=>['med','p(95)','p(99)'].includes(key)),
-              durationValueKeys:Object.keys(duration).filter(key=>/^(avg|min|max|med|p\\(\\d+\\))$/.test(key)),
+              durationValueKeys:Object.keys(duration),
+              durationShape,
+              summaryRootKeys,
               totalMetricCount:Object.keys(metrics).length
             }));
             if(missing.length)throw new Error('Missing required k6 aggregate metrics for '+name);
