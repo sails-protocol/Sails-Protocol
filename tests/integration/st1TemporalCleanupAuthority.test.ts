@@ -1138,7 +1138,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       const { prisma } = require('./src/common/database')
       const { reconcileMissingDispatch } = require('./src/modules/open-settlement/dispute-dispatch-recovery')
       reconcileMissingDispatch(100).then(async report => {
-        process.stdout.write('ST1_C4_FIRST:' + JSON.stringify(report) + '\\n')
+        process.stdout.write('ST1_C4_FIRST:' + JSON.stringify(report) + '\n')
         await prisma.$disconnect()
         process.exit(0)
       }).catch(async err => {
@@ -1163,7 +1163,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       child.on('close', code => { clearTimeout(watchdog); done({ code, output, errors }) })
     })
     expect(firstRecovery.code).toBe(0)
-    const firstLine = firstRecovery.output.split('\\n').find(x => x.startsWith('ST1_C4_FIRST:'))
+    const firstLine = firstRecovery.output.split('\n').find(x => x.startsWith('ST1_C4_FIRST:'))
     expect(firstLine).toBeDefined()
     const firstReport = JSON.parse(firstLine!.slice('ST1_C4_FIRST:'.length))
     expect(firstReport.resumed.filter((entry: any) => entry.escrowId === o.escrowId)).toEqual([
