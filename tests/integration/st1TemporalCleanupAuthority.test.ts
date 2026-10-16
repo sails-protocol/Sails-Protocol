@@ -219,8 +219,17 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       await expect(execute()).rejects.toThrow(/outcome unknown/)
       const claimed = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
       expect(claimed.status).toBe(terminal)
+      expect(claimed.cooperativeDisposition).toBe(terminal)
+      expect(claimed.cooperativeTriggeredBy).toBe(seller.id)
+      // A claimed terminal status is an uncertainty quarantine, not a
+      // fabricated receipt. Neither tx evidence nor release time may appear.
+      expect(claimed.txReleaseId).toBeNull()
+      expect(claimed.releasedAt).toBeNull()
       await expect(execute()).rejects.toThrow()
       expect(attempts).toBe(1)
+      const afterRetry = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+      expect(afterRetry.status).toBe(terminal)
+      expect(afterRetry.txReleaseId).toBeNull()
     } finally {
       fault.mockRestore()
     }
