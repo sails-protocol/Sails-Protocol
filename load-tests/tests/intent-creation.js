@@ -40,11 +40,11 @@ export function run(user, intentOverride) {
   })
   const created = check(createRes, { 'create: 201': (r) => r.status === 201 })
   recordFlow({ successRate: intentSuccessRate, duration: intentCreateDuration, durationMs: createRes.timings.duration, ok: created, response: createRes })
-  if (!created) return
+  if (!created) throw new Error('Intent create failed (status redacted)')
 
   const intentId = createRes.json('data.id')
   const hasIntentId = check(createRes, { 'create: nonempty intent id': () => typeof intentId === 'string' && intentId.length > 0 })
-  if (!hasIntentId) return
+  if (!hasIntentId) throw new Error('Intent create returned invalid identifier')
   // '{}', not null — Fastify's JSON body parser 400s on an empty body
   // when Content-Type: application/json is set (authHeaders() always
   // sets it), found running this against the real server.
@@ -54,6 +54,7 @@ export function run(user, intentOverride) {
   })
   const cancelled = check(cancelRes, { 'cancel: 200': (r) => r.status === 200 })
   recordFlow({ successRate: intentSuccessRate, duration: intentCancelDuration, durationMs: cancelRes.timings.duration, ok: cancelled, response: cancelRes })
+  if (!cancelled) throw new Error('Intent cancellation failed (status redacted)')
 }
 
 export const options = {
