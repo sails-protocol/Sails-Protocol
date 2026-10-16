@@ -80,3 +80,11 @@ Inspection of `.github/workflows/native-load-harness-candidate.yml` confirms the
 7. **Decision gate:** no Artillery removal until both protocols reach assertion parity, measurements are reproducible and independently reviewed, and the duplicate native scheduler is addressed. A passing smoke CI does not satisfy this gate.
 
 **Current evidence:** exact HEAD `74f758b51c2d47c471da5bffa8b226e23e047c77` passed CI Tests run `38830759309` and Native load harness run `38830759325`. These runs are not sustained benchmark evidence.
+
+## Arrival-probe implementation review — 2026-10-16
+
+- A new **opt-in** k6 file `load-tests/tests/intent-arrival-probe.js` defines a five-second, 2 iterations/s constant-arrival-rate profile (2 preallocated, max 4 VUs), guarded to loopback HTTP only. Its code uses one authenticated PoP identity from `setup()` and the existing real create/cancel flow. It has a syntax check in the candidate workflow but is **not yet executed** there. Do not present it as measured evidence.
+- **Fairness blocker:** Artillery's current comparator provisions a new signed identity for each arrival, while this probe shares a single identity across arrivals. Registration cost and participant-scoped rate limits therefore differ. Even a green k6 probe cannot establish throughput parity. Reconcile fixtures and accounting before making comparative claims.
+- **Security blocker:** 429 is a valid enforcement signal, not an invitation to disable or loosen limits. The probe intentionally fails on rate limiting; if the shared identity exceeds the shipped participant quota, reduce or stop the experiment and request security review before changing the load profile.
+- **Execution gate:** before enabling this probe in CI, ensure its `sails_intent_success` and `dropped_iterations` thresholds exist and are emitted in k6's summary. Require positive iterations, measured create+cancel counts, and sanitized requested/achieved rates. A missing metric must fail closed, not be treated as zero.
+- **Decision:** retain Artillery, DRAFT PR, NO MERGE / NO DEPLOY. No claim of k6/Artillery parity until a protocol-equivalent comparator, repeated runs and backend/generator resource metrics exist.
