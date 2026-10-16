@@ -41,8 +41,8 @@ import {
   type AuthorityDecisionPayload,
 } from './arbitration-authority'
 import { Prisma } from '@prisma/client'
-import { commitAuthoritativeDisputeRuling, revertDisputeRulingRecord } from './dispute-outcome'
-import { decideRulingRevert } from './ruling-dispatch-authority'
+import { commitAuthoritativeDisputeRuling } from './dispute-outcome'
+import { decideRulingRevert, revertCommittedRuling } from './ruling-dispatch-authority'
 import { economicDispositionLockKey } from './economic-disposition-authority'
 import { assertDisputeDispatchEligible } from './dispute-dispatch'
 import { assertTranslationMatchesOutcome } from './dispatch-translation-guard'
@@ -741,8 +741,15 @@ export class DisputeService {
       // arbiter/appealRound/authoritySignature) means a newer generation
       // is never overwritten; if one already won, this revert is a no-op
       // and the newer generation's state stands untouched.
-      // revertDisputeRulingRecord() below is already appealRound-scoped
-      // by its own unique key and needs no such guard.
+      // [Corrected AUD1X-R4 2026-10-12: this comment used to say that the
+      // Outcome record's deletion "is already appealRound-scoped by its own
+      // unique key and needs no such guard". It did: the key names a SLOT
+      // (escrow, type, round), not an authority, so when the conditional
+      // update below matched nothing the deletion still removed whichever
+      // record sat in the slot - another ruling's, or a generation's history.
+      // revertCommittedRuling() now makes the deletion conditional on the
+      // dispute update having applied AND on the record being this signed
+      // authority's.]
       //
       // The revert target is the status the commit actually displaced
       // (read under its row lock), never this call's earlier read: a
@@ -779,18 +786,14 @@ export class DisputeService {
           return
         }
 
-        await tx.dispute.updateMany({
-          where: {
-            id: dispute.id,
-            status: 'RESOLVED',
-            ruling: payload.outcome,
-            arbiterId: payload.authorityId,
-            appealRound: dispute.appealRound,
-            authoritySignature,
-          },
-          data: { ...(await rulingRevertTarget(tx, dispute.escrowId, commitResult.displacedStatus)), ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
-        })
-        await revertDisputeRulingRecord(dispute.escrowId, dispute.appealRound, tx)
+        // AUD1X-R4 - the revert and the deletion of its Outcome record are one conditional unit: neither happens unless
+        // the dispute still holds exactly this ruling, and the record deleted is the one of this signed authority.
+        await revertCommittedRuling(
+          tx,
+          { disputeId: dispute.id, escrowId: dispute.escrowId, appealRound: dispute.appealRound, arbiterId: payload.authorityId, ruling: payload.outcome, authoritySignature },
+          { ...(await rulingRevertTarget(tx, dispute.escrowId, commitResult.displacedStatus)), ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
+          err,
+        )
       })
       if (resolution.refusal) throw resolution.refusal
       if (!resolution.adopted) throw err

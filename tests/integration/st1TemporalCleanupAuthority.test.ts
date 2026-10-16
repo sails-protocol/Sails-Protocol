@@ -51,7 +51,18 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
   let submitTransactionSignature: (escrowId: string, participantId: string, signedPsbtBase64: string) => Promise<any>
   let authorizeDisputedPendingExecution: (pending: any) => Promise<any>
   let economicDispositionLockKey: (disputeId: string) => string
-  let revertDisputeRulingRecord: (escrowId: string, appealRound: number) => Promise<void>
+  let revertDisputeRulingRecord: (escrowId: string, appealRound: number, authoritySignature: string) => Promise<number>
+  /**
+   * FAULT INJECTION: the ruling record that exists is removed the way production removes it - bound to the authority that
+   * signed it (AUD1X-R4: the deleter has no unbound form). Stricter than the unbound call it replaces: the record must
+   * exist, carry its attribution, and be the one deleted.
+   */
+  async function dropRulingRecord(escrowId: string, appealRound: number): Promise<void> {
+    const { loadDisputeRulingRecord } = require('../../src/modules/open-settlement/dispute-outcome')
+    const record = await loadDisputeRulingRecord(escrowId, appealRound)
+    expect(record?.attributionRawProof).toBeTruthy()
+    expect(await revertDisputeRulingRecord(escrowId, appealRound, record.attributionRawProof)).toBe(1)
+  }
   let commitAuthoritativeDisputeRuling: (...args: any[]) => Promise<{ committed: boolean }>
   let deletePendingRoundIfStillUnsigned: (pendingId: string, escrowId: string, generation: any) => Promise<string>
   let reconcileStalePendingDisputeTranslations: () => Promise<any>
@@ -733,7 +744,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const o = await openedDispute('o1')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
     await stale(pending.id, o)
-    await revertDisputeRulingRecord(o.escrowId, 0) // production's own deleter of a ruling record
+    await dropRulingRecord(o.escrowId, 0) // production's own deleter of a ruling record
     expect(await outcomeRecords(o)).toBe(0)
     expect((await disputeOf(o)).status).toBe('RESOLVED')
 

@@ -22,9 +22,13 @@
  *                                 the dispute and escrow locks: ADOPT (the dispatch exists: success), PRESERVE (a
  *                                 round of this generation exists but is not this dispatch: keep the ruling, refuse
  *                                 it, leave it to the guarded cleanup) or REVERT (nothing durable depends on it).
+ *   revertCommittedRuling()     - AUD1X-R4: carrying a REVERT out. The dispute's authority is reverted only if the dispute
+ *                                 still holds exactly this ruling, and the Outcome record is deleted only if it is the
+ *                                 record of that same signed authority; otherwise nothing at all is changed.
  */
-import type { Prisma } from '@prisma/client'
+import type { DisputeRuling, Prisma } from '@prisma/client'
 import { assertRoundBoundToDisputeAuthority } from './disputed-outcome-binding'
+import { loadDisputeRulingRecord, revertDisputeRulingRecord } from './dispute-outcome'
 import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from './discretionary-authority'
 import { EscrowError } from '../../common/errors'
 import { childLogger } from '../../common/logger'
@@ -308,4 +312,74 @@ export async function decideRulingRevert(
     }
   }
   return { action: 'REVERT' }
+}
+
+/** The ruling a failing call committed, as the dispute row and the Outcome record both identify it. */
+export interface CommittedRuling {
+  disputeId: string
+  escrowId: string
+  appealRound: number
+  arbiterId: string
+  ruling: DisputeRuling
+  /** the signed authority: `disputes.authoritySignature` and the Outcome record's `attributionRawProof` */
+  authoritySignature: string
+}
+
+/**
+ * AUD1X-R4 - carries out a REVERT decided by decideRulingRevert(), inside the failure handler's transaction (dispute lock
+ * D, then escrow lock E, already held). Two durable facts are changed together or not at all:
+ *
+ *   1. the dispute row leaves RESOLVED - only if it STILL holds exactly this ruling (status, ruling, arbiter, appeal round,
+ *      authority signature). `count` must be exactly 1: anything else means this call no longer owns the dispute's
+ *      authority (another ruling of the same round, a later generation, any other writer) and it must not undo, or
+ *      delete the evidence of, a ruling that is not its own;
+ *   2. the Outcome record of the same (escrow, round) is deleted - only if it is the record of that same signed
+ *      authority. A record that exists and is another authority's is never deleted; the whole transaction (the dispute
+ *      revert included) is rolled back by the error, so no partial revert survives.
+ *
+ * Every refusal is an error thrown from inside the transaction: nothing was written, no event is emitted, the original
+ * failure of the dispatch is carried in the message. No signature, authorization, broadcast or lock is added: the caller
+ * already holds D and E, and this reads and writes only the dispute row and the Outcome record.
+ */
+export async function revertCommittedRuling(
+  tx: Tx,
+  committed: CommittedRuling,
+  restore: Prisma.DisputeUncheckedUpdateManyInput,
+  dispatchFailure: unknown,
+): Promise<void> {
+  const failure = dispatchFailure instanceof Error ? dispatchFailure.message : String(dispatchFailure)
+  const logIds = { disputeId: committed.disputeId, escrowId: committed.escrowId, appealRound: committed.appealRound }
+
+  const claimed = await tx.dispute.updateMany({
+    where: {
+      id: committed.disputeId,
+      status: 'RESOLVED',
+      ruling: committed.ruling,
+      arbiterId: committed.arbiterId,
+      appealRound: committed.appealRound,
+      authoritySignature: committed.authoritySignature,
+    },
+    data: restore,
+  })
+  if (claimed.count !== 1) {
+    log.error({ msg: 'AUD1X-R4: the dispute no longer holds the ruling this call committed - revert not applied, no Outcome record deleted', ...logIds, matched: claimed.count })
+    throw new EscrowError(
+      `The dispute no longer holds the ruling this call committed (appeal round ${committed.appealRound}); its revert was not applied and ` +
+      `no Outcome record was deleted. Original failure: ${failure}`
+    )
+  }
+
+  const deleted = await revertDisputeRulingRecord(committed.escrowId, committed.appealRound, committed.authoritySignature, tx)
+  if (deleted === 1) return
+
+  const standing = await loadDisputeRulingRecord(committed.escrowId, committed.appealRound, tx)
+  if (standing) {
+    log.error({ msg: 'AUD1X-R4: the Outcome record of this appeal round is another authority\'s - revert rolled back, record kept', ...logIds })
+    throw new EscrowError(
+      `The Outcome record of appeal round ${committed.appealRound} is not the record of the ruling this call committed; the revert was rolled back ` +
+      `and the record kept. Original failure: ${failure}`
+    )
+  }
+  // The dispute carried this ruling and its record is already gone (an earlier code's revert): nothing left to delete.
+  log.warn({ msg: 'AUD1X-R4: the dispute was reverted and no Outcome record existed for its ruling', ...logIds })
 }
