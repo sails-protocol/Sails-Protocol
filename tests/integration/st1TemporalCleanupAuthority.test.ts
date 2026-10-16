@@ -1781,11 +1781,18 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
         await new Promise<void>(done => setTimeout(done, 10))
       }
       const cleanup = decide(pending.id, o.escrowId, oldGeneration)
+      let waitingBackends: number[] = []
       for (let i = 0; i < 1000; i++) {
-        if ((await lockMap(o)).filter(row => row.lock === 'D' && !row.granted).length >= 2) break
-        if (i === 999) throw new Error('old N cleanup never queued behind the appeal')
+        waitingBackends = (await lockMap(o))
+          .filter(row => row.lock === 'D' && !row.granted)
+          .map(row => row.pid)
+        if (new Set(waitingBackends).size >= 2) break
+        if (i === 999) throw new Error('old N cleanup never queued behind the appeal on a distinct PG backend')
         await new Promise<void>(done => setTimeout(done, 10))
       }
+      // A single re-entrant connection cannot establish this interleaving:
+      // the appeal and stale cleanup must actually wait on distinct PG backends.
+      expect(new Set(waitingBackends).size).toBeGreaterThanOrEqual(2)
       await releaseD()
       released = true
       await appeal
