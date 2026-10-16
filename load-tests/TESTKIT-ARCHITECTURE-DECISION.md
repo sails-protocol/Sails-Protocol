@@ -25,7 +25,7 @@ The repository has k6 load scenarios, legacy Artillery HTTP/WS comparators, and 
 - [ ] Demonstrate comparable Artillery/k6 HTTP and WS assertions and fixture/setup cost; fix the Artillery WS application-PONG assertion gap before claiming parity.
 - [ ] Collect repeated, matched bounded profiles: requested and achieved arrivals, dropped iterations, per-operation p50/p95/p99, error classification, concurrent connections, backend CPU/RSS and generator CPU/RSS; fail closed on missing data.
 - [ ] Pin and review k6/tooling provenance, hashes and security updates; sanitize all artifacts and prevent credentials or ticket URLs from leaking.
-- [ ] Validate exact-HEAD CI after removal of native `runPhases` and `bench-small`; authenticated smoke remains, while bounded k6 Intent/WS checks remain in CI. Removal implemented, acceptance pending CI and coverage review.
+- [x] Validate exact-HEAD CI after removal of native `runPhases` and `bench-small`; authenticated smoke remains, while bounded k6 Intent/WS checks remain in CI. Both workflows green at `6b5a949da30e5b2361c5f47359d94552ce265c76` (CI Tests run `38965370007`; Native load harness candidate verification run `38965370104`). This does not establish sustained benchmark parity.
 - [ ] Retire Artillery dependency, scripts and lockfile entries only after a reviewed parity decision; verify no orphaned workflows or references remain.
 - [ ] Document installation, local execution, CI troubleshooting, fixture lifecycle, rate-limit policy, maintenance ownership and handoff.
 - [ ] Obtain exact-HEAD CI green, independent security/architecture review and explicit authorization before merge or deploy.
