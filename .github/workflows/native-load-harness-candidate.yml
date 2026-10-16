@@ -684,14 +684,19 @@ jobs:
           const n=k=>typeof m[k]?.count==='number'?m[k].count:undefined;
           const checks=m.checks?.value;
           const success=m.sails_intent_success?.value;
-          const quantiles=['med','p(95)','p(99)'].filter(k=>typeof m.http_req_duration?.[k]==='number');
+          const quantiles=['med','p(95)','p(99)'].filter(k=>typeof m.http_req_duration?.[k]==='number'&&Number.isFinite(m.http_req_duration[k]));
+          const durations=Object.fromEntries(quantiles.map(k=>[k,m.http_req_duration[k]]));
+          const requestCount=n('http_reqs');
+          const arrivals=n('iterations');
+          const flowCount=typeof m.sails_intent_success?.passes==='number'?m.sails_intent_success.passes:undefined;
           console.log('arrival probe sanitized inventory:',JSON.stringify({
             requiredPresent:required.filter(k=>!!m[k]),missing,
-            iterations:n('iterations'),dropped:n('dropped_iterations'),
+            iterations:arrivals,dropped:n('dropped_iterations'),httpRequests:requestCount,
+            durationMs:durations,
             checksValid:checks===1,intentSuccessValid:success===1,
             durationQuantilesPresent:quantiles
           }));
-          if(missing.length||!(n('iterations')>0)||n('dropped_iterations')!==0||checks!==1||success!==1||quantiles.length!==3){
+          if(missing.length||!(arrivals>0)||!(requestCount>=arrivals*2)||n('dropped_iterations')!==0||checks!==1||success!==1||quantiles.length!==3){
             throw Error('Bounded arrival probe missing or invalid aggregate evidence');
           }
           NODE
