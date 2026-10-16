@@ -619,6 +619,21 @@ jobs:
           NODE
           echo 'k6 real-service WS PONG smoke failed; raw logs withheld to protect ticket URLs'; exit 1;
           }
+          # Extract only aggregate metric names and quantiles from the isolated
+          # k6 correctness smoke. Never upload raw k6 logs (may contain secrets).
+          node <<'NODE'
+          const fs=require('node:fs');
+          for(const [name,path] of [['intent','/tmp/sails-k6-intent.log'],['ws','/tmp/sails-k6-ws.log']]){
+            const lines=fs.readFileSync(path,'utf8').split(/\r?\n/);
+            const allowed=['http_req_duration','http_reqs','iterations','checks','dropped_iterations','vus_max','ws_connecting','sails_intent_success'];
+            const names=lines.filter(line=>allowed.some(metric=>new RegExp('^\\s*'+metric+'(?:\\{|\\s)').test(line))).map(line=>{
+              const match=line.match(/^\s*([a-z_]+)(?:\{[^}]*\})?\s/);
+              return match?match[1]:null;
+            }).filter(Boolean);
+            const unique=[...new Set(names)];
+            console.log('k6 smoke aggregate metrics present:',JSON.stringify({scenario:name,metrics:unique,quantilesConfigured:name==='intent'}));
+          }
+          NODE
           echo 'k6 real-service bounded Intent and WS PONG PASS (one iteration each)'
       - name: Baseline security evidence (no dependency removal yet)
         shell: bash
