@@ -232,6 +232,13 @@ describe('Issue #291 - settlement result write-once integrity (real PostgreSQL)'
     expect(after.status).toBe('COMPLETED')
     expect(after.txReleaseId).toBeNull()
     expect(after.releasedAt).toBeNull()
+    // UNKNOWN is not a proven pre-dispatch failure. A retry must not
+    // invoke the provider again or fabricate a receipt.
+    await expect(escrowService.releaseFunds(escrowId, undefined, sellerId)).rejects.toThrow()
+    const afterRetry = (await prisma.escrow.findUnique({ where: { id: escrowId } }))!
+    expect(afterRetry.status).toBe('COMPLETED')
+    expect(afterRetry.txReleaseId).toBeNull()
+    expect(afterRetry.releasedAt).toBeNull()
   })
 
   // ── Hardening (PR #320 adversarial pass) ────────────────────────────────────────────────────────
