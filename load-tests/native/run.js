@@ -9,6 +9,7 @@ const BASE = process.env.SAILS_LOAD_HTTP_TARGET || 'http://localhost:3000';
 const WSBASE = process.env.SAILS_LOAD_WS_TARGET || 'ws://localhost:3000';
 // Shared TestKit safety guard; checked before any load is issued.
 const { requireLoopbackTarget } = require('../testkit/loopback-target.cjs');
+const { requireResponseDataString, requireApplicationPong } = require('../testkit/protocol-assertions.cjs');
 function validateTargets() {
   requireLoopbackTarget(BASE, ['http:']);
   requireLoopbackTarget(WSBASE, ['ws:']);
@@ -34,15 +35,15 @@ async function authenticate(i) {
   // Original Artillery processor does not assert registration status. Here fail closed.
   const displayName = 'loadtest-' + i + '-' + publicKey.slice(0,8);
   const registration = await request('/v1/identity/register-challenge', 'POST', { publicKey }, null, 200);
-  assert(typeof registration.data?.data?.challenge === 'string', 'Missing registration challenge');
+  requireResponseDataString(registration, 'challenge', 'registration challenge');
   const registrationMessage = Buffer.from('sails-registration-proof-of-possession:v1:' + registration.data.data.challenge + ':' + displayName, 'utf8');
   const registrationSignature = toHex(nacl.sign.detached(registrationMessage, kp.secretKey));
   await request('/v1/identity/participants', 'POST', { publicKey, displayName, signature: registrationSignature }, null, 201);
   const challenge = await request('/v1/identity/challenge', 'POST', { publicKey }, null, 200);
-  assert(typeof challenge.data?.data?.challenge === 'string', 'Missing challenge');
+  requireResponseDataString(challenge, 'challenge', 'authentication challenge');
   const signature = toHex(nacl.sign.detached(Buffer.from(challenge.data.data.challenge, 'utf8'), kp.secretKey));
   const auth = await request('/v1/identity/authenticate', 'POST', { publicKey, signature }, null, 200);
-  assert(typeof auth.data?.data?.sessionToken === 'string', 'Missing sessionToken');
+  requireResponseDataString(auth, 'sessionToken', 'sessionToken');
   return { publicKey, sessionToken: auth.data.data.sessionToken };
 }
 async function intent(i, existingUser) {
@@ -50,13 +51,13 @@ async function intent(i, existingUser) {
   const assets = ['BTC', 'USDT_ERC20', 'LN_BTC'];
   const created = await request('/v1/intents', 'POST', { type: 'TradeIntent', payload: { asset: assets[randomInt(assets.length)], side:'BUY', maxValue:'100', currency:'USD' } }, user.sessionToken, 201);
   const id = created.data?.data?.id;
-  assert(typeof id === 'string' && id.length > 0, 'Missing intent ID');
+  requireResponseDataString(created, 'id', 'intent ID');
   await request('/v1/intents/' + encodeURIComponent(id), 'DELETE', undefined, user.sessionToken, 200);
 }
 async function websocket(user) {
   const issued = await request('/v1/identity/ws-ticket', 'POST', undefined, user.sessionToken, 200);
   const ticket = issued.data?.data?.ticket;
-  assert(typeof ticket === 'string' && ticket.length > 0, 'Missing single-use WS ticket');
+  requireResponseDataString(issued, 'ticket', 'single-use WS ticket');
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(WSBASE + '/v1/openp2p/chat?ticket=' + encodeURIComponent(ticket));
     const started = performance.now();
@@ -66,7 +67,7 @@ async function websocket(user) {
     ws.addEventListener('open', () => ws.send(JSON.stringify({type:'PING',payload:{}})));
     ws.addEventListener('message', event => {
       let msg; try { msg=JSON.parse(event.data); } catch { return finish(Error('Invalid WebSocket JSON')); }
-      if (msg.type === 'PONG') finish();
+      if (msg.type === 'PONG') { try { requireApplicationPong(msg); finish(); } catch (error) { finish(error); } }
       else if (msg.type === 'ERROR') finish(Error('WebSocket application ERROR (details redacted)'));
     });
     ws.addEventListener('error', () => finish(Error('WebSocket transport error')));
