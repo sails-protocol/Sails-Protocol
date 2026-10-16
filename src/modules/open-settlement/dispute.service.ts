@@ -512,6 +512,7 @@ export class DisputeService {
       return { updated: row, displacedStatus: locked!.status }
     })
 
+    let directDispatchAttempted = false
     try {
       // Second real bug found while building SPLIT (RFC-021 D9,
       // 2026-08-02) — see escrowService.isSignatureCollectionType()'s own
@@ -543,12 +544,14 @@ export class DisputeService {
           // Issue #254 - dispute.id is real, immutable, generation-scoped provenance: it travels with
           // the settlement.escrow.released event itself, so a later appeal() mutating Dispute can never
           // retroactively change what this specific release meant.
+          directDispatchAttempted = true
           await escrowService.releaseFunds(dispute.escrowId, undefined, triggeredBy, dispute.id)
         }
       } else if (ruling === 'REFUND') {
         if (needsSignatureCollection) {
           await escrowService.initiateRefund(dispute.escrowId, triggeredBy, undefined)
         } else {
+          directDispatchAttempted = true
           await escrowService.refundFunds(dispute.escrowId, triggeredBy, dispute.id)
         }
       } else if (ruling === 'SPLIT') {
@@ -569,10 +572,15 @@ export class DisputeService {
         if (needsSignatureCollection) {
           await escrowService.initiateSplit(dispute.escrowId, undefined, undefined, splitBuyerBps, triggeredBy)
         } else {
+          directDispatchAttempted = true
           await escrowService.splitFunds(dispute.escrowId, undefined, undefined, splitBuyerBps, triggeredBy)
         }
       }
     } catch (err) {
+      // Direct provider errors may mean funds moved but the acknowledgement was lost.
+      // Never erase signed economic authority on an uncertain external outcome.
+      // A pre-dispatch failure still follows the exact-generation rollback below.
+      if (directDispatchAttempted) throw err
       // CTO Gate R2 (#222) finding R2-1 — this revert used to be an
       // unconditional `prisma.dispute.update()` by id alone, running
       // AFTER the resolve-write's own lock already released (the provider
