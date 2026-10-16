@@ -192,6 +192,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     requirePostgres('v3-direct-unknown-' + operation)
     const seller = await registerTestParticipant(identityService, 'Seller')
     const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const arbiter = operation === 'split' ? await registerTestParticipant(identityService, 'Arbiter') : null
     const offer = await liquidityRouter.createOffer({
       userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001',
       ...boundOfferInput(await sellerPixAccount(prisma, seller.id)),
@@ -209,7 +210,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       // state-machine precondition rather than bypassing its guard.
       await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'DISPUTED' } })
       await prisma.dispute.create({
-        data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'V3-DIRECT unknown-outcome split' },
+        data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, arbiterId: arbiter!.id, reason: 'V3-DIRECT unknown-outcome split' },
       })
     }
     // Release and split require registered payout destinations. The test
@@ -224,17 +225,25 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
         attempts++
         throw new Error('injected: external execution outcome unknown')
       })
+    const executorId = operation === 'split' ? arbiter!.id : seller.id
     const execute = () => operation === 'release'
       ? escrowService.releaseFunds(escrow.id, undefined, seller.id)
       : operation === 'refund'
         ? escrowService.refundFunds(escrow.id, seller.id)
-        : escrowService.splitFunds(escrow.id, undefined, undefined, 5000, seller.id)
+        : escrowService.splitFunds(escrow.id, undefined, undefined, 5000, executorId)
     try {
       await expect(execute()).rejects.toThrow(/outcome unknown/)
       const claimed = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
       expect(claimed.status).toBe(terminal)
-      expect(claimed.cooperativeDisposition).toBe(terminal)
-      expect(claimed.cooperativeTriggeredBy).toBe(seller.id)
+      if (operation === 'split') {
+        expect(claimed.arbitratedDisposition).toBe('SPLIT')
+        expect(claimed.arbitratedTriggeredBy).toBe(arbiter!.id)
+        expect(claimed.splitBuyerBps).toBe(5000)
+        expect(claimed.cooperativeDisposition).toBeNull()
+      } else {
+        expect(claimed.cooperativeDisposition).toBe(terminal)
+        expect(claimed.cooperativeTriggeredBy).toBe(seller.id)
+      }
       // A claimed terminal status is an uncertainty quarantine, not a
       // fabricated receipt. Neither tx evidence nor release time may appear.
       expect(claimed.txReleaseId).toBeNull()
