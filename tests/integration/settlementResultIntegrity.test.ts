@@ -215,8 +215,8 @@ describe('Issue #291 - settlement result write-once integrity (real PostgreSQL)'
     expect(after.txReleaseId).not.toBeNull() // the provider evidence is durably recorded
   })
 
-  it('a provider that FAILS still reverts the claim exactly as before (nothing external happened)', async () => {
-    requirePostgres('provider failure still reverts')
+  it('a provider exception leaves the claim quarantined without inventing external nonexecution', async () => {
+    requirePostgres('provider exception is unknown')
     const { escrowId, sellerId, buyerId } = await makeEscrow('PAYMENT_PENDING')
     await payoutAddressService.setPayoutAddress(buyerId, 'BTC', 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx')
     const providers = require('../../src/modules/open-settlement/escrow-providers')
@@ -229,8 +229,9 @@ describe('Issue #291 - settlement result write-once integrity (real PostgreSQL)'
       spy.mockRestore()
     }
     const after = (await prisma.escrow.findUnique({ where: { id: escrowId } }))!
-    expect(after.status).toBe('PAYMENT_PENDING')
+    expect(after.status).toBe('COMPLETED')
     expect(after.txReleaseId).toBeNull()
+    expect(after.releasedAt).toBeNull()
   })
 
   // ── Hardening (PR #320 adversarial pass) ────────────────────────────────────────────────────────
