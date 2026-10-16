@@ -298,7 +298,19 @@ jobs:
           assert.equal(completed,2,'Exactly two HTTP comparator virtual users must complete');
           assert.equal(failed,0,'No failed virtual users');
           assert.equal(errors.length,0,'No Artillery error counters');
-          console.log('Bounded real-service Artillery HTTP comparator: 2 completed, 0 failures');
+          const histograms=report.aggregate?.histograms||{};
+          const latencyNames=Object.keys(histograms).filter(k=>/response_time|latency|duration/.test(k));
+          const latency=Object.fromEntries(latencyNames.map(k=>{
+            const h=histograms[k]||{};
+            return [k,Object.fromEntries(['median','p50','p95','p99'].filter(q=>typeof h[q]==='number'&&Number.isFinite(h[q])).map(q=>[q,h[q]]))];
+          }));
+          console.log('Artillery HTTP sanitized metrics:',JSON.stringify({
+            completed,failed,errors:errors.length,
+            httpRequests:counters['http.requests']??null,
+            latencyMs:latency
+          }));
+          assert.ok(latencyNames.length>0,'Artillery HTTP latency histogram missing');
+          assert.ok(latencyNames.some(k=>Object.keys(latency[k]).length>0),'Artillery HTTP latency quantiles missing');
           NODE
       - name: Execute bounded Artillery WS candidate against disposable backend
         env:
