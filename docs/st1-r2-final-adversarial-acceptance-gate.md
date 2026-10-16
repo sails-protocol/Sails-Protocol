@@ -348,3 +348,22 @@ Exact-head CI evidence, unit and real PostgreSQL integration both **SUCCESS**:
 - [38949477864](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38949477864), HEAD `67f9c3e1fc33e9018ba4bb7cf3ce05ecb675ed73`.
 
 **Gate 1 evidence is now green for both sides of the pending-write boundary** (V3-PRE before pending; V3-WK after pending). Scope caveat: V3-PRE intercepts the adapter entry point in the test process, without modifying production code; it does not prove every instruction-level crash point or every settlement rail. Gate 3/4 residuals and full final acceptance review remain open. **NO MERGE / NO FREEZE** until the full gate matrix is accepted.
+
+## 2026-10-16 — Gate 3/4 adversarial audit and release disposition
+
+This review does **not** add production code or claim fresh behavioral evidence. It separates tests of fail-closed logic from proof that the same states are reachable through production transitions.
+
+### Gate 3: durable economic authority without pending
+
+- Existing V3-E injects a durable EDA and missing pending and checks that rollback does not erase economic authority. This is a **fail-closed safety test**, not evidence that the precise EDA/no-pending state is reachable through the production MULTISIG state machine.
+- Missing acceptance: trace and prove the real writer/authorization/pending lifecycle that could yield this state, or demonstrate the invariant that makes it unreachable. If reachable, test an unknown external provider outcome, then a replacement pending of a different generation, and assert **no rollback, no duplicate external side effect, no cross-generation deletion**.
+- External provider effects must be checked against provider-specific evidence; a database EDA count alone does not prove the absence of a second broadcast or payout.
+
+### Gate 4: appeal generation interleaving
+
+- The V3-GI test establishes distinct live PostgreSQL backend PIDs for old cleanup and N+1 appeal and checks the generation guard. The `makeAppealable()` fixture uses a legacy-only bypass of the immutable MULTISIG arbiter commitment; do **not** report this as a normally reachable new-MULTISIG appeal.
+- Missing acceptance: confirm the old catch is paused **before** acquiring D, the independent N+1 appeal commits while it is paused, and the old catch is released only afterward. Verify N+1 dispute/Outcome identity and the absence of any old-generation deletion. Record PostgreSQL backend correlation and lock ordering in the CI evidence.
+
+### Remaining release requirements
+
+Gate 5 behavioral mutant RED/GREEN has prior evidence but must remain separated from production branches. Gate 6 requires exact-head unit, full real PostgreSQL, security preflight and final review after all accepted changes. The latest green pre-pending writer crash evidence supports Gate 1 only; it does not close Gates 3/4. **NO MERGE / NO FREEZE.**
