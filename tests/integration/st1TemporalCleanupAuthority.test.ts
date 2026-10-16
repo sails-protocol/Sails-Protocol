@@ -771,7 +771,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
   })
 
-  it('V3-L legacy direct dispatch failure is generation-fenced but clears ruling without EDA', async () => {
+  it('V3-L legacy direct dispatch uncertainty preserves ruling without EDA', async () => {
     const o = await openedDispute('v3-legacy-direct-rollback')
     const before = await disputeOf(o)
     const service = getDisputeService()
@@ -792,9 +792,8 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       signatureType.mockRestore()
     }
     const after = await disputeOf(o)
-    expect(after.status).toBe(before.status)
-    expect(after.ruling).toBeNull()
-    expect(after.authoritySignature).toBeNull()
+    expect(after.status).toBe('RESOLVED')
+    expect(after.ruling).toBe('RELEASE')
     // Legacy applyRuling does not create the Core semantic Outcome record.
     expect(await outcomeRecords(o)).toBe(0)
     expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
