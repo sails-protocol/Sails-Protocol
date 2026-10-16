@@ -1340,6 +1340,18 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await prisma.escrowPendingTransaction.findUnique({
       where: { escrowId: o.escrowId },
     })).toBeNull()
+    // C4 must not mistake durable EDA + missing pending for a never-dispatched ruling.
+    // The original authorization may already have caused an external side effect.
+    const c4 = await reconcileMissingDispatch(100)
+    expect(c4.claimed).not.toContain(o.escrowId)
+    expect(c4.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+      where: { pendingOperationId: committedEda.pendingOperationId },
+    })).toEqual(committedEda)
+    expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })).toEqual(originalOutcome)
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
   })
 
   it('V3-E2 an authorized missing pending keeps its exact EDA and ruling through repeated recovery', async () => {
