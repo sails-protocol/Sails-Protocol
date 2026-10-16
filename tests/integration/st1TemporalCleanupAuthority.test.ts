@@ -801,7 +801,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await edaCount(o)).toBe(0)
   })
 
-  it('V3-L-UNKNOWN direct provider uncertain result must preserve signed ruling (RED regression)', async () => {
+  it('V3-L-UNKNOWN direct provider uncertain result preserves ruling (fail-closed regression)', async () => {
     const o = await openedDispute('v3-legacy-unknown')
     const before = await disputeOf(o)
     const signatureType = jest.spyOn(escrowService, 'isSignatureCollectionType').mockReturnValue(false)
@@ -824,8 +824,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     }
     expect(externalTransferExecuted).toBe(true)
     // Required safety invariant: uncertainty cannot authorize removal of
-    // the economic ruling. This assertion is expected to FAIL until the
-    // legacy direct-rail failure policy is fixed fail-closed.
+    // the economic ruling. This is a positive regression after the guard.
     expect((await disputeOf(o)).status).toBe('RESOLVED')
     expect((await disputeOf(o)).ruling).toBe('RELEASE')
   })
