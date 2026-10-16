@@ -88,3 +88,9 @@ Inspection of `.github/workflows/native-load-harness-candidate.yml` confirms the
 - **Security blocker:** 429 is a valid enforcement signal, not an invitation to disable or loosen limits. The probe intentionally fails on rate limiting; if the shared identity exceeds the shipped participant quota, reduce or stop the experiment and request security review before changing the load profile.
 - **Execution gate:** before enabling this probe in CI, ensure its `sails_intent_success` and `dropped_iterations` thresholds exist and are emitted in k6's summary. Require positive iterations, measured create+cancel counts, and sanitized requested/achieved rates. A missing metric must fail closed, not be treated as zero.
 - **Decision:** retain Artillery, DRAFT PR, NO MERGE / NO DEPLOY. No claim of k6/Artillery parity until a protocol-equivalent comparator, repeated runs and backend/generator resource metrics exist.
+
+### Fixture-accounting correction — 2026-10-16
+
+- The k6 arrival probe was changed at `36377ef` to provision a **fresh signed identity inside each iteration**, matching Artillery comparator's per-arrival authentication accounting. The initial profile is now **1 arrival/s for 2s**, with at most 2 VUs and no security-limit modification.
+- This corrects the *fixture placement* mismatch identified above, but does **not** establish runtime or assertion parity: Artillery still needs an exactly matching duration/profile and both tools need measured setup timing, per-operation statuses, and repeated observations. The earlier note about the shared identity describes the superseded implementation, not the current probe.
+- The probe is syntax-checked but remains **opt-in and not executed** by the CI workflow. No result or performance claim is authorized until the exact HEAD passes and the bounded experiment is explicitly wired and observed.
