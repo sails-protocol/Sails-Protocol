@@ -240,6 +240,23 @@ export async function reconcileMissingDispatch(limit: number = DISPATCH_RECOVERY
         continue
       }
 
+      // Defense in depth: a durable EDA may appear after claimCandidates()
+      // but before this worker reaches dispatch. Never rebuild an operation
+      // once execution authority was committed for this escrow.
+      // This second read is not a serialization proof: the initiation path
+      // must still enforce its own concurrent authority invariants.
+      const committedExecution = await prisma.economicDispositionAuthorization.findFirst({
+        where: { escrowId: dispute.escrowId },
+        select: { id: true },
+      })
+      if (committedExecution) {
+        report.notEligible.push({
+          escrowId: dispute.escrowId,
+          reason: 'committed economic disposition authorization exists; refusing C4 redispatch',
+        })
+        continue
+      }
+
       let pending: Awaited<ReturnType<typeof escrowService.initiateRelease>>
       try {
         if (ruling === 'RELEASE') {
