@@ -630,6 +630,8 @@ jobs:
             const metrics=report.metrics||{};
             const missing=required.filter(key=>!metrics[key]);
             const duration=metrics.http_req_duration?.values||{};
+            const durationShape=Object.keys(metrics.http_req_duration||{});
+            const summaryRootKeys=Object.keys(report);
             const quantiles=['med','p(95)','p(99)'].filter(key=>typeof duration[key]==='number');
             const configuredQuantiles=report.options?.summaryTrendStats||[];
             console.log('k6 structured metric inventory:',JSON.stringify({
