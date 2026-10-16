@@ -36,5 +36,8 @@ export default function () {
   // Match Artillery: authentication belongs to every arrival, not setup().
   const user = generateTestUser(BASE_URL, 'arrival-probe')
   if (!user?.sessionToken) throw new Error('Arrival probe authentication failed')
-  run(user)
+  run(user, {
+    type: 'TradeIntent',
+    payload: { asset: 'BTC', side: 'BUY', maxValue: '100', currency: 'USD' },
+  })
 }
