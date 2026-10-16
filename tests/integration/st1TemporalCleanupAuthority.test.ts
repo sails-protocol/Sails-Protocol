@@ -269,9 +269,17 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       const afterRetry = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
       expect(afterRetry.status).toBe(terminal)
       expect(afterRetry.txReleaseId).toBeNull()
+      expect(afterRetry.releasedAt).toBeNull()
+      if (operation !== 'split') {
+        expect(afterRetry.cooperativeDisposition).toBe(terminal)
+        expect(afterRetry.cooperativeTriggeredBy).toBe(seller.id)
+        expect(afterRetry.arbitratedDisposition).toBeNull()
+      }
       if (operation === 'split') {
         expect(afterRetry.splitBuyerBps).toBe(5000)
         expect(afterRetry.arbitratedTriggeredBy).toBe(arbiter!.id)
+        expect(afterRetry.arbitratedDisposition).toBe('SPLIT')
+        expect(afterRetry.cooperativeDisposition).toBeNull()
       }
     } finally {
       fault.mockRestore()
