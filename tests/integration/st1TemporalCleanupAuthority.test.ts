@@ -179,6 +179,53 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     return { escrowId: escrow.id, tradeId: trade.id, disputeId: dispute.id, buyerId: buyer.id, sellerId: seller.id, arbiterId: dispute.arbiterId, buyerDestination, sellerDestination }
   }
 
+  /**
+   * Real PostgreSQL, real escrow service, and the actual MOCK provider registry.
+   * MOCK is intentionally test-only and never counts as Day 0 rail evidence.
+   * The injected provider exception represents an UNKNOWN external outcome.
+   */
+  it.each([
+    ['release', 'COMPLETED'],
+    ['refund', 'REFUNDED'],
+    ['split', 'SPLIT'],
+  ] as const)('V3-DIRECT-%s quarantines an unknown provider outcome without redispatch', async (operation, terminal) => {
+    requirePostgres('v3-direct-unknown-' + operation)
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const offer = await liquidityRouter.createOffer({
+      userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001',
+      ...boundOfferInput(await sellerPixAccount(prisma, seller.id)),
+    })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const escrow = await escrowService.createEscrow({
+      tradeId: trade.id, type: 'MOCK', lockedAmount: '0.001', asset: 'BTC',
+    }, seller.id)
+    await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
+    await escrowService.lockFunds(escrow.id, seller.id)
+    const { PROVIDERS } = require('../../src/modules/open-settlement/escrow-providers')
+    const provider = PROVIDERS.MOCK
+    let attempts = 0
+    const fault = jest.spyOn(provider, operation === 'release' ? 'releaseFunds' : operation === 'refund' ? 'refundFunds' : 'splitFunds')
+      .mockImplementation(async () => {
+        attempts++
+        throw new Error('injected: external execution outcome unknown')
+      })
+    const execute = () => operation === 'release'
+      ? escrowService.releaseFunds(escrow.id, undefined, seller.id)
+      : operation === 'refund'
+        ? escrowService.refundFunds(escrow.id, seller.id)
+        : escrowService.splitFunds(escrow.id, undefined, undefined, 5000, seller.id)
+    try {
+      await expect(execute()).rejects.toThrow(/outcome unknown/)
+      const claimed = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+      expect(claimed.status).toBe(terminal)
+      await expect(execute()).rejects.toThrow()
+      expect(attempts).toBe(1)
+    } finally {
+      fault.mockRestore()
+    }
+  })
+
   /** Rules the dispute through the production path; the production dispatch persists the pending round. */
   async function rule(o: Opened, service: any, ruling: 'RELEASE' | 'REFUND', arbiterId: string, kp: nacl.SignKeyPair) {
     const dispute = await prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })
