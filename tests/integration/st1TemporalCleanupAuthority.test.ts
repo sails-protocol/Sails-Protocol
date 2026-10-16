@@ -771,6 +771,34 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
   })
 
+  it('V3-L legacy direct dispatch failure is generation-fenced but clears ruling without EDA', async () => {
+    const o = await openedDispute('v3-legacy-direct-rollback')
+    const before = await disputeOf(o)
+    const service = getDisputeService()
+    // Isolate the legacy applyRuling route on a real PostgreSQL dispute.
+    // This is a characterization test, NOT proof of unknown-outcome safety:
+    // the external transfer is not executed or simulated.
+    const signatureType = jest.spyOn(escrowService, 'isSignatureCollectionType').mockReturnValue(false)
+    const directFailure = jest.spyOn(escrowService, 'releaseFunds').mockRejectedValueOnce(
+      new Error('injected: direct provider outcome unknown'),
+    )
+    try {
+      await expect((service as any).applyRuling(
+        { id: o.disputeId, escrowId: o.escrowId, tradeId: o.tradeId, status: before.status, appealRound: before.appealRound },
+        'RELEASE', o.arbiterId,
+      )).rejects.toThrow(/direct provider outcome unknown/)
+    } finally {
+      directFailure.mockRestore()
+      signatureType.mockRestore()
+    }
+    const after = await disputeOf(o)
+    expect(after.status).toBe(before.status)
+    expect(after.ruling).toBeNull()
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+    // A legacy direct failure has no pending-operation EDA to guard rollback.
+    expect(await edaCount(o)).toBe(0)
+  })
+
   it('V3-N no-persist dispatch failure reverts the exact ruling and Outcome without orphan pending', async () => {
     const o = await openedDispute('v3-no-persist')
     const before = await disputeOf(o)
