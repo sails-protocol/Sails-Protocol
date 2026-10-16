@@ -55,6 +55,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
   let commitAuthoritativeDisputeRuling: (...args: any[]) => Promise<{ committed: boolean }>
   let deletePendingRoundIfStillUnsigned: (pendingId: string, escrowId: string, generation: any) => Promise<string>
   let reconcileStalePendingDisputeTranslations: () => Promise<any>
+  let reconcileMissingDispatch: (limit?: number) => Promise<any>
   let restarted: { prisma: PrismaClient; deletePendingRoundIfStillUnsigned: typeof deletePendingRoundIfStillUnsigned; reconcileStalePendingDisputeTranslations: typeof reconcileStalePendingDisputeTranslations; redis: { quit(): Promise<unknown> } } | undefined
 
   const ARBITER_ID = 'st1-temporal-arbiter-1'
@@ -87,6 +88,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     ;({ authorizeDisputedPendingExecution, economicDispositionLockKey } = require('../../src/modules/open-settlement/economic-disposition-authority'))
     ;({ revertDisputeRulingRecord, commitAuthoritativeDisputeRuling } = require('../../src/modules/open-settlement/dispute-outcome'))
     ;({ deletePendingRoundIfStillUnsigned, reconcileStalePendingDisputeTranslations } = require('../../src/modules/open-settlement/dispute-pending-reconciliation'))
+    ;({ reconcileMissingDispatch } = require('../../src/modules/open-settlement/dispute-dispatch-recovery'))
     const { intentEngine } = require('../../src/core/intent-engine')
     const { OpenP2PTradeIntentHandler } = require('../../src/modules/open-p2p/intent-handler')
     intentEngine.registerHandler(OpenP2PTradeIntentHandler)
