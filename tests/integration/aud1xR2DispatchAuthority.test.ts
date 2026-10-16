@@ -1338,6 +1338,7 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     })
     await lock.held
     const before = await revertSnapshot(o)
+    const versionsBefore = await rowVersions(o)
     expect(before.outcome0?.proof).toBe(signature)
 
     const live = failDispatch()
@@ -1349,6 +1350,8 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     expect(result.ok).toBe(false)
     const after = await revertSnapshot(o)
     expect(after.dispute).toEqual(before.dispute) // no partial revert: the dispute still holds the ruling
+    // storage level: the handler's UPDATE of the dispute ran and was rolled back - the live version is still the original one
+    expect((await rowVersions(o)).dispute).toBe(versionsBefore.dispute)
     expect(after.outcome0).toEqual({ proof: 'another-authority-signature', ruling: 'RELEASE' }) // the other authority's record stands
     expect(after.effects).toEqual(before.effects)
     expect(events()).not.toContain('dispute.resolved')
@@ -1430,12 +1433,180 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     // FAULT INJECTION: a record whose proof column was never written (the column is nullable)
     await inject(async (tx) => { await tx.semanticTransitionRecord.updateMany({ where: { interactionId: o.escrowId }, data: { attributionRawProof: null } }) })
     const before = await revertSnapshot(o)
+    const versionsBefore = await rowVersions(o)
 
     const result = await failDispatch()
 
     expect(result.ok).toBe(false)
     const after = await revertSnapshot(o)
     expect(after.dispute).toEqual(before.dispute)
+    expect(await rowVersions(o)).toEqual(versionsBefore) // storage level: neither the dispute nor the record was rewritten by a committed transaction
     expect(await prisma.semanticTransitionRecord.count({ where: { interactionId: o.escrowId } })).toBe(1)
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+  // AUD1X-R4 final negative proof
+  //   - the revert is atomic at the storage level (xmin: a committed rewrite of a row would change it),
+  //   - when the dispute stops holding the ruling BETWEEN the decision and the update (signature or generation),
+  //   - a dispatch-translation guard failure caused by a controlled divergence between the dispute's authority and the Outcome.
+  // ═══════════════════════════════════════════════════════════════════════════════════════════════════
+
+  /** The version stamp (xmin) of the live rows a revert could rewrite. A committed new version of a row changes it; a rolled-back one does not. */
+  async function rowVersions(o: Opened) {
+    const [d] = await prisma.$queryRaw<{ xmin: string }[]>`SELECT xmin::text AS xmin FROM disputes WHERE id = ${o.disputeId}`
+    const records = await prisma.$queryRaw<{ appealRound: number; xmin: string }[]>`
+      SELECT "appealRound", xmin::text AS xmin FROM semantic_transition_records WHERE "interactionId" = ${o.escrowId} ORDER BY "appealRound"`
+    return { dispute: d.xmin, records }
+  }
+
+  /**
+   * A row lock on the DISPUTE row held by a separate connection, released only on demand: the handler's conditional UPDATE
+   * queues behind it, i.e. exactly between its decision and its update. `then` runs in the holder's transaction right before
+   * it commits, so the handler's UPDATE re-evaluates its predicate against the row version the holder wrote.
+   */
+  function holdDisputeRowLock(o: Opened, then: (tx: any) => Promise<void>) {
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    let locked!: () => void
+    const held = new Promise<void>((r) => { locked = r })
+    let xid = ''
+    const done = prisma.$transaction(async (tx: any) => {
+      await tx.$executeRaw`SET LOCAL session_replication_role = replica`
+      await tx.$queryRaw`SELECT id FROM disputes WHERE id = ${o.disputeId} FOR UPDATE`
+      const [{ x }] = await tx.$queryRaw<{ x: string }[]>`SELECT (txid_current() % 4294967296)::text AS x`
+      xid = x
+      locked()
+      await gate
+      await then(tx)
+    }, { timeout: 120_000, maxWait: 30_000 })
+    return { held, release, done, xid: () => xid }
+  }
+
+  /** Waits until the handler's UPDATE of the dispute is queued behind a lock. */
+  async function waitForDisputeUpdateBlocked(timeoutMs = 30_000) {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const [{ n }] = await prisma.$queryRaw<{ n: bigint }[]>`
+        SELECT count(*)::bigint AS n FROM pg_stat_activity
+        WHERE wait_event_type = 'Lock' AND query ILIKE 'UPDATE%disputes%'`
+      if (Number(n) >= 1) return
+      if (Date.now() > deadline) throw new Error('the handler never reached the update of the dispute row')
+      await new Promise((r) => setTimeout(r, 25))
+    }
+  }
+
+  it.each([
+    ['another authority signed this round and took over the slot (dispute signature and record both replaced)', 'signature'],
+    ['an appeal advanced the dispute to the next generation', 'generation'],
+  ] as const)('R4-11 between the decision and the update, %s: the update matches nothing - the call fails, the handler writes nothing at all (xmin) and the record of the generation it knew stays', async (_name, kind) => {
+    const { o, signature, failDispatch } = await pausedAfterCommit(`r4-between-${kind}`)
+    const events = emittedEvents()
+    const takeOver = 'another-authority-signature'
+    const lock = holdDisputeRowLock(o, async (tx) => {
+      if (kind === 'signature') {
+        await tx.dispute.update({ where: { id: o.disputeId }, data: { authoritySignature: takeOver } })
+        await tx.semanticTransitionRecord.updateMany({ where: { interactionId: o.escrowId }, data: { attributionRawProof: takeOver } })
+      } else {
+        await tx.dispute.update({ where: { id: o.disputeId }, data: { status: 'APPEALED', appealRound: 1, ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null, arbiterId: ARBITER2_ID } })
+      }
+    })
+    await lock.held
+    const escrowEventsBefore = await prisma.escrowEvent.count({ where: { escrowId: o.escrowId } })
+    const effectsBefore = await effects(o)
+
+    const live = failDispatch()
+    await waitForDisputeUpdateBlocked() // the handler decided REVERT and is now queued on the UPDATE of the dispute row
+    lock.release()
+    await lock.done
+    const result = await live
+
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.error).toMatch(/no longer holds the ruling this call committed.*no Outcome record was deleted.*injected: the dispatch of this ruling failed/)
+    const after = await revertSnapshot(o)
+    expect(after.dispute).toMatchObject(kind === 'signature'
+      ? { status: 'RESOLVED', ruling: 'RELEASE', round: 0, signature: takeOver }
+      : { status: 'APPEALED', ruling: null, round: 1, signature: null })
+    expect(after.outcome0).toEqual({ proof: kind === 'signature' ? takeOver : signature, ruling: 'RELEASE' }) // the record of the generation the handler knew was not deleted
+    expect(after.effects).toEqual({ ...effectsBefore, dispute: after.effects.dispute, ruling: after.effects.ruling })
+    expect(await prisma.escrowEvent.count({ where: { escrowId: o.escrowId } })).toBe(escrowEventsBefore)
+    expect(events()).not.toContain('dispute.resolved')
+    // storage level: the dispute row's live version is the holder's, no later transaction wrote it
+    const versions = await rowVersions(o)
+    expect(versions.dispute).toBe(lock.xid())
+  })
+
+  // ─── a translation-guard failure caused by a controlled divergence between the dispute's authority and the Outcome ───
+
+  /** True when this tree contains the Gatekeeper's ST1-R2 guard-failure handling (#436); false for the stack alone. */
+  const hasGatekeeperGuardHandling = () =>
+    (require('fs') as typeof import('fs')).readFileSync(require('path').join(__dirname, '../../src/modules/open-settlement/dispute.service.ts'), 'utf8').includes('St1R2DeletionRefused')
+
+  /**
+   * FAULT INJECTION, deterministic and in-line: while the live flow reads the Outcome it is about to dispatch against
+   * (assertDisputeDispatchEligible), the durable Outcome's buyer destination is another address - and restored right after.
+   * The flow therefore judges the translation against an Outcome that differs from the durable one: the dispute's authority
+   * (the signed ruling) and the Outcome it dispatches disagree, the construction (which re-reads the durable Outcome under
+   * its own locks) accepts the real transaction, and the post-construction guard rejects it. This is the only way the guard
+   * fails since AUD-1; it cannot happen with an honest Outcome.
+   */
+  function divergentOutcomeRead(o: Opened) {
+    const dispatchMod = require('../../src/modules/open-settlement/dispute-dispatch')
+    const real = dispatchMod.assertDisputeDispatchEligible
+    let once = true
+    jest.spyOn(dispatchMod, 'assertDisputeDispatchEligible').mockImplementation(async (...args: any[]) => {
+      if (!once || args[0] !== o.escrowId) return real(...args)
+      once = false
+      const row = await prisma.semanticTransitionRecord.findFirstOrThrow({ where: { interactionId: o.escrowId } })
+      const original = row.outcomeDestinationBinding
+      const divergent = JSON.parse(JSON.stringify(original).split(o.buyerDestination).join(destination('divergent-outcome-destination')))
+      await inject(async (tx) => { await tx.semanticTransitionRecord.update({ where: { id: row.id }, data: { outcomeDestinationBinding: divergent } }) })
+      try { return await real(...args) } finally {
+        await inject(async (tx) => { await tx.semanticTransitionRecord.update({ where: { id: row.id }, data: { outcomeDestinationBinding: original } }) })
+      }
+    })
+  }
+
+  it('R4-12 the post-construction translation guard fails on a controlled divergence between the dispute\'s authority and the Outcome: with the Gatekeeper\'s guard handling the dispute, the Outcome, the generation and the round are preserved whole; without it the ruling is reverted atomically; both end redrivable', async () => {
+    const gatekeeper = hasGatekeeperGuardHandling()
+    const o = await openedDispute('r4-guard')
+    chain(o.txid)
+    divergentOutcomeRead(o)
+    const events = emittedEvents()
+    const dispute0 = await disputeRowOf(o)
+
+    const result = await settle(resolve(o, 'RELEASE')())
+
+    expect(result.ok).toBe(false)
+    expect(events()).not.toContain('dispute.resolved')
+    const after = await revertSnapshot(o)
+    const committed = await disputeRowOf(o)
+    expect(after.effects).toMatchObject({ authorizations: 0, signatures: 0, broadcasts: 0, escrow: 'DISPUTED' })
+    if (gatekeeper) {
+      // #436: the guard rejected the pending round but the exact-generation deletion was refused - nothing is unwound
+      expect(!result.ok && result.error).toMatch(/ST1-R2: guard rejected pending .* exact-generation deletion was refused \(GUARD_PASSED\)/)
+      expect(after.dispute).toMatchObject({ status: 'RESOLVED', ruling: 'RELEASE', round: 0, arbiter: o.arbiterId })
+      expect(committed.authoritySignature).toBeTruthy()
+      expect(after.outcome0).toEqual({ proof: committed.authoritySignature, ruling: 'RELEASE' })
+      expect(after.effects.roundIds).toHaveLength(1)
+      // restart + redrive: the preserved round is valid against the durable Outcome; the buyer completes it; one broadcast, to the buyer
+      const round = await roundOf(o)
+      expect(round).toMatchObject({ kind: 'release', rulingOutcome: 'RELEASE', rulingAuthoritySignature: committed.authoritySignature, rulingAppealRound: 0 })
+      chain(o.txid)
+      expect((await restarted!.submitTransactionSignature(o.escrowId, o.buyerId, sign(round.unsignedPsbtBase64, buyerKey))).complete).toBe(true)
+      expect(broadcasts).toHaveLength(1)
+      expect(paidTo()[0]).toEqual([o.buyerDestination])
+    } else {
+      // the stack alone: the guard failure deletes the unsigned round and the generic revert undoes the ruling - atomically, with its own record only
+      expect(after.dispute).toMatchObject({ status: dispute0.status, ruling: null, signature: null })
+      expect(after.outcome0).toBeNull()
+      expect(after.effects.roundIds).toEqual([])
+      // restart + redrive: the arbiter's own re-submission of the same decision commits again and executes once
+      chain(o.txid)
+      await resolve(o, 'RELEASE')()
+      const round = await roundOf(o)
+      expect((await restarted!.submitTransactionSignature(o.escrowId, o.buyerId, sign(round.unsignedPsbtBase64, buyerKey))).complete).toBe(true)
+      expect(broadcasts).toHaveLength(1)
+      expect(paidTo()[0]).toEqual([o.buyerDestination])
+    }
   })
 })
