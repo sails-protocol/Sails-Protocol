@@ -260,3 +260,15 @@ Disposable PR [#477](https://github.com/sails-protocol/Sails-Protocol/pull/477),
 **Hazard:** a provider that executed externally but throws (timeout/unknown result) can leave a reverted escrow status and a removed signed ruling/Outcome while irreversible funds movement has occurred. The atomic status claim protects against simultaneous double dispatch but **does not** establish provider-outcome certainty. This requires a real-DB injected unknown-outcome test and explicit fail-closed policy for direct settlement. Do not fix by indiscriminately treating all provider exceptions as success; retain claimed/uncertain authority and reconcile or quarantine until outcome is proven.
 
 **Gate status: BLOCKED.** No declaration of exploitability or provider behavior without targeted reproduction and provider-specific review. No merge/freeze.
+
+### Gate 3 regression acceptance matrix for direct unknown outcomes (2026-10-15)
+
+The next code change must include real-PostgreSQL tests, not merely documentation:
+
+1. **Unknown provider outcome:** direct arbitrated release/refund/split claims the frozen intent, provider simulates an externally executed transfer then throws. Require durable uncertainty and preservation of the exact signed ruling, authority signature, and Outcome. No fresh divergent economic dispatch.
+2. **Proven no-effect rejection:** provider fails before any side effect with positive no-effect evidence. Only then may the exact ruling and Outcome be reverted atomically, preserving generation fencing and concurrent-worker safety.
+3. **Success then local failure:** provider returns success, result/event persistence fails. Preserve the terminal claim and ruling/Outcome for reconciliation; do not retry provider.
+4. **Concurrent recovery/retry:** two workers and a fresh process must not execute a second transfer while the first outcome is unknown; test exact persisted claim and frozen disposition.
+5. **Rail scope:** MULTISIG pending/EDA is not evidence for direct MOCK/WDK/other rails. Identify actual production-supported direct providers and their exception/outbound authority contracts before declaring coverage.
+
+**Acceptance:** tests must initially expose any current unsafe behavior and then pass after a minimal, reviewed fail-closed implementation. Do not weaken assertions to match unsafe current behavior. Do not approve Gate 3 or merge merely because CI is green.
