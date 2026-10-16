@@ -1659,7 +1659,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       child.on('close', code => { clearTimeout(watchdog); done({ code, output, errors }) })
     })
     if (recovered.code !== 0) throw new Error('C4 process failed: ' + recovered.errors.slice(-3000))
-    const line = recovered.output.split('\\n').find(x => x.startsWith('ST1_C4_FIRST:'))
+    const line = recovered.output.split('\n').find(x => x.startsWith('ST1_C4_FIRST:'))
     expect(line).toBeDefined()
     const report = JSON.parse(line!.slice('ST1_C4_FIRST:'.length))
     if (!report.resumed.some((entry: any) => entry.escrowId === o.escrowId)) {
