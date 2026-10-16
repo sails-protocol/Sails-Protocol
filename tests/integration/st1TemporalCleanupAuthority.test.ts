@@ -802,6 +802,35 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await edaCount(o)).toBe(0)
   })
 
+  it('V3-L-UNKNOWN direct provider uncertain result must preserve signed ruling (RED regression)', async () => {
+    const o = await openedDispute('v3-legacy-unknown')
+    const before = await disputeOf(o)
+    const signatureType = jest.spyOn(escrowService, 'isSignatureCollectionType').mockReturnValue(false)
+    // Fault model: provider has made an irreversible external transfer, but
+    // the caller receives a timeout/error. No fake chain transaction is
+    // claimed here; this tests only the rollback authority decision.
+    let externalTransferExecuted = false
+    const directFailure = jest.spyOn(escrowService, 'releaseFunds').mockImplementationOnce(async () => {
+      externalTransferExecuted = true
+      throw new Error('injected: transfer executed but acknowledgement lost')
+    })
+    try {
+      await expect((getDisputeService() as any).applyRuling(
+        { id: o.disputeId, escrowId: o.escrowId, tradeId: o.tradeId, status: before.status, appealRound: before.appealRound },
+        'RELEASE', o.arbiterId,
+      )).rejects.toThrow(/acknowledgement lost/)
+    } finally {
+      directFailure.mockRestore()
+      signatureType.mockRestore()
+    }
+    expect(externalTransferExecuted).toBe(true)
+    // Required safety invariant: uncertainty cannot authorize removal of
+    // the economic ruling. This assertion is expected to FAIL until the
+    // legacy direct-rail failure policy is fixed fail-closed.
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect((await disputeOf(o)).ruling).toBe('RELEASE')
+  })
+
   it('V3-N no-persist dispatch failure reverts the exact ruling and Outcome without orphan pending', async () => {
     const o = await openedDispute('v3-no-persist')
     const before = await disputeOf(o)
