@@ -272,3 +272,14 @@ The next code change must include real-PostgreSQL tests, not merely documentatio
 5. **Rail scope:** MULTISIG pending/EDA is not evidence for direct MOCK/WDK/other rails. Identify actual production-supported direct providers and their exception/outbound authority contracts before declaring coverage.
 
 **Acceptance:** tests must initially expose any current unsafe behavior and then pass after a minimal, reviewed fail-closed implementation. Do not weaken assertions to match unsafe current behavior. Do not approve Gate 3 or merge merely because CI is green.
+
+### Gate 3 routing correction: legacy direct rails do not use the Core D→E catch (2026-10-15)
+
+Source inspection of `dispute.service.ts` establishes **two different ruling implementations**:
+
+- `applyRulingCoreAuthoritative()` is used for MULTISIG and owns the ST1-R2 D→E rollback with semantic Outcome deletion, pending-round/EDA checks, and D/E locks.
+- Legacy `applyRuling()` is still used for LIGHTNING_HODL, SAFE_GUARD_EVM, MOCK, and WDK_USDT_EVM (per the source's own M8-R2 scope comment). It commits a ruling then calls direct `escrowService.releaseFunds/refundFunds/splitFunds` on non-signature rails. Its exception handler performs a generation-conditional `dispute.updateMany` rollback under D lock, **without the Core path's pending/EDA checks and without its semantic Outcome delete**.
+
+**Correction to prior risk wording:** the direct-rail exception does **not** enter the Core D→E catch. The possible authority loss remains serious but is a *separate legacy rollback path*, and the semantic Outcome deletion claimed for that path was not supported by the inspected source. A test must inspect its actual persisted semantic records rather than assume they mirror Core.
+
+The direct provider's `claimDirectExecution` freezes intent; on exception, non-WDK paths invoke status-only `revertStatus` and then legacy `applyRuling()` may clear the signed ruling even if the external provider outcome was uncertain. Investigate the legacy rollback and the direct-rail result ledger as an independent security finding; do not patch Core D→E expecting to cover this path.
