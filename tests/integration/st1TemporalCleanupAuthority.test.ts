@@ -1668,6 +1668,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
     expect(await outcomeRecords(o)).toBe(1)
     expect((await disputeOf(o)).authoritySignature).toBe(signature)
+    expect(await edaCount(o)).toBe(0)
     const recoveredPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
     expect(recoveredPending.disputeId).toBe(o.disputeId)
     expect(recoveredPending.rulingAppealRound).toBe(before.appealRound)
@@ -1697,6 +1698,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })).toEqual(recoveredPending)
     expect(await outcomeRecords(o)).toBe(1)
     expect((await disputeOf(o)).authoritySignature).toBe(signature)
+    expect(await edaCount(o)).toBe(0)
   })
 
   it('V3-OS a fresh OS process preserves the exact persisted ruling after a writer-side post-persist failure', async () => {
