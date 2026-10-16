@@ -2,6 +2,7 @@
 // Test-only Artillery WS comparator: fresh one-time ticket for every connection.
 // Artillery WS connect.function callback receives (wsArgs, context, callback).
 const fs=require('node:fs');
+const { classifyApplicationPong } = require('../testkit/ws-protocol.cjs');
 const path=require('node:path');
 const poolPath=path.join(__dirname,'bounded-ws-users.json');
 function connectWithFreshTicket(wsArgs,context,callback){
@@ -32,9 +33,9 @@ function assertPongFromSocket(ws,{timeoutMs=15000}={}){
     let finished=false;
     const timer=setTimeout(()=>finish(Error('PONG timeout')),timeoutMs);
     function finish(err){if(finished)return;finished=true;clearTimeout(timer);ws.off?.('message',onMessage);ws.off?.('close',onClose);ws.off?.('error',onError);err?reject(err):resolve();}
-    function onMessage(raw){let data;try{data=JSON.parse(String(raw));}catch{return finish(Error('Invalid WS JSON'));}
-      if(data?.type==='PONG')finish();
-      else if(data?.type==='ERROR')finish(Error('WS application ERROR (redacted)'));
+    function onMessage(raw){
+      try { if (classifyApplicationPong(raw)) finish(); }
+      catch (error) { finish(error); }
     }
     function onClose(){finish(Error('WS closed before PONG'));}
     function onError(){finish(Error('WS transport error'));}
