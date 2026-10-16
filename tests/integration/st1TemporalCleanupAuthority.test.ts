@@ -259,10 +259,20 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       expect(claimed.txReleaseId).toBeNull()
       expect(claimed.releasedAt).toBeNull()
       await expect(execute()).rejects.toThrow()
+      if (operation === 'split') {
+        // A second assigned-arbiter request with a different split ratio
+        // must not change the frozen 5000 bps or dispatch another transfer.
+        await expect(escrowService.splitFunds(escrow.id, undefined, undefined, 6000, arbiter!.id))
+          .rejects.toThrow()
+      }
       expect(attempts).toBe(1)
       const afterRetry = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
       expect(afterRetry.status).toBe(terminal)
       expect(afterRetry.txReleaseId).toBeNull()
+      if (operation === 'split') {
+        expect(afterRetry.splitBuyerBps).toBe(5000)
+        expect(afterRetry.arbitratedTriggeredBy).toBe(arbiter!.id)
+      }
     } finally {
       fault.mockRestore()
     }
