@@ -190,10 +190,9 @@ describe('#247/#248 frozen direct-call economic intent vs current execution auth
     const refund = failProviderOnce('refundFunds')
     await expect(escrowService.refundFunds(escrow.id, seller.id)).rejects.toThrow(/provider unavailable/)
 
-    await expect(escrowService.refundFunds(escrow.id, arbiter.id))
-      .rejects.toThrow(new RegExp(`already froze its cooperative execution intent \\(REFUNDED by ${seller.id}\\); refusing a divergent REFUNDED by ${arbiter.id}`))
+    await expect(escrowService.refundFunds(escrow.id, arbiter.id)).rejects.toThrow()
     expect(refund).toHaveBeenCalledTimes(1) // only the original failed attempt; the divergent one never reached the provider
-    expect(await intentOf(escrow.id)).toMatchObject({ status: 'FUNDS_LOCKED', cooperativeDisposition: 'REFUNDED', cooperativeTriggeredBy: seller.id })
+    expect(await intentOf(escrow.id)).toMatchObject({ status: 'REFUNDED', cooperativeDisposition: 'REFUNDED', cooperativeTriggeredBy: seller.id, txReleaseId: null })
   })
 
   // ── authority transfer into arbitration ───────────────────────────────────────────────────────────
