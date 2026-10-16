@@ -43,6 +43,8 @@ export function run(user, intentOverride) {
   if (!created) return
 
   const intentId = createRes.json('data.id')
+  const hasIntentId = check(createRes, { 'create: nonempty intent id': () => typeof intentId === 'string' && intentId.length > 0 })
+  if (!hasIntentId) return
   // '{}', not null — Fastify's JSON body parser 400s on an empty body
   // when Content-Type: application/json is set (authHeaders() always
   // sets it), found running this against the real server.
