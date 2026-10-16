@@ -91,20 +91,43 @@ architecture above supersedes that earlier coexistence decision.
    ```
    (or `docker-compose up -d` — either path, see `docs/DEVELOPER_JOURNEY.md`).
 
-3. **The real server, with rate limits raised.** At shipped defaults
-   (`RATE_LIMIT_AUTH_MAX=10`/min, `RATE_LIMIT_MAX=100`/min —
-   `src/config/index.ts`, RT-002) any of these scripts will mostly
-   measure the rate limiter within the first few seconds — a real,
-   correct result, just not what "Intent/trade/escrow throughput" means.
-   `load-tests/artillery/README.md` already documents this exact tradeoff for
-   Artillery; the same override works here:
-   ```
-   RATE_LIMIT_AUTH_MAX=100000 RATE_LIMIT_MAX=100000 TRUSTED_ARBITRATORS=k6-test-arbiter npm run dev
-   ```
-   `TRUSTED_ARBITRATORS` isn't exercised by anything in this suite today
-   (no test drives dispute resolution), but is included above since a
-   real deployment needs it set before disputes work at all — harmless
-   to include, and one less thing to remember if a future test needs it.
+3. **The real disposable server, preserving security limits.** The shipped defaults
+   (`RATE_LIMIT_AUTH_MAX=10`/min and `RATE_LIMIT_MAX=100`/min) are part of
+   the security contract. Run the bounded, loopback-only CI candidates at
+   these defaults. High-throughput experiments that exceed them require a
+   separately reviewed and authorized test policy; do not copy historical
+   rate-limit overrides into production or routine local workflows. An HTTP
+   429 is meaningful evidence, not a reason to weaken a gate.
+
+## Maintainer handoff: ownership and fallback boundary
+
+| Component | Owns | Must not own |
+| --- | --- | --- |
+| k6 | Virtual users, arrival scheduling, concurrency, thresholds, load metrics and reports | Protocol-specific economic authority or production security overrides |
+| Sails TestKit (target, not yet complete) | Reusable protocol fixtures, PoP identity/auth helpers, one-time WS tickets, protocol assertions and integration-test adapters | A custom load scheduler, virtual-user engine, percentile calculator, persistent service or benchmark dashboard |
+| Existing unit/integration runner | Functional correctness and regression tests using TestKit helpers where suitable | Replacement for k6 load/throughput claims |
+| Artillery (transitional) | Legacy comparator and evidence until parity is approved | Permanent duplicate architecture by default |
+
+**Fallback semantics:** if k6 is unavailable, TestKit-backed functional and
+integration checks may continue, but they do **not** constitute a load-test
+fallback or certify throughput. Preserve a blocked load gate rather than
+reporting a functional PASS as a performance PASS.
+
+**How to change a protocol flow:** update the real protocol assertion and its
+positive/negative tests, keep authentication and one-time ticket semantics
+fail-closed, reuse the fixture in k6 where supported, and verify on a
+loopback-only disposable PostgreSQL/Redis backend. Record exact HEAD, CI run
+IDs and sanitized evidence. Never include session tokens, private keys,
+signed proofs or ticket-bearing URLs in logs or artifacts.
+
+**Migration checklist:** (1) keep Artillery until HTTP and application-PONG
+coverage and benchmark accounting are comparable; (2) collect repeated
+requested/achieved arrival rates, operation-specific latency, errors and
+backend/generator resource measurements; (3) replace the temporary
+`load-tests/native/run.js` scheduler with small protocol-only helpers rather
+than moving `runPhases` into TestKit; (4) require independent security review
+and explicit merge/deploy authorization. See
+`load-tests/K6-EVALUATION-CHECKLIST.md` for evidence and open gates.
 
 ## Structure
 
