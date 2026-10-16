@@ -116,3 +116,11 @@ Inspection of `.github/workflows/native-load-harness-candidate.yml` confirms the
 - k6 authenticated arrival probe: 2 completed iterations, 0 dropped, 12 HTTP requests; exactly 6 HTTP requests per iteration (4 PoP authentication, 1 Intent create, 1 Intent cancel). `requestAccountingValid: true`, all checks and Intent flow success valid.
 - k6 Intent create median 28.8759845 ms, p95 37.76744675 ms, p99 38.55779895 ms; cancel median 7.9279705 ms, p95 8.12674675 ms, p99 8.14441575 ms. Sample size remains too small for sustained performance conclusions.
 - This closes the **per-arrival request accounting** evidence gap, not the broader load-tool parity gate. Remaining: repeatable matched profiles and measured requested/achieved rates, CPU/RSS, generator saturation, connection counts, and Artillery WS application PONG verification. Artillery retained; NO MERGE / NO DEPLOY.
+
+## Exact-HEAD verification: HTTP comparator fail-closed evidence (2026-10-16)
+
+- Commit `338f2bc6573d9f78cfb24b020c0bb728862e60ca` completed **CI Tests** run `38922625837` (SUCCESS) and **Native load harness candidate verification** run `38922626033` (SUCCESS). Both were queried against this exact commit; the native job reported no failed steps.
+- The workflow now rejects an Artillery HTTP comparator report unless it has exactly four Intent create/cancel HTTP requests (PoP setup happens out of band), exactly two completed users, no failed users or error counters, and finite median/p95/p99 endpoint histograms for **both** create and cancel.
+- **Scope limit:** this is bounded correctness and evidence completeness, not sustained k6/Artillery performance equivalence. Missing WS application-PONG parity, repeated matched workloads, generator/backend resource saturation, TestKit implementation, temporary scheduler retirement and independent review remain OPEN.
+- ADR: `docs/architecture/ADR-K6-SAILS-TESTKIT.md` documents the accepted target architecture and explicit migration closure requirements. Do not interpret documentation acceptance as implementation acceptance.
+- **Disposition:** CONDITIONAL / NO MERGE / NO DEPLOY / retain Artillery.
