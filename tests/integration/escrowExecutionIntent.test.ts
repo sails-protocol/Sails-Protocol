@@ -310,6 +310,22 @@ describe('#247/#248 frozen direct-call economic intent vs current execution auth
     expect(await eventsTo(escrow.id, 'COMPLETED')).toHaveLength(0)
   })
 
+  it('reconciliation cannot invent a MOCK provider result after an unknown RELEASE', async () => {
+    pg.requirePostgres('unknown direct outcome reconciliation')
+    const { escrow, seller } = await fixture('PAYMENT_PENDING')
+    const release = failProviderOnce('releaseFunds')
+    await expect(escrowService.releaseFunds(escrow.id, 'buyer-addr', seller.id)).rejects.toThrow(/provider unavailable/)
+    const fresh = restarted!
+    // PASS 1 must fail closed for MOCK: no independently verifiable settlement result.
+    await fresh.reconcile({ projectionGraceMs: 0 })
+    expect(await intentOf(escrow.id)).toMatchObject({
+      status: 'COMPLETED', cooperativeDisposition: 'COMPLETED', cooperativeTriggeredBy: seller.id, txReleaseId: null,
+    })
+    expect(await eventsTo(escrow.id, 'COMPLETED')).toHaveLength(0)
+    await expect(fresh.escrowService.releaseFunds(escrow.id, 'buyer-addr', seller.id)).rejects.toThrow()
+    expect(release).toHaveBeenCalledTimes(1)
+  })
+
   it('crash after an arbitrated SPLIT executed but before its local completion: an independent process recovers it with the frozen allocation and the authorized arbiter', async () => {
     pg.requirePostgres('restart after execution')
     const { escrow, buyer, seller, arbiter } = await fixture('PAYMENT_PENDING', { withArbiter: true, policyAware: true })
