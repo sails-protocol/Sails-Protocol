@@ -926,13 +926,14 @@ export class EscrowService {
       }
     } catch (err) {
       if (wdkLegs) throw await wdkOutboundFailure(escrowId, 'COMPLETED', escrow.status, err)
-      // An arbitrated direct provider may have moved funds before throwing.
-      // Keep the claimed terminal intent as an uncertainty quarantine: reverting
-      // DISPUTED would permit another provider call with no outcome proof.
-      // Non-disputed behavior remains unchanged pending its own policy review.
-      if (escrow.status !== 'DISPUTED') {
-        await revertEscrowStatus(escrowId, 'COMPLETED', escrow.status)
-      }
+      // A direct provider may have moved funds before throwing, regardless of
+      // whether this was an arbitrated or ordinary settlement. An exception is
+      // NOT proof of non-execution. Preserve the atomically claimed terminal
+      // state and frozen economic intent to prevent a second provider dispatch.
+      // This is an uncertainty quarantine, NOT evidence of settlement success:
+      // tx result and terminal event remain absent until verified recovery.
+      // Provider-specific, proven pre-dispatch failures need a separate
+      // evidence-backed rollback path; never infer one from a thrown error.
       throw err
     }
 
@@ -1076,13 +1077,14 @@ export class EscrowService {
       }
     } catch (err) {
       if (wdkLegs) throw await wdkOutboundFailure(escrowId, 'REFUNDED', escrow.status, err)
-      // An arbitrated direct provider may have moved funds before throwing.
-      // Keep the claimed terminal intent as an uncertainty quarantine: reverting
-      // DISPUTED would permit another provider call with no outcome proof.
-      // Non-disputed behavior remains unchanged pending its own policy review.
-      if (escrow.status !== 'DISPUTED') {
-        await revertEscrowStatus(escrowId, 'REFUNDED', escrow.status)
-      }
+      // A direct provider may have moved funds before throwing, regardless of
+      // whether this was an arbitrated or ordinary settlement. An exception is
+      // NOT proof of non-execution. Preserve the atomically claimed terminal
+      // state and frozen economic intent to prevent a second provider dispatch.
+      // This is an uncertainty quarantine, NOT evidence of settlement success:
+      // tx result and terminal event remain absent until verified recovery.
+      // Provider-specific, proven pre-dispatch failures need a separate
+      // evidence-backed rollback path; never infer one from a thrown error.
       throw err
     }
 
@@ -1158,13 +1160,14 @@ export class EscrowService {
         )
     } catch (err) {
       if (wdkLegs) throw await wdkOutboundFailure(escrowId, 'SPLIT', escrow.status, err)
-      // An arbitrated direct provider may have moved funds before throwing.
-      // Keep the claimed terminal intent as an uncertainty quarantine: reverting
-      // DISPUTED would permit another provider call with no outcome proof.
-      // Non-disputed behavior remains unchanged pending its own policy review.
-      if (escrow.status !== 'DISPUTED') {
-        await revertEscrowStatus(escrowId, 'SPLIT', escrow.status)
-      }
+      // A direct provider may have moved funds before throwing, regardless of
+      // whether this was an arbitrated or ordinary settlement. An exception is
+      // NOT proof of non-execution. Preserve the atomically claimed terminal
+      // state and frozen economic intent to prevent a second provider dispatch.
+      // This is an uncertainty quarantine, NOT evidence of settlement success:
+      // tx result and terminal event remain absent until verified recovery.
+      // Provider-specific, proven pre-dispatch failures need a separate
+      // evidence-backed rollback path; never infer one from a thrown error.
       throw err
     }
 
