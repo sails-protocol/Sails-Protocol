@@ -1428,6 +1428,55 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     })).toBeNull()
   })
 
+  it('V3-E4 C4 refuses EDA committed after its candidate claim', async () => {
+    const o = await openedDispute('v3-eda-after-claim')
+    const originalPending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const originalDispute = await disputeOf(o)
+    const originalOutcome = await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })
+    // Make the ruling eligible for C4's SQL candidate selection without
+    // authorizing an operation yet. This is a fault-injected missing-pending
+    // state, NOT evidence that production normally loses the pending.
+    await prisma.escrowPendingTransaction.delete({ where: { id: originalPending.id } })
+    expect(await edaCount(o)).toBe(0)
+
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    let calls = 0
+    const intercepted = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      calls++
+      // C4 has already claimed this candidate and checked EDA. The first
+      // real initiation persists a pending; the production authority gate
+      // then commits EDA for that exact pending, before this intercepted
+      // call returns to C4. This demonstrates an achievable ordering of
+      // initiation and authorization, not provider-level exactly-once.
+      const created = await (realInitiate as (...a: unknown[]) => Promise<any>)(...args)
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({
+        where: { escrowId: o.escrowId },
+      })
+      await authorizeDisputedPendingExecution(pending)
+      return created
+    })
+    try {
+      const report = await reconcileMissingDispatch(100)
+      expect(report.claimed).toContain(o.escrowId)
+      expect(report.resumed).toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    } finally {
+      intercepted.mockRestore()
+    }
+    expect(calls).toBe(1)
+    expect(await edaCount(o)).toBe(1)
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect(await disputeOf(o)).toEqual(originalDispute)
+    expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })).toEqual(originalOutcome)
+    const replay = await reconcileMissingDispatch(100)
+    expect(replay.claimed).not.toContain(o.escrowId)
+    expect(replay.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    expect(await edaCount(o)).toBe(1)
+  })
+
   it('V3 after-persist dispatch throw preserves exact durable authority and pending for restart recovery', async () => {
     const o = await openedDispute('v3')
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
