@@ -202,8 +202,15 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
     await escrowService.lockFunds(escrow.id, seller.id)
-    if (operation !== 'refund') {
+    if (operation === 'release') {
       await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'PAYMENT_PENDING' } })
+    } else if (operation === 'split') {
+      // SPLIT is valid only for a disputed escrow. Preserve the actual
+      // state-machine precondition rather than bypassing its guard.
+      await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'DISPUTED' } })
+      await prisma.dispute.create({
+        data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'V3-DIRECT unknown-outcome split' },
+      })
     }
     // Release and split require registered payout destinations. The test
     // must reach the provider fault boundary, not fail a pre-dispatch guard.
