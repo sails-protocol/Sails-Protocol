@@ -63,6 +63,9 @@ jobs:
           # No live backend required: verify session-pool fail-closed checks before any WS request.
           mkdir -p /tmp/sails-load-guard
           cp load-tests/native/run.js /tmp/sails-load-guard/run.js
+          # Preserve run.js relative TestKit import in the isolated negative fixtures.
+          mkdir -p /tmp/testkit
+          cp load-tests/testkit/loopback-target.cjs /tmp/testkit/loopback-target.cjs
           printf '[{"sessionToken":"test-only"}]' > /tmp/sails-load-guard/users.json
           chmod 0644 /tmp/sails-load-guard/users.json
           if node /tmp/sails-load-guard/run.js ws > /tmp/pool-permissions.out 2>&1; then echo 'World-readable session pool accepted'; exit 1; fi
