@@ -66,3 +66,17 @@ Inspection of `.github/workflows/native-load-harness-candidate.yml` confirms the
 - The k6-specific TweetNaCl workaround edits only the disposable runner's `node_modules/tweetnacl/nacl-fast.js` after install, neutralizing the statically discovered Node `require('crypto')`. It must be audited for dependency-version drift and for continued use of k6 WebCrypto CSPRNG. No application/lockfile modification is authorized by this workaround.
 - **BLOCKED for Artillery retirement:** No controlled sustained-rate comparison has established achieved/requested arrival rate, latency p50/p95/p99, error classification, connections, generator saturation, or backend CPU/memory. WS comparator lacks application-PONG parity. The separate native scheduler remains transitional.
 - Next experiment: disposable loopback-only backend; identical seeded authenticated fixture/setup accounting and rate-limit policy for k6 and Artillery; bounded staged arrival rates; capture both generator and backend resource metrics and sanitized summaries. Abort on missing measurements or security assertions. No production targets, bypasses, merge, deploy, or Artillery removal.
+
+## Benchmark protocol freeze — no performance claims until measured
+
+**Scope:** authenticated Intent create+cancel only for the first comparable benchmark. WebSocket PONG parity remains a separate blocking gate because the current Artillery WS flow does not assert an application PONG.
+
+1. **Preconditions:** disposable PostgreSQL 16 + Redis 7; local server on `127.0.0.1:3000`; isolated CI runner; pinned k6 executable; exact HEAD, tool versions and dependency hashes captured. Never use external targets.
+2. **Identical work:** one signed registration/login per explicitly counted fixture; each measured iteration creates an Intent and cancels that same Intent, checking HTTP 201/200 and response identifiers. Include fixture/setup cost as a separate recorded dimension, not silently in one tool and outside the other.
+3. **Rate policy:** start with the already-proven tiny bounded profile. Increase arrival rate only after reviewing authentication and API rate limits; never relax them for a green benchmark. Stop on HTTP 429 rather than reclassifying it as success.
+4. **Measurement contract:** record requested versus achieved iterations/s, attempted and successful create+cancel pairs, check failures, HTTP status classes, p50/p95/p99 by create and cancel, dropped iterations, active VUs, CPU/RSS for server and generators, peak connections and runner saturation. Missing data is a failed experiment, not zero.
+5. **Fairness:** identical workload duration, warmup, dataset state, seed strategy, host resources and concurrency constraints. Run multiple repetitions, report per-run values and variability, and preserve sanitized machine-readable summaries only.
+6. **Fail-closed:** require authenticated positive assertions and a separate negative no-PONG test; redact tokens, signed proofs, WS ticket URLs and private keys. No raw HTTP response bodies in artifacts.
+7. **Decision gate:** no Artillery removal until both protocols reach assertion parity, measurements are reproducible and independently reviewed, and the duplicate native scheduler is addressed. A passing smoke CI does not satisfy this gate.
+
+**Current evidence:** exact HEAD `74f758b51c2d47c471da5bffa8b226e23e047c77` passed CI Tests run `38830759309` and Native load harness run `38830759325`. These runs are not sustained benchmark evidence.
