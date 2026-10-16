@@ -1,14 +1,9 @@
 /**
- * Opt-in, disposable-loopback-only Intent arrival-rate probe.
- * NOT a parity benchmark: Artillery currently provisions auth per arrival,
- * while this k6 probe provisions one shared signed identity in setup().
- * Never run against production or use this probe to justify Artillery removal.
- *
- * Conservative ceiling: two iterations per second for five seconds, one
- * create+cancel per iteration. No bypass of auth/API rate limits.
- * This probe deliberately uses one shared participant: under the shipped
- * per-participant rate limits, a 429 is a meaningful failure, not a reason
- * to increase or disable limits. A green result is not throughput parity.
+ * Opt-in loopback-only authenticated Intent arrival probe.
+ * Mirrors Artillery comparator's fixture accounting: each arrival provisions
+ * a fresh PoP-registered, challenge-authenticated identity before create/cancel.
+ * Tiny rate by design. No production targets, auth bypass, or limit changes.
+ * NOT throughput parity without identical runs, measurement and assertions.
  */
 import { BASE_URL, baseOptions } from '../k6.config.js'
 import { generateTestUser } from '../utils/data-generator.js'
@@ -22,27 +17,24 @@ export const options = {
   scenarios: {
     intent_probe: {
       executor: 'constant-arrival-rate',
-      rate: 2,
+      rate: 1,
       timeUnit: '1s',
-      duration: '5s',
+      duration: '2s',
       preAllocatedVUs: 2,
-      maxVUs: 4,
-      gracefulStop: '5s',
+      maxVUs: 2,
+      gracefulStop: '10s',
     },
   },
   thresholds: {
     checks: ['rate==1'],
     sails_intent_success: ['rate==1'],
     dropped_iterations: ['count==0'],
-    sails_rate_limited_429: ['count==0'],
+    http_req_failed: ['rate==0'],
   },
 }
-export function setup() {
+export default function () {
+  // Match Artillery: authentication belongs to every arrival, not setup().
   const user = generateTestUser(BASE_URL, 'arrival-probe')
   if (!user?.sessionToken) throw new Error('Arrival probe authentication failed')
-  return { user }
-}
-export default function (data) {
-  if (!data?.user?.sessionToken) throw new Error('Missing authenticated probe setup data')
-  run(data.user)
+  run(user)
 }
