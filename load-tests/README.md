@@ -19,6 +19,8 @@ no virtual-user scheduler, arrival-rate implementation, latency percentile
 engine, dashboards or independent throughput benchmarks should be maintained
 in TestKit. Prefer direct k6 implementations when practical.
 
+**Implemented TestKit primitives:** `load-tests/testkit/loopback-target.cjs`, `ws-protocol.cjs`, and `protocol-assertions.cjs` provide narrowly scoped fail-closed checks, with positive/negative `.test.cjs` proofs. The native candidate reuses the protocol assertions; the dedicated CI workflow executes their unit controls. These are incremental helpers, **not** a finished TestKit distribution or evidence of benchmark parity. See `load-tests/TESTKIT-ARCHITECTURE-DECISION.md` for the accepted direction and unresolved acceptance gates.
+
 **Migration status: NOT COMPLETE.** The existing k6 suite covers
 trade/escrow lifecycle, reconciliation and reputation, while the legacy
 Artillery suite covers Intent API and chat WebSocket. The candidate
