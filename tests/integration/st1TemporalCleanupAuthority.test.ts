@@ -1668,6 +1668,27 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
     expect(await outcomeRecords(o)).toBe(1)
     expect((await disputeOf(o)).authoritySignature).toBe(signature)
+    // Replaying the production recovery must not manufacture a second
+    // pending round or overwrite the original signed economic authority.
+    const replay = await new Promise<{ code: number | null; output: string; errors: string }>((done, reject) => {
+      const child = spawn(process.execPath, ['-e', firstRecoveryCode], {
+        cwd: resolve(__dirname, '../..'), env, stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let output = ''; let errors = ''
+      const watchdog = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('C4 replay timed out: ' + errors.slice(-2000))) }, 60_000)
+      child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => { errors += chunk.toString() })
+      child.on('error', err => { clearTimeout(watchdog); reject(err) })
+      child.on('close', code => { clearTimeout(watchdog); done({ code, output, errors }) })
+    })
+    if (replay.code !== 0) throw new Error('C4 replay process failed: ' + replay.errors.slice(-3000))
+    const replayLine = replay.output.split('\n').find(x => x.startsWith('ST1_C4_FIRST:'))
+    expect(replayLine).toBeDefined()
+    const replayReport = JSON.parse(replayLine!.slice('ST1_C4_FIRST:'.length))
+    expect(replayReport.resumed.filter((entry: any) => entry.escrowId === o.escrowId)).toEqual([])
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect((await disputeOf(o)).authoritySignature).toBe(signature)
   })
 
   it('V3-OS a fresh OS process preserves the exact persisted ruling after a writer-side post-persist failure', async () => {
