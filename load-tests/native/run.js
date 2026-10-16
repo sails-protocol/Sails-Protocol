@@ -9,7 +9,8 @@ const BASE = process.env.SAILS_LOAD_HTTP_TARGET || 'http://localhost:3000';
 const WSBASE = process.env.SAILS_LOAD_WS_TARGET || 'ws://localhost:3000';
 // Shared TestKit safety guard; checked before any load is issued.
 const { requireLoopbackTarget } = require('../testkit/loopback-target.cjs');
-const { requireResponseDataString, requireApplicationPong } = require('../testkit/protocol-assertions.cjs');
+const { requireResponseDataString } = require('../testkit/protocol-assertions.cjs');
+const { classifyApplicationPong } = require('../testkit/ws-protocol.cjs');
 function validateTargets() {
   requireLoopbackTarget(BASE, ['http:']);
   requireLoopbackTarget(WSBASE, ['ws:']);
@@ -67,8 +68,8 @@ async function websocket(user) {
     ws.addEventListener('open', () => ws.send(JSON.stringify({type:'PING',payload:{}})));
     ws.addEventListener('message', event => {
       let msg; try { msg=JSON.parse(event.data); } catch { return finish(Error('Invalid WebSocket JSON')); }
-      if (msg.type === 'PONG') { try { requireApplicationPong(msg); finish(); } catch (error) { finish(error); } }
-      else if (msg.type === 'ERROR') finish(Error('WebSocket application ERROR (details redacted)'));
+      try { if (classifyApplicationPong(event.data)) finish(); }
+      catch { finish(Error('WebSocket protocol assertion failed (details redacted)')); }
     });
     ws.addEventListener('error', () => finish(Error('WebSocket transport error')));
     ws.addEventListener('close', () => { if (!done) finish(Error('WebSocket closed before PONG')); });
