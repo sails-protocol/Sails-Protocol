@@ -297,6 +297,7 @@ jobs:
           const errors=Object.entries(counters).filter(([k,v])=>/(errors\\.|failed|unexpected_response)/.test(k)&&Number(v)>0);
           assert.equal(completed,2,'Exactly two HTTP comparator virtual users must complete');
           assert.equal(failed,0,'No failed virtual users');
+          assert.equal(counters['http.requests'],4,'Exactly four HTTP create/cancel requests expected (auth PoP setup is out-of-band)');
           assert.equal(errors.length,0,'No Artillery error counters');
           const histograms=report.aggregate?.histograms||{};
           const latencyNames=Object.keys(histograms).filter(k=>/response_time|latency|duration/.test(k));
@@ -311,6 +312,17 @@ jobs:
           }));
           assert.ok(latencyNames.length>0,'Artillery HTTP latency histogram missing');
           assert.ok(latencyNames.some(k=>Object.keys(latency[k]).length>0),'Artillery HTTP latency quantiles missing');
+          // The comparison is meaningless if one operation silently loses its
+          // endpoint-specific histogram. Reject missing or non-finite quantiles.
+          const endpointKeys=latencyNames.filter(k=>/metrics-by-endpoint.*response_time/.test(k));
+          const createKeys=endpointKeys.filter(k=>/\/v1\/intents$/.test(k));
+          const cancelKeys=endpointKeys.filter(k=>/\/v1\/intents\//.test(k));
+          assert.ok(createKeys.length>0,'Artillery create endpoint histogram missing');
+          assert.ok(cancelKeys.length>0,'Artillery cancel endpoint histogram missing');
+          for(const [operation,keys] of [['create',createKeys],['cancel',cancelKeys]]){
+            assert.ok(keys.some(k=>['median','p95','p99'].every(q=>Number.isFinite(latency[k]?.[q]))),
+              'Artillery '+operation+' endpoint median/p95/p99 missing');
+          }
           NODE
       - name: Execute bounded Artillery WS candidate against disposable backend
         env:
