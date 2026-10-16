@@ -16,8 +16,11 @@ export function assertApplicationPong(url) {
     socket.on('message', raw => {
       let message
       try { message = JSON.parse(raw) } catch { appError = true; socket.close(); return }
-      if (message?.type === 'PONG') { pong = true; socket.close() }
-      else if (message?.type === 'ERROR') { appError = true; socket.close() }
+      if (!message || typeof message !== 'object' || Array.isArray(message)) {
+        appError = true; socket.close(); return
+      }
+      if (message.type === 'PONG') { pong = true; socket.close() }
+      else if (message.type === 'ERROR') { appError = true; socket.close() }
     })
     socket.setTimeout(() => { socket.close() }, 15000)
   })
