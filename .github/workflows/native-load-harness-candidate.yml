@@ -73,6 +73,7 @@ jobs:
           mkdir -p /tmp/testkit
           cp load-tests/testkit/loopback-target.cjs /tmp/testkit/loopback-target.cjs
           cp load-tests/testkit/protocol-assertions.cjs /tmp/testkit/protocol-assertions.cjs
+          cp load-tests/testkit/ws-protocol.cjs /tmp/testkit/ws-protocol.cjs
           printf '[{"sessionToken":"test-only"}]' > /tmp/sails-load-guard/users.json
           chmod 0644 /tmp/sails-load-guard/users.json
           if node /tmp/sails-load-guard/run.js ws > /tmp/pool-permissions.out 2>&1; then echo 'World-readable session pool accepted'; exit 1; fi
