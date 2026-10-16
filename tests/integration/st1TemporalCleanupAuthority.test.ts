@@ -1041,6 +1041,13 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       failing.mockRestore()
     }
     expect(await edaCount(o)).toBe(1)
+    // A durable EDA is keyed to the immutable operation, not the lifetime
+    // of its pending row. Preserve its full committed record across cleanup.
+    const committedEda = await prisma.economicDispositionAuthorization.findFirstOrThrow({
+      where: { escrowId: o.escrowId },
+    })
+    expect(committedEda.pendingOperationId).toBeTruthy()
+    expect(committedEda.operationDigest).toMatch(/^[0-9a-f]{64}$/)
     const preserved = await disputeOf(o)
     expect(preserved.status).toBe('RESOLVED')
     expect(preserved.ruling).toBe('RELEASE')
@@ -1053,6 +1060,9 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const [recovery] = await reconcileScoped([o.escrowId])
     expect(recovery.reconciled).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
     expect(await edaCount(o)).toBe(1)
+    expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+      where: { pendingOperationId: committedEda.pendingOperationId },
+    })).toEqual(committedEda)
     expect(await disputeOf(o)).toEqual(preserved)
     expect(await outcomeRecords(o)).toBe(1)
   })
