@@ -1,3 +1,4 @@
+const { randomInt } = require('node:crypto');
 'use strict';
 // Node 24 protocol-only smoke. k6 owns load scheduling and performance metrics.
 const { performance } = require('node:perf_hooks');
