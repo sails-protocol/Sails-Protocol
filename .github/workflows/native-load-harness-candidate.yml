@@ -33,6 +33,9 @@ jobs:
           cache: npm
       - name: Dependency-free syntax and safety guard checks
         run: |
+          node --check load-tests/testkit/loopback-target.cjs
+          node --check load-tests/testkit/loopback-target.test.cjs
+          node load-tests/testkit/loopback-target.test.cjs
           node --check load-tests/native/run.js
           node --check load-tests/tests/chat-ws-bounded.js
           node --check load-tests/tests/intent-bounded.js
