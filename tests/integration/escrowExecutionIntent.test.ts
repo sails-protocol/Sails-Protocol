@@ -198,37 +198,36 @@ describe('#247/#248 frozen direct-call economic intent vs current execution auth
 
   // ── authority transfer into arbitration ───────────────────────────────────────────────────────────
 
-  it('cooperative RELEASE fails → dispute opens → the assigned arbiter resolves; the cooperative provenance is untouched', async () => {
-    pg.requirePostgres('release then arbitration')
+  it('unknown cooperative RELEASE cannot be reinterpreted by opening a dispute', async () => {
+    pg.requirePostgres('release unknown then dispute')
     const { escrow, buyer, seller, arbiter } = await fixture('PAYMENT_PENDING', { withArbiter: true })
-    failProviderOnce('releaseFunds')
+    const release = failProviderOnce('releaseFunds')
+    const refund = jest.spyOn(PROVIDERS.MOCK, 'refundFunds')
     await expect(escrowService.releaseFunds(escrow.id, 'buyer-addr', seller.id)).rejects.toThrow(/provider unavailable/)
-
-    await escrowService.openDispute(escrow.id, buyer.id, 'payment not received')
-    await escrowService.refundFunds(escrow.id, arbiter.id) // the ruling decides; the cooperative intent does not bind it
-
+    await expect(escrowService.openDispute(escrow.id, buyer.id, 'payment not received')).rejects.toThrow()
+    await expect(escrowService.refundFunds(escrow.id, arbiter.id)).rejects.toThrow()
+    expect(release).toHaveBeenCalledTimes(1)
+    expect(refund).not.toHaveBeenCalled()
     expect(await intentOf(escrow.id)).toMatchObject({
-      status: 'REFUNDED',
-      cooperativeDisposition: 'COMPLETED', cooperativeTriggeredBy: seller.id, // prior provenance preserved
-      arbitratedDisposition: 'REFUNDED', arbitratedTriggeredBy: arbiter.id,
+      status: 'COMPLETED', cooperativeDisposition: 'COMPLETED', cooperativeTriggeredBy: seller.id, txReleaseId: null,
     })
-    expect(await eventsTo(escrow.id, 'REFUNDED')).toEqual([{ triggeredBy: arbiter.id }])
+    expect(await eventsTo(escrow.id, 'COMPLETED')).toHaveLength(0)
   })
 
-  it('cooperative REFUND fails → dispute opens → the assigned arbiter resolves; the cooperative provenance is untouched', async () => {
-    pg.requirePostgres('refund then arbitration')
+  it('unknown cooperative REFUND cannot be reinterpreted as arbitrated RELEASE', async () => {
+    pg.requirePostgres('refund unknown then dispute')
     const { escrow, buyer, seller, arbiter } = await fixture('FUNDS_LOCKED', { withArbiter: true })
-    failProviderOnce('refundFunds')
+    const refund = failProviderOnce('refundFunds')
+    const release = jest.spyOn(PROVIDERS.MOCK, 'releaseFunds')
     await expect(escrowService.refundFunds(escrow.id, seller.id)).rejects.toThrow(/provider unavailable/)
-
-    await escrowService.openDispute(escrow.id, buyer.id, 'seller tried to refund a paid trade')
-    await escrowService.releaseFunds(escrow.id, 'buyer-addr', arbiter.id)
-
+    await expect(escrowService.openDispute(escrow.id, buyer.id, 'seller tried to refund a paid trade')).rejects.toThrow()
+    await expect(escrowService.releaseFunds(escrow.id, 'buyer-addr', arbiter.id)).rejects.toThrow()
+    expect(refund).toHaveBeenCalledTimes(1)
+    expect(release).not.toHaveBeenCalled()
     expect(await intentOf(escrow.id)).toMatchObject({
-      status: 'COMPLETED',
-      cooperativeDisposition: 'REFUNDED', cooperativeTriggeredBy: seller.id,
-      arbitratedDisposition: 'COMPLETED', arbitratedTriggeredBy: arbiter.id,
+      status: 'REFUNDED', cooperativeDisposition: 'REFUNDED', cooperativeTriggeredBy: seller.id, txReleaseId: null,
     })
+    expect(await eventsTo(escrow.id, 'REFUNDED')).toHaveLength(0)
   })
 
   it('unauthorized parties stay rejected in both phases, and a rejected attempt freezes nothing', async () => {
@@ -249,20 +248,20 @@ describe('#247/#248 frozen direct-call economic intent vs current execution auth
     expect(await intentOf(escrow.id)).toMatchObject({ status: 'DISPUTED', cooperativeDisposition: null, arbitratedDisposition: null })
   })
 
-  it('arbiter reassignment: the new assigned arbiter retries the frozen SPLIT allocation; the previous arbiter and a different allocation are refused', async () => {
+  it('arbiter reassignment cannot redispatch a SPLIT with unknown provider outcome', async () => {
     pg.requirePostgres('arbiter reassignment')
     const { escrow, arbiter, otherArbiter, dispute } = await fixture('DISPUTED')
-    failProviderOnce('splitFunds')
+    const split = failProviderOnce('splitFunds')
     await expect(escrowService.splitFunds(escrow.id, 'buyer-addr', 'seller-addr', 3000, arbiter.id)).rejects.toThrow(/provider unavailable/)
-
     await prisma.dispute.update({ where: { id: dispute!.id }, data: { arbiterId: otherArbiter.id } })
-
-    await expect(escrowService.splitFunds(escrow.id, 'buyer-addr', 'seller-addr', 3000, arbiter.id)).rejects.toThrow(/not the current assigned arbiter/)
-    await expect(escrowService.splitFunds(escrow.id, 'buyer-addr', 'seller-addr', 5000, otherArbiter.id)).rejects.toThrow(/refusing a divergent SPLIT at buyerBps=5000/)
-    await escrowService.splitFunds(escrow.id, 'buyer-addr', 'seller-addr', 3000, otherArbiter.id)
-
-    expect(await intentOf(escrow.id)).toMatchObject({ status: 'SPLIT', arbitratedDisposition: 'SPLIT', splitBuyerBps: 3000, arbitratedTriggeredBy: otherArbiter.id })
-    expect(await eventsTo(escrow.id, 'SPLIT')).toEqual([{ triggeredBy: otherArbiter.id }])
+    await expect(escrowService.splitFunds(escrow.id, 'buyer-addr', 'seller-addr', 3000, arbiter.id)).rejects.toThrow()
+    await expect(escrowService.splitFunds(escrow.id, 'buyer-addr', 'seller-addr', 5000, otherArbiter.id)).rejects.toThrow()
+    await expect(escrowService.splitFunds(escrow.id, 'buyer-addr', 'seller-addr', 3000, otherArbiter.id)).rejects.toThrow()
+    expect(split).toHaveBeenCalledTimes(1)
+    expect(await intentOf(escrow.id)).toMatchObject({
+      status: 'SPLIT', arbitratedDisposition: 'SPLIT', splitBuyerBps: 3000, arbitratedTriggeredBy: arbiter.id, txReleaseId: null,
+    })
+    expect(await eventsTo(escrow.id, 'SPLIT')).toHaveLength(0)
   })
 
   // ── concurrency ───────────────────────────────────────────────────────────────────────────────────
@@ -296,16 +295,19 @@ describe('#247/#248 frozen direct-call economic intent vs current execution auth
 
   // ── crash / restart ───────────────────────────────────────────────────────────────────────────────
 
-  it('restart after a failed cooperative attempt: an independent process sees the frozen intent, refuses a divergent actor, settles the identical retry', async () => {
-    pg.requirePostgres('restart before execution')
+  it('restart after unknown cooperative outcome refuses both identical and divergent redispatch', async () => {
+    pg.requirePostgres('restart unknown outcome')
     const { escrow, seller, arbiter } = await fixture('PAYMENT_PENDING', { withArbiter: true })
-    failProviderOnce('releaseFunds')
+    const release = failProviderOnce('releaseFunds')
     await expect(escrowService.releaseFunds(escrow.id, 'buyer-addr', seller.id)).rejects.toThrow(/provider unavailable/)
-
     const fresh = restarted!
-    await expect(fresh.escrowService.releaseFunds(escrow.id, 'buyer-addr', arbiter.id)).rejects.toThrow(/already froze its cooperative execution intent/)
-    await fresh.escrowService.releaseFunds(escrow.id, 'buyer-addr', seller.id)
-    expect(await intentOf(escrow.id)).toMatchObject({ status: 'COMPLETED', cooperativeDisposition: 'COMPLETED', cooperativeTriggeredBy: seller.id })
+    await expect(fresh.escrowService.releaseFunds(escrow.id, 'buyer-addr', arbiter.id)).rejects.toThrow()
+    await expect(fresh.escrowService.releaseFunds(escrow.id, 'buyer-addr', seller.id)).rejects.toThrow()
+    expect(release).toHaveBeenCalledTimes(1)
+    expect(await intentOf(escrow.id)).toMatchObject({
+      status: 'COMPLETED', cooperativeDisposition: 'COMPLETED', cooperativeTriggeredBy: seller.id, txReleaseId: null,
+    })
+    expect(await eventsTo(escrow.id, 'COMPLETED')).toHaveLength(0)
   })
 
   it('crash after an arbitrated SPLIT executed but before its local completion: an independent process recovers it with the frozen allocation and the authorized arbiter', async () => {
