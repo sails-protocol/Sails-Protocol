@@ -24,9 +24,9 @@ in TestKit. Prefer direct k6 implementations when practical.
 **Migration status: NOT COMPLETE.** The existing k6 suite covers
 trade/escrow lifecycle, reconciliation and reputation, while the legacy
 Artillery suite covers Intent API and chat WebSocket. The candidate
-`load-tests/native/run.js` still contains a temporary load scheduler; this
-is **transitional evidence only**, not the approved long-term TestKit shape.
-Do not rename it to TestKit and declare the migration complete. The
+`load-tests/native/run.js` now provides protocol-only authenticated smoke;
+its duplicate `runPhases` load scheduler and benchmark modes have been retired.
+This does **not** establish sustained k6/Artillery parity or complete migration. The
 Artillery bounded HTTP and WS comparators are retained as baselines. In
 particular, the bounded Artillery WS candidate sends PING but does **not**
 assert receipt of PONG; it must not be presented as protocol parity.
@@ -125,9 +125,7 @@ signed proofs or ticket-bearing URLs in logs or artifacts.
 **Migration checklist:** (1) keep Artillery until HTTP and application-PONG
 coverage and benchmark accounting are comparable; (2) collect repeated
 requested/achieved arrival rates, operation-specific latency, errors and
-backend/generator resource measurements; (3) replace the temporary
-`load-tests/native/run.js` scheduler with small protocol-only helpers rather
-than moving `runPhases` into TestKit; (4) require independent security review
+backend/generator resource measurements; (3) preserve the scheduler-free native protocol smoke and keep k6 as the only load engine; (4) require independent security review
 and explicit merge/deploy authorization. See
 `load-tests/K6-EVALUATION-CHECKLIST.md` for evidence and open gates.
 
