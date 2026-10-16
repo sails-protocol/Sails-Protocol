@@ -232,6 +232,16 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
         ? escrowService.refundFunds(escrow.id, seller.id)
         : escrowService.splitFunds(escrow.id, undefined, undefined, 5000, executorId)
     try {
+      if (operation === 'split') {
+        // While DISPUTED, seller authority is suspended. The rejection must
+        // happen before any provider call or economic-intent claim.
+        await expect(escrowService.splitFunds(escrow.id, undefined, undefined, 5000, seller.id))
+          .rejects.toThrow(/not the current assigned arbiter/)
+        expect(attempts).toBe(0)
+        const beforeAuthorizedClaim = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+        expect(beforeAuthorizedClaim.status).toBe('DISPUTED')
+        expect(beforeAuthorizedClaim.arbitratedDisposition).toBeNull()
+      }
       await expect(execute()).rejects.toThrow(/outcome unknown/)
       const claimed = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
       expect(claimed.status).toBe(terminal)
