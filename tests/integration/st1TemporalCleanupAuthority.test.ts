@@ -829,6 +829,34 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect((await disputeOf(o)).ruling).toBe('RELEASE')
   })
 
+  it('V3-L-PRE legacy pre-dispatch rejection preserves exact rollback semantics', async () => {
+    const o = await openedDispute('v3-legacy-pre-dispatch')
+    const before = await disputeOf(o)
+    const service = getDisputeService()
+    // A signature-collection dispatch is a separate route, and the
+    // injected rejection happens before any direct provider invocation.
+    const signatureType = jest.spyOn(escrowService, 'isSignatureCollectionType').mockReturnValue(true)
+    const rejected = jest.spyOn(escrowService, 'initiateRelease').mockRejectedValueOnce(
+      new Error('injected: no provider dispatch started'),
+    )
+    const direct = jest.spyOn(escrowService, 'releaseFunds')
+    try {
+      await expect((service as any).applyRuling(
+        { id: o.disputeId, escrowId: o.escrowId, tradeId: o.tradeId, status: before.status, appealRound: before.appealRound },
+        'RELEASE', o.arbiterId,
+      )).rejects.toThrow(/no provider dispatch started/)
+      expect(direct).not.toHaveBeenCalled()
+    } finally {
+      direct.mockRestore()
+      rejected.mockRestore()
+      signatureType.mockRestore()
+    }
+    const after = await disputeOf(o)
+    expect(after.status).toBe(before.status)
+    expect(after.ruling).toBeNull()
+    expect(await edaCount(o)).toBe(0)
+  })
+
   it('V3-N no-persist dispatch failure reverts the exact ruling and Outcome without orphan pending', async () => {
     const o = await openedDispute('v3-no-persist')
     const before = await disputeOf(o)
