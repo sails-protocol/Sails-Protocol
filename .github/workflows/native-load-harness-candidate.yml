@@ -631,15 +631,18 @@ jobs:
             const missing=required.filter(key=>!metrics[key]);
             const duration=metrics.http_req_duration?.values||{};
             const quantiles=['med','p(95)','p(99)'].filter(key=>typeof duration[key]==='number');
+            const configuredQuantiles=report.options?.summaryTrendStats||[];
             console.log('k6 structured metric inventory:',JSON.stringify({
               scenario:name,
               requiredPresent:required.filter(key=>!!metrics[key]),
               missing,
               durationQuantilesPresent:quantiles,
+              configuredQuantiles:configuredQuantiles.filter(key=>['med','p(95)','p(99)'].includes(key)),
+              durationValueKeys:Object.keys(duration).filter(key=>/^(avg|min|max|med|p\\(\\d+\\))$/.test(key)),
               totalMetricCount:Object.keys(metrics).length
             }));
             if(missing.length)throw new Error('Missing required k6 aggregate metrics for '+name);
-            if(name==='intent'&&quantiles.length!==3)throw new Error('Missing configured Intent latency quantiles');
+            if(name==='intent'&&quantiles.length!==3)throw new Error('Missing configured Intent latency quantiles (see safe key inventory)');
           }
           NODE
           echo 'k6 real-service bounded Intent and WS PONG PASS (one iteration each)'
