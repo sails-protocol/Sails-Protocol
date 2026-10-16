@@ -1,0 +1,10 @@
+'use strict';
+const assert = require('node:assert/strict');
+const { requireNonemptyString, requireResponseDataString, requireApplicationPong } = require('./protocol-assertions.cjs');
+assert.equal(requireNonemptyString('id-123','intent ID'),'id-123');
+assert.equal(requireResponseDataString({data:{data:{id:'id-123'}}},'id','intent ID'),'id-123');
+assert.equal(requireApplicationPong({type:'PONG',payload:{}}),true);
+for (const bad of [null,undefined,'', '  ',0,{},[]]) assert.throws(()=>requireNonemptyString(bad,'intent ID'));
+for (const bad of [null,{}, {data:{}}, {data:{data:{id:0}}}, {data:{data:{id:' '}}}]) assert.throws(()=>requireResponseDataString(bad,'id','intent ID'));
+for (const bad of [null,undefined,{},[],{type:'PING'},{type:'ERROR'},{type:'pong'},'PONG']) assert.throws(()=>requireApplicationPong(bad));
+console.log('Sails TestKit protocol assertions positive/negative controls PASS');
