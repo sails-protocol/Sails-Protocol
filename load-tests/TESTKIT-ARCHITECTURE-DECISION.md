@@ -20,7 +20,7 @@ The repository has k6 load scenarios, legacy Artillery HTTP/WS comparators, and 
 
 ## Acceptance gates (all required)
 
-- [ ] Extract and test the minimum protocol-only TestKit helpers, with positive and negative cases and explicit ownership; avoid creating unused abstractions.
+- [x] Extract and test initial protocol-only TestKit helpers with positive and negative cases (`loopback-target.cjs`, `ws-protocol.cjs`, `protocol-assertions.cjs`); exact-HEAD CI green at `a9fbc2926ad5c9b39369d5b0527e1a694f5c2bc3`. This closes only the initial helper gate, not complete TestKit distribution or protocol parity.
 - [ ] Run authenticated Intent create/cancel and application WebSocket PING/PONG against disposable real PostgreSQL/Redis services, including a deliberate no-PONG negative fixture.
 - [ ] Demonstrate comparable Artillery/k6 HTTP and WS assertions and fixture/setup cost; fix the Artillery WS application-PONG assertion gap before claiming parity.
 - [ ] Collect repeated, matched bounded profiles: requested and achieved arrivals, dropped iterations, per-operation p50/p95/p99, error classification, concurrent connections, backend CPU/RSS and generator CPU/RSS; fail closed on missing data.
