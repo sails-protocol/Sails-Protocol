@@ -109,3 +109,10 @@ Inspection of `.github/workflows/native-load-harness-candidate.yml` confirms the
 - The workflow now **fails closed** if either per-operation trend lacks median/p95/p99. Overall k6 HTTP latency includes authentication and must not be directly compared to Artillery endpoint latency.
 - **Interpretation:** correctness and latency instrumentation PASS for this tiny profile; benchmark performance parity NOT ESTABLISHED. Artillery observed 2 arrivals while k6 observed 3. Small sample size, separate runs, possible environmental variance, missing repeated-run variability and resource/saturation measurements remain blockers.
 - **Next gate:** repeated isolated runs with matched actual arrivals, explicit requested/achieved rates, CPU/RSS and generator saturation, plus Artillery WS application-PONG assertion parity. Preserve loopback-only target, existing authentication/rate limits, no credential-bearing artifacts. Do not remove Artillery or merge/deploy.
+
+## Exact-HEAD authenticated request-accounting gate — 2026-10-16
+
+- HEAD `b8cb81b2db245680403951cb86206344ba2bba0a`: CI Tests run `38856420975` **success**; Native load harness run `38856420986` **success**.
+- k6 authenticated arrival probe: 2 completed iterations, 0 dropped, 12 HTTP requests; exactly 6 HTTP requests per iteration (4 PoP authentication, 1 Intent create, 1 Intent cancel). `requestAccountingValid: true`, all checks and Intent flow success valid.
+- k6 Intent create median 28.8759845 ms, p95 37.76744675 ms, p99 38.55779895 ms; cancel median 7.9279705 ms, p95 8.12674675 ms, p99 8.14441575 ms. Sample size remains too small for sustained performance conclusions.
+- This closes the **per-arrival request accounting** evidence gap, not the broader load-tool parity gate. Remaining: repeatable matched profiles and measured requested/achieved rates, CPU/RSS, generator saturation, connection counts, and Artillery WS application PONG verification. Artillery retained; NO MERGE / NO DEPLOY.
