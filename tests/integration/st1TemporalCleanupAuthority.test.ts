@@ -1668,6 +1668,13 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
     expect(await outcomeRecords(o)).toBe(1)
     expect((await disputeOf(o)).authoritySignature).toBe(signature)
+    const recoveredPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    expect(recoveredPending.disputeId).toBe(o.disputeId)
+    expect(recoveredPending.rulingAppealRound).toBe(before.appealRound)
+    expect(recoveredPending.rulingArbiterId).toBe(o.arbiterId)
+    expect(recoveredPending.rulingOutcome).toBe('RELEASE')
+    expect(recoveredPending.rulingAuthoritySignature).toBe(signature)
+    expect(recoveredPending.rulingAuthorityIssuedAt?.toISOString()).toBe(issuedAt)
     // Replaying the production recovery must not manufacture a second
     // pending round or overwrite the original signed economic authority.
     const replay = await new Promise<{ code: number | null; output: string; errors: string }>((done, reject) => {
@@ -1687,6 +1694,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const replayReport = JSON.parse(replayLine!.slice('ST1_C4_FIRST:'.length))
     expect(replayReport.resumed.filter((entry: any) => entry.escrowId === o.escrowId)).toEqual([])
     expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })).toEqual(recoveredPending)
     expect(await outcomeRecords(o)).toBe(1)
     expect((await disputeOf(o)).authoritySignature).toBe(signature)
   })
