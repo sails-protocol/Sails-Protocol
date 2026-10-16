@@ -651,6 +651,50 @@ jobs:
           }
           NODE
           echo 'k6 real-service bounded Intent and WS PONG PASS (one iteration each)'
+      - name: Execute opt-in bounded authenticated arrival probe
+        env:
+          NODE_ENV: development
+          DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/sails_protocol
+          REDIS_URL: redis://127.0.0.1:6379
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Isolate rate-limit windows from prior Intent/WS authentication.
+          sleep 65
+          node dist/src/main.js > /tmp/sails-k6-probe-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then echo 'Arrival probe backend exited'; exit 1; fi
+            if (echo > /dev/tcp/127.0.0.1/3000) >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then echo 'Arrival probe backend readiness timeout'; exit 1; fi
+          if ! timeout 45s k6 run --quiet --summary-export=/tmp/sails-k6-arrival-summary.json -e BASE_URL=http://127.0.0.1:3000 load-tests/tests/intent-arrival-probe.js > /tmp/sails-k6-arrival.log 2>&1; then
+            # Never echo raw logs: they can contain bearer credentials.
+            echo 'Bounded authenticated arrival probe failed (raw logs withheld)'
+            exit 1
+          fi
+          node <<'NODE'
+          const fs=require('node:fs');
+          const m=JSON.parse(fs.readFileSync('/tmp/sails-k6-arrival-summary.json','utf8')).metrics||{};
+          const required=['iterations','checks','sails_intent_success','http_req_duration','http_reqs','dropped_iterations'];
+          const missing=required.filter(k=>!m[k]);
+          const n=k=>typeof m[k]?.count==='number'?m[k].count:undefined;
+          const checks=m.checks?.value;
+          const success=m.sails_intent_success?.value;
+          const quantiles=['med','p(95)','p(99)'].filter(k=>typeof m.http_req_duration?.[k]==='number');
+          console.log('arrival probe sanitized inventory:',JSON.stringify({
+            requiredPresent:required.filter(k=>!!m[k]),missing,
+            iterations:n('iterations'),dropped:n('dropped_iterations'),
+            checksValid:checks===1,intentSuccessValid:success===1,
+            durationQuantilesPresent:quantiles
+          }));
+          if(missing.length||!(n('iterations')>0)||n('dropped_iterations')!==0||checks!==1||success!==1||quantiles.length!==3){
+            throw Error('Bounded arrival probe missing or invalid aggregate evidence');
+          }
+          NODE
       - name: Baseline security evidence (no dependency removal yet)
         shell: bash
         run: |
