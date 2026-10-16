@@ -30,6 +30,12 @@ The repository has k6 load scenarios, legacy Artillery HTTP/WS comparators, and 
 - [ ] Document installation, local execution, CI troubleshooting, fixture lifecycle, rate-limit policy, maintenance ownership and handoff.
 - [ ] Obtain exact-HEAD CI green, independent security/architecture review and explicit authorization before merge or deploy.
 
+## Latest bounded WS evidence (2026-10-16)
+
+- Exact HEAD `4159680f9afad637bdeb609cc4874db972dc322e`: CI Tests run `38969307438` and Native load harness candidate verification run `38969307291` both passed. This validates the expanded shared PONG classifier negative cases; it does **not** establish Artillery WS receive parity.
+- The installed Artillery version observed in native CI is `2.0.34`. Its `ws` dependency resolves under `node_modules/artillery/node_modules/ws`; the separate `@artilleryio/engine-ws` and `artillery-engine-ws` packages were not directly resolvable. A source-path diagnostic returned no candidate receive hooks in the searched locations; absence in that diagnostic is **not** proof no supported hook exists.
+- Next investigation: inspect the actual bundled Artillery 2.0.34 WS engine source/API and verify a supported receive/assertion hook. Require real disposable-backend positive PONG and deliberate no-PONG negative runs before changing the bounded comparator's non-parity label. If no supported integration exists, document the limitation and keep the Artillery WS comparator as a non-parity baseline rather than inventing an adapter or weakening assertions.
+
 ## Non-negotiable safety rules
 
 Loopback-only targets and disposable services for these candidates. No production load, security-limit bypass, real credentials in logs, mock-only proof of real-service behavior, weakened assertions, or economic/escrow authority changes. Keep **NO MERGE / NO DEPLOY** while gates remain open. Never hide a material finding to report completion.
