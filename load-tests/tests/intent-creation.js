@@ -32,8 +32,8 @@ export function setup() {
 }
 
 /** One real create+cancel round trip — exported so scenarios/*.js can drive this same flow under a different load shape. */
-export function run(user) {
-  const intent = generateTestIntent()
+export function run(user, intentOverride) {
+  const intent = intentOverride || generateTestIntent()
   const createRes = http.post(`${BASE_URL}/v1/intents`, JSON.stringify(intent), {
     ...authHeaders(user),
     tags: { name: 'intent_create' },
