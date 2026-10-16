@@ -1191,9 +1191,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       alreadyResumedConcurrently: firstReport.alreadyResumedConcurrently?.includes(o.escrowId),
       stderr: firstRecovery.errors.slice(-1500),
     })
-    expect(firstReport.claimed, c4Evidence).toContain(o.escrowId)
-    expect(firstReport.failed.filter((entry: any) => entry.escrowId === o.escrowId), c4Evidence).toEqual([])
-    expect(firstReport.resumed.filter((entry: any) => entry.escrowId === o.escrowId), c4Evidence).toEqual([
+    if (!firstReport.claimed.includes(o.escrowId)) throw new Error('C4 did not claim expected escrow: ' + c4Evidence)
+    if (firstReport.failed.some((entry: any) => entry.escrowId === o.escrowId)) throw new Error('C4 recovery failed: ' + c4Evidence)
+    if (!firstReport.resumed.some((entry: any) => entry.escrowId === o.escrowId)) throw new Error('C4 did not resume expected escrow: ' + c4Evidence)
+    expect(firstReport.resumed.filter((entry: any) => entry.escrowId === o.escrowId)).toEqual([
       expect.objectContaining({ escrowId: o.escrowId, disputeId: o.disputeId, ruling: 'RELEASE' }),
     ])
     // A concurrent in-process replay must now see the child-created pending.
