@@ -202,6 +202,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
     await escrowService.lockFunds(escrow.id, seller.id)
+    // Release and split require registered payout destinations. The test
+    // must reach the provider fault boundary, not fail a pre-dispatch guard.
+    await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', destination('mock-buyer-' + escrow.id))
+    await payoutAddressService.setPayoutAddress(seller.id, 'BTC', destination('mock-seller-' + escrow.id))
     const { PROVIDERS } = require('../../src/modules/open-settlement/escrow-providers')
     const provider = PROVIDERS.MOCK
     let attempts = 0
