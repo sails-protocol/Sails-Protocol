@@ -1392,6 +1392,42 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     }
   })
 
+  it('V3-E3 concurrent C4 sweeps exclude an EDA-authorized escrow with no pending', async () => {
+    const o = await openedDispute('v3-eda-parallel-c4')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await authorizeDisputedPendingExecution(pending)
+    const eda = await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+      where: { pendingOperationId: pending.id },
+    })
+    const ruling = await disputeOf(o)
+    const outcome = await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })
+    await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } })
+
+    // Both sweeps execute the production C4 query against the same real PG
+    // database. This proves exclusion when EDA predates both claims, not
+    // the distinct check-to-use interleaving where EDA commits later.
+    const [a, b] = await Promise.all([
+      reconcileMissingDispatch(100),
+      reconcileMissingDispatch(100),
+    ])
+    for (const report of [a, b]) {
+      expect(report.claimed).not.toContain(o.escrowId)
+      expect(report.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    }
+    expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+      where: { pendingOperationId: pending.id },
+    })).toEqual(eda)
+    expect(await disputeOf(o)).toEqual(ruling)
+    expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })).toEqual(outcome)
+    expect(await prisma.escrowPendingTransaction.findUnique({
+      where: { escrowId: o.escrowId },
+    })).toBeNull()
+  })
+
   it('V3 after-persist dispatch throw preserves exact durable authority and pending for restart recovery', async () => {
     const o = await openedDispute('v3')
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
