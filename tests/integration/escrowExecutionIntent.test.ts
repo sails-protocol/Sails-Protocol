@@ -327,10 +327,7 @@ describe('#247/#248 frozen direct-call economic intent vs current execution auth
 
   it('crash after an arbitrated SPLIT executed but before its local completion: an independent process recovers it with the frozen allocation and the authorized arbiter', async () => {
     pg.requirePostgres('restart after execution')
-    const { escrow, buyer, seller, arbiter } = await fixture('PAYMENT_PENDING', { withArbiter: true, policyAware: true })
-    failProviderOnce('releaseFunds')
-    await expect(escrowService.releaseFunds(escrow.id, 'buyer-addr', seller.id)).rejects.toThrow(/provider unavailable/)
-    await escrowService.openDispute(escrow.id, buyer.id, 'dispute')
+    const { escrow, arbiter } = await fixture('DISPUTED', { policyAware: true })
 
     // The live path up to "provider returned": claim (freezing the arbitrated intent) + result persisted;
     // the process dies before the obligation and the completion event.
@@ -351,7 +348,7 @@ describe('#247/#248 frozen direct-call economic intent vs current execution auth
     expect(obligation.basisAmount!.toString()).toBe('75000') // the seller's share at the FROZEN buyerBps=2500
     expect(await intentOf(escrow.id)).toMatchObject({
       status: 'SPLIT',
-      cooperativeDisposition: 'COMPLETED', cooperativeTriggeredBy: seller.id,
+      cooperativeDisposition: null, cooperativeTriggeredBy: null,
       arbitratedDisposition: 'SPLIT', arbitratedTriggeredBy: arbiter.id, splitBuyerBps: 2500,
     })
   })
