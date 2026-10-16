@@ -462,6 +462,13 @@ jobs:
             node <<'NODE'
           const fs=require('node:fs');
           const log=fs.readFileSync('/tmp/sails-k6-crypto-preflight.log','utf8');
+          // Isolated offline fixture: no credentials, tokens, URLs or user data.
+          // Show a bounded, redacted loader error so the root cause is actionable.
+          const sanitized=log.split(/\r?\n/).filter(line=>/level=error|ERRO\[|error=|no such file|could not|failed to/i.test(line))
+            .slice(0,5).map(line=>line.slice(0,600)
+              .replace(/https?:\/\/\S+/g,'[URL]')
+              .replace(/(?:token|authorization|secret|password)=\S+/gi,'[REDACTED]'));
+          console.log('k6 offline crypto loader errors:',JSON.stringify(sanitized));
           // This fixture has no credentials or network calls. Emit only the
           // allowlisted, literal module-resolution error, never a raw log line.
           const allowed=[
