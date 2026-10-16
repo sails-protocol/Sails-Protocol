@@ -367,3 +367,12 @@ This review does **not** add production code or claim fresh behavioral evidence.
 ### Remaining release requirements
 
 Gate 5 behavioral mutant RED/GREEN has prior evidence but must remain separated from production branches. Gate 6 requires exact-head unit, full real PostgreSQL, security preflight and final review after all accepted changes. The latest green pre-pending writer crash evidence supports Gate 1 only; it does not close Gates 3/4. **NO MERGE / NO FREEZE.**
+
+
+## 2026-10-16 — C4/EDA missing-pending candidate safety patch (awaiting exact-head CI)
+
+- Production change `181a07cf84657d8dd50009267f4fb78c3950c7e6`: `claimCandidates()` in `dispute-dispatch-recovery.ts` excludes escrows with **any** committed `economic_disposition_authorizations` row. This is intentionally conservative: EDA is irreversible economic-execution authority and survives the loss of its pending row.
+- Regression `23efa168b40fb7e0faa115b2b70e3bc553a19be6`: the existing V3-E real-PostgreSQL fixture now invokes actual C4 recovery after an authorized pending disappears and asserts the escrow is neither claimed nor resumed; original EDA, Outcome and missing-pending state are preserved. Preceding `36f8eef1` additionally pins the full Outcome identity across the stale-pending sweep.
+- **Race analysis, not yet a proof:** `authorizeDisputedPendingExecution()` requires a concrete pending and commits EDA under the D lock. C4 candidate selection requires no eligible pending. The missing-pending + EDA fixture intentionally deletes a pending after EDA commit; the new candidate predicate blocks that stable state. A snapshot predicate alone does not prove absence of all races involving concurrent pending deletion, EDA commit and C4 initiation. Deterministic interleaving or an invariant proof remains required before claiming Gate 3 closure.
+- **Provider limitation:** EDA persistence is an authority record, not provider acknowledgement. No external broadcast/payment exactly-once claim is supported by this test.
+- At documentation time, [run 38954760092](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38954760092) for `23efa168` remained in progress. **NO MERGE / NO FREEZE.**
