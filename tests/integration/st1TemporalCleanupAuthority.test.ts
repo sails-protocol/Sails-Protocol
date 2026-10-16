@@ -1137,6 +1137,13 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       require('ts-node/register/transpile-only')
       const { prisma } = require('./src/common/database')
       const { reconcileMissingDispatch } = require('./src/modules/open-settlement/dispute-dispatch-recovery')
+      // Match the production writer's handler registration in V3-WK.
+      // A new process has an empty in-memory handler registry even when
+      // PostgreSQL already contains the signed ruling and Outcome.
+      const { intentEngine } = require('./src/core/intent-engine')
+      const { OpenP2PTradeIntentHandler } = require('./src/modules/open-p2p/intent-handler')
+      intentEngine.registerHandler(OpenP2PTradeIntentHandler)
+      require('./src/common/events/handlers').registerEventHandlers()
       // The parent Jest process mocks the explorer; a new OS process does not
       // inherit global.fetch. Reproduce only the explorer transport fixture,
       // never mock the production reconciler or database state.
