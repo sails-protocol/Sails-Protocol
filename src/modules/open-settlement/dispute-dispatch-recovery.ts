@@ -153,6 +153,13 @@ async function claimCandidates(limit: number): Promise<ClaimedCandidate[]> {
         AND NOT EXISTS (SELECT 1 FROM escrow_pending_transactions p WHERE p."escrowId" = d."escrowId"
           AND (p."disputeId" IS NOT NULL
                OR cardinality(p."requiredSigners") <= (SELECT count(*) FROM escrow_transaction_signatures s WHERE s."pendingTxId" = p.id)))
+        -- A committed economic execution authorization survives pending-row loss.
+        -- Never treat that state as an unexecuted C4 dispatch: external settlement
+        -- may already be in flight or have succeeded without local confirmation.
+        AND NOT EXISTS (
+          SELECT 1 FROM economic_disposition_authorizations a
+          WHERE a."escrowId" = d."escrowId"
+        )
         AND EXISTS (
           SELECT 1 FROM semantic_transition_records r
           WHERE r."interactionId" = d."escrowId"
