@@ -629,7 +629,7 @@ jobs:
             const report=JSON.parse(fs.readFileSync(path,'utf8'));
             const metrics=report.metrics||{};
             const missing=required.filter(key=>!metrics[key]);
-            const duration=metrics.http_req_duration?.values||{};
+            const duration=metrics.http_req_duration||{};
             const durationShape=Object.keys(metrics.http_req_duration||{});
             const summaryRootKeys=Object.keys(report);
             const quantiles=['med','p(95)','p(99)'].filter(key=>typeof duration[key]==='number');
