@@ -1179,8 +1179,21 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const firstLine = firstRecovery.output.split('\n').find(x => x.startsWith('ST1_C4_FIRST:'))
     expect(firstLine).toBeDefined()
     const firstReport = JSON.parse(firstLine!.slice('ST1_C4_FIRST:'.length))
-    expect(firstReport.failed.filter((entry: any) => entry.escrowId === o.escrowId)).toEqual([])
-    expect(firstReport.resumed.filter((entry: any) => entry.escrowId === o.escrowId)).toEqual([
+    // Fail with the actual production reconciler verdict, not only an empty
+    // resumed array. This distinguishes a transport error from an eligibility,
+    // outcome translation or candidate-claim failure without hiding any one.
+    const c4Evidence = JSON.stringify({
+      claimed: firstReport.claimed?.includes(o.escrowId),
+      resumed: firstReport.resumed?.filter((entry: any) => entry.escrowId === o.escrowId),
+      failed: firstReport.failed?.filter((entry: any) => entry.escrowId === o.escrowId),
+      guardFailed: firstReport.guardFailed?.filter((entry: any) => entry.escrowId === o.escrowId),
+      notEligible: firstReport.notEligible?.filter((entry: any) => entry.escrowId === o.escrowId),
+      alreadyResumedConcurrently: firstReport.alreadyResumedConcurrently?.includes(o.escrowId),
+      stderr: firstRecovery.errors.slice(-1500),
+    })
+    expect(firstReport.claimed, c4Evidence).toContain(o.escrowId)
+    expect(firstReport.failed.filter((entry: any) => entry.escrowId === o.escrowId), c4Evidence).toEqual([])
+    expect(firstReport.resumed.filter((entry: any) => entry.escrowId === o.escrowId), c4Evidence).toEqual([
       expect.objectContaining({ escrowId: o.escrowId, disputeId: o.disputeId, ruling: 'RELEASE' }),
     ])
     // A concurrent in-process replay must now see the child-created pending.
