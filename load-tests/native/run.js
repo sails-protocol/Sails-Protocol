@@ -7,17 +7,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const BASE = process.env.SAILS_LOAD_HTTP_TARGET || 'http://localhost:3000';
 const WSBASE = process.env.SAILS_LOAD_WS_TARGET || 'ws://localhost:3000';
-// Hard stop before any load is issued: this candidate must never target public endpoints.
-function requireLocalTarget(raw, protocols) {
-  const url = new URL(raw);
-  assert(protocols.includes(url.protocol), 'Unsupported target protocol: ' + url.protocol);
-  assert(['localhost', '127.0.0.1', '[::1]'].includes(url.hostname), 'Load testing is restricted to loopback targets');
-  assert(!url.username && !url.password, 'Target URL must not contain credentials');
-  assert(!url.search && !url.hash && (url.pathname === '/' || url.pathname === ''), 'Target URL must not contain path, query or fragment');
-}
+// Shared TestKit safety guard; checked before any load is issued.
+const { requireLoopbackTarget } = require('../testkit/loopback-target.cjs');
 function validateTargets() {
-  requireLocalTarget(BASE, ['http:']);
-  requireLocalTarget(WSBASE, ['ws:']);
+  requireLoopbackTarget(BASE, ['http:']);
+  requireLoopbackTarget(WSBASE, ['ws:']);
 }
 
 const phases = [{ duration: 20, rate: 5 }, { duration: 30, rate: 20 }];
