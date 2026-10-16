@@ -794,6 +794,9 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const after = await disputeOf(o)
     expect(after.status).toBe(before.status)
     expect(after.ruling).toBeNull()
+    expect(after.authoritySignature).toBeNull()
+    // Legacy applyRuling does not create the Core semantic Outcome record.
+    expect(await outcomeRecords(o)).toBe(0)
     expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
     // A legacy direct failure has no pending-operation EDA to guard rollback.
     expect(await edaCount(o)).toBe(0)
