@@ -1130,17 +1130,52 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     // Gate 2: use the production C4 reconciler, not the rejected public
     // resolveDispute replay, to recover the committed ruling with no pending.
     const { reconcileMissingDispatch } = require('../../src/modules/open-settlement/dispute-dispatch-recovery')
-    // Race the first recovery itself: both workers see a committed Outcome
-    // with no pending. At most one can create the authoritative round.
+    // The FIRST recovery must be a fresh OS process with a separate Prisma
+    // pool, not an in-process call followed by a child-process replay.
+    const { resolve: resolvePath } = require('path') as typeof import('path')
+    const firstRecoveryCode = String.raw`
+      require('ts-node/register/transpile-only')
+      const { prisma } = require('./src/common/database')
+      const { reconcileMissingDispatch } = require('./src/modules/open-settlement/dispute-dispatch-recovery')
+      reconcileMissingDispatch(100).then(async report => {
+        process.stdout.write('ST1_C4_FIRST:' + JSON.stringify(report) + '\\n')
+        await prisma.$disconnect()
+        process.exit(0)
+      }).catch(async err => {
+        process.stderr.write(String(err.stack || err))
+        await prisma.$disconnect()
+        process.exit(1)
+      })
+    `
+    // Use async spawn so the parent Jest process does not block its event loop.
+    const { spawn: spawnFirst } = require('child_process') as typeof import('child_process')
+    const firstRecovery = await new Promise<{ code: number | null; output: string; errors: string }>((done, reject) => {
+      const child = spawnFirst(process.execPath, ['-e', firstRecoveryCode], {
+        cwd: resolvePath(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let output = ''; let errors = ''
+      child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => { errors += chunk.toString() })
+      const watchdog = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('C4 first recovery timeout: ' + errors.slice(-2000))) }, 60_000)
+      child.on('error', err => { clearTimeout(watchdog); reject(err) })
+      child.on('close', code => { clearTimeout(watchdog); done({ code, output, errors }) })
+    })
+    expect(firstRecovery.code).toBe(0)
+    const firstLine = firstRecovery.output.split('\\n').find(x => x.startsWith('ST1_C4_FIRST:'))
+    expect(firstLine).toBeDefined()
+    const firstReport = JSON.parse(firstLine!.slice('ST1_C4_FIRST:'.length))
+    expect(firstReport.resumed.filter((entry: any) => entry.escrowId === o.escrowId)).toEqual([
+      expect.objectContaining({ escrowId: o.escrowId, disputeId: o.disputeId, ruling: 'RELEASE' }),
+    ])
+    // A concurrent in-process replay must now see the child-created pending.
     const [firstRecoveryA, firstRecoveryB] = await Promise.all([
       reconcileMissingDispatch(100),
       reconcileMissingDispatch(100),
     ])
-    const firstResumes = [firstRecoveryA, firstRecoveryB].flatMap((report: any) =>
-      report.resumed.filter((entry: any) => entry.escrowId === o.escrowId))
-    expect(firstResumes).toEqual([
-      expect.objectContaining({ escrowId: o.escrowId, disputeId: o.disputeId, ruling: 'RELEASE' }),
-    ])
+    expect([firstRecoveryA, firstRecoveryB].flatMap((report: any) =>
+      report.resumed.filter((entry: any) => entry.escrowId === o.escrowId))).toEqual([])
     expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
     const resumedPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
     expect(resumedPending.disputeId).toBe(o.disputeId)
