@@ -1138,9 +1138,10 @@ export class EscrowService {
       )
     }
 
-    // #247/#248 - the claim freezes the arbitrated intent (SPLIT at buyerBps) before any provider side
-    // effect; a failed provider call below reverts only the status, so a retry - by whoever is then the
-    // assigned arbiter (checked above) - must present this identical allocation.
+    // #247/#248 - the claim freezes the arbitrated intent (SPLIT at buyerBps)
+    // before any provider side effect. An unknown provider outcome MUST NOT
+    // revert the claim or permit a retry: an exception is not evidence that
+    // no transfer happened. Recovery requires independently verified outcome.
     // #235 R7G-F6C - a WDK split is two legs frozen here: floor(amount x buyerBps / 10000) to the buyer, the
     // exact remainder to the seller, each to its registered payout address.
     const wdkLegs = escrow.type === 'WDK_USDT_EVM'
