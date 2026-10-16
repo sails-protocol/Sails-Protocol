@@ -1137,6 +1137,17 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       require('ts-node/register/transpile-only')
       const { prisma } = require('./src/common/database')
       const { reconcileMissingDispatch } = require('./src/modules/open-settlement/dispute-dispatch-recovery')
+      // The parent Jest process mocks the explorer; a new OS process does not
+      // inherit global.fetch. Reproduce only the explorer transport fixture,
+      // never mock the production reconciler or database state.
+      const txid = process.env.ST1_C4_FUNDING_TXID
+      global.fetch = async url => {
+        const path = String(url)
+        if (path.includes('/blocks/tip/height')) return { ok: true, text: async () => '100' }
+        if (path.includes('/tx/' + txid + '/status')) return { ok: true, json: async () => ({ confirmed: true, block_height: 100 }) }
+        if (path.includes('/v1/fees/recommended')) return { ok: true, json: async () => ({ halfHourFee: 5, fastestFee: 8 }) }
+        return { ok: true, json: async () => [{ txid, vout: 0, value: 100000, status: { confirmed: true } }] }
+      }
       reconcileMissingDispatch(100).then(async report => {
         process.stdout.write('ST1_C4_FIRST:' + JSON.stringify(report) + '\n')
         await prisma.$disconnect()
@@ -1149,10 +1160,12 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     `
     // Use async spawn so the parent Jest process does not block its event loop.
     const { spawn: spawnFirst } = require('child_process') as typeof import('child_process')
+    const c4FundingTxid = (await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })).txLockId!
     const firstRecovery = await new Promise<{ code: number | null; output: string; errors: string }>((done, reject) => {
       const child = spawnFirst(process.execPath, ['-e', firstRecoveryCode], {
         cwd: resolvePath(__dirname, '../..'),
-        env: { ...process.env, MOCK_ESCROW: 'false', MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed' },
+        env: { ...process.env, MOCK_ESCROW: 'false', MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed',
+          ST1_C4_FUNDING_TXID: c4FundingTxid },
         stdio: ['ignore', 'pipe', 'pipe'],
       })
       let output = ''; let errors = ''
@@ -1166,6 +1179,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const firstLine = firstRecovery.output.split('\n').find(x => x.startsWith('ST1_C4_FIRST:'))
     expect(firstLine).toBeDefined()
     const firstReport = JSON.parse(firstLine!.slice('ST1_C4_FIRST:'.length))
+    expect(firstReport.failed.filter((entry: any) => entry.escrowId === o.escrowId)).toEqual([])
     expect(firstReport.resumed.filter((entry: any) => entry.escrowId === o.escrowId)).toEqual([
       expect.objectContaining({ escrowId: o.escrowId, disputeId: o.disputeId, ruling: 'RELEASE' }),
     ])
