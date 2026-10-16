@@ -926,7 +926,13 @@ export class EscrowService {
       }
     } catch (err) {
       if (wdkLegs) throw await wdkOutboundFailure(escrowId, 'COMPLETED', escrow.status, err)
-      await revertEscrowStatus(escrowId, 'COMPLETED', escrow.status)
+      // An arbitrated direct provider may have moved funds before throwing.
+      // Keep the claimed terminal intent as an uncertainty quarantine: reverting
+      // DISPUTED would permit another provider call with no outcome proof.
+      // Non-disputed behavior remains unchanged pending its own policy review.
+      if (escrow.status !== 'DISPUTED') {
+        await revertEscrowStatus(escrowId, 'COMPLETED', escrow.status)
+      }
       throw err
     }
 
@@ -1070,7 +1076,13 @@ export class EscrowService {
       }
     } catch (err) {
       if (wdkLegs) throw await wdkOutboundFailure(escrowId, 'REFUNDED', escrow.status, err)
-      await revertEscrowStatus(escrowId, 'REFUNDED', escrow.status)
+      // An arbitrated direct provider may have moved funds before throwing.
+      // Keep the claimed terminal intent as an uncertainty quarantine: reverting
+      // DISPUTED would permit another provider call with no outcome proof.
+      // Non-disputed behavior remains unchanged pending its own policy review.
+      if (escrow.status !== 'DISPUTED') {
+        await revertEscrowStatus(escrowId, 'REFUNDED', escrow.status)
+      }
       throw err
     }
 
@@ -1146,7 +1158,13 @@ export class EscrowService {
         )
     } catch (err) {
       if (wdkLegs) throw await wdkOutboundFailure(escrowId, 'SPLIT', escrow.status, err)
-      await revertEscrowStatus(escrowId, 'SPLIT', escrow.status)
+      // An arbitrated direct provider may have moved funds before throwing.
+      // Keep the claimed terminal intent as an uncertainty quarantine: reverting
+      // DISPUTED would permit another provider call with no outcome proof.
+      // Non-disputed behavior remains unchanged pending its own policy review.
+      if (escrow.status !== 'DISPUTED') {
+        await revertEscrowStatus(escrowId, 'SPLIT', escrow.status)
+      }
       throw err
     }
 
