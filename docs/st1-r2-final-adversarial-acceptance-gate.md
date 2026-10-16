@@ -376,3 +376,11 @@ Gate 5 behavioral mutant RED/GREEN has prior evidence but must remain separated 
 - **Race analysis, not yet a proof:** `authorizeDisputedPendingExecution()` requires a concrete pending and commits EDA under the D lock. C4 candidate selection requires no eligible pending. The missing-pending + EDA fixture intentionally deletes a pending after EDA commit; the new candidate predicate blocks that stable state. A snapshot predicate alone does not prove absence of all races involving concurrent pending deletion, EDA commit and C4 initiation. Deterministic interleaving or an invariant proof remains required before claiming Gate 3 closure.
 - **Provider limitation:** EDA persistence is an authority record, not provider acknowledgement. No external broadcast/payment exactly-once claim is supported by this test.
 - At documentation time, [run 38954760092](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38954760092) for `23efa168` remained in progress. **NO MERGE / NO FREEZE.**
+
+
+## 2026-10-16 — C4/EDA integration CI diagnostic and follow-up
+
+- Run [38959167963](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38959167963) at `203132a5`: **FAIL**, unit PASS; PostgreSQL **1165 PASS / 1 FAIL**. Failure is the M9-R STARVATION oracle, not the ST1 suite. Its `queuedCandidateEscrowIds()` included escrows with committed EDA, while production `claimCandidates()` correctly excluded them after `181a07cf`. The set equality assertion compared different candidate universes. This does not establish a production starvation failure.
+- `cc5b86f82327fcf618ffcc243758242dd68a1d7f` updates the test's SQL oracle with the same EDA exclusion, preserving the original round-robin, starvation-bound, recovery and exactly-once assertions. Requires **fresh exact-head PostgreSQL GREEN** before accepting.
+- `2edc6e8cbea477a68d470864c625c4049dc881a2` adds a second durable EDA check immediately before C4 initiates settlement. This narrows the check-to-use interval but is **not** a linearization point or deterministic proof of all races. No provider exactly-once assertion is made.
+- **Gate 3 remains open. Gate 4 remains open. NO MERGE / NO FREEZE.**
