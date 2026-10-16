@@ -700,11 +700,13 @@ jobs:
           const durations=Object.fromEntries(quantiles.map(k=>[k,m.http_req_duration[k]]));
           const requestCount=n('http_reqs');
           const arrivals=n('iterations');
+          const intentDurationKeys=['http_req_duration{name:intent_create}','http_req_duration{name:intent_cancel}'];
+          const intentDurations=Object.fromEntries(intentDurationKeys.filter(k=>m[k]).map(k=>[k,Object.fromEntries(['med','p(95)','p(99)'].filter(q=>typeof m[k][q]==='number'&&Number.isFinite(m[k][q])).map(q=>[q,m[k][q]]))]));
           const flowCount=typeof m.sails_intent_success?.passes==='number'?m.sails_intent_success.passes:undefined;
           console.log('arrival probe sanitized inventory:',JSON.stringify({
             requiredPresent:required.filter(k=>!!m[k]),missing,
             iterations:arrivals,dropped:n('dropped_iterations'),httpRequests:requestCount,
-            durationMs:durations,
+            durationMs:durations,intentDurationMs:intentDurations,
             checksValid:checks===1,intentSuccessValid:success===1,
             durationQuantilesPresent:quantiles
           }));
