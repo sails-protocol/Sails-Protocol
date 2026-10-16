@@ -425,6 +425,26 @@ jobs:
             exit 1
           fi
           echo 'k6 negative proof PASS: missing PONG fails closed'
+      - name: Isolate k6 TweetNaCl from unsupported Node crypto import
+        shell: bash
+        run: |
+          set -euo pipefail
+          # k6's automatic dependency analyzer traverses require('crypto')
+          # even when TweetNaCl's browser WebCrypto branch is selected.
+          # Patch ONLY the disposable runner's installed dependency.
+          # The source package, lockfile and application remain untouched.
+          node <<'NODE'
+          const fs=require('node:fs');
+          const path='node_modules/tweetnacl/nacl-fast.js';
+          const source=fs.readFileSync(path,'utf8');
+          const needle="require('crypto')";
+          const occurrences=source.split(needle).length-1;
+          if(occurrences!==1) throw new Error('Unexpected TweetNaCl crypto import count: '+occurrences);
+          const patched=source.replace(needle,'undefined /* k6: browser CSPRNG supplied by globalThis.crypto */');
+          if(patched.includes(needle)) throw new Error('Unsupported Node crypto import remains');
+          fs.writeFileSync(path,patched);
+          console.log('k6-only TweetNaCl Node crypto import neutralized; WebCrypto signing remains required');
+          NODE
       - name: Isolate k6 Ed25519 CSPRNG compatibility before authenticated smoke
         shell: bash
         run: |
