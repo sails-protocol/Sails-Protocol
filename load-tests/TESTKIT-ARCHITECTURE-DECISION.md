@@ -15,7 +15,7 @@ The repository has k6 load scenarios, legacy Artillery HTTP/WS comparators, and 
 2. **Sails TestKit is a small, test-only protocol helper layer.** It may provide Ed25519 proof-of-possession identity/auth fixtures, one-time WebSocket ticket setup, real-service Intent/settlement fixtures, and fail-closed protocol assertions or adapters for existing functional/integration runners. Prefer direct k6 implementation where safe and maintainable. Do not assume Node helpers are directly importable in k6.
 3. **No proprietary second load engine.** TestKit must not contain `runPhases`, VU scheduling, arrival-rate control, percentile aggregation, dashboards, always-on services, or independent performance acceptance criteria.
 4. **Artillery remains installed as a transitional comparator** until parity is proven and independently reviewed. Its current WS comparator sends PING but does not assert application PONG, so WS parity is OPEN.
-5. **The native Node harness is transitional only.** Its scheduler must be removed or retired rather than rebranded as TestKit. No unreviewed replacement of a passing test gate with a weaker gate.
+5. **The native Node harness is protocol-only smoke.** Its duplicate scheduler was removed in PR #472; k6 owns load scheduling. Do not treat this as proof of performance parity.
 6. **No performance fallback claim.** When k6 is unavailable, TestKit-backed functional/integration tests may continue, but the load/performance gate remains BLOCKED.
 
 ## Acceptance gates (all required)
@@ -25,7 +25,7 @@ The repository has k6 load scenarios, legacy Artillery HTTP/WS comparators, and 
 - [ ] Demonstrate comparable Artillery/k6 HTTP and WS assertions and fixture/setup cost; fix the Artillery WS application-PONG assertion gap before claiming parity.
 - [ ] Collect repeated, matched bounded profiles: requested and achieved arrivals, dropped iterations, per-operation p50/p95/p99, error classification, concurrent connections, backend CPU/RSS and generator CPU/RSS; fail closed on missing data.
 - [ ] Pin and review k6/tooling provenance, hashes and security updates; sanitize all artifacts and prevent credentials or ticket URLs from leaking.
-- [ ] Eliminate the duplicate native `runPhases` load scheduler without reducing regression coverage.
+- [ ] Validate exact-HEAD CI after removal of native `runPhases` and `bench-small`; authenticated smoke remains, while bounded k6 Intent/WS checks remain in CI. Removal implemented, acceptance pending CI and coverage review.
 - [ ] Retire Artillery dependency, scripts and lockfile entries only after a reviewed parity decision; verify no orphaned workflows or references remain.
 - [ ] Document installation, local execution, CI troubleshooting, fixture lifecycle, rate-limit policy, maintenance ownership and handoff.
 - [ ] Obtain exact-HEAD CI green, independent security/architecture review and explicit authorization before merge or deploy.
