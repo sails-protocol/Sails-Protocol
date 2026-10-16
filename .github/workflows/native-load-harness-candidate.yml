@@ -36,6 +36,9 @@ jobs:
           node --check load-tests/testkit/loopback-target.cjs
           node --check load-tests/testkit/loopback-target.test.cjs
           node load-tests/testkit/loopback-target.test.cjs
+          node --check load-tests/testkit/protocol-assertions.cjs
+          node --check load-tests/testkit/protocol-assertions.test.cjs
+          node load-tests/testkit/protocol-assertions.test.cjs
           node --check load-tests/testkit/ws-protocol.cjs
           node --check load-tests/testkit/ws-protocol.test.cjs
           node load-tests/testkit/ws-protocol.test.cjs
@@ -69,6 +72,7 @@ jobs:
           # Preserve run.js relative TestKit import in the isolated negative fixtures.
           mkdir -p /tmp/testkit
           cp load-tests/testkit/loopback-target.cjs /tmp/testkit/loopback-target.cjs
+          cp load-tests/testkit/protocol-assertions.cjs /tmp/testkit/protocol-assertions.cjs
           printf '[{"sessionToken":"test-only"}]' > /tmp/sails-load-guard/users.json
           chmod 0644 /tmp/sails-load-guard/users.json
           if node /tmp/sails-load-guard/run.js ws > /tmp/pool-permissions.out 2>&1; then echo 'World-readable session pool accepted'; exit 1; fi
