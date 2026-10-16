@@ -544,7 +544,7 @@ jobs:
             sleep 1
           done
           if [ "$ready" -ne 1 ]; then echo 'k6 API readiness timeout'; exit 1; fi
-          timeout 90s k6 run --quiet -e BASE_URL=http://127.0.0.1:3000 load-tests/tests/intent-bounded.js > /tmp/sails-k6-intent.log 2>&1 || {
+          timeout 90s k6 run --quiet --summary-export=/tmp/sails-k6-intent-summary.json -e BASE_URL=http://127.0.0.1:3000 load-tests/tests/intent-bounded.js > /tmp/sails-k6-intent.log 2>&1 || {
             # Print fixed-category diagnostics only; never expose auth material.
             node <<'NODE'
           const fs=require('node:fs');
@@ -600,7 +600,7 @@ jobs:
           # Intent setup consumes four auth-tier calls. WS setup consumes
           # another four; wait for the shared window before the second k6 run.
           sleep 65
-          timeout 90s k6 run --quiet -e BASE_URL=http://127.0.0.1:3000 load-tests/tests/chat-ws-bounded.js > /tmp/sails-k6-ws.log 2>&1 || {
+          timeout 90s k6 run --quiet --summary-export=/tmp/sails-k6-ws-summary.json -e BASE_URL=http://127.0.0.1:3000 load-tests/tests/chat-ws-bounded.js > /tmp/sails-k6-ws.log 2>&1 || {
             # Keep logs private: k6 may print the one-time ticket in a WS URL.
             # Report only a fixed allowlist of classifications. Never echo raw k6 output,
           # WebSocket URLs, bearer sessions, or one-time tickets.
@@ -619,19 +619,27 @@ jobs:
           NODE
           echo 'k6 real-service WS PONG smoke failed; raw logs withheld to protect ticket URLs'; exit 1;
           }
-          # Extract only aggregate metric names and quantiles from the isolated
-          # k6 correctness smoke. Never upload raw k6 logs (may contain secrets).
+          # Parse structured k6 summary exports, not terminal formatting.
+          # Only print aggregate metric names and presence of required fields.
+          # No raw summary/log artifacts or bearer credentials are uploaded.
           node <<'NODE'
           const fs=require('node:fs');
-          for(const [name,path] of [['intent','/tmp/sails-k6-intent.log'],['ws','/tmp/sails-k6-ws.log']]){
-            const lines=fs.readFileSync(path,'utf8').split(/\r?\n/);
-            const allowed=['http_req_duration','http_reqs','iterations','checks','dropped_iterations','vus_max','ws_connecting','sails_intent_success'];
-            const names=lines.filter(line=>allowed.some(metric=>new RegExp('^\\s*'+metric+'(?:\\{|\\s)').test(line))).map(line=>{
-              const match=line.match(/^\s*([a-z_]+)(?:\{[^}]*\})?\s/);
-              return match?match[1]:null;
-            }).filter(Boolean);
-            const unique=[...new Set(names)];
-            console.log('k6 smoke aggregate metrics present:',JSON.stringify({scenario:name,metrics:unique,quantilesConfigured:name==='intent'}));
+          const required=['checks','iterations','http_req_duration','http_reqs'];
+          for(const [name,path] of [['intent','/tmp/sails-k6-intent-summary.json'],['ws','/tmp/sails-k6-ws-summary.json']]){
+            const report=JSON.parse(fs.readFileSync(path,'utf8'));
+            const metrics=report.metrics||{};
+            const missing=required.filter(key=>!metrics[key]);
+            const duration=metrics.http_req_duration?.values||{};
+            const quantiles=['med','p(95)','p(99)'].filter(key=>typeof duration[key]==='number');
+            console.log('k6 structured metric inventory:',JSON.stringify({
+              scenario:name,
+              requiredPresent:required.filter(key=>!!metrics[key]),
+              missing,
+              durationQuantilesPresent:quantiles,
+              totalMetricCount:Object.keys(metrics).length
+            }));
+            if(missing.length)throw new Error('Missing required k6 aggregate metrics for '+name);
+            if(name==='intent'&&quantiles.length!==3)throw new Error('Missing configured Intent latency quantiles');
           }
           NODE
           echo 'k6 real-service bounded Intent and WS PONG PASS (one iteration each)'
