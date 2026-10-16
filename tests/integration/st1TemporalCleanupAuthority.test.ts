@@ -1318,6 +1318,9 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(preserved.authoritySignature).toBeTruthy()
     expect(await outcomeRecords(o)).toBe(1)
     expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+    const originalOutcome = await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })
     // The recovery sweep must not erase a committed economic authorization
     // merely because its originating pending row is absent.
     const [recovery] = await reconcileScoped([o.escrowId])
@@ -1328,6 +1331,15 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     })).toEqual(committedEda)
     expect(await disputeOf(o)).toEqual(preserved)
     expect(await outcomeRecords(o)).toBe(1)
+    expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })).toEqual(originalOutcome)
+    expect(await prisma.economicDispositionAuthorization.count({
+      where: { pendingOperationId: committedEda.pendingOperationId },
+    })).toBe(1)
+    expect(await prisma.escrowPendingTransaction.findUnique({
+      where: { escrowId: o.escrowId },
+    })).toBeNull()
   })
 
   it('V3-E2 an authorized missing pending keeps its exact EDA and ruling through repeated recovery', async () => {
