@@ -6,6 +6,9 @@
  *
  * Conservative ceiling: two iterations per second for five seconds, one
  * create+cancel per iteration. No bypass of auth/API rate limits.
+ * This probe deliberately uses one shared participant: under the shipped
+ * per-participant rate limits, a 429 is a meaningful failure, not a reason
+ * to increase or disable limits. A green result is not throughput parity.
  */
 import { BASE_URL, baseOptions } from '../k6.config.js'
 import { generateTestUser } from '../utils/data-generator.js'
@@ -40,5 +43,6 @@ export function setup() {
   return { user }
 }
 export default function (data) {
+  if (!data?.user?.sessionToken) throw new Error('Missing authenticated probe setup data')
   run(data.user)
 }
