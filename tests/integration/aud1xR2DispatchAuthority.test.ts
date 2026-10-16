@@ -1609,4 +1609,53 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
       expect(paidTo()[0]).toEqual([o.buyerDestination])
     }
   })
+
+  it('R4-13 the post-construction guard fails and the persisted round REALLY diverges from the durable Outcome (so the round is deleted): the ruling is then reverted atomically with its own record - the same end state with and without the Gatekeeper\'s guard handling - and the ruling is redrivable after a restart', async () => {
+    const o = await openedDispute('r4-guard-deleted')
+    chain(o.txid)
+    const events = emittedEvents()
+    const priorStatus = (await disputeRowOf(o)).status as string
+    // FAULT INJECTION 1 (after the construction persisted a valid round): the DURABLE Outcome now names another buyer destination, so the
+    // stored transaction no longer corresponds to it when the cleanup / the guard re-evaluate it from durable state.
+    const escrowMod = require('../../src/modules/open-settlement/escrow.service')
+    const realInitiate = escrowMod.escrowService.initiateRelease.bind(escrowMod.escrowService)
+    jest.spyOn(escrowMod.escrowService, 'initiateRelease').mockImplementation(async (...args: any[]) => {
+      const pending = await realInitiate(...args)
+      const row = await prisma.semanticTransitionRecord.findFirstOrThrow({ where: { interactionId: o.escrowId } })
+      const divergent = JSON.parse(JSON.stringify(row.outcomeDestinationBinding).split(o.buyerDestination).join(destination('divergent-durable-outcome')))
+      await inject(async (tx) => { await tx.semanticTransitionRecord.update({ where: { id: row.id }, data: { outcomeDestinationBinding: divergent } }) })
+      return pending
+    })
+    // FAULT INJECTION 2: the guard that runs after the construction (the second call: the first is the construction's own binding) rejects.
+    const guardMod = require('../../src/modules/open-settlement/dispatch-translation-guard')
+    const realGuard = guardMod.assertTranslationMatchesOutcome
+    let calls = 0
+    jest.spyOn(guardMod, 'assertTranslationMatchesOutcome').mockImplementation((...args: any[]) => {
+      calls += 1
+      if (calls === 2) throw new Error('injected: the translation guard rejected the persisted round')
+      return realGuard(...args)
+    })
+
+    const result = await settle(resolve(o, 'RELEASE')())
+
+    expect(calls).toBe(2)
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.error).toMatch(/injected: the translation guard rejected the persisted round/)
+    expect(events()).not.toContain('dispute.resolved')
+    // the round was deleted (by the exact-generation cleanup with the Gatekeeper's handling, by the plain deletion without it) and the
+    // generic revert undid the ruling, deleting the record of the authority that signed it - the same end state in both trees
+    expect(await revertSnapshot(o)).toMatchObject({
+      dispute: { status: priorStatus, ruling: null, signature: null }, outcome0: null, outcome1: null,
+      effects: { escrow: 'DISPUTED', roundIds: [], authorizations: 0, signatures: 0, broadcasts: 0 },
+    })
+
+    // restart + redrive: the same signed decision commits again with a sound record, dispatches and executes once
+    jest.restoreAllMocks()
+    chain(o.txid)
+    await resolve(o, 'RELEASE')()
+    const round = await roundOf(o)
+    expect((await restarted!.submitTransactionSignature(o.escrowId, o.buyerId, sign(round.unsignedPsbtBase64, buyerKey))).complete).toBe(true)
+    expect(broadcasts).toHaveLength(1)
+    expect(paidTo()[0]).toEqual([o.buyerDestination])
+  })
 })
