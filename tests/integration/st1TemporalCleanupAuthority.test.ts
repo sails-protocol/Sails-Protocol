@@ -1067,6 +1067,33 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(1)
   })
 
+  it('V3-E2 an authorized missing pending keeps its exact EDA and ruling through repeated recovery', async () => {
+    const o = await openedDispute('v3-eda-repeat-recovery')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const committed = await authorizeDisputedPendingExecution(pending)
+    expect(committed).not.toBeNull()
+    const durable = await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+      where: { pendingOperationId: pending.id },
+    })
+    const ruling = await disputeOf(o)
+    expect(ruling.status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+
+    // Adversarial missing-pending fixture. No claim that a production
+    // completion removed this pending or that terminalization occurred.
+    await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } })
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const [recovery] = await reconcileScoped([o.escrowId])
+      expect(recovery.reconciled).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+      expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+        where: { pendingOperationId: pending.id },
+      })).toEqual(durable)
+      expect(await disputeOf(o)).toEqual(ruling)
+      expect(await outcomeRecords(o)).toBe(1)
+      expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+    }
+  })
+
   it('V3 after-persist dispatch throw preserves exact durable authority and pending for restart recovery', async () => {
     const o = await openedDispute('v3')
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
