@@ -416,3 +416,14 @@ Inspected the actual `DisputeService.appeal()` precondition. Before selecting an
 Gate 4 acceptance must therefore distinguish two claims: (A) for new script-committed MULTISIG escrows, the product behavior is **appeal refused**, which should be regression-tested without bypassing the trigger; (B) for genuinely legacy no-commitment escrows, N+1 may be reachable, and the existing `V3-GI` demonstrates generation-safe cleanup only under its simulated legacy fixture. Do not rewrite the appeal guard or promise N+1 support on immutable-script MULTISIG as part of ST1. A change to the arbitration model requires an explicit product/security architecture decision and separate design.
 
 Remaining action: add a negative normal-path appeal regression assertion using the intact arbiter commitment, with no dispute/Outcome/pending mutation; then decide whether Gate 4's legacy simulation is sufficient for the supported legacy scope. **NO MERGE / NO FREEZE.**
+
+
+## 2026-10-16 — Gate 4 scope ruling for Day 0 review
+
+The acceptance claim is split by *reachable production scope*, not by an invented universal N+1 path:
+
+1. **New-write MULTISIG, immutable script-committed arbiter:** the required behavior is refusal of `DisputeService.appeal()` before mutation. `V3-G0` tests the actual public service API and exact preservation of Dispute, Pending, Outcome, EDA and committed key. Await exact-head PostgreSQL green before accepting.
+2. **Legacy escrow without arbiter commitment:** `V3-GI` proves generation-bound stale cleanup against a genuine queued N+1 appeal and independent PostgreSQL backend connections *after* creating a simulated legacy shape by bypassing a trigger. This is a conditional legacy-state concurrency proof, **not** evidence that current MULTISIG creates such an escrow.
+3. **Future appeal-capable rails:** out of ST1-R2 scope; no implied support or release promise. An explicit ADR/product decision is required before changing the immutable-script guard.
+
+Proposed Gate 4 disposition once V3-G0 is green: **ACCEPT for current MULTISIG fail-closed scope; CONDITIONAL for legacy compatibility**. This is not global Gate 4 closure until legacy support policy is explicitly adopted. Gate 3 remains open. **NO MERGE / NO FREEZE.**
