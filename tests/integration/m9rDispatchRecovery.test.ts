@@ -181,6 +181,9 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
         AND NOT EXISTS (SELECT 1 FROM escrow_pending_transactions p WHERE p."escrowId" = d."escrowId"
           AND (p."disputeId" IS NOT NULL
                OR cardinality(p."requiredSigners") <= (SELECT count(*) FROM escrow_transaction_signatures s WHERE s."pendingTxId" = p.id)))
+        -- Match the production C4 candidate predicate: an escrow with committed
+        -- EDA is never an undispatched candidate even if its pending was lost.
+        AND NOT EXISTS (SELECT 1 FROM economic_disposition_authorizations a WHERE a."escrowId" = d."escrowId")
         AND EXISTS (SELECT 1 FROM semantic_transition_records r WHERE r."interactionId" = d."escrowId"
           AND r."transitionType" = 'escrow.dispute.rule' AND r."appealRound" = d."appealRound" AND r."outcomeContent" IS NOT NULL)`
     return rows.map((r) => r.escrowId)
