@@ -362,7 +362,10 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     // The fixture's ruling was committed with a real Outcome record; production's own deleter of a ruling
     // record removes it. CTO policy: absence of an authoritative Outcome must NEVER authorize deletion.
     const { loadDisputeRulingRecord, revertDisputeRulingRecord } = require('../../src/modules/open-settlement/dispute-outcome')
-    await revertDisputeRulingRecord(escrow.id, authority.rulingAppealRound)
+    // AUD1X-R4: the deleter has no unbound form - the record that exists is removed bound to the authority that signed it
+    const existing = await loadDisputeRulingRecord(escrow.id, authority.rulingAppealRound)
+    expect(existing?.attributionRawProof).toBeTruthy()
+    expect(await revertDisputeRulingRecord(escrow.id, authority.rulingAppealRound, existing.attributionRawProof)).toBe(1)
     const durableOutcome = await loadDisputeRulingRecord(escrow.id, authority.rulingAppealRound)
     expect(durableOutcome).toBeNull()
     expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)).toBe('OUTCOME_ABSENT')
@@ -388,8 +391,10 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
 
   /** The ruling's Outcome record is removed with production's own deleter: a RESOLVED dispute with no Outcome. */
   const withoutOutcome = async (escrowId: string, appealRound = 0) => {
-    const { revertDisputeRulingRecord } = require('../../src/modules/open-settlement/dispute-outcome')
-    await revertDisputeRulingRecord(escrowId, appealRound)
+    const { loadDisputeRulingRecord, revertDisputeRulingRecord } = require('../../src/modules/open-settlement/dispute-outcome')
+    const existing = await loadDisputeRulingRecord(escrowId, appealRound)
+    expect(existing?.attributionRawProof).toBeTruthy()
+    expect(await revertDisputeRulingRecord(escrowId, appealRound, existing.attributionRawProof)).toBe(1)
   }
 
   it('ST1-F waits for the economic disposition D lock and rejects a generation advanced before acquisition', async () => {

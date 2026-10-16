@@ -369,7 +369,7 @@ export async function revertCommittedRuling(
     )
   }
 
-  const deleted = await revertDisputeRulingRecord(committed.escrowId, committed.appealRound, tx, committed.authoritySignature)
+  const deleted = await revertDisputeRulingRecord(committed.escrowId, committed.appealRound, committed.authoritySignature, tx)
   if (deleted === 1) return
 
   const standing = await loadDisputeRulingRecord(committed.escrowId, committed.appealRound, tx)

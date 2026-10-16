@@ -351,7 +351,7 @@ describe('revertCommittedRuling - AUD1X-R4, the unit that carries out a REVERT',
     await revertCommittedRuling(tx, committed, restore, new Error('x'))
 
     expect(mockDeleteRecord).toHaveBeenCalledTimes(1)
-    expect(mockDeleteRecord.mock.calls[0]).toEqual(['escrow-1', 0, tx, 'sig-1'])
+    expect(mockDeleteRecord.mock.calls[0]).toEqual(['escrow-1', 0, 'sig-1', tx])
     expect(mockDeleteRecord.mock.invocationCallOrder[0]).toBeGreaterThan(updateMany.mock.invocationCallOrder[0])
   })
 
@@ -395,7 +395,7 @@ describe('AUD1X-R4 structure - the one production deleter of an Outcome record',
     const callers = walk(root).filter((f) => /\brevertDisputeRulingRecord\(/.test(code(f)) && !f.endsWith('dispute-outcome.ts'))
     expect(callers.map((f) => path.relative(root, f).replace(/\\/g, '/'))).toEqual(['modules/open-settlement/ruling-dispatch-authority.ts'])
     expect(read('modules/open-settlement/ruling-dispatch-authority.ts'))
-      .toContain('revertDisputeRulingRecord(committed.escrowId, committed.appealRound, tx, committed.authoritySignature)')
+      .toContain('revertDisputeRulingRecord(committed.escrowId, committed.appealRound, committed.authoritySignature, tx)')
   })
 
   it('no production code deletes a semantic transition record by any other statement', () => {

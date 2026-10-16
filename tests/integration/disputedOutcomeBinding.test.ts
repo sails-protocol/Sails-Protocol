@@ -44,7 +44,18 @@ describe('AUD-1 disputed economic Outcome binding - real PostgreSQL', () => {
   let payoutAddressService: any
   let signAuthorityDecision: (payload: unknown, secretKey: Uint8Array) => string
   let commitAuthoritativeDisputeRuling: (...args: any[]) => Promise<{ committed: boolean }>
-  let revertDisputeRulingRecord: (escrowId: string, appealRound: number) => Promise<void>
+  let revertDisputeRulingRecord: (escrowId: string, appealRound: number, authoritySignature: string) => Promise<number>
+  /**
+   * FAULT INJECTION: the ruling record that exists is removed the way production removes it - bound to the authority that
+   * signed it (AUD1X-R4: the deleter has no unbound form). Stricter than the unbound call it replaces: the record must
+   * exist, carry its attribution, and be the one deleted.
+   */
+  async function dropRulingRecord(escrowId: string, appealRound: number): Promise<void> {
+    const { loadDisputeRulingRecord } = require('../../src/modules/open-settlement/dispute-outcome')
+    const record = await loadDisputeRulingRecord(escrowId, appealRound)
+    expect(record?.attributionRawProof).toBeTruthy()
+    expect(await revertDisputeRulingRecord(escrowId, appealRound, record.attributionRawProof)).toBe(1)
+  }
   let submitTransactionSignature: (escrowId: string, participantId: string, signedPsbtBase64: string) => Promise<any>
   let deletePendingRoundIfStillUnsigned: (pendingId: string, escrowId: string, generation: any) => Promise<string>
   let reconcileUnclaimedFullySignedPending: (report: any) => Promise<void>
@@ -397,7 +408,7 @@ describe('AUD-1 disputed economic Outcome binding - real PostgreSQL', () => {
   it('M a ruling whose durable Outcome is absent has no authority to dispatch: construction fails closed', async () => {
     const o = await openedDispute('miss')
     await commitOnly(o, 'RELEASE')
-    await revertDisputeRulingRecord(o.escrowId, 0) // production's own deleter of a ruling record
+    await dropRulingRecord(o.escrowId, 0) // production's own deleter of a ruling record
     const before = await effects(o)
     await expect(escrowService.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId)).rejects.toThrow(/no durable Core-authoritative Outcome/)
     expect(await effects(o)).toEqual(before)
@@ -487,7 +498,7 @@ describe('AUD-1 disputed economic Outcome binding - real PostgreSQL', () => {
   it('X1 a round whose durable Outcome is later absent is refused at execution (fail closed), signature kept', async () => {
     const o = await openedDispute('x1')
     const round = await rule(o, 'RELEASE') // production round, single required signer: the buyer
-    await revertDisputeRulingRecord(o.escrowId, 0)
+    await dropRulingRecord(o.escrowId, 0)
     chain(o.txid)
     const before = await effects(o)
 
