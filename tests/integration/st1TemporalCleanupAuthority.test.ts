@@ -968,6 +968,46 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(1)
     expect(await edaCount(o)).toBe(0)
 
+    // A fresh OS process with a new Prisma connection must also see the
+    // recovered dispatch as complete, without creating another pending.
+    const { spawn } = require('child_process') as typeof import('child_process')
+    const { resolve } = require('path') as typeof import('path')
+    const recoveryCode = String.raw`
+      require('ts-node/register/transpile-only')
+      const { prisma } = require('./src/common/database')
+      const { reconcileMissingDispatch } = require('./src/modules/open-settlement/dispute-dispatch-recovery')
+      reconcileMissingDispatch(100).then(async report => {
+        process.stdout.write('ST1_C4_REPLAY:' + JSON.stringify(report) + '\\n')
+        await prisma.$disconnect()
+        process.exit(0)
+      }).catch(async err => {
+        process.stderr.write(String(err.stack || err))
+        await prisma.$disconnect()
+        process.exit(1)
+      })
+    `
+    const freshReplay = await new Promise<{ code: number | null; output: string; errors: string }>((done, reject) => {
+      const child = spawn(process.execPath, ['-e', recoveryCode], {
+        cwd: resolve(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let output = ''; let errors = ''
+      child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => { errors += chunk.toString() })
+      const watchdog = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('C4 replay timeout: ' + errors.slice(-2000))) }, 60_000)
+      child.on('error', err => { clearTimeout(watchdog); reject(err) })
+      child.on('close', code => { clearTimeout(watchdog); done({ code, output, errors }) })
+    })
+    expect(freshReplay.code).toBe(0)
+    const freshLine = freshReplay.output.split('\\n').find((line: string) => line.startsWith('ST1_C4_REPLAY:'))
+    expect(freshLine).toBeDefined()
+    const freshReport = JSON.parse(freshLine!.slice('ST1_C4_REPLAY:'.length))
+    expect(freshReport.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect((await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })).id).toBe(resumedPending.id)
+    expect(await outcomeRecords(o)).toBe(1)
+
     // The public resolveDispute API intentionally refuses replay of a
     // RESOLVED ruling. Recovery of a persisted ruling is a separate operation,
     // not another signed decision through the original endpoint.
