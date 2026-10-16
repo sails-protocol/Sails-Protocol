@@ -1378,6 +1378,15 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       expect(await disputeOf(o)).toEqual(ruling)
       expect(await outcomeRecords(o)).toBe(1)
       expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+      // Independent C4 passes must also reject the same committed economic
+      // authorization, not rebuild a second operation after the pending loss.
+      const c4 = await reconcileMissingDispatch(100)
+      expect(c4.claimed).not.toContain(o.escrowId)
+      expect(c4.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+      expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+        where: { pendingOperationId: pending.id },
+      })).toEqual(durable)
+      expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
     }
   })
 
