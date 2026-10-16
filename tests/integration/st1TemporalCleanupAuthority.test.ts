@@ -2036,6 +2036,41 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await edaCount(o)).toBe(0)
   })
 
+  it('V3-G0 intact MULTISIG arbiter commitment rejects N+1 appeal without mutating N', async () => {
+    const o = await openedDispute('v3-intact-appeal-guard')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const beforeDispute = await disputeOf(o)
+    const beforePending = await prisma.escrowPendingTransaction.findUniqueOrThrow({
+      where: { id: pending.id },
+    })
+    const beforeOutcome = await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })
+    const beforeCount = await outcomeRecords(o)
+    const beforeEda = await edaCount(o)
+    const committedKey = await prisma.escrowParticipantKey.findUniqueOrThrow({
+      where: { escrowId_role: { escrowId: o.escrowId, role: 'arbiter' } },
+    })
+    expect(committedKey.participantId).toBe(o.arbiterId)
+
+    // No SET LOCAL session_replication_role, no key deletion, no legacy fixture:
+    // this is the normal new-write MULTISIG appeal API and must fail closed.
+    await expect(appealService().appeal(o.disputeId, o.buyerId))
+      .rejects.toThrow(/immutable, script-committed arbiter identity/)
+    expect(await disputeOf(o)).toEqual(beforeDispute)
+    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({
+      where: { id: pending.id },
+    })).toEqual(beforePending)
+    expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })).toEqual(beforeOutcome)
+    expect(await outcomeRecords(o)).toBe(beforeCount)
+    expect(await edaCount(o)).toBe(beforeEda)
+    expect(await prisma.escrowParticipantKey.findUniqueOrThrow({
+      where: { escrowId_role: { escrowId: o.escrowId, role: 'arbiter' } },
+    })).toEqual(committedKey)
+  })
+
   it('V3-GR blocked old-generation cleanup resumes safely after the D lock is released', async () => {
     const o = await openedDispute('v3-generation-race')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
