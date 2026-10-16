@@ -427,3 +427,8 @@ The acceptance claim is split by *reachable production scope*, not by an invente
 3. **Future appeal-capable rails:** out of ST1-R2 scope; no implied support or release promise. An explicit ADR/product decision is required before changing the immutable-script guard.
 
 Proposed Gate 4 disposition once V3-G0 is green: **ACCEPT for current MULTISIG fail-closed scope; CONDITIONAL for legacy compatibility**. This is not global Gate 4 closure until legacy support policy is explicitly adopted. Gate 3 remains open. **NO MERGE / NO FREEZE.**
+
+
+## 2026-10-16 — V3-G0 current MULTISIG production guard GREEN
+
+Exact-head `c953daa65cb02837fe584edd3071ffc6af024e16` run [38968808688](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38968808688) **SUCCESS**, unit + real PostgreSQL. Exact-head `d4db6d321941624b31889e2dcd83b364437828d5` run [38968985743](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38968985743) **SUCCESS**, unit + real PostgreSQL. `V3-G0` exercises `appeal()` with an intact script-committed arbiter and asserts refusal without mutation to dispute, pending, Outcome, EDA or committed key. **Current MULTISIG N+1 is intentionally unreachable and its rejection is now regression-tested GREEN**. `V3-GI` remains a simulated legacy-state generation race; whether to include legacy compatibility in formal Gate 4 scope remains a release-policy decision. Gate 3 still requires production-reachable concurrent EDA/provider proof. **NO MERGE / NO FREEZE.**
