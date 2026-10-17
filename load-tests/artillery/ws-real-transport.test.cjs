@@ -11,6 +11,8 @@ const {provePongOverRealSocket}=require('./ws-bounded-processor.js');
     socket.on('message',raw=>{
       const message=JSON.parse(String(raw));
       assert.equal(message.type,'PING');
+      if(mode==='CLOSE'){socket.close();return;}
+      if(mode==='MALFORMED'){socket.send('{invalid-json');return;}
       if(mode!=='SILENT')socket.send(JSON.stringify({type:mode,payload:{}}));
     });
   });
@@ -22,6 +24,10 @@ const {provePongOverRealSocket}=require('./ws-bounded-processor.js');
     await assert.rejects(provePongOverRealSocket(url,{timeoutMs:50}),/PONG timeout/);
     mode='ERROR';
     await assert.rejects(provePongOverRealSocket(url,{timeoutMs:100}),/WS application ERROR/);
+    mode='MALFORMED';
+    await assert.rejects(provePongOverRealSocket(url,{timeoutMs:100}),/JSON|Unexpected token|Expected property/);
+    mode='CLOSE';
+    await assert.rejects(provePongOverRealSocket(url,{timeoutMs:100}),/WS closed before PONG/);
     mode='SILENT';
     await assert.rejects(provePongOverRealSocket(url,{timeoutMs:50}),/PONG timeout/);
     await assert.rejects(provePongOverRealSocket('ws://example.com',{timeoutMs:100}),/clean loopback URL/);
