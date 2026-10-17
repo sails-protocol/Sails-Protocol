@@ -1553,6 +1553,26 @@ export class MultisigProvider implements SettlementProvider {
   }
 
   /** #235 R7G-B2A — a signing round is authority only for this escrow's persisted P2WSH output. */
+  private inspectRound(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): { txId: string; unsignedHex: string } {
+    const network = networkFor(config.multisig.network)
+    try {
+      const merged = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network })
+      this.assertRoundSpendsFundingSurface(escrow, merged, network)
+      for (const signed of signedPsbtBase64List) merged.combine(bitcoin.Psbt.fromBase64(signed, { network }))
+      for (let i = 0; i < merged.inputCount; i++) {
+        const present = merged.data.inputs[i].partialSig ?? []
+        for (const ps of present) assertSighashAll(ps.signature)
+        if (present.length > 0 && !merged.validateSignaturesOfInput(i, verifySignature)) throw new Error(`input ${i} carries a signature that does not verify`)
+      }
+      const unsigned = bitcoin.Transaction.fromBuffer(Buffer.from(merged.data.globalMap.unsignedTx.toBuffer()))
+      return { txId: unsigned.getId(), unsignedHex: unsigned.toHex() }
+    } catch (err) {
+      throw new EscrowError(
+        `MULTISIG provider: failed to combine/finalize signatures for trade ${escrow.tradeId}: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
+  }
+
   private assertRoundSpendsFundingSurface(escrow: MultisigEscrowInput, psbt: bitcoin.Psbt, network: bitcoin.Network): void {
     if (!escrow.multisigAddr) throw new Error('escrow has no persisted funding address')
     const fundedScript = Buffer.from(bitcoin.address.toOutputScript(escrow.multisigAddr, network))
@@ -1702,23 +1722,33 @@ export class MultisigProvider implements SettlementProvider {
     escrow: MultisigEscrowInput,
     unsignedPsbtBase64: string,
     signedPsbtBase64List: string[],
-    beforeFirstBroadcast?: () => Promise<void>
+    // AUD1X-H1 - may return the arbiter identity of the authorization it just committed/re-read: the signature the
+    // platform adds at execution is produced only from that, after the gates ran and before the first broadcast.
+    beforeFirstBroadcast?: () => Promise<void | { arbiterExecutionIdentity?: string }>
   ): Promise<
     | { outcome: 'ALREADY_BROADCAST'; txId: string; rawTxHex: string; detail: string }
     | { outcome: 'NEWLY_BROADCAST'; txId: string; rawTxHex: string; detail: string }
     | { outcome: 'ANOMALY'; detail: string }
   > {
-    const tx = this.buildFinalizedTransaction(escrow, unsignedPsbtBase64, signedPsbtBase64List)
-    const expectedTxId = tx.getId()
-    // Sails Core Implementation Program M9 (Recovery) — additive, same
-    // precedent as finalizeSpend()'s own M8.6 change: the recovery path
-    // needs the real, exactly-reconstructed transaction bytes to
-    // (re)evaluate M6 correspondence, exactly like the happy path
-    // already does. Computed once here since `tx` already exists.
-    const rawTxHex = tx.toHex()
+    // AUD1X-H1 - everything judged BEFORE any authority exists needs no arbiter signature: the round must spend this
+    // escrow's funding surface and every signature present must verify (as before), and the transaction's id is that
+    // of the unsigned transaction (a segwit txid does not commit to witnesses), so "is it already on the network?" can
+    // be asked without ever producing the arbiter signature.
+    const inspected = this.inspectRound(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+    const expectedTxId = inspected.txId
 
     const existence = await fetchTransactionExistence(expectedTxId)
     if (existence.exists) {
+      // The finalized bytes when they can be built from material already at hand (a round that carries its arbiter
+      // signature, or a caller that holds an authorization); otherwise the unsigned serialization - same txid, same
+      // outputs. Its only consumer is output-correspondence evidence; it is never broadcast from here.
+      let rawTxHex = inspected.unsignedHex
+      try {
+        const finalized = this.buildFinalizedTransaction(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+        if (finalized.getId() === expectedTxId) rawTxHex = finalized.toHex()
+      } catch {
+        // no arbiter signature available for this round: keep the unsigned serialization
+      }
       return {
         outcome: 'ALREADY_BROADCAST', txId: expectedTxId, rawTxHex,
         detail: `Transaction ${expectedTxId} is already known to the network (confirmed=${existence.confirmed}) — converging local state to this observed truth, no new broadcast.`,
@@ -1747,14 +1777,36 @@ export class MultisigProvider implements SettlementProvider {
       // fail-closed commit gate immediately before the first broadcast.
       // ALREADY_BROADCAST never reaches this callback, preserving recovery
       // of external truth after later authority changes.
-      if (beforeFirstBroadcast) await beforeFirstBroadcast()
+      let executionIdentity = escrow.arbiterExecutionIdentity
+      if (beforeFirstBroadcast) {
+        const authority = await beforeFirstBroadcast()
+        if (authority && authority.arbiterExecutionIdentity) executionIdentity = authority.arbiterExecutionIdentity
+      }
+      let tx: bitcoin.Transaction
+      try {
+        tx = this.buildFinalizedTransaction(
+          executionIdentity ? { ...escrow, arbiterExecutionIdentity: executionIdentity } : escrow,
+          unsignedPsbtBase64, signedPsbtBase64List,
+        )
+        if (tx.getId() !== expectedTxId) throw new Error(`finalized transaction id ${tx.getId()} differs from the round's ${expectedTxId}`)
+      } catch (err) {
+        // With a beforeFirstBroadcast hook the caller has already claimed the transition: it must revert it, so the
+        // failure is thrown. Without one nothing was claimed: surfaced as an anomaly, never a broadcast.
+        if (beforeFirstBroadcast) throw err
+        return {
+          outcome: 'ANOMALY',
+          detail: `Round for trade ${escrow.tradeId} cannot be completed from material at hand — no execution authorization supplied the arbiter signature ` +
+            `(${err instanceof Error ? err.message : String(err)}). Nothing was broadcast.`,
+        }
+      }
+      const rawTxHex = tx.toHex()
 
       // Sails Core Implementation Program M9-R (R6, provider txid
       // integrity) — same discipline as finalizeSpend(): `expectedTxId`
-      // was already independently derived from `tx` before this
+      // was already independently derived from the round before this
       // broadcast; the provider's own response text is never persisted
       // as the txid, only compared against it as a diagnostic.
-      const providerReturnedTxId = await this.broadcast(tx.toHex())
+      const providerReturnedTxId = await this.broadcast(rawTxHex)
       if (providerReturnedTxId !== expectedTxId) {
         log.error({
           msg: 'MULTISIG provider: reconciliation broadcast response txid disagrees with the locally-derived txid of the exact transaction that was sent — ignoring the provider-reported value, persisting the locally-derived one',
