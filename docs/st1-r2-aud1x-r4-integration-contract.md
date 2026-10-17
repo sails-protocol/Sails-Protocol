@@ -23,3 +23,9 @@ Status: **OPEN / NOT MERGED / NOT ACCEPTED**. This document is an integration ch
 
 ## Current execution checkpoint
 Sandbox initially points to #436. **AUD1X-R4 code has not yet been composed**. This checkpoint deliberately prevents an accidental green claim based on a documentation-only commit.
+
+## R30 — Security blocker: MULTISIG arbiter bearer signature
+
+Comparison of sandbox `multisig.provider.ts` against Claude pinned head `fe3523a5fb13ead11086ef6ba8c24044a1d7c62b` confirms the sandbox still embeds the arbiter signature at PSBT construction, while AUD1X introduces `addArbiterSignatureAtExecution()` in the finalization path. The latter prevents a persisted unsigned signing round from carrying a platform signature that can be combined and broadcast outside the authorization gate. **This is a release blocker, not a cosmetic conflict.**
+
+Integration acceptance: do not embed the arbiter signature in construction for release, refund, or split; add it only in memory after the EDA, binding, live-generation, and broadcast gates; preserve the ST1 durable pending/reconciliation semantics; prove signed client PSBTs and historical pending rounds fail closed or reconcile without accidental external signing. Require PostgreSQL integration tests and green CI on the combined sandbox head before Gate 3 closure. No merge, deploy or freeze authorization is implied.
