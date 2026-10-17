@@ -351,7 +351,7 @@ jobs:
             '--output','/tmp/sails-artillery-bounded-http.json'
           ],{timeoutMs:90000,intervalMs:25}).catch(error=>{
             const category=error?.message;
-            const allowed=new Set(['Generator timed out','Generator exited nonzero (output redacted)','Generator terminated by signal','Generator runtime error','Generator spawn failed','Generator resource sample count insufficient','Generator resource counters invalid','Generator resource sampling read error: permission','Generator resource sampling read error: io','Generator resource sampling read error: cpu-incomplete','Generator resource sampling read error: rss-incomplete','Generator resource sampling read error: malformed','Generator resource sampling read error: other']);
+            const allowed=new Set(['Generator timed out','Generator exited nonzero (output redacted)','Generator terminated by signal','Generator runtime error','Generator spawn failed','Generator resource sample count insufficient','Generator resource counters invalid','Generator resource sampling read error: permission','Generator resource sampling read error: io','Generator resource sampling read error: cpu-incomplete','Generator resource sampling read error: rss-incomplete','Generator resource sampling read error: rss-live-no-positive','Generator resource sampling read error: rss-state-changed','Generator resource sampling read error: malformed','Generator resource sampling read error: other']);
             throw Error('Generator: '+(allowed.has(category)?category:'Unclassified generator failure (details withheld)'));
           }),{intervalMs:25}).then(({value:usage,usage:backend})=>{
             console.log('Artillery HTTP backend bounded resource sample:',JSON.stringify(backend));
