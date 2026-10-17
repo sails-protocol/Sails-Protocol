@@ -20,9 +20,10 @@ async function runMeasured(command,args,{timeoutMs=90000,intervalMs=25,env=proce
     let readErrors=0;
     let readErrorCategory='unknown';
     let vanishedAtExit=0;
+    let rssLiveNoPositive=0;
     let exited=false;
     let lastCpuTicks=start.cpuTicks;
-    timer=setInterval(()=>{if(exited)return;try{const current=sample(child.pid);peakRssKiB=Math.max(peakRssKiB,current.rssKiB);lastCpuTicks=current.cpuTicks;samples++;}catch(error){if(error?.code==='ENOENT'||error?.code==='ESRCH'||(error?.message==='Process exited during resource sample'))vanishedAtExit++;else {readErrors++;readErrorCategory=error?.code==='EACCES'?'permission':error?.code==='EIO'?'io':error?.message==='Incomplete process CPU counters'?'cpu-incomplete':error?.message==='Incomplete process RSS counters: live-state-no-positive-rss'?'rss-live-no-positive':error?.message==='Process state changed during RSS sample'?'rss-state-changed':error?.message==='Incomplete process RSS counters'?'rss-incomplete':error?.message==='Malformed proc stat'?'malformed':'other';}}},intervalMs);
+    timer=setInterval(()=>{if(exited)return;try{const current=sample(child.pid);peakRssKiB=Math.max(peakRssKiB,current.rssKiB);lastCpuTicks=current.cpuTicks;samples++;}catch(error){if(error?.code==='ENOENT'||error?.code==='ESRCH'||(error?.message==='Process exited during resource sample'))vanishedAtExit++;else if(error?.message==='Incomplete process RSS counters: live-state-no-positive-rss')rssLiveNoPositive++;else {readErrors++;readErrorCategory=error?.code==='EACCES'?'permission':error?.code==='EIO'?'io':error?.message==='Incomplete process CPU counters'?'cpu-incomplete':error?.message==='Incomplete process RSS counters: live-state-no-positive-rss'?'rss-live-no-positive':error?.message==='Process state changed during RSS sample'?'rss-state-changed':error?.message==='Incomplete process RSS counters'?'rss-incomplete':error?.message==='Malformed proc stat'?'malformed':'other';}}},intervalMs);
     const code=await Promise.race([
       new Promise((resolve,reject)=>{child.once('exit',(code,signal)=>{exited=true;return signal?reject(Error('Generator terminated by signal')):resolve(code);});child.once('error',()=>reject(Error('Generator runtime error')));}),
       new Promise((_,reject)=>{timeout=setTimeout(()=>{child.kill('SIGKILL');reject(Error('Generator timed out'));},timeoutMs);})
@@ -31,9 +32,10 @@ async function runMeasured(command,args,{timeoutMs=90000,intervalMs=25,env=proce
     // resource value, and CPU ticks are sampled before process exit.
     if(samples<2)throw Error('Generator resource sample count insufficient');
     if(readErrors>0)throw Error('Generator resource sampling read error: '+readErrorCategory);
+    if(rssLiveNoPositive>0 && samples<3)throw Error('Generator resource sample count insufficient');
     if(!Number.isSafeInteger(lastCpuTicks)||lastCpuTicks<start.cpuTicks||!Number.isSafeInteger(peakRssKiB)||peakRssKiB<=0)throw Error('Generator resource counters invalid');
     if(code!==0)throw Error('Generator exited nonzero (output redacted)');
-    return {exitCode:code,cpuTicksDeltaSampled:lastCpuTicks-start.cpuTicks,peakRssKiB,samples,vanishedAtExit,measurement:'sampled process counters only; excludes post-last-sample CPU; proc disappearance counted separately'};
+    return {exitCode:code,cpuTicksDeltaSampled:lastCpuTicks-start.cpuTicks,peakRssKiB,samples,vanishedAtExit,rssLiveNoPositive,measurement:'sampled process counters only; excludes post-last-sample CPU; proc disappearance and zero-RSS live-state observations counted separately; positive RSS required'};
   }finally{clearInterval(timer);clearTimeout(timeout);if(child.exitCode===null)child.kill('SIGKILL');}
 }
 module.exports={runMeasured};
