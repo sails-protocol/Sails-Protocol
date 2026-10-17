@@ -821,13 +821,13 @@ jobs:
           console.log('arrival probe sanitized inventory:',JSON.stringify({
             requiredPresent:required.filter(k=>!!m[k]),missing,
             iterations:arrivals,dropped:n('dropped_iterations'),httpRequests:requestCount,
-            expectedRequestsPerArrival,requestAccountingValid:requestCount===arrivals*expectedRequestsPerArrival,
+            expectedRequestsPerArrival,requestAccountingValid:requestCount===arrivals*expectedRequestsPerArrival,nominalArrivalAccountingValid:arrivals===nominalScheduledArrivals,
             requestedRatePerSecond,scheduledWindowSeconds,nominalScheduledArrivals,achievedRatePerSecond,
             durationMs:durations,intentDurationMs:intentDurations,
             checksValid:checks===1,intentSuccessValid:success===1,
             durationQuantilesPresent:quantiles
           }));
-          if(missing.length||!(arrivals>0)||requestCount!==arrivals*expectedRequestsPerArrival||n('dropped_iterations')!==0||checks!==1||success!==1||quantiles.length!==3||intentDurationKeys.some(k=>Object.keys(intentDurations[k]||{}).length!==3)){
+          if(missing.length||arrivals!==nominalScheduledArrivals||requestCount!==arrivals*expectedRequestsPerArrival||n('dropped_iterations')!==0||checks!==1||success!==1||quantiles.length!==3||intentDurationKeys.some(k=>Object.keys(intentDurations[k]||{}).length!==3)){
             throw Error('Bounded arrival probe missing or invalid aggregate evidence');
           }
           NODE
