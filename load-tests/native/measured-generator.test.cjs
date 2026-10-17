@@ -8,5 +8,8 @@ const {runMeasured}=require('./measured-generator.cjs');
   assert.ok(result.peakRssKiB>0);
   assert.ok(result.cpuTicksDeltaSampled>=0);
   await assert.rejects(runMeasured(process.execPath,['-e','process.exit(7)'],{timeoutMs:2000}),/Generator exited nonzero|Missing generator resource samples/);
+  await assert.rejects(runMeasured(process.execPath,['-e','setTimeout(()=>{},1500)'],{timeoutMs:150,intervalMs:25}),/Generator timed out/);
+  await assert.rejects(runMeasured(process.execPath,['-e','setTimeout(()=>{},100)'],{timeoutMs:99}),/Invalid generator timeout/);
+  await assert.rejects(runMeasured(process.execPath,['-e','process.exit(0)'],{timeoutMs:2000,intervalMs:25}),/Missing generator resource samples/);
   console.log('Disposable child generator resource accounting PASS (sampled only)');
 })().catch(e=>{console.error(e.message);process.exitCode=1});
