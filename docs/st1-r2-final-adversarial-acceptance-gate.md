@@ -507,3 +507,17 @@ Read-only source audit of `tests/integration/signingRoundStateCompatibility.test
 - `L/L2`, `RACE-A`, `G/H`: terminal/dispute authority, concurrent reversal and live/C8 contention.
 
 These are concrete existing oracles, not proposed tests. The remaining Gate 3 question is **authority-preserving liveness and classification of a lost response when the provider accepted the transaction, especially PASS 1 failures**. The current `broadcast()` throws the same general error contract for an HTTP rejection; a rejected HTTP status alone is not an independent Bitcoin network proof that the transaction was never accepted. Do not assume the absence of a successful response proves non-broadcast. Any further production change must preserve the O/P manual-review behavior, M/N terminal recovery, and H1 dispute eligibility. No merge/freeze until an exact-head PostgreSQL run validates the new change and remaining ST1-R2/AUD1X-R4 integration evidence.
+
+
+## 2026-10-17 — PASS 0/PASS 1 failure-classification implementation contract
+
+Inspection of `reconcileUnclaimedFullySignedPending()` in `src/modules/open-settlement/escrow-settlement-reconciliation.service.ts` confirms that PASS 0 calls `multisigProvider.reconcilePendingSettlement(..., beforeFirstBroadcast)`, where `beforeFirstBroadcast` authorizes and claims the terminal transition, sets `claimedBeforeBroadcast=true`, and the catch **unconditionally reverts** that claim on a thrown provider error. The live signature-finalize path likewise unconditionally reverts its terminal claim on a thrown finalize error. These two code sites are the actual classification seam. The existing O/P test exercises ambiguous **HTTP 502** acceptance and eventual C8 chain-truth convergence from the reverted state; M/N exercises recovery after the terminal claim. Neither by itself proves that a thrown transport failure after network acceptance is handled with the right liveness and authority behavior in both entrypoints.
+
+Required acceptance matrix before changing production:
+1. Definite simulated nonacceptance (existing HTTP 503 refusal): restore original state, keep signed round and dispute eligibility; existing H1 tests remain GREEN.
+2. Accepted transaction + lost transport response in **live finalize**: preserve deterministic tx identity and signed pending; ensure C8 observes on-chain truth, converges without a distinct second spend, and does not permit an unauthorized competing transition.
+3. Accepted transaction + lost transport response in **PASS 0 first broadcast**: exercise the callback claim and catch; verify C8 converges, terminal transition record and dispute MOOT behavior, and no starvation.
+4. Provider status/body ambiguity and read-side explorer outage: fail closed with visible manual review or retry; never equate a network timeout with a proven rejection, never invent chain truth.
+5. PASS 1 terminal/no-txid recovery remains GREEN for both already-known transaction and genuinely unspent funding, including multi-instance contention.
+
+A proposed fix must state what constitutes *proven nonacceptance* versus *unknown*, what persisted marker prevents contradictory authorization while chain truth is unavailable, and how the scheduler guarantees recovery. Tests must use real PostgreSQL and real PSBTs; the controlled explorer is permitted only as an external network fixture. No change to status machine or exception taxonomy is approved merely by this document. Gate 3 remains OPEN.
