@@ -38,6 +38,14 @@ function sample(pid){
       if(pageKiB!==4)throw Error('Unsupported process page size');
       const fallbackKiB=residentPages*pageKiB;
       if(Number.isSafeInteger(fallbackKiB)&&fallbackKiB>0)return {cpuTicks:ticks,rssKiB:fallbackKiB};
+      // A zero resident count may be an exit transition; only classify it
+      // as lifecycle if a fresh /proc/stat read independently confirms exit.
+      if(residentPages===0){
+        const finalStat=fs.readFileSync('/proc/'+pid+'/stat','utf8');
+        const finalClose=finalStat.lastIndexOf(')');
+        if(finalClose>=0 && ['Z','X','x'].includes(finalStat.slice(finalClose+2).trim().split(/\s+/)[0]))
+          throw Error('Process exited during resource sample');
+      }
     }catch(error){
       if(error?.message==='Unsupported process page size')throw error;
       if(error?.code==='ENOENT'||error?.code==='ESRCH')throw Error('Process exited during resource sample');
