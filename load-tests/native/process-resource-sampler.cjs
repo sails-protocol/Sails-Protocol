@@ -18,4 +18,22 @@ function delta(start,end){
   if(end.cpuTicks<start.cpuTicks)throw Error('Non-monotonic CPU counters');
   return {cpuTicksDelta:end.cpuTicks-start.cpuTicks,rssKiBEnd:end.rssKiB};
 }
-module.exports={sample,delta};
+async function observe(pid,work,{intervalMs=25}={}){
+  if(typeof work!=='function'||!Number.isSafeInteger(intervalMs)||intervalMs<10||intervalMs>1000)throw Error('Invalid bounded sampling configuration');
+  const start=sample(pid);
+  let peakRssKiB=start.rssKiB;
+  let samples=1;
+  const timer=setInterval(()=>{
+    try{const next=sample(pid);peakRssKiB=Math.max(peakRssKiB,next.rssKiB);samples++;}
+    catch{ /* Exit is checked by final sample and the caller's workload gate. */ }
+  },intervalMs);
+  try{
+    const value=await work();
+    const end=sample(pid);
+    peakRssKiB=Math.max(peakRssKiB,end.rssKiB);
+    const usage=delta(start,end);
+    if(!Number.isSafeInteger(usage.cpuTicksDelta)||!Number.isSafeInteger(peakRssKiB)||peakRssKiB<=0)throw Error('Incomplete resource sample');
+    return {value,usage:{...usage,peakRssKiB,samples:samples+1}};
+  }finally{clearInterval(timer);}
+}
+module.exports={sample,delta,observe};
