@@ -51,6 +51,12 @@ function sample(pid){
       if(error?.message==='Unsupported process page size')throw error;
       if(error?.code==='ENOENT'||error?.code==='ESRCH')throw Error('Process exited during resource sample');
     }
+    // The original stat snapshot also exposes resident pages (field 24).
+    // Accept only a positive, safe counter; never turn absent RSS into zero.
+    const statResidentPages=Number(fields[21]);
+    const statResidentKiB=statResidentPages*4;
+    if(Number.isSafeInteger(statResidentKiB)&&statResidentKiB>0)
+      return {cpuTicks:ticks,rssKiB:statResidentKiB};
     throw Error('Incomplete process RSS counters');
   }
   return {cpuTicks:ticks,rssKiB:Number(rss[1])};
