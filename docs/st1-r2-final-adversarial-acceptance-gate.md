@@ -441,3 +441,16 @@ CI [38978133961](https://github.com/sails-protocol/Sails-Protocol/actions/runs/3
 Production path audit: `escrowService.initiateRelease/Refund/Split` delegates to `escrow-pending-tx.ts` `initiateSignatureCollectionCore()`. That flow builds an **unsigned PSBT** and persists `escrowPendingTransaction` in a transaction; it does not broadcast funds at initiation. The separate `authorizeDisputedPendingExecution()` takes the dispute advisory transaction lock **later**, on a pre-existing pending operation, and commits EDA. C4's last EDA read is not held under that dispute lock through initiation. A unique pending-per-escrow constraint prevents two simultaneous *persisted pending rows*, but is not by itself proof of one economic authority or one external provider submission after pending deletion. No new lock is justified without checking transaction/lock order and external lifecycle.
 
 The corrected V3-E4 establishes a **sequential** C4 initiation → pending → EDA → no-replay sequence under a fault-injected missing-pending fixture. It is neither a cross-process C4/EDA race nor an external broadcast exactly-once proof. Gate 3 **OPEN**, NO MERGE / NO FREEZE.
+
+
+## 2026-10-16 — CTO architecture decision: current MULTISIG vs MULTISIG 2 Taproot
+
+**Approved Day 0 behavior:** retain the existing cryptographic arbiter commitment for current MULTISIG. `DisputeService.appeal()` must fail closed if replacing the script-committed arbiter; do not change signing commitments, fabricate an appeal path, or weaken the V3-G0 regression just to close Gate 4. V3-G0 has real-PostgreSQL green evidence on `c953daa6` and `d4db6d32`.
+
+**Deferred architectural track, AFTER Master Backlog closure:** MULTISIG 2 / Taproot. Evaluate Taproot spending-path design, appeal-generation authority changes, cryptographic signature policies, compatibility with settlement, EDA, dispatch recovery and reconciliation, and migration/coexistence with prior MULTISIG escrows. Taproot alone does **not** imply that a script-committed arbiter can be replaced. This is explicitly **out of scope** of ST1-R2 / PR #436; no Taproot implementation or changes to current commitments in this PR.
+
+**Legacy historical escrows:** inventory actual configurations and evidence of historical reachability before selecting support policy. `V3-GI` simulates a legacy state via a database-trigger bypass and cannot alone establish deployed historical populations.
+
+**Gate 4 disposition:** current MULTISIG fail-closed security behavior accepted as CTO architectural scope, with V3-G0 green; historical legacy support inventory remains separate and must not be misrepresented as a normal Day 0 appeal path. This does **not** close overall ST1-R2.
+
+**Immediate priority unchanged:** Gate 3 C4/EDA concurrent economic exclusion, corrected V3-E4 exact-head CI, provider side-effect/idempotency and crash recovery evidence. **NO MERGE / NO FREEZE.**
