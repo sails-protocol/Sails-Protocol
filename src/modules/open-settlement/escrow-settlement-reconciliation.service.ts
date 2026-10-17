@@ -17,7 +17,77 @@ import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { childLogger } from '../../common/logger'
 import { authorizePendingExecution } from './capability-execution-authorization'
-import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
+import { authorizeDisputedPendingExecution, economicDispositionOperationDigest } from './economic-disposition-authority'
+import { assertRoundBoundToDisputeAuthority } from './disputed-outcome-binding'
+import { assertDispositionMatchesRuling } from './disposition-ruling-binding'
+import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from './discretionary-authority'
+
+/**
+ * AUD1X-H1 - the arbiter identity of the Economic Disposition Authorization committed for this exact pending round,
+ * if the gate ever committed one. PASS 1 - the recovery of an escrow the live path ALREADY claimed into a terminal
+ * status after its gates - may complete a disputed round only under it: the authorization row is created by one
+ * place only (the ADR-005 gate, which also judges AUD-1's binding), is keyed by the round's immutable id, and a round
+ * persisted by earlier code carries its arbiter signature already (nothing to add). No authorization -> undefined ->
+ * the provider cannot sign. The correspondence catch-up deliberately does not use it (it needs outputs only).
+ */
+async function committedExecutionIdentity(
+  round: Parameters<typeof economicDispositionOperationDigest>[0],
+): Promise<string | undefined> {
+  if (!round.disputeId) return undefined // a cooperative round has no arbiter and no authorization
+  const row = await prisma.economicDispositionAuthorization.findUnique({
+    where: { pendingOperationId: round.id },
+    select: { arbiterId: true, escrowId: true, disputeId: true, ruling: true, operationDigest: true },
+  })
+  if (!row) return undefined
+  // AUD1X-R2 (AR-05) - the two checks the gate's own REUSE path makes before it hands an existing authorization
+  // back (economic-disposition-authority.ts): it is this operation's (escrow, dispute, digest of the immutable
+  // round) and the round is still what the authorized ruling decided (AUD-1 binding against the durable Outcome).
+  // An authorization that fails either is never a means to produce the arbiter signature; the round goes to
+  // manual review exactly as one with no authorization. A rule on SIGNING only: recovering a transaction that is
+  // already on the network needs no identity and is unaffected.
+  try {
+    if (row.escrowId !== round.escrowId || row.disputeId !== round.disputeId || row.operationDigest !== economicDispositionOperationDigest(round)) {
+      throw new Error('the committed authorization does not describe this round')
+    }
+    // AUD1X-R3 (AR2-02) - the binding needs the durable Outcome. When that Outcome no longer exists (an earlier code's
+    // revert deleted it after the attempt was committed) the binding cannot be judged NOW - but the gate recorded that
+    // it judged it THEN: the authorization names the signed ruling and the Outcome record it was bound to, and its
+    // digest pins every field of this round. That committed attempt survives the later revocation (ADR-005 s4). An
+    // authorization without that record (committed before it existed) proves nothing here and stays refused.
+    const [evidence] = await prisma.$queryRaw<{ rulingAuthoritySignature: string | null; outcomeRecordId: string | null; currentOutcomeRecordId: string | null }[]>`
+      SELECT a."rulingAuthoritySignature", a."outcomeRecordId",
+             (SELECT r.id FROM semantic_transition_records r
+              WHERE r."interactionId" = a."escrowId" AND r."transitionType" = ${ESCROW_DISPUTE_RULING_TRANSITION_TYPE}
+                AND r."appealRound" = a."appealRound") AS "currentOutcomeRecordId"
+      FROM economic_disposition_authorizations a WHERE a."pendingOperationId" = ${round.id}`
+    if (evidence && evidence.currentOutcomeRecordId === null) {
+      if (!evidence.rulingAuthoritySignature || !evidence.outcomeRecordId) {
+        throw new Error('the Outcome is gone and the authorization predates recorded ruling identity: which ruling it was bound to is not proven')
+      }
+      if (evidence.rulingAuthoritySignature !== round.rulingAuthoritySignature || row.ruling !== round.rulingOutcome) {
+        throw new Error('the authorization was committed under another signed ruling than the round records')
+      }
+      assertDispositionMatchesRuling(round.kind, round.buyerBps, { id: row.disputeId, ruling: row.ruling, authorityBuyerBps: null }, `pending ${round.kind} round of escrow ${round.escrowId}`)
+      log.warn({ msg: 'AUD1X-R3: completing a committed attempt whose Outcome was deleted after its authorization - bound at authorization time (recorded), ADR-005 s4', escrowId: round.escrowId, roundId: round.id, outcomeRecordId: evidence.outcomeRecordId })
+      return row.arbiterId
+    }
+    await assertRoundBoundToDisputeAuthority(prisma, {
+      escrowId: round.escrowId,
+      escrowType: 'MULTISIG',
+      kind: round.kind,
+      unsignedPsbtBase64: round.unsignedPsbtBase64,
+      minerFeeSats: round.minerFeeSats,
+      buyerBps: round.buyerBps,
+      disputeId: round.disputeId,
+      rulingAppealRound: round.rulingAppealRound,
+      rulingOutcome: round.rulingOutcome,
+    }, { id: row.disputeId, escrowId: row.escrowId, status: 'RESOLVED', ruling: row.ruling, authorityBuyerBps: null })
+  } catch (err) {
+    log.error({ msg: 'AUD1X-R2: a committed authorization no longer describes its round, contradicts its ruling or cannot be proven bound to it - the arbiter signature is not produced', escrowId: round.escrowId, roundId: round.id, err: err instanceof Error ? err.message : String(err) })
+    return undefined
+  }
+  return row.arbiterId
+}
 
 const log = childLogger('escrow-settlement-reconciliation')
 
@@ -560,6 +630,7 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
     buyerPubkey, sellerPubkey, arbiterPubkey, multisigAddr: escrow.multisigAddr,
     txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
     status: escrow.status,
+    arbiterExecutionIdentity: await committedExecutionIdentity(pending),
   }
 
   const result = await multisigProvider.reconcilePendingSettlement(input, pending.unsignedPsbtBase64, signedList as string[])
