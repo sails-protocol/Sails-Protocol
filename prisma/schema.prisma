@@ -2649,6 +2649,9 @@ model EconomicDispositionAuthorization {
   ruling             DisputeRuling
   operationDigest    String
   authorizedAt       DateTime      @default(now())
+  // AUD1X-R3: exact signed ruling and durable Outcome identity; legacy null is unproven.
+  rulingAuthoritySignature String?
+  outcomeRecordId          String?
 
   @@index([escrowId])
   @@index([disputeId])
