@@ -21,7 +21,7 @@ async function runMeasured(command,args,{timeoutMs=90000,intervalMs=25,env=proce
     let vanishedAtExit=0;
     let exited=false;
     let lastCpuTicks=start.cpuTicks;
-    timer=setInterval(()=>{if(exited)return;try{const current=sample(child.pid);peakRssKiB=Math.max(peakRssKiB,current.rssKiB);lastCpuTicks=current.cpuTicks;samples++;}catch(error){if(error?.code==='ENOENT')vanishedAtExit++;else readErrors++;}},intervalMs);
+    timer=setInterval(()=>{if(exited)return;try{const current=sample(child.pid);peakRssKiB=Math.max(peakRssKiB,current.rssKiB);lastCpuTicks=current.cpuTicks;samples++;}catch(error){if(error?.code==='ENOENT'||error?.code==='ESRCH')vanishedAtExit++;else readErrors++;}},intervalMs);
     const code=await Promise.race([
       new Promise((resolve,reject)=>{child.once('exit',(code,signal)=>{exited=true;return signal?reject(Error('Generator terminated by signal')):resolve(code);});child.once('error',()=>reject(Error('Generator runtime error')));}),
       new Promise((_,reject)=>{timeout=setTimeout(()=>{child.kill('SIGKILL');reject(Error('Generator timed out'));},timeoutMs);})
@@ -32,7 +32,7 @@ async function runMeasured(command,args,{timeoutMs=90000,intervalMs=25,env=proce
     if(readErrors>0)throw Error('Generator resource sampling read error');
     if(!Number.isSafeInteger(lastCpuTicks)||lastCpuTicks<start.cpuTicks||!Number.isSafeInteger(peakRssKiB)||peakRssKiB<=0)throw Error('Generator resource counters invalid');
     if(code!==0)throw Error('Generator exited nonzero (output redacted)');
-    return {exitCode:code,cpuTicksDeltaSampled:lastCpuTicks-start.cpuTicks,peakRssKiB,samples,vanishedAtExit,measurement:'sampled process counters only; excludes post-last-sample CPU'};
+    return {exitCode:code,cpuTicksDeltaSampled:lastCpuTicks-start.cpuTicks,peakRssKiB,samples,vanishedAtExit,measurement:'sampled process counters only; excludes post-last-sample CPU; proc disappearance counted separately'};
   }finally{clearInterval(timer);clearTimeout(timeout);if(child.exitCode===null)child.kill('SIGKILL');}
 }
 module.exports={runMeasured};
