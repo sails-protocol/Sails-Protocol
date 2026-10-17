@@ -47,6 +47,7 @@ function sample(pid){
           throw Error('Process exited during resource sample');
       }
     }catch(error){
+      if(error?.message==='Process exited during resource sample')throw error;
       if(error?.message==='Unsupported process page size')throw error;
       if(error?.code==='ENOENT'||error?.code==='ESRCH')throw Error('Process exited during resource sample');
     }
