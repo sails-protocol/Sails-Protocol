@@ -53,6 +53,7 @@ jobs:
           node --check load-tests/artillery/ws-bounded-processor.js
           node --check load-tests/artillery/ws-bounded-processor.test.cjs
           node load-tests/artillery/ws-bounded-processor.test.cjs
+          node --check load-tests/artillery/ws-real-transport.test.cjs
           if SAILS_LOAD_HTTP_TARGET=https://example.com node load-tests/native/run.js intent > /tmp/load-guard.out 2>&1; then echo 'Unsafe target accepted'; exit 1; fi
           grep -q 'Unsupported target protocol' /tmp/load-guard.out
           if SAILS_LOAD_HTTP_TARGET=http://example.com node load-tests/native/run.js intent > /tmp/load-host-guard.out 2>&1; then echo 'Nonlocal HTTP host accepted'; exit 1; fi
@@ -181,6 +182,10 @@ jobs:
           const dirs=['node_modules/artillery/lib','node_modules/artillery/dist','node_modules/@artilleryio'];
           for(const dir of dirs)if(fs.existsSync(dir))console.log('Present package directory:',dir);
           NODE
+      - name: Prove PONG and no-PONG over real disposable WebSocket transport
+        shell: bash
+        run: |
+          node load-tests/artillery/ws-real-transport.test.cjs
       - name: Inspect bundled Artillery WebSocket engine implementation
         shell: bash
         run: |
