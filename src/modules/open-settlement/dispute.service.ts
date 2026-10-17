@@ -786,8 +786,9 @@ export class DisputeService {
       // arbiter/appealRound/authoritySignature) means a newer generation
       // is never overwritten; if one already won, this revert is a no-op
       // and the newer generation's state stands untouched.
-      // revertDisputeRulingRecord() below is already appealRound-scoped
-      // by its own unique key and needs no such guard.
+      // AUD1X-R4: the Outcome slot is NOT an authority identity. Deletion
+      // must be conditional on the exact signed ruling and occur in the same
+      // transaction as the dispute update.
       //
       // The revert target is the status the commit actually displaced
       // (read under its row lock), never this call's earlier read: a
