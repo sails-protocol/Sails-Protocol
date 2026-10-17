@@ -615,7 +615,7 @@ primitive, no new Norte macrofront. Three obligations registered below.
 
 ### 1. Issue #75 reconciliation — multi-implementation / platform / agent-interface horizon
 
-**Source:** [Issue #75](https://github.com/alan-schramm/Sails-Protocol/issues/75)
+**Source:** [Issue #75](https://github.com/sails-protocol/Sails-Protocol/issues/75)
 ("Horizon: multi-implementation, application platforms & agent
 interfaces"), read in full before this registration. The issue's own
 closing line — *"Master Backlog operational representation: needs
@@ -662,7 +662,7 @@ Interfaces), 21 (SDK/DX), 22 (Developer Docs/Mintlify), 26 (Conformance),
 conformance obligation is currently fragmented across this file (no
 prior explicit entry), Issue #75 ("No cross-language equivalence claim
 without implementation + conformance evidence"), and
-[Issue #77](https://github.com/alan-schramm/Sails-Protocol/issues/77)
+[Issue #77](https://github.com/sails-protocol/Sails-Protocol/issues/77)
 ("Final Red Team Horizon")'s own second registered case, **"Sails
 semantic divergence"** — which states, nearly verbatim, the same
 property this entry now registers formally. This entry is the single
@@ -965,7 +965,7 @@ explicit CTO addendum on the "Shared economic network topology" finding
 already registered above (`docs/PARTNER_BETA_INTEGRATION_REALITY.md`
 §4, this file's own delta 1 in the section above). Tracked for
 traceability, given the Day-0 elevation, as
-[Issue #95](https://github.com/alan-schramm/Sails-Protocol/issues/95)
+[Issue #95](https://github.com/sails-protocol/Sails-Protocol/issues/95)
 ("[Architecture Discovery] Day-0 Multi-Operator Sails Network & Shared
 Market") — this Backlog entry is the full registration; the issue
 cross-links back here rather than duplicating content.
@@ -4681,7 +4681,7 @@ obligation" is defined anywhere in this repository.
     automatic coverage), not "no status field, therefore ambiguous."
 
     **Beta Readiness Validation Gate registered — Issue
-    [#165](https://github.com/alan-schramm/Sails-Protocol/issues/165)
+    [#165](https://github.com/sails-protocol/Sails-Protocol/issues/165)
     ("Sails Beta Readiness — Integration & Reality Validation Gate").**
     Searched before creating: Issue #105 (Day-0 Multi-Operator/Partner
     Beta Completion Gate) is the closest existing owner but is scoped to
@@ -4824,7 +4824,7 @@ obligation" is defined anywhere in this repository.
     instantiated anywhere in production `src/`. Inflating a non-live,
     non-exploitable surface into a standalone backlog item would be
     disproportionate. **CTO Gate R1 correction**: Issue
-    [#155](https://github.com/alan-schramm/Sails-Protocol/issues/155)
+    [#155](https://github.com/sails-protocol/Sails-Protocol/issues/155)
     ("Sails AI Harnesses — Engineering Harness, QVAC Runtime Harness & AI
     Governance Contract") is a governance/harness dependency and
     constraint owner for this field — it is **not** the implementation
