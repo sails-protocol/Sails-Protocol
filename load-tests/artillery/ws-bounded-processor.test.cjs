@@ -33,6 +33,12 @@ class Socket extends EventEmitter {
   queueMicrotask(()=>transport.emit('error',new Error('sensitive details')));
   await assert.rejects(transportPromise,/WS transport error/);
   assert.equal(transport.listenerCount('error'),0);
+  const nonPong=new Socket({type:'NOT_PONG',payload:{}});
+  await assert.rejects(assertPongFromSocket(nonPong,{timeoutMs:20}),/PONG timeout/);
+  assert.equal(nonPong.listenerCount('message'),0);
+  const socketInterface={on(){},send(){}};
+  assert.throws(()=>assertPongFromSocket(null,{timeoutMs:100}),/Unsupported WebSocket assertion interface/);
+  assert.equal(typeof socketInterface.on,'function');
   const timed=new Socket(null);
   await assert.rejects(assertPongFromSocket(timed,{timeoutMs:20}),/PONG timeout/);
   assert.equal(timed.listenerCount('message'),0);
