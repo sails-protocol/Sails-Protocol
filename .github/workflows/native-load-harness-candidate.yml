@@ -357,7 +357,17 @@ jobs:
             console.log('Artillery HTTP backend bounded resource sample:',JSON.stringify(backend));
             console.log('Artillery HTTP generator resource sample:',JSON.stringify(usage));
           }).catch(error=>{
-            const backendCategories=new Map([\n              ['Incomplete resource sample','Backend resource sample incomplete'],\n              ['Non-monotonic CPU counters','Backend CPU counters non-monotonic'],\n              ['Incomplete process RSS counters','Backend RSS counter missing'],\n              ['Incomplete process CPU counters','Backend CPU counter missing'],\n              ['Process exited during resource sample','Backend process exited during sample'],\n              ['Malformed proc stat','Backend process stat malformed']\n            ]);\n            const category=typeof error?.message==='string' ? error.message : '';\n            console.error('Artillery HTTP failure category:',category.startsWith('Generator: ')?category:backendCategories.get(category)||'Unclassified backend observation failure (details withheld)');\n            process.exitCode=1;
+            const backendCategories=new Map([
+              ['Incomplete resource sample','Backend resource sample incomplete'],
+              ['Non-monotonic CPU counters','Backend CPU counters non-monotonic'],
+              ['Incomplete process RSS counters','Backend RSS counter missing'],
+              ['Incomplete process CPU counters','Backend CPU counter missing'],
+              ['Process exited during resource sample','Backend process exited during sample'],
+              ['Malformed proc stat','Backend process stat malformed']
+            ]);
+            const category=typeof error?.message==='string' ? error.message : '';
+            console.error('Artillery HTTP failure category:',category.startsWith('Generator: ')?category:backendCategories.get(category)||'Unclassified backend observation failure (details withheld)');
+            process.exitCode=1;
           });
           RESOURCE_NODE
           node <<'NODE'
