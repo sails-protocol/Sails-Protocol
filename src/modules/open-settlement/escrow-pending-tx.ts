@@ -471,13 +471,22 @@ export async function submitTransactionSignature(escrowId: string, participantId
   // ordering means a superseded ruling never gets to "pass" any gate). A
   // no-op for a pending operation with no recorded ruling generation
   // (ordinary cooperative release/refund/split).
-  await authorizeDisputedPendingExecution(pending)
+  const economicAuthorization = await authorizeDisputedPendingExecution(pending)
 
   // ADR-004 / #211 — Execution Commit Gate. This re-evaluates the
   // ORIGINAL initiator (pending.triggeredBy), not whichever signer happened
   // to submit the final signature. The durable authorization is committed
   // before the first provider side effect and survives pending-row cleanup.
   await authorizePendingExecution(pending)
+
+  // AUD1X-H1: only the committed economic authorization may supply the execution-time arbiter identity.
+  const finalizeEscrow = escrow.type === 'MULTISIG' && economicAuthorization
+    ? {
+        ...escrow,
+        arbiterPubkey: (await loadParticipantPubkeys(escrowId)).arbiterPubkey,
+        arbiterExecutionIdentity: economicAuthorization.arbiterId,
+      }
+    : escrow
 
   // Atomic claim before ever calling the real, side-effecting provider —
   // same idiom as releaseFunds()/refundFunds() (escrow.service.ts).
@@ -495,10 +504,10 @@ export async function submitTransactionSignature(escrowId: string, participantId
       (id: string) => signatures.find((s: { participantId: string; signedPsbtBase64: string }) => s.participantId === id)!.signedPsbtBase64
     )
     result = pending.kind === 'release'
-      ? await provider.finalizeRelease(escrow, pending.unsignedPsbtBase64, signedList, pending.id)
+      ? await provider.finalizeRelease(finalizeEscrow, pending.unsignedPsbtBase64, signedList, pending.id)
       : pending.kind === 'refund'
-      ? await provider.finalizeRefund(escrow, pending.unsignedPsbtBase64, signedList, pending.id)
-      : await provider.finalizeSplit!(escrow, pending.unsignedPsbtBase64, signedList)
+      ? await provider.finalizeRefund(finalizeEscrow, pending.unsignedPsbtBase64, signedList, pending.id)
+      : await provider.finalizeSplit!(finalizeEscrow, pending.unsignedPsbtBase64, signedList)
   } catch (err) {
     await revertEscrowStatus(escrowId, targetStatus, escrow.status)
     throw err
