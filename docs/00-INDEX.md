@@ -6,6 +6,10 @@ It does **not** define protocol truth, architecture truth, product truth, or imp
 
 Sails does not use one universal linear documentation hierarchy. Different documents govern different questions.
 
+## I am a new developer, AI agent, reviewer, or CTO session
+
+Start with the root [`AGENTS.md`](../AGENTS.md) and the [timeless contributor and AI session onboarding guide](engineering/AI_SESSION_ONBOARDING.md). They define the reading path, live-state reconciliation and role-specific readiness checks, without superseding the canonical documents linked below.
+
 ## I want to understand Sails
 
 Start here if you are new to the project and want the shortest path to the core idea before reading implementation detail.
