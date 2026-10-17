@@ -26,6 +26,22 @@ function sample(pid){
       if(error?.code==='ENOENT'||error?.code==='ESRCH')throw Error('Process exited during resource sample');
       throw error;
     }
+    // Linux may omit VmRSS in a transient proc-status snapshot. A second
+    // independent proc-statm read can supply resident pages without relaxing
+    // the requirement for a positive, finite memory observation.
+    try{
+      const statm=fs.readFileSync('/proc/'+pid+'/statm','utf8').trim().split(/\s+/);
+      const residentPages=Number(statm[1]);
+      // Linux GitHub runner uses 4 KiB pages; fail closed elsewhere rather
+      // than silently treating page counts as KiB.
+      const pageKiB=Number(process.env.SAILS_PROC_PAGE_KIB||4);
+      if(pageKiB!==4)throw Error('Unsupported process page size');
+      const fallbackKiB=residentPages*pageKiB;
+      if(Number.isSafeInteger(fallbackKiB)&&fallbackKiB>0)return {cpuTicks:ticks,rssKiB:fallbackKiB};
+    }catch(error){
+      if(error?.message==='Unsupported process page size')throw error;
+      if(error?.code==='ENOENT'||error?.code==='ESRCH')throw Error('Process exited during resource sample');
+    }
     throw Error('Incomplete process RSS counters');
   }
   return {cpuTicks:ticks,rssKiB:Number(rss[1])};
