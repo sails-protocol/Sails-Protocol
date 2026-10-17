@@ -454,3 +454,12 @@ The corrected V3-E4 establishes a **sequential** C4 initiation → pending → E
 **Gate 4 disposition:** current MULTISIG fail-closed security behavior accepted as CTO architectural scope, with V3-G0 green; historical legacy support inventory remains separate and must not be misrepresented as a normal Day 0 appeal path. This does **not** close overall ST1-R2.
 
 **Immediate priority unchanged:** Gate 3 C4/EDA concurrent economic exclusion, corrected V3-E4 exact-head CI, provider side-effect/idempotency and crash recovery evidence. **NO MERGE / NO FREEZE.**
+
+
+## 2026-10-16 — C4 initiation lock and pending uniqueness audit
+
+`src/modules/open-settlement/escrow-pending-tx.ts` `initiateSignatureCollectionCore()` builds an unsigned PSBT, then uses `withEscrowFundingLock(escrowId, async tx => ...)` for the authoritative pending write. Under that transaction it re-reads the escrow's unique pending, rejects any existing disputed round, and may supersede only a provably dead, incompletely signed cooperative round. `tx.escrowPendingTransaction.create()` persists the new pending. A unique-index collision `P2002` becomes `EscrowError('...concurrent initiate')`. Thus two concurrent C4 initiations cannot both durably persist different pending rows for the same escrow at once; provider PSBT *build* can nevertheless be attempted before acquiring the write lock, and this is not proof of a single external provider *broadcast*.
+
+`authorizeDisputedPendingExecution()` uses the separate dispute advisory transaction lock to authorize an **existing** pending, before first external provider side effect on signature submission. Its lock is not held by the C4 worker across PSBT building/pending insertion. The acceptance proof must explicitly distinguish: (a) duplicated PSBT-building attempts, (b) persisted pending cardinality, (c) EDA cardinality/immutable digest, (d) provider transmission and unknown-outcome recovery. Do not infer exactly-once from a unique pending index.
+
+CI runs [38986547203](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38986547203) and [38986576570](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38986576570) both failed only V3-E4 because the test compared all Dispute columns: `dispatchRecoveryAttemptedAt` correctly changes from null to a timestamp when C4 claims the candidate. Commit `de93b656` now requires that operational marker while asserting every other Dispute field unchanged. Await real PostgreSQL exact-head result. Gate 3 **OPEN**; NO MERGE / NO FREEZE.
