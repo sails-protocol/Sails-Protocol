@@ -400,7 +400,11 @@ export async function reconcileUnclaimedFullySignedPending(report: Reconciliatio
           }
         )
       } catch (err) {
-        if (claimedBeforeBroadcast) await revertEscrowStatus(escrow.id, targetStatus, escrow.status)
+        // The callback claims immediately before a MULTISIG POST /tx. Once
+        // claimed, a thrown explorer error may mean accepted-but-unacknowledged
+        // broadcast. Preserve the claim and signed pending for PASS 1 chain
+        // reconciliation instead of converting UNKNOWN into FAILED. Errors
+        // before the callback never claimed and need no status rollback.
         if (err instanceof EscrowError && /already transitioned by a concurrent request/.test(err.message)) {
           report.alreadyClaimedConcurrently.push(escrow.id)
           continue
