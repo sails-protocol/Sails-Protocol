@@ -1186,8 +1186,11 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     })
     expect(firstRecovery.code).toBe(0)
     const firstLine = firstRecovery.output.split('\n').find(x => x.startsWith('ST1_C4_FIRST:'))
-    expect(firstLine).toBeDefined()
-    const firstReport = JSON.parse(firstLine!.slice('ST1_C4_FIRST:'.length))
+    if (!firstLine) {
+      throw new Error('C4 fresh-process recovery exited without ST1_C4_FIRST marker; code=' + firstRecovery.code
+        + '; stdout=' + firstRecovery.output.slice(-4000) + '; stderr=' + firstRecovery.errors.slice(-4000))
+    }
+    const firstReport = JSON.parse(firstLine.slice('ST1_C4_FIRST:'.length))
     // Fail with the actual production reconciler verdict, not only an empty
     // resumed array. This distinguishes a transport error from an eligibility,
     // outcome translation or candidate-claim failure without hiding any one.
