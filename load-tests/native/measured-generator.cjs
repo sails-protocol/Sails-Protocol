@@ -21,7 +21,7 @@ async function runMeasured(command,args,{timeoutMs=90000,intervalMs=25,env=proce
     let vanishedAtExit=0;
     let exited=false;
     let lastCpuTicks=start.cpuTicks;
-    timer=setInterval(()=>{if(exited)return;try{const current=sample(child.pid);peakRssKiB=Math.max(peakRssKiB,current.rssKiB);lastCpuTicks=current.cpuTicks;samples++;}catch(error){if(error?.code==='ENOENT'||error?.code==='ESRCH')vanishedAtExit++;else readErrors++;}},intervalMs);
+    timer=setInterval(()=>{if(exited)return;try{const current=sample(child.pid);peakRssKiB=Math.max(peakRssKiB,current.rssKiB);lastCpuTicks=current.cpuTicks;samples++;}catch(error){if(error?.code==='ENOENT'||error?.code==='ESRCH'||(error?.message==='Incomplete process resource counters'&&child.exitCode!==null))vanishedAtExit++;else readErrors++;}},intervalMs);
     const code=await Promise.race([
       new Promise((resolve,reject)=>{child.once('exit',(code,signal)=>{exited=true;return signal?reject(Error('Generator terminated by signal')):resolve(code);});child.once('error',()=>reject(Error('Generator runtime error')));}),
       new Promise((_,reject)=>{timeout=setTimeout(()=>{child.kill('SIGKILL');reject(Error('Generator timed out'));},timeoutMs);})
