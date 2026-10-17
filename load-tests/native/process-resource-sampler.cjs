@@ -57,7 +57,14 @@ function sample(pid){
     const statResidentKiB=statResidentPages*4;
     if(Number.isSafeInteger(statResidentKiB)&&statResidentKiB>0)
       return {cpuTicks:ticks,rssKiB:statResidentKiB};
-    throw Error('Incomplete process RSS counters');
+    // Diagnostic category only: no PID, command line, environment or values.
+    // Distinguish live process with absent RSS from a lifecycle transition.
+    const finalStat=fs.readFileSync('/proc/'+pid+'/stat','utf8');
+    const finalClose=finalStat.lastIndexOf(')');
+    const finalFields=finalClose>=0?finalStat.slice(finalClose+2).trim().split(/\s+/):[];
+    if(['Z','X','x'].includes(finalFields[0]))throw Error('Process exited during resource sample');
+    if(finalFields[0]!==fields[0])throw Error('Process state changed during RSS sample');
+    throw Error('Incomplete process RSS counters: live-state-no-positive-rss');
   }
   return {cpuTicks:ticks,rssKiB:Number(rss[1])};
 }
