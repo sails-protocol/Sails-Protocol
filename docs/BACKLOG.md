@@ -316,7 +316,7 @@ boundary is structurally compatible with this objective, but first-party
 named adapter coverage is not yet implemented or demonstrated.
 
 **Cross-link (added 2026-09-08, Institutional Cold Sweep):** this entry
-corresponds to [Issue #86](https://github.com/alan-schramm/Sails-Protocol/issues/86)
+corresponds to [Issue #86](https://github.com/sails-protocol/Sails-Protocol/issues/86)
 ("[Strategy] First-party wallet-kit adapters + multi-rail OpenP2P
 distribution") — same adapter-target list, same architecture boundary.
 Cross-referenced here rather than duplicated as a separate entry.
@@ -335,7 +335,7 @@ Initial visible **planned adapter targets**:
 - additional wallet-development kits when ecosystem relevance and real
   integrator demand earn first-party support
 
-**Current truth / claim discipline:** none of the six named adapter packages
+**Current truth / claim discipline:** none of the nine named adapter packages
 above is claimed as published or supported today by this registration. Exact
 package namespace availability and implementation shape must be verified
 before release. Existing `WalletAdapter` examples using bitcoinjs-lib and
