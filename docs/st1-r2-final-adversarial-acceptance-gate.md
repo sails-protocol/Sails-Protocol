@@ -480,3 +480,8 @@ The earlier V3-E4 C4-only test does not exercise `finalize*` and cannot close th
 
 **Concrete acceptance gap:** prove with a deterministic provider fixture that `POST /tx` accepts the transaction but the response is lost, and that subsequent execution cannot create a different economic spend, discard pending/EDA, or assume a definitely failed broadcast. Evaluate whether the pre-existing reconciliation can be reused on the finalize error boundary; do not indiscriminately remove status revert for provably pre-broadcast validation errors. The computed txid enables a principled ambiguity distinction, but its existence alone does not prove confirmed inclusion. This finding remains material and **Gate 3 OPEN**.
 
+
+
+## 2026-10-16 — V3-E4 CI GREEN confirmed
+
+Exact-head workflow [38988995755](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38988995755) for commit `de93b65678cad40ecd2ab9457b209e33ddec8026` completed **SUCCESS**: unit tests and real PostgreSQL integration tests both passed. The follow-up documentation commit `74310127520782a33639514e78d29a4982ad83dd`, workflow [38989152620](https://github.com/sails-protocol/Sails-Protocol/actions/runs/38989152620), also completed **SUCCESS** for both lanes. This closes the specific V3-E4 test-oracle regression, not Gate 3's remaining independent-process concurrency and ambiguous provider-response acceptance requirements. Do not confuse green earlier commits with an exact-head green for a later documentation commit. **NO MERGE / NO FREEZE.**
