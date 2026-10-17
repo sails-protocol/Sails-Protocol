@@ -23,16 +23,17 @@ async function observe(pid,work,{intervalMs=25}={}){
   const start=sample(pid);
   let peakRssKiB=start.rssKiB;
   let samples=1;
+  let readErrors=0;
   const timer=setInterval(()=>{
     try{const next=sample(pid);peakRssKiB=Math.max(peakRssKiB,next.rssKiB);samples++;}
-    catch{ /* Exit is checked by final sample and the caller's workload gate. */ }
+    catch{readErrors++;}
   },intervalMs);
   try{
     const value=await work();
     const end=sample(pid);
     peakRssKiB=Math.max(peakRssKiB,end.rssKiB);
     const usage=delta(start,end);
-    if(!Number.isSafeInteger(usage.cpuTicksDelta)||!Number.isSafeInteger(peakRssKiB)||peakRssKiB<=0)throw Error('Incomplete resource sample');
+    if(readErrors>0||samples<2||!Number.isSafeInteger(usage.cpuTicksDelta)||!Number.isSafeInteger(peakRssKiB)||peakRssKiB<=0)throw Error('Incomplete resource sample');
     return {value,usage:{...usage,peakRssKiB,samples:samples+1}};
   }finally{clearInterval(timer);}
 }
