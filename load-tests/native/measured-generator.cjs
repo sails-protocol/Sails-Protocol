@@ -18,10 +18,11 @@ async function runMeasured(command,args,{timeoutMs=90000,intervalMs=25,env=proce
     let peakRssKiB=start.rssKiB;
     let samples=1;
     let readErrors=0;
+    let readErrorCategory='unknown';
     let vanishedAtExit=0;
     let exited=false;
     let lastCpuTicks=start.cpuTicks;
-    timer=setInterval(()=>{if(exited)return;try{const current=sample(child.pid);peakRssKiB=Math.max(peakRssKiB,current.rssKiB);lastCpuTicks=current.cpuTicks;samples++;}catch(error){if(error?.code==='ENOENT'||error?.code==='ESRCH'||(error?.message==='Incomplete process resource counters'&&child.exitCode!==null))vanishedAtExit++;else readErrors++;}},intervalMs);
+    timer=setInterval(()=>{if(exited)return;try{const current=sample(child.pid);peakRssKiB=Math.max(peakRssKiB,current.rssKiB);lastCpuTicks=current.cpuTicks;samples++;}catch(error){if(error?.code==='ENOENT'||error?.code==='ESRCH'||(error?.message==='Incomplete process resource counters'&&child.exitCode!==null))vanishedAtExit++;else {readErrors++;readErrorCategory=error?.code==='EACCES'?'permission':error?.code==='EIO'?'io':error?.message==='Incomplete process resource counters'?'incomplete':error?.message==='Malformed proc stat'?'malformed':'other';}}},intervalMs);
     const code=await Promise.race([
       new Promise((resolve,reject)=>{child.once('exit',(code,signal)=>{exited=true;return signal?reject(Error('Generator terminated by signal')):resolve(code);});child.once('error',()=>reject(Error('Generator runtime error')));}),
       new Promise((_,reject)=>{timeout=setTimeout(()=>{child.kill('SIGKILL');reject(Error('Generator timed out'));},timeoutMs);})
@@ -29,7 +30,7 @@ async function runMeasured(command,args,{timeoutMs=90000,intervalMs=25,env=proce
     // /proc disappears on exit: last in-flight sample is the final observable
     // resource value, and CPU ticks are sampled before process exit.
     if(samples<2)throw Error('Generator resource sample count insufficient');
-    if(readErrors>0)throw Error('Generator resource sampling read error');
+    if(readErrors>0)throw Error('Generator resource sampling read error: '+readErrorCategory);
     if(!Number.isSafeInteger(lastCpuTicks)||lastCpuTicks<start.cpuTicks||!Number.isSafeInteger(peakRssKiB)||peakRssKiB<=0)throw Error('Generator resource counters invalid');
     if(code!==0)throw Error('Generator exited nonzero (output redacted)');
     return {exitCode:code,cpuTicksDeltaSampled:lastCpuTicks-start.cpuTicks,peakRssKiB,samples,vanishedAtExit,measurement:'sampled process counters only; excludes post-last-sample CPU; proc disappearance counted separately'};
