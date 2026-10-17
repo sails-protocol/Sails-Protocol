@@ -56,6 +56,9 @@ import { createHash } from 'crypto'
 import { prisma } from '../../common/database'
 import { EscrowError } from '../../common/errors'
 import { isCompleteBilateralIntent } from './pending-round-supersession'
+import { economicDispositionLockKey } from './economic-disposition-lock'
+
+export { economicDispositionLockKey }
 
 type DisputedPendingFacts = {
   id: string
@@ -76,10 +79,6 @@ type DisputedPendingFacts = {
   rulingOutcome: string | null
   rulingAuthoritySignature: string | null
   rulingAuthorityIssuedAt: Date | null
-}
-
-export function economicDispositionLockKey(disputeId: string): string {
-  return `economic-disposition:${disputeId}`
 }
 
 /**
