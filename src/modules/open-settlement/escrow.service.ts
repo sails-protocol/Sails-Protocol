@@ -25,6 +25,7 @@ import {
   loadParticipantPubkeys,
   claimEscrowTransition,
   revertEscrowStatus,
+  settlementSucceededButLocalStepFailed,
   assertEscrowTransition,
   emitEscrowTransition,
   resolvePayoutAddress,
@@ -744,12 +745,22 @@ export class EscrowService {
     // concurrent loser is rejected before touching real funds, not after.
     await claimEscrowTransition(escrowId, escrow.status, 'COMPLETED')
 
+    // Issue #291 - two distinct error boundaries. Only a failing PROVIDER call
+    // reverts the claim; once it has returned, external execution may already
+    // have happened and a later local failure must never pretend it did not.
+    let result: { txId: string }
     try {
       const provider = getSettlementProvider(escrow.type)
-      const result = await provider.releaseFunds(
+      result = await provider.releaseFunds(
         { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord,
         resolvedToAddress
       )
+    } catch (err) {
+      await revertEscrowStatus(escrowId, 'COMPLETED', escrow.status)
+      throw err
+    }
+
+    try {
 
       // RFC-021 Phase 0's chargeProtocolFee() lived here until Missão 11
       // Fase 6.5.2's single-economic-authority cutover removed it —
@@ -783,13 +794,9 @@ export class EscrowService {
 
       return updated
     } catch (err) {
-      // Revert the claim — see lockFunds()'s identical comment. Critical
-      // here specifically: without this, a failed release (provider
-      // threw, e.g. RPC error) would leave the escrow permanently stuck
-      // claiming COMPLETED with `txReleaseId: null` — funds neither
-      // released nor recoverable through this service again.
-      await revertEscrowStatus(escrowId, 'COMPLETED', escrow.status)
-      throw err
+      // Issue #291 - the provider already succeeded (see above): never revert
+      // here. Reconciliation converges the escrow from durable facts.
+      throw settlementSucceededButLocalStepFailed(escrowId, 'release', result.txId, err)
     }
   }
 
@@ -845,11 +852,18 @@ export class EscrowService {
     // atomically before ever calling the real, side-effecting provider.
     await claimEscrowTransition(escrowId, escrow.status, 'REFUNDED')
 
+    let result: { txId: string }
     try {
       const provider = getSettlementProvider(escrow.type)
-      const result = await provider.refundFunds(
+      result = await provider.refundFunds(
         { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord
       )
+    } catch (err) {
+      await revertEscrowStatus(escrowId, 'REFUNDED', escrow.status)
+      throw err
+    }
+
+    try {
 
       const updated = await this.repo.updateRefundResult(escrowId, result.txId)
 
@@ -864,8 +878,7 @@ export class EscrowService {
 
       return updated
     } catch (err) {
-      await revertEscrowStatus(escrowId, 'REFUNDED', escrow.status)
-      throw err
+      throw settlementSucceededButLocalStepFailed(escrowId, 'refund', result.txId, err)
     }
   }
 
@@ -899,13 +912,20 @@ export class EscrowService {
 
     await claimEscrowTransition(escrowId, escrow.status, 'SPLIT')
 
+    let result: { txIds: string[] }
     try {
-      const result = await provider.splitFunds(
+      result = await provider.splitFunds(
         { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord,
         resolvedBuyerAddress,
         resolvedSellerAddress,
         buyerBps
       )
+    } catch (err) {
+      await revertEscrowStatus(escrowId, 'SPLIT', escrow.status)
+      throw err
+    }
+
+    try {
 
       const updated = await this.repo.updateSplitResult(escrowId, {
         txReleaseId: result.txIds.join(','), releasedAt: new Date(),
@@ -925,8 +945,7 @@ export class EscrowService {
 
       return updated
     } catch (err) {
-      await revertEscrowStatus(escrowId, 'SPLIT', escrow.status)
-      throw err
+      throw settlementSucceededButLocalStepFailed(escrowId, 'split', result.txIds.join(','), err)
     }
   }
 

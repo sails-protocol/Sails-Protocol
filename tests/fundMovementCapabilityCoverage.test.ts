@@ -77,7 +77,7 @@ const mockEscrowUpdate = jest.fn()
 const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockTradeFindUnique = jest.fn()
 const mockDisputeFindFirst = jest.fn().mockResolvedValue(null)
-const mockEscrowEventCreate = jest.fn().mockResolvedValue({})
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockFeeDistributionCreate = jest.fn().mockResolvedValue({})
 const mockPendingTxFindUnique = jest.fn().mockResolvedValue(null)
@@ -127,7 +127,11 @@ jest.mock('../src/common/database', () => ({
     // — reuses the same mocks as the top-level escrowEvent block above.
     $transaction: (callback: (tx: unknown) => Promise<unknown>) =>
       callback({
+        // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+        eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
         $executeRaw: jest.fn().mockResolvedValue(0),
+        // Issue #291 - persistSettlementResult() reads then writes the escrow inside its own locked transaction.
+        escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args), update: (...args: unknown[]) => mockEscrowUpdate(...args) },
         escrowEvent: {
           findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
           create: (...args: unknown[]) => mockEscrowEventCreate(...args),

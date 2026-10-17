@@ -13,38 +13,76 @@ export {} // forces this file to be an ES module — see chatUnification.test.ts
 // collide with another require()-only test file's identically-named ones).
 
 const mockTradeUpdate = jest.fn()
+// Issue #294/#298 - the settlement handlers now read the Trade row (findUnique) and project its status
+// through TradeRepository.projectEscrowStatus (derived from the persisted Escrow), so the row and the
+// projection are separate mocks; mockTradeUpdate remains only for settlement.escrow.created (Trade.escrowId).
+const mockTradeFindUnique = jest.fn()
+const mockProjectEscrowStatus = jest.fn().mockResolvedValue({ applied: true })
 const mockDisputeFindFirst = jest.fn()
 const mockUserUpdate = jest.fn()
 const mockEscrowFindUnique = jest.fn()
-// RFC-021 D7 — vouch.service.ts's burnVouchesFor() is now called from the
-// same settlement.escrow.released/refunded reactions this file tests.
+// RFC-021 D7 — vouch.service.ts's burn is now applied from the same
+// settlement.escrow.released/refunded reactions this file tests.
 // Defaults to "no active vouch" so every pre-existing test above is
 // unaffected; the dedicated D7 describe block below overrides these.
 const mockVouchFindMany = jest.fn().mockResolvedValue([])
-const mockVouchUpdate = jest.fn()
+const mockVouchUpdate = jest.fn().mockResolvedValue({ count: 1 })
+
+// Issue #298 - a faithful in-memory model of the projection-claim table: createMany({skipDuplicates})
+// returns count 0 for an identity already claimed, exactly as ON CONFLICT DO NOTHING does.
+const claimStore = new Set<string>()
+const fakeTx = {
+  $executeRaw: jest.fn().mockResolvedValue(0),
+  eventProjectionClaim: {
+    createMany: async ({ data }: { data: Array<{ eventId: string; projectionKey: string; subjectId: string }> }) => {
+      let count = 0
+      for (const d of data) {
+        const key = `${d.eventId}|${d.projectionKey}|${d.subjectId}`
+        if (!claimStore.has(key)) { claimStore.add(key); count++ }
+      }
+      return { count }
+    },
+  },
+  user: { update: (...args: unknown[]) => mockUserUpdate(...args) },
+  escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
+  vouch: {
+    findMany: (...args: unknown[]) => mockVouchFindMany(...args),
+    updateMany: (...args: unknown[]) => mockVouchUpdate(...args),
+  },
+}
 
 jest.mock('../src/common/database', () => ({
   prisma: {
-    trade: { update: (...args: unknown[]) => mockTradeUpdate(...args) },
+    trade: {
+      update: (...args: unknown[]) => mockTradeUpdate(...args),
+      findUnique: (...args: unknown[]) => mockTradeFindUnique(...args),
+    },
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
     user: { update: (...args: unknown[]) => mockUserUpdate(...args) },
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
-    vouch: {
-      findMany: (...args: unknown[]) => mockVouchFindMany(...args),
-      update: (...args: unknown[]) => mockVouchUpdate(...args),
-    },
+    $transaction: (cb: (tx: unknown) => Promise<unknown>) => cb(fakeTx),
   },
+}))
+
+jest.mock('../src/modules/open-p2p/trade-repository', () => ({
+  tradeRepository: { projectEscrowStatus: (...args: unknown[]) => mockProjectEscrowStatus(...args) },
 }))
 
 const mockEmit = jest.fn().mockResolvedValue(undefined)
 const handlers: Record<string, (payload: unknown) => Promise<void>> = {}
+let eventSeq = 0
 jest.mock('../src/common/events/event-bus', () => ({
   eventBus: {
     emit: (...args: unknown[]) => mockEmit(...args),
     on: (event: string, handler: (payload: unknown) => Promise<void>) => {
       handlers[event] = handler
     },
-    onDurable: jest.fn(),
+    // The settlement handlers are durable consumers now (Issue #298): they receive the DurableEvent
+    // (eventId + payload). Each invocation here models ONE distinct durable event.
+    onDurable: (event: string, handler: (e: unknown) => Promise<void>) => {
+      handlers[event] = (payload: unknown) =>
+        handler({ eventId: `evt-${++eventSeq}`, eventName: event, correlationId: 'trade-1', payload, publishedAt: '', entryHash: '', prevHash: '' })
+    },
   },
 }))
 
@@ -103,7 +141,11 @@ describe('RFC-007 D8/D9 Outcome Engine (dispute-aware, via settlement.escrow.rel
 
   beforeEach(() => {
     jest.clearAllMocks()
+    claimStore.clear()
+    mockProjectEscrowStatus.mockResolvedValue({ applied: true })
+    mockVouchUpdate.mockResolvedValue({ count: 1 })
     mockTradeUpdate.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
     mockUserUpdate.mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 })
     // RFC-021 D4, Phase 3 default: bootstrap-phase escrow, no protocol fee
     // charged (config.settlement.protocolFeeRate === 0, the documented
@@ -167,17 +209,19 @@ describe('settlement.escrow.split (RFC-021 D9) — NEUTRAL for both, no vouch bu
 
   beforeEach(() => {
     jest.clearAllMocks()
+    claimStore.clear()
+    mockProjectEscrowStatus.mockResolvedValue({ applied: true })
+    mockVouchUpdate.mockResolvedValue({ count: 1 })
     mockTradeUpdate.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
     mockUserUpdate.mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 })
   })
 
   it('scores both parties NEUTRAL and never touches vouches', async () => {
     await handlers['settlement.escrow.split']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'SPLIT' })
 
-    expect(mockTradeUpdate).toHaveBeenCalledWith({
-      where: { id: 'trade-1' },
-      data: { status: 'COMPLETED', completedAt: expect.any(Date) },
-    })
+    // Issue #294 - the Trade status is projected from the persisted Escrow (never from the event payload).
+    expect(mockProjectEscrowStatus).toHaveBeenCalledWith('trade-1', 'escrow-1', { tx: expect.anything() })
 
     const scoreUpdates = mockUserUpdate.mock.calls.filter((c) => c[0]?.data?.reputationScore)
     expect(scoreUpdates.find((c) => c[0].where.id === 'buyer-1')?.[0].data.reputationScore).toEqual({ increment: 0 })
@@ -198,8 +242,10 @@ describe('settlement.escrow.split (RFC-021 D9) — NEUTRAL for both, no vouch bu
   it('walks the Intent through SETTLING then FULFILLED, in order', async () => {
     await handlers['settlement.escrow.split']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'SPLIT' })
 
-    expect(mockIntentTransition).toHaveBeenNthCalledWith(1, 'intent-1', 'SETTLING', 'system:trade-lifecycle', 'intent.settling', expect.objectContaining({ intentId: 'intent-1' }))
-    expect(mockIntentTransition).toHaveBeenNthCalledWith(2, 'intent-1', 'FULFILLED', 'system:trade-lifecycle', 'intent.fulfilled', expect.objectContaining({ intentId: 'intent-1', outcome: 'SPLIT' }))
+    expect(mockIntentTransition).toHaveBeenNthCalledWith(2, 'intent-1', 'SETTLING', 'system:trade-lifecycle', 'intent.settling', expect.objectContaining({ intentId: 'intent-1' }))
+    // Issue #291 hardening: a settled escrow proves the funds were locked, so the Intent is first caught up to COMMITTED
+    expect(mockIntentTransition).toHaveBeenNthCalledWith(1, 'intent-1', 'COMMITTED', 'system:trade-lifecycle', 'intent.committed', expect.objectContaining({ intentId: 'intent-1' }))
+    expect(mockIntentTransition).toHaveBeenNthCalledWith(3, 'intent-1', 'FULFILLED', 'system:trade-lifecycle', 'intent.fulfilled', expect.objectContaining({ intentId: 'intent-1', outcome: 'SPLIT' }))
   })
 })
 
@@ -214,7 +260,11 @@ describe('RFC-021 D4 — cumulativeFeesObserved wiring (settlement.escrow.releas
 
   beforeEach(() => {
     jest.clearAllMocks()
+    claimStore.clear()
+    mockProjectEscrowStatus.mockResolvedValue({ applied: true })
+    mockVouchUpdate.mockResolvedValue({ count: 1 })
     mockTradeUpdate.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
     mockUserUpdate.mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 })
     mockDisputeFindFirst.mockResolvedValue(null)
   })
@@ -252,7 +302,11 @@ describe('RFC-018 — Intent lifecycle driven by settlement.escrow.* handlers', 
 
   beforeEach(() => {
     jest.clearAllMocks()
+    claimStore.clear()
+    mockProjectEscrowStatus.mockResolvedValue({ applied: true })
+    mockVouchUpdate.mockResolvedValue({ count: 1 })
     mockTradeUpdate.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
     mockUserUpdate.mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 })
     mockDisputeFindFirst.mockResolvedValue(null)
   })
@@ -267,7 +321,7 @@ describe('RFC-018 — Intent lifecycle driven by settlement.escrow.* handlers', 
   })
 
   it('settlement.escrow.locked skips Intent transition when the Trade predates RFC-018 (intentId null)', async () => {
-    mockTradeUpdate.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: null })
+    mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: null })
 
     await handlers['settlement.escrow.locked']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'seller-1', from: 'CREATED', to: 'FUNDS_LOCKED' })
 
@@ -278,7 +332,7 @@ describe('RFC-018 — Intent lifecycle driven by settlement.escrow.* handlers', 
     await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'buyer-1', from: 'PAYMENT_PENDING', to: 'COMPLETED' })
 
     const calls = mockIntentTransition.mock.calls.map((c) => c[1]) // toStatus per call
-    expect(calls).toEqual(['SETTLING', 'FULFILLED'])
+    expect(calls).toEqual(['COMMITTED', 'SETTLING', 'FULFILLED'])
   })
 
   it('settlement.escrow.refunded transitions the Intent to FAILED', async () => {
@@ -306,6 +360,9 @@ describe('RFC-018 gap fix — settlement.escrow.created persists Trade.escrowId'
 
   beforeEach(() => {
     jest.clearAllMocks()
+    claimStore.clear()
+    mockProjectEscrowStatus.mockResolvedValue({ applied: true })
+    mockVouchUpdate.mockResolvedValue({ count: 1 })
     mockTradeUpdate.mockResolvedValue({ id: 'trade-1', escrowId: 'escrow-1' })
   })
 
@@ -331,7 +388,11 @@ describe('RFC-021 D7 — vouch burned on the losing party of a resolved dispute'
 
   beforeEach(() => {
     jest.clearAllMocks()
+    claimStore.clear()
+    mockProjectEscrowStatus.mockResolvedValue({ applied: true })
+    mockVouchUpdate.mockResolvedValue({ count: 1 })
     mockTradeUpdate.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
     mockUserUpdate.mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 })
     mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', feeCharged: null })
     mockVouchFindMany.mockResolvedValue([])
@@ -344,7 +405,7 @@ describe('RFC-021 D7 — vouch burned on the losing party of a resolved dispute'
     await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'COMPLETED' })
 
     expect(mockVouchFindMany).toHaveBeenCalledWith({ where: { voucheeId: 'seller-1', burnedAt: null } })
-    expect(mockVouchUpdate).toHaveBeenCalledWith({ where: { id: 'vouch-1' }, data: { burnedAt: expect.any(Date) } })
+    expect(mockVouchUpdate).toHaveBeenCalledWith({ where: { id: 'vouch-1', burnedAt: null }, data: { burnedAt: expect.any(Date) } })
     const voucherPenalty = mockUserUpdate.mock.calls.find((c) => c[0].where.id === 'voucher-1')
     expect(voucherPenalty?.[0].data.reputationScore).toEqual({ increment: -5 })
   })

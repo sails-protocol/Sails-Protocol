@@ -9,6 +9,7 @@ import {
   loadParticipantPubkeys,
   claimEscrowTransition,
   revertEscrowStatus,
+  settlementSucceededButLocalStepFailed,
   emitEscrowTransition,
   resolvePayoutAddress,
   checkFundMovementCapability,
@@ -388,20 +389,36 @@ export async function submitTransactionSignature(escrowId: string, participantId
   // same idiom as releaseFunds()/refundFunds() (escrow.service.ts).
   await claimEscrowTransition(escrowId, escrow.status, targetStatus)
 
+  // Issue #291 - two distinct error boundaries. Only a failing PROVIDER
+  // finalize reverts the claim (the pending row and signatures stay for a
+  // retry). Once finalize has returned, external execution may already have
+  // happened: a later LOCAL failure must not revert the escrow as though it
+  // had not - the pending row is kept and reconciliation (C8 / PASS 1 / 2 / 3)
+  // converges from durable facts.
+  let result: Awaited<ReturnType<typeof provider.finalizeRelease>>
   try {
     const signedList = pending.requiredSigners.map(
       (id: string) => signatures.find((s: { participantId: string; signedPsbtBase64: string }) => s.participantId === id)!.signedPsbtBase64
     )
-    const result = pending.kind === 'release'
+    result = pending.kind === 'release'
       ? await provider.finalizeRelease(escrow, pending.unsignedPsbtBase64, signedList)
       : pending.kind === 'refund'
       ? await provider.finalizeRefund(escrow, pending.unsignedPsbtBase64, signedList)
       : await provider.finalizeSplit!(escrow, pending.unsignedPsbtBase64, signedList)
+  } catch (err) {
+    await revertEscrowStatus(escrowId, targetStatus, escrow.status)
+    throw err
+  }
 
+  try {
     const updateData = pending.kind === 'refund'
       ? { txReleaseId: result.txId }
       : { txReleaseId: result.txId, releasedAt: new Date() }
-    const updated = await escrowRepository.updateSignatureCollectionResult(escrowId, updateData)
+    // txReleaseId is provider EVIDENCE; the write is bound to the immutable,
+    // Sails-owned pending operation it belongs to (Issue #291).
+    const updated = await escrowRepository.updateSignatureCollectionResult(escrowId, updateData, {
+      operation: { pendingOperationId: pending.id },
+    })
 
     // Missão 11 Fase 3 §7 — the SAME centralized function
     // escrow.service.ts's direct-call releaseFunds()/refundFunds()/
@@ -491,12 +508,9 @@ export async function submitTransactionSignature(escrowId: string, participantId
 
     return { escrow: updated, complete: true }
   } catch (err) {
-    // Revert the claim — see releaseFunds()'s identical comment. The
-    // pending row and its signatures are left in place on failure so the
-    // caller can retry submitTransactionSignature() (idempotent upsert)
-    // without needing to re-collect signatures already submitted.
-    await revertEscrowStatus(escrowId, targetStatus, escrow.status)
-    throw err
+    // Issue #291 - finalize already succeeded (above): never revert here.
+    // The pending row and its signatures are left in place for recovery.
+    throw settlementSucceededButLocalStepFailed(escrowId, pending.kind, result.txId, err)
   }
 }
 

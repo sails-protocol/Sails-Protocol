@@ -96,7 +96,7 @@ const mockEscrowFindUnique = jest.fn()
 const mockEscrowUpdate = jest.fn()
 const mockParticipantKeyFindMany = jest.fn()
 const mockEscrowEventFindFirst = jest.fn()
-const mockEscrowEventCreate = jest.fn()
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 // Same passthrough shape multisigFundingReorgSweep.test.ts's own
 // withEscrowFundingLock() mock uses — no real transactional semantics
 // needed for a unit-level proof of the orchestration; the real locked
@@ -104,6 +104,8 @@ const mockEscrowEventCreate = jest.fn()
 // tests/integration/escrowFundingConcurrency.test.ts.
 const mockTransaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
   callback({
+    // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+    eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
     $executeRaw: jest.fn().mockResolvedValue(0),
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args), update: (...args: unknown[]) => mockEscrowUpdate(...args) },
     // Missão 11 Fase 9.7 — emitEscrowTransition() now does its own
@@ -120,6 +122,12 @@ const mockTransaction = jest.fn(async (callback: (tx: unknown) => Promise<unknow
 )
 jest.mock('../src/common/database', () => ({
   prisma: {
+    // Issue #298 - PASS 3 scans for claimed-but-unprojected transitions; none by default.
+    eventProjectionClaim: { findMany: jest.fn().mockResolvedValue([]) },
+    // PASS 3 now pages incomplete claimed transitions with one raw anti-join query; none by default.
+    $queryRaw: jest.fn().mockResolvedValue([]),
+    // Issue #291 hardening - durable WDK attempt evidence attached to the manual-review reason.
+    wdkTransferAttempt: { findMany: jest.fn().mockResolvedValue([{ operationType: 'RELEASE', status: 'CONFIRMED', txHash: '0xabc' }]) },
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
     escrowPendingTransaction: {
       findUnique: (...args: unknown[]) => mockPendingTxFindUnique(...args),
@@ -227,7 +235,7 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
     expect(mockAuthorizePendingExecution).toHaveBeenCalledWith(expect.objectContaining({ id: 'pending-1' }))
     expect(mockAuthorizeDisputedPendingExecution.mock.invocationCallOrder[0]).toBeLessThan(mockAuthorizePendingExecution.mock.invocationCallOrder[0])
     expect(mockClaimTransition).toHaveBeenCalledWith('escrow-1', 'DISPUTED', 'COMPLETED')
-    expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: 'c8-txid-1', releasedAt: expect.any(Date) })
+    expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: 'c8-txid-1', releasedAt: expect.any(Date) }, { operation: { pendingOperationId: 'pending-1' } })
     expect(report.resumedUnclaimed).toEqual([{ escrowId: 'escrow-1', txId: 'c8-txid-1', outcome: 'NEWLY_BROADCAST' }])
     expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'RELEASE', undefined, undefined)
     expect(mockRecordLiveCorrespondenceIfApplicable).toHaveBeenCalledWith('escrow-1', 'trade-1', 'MULTISIG', 'c8-raw-hex')
@@ -301,7 +309,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
   it('no candidates — a clean, empty report', async () => {
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
     const report = await reconcilePendingSettlements()
-    expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [] })
+    expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [] })
   })
 
   it('a non-MULTISIG rail has no automated recovery primitive in scope — fails closed, flagged for manual review, no chain calls attempted', async () => {
@@ -310,6 +318,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     expect(report.requiresManualReview).toHaveLength(1)
     expect(report.requiresManualReview[0].escrowId).toBe('escrow-1')
     expect(report.requiresManualReview[0].reason).toMatch(/no automated crash-recovery reconciliation primitive/)
+    expect(report.requiresManualReview[0].reason).toContain("RELEASE=CONFIRMED(0xabc)")
     expect(mockReconcilePendingSettlement).not.toHaveBeenCalled()
   })
 
@@ -358,7 +367,8 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     const report = await reconcilePendingSettlements()
 
     expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: 'real-txid-1', outcome: 'ALREADY_BROADCAST' }])
-    expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-txid-1', releasedAt: expect.any(Date) } })
+    // Issue #291 - PASS 1 now writes through the shared write-once primitive, bound to the pending operation.
+    expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: 'real-txid-1', releasedAt: expect.any(Date) }, { tx: expect.anything(), operation: { pendingOperationId: 'pending-1' } })
     expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'RELEASE', undefined, undefined)
     expect(mockPendingTxDelete).toHaveBeenCalledWith({ where: { id: 'pending-1' } })
     // M9 — PASS 1 threads its own exact-reconstruction rawTxHex straight
@@ -375,7 +385,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
 
     expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: 'real-txid-2', outcome: 'NEWLY_BROADCAST' }])
     expect(mockReconcilePendingSettlement).toHaveBeenCalledTimes(1) // never called twice — no retry loop, no second attempt
-    expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-txid-2', releasedAt: expect.any(Date) } })
+    expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: 'real-txid-2', releasedAt: expect.any(Date) }, { tx: expect.anything(), operation: { pendingOperationId: 'pending-1' } })
   })
 
   it('a refund convergence omits releasedAt — matches submitTransactionSignature()\'s own refund-vs-release/split field shape exactly', async () => {
@@ -385,7 +395,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
 
     await reconcilePendingSettlements()
 
-    expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-txid-3' } })
+    expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: 'real-txid-3' }, { tx: expect.anything(), operation: { pendingOperationId: 'pending-1' } })
     expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'FULL_REFUND', undefined, undefined)
   })
 
@@ -400,7 +410,10 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
 
     await reconcilePendingSettlements()
 
+    // Issue #291 - the decision "same result -> idempotent no-op" now lives INSIDE the shared write-once
+    // primitive (escrow-repository.ts), so PASS 1 always routes through it; it never writes around it.
     expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledTimes(1)
     // Downstream side effects (obligation/event/pending-row cleanup)
     // still run — recordObligationForEscrowSettlement() is independently
     // idempotent (findByEscrowId() check), and emitEscrowTransition()
@@ -408,6 +421,23 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     // cascade fires — its own (escrowId, toStatus) claim, not this
     // txReleaseId write, is the real double-fire guard (see the
     // dedicated emitEscrowTransition() idempotency tests below).
+  })
+
+  // Issue #291 - PASS 1 and C8 use the same write-once semantics as every live writer: a DIFFERENT
+  // persisted result is an integrity conflict (manual review), never silently ignored and never overwritten.
+  it('PASS 1: a conflicting persisted settlement result is surfaced for manual review - no overwrite, no downstream effects', async () => {
+    const { SettlementResultConflictError } = require('../src/common/errors')
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture()])
+    mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture())
+    mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'chain-txid', detail: 'already known' })
+    mockUpdateSignatureCollectionResult.mockRejectedValueOnce(new SettlementResultConflictError('durable txReleaseId A cannot be replaced by chain-txid'))
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.requiresManualReview).toEqual([{ escrowId: 'escrow-1', reason: expect.stringContaining('cannot be replaced') }])
+    expect(report.recovered).toEqual([])
+    expect(mockRecordObligation).not.toHaveBeenCalled()
+    expect(mockEscrowUpdate).not.toHaveBeenCalled()
   })
 
   it('an escrow that throws mid-reconciliation lands in `failed`, not `recovered` or silently dropped — and does not stop the rest of the batch', async () => {
