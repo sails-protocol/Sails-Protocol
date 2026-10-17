@@ -641,7 +641,7 @@ jobs:
           runMeasured('k6',[
             'run','--quiet','--summary-export=/tmp/sails-k6-intent-summary.json',
             '-e','BASE_URL=http://127.0.0.1:3000','load-tests/tests/intent-bounded.js'
-          ],{timeoutMs:90000,intervalMs:25}).then(usage=>{
+          ],{timeoutMs:90000,intervalMs:25,outputFile:'/tmp/sails-k6-intent.log'}).then(usage=>{
             console.log('k6 Intent generator resource sample:',JSON.stringify(usage));
           }).catch(()=>{
             console.error('k6 Intent generator or resource accounting failed (output withheld)');
