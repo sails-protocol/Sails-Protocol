@@ -1342,8 +1342,7 @@ export class MultisigProvider implements SettlementProvider {
     const feeCollectionResult: FeeCollectionResult | null = policyAware ? { feeSats: fmax, waived: fmax === 0 } : null
 
     if (escrow.status === 'DISPUTED') {
-      const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow)) // Fase 7.3.1 §B — see resolveArbiterSigningId()'s own comment
-      psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+      // AUD1X-H1: unsigned construction must never carry the platform arbiter signature.
       if (!escrow.buyerId) {
         throw new EscrowError(`MULTISIG provider: missing buyerId for disputed release of trade ${escrow.tradeId}`)
       }
@@ -1398,8 +1397,7 @@ export class MultisigProvider implements SettlementProvider {
     const { psbt, feeSats } = await this.buildUnsignedSpend(escrow, parties, 1, (spendableValue) => [{ address: sellerRefundAddress, value: spendableValue }])
 
     if (escrow.status === 'DISPUTED') {
-      const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow)) // Fase 7.3.1 §B — see resolveArbiterSigningId()'s own comment
-      psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+      // AUD1X-H1: unsigned construction must never carry the platform arbiter signature.
       if (!escrow.sellerId) {
         throw new EscrowError(`MULTISIG provider: missing sellerId for disputed refund of trade ${escrow.tradeId}`)
       }
@@ -1500,8 +1498,7 @@ export class MultisigProvider implements SettlementProvider {
 
     const feeCollectionResult: FeeCollectionResult | null = policyAware ? { feeSats: collectedFee, waived: feeDecision.waived } : null
 
-    const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow)) // Fase 7.3.1 §B — see resolveArbiterSigningId()'s own comment
-    psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+    // AUD1X-H1: the platform arbiter signs only after the execution authority gates.
     if (!escrow.buyerId) {
       throw new EscrowError(`MULTISIG provider: missing buyerId for disputed split of trade ${escrow.tradeId}`)
     }
