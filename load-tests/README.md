@@ -8,17 +8,73 @@ same "mock only the database boundary a unit test needs to, never the
 thing actually being proven" discipline this repo's e2e (Playwright) and
 load-tests/artillery/ (Artillery) suites already established.
 
-This is a **second, separate load-testing tool alongside
-`load-tests/artillery/`** (Artillery, moved from the former top-level
-`loadtest/` — PRODUCTION_READINESS_FIXES.md item 19, closed 2026-08-08,
-so both suites live under one parent directory), not a replacement —
-nothing in this repo's docs/RFCs planned a k6 suite before this phase;
-it was a net-new ask. The two don't overlap in what they test today:
-`load-tests/artillery/` covers Intent API
-throughput and the chat WebSocket; this suite adds trade/escrow
-lifecycle, reconciliation, and reputation lookups, plus k6's
-purpose-built load-*shape* scenarios (ramps, spikes, soak) that
-Artillery's phase config can't express as directly.
+## Target architecture: k6 + Sails TestKit
+
+**Decision (2026-10-15):** k6 is the primary load/performance runner. **Sails
+TestKit** is a small, test-only Node.js helper layer for protocol-specific
+identity/Ed25519 proof-of-possession, authentication, one-time WebSocket
+tickets, fixture setup and fail-closed protocol assertions when these cannot
+be expressed safely and simply inside k6. It is **not** a second load engine:
+no virtual-user scheduler, arrival-rate implementation, latency percentile
+engine, dashboards or independent throughput benchmarks should be maintained
+in TestKit. Prefer direct k6 implementations when practical.
+
+**Implemented TestKit primitives:** `load-tests/testkit/loopback-target.cjs`, `ws-protocol.cjs`, and `protocol-assertions.cjs` provide narrowly scoped fail-closed checks, with positive/negative `.test.cjs` proofs. The native candidate reuses the protocol assertions; the dedicated CI workflow executes their unit controls. These are incremental helpers, **not** a finished TestKit distribution or evidence of benchmark parity. See `load-tests/TESTKIT-ARCHITECTURE-DECISION.md` for the accepted direction and unresolved acceptance gates.
+
+**Migration status: NOT COMPLETE.** The existing k6 suite covers
+trade/escrow lifecycle, reconciliation and reputation, while the legacy
+Artillery suite covers Intent API and chat WebSocket. The candidate
+`load-tests/native/run.js` now provides protocol-only authenticated smoke;
+its duplicate `runPhases` load scheduler and benchmark modes have been retired.
+This does **not** establish sustained k6/Artillery parity or complete migration. The
+Artillery bounded HTTP and WS comparators are retained as baselines. In
+particular, the bounded Artillery WS candidate sends PING but does **not**
+assert receipt of PONG; it must not be presented as protocol parity.
+
+**Bounded k6 WS candidate:** `load-tests/tests/chat-ws-bounded.js` creates a
+real PoP identity, requests a single-use ticket, opens an authenticated
+WebSocket, sends application PING and asserts application PONG on that same
+connection. It runs one iteration against loopback only and must be
+validated against the disposable real backend and a deliberately non-PONG
+negative fixture before being accepted as an Artillery replacement. It
+is not a sustained load benchmark; never log the ticket-bearing URL.
+
+**Bounded k6 Intent candidate:** `load-tests/tests/intent-bounded.js` executes
+one real PoP-authenticated Intent create/cancel round trip on loopback.
+The dedicated CI job runs both bounded k6 scripts against a disposable
+PostgreSQL/Redis-backed API, separated from earlier comparator traffic by
+the normal auth-limit window. Both require real-service PASS before
+promotion; CI syntax-only checks do not count as parity evidence.
+
+**k6 negative gate:** `load-tests/tests/chat-ws-no-pong-negative.js`
+uses `load-tests/native/non-pong-fixture.cjs` (loopback-only, no real
+credentials). The CI expects k6 to exit nonzero **for the specific missing
+PONG assertion**, not merely due to a setup/import/transport failure.
+A positive real-service WS run and this negative fixture must both PASS
+before PONG parity is considered proven.
+
+**Removal gates:** port the missing Intent and authenticated chat WebSocket
+workloads to k6; establish positive and deliberately negative PONG evidence;
+verify fail-closed identity, auth, ticket and target safety; compare outcomes
+against the real-backend legacy baseline; establish a safe, explicitly
+approved rate-limit/benchmark policy for sustained load; then review the
+Artillery dependency and lockfile removal. No production rate-limit changes,
+merge or deployment are authorized by this document.
+
+**Maintenance boundary:** TestKit follows protocol contract changes and
+security fixes only; CI verifies its helpers. k6 owns concurrency, load
+shapes, thresholds, metrics and reports. No always-on TestKit service or
+independent infrastructure.
+
+### Historical suite context
+
+The k6 suite was originally introduced as a second tool alongside
+`load-tests/artillery/` (Artillery moved from the former top-level
+`loadtest/` under PRODUCTION_READINESS_FIXES.md item 19 on 2026-08-08).
+At that time the suites covered different areas: Artillery covered Intent
+API and chat WebSocket, while k6 added trade/escrow lifecycle,
+reconciliation, reputation and dedicated load shapes. The target
+architecture above supersedes that earlier coexistence decision.
 
 ## Prerequisites
 
@@ -37,20 +93,41 @@ Artillery's phase config can't express as directly.
    ```
    (or `docker-compose up -d` — either path, see `docs/DEVELOPER_JOURNEY.md`).
 
-3. **The real server, with rate limits raised.** At shipped defaults
-   (`RATE_LIMIT_AUTH_MAX=10`/min, `RATE_LIMIT_MAX=100`/min —
-   `src/config/index.ts`, RT-002) any of these scripts will mostly
-   measure the rate limiter within the first few seconds — a real,
-   correct result, just not what "Intent/trade/escrow throughput" means.
-   `load-tests/artillery/README.md` already documents this exact tradeoff for
-   Artillery; the same override works here:
-   ```
-   RATE_LIMIT_AUTH_MAX=100000 RATE_LIMIT_MAX=100000 TRUSTED_ARBITRATORS=k6-test-arbiter npm run dev
-   ```
-   `TRUSTED_ARBITRATORS` isn't exercised by anything in this suite today
-   (no test drives dispute resolution), but is included above since a
-   real deployment needs it set before disputes work at all — harmless
-   to include, and one less thing to remember if a future test needs it.
+3. **The real disposable server, preserving security limits.** The shipped defaults
+   (`RATE_LIMIT_AUTH_MAX=10`/min and `RATE_LIMIT_MAX=100`/min) are part of
+   the security contract. Run the bounded, loopback-only CI candidates at
+   these defaults. High-throughput experiments that exceed them require a
+   separately reviewed and authorized test policy; do not copy historical
+   rate-limit overrides into production or routine local workflows. An HTTP
+   429 is meaningful evidence, not a reason to weaken a gate.
+
+## Maintainer handoff: ownership and fallback boundary
+
+| Component | Owns | Must not own |
+| --- | --- | --- |
+| k6 | Virtual users, arrival scheduling, concurrency, thresholds, load metrics and reports | Protocol-specific economic authority or production security overrides |
+| Sails TestKit (target, not yet complete) | Reusable protocol fixtures, PoP identity/auth helpers, one-time WS tickets, protocol assertions and integration-test adapters | A custom load scheduler, virtual-user engine, percentile calculator, persistent service or benchmark dashboard |
+| Existing unit/integration runner | Functional correctness and regression tests using TestKit helpers where suitable | Replacement for k6 load/throughput claims |
+| Artillery (transitional) | Legacy comparator and evidence until parity is approved | Permanent duplicate architecture by default |
+
+**Fallback semantics:** if k6 is unavailable, TestKit-backed functional and
+integration checks may continue, but they do **not** constitute a load-test
+fallback or certify throughput. Preserve a blocked load gate rather than
+reporting a functional PASS as a performance PASS.
+
+**How to change a protocol flow:** update the real protocol assertion and its
+positive/negative tests, keep authentication and one-time ticket semantics
+fail-closed, reuse the fixture in k6 where supported, and verify on a
+loopback-only disposable PostgreSQL/Redis backend. Record exact HEAD, CI run
+IDs and sanitized evidence. Never include session tokens, private keys,
+signed proofs or ticket-bearing URLs in logs or artifacts.
+
+**Migration checklist:** (1) keep Artillery until HTTP and application-PONG
+coverage and benchmark accounting are comparable; (2) collect repeated
+requested/achieved arrival rates, operation-specific latency, errors and
+backend/generator resource measurements; (3) preserve the scheduler-free native protocol smoke and keep k6 as the only load engine; (4) require independent security review
+and explicit merge/deploy authorization. See
+`load-tests/K6-EVALUATION-CHECKLIST.md` for evidence and open gates.
 
 ## Structure
 

@@ -1,0 +1,38 @@
+# Bounded correctness comparator, not a throughput benchmark.
+# Exactly two new authenticated identities (8 shared auth-tier calls total).
+# Run ONLY on a fresh disposable local PostgreSQL/Redis backend; do not combine
+# with other auth smokes in the same 60s window or weaken rate limiting.
+# Current protocol PoP is enforced by comparator-processor.js.
+config:
+  target: "http://127.0.0.1:3000"
+  processor: "./comparator-processor.js"
+  phases:
+    - duration: 2
+      arrivalRate: 1
+      name: Bounded two-arrival correctness rehearsal
+scenarios:
+  - name: "Current PoP authenticated intent create and cancel (bounded)"
+    flow:
+      - function: "setupCurrentAuthenticatedUser"
+      - post:
+          url: "/v1/intents"
+          headers:
+            Authorization: "Bearer {{ sessionToken }}"
+          json:
+            type: "TradeIntent"
+            payload:
+              asset: "BTC"
+              side: "BUY"
+              maxValue: "100"
+              currency: "USD"
+          capture:
+            - json: "$.data.id"
+              as: "intentId"
+          expect:
+            - statusCode: 201
+      - delete:
+          url: "/v1/intents/{{ intentId }}"
+          headers:
+            Authorization: "Bearer {{ sessionToken }}"
+          expect:
+            - statusCode: 200

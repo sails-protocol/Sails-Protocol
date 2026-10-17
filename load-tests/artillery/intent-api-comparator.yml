@@ -1,0 +1,42 @@
+# Test-only, current-protocol comparator. Do not run against production.
+# Mirrors native intent arrival phases; authentication uses current PoP.
+# The default auth-tier 10/min limit WILL intentionally block these rates.
+# This file is NOT a production capacity certification.
+config:
+  target: "http://127.0.0.1:3000"
+  processor: "./comparator-processor.js"
+  phases:
+    - duration: 20
+      arrivalRate: 5
+      name: Warm-up
+    - duration: 30
+      arrivalRate: 20
+      name: Sustained
+  variables:
+    asset: ["BTC", "USDT_ERC20", "LN_BTC"]
+scenarios:
+  - name: "Current PoP authenticated intent create and cancel"
+    flow:
+      - function: "setupCurrentAuthenticatedUser"
+      - post:
+          url: "/v1/intents"
+          headers:
+            Authorization: "Bearer {{ sessionToken }}"
+          json:
+            type: "TradeIntent"
+            payload:
+              asset: "{{ asset }}"
+              side: "BUY"
+              maxValue: "100"
+              currency: "USD"
+          capture:
+            - json: "$.data.id"
+              as: "intentId"
+          expect:
+            - statusCode: 201
+      - delete:
+          url: "/v1/intents/{{ intentId }}"
+          headers:
+            Authorization: "Bearer {{ sessionToken }}"
+          expect:
+            - statusCode: 200
