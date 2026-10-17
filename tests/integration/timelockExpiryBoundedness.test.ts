@@ -345,6 +345,10 @@ describe('Timelock expiry sweep: bounded passes, durable round-robin, #379 invar
     expect(stale.claims[0]).toEqual(expect.arrayContaining(ids))
     // the claim is queue position only, not ownership: another node's passes reach the same escrows
     expect(await drain(ids, 5, { restart: true })).toBeLessThanOrEqual(3)
+    // The other node must have completed all transitions before the stale worker resumes.
+    // Without this barrier, an intermittently green CAS assertion can hide a fixture race.
+    expect(await expiredCount(ids)).toBe(ids.length)
+    await expectExpiryInvariant(ids)
     held.resume()
     const result = await staleRun
     expect(result.requiresManualRecovery.filter((id) => ids.includes(id))).toEqual([])

@@ -926,7 +926,14 @@ export class EscrowService {
       }
     } catch (err) {
       if (wdkLegs) throw await wdkOutboundFailure(escrowId, 'COMPLETED', escrow.status, err)
-      await revertEscrowStatus(escrowId, 'COMPLETED', escrow.status)
+      // A direct provider may have moved funds before throwing, regardless of
+      // whether this was an arbitrated or ordinary settlement. An exception is
+      // NOT proof of non-execution. Preserve the atomically claimed terminal
+      // state and frozen economic intent to prevent a second provider dispatch.
+      // This is an uncertainty quarantine, NOT evidence of settlement success:
+      // tx result and terminal event remain absent until verified recovery.
+      // Provider-specific, proven pre-dispatch failures need a separate
+      // evidence-backed rollback path; never infer one from a thrown error.
       throw err
     }
 
@@ -1070,7 +1077,14 @@ export class EscrowService {
       }
     } catch (err) {
       if (wdkLegs) throw await wdkOutboundFailure(escrowId, 'REFUNDED', escrow.status, err)
-      await revertEscrowStatus(escrowId, 'REFUNDED', escrow.status)
+      // A direct provider may have moved funds before throwing, regardless of
+      // whether this was an arbitrated or ordinary settlement. An exception is
+      // NOT proof of non-execution. Preserve the atomically claimed terminal
+      // state and frozen economic intent to prevent a second provider dispatch.
+      // This is an uncertainty quarantine, NOT evidence of settlement success:
+      // tx result and terminal event remain absent until verified recovery.
+      // Provider-specific, proven pre-dispatch failures need a separate
+      // evidence-backed rollback path; never infer one from a thrown error.
       throw err
     }
 
@@ -1124,9 +1138,10 @@ export class EscrowService {
       )
     }
 
-    // #247/#248 - the claim freezes the arbitrated intent (SPLIT at buyerBps) before any provider side
-    // effect; a failed provider call below reverts only the status, so a retry - by whoever is then the
-    // assigned arbiter (checked above) - must present this identical allocation.
+    // #247/#248 - the claim freezes the arbitrated intent (SPLIT at buyerBps)
+    // before any provider side effect. An unknown provider outcome MUST NOT
+    // revert the claim or permit a retry: an exception is not evidence that
+    // no transfer happened. Recovery requires independently verified outcome.
     // #235 R7G-F6C - a WDK split is two legs frozen here: floor(amount x buyerBps / 10000) to the buyer, the
     // exact remainder to the seller, each to its registered payout address.
     const wdkLegs = escrow.type === 'WDK_USDT_EVM'
@@ -1146,7 +1161,14 @@ export class EscrowService {
         )
     } catch (err) {
       if (wdkLegs) throw await wdkOutboundFailure(escrowId, 'SPLIT', escrow.status, err)
-      await revertEscrowStatus(escrowId, 'SPLIT', escrow.status)
+      // A direct provider may have moved funds before throwing, regardless of
+      // whether this was an arbitrated or ordinary settlement. An exception is
+      // NOT proof of non-execution. Preserve the atomically claimed terminal
+      // state and frozen economic intent to prevent a second provider dispatch.
+      // This is an uncertainty quarantine, NOT evidence of settlement success:
+      // tx result and terminal event remain absent until verified recovery.
+      // Provider-specific, proven pre-dispatch failures need a separate
+      // evidence-backed rollback path; never infer one from a thrown error.
       throw err
     }
 
