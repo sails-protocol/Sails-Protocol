@@ -806,37 +806,38 @@ export class DisputeService {
       // of this ruling's dispatch and must not suppress a valid rollback.
       // Signature and translation safety remain owned by the locked
       // reconciliation guard, never by this catch block.
-      const mayRevert = await prisma.$transaction(async (tx) => {
+      // AUD1X: classify persisted dispatch evidence under D -> E locks.
+      // The classifier distinguishes an equivalent persisted round (ADOPT),
+      // conflicting/unproven durable evidence (PRESERVE), and safe rollback (REVERT).
+      const resolution: { adopted: boolean; refusal: Error | null } = { adopted: false, refusal: null }
+      await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dispute.escrowId})::bigint)`
-        const pending = await tx.escrowPendingTransaction.findUnique({
-          where: { escrowId: dispute.escrowId },
-          select: {
-            id: true, disputeId: true, rulingAppealRound: true,
-            rulingArbiterId: true, rulingOutcome: true,
-            rulingAuthoritySignature: true, rulingAuthorityIssuedAt: true,
+        const decision = await decideRulingRevert(
+          tx,
+          { escrowId: dispute.escrowId, disputeId: dispute.id, appealRound: dispute.appealRound, authoritySignature },
+          {
+            escrowId: dispute.escrowId,
+            escrowType: 'MULTISIG',
+            kind: payload.outcome === 'RELEASE' ? 'release' : payload.outcome === 'REFUND' ? 'refund' : 'split',
+            triggeredBy: payload.authorityId,
+            toAddress: (payload.outcome === 'REFUND'
+              ? commitResult.destinations.find((d) => d.beneficiary === sellerId)
+              : commitResult.destinations.find((d) => d.beneficiary === buyerId))?.destination ?? null,
+            toAddressSecondary: payload.outcome === 'SPLIT'
+              ? (commitResult.destinations.find((d) => d.beneficiary === sellerId)?.destination ?? null)
+              : null,
+            buyerBps: payload.outcome === 'SPLIT' ? (payload.buyerBps ?? null) : null,
           },
-        })
-        // Fail closed when any economic disposition authorization is already durable
-        // for this escrow. A missing/replaced pending is not evidence that an
-        // authorization was never committed; authorization is indexed by its
-        // pending operation ID and must survive later pending lifecycle changes.
-        // Conservative escrow-wide check also protects older generations.
-        const committedEconomicAuthority = await tx.economicDispositionAuthorization.findFirst({
-          where: { escrowId: dispute.escrowId },
-          select: { id: true },
-        })
-        if (committedEconomicAuthority) return false
-        // A pre-existing cooperative signing round is NOT proof that
-        // this ruling's dispatch happened. Preserve authority only for
-        // the exact generation this invocation committed.
-        if (pending &&
-            pending.disputeId === dispute.id &&
-            pending.rulingAppealRound === dispute.appealRound &&
-            pending.rulingArbiterId === payload.authorityId &&
-            pending.rulingOutcome === payload.outcome &&
-            pending.rulingAuthoritySignature === authoritySignature &&
-            pending.rulingAuthorityIssuedAt?.getTime() === new Date(payload.issuedAt).getTime()) return false
+        )
+        if (decision.action === 'ADOPT') {
+          resolution.adopted = true
+          return
+        }
+        if (decision.action === 'PRESERVE') {
+          resolution.refusal = decision.error
+          return
+        }
+        // REVERT: only the exact signed generation may be unwound.
         const reverted = await tx.dispute.updateMany({
           where: {
             id: dispute.id,
@@ -848,22 +849,16 @@ export class DisputeService {
           },
           data: { ...(await rulingRevertTarget(tx, dispute.escrowId, commitResult.displacedStatus)), ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
         })
-        if (reverted.count !== 1) return false
-        // The Outcome belongs to the same generation as this ruling.
-        // Remove it before releasing D -> E locks: a later generation
-        // must never observe a reverted dispute with the old Outcome,
-        // nor have its own Outcome deleted by a delayed outer catch.
-        // AUD1X-R4: remove only the Outcome of the exact signed authority, within
-        // the same D -> E transaction as the successful conditional dispute revert.
+        if (reverted.count !== 1) {
+          resolution.refusal = new St1R2DeletionRefused(
+            `ST1-R2 V3: dispute ${dispute.id} advanced before rollback; preserve authority for reconciliation`,
+          )
+          return
+        }
         await revertDisputeRulingRecord(dispute.escrowId, dispute.appealRound, authoritySignature, tx)
-        return true
       })
-      if (!mayRevert) {
-        throw new St1R2DeletionRefused(
-          `ST1-R2 V3: dispatch failure cannot prove a safe ruling rollback for dispute ${dispute.id}; preserve durable authority for recovery`,
-        )
-      }
-      throw err
+      if (resolution.refusal) throw resolution.refusal
+      if (!resolution.adopted) throw err
     }
 
     await eventBus.emit('dispute.resolved', {
