@@ -109,8 +109,10 @@ async function initiateSignatureCollectionCore(
   // in submitTransactionSignature(). null for an ordinary cooperative
   // operation — ADR-005 §9 does not redefine that authority.
   let disputedRulingProvenance: Record<string, unknown> = {}
+  let disputedDispute: Awaited<ReturnType<typeof assertDisputedDispositionAuthority>> = null
   if (escrow.status === 'DISPUTED') {
     const dispute = await assertDisputedDispositionAuthority(trade.id, escrow.status, triggeredBy)
+    disputedDispute = dispute
     if (dispute) {
       disputedRulingProvenance = {
         disputeId: dispute.id,
@@ -136,6 +138,12 @@ async function initiateSignatureCollectionCore(
     : kind === 'refund' ? 'settlement.escrow.refunded' as const
     : 'settlement.escrow.split' as const
   await checkFundMovementCapability(triggeredBy, capabilityScope)
+
+  // AUD1X-H1: reject construction without a resolved ruling; execution still rechecks under locks.
+  const disputedMultisig = escrow.type === 'MULTISIG' && escrow.status === 'DISPUTED' && disputedDispute !== null
+  if (disputedMultisig && !(disputedDispute!.status === 'RESOLVED' && disputedDispute!.ruling)) {
+    throw new EscrowError(`AUD1X-H1: dispute ${disputedDispute!.id} has no resolved ruling; refusing disputed ${kind} round construction`)
+  }
 
   // Issue #239 - only an arbitrated dispatch (a ruling's own operation, carrying its provenance) may
   // supersede an existing round, and only a dead cooperative one (supersedeDeadCooperativeRound()). The
