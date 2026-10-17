@@ -354,7 +354,7 @@ jobs:
             console.log('Artillery HTTP generator resource sample:',JSON.stringify(usage));
           }).catch(error=>{
             const allowed=new Set(['Generator timed out','Generator exited nonzero (output redacted)','Generator terminated by signal','Generator runtime error','Generator spawn failed','Missing generator resource samples','Generator resource sample count insufficient','Generator resource sampling read error','Generator resource sampling read error: permission','Generator resource sampling read error: io','Generator resource sampling read error: incomplete','Generator resource sampling read error: malformed','Generator resource sampling read error: other','Generator resource counters invalid','Incomplete resource sample','Non-monotonic CPU counters']);
-            console.error('Artillery HTTP failure category:',allowed.has(error?.message)?error.message:'Backend resource observation failed (details withheld)');
+            console.error('Artillery HTTP failure category:',allowed.has(error?.message)?error.message==='Incomplete resource sample'?'Backend resource sample incomplete':error?.message==='Incomplete process RSS counters'?'Backend RSS counter missing':error?.message==='Incomplete process CPU counters'?'Backend CPU counter missing':error?.message==='Process exited during resource sample'?'Backend process exited during sample':'Unclassified resource observation failure (details withheld)');
             process.exitCode=1;
           });
           RESOURCE_NODE
