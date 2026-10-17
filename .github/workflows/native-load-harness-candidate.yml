@@ -179,6 +179,40 @@ jobs:
           const dirs=['node_modules/artillery/lib','node_modules/artillery/dist','node_modules/@artilleryio'];
           for(const dir of dirs)if(fs.existsSync(dir))console.log('Present package directory:',dir);
           NODE
+      - name: Inspect bundled Artillery WebSocket engine implementation
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const path=require('node:path');
+          const roots=['node_modules/artillery/lib','node_modules/artillery/dist'];
+          const matches=[];
+          const maxFiles=6000;
+          let scanned=0;
+          function walk(dir,depth){
+            if(depth>8||scanned>=maxFiles)return;
+            for(const ent of fs.readdirSync(dir,{withFileTypes:true})){
+              if(scanned>=maxFiles)return;
+              const full=path.join(dir,ent.name);
+              if(ent.isDirectory())walk(full,depth+1);
+              else if(ent.isFile()&&/\\.(js|cjs|mjs)$/.test(ent.name)){
+                scanned++;
+                const src=fs.readFileSync(full,'utf8');
+                const lines=src.split('\\n');
+                for(let i=0;i<lines.length;i++){
+                  const line=lines[i];
+                  if(/(?:engine-ws|WebSocketEngine|engine:\\s*['"]ws['"]|\\bws\\.on\\(['"]message|\\bws\\.once\\(['"]message)/.test(line)){
+                    matches.push({file:path.relative('.',full),line:i+1,kind:/engine-ws|WebSocketEngine/.test(line)?'engine-reference':'socket-reference'});
+                  }
+                }
+              }
+            }
+          }
+          for(const root of roots)if(fs.existsSync(root))walk(root,0);
+          console.log('Artillery bundled WS implementation source references (paths and line numbers only):',JSON.stringify(matches.slice(0,60)));
+          console.log('Scanned JavaScript files:',scanned,'total matches:',matches.length);
+          console.log('Diagnostic only: no assertion hook or PONG parity inferred');
+          NODE
       - name: Bound Artillery candidate scope and prevent false WS parity
         shell: bash
         run: |
