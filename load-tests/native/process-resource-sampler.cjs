@@ -12,7 +12,10 @@ function sample(pid){
   const status=fs.readFileSync('/proc/'+pid+'/status','utf8');
   const rss=/^VmRSS:\s+(\d+) kB$/m.exec(status);
   if(!Number.isSafeInteger(ticks)||ticks<0)throw Error('Incomplete process CPU counters');
-  if(!rss)throw Error('Incomplete process RSS counters');
+  if(!rss){
+    if(['Z','X','x'].includes(fields[0]))throw Error('Process exited during resource sample');
+    throw Error('Incomplete process RSS counters');
+  }
   return {cpuTicks:ticks,rssKiB:Number(rss[1])};
 }
 function delta(start,end){
