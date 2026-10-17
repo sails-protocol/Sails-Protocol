@@ -44,6 +44,13 @@ The repository has k6 load scenarios, legacy Artillery HTTP/WS comparators, and 
 - **Decision:** do not monkeypatch Artillery internals or promote the existing send+think scenario to a parity gate. The observed mutable `_deps` seam is an implementation detail, not yet a reviewed supported extension interface. Prefer a supported receive/assertion hook proven by real disposable-backend positive and no-PONG negative runs; otherwise retain a clearly labeled non-parity comparator.
 - Next acceptance evidence: real-socket PONG and no-PONG tests, matched Artillery/k6 metrics and resource profiles, security review, and exact-HEAD CI. Artillery retirement remains blocked.
 
+## Disposable real-WebSocket transport proof (2026-10-17)
+
+- Exact HEAD `edafcea30de959c861a010fe44d3577c1a516480`: CI Tests `38997427037` and Native load harness `38997426980` both SUCCESS.
+- `load-tests/artillery/ws-real-transport.test.cjs` starts a real disposable loopback `ws` server and calls `provePongOverRealSocket`. CI demonstrates successful application PONG, rejection of NOT_PONG, application ERROR and silence/timeouts; remote targets are refused.
+- This closes the **standalone real transport probe** only. It is not a run through the Artillery engine, does not exercise authenticated production chat or prove matched Artillery/k6 arrival profiles. The existing Artillery WS comparator continues to be explicitly labeled `PONG not asserted`.
+- Follow-up: use a reviewed supported Artillery receive/assertion integration against disposable authenticated services, or formally retain non-parity and proceed with k6 as the authoritative load engine. No Artillery retirement or merge based on this probe.
+
 ## Non-negotiable safety rules
 
 Loopback-only targets and disposable services for these candidates. No production load, security-limit bypass, real credentials in logs, mock-only proof of real-service behavior, weakened assertions, or economic/escrow authority changes. Keep **NO MERGE / NO DEPLOY** while gates remain open. Never hide a material finding to report completion.
