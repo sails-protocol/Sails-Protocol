@@ -349,13 +349,15 @@ jobs:
           observe(Number(process.env.SAILS_BACKEND_PID),()=>runMeasured('./node_modules/.bin/artillery',[
             'run','load-tests/artillery/intent-api-bounded-comparator.yml',
             '--output','/tmp/sails-artillery-bounded-http.json'
-          ],{timeoutMs:90000,intervalMs:25}),{intervalMs:25}).then(({value:usage,usage:backend})=>{
+          ],{timeoutMs:90000,intervalMs:25}).catch(error=>{
+            const category=error?.message;
+            const allowed=new Set(['Generator timed out','Generator exited nonzero (output redacted)','Generator terminated by signal','Generator runtime error','Generator spawn failed','Generator resource sample count insufficient','Generator resource counters invalid','Generator resource sampling read error: permission','Generator resource sampling read error: io','Generator resource sampling read error: cpu-incomplete','Generator resource sampling read error: rss-incomplete','Generator resource sampling read error: malformed','Generator resource sampling read error: other']);
+            throw Error('Generator: '+(allowed.has(category)?category:'Unclassified generator failure (details withheld)'));
+          }),{intervalMs:25}).then(({value:usage,usage:backend})=>{
             console.log('Artillery HTTP backend bounded resource sample:',JSON.stringify(backend));
             console.log('Artillery HTTP generator resource sample:',JSON.stringify(usage));
           }).catch(error=>{
-            const allowed=new Set(['Generator timed out','Generator exited nonzero (output redacted)','Generator terminated by signal','Generator runtime error','Generator spawn failed','Missing generator resource samples','Generator resource sample count insufficient','Generator resource sampling read error','Generator resource sampling read error: permission','Generator resource sampling read error: io','Generator resource sampling read error: incomplete','Generator resource sampling read error: malformed','Generator resource sampling read error: other','Generator resource counters invalid','Incomplete resource sample','Non-monotonic CPU counters']);
-            console.error('Artillery HTTP failure category:',allowed.has(error?.message)?error.message==='Incomplete resource sample'?'Backend resource sample incomplete':error?.message==='Incomplete process RSS counters'?'Backend RSS counter missing':error?.message==='Incomplete process CPU counters'?'Backend CPU counter missing':error?.message==='Process exited during resource sample'?'Backend process exited during sample':'Unclassified resource observation failure (details withheld)');
-            process.exitCode=1;
+            const backendCategories=new Map([\n              ['Incomplete resource sample','Backend resource sample incomplete'],\n              ['Non-monotonic CPU counters','Backend CPU counters non-monotonic'],\n              ['Incomplete process RSS counters','Backend RSS counter missing'],\n              ['Incomplete process CPU counters','Backend CPU counter missing'],\n              ['Process exited during resource sample','Backend process exited during sample'],\n              ['Malformed proc stat','Backend process stat malformed']\n            ]);\n            const category=typeof error?.message==='string' ? error.message : '';\n            console.error('Artillery HTTP failure category:',category.startsWith('Generator: ')?category:backendCategories.get(category)||'Unclassified backend observation failure (details withheld)');\n            process.exitCode=1;
           });
           RESOURCE_NODE
           node <<'NODE'
