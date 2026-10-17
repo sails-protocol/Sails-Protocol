@@ -4,6 +4,9 @@ const mockExecuteRaw = jest.fn().mockResolvedValue(0)
 const mockAuthFindUnique = jest.fn()
 const mockAuthCreate = jest.fn()
 const mockDisputeFindUnique = jest.fn()
+// AUD-1 - the gate also judges WHAT the round does: the escrow's type decides whether a durable Outcome applies.
+const mockEscrowFindUnique = jest.fn()
+const mockOutcomeFindUnique = jest.fn()
 // CTO Gate R1 (#222) finding 1 — the ambiguous-legacy-row check runs OUTSIDE
 // the $transaction (it decides whether to even enter the locked gate at
 // all), via a plain top-level prisma.dispute.findFirst({ where: { escrowId } }).
@@ -18,6 +21,8 @@ const tx = {
   dispute: {
     findUnique: mockDisputeFindUnique,
   },
+  escrow: { findUnique: mockEscrowFindUnique },
+  semanticTransitionRecord: { findUnique: mockOutcomeFindUnique },
 }
 
 const mockRoundFindUnique = jest.fn().mockResolvedValue(null)
@@ -93,6 +98,9 @@ describe('ADR-005 economic disposition commit gate', () => {
       ...data,
     }))
     mockDisputeFindUnique.mockResolvedValue(liveDispute())
+    // Non-MULTISIG default; MULTISIG binding is tested independently.
+    mockEscrowFindUnique.mockResolvedValue({ type: 'LIGHTNING_HODL' })
+    mockOutcomeFindUnique.mockResolvedValue(null)
     // Default: this escrow's trade was never disputed — the durable fact
     // that makes a disputeId-null pending row provably cooperative.
     mockDisputeFindFirst.mockResolvedValue(null)
