@@ -2,7 +2,7 @@
 const assert=require('node:assert/strict');
 const {runMeasured}=require('./measured-generator.cjs');
 (async()=>{
-  const result=await runMeasured(process.execPath,['-e','setTimeout(()=>{},250)'],{timeoutMs:2000,intervalMs:25});
+  const result=await runMeasured(process.execPath,['-e','setTimeout(()=>{},500)'],{timeoutMs:2000,intervalMs:25});
   assert.equal(result.exitCode,0);
   assert.ok(result.samples>=2);
   assert.ok(result.peakRssKiB>0);
