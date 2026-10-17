@@ -1158,7 +1158,9 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
         return { ok: true, json: async () => [{ txid, vout: 0, value: 100000, status: { confirmed: true } }] }
       }
       reconcileMissingDispatch(100).then(async report => {
-        process.stdout.write('ST1_C4_FIRST:' + JSON.stringify(report) + '\n')
+        // Flush the diagnostic marker before process exit: a child may exit 0
+        // while its pipe has not delivered a buffered stdout write to Jest.
+        await new Promise((resolve, reject) => process.stdout.write('ST1_C4_FIRST:' + JSON.stringify(report) + '\n', err => err ? reject(err) : resolve(undefined)))
         await prisma.$disconnect()
         process.exit(0)
       }).catch(async err => {
