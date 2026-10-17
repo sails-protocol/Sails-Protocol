@@ -19,10 +19,11 @@ async function runMeasured(command,args,{timeoutMs=90000,intervalMs=25,env=proce
     let samples=1;
     let readErrors=0;
     let vanishedAtExit=0;
+    let exited=false;
     let lastCpuTicks=start.cpuTicks;
-    timer=setInterval(()=>{try{const current=sample(child.pid);peakRssKiB=Math.max(peakRssKiB,current.rssKiB);lastCpuTicks=current.cpuTicks;samples++;}catch(error){if(error?.code==='ENOENT')vanishedAtExit++;else readErrors++;}},intervalMs);
+    timer=setInterval(()=>{if(exited)return;try{const current=sample(child.pid);peakRssKiB=Math.max(peakRssKiB,current.rssKiB);lastCpuTicks=current.cpuTicks;samples++;}catch(error){if(error?.code==='ENOENT')vanishedAtExit++;else readErrors++;}},intervalMs);
     const code=await Promise.race([
-      new Promise((resolve,reject)=>{child.once('exit',(code,signal)=>signal?reject(Error('Generator terminated by signal')):resolve(code));child.once('error',()=>reject(Error('Generator runtime error')));}),
+      new Promise((resolve,reject)=>{child.once('exit',(code,signal)=>{exited=true;return signal?reject(Error('Generator terminated by signal')):resolve(code);});child.once('error',()=>reject(Error('Generator runtime error')));}),
       new Promise((_,reject)=>{timeout=setTimeout(()=>{child.kill('SIGKILL');reject(Error('Generator timed out'));},timeoutMs);})
     ]);
     // /proc disappears on exit: last in-flight sample is the final observable
