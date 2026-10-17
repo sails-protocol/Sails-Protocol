@@ -393,10 +393,12 @@ export async function reconcileUnclaimedFullySignedPending(report: Reconciliatio
           pending.unsignedPsbtBase64,
           signedList as string[],
           async () => {
-            await authorizeDisputedPendingExecution(pending)
+            const economicAuthorization = await authorizeDisputedPendingExecution(pending)
             await authorizePendingExecution(pending)
             await claimEscrowTransition(escrow.id, escrow.status, targetStatus)
             claimedBeforeBroadcast = true
+            // AUD1X-H1: authorize signing only after this exact attempt passes the broadcast gate.
+            return economicAuthorization ? { arbiterExecutionIdentity: economicAuthorization.arbiterId } : undefined
           }
         )
       } catch (err) {
