@@ -14,7 +14,11 @@ const mockPaymentAccountFindUnique = jest.fn()
 const mockPaymentAccountCreate = jest.fn()
 const mockPaymentAccountUpdate = jest.fn()
 const mockPaymentAccountCount = jest.fn().mockResolvedValue(0)
+const mockPaymentAccountUpdateMany = jest.fn()
 const mockVouchFindFirst = jest.fn().mockResolvedValue(null)
+const mockTradeFindUnique = jest.fn()
+const mockDisputeCount = jest.fn().mockResolvedValue(0)
+const mockEmit = jest.fn().mockResolvedValue(undefined)
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -22,13 +26,17 @@ jest.mock('../src/common/database', () => ({
       findUnique: (...args: unknown[]) => mockPaymentAccountFindUnique(...args),
       create: (...args: unknown[]) => mockPaymentAccountCreate(...args),
       update: (...args: unknown[]) => mockPaymentAccountUpdate(...args),
+      updateMany: (...args: unknown[]) => mockPaymentAccountUpdateMany(...args),
       count: (...args: unknown[]) => mockPaymentAccountCount(...args),
     },
     vouch: {
       findFirst: (...args: unknown[]) => mockVouchFindFirst(...args),
     },
+    trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
+    dispute: { count: (...args: unknown[]) => mockDisputeCount(...args) },
   },
 }))
+jest.mock('../src/common/events/event-bus', () => ({ eventBus: { emit: (...args: unknown[]) => mockEmit(...args) } }))
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const {
@@ -118,7 +126,7 @@ describe('PaymentAccountService — getOrCreate() vouch-based pre-signing (RFC-0
 
     expect(mockVouchFindFirst).toHaveBeenCalledWith({ where: { voucheeId: 'user-1', burnedAt: null } })
     expect(mockPaymentAccountCreate).toHaveBeenCalledWith({
-      data: { ownerId: 'user-1', accountHash: 'hash-1', paymentMethod: 'PIX', signed: true, signedBy: 'voucher-1', signedAt: expect.any(Date) },
+      data: { ownerId: 'user-1', accountHash: 'hash-1', paymentMethod: 'PIX', signed: true, signedBy: 'voucher-1', signedAt: expect.any(Date), attestationSource: 'VOUCHER' },
     })
     expect(result.signed).toBe(true)
   })
@@ -168,31 +176,84 @@ describe('PaymentAccountService — getOrCreate() vouch-based pre-signing (RFC-0
   })
 })
 
-describe('PaymentAccountService — signPaymentAccount() (RFC-021 D1 attestation framing)', () => {
-  beforeEach(() => jest.clearAllMocks())
+// #235 R7C — the authority branches, against mocked persistence. The real-PostgreSQL proof (binding,
+// races, restart, second node, DB guards) is tests/integration/paymentAccountBindingAuthority.test.ts.
+describe('PaymentAccountService — attestFromTrade() (#235 R7C peer attestation authority)', () => {
+  const CLEAN_TRADE = { id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', status: 'COMPLETED', sellerPaymentAccountId: 'acct-1', escrow: { status: 'COMPLETED' } }
+  const BOUND_ACCOUNT = { id: 'acct-1', accountHash: 'hash-1', ownerId: 'seller-1', paymentMethod: 'PIX', signed: false }
 
-  it('signs an unsigned account for real', async () => {
-    mockPaymentAccountFindUnique.mockResolvedValue({ accountHash: 'hash-1', signed: false })
-    mockPaymentAccountUpdate.mockResolvedValue({ accountHash: 'hash-1', signed: true, signedBy: 'arbiter-1' })
-
-    const service = new PaymentAccountService()
-    const result = await service.signPaymentAccount('hash-1', 'arbiter-1')
-
-    expect(mockPaymentAccountUpdate).toHaveBeenCalledWith({
-      where: { accountHash: 'hash-1' },
-      data: { signed: true, signedBy: 'arbiter-1', signedAt: expect.any(Date) },
-    })
-    expect(result.signed).toBe(true)
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockTradeFindUnique.mockResolvedValue(CLEAN_TRADE)
+    mockDisputeCount.mockResolvedValue(0)
+    mockPaymentAccountFindUnique.mockResolvedValue(BOUND_ACCOUNT)
+    mockPaymentAccountUpdateMany.mockResolvedValue({ count: 1 })
   })
 
-  it('is a no-op on an already-signed account — a second attestation adds nothing', async () => {
-    mockPaymentAccountFindUnique.mockResolvedValue({ accountHash: 'hash-1', signed: true, signedBy: 'someone-else' })
+  it('the buyer of a clean COMPLETED trade attests its bound account: one conditional write (signed = false), PEER provenance, one event', async () => {
+    await new PaymentAccountService().attestFromTrade('trade-1', 'hash-1', 'buyer-1')
 
-    const service = new PaymentAccountService()
-    const result = await service.signPaymentAccount('hash-1', 'arbiter-2')
+    expect(mockPaymentAccountUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'acct-1', signed: false },
+      data: { signed: true, signedBy: 'buyer-1', signedAt: expect.any(Date), attestationSource: 'PEER', attestedTradeId: 'trade-1' },
+    })
+    expect(mockEmit).toHaveBeenCalledWith('settlement.payment_account.attested',
+      { accountHash: 'hash-1', tradeId: 'trade-1', attesterId: 'buyer-1', attestationSource: 'PEER' }, 'trade-1')
+  })
 
-    expect(mockPaymentAccountUpdate).not.toHaveBeenCalled()
-    expect(result.signedBy).toBe('someone-else')
+  it('an already-signed account is a no-op for an authorized buyer: no event, nothing overwritten', async () => {
+    mockPaymentAccountUpdateMany.mockResolvedValue({ count: 0 })
+    await new PaymentAccountService().attestFromTrade('trade-1', 'hash-1', 'buyer-1')
+    expect(mockEmit).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['the seller (owner)', 'seller-1'],
+    ['an unrelated participant', 'stranger-1'],
+  ])('%s is refused (403) before anything is written', async (_label, caller) => {
+    await expect(new PaymentAccountService().attestFromTrade('trade-1', 'hash-1', caller)).rejects.toMatchObject({ statusCode: 403 })
+    expect(mockPaymentAccountUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['an unbound trade', { ...CLEAN_TRADE, sellerPaymentAccountId: null }, 0],
+    ['an incomplete trade', { ...CLEAN_TRADE, status: 'ACTIVE', escrow: { status: 'FUNDS_LOCKED' } }, 0],
+    ['a SPLIT (Trade COMPLETED, escrow SPLIT)', { ...CLEAN_TRADE, escrow: { status: 'SPLIT' } }, 1],
+    ['a released trade that was disputed', CLEAN_TRADE, 1],
+    ['a COMPLETED trade with no escrow', { ...CLEAN_TRADE, escrow: null }, 0],
+  ])('%s cannot attest (400), nothing written', async (_label, trade, disputes) => {
+    mockTradeFindUnique.mockResolvedValue(trade)
+    mockDisputeCount.mockResolvedValue(disputes)
+    await expect(new PaymentAccountService().attestFromTrade('trade-1', 'hash-1', 'buyer-1')).rejects.toMatchObject({ statusCode: 400 })
+    expect(mockPaymentAccountUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it("a hash other than the trade's bound account is refused — the caller cannot pick the account", async () => {
+    await expect(new PaymentAccountService().attestFromTrade('trade-1', 'hash-OTHER', 'buyer-1')).rejects.toMatchObject({ statusCode: 400 })
+    expect(mockPaymentAccountUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('an unknown trade is 404', async () => {
+    mockTradeFindUnique.mockResolvedValue(null)
+    await expect(new PaymentAccountService().attestFromTrade('nope', 'hash-1', 'buyer-1')).rejects.toMatchObject({ statusCode: 404 })
+  })
+})
+
+describe('PaymentAccountService — bindableAccountId() (#235 R7C binding check)', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it("returns the id of the seller's own account on the offer's payment method", async () => {
+    mockPaymentAccountFindUnique.mockResolvedValue({ id: 'acct-1', ownerId: 'seller-1', paymentMethod: 'PIX' })
+    expect(await new PaymentAccountService().bindableAccountId({ accountHash: 'hash-1' }, 'seller-1', 'PIX')).toBe('acct-1')
+  })
+
+  it.each([
+    ["someone else's account", { id: 'acct-1', ownerId: 'other', paymentMethod: 'PIX' }, 403],
+    ['a different payment method', { id: 'acct-1', ownerId: 'seller-1', paymentMethod: 'TED' }, 400],
+    ['an unknown account', null, 404],
+  ])('refuses %s', async (_label, row, status) => {
+    mockPaymentAccountFindUnique.mockResolvedValue(row)
+    await expect(new PaymentAccountService().bindableAccountId({ accountHash: 'hash-1' }, 'seller-1', 'PIX')).rejects.toMatchObject({ statusCode: status })
   })
 })
 

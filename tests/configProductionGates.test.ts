@@ -48,6 +48,9 @@ const REQUIRED_PROD_ENV = {
   EVIDENCE_S3_BUCKET: 'real-evidence-bucket',
   EVIDENCE_S3_ACCESS_KEY_ID: 'real-access-key',
   EVIDENCE_S3_SECRET_ACCESS_KEY: 'real-secret-key',
+  // Master Backlog R5 — DEFAULT_TIMELOCK_HOURS is now required in production
+  // (an unset value no longer falls back to the dev default there).
+  DEFAULT_TIMELOCK_HOURS: '24',
 }
 
 describe('config/index.ts — production boot gates (Missão 06.5)', () => {
@@ -457,6 +460,157 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
   })
 
+  describe('settlement / C4 recovery tick (M9-R/C4 production wiring)', () => {
+    const DEV_ENV = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined, EVIDENCE_PROVIDER: undefined }
+
+    it('is ON by default in production and in development alike - the same policy, not a production-only switch', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, ESCROW_SETTLEMENT_RECONCILER: undefined })().features.escrowSettlementReconciler).toBe(true)
+      jest.resetModules()
+      process.env = {}
+      expect(loadConfig({ ...DEV_ENV, ESCROW_SETTLEMENT_RECONCILER: undefined })().features.escrowSettlementReconciler).toBe(true)
+    })
+
+    it('is turned off only by the explicit opt-out ESCROW_SETTLEMENT_RECONCILER=false', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, ESCROW_SETTLEMENT_RECONCILER: 'false' })().features.escrowSettlementReconciler).toBe(false)
+    })
+
+    it('interval defaults to 60000 ms and accepts an explicit positive value', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS: undefined })().trade.settlementReconcileIntervalMs).toBe(60000)
+      jest.resetModules()
+      process.env = {}
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS: '30000' })().trade.settlementReconcileIntervalMs).toBe(30000)
+    })
+
+    it.each(['0', '-1', 'not-a-number'])('refuses to boot with ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS=%s (Node would fire the tick every 1 ms)', (value) => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS: value })).toThrow(/ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS must be a positive integer/)
+    })
+  })
+
+  describe('background sweeper intervals (production sweeper hardening)', () => {
+    const HARDENED_INTERVALS: Array<[string, string, number]> = [
+      ['ESCROW_TIMELOCK_SWEEP_INTERVAL_MS', 'timelockSweepIntervalMs', 300000],
+      ['ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS', 'settlementReconcileIntervalMs', 60000],
+      ['MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS', 'multisigFeeConfirmationSweepIntervalMs', 300000],
+      ['MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS', 'multisigFundingReorgSweepIntervalMs', 300000],
+      ['DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS', 'disputeAutoResolutionSweepIntervalMs', 300000],
+      ['MULTISIG_FEE_REORG_SWEEP_INTERVAL_MS', 'multisigFeeReorgSweepIntervalMs', 300000],
+      ['MULTISIG_RELEASE_REORG_SWEEP_INTERVAL_MS', 'multisigReleaseReorgSweepIntervalMs', 300000],
+    ]
+
+    it.each(HARDENED_INTERVALS)('%s keeps its existing default when unset', (envName, key, expected) => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, [envName]: undefined })().trade[key]).toBe(expected)
+    })
+
+    it.each(HARDENED_INTERVALS)('%s accepts an explicit plain positive integer as written', (envName, key) => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, [envName]: '45000' })().trade[key]).toBe(45000)
+    })
+
+    // Every value here used to boot and schedule something other than what was written: 0 and negatives
+    // became a ~1 ms Node timer, '1e3' parsed as 1, '60000abc' as 60000, and anything above 2^31-1 is
+    // clamped by Node to 1 ms.
+    const FAIL_OPEN_VALUES = ['0', '-1', '', 'abc', '1e3', '60000abc', '1.5', '2147483648', '99999999999999999999']
+    for (const [envName] of HARDENED_INTERVALS) {
+      it.each(FAIL_OPEN_VALUES)(`${envName}=%p refuses to boot`, (value) => {
+        expect(loadConfig({ ...REQUIRED_PROD_ENV, [envName]: value })).toThrow(new RegExp(envName))
+      })
+    }
+
+    it('the largest delay Node honours (2147483647 ms) is still accepted', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, ESCROW_TIMELOCK_SWEEP_INTERVAL_MS: '2147483647' })().trade.timelockSweepIntervalMs).toBe(2147483647)
+    })
+
+    it('the stricter positive-integer parsing also applies to the timeouts that share it', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_EXPLORER_TIMEOUT_MS: '1e3' })).toThrow(/MULTISIG_EXPLORER_TIMEOUT_MS must be a positive integer/)
+      jest.resetModules()
+      process.env = {}
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, MULTISIG_EXPLORER_TIMEOUT_MS: '8000' })().multisig.explorerRequestTimeoutMs).toBe(8000)
+    })
+  })
+
+  // Both MULTISIG reorg sweeps monitor heights >= tip - window + 1. A window of 0 or less starts that range
+  // above the chain tip, so every confirmed fee and release silently drops out of reorg detection while
+  // the sweeps keep reporting success: an explicit value must be a strict positive integer or the config fails.
+  describe('MULTISIG_REORG_SAFETY_WINDOW_BLOCKS — an explicit value is a positive integer or the config refuses to load', () => {
+    const window = (value: string | undefined) => loadConfig({ NODE_ENV: 'test', MULTISIG_REORG_SAFETY_WINDOW_BLOCKS: value })
+    const fresh = () => { jest.resetModules(); process.env = {} }
+
+    it('absent keeps the documented default of 100', () => {
+      expect(window(undefined)().trade.multisigReorgSafetyWindowBlocks).toBe(100)
+    })
+
+    it('accepts a positive integer, including 1, and an operator value with surrounding whitespace', () => {
+      expect(window('144')().trade.multisigReorgSafetyWindowBlocks).toBe(144)
+      fresh()
+      expect(window('1')().trade.multisigReorgSafetyWindowBlocks).toBe(1)
+      fresh()
+      expect(window(' 50 ')().trade.multisigReorgSafetyWindowBlocks).toBe(50)
+    })
+
+    it.each([
+      ['0', 'zero: the window would start above the tip'],
+      ['-1', 'negative'],
+      ['-1000', 'negative'],
+      ['1.5', 'decimal: not truncated to 1'],
+      ['1e3', 'exponent: not read as 1'],
+      ['100abc', 'trailing garbage: not read as 100'],
+      ['abc', 'non-numeric'],
+      ['NaN', 'non-numeric'],
+      ['Infinity', 'not finite'],
+      ['', 'explicitly empty: not the default'],
+      ['   ', 'whitespace only: not the default'],
+      ['9007199254740993', 'beyond exact integer range'],
+    ])('rejects %j (%s)', (value) => {
+      expect(window(value)).toThrow(/MULTISIG_REORG_SAFETY_WINDOW_BLOCKS must be a positive integer/)
+    })
+
+    it('an invalid window cannot wire either reorg sweep: loading them fails, nothing runs with the protection disabled', () => {
+      for (const sweep of ['multisig-fee-reorg-sweep', 'multisig-release-reorg-sweep']) {
+        fresh()
+        loadConfig({ NODE_ENV: 'test', MULTISIG_REORG_SAFETY_WINDOW_BLOCKS: '0' })
+        expect(() => require(`../src/modules/open-settlement/${sweep}`)).toThrow(/MULTISIG_REORG_SAFETY_WINDOW_BLOCKS must be a positive integer/)
+      }
+    })
+  })
+
+  // Master Backlog R5 — DEFAULT_TIMELOCK_HOURS is the only source of an escrow's timelock. It used to be read
+  // leniently (0 or a negative value booted, and every new escrow then expired the moment funds locked), and
+  // an unset value silently fell back to 24 in production too.
+  describe('DEFAULT_TIMELOCK_HOURS — required in production, a strict positive integer everywhere (Master Backlog R5)', () => {
+    const timelock = (value: string | undefined) => loadConfig({ NODE_ENV: 'test', DEFAULT_TIMELOCK_HOURS: value })
+
+    it('refuses to boot in production when DEFAULT_TIMELOCK_HOURS is unset', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, DEFAULT_TIMELOCK_HOURS: undefined })).toThrow(/NODE_ENV=production but DEFAULT_TIMELOCK_HOURS is not set/)
+    })
+
+    it('boots in production with an explicit value and uses it', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, DEFAULT_TIMELOCK_HOURS: '48' })().trade.defaultTimelockHours).toBe(48)
+    })
+
+    it('outside production, unset keeps the documented dev default of 24', () => {
+      expect(timelock(undefined)().trade.defaultTimelockHours).toBe(24)
+    })
+
+    it.each([
+      ['0', 'zero: every escrow would expire at lock time'],
+      ['-24', 'negative'],
+      ['1.5', 'decimal: not truncated to 1'],
+      ['1e3', 'exponent'],
+      ['24h', 'trailing garbage'],
+      ['abc', 'non-numeric'],
+      ['', 'explicitly empty: not the default'],
+      ['9007199254740993', 'beyond exact integer range'],
+    ])('rejects %j (%s), in production and outside it', (value) => {
+      expect(timelock(value)).toThrow(/DEFAULT_TIMELOCK_HOURS must be a positive integer/)
+      jest.resetModules()
+      process.env = {}
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, DEFAULT_TIMELOCK_HOURS: value })).toThrow(/DEFAULT_TIMELOCK_HOURS must be a positive integer/)
+    })
+
+    it('rejects a value whose deadline would not be a representable date', () => {
+      expect(timelock('3000000000')).toThrow(/DEFAULT_TIMELOCK_HOURS is too large/)
+    })
+  })
+
   describe('a fully correct production configuration boots cleanly', () => {
     it('every gate satisfied at once — no throw, all values reflect what was set', () => {
       const load = loadConfig(REQUIRED_PROD_ENV)
@@ -466,6 +620,68 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
       expect(cfg.features.enforceCapabilities).toBe(true)
       expect(cfg.database.url).toBe('postgresql://real-host/sails_protocol')
       expect(cfg.redis.url).toBe('redis://real-host:6379')
+    })
+  })
+
+  describe('QVAC runtime configuration fails closed', () => {
+    it.each(['NaN', 'Infinity', '-Infinity', ''])('rejects a non-finite confidence threshold %p', (value) => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD: value })
+      expect(load).toThrow(/QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD/)
+    })
+
+    it.each(['-0.01', '1.01'])('rejects a confidence threshold outside [0, 1]: %p', (value) => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD: value })
+      expect(load).toThrow(/range \[0, 1\]/)
+    })
+
+    it.each(['0', '1'])('accepts the confidence threshold boundary %p', (value) => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD: value })
+      expect(load().settlement.qvacAutoResolutionConfidenceThreshold).toBe(Number(value))
+    })
+
+    it('accepts a finite positive auto-resolution window', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, QVAC_AUTO_RESOLUTION_WINDOW_HOURS: '12.5' })
+      expect(load().settlement.qvacAutoResolutionWindowHours).toBe(12.5)
+    })
+
+    it.each(['NaN', 'Infinity', '0', '-1', ''])('rejects an invalid auto-resolution window %p', (value) => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, QVAC_AUTO_RESOLUTION_WINDOW_HOURS: value })
+      expect(load).toThrow(/QVAC_AUTO_RESOLUTION_WINDOW_HOURS/)
+    })
+
+    it.each(['NaN', '0', '-1', '1.5', '300000ms'])('rejects an invalid QVAC sweep interval %p', (value) => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS: value })
+      expect(load).toThrow(/DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS/)
+    })
+
+    it('preserves the current valid defaults', () => {
+      const load = loadConfig(REQUIRED_PROD_ENV)
+      const cfg = load()
+      expect(cfg.settlement.qvacAutoResolutionConfidenceThreshold).toBe(0.85)
+      expect(cfg.settlement.qvacAutoResolutionWindowHours).toBe(24)
+      expect(cfg.trade.disputeAutoResolutionSweepIntervalMs).toBe(300000)
+    })
+  })
+
+  describe('production observability posture', () => {
+    it('disables metrics by default in production', () => {
+      const load = loadConfig(REQUIRED_PROD_ENV)
+      expect(load().observability.metricsEnabled).toBe(false)
+    })
+
+    it('requires explicit opt-in to expose production metrics', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, METRICS_ENABLED: 'true' })
+      expect(load().observability.metricsEnabled).toBe(true)
+    })
+
+    it.each(['TRUE', '1', 'yes', ''])('rejects malformed metrics configuration %p', (value) => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, METRICS_ENABLED: value })
+      expect(load).toThrow(/METRICS_ENABLED/)
+    })
+
+    it('keeps metrics enabled by default outside production', () => {
+      const load = loadConfig({ NODE_ENV: 'test', DATABASE_URL: undefined, REDIS_URL: undefined })
+      expect(load().observability.metricsEnabled).toBe(true)
     })
   })
 })

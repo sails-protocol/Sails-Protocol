@@ -57,7 +57,7 @@ const mockTradeCreate = jest.fn()
 const mockTradeUpdate = jest.fn()
 const mockEscrowFindUnique = jest.fn()
 const mockEscrowCreate = jest.fn()
-const mockEscrowEventCreate = jest.fn()
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockMessageFindMany = jest.fn()
 const mockMessageCount = jest.fn().mockResolvedValue(0)
@@ -75,6 +75,10 @@ const mockCapabilityGrantExecuteRaw = jest.fn().mockResolvedValue(0)
 const mockCapabilityGrantTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
   fn({
     $executeRaw: mockCapabilityGrantExecuteRaw,
+    // #235 R7H-E3 - EscrowRepository.create()'s binding check (proven on real PostgreSQL in escrowSellerPaymentBinding.test.ts).
+    // #235 R7H-E3C - TradeRepository.create() runs the same check on the new trade inside this transaction (proven on
+    // real PostgreSQL in tradeAdmissionAuthority.test.ts), so the tx client also inserts the trade (trade.create below).
+    $queryRaw: async () => [{ violation: null, governed: false }],
     // Issue #303 delta - CapabilityGrantRepository.create() now runs inside this
     // transaction (advisory lock + equivalent-live-grant lookup + insert), so the
     // tx client must expose findMany/create too; findMany defaults to "no live grants".
@@ -82,6 +86,28 @@ const mockCapabilityGrantTransaction = jest.fn(async (fn: (tx: unknown) => Promi
       update: (...args: unknown[]) => mockCapabilityGrantUpdate(...args),
       findMany: async (...args: unknown[]) => (await mockCapabilityGrantFindMany(...args)) ?? [],
       create: (...args: unknown[]) => mockCapabilityGrantCreate(...args),
+    },
+    // Issue #294 - TradeRepository.transitionManually() runs in one transaction: it checks the
+    // trade's escrow (none by default here), CAS-updates the Trade status, then re-reads the row
+    // (real Prisma's updateMany returns no row) - which is what mockTradeUpdate models below.
+    // #235 R7G-A - EscrowRepository.create() also runs here: under the trade-lifecycle lock it
+    // re-reads only the trade's status (an escrowable ACTIVE trade by default), then inserts.
+    escrow: { findUnique: async () => null, create: (...args: unknown[]) => mockEscrowCreate(...args) },
+    trade: {
+      create: (...args: unknown[]) => mockTradeCreate(...args),
+      updateMany: async () => ({ count: 1 }),
+      findUnique: (...args: any[]) => (args[0]?.select?.status ? Promise.resolve({ status: 'ACTIVE' }) : mockTradeUpdate(...args)),
+    },
+    // #235 R7G-B1 - a manual cancellation transitions the trade's Intent inside the same transaction.
+    intent: {
+      // #235 R7H-NF-E3C-5 - the trade's own Intent is created in the admission transaction.
+      create: (...args: unknown[]) => mockIntentCreate(...args),
+      findUnique: (...args: unknown[]) => mockIntentFindUnique(...args),
+      updateMany: (...args: unknown[]) => mockIntentUpdateMany(...args),
+    },
+    intentEvent: {
+      findFirst: (...args: unknown[]) => mockIntentEventFindFirst(...args),
+      create: (...args: unknown[]) => mockIntentEventCreate(...args),
     },
   })
 )
@@ -283,6 +309,9 @@ jest.mock('../src/common/redis', () => ({
 jest.mock('../src/common/events/event-bus', () => ({
   eventBus: {
     emit: jest.fn().mockResolvedValue(undefined),
+    // #235 R7H-NF-E3C-5 - trade admission and Intent cancellation append their durable events in their own
+    // transaction (proven on real PostgreSQL in tradeIntentAtomicAdmission.test.ts) and dispatch after commit.
+    publishInTransaction: jest.fn().mockResolvedValue(() => undefined),
     on: jest.fn(),
     onDurable: jest.fn(),
   },
@@ -364,7 +393,7 @@ jest.mock('@qvac/sdk', () => ({
 // Imported after the mocks above so every route file picks up the mocked
 // dependencies, not the real Prisma/Redis/eventBus/pearNodeRegistry.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { buildApp } = require('../src/app')
+const { buildApp, HTTP_BODY_LIMIT_BYTES } = require('../src/app')
 // Issue #302 — real, unmocked module (only redis.ts above is mocked, not
 // auth.ts itself): reused as the single source of truth for the
 // registration signed-message construction, so these tests sign exactly
@@ -569,6 +598,45 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(body.data.challenge).toEqual(expect.any(String))
     })
 
+    it('rejects a JSON body above the global Fastify limit before the handler runs', async () => {
+      // The bound is a reviewed 1 MiB, pinned here rather than derived only from the exported constant.
+      expect(HTTP_BODY_LIMIT_BYTES).toBe(1024 * 1024)
+      const redisSet = redis.set as jest.Mock
+      const baseBody = JSON.stringify({ publicKey: TEST_PUBLIC_KEY, padding: '' })
+      const bodyAtLimit = JSON.stringify({ publicKey: TEST_PUBLIC_KEY, padding: 'x'.repeat(HTTP_BODY_LIMIT_BYTES - baseBody.length) })
+      const accepted = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/challenge',
+        headers: { 'content-type': 'application/json' },
+        payload: bodyAtLimit,
+      })
+      expect(accepted.statusCode).toBe(200)
+      expect(redisSet).toHaveBeenCalled()
+
+      redisSet.mockClear()
+      const rejected = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/challenge',
+        headers: { 'content-type': 'application/json' },
+        payload: `${bodyAtLimit} `,
+      })
+
+      expect(rejected.statusCode).toBe(413)
+      expect(redisSet).not.toHaveBeenCalled()
+    })
+
+    it('rejects malformed JSON with a controlled client error', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/challenge',
+        headers: { 'content-type': 'application/json' },
+        payload: '{"publicKey":',
+      })
+
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).success).toBe(false)
+    })
+
     it('rejects authenticate with no challenge previously issued', async () => {
       const res = await app.inject({
         method: 'POST',
@@ -597,6 +665,31 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       expect(res.statusCode).toBe(200)
       expect(JSON.parse(res.body).data.id).toBe('user-1')
+    })
+
+    it('rejects an empty session record instead of treating malformed state as authenticated', async () => {
+      redisStore.set('auth:session:malformed', '')
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/openp2p/trades',
+        headers: { authorization: 'Bearer malformed' },
+      })
+
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('fails closed when the session store errors', async () => {
+      const redisGet = redis.get as jest.Mock
+      redisGet.mockRejectedValueOnce(new Error('redis.internal socket failure'))
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/openp2p/trades',
+        headers: { authorization: 'Bearer unavailable-store' },
+      })
+
+      expect(res.statusCode).toBe(500)
+      expect(JSON.parse(res.body).success).toBe(false)
     })
 
     // Missão 11 Fase 9.3.5 — INV-OP-10: GET /v1/identity/participants/:id
@@ -964,7 +1057,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', status: 'PENDING',
         asset: 'BTC', amount: '0.01', priceUsd: '65000', // Decimal fields — real Prisma rows have .toString(), strings do too
       })
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', status: 'PENDING' }) // negotiationService.open()'s own lookup
+      // (no negotiationService.open() lookup any more: its events are written in the admission transaction)
 
       const res = await app.inject({
         method: 'POST',
@@ -979,7 +1072,13 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       )
     })
 
-    it('RFC-018: walks the offer\'s Intent through DISCOVERING -> MATCHED -> NEGOTIATING when a trade starts', async () => {
+    // #235 R7H-NF-E3C-5 — RFC-018 Amendment A1 (CTO-approved retarget of this assertion): a trade no longer walks the
+    // OFFER's Intent (shared by every trade of the offer, single-shot, so the second taker failed after commit). It is
+    // admitted with an Intent of its own — created already NEGOTIATING, parented to the offer's Intent, with the full
+    // approved walk recorded as hash-chained IntentEvents — and the offer's Intent is never transitioned by a trade.
+    // The atomicity, rollback and concurrency of this unit are proven on real PostgreSQL
+    // (tests/integration/tradeIntentAtomicAdmission.test.ts); this proves the route wiring.
+    it('RFC-018 A1: a trade is admitted with its OWN Intent (NEGOTIATING, parented to the offer\'s) and never transitions the offer\'s Intent', async () => {
       const token = await authedSession('buyer-1')
       mockOfferFindUnique.mockResolvedValueOnce({
         id: 'offer-1', userId: 'seller-1', status: 'ACTIVE', side: 'SELL',
@@ -987,22 +1086,9 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
       mockTradeCreate.mockResolvedValueOnce({
         id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', status: 'PENDING',
-        asset: 'BTC', amount: '0.01', priceUsd: '65000', intentId: 'intent-1',
+        asset: 'BTC', amount: '0.01', priceUsd: '65000', intentId: 'intent-1', tradeIntentId: 'trade-intent-1',
       })
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', status: 'PENDING' })
       mockIntentEventFindFirst.mockResolvedValue(null)
-      // Robustness-audit fix (2026-07-20): each of the three transition()
-      // calls below now reads Intent twice (claim + re-fetch), not once —
-      // 6 queued values total, not 3. Order: DISCOVERING's (read, refetch),
-      // MATCHED's (read, refetch), NEGOTIATING's (read, refetch).
-      mockIntentFindUnique
-        .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED' })  // -> DISCOVERING: read
-        .mockResolvedValueOnce({ id: 'intent-1', status: 'DISCOVERING' })  // -> DISCOVERING: refetch
-        .mockResolvedValueOnce({ id: 'intent-1', status: 'DISCOVERING' })  // -> MATCHED: read
-        .mockResolvedValueOnce({ id: 'intent-1', status: 'MATCHED' })      // -> MATCHED: refetch
-        .mockResolvedValueOnce({ id: 'intent-1', status: 'MATCHED' })      // -> NEGOTIATING: read
-        .mockResolvedValueOnce({ id: 'intent-1', status: 'NEGOTIATING' }) // -> NEGOTIATING: refetch
-      mockIntentUpdateMany.mockResolvedValue({ count: 1 })
 
       const res = await app.inject({
         method: 'POST',
@@ -1012,14 +1098,19 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
 
       expect(res.statusCode).toBe(201)
+      // The trade keeps the originating Offer Intent AND references its own Intent, both in the one insert.
       expect(mockTradeCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ intentId: 'intent-1' }) })
+        expect.objectContaining({ data: expect.objectContaining({ intentId: 'intent-1', tradeIntentId: expect.any(String) }) })
       )
-      // Three sequential transitions, in order — the actual state-machine
-      // edges (core/state-machine.ts) enforce the ordering; this just
-      // confirms trade.service.ts actually drives it.
-      const toStatuses = mockIntentUpdateMany.mock.calls.map((c) => c[0]?.data?.status)
-      expect(toStatuses).toEqual(['DISCOVERING', 'MATCHED', 'NEGOTIATING'])
+      const intentData = mockIntentCreate.mock.calls[0][0].data
+      expect(intentData).toEqual(expect.objectContaining({
+        type: 'TradeIntent', participantId: 'buyer-1', parentIntentId: 'intent-1', status: 'NEGOTIATING', expiresAt: null,
+      }))
+      expect(mockTradeCreate.mock.calls[0][0].data.tradeIntentId).toBe(intentData.id)
+      // Its history is the full approved walk, in order, and nothing transitioned the shared Offer Intent.
+      expect(mockIntentEventCreate.mock.calls.map((c) => c[0].data.toStatus))
+        .toEqual(['CREATED', 'VALIDATED', 'COORDINATED', 'DISCOVERING', 'MATCHED', 'NEGOTIATING'])
+      expect(mockIntentUpdateMany).not.toHaveBeenCalled()
     })
 
     // Failure-scenario coverage requested directly in a CTO-role
@@ -1035,7 +1126,11 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
       mockTradeUpdate.mockResolvedValueOnce({ id: 'trade-1', status: 'CANCELLED' })
       mockIntentEventFindFirst.mockResolvedValue(null)
-      mockIntentFindUnique.mockResolvedValueOnce({ id: 'intent-1', status: 'NEGOTIATING' })
+      // Two reads of the shared Intent, both NEGOTIATING: #235 R7H-NF-E3C-5 L1's decision (a legacy trade shares its
+      // Intent with sibling trades — here none is live, so it is transitioned exactly as before), then the transition.
+      mockIntentFindUnique
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'NEGOTIATING' })
+        .mockResolvedValueOnce({ id: 'intent-1', status: 'NEGOTIATING' })
       mockIntentUpdateMany.mockResolvedValueOnce({ id: 'intent-1', status: 'CANCELLED' })
 
       const res = await app.inject({
@@ -1051,6 +1146,31 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       // intent-engine.ts's own comment.
       expect(mockIntentUpdateMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: 'intent-1', status: 'NEGOTIATING' }, data: { status: 'CANCELLED' } })
+      )
+    })
+
+    // #235 R7H-NF-E3C-5 — a trade admitted since B2 cancels ITS OWN Intent; the Offer Intent it was taken from is untouched.
+    it('B2: cancelling a trade transitions its OWN Intent (tradeIntentId), never the offer\'s', async () => {
+      const token = await authedSession('buyer-1')
+      mockTradeFindUnique.mockResolvedValueOnce({
+        id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', status: 'PENDING', intentId: 'intent-1', tradeIntentId: 'trade-intent-1',
+      })
+      mockTradeUpdate.mockResolvedValueOnce({ id: 'trade-1', status: 'CANCELLED' })
+      mockIntentEventFindFirst.mockResolvedValue(null)
+      mockIntentFindUnique.mockResolvedValueOnce({ id: 'trade-intent-1', status: 'NEGOTIATING' })
+      mockIntentUpdateMany.mockResolvedValueOnce({ id: 'trade-intent-1', status: 'CANCELLED' })
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/v1/openp2p/trades/trade-1/status',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { status: 'CANCELLED' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(mockIntentUpdateMany).toHaveBeenCalledTimes(1)
+      expect(mockIntentUpdateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'trade-intent-1', status: 'NEGOTIATING' }, data: { status: 'CANCELLED' } })
       )
     })
 
@@ -1292,6 +1412,118 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(secondWs.readyState).toBe(secondWs.CLOSED)
     })
 
+    it('revokes the HTTP session and invalidates new and pre-issued WS authority', async () => {
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+
+      mockTradeFindMany.mockResolvedValueOnce([])
+      mockTradeCount.mockResolvedValueOnce(0)
+      const beforeLogout = await app.inject({
+        method: 'GET',
+        url: '/v1/openp2p/trades',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(beforeLogout.statusCode).toBe(200)
+
+      const logout = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/logout',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(logout.statusCode).toBe(204)
+
+      const afterLogout = await app.inject({
+        method: 'GET',
+        url: '/v1/openp2p/trades',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(afterLogout.statusCode).toBe(401)
+
+      const newTicket = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/ws-ticket',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(newTicket.statusCode).toBe(401)
+
+      const oldTicketSocket = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      await new Promise<void>((resolve) => oldTicketSocket.once('close', () => resolve()))
+      expect(oldTicketSocket.readyState).toBe(oldTicketSocket.CLOSED)
+    })
+
+    it('rejects malformed JSON and unsupported message types without closing a valid socket', async () => {
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+      const ws = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      const frames: Array<{ type: string; payload?: { message?: string } }> = []
+      ws.on('message', (data: Buffer) => frames.push(JSON.parse(data.toString())))
+
+      ws.send('{')
+      ws.send(JSON.stringify({ type: 'NOT_SUPPORTED', payload: {} }))
+      await new Promise<void>((resolve) => {
+        const check = () => frames.length === 2 ? resolve() : setImmediate(check)
+        check()
+      })
+
+      expect(frames.map((frame) => frame.payload?.message)).toEqual(['Malformed JSON', 'Unknown message type: NOT_SUPPORTED'])
+      expect(ws.readyState).toBe(ws.OPEN)
+      ws.terminate()
+    })
+
+    it('rejects binary frames and closes the socket deterministically', async () => {
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+      const ws = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      const closed = new Promise<void>((resolve) => ws.once('close', () => resolve()))
+
+      ws.send(Buffer.from('{"type":"PING"}'))
+      await closed
+
+      expect(ws.readyState).toBe(ws.CLOSED)
+    })
+
+    it('closes when queued work exceeds the per-socket bound', async () => {
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+      let releaseTradeLookup!: () => void
+      const tradeLookupBlocked = new Promise<void>((resolve) => { releaseTradeLookup = resolve })
+      mockTradeFindUnique.mockImplementation(() => tradeLookupBlocked)
+
+      const ws = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      const closed = new Promise<void>((resolve) => ws.once('close', () => resolve()))
+      const joinFrame = JSON.stringify({ type: 'JOIN_TRADE', payload: { tradeId: 'trade-1' } })
+      for (let i = 0; i < 34; i++) ws.send(joinFrame)
+
+      await closed
+      releaseTradeLookup()
+      mockTradeFindUnique.mockReset()
+      expect(ws.readyState).toBe(ws.CLOSED)
+    })
+
+    it('closes when a second frame arrives before ticket resolution completes', async () => {
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+      let releaseSessionLookup!: () => void
+      const sessionLookupBlocked = new Promise<void>((resolve) => { releaseSessionLookup = resolve })
+      const realGet = redis.get as jest.Mock
+      const originalImpl = realGet.getMockImplementation()
+      realGet.mockImplementationOnce(async (key: string) => {
+        await sessionLookupBlocked
+        return originalImpl ? originalImpl(key) : null
+      })
+
+      const ws = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      const frames: Array<{ type: string; payload?: { message?: string } }> = []
+      ws.on('message', (data: Buffer) => frames.push(JSON.parse(data.toString())))
+      const closed = new Promise<void>((resolve) => ws.once('close', () => resolve()))
+      ws.send(JSON.stringify({ type: 'PING', payload: {} }))
+      ws.send(JSON.stringify({ type: 'PING', payload: {} }))
+
+      await closed
+      releaseSessionLookup()
+      expect(frames.map((frame) => frame.payload?.message)).toEqual(['Too many messages before authentication'])
+    })
+
     // Security review, 2026-08-15 (P1) — closes the gap the Codex threat
     // report flagged and this session verified was real: @fastify/rate-limit
     // never sees WS `message` frames, so SEND_MESSAGE had no ceiling at all
@@ -1387,9 +1619,17 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(res.statusCode).toBe(401)
     })
 
-    it('creates an escrow for an authenticated caller', async () => {
+    it("refuses escrow creation by the trade's buyer, even claiming sellerId in the payload: only the seller commits the escrow (#235 R7H-E3)", async () => {
       const token = await authedSession('buyer-1')
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.01' })
+      const res = await app.inject({ method: 'POST', url: '/v1/settlement/escrow', headers: { authorization: `Bearer ${token}` }, payload: { tradeId: 'trade-1', lockedAmount: '0.01', asset: 'BTC', sellerId: 'buyer-1' } })
+      expect(res.statusCode).toBe(403)
+      expect(mockEscrowCreate).not.toHaveBeenCalled()
+    })
+
+    it('creates an escrow for an authenticated caller', async () => {
+      const token = await authedSession('seller-1')
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.01' })
       mockEscrowCreate.mockResolvedValueOnce({
         id: 'escrow-1', tradeId: 'trade-1', status: 'CREATED',
         type: 'MOCK', lockedAmount: '0.01', asset: 'BTC', // Decimal fields — same .toString() note as above
@@ -1450,13 +1690,12 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     // legacy asset with no canonical scope mapping — so this mission's
     // stricter check does not apply to it); the semantically-wrong
     // USDT_ERC20 pairing is now correctly rejected (new test below).
-    it('accepts SAFE_GUARD_EVM as a real, schema-recognized escrow type for an asset with no canonical scope mapping (RFC-020)', async () => {
-      const token = await authedSession('buyer-1')
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
-      mockEscrowCreate.mockResolvedValueOnce({
-        id: 'escrow-safe-guard-1', tradeId: 'trade-1', status: 'CREATED',
-        type: 'SAFE_GUARD_EVM', lockedAmount: '1.5', asset: 'STACKS',
-      })
+    // #235 R7F-B (D3/D4) — superseded: the route still parses `SAFE_GUARD_EVM` (schema-recognized,
+    // RFC-020), but no trade-backed escrow may use it. STACKS has no authorized translation, so the trade
+    // is refused before any rail is considered, and SAFE_GUARD_EVM locks native ETH, which no AssetType is.
+    it('refuses SAFE_GUARD_EVM on a trade in an asset with no canonical scope mapping — nothing is created (#235 R7F-B)', async () => {
+      const token = await authedSession('seller-1')
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'STACKS', amount: '1.5' })
 
       const res = await app.inject({
         method: 'POST',
@@ -1465,13 +1704,14 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         payload: { tradeId: 'trade-1', type: 'SAFE_GUARD_EVM', lockedAmount: '1.5', asset: 'STACKS' },
       })
 
-      expect(res.statusCode).toBe(201)
-      expect(JSON.parse(res.body).data.id).toBe('escrow-safe-guard-1')
+      expect(res.statusCode).toBe(409)
+      expect(JSON.parse(res.body).message).toMatch(/no authorized settlement translation/)
+      expect(mockEscrowCreate).not.toHaveBeenCalled()
     })
 
     it('rejects SAFE_GUARD_EVM for USDT_ERC20 — not the canonical {USDT,ETHEREUM} implementation (Mission 4 correction, previously silently accepted)', async () => {
-      const token = await authedSession('buyer-1')
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+      const token = await authedSession('seller-1')
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_ERC20', amount: '1.5' })
 
       const res = await app.inject({
         method: 'POST',
@@ -1742,10 +1982,34 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
     })
 
-    it('signs an unsigned payment account for real — signer is not the owner (the real RFC-021 D1 case: an arbiter/peer attesting someone else\'s account), so the response is the narrow public projection, not the raw row', async () => {
-      const token = await authedSession('arbiter-1')
-      mockPaymentAccountFindUnique.mockResolvedValueOnce({ accountHash: 'hash-1', ownerId: 'buyer-1', signed: false, firstUsedAt: new Date('2026-01-01'), completedTrades: 0, chargebacks: 0 })
-      mockPaymentAccountUpdate.mockResolvedValueOnce({ accountHash: 'hash-1', ownerId: 'buyer-1', signed: true, signedBy: 'arbiter-1', firstUsedAt: new Date('2026-01-01'), completedTrades: 0, chargebacks: 0 })
+    // #235 R7C — the route is a thin shell over paymentAccountService.attestFromTrade() (its authority
+    // branches: tests/paymentAccountService.test.ts; real PostgreSQL: paymentAccountBindingAuthority.test.ts).
+    it('attests through the trade: forwards (tradeId, path hash, session principal) and answers with the narrow public projection — the attester (the buyer) is never the owner', async () => {
+      const token = await authedSession('buyer-2')
+      const { paymentAccountService } = require('../src/modules/open-settlement/payment-account.service')
+      const attest = jest.spyOn(paymentAccountService, 'attestFromTrade').mockResolvedValueOnce(
+        { accountHash: 'hash-1', ownerId: 'seller-2', paymentMethod: 'PIX', signed: true, signedBy: 'buyer-2', signedAt: new Date('2026-01-02'), firstUsedAt: new Date('2026-01-01'), completedTrades: 0, chargebacks: 0 })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/settlement/payment-accounts/hash-1/sign',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { tradeId: 'trade-9', signedBy: 'forged', ownerId: 'forged' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(attest).toHaveBeenCalledWith('trade-9', 'hash-1', 'buyer-2')
+      const body = JSON.parse(res.body)
+      expect(body.data.signed).toBe(true)
+      expect(body.data).not.toHaveProperty('signedBy')
+      expect(body.data).not.toHaveProperty('ownerId')
+      attest.mockRestore()
+    })
+
+    it('#235 R7C — without a tradeId there is nothing to attest: 400, the service is never reached', async () => {
+      const token = await authedSession('buyer-2')
+      const { paymentAccountService } = require('../src/modules/open-settlement/payment-account.service')
+      const attest = jest.spyOn(paymentAccountService, 'attestFromTrade')
 
       const res = await app.inject({
         method: 'POST',
@@ -1753,11 +2017,9 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         headers: { authorization: `Bearer ${token}` },
       })
 
-      expect(res.statusCode).toBe(200)
-      const body = JSON.parse(res.body)
-      expect(body.data.signed).toBe(true)
-      expect(body.data).not.toHaveProperty('signedBy')
-      expect(body.data).not.toHaveProperty('ownerId')
+      expect(res.statusCode).toBe(400)
+      expect(attest).not.toHaveBeenCalled()
+      attest.mockRestore()
     })
 
     // Missão 11 Fase 9.3.4 — CTO-mandated INV-OP-10 existing-surface
@@ -2199,6 +2461,42 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         expect(JSON.parse(res.body).error).toBe('VALIDATION_ERROR')
       }
       expect(mockCapabilityGrantCreate).not.toHaveBeenCalled()
+    })
+
+    it('rejects an oversized scope collection before capability persistence', async () => {
+      const token = await authedSession('buyer-1')
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/capabilities/register',
+        headers: { authorization: `Bearer ${token}` },
+        // Every entry is canonical for this capability (the registry accepts repeats), so only the
+        // schema's scope-count bound can reject this collection.
+        payload: { capabilityName: 'trade-coordination', scope: ['intent.created', 'intent.discovering', 'intent.created', 'intent.discovering'] },
+      })
+
+      expect(res.statusCode).toBe(400)
+      expect(mockCapabilityGrantCreate).not.toHaveBeenCalled()
+    })
+
+    it('accepts the canonical settlement grant with its three scopes', async () => {
+      const token = await authedSession('buyer-1')
+      mockCapabilityGrantCreate.mockResolvedValueOnce({
+        id: 'grant-settlement-1',
+        grantedTo: 'buyer-1',
+        capabilityName: 'settlement',
+        scope: ['settlement.escrow.released', 'settlement.escrow.refunded', 'settlement.escrow.split'],
+        constraints: null,
+        issuedBy: 'buyer-1',
+      })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/capabilities/register',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { capabilityName: 'settlement', scope: ['settlement.escrow.released', 'settlement.escrow.refunded', 'settlement.escrow.split'] },
+      })
+
+      expect(res.statusCode).toBe(201)
     })
 
     it('lists active grants for a participant, no auth required', async () => {

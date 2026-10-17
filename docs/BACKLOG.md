@@ -5532,6 +5532,16 @@ obligation" is defined anywhere in this repository.
       `timelockHours` be validated against the chosen rail's own
       intrinsic constraint at all" is a protocol-enforcement question,
       not a presentation one, and is not covered by that boundary.
+      **Corrigido 2026-10-05 (Master Backlog R5):** `timelockHours` is no
+      longer caller-influenceable — `createEscrow()` freezes
+      `DEFAULT_TIMELOCK_HOURS` on every new escrow and ignores the
+      request field (accepted-but-inert for compatibility), and the
+      config value is a strict positive integer, required in production
+      (`escrow-timelock-policy.ts`, `config/index.ts`). Still open: the
+      cross-check against a rail's intrinsic window (the 144-block
+      `LIGHTNING_HODL` exit leaf) and any minimum/maximum beyond the
+      structural floor of 1 hour are economic policy decisions, not made
+      there.
     - **A participant who disappears after funds are already locked, at
       `PAYMENT_PENDING`, with no automatic escalation —
       `DAY0_DECISION_REQUIRED` + `RED_TEAM_INPUT`, genuinely new and
@@ -5901,3 +5911,102 @@ Canonical invariants:
 A future Sails-operated OpenTimestamps-compatible aggregator/calendar is OPTIONAL / FUTURE only. If operated later, it is one additional ecosystem participant, never a mandatory calendar, central timestamp authority, interoperability gate, or Day-0 dependency.
 
 **Implementation/evidence remains open.** This entry freezes the required property; it does not claim the current implementation already satisfies multi-calendar redundancy.
+
+## B2 technical freeze and residual findings register (#235 R7H-NF-E3C-5, 2026-10-10)
+
+**Status: B2 AUDITED SCOPE TECHNICALLY FROZEN — NOT MERGED, NOT DEPLOYED, #235 NOT CLOSED, R7H/E3 NOT COMPLETE, E4 NOT AUTHORIZED.**
+
+Record of the CTO decision after the independent Opus 5.5 security audit (Gates A–G) and the Gate C re-audit
+(`READY_FOR_CTO_R7H_NF_E3C_5_B2_GATE_C_FINAL_REAUDIT`).
+
+- Frozen implementation HEAD: `c51b8bb8da47048fac7fce8968e45c51950d1df9` (PR #432, DRAFT, base `fix/235-r7h-e3-seller-payment-binding`).
+  Exact-head CI run 38066511891: success (unit lane 192 suites / 2989 tests; PostgreSQL lane 84 suites / 1096 tests).
+- The ten frozen invariants: `docs/rfcs/RFC-018-intent-as-canonical-trade-entry-point.md`, Amendment A1, "Technical freeze".
+- Deployment prerequisites (mandatory, **not satisfied**): `docs/DEPLOYMENT.md` section 2.2.
+- This entry registers findings only. It authorizes no implementation. Nothing here changes an earlier entry's status.
+
+**What remains of #235 (verified against the code, 2026-10-10).** The original defect "the computed payment-account trade
+limit is not enforced" is **still open in production code**: E1 delivered the schema, E2 the canonical quote authority and
+E3/E3C/B2 the seller binding and the atomic admission, but no production path writes `exposure_reservations`,
+`readAuthorizationQuote()` has no production consumer, and `computeTradeLimit()` is only surfaced read-only. Owner-wide caps
+and fiat/reorg accounting are named in the R7H-E1 CHANGELOG entry as later slices.
+
+### Residual findings
+
+Severity is preserved exactly as the audit assigned it; nothing was downgraded. "Next gate" is the owner and the point at
+which the finding must be closed or consciously accepted.
+
+| ID | Severity | Class | Provenance | Scope and evidence | Owner / next gate |
+|---|---|---|---|---|---|
+| **B-1** | **Medium** | Defect, pre-existing | Audit Gate B. Reproduced identically on the pre-B2 baseline `3ef9959`: not introduced by B2. | An offer set to CANCELLED or PAUSED after validation, and also inside the admission transaction, still admits the trade (201); `escrow_economic_binding_violation()` never reads `offers.status`. `trade.service.ts` `prepareAdmission`, `trade-repository.ts` `admit`, `liquidity.service.ts` `updateOfferStatus`. | Separate mission. **Must be resolved and verified before production exposure** (deployment prerequisite 4). |
+| D-L1 | Low | Defect (legacy trades only) | Audit Gate D | `trade.service.ts` `updateStatus`, L1: the live-sibling count is not serialized. The last two live siblings cancelled concurrently both SKIP, leaving the shared Intent non-terminal with zero live trades (12/15 natural runs). No economic effect: every economic cancellation guard precedes L1. | Separate hardening mission. |
+| D-L2 | Low | Policy decision (consequence of the frozen L1 policy) | Audit Gate D | A legacy trade with its own unfunded (`CREATED`) escrow never skips: cancelling it moves the shared Intent to CANCELLED while a sibling is ACTIVE; when a sibling already committed the shared Intent, the cancellation is refused. No economic effect (escrow handlers tolerate it). | **Requires a CTO policy decision** (own escrow by existence vs by funded state). |
+| G-L1 | Low | Hardening, database | Audit Gate G | Trigger `trades_enforce_trade_intent_integrity` guards only one direction. A direct INSERT of a trade whose `intentId` is another trade's own Intent is accepted, and cancelling that row cancels the other trade's Intent; a direct UPDATE of `intentId` is accepted. No application path. | Separate B2-owned hardening mission. It blocks the freeze only if the CTO requires bidirectional database enforcement. |
+| A-L1 | Low | Defect, error semantics | Audit Gate A | Concurrent reclaim of a legacy FAILED claim: the losers get a synthetic IN_PROGRESS and 409 `IDEMPOTENCY_OUTCOME_UNKNOWN` although the winner committed (1x201 + 3x409; a retry returns 201). Not a false definitive failure. `trade-repository.ts` `admit`. | Separate small mission. |
+| C-L2 | Low (conditional on a non-UTC session) | Hardening | Audit Gate A/C; classified in the re-audit | `trade-repository.ts` `admit`: the claim INSERT omits `createdAt` (database default) and uses `now()` for `completedAt` (also on the FAILED reclaim). Measured +50 400 s / -43 200 s from the trade under UTC+14 / UTC-12 sessions. No decision reads these columns for B2 rows (forensic only). The reconciliation path was already corrected. | Deployment condition (prerequisite 3) plus an optional hardening mission. |
+| G-C1 | Deployment condition | Operations | Audit Gate G | Pre-B2 instances move the *offer* Intent for B2 trades (`trade.intentId` lifecycle) and keep writing legacy trades and claims. | Deployment prerequisite 1. |
+| R-1 | Deployment condition | Operations | Re-audit | Migration `20261018140000` is forward-only. A database where a pre-corrective build ran keeps its inferred attributions; the corrected build's replay returns the inferred trade. Reproduced on a mixed database (2 MATCHED rows survive; `VALIDATE CONSTRAINT` is refused). | Deployment prerequisite 2. The expected count is 0 because the PR was never merged; **no environment was verified.** |
+| R-2 | Deployment condition | Operations | Re-audit | A stale pre-corrective instance cannot persist an inference (the database refuses MATCHED, `23514`) but answers 500. | Deployment prerequisite 1. |
+| R-3 | Informational | Documentation | Re-audit | The manual rollback comment in migration `20261018140000` fails once any `UNRESOLVED` row exists. | Correct (new migration or runbook; the applied file is not edited) before anyone relies on rollback. |
+| R-4 | Informational | Test practice | Re-audit | `jest.spyOn(prisma, '$executeRaw')` also captures `tx.$executeRaw` and runs it through the bound original **outside** the transaction (the row survives a rollback). The two spies in `tradeClaimReconciliation.test.ts` target the transaction-free observation path, so their evidence is valid. | Test guidance for future missions; not to be used to test transactional code. |
+| R-5 | Informational | Design note | Re-audit | Unverified candidate hints are caller-owned and non-authoritative but not scoped to the claim's offer. No isolation breach. | CTO may refine; no action required. |
+| R-6 | Informational | Operability | Re-audit | The observation path has no statement timeout: with the audit table locked for 3 s the replay waited 3 011 ms and returned the same 409. | Optional hardening. |
+| **ST-1** | **Medium (merge integrity; impact not assessed)** | Process / dependency | Found while preparing this freeze, 2026-10-10 | The 24-PR draft stack under #432 (#392 ... #432) rests on the branch `fix/244-stale-dispute-cleanup-signature-race` (head `d644c15`), the head of PR #390, which was **closed without merge** as superseded by the authoritative restack **#391** (`4a9239c`) *(Corrigido 2026-10-10: the forensic audit showed #391 is not superior; #390 was reopened and #391 closed — see "ST-1 decision" below)*. #391's head is not contained in that branch (12 commits only in #391, 1 only in the closed branch). Three non-test files differ: `src/modules/open-settlement/dispute-pending-reconciliation.ts`, `src/modules/open-settlement/escrow-pending-tx.ts` and `package.json`; the #432 head carries the **closed branch's** `dispute-pending-reconciliation.ts`. `main` has not moved since 2026-09-21 and is 117 commits behind #432. | **DECIDED 2026-10-10 (CTO, Option A): the existing ancestry is accepted and the governance record repaired and verified** ("ST-1 decision" below). The follow-ups ST1-F5 .. F7 and the remaining risks listed there stay open. |
+
+### ST-1 decision — stack base forensic audit and governance repair (CTO, 2026-10-10)
+
+**Forensic facts** (read-only audit, `READY_FOR_CTO_ST1_STACK_BASE_FORENSIC_DECISION`):
+
+- #390 (`d644c15adf481829fadca83336224561fd7694be`) and #391 (`4a9239c535d6cc6fd1cf296a337ce7e4d5cb19cf`) are **independent,
+  parallel implementations** of #244 on the same base `cf2e2138baf24d9fd96df692d612adf31726a23b` (#389), opened 3 minutes apart
+  on 2026-10-04. The stack grew on #390 because #391 was never visible to the session that built it; #390 was closed on
+  2026-10-06 as "superseded" without any PR being retargeted.
+- **Production semantics are equivalent** (same `pg_advisory_xact_lock(hashtext(escrowId))` key, the same zero-signature
+  conditional delete, the same round re-check under the lock). #391 contains **no production fix** the stack lacks. The stack's
+  version of the two files also carries later frozen work on the same locked transaction (#239D, R7G-B2A).
+- **Regression evidence is stronger on the stack.** Five regressions injected into the production code (signature without the
+  lock, without the round re-check, cleanup without the lock, cleanup without the zero-signature condition, the original
+  unconditional delete): the stack's #244 evidence killed 5 of 5; #391's integration suite (fixture adapted to later frozen
+  invariants) 0 of 5, its race tests exercising a test-local copy of the SQL; #391's own 138 unit tests 1 of 5.
+
+**Decision: Option A, explicit acceptance of the existing #390 ancestry. No restack, no transplant, no commit of any
+implementation PR.** Executed and verified 2026-10-10:
+
+| Action | Result |
+|---|---|
+| PR #390 reopened | OPEN, draft, head `d644c15adf481829fadca83336224561fd7694be` unchanged, base `fix/238-atomic-dispute-opening-restacked` |
+| PR #392 | still based on `fix/244-stale-dispute-cleanup-signature-race`; head `019ec3ba2dda31a77fff87eaed64f68f900600cf` unchanged |
+| PR #391 closed, with a factual comment | CLOSED, not merged; branch `gatekeeper/244-signed-cleanup-race-restacked` preserved at `4a9239c535d6cc6fd1cf296a337ce7e4d5cb19cf` |
+| Branch `fix/244-stale-dispute-cleanup-signature-race` protected | GitHub branch protection: deletion refused, force-push refused, enforced for administrators; no required reviews or checks. Read back through the API and exercised on a disposable ref with the identical rule (delete and forced move both refused with HTTP 422; the ref was removed afterwards). |
+| The 56-PR chain (#432 down to #320, based on `main`) | Re-verified: only #390 and #391 changed status. No other head or base changed. No commit, SHA or exact-head CI evidence of any other PR was touched. |
+
+**Findings preserved** (severities as audited):
+
+| ID | Severity | Status |
+|---|---|---|
+| ST1-F1 stack depends on a closed PR's branch (deletion would orphan it) | Medium | **Mitigated:** #390 reopened and its branch protected. Residual risk below. |
+| ST1-F2 #390's closure rationale contradicted by evidence; #391 left open as if authoritative | Medium | **Corrected:** #390 reopened, #391 closed with the factual comment. |
+| ST1-F3 #391 reports an already-deleted round as "has signatures" | Low | Moot while #391 stays closed. |
+| ST1-F4 #391's tests violate frozen F8A / E3 invariants | Low | Moot unless #391 is ever revived. |
+| ST1-F5 no real-PostgreSQL race test through the reconciler entry point in either lineage | Info | **Open**, optional hardening at the stack top. |
+| ST1-F6 other pending-round deleters are outside the #244 class and identical in both lineages | Info | Unchanged. |
+| ST1-F7 `gatekeeper/235-payment-account-limit-enforcement` equals `main` (0 commits, no PR) | Info | Unchanged; not a parallel #235 lineage. |
+
+**Remaining risks (not hidden):**
+
+- Branch protection is a repository setting, not code. Removing it, or a repository admin deleting the branch after lifting it,
+  re-exposes ST1-F1. GitHub's behaviour when a branch with dependent open PRs is deleted is known but was not tested.
+- Protection also refuses force-pushes to that branch. A future restack of the stack's base requires a deliberate, recorded
+  removal of the protection.
+- The preserved #391 branch is **not** protected (not authorized by this decision); deleting it would lose that audit history.
+- Merge planning must place #390 between #389 and #392 (bottom-up). All 56 PRs remain unmerged; the stack is still 117 commits
+  ahead of `main`, which has not moved since 2026-09-21.
+- `4a9239c` (#391) is not an ancestor of the stack, by decision. Anyone comparing the two lineages must read this entry first.
+
+### Existing tracking checked (no duplicate created)
+
+- `docs/BACKLOG.md` contained no R7G / R7H / #235 entry other than the original trade-limit enforcement owner (Day-0 benchmark
+  hypothesis 9); this register is the only place that follows the R7H chain.
+- GitHub issue search for the finding keywords returned no tracker for any item above. The closest are #235 (owner of the
+  trade-limit enforcement defect, not closed) and #293 (lifecycle timers, no-show/griefing and basic trade-safety gaps).
+  No issue was created or modified by this record.

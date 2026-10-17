@@ -25,6 +25,9 @@ export {} // see chatUnification.test.ts's identical comment
 
 let mockEscrowFeatureFlag = false // MULTISIG/LIGHTNING_HODL only matter with mockEscrow off
 let isProductionFlag = false // Issue #229 — MOCK escrow production-eligibility gate
+// #235 R7H-E3 - whether the escrow's rail is governed by a trade-limit policy (the repository's binding query answer).
+let mockBindingGoverned = true
+
 jest.mock('../src/config', () => ({
   get config() {
     return {
@@ -108,6 +111,8 @@ jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
     finalizeRefund: (...args: unknown[]) => mockFinalizeRefund(...args),
     buildUnsignedSplit: (...args: unknown[]) => mockBuildUnsignedSplit(...args),
     finalizeSplit: (...args: unknown[]) => mockFinalizeSplit(...args),
+    // #235 R7G-B2A - signature submission now validates locally first; the real cryptographic check is proven in tests/integration/multisigScriptAuthority.test.ts.
+    validatePartialSignature: jest.fn(),
   },
 }))
 
@@ -115,7 +120,7 @@ const mockEscrowFindUnique = jest.fn()
 const mockEscrowUpdate = jest.fn()
 const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowCreate = jest.fn()
-const mockEscrowEventCreate = jest.fn()
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockTradeFindUnique = jest.fn()
 const mockDisputeFindFirst = jest.fn().mockResolvedValue(null)
@@ -123,6 +128,14 @@ const mockFeePolicyVersionFindMany = jest.fn().mockResolvedValue([])
 const mockParticipantKeyUpsert = jest.fn()
 const mockParticipantKeyFindMany = jest.fn()
 const mockParticipantKeyCreate = jest.fn()
+// #235 R7G-B2A - single-key lookups (submitParticipantKey()'s committed-key check, submitTransactionSignature()'s
+// signer key) answer from the same per-test findMany fixture, so every test keeps one source of key truth.
+const mockParticipantKeyFindUnique = jest.fn(async (args: any) => {
+  const where = args?.where?.escrowId_role
+  const rows = (await mockParticipantKeyFindMany({ where: { escrowId: where?.escrowId } })) ?? []
+  return rows.find((r: any) => r.escrowId === where?.escrowId && r.role === where?.role)
+    ?? (where?.role === 'buyer' || where?.role === 'seller' ? { escrowId: where.escrowId, role: where.role, pubkey: '02' + '11'.repeat(32) } : null)
+})
 const mockPendingTxFindUnique = jest.fn()
 // Missão 11 Fase 9.1 §1/§2 — assertFundingNotUncertain() (wired into
 // initiateSignatureCollectionCore() for release/split) now queries this
@@ -161,10 +174,27 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     },
     escrow: {
       updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args),
+      findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args),
+      update: (...args: unknown[]) => mockEscrowUpdate(...args),
+      // #235 R7G-A - createEscrow() inserts under the trade-lifecycle lock, after re-reading the trade.
+      create: (...args: unknown[]) => mockEscrowCreate(...args),
+    },
+    trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
+    // #235 R7G-B1 - submitParticipantKey() writes keys and the derived address under the trade-lifecycle lock.
+    escrowParticipantKey: {
+      upsert: (...args: unknown[]) => mockParticipantKeyUpsert(...args),
+      findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args),
+      create: (...args: unknown[]) => mockParticipantKeyCreate(...args),
+      findUnique: (...args: unknown[]) => mockParticipantKeyFindUnique(...(args as [any])),
     },
     escrowPendingTransaction: {
       create: (...args: unknown[]) => mockPendingTxCreate(...args),
+      // Issue #291 - persistSettlementResult() verifies the live pending operation inside its transaction.
+      findFirst: (...args: unknown[]) => (mockPendingTxFindUnique as any)(...args),
+      findUnique: (...args: unknown[]) => (mockPendingTxFindUnique as any)(...args),
     },
+    // Issue #244 - submitTransactionSignature() re-reads the round and inserts under the escrow lock.
+    escrowTransactionSignature: { upsert: (...args: unknown[]) => mockTxSignatureUpsert(...args) },
     escrowFundingEvidence: {
       findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args),
     },
@@ -175,7 +205,13 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
       create: (...args: unknown[]) => mockEscrowEventCreate(...args),
     },
+    // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+    eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
     $executeRaw: jest.fn().mockResolvedValue(0),
+    // The event store checks, in its publish transaction, whether the escrow transition already has a
+    // durable event (one event per transition, migration 20260930130000); none has, here.
+    // #235 R7H-E3 - the repository's binding check; the binding itself is proven on real PostgreSQL (escrowSellerPaymentBinding.test.ts).
+    $queryRaw: jest.fn(async (strings: TemplateStringsArray) => (strings.join('?').includes('escrow_economic_binding_violation') ? [{ violation: null, governed: mockBindingGoverned }] : [])),
   })
 )
 
@@ -207,6 +243,7 @@ jest.mock('../src/common/database', () => ({
       upsert: (...args: unknown[]) => mockParticipantKeyUpsert(...args),
       findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args),
       create: (...args: unknown[]) => mockParticipantKeyCreate(...args),
+      findUnique: (...args: unknown[]) => mockParticipantKeyFindUnique(...(args as [any])),
     },
     escrowPendingTransaction: {
       findUnique: (...args: unknown[]) => mockPendingTxFindUnique(...args),
@@ -244,10 +281,10 @@ describe('createEscrow() — no longer populates multisigAddr immediately (clien
   })
 
   it('does NOT call getDepositAddress for a MULTISIG escrow at creation time', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001', multisigAddr: null })
 
-    const result = await escrowService.createEscrow({ tradeId: 'trade-1', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    const result = await escrowService.createEscrow({ tradeId: 'trade-1', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockGetDepositAddress).not.toHaveBeenCalled()
     expect(mockEscrowUpdate).not.toHaveBeenCalled()
@@ -255,10 +292,10 @@ describe('createEscrow() — no longer populates multisigAddr immediately (clien
   })
 
   it('does NOT call getDepositAddress for a non-MULTISIG escrow either', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_ERC20', amount: '5' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-2', tradeId: 'trade-2', type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', lockedAmount: '5' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-2', type: 'WDK_USDT_EVM' as any, lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-2', type: 'WDK_USDT_EVM' as any, lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'seller-1')
 
     expect(mockGetDepositAddress).not.toHaveBeenCalled()
     expect(mockEscrowUpdate).not.toHaveBeenCalled()
@@ -272,56 +309,61 @@ describe('createEscrow() — asset-aware default type (multisig-coverage-per-ass
   })
 
   it('defaults an omitted type to MULTISIG for a BTC trade', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-1', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-1', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
   })
 
-  it('defaults an omitted type to LIGHTNING_HODL for an LN_BTC trade', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
-    mockEscrowCreate.mockResolvedValue({ id: 'escrow-2', tradeId: 'trade-2', type: 'LIGHTNING_HODL', asset: 'LN_BTC', lockedAmount: '0.001' })
+  // #235 R7F-B (D3) — LN_BTC has no authorized translation (ADR-002 §11), so a trade in it cannot be
+  // escrowed: LIGHTNING_HODL is no longer chosen for it by default.
+  it('refuses an LN_BTC trade before persistence — no authorized translation, so no default rail (#235 R7F-B D3)', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'LN_BTC', amount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-2', lockedAmount: '0.001', asset: 'LN_BTC' as any }, 'buyer-1')
+    await expect(escrowService.createEscrow({ tradeId: 'trade-2', lockedAmount: '0.001', asset: 'LN_BTC' as any }, 'seller-1')).rejects.toThrow(/no authorized settlement translation/)
 
-    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'LIGHTNING_HODL' }) }))
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
 
   it('defaults an omitted type to WDK_USDT_EVM for a USDT_ERC20 trade', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-3', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-3', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_ERC20', amount: '5' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-3', tradeId: 'trade-3', type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', lockedAmount: '5' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-3', lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-3', lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'WDK_USDT_EVM' }) }))
   })
 
   it('does NOT silently default to MULTISIG for an asset with no real provider — throws instead', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-4', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-4', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'SPARK', amount: '10' })
 
-    await expect(escrowService.createEscrow({ tradeId: 'trade-4', lockedAmount: '10', asset: 'SPARK' as any }, 'buyer-1')).rejects.toThrow(
-      "No real SettlementProvider is wired for asset 'SPARK'"
-    )
+    // #235 R7F-B (D3) — refused even earlier now: SPARK has no authorized translation at all.
+    await expect(escrowService.createEscrow({ tradeId: 'trade-4', lockedAmount: '10', asset: 'SPARK' as any }, 'seller-1')).rejects.toThrow(/no authorized settlement translation/)
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
 
-  it('MOCK_ESCROW=true still defaults every asset to MOCK regardless of recommendedEscrowType', async () => {
+  it('MOCK_ESCROW=true still defaults a translated asset to MOCK — but never an untranslated one (#235 R7F-B D3)', async () => {
     mockEscrowFeatureFlag = true
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-5', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
-    mockEscrowCreate.mockResolvedValue({ id: 'escrow-5', tradeId: 'trade-5', type: 'MOCK', asset: 'SPARK', lockedAmount: '10' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-5', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '10' })
+    mockEscrowCreate.mockResolvedValue({ id: 'escrow-5', tradeId: 'trade-5', type: 'MOCK', asset: 'BTC', lockedAmount: '10' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-5', lockedAmount: '10', asset: 'SPARK' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-5', lockedAmount: '10', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
+
+    mockEscrowCreate.mockClear()
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-5b', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'SPARK', amount: '10' })
+    await expect(escrowService.createEscrow({ tradeId: 'trade-5b', lockedAmount: '10', asset: 'SPARK' as any }, 'seller-1')).rejects.toThrow(/no authorized settlement translation/)
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
 
   it('an explicitly passed type is never overridden, even for an asset with a different recommendation', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-6', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-6', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-6', tradeId: 'trade-6', type: 'MOCK', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-6', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-6', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
   })
@@ -334,33 +376,46 @@ describe('createEscrow() — MOCK escrow production-eligibility gate (Issue #229
     isProductionFlag = false
   })
 
+  it('#235 R7H-E3: in production, a rail no trade-limit policy governs is refused at creation, before any insert', async () => {
+    isProductionFlag = true
+    mockBindingGoverned = false
+    try {
+      mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-g', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
+      await expect(escrowService.createEscrow({ tradeId: 'trade-prod-g', type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1'))
+        .rejects.toMatchObject({ statusCode: 409, reason: 'DISABLED', message: expect.stringMatching(/not governed by any trade-limit policy/) })
+      expect(mockEscrowCreate).not.toHaveBeenCalled()
+    } finally {
+      mockBindingGoverned = true
+    }
+  })
+
   it('rejects an explicit type: "MOCK" in production', async () => {
     isProductionFlag = true
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
 
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-prod-1', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+      escrowService.createEscrow({ tradeId: 'trade-prod-1', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
     ).rejects.toThrow(/not economically eligible in production/)
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
 
   it('rejects an explicit type: "MOCK" in production regardless of asset (not just BTC)', async () => {
     isProductionFlag = true
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_ERC20', amount: '5' })
 
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-prod-2', type: 'MOCK', lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'buyer-1')
+      escrowService.createEscrow({ tradeId: 'trade-prod-2', type: 'MOCK', lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'seller-1')
     ).rejects.toThrow(/not economically eligible in production/)
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
 
   it('rejects via the standard EscrowError shape (409, ESCROW_ERROR, reason DISABLED) — same envelope every other capability-denial in this file already uses', async () => {
     isProductionFlag = true
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-5', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-5', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
 
     let caught: unknown
     try {
-      await escrowService.createEscrow({ tradeId: 'trade-prod-5', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+      await escrowService.createEscrow({ tradeId: 'trade-prod-5', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
     } catch (err) {
       caught = err
     }
@@ -374,20 +429,20 @@ describe('createEscrow() — MOCK escrow production-eligibility gate (Issue #229
 
   it('still allows an explicit type: "MOCK" outside production (dev/test) — the pre-existing escape hatch is unchanged', async () => {
     isProductionFlag = false
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-dev-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-dev-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-dev-1', tradeId: 'trade-dev-1', type: 'MOCK', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-dev-1', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-dev-1', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
   })
 
   it('does not affect a real, non-MOCK explicit type in production', async () => {
     isProductionFlag = true
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-3', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-3', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-prod-3', tradeId: 'trade-prod-3', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-prod-3', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-prod-3', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
   })
@@ -395,10 +450,10 @@ describe('createEscrow() — MOCK escrow production-eligibility gate (Issue #229
   it('does not affect an omitted type in production — the implicit default (already gated by RT-001/MOCK_ESCROW at boot) is untouched', async () => {
     isProductionFlag = true
     mockEscrowFeatureFlag = false // RT-001 already guarantees this in a real production boot
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-4', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-prod-4', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-prod-4', tradeId: 'trade-prod-4', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-prod-4', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-prod-4', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
   })
@@ -534,7 +589,7 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
   // this direct-call splitFunds() method (that's MOCK/WDK_USDT_EVM only)
   // — lock/release/refund below is the complete, correct set of direct-
   // dispatch economic methods MULTISIG actually uses.
-  it('a real, deployment-eligible provider (MULTISIG) retains its exact current production behavior — lock/release/refund all still dispatch normally', async () => {
+  it('a real, deployment-eligible provider (MULTISIG) retains its exact current production behavior — lock dispatches normally; direct release/refund are refused by the rail, not by the MOCK gate', async () => {
     isProductionFlag = true
     const { multisigProvider } = jest.requireMock('../src/modules/open-settlement/multisig.provider') as any
 
@@ -553,31 +608,23 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
     expect(locked.txLockId).toBe('real-lock-txid')
     expect(multisigProvider.lockFunds).toHaveBeenCalled()
 
-    // releaseFunds
-    jest.clearAllMocks()
-    mockEscrowFeatureFlag = false
-    mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
-    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-ms-2', tradeId: 'trade-ms-2', type: 'MULTISIG', status: 'PAYMENT_PENDING' })
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-ms-2', buyerId: 'buyer-1', sellerId: 'seller-1' })
-    multisigProvider.releaseFunds.mockResolvedValueOnce({ txId: 'real-release-txid' })
-    mockEscrowUpdate.mockResolvedValueOnce({ id: 'escrow-ms-2', txReleaseId: 'real-release-txid' })
-
-    const released = await escrowService.releaseFunds('escrow-ms-2', 'tb1qbuyer', 'seller-1')
-    expect(released.txReleaseId).toBe('real-release-txid')
-    expect(multisigProvider.releaseFunds).toHaveBeenCalled()
-
-    // refundFunds
-    jest.clearAllMocks()
-    mockEscrowFeatureFlag = false
-    mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
-    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-ms-3', tradeId: 'trade-ms-3', type: 'MULTISIG', status: 'FUNDS_LOCKED' })
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-ms-3', buyerId: 'buyer-1', sellerId: 'seller-1' })
-    multisigProvider.refundFunds.mockResolvedValueOnce({ txId: 'real-refund-txid' })
-    mockEscrowUpdate.mockResolvedValueOnce({ id: 'escrow-ms-3', txReleaseId: 'real-refund-txid' })
-
-    const refunded = await escrowService.refundFunds('escrow-ms-3', 'seller-1')
-    expect(refunded.txReleaseId).toBe('real-refund-txid')
-    expect(multisigProvider.refundFunds).toHaveBeenCalled()
+    // releaseFunds / refundFunds — #235 R7G F8B (SIGNATURE_COLLECTION_DISPOSITION_AUTHORITY_V1): MULTISIG settles only
+    // through its signing round. The direct calls are refused by the rail itself (never by the production MOCK gate this
+    // test is about), before any claim or provider call. The real provider always threw "not directly callable" here;
+    // this test previously mocked it into succeeding.
+    for (const [call, id, status] of [
+      [() => escrowService.releaseFunds('escrow-ms-2', 'tb1qbuyer', 'seller-1'), 'escrow-ms-2', 'PAYMENT_PENDING'],
+      [() => escrowService.refundFunds('escrow-ms-3', 'seller-1'), 'escrow-ms-3', 'FUNDS_LOCKED'],
+    ] as const) {
+      jest.clearAllMocks()
+      mockEscrowFeatureFlag = false
+      mockEscrowFindUnique.mockResolvedValue({ id, tradeId: 'trade-ms', type: 'MULTISIG', status })
+      mockTradeFindUnique.mockResolvedValue({ id: 'trade-ms', buyerId: 'buyer-1', sellerId: 'seller-1' })
+      await expect(call()).rejects.toThrow(/settles only through signature collection.*Nothing was recorded/)
+      expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
+      expect(multisigProvider.releaseFunds).not.toHaveBeenCalled()
+      expect(multisigProvider.refundFunds).not.toHaveBeenCalled()
+    }
   })
 
   it('the protocol/schema still represents MOCK as a valid escrow type — this mission never removed it from the wire enum', () => {
@@ -598,6 +645,10 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
   // string MOCK" (both produce byte-identical outward behavior for every
   // input that exists today) — the mission explicitly forbids adding a
   // second real provider classification just to create that difference.
+  // **Corrected (Issue #220, 2026-09-27):** #220 classified three more real
+  // rails as production-ineligible on policy grounds (not to create a test
+  // difference), so the outcome-based test at the end of this block can now
+  // prove genericity directly as well.
   describe('eligibility check is generic — not a MOCK-only regression (Issue #229 R3)', () => {
     it('assertDeploymentEligible() itself is driven purely by set membership, not a hardcoded MOCK comparison', () => {
       isProductionFlag = true
@@ -661,6 +712,38 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
       expect(() => getSettlementProvider('MULTISIG')).not.toThrow()
       expect(resolveEscrowType('BTC' as any, 'MULTISIG' as any)).toBe('MULTISIG')
     })
+
+    // Issue #220 — the three reference-only/testnet-only rails, each refused
+    // in production with its OWN true reason (never the MOCK "fabricates
+    // settlement success" message, which would be false for them), at both
+    // provider registries (dispatch) — and allowed outside production.
+    it.each([
+      ['LIGHTNING_HODL', /testnet \(mutinynet\) only/],
+      ['SAFE_GUARD_EVM', /testnet-target only/],
+      ['WDK_USDT_EVM', /server-custodial reference implementation/],
+    ])('%s is refused in production at both registries with its own reason, and allowed outside production (Issue #220)', (type, reason) => {
+      isProductionFlag = true
+      expect(() => assertDeploymentEligible(type)).toThrow(/not economically eligible in production/)
+      expect(() => assertDeploymentEligible(type)).toThrow(reason)
+      expect(() => assertDeploymentEligible(type)).not.toThrow(/fabricates settlement success/)
+      expect(() => getSettlementProvider(type)).toThrow(reason)
+      expect(() => getSignatureCollectionProvider(type)).toThrow(reason)
+
+      isProductionFlag = false
+      expect(() => assertDeploymentEligible(type)).not.toThrow()
+      expect(() => getSettlementProvider(type)).not.toThrow()
+    })
+
+    // The concrete #220 finding: with no explicit type, production used to
+    // route LN_BTC to LIGHTNING_HODL (RECOMMENDED_ESCROW_TYPE) — a rail its own
+    // provider declares testnet-only. Creation now fails closed instead.
+    it('production creation with NO explicit type refuses LN_BTC (default-routed to LIGHTNING_HODL) instead of silently selecting a testnet-only rail (Issue #220)', () => {
+      mockEscrowFeatureFlag = false
+      isProductionFlag = true
+      expect(() => resolveEscrowType('LN_BTC' as any, undefined)).toThrow(/testnet \(mutinynet\) only/)
+      isProductionFlag = false
+      expect(resolveEscrowType('LN_BTC' as any, undefined)).toBe('LIGHTNING_HODL')
+    })
   })
 })
 
@@ -671,48 +754,48 @@ describe('createEscrow() — resolved via canonical SettlementScope/Provider reg
   })
 
   it('resolves an omitted type to MULTISIG for BTC via the canonical registry (same outcome as before, new mechanism)', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-btc-1', tradeId: 'trade-btc-1', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-btc-1', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-btc-1', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
   })
 
   it('validates a client-supplied type "MULTISIG" for BTC against the canonical registry (simulates the SDK\'s own client-side default, the real Reference UI path)', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-btc-2', tradeId: 'trade-btc-2', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-btc-2', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-btc-2', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
   })
 
   it('rejects a client-supplied type for BTC that disagrees with the canonical registry (never silently trusts the caller)', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-3', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-3', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
 
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-btc-3', type: 'WDK_USDT_EVM' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+      escrowService.createEscrow({ tradeId: 'trade-btc-3', type: 'WDK_USDT_EVM' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
     ).rejects.toThrow("type 'WDK_USDT_EVM' does not match 'MULTISIG'")
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
 
   it('MOCK override for BTC still bypasses canonical resolution entirely (pre-existing escape hatch, unchanged)', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-4', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-4', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-btc-4', tradeId: 'trade-btc-4', type: 'MOCK', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-btc-4', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-btc-4', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
   })
 
-  it('does not affect LN_BTC resolution — no canonical mapping is authorized for it (ADR-002 §11, deliberately ambiguous)', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-5', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
-    mockEscrowCreate.mockResolvedValue({ id: 'escrow-btc-5', tradeId: 'trade-btc-5', type: 'LIGHTNING_HODL', asset: 'LN_BTC', lockedAmount: '0.001' })
+  it('LN_BTC — no canonical mapping is authorized for it (ADR-002 §11), so a trade in it cannot be escrowed on any rail (#235 R7F-B D3)', async () => {
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-5', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'LN_BTC', amount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-btc-5', lockedAmount: '0.001', asset: 'LN_BTC' as any }, 'buyer-1')
-
-    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'LIGHTNING_HODL' }) }))
+    for (const type of [undefined, 'LIGHTNING_HODL', 'MULTISIG', 'MOCK']) {
+      await expect(escrowService.createEscrow({ tradeId: 'trade-btc-5', type: type as any, lockedAmount: '0.001', asset: 'LN_BTC' as any }, 'seller-1')).rejects.toThrow(/no authorized settlement translation/)
+    }
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
 
   // Mission 4 (2026-09-14) — generalizes the canonical-registry path from
@@ -727,45 +810,45 @@ describe('createEscrow() — resolved via canonical SettlementScope/Provider reg
   // "registered Product Scope, zero providers" from "not wired at all."
 
   it('validates a client-supplied type "WDK_USDT_EVM" for USDT_ERC20 against the canonical registry (same mechanism as BTC now)', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-usdt-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-usdt-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_ERC20', amount: '5' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-usdt-1', tradeId: 'trade-usdt-1', type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', lockedAmount: '5' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-usdt-1', type: 'WDK_USDT_EVM' as any, lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-usdt-1', type: 'WDK_USDT_EVM' as any, lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'WDK_USDT_EVM' }) }))
   })
 
   it('rejects a client-supplied type for USDT_ERC20 that disagrees with the canonical registry', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-usdt-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-usdt-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_ERC20', amount: '5' })
 
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-usdt-2', type: 'MULTISIG' as any, lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'buyer-1')
+      escrowService.createEscrow({ tradeId: 'trade-usdt-2', type: 'MULTISIG' as any, lockedAmount: '5', asset: 'USDT_ERC20' as any }, 'seller-1')
     ).rejects.toThrow("type 'MULTISIG' does not match 'WDK_USDT_EVM'")
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
 
   it('USDT_TRC20 is registered Product Scope ({USDT, TRON}) but has zero providers — precise error, not the generic "no provider wired" message', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-usdt-trc', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-usdt-trc', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_TRC20', amount: '5' })
 
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-usdt-trc', lockedAmount: '5', asset: 'USDT_TRC20' as any }, 'buyer-1')
+      escrowService.createEscrow({ tradeId: 'trade-usdt-trc', lockedAmount: '5', asset: 'USDT_TRC20' as any }, 'seller-1')
     ).rejects.toThrow('is registered Product Scope but has zero registered settlement implementations yet')
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
 
   it('USDT_LIQUID is registered Product Scope ({USDT, LIQUID}) but has zero providers — same precise error', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-usdt-liquid', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-usdt-liquid', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'USDT_LIQUID', amount: '5' })
 
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-usdt-liquid', lockedAmount: '5', asset: 'USDT_LIQUID' as any }, 'buyer-1')
+      escrowService.createEscrow({ tradeId: 'trade-usdt-liquid', lockedAmount: '5', asset: 'USDT_LIQUID' as any }, 'seller-1')
     ).rejects.toThrow('is registered Product Scope but has zero registered settlement implementations yet')
   })
 
   it('LIQUID_BTC is registered Product Scope ({BTC, LIQUID}) but has zero providers — same precise error', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-liquid-btc', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-liquid-btc', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'LIQUID_BTC', amount: '0.001' })
 
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-liquid-btc', lockedAmount: '0.001', asset: 'LIQUID_BTC' as any }, 'buyer-1')
+      escrowService.createEscrow({ tradeId: 'trade-liquid-btc', lockedAmount: '0.001', asset: 'LIQUID_BTC' as any }, 'seller-1')
     ).rejects.toThrow('is registered Product Scope but has zero registered settlement implementations yet')
   })
 })
@@ -799,14 +882,18 @@ describe('createEscrow() — refuses a resolved type with no registered Settleme
   })
 
   it('LIQUID_COVENANT: creation rejects before persistence — UNAVAILABLE, not DISABLED/FORBIDDEN/invalid-protocol-data', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-lc-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-lc-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'SPARK', amount: '1' })
 
+    // #235 R7F-B — a trade-backed escrow can no longer reach an unregistered type (untranslated assets are
+    // refused first, translated ones resolve to their registered rail), so the #243 check is exercised
+    // directly on resolveEscrowType(), where it still lives.
     let caught: unknown
     try {
-      await escrowService.createEscrow({ tradeId: 'trade-lc-1', type: 'LIQUID_COVENANT' as any, lockedAmount: '1', asset: 'SPARK' as any }, 'buyer-1')
+      resolveEscrowType('SPARK' as any, 'LIQUID_COVENANT' as any)
     } catch (err) {
       caught = err
     }
+    await expect(escrowService.createEscrow({ tradeId: 'trade-lc-1', type: 'LIQUID_COVENANT' as any, lockedAmount: '1', asset: 'SPARK' as any }, 'seller-1')).rejects.toMatchObject({ reason: 'UNAVAILABLE' })
 
     expect(caught).toBeInstanceOf(EscrowError)
     const err = caught as InstanceType<typeof EscrowError>
@@ -819,11 +906,12 @@ describe('createEscrow() — refuses a resolved type with no registered Settleme
   })
 
   it('LIQUID_COVENANT: does not fall back to MOCK, MULTISIG, or any other provider/type', async () => {
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-lc-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-lc-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'SPARK', amount: '1' })
 
+    expect(() => resolveEscrowType('SPARK' as any, 'LIQUID_COVENANT' as any)).toThrow(/LIQUID_COVENANT/)
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-lc-2', type: 'LIQUID_COVENANT' as any, lockedAmount: '1', asset: 'SPARK' as any }, 'buyer-1')
-    ).rejects.toThrow(/LIQUID_COVENANT/)
+      escrowService.createEscrow({ tradeId: 'trade-lc-2', type: 'LIQUID_COVENANT' as any, lockedAmount: '1', asset: 'SPARK' as any }, 'seller-1')
+    ).rejects.toThrow()
     // If any fallback had silently substituted a different type, this call
     // would have succeeded with a DIFFERENT resolved type — asserting the
     // create call never happened at all rules out every such substitution
@@ -844,11 +932,12 @@ describe('createEscrow() — refuses a resolved type with no registered Settleme
     // path fires for a type that was never named LIQUID_COVENANT anywhere
     // in this mission's implementation, i.e. the check is driven by
     // PROVIDERS membership, not a string literal comparison.
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-future-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-future-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'SPARK', amount: '1' })
 
+    expect(() => resolveEscrowType('SPARK' as any, 'FUTURE_UNIMPLEMENTED_RAIL' as any)).toThrow("No SettlementProvider registered for escrow type 'FUTURE_UNIMPLEMENTED_RAIL'")
     await expect(
-      escrowService.createEscrow({ tradeId: 'trade-future-1', type: 'FUTURE_UNIMPLEMENTED_RAIL' as any, lockedAmount: '1', asset: 'SPARK' as any }, 'buyer-1')
-    ).rejects.toThrow("No SettlementProvider registered for escrow type 'FUTURE_UNIMPLEMENTED_RAIL'")
+      escrowService.createEscrow({ tradeId: 'trade-future-1', type: 'FUTURE_UNIMPLEMENTED_RAIL' as any, lockedAmount: '1', asset: 'SPARK' as any }, 'seller-1')
+    ).rejects.toThrow()
     expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
 
@@ -857,20 +946,20 @@ describe('createEscrow() — refuses a resolved type with no registered Settleme
     // path — already proven extensively above (canonical-registry
     // describe block), repeated once here as this block's own explicit
     // positive-path witness.
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-ms-243', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-ms-243', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-ms-243', tradeId: 'trade-ms-243', type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-ms-243', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-ms-243', type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
   })
 
   it('MOCK semantics are unchanged outside production — still creates successfully (registered AND eligible)', async () => {
     isProductionFlag = false
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-mock-243', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-mock-243', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
     mockEscrowCreate.mockResolvedValue({ id: 'escrow-mock-243', tradeId: 'trade-mock-243', type: 'MOCK', asset: 'BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-mock-243', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+    await escrowService.createEscrow({ tradeId: 'trade-mock-243', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
 
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
   })
@@ -884,11 +973,11 @@ describe('createEscrow() — refuses a resolved type with no registered Settleme
     // one generic error that would lose the DISABLED/UNAVAILABLE
     // distinction.
     isProductionFlag = true
-    mockTradeFindUnique.mockResolvedValue({ id: 'trade-mock-244', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-mock-244', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, status: 'ACTIVE', asset: 'BTC', amount: '0.001' })
 
     let caught: unknown
     try {
-      await escrowService.createEscrow({ tradeId: 'trade-mock-244', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'buyer-1')
+      await escrowService.createEscrow({ tradeId: 'trade-mock-244', type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, 'seller-1')
     } catch (err) {
       caught = err
     }
@@ -998,6 +1087,20 @@ describe('submitParticipantKey() — the client-held-keys write path', () => {
     await escrowService.submitParticipantKey('escrow-1', 'buyer-1', BUYER_PUBKEY)
 
     expect(mockGetDepositAddress).not.toHaveBeenCalled()
+    expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    expect(mockParticipantKeyUpsert).not.toHaveBeenCalled() // #235 R7G-B2A - the same key again is a no-op
+  })
+
+  it('#235 R7G-B2A - refuses a DIFFERENT key once the funding address exists, and writes nothing', async () => {
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', multisigAddr: 'tb1qalreadyset' })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockParticipantKeyFindMany.mockResolvedValue([
+      { escrowId: 'escrow-1', role: 'buyer', participantId: 'buyer-1', pubkey: BUYER_PUBKEY },
+      { escrowId: 'escrow-1', role: 'seller', participantId: 'seller-1', pubkey: SELLER_PUBKEY },
+    ])
+
+    await expect(escrowService.submitParticipantKey('escrow-1', 'buyer-1', SELLER_PUBKEY)).rejects.toThrow(/key can no longer change/)
+    expect(mockParticipantKeyUpsert).not.toHaveBeenCalled()
     expect(mockEscrowUpdate).not.toHaveBeenCalled()
   })
 
@@ -1426,7 +1529,8 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
     expect(mockFinalizeRelease).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'escrow-1' }),
       'unsigned-psbt',
-      ['buyer-signed', 'seller-signed']
+      ['buyer-signed', 'seller-signed'],
+      'ptx-1'
     )
     expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'PAYMENT_PENDING' }, data: { status: 'COMPLETED' } })
     expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-release-txid', releasedAt: expect.any(Date) } })
@@ -1446,7 +1550,7 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
 
     const result = await escrowService.submitTransactionSignature('escrow-1', 'seller-1', 'seller-signed')
 
-    expect(mockFinalizeRefund).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'unsigned-refund-psbt', ['seller-signed'])
+    expect(mockFinalizeRefund).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'unsigned-refund-psbt', ['seller-signed'], 'ptx-2')
     expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'REFUNDED' } })
     expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-refund-txid' } })
     expect(result.complete).toBe(true)
@@ -1632,13 +1736,14 @@ describe('getSignatureCollectionProvider() — production deployment-eligibility
         { participantId: 'seller-1', signedPsbtBase64: 'seller-signed' },
       ])
 
-      // The final signature's own bookkeeping upsert is not itself an
-      // economic action — it is allowed to persist. Only what follows
-      // (combine/broadcast/status-claim) must be refused.
+      // #235 R7G-B2A — a signature is validated by its rail's provider BEFORE it
+      // is persisted (LOCAL_SIGNATURE_VALIDATION_V1), so an ineligible provider
+      // now refuses even the bookkeeping upsert — stricter than before, when
+      // only what follows (combine/broadcast/status-claim) was refused.
       await expect(escrowService.submitTransactionSignature('escrow-ineligible-4', 'seller-1', 'seller-signed')).rejects.toThrow(
         /not economically eligible in production/
       )
-      expect(mockTxSignatureUpsert).toHaveBeenCalled()
+      expect(mockTxSignatureUpsert).not.toHaveBeenCalled()
 
       // No economic side effect, and no fallback to any other provider's
       // finalize method or to a plain SettlementProvider.
@@ -1690,13 +1795,33 @@ describe('getPendingTransaction()', () => {
 
   it('returns the pending transaction row (with signatures) when one exists', async () => {
     mockPendingTxFindUnique.mockResolvedValue({ id: 'ptx-1', escrowId: 'escrow-1', kind: 'release', requiredSigners: ['buyer-1', 'seller-1'], signatures: [] })
-    const result = await escrowService.getPendingTransaction('escrow-1')
+    const result = await escrowService.getPendingTransaction('escrow-1', 'buyer-1')
     expect(result.id).toBe('ptx-1')
+  })
+
+  // #239D X1 - another participant's signature is never returned; progress (who signed, when) is.
+  it("returns only the viewer's own signature; every other entry keeps its signer and time but no signature", async () => {
+    const createdAt = new Date()
+    mockPendingTxFindUnique.mockResolvedValue({
+      id: 'ptx-1', escrowId: 'escrow-1', kind: 'release', requiredSigners: ['buyer-1', 'seller-1'],
+      signatures: [
+        { id: 's-1', pendingTxId: 'ptx-1', participantId: 'seller-1', signedPsbtBase64: 'seller-signed', createdAt },
+        { id: 's-2', pendingTxId: 'ptx-1', participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed', createdAt },
+      ],
+    })
+
+    const asBuyer = await escrowService.getPendingTransaction('escrow-1', 'buyer-1')
+    expect(asBuyer.signatures).toEqual([
+      { id: 's-1', pendingTxId: 'ptx-1', participantId: 'seller-1', createdAt },
+      { id: 's-2', pendingTxId: 'ptx-1', participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed', createdAt },
+    ])
+    const asArbiter = await escrowService.getPendingTransaction('escrow-1', 'arbiter-1')
+    expect(asArbiter.signatures.every((s: Record<string, unknown>) => !('signedPsbtBase64' in s))).toBe(true)
   })
 
   it('throws NotFoundError when no signing round is in flight', async () => {
     mockPendingTxFindUnique.mockResolvedValue(null)
-    await expect(escrowService.getPendingTransaction('escrow-1')).rejects.toThrow('Pending transaction for this escrow')
+    await expect(escrowService.getPendingTransaction('escrow-1', 'buyer-1')).rejects.toThrow('Pending transaction for this escrow')
   })
 })
 

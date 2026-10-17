@@ -55,6 +55,8 @@ import { ASSETS, PAYMENT_METHODS, COUNTRIES } from '../data/mock'
 import { ILLUSTRATIVE_FX_TO_USD, formatByCurrency } from '../lib/currency'
 import { PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { sailsClient } from '../lib/sailsClient'
+import { bindSellerPaymentAccount, protectedEscrowEligibility } from '../lib/paymentAccountBinding'
+import type { EconomicPolicy, AssetType as SdkAssetType } from '@satsails/p2p-trading-sdk'
 import type { AssetType, FiatCurrency, TradeSide } from '../types'
 
 const STEPS = ['Definir tipo e preço', 'Definir valor e método', 'Definir condições']
@@ -119,7 +121,25 @@ export function PublishOffer() {
   const offerIdempotencyKeyRef = useRef<string>(crypto.randomUUID())
   useEffect(() => {
     offerIdempotencyKeyRef.current = crypto.randomUUID()
-  }, [asset, side, price, currency, minAmount, maxAmount, paymentMethod])
+  }, [asset, side, price, currency, minAmount, maxAmount, paymentMethod, paymentDetails])
+
+  // #235 R7H-E3B — a SELL offer on a rail the trade-limit policy governs (V1: BTC/MULTISIG) can carry a protected
+  // escrow only if its payment method is eligible and the seller's receiving account is bound to it. The policy
+  // comes from the server (GET /v1/settlement/economic-policy); without it nothing is published (fail closed).
+  const [policy, setPolicy] = useState<EconomicPolicy | null>(null)
+  const [policyError, setPolicyError] = useState(false)
+  const [confirmAccountBinding, setConfirmAccountBinding] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    sailsClient.settlement.economicPolicy()
+      .then((p) => { if (!cancelled) setPolicy(p) })
+      .catch(() => { if (!cancelled) setPolicyError(true) })
+    return () => { cancelled = true }
+  }, [])
+  useEffect(() => { setConfirmAccountBinding(false) }, [side, asset, paymentMethod, paymentDetails])
+  const eligibility = policy && asset !== 'Todos' ? protectedEscrowEligibility(policy, asset as SdkAssetType, paymentMethod) : null
+  const protectedSell = side === 'SELL' && eligibility?.governed === true
+  const methodBlocked = eligibility?.governed === true && !eligibility.eligible ? eligibility : null
 
   useEffect(() => {
     if (asset === 'Todos' || currency === 'Todas') {
@@ -146,6 +166,7 @@ export function PublishOffer() {
 
   const step1Valid = asset !== 'Todos' && currency !== 'Todas' && Number(price) > 0
   const step2Valid = Number(minAmount) > 0 && Number(maxAmount) > Number(minAmount) && paymentDetails.trim().length > 0
+    && policy !== null && !methodBlocked && (!protectedSell || confirmAccountBinding)
 
   const goNext = () => {
     if (step === 1 && !step1Valid) {
@@ -153,7 +174,12 @@ export function PublishOffer() {
       return
     }
     if (step === 2 && !step2Valid) {
-      toast.error('Informe limites válidos e os detalhes do pagamento')
+      toast.error(
+        policy === null ? 'Não foi possível verificar a política de escrow protegido — recarregue a página.'
+          : methodBlocked ? 'Este método de pagamento não é aceito para escrow protegido neste ativo.'
+            : protectedSell && !confirmAccountBinding && paymentDetails.trim() ? 'Confirme o vínculo da sua chave de recebimento ao anúncio.'
+              : 'Informe limites válidos e os detalhes do pagamento',
+      )
       return
     }
     setStep((s) => Math.min(s + 1, 3))
@@ -186,6 +212,9 @@ export function PublishOffer() {
 
     setPublishing(true)
     try {
+      // #235 R7H-E3B — a protected SELL offer commits the seller's receiving account first: registered (or
+      // re-resolved) and proven to belong to this seller, or nothing is published.
+      const binding = protectedSell ? await bindSellerPaymentAccount(sailsClient, user.id, paymentMethod, paymentDetails) : null
       // Real @satsails/p2p-trading-sdk call — POST /v1/liquidity/offers (requires the
       // active session identity.authenticate() already established).
       // priceUsd/minAmount/maxAmount as decimal strings, never number
@@ -202,6 +231,7 @@ export function PublishOffer() {
         network: NETWORK_BY_ASSET[asset],
         description: description.trim() || undefined,
         idempotencyKey: offerIdempotencyKeyRef.current,
+        ...(binding ? { paymentAccountHash: binding.accountHash } : {}),
       })
       offerIdempotencyKeyRef.current = crypto.randomUUID() // this attempt is now settled — a new key for whatever comes next
       toast.success('Anúncio publicado!')
@@ -353,9 +383,23 @@ export function PublishOffer() {
               </Select>
             </div>
 
+            {policyError && (
+              <p role="alert" className="text-xs text-red-500">
+                Não foi possível verificar a política de escrow protegido. Recarregue a página para continuar.
+              </p>
+            )}
+            {methodBlocked && (
+              <div role="alert" className="bg-red-500/10 border border-red-500/25 rounded-lg p-3 text-xs text-red-500">
+                {PAYMENT_METHOD_LABELS[paymentMethod]} não é aceito para escrow protegido em {asset} pela política vigente
+                {methodBlocked.eligibleMethods.length > 0
+                  ? ` — use ${methodBlocked.eligibleMethods.map((m) => PAYMENT_METHOD_LABELS[m]).join(', ')}.`
+                  : '.'}
+              </div>
+            )}
+
             <div>
               <label className="text-xs text-brand-text-muted mb-1.5 block">
-                Detalhes do pagamento
+                {protectedSell ? 'Sua chave de recebimento' : 'Detalhes do pagamento'}
                 <Input
                   value={paymentDetails}
                   onChange={(e) => setPaymentDetails(e.target.value)}
@@ -364,6 +408,21 @@ export function PublishOffer() {
                 />
               </label>
             </div>
+
+            {protectedSell && !methodBlocked && (
+              <label className="flex items-start gap-2 text-xs text-brand-text-secondary bg-brand-elevated border border-brand-border rounded-lg p-3">
+                <input
+                  type="checkbox"
+                  checked={confirmAccountBinding}
+                  onChange={(e) => setConfirmAccountBinding(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  Vincular esta chave como a minha conta de recebimento deste anúncio. Ela fica registrada na minha conta
+                  Sails e é a conta em que o comprador paga; o escrow protegido só pode ser criado com ela.
+                </span>
+              </label>
+            )}
           </div>
         )}
 

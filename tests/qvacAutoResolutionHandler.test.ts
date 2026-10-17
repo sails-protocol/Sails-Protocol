@@ -72,7 +72,7 @@ const evidenceSubmittedEvent = {
   eventId: 'evt-1',
   eventName: 'dispute.evidence_submitted',
   publishedAt: '2026-01-01T00:00:00.000Z',
-  payload: { disputeId: 'dispute-1', settlementId: 'escrow-1', tradeId: 'trade-1', triggeredBy: 'buyer-1' },
+  payload: { disputeId: 'dispute-1', settlementId: 'escrow-1', tradeId: 'trade-1', triggeredBy: 'buyer-1', evidenceGeneration: 3 },
 }
 
 function fireHandler() {
@@ -87,7 +87,7 @@ describe('dispute.evidence_submitted -> QVAC auto-resolution reaction (RFC-021 D
     registerEventHandlers()
     mockDisputeFindUnique.mockResolvedValue({
       id: 'dispute-1', status: 'EVIDENCE_SUBMITTED', reason: 'no payment received',
-      evidence: [{ type: 'payment_receipt', note: 'a receipt', submittedBy: 'buyer-1' }],
+      evidence: [{ type: 'payment_receipt', note: 'a receipt', submittedBy: 'buyer-1' }], evidenceGeneration: 3,
     })
     mockTradeFindUnique.mockResolvedValue({
       id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', asset: 'BTC', amount: { toString: () => '0.01' },
@@ -116,7 +116,21 @@ describe('dispute.evidence_submitted -> QVAC auto-resolution reaction (RFC-021 D
         evidence: [{ type: 'payment_receipt', note: 'a receipt', submittedBy: 'buyer' }],
       })
     )
-    expect(mockProposeAutoResolution).toHaveBeenCalledWith('dispute-1', 'RELEASE', 0.9, 'clear match')
+    expect(mockProposeAutoResolution).toHaveBeenCalledWith('dispute-1', 'RELEASE', 0.9, 'clear match', 3)
+  })
+
+  it('drops a stale durable evidence event before invoking QVAC', async () => {
+    qvacAutoResolutionEnabled = true
+    mockDisputeFindUnique.mockResolvedValue({
+      id: 'dispute-1', status: 'EVIDENCE_SUBMITTED', reason: 'r',
+      evidenceGeneration: 4,
+      evidence: [{ type: 'payment_receipt', note: 'newer evidence', submittedBy: 'buyer-1' }],
+    })
+
+    await fireHandler()
+
+    expect(mockAssessDisputeEvidence).not.toHaveBeenCalled()
+    expect(mockProposeAutoResolution).not.toHaveBeenCalled()
   })
 
   it('does NOT propose an auto-resolution when confidence is below the threshold', async () => {

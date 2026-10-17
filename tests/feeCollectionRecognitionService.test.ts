@@ -7,7 +7,7 @@
 // guard) lives in tests/integration/feeCollectionRecognitionIntegration.test.ts.
 
 import { Prisma } from '@prisma/client'
-import { FeeCollectionRecognitionService, type TransactionRunner } from '../src/modules/open-settlement/fee-collection-recognition.service'
+import { FeeCollectionRecognitionService, reorgGenerationNote, type TransactionRunner } from '../src/modules/open-settlement/fee-collection-recognition.service'
 import { FeeObligationService } from '../src/modules/open-settlement/fee-obligation.service'
 import type { DistributionPolicyService } from '../src/modules/open-settlement/distribution-policy.service'
 import type { FeeObligationRepository } from '../src/modules/open-settlement/fee-obligation-repository'
@@ -75,18 +75,60 @@ function evidenceRow(kind: FeeCollectionEvidenceKind, overrides: Record<string, 
 }
 
 describe('FeeCollectionRecognitionService.recordBroadcastAndAdvance() — §6', () => {
+  // Issue #245 - the evidence insert and the status transition now commit inside ONE injected
+  // transaction (atomicity fix - see that method's own header comment); the real Postgres proof of
+  // the crash window this closes lives in tests/integration/feeCollectionRecognitionIntegration.test.ts
+  // and tests/integration/feeBroadcastCrashConsistency.test.ts. This file stays a genuine unit test
+  // (no real database) via the same fakeRunInTransaction this file already uses for recognizeConfirmation().
   it('records BROADCAST evidence and transitions PENDING_COLLECTION -> IN_PROGRESS', async () => {
     const evidenceRepo = fakeEvidenceRepo()
-    const obligationRepo = fakeObligationRepo()
+    const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'PENDING_COLLECTION' }) })
     const obligationService = new FeeObligationService(obligationRepo)
-    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, obligationService)
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, obligationService, fakeDistributionPolicyService(), fakeRunInTransaction)
 
     await service.recordBroadcastAndAdvance('obligation-1', { txid: 'a'.repeat(64), vout: 1, scriptPubKey: 'deadbeef', amountSats: 4000 })
 
-    expect(evidenceRepo.record).toHaveBeenCalledWith(expect.objectContaining({ feeObligationId: 'obligation-1', kind: 'BROADCAST', txid: 'a'.repeat(64), vout: 1, scriptPubKey: 'deadbeef' }))
+    expect(evidenceRepo.record).toHaveBeenCalledWith(expect.objectContaining({ feeObligationId: 'obligation-1', kind: 'BROADCAST', txid: 'a'.repeat(64), vout: 1, scriptPubKey: 'deadbeef' }), undefined)
     const call = evidenceRepo.record.mock.calls[0][0]
     expect((call.amount as Prisma.Decimal).toString()).toBe('0.00004')
     expect(obligationRepo.claimCollectionStatusTransition).toHaveBeenCalledWith('obligation-1', 'PENDING_COLLECTION', 'IN_PROGRESS')
+  })
+
+  it('FeeObligation not found: fails closed', async () => {
+    const evidenceRepo = fakeEvidenceRepo()
+    const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue(null) })
+    const obligationService = new FeeObligationService(obligationRepo)
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, obligationService, fakeDistributionPolicyService(), fakeRunInTransaction)
+
+    await expect(service.recordBroadcastAndAdvance('obligation-1', { txid: 'a'.repeat(64), vout: 1, scriptPubKey: 'deadbeef', amountSats: 4000 }))
+      .rejects.toThrow('FeeObligation obligation-1 not found')
+    expect(evidenceRepo.record).not.toHaveBeenCalled()
+  })
+
+  it('a retry of the EXACT same broadcast (already advanced past PENDING_COLLECTION) is an idempotent no-op — never re-records evidence, never re-transitions', async () => {
+    const txid = 'a'.repeat(64)
+    const priorBroadcast = evidenceRow('BROADCAST', { feeObligationId: 'obligation-1', txid, vout: 1 })
+    const evidenceRepo = fakeEvidenceRepo({ listForObligation: jest.fn().mockResolvedValue([priorBroadcast]) })
+    const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'IN_PROGRESS' }) })
+    const obligationService = new FeeObligationService(obligationRepo)
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, obligationService, fakeDistributionPolicyService(), fakeRunInTransaction)
+
+    await service.recordBroadcastAndAdvance('obligation-1', { txid, vout: 1, scriptPubKey: 'deadbeef', amountSats: 4000 })
+
+    expect(evidenceRepo.record).not.toHaveBeenCalled()
+    expect(obligationRepo.claimCollectionStatusTransition).not.toHaveBeenCalled()
+  })
+
+  it('a retry with CONTRADICTORY evidence (different txid than what is already durably recorded) fails closed', async () => {
+    const priorBroadcast = evidenceRow('BROADCAST', { feeObligationId: 'obligation-1', txid: 'a'.repeat(64), vout: 1 })
+    const evidenceRepo = fakeEvidenceRepo({ listForObligation: jest.fn().mockResolvedValue([priorBroadcast]) })
+    const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'IN_PROGRESS' }) })
+    const obligationService = new FeeObligationService(obligationRepo)
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, obligationService, fakeDistributionPolicyService(), fakeRunInTransaction)
+
+    await expect(service.recordBroadcastAndAdvance('obligation-1', { txid: 'b'.repeat(64), vout: 1, scriptPubKey: 'deadbeef', amountSats: 4000 }))
+      .rejects.toThrow(/refusing to record contradictory evidence/)
+    expect(evidenceRepo.record).not.toHaveBeenCalled()
   })
 })
 
@@ -195,38 +237,95 @@ describe('FeeCollectionRecognitionService — §8 replacement/dropped/reorg', ()
     expect(obligationRepo.claimCollectionStatusTransition).not.toHaveBeenCalled()
   })
 
+  // recordReorgAndRevert() runs in ONE transaction holding the obligation's
+  // row lock; the fake transaction answers that locked read with the status
+  // each test seeds, and the fake repositories see the same `tx`.
+  function reorgHarness(collectionStatus: string | null, evidence: Array<Record<string, unknown>>) {
+    const tx = { $queryRaw: jest.fn().mockResolvedValue(collectionStatus === null ? [] : [{ collectionStatus }]) }
+    const runInTransaction: TransactionRunner = (fn) => fn(tx as any)
+    const obligationRepo = fakeObligationRepo()
+    const evidenceRepo = fakeEvidenceRepo({ listForObligation: jest.fn().mockResolvedValue(evidence) })
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo), fakeDistributionPolicyService(), runInTransaction)
+    return { tx, obligationRepo, evidenceRepo, service }
+  }
+  const confirmedAt = new Date('2026-09-01T00:00:00Z')
+  const confirmedRow = (txid: string, id = 'confirmed-1', recordedAt = confirmedAt) => ({ id, kind: 'CONFIRMED', txid, recordedAt, note: null })
+
   it('reverts COLLECTED -> IN_PROGRESS on a reorg (Fase 2.1\'s own design principle)', async () => {
-    const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'COLLECTED' }) })
-    const evidenceRepo = fakeEvidenceRepo()
-    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo))
+    const { tx, obligationRepo, evidenceRepo, service } = reorgHarness('COLLECTED', [confirmedRow('h'.repeat(64))])
 
     const result = await service.recordReorgAndRevert('obligation-1', 'h'.repeat(64))
 
     expect(result.reverted).toBe(true)
-    expect(evidenceRepo.record).toHaveBeenCalledWith(expect.objectContaining({ kind: 'REORGED_OUT', txid: 'h'.repeat(64) }))
-    expect(obligationRepo.claimCollectionStatusTransition).toHaveBeenCalledWith('obligation-1', 'COLLECTED', 'IN_PROGRESS')
+    expect(result.outcome).toBe('REVERTED')
+    expect(evidenceRepo.record).toHaveBeenCalledWith(expect.objectContaining({ kind: 'REORGED_OUT', txid: 'h'.repeat(64), note: reorgGenerationNote('confirmed-1') }), tx)
+    expect(obligationRepo.claimCollectionStatusTransition).toHaveBeenCalledWith('obligation-1', 'COLLECTED', 'IN_PROGRESS', tx)
   })
 
   it('refuses to auto-revert an already-DISTRIBUTED obligation — surfaces as an exceptional condition instead', async () => {
-    const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'DISTRIBUTED' }) })
-    const evidenceRepo = fakeEvidenceRepo()
-    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo))
+    const { evidenceRepo, obligationRepo, service } = reorgHarness('DISTRIBUTED', [confirmedRow('i'.repeat(64))])
 
     const result = await service.recordReorgAndRevert('obligation-1', 'i'.repeat(64))
 
     expect(result.reverted).toBe(false)
-    expect(evidenceRepo.record).toHaveBeenCalledWith(expect.objectContaining({ kind: 'REORGED_OUT' })) // still recorded for the forensic trail
+    expect(result.outcome).toBe('FLAGGED_DISTRIBUTED')
+    expect(evidenceRepo.record).toHaveBeenCalledWith(expect.objectContaining({ kind: 'REORGED_OUT' }), expect.anything()) // still recorded for the forensic trail
     expect(obligationRepo.claimCollectionStatusTransition).not.toHaveBeenCalled() // never improvised
   })
 
   it('records reorg evidence but reverts nothing for an obligation not yet COLLECTED', async () => {
-    const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'IN_PROGRESS' }) })
-    const evidenceRepo = fakeEvidenceRepo()
-    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo))
+    const { obligationRepo, service } = reorgHarness('IN_PROGRESS', [confirmedRow('j'.repeat(64))])
 
     const result = await service.recordReorgAndRevert('obligation-1', 'j'.repeat(64))
 
     expect(result.reverted).toBe(false)
+    expect(result.outcome).toBe('NOT_COLLECTED')
     expect(obligationRepo.claimCollectionStatusTransition).not.toHaveBeenCalled()
+  })
+
+  it('records a generation\'s reorg at most once — a repeat observation writes nothing and re-raises nothing', async () => {
+    const { evidenceRepo, obligationRepo, service } = reorgHarness('DISTRIBUTED', [
+      confirmedRow('k'.repeat(64)),
+      { id: 'reorg-1', kind: 'REORGED_OUT', txid: 'k'.repeat(64), recordedAt: new Date(confirmedAt.getTime() + 1000), note: reorgGenerationNote('confirmed-1') },
+    ])
+
+    const result = await service.recordReorgAndRevert('obligation-1', 'k'.repeat(64), 'confirmed-1')
+
+    expect(result.outcome).toBe('ALREADY_RECORDED')
+    expect(evidenceRepo.record).not.toHaveBeenCalled()
+    expect(obligationRepo.claimCollectionStatusTransition).not.toHaveBeenCalled()
+  })
+
+  it('treats a REORGED_OUT written before the generation tag existed (same txid, after the confirmation) as already recorded', async () => {
+    const { evidenceRepo, service } = reorgHarness('DISTRIBUTED', [
+      confirmedRow('l'.repeat(64)),
+      { id: 'legacy-reorg', kind: 'REORGED_OUT', txid: 'l'.repeat(64), recordedAt: new Date(confirmedAt.getTime() + 1000), note: null },
+    ])
+
+    const result = await service.recordReorgAndRevert('obligation-1', 'l'.repeat(64))
+
+    expect(result.outcome).toBe('ALREADY_RECORDED')
+    expect(evidenceRepo.record).not.toHaveBeenCalled()
+  })
+
+  it('discards a stale observation of an older generation — never reverts the newer confirmation', async () => {
+    const { evidenceRepo, obligationRepo, service } = reorgHarness('COLLECTED', [
+      confirmedRow('m'.repeat(64), 'confirmed-old'),
+      { id: 'reorg-old', kind: 'REORGED_OUT', txid: 'm'.repeat(64), recordedAt: new Date(confirmedAt.getTime() + 1000), note: reorgGenerationNote('confirmed-old') },
+      confirmedRow('n'.repeat(64), 'confirmed-new', new Date(confirmedAt.getTime() + 2000)),
+    ])
+
+    const byId = await service.recordReorgAndRevert('obligation-1', 'm'.repeat(64), 'confirmed-old')
+    const byTxid = await service.recordReorgAndRevert('obligation-1', 'm'.repeat(64))
+
+    expect(byId.outcome).toBe('SUPERSEDED')
+    expect(byTxid.outcome).toBe('SUPERSEDED')
+    expect(evidenceRepo.record).not.toHaveBeenCalled()
+    expect(obligationRepo.claimCollectionStatusTransition).not.toHaveBeenCalled()
+  })
+
+  it('throws for an unknown obligation', async () => {
+    const { service } = reorgHarness(null, [])
+    await expect(service.recordReorgAndRevert('missing', 'o'.repeat(64))).rejects.toThrow(/not found/)
   })
 })

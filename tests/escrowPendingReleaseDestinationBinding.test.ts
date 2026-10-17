@@ -37,6 +37,14 @@ jest.mock('../src/config', () => ({
   },
 }))
 
+// AUD-1 - the disputed-round binding (disputed-outcome-binding.ts) is proven on its own: tests/disputedOutcomeBinding.test.ts
+// (unit) and tests/integration/disputedOutcomeBinding.test.ts (PostgreSQL, production paths). Here a PSBT STRING stands
+// in for a round, so it is stubbed to the one fact this file is about: the call is made.
+const mockAssertRoundBound = jest.fn().mockResolvedValue(undefined)
+jest.mock('../src/modules/open-settlement/disputed-outcome-binding', () => ({
+  assertRoundBoundToDisputeAuthority: (...args: unknown[]) => mockAssertRoundBound(...args),
+}))
+
 jest.mock('@tetherto/wdk-wallet-evm', () => ({
   __esModule: true,
   default: class FakeWalletManagerEvm {},
@@ -67,6 +75,8 @@ jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
     custodyModel: 'client-held-buyer-seller-keys-server-held-arbiter',
     buildUnsignedRelease: (...args: unknown[]) => mockBuildUnsignedRelease(...args),
     finalizeRelease: (...args: unknown[]) => mockFinalizeRelease(...args),
+    // #235 R7G-B2A - signature submission now validates locally first; the real cryptographic check is proven in tests/integration/multisigScriptAuthority.test.ts.
+    validatePartialSignature: jest.fn(),
   },
   identifyFeeOutput: jest.fn(),
   networkFor: jest.fn(),
@@ -77,7 +87,7 @@ const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowUpdate = jest.fn()
 const mockTradeFindUnique = jest.fn()
 const mockDisputeFindFirst = jest.fn()
-const mockEscrowEventCreate = jest.fn().mockResolvedValue({})
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockParticipantKeyFindMany = jest.fn().mockResolvedValue([])
 const mockEscrowFundingEvidenceFindMany = jest.fn().mockResolvedValue([])
@@ -130,7 +140,11 @@ jest.mock('../src/common/database', () => ({
       create: (...args: unknown[]) => mockEscrowEventCreate(...args),
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
     },
-    escrowParticipantKey: { findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args) },
+    escrowParticipantKey: {
+      findMany: (...args: unknown[]) => mockParticipantKeyFindMany(...args),
+      // #235 R7G-B2A - submitTransactionSignature() looks up the signer's key (the provider stand-in validates).
+      findUnique: async () => ({ pubkey: '02' + '11'.repeat(32) }),
+    },
     escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
     payoutAddress: { findUnique: (...args: unknown[]) => mockPayoutAddressFindUnique(...args) },
     escrowPendingTransaction: {
@@ -144,7 +158,11 @@ jest.mock('../src/common/database', () => ({
     },
     $transaction: (callback: (tx: unknown) => Promise<unknown>) =>
       callback({
+        // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+        eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
         $executeRaw: jest.fn().mockResolvedValue(0),
+        // Issue #291 - persistSettlementResult() reads then writes the escrow inside its own locked transaction.
+        escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args), update: (...args: unknown[]) => mockEscrowUpdate(...args) },
         escrowEvent: {
           findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
           create: (...args: unknown[]) => mockEscrowEventCreate(...args),
@@ -152,7 +170,11 @@ jest.mock('../src/common/database', () => ({
         escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
         escrowPendingTransaction: {
           create: (arg: { data: Record<string, unknown> }) => mockPendingTxCreate(arg),
+          findFirst: (arg: unknown) => mockPendingTxFindUnique(arg), // Issue #291 - operation-bound result write
+          findUnique: (arg: unknown) => mockPendingTxFindUnique(arg),
         },
+        // Issue #244 - submitTransactionSignature() re-reads the round and inserts under the escrow lock.
+        escrowTransactionSignature: { upsert: (arg: { create: { pendingTxId: string; participantId: string; signedPsbtBase64: string } }) => mockSignatureUpsert(arg) },
         // ADR-005 / #218 — authorizeDisputedPendingExecution()'s own
         // $transaction callback needs these two, reused from the
         // top-level mocks so both call sites observe the same state.

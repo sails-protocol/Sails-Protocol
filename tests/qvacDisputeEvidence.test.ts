@@ -11,7 +11,7 @@
 export {} // same forced-module reasoning as chatUnification.test.ts
 
 let capturedHistory: Array<{ role: string; content: string }> = []
-let mockCompletionResult = { recommendation: 'RELEASE', confidence: 0.9, reasoning: 'mocked' }
+let mockCompletionResult: unknown = { recommendation: 'RELEASE', confidence: 0.9, reasoning: 'mocked' }
 
 jest.mock('@qvac/sdk', () => ({
   loadModel: jest.fn().mockResolvedValue('fake-model-id'),
@@ -99,6 +99,21 @@ describe('QvacAgentProvider.assessDisputeEvidence()', () => {
     expect(result).toEqual(mockCompletionResult)
     const userPrompt = capturedHistory.find((m) => m.role === 'user')!.content
     expect(userPrompt).toContain('(no evidence submitted)')
+  })
+
+  it.each([
+    [{ recommendation: 'RELEASE', confidence: -0.01, reasoning: 'bad' }, /confidence/],
+    [{ recommendation: 'REFUND', confidence: 1.01, reasoning: 'bad' }, /confidence/],
+    [{ recommendation: 'RELEASE', confidence: Number.NaN, reasoning: 'bad' }, /confidence/],
+    [{ recommendation: 'RELEASE', confidence: Number.POSITIVE_INFINITY, reasoning: 'bad' }, /confidence/],
+    [{ recommendation: 'EXECUTE', confidence: 0.9, reasoning: 'bad' }, /recommendation/],
+    [{ recommendation: 'RELEASE', confidence: 0.9 }, /reasoning/],
+    [{ recommendation: 'RELEASE', confidence: 0.9, reasoning: 'x'.repeat(2001) }, /reasoning/],
+  ])('rejects semantically invalid model output at the protocol boundary: %p', async (invalid, error) => {
+    mockCompletionResult = invalid
+    const provider = new QvacAgentProvider()
+    await expect(provider.assessDisputeEvidence({ paymentMethod: 'OTHER', asset: 'BTC', amount: '1', reason: 'r', evidence: [] }))
+      .rejects.toThrow(error as RegExp)
   })
 
   it('can return INCONCLUSIVE with low confidence — the safe default for ambiguous evidence', async () => {

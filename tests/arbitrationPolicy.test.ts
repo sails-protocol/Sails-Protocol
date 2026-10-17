@@ -2,6 +2,7 @@ import {
   arbitrationCapabilityFor,
   parseArbitrationMode,
   assertArbitrationPolicyCompatible,
+  assertMarketArbitrationCollateralProductionEligible,
   resolveArbitrationModeForImplementation,
 } from '../src/modules/open-settlement/arbitration-policy'
 import { createArbitrationProviderResolver } from '../src/modules/open-settlement/arbitration-provider-resolver'
@@ -55,5 +56,29 @@ describe('ADR-003 rail-scoped arbitration policy', () => {
       [],
     )
     expect(() => resolver('MULTISIG')).toThrow(/No trusted arbitrators configured/)
+  })
+})
+
+// Issue #255 - MarketArbitrationProvider.monetaryCollateral is caller-declared bookkeeping with no
+// external funding/escrow verification (see arbitration-policy.ts's own comment on this function for
+// the full trace). ARBITRATION_MODE=market must refuse to boot in production; every other combination
+// (non-production, or trusted-list mode) must be completely unaffected.
+describe('Issue #255 - market arbitration collateral is not economically backed - production eligibility', () => {
+  it('refuses to boot when market mode is selected in production', () => {
+    expect(() => assertMarketArbitrationCollateralProductionEligible('market', true)).toThrow(
+      /Not economically backed, not production-eligible/
+    )
+  })
+
+  it('allows market mode outside production (dev/test/sandbox use)', () => {
+    expect(() => assertMarketArbitrationCollateralProductionEligible('market', false)).not.toThrow()
+  })
+
+  it('allows trusted-list mode in production - unaffected, no self-declared collateral involved', () => {
+    expect(() => assertMarketArbitrationCollateralProductionEligible('trusted-list', true)).not.toThrow()
+  })
+
+  it('allows trusted-list mode outside production', () => {
+    expect(() => assertMarketArbitrationCollateralProductionEligible('trusted-list', false)).not.toThrow()
   })
 })

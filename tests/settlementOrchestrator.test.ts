@@ -114,6 +114,17 @@ describe('executeSettlement (open-settlement)', () => {
     expect(result.pixConfirmation.reference).toMatch(/^emulated-pix-/)
   })
 
+  // #235 R7G NF-B1: it acts for both parties on an emulated PIX confirmation, so it never runs on a value-moving rail.
+  it.each(['WDK_USDT_EVM', 'MULTISIG', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM'])('refuses the %s rail before any escrow, lock, claim or release', async (escrowType) => {
+    await expect(executeSettlement({ tradeId: 'trade-1', escrowType })).rejects.toThrow(new RegExp(`runs only on the MOCK rail.*never moves value on ${escrowType}.*Nothing was executed`))
+    for (const fn of [mockCreateEscrow, mockLockFunds, mockMarkPaymentSent, mockReleaseFunds]) expect(fn).not.toHaveBeenCalled()
+  })
+
+  it('without a buyerReceivingAddress, the release resolves the registered buyer payout (no destination is invented)', async () => {
+    await executeSettlement({ tradeId: 'trade-1' })
+    expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', undefined, 'seller-1')
+  })
+
   it('respects a caller-supplied escrowType instead of always defaulting to WDK_USDT_EVM', async () => {
     await executeSettlement({ tradeId: 'trade-1', buyerReceivingAddress: '0xbuyer', escrowType: 'MOCK' })
     expect(mockCreateEscrow).toHaveBeenCalledWith(expect.objectContaining({ type: 'MOCK' }), 'seller-1')

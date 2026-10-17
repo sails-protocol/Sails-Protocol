@@ -28,10 +28,11 @@ import { AuthError } from '../errors'
  */
 export interface AuthenticatedRequest extends FastifyRequest {
   participantId: string
+  sessionToken: string
 }
 
 const CHALLENGE_PREFIX = 'auth:challenge:'
-const SESSION_PREFIX = 'auth:session:'
+export const SESSION_PREFIX = 'auth:session:'
 const WS_TICKET_PREFIX = 'auth:ws-ticket:'
 // Issue #302 — deliberately a SEPARATE Redis key namespace from
 // CHALLENGE_PREFIX above: a registration challenge and an
@@ -275,15 +276,19 @@ export async function verifyRegistrationProof(
  * second time regardless. Resolution + one-time burn lives in
  * ws-auth.ts's resolveParticipantFromTicket().
  */
-export async function issueWsTicket(participantId: string): Promise<{ ticket: string; expiresIn: number }> {
+export async function issueWsTicket(participantId: string, sessionToken: string): Promise<{ ticket: string; expiresIn: number }> {
   const ticket = randomBytes(32).toString('hex')
   await redis.set(
     `${WS_TICKET_PREFIX}${ticket}`,
-    participantId,
+    JSON.stringify({ participantId, sessionToken }),
     'EX',
     config.auth.wsTicketTtlSeconds
   )
   return { ticket, expiresIn: config.auth.wsTicketTtlSeconds }
+}
+
+export async function revokeSession(sessionToken: string): Promise<void> {
+  await redis.del(`${SESSION_PREFIX}${sessionToken}`)
 }
 
 /**
@@ -304,4 +309,5 @@ export async function requireAuth(req: FastifyRequest, _reply: any): Promise<voi
   }
 
   ;(req as AuthenticatedRequest).participantId = participantId
+  ;(req as AuthenticatedRequest).sessionToken = token
 }

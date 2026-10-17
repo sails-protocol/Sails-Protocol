@@ -24,6 +24,7 @@ import { loadDisputeRulingRecord, fromDisputeRulingRow, DISPUTE_RULING_RULESET }
 import { ArbitrationOutcomeContent, BeneficiaryDestination } from './economic-outcome'
 import type { DispatchGateVerdict, TransitionRecord } from '@sails/core'
 import { EscrowError } from '../../common/errors'
+import { blocksRulingDispatch } from './pending-round-supersession'
 
 const TERMINAL_ESCROW_STATUSES = ['COMPLETED', 'REFUNDED', 'SPLIT'] as const
 
@@ -35,10 +36,12 @@ const TERMINAL_ESCROW_STATUSES = ['COMPLETED', 'REFUNDED', 'SPLIT'] as const
  */
 async function checkDisputeRulingAlreadyDispatched(escrowId: string): Promise<boolean> {
   const [pending, escrow] = await Promise.all([
-    prisma.escrowPendingTransaction.findUnique({ where: { escrowId } }),
+    prisma.escrowPendingTransaction.findUnique({ where: { escrowId }, include: { signatures: { select: { participantId: true } } } }),
     prisma.escrow.findUnique({ where: { id: escrowId }, select: { status: true } }),
   ])
-  if (pending) return true
+  // #239 - a dead cooperative round is not a dispatch (blocksRulingDispatch()); the ruling's own dispatch
+  // then supersedes it, or - for a potentially exposed legacy round - refuses for manual review (#239D).
+  if (pending && blocksRulingDispatch(pending)) return true
   if (escrow && (TERMINAL_ESCROW_STATUSES as readonly string[]).includes(escrow.status)) return true
   return false
 }

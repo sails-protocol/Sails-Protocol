@@ -36,7 +36,18 @@ jest.mock('../src/common/events/event-bus', () => ({
   eventBus: { emit: (...args: unknown[]) => mockEmit(...args) },
 }))
 jest.mock('../src/modules/open-settlement/escrow.service', () => ({
-  escrowService: { openDispute: jest.fn().mockResolvedValue({}) },
+  // Issue #238 - raiseDispute() establishes the Dispute inside openDisputeEstablishing()'s transaction;
+  // this mock records the same openDispute() call and runs `establish` against the mocked prisma (as tx).
+  escrowService: (() => {
+    const openDispute = jest.fn().mockResolvedValue({})
+    return {
+      openDispute,
+      openDisputeEstablishing: async (escrowId: string, by: string, reason: string, establish: (tx: unknown) => Promise<unknown>) => {
+        await openDispute(escrowId, by, reason)
+        return establish(require('../src/common/database').prisma)
+      },
+    }
+  })(),
 }))
 jest.mock('../src/modules/open-settlement/escrow-repository', () => ({
   escrowRepository: { findById: (...args: unknown[]) => mockEscrowFindById(...args) },

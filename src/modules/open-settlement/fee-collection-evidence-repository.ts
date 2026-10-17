@@ -55,7 +55,10 @@ export interface FeeCollectionEvidenceRepository {
   // happened in between). Additive — every existing caller omits it and
   // gets the exact previous behavior.
   record(input: RecordEvidenceInput, tx?: Prisma.TransactionClient): Promise<FeeCollectionEvidenceRow>
-  listForObligation(feeObligationId: string): Promise<FeeCollectionEvidenceRow[]>
+  // Issue #245 - optional `tx`, same additive reason record()'s own comment documents:
+  // recordBroadcastAndAdvance() needs to read prior evidence inside the same transaction it will
+  // conditionally write to. Every existing caller omits it and gets the exact previous behavior.
+  listForObligation(feeObligationId: string, tx?: Prisma.TransactionClient): Promise<FeeCollectionEvidenceRow[]>
 }
 
 class PrismaFeeCollectionEvidenceRepository implements FeeCollectionEvidenceRepository {
@@ -76,8 +79,9 @@ class PrismaFeeCollectionEvidenceRepository implements FeeCollectionEvidenceRepo
     })
   }
 
-  async listForObligation(feeObligationId: string) {
-    return prisma.feeCollectionEvidence.findMany({
+  async listForObligation(feeObligationId: string, tx?: Prisma.TransactionClient) {
+    const client = tx ?? prisma
+    return client.feeCollectionEvidence.findMany({
       where: { feeObligationId },
       orderBy: { recordedAt: 'asc' },
     })
