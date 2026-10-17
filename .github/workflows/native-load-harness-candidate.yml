@@ -342,9 +342,18 @@ jobs:
             sleep 1
           done
           if [ "$ready" -ne 1 ]; then echo 'Artillery comparator API readiness timeout'; exit 1; fi
-          timeout 90s ./node_modules/.bin/artillery run load-tests/artillery/intent-api-bounded-comparator.yml --output /tmp/sails-artillery-bounded-http.json > /tmp/sails-artillery-http-output.log 2>&1 || {
-            echo 'Artillery HTTP comparator failed (logs retained locally only)'; exit 1;
-          }
+          node <<'RESOURCE_NODE'
+          const {runMeasured}=require('./load-tests/native/measured-generator.cjs');
+          runMeasured('./node_modules/.bin/artillery',[
+            'run','load-tests/artillery/intent-api-bounded-comparator.yml',
+            '--output','/tmp/sails-artillery-bounded-http.json'
+          ],{timeoutMs:90000,intervalMs:25}).then(usage=>{
+            console.log('Artillery HTTP generator resource sample:',JSON.stringify(usage));
+          }).catch(()=>{
+            console.error('Artillery HTTP comparator or resource accounting failed (output withheld)');
+            process.exitCode=1;
+          });
+          RESOURCE_NODE
           node <<'NODE'
           const assert=require('node:assert/strict');
           const fs=require('node:fs');
