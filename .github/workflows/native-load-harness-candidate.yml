@@ -190,6 +190,7 @@ jobs:
         shell: bash
         run: |
           node load-tests/native/process-resource-sampler.test.cjs
+          node load-tests/native/measured-generator.test.cjs
       - name: Inspect bundled Artillery WebSocket engine implementation
         shell: bash
         run: |
