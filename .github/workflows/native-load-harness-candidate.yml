@@ -51,6 +51,8 @@ jobs:
           node --check load-tests/artillery/comparator-processor.js
           node --check load-tests/artillery/prepare-bounded-ws.js
           node --check load-tests/artillery/ws-bounded-processor.js
+          node --check load-tests/artillery/ws-bounded-processor.test.cjs
+          node load-tests/artillery/ws-bounded-processor.test.cjs
           if SAILS_LOAD_HTTP_TARGET=https://example.com node load-tests/native/run.js intent > /tmp/load-guard.out 2>&1; then echo 'Unsafe target accepted'; exit 1; fi
           grep -q 'Unsupported target protocol' /tmp/load-guard.out
           if SAILS_LOAD_HTTP_TARGET=http://example.com node load-tests/native/run.js intent > /tmp/load-host-guard.out 2>&1; then echo 'Nonlocal HTTP host accepted'; exit 1; fi
