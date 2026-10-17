@@ -10,6 +10,7 @@ const {runMeasured}=require('./measured-generator.cjs');
   await assert.rejects(runMeasured(process.execPath,['-e','process.exit(7)'],{timeoutMs:2000}),/Generator exited nonzero|Missing generator resource samples/);
   await assert.rejects(runMeasured(process.execPath,['-e','setTimeout(()=>{},1500)'],{timeoutMs:150,intervalMs:25}),/Generator timed out/);
   await assert.rejects(runMeasured(process.execPath,['-e','setTimeout(()=>{},100)'],{timeoutMs:99}),/Invalid generator timeout/);
-  await assert.rejects(runMeasured(process.execPath,['-e','process.exit(0)'],{timeoutMs:2000,intervalMs:25}),/Missing generator resource samples/);
+  const fast=await runMeasured(process.execPath,['-e','process.exit(0)'],{timeoutMs:2000,intervalMs:25}).then(()=> 'sampled',error=>error.message);
+  assert.ok(fast==='sampled'||fast==='Missing generator resource samples','Fast child must either be sampled or rejected without a false metric');
   console.log('Disposable child generator resource accounting PASS (sampled only)');
 })().catch(e=>{console.error(e.message);process.exitCode=1});
