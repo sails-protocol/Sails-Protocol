@@ -342,12 +342,17 @@ jobs:
             sleep 1
           done
           if [ "$ready" -ne 1 ]; then echo 'Artillery comparator API readiness timeout'; exit 1; fi
+          export SAILS_BACKEND_PID="$server_pid"
           node <<'RESOURCE_NODE'
           const {runMeasured}=require('./load-tests/native/measured-generator.cjs');
           runMeasured('./node_modules/.bin/artillery',[
             'run','load-tests/artillery/intent-api-bounded-comparator.yml',
             '--output','/tmp/sails-artillery-bounded-http.json'
           ],{timeoutMs:90000,intervalMs:25}).then(usage=>{
+            const {sample}=require('./load-tests/native/process-resource-sampler.cjs');
+            const backend=sample(Number(process.env.SAILS_BACKEND_PID));
+            if(!Number.isSafeInteger(backend.cpuTicks)||!Number.isSafeInteger(backend.rssKiB)||backend.rssKiB<=0)throw Error('Backend resource snapshot missing');
+            console.log('Artillery HTTP backend post-run resource snapshot:',JSON.stringify({cpuTicks:backend.cpuTicks,rssKiB:backend.rssKiB,measurement:'post-run only; not workload delta'}));
             console.log('Artillery HTTP generator resource sample:',JSON.stringify(usage));
           }).catch(()=>{
             console.error('Artillery HTTP comparator or resource accounting failed (output withheld)');
@@ -636,12 +641,17 @@ jobs:
             sleep 1
           done
           if [ "$ready" -ne 1 ]; then echo 'k6 API readiness timeout'; exit 1; fi
+          export SAILS_BACKEND_PID="$server_pid"
           node <<'RESOURCE_NODE' || {
           const {runMeasured}=require('./load-tests/native/measured-generator.cjs');
           runMeasured('k6',[
             'run','--quiet','--summary-export=/tmp/sails-k6-intent-summary.json',
             '-e','BASE_URL=http://127.0.0.1:3000','load-tests/tests/intent-bounded.js'
           ],{timeoutMs:90000,intervalMs:25,outputFile:'/tmp/sails-k6-intent.log'}).then(usage=>{
+            const {sample}=require('./load-tests/native/process-resource-sampler.cjs');
+            const backend=sample(Number(process.env.SAILS_BACKEND_PID));
+            if(!Number.isSafeInteger(backend.cpuTicks)||!Number.isSafeInteger(backend.rssKiB)||backend.rssKiB<=0)throw Error('Backend resource snapshot missing');
+            console.log('k6 Intent backend post-run resource snapshot:',JSON.stringify({cpuTicks:backend.cpuTicks,rssKiB:backend.rssKiB,measurement:'post-run only; not workload delta'}));
             console.log('k6 Intent generator resource sample:',JSON.stringify(usage));
           }).catch(()=>{
             console.error('k6 Intent generator or resource accounting failed (output withheld)');
