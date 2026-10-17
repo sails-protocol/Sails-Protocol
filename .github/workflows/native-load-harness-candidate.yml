@@ -636,7 +636,18 @@ jobs:
             sleep 1
           done
           if [ "$ready" -ne 1 ]; then echo 'k6 API readiness timeout'; exit 1; fi
-          timeout 90s k6 run --quiet --summary-export=/tmp/sails-k6-intent-summary.json -e BASE_URL=http://127.0.0.1:3000 load-tests/tests/intent-bounded.js > /tmp/sails-k6-intent.log 2>&1 || {
+          node <<'RESOURCE_NODE' || {
+          const {runMeasured}=require('./load-tests/native/measured-generator.cjs');
+          runMeasured('k6',[
+            'run','--quiet','--summary-export=/tmp/sails-k6-intent-summary.json',
+            '-e','BASE_URL=http://127.0.0.1:3000','load-tests/tests/intent-bounded.js'
+          ],{timeoutMs:90000,intervalMs:25}).then(usage=>{
+            console.log('k6 Intent generator resource sample:',JSON.stringify(usage));
+          }).catch(()=>{
+            console.error('k6 Intent generator or resource accounting failed (output withheld)');
+            process.exitCode=1;
+          });
+          RESOURCE_NODE
             # Print fixed-category diagnostics only; never expose auth material.
             node <<'NODE'
           const fs=require('node:fs');
