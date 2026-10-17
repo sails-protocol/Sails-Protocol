@@ -185,7 +185,11 @@ jobs:
           node <<'NODE'
           const fs=require('node:fs');
           const path=require('node:path');
-          const roots=['node_modules/artillery/lib','node_modules/artillery/dist'];
+          const artilleryEntry=require.resolve('artillery');
+          const artilleryRoot=path.dirname(require.resolve('artillery/package.json'));
+          const roots=[artilleryRoot];
+          console.log('Resolved Artillery entry relative path:',path.relative('.',artilleryEntry));
+          console.log('Resolved Artillery package root:',path.relative('.',artilleryRoot));
           const matches=[];
           const maxFiles=6000;
           let scanned=0;
