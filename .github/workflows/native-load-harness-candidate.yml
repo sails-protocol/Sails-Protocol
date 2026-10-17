@@ -187,7 +187,8 @@ jobs:
           const path=require('node:path');
           const artilleryEntry=require.resolve('artillery');
           const artilleryRoot=path.dirname(require.resolve('artillery/package.json'));
-          const roots=[artilleryRoot];
+          const roots=[path.join(artilleryRoot,'dist'),path.join(artilleryRoot,'lib')];
+          if(!roots.some(root=>fs.existsSync(root)))throw Error('Artillery compiled implementation not found');
           console.log('Resolved Artillery entry relative path:',path.relative('.',artilleryEntry));
           console.log('Resolved Artillery package root:',path.relative('.',artilleryRoot));
           const matches=[];
@@ -215,6 +216,7 @@ jobs:
           for(const root of roots)if(fs.existsSync(root))walk(root,0);
           console.log('Artillery bundled WS implementation source references (paths and line numbers only):',JSON.stringify(matches.slice(0,60)));
           console.log('Scanned JavaScript files:',scanned,'total matches:',matches.length);
+          if(scanned===0)throw Error('Artillery implementation inspection scanned zero files');
           console.log('Diagnostic only: no assertion hook or PONG parity inferred');
           NODE
       - name: Bound Artillery candidate scope and prevent false WS parity
