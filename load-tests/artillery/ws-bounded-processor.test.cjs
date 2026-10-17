@@ -22,7 +22,7 @@ class Socket extends EventEmitter {
   queueMicrotask(()=>closed.emit('close'));
   await assert.rejects(promise,/closed before PONG/);
   const invalid=new Socket({type:'PONG'});
-  await assert.rejects(assertPongFromSocket(invalid,{timeoutMs:0}),/Invalid bounded PONG timeout/);
+  assert.throws(()=>assertPongFromSocket(invalid,{timeoutMs:0}),/Invalid bounded PONG timeout/);
   const malformed=new Socket(null);
   const malformedPromise=assertPongFromSocket(malformed,{timeoutMs:100});
   queueMicrotask(()=>malformed.emit('message','not-json'));
