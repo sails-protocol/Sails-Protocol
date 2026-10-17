@@ -12,6 +12,8 @@ import { assertCircuitClosed, recordEscrowConflict } from './escrow-circuit-brea
 import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../core/capability-registry'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import { claimEscrowTransitionRecord, computeEscrowEventHash } from './escrow-transition-claim'
+import { assertDispositionMatchesRuling } from './disposition-ruling-binding'
+import { economicDispositionLockKey } from './economic-disposition-lock'
 
 /**
  * Sails OpenSettlement — Escrow lifecycle shared helpers
@@ -282,9 +284,13 @@ export async function assertFundingNotUncertain(escrowId: string, escrowType: st
 // requirement that the mechanism stay scoped to the affected escrow.
 export async function withEscrowFundingLock<T>(
   escrowId: string,
-  fn: (tx: Prisma.TransactionClient) => Promise<T>
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  opts?: { disputeLockId?: string }
 ): Promise<T> {
   return prisma.$transaction(async (tx) => {
+    if (opts?.disputeLockId) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(opts.disputeLockId)})::bigint)`
+    }
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
     return fn(tx)
   })
@@ -294,14 +300,22 @@ export async function withEscrowFundingLock<T>(
  *  every state transition from PAYMENT_PENDING/DISPUTED requires. */
 export async function loadEscrowWithAuthorization(
   escrowId: string,
-  triggeredBy: string
+  triggeredBy: string,
+  disposition?: { kind: 'release' | 'refund' | 'split'; buyerBps?: number }
 ): Promise<{ escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>; trade: NonNullable<Awaited<ReturnType<typeof tradeRepository.findById>>> }> {
   const escrow = await escrowRepository.findById(escrowId)
   if (!escrow) throw new NotFoundError('Escrow', escrowId)
   const trade = await tradeRepository.findById(escrow.tradeId)
   if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
   if (escrow.status === 'DISPUTED') {
-    await assertDisputedDispositionAuthority(trade.id, escrow.status, triggeredBy)
+    const dispute = await assertDisputedDispositionAuthority(trade.id, escrow.status, triggeredBy)
+    if (disposition && dispute && dispute.status === 'RESOLVED' && dispute.ruling) {
+      assertDispositionMatchesRuling(
+        disposition.kind, disposition.buyerBps ?? null,
+        { id: dispute.id, ruling: dispute.ruling, authorityBuyerBps: dispute.authorityBuyerBps },
+        `direct ${disposition.kind} of escrow ${escrowId}`,
+      )
+    }
   } else if (!(await isSellerOrAssignedArbiter(trade.id, trade.sellerId, triggeredBy))) {
     throw new ForbiddenError(`${triggeredBy} is neither the seller of trade ${trade.id} nor its assigned dispute arbiter`)
   }
