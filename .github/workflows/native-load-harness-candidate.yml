@@ -186,6 +186,10 @@ jobs:
         shell: bash
         run: |
           node load-tests/artillery/ws-real-transport.test.cjs
+      - name: Validate bounded process CPU and RSS sampler
+        shell: bash
+        run: |
+          node load-tests/native/process-resource-sampler.test.cjs
       - name: Inspect bundled Artillery WebSocket engine implementation
         shell: bash
         run: |
