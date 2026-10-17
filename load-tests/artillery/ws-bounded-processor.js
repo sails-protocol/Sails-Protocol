@@ -43,4 +43,23 @@ function assertPongFromSocket(ws,{timeoutMs=15000}={}){
     try{ws.send(JSON.stringify({type:'PING',payload:{}}));}catch{finish(Error('WS send failed'));}
   });
 }
-module.exports={connectWithFreshTicket,assertPongFromSocket};
+// Standalone disposable-transport proof only. Artillery's current WS flow does
+// not expose its socket to this helper, so this is not engine parity evidence.
+async function provePongOverRealSocket(url,{timeoutMs=15000}={}){
+  const {WebSocket}=require('ws');
+  const target=new URL(url);
+  if(target.protocol!=='ws:'||target.hostname!=='127.0.0.1'||target.username||target.password||target.search||target.hash)throw Error('Disposable WS proof requires clean loopback URL');
+  if(!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>30000)throw Error('Invalid bounded PONG timeout');
+  const socket=new WebSocket(url);
+  try{
+    await new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>finish(Error('WS open timeout')),timeoutMs);
+      function finish(error){clearTimeout(timer);socket.off('open',onOpen);socket.off('error',onError);error?reject(error):resolve();}
+      function onOpen(){finish();}
+      function onError(){finish(Error('WS open transport error'));}
+      socket.once('open',onOpen);socket.once('error',onError);
+    });
+    await assertPongFromSocket(socket,{timeoutMs});
+  }finally{socket.terminate();}
+}
+module.exports={connectWithFreshTicket,assertPongFromSocket,provePongOverRealSocket};
