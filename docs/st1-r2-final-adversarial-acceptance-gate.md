@@ -521,3 +521,10 @@ Required acceptance matrix before changing production:
 5. PASS 1 terminal/no-txid recovery remains GREEN for both already-known transaction and genuinely unspent funding, including multi-instance contention.
 
 A proposed fix must state what constitutes *proven nonacceptance* versus *unknown*, what persisted marker prevents contradictory authorization while chain truth is unavailable, and how the scheduler guarantees recovery. Tests must use real PostgreSQL and real PSBTs; the controlled explorer is permitted only as an external network fixture. No change to status machine or exception taxonomy is approved merely by this document. Gate 3 remains OPEN.
+
+
+## 2026-10-17 — Transport-loss oracle CI evidence
+
+- `5e243df8`, workflow `39002967428`: unit 192/192 suites and 3007/3007 tests GREEN; PostgreSQL 84/85 suites and 1169/1170 tests GREEN, **one failure in unrelated** `tests/integration/timelockExpiryBoundedness.test.ts` test 13 (stale worker after another node expires its batch). Assertion expected `requiresManualRecovery` empty but received one escrow ID. This is not evidence that the new PASS 0 transport-loss test failed; the failure is real and should be investigated separately, not dismissed as flaky without reproduction.
+- `dae595dd`, workflow `39003441949`: unit and PostgreSQL integration steps both **SUCCESS**. This HEAD includes the PASS 0 accepted-broadcast/transport-rejection oracle and the LIVE accepted-broadcast/transport-rejection oracle in `tests/integration/signingRoundStateCompatibility.test.ts`. Their presence in a successful full integration run is evidence of GREEN for these controlled-explorer fixtures, **not** proof that the current exception/reversion policy closes all external uncertainty windows.
+- The acceptance matrix remains open for provider-specific failure classification, independent Bitcoin network truth during read-side outage, and the ST1-R2/AUD1X-R4 integration review. Gate 3 remains OPEN; no merge/deploy/freeze.
