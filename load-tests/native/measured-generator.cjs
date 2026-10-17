@@ -28,7 +28,9 @@ async function runMeasured(command,args,{timeoutMs=90000,intervalMs=25,env=proce
     ]);
     // /proc disappears on exit: last in-flight sample is the final observable
     // resource value, and CPU ticks are sampled before process exit.
-    if(samples<2||readErrors>0||!Number.isSafeInteger(lastCpuTicks)||lastCpuTicks<start.cpuTicks||!Number.isSafeInteger(peakRssKiB)||peakRssKiB<=0)throw Error('Missing generator resource samples');
+    if(samples<2)throw Error('Generator resource sample count insufficient');
+    if(readErrors>0)throw Error('Generator resource sampling read error');
+    if(!Number.isSafeInteger(lastCpuTicks)||lastCpuTicks<start.cpuTicks||!Number.isSafeInteger(peakRssKiB)||peakRssKiB<=0)throw Error('Generator resource counters invalid');
     if(code!==0)throw Error('Generator exited nonzero (output redacted)');
     return {exitCode:code,cpuTicksDeltaSampled:lastCpuTicks-start.cpuTicks,peakRssKiB,samples,vanishedAtExit,measurement:'sampled process counters only; excludes post-last-sample CPU'};
   }finally{clearInterval(timer);clearTimeout(timeout);if(child.exitCode===null)child.kill('SIGKILL');}
