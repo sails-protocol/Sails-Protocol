@@ -1428,7 +1428,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     })).toBeNull()
   })
 
-  it('V3-E4 C4 refuses EDA committed after its candidate claim', async () => {
+  it('V3-E4 C4 initiates target once, commits EDA for that pending and excludes replay', async () => {
     const o = await openedDispute('v3-eda-after-claim')
     const originalPending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
     const originalDispute = await disputeOf(o)
@@ -1442,14 +1442,21 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await edaCount(o)).toBe(0)
 
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
-    let calls = 0
+    let targetAttempts = 0
+    const unrelatedEscrows: string[] = []
     const intercepted = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
-      calls++
-      // C4 has already claimed this candidate and checked EDA. The first
-      // real initiation persists a pending; the production authority gate
-      // then commits EDA for that exact pending, before this intercepted
-      // call returns to C4. This demonstrates an achievable ordering of
-      // initiation and authorization, not provider-level exactly-once.
+      const escrowId = args[0] as string
+      // C4 is a batch reconciler, not a single-escrow API. Other eligible
+      // escrows from earlier integration fixtures can be claimed in the same
+      // sweep. Forward those calls unchanged and count ONLY this target.
+      if (escrowId !== o.escrowId) {
+        unrelatedEscrows.push(escrowId)
+        return (realInitiate as (...a: unknown[]) => Promise<any>)(...args)
+      }
+      targetAttempts++
+      // C4 has claimed this target and passed its last EDA read. Real
+      // initiation persists a pending, then the production EDA gate
+      // authorizes that exact pending before control returns to C4.
       const created = await (realInitiate as (...a: unknown[]) => Promise<any>)(...args)
       const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({
         where: { escrowId: o.escrowId },
@@ -1464,7 +1471,9 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     } finally {
       intercepted.mockRestore()
     }
-    expect(calls).toBe(1)
+    expect(targetAttempts).toBe(1)
+    // Unrelated batch work must never be misreported as duplicate target dispatch.
+    expect(unrelatedEscrows).not.toContain(o.escrowId)
     expect(await edaCount(o)).toBe(1)
     expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
     expect(await disputeOf(o)).toEqual(originalDispute)
