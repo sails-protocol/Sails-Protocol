@@ -11,7 +11,8 @@ function sample(pid){
   const ticks=Number(fields[11])+Number(fields[12]); // fields 14/15: utime/stime
   const status=fs.readFileSync('/proc/'+pid+'/status','utf8');
   const rss=/^VmRSS:\s+(\d+) kB$/m.exec(status);
-  if(!Number.isFinite(ticks)||ticks<0||!rss)throw Error('Incomplete process resource counters');
+  if(!Number.isSafeInteger(ticks)||ticks<0)throw Error('Incomplete process CPU counters');
+  if(!rss)throw Error('Incomplete process RSS counters');
   return {cpuTicks:ticks,rssKiB:Number(rss[1])};
 }
 function delta(start,end){
