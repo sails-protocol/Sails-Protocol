@@ -465,6 +465,9 @@ export async function submitTransactionSignature(escrowId: string, participantId
     throw new EscrowError(`Escrow type '${escrow.type}' does not support split finalization — buildUnsignedSplit was allowed but finalizeSplit is not implemented`)
   }
 
+  // AUD1X-R2: terminal escrows must be rejected before issuing new execution authority.
+  assertEscrowTransition(escrow.status, targetStatus)
+
   // ADR-005 / #218 — Economic Disposition Commit Gate. Runs first: a stale
   // ruling generation must fail closed before Capability/Eligibility is
   // even considered (ADR-005 §7 — the two gates are orthogonal, but this
