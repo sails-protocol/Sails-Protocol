@@ -27,6 +27,7 @@ import { identifyFeeOutput, networkFor } from './multisig.provider'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { authorizePendingExecution } from './capability-execution-authorization'
 import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
+import { assertRoundBoundToDisputeAuthority } from './disputed-outcome-binding'
 import { childLogger } from '../../common/logger'
 
 const log = childLogger('escrow-pending-tx')
@@ -189,6 +190,68 @@ async function initiateSignatureCollectionCore(
           )
         }
       }
+      // AUD1X-R2 (AR-04) - the escrow's status was read before the PSBT was built and before these locks; it is
+      // judged again HERE, with the row locked, in the transaction that persists the round: an escrow that has
+      // meanwhile been claimed or settled accepts no new round (and so no second authorization for it). The row lock
+      // makes a claim wait for this transaction instead of landing between this read and the insert.
+      const [lockedEscrow] = await tx.$queryRaw<Array<{ status: string }>>`SELECT status::text AS status FROM escrows WHERE id = ${escrowId} FOR UPDATE`
+      if (!lockedEscrow) throw new NotFoundError('Escrow', escrowId)
+      assertEscrowTransition(lockedEscrow.status, targetStatus as any)
+      // AUD1X-H1 (A) - the authoritative re-read. The dispute lock (taken before the escrow lock, see
+      // withEscrowFundingLock) serializes this write with every writer of a ruling's generation (commit, appeal,
+      // revert); the row is read FOR UPDATE after the escrow lock, the order the ST-1 cleanup uses. The snapshot taken
+      // before the PSBT was built is only what this round was built FOR: if the generation moved, or the ruling is not
+      // (any longer) resolved, nothing is persisted.
+      let judgedDispute: { id: string; escrowId: string; status: string; appealRound: number; ruling: string | null; authorityBuyerBps: number | null } | null = disputedDispute
+      if (disputedMultisig) {
+        const [live] = await tx.$queryRaw<Array<{
+          escrowId: string; status: string; appealRound: number; arbiterId: string | null; ruling: string | null
+          authoritySignature: string | null; authorityIssuedAt: Date | null; authorityBuyerBps: number | null
+        }>>`SELECT "escrowId", status::text AS status, "appealRound", "arbiterId", ruling::text AS ruling, "authoritySignature", "authorityIssuedAt", "authorityBuyerBps"
+            FROM disputes WHERE id = ${disputedDispute!.id} FOR UPDATE`
+        const snap = disputedDispute!
+        if (!live ||
+            live.status !== 'RESOLVED' || !live.ruling ||
+            live.escrowId !== escrowId ||
+            live.appealRound !== snap.appealRound ||
+            live.arbiterId !== snap.arbiterId || live.arbiterId !== triggeredBy ||
+            live.ruling !== snap.ruling ||
+            live.authoritySignature !== snap.authoritySignature ||
+            (live.authorityIssuedAt?.getTime() ?? null) !== (snap.authorityIssuedAt?.getTime() ?? null)) {
+          throw new EscrowError(
+            `AUD-1 (H1): the ruling authority of dispute ${snap.id} is not what this ${kind} round was built for ` +
+            `(now status=${live?.status ?? 'missing'}, appealRound=${live?.appealRound ?? 'n/a'}, arbiterId=${live?.arbiterId ?? 'n/a'}); ` +
+            'no round is persisted from a superseded or unresolved authority. Refusing.'
+          )
+        }
+        judgedDispute = { id: snap.id, escrowId: live.escrowId, status: live.status, appealRound: live.appealRound, ruling: live.ruling, authorityBuyerBps: live.authorityBuyerBps }
+      }
+      // AUD-1 - construction boundary, inside the escrow-locked write and after the funding-uncertainty re-check: a
+      // round that contradicts the signed ruling of this dispute is never persisted (it would otherwise occupy the
+      // escrow's one pending slot until the gate refused it). Execution re-judges the stored round independently
+      // (economic-disposition-authority.ts); this only keeps such a round from existing. Reads only: no new lock.
+      // While the dispute holds no resolved ruling there is nothing to contradict and construction is unchanged: such a
+      // round records no ruling, so the gate can never authorize it (its recorded generation must equal a RESOLVED
+      // ruling) - it is inert, not executable.
+      if (disputedRulingProvenance.disputeId !== undefined && judgedDispute && judgedDispute.status === 'RESOLVED') {
+        await assertRoundBoundToDisputeAuthority(tx, {
+          escrowId,
+          escrowType: escrow.type,
+          kind,
+          unsignedPsbtBase64: result.psbtBase64,
+          minerFeeSats: result.minerFeeSats ?? null,
+          buyerBps: typeof extraData?.buyerBps === 'number' ? extraData.buyerBps : null,
+          disputeId: judgedDispute.id,
+          rulingAppealRound: judgedDispute.appealRound,
+          rulingOutcome: judgedDispute.ruling,
+        }, {
+          id: judgedDispute.id,
+          escrowId: judgedDispute.escrowId,
+          status: judgedDispute.status,
+          ruling: judgedDispute.ruling,
+          authorityBuyerBps: judgedDispute.authorityBuyerBps,
+        })
+      }
       const current = await tx.escrowPendingTransaction.findUnique({ where: { escrowId }, include: { signatures: { select: { participantId: true } } } })
       if (current) {
         assertSupersedableByThisDispatch(current, arbitratedDispatch, escrowId)
@@ -221,7 +284,7 @@ async function initiateSignatureCollectionCore(
           ...extraData,
         },
       })
-    })
+    }, disputedMultisig ? { disputeLockId: disputedDispute!.id } : undefined)
   } catch (err: any) {
     if (err?.code === 'P2002') {
       throw new EscrowError(`Escrow ${escrowId} already has a pending transaction awaiting signatures (concurrent initiate)`)
