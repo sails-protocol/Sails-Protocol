@@ -51,6 +51,14 @@ The repository has k6 load scenarios, legacy Artillery HTTP/WS comparators, and 
 - This closes the **standalone real transport probe** only. It is not a run through the Artillery engine, does not exercise authenticated production chat or prove matched Artillery/k6 arrival profiles. The existing Artillery WS comparator continues to be explicitly labeled `PONG not asserted`.
 - Follow-up: use a reviewed supported Artillery receive/assertion integration against disposable authenticated services, or formally retain non-parity and proceed with k6 as the authoritative load engine. No Artillery retirement or merge based on this probe.
 
+## Parity decision gate — explicit reviewer checklist
+
+A green standalone `ws` transport probe does not change the Artillery WS comparator's assertion contract. The reviewer must observe **both** outcomes through the **same Artillery engine path**, not only the shared Node helper: (1) authenticated disposable chat PING followed by application PONG passes; (2) disposable no-PONG fixture fails the comparator with a nonzero exit or explicit failed assertion. Preserve one-time WS tickets, loopback-only targets, redacted URLs, and normal rate limits. If the engine has no supported receive/assertion hook, mark this parity gate **BLOCKED** rather than patching bundled Artillery internals.
+
+For HTTP/load comparison, do not compare unmatched completed arrivals or overall k6 HTTP latency (which includes PoP setup) to Artillery endpoint latency. Require at least two isolated repeated runs per tool under the same fixture, profile, actual arrivals and measurement window, and capture requested/achieved rate, dropped iterations, create/cancel median/p95/p99, errors, backend and generator CPU/RSS, and WebSocket concurrent connections. Missing values or inconsistent accounting must fail closed. No sustained-throughput claim from a two-arrival rehearsal.
+
+**Current disposition:** Artillery retained as transitional non-parity comparator; k6 remains the target exclusive scheduler. Retirement, merge and deploy remain blocked pending independent review and acceptance evidence.
+
 ## Non-negotiable safety rules
 
 Loopback-only targets and disposable services for these candidates. No production load, security-limit bypass, real credentials in logs, mock-only proof of real-service behavior, weakened assertions, or economic/escrow authority changes. Keep **NO MERGE / NO DEPLOY** while gates remain open. Never hide a material finding to report completion.
