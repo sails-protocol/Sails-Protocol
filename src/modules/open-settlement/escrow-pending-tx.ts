@@ -500,7 +500,16 @@ export async function submitTransactionSignature(escrowId: string, participantId
       ? await provider.finalizeRefund(escrow, pending.unsignedPsbtBase64, signedList, pending.id)
       : await provider.finalizeSplit!(escrow, pending.unsignedPsbtBase64, signedList)
   } catch (err) {
-    await revertEscrowStatus(escrowId, targetStatus, escrow.status)
+    // MULTISIG's finalizeSpend() broadcasts a deterministically signed Bitcoin
+    // transaction. A rejected response or timeout does NOT prove the explorer
+    // did not accept the POST /tx. Preserve the terminal claim and the signed
+    // pending round for PASS 1 to reconstruct the exact txid and reconcile
+    // against chain truth. Reverting here would make an UNKNOWN outcome look
+    // like a definitely failed settlement and permit an unsafe live retry.
+    // Other signature-collection rails retain their existing error contract.
+    if (escrow.type !== 'MULTISIG') {
+      await revertEscrowStatus(escrowId, targetStatus, escrow.status)
+    }
     throw err
   }
 
