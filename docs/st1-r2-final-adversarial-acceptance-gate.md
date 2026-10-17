@@ -536,3 +536,10 @@ A proposed fix must state what constitutes *proven nonacceptance* versus *unknow
 - `c540986a` replaced an opaque `toBeDefined()` marker assertion with a diagnostic error including process exit code and captured stdout/stderr; workflow `39050314661` completed **SUCCESS**.
 - `4fae9c8f` made the independent C4 recovery child await the `process.stdout.write` callback before `process.exit(0)`, addressing a plausible pipe-flush race without changing production reconciliation; workflow `39051760448` completed **SUCCESS**.
 - These green runs establish regression coverage for the current exact test implementations. They do not prove the historical C4 missing-marker failure's unique root cause or close the open unknown-broadcast authority/classification cases. Gate 3 OPEN; ST1-R2/AUD1X-R4 acceptance still required. NO MERGE / NO DEPLOY / NO FREEZE.
+
+
+## 2026-10-17 — Exact-head green is not Gate 3 closure
+
+- Workflow `39055074753` at `dc0135cb` completed **SUCCESS**, following workflows `39050314661` and `39051760448` (also SUCCESS). The exact HEAD validated by that run is `dc0135cb`; this documentation addition requires a new exact-head CI.
+- Issue #453 remains **OPEN** and its CTO review explicitly requires a D→E-locked, generation/provenance-checked dispatch-failure classification and ruling rollback decision. A green CI alone does not close the V3 orphan-pending liveness finding. Acceptance must demonstrate persisted unsigned pending after throw, concurrent signature, changed generation, process restart and idempotent recovery, plus mutation RED/GREEN and independent CTO review.
+- Gate 3 unknown-broadcast classification and read-side outage evidence remain open as previously recorded. Maintain NO MERGE / NO DEPLOY / NO FREEZE pending integrated ST1-R2/AUD1X-R4 review. Do not interpret the estimated preparation percentage as formal acceptance.
