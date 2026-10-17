@@ -467,6 +467,8 @@ export type MultisigEscrowInput = {
   // escrow anywhere lacks this field — undefined/null here now means
   // "reject," not "fall back to live config" (partiesFor() below).
   arbiterPubkey?: string | null
+  // AUD1X-H1: execution-only identity from the committed EDA; never set at construction.
+  arbiterExecutionIdentity?: string
   // #235 R7G-B2A — the persisted funding address (Escrow.multisigAddr). Every
   // consumer of an existing funding surface asserts the frozen keyset still
   // derives exactly this address (assertFundingSurface()).
