@@ -13,7 +13,19 @@ function sample(pid){
   const rss=/^VmRSS:\s+(\d+) kB$/m.exec(status);
   if(!Number.isSafeInteger(ticks)||ticks<0)throw Error('Incomplete process CPU counters');
   if(!rss){
+    // The process can exit between reading stat and status. Recheck state;
+    // a zombie has no VmRSS and is an expected end-of-life sampling race.
     if(['Z','X','x'].includes(fields[0]))throw Error('Process exited during resource sample');
+    try{
+      const latest=fs.readFileSync('/proc/'+pid+'/stat','utf8');
+      const close=latest.lastIndexOf(')');
+      if(close>=0 && ['Z','X','x'].includes(latest.slice(close+2).trim().split(/\s+/)[0]))
+        throw Error('Process exited during resource sample');
+    }catch(error){
+      if(error?.message==='Process exited during resource sample')throw error;
+      if(error?.code==='ENOENT'||error?.code==='ESRCH')throw Error('Process exited during resource sample');
+      throw error;
+    }
     throw Error('Incomplete process RSS counters');
   }
   return {cpuTicks:ticks,rssKiB:Number(rss[1])};
