@@ -36,6 +36,14 @@ The repository has k6 load scenarios, legacy Artillery HTTP/WS comparators, and 
 - The installed Artillery version observed in native CI is `2.0.34`. Its `ws` dependency resolves under `node_modules/artillery/node_modules/ws`; the separate `@artilleryio/engine-ws` and `artillery-engine-ws` packages were not directly resolvable. A source-path diagnostic returned no candidate receive hooks in the searched locations; absence in that diagnostic is **not** proof no supported hook exists.
 - Next investigation: inspect the actual bundled Artillery 2.0.34 WS engine source/API and verify a supported receive/assertion hook. Require real disposable-backend positive PONG and deliberate no-PONG negative runs before changing the bounded comparator's non-parity label. If no supported integration exists, document the limitation and keep the Artillery WS comparator as a non-parity baseline rather than inventing an adapter or weakening assertions.
 
+## WS comparator investigation update (2026-10-17)
+
+- Exact HEAD `378f18db82aac5102ff32fa9ee752e509f88f4ce`: CI Tests `38994548349` and Native load harness `38994548339` both SUCCESS. This is a functional/helper validation, **not** WS performance or PONG parity certification.
+- Artillery 2.0.34 bundled implementation resolved at `node_modules/artillery/dist/lib/core/engine_ws.js`. Bounded inspection traversed 123 compiled JavaScript files and found socket handlers at lines 194/198. Engine uses `_deps.WebSocket` and an application `onmessage` handler, but the inspected engine has no explicit `pong` event assertion.
+- `assertPongFromSocket` has simulated socket positive/negative tests covering valid PONG, ERROR, wrong message, malformed JSON, timeout, premature close, transport error and listener cleanup. These tests do **not** prove that Artillery exposes the live socket to the processor or that a real application PONG is observed.
+- **Decision:** do not monkeypatch Artillery internals or promote the existing send+think scenario to a parity gate. The observed mutable `_deps` seam is an implementation detail, not yet a reviewed supported extension interface. Prefer a supported receive/assertion hook proven by real disposable-backend positive and no-PONG negative runs; otherwise retain a clearly labeled non-parity comparator.
+- Next acceptance evidence: real-socket PONG and no-PONG tests, matched Artillery/k6 metrics and resource profiles, security review, and exact-HEAD CI. Artillery retirement remains blocked.
+
 ## Non-negotiable safety rules
 
 Loopback-only targets and disposable services for these candidates. No production load, security-limit bypass, real credentials in logs, mock-only proof of real-service behavior, weakened assertions, or economic/escrow authority changes. Keep **NO MERGE / NO DEPLOY** while gates remain open. Never hide a material finding to report completion.
