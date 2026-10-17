@@ -852,13 +852,9 @@ export class DisputeService {
         // Remove it before releasing D -> E locks: a later generation
         // must never observe a reverted dispute with the old Outcome,
         // nor have its own Outcome deleted by a delayed outer catch.
-        await tx.semanticTransitionRecord.deleteMany({
-          where: {
-            interactionId: dispute.escrowId,
-            transitionType: 'escrow.dispute.rule',
-            appealRound: dispute.appealRound,
-          },
-        })
+        // AUD1X-R4: remove only the Outcome of the exact signed authority, within
+        // the same D -> E transaction as the successful conditional dispute revert.
+        await revertDisputeRulingRecord(dispute.escrowId, dispute.appealRound, authoritySignature, tx)
         return true
       })
       if (!mayRevert) {
