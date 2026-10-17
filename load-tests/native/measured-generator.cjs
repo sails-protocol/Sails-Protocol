@@ -2,11 +2,15 @@
 // Bounded Linux-only resource accounting around a child load-generator process.
 // Never print command lines, environment, URLs, PIDs or raw workload output.
 const {spawn}=require('node:child_process');
+const fs=require('node:fs');
 const {sample}=require('./process-resource-sampler.cjs');
-async function runMeasured(command,args,{timeoutMs=90000,intervalMs=25,env=process.env}={}){
+async function runMeasured(command,args,{timeoutMs=90000,intervalMs=25,env=process.env,outputFile=null}={}){
   if(typeof command!=='string'||!command||!Array.isArray(args)||!args.every(x=>typeof x==='string'))throw Error('Invalid generator command');
   if(!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>120000)throw Error('Invalid generator timeout');
-  const child=spawn(command,args,{env,stdio:'ignore'});
+  const outputFd=outputFile?fs.openSync(outputFile,'w',0o600):null;
+  let child;
+  try{child=spawn(command,args,{env,stdio:outputFd===null?'ignore':['ignore',outputFd,outputFd]});}
+  finally{if(outputFd!==null)fs.closeSync(outputFd);}
   let timer;let timeout;
   try{
     await new Promise((resolve,reject)=>{child.once('spawn',resolve);child.once('error',()=>reject(Error('Generator spawn failed')));});
