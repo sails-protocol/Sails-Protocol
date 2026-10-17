@@ -201,7 +201,7 @@ jobs:
                 const lines=src.split('\\n');
                 for(let i=0;i<lines.length;i++){
                   const line=lines[i];
-                  if(/(?:engine-ws|WebSocketEngine|engine:\\s*['"]ws['"]|\\bws\\.on\\(['"]message|\\bws\\.once\\(['"]message)/.test(line)){
+                  if(line.includes('engine-ws')||line.includes('WebSocketEngine')||line.includes('ws.on(')||line.includes('ws.once(')){
                     matches.push({file:path.relative('.',full),line:i+1,kind:/engine-ws|WebSocketEngine/.test(line)?'engine-reference':'socket-reference'});
                   }
                 }
