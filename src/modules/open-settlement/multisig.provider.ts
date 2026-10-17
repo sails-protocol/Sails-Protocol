@@ -550,6 +550,44 @@ export class MultisigProvider implements SettlementProvider {
     return escrow.triggeredBy ?? this.defaultArbiterId()
   }
 
+  /**
+   * AUD1X-H1 - the ONLY place the platform arbiter signature is produced. It runs inside buildFinalizedTransaction(),
+   * in memory, immediately before finalization and broadcast, and only for a caller that set
+   * escrow.arbiterExecutionIdentity - which happens after the ADR-005 gate (generation still current, round bound to
+   * the ruling and its durable Outcome, AUD-1), the ADR-004 gate and, on the live path, the atomic status claim.
+   * Nothing here is persisted, returned or logged: a signed round exists only as the transaction about to be sent.
+   *
+   * It signs ONLY the stored round - the PSBT read from the database before any client copy is combined - so what the
+   * arbiter signs is exactly what construction persisted and the gates judged (never data a client supplied). It is
+   * SIGHASH_ALL, deterministic (RFC 6979), so the witness is byte-identical to the one the pre-embedded signature
+   * produced. A signature already present in the stored round (a round persisted before AUD1X-H1) is kept, not
+   * redone.
+   */
+  private addArbiterSignatureAtExecution(escrow: MultisigEscrowInput, psbt: bitcoin.Psbt): void {
+    const identity = escrow.arbiterExecutionIdentity
+    if (!identity) return
+    if (!escrow.arbiterPubkey) {
+      throw new EscrowError(`MULTISIG escrow for trade ${escrow.tradeId} has no persisted arbiter public-key commitment — refusing to sign as the arbiter`)
+    }
+    const arbiterKey = this.deriveArbiterKey(identity)
+    const derived = Buffer.from(arbiterKey.publicKey).toString('hex')
+    if (derived !== escrow.arbiterPubkey) {
+      throw new EscrowError(
+        `MULTISIG provider: identity '${identity}' does not derive the arbiter public key committed into trade ${escrow.tradeId}'s escrow ` +
+        '— refusing to sign as the arbiter (TRUSTED_ARBITRATORS/MULTISIG_SEED changed since creation, or this is not the committed arbiter).'
+      )
+    }
+    for (let i = 0; i < psbt.inputCount; i++) {
+      const input = psbt.data.inputs[i]
+      if ((input.partialSig ?? []).some((ps) => Buffer.from(ps.pubkey).toString('hex') === derived)) continue
+      if (!input.witnessScript) throw new EscrowError(`MULTISIG provider: input ${i} has no witnessScript — refusing to sign as the arbiter`)
+      const inScript = (bitcoin.script.decompile(Buffer.from(input.witnessScript)) ?? [])
+        .some((c) => typeof c !== 'number' && Buffer.from(c).toString('hex') === derived)
+      if (!inScript) throw new EscrowError(`MULTISIG provider: the committed arbiter key is not part of input ${i}'s script — refusing to sign as the arbiter`)
+      psbt.signInput(i, arbiterKey as unknown as bitcoin.Signer, [bitcoin.Transaction.SIGHASH_ALL])
+    }
+  }
+
   // Arbiter is the only role this provider still derives itself — buyer
   // and seller keys are client-submitted (see partiesFor()).
   private deriveArbiterKey(id: string): BIP32Interface {
@@ -1498,6 +1536,7 @@ export class MultisigProvider implements SettlementProvider {
       // surface, and every signature in it must verify, before anything is
       // finalized or broadcast (LOCAL_SIGNATURE_VALIDATION_V1).
       this.assertRoundSpendsFundingSurface(escrow, merged, network)
+      this.addArbiterSignatureAtExecution(escrow, merged)
       for (const signed of signedPsbtBase64List) {
         merged.combine(bitcoin.Psbt.fromBase64(signed, { network }))
       }
