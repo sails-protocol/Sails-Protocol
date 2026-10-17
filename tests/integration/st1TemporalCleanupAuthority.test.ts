@@ -1476,7 +1476,15 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(unrelatedEscrows).not.toContain(o.escrowId)
     expect(await edaCount(o)).toBe(1)
     expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
-    expect(await disputeOf(o)).toEqual(originalDispute)
+    const recoveredDispute = await disputeOf(o)
+    // C4 legitimately records its recovery attempt on the dispute row.
+    // Assert that the economic/ruling authority remains identical while
+    // explicitly requiring the operational recovery marker to advance.
+    expect(recoveredDispute.dispatchRecoveryAttemptedAt).not.toBeNull()
+    expect({
+      ...recoveredDispute,
+      dispatchRecoveryAttemptedAt: originalDispute.dispatchRecoveryAttemptedAt,
+    }).toEqual(originalDispute)
     expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
       where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
     })).toEqual(originalOutcome)
