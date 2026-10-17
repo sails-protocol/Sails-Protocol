@@ -17,15 +17,16 @@ async function runMeasured(command,args,{timeoutMs=90000,intervalMs=25,env=proce
     const start=sample(child.pid);
     let peakRssKiB=start.rssKiB;
     let samples=1;
+    let readErrors=0;
     let lastCpuTicks=start.cpuTicks;
-    timer=setInterval(()=>{try{const current=sample(child.pid);peakRssKiB=Math.max(peakRssKiB,current.rssKiB);lastCpuTicks=current.cpuTicks;samples++;}catch{}},intervalMs);
+    timer=setInterval(()=>{try{const current=sample(child.pid);peakRssKiB=Math.max(peakRssKiB,current.rssKiB);lastCpuTicks=current.cpuTicks;samples++;}catch{readErrors++;}},intervalMs);
     const code=await Promise.race([
       new Promise((resolve,reject)=>{child.once('exit',(code,signal)=>signal?reject(Error('Generator terminated by signal')):resolve(code));child.once('error',()=>reject(Error('Generator runtime error')));}),
       new Promise((_,reject)=>{timeout=setTimeout(()=>{child.kill('SIGKILL');reject(Error('Generator timed out'));},timeoutMs);})
     ]);
     // /proc disappears on exit: last in-flight sample is the final observable
     // resource value, and CPU ticks are sampled before process exit.
-    if(samples<2||!Number.isSafeInteger(lastCpuTicks)||lastCpuTicks<start.cpuTicks||!Number.isSafeInteger(peakRssKiB)||peakRssKiB<=0)throw Error('Missing generator resource samples');
+    if(samples<2||readErrors>0||!Number.isSafeInteger(lastCpuTicks)||lastCpuTicks<start.cpuTicks||!Number.isSafeInteger(peakRssKiB)||peakRssKiB<=0)throw Error('Missing generator resource samples');
     if(code!==0)throw Error('Generator exited nonzero (output redacted)');
     return {exitCode:code,cpuTicksDeltaSampled:lastCpuTicks-start.cpuTicks,peakRssKiB,samples,measurement:'sampled process counters only; excludes post-last-sample CPU'};
   }finally{clearInterval(timer);clearTimeout(timeout);if(child.exitCode===null)child.kill('SIGKILL');}
