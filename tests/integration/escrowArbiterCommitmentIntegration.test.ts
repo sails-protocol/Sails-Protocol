@@ -287,7 +287,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
   })
 
   it('1. correct arbiter context (triggeredBy matches both the assigned dispute AND the persisted commitment) -> rejected without signed ruling', async () => {
-    requirePostgres('correct context accepted')
+    requirePostgres('correct context requires ruling')
     const { escrow, buyer, txid } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
     // Matching script identity alone is insufficient without a signed, durable ruling.
     await expect(escrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)).rejects.toThrow(/no resolved ruling/)
@@ -296,7 +296,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     void txid
   })
 
-  it('2. wrong triggeredBy arbiter (assigned to the dispute, but not the identity baked into the script) -> rejected', async () => {
+  it('2. assigned arbiter without ruling -> rejected before script identity check', async () => {
     requirePostgres('wrong triggeredBy rejected')
     // A different arbiter is genuinely ASSIGNED to this dispute (passes
     // isSellerOrAssignedArbiter's own authorization check against the
@@ -313,8 +313,8 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     void txid // fetch is never reached — confirms the rejection happens before any network call
   })
 
-  it('3/4. correct triggeredBy identity, but the persisted commitment no longer matches live config (MULTISIG_SEED drifted since creation) -> rejected', async () => {
-    requirePostgres('persisted pubkey mismatch rejected')
+  it('3/4. drifted seed without ruling -> rejected before script identity check', async () => {
+    requirePostgres('unresolved dispute with drifted seed rejected')
     // Commitment established under the file's baseline seed.
     const { escrow, txid } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
 
@@ -331,8 +331,8 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     ).rejects.toThrow(/no resolved ruling/)
   })
 
-  it('5. legacy escrow (no persisted arbiter commitment) under a disputed release -> rejected outright (Missão 11 Fase 9.3 §4 — no persisted commitment = not eligible for real MULTISIG settlement)', async () => {
-    requirePostgres('legacy escrow rejected, not silently accepted')
+  it('5. legacy escrow without ruling -> rejected before script commitment check', async () => {
+    requirePostgres('unresolved legacy escrow rejected')
     // Simulates a pre-Fase-5.2 escrow: buyer/seller keys persisted
     // directly (bypassing submitParticipantKey()'s auto-commitment write,
     // which does not exist for a genuinely historical row), no
