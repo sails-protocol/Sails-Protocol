@@ -39,6 +39,8 @@ class Socket extends EventEmitter {
   const socketInterface={on(){},send(){}};
   assert.throws(()=>assertPongFromSocket(null,{timeoutMs:100}),/Unsupported WebSocket assertion interface/);
   assert.equal(typeof socketInterface.on,'function');
+  assert.throws(()=>assertPongFromSocket(socketInterface,{timeoutMs:100}),/Unsupported WebSocket assertion interface/);
+  assert.equal(socketInterface.send instanceof Function,true);
   const timed=new Socket(null);
   await assert.rejects(assertPongFromSocket(timed,{timeoutMs:20}),/PONG timeout/);
   assert.equal(timed.listenerCount('message'),0);
