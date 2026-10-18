@@ -114,6 +114,16 @@ describe('relay authenticated WS ingress queue', () => {
     expect(budget).not.toHaveBeenCalled()
   })
 
+  it('rejects frames from a replaced socket before querying Redis', async () => {
+    const socket = new FakeSocket()
+    await route(socket, { query: { ticket: 'valid' } })
+    owns.mockReturnValue(false)
+    socket.emit('message', Buffer.from('stale'))
+    await flush()
+    expect(budget).not.toHaveBeenCalled()
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
   it('does not dispatch after participant socket replacement', async () => {
     let release!: (value: boolean) => void
     budget.mockImplementationOnce(() => new Promise<boolean>(resolve => { release = resolve }))
