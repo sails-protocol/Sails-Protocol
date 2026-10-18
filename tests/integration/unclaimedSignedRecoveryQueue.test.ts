@@ -25,9 +25,20 @@
 
 import { PrismaClient } from '@prisma/client'
 import { createHash, randomUUID } from 'crypto'
+import * as bitcoin from 'bitcoinjs-lib'
+import * as ecc from '@bitcoinerlab/secp256k1'
+import { ECPairFactory } from 'ecpair'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { boundOfferRow, boundTradeRow, sellerPixAccount } from './economicFixtures'
 
+bitcoin.initEccLib(ecc)
+const ECPair = ECPairFactory(ecc)
+const NETWORK = bitcoin.networks.testnet
+const keys = ['buyer','seller','arbiter'].map(n => ECPair.fromPrivateKey(createHash('sha256').update('queue-c8-'+n).digest(), { network: NETWORK }))
+const witnessScript = bitcoin.payments.p2ms({ m: 2, pubkeys: keys.map(k => Buffer.from(k.publicKey)).sort(Buffer.compare), network: NETWORK }).output!
+const fundingAddress = bitcoin.payments.p2wsh({ redeem: { output: witnessScript }, network: NETWORK }).address!
+const destination = bitcoin.payments.p2wpkh({ pubkey: Buffer.from(keys[0].publicKey), network: NETWORK }).address!
+const txidsByTrade = new Map<string, string>()
 const QUEUE_HEAD = Date.parse('2000-01-01T00:00:00.000Z')
 const HOUR = 3_600_000
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -119,7 +130,7 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
     budgetMs: number
   }
 
-  const txidOf = (tradeId: string) => createHash('sha256').update('p0q-' + tradeId).digest('hex')
+  const txidOf = (tradeId: string) => { const id = txidsByTrade.get(tradeId); if (!id) throw new Error('missing queue txid'); return id }
 
   /** An independent application instance; explorer timeout and reconciliation interval as its environment says. */
   function startNode({ timeoutMs = 8000, intervalMs = HOUR } = {}): Node {
@@ -149,12 +160,19 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
   /** A fully-signed release on a PAYMENT_PENDING MULTISIG escrow that never claimed its transition (C8). */
   async function candidate({ createdAt = new Date(QUEUE_HEAD + (headOffset += 1000)), signed = true } = {}): Promise<Candidate> {
     const trade = await prisma.trade.create({ data: { ...boundTradeRow(sellerAccount), offerId, buyerId, sellerId, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65', status: 'ACTIVE' } })
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', status: 'PAYMENT_PENDING', lockedAmount: '0.001', asset: 'BTC', txLockId: randomUUID().replace(/-/g, '').padEnd(64, '0'), txLockVout: 0 } })
+    const fundingTxid = createHash('sha256').update('queue-funding-' + trade.id).digest('hex')
+    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', status: 'PAYMENT_PENDING', lockedAmount: '0.001', asset: 'BTC', multisigAddr: fundingAddress, txLockId: fundingTxid, txLockVout: 0 } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    const pending = await prisma.escrowPendingTransaction.create({ data: { escrowId: escrow.id, kind: 'release', toAddress: 'tb1q-p0q', unsignedPsbtBase64: 'p0q', requiredSigners: [buyerId, sellerId], triggeredBy: sellerId, createdAt } })
+    const psbt = new bitcoin.Psbt({ network: NETWORK })
+    psbt.addInput({ hash: fundingTxid, index: 0, witnessUtxo: { script: bitcoin.address.toOutputScript(fundingAddress, NETWORK), value: 100_000n }, witnessScript })
+    psbt.addOutput({ address: destination, value: 99_000n })
+    const unsigned = psbt.toBase64()
+    const signedCopies = keys.slice(0, 2).map(key => { const copy = bitcoin.Psbt.fromBase64(unsigned, { network: NETWORK }); copy.signInput(0, key); return copy.toBase64() })
+    txidsByTrade.set(trade.id, bitcoin.Transaction.fromBuffer(Buffer.from(psbt.data.globalMap.unsignedTx.toBuffer())).getId())
+    const pending = await prisma.escrowPendingTransaction.create({ data: { escrowId: escrow.id, kind: 'release', toAddress: destination, unsignedPsbtBase64: unsigned, requiredSigners: [buyerId, sellerId], triggeredBy: sellerId, createdAt } })
     await prisma.escrowTransactionSignature.createMany({ data: [
-      { pendingTxId: pending.id, participantId: buyerId, signedPsbtBase64: 'b' },
-      ...(signed ? [{ pendingTxId: pending.id, participantId: sellerId, signedPsbtBase64: 's' }] : []),
+      { pendingTxId: pending.id, participantId: buyerId, signedPsbtBase64: signedCopies[0] },
+      ...(signed ? [{ pendingTxId: pending.id, participantId: sellerId, signedPsbtBase64: signedCopies[1] }] : []),
     ] })
     owned.push(pending.id)
     return { pendingId: pending.id, escrowId: escrow.id, tradeId: trade.id, txid: txidOf(trade.id) }
@@ -282,6 +300,7 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
   it('malformed queued PSBT fails closed before explorer lookup', async () => {
     requirePostgres('malformed queued PSBT')
     const [x] = track(await candidates(1))
+    await prisma.escrowPendingTransaction.update({ where: { id: x.pendingId }, data: { unsignedPsbtBase64: 'invalid-psbt' } })
     const st = explorer()
     const report = await startNode().pass0()
     const errors = report.failed.filter((row) => row.escrowId === x.escrowId)
