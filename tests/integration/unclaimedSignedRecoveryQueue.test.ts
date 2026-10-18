@@ -173,7 +173,13 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
     psbt.addOutput({ address: destination, value: 99_000n })
     const unsigned = psbt.toBase64()
     const signedCopies = keys.slice(0, 2).map(key => { const copy = bitcoin.Psbt.fromBase64(unsigned, { network: NETWORK }); copy.signInput(0, key); return copy.toBase64() })
-    txidsByTrade.set(trade.id, bitcoin.Transaction.fromBuffer(Buffer.from(psbt.data.globalMap.unsignedTx.toBuffer())).getId())
+    // Prove fixture signatures actually combine and finalize before persisting a recovery candidate.
+    // A malformed fixture must fail at creation, not masquerade as a PASS 0 crash/restart defect.
+    const finalized = bitcoin.Psbt.fromBase64(unsigned, { network: NETWORK })
+    for (const signedCopy of signedCopies) finalized.combine(bitcoin.Psbt.fromBase64(signedCopy, { network: NETWORK }))
+    finalized.finalizeAllInputs()
+    const expectedTxid = finalized.extractTransaction().getId()
+    txidsByTrade.set(trade.id, expectedTxid)
     const pending = await prisma.escrowPendingTransaction.create({ data: { escrowId: escrow.id, kind: 'release', toAddress: destination, unsignedPsbtBase64: unsigned, requiredSigners: [buyerId, sellerId], triggeredBy: sellerId, createdAt } })
     await prisma.escrowTransactionSignature.createMany({ data: [
       { pendingTxId: pending.id, participantId: buyerId, signedPsbtBase64: signedCopies[0] },
