@@ -94,7 +94,7 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
 
     socket.on('close', () => {
       stopped = true
-      webSocketRelayTransportProvider.unregisterSocket(participantId)
+      webSocketRelayTransportProvider.unregisterSocket(participantId, socket)
     })
   })
 }
