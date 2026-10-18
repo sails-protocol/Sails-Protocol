@@ -51,20 +51,35 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
 
     webSocketRelayTransportProvider.registerSocket(participantId, socket)
 
-    socket.on('message', async (raw: Buffer) => {
-      // Blind forward, same rule sendToPeer() follows (CISO Privacy Rule,
-      // "Blind Relay") — this route never parses the frame, it only hands
-      // the raw bytes to whichever onMessage() handler the participant
-      // registered via the TransportProvider interface.
-      // Count actual received bytes before decoding; no relay payload inspection.
-      if (!await consumeSharedRelayBudget(participantId, raw.byteLength)) {
-        socket.close(1008, 'Relay resource budget exceeded')
-        return
-      }
-      webSocketRelayTransportProvider.dispatchIncoming(participantId, raw.toString())
+    // Serialize asynchronous Redis decisions to preserve ingress dispatch order.
+    // Once the socket is closed/exhausted, queued frames must never dispatch.
+    let pending = Promise.resolve()
+    let stopped = false
+    socket.on('message', (raw: Buffer) => {
+      if (stopped) return
+      // Capture raw data synchronously: the callback must not retain mutable
+      // WebSocket-owned buffers across the Redis await.
+      const frame = Buffer.from(raw)
+      pending = pending.then(async () => {
+        if (stopped) return
+        // Blind forward: enforce raw byte budgets without parsing payload.
+        if (!await consumeSharedRelayBudget(participantId, frame.byteLength)) {
+          stopped = true
+          socket.close(1008, 'Relay resource budget exceeded')
+          return
+        }
+        if (!stopped && socket.readyState === 1) {
+          webSocketRelayTransportProvider.dispatchIncoming(participantId, frame.toString())
+        }
+      }).catch(() => {
+        // Unexpected asynchronous failures are also fail closed.
+        stopped = true
+        socket.close(1011, 'Relay unavailable')
+      })
     })
 
     socket.on('close', () => {
+      stopped = true
       webSocketRelayTransportProvider.unregisterSocket(participantId)
     })
   })
