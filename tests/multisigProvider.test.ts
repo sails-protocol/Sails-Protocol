@@ -770,11 +770,11 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
       expect(psbt.txOutputs[1].value).toBe(BigInt(spendableValue) - psbt.txOutputs[0].value)
       expect(psbt.txOutputs[0].value + psbt.txOutputs[1].value).toBe(BigInt(spendableValue))
 
-      // Already pre-signed by the arbiter — the buyer's signature alone
-      // (2 of 3 total) is enough to finalize.
+      // AUD1X-H1: split construction is unsigned; buyer-only must not be spendable.
+      expect(psbt.data.inputs[0].partialSig).toBeUndefined()
       const buyerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
       buyerCopy.signInput(0, buyerKey)
-      expect(() => buyerCopy.finalizeAllInputs()).not.toThrow()
+      expect(() => buyerCopy.finalizeAllInputs()).toThrow()
     })
 
     it('end-to-end: the buyer signature combines with the arbiter pre-signature and broadcasts to a real txid', async () => {
