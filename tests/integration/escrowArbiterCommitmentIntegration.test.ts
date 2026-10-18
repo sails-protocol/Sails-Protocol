@@ -281,6 +281,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
       escrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)
     ).rejects.toThrow(/ruling|outcome|authoritative|committed|decision/i)
     expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: escrow.id } })).toBeNull()
+    expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: escrow.id } })).toBe(0)
     const after = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
     expect(after.status).toBe('DISPUTED')
     expect(after.txReleaseId).toBeNull()
