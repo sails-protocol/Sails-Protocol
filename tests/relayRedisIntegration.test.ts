@@ -33,6 +33,17 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     expect(typeof atomicConsume).toBe('function')
   })
 
+  it('fails closed when the production ticket Redis evaluation is unavailable', async () => {
+    const { redis } = await import('../src/common/redis')
+    const evalSpy = jest.spyOn(redis, 'eval').mockRejectedValue(new Error('redis unavailable'))
+    try {
+      await expect(resolveParticipantFromTicket('unavailable-' + randomUUID())).rejects.toThrow('redis unavailable')
+      expect(evalSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      evalSpy.mockRestore()
+    }
+  })
+
   it('calls the production ticket resolver with a real Redis client and rejects replay', async () => {
     const ticket = 'integration-' + randomUUID()
     const key = 'auth:ws-ticket:' + ticket
