@@ -232,7 +232,7 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
   })
 
   describe('3. sweep-vs-initiateSplit', () => {
-    it('a REORGED_INVALIDATED write racing under the escrow lock is never missed by a concurrent initiateSplit()', async () => {
+    it('AUD1X-H1 blocks unruled split during a concurrent funding invalidation; authorized split race still requires separate coverage', async () => {
       requirePostgres('sweep-vs-initiateSplit')
       const { escrowId, tradeId, buyerId } = await makeLockedMultisigEscrow('race-split')
       await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'DISPUTED' } })
@@ -241,6 +241,9 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
       // this escrow's script (ARBITER_ID, matching TRUSTED_ARBITRATORS
       // set at the top of this file), and isSellerOrAssignedArbiter()
       // requires a real Dispute row naming that same arbiter.
+      // AUD1X-H1: a merely assigned arbiter is not a resolved ruling. This
+      // negative case must fail BEFORE the funding race, not masquerade as
+      // evidence that the advisory-lock/reorg protection was exercised.
       await prisma.dispute.create({ data: { tradeId, escrowId, openedBy: buyerId, reason: 'test fixture', arbiterId: ARBITER_ID } })
 
       const reorgWrite = simulateEvidenceWriteUnderLock(escrowId, 'REORGED_INVALIDATED', 80)
@@ -251,7 +254,7 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
       // See the initiateRelease test above for why either message is
       // accepted — the outcome (no pending transaction created) is what
       // this test actually proves.
-      await expect(splitAttempt).rejects.toThrow(/funding evidence (is currently|became) uncertain/)
+      await expect(splitAttempt).rejects.toThrow(/AUD1X-H1: dispute .* has no resolved ruling/)
 
       const pending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
       expect(pending).toBeNull()
