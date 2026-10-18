@@ -15,7 +15,7 @@
 ## 2. Ferramentas: descobrir e fixar, não inventar
 
 - **Inventário executável:** `package.json`, `package-lock.json`, workspaces `packages/*`, `examples/*`, `contracts`; scripts de build, test, conformance e CI. **Versões efetivas vêm do lockfile e do HEAD, não deste texto.**
-- **Referência de persistência:** Prisma 7 + PostgreSQL (`prisma/schema.prisma`, `prisma.config.ts`, `common/database/index.ts`). Redis aparece na topologia de deployment; verifique contratos reais antes de assumir atomicidade/distribuição.
+- **Referência de persistência:** Prisma 7 + PostgreSQL (`prisma/schema.prisma`, `prisma.config.ts`, `src/common/database/index.ts`). Redis aparece na topologia de deployment; verifique contratos reais antes de assumir atomicidade/distribuição.
 - **Referência de implementação:** TypeScript/Node no runtime de referência, pacotes SDK/Core separados. Não impor a mesma stack a integradores ou ao protocolo puro.
 - **Ferramentas de testes:** use os comandos e suites existentes; integração real PostgreSQL, testes de concorrência/restart, conformance e CI no HEAD exato quando o risco exigir. Mocks/stubs isolados **não** comprovam invariantes econômicos.
 - **Escolha de nova biblioteca/framework/serviço:** registrar necessidade, alternativa existente, compatibilidade, manutenção/licença, superfície de segurança, custo, lockfile, benchmark e ADR/RFC se mudar contrato. Sem aprovação, **não substituir a stack por preferência do agente**.
@@ -36,7 +36,7 @@ Esta matriz **é um mapa de navegação**, não uma declaração de feature pron
 | Reputação / eventos | efeitos econômicos, projeções e idempotência | OpenReputation, event store, handlers | #253, BACKLOG | **Lacunas Day 0** |
 | Rede / nós | bootstrap, identidade de nós, descoberta e convergência | ADR-001, P2P, deployment | #105, #361 | **Gate Day 0** |
 | SDK / integradores | integração neutra, capacidade por adapter e conformance | packages SDK/Core, Protocol Spec | #75, #152, #165 | **Distinguir atual vs futuro** |
-| UI / Sails Market | estados e jornadas sem falsear verdade econômica | PROJECT_CONTEXT §2D, #217 e handoff de design (localização a confirmar no HEAD) | #217, BACKLOG itens 22–25 | **Master Backlog, não postergar** |
+| UI / Sails Market | estados e jornadas sem falsear verdade econômica | PROJECT_CONTEXT §2D, `packages/sails-ui/DESIGN.md` (validar no HEAD), #217 e handoff de design | #217, BACKLOG itens 22–25 | **Master Backlog, não postergar** |
 | IA / QVAC | recomendações limitadas sem autoridade econômica implícita | AI Harness e guardrails | #155, #309, #165 | **Discovery/validação separadas** |
 | Operação / observabilidade | métricas, logs, tracing, rate limits e recuperação | config, deployment, DB schema, métricas | #306, #307, #343, #473 | **Gaps Day 0 vs escala** |
 | Segurança / Red Team | prevenir abuso e testar composições adversariais | security audit, incident corpus, Red Team | #297, #420, #77, #487 | **Owners distintos** |
@@ -47,14 +47,14 @@ Esta matriz **é um mapa de navegação**, não uma declaração de feature pron
 ```yaml
 feature_id: "<Issue/identificador canônico>"
 nome: "<recurso>"
-fase: "Day0 | Master Backlog | Post-Master Backlog | Discovery"
-status: "PROPOSED | SPECIFIED | IMPLEMENTED_UNVERIFIED | VERIFIED | BLOCKED"
+fase: "Day0 | Master Backlog | Beta Readiness | Post-Master Backlog | Discovery"
+work_status: "Backlog | Ready | In Progress | Validation | Blocked | Done"\nevidence_status: "Hypothesis | Designed/Implemented | Demonstrated | Validated"
 owner: "<responsável real; não inventar>"
 product_requirement:
   user_or_integrator: "<quem usa>"
   job_to_be_done: "<resultado observável>"
   acceptance_scenarios: ["<happy path>", "<falha/recovery>", "<abuso>"]
-  out_of_scope: ["<explicitamente fora>"]
+  out_of_scope: ["<explicitamente fora>"]\nnonfunctional_requirements:\n  security_privacy: "<controles e evidência>"\n  performance_limits: "<orçamentos e medidas; UNKNOWN se não definidos>"\n  observability_recovery: "<tracing, restart, recuperação>"\ndependency_graph:\n  blockers: ["<Issue e gate de desbloqueio>"]\n  owners: ["<responsáveis confirmados>"]
 technical_contract:
   governing_sources: ["<Spec/ADR/RFC/Issue e seção>"]
   invariants: ["<propriedades que não podem ser quebradas>"]
@@ -64,7 +64,7 @@ technical_contract:
 tooling:
   existing_packages_and_versions: ["<caminho + versão verificada no lockfile>"]
   permitted_runtime_services: ["<evidência de aprovação>"]
-  new_dependency_decision: "NONE | REQUIRES_ADR | APPROVED:<ref>"
+  new_dependency_decision: "NONE | REQUIRES_ADR | APPROVED:<ref>"\ntooling_inventory:\n  - name: "<ferramenta/serviço>"\n    purpose: "<função>"\n    kind: "npm | binary | managed-service | infrastructure"\n    declared_version: "<manifesto ou N/A>"\n    resolved_version: "<lockfile, imagem/digest, deploy ou UNKNOWN>"\n    source: "<evidência no HEAD>"
 implementation:
   code_locations: ["<paths reais>"]
   prerequisite_issues: ["<IDs e gates>"]
@@ -77,14 +77,14 @@ verification:
   exact_head_ci: "<SHA e checks>"
   evidence_links: ["<PR/log/artefato verificável>"]
   residual_risks: ["<lacunas não escondidas>"]
-decision: "STOP | REVIEW | ADOPT | DEFER | REJECT"
+definition_of_done:\n  criteria: ["<aceite funcional e não funcional>"]\n  evidence: ["<SHA, teste real e logs>"]\n  approval: "<owner/revisor e gate; PENDING se não aprovado>"\ndecision: "STOP | REVIEW | ADOPT | DEFER | REJECT"
 ```
 
 ## 5. Plano de implementação de uma feature
 
 1. **Intake:** verificar se já há Issue/owner; classificar Day 0, Master, post ou discovery. Não duplicar.
 2. **Requisitos:** preencher o resultado de produto, cenários e limites; indicar lacunas explicitamente.
-3. **Contrato:** identificar as fontes canônicas e invariantes; decisão nova pede ADR/RFC antes do código.
+3. **Contrato:** identificar as fontes canônicas e invariantes; aplicar limiar de RFC de `docs/GOVERNANCE.md` §3: novo Intent, primitiva ou módulo oficial exigem RFC; adapter, evento em namespace existente, bugfix e clarificação não exigem RFC por si só (documentar no PR); ADR conforme governança aplicável.
 4. **Stack:** inspecionar arquivos/versões efetivos; preferir ferramentas aprovadas; não inventar API ou capacidade.
 5. **Plano:** decompor em mudanças pequenas com dependências e evidências de aceite; identificar impacto econômico, segurança, privacidade e migração.
 6. **Implementar:** branch/PR limitados, sem tocar trabalho paralelo protegido; preservar compatibilidade e rollback.
@@ -96,12 +96,12 @@ decision: "STOP | REVIEW | ADOPT | DEFER | REJECT"
 
 Estas garantias são **campos de verificação**, não uma declaração de que todos os recursos já foram auditados.
 
-1. **Inventário aprovado de ferramentas.** Para cada feature, registrar pacote/serviço, finalidade, módulo consumidor, versão declarada no `package.json`, versão resolvida no `package-lock.json`, alternativa já existente e referência da decisão. Baseline confirmado no `main`: Node >=20, TypeScript, npm workspaces, Fastify 5 (`fastify`), Prisma 7/PostgreSQL, `@fastify/rate-limit`, `@fastify/websocket`, Jest, Playwright e scripts Artillery ainda presentes no manifesto. **Presença no manifesto não autoriza uso em todos os recursos nem comprova deploy, integração ou aprovação de uma ferramenta.** Conferir versões resolvidas, serviços e alterações de migração de carga (Artillery/k6) no HEAD/Issue correspondente antes de fixar o inventário.
+1. **Inventário aprovado de ferramentas.** Para cada feature, registrar pacote/serviço, finalidade, módulo consumidor, versão declarada e resolvida na fonte aplicável (manifesto/lockfile para npm; binário e versão para k6; imagem/digest e configuração de deployment para serviços), alternativa já existente e referência da decisão. Baseline confirmado no `main`: Node >=20, TypeScript, npm workspaces, Fastify 5 (`fastify`), Prisma 7/PostgreSQL, `@fastify/rate-limit`, `@fastify/websocket`, Jest, Playwright e scripts Artillery ainda presentes no manifesto. **Presença no manifesto não autoriza uso em todos os recursos nem comprova deploy, integração ou aprovação de uma ferramenta.** Conferir versões resolvidas, serviços e alterações de migração de carga (Artillery/k6) no HEAD/Issue correspondente antes de fixar o inventário.
 2. **Requisitos funcionais e não funcionais.** Especificar fluxo feliz, negações, estados de erro, autoridade econômica, privacidade/retenção, limites por identidade/rota/mensagem, concorrência, idempotência, observabilidade e recuperação. Não inventar metas de latência, throughput, MAU ou SLO: obter orçamento/owner/ambiente, ensaio e evidência de aceitação. Referenciar Day0 #253, #267, #306, #307, #343 e #461 quando aplicáveis.
 3. **Mapa de dependências.** Por recurso, registrar pré-requisitos bloqueantes, ordem dos incrementos, contratos externos, migrations, owners e condição explícita de desbloqueio. Diferenciar **dependência de execução** de mera relação documental. Escrow/disputas ficam protegidos por #453 e PRs #436/#443; fila pós-Master não absorve pendências Day0.
 4. **Definition of Done verificável.** Requisito e autoridade rastreados até código/PR; compilação e testes apropriados; integração real/concorrência/restart quando necessária; casos negativos/adversariais; documentação e migração/rollback; evidência em SHA exato; riscos residuais; aprovação de owner/CTO e gates independentes. **CI verde é condição técnica, não aprovação de produção.** Marcar `VERIFIED` apenas com evidência vinculada, nunca por preencher template.
 
-**Campos adicionais para cada cartão:** `nonfunctional_requirements` (segurança, limites, desempenho, privacidade, observabilidade e recuperação); `dependency_graph` (bloqueios, owners e critérios de desbloqueio); `tooling_inventory` (pacote/serviço, uso, versão declarada/resolvida, evidência); `definition_of_done` (critérios, evidência e aprovação). Se um campo não tiver fonte, escrever `UNKNOWN / BLOCKED`, nunca preencher por inferência.
+**Campos incorporados ao cartão da seção 4:** `nonfunctional_requirements`, `dependency_graph`, `tooling_inventory` e `definition_of_done`. Work status e evidence status seguem campos separados de `docs/GITHUB_PROJECT.md` §§1.1 e 1.4. Se um campo não tiver fonte, escrever `UNKNOWN / BLOCKED`, nunca preencher por inferência.
 
 ## 6. STOP e limites deste registro
 
@@ -110,4 +110,4 @@ Estas garantias são **campos de verificação**, não uma declaração de que t
 - Sem mover correções Day 0 (#253, #267, #306, #307, #343, #461) para a fila pós-backlog.
 - Não ativar Claude nem alterar PRs #436/#443 enquanto Gatekeeper não liberar.
 - **Próxima fase documental:** preencher cada cartão a partir de código, testes, ADRs e Issues, com evidência; não declarar 100% de cobertura por criar este índice.
-- **Revisão CTO 2026-10-17:** links relativos das fontes principais checados na `main`; a referência inicial `sails-ui/DESIGN` não foi localizada no caminho presumido e foi substituída por #217/handoff a confirmar. A matriz ainda **não contém PRDs individuais, inventário de ferramentas aprovado por recurso, responsáveis validados nem planos executáveis preenchidos**. Aprovar a estrutura deste índice não equivale a aprovar a completude funcional.
+- **Revisão CTO 2026-10-17:** links relativos das fontes principais checados na `main`; a referência inicial `sails-ui/DESIGN` não foi localizada no caminho presumido; a fila canônica aponta `packages/sails-ui/DESIGN.md`, a confirmar no HEAD. A matriz ainda **não contém PRDs individuais, inventário de ferramentas aprovado por recurso, responsáveis validados nem planos executáveis preenchidos**. Aprovar a estrutura deste índice não equivale a aprovar a completude funcional.
