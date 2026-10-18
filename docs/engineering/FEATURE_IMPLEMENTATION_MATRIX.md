@@ -48,13 +48,21 @@ Esta matriz **é um mapa de navegação**, não uma declaração de feature pron
 feature_id: "<Issue/identificador canônico>"
 nome: "<recurso>"
 fase: "Day0 | Master Backlog | Beta Readiness | Post-Master Backlog | Discovery"
-work_status: "Backlog | Ready | In Progress | Validation | Blocked | Done"\nevidence_status: "Hypothesis | Designed/Implemented | Demonstrated | Validated"
+work_status: "Backlog | Ready | In Progress | Validation | Blocked | Done"
+evidence_status: "Hypothesis | Designed/Implemented | Demonstrated | Validated"
 owner: "<responsável real; não inventar>"
 product_requirement:
   user_or_integrator: "<quem usa>"
   job_to_be_done: "<resultado observável>"
   acceptance_scenarios: ["<happy path>", "<falha/recovery>", "<abuso>"]
-  out_of_scope: ["<explicitamente fora>"]\nnonfunctional_requirements:\n  security_privacy: "<controles e evidência>"\n  performance_limits: "<orçamentos e medidas; UNKNOWN se não definidos>"\n  observability_recovery: "<tracing, restart, recuperação>"\ndependency_graph:\n  blockers: ["<Issue e gate de desbloqueio>"]\n  owners: ["<responsáveis confirmados>"]
+  out_of_scope: ["<explicitamente fora>"]
+nonfunctional_requirements:
+  security_privacy: "<controles e evidência>"
+  performance_limits: "<orçamentos e medidas; UNKNOWN se não definidos>"
+  observability_recovery: "<tracing, restart, recuperação>"
+dependency_graph:
+  blockers: ["<Issue e gate de desbloqueio>"]
+  owners: ["<responsáveis confirmados>"]
 technical_contract:
   governing_sources: ["<Spec/ADR/RFC/Issue e seção>"]
   invariants: ["<propriedades que não podem ser quebradas>"]
@@ -64,7 +72,14 @@ technical_contract:
 tooling:
   existing_packages_and_versions: ["<caminho + versão verificada no lockfile>"]
   permitted_runtime_services: ["<evidência de aprovação>"]
-  new_dependency_decision: "NONE | REQUIRES_ADR | APPROVED:<ref>"\ntooling_inventory:\n  - name: "<ferramenta/serviço>"\n    purpose: "<função>"\n    kind: "npm | binary | managed-service | infrastructure"\n    declared_version: "<manifesto ou N/A>"\n    resolved_version: "<lockfile, imagem/digest, deploy ou UNKNOWN>"\n    source: "<evidência no HEAD>"
+  new_dependency_decision: "NONE | REQUIRES_ADR | APPROVED:<ref>"
+tooling_inventory:
+  - name: "<ferramenta/serviço>"
+    purpose: "<função>"
+    kind: "npm | binary | managed-service | infrastructure"
+    declared_version: "<manifesto ou N/A>"
+    resolved_version: "<lockfile, imagem/digest, deploy ou UNKNOWN>"
+    source: "<evidência no HEAD>"
 implementation:
   code_locations: ["<paths reais>"]
   prerequisite_issues: ["<IDs e gates>"]
@@ -77,7 +92,11 @@ verification:
   exact_head_ci: "<SHA e checks>"
   evidence_links: ["<PR/log/artefato verificável>"]
   residual_risks: ["<lacunas não escondidas>"]
-definition_of_done:\n  criteria: ["<aceite funcional e não funcional>"]\n  evidence: ["<SHA, teste real e logs>"]\n  approval: "<owner/revisor e gate; PENDING se não aprovado>"\ndecision: "STOP | REVIEW | ADOPT | DEFER | REJECT"
+definition_of_done:
+  criteria: ["<aceite funcional e não funcional>"]
+  evidence: ["<SHA, teste real e logs>"]
+  approval: "<owner/revisor e gate; PENDING se não aprovado>"
+decision: "STOP | REVIEW | ADOPT | DEFER | REJECT"
 ```
 
 ## 5. Plano de implementação de uma feature
