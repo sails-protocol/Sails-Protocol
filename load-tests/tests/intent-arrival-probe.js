@@ -16,10 +16,11 @@ export const options = {
   ...baseOptions,
   scenarios: {
     intent_probe: {
-      executor: 'constant-arrival-rate',
-      rate: 1,
-      timeUnit: '1s',
-      duration: '2s',
+      // A fixed iteration count is deterministic for this tiny comparator.
+      // This is an accounting probe, NOT proof of constant arrival-rate parity.
+      executor: 'shared-iterations',
+      vus: 1,
+      iterations: 2,
       preAllocatedVUs: 2,
       maxVUs: 2,
       gracefulStop: '10s',
