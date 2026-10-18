@@ -180,14 +180,15 @@ describe('Escrow arbiter public-key commitment — real lifecycle + DB-native im
   })
 })
 
-// Missão 11 Fase 5.3 §A/§A.1 — real signature-collection-path proof that
-// assertArbiterMatchesScript()'s triggeredBy context (restored by this
-// phase's own one-line fix in escrow-pending-tx.ts) and the persisted-
-// arbiter-pubkey check (Fase 5.2) both actually fire on the ONLY path
-// MULTISIG uses for a real disputed release/refund/split — never a
-// hand-built MultisigEscrowInput fixture. Complements
-// tests/multisigProvider.test.ts's own unit-level drift-detection suite
-// (which proves the LOGIC in isolation) by proving the WIRING.
+// Missão 11 Fase 5.3 §A/§A.1 — regression tests for the real
+// signature-collection path. AUD1X-H1 now requires a signed, durable
+// ruling before the provider checks triggeredBy and the committed script
+// key. The disputed fixtures below do NOT create such a ruling: they
+// currently prove fail-closed rejection only, not the end-to-end wiring
+// of assertArbiterMatchesScript() or seed-drift detection. Positive
+// signed-ruling coverage is still required before Gate 3 approval.
+// Provider-level key checks are exercised separately in
+// tests/multisigProvider.test.ts.
 describe('Signature-collection path — real triggeredBy/arbiter-context defense-in-depth (Missão 11 Fase 5.3, real Postgres)', () => {
   jest.setTimeout(60_000)
 
