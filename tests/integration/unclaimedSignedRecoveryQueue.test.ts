@@ -10,9 +10,11 @@
 // What is real: PostgreSQL, the claim, the reconciler, reconcilePendingSettlement() and its bounded,
 // retried explorer requests (boundedFetch), claimEscrowTransition(), the write-once result and the
 // completion effects. What is controlled: the explorer itself (global.fetch: answer, latency, call count,
-// concurrency; never the public internet) and the reconstruction of the signed transaction, stubbed to a
-// fixed txid per trade (real signed-PSBT reconstruction is proven in m9rClaimRecovery.test.ts). Candidates
-// are fully-signed pending rows on PAYMENT_PENDING MULTISIG escrows. None has participant keys: only an
+// concurrency; never the public internet). Each candidate now contains a real P2WSH 2-of-3
+// unsigned PSBT and two independently signed copies, verified by production inspectRound(). Only
+// buildFinalizedTransaction() is stubbed to return the corresponding real unsigned txid, keeping
+// the crash/queue tests independent of broadcasting. Full finalization is covered by m9rClaimRecovery.
+// Candidates are fully-signed pending rows on PAYMENT_PENDING MULTISIG escrows. None has participant keys: only an
 // explorer that says "unknown transaction" would get PASS 0 far enough to need them.
 //
 // A "node" is an independent module graph (jest.isolateModules): its own module state, config (explorer
