@@ -4,6 +4,11 @@
 const {spawn}=require('node:child_process');
 const fs=require('node:fs');
 const {sample}=require('./process-resource-sampler.cjs');
+function assertRssSampleCoverage(samples,rssLiveNoPositive){
+  if(!Number.isSafeInteger(samples)||samples<2||!Number.isSafeInteger(rssLiveNoPositive)||rssLiveNoPositive<0)throw Error('Generator resource sample count insufficient');
+  // No live-state omissions above 1% of successful RSS observations.
+  if(rssLiveNoPositive>0 && (samples<3 || rssLiveNoPositive*100>samples))throw Error('Generator resource sample count insufficient');
+}
 async function runMeasured(command,args,{timeoutMs=90000,intervalMs=25,env=process.env,outputFile=null}={}){
   if(typeof command!=='string'||!command||!Array.isArray(args)||!args.every(x=>typeof x==='string'))throw Error('Invalid generator command');
   if(!Number.isSafeInteger(timeoutMs)||timeoutMs<100||timeoutMs>120000)throw Error('Invalid generator timeout');
@@ -32,12 +37,10 @@ async function runMeasured(command,args,{timeoutMs=90000,intervalMs=25,env=proce
     // resource value, and CPU ticks are sampled before process exit.
     if(samples<2)throw Error('Generator resource sample count insufficient');
     if(readErrors>0)throw Error('Generator resource sampling read error: '+readErrorCategory);
-    // Never accept a run where missing live-state RSS observations dominate
-    // the sampled record. Keep the allowed omission budget explicit and small.
-    if(rssLiveNoPositive>0 && (samples<3 || rssLiveNoPositive*100>samples))throw Error('Generator resource sample count insufficient');
+    assertRssSampleCoverage(samples,rssLiveNoPositive);
     if(!Number.isSafeInteger(lastCpuTicks)||lastCpuTicks<start.cpuTicks||!Number.isSafeInteger(peakRssKiB)||peakRssKiB<=0)throw Error('Generator resource counters invalid');
     if(code!==0)throw Error('Generator exited nonzero (output redacted)');
     return {exitCode:code,cpuTicksDeltaSampled:lastCpuTicks-start.cpuTicks,peakRssKiB,samples,vanishedAtExit,rssLiveNoPositive,measurement:'sampled process counters only; excludes post-last-sample CPU; proc disappearance and zero-RSS live-state observations counted separately; positive RSS required'};
   }finally{clearInterval(timer);clearTimeout(timeout);if(child.exitCode===null)child.kill('SIGKILL');}
 }
-module.exports={runMeasured};
+module.exports={runMeasured,assertRssSampleCoverage};
