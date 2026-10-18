@@ -276,6 +276,22 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
 
   // ═══ A–E: bounded runs drain a backlog ═══════════════════════════════════════════════════════════════
 
+  // AUD1X-H1 / M9-R: these legacy synthetic queue rows are NOT cryptographic
+  // proof. A malformed persisted PSBT must fail closed before any explorer read.
+  // Separate valid-PSBT crash recovery fixtures are still required.
+  it('malformed queued PSBT fails closed before explorer lookup', async () => {
+    requirePostgres('malformed queued PSBT')
+    const [x] = track(await candidates(1))
+    const st = explorer()
+    const report = await startNode().pass0()
+    const errors = report.failed.filter((row) => row.escrowId === x.escrowId)
+    expect(errors).toHaveLength(1)
+    expect(errors[0].error).toMatch(/failed to combine\/finalize signatures|PSBT|Uint8Array/)
+    expect(st.total).toBe(0)
+    expect(resumed(report, [x])).toEqual([])
+    await expectUntouched([x])
+  })
+
   it('A. no candidate of ours, only rows still collecting signatures: none of them is claimed, loaded or sent to the explorer, and whatever the run does claim is loaded one row per claim', async () => {
     requirePostgres('A')
     const collecting = await candidates(10, { signed: false })
