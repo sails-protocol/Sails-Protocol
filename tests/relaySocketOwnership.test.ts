@@ -7,6 +7,8 @@ describe('relay socket replacement ownership', () => {
     const newSocket = { readyState: 1, send: jest.fn(), close: jest.fn() }
     provider.registerSocket('p', oldSocket)
     provider.registerSocket('p', newSocket)
+    expect(provider.ownsSocket('p', oldSocket)).toBe(false)
+    expect(provider.ownsSocket('p', newSocket)).toBe(true)
     provider.unregisterSocket('p', oldSocket)
     expect(provider.isConnected('p')).toBe(true)
     provider.unregisterSocket('p', newSocket)
