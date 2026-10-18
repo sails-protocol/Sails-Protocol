@@ -37,9 +37,8 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     const ticket = 'integration-' + randomUUID()
     const key = 'auth:ws-ticket:' + ticket
     const { redis } = await import('../src/common/redis')
-    const originalEval = redis.eval
     const evalSpy = jest.spyOn(redis, 'eval').mockImplementation(
-      ((...args: Parameters<typeof redis.eval>) => a.eval(...args)) as typeof redis.eval,
+      ((...args: unknown[]) => (a.eval as (...params: unknown[]) => Promise<unknown>)(...args)) as typeof redis.eval,
     )
     try {
       await a.set(key, 'participant', 'PX', 5000)
