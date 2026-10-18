@@ -362,7 +362,7 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
     // The fixture's ruling was committed with a real Outcome record; production's own deleter of a ruling
     // record removes it. CTO policy: absence of an authoritative Outcome must NEVER authorize deletion.
     const { loadDisputeRulingRecord, revertDisputeRulingRecord } = require('../../src/modules/open-settlement/dispute-outcome')
-    await revertDisputeRulingRecord(escrow.id, authority.rulingAppealRound)
+    await revertDisputeRulingRecord(escrow.id, authority.rulingAppealRound, authority.rulingAuthoritySignature)
     const durableOutcome = await loadDisputeRulingRecord(escrow.id, authority.rulingAppealRound)
     expect(durableOutcome).toBeNull()
     expect(await deletePendingRoundIfStillUnsigned(pending.id, escrow.id, authority)).toBe('OUTCOME_ABSENT')
@@ -387,9 +387,9 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
   // ── ST-1: ported from the parallel session's ledger (adapted to a fixture that commits a real Outcome) ──
 
   /** The ruling's Outcome record is removed with production's own deleter: a RESOLVED dispute with no Outcome. */
-  const withoutOutcome = async (escrowId: string, appealRound = 0) => {
+  const withoutOutcome = async (escrowId: string, authoritySignature: string, appealRound = 0) => {
     const { revertDisputeRulingRecord } = require('../../src/modules/open-settlement/dispute-outcome')
-    await revertDisputeRulingRecord(escrowId, appealRound)
+    await revertDisputeRulingRecord(escrowId, appealRound, authoritySignature)
   }
 
   it('ST1-F waits for the economic disposition D lock and rejects a generation advanced before acquisition', async () => {
@@ -463,7 +463,7 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
   it('ST1-K missing Outcome: the cleanup queued before a signer preserves the round and the signer succeeds', async () => {
     pg.requirePostgres('missing Outcome vs signer')
     const { escrow, pending, buyer } = await fixture()
-    await withoutOutcome(escrow.id)
+    await withoutOutcome(escrow.id, (await generation(pending.id)).rulingAuthoritySignature)
     const release = await holdEscrowLock(escrow.id)
     const cleaner = cleanup(pending.id, escrow.id)
     await untilWaiting(1)
@@ -478,7 +478,7 @@ describe('#244 stale dispute-pending cleanup vs concurrent signature — real Po
   it('ST1-G multiple workers preserve a round without a durable Outcome, including replay and an independent module graph', async () => {
     pg.requirePostgres('multiple workers fail-closed without Outcome')
     const { escrow, pending } = await fixture()
-    await withoutOutcome(escrow.id)
+    await withoutOutcome(escrow.id, (await generation(pending.id)).rulingAuthoritySignature)
     const authority = await generation(pending.id)
     const before = await roundState(pending.id)
     const outcomes = await Promise.all([

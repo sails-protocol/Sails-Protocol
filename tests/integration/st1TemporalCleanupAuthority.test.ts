@@ -2265,7 +2265,8 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const o = await openedDispute('o1')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
     await stale(pending.id, o)
-    await revertDisputeRulingRecord(o.escrowId, 0) // production's own deleter of a ruling record
+    const authority = await generationOf(pending.id)
+    await revertDisputeRulingRecord(o.escrowId, authority.rulingAppealRound, authority.rulingAuthoritySignature) // production's own deleter of this ruling record
     expect(await outcomeRecords(o)).toBe(0)
     expect((await disputeOf(o)).status).toBe('RESOLVED')
 
