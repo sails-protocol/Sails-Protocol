@@ -41,8 +41,26 @@ import { consumeSharedRelayBudget } from './relay-shared-budget'
 
 export async function relayRoutes(app: FastifyInstance): Promise<void> {
   app.get('/ws/relay', { websocket: true }, async (socket, request) => {
+    // @fastify/websocket requires a synchronous message listener: an async
+    // ticket lookup must not leave incoming frames unobserved. Pre-auth
+    // traffic is rejected rather than buffered or forwarded.
+    let preAuthFrameReceived = false
+    const rejectPreAuthFrame = () => {
+      preAuthFrameReceived = true
+      socket.close(1008, 'Relay authentication pending')
+    }
+    socket.on('message', rejectPreAuthFrame)
     const query = request.query as { ticket?: string }
-    const participantId = await resolveParticipantFromTicket(query.ticket)
+    let participantId: string | null
+    try {
+      participantId = await resolveParticipantFromTicket(query.ticket)
+    } catch {
+      socket.off('message', rejectPreAuthFrame)
+      socket.close(1011, 'Relay authentication unavailable')
+      return
+    }
+    socket.off('message', rejectPreAuthFrame)
+    if (preAuthFrameReceived || socket.readyState !== 1) return
     if (!participantId) {
       socket.send(JSON.stringify({ type: 'ERROR', payload: { message: 'Missing, invalid, or already-used ticket query param — call POST /v1/identity/ws-ticket first' } }))
       socket.close()
