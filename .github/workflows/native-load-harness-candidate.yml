@@ -829,7 +829,7 @@ jobs:
           node <<'NODE'
           const fs=require('node:fs');
           const m=JSON.parse(fs.readFileSync('/tmp/sails-k6-arrival-summary.json','utf8')).metrics||{};
-          const required=['iterations','checks','sails_intent_success','http_req_duration','http_reqs','dropped_iterations'];
+          const required=['iterations','checks','sails_intent_success','http_req_duration','http_reqs','dropped_iterations','sails_intent_create_duration','sails_intent_cancel_duration'];
           const missing=required.filter(k=>!m[k]);
           const n=k=>typeof m[k]?.count==='number'?m[k].count:undefined;
           const checks=m.checks?.value;
