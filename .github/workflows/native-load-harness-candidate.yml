@@ -800,11 +800,32 @@ jobs:
             sleep 1
           done
           if [ "$ready" -ne 1 ]; then echo 'Arrival probe backend readiness timeout'; exit 1; fi
-          if ! timeout 45s k6 run --quiet --summary-export=/tmp/sails-k6-arrival-summary.json -e BASE_URL=http://127.0.0.1:3000 load-tests/tests/intent-arrival-probe.js > /tmp/sails-k6-arrival.log 2>&1; then
-            # Never echo raw logs: they can contain bearer credentials.
-            echo 'Bounded authenticated arrival probe failed (raw logs withheld)'
+          # Sample both the backend and the k6 generator under the same
+          # bounded process-counter mechanism used by the Artillery comparator.
+          page_bytes="$(getconf PAGESIZE)"
+          if [ "$page_bytes" != "4096" ]; then
+            echo 'Unsupported Linux process page size for RSS sampling'
             exit 1
           fi
+          export SAILS_PROC_PAGE_KIB=4 SAILS_BACKEND_PID="$server_pid"
+          node <<'RESOURCE_NODE'
+          const {runMeasured}=require('./load-tests/native/measured-generator.cjs');
+          const {observe}=require('./load-tests/native/process-resource-sampler.cjs');
+          (async()=>{
+            const {value:generator,usage:backend}=await observe(Number(process.env.SAILS_BACKEND_PID),
+              ()=>runMeasured('k6',['run','--quiet','--summary-export=/tmp/sails-k6-arrival-summary.json',
+                '-e','BASE_URL=http://127.0.0.1:3000','load-tests/tests/intent-arrival-probe.js'],
+                {timeoutMs:45000,intervalMs:25,outputFile:'/tmp/sails-k6-arrival.log'}),
+              {intervalMs:25});
+            console.log('k6 generator resource sample:',JSON.stringify(generator));
+            console.log('k6 backend resource sample:',JSON.stringify(backend));
+          })().catch(error=>{
+            // No raw process output, URLs, PIDs, credentials or command lines.
+            console.error('Bounded k6 resource measurement failed:',error?.message==='Generator resource sample count insufficient'
+              ?'generator-samples-insufficient':'resource-measurement-invalid');
+            process.exitCode=1;
+          });
+          RESOURCE_NODE
           node <<'NODE'
           const fs=require('node:fs');
           const m=JSON.parse(fs.readFileSync('/tmp/sails-k6-arrival-summary.json','utf8')).metrics||{};
