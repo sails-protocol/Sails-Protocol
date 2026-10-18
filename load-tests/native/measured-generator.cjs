@@ -32,7 +32,9 @@ async function runMeasured(command,args,{timeoutMs=90000,intervalMs=25,env=proce
     // resource value, and CPU ticks are sampled before process exit.
     if(samples<2)throw Error('Generator resource sample count insufficient');
     if(readErrors>0)throw Error('Generator resource sampling read error: '+readErrorCategory);
-    if(rssLiveNoPositive>0 && samples<3)throw Error('Generator resource sample count insufficient');
+    // Never accept a run where missing live-state RSS observations dominate
+    // the sampled record. Keep the allowed omission budget explicit and small.
+    if(rssLiveNoPositive>0 && (samples<3 || rssLiveNoPositive*100>samples))throw Error('Generator resource sample count insufficient');
     if(!Number.isSafeInteger(lastCpuTicks)||lastCpuTicks<start.cpuTicks||!Number.isSafeInteger(peakRssKiB)||peakRssKiB<=0)throw Error('Generator resource counters invalid');
     if(code!==0)throw Error('Generator exited nonzero (output redacted)');
     return {exitCode:code,cpuTicksDeltaSampled:lastCpuTicks-start.cpuTicks,peakRssKiB,samples,vanishedAtExit,rssLiveNoPositive,measurement:'sampled process counters only; excludes post-last-sample CPU; proc disappearance and zero-RSS live-state observations counted separately; positive RSS required'};
