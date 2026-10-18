@@ -718,7 +718,7 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
   })
 
-  it('disputed refund: arbiter pre-signs immediately, only the seller remains a required client signer', async () => {
+  it('AUD1X-H1 disputed refund: unsigned PSBT cannot be finalized with seller signature alone', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     const txid = '7'.repeat(64)
@@ -728,15 +728,13 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
       REFUND_ADDRESS_UNUSED
     )
     expect(requiredSigners).toEqual(['seller-1'])
-
+    expect(bitcoin.Psbt.fromBase64(psbtBase64, { network }).data.inputs[0].partialSig).toBeUndefined()
     const sellerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
     sellerCopy.signInput(0, sellerKey)
-
-    // R6 — same deliberately-wrong-provider-response proof as above.
-    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '8'.repeat(64) })
-    const result = await multisigProvider.finalizeRefund({ tradeId: 't1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey }, psbtBase64, [sellerCopy.toBase64()])
-    expect(result.txId).not.toBe('8'.repeat(64))
-    expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
+    expect(() => sellerCopy.finalizeAllInputs()).toThrow()
+    await expect(
+      multisigProvider.finalizeRefund({ tradeId: 't1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey }, psbtBase64, [sellerCopy.toBase64()])
+    ).rejects.toThrow('failed to combine/finalize')
   })
 
   // RFC-021 D9 (2026-08-02) — real 2-output PSBT construction. Always the
