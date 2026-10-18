@@ -33,6 +33,27 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     expect(typeof atomicConsume).toBe('function')
   })
 
+  it('calls the production ticket resolver with a real Redis client and rejects replay', async () => {
+    const ticket = 'integration-' + randomUUID()
+    const key = 'auth:ws-ticket:' + ticket
+    const { redis } = await import('../src/common/redis')
+    const originalEval = redis.eval
+    const evalSpy = jest.spyOn(redis, 'eval').mockImplementation(
+      ((...args: Parameters<typeof redis.eval>) => a.eval(...args)) as typeof redis.eval,
+    )
+    try {
+      await a.set(key, 'participant', 'PX', 5000)
+      const results = await Promise.all(Array.from({ length: 20 }, () => resolveParticipantFromTicket(ticket)))
+      expect(results.filter(value => value === 'participant')).toHaveLength(1)
+      expect(results.filter(value => value === null)).toHaveLength(19)
+      expect(await a.exists(key)).toBe(0)
+      expect(evalSpy).toHaveBeenCalledTimes(20)
+    } finally {
+      evalSpy.mockRestore()
+      await a.del(key)
+    }
+  })
+
   it('atomically burns a single-use WebSocket ticket across concurrent Redis clients', async () => {
     const key = 'auth:ws-ticket:test-' + randomUUID()
     try {
