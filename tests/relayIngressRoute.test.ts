@@ -181,6 +181,53 @@ describe('relay real TCP WebSocket transport', () => {
     }
   })
 
+  it('rejects two concurrent TCP connections presenting the same ticket after one claim', async () => {
+    const Fastify = (await import('fastify')).default
+    const websocket = (await import('@fastify/websocket')).default
+    const WebSocket = (await import('ws')).default
+    const app = Fastify({ logger: false })
+    const clients: InstanceType<typeof WebSocket>[] = []
+    try {
+      jest.clearAllMocks()
+      resolveTicket.mockResolvedValueOnce('participant').mockResolvedValueOnce(null)
+      owns.mockReturnValue(true)
+      budget.mockResolvedValue(true)
+      await app.register(websocket)
+      await app.register(relayRoutes)
+      await app.listen({ host: '127.0.0.1', port: 0 })
+      const address = app.server.address()
+      if (!address || typeof address === 'string') throw new Error('Expected TCP server address')
+      const url = `ws://127.0.0.1:${address.port}/ws/relay?ticket=same-ticket`
+      const observations = await Promise.all([0, 1].map(async () => {
+        const client = new WebSocket(url)
+        clients.push(client)
+        const messages: string[] = []
+        client.on('message', data => messages.push(data.toString()))
+        await new Promise<void>((resolve, reject) => {
+          client.once('open', resolve)
+          client.once('error', reject)
+        })
+        return { client, messages }
+      }))
+      await new Promise<void>((resolve, reject) => {
+        const deadline = Date.now() + 3000
+        const poll = () => {
+          if (resolveTicket.mock.calls.length === 2 && register.mock.calls.length === 1 &&
+            observations.some(item => item.messages.some(message => message.includes('already-used ticket')))) return resolve()
+          if (Date.now() >= deadline) return reject(new Error('Expected exactly one TCP ticket claimant'))
+          setTimeout(poll, 10)
+        }
+        poll()
+      })
+      expect(resolveTicket.mock.calls).toEqual([['same-ticket'], ['same-ticket']])
+      expect(register).toHaveBeenCalledTimes(1)
+      expect(observations.filter(item => item.messages.some(message => message.includes('already-used ticket')))).toHaveLength(1)
+    } finally {
+      clients.forEach(client => client.terminate())
+      await app.close()
+    }
+  })
+
   it('dispatches a frame over a live Fastify WebSocket connection', async () => {
     const Fastify = (await import('fastify')).default
     const websocket = (await import('@fastify/websocket')).default
