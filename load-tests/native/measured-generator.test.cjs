@@ -1,6 +1,15 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {runMeasured}=require('./measured-generator.cjs');
+const {runMeasured,assertRssSampleCoverage}=require('./measured-generator.cjs');
+// Boundary proofs: 1% accepted, above 1% rejected; never count missing RSS as zero.
+assert.doesNotThrow(()=>assertRssSampleCoverage(100,1));
+assert.doesNotThrow(()=>assertRssSampleCoverage(200,2));
+assert.doesNotThrow(()=>assertRssSampleCoverage(100,0));
+assert.throws(()=>assertRssSampleCoverage(99,1),/sample count insufficient/);
+assert.throws(()=>assertRssSampleCoverage(100,2),/sample count insufficient/);
+assert.throws(()=>assertRssSampleCoverage(2,1),/sample count insufficient/);
+assert.throws(()=>assertRssSampleCoverage(100,-1),/sample count insufficient/);
+assert.throws(()=>assertRssSampleCoverage(0,0),/sample count insufficient/);
 (async()=>{
   const result=await runMeasured(process.execPath,['-e','setTimeout(()=>{},500)'],{timeoutMs:2000,intervalMs:25});
   assert.equal(result.exitCode,0);
