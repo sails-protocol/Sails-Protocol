@@ -51,6 +51,14 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('rejects budget evaluation when the Redis connection is unavailable', async () => {
+    const disconnected = new Redis(url!, { lazyConnect: true, maxRetriesPerRequest: 1 })
+    disconnected.disconnect()
+    await expect(
+      disconnected.eval(RELAY_BUDGET_SCRIPT, 1, 'test:relay:offline:' + randomUUID(), 1, 2, 100, 5000),
+    ).rejects.toThrow()
+  })
+
   it('retains exhausted budget across independent client reconnections', async () => {
     const key = 'test:relay:reconnect:' + randomUUID()
     try {
