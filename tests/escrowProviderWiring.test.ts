@@ -211,7 +211,17 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     // The event store checks, in its publish transaction, whether the escrow transition already has a
     // durable event (one event per transition, migration 20260930130000); none has, here.
     // #235 R7H-E3 - the repository's binding check; the binding itself is proven on real PostgreSQL (escrowSellerPaymentBinding.test.ts).
-    $queryRaw: jest.fn(async (strings: TemplateStringsArray) => (strings.join('?').includes('escrow_economic_binding_violation') ? [{ violation: null, governed: mockBindingGoverned }] : [])),
+    $queryRaw: jest.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const sql = strings.join('?')
+      if (sql.includes('escrow_economic_binding_violation')) return [{ violation: null, governed: mockBindingGoverned }]
+      // Unit-only transaction fixture: return the escrow row for the same ID as the
+      // SELECT ... FOR UPDATE. Real locking/serialization is tested against PostgreSQL elsewhere.
+      if (/FROM escrows WHERE id = .*FOR UPDATE/.test(sql)) {
+        const escrow = await mockEscrowFindUnique({ where: { id: values[0] } })
+        return escrow ? [{ status: escrow.status }] : []
+      }
+      return []
+    }),
   })
 )
 
