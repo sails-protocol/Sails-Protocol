@@ -5,6 +5,7 @@
  */
 import Redis from 'ioredis'
 import { randomUUID } from 'crypto'
+import { RELAY_BUDGET_SCRIPT } from '../src/infrastructure/p2p/relay-shared-budget'
 
 const url = process.env.RELAY_REDIS_INTEGRATION_URL
 const suite = url ? describe : describe.skip
@@ -13,20 +14,7 @@ suite('relay shared budget — real Redis concurrent instances', () => {
   let a: Redis
   let b: Redis
 
-  const SCRIPT = `
-local key = KEYS[1]
-local bytes = tonumber(ARGV[1])
-local maxMessages = tonumber(ARGV[2])
-local maxBytes = tonumber(ARGV[3])
-local windowMs = tonumber(ARGV[4])
-local count = tonumber(redis.call('HGET', key, 'messages') or '0')
-local used = tonumber(redis.call('HGET', key, 'bytes') or '0')
-if count >= maxMessages or used + bytes > maxBytes then return 0 end
-redis.call('HINCRBY', key, 'messages', 1)
-redis.call('HINCRBY', key, 'bytes', bytes)
-if redis.call('PTTL', key) < 0 then redis.call('PEXPIRE', key, windowMs) end
-return 1
-`
+
 
   beforeAll(() => {
     a = new Redis(url!, { maxRetriesPerRequest: 1 })
@@ -39,7 +27,7 @@ return 1
   it('never over-admits across concurrent clients, expires, then resets', async () => {
     const key = 'test:relay:atomic:' + randomUUID()
     const evalBudget = (client: Redis, bytes: number) =>
-      client.eval(SCRIPT, 1, key, bytes, 20, 100, 250)
+      client.eval(RELAY_BUDGET_SCRIPT, 1, key, bytes, 20, 100, 250)
     try {
       const results = await Promise.all(
         Array.from({ length: 80 }, (_, i) => evalBudget(i % 2 ? a : b, 10)),
