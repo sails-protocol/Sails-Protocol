@@ -32,7 +32,7 @@ export function setup() {
 }
 
 /** One real create+cancel round trip — exported so scenarios/*.js can drive this same flow under a different load shape. */
-export function run(user, intentOverride) {
+export function run(user, intentOverride, sampleHooks = {}) {
   const intent = intentOverride || generateTestIntent()
   const createRes = http.post(`${BASE_URL}/v1/intents`, JSON.stringify(intent), {
     ...authHeaders(user),
@@ -40,6 +40,7 @@ export function run(user, intentOverride) {
   })
   const created = check(createRes, { 'create: 201': (r) => r.status === 201 })
   recordFlow({ successRate: intentSuccessRate, duration: intentCreateDuration, durationMs: createRes.timings.duration, ok: created, response: createRes })
+  sampleHooks.onCreateDurationSample?.()
   if (!created) throw new Error('Intent create failed (status redacted)')
 
   const intentId = createRes.json('data.id')
@@ -54,6 +55,7 @@ export function run(user, intentOverride) {
   })
   const cancelled = check(cancelRes, { 'cancel: 200': (r) => r.status === 200 })
   recordFlow({ successRate: intentSuccessRate, duration: intentCancelDuration, durationMs: cancelRes.timings.duration, ok: cancelled, response: cancelRes })
+  sampleHooks.onCancelDurationSample?.()
   if (!cancelled) throw new Error('Intent cancellation failed (status redacted)')
 }
 
