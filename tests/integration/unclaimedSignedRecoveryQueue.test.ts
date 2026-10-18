@@ -14,8 +14,9 @@
 // unsigned PSBT and two independently signed copies, verified by production inspectRound().
 // Cryptographic finalization is not mocked; only the explorer network boundary is controlled.
 // Full signed recovery is additionally covered by m9rClaimRecovery.
-// Candidates are fully-signed pending rows on PAYMENT_PENDING MULTISIG escrows. None has participant keys: only an
-// explorer that says "unknown transaction" would get PASS 0 far enough to need them.
+// Candidates are fully-signed pending rows on PAYMENT_PENDING MULTISIG escrows. Each escrow
+// persists the same three participant keys used to derive its funded P2WSH address, so production
+// script-commitment validation is exercised rather than bypassed.
 //
 // A "node" is an independent module graph (jest.isolateModules): its own module state, config (explorer
 // timeout and reconciliation interval come from the environment at load) and provider. The PrismaClient
@@ -165,7 +166,7 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
   async function candidate({ createdAt = new Date(QUEUE_HEAD + (headOffset += 1000)), signed = true } = {}): Promise<Candidate> {
     const trade = await prisma.trade.create({ data: { ...boundTradeRow(sellerAccount), offerId, buyerId, sellerId, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65', status: 'ACTIVE' } })
     const fundingTxid = createHash('sha256').update('queue-funding-' + trade.id).digest('hex')
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', status: 'PAYMENT_PENDING', lockedAmount: '0.001', asset: 'BTC', multisigAddr: fundingAddress, txLockId: fundingTxid, txLockVout: 0 } })
+    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', status: 'PAYMENT_PENDING', lockedAmount: '0.001', asset: 'BTC', multisigAddr: fundingAddress, buyerPubkey: Buffer.from(keys[0].publicKey).toString('hex'), sellerPubkey: Buffer.from(keys[1].publicKey).toString('hex'), arbiterPubkey: Buffer.from(keys[2].publicKey).toString('hex'), txLockId: fundingTxid, txLockVout: 0 } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
     const psbt = new bitcoin.Psbt({ network: NETWORK })
     psbt.addInput({ hash: fundingTxid, index: 0, witnessUtxo: { script: bitcoin.address.toOutputScript(fundingAddress, NETWORK), value: 100_000n }, witnessScript })
