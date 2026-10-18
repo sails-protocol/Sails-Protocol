@@ -55,6 +55,10 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
     this.sockets.set(participantId, socket)
   }
 
+  ownsSocket(participantId: string, socket: RelaySocket): boolean {
+    return this.sockets.get(participantId) === socket
+  }
+
   unregisterSocket(participantId: string, socket?: RelaySocket): void {
     // A stale close event must not remove a newer socket registered for
     // the same participant (reconnect/overlapping connections).
