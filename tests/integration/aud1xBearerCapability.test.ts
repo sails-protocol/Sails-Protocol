@@ -590,13 +590,20 @@ describe('AUD1X-H1 MULTISIG bearer-capability correction - real PostgreSQL', () 
     chain(live.txid)
     const report = (): any => ({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], completionVerified: [], locksAdvanced: [] })
     const runUntilAttempted = async (roundId: string) => {
-      const r = report()
+      // PASS 0 is globally bounded. Preserve reports across laps: an unrelated
+      // candidate may be visited first, and the target may be recovered in an
+      // earlier lap than the one that observes its attemptedAt marker.
+      const aggregate = report()
       for (let i = 0; i < 80; i++) {
-        await reconcileUnclaimedFullySignedPending(r)
+        const lap = report()
+        await reconcileUnclaimedFullySignedPending(lap)
+        for (const key of ['recovered', 'completionEffectsRecovered', 'requiresManualReview', 'failed', 'resumedUnclaimed', 'alreadyClaimedConcurrently', 'projectionsRecovered', 'completionVerified', 'locksAdvanced']) {
+          aggregate[key].push(...lap[key])
+        }
         const row = await prisma.escrowPendingTransaction.findUnique({ where: { id: roundId }, select: { unclaimedRecoveryAttemptedAt: true } })
         if (!row || row.unclaimedRecoveryAttemptedAt) break
       }
-      return r
+      return aggregate
     }
     const mine = (o: Opened, rows: any[]) => rows.filter((x: any) => x.escrowId === o.escrowId)
 
