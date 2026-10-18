@@ -829,7 +829,7 @@ jobs:
           node <<'NODE'
           const fs=require('node:fs');
           const m=JSON.parse(fs.readFileSync('/tmp/sails-k6-arrival-summary.json','utf8')).metrics||{};
-          const required=['iterations','checks','sails_intent_success','http_req_duration','http_reqs','dropped_iterations','sails_intent_create_duration','sails_intent_cancel_duration','sails_completed_intent_pairs','sails_intent_create_samples','sails_intent_cancel_samples'];
+          const required=['iterations','checks','sails_intent_success','http_req_duration','http_reqs','dropped_iterations','sails_intent_create_duration','sails_intent_cancel_duration','sails_completed_intent_pairs','sails_authenticated_arrivals','sails_intent_create_samples','sails_intent_cancel_samples'];
           const missing=required.filter(k=>!m[k]);
           // k6 summary-export must retain a genuine count for each operation;
           // quantiles alone cannot prove that create/cancel were observed.
@@ -843,6 +843,7 @@ jobs:
           const requestCount=n('http_reqs');
           const arrivals=n('iterations');
           const completedIntentPairs=n('sails_completed_intent_pairs');
+          const authenticatedArrivals=n('sails_authenticated_arrivals');
           const createSamples=n('sails_intent_create_samples');
           const cancelSamples=n('sails_intent_cancel_samples');
           // Each arrival performs four PoP auth HTTP calls and two Intent calls.
@@ -857,7 +858,7 @@ jobs:
           const intentDurations=Object.fromEntries(intentDurationKeys.filter(k=>m[k]).map(k=>[k,Object.fromEntries(['med','p(95)','p(99)'].filter(q=>typeof m[k][q]==='number'&&Number.isFinite(m[k][q])).map(q=>[q,m[k][q]]))]));
           console.log('arrival probe sanitized inventory:',JSON.stringify({
             requiredPresent:required.filter(k=>!!m[k]),missing,
-            iterations:arrivals,completedIntentPairs,createSamples,cancelSamples,dropped:n('dropped_iterations'),httpRequests:requestCount,
+            iterations:arrivals,authenticatedArrivals,completedIntentPairs,createSamples,cancelSamples,dropped:n('dropped_iterations'),httpRequests:requestCount,
             expectedRequestsPerArrival,requestAccountingValid:requestCount===arrivals*expectedRequestsPerArrival,nominalArrivalAccountingValid:arrivals===nominalScheduledArrivals,
             requestedRatePerSecond,scheduledWindowSeconds,nominalScheduledArrivals,achievedRatePerSecond,
             durationMs:durations,intentDurationMs:intentDurations,intentOperationSampleCounts:operationCounts,
@@ -867,7 +868,7 @@ jobs:
           const validQuantileTriplet=values=>['med','p(95)','p(99)'].every(k=>Number.isFinite(values?.[k])&&values[k]>=0)&&values.med<=values['p(95)']&&values['p(95)']<=values['p(99)'];
           // Reject corrupt or reversed operation-scoped latency evidence rather
           // than accepting three merely-present numeric quantiles.
-          if(missing.length||arrivals!==nominalScheduledArrivals||completedIntentPairs!==arrivals||createSamples!==arrivals||cancelSamples!==arrivals||requestCount!==arrivals*expectedRequestsPerArrival||n('dropped_iterations')!==0||checks!==1||success!==1||!validQuantileTriplet(durations)||intentDurationKeys.some(k=>!validQuantileTriplet(intentDurations[k])||(operationCounts[k]!==null&&operationCounts[k]!==arrivals))){
+          if(missing.length||arrivals!==nominalScheduledArrivals||authenticatedArrivals!==arrivals||completedIntentPairs!==arrivals||createSamples!==arrivals||cancelSamples!==arrivals||requestCount!==arrivals*expectedRequestsPerArrival||n('dropped_iterations')!==0||checks!==1||success!==1||!validQuantileTriplet(durations)||intentDurationKeys.some(k=>!validQuantileTriplet(intentDurations[k])||(operationCounts[k]!==null&&operationCounts[k]!==arrivals))){
             throw Error('Bounded arrival probe missing or invalid aggregate evidence');
           }
           NODE
