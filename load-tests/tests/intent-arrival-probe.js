@@ -14,6 +14,7 @@ if (!/^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/?$/.test(BASE_URL)) {
   throw new Error('Intent arrival probe requires loopback HTTP target')
 }
 const completedIntentPairs = new Counter('sails_completed_intent_pairs')
+const successfulAuthArrivals = new Counter('sails_authenticated_arrivals')
 // Independent per-operation observation counters are incremented by the
 // shared Intent flow exactly when each latency Trend receives a sample.
 const intentCreateSamples = new Counter('sails_intent_create_samples')
@@ -35,6 +36,7 @@ export const options = {
     checks: ['rate==1'],
     sails_intent_success: ['rate==1'],
     sails_completed_intent_pairs: ['count==2'],
+    sails_authenticated_arrivals: ['count==2'],
     sails_intent_create_samples: ['count==2'],
     sails_intent_cancel_samples: ['count==2'],
     dropped_iterations: ['count==0'],
@@ -45,6 +47,7 @@ export default function () {
   // Match Artillery: authentication belongs to every arrival, not setup().
   const user = generateTestUser(BASE_URL, 'arrival-probe')
   if (!user?.sessionToken) throw new Error('Arrival probe authentication failed')
+  successfulAuthArrivals.add(1)
   run(user, {
     type: 'TradeIntent',
     payload: { asset: 'BTC', side: 'BUY', maxValue: '100', currency: 'USD' },
