@@ -777,7 +777,7 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
       expect(() => buyerCopy.finalizeAllInputs()).toThrow()
     })
 
-    it('end-to-end: the buyer signature combines with the arbiter pre-signature and broadcasts to a real txid', async () => {
+    it('AUD1X-H1: buyer-only disputed split cannot broadcast without gated arbiter authorization', async () => {
       const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
       const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
       const txid = 'aa'.repeat(32)
@@ -793,11 +793,11 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
       const buyerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
       buyerCopy.signInput(0, buyerKey)
 
-      // R6 — same deliberately-wrong-provider-response proof as above.
-      fetchMock.mockResolvedValueOnce({ ok: true, text: async () => 'bb'.repeat(32) })
-      const result = await multisigProvider.finalizeSplit({ tradeId: 't1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey }, psbtBase64, [buyerCopy.toBase64()])
-      expect(result.txId).not.toBe('bb'.repeat(32))
-      expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
+      expect(bitcoin.Psbt.fromBase64(psbtBase64, { network }).data.inputs[0].partialSig).toBeUndefined()
+      await expect(
+        multisigProvider.finalizeSplit({ tradeId: 't1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey }, psbtBase64, [buyerCopy.toBase64()])
+      ).rejects.toThrow('failed to combine/finalize')
+      expect(fetchMock).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'POST' }))
     })
 
     it('finalizeSplit fails to combine/finalize with only the arbiter pre-signature and no client signature at all', async () => {
