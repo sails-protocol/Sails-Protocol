@@ -334,7 +334,7 @@ describe('AUD1X-H1 MULTISIG bearer-capability correction - real PostgreSQL', () 
     return async () => { release(); await done }
   }
 
-  const REFUSED_H1 = /AUD-1 \(H1\)/
+  const REFUSED_H1 = /AUD1X-H1: dispute .* has no resolved ruling/
   const REFUSED = /AUD-1|does not correspond to the authoritative Outcome/
 
   // ════════════════════════════════════════════════════════════════════════════════════════════════
