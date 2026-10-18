@@ -14,14 +14,28 @@ suite('relay shared budget — real Redis concurrent instances', () => {
   let a: Redis
   let b: Redis
 
-
-
   beforeAll(() => {
     a = new Redis(url!, { maxRetriesPerRequest: 1 })
     b = new Redis(url!, { maxRetriesPerRequest: 1 })
   })
   afterAll(async () => {
     await Promise.all([a?.quit(), b?.quit()])
+  })
+
+  it('enforces message-count limits independently of byte limits', async () => {
+    const key = 'test:relay:messages:' + randomUUID()
+    try {
+      const results = await Promise.all(
+        Array.from({ length: 40 }, (_, i) =>
+          (i % 2 ? a : b).eval(RELAY_BUDGET_SCRIPT, 1, key, 1, 7, 1000, 5000),
+        ),
+      )
+      expect(results.filter(x => x === 1)).toHaveLength(7)
+      expect(results.filter(x => x === 0)).toHaveLength(33)
+      expect(await a.hgetall(key)).toMatchObject({ messages: '7', bytes: '7' })
+    } finally {
+      await a.del(key)
+    }
   })
 
   it('never over-admits across concurrent clients, expires, then resets', async () => {
