@@ -41,6 +41,16 @@ class Socket extends EventEmitter {
   assert.equal(typeof socketInterface.on,'function');
   assert.throws(()=>assertPongFromSocket(socketInterface,{timeoutMs:100}),/Unsupported WebSocket assertion interface/);
   assert.equal(socketInterface.send instanceof Function,true);
+  // Listener cleanup must be complete after every failure path, not only success.
+  for (const reply of [{type:'ERROR'},{type:'NOT_PONG',payload:{}},null]) {
+    const socket=new Socket(reply);
+    await assert.rejects(assertPongFromSocket(socket,{timeoutMs:20}));
+    for (const event of ['message','close','error']) assert.equal(socket.listenerCount(event),0,'Leaked '+event+' listener');
+  }
+  const failedSend=new Socket(null);
+  failedSend.send=()=>{throw Error('sensitive transport detail')};
+  await assert.rejects(assertPongFromSocket(failedSend,{timeoutMs:100}),/WS send failed/);
+  for (const event of ['message','close','error']) assert.equal(failedSend.listenerCount(event),0,'Leaked '+event+' listener on send failure');
   const timed=new Socket(null);
   await assert.rejects(assertPongFromSocket(timed,{timeoutMs:20}),/PONG timeout/);
   assert.equal(timed.listenerCount('message'),0);
