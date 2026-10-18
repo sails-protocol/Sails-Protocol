@@ -191,3 +191,10 @@ Inspection of `.github/workflows/native-load-harness-candidate.yml` confirms the
 - Native run `39138204206`: **2** k6 iterations, **2** completed authenticated Intent create/cancel pairs, **12** HTTP requests, **0** dropped iterations, all required metrics present, checks and intent success valid.
 - `sails_intent_create_duration` and `sails_intent_cancel_duration` expose valid quantiles in both runs but **do not expose a sample `count` in this k6 summary-export format** (`null` in sanitized inventory). The new completed-pairs Counter is a separate success-after-both-operations signal, **not** a direct measurement of the latency Trend sample counts. Do not claim the absent Trend counts were recovered.
 - **Disposition:** bounded HTTP success accounting evidenced; no equal-rate arrival profile, WS Artillery-engine PONG assertion or independent sign-off. Migration gate remains RED; PR DRAFT, no merge/deploy/Artillery removal.
+
+## Exact-HEAD k6 per-operation latency sample accounting — 2026-10-18
+
+- Exact HEAD `a88fe552d485812d4c8e0d57750844832f5dfa4e`: CI Tests `39140932969` SUCCESS; real-service smoke `39140929117` SUCCESS; Native load harness `39140932976` and `39140929159` SUCCESS.
+- Both native runs recorded `iterations=2`, `sails_completed_intent_pairs=2`, `sails_intent_create_samples=2`, `sails_intent_cancel_samples=2`, `httpRequests=12`, `dropped=0`, `checksValid=true`, `intentSuccessValid=true` and nonnegative ordered latency quantiles.
+- The new counters fire immediately after `recordFlow` writes the create/cancel latency Trend samples; they prove two instrumented write paths for each operation in these runs. k6 summary-export's optional Trend `count` remains `null`; do not misstate these counters as native Trend counts.
+- The k6 profile remains deterministic `shared-iterations`, **not** constant-arrival-rate. The Artillery HTTP comparator has a different request-accounting scope. No direct throughput/latency efficiency parity claim. Artillery WS PONG still not asserted by its engine; independent security/architecture review still open. **Migration gate RED; PR DRAFT.**
