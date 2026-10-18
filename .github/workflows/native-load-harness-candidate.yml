@@ -812,10 +812,11 @@ jobs:
           // Each arrival performs four PoP auth HTTP calls and two Intent calls.
           // Reject missing/extra requests rather than silently treating auth as unmeasured.
           const expectedRequestsPerArrival=6;
-          const requestedRatePerSecond=1;
-          const scheduledWindowSeconds=2;
-          const achievedRatePerSecond=arrivals/scheduledWindowSeconds;
-          const nominalScheduledArrivals=requestedRatePerSecond*scheduledWindowSeconds;
+          // Deterministic two-iteration accounting probe; no arrival-rate claim.
+          const nominalScheduledArrivals=2;
+          const requestedRatePerSecond=null;
+          const scheduledWindowSeconds=null;
+          const achievedRatePerSecond=null;
           const intentDurationKeys=['sails_intent_create_duration','sails_intent_cancel_duration'];
           const intentDurations=Object.fromEntries(intentDurationKeys.filter(k=>m[k]).map(k=>[k,Object.fromEntries(['med','p(95)','p(99)'].filter(q=>typeof m[k][q]==='number'&&Number.isFinite(m[k][q])).map(q=>[q,m[k][q]]))]));
           console.log('arrival probe sanitized inventory:',JSON.stringify({
