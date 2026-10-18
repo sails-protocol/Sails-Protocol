@@ -27,7 +27,7 @@ import { relayRoutes } from '../src/infrastructure/p2p/relay.routes'
 const flush = () => new Promise<void>(resolve => setImmediate(resolve))
 
 describe('relay authenticated WS ingress queue', () => {
-  let route: (socket: FakeSocket, request: { query: { ticket: string } }) => Promise<void>
+  let route!: (socket: FakeSocket, request: { query: { ticket: string } }) => Promise<void>
   class FakeSocket extends EventEmitter {
     readyState = 1
     send = jest.fn()
@@ -49,6 +49,7 @@ describe('relay authenticated WS ingress queue', () => {
     await route(socket, { query: { ticket: 'valid' } })
     socket.emit('message', Buffer.from('first'))
     socket.emit('message', Buffer.from('second'))
+    await flush()
     expect(budget).toHaveBeenCalledTimes(1)
     release(true)
     await flush()
@@ -75,6 +76,7 @@ describe('relay authenticated WS ingress queue', () => {
     const socket = new FakeSocket()
     await route(socket, { query: { ticket: 'valid' } })
     socket.emit('message', Buffer.from('stale'))
+    await flush()
     owns.mockReturnValue(false)
     release(true)
     await flush()
