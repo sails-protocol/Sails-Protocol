@@ -6,6 +6,7 @@
 import Redis from 'ioredis'
 import { randomUUID } from 'crypto'
 import { RELAY_BUDGET_SCRIPT } from '../src/infrastructure/p2p/relay-shared-budget'
+import { ATOMIC_CONSUME_SCRIPT } from '../src/common/redis/atomic-consume'
 
 const url = process.env.RELAY_REDIS_INTEGRATION_URL
 const suite = url ? describe : describe.skip
@@ -24,15 +25,10 @@ suite('relay shared budget — real Redis concurrent instances', () => {
 
   it('atomically burns a single-use WebSocket ticket across concurrent Redis clients', async () => {
     const key = 'auth:ws-ticket:test-' + randomUUID()
-    const consume = `
-local value = redis.call('GET', KEYS[1])
-if value then redis.call('DEL', KEYS[1]) end
-return value
-`
     try {
       await a.set(key, 'participant', 'PX', 5000)
       const results = await Promise.all(
-        Array.from({ length: 20 }, (_, i) => (i % 2 ? a : b).eval(consume, 1, key)),
+        Array.from({ length: 20 }, (_, i) => (i % 2 ? a : b).eval(ATOMIC_CONSUME_SCRIPT, 1, key)),
       )
       expect(results.filter(value => value === 'participant')).toHaveLength(1)
       expect(results.filter(value => value === null)).toHaveLength(19)
