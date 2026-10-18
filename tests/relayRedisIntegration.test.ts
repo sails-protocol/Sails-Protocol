@@ -253,6 +253,22 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('does not resurrect an expired single-use ticket after a Redis client reconnects', async () => {
+    const ticket = 'expired-' + randomUUID()
+    const key = 'auth:ws-ticket:' + ticket
+    const transient = new Redis(url!, { maxRetriesPerRequest: 1 })
+    try {
+      await transient.set(key, 'participant', 'PX', 150)
+      await new Promise(resolve => setTimeout(resolve, 250))
+      transient.disconnect()
+      expect(await b.eval(ATOMIC_CONSUME_SCRIPT, 1, key)).toBeNull()
+      expect(await a.exists(key)).toBe(0)
+    } finally {
+      transient.disconnect()
+      await a.del(key)
+    }
+  })
+
   it('retains exhausted budget across independent client reconnections', async () => {
     const key = 'test:relay:reconnect:' + randomUUID()
     try {
