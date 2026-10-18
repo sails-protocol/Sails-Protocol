@@ -91,6 +91,19 @@ describe('relay authenticated WS ingress queue', () => {
     expect(budget).toHaveBeenCalledTimes(1)
   })
 
+  it('fails closed on Redis budget errors without dispatching frames', async () => {
+    budget.mockRejectedValueOnce(new Error('redis unavailable'))
+    const socket = new FakeSocket()
+    await route(socket, { query: { ticket: 'valid' } })
+    socket.emit('message', Buffer.from('first'))
+    socket.emit('message', Buffer.from('second'))
+    await flush()
+    await flush()
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(socket.close).toHaveBeenCalledWith(1011, 'Relay unavailable')
+    expect(budget).toHaveBeenCalledTimes(1)
+  })
+
   it('does not dispatch after participant socket replacement', async () => {
     let release!: (value: boolean) => void
     budget.mockImplementationOnce(() => new Promise<boolean>(resolve => { release = resolve }))
