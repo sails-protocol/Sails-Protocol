@@ -500,7 +500,7 @@ describe('#235 R7G-B2A — MULTISIG script authority (real PostgreSQL, real cryp
     expect(await sigRows(pf.id)).toBe(1)
   })
 
-  it('S3/O: disputed release/SPLIT — the arbiter pre-signature over the frozen script validates; a buyer signature completes a VALID spend; a tampered arbiter signature blocks finalization before broadcast', async () => {
+  it('S3/O: disputed release/SPLIT — no arbiter pre-signature; execution identity supplies the second signature, and a tampered buyer signature blocks broadcast', async () => {
     pg.requirePostgres('S3')
     const f = await locked('s3')
     const row = await escrowRow(f.e.id)
@@ -509,19 +509,20 @@ describe('#235 R7G-B2A — MULTISIG script authority (real PostgreSQL, real cryp
     for (const build of [() => multisigProvider.buildUnsignedRelease(input, payout('buyer')), () => multisigProvider.buildUnsignedSplit(input, payout('buyer'), payout('seller'), 4000)]) {
       const { psbtBase64, requiredSigners } = await build()
       expect(requiredSigners).toEqual([f.buyer.id])
+      const unsigned = bitcoin.Psbt.fromBase64(psbtBase64, { network: NET })
+      expect(unsigned.data.inputs[0].partialSig ?? []).toHaveLength(0) // AUD1X-H1: no platform pre-signature
       const buyerSigned = signCopy(psbtBase64, f.keys.buyer)
-      expect(() => multisigProvider.validatePartialSignature(input, psbtBase64, buyerSigned, hex(f.keys.buyer))).not.toThrow() // S3: arbiter sig already in the round is accepted as-is
+      expect(() => multisigProvider.validatePartialSignature(input, psbtBase64, buyerSigned, hex(f.keys.buyer))).not.toThrow()
+      const executionInput = { ...input, arbiterExecutionIdentity: 'r7gb2a-arbiter' }
       const before = broadcasts.length
-      const done = await multisigProvider.finalizeRelease(input, psbtBase64, [buyerSigned])
+      const done = await multisigProvider.finalizeRelease(executionInput, psbtBase64, [buyerSigned])
       expect(validateSpend(done.rawTxHex, f.addr).valid).toBe(true)
       expect(broadcasts.length).toBe(before + 1)
-      // A tampered pre-signature (arbiter key, wrong message) is caught at finalization, before broadcast.
-      const tampered = bitcoin.Psbt.fromBase64(psbtBase64, { network: NET })
-      const arb = tampered.data.inputs[0].partialSig![0]
-      const bad = bitcoin.Psbt.fromBase64(tampered.toBase64(), { network: NET })
-      bad.data.inputs[0].partialSig = [{ pubkey: arb.pubkey, signature: der(keyOf('not-the-arbiter'), roundSighash(psbtBase64)) }]
+      // A forged buyer signature cannot be finalized even when the correct committed arbiter signs at execution.
+      const bad = bitcoin.Psbt.fromBase64(psbtBase64, { network: NET })
+      bad.updateInput(0, { partialSig: [{ pubkey: Buffer.from(f.keys.buyer.publicKey), signature: der(keyOf('not-the-buyer'), roundSighash(psbtBase64)) }] })
       const n = broadcasts.length
-      await expect(multisigProvider.finalizeRelease(input, bad.toBase64(), [signCopy(bad.toBase64(), f.keys.buyer)])).rejects.toThrow(/does not verify/)
+      await expect(multisigProvider.finalizeRelease(executionInput, psbtBase64, [bad.toBase64()])).rejects.toThrow(/does not verify/)
       expect(broadcasts.length).toBe(n)
     }
   })
