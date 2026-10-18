@@ -411,7 +411,7 @@ jobs:
           assert.ok(createKeys.length>0,'Artillery create endpoint histogram missing');
           assert.ok(cancelKeys.length>0,'Artillery cancel endpoint histogram missing');
           for(const [operation,keys] of [['create',createKeys],['cancel',cancelKeys]]){
-            assert.ok(keys.some(k=>['median','p95','p99'].every(q=>Number.isFinite(latency[k]?.[q]))),
+            assert.ok(keys.some(k=>{const v=latency[k];return ['median','p95','p99'].every(q=>Number.isFinite(v?.[q])&&v[q]>=0)&&v.median<=v.p95&&v.p95<=v.p99;}),
               'Artillery '+operation+' endpoint median/p95/p99 missing');
           }
           NODE
