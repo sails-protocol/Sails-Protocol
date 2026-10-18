@@ -408,8 +408,7 @@ describe('AUD1X-H1 MULTISIG bearer-capability correction - real PostgreSQL', () 
 
     const outcome = await construct
     expect(outcome).toBeInstanceOf(Error)
-    expect((outcome as Error).message).toMatch(REFUSED_H1)
-    expect((outcome as Error).message).toMatch(/not what this release round was built for/)
+    expect((outcome as Error).message).toMatch(/AUD-1 \(H1\): the ruling authority of dispute .* is not what this release round was built for/)
     expect(await effects(o)).toMatchObject({ status: 'DISPUTED', rounds: 0, signatures: 0, authorizations: 0, broadcasts: 0 })
   })
 
