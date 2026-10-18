@@ -627,7 +627,9 @@ describe('AUD1X-H1 MULTISIG bearer-capability correction - real PostgreSQL', () 
     const mine = (o: Opened, rows: any[]) => rows.filter((x: any) => x.escrowId === o.escrowId)
 
     const r1 = await runUntilAttempted(liveRound.id)
-    expect({ resumed: mine(live, r1.resumedUnclaimed), failed: mine(live, r1.failed), manual: mine(live, r1.requiresManualReview), concurrent: mine(live, r1.alreadyClaimedConcurrently), recovered: mine(live, r1.recovered), effects: await effects(live) }).toMatchObject({ resumed: [expect.objectContaining({ escrowId: live.escrowId })] })
+    const liveRecovery = { resumed: mine(live, r1.resumedUnclaimed), failed: mine(live, r1.failed), manual: mine(live, r1.requiresManualReview), concurrent: mine(live, r1.alreadyClaimedConcurrently), recovered: mine(live, r1.recovered), effects: await effects(live), pending: await prisma.escrowPendingTransaction.findUnique({ where: { id: liveRound.id }, select: { unclaimedRecoveryAttemptedAt: true, id: true } }) }
+    if (liveRecovery.resumed.length !== 1) throw new Error(`B8 C8 recovery evidence: ${JSON.stringify(liveRecovery)}`)
+    expect(liveRecovery.resumed).toEqual([expect.objectContaining({ escrowId: live.escrowId })])
     expect(await effects(live)).toMatchObject({ status: 'COMPLETED', broadcasts: 1, authorizations: 1 })
     await verifyBroadcastWitness(live, pubHex(buyerKey))
 
