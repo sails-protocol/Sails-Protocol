@@ -831,6 +831,10 @@ jobs:
           const m=JSON.parse(fs.readFileSync('/tmp/sails-k6-arrival-summary.json','utf8')).metrics||{};
           const required=['iterations','checks','sails_intent_success','http_req_duration','http_reqs','dropped_iterations','sails_intent_create_duration','sails_intent_cancel_duration'];
           const missing=required.filter(k=>!m[k]);
+          // k6 summary-export must retain a genuine count for each operation;
+          // quantiles alone cannot prove that create/cancel were observed.
+          const operationSamples=['sails_intent_create_duration','sails_intent_cancel_duration'];
+          const operationCounts=Object.fromEntries(operationSamples.map(k=>[k,m[k]?.count??null]));
           const n=k=>typeof m[k]?.count==='number'?m[k].count:undefined;
           const checks=m.checks?.value;
           const success=m.sails_intent_success?.value;
@@ -853,14 +857,14 @@ jobs:
             iterations:arrivals,dropped:n('dropped_iterations'),httpRequests:requestCount,
             expectedRequestsPerArrival,requestAccountingValid:requestCount===arrivals*expectedRequestsPerArrival,nominalArrivalAccountingValid:arrivals===nominalScheduledArrivals,
             requestedRatePerSecond,scheduledWindowSeconds,nominalScheduledArrivals,achievedRatePerSecond,
-            durationMs:durations,intentDurationMs:intentDurations,
+            durationMs:durations,intentDurationMs:intentDurations,intentOperationSampleCounts:operationCounts,
             checksValid:checks===1,intentSuccessValid:success===1,
             durationQuantilesPresent:quantiles
           }));
           const validQuantileTriplet=values=>['med','p(95)','p(99)'].every(k=>Number.isFinite(values?.[k])&&values[k]>=0)&&values.med<=values['p(95)']&&values['p(95)']<=values['p(99)'];
           // Reject corrupt or reversed operation-scoped latency evidence rather
           // than accepting three merely-present numeric quantiles.
-          if(missing.length||arrivals!==nominalScheduledArrivals||requestCount!==arrivals*expectedRequestsPerArrival||n('dropped_iterations')!==0||checks!==1||success!==1||!validQuantileTriplet(durations)||intentDurationKeys.some(k=>!validQuantileTriplet(intentDurations[k]))){
+          if(missing.length||arrivals!==nominalScheduledArrivals||requestCount!==arrivals*expectedRequestsPerArrival||n('dropped_iterations')!==0||checks!==1||success!==1||!validQuantileTriplet(durations)||intentDurationKeys.some(k=>!validQuantileTriplet(intentDurations[k])||(operationCounts[k]!==null&&operationCounts[k]!==arrivals))){
             throw Error('Bounded arrival probe missing or invalid aggregate evidence');
           }
           NODE
