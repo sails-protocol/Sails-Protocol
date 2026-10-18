@@ -38,6 +38,7 @@ import type { FastifyInstance } from 'fastify'
 import { resolveParticipantFromTicket } from '../../common/middleware/ws-auth'
 import { webSocketRelayTransportProvider } from './websocket-relay.service'
 import { consumeSharedRelayBudget } from './relay-shared-budget'
+import { RELAY_FRAME_MAX_BYTES } from './relay-ingress-budget'
 
 export async function relayRoutes(app: FastifyInstance): Promise<void> {
   app.get('/ws/relay', { websocket: true }, async (socket, request) => {
@@ -79,6 +80,11 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
     const MAX_PENDING_FRAMES = 60
     socket.on('message', (raw: Buffer) => {
       if (stopped || !webSocketRelayTransportProvider.ownsSocket(participantId, socket)) return
+      if (raw.byteLength > RELAY_FRAME_MAX_BYTES) {
+        stopped = true
+        socket.close(1009, 'Relay frame exceeds maximum size')
+        return
+      }
       // Capture raw data synchronously: the callback must not retain mutable
       // WebSocket-owned buffers across the Redis await.
       if (queuedFrames >= MAX_PENDING_FRAMES || raw.byteLength > MAX_PENDING_BYTES - queuedBytes) {
