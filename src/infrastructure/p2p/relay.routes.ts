@@ -56,18 +56,21 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
     let pending = Promise.resolve()
     let stopped = false
     let queuedBytes = 0
+    let queuedFrames = 0
     const MAX_PENDING_BYTES = 256 * 1024
+    const MAX_PENDING_FRAMES = 60
     socket.on('message', (raw: Buffer) => {
       if (stopped) return
       // Capture raw data synchronously: the callback must not retain mutable
       // WebSocket-owned buffers across the Redis await.
-      if (raw.byteLength > MAX_PENDING_BYTES - queuedBytes) {
+      if (queuedFrames >= MAX_PENDING_FRAMES || raw.byteLength > MAX_PENDING_BYTES - queuedBytes) {
         stopped = true
         socket.close(1008, 'Relay pending byte budget exceeded')
         return
       }
       const frame = Buffer.from(raw)
       queuedBytes += frame.byteLength
+      queuedFrames++
       pending = pending.then(async () => {
         if (stopped) return
         // Blind forward: enforce raw byte budgets without parsing payload.
@@ -85,6 +88,7 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
         socket.close(1011, 'Relay unavailable')
       }).finally(() => {
         queuedBytes -= frame.byteLength
+        queuedFrames--
       })
     })
 
