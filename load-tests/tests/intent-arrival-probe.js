@@ -2,7 +2,7 @@
  * Opt-in loopback-only authenticated Intent arrival probe.
  * Mirrors Artillery comparator's fixture accounting: each arrival provisions
  * a fresh PoP-registered, challenge-authenticated identity before create/cancel.
- * Tiny rate by design. No production targets, auth bypass, or limit changes.
+ * Tiny fixed-iteration accounting profile by design. No production targets, auth bypass, or limit changes.
  * NOT throughput parity without identical runs, measurement and assertions.
  */
 import { BASE_URL, baseOptions } from '../k6.config.js'
@@ -21,9 +21,7 @@ export const options = {
       executor: 'shared-iterations',
       vus: 1,
       iterations: 2,
-      preAllocatedVUs: 2,
-      maxVUs: 2,
-      gracefulStop: '10s',
+      maxDuration: '30s',
     },
   },
   thresholds: {
