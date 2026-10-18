@@ -148,6 +148,39 @@ describe('relay authenticated WS ingress queue', () => {
 })
 
 describe('relay real TCP WebSocket transport', () => {
+  it('rejects an invalid ticket over a real TCP WebSocket connection', async () => {
+    const Fastify = (await import('fastify')).default
+    const websocket = (await import('@fastify/websocket')).default
+    const WebSocket = (await import('ws')).default
+    const app = Fastify({ logger: false })
+    let client: InstanceType<typeof WebSocket> | undefined
+    try {
+      jest.clearAllMocks()
+      resolveTicket.mockResolvedValue(null)
+      await app.register(websocket)
+      await app.register(relayRoutes)
+      await app.listen({ host: '127.0.0.1', port: 0 })
+      const address = app.server.address()
+      if (!address || typeof address === 'string') throw new Error('Expected TCP server address')
+      client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/relay?ticket=invalid`)
+      const received: string[] = []
+      client.on('message', data => received.push(data.toString()))
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Invalid-ticket socket did not close')), 3000)
+        client!.once('close', () => { clearTimeout(timeout); resolve() })
+        client!.once('error', err => { clearTimeout(timeout); reject(err) })
+      })
+      expect(resolveTicket).toHaveBeenCalledWith('invalid')
+      expect(received.some(message => message.includes('already-used ticket'))).toBe(true)
+      expect(register).not.toHaveBeenCalled()
+      expect(dispatch).not.toHaveBeenCalled()
+      expect(budget).not.toHaveBeenCalled()
+    } finally {
+      client?.terminate()
+      await app.close()
+    }
+  })
+
   it('dispatches a frame over a live Fastify WebSocket connection', async () => {
     const Fastify = (await import('fastify')).default
     const websocket = (await import('@fastify/websocket')).default
