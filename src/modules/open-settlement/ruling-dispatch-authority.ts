@@ -263,7 +263,10 @@ export async function decideRulingRevert(
     }
   }
   const escrow = await tx.escrow.findUnique({ where: { id: ids.escrowId }, select: { status: true, txReleaseId: true } })
-  if (escrow && ['COMPLETED', 'REFUNDED', 'SPLIT'].includes(escrow.status)) {
+  if (escrow) {
+    // A committed EDA must also block revert while the escrow is nonterminal:
+    // its pending row may have vanished after authorization but before broadcast.
+    // Only terminal execution with a matching durable witness may be ADOPTed.
     // AUD1X-R3 (AR2-01) - an authorization of the same appeal round is not this ruling's by its generation number: a
     // ruling committed after an earlier one was executed (legacy revert) shares it. Each one is judged on the identity
     // the gate recorded; only an authorization proven to be THIS ruling's, on an escrow that ended as this ruling
@@ -301,7 +304,7 @@ export async function decideRulingRevert(
         return {
           action: 'PRESERVE',
           error: new EscrowError(
-            `Escrow ${ids.escrowId} was executed under a committed authorization that is not proven to be this ruling's executed dispatch ` +
+            `Escrow ${ids.escrowId} has a committed authorization that is not proven to be this ruling's executed dispatch ` +
             `(${why.join('; ')}); the ruling and its Outcome are preserved for reconciliation and are not reported as settled.`
           ),
         }
