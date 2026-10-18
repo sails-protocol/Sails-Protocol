@@ -238,6 +238,21 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     ).rejects.toThrow()
   })
 
+  it('keeps the distributed byte budget intact after a client disconnects', async () => {
+    const key = 'test:relay:client-disconnect:' + randomUUID()
+    const transient = new Redis(url!, { maxRetriesPerRequest: 1 })
+    try {
+      expect(await transient.eval(RELAY_BUDGET_SCRIPT, 1, key, 80, 10, 100, 5000)).toBe(1)
+      transient.disconnect()
+      expect(await b.eval(RELAY_BUDGET_SCRIPT, 1, key, 21, 10, 100, 5000)).toBe(0)
+      expect(await b.eval(RELAY_BUDGET_SCRIPT, 1, key, 20, 10, 100, 5000)).toBe(1)
+      expect(await a.hgetall(key)).toMatchObject({ messages: '2', bytes: '100' })
+    } finally {
+      transient.disconnect()
+      await a.del(key)
+    }
+  })
+
   it('retains exhausted budget across independent client reconnections', async () => {
     const key = 'test:relay:reconnect:' + randomUUID()
     try {
