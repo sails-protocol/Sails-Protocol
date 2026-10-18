@@ -92,6 +92,17 @@ decision: "STOP | REVIEW | ADOPT | DEFER | REJECT"
 8. **Gate:** revisão independente, classificação de achados e aprovação humana/CTO; verde de CI não equivale a produção.
 9. **Handoff:** atualizar Issue com o cartão, código, decisões, comandos, SHA, evidências e riscos; sincronizar índice sem reescrever história.
 
+## 5A. Quatro garantias de handoff (preenchimento obrigatório por feature)
+
+Estas garantias são **campos de verificação**, não uma declaração de que todos os recursos já foram auditados.
+
+1. **Inventário aprovado de ferramentas.** Para cada feature, registrar pacote/serviço, finalidade, módulo consumidor, versão declarada no `package.json`, versão resolvida no `package-lock.json`, alternativa já existente e referência da decisão. Baseline confirmado no `main`: Node >=20, TypeScript, npm workspaces, Fastify 5 (`fastify`), Prisma 7/PostgreSQL, `@fastify/rate-limit`, `@fastify/websocket`, Jest, Playwright e scripts Artillery ainda presentes no manifesto. **Presença no manifesto não autoriza uso em todos os recursos nem comprova deploy, integração ou aprovação de uma ferramenta.** Conferir versões resolvidas, serviços e alterações de migração de carga (Artillery/k6) no HEAD/Issue correspondente antes de fixar o inventário.
+2. **Requisitos funcionais e não funcionais.** Especificar fluxo feliz, negações, estados de erro, autoridade econômica, privacidade/retenção, limites por identidade/rota/mensagem, concorrência, idempotência, observabilidade e recuperação. Não inventar metas de latência, throughput, MAU ou SLO: obter orçamento/owner/ambiente, ensaio e evidência de aceitação. Referenciar Day0 #253, #267, #306, #307, #343 e #461 quando aplicáveis.
+3. **Mapa de dependências.** Por recurso, registrar pré-requisitos bloqueantes, ordem dos incrementos, contratos externos, migrations, owners e condição explícita de desbloqueio. Diferenciar **dependência de execução** de mera relação documental. Escrow/disputas ficam protegidos por #453 e PRs #436/#443; fila pós-Master não absorve pendências Day0.
+4. **Definition of Done verificável.** Requisito e autoridade rastreados até código/PR; compilação e testes apropriados; integração real/concorrência/restart quando necessária; casos negativos/adversariais; documentação e migração/rollback; evidência em SHA exato; riscos residuais; aprovação de owner/CTO e gates independentes. **CI verde é condição técnica, não aprovação de produção.** Marcar `VERIFIED` apenas com evidência vinculada, nunca por preencher template.
+
+**Campos adicionais para cada cartão:** `nonfunctional_requirements` (segurança, limites, desempenho, privacidade, observabilidade e recuperação); `dependency_graph` (bloqueios, owners e critérios de desbloqueio); `tooling_inventory` (pacote/serviço, uso, versão declarada/resolvida, evidência); `definition_of_done` (critérios, evidência e aprovação). Se um campo não tiver fonte, escrever `UNKNOWN / BLOCKED`, nunca preencher por inferência.
+
 ## 6. STOP e limites deste registro
 
 - **Nenhum percentual global de completude** foi inferido desta matriz. Linhas não preenchidas são lacunas de documentação/validação, não prova de ausência de código.
