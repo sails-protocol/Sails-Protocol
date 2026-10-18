@@ -271,6 +271,21 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     return { escrow, buyer, seller, trade, txid }
   }
 
+  // AUD1X-H1: the legacy fixture above has an assigned arbiter but no
+  // authoritative signed ruling. That is deliberately insufficient to
+  // authorize any disputed settlement, regardless of committed script key.
+  it('AUD1X-H1: assigned arbiter and committed key without a ruling cannot release funds', async () => {
+    requirePostgres('no authoritative ruling')
+    const { escrow } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
+    await expect(
+      escrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)
+    ).rejects.toThrow(/ruling|outcome|authoritative|committed|decision/i)
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: escrow.id } })).toBeNull()
+    const after = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+    expect(after.status).toBe('DISPUTED')
+    expect(after.txReleaseId).toBeNull()
+  })
+
   it('1. correct arbiter context (triggeredBy matches both the assigned dispute AND the persisted commitment) -> accepted', async () => {
     requirePostgres('correct context accepted')
     const { escrow, buyer, txid } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
