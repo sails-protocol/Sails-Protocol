@@ -51,6 +51,18 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('retains exhausted budget across independent client reconnections', async () => {
+    const key = 'test:relay:reconnect:' + randomUUID()
+    try {
+      expect(await a.eval(RELAY_BUDGET_SCRIPT, 1, key, 10, 2, 100, 5000)).toBe(1)
+      expect(await b.eval(RELAY_BUDGET_SCRIPT, 1, key, 10, 2, 100, 5000)).toBe(1)
+      expect(await a.eval(RELAY_BUDGET_SCRIPT, 1, key, 10, 2, 100, 5000)).toBe(0)
+      expect(await a.hgetall(key)).toMatchObject({ messages: '2', bytes: '20' })
+    } finally {
+      await a.del(key)
+    }
+  })
+
   it('never over-admits across concurrent clients, expires, then resets', async () => {
     const key = 'test:relay:atomic:' + randomUUID()
     const evalBudget = (client: Redis, bytes: number) =>
