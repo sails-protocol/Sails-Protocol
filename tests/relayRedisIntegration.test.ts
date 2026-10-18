@@ -100,6 +100,72 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('rejects a replay after a successful TCP connection has disconnected', async () => {
+    const Fastify = (await import('fastify')).default
+    const websocket = (await import('@fastify/websocket')).default
+    const WebSocket = (await import('ws')).default
+    const { redis } = await import('../src/common/redis')
+    const { relayRoutes } = await import('../src/infrastructure/p2p/relay.routes')
+    const { webSocketRelayTransportProvider } = await import('../src/infrastructure/p2p/websocket-relay.service')
+    const ticket = 'reconnect-' + randomUUID()
+    const key = 'auth:ws-ticket:' + ticket
+    const participant = 'participant-' + randomUUID()
+    const app = Fastify({ logger: false })
+    const clients: InstanceType<typeof WebSocket>[] = []
+    const evalSpy = jest.spyOn(redis, 'eval').mockImplementation(
+      ((...args: unknown[]) => (a.eval as (...params: unknown[]) => Promise<unknown>)(...args)) as typeof redis.eval,
+    )
+    const registerSpy = jest.spyOn(webSocketRelayTransportProvider, 'registerSocket')
+    try {
+      await a.set(key, participant, 'PX', 5000)
+      await app.register(websocket)
+      await app.register(relayRoutes)
+      await app.listen({ host: '127.0.0.1', port: 0 })
+      const address = app.server.address()
+      if (!address || typeof address === 'string') throw new Error('Expected TCP server address')
+      const endpoint = `ws://127.0.0.1:${address.port}/ws/relay?ticket=${ticket}`
+      const first = new WebSocket(endpoint)
+      clients.push(first)
+      await new Promise<void>((resolve, reject) => {
+        first.once('open', resolve)
+        first.once('error', reject)
+      })
+      await new Promise<void>((resolve, reject) => {
+        const deadline = Date.now() + 3000
+        const poll = () => {
+          if (registerSpy.mock.calls.length === 1) return resolve()
+          if (Date.now() >= deadline) return reject(new Error('Initial connection was not registered'))
+          setTimeout(poll, 10)
+        }
+        poll()
+      })
+      const firstClosed = new Promise<void>((resolve, reject) => {
+        first.once('close', () => resolve())
+        first.once('error', reject)
+      })
+      first.close()
+      await firstClosed
+      const replay = new WebSocket(endpoint)
+      clients.push(replay)
+      const messages: string[] = []
+      replay.on('message', data => messages.push(data.toString()))
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Replayed ticket did not close')), 3000)
+        replay.once('close', () => { clearTimeout(timeout); resolve() })
+        replay.once('error', err => { clearTimeout(timeout); reject(err) })
+      })
+      expect(registerSpy).toHaveBeenCalledTimes(1)
+      expect(messages.some(message => message.includes('already-used ticket'))).toBe(true)
+      expect(await a.exists(key)).toBe(0)
+    } finally {
+      clients.forEach(client => client.terminate())
+      registerSpy.mockRestore()
+      evalSpy.mockRestore()
+      await app.close()
+      await a.del(key)
+    }
+  })
+
   it('calls the production ticket resolver with a real Redis client and rejects replay', async () => {
     const ticket = 'integration-' + randomUUID()
     const key = 'auth:ws-ticket:' + ticket
