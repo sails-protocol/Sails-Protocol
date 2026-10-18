@@ -137,6 +137,16 @@ describe('relay authenticated WS ingress queue', () => {
     expect(dispatch).not.toHaveBeenCalled()
   })
 
+  it('rejects an oversized frame before allocating queue buffers or querying Redis', async () => {
+    const socket = new FakeSocket()
+    await route(socket, { query: { ticket: 'valid' } })
+    socket.emit('message', Buffer.alloc(65537))
+    await flush()
+    expect(socket.close).toHaveBeenCalledWith(1009, 'Relay frame exceeds maximum size')
+    expect(budget).not.toHaveBeenCalled()
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
   it('rejects unbounded queued bytes without waiting for Redis', async () => {
     budget.mockImplementation(() => new Promise(() => undefined))
     const socket = new FakeSocket()
