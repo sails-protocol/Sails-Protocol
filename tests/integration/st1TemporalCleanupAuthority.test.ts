@@ -1518,7 +1518,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     }
     const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
     expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
-    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    const retainedDispute = await disputeOf(o)
+    expect(retainedDispute.status).toBe('RESOLVED')
+    expect(retainedDispute.appealRound).toBe(payload.appealRound)
+    expect(retainedDispute.authoritySignature).toBe(signature)
     expect(await outcomeRecords(o)).toBe(1)
     await age(pending.id)
     const [report] = await reconcileScoped([o.escrowId])
