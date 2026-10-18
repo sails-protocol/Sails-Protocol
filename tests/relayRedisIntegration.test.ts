@@ -38,6 +38,19 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('does not mutate counters when the byte budget denies a frame', async () => {
+    const key = 'test:relay:bytes:' + randomUUID()
+    try {
+      expect(await a.eval(RELAY_BUDGET_SCRIPT, 1, key, 60, 10, 100, 5000)).toBe(1)
+      expect(await b.eval(RELAY_BUDGET_SCRIPT, 1, key, 41, 10, 100, 5000)).toBe(0)
+      expect(await a.hgetall(key)).toMatchObject({ messages: '1', bytes: '60' })
+      expect(await b.eval(RELAY_BUDGET_SCRIPT, 1, key, 40, 10, 100, 5000)).toBe(1)
+      expect(await a.hgetall(key)).toMatchObject({ messages: '2', bytes: '100' })
+    } finally {
+      await a.del(key)
+    }
+  })
+
   it('never over-admits across concurrent clients, expires, then resets', async () => {
     const key = 'test:relay:atomic:' + randomUUID()
     const evalBudget = (client: Redis, bytes: number) =>
