@@ -11,9 +11,9 @@
 // retried explorer requests (boundedFetch), claimEscrowTransition(), the write-once result and the
 // completion effects. What is controlled: the explorer itself (global.fetch: answer, latency, call count,
 // concurrency; never the public internet). Each candidate now contains a real P2WSH 2-of-3
-// unsigned PSBT and two independently signed copies, verified by production inspectRound(). Only
-// buildFinalizedTransaction() is stubbed to return the corresponding real unsigned txid, keeping
-// the crash/queue tests independent of broadcasting. Full finalization is covered by m9rClaimRecovery.
+// unsigned PSBT and two independently signed copies, verified by production inspectRound().
+// Cryptographic finalization is not mocked; only the explorer network boundary is controlled.
+// Full signed recovery is additionally covered by m9rClaimRecovery.
 // Candidates are fully-signed pending rows on PAYMENT_PENDING MULTISIG escrows. None has participant keys: only an
 // explorer that says "unknown transaction" would get PASS 0 far enough to need them.
 //
@@ -142,7 +142,9 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
     jest.isolateModules(() => {
       require('../../src/common/events/handlers').registerEventHandlers()
       const provider = require('../../src/modules/open-settlement/multisig.provider').multisigProvider
-      jest.spyOn(provider, 'buildFinalizedTransaction').mockImplementation(((escrow: { tradeId: string }) => ({ getId: () => txidOf(escrow.tradeId), toHex: () => '00' })) as any) // #235 R7G-B2A: takes the escrow (its funding surface is checked)
+      // Do not mock cryptographic finalization: inspectRound() and the real
+      // P2WSH signing/finalization path must both remain under test.
+      // Network existence is the only controlled external dependency.
       const recon = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service')
       node = {
         pass0: async () => { const r = newReport(); await recon.reconcileUnclaimedFullySignedPending(r); return r },
