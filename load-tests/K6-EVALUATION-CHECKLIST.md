@@ -169,3 +169,9 @@ Inspection of `.github/workflows/native-load-harness-candidate.yml` confirms the
 - The current Artillery WS scenario `chat-ws-bounded-comparator.yml` connects with a fresh one-time ticket, sends application PING, and waits one second; **it does not assert a received application PONG**. The existing `assertPongFromSocket` helper requires a socket object; it is exercised by isolated transport tests but not connected to the Artillery scenario engine.
 - The workflow's installed-engine inspection is diagnostic only. A matching `receive`/`message` string in dependency source cannot establish a supported callback or fail-closed scenario assertion. No engine-level positive/negative PONG proof has been accepted.
 - **Gate stays RED:** do not merge, deploy, remove Artillery or claim WebSocket parity until a reviewed receive/assertion path proves both valid PONG and missing/wrong PONG rejection through the same Artillery engine execution.
+
+## Gatekeeper WS blocker preservation — exact HEAD CI evidence
+
+- Exact HEAD `61ff1c00e44ab9c023ce0f705d73cf9a9d7899e2`: CI Tests `39091915209` SUCCESS; real-service smoke `39091912036` SUCCESS; Native load harness `39091915208` and `39091912037` SUCCESS.
+- These green checks validate the current candidate and the documented guardrail; they **do not** demonstrate Artillery engine-level application PONG receive assertions, matching constant-arrival-rate profiles, WebSocket concurrency parity, or independent approval.
+- Decision: **CI GREEN / MIGRATION GATE RED**. Keep PR #472 DRAFT; no merge, deploy, or Artillery removal.
