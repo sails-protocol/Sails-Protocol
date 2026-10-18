@@ -148,6 +148,37 @@ describe('relay authenticated WS ingress queue', () => {
 })
 
 describe('relay real TCP WebSocket transport', () => {
+  it('closes a real TCP WebSocket on ticket-store failure without registering it', async () => {
+    const Fastify = (await import('fastify')).default
+    const websocket = (await import('@fastify/websocket')).default
+    const WebSocket = (await import('ws')).default
+    const app = Fastify({ logger: false })
+    let client: InstanceType<typeof WebSocket> | undefined
+    try {
+      jest.clearAllMocks()
+      resolveTicket.mockRejectedValue(new Error('redis unavailable'))
+      await app.register(websocket)
+      await app.register(relayRoutes)
+      await app.listen({ host: '127.0.0.1', port: 0 })
+      const address = app.server.address()
+      if (!address || typeof address === 'string') throw new Error('Expected TCP server address')
+      client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/relay?ticket=store-outage`)
+      const closeCode = await new Promise<number>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Socket remained open after ticket-store failure')), 3000)
+        client!.once('close', code => { clearTimeout(timeout); resolve(code) })
+        client!.once('error', err => { clearTimeout(timeout); reject(err) })
+      })
+      expect(closeCode).toBe(1011)
+      expect(resolveTicket).toHaveBeenCalledWith('store-outage')
+      expect(register).not.toHaveBeenCalled()
+      expect(dispatch).not.toHaveBeenCalled()
+      expect(budget).not.toHaveBeenCalled()
+    } finally {
+      client?.terminate()
+      await app.close()
+    }
+  })
+
   it('rejects an invalid ticket over a real TCP WebSocket connection', async () => {
     const Fastify = (await import('fastify')).default
     const websocket = (await import('@fastify/websocket')).default
