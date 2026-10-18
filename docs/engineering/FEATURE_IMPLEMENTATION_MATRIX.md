@@ -36,7 +36,7 @@ Esta matriz **é um mapa de navegação**, não uma declaração de feature pron
 | Reputação / eventos | efeitos econômicos, projeções e idempotência | OpenReputation, event store, handlers | #253, BACKLOG | **Lacunas Day 0** |
 | Rede / nós | bootstrap, identidade de nós, descoberta e convergência | ADR-001, P2P, deployment | #105, #361 | **Gate Day 0** |
 | SDK / integradores | integração neutra, capacidade por adapter e conformance | packages SDK/Core, Protocol Spec | #75, #152, #165 | **Distinguir atual vs futuro** |
-| UI / Sails Market | estados e jornadas sem falsear verdade econômica | PROJECT_CONTEXT §2D, sails-ui/DESIGN, design handoff | #217, BACKLOG itens 22–25 | **Master Backlog, não postergar** |
+| UI / Sails Market | estados e jornadas sem falsear verdade econômica | PROJECT_CONTEXT §2D, #217 e handoff de design (localização a confirmar no HEAD) | #217, BACKLOG itens 22–25 | **Master Backlog, não postergar** |
 | IA / QVAC | recomendações limitadas sem autoridade econômica implícita | AI Harness e guardrails | #155, #309, #165 | **Discovery/validação separadas** |
 | Operação / observabilidade | métricas, logs, tracing, rate limits e recuperação | config, deployment, DB schema, métricas | #306, #307, #343, #473 | **Gaps Day 0 vs escala** |
 | Segurança / Red Team | prevenir abuso e testar composições adversariais | security audit, incident corpus, Red Team | #297, #420, #77, #487 | **Owners distintos** |
@@ -99,3 +99,4 @@ decision: "STOP | REVIEW | ADOPT | DEFER | REJECT"
 - Sem mover correções Day 0 (#253, #267, #306, #307, #343, #461) para a fila pós-backlog.
 - Não ativar Claude nem alterar PRs #436/#443 enquanto Gatekeeper não liberar.
 - **Próxima fase documental:** preencher cada cartão a partir de código, testes, ADRs e Issues, com evidência; não declarar 100% de cobertura por criar este índice.
+- **Revisão CTO 2026-10-17:** links relativos das fontes principais checados na `main`; a referência inicial `sails-ui/DESIGN` não foi localizada no caminho presumido e foi substituída por #217/handoff a confirmar. A matriz ainda **não contém PRDs individuais, inventário de ferramentas aprovado por recurso, responsáveis validados nem planos executáveis preenchidos**. Aprovar a estrutura deste índice não equivale a aprovar a completude funcional.
