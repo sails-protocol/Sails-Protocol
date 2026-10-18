@@ -288,7 +288,7 @@ describe('escrow-pending-tx.ts — disputed disposition authority', () => {
   it('AUD1X-H1: refuses to build a disputed MULTISIG round while the dispute holds no resolved ruling - nothing is built or persisted', async () => {
     setDispute(resolvedDispute({ status: 'OPENED', ruling: null, authoritySignature: null, authorityIssuedAt: null }))
 
-    await expect(escrowService.initiateRefund(ESCROW_ID, 'arbiter-1')).rejects.toThrow(/AUD-1 \(H1\).*no resolved, signed ruling/)
+    await expect(escrowService.initiateRefund(ESCROW_ID, 'arbiter-1')).rejects.toThrow(/AUD1X-H1: dispute .* has no resolved ruling; refusing disputed refund round construction/)
 
     expect(mockBuildUnsignedRelease).not.toHaveBeenCalled()
     expect(mockPendingTxCreate).not.toHaveBeenCalled()
