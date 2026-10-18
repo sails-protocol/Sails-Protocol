@@ -42,6 +42,27 @@ describe('relay authenticated WS ingress queue', () => {
     await relayRoutes({ get: (_path: string, _opts: unknown, handler: typeof route) => { route = handler } } as never)
   })
 
+  it('rejects frames arriving while ticket authentication is unresolved', async () => {
+    let release!: (id: string) => void
+    resolveTicket.mockImplementationOnce(() => new Promise<string>(resolve => { release = resolve }))
+    const socket = new FakeSocket()
+    const auth = route(socket, { query: { ticket: 'valid' } })
+    socket.emit('message', Buffer.from('unauthenticated'))
+    release('participant')
+    await auth
+    expect(socket.close).toHaveBeenCalledWith(1008, 'Relay authentication pending')
+    expect(register).not.toHaveBeenCalled()
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it('fails closed if the ticket store errors', async () => {
+    resolveTicket.mockRejectedValueOnce(new Error('redis unavailable'))
+    const socket = new FakeSocket()
+    await route(socket, { query: { ticket: 'valid' } })
+    expect(socket.close).toHaveBeenCalledWith(1011, 'Relay authentication unavailable')
+    expect(register).not.toHaveBeenCalled()
+  })
+
   it('preserves order across delayed asynchronous Redis decisions', async () => {
     let release!: (value: boolean) => void
     budget.mockImplementationOnce(() => new Promise<boolean>(resolve => { release = resolve }))
