@@ -2,8 +2,10 @@
  * Bounded blind-relay ingress budget. Deliberately counts raw bytes only:
  * inspecting or decrypting relay payloads would violate the privacy boundary.
  *
- * CANDIDATE: process-local enforcement only. A shared Redis-backed atomic
- * counter and multi-instance tests are required before public deployment.
+ * The production relay route enforces a Redis-backed atomic budget via
+ * relay-shared-budget.ts. This module retains a bounded process-local
+ * reference implementation for unit tests; it is not a Redis outage fallback.
+ * Full multi-process and failure-injection validation remains a release gate.
  */
 export const RELAY_FRAME_MAX_BYTES = 64 * 1024
 export const RELAY_WINDOW_MS = 60_000
