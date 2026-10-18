@@ -28,7 +28,7 @@ function connectWithFreshTicket(wsArgs,context,callback){
 // until engine semantics are verified; never label send+think as PONG proof.
 function assertPongFromSocket(ws,{timeoutMs=15000}={}){
   if(!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>30000) throw Error('Invalid bounded PONG timeout');
-  if(!ws||typeof ws.on!=='function'||typeof ws.send!=='function') throw Error('Unsupported WebSocket assertion interface');
+  if(!ws||typeof ws.on!=='function'||typeof ws.off!=='function'||typeof ws.send!=='function') throw Error('Unsupported WebSocket assertion interface');
   return new Promise((resolve,reject)=>{
     let finished=false;
     const timer=setTimeout(()=>finish(Error('PONG timeout')),timeoutMs);
