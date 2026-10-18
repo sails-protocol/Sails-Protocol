@@ -288,11 +288,13 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
 
   it('1. correct arbiter context (triggeredBy matches both the assigned dispute AND the persisted commitment) -> rejected without signed ruling', async () => {
     requirePostgres('correct context requires ruling')
-    const { escrow, buyer, txid } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
+    const { escrow, txid } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
     // Matching script identity alone is insufficient without a signed, durable ruling.
     await expect(escrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)).rejects.toThrow(/no resolved ruling/)
     expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: escrow.id } })).toBeNull()
-    void buyer
+    const after = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+    expect(after.status).toBe('DISPUTED')
+    expect(after.txReleaseId).toBeNull()
     void txid
   })
 
