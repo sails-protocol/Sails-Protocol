@@ -6,7 +6,8 @@
 import Redis from 'ioredis'
 import { randomUUID } from 'crypto'
 import { RELAY_BUDGET_SCRIPT } from '../src/infrastructure/p2p/relay-shared-budget'
-import { ATOMIC_CONSUME_SCRIPT } from '../src/common/redis/atomic-consume'
+import { ATOMIC_CONSUME_SCRIPT, atomicConsume } from '../src/common/redis/atomic-consume'
+import { resolveParticipantFromTicket } from '../src/common/middleware/ws-auth'
 
 const url = process.env.RELAY_REDIS_INTEGRATION_URL
 const suite = url ? describe : describe.skip
@@ -21,6 +22,15 @@ suite('relay shared budget — real Redis concurrent instances', () => {
   })
   afterAll(async () => {
     await Promise.all([a?.quit(), b?.quit()])
+  })
+
+  it('rejects a missing ticket through the production resolver without Redis access', async () => {
+    await expect(resolveParticipantFromTicket(undefined)).resolves.toBeNull()
+    await expect(resolveParticipantFromTicket('')).resolves.toBeNull()
+  })
+
+  it('exposes the production Redis consume primitive as a function', () => {
+    expect(typeof atomicConsume).toBe('function')
   })
 
   it('atomically burns a single-use WebSocket ticket across concurrent Redis clients', async () => {
