@@ -162,3 +162,10 @@ Inspection of `.github/workflows/native-load-harness-candidate.yml` confirms the
 - Native run `39089210151`: k6 generator CPU ticks sampled **179**, peak RSS **52,228 KiB**, 75 samples, 0 missing-live-state RSS; k6 backend CPU ticks **39**, peak RSS **320,064 KiB**, 77 samples; k6 2 iterations / 12 HTTP requests / 0 dropped; Artillery HTTP generator CPU ticks **254**, peak RSS **354,160 KiB**, 219 samples, 0 missing-live-state RSS.
 - **Non-equivalence warning:** k6 shared-iterations (2 total) versus Artillery 2-second 1/s arrival-rate; no equalized schedule, generator CPU/RSS duration or backend comparability claim. Sampled CPU excludes unobserved exit tail; per-process RSS excludes process-tree descendants. p50/p95/p99 based on tiny counts do not establish load capacity.
 - **Disposition:** evaluation only, no throughput ranking, no migration approval, PR DRAFT, retain Artillery; independent WS PONG engine receive proof and comparable rate/concurrency profiles remain blocked.
+
+## Gatekeeper Artillery WebSocket receive-surface review — 2026-10-18
+
+- Exact HEAD `435e6ce2449c7a87c360618118547d759b21140a`: CI Tests `39089963466`, real-service smoke `39089959883`, Native load harness `39089963472` and `39089959912` all SUCCESS.
+- The current Artillery WS scenario `chat-ws-bounded-comparator.yml` connects with a fresh one-time ticket, sends application PING, and waits one second; **it does not assert a received application PONG**. The existing `assertPongFromSocket` helper requires a socket object; it is exercised by isolated transport tests but not connected to the Artillery scenario engine.
+- The workflow's installed-engine inspection is diagnostic only. A matching `receive`/`message` string in dependency source cannot establish a supported callback or fail-closed scenario assertion. No engine-level positive/negative PONG proof has been accepted.
+- **Gate stays RED:** do not merge, deploy, remove Artillery or claim WebSocket parity until a reviewed receive/assertion path proves both valid PONG and missing/wrong PONG rejection through the same Artillery engine execution.
