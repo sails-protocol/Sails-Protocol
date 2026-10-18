@@ -5,6 +5,7 @@
  * Tiny fixed-iteration accounting profile by design. No production targets, auth bypass, or limit changes.
  * NOT throughput parity without identical runs, measurement and assertions.
  */
+import { Counter } from 'k6/metrics'
 import { BASE_URL, baseOptions } from '../k6.config.js'
 import { generateTestUser } from '../utils/data-generator.js'
 import { run } from './intent-creation.js'
@@ -12,6 +13,8 @@ import { run } from './intent-creation.js'
 if (!/^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/?$/.test(BASE_URL)) {
   throw new Error('Intent arrival probe requires loopback HTTP target')
 }
+const completedIntentPairs = new Counter('sails_completed_intent_pairs')
+
 export const options = {
   ...baseOptions,
   scenarios: {
@@ -27,6 +30,7 @@ export const options = {
   thresholds: {
     checks: ['rate==1'],
     sails_intent_success: ['rate==1'],
+    sails_completed_intent_pairs: ['count==2'],
     dropped_iterations: ['count==0'],
     http_req_failed: ['rate==0'],
   },
@@ -39,4 +43,6 @@ export default function () {
     type: 'TradeIntent',
     payload: { asset: 'BTC', side: 'BUY', maxValue: '100', currency: 'USD' },
   })
+  // Increment only after both create and cancel complete successfully.
+  completedIntentPairs.add(1)
 }
