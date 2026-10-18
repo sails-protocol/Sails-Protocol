@@ -41,8 +41,8 @@ import {
   type AuthorityDecisionPayload,
 } from './arbitration-authority'
 import { Prisma } from '@prisma/client'
-import { commitAuthoritativeDisputeRuling, revertDisputeRulingRecord } from './dispute-outcome'
-import { decideRulingRevert } from './ruling-dispatch-authority'
+import { commitAuthoritativeDisputeRuling } from './dispute-outcome'
+import { decideRulingRevert, revertCommittedRuling } from './ruling-dispatch-authority'
 import { economicDispositionLockKey } from './economic-disposition-authority'
 import { assertDisputeDispatchEligible } from './dispute-dispatch'
 import { assertTranslationMatchesOutcome } from './dispatch-translation-guard'
@@ -838,25 +838,20 @@ export class DisputeService {
           resolution.refusal = decision.error
           return
         }
-        // REVERT: only the exact signed generation may be unwound.
-        const reverted = await tx.dispute.updateMany({
-          where: {
-            id: dispute.id,
-            status: 'RESOLVED',
-            ruling: payload.outcome,
-            arbiterId: payload.authorityId,
+        // REVERT: central AUD1X-R4 unit atomically reverts only this signed generation and its Outcome.
+        await revertCommittedRuling(
+          tx,
+          {
+            disputeId: dispute.id,
+            escrowId: dispute.escrowId,
             appealRound: dispute.appealRound,
+            arbiterId: payload.authorityId,
+            ruling: payload.outcome,
             authoritySignature,
           },
-          data: { ...(await rulingRevertTarget(tx, dispute.escrowId, commitResult.displacedStatus)), ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
-        })
-        if (reverted.count !== 1) {
-          resolution.refusal = new St1R2DeletionRefused(
-            `ST1-R2 V3: dispute ${dispute.id} advanced before rollback; preserve authority for reconciliation`,
-          )
-          return
-        }
-        await revertDisputeRulingRecord(dispute.escrowId, dispute.appealRound, authoritySignature, tx)
+          { ...(await rulingRevertTarget(tx, dispute.escrowId, commitResult.displacedStatus)), ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
+          err,
+        )
       })
       if (resolution.refusal) throw resolution.refusal
       if (!resolution.adopted) throw err
