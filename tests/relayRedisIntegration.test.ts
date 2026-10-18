@@ -22,6 +22,26 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     await Promise.all([a?.quit(), b?.quit()])
   })
 
+  it('atomically burns a single-use WebSocket ticket across concurrent Redis clients', async () => {
+    const key = 'auth:ws-ticket:test-' + randomUUID()
+    const consume = `
+local value = redis.call('GET', KEYS[1])
+if value then redis.call('DEL', KEYS[1]) end
+return value
+`
+    try {
+      await a.set(key, 'participant', 'PX', 5000)
+      const results = await Promise.all(
+        Array.from({ length: 20 }, (_, i) => (i % 2 ? a : b).eval(consume, 1, key)),
+      )
+      expect(results.filter(value => value === 'participant')).toHaveLength(1)
+      expect(results.filter(value => value === null)).toHaveLength(19)
+      expect(await a.exists(key)).toBe(0)
+    } finally {
+      await a.del(key)
+    }
+  })
+
   it('enforces message-count limits independently of byte limits', async () => {
     const key = 'test:relay:messages:' + randomUUID()
     try {
