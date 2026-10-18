@@ -866,8 +866,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const issuedAt = new Date().toISOString()
     const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
     try {
-      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
-        .rejects.toThrow(/ST1-R2 V3/)
+      // Proven exact-generation dispatch is ADOPTed; preserve signed authority.
+      const adopted = await getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt)
+      expect(adopted?.status).toBe('RESOLVED')
+      expect(adopted?.authoritySignature).toBe(signAuthorityDecision(payload, arbiterKp.secretKey))
     } finally {
       failing.mockRestore()
     }
@@ -1859,8 +1861,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const issuedAt = new Date().toISOString()
     const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
     try {
-      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
-        .rejects.toThrow(/ST1-R2 V3/)
+      // Proven exact-generation dispatch is ADOPTed; preserve signed authority.
+      const adopted = await getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt)
+      expect(adopted?.status).toBe('RESOLVED')
+      expect(adopted?.authoritySignature).toBe(signAuthorityDecision(payload, arbiterKp.secretKey))
     } finally {
       failing.mockRestore()
     }
@@ -1964,8 +1968,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const issuedAt = new Date().toISOString()
     const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
     try {
-      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
-        .rejects.toThrow(/ST1-R2 V3/)
+      // Proven exact-generation dispatch is ADOPTed; preserve signed authority.
+      const adopted = await getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt)
+      expect(adopted?.status).toBe('RESOLVED')
+      expect(adopted?.authoritySignature).toBe(signAuthorityDecision(payload, arbiterKp.secretKey))
     } finally {
       failing.mockRestore()
     }
@@ -1988,8 +1994,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const issuedAt = new Date().toISOString()
     const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
     try {
-      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
-        .rejects.toThrow(/ST1-R2 V3/)
+      // Proven exact-generation dispatch is ADOPTed; preserve signed authority.
+      const adopted = await getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt)
+      expect(adopted?.status).toBe('RESOLVED')
+      expect(adopted?.authoritySignature).toBe(signAuthorityDecision(payload, arbiterKp.secretKey))
     } finally {
       failing.mockRestore()
     }
@@ -2019,8 +2027,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const issuedAt = new Date().toISOString()
     const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
     try {
-      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
-        .rejects.toThrow(/ST1-R2 V3/)
+      // Proven exact-generation dispatch is ADOPTed; preserve signed authority.
+      const adopted = await getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt)
+      expect(adopted?.status).toBe('RESOLVED')
+      expect(adopted?.authoritySignature).toBe(signAuthorityDecision(payload, arbiterKp.secretKey))
     } finally {
       failing.mockRestore()
     }
