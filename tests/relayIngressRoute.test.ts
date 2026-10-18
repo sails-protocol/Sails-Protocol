@@ -104,6 +104,16 @@ describe('relay authenticated WS ingress queue', () => {
     expect(budget).toHaveBeenCalledTimes(1)
   })
 
+  it('rejects a frame after the authenticated socket has closed', async () => {
+    const socket = new FakeSocket()
+    await route(socket, { query: { ticket: 'valid' } })
+    socket.close()
+    socket.emit('message', Buffer.from('late frame'))
+    await flush()
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(budget).not.toHaveBeenCalled()
+  })
+
   it('does not dispatch after participant socket replacement', async () => {
     let release!: (value: boolean) => void
     budget.mockImplementationOnce(() => new Promise<boolean>(resolve => { release = resolve }))
