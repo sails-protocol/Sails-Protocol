@@ -51,7 +51,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
   let submitTransactionSignature: (escrowId: string, participantId: string, signedPsbtBase64: string) => Promise<any>
   let authorizeDisputedPendingExecution: (pending: any) => Promise<any>
   let economicDispositionLockKey: (disputeId: string) => string
-  let revertDisputeRulingRecord: (escrowId: string, appealRound: number) => Promise<void>
+  let revertDisputeRulingRecord: (escrowId: string, appealRound: number, authoritySignature: string) => Promise<number>
   let commitAuthoritativeDisputeRuling: (...args: any[]) => Promise<{ committed: boolean }>
   let deletePendingRoundIfStillUnsigned: (pendingId: string, escrowId: string, generation: any) => Promise<string>
   let reconcileStalePendingDisputeTranslations: () => Promise<any>
