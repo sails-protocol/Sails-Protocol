@@ -343,6 +343,14 @@ jobs:
           done
           if [ "$ready" -ne 1 ]; then echo 'Artillery comparator API readiness timeout'; exit 1; fi
           export SAILS_BACKEND_PID="$server_pid"
+          # Verify the runner's actual Linux page size before interpreting
+          # /proc/<pid>/statm and /proc/<pid>/stat resident page counters.
+          page_bytes="$(getconf PAGESIZE)"
+          if [ "$page_bytes" != "4096" ]; then
+            echo 'Unsupported Linux process page size for RSS sampling'
+            exit 1
+          fi
+          export SAILS_PROC_PAGE_KIB=4
           node <<'RESOURCE_NODE'
           const {runMeasured}=require('./load-tests/native/measured-generator.cjs');
           const {observe}=require('./load-tests/native/process-resource-sampler.cjs');
