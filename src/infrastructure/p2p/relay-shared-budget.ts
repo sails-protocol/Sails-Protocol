@@ -8,7 +8,7 @@ import { RELAY_FRAME_MAX_BYTES, RELAY_WINDOW_MAX_BYTES, RELAY_WINDOW_MAX_MESSAGE
 
 // One atomic script prevents a pair of concurrent sockets (or two app instances)
 // from independently passing both limits. A single expiring hash per participant.
-const SCRIPT = `
+export const RELAY_BUDGET_SCRIPT = `
 local key = KEYS[1]
 local bytes = tonumber(ARGV[1])
 local maxMessages = tonumber(ARGV[2])
@@ -27,7 +27,7 @@ export async function consumeSharedRelayBudget(participantId: string, bytes: num
   if (!participantId || !Number.isSafeInteger(bytes) || bytes < 0 || bytes > RELAY_FRAME_MAX_BYTES) return false
   try {
     const result = await redis.eval(
-      SCRIPT, 1, 'ratelimit:ws-relay:' + participantId,
+      RELAY_BUDGET_SCRIPT, 1, 'ratelimit:ws-relay:' + participantId,
       bytes, RELAY_WINDOW_MAX_MESSAGES, RELAY_WINDOW_MAX_BYTES, RELAY_WINDOW_MS,
     )
     return result === 1
