@@ -146,3 +146,46 @@ describe('relay authenticated WS ingress queue', () => {
     expect(dispatch).not.toHaveBeenCalled()
   })
 })
+
+describe('relay real TCP WebSocket transport', () => {
+  it('dispatches a frame over a live Fastify WebSocket connection', async () => {
+    const Fastify = (await import('fastify')).default
+    const websocket = (await import('@fastify/websocket')).default
+    const WebSocket = (await import('ws')).default
+    const app = Fastify({ logger: false })
+    let client: InstanceType<typeof WebSocket> | undefined
+    try {
+      jest.clearAllMocks()
+      resolveTicket.mockResolvedValue('participant')
+      owns.mockReturnValue(true)
+      budget.mockResolvedValue(true)
+      await app.register(websocket)
+      await app.register(relayRoutes)
+      await app.listen({ host: '127.0.0.1', port: 0 })
+      const address = app.server.address()
+      if (!address || typeof address === 'string') throw new Error('Expected TCP server address')
+      client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/relay?ticket=valid`)
+      await new Promise<void>((resolve, reject) => {
+        client!.once('open', resolve)
+        client!.once('error', reject)
+      })
+      await new Promise<void>(resolve => setImmediate(resolve))
+      client.send('live-frame')
+      await new Promise<void>((resolve, reject) => {
+        const deadline = Date.now() + 3000
+        const poll = () => {
+          if (dispatch.mock.calls.length > 0) return resolve()
+          if (Date.now() >= deadline) return reject(new Error('Live relay frame not dispatched'))
+          setTimeout(poll, 10)
+        }
+        poll()
+      })
+      expect(resolveTicket).toHaveBeenCalledWith('valid')
+      expect(budget).toHaveBeenCalledWith('participant', Buffer.byteLength('live-frame'))
+      expect(dispatch).toHaveBeenCalledWith('participant', 'live-frame')
+    } finally {
+      client?.terminate()
+      await app.close()
+    }
+  })
+})
