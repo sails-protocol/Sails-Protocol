@@ -1511,8 +1511,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
     const signature = signAuthorityDecision(payload, arbiterKp.secretKey)
     try {
-      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signature, issuedAt))
-        .rejects.toThrow(/ST1-R2 V3/)
+      // A proven exact-generation pending round is ADOPTed after adapter failure.
+      const adopted = await getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signature, issuedAt)
+      expect(adopted?.status).toBe('RESOLVED')
+      expect(adopted?.authoritySignature).toBe(signature)
     } finally {
       failing.mockRestore()
     }
