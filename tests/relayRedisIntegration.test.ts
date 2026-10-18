@@ -44,6 +44,62 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('accepts exactly one of two live TCP WebSocket upgrades using a real Redis ticket', async () => {
+    const Fastify = (await import('fastify')).default
+    const websocket = (await import('@fastify/websocket')).default
+    const WebSocket = (await import('ws')).default
+    const { redis } = await import('../src/common/redis')
+    const { relayRoutes } = await import('../src/infrastructure/p2p/relay.routes')
+    const { webSocketRelayTransportProvider } = await import('../src/infrastructure/p2p/websocket-relay.service')
+    const ticket = 'tcp-integration-' + randomUUID()
+    const key = 'auth:ws-ticket:' + ticket
+    const app = Fastify({ logger: false })
+    const clients: InstanceType<typeof WebSocket>[] = []
+    const evalSpy = jest.spyOn(redis, 'eval').mockImplementation(
+      ((...args: unknown[]) => (a.eval as (...params: unknown[]) => Promise<unknown>)(...args)) as typeof redis.eval,
+    )
+    const registerSpy = jest.spyOn(webSocketRelayTransportProvider, 'registerSocket')
+    try {
+      await a.set(key, 'participant-' + randomUUID(), 'PX', 5000)
+      await app.register(websocket)
+      await app.register(relayRoutes)
+      await app.listen({ host: '127.0.0.1', port: 0 })
+      const address = app.server.address()
+      if (!address || typeof address === 'string') throw new Error('Expected TCP server address')
+      const endpoint = `ws://127.0.0.1:${address.port}/ws/relay?ticket=${ticket}`
+      const results = await Promise.all([0, 1].map(async () => {
+        const client = new WebSocket(endpoint)
+        clients.push(client)
+        const messages: string[] = []
+        client.on('message', data => messages.push(data.toString()))
+        await new Promise<void>((resolve, reject) => {
+          client.once('open', resolve)
+          client.once('error', reject)
+        })
+        return { messages }
+      }))
+      await new Promise<void>((resolve, reject) => {
+        const deadline = Date.now() + 3000
+        const poll = () => {
+          if (registerSpy.mock.calls.length === 1 &&
+            results.some(result => result.messages.some(message => message.includes('already-used ticket')))) return resolve()
+          if (Date.now() >= deadline) return reject(new Error('Real Redis TCP replay invariant not observed'))
+          setTimeout(poll, 10)
+        }
+        poll()
+      })
+      expect(registerSpy).toHaveBeenCalledTimes(1)
+      expect(results.filter(result => result.messages.some(message => message.includes('already-used ticket')))).toHaveLength(1)
+      expect(await a.exists(key)).toBe(0)
+    } finally {
+      clients.forEach(client => client.terminate())
+      registerSpy.mockRestore()
+      evalSpy.mockRestore()
+      await app.close()
+      await a.del(key)
+    }
+  })
+
   it('calls the production ticket resolver with a real Redis client and rejects replay', async () => {
     const ticket = 'integration-' + randomUUID()
     const key = 'auth:ws-ticket:' + ticket
