@@ -513,6 +513,9 @@ describe('#235 R7G-B2A — MULTISIG script authority (real PostgreSQL, real cryp
       expect(unsigned.data.inputs[0].partialSig ?? []).toHaveLength(0) // AUD1X-H1: no platform pre-signature
       const buyerSigned = signCopy(psbtBase64, f.keys.buyer)
       expect(() => multisigProvider.validatePartialSignature(input, psbtBase64, buyerSigned, hex(f.keys.buyer))).not.toThrow()
+      // Provider-level signature mechanics only. The production path must obtain
+      // this identity from the economic-disposition gate before first broadcast;
+      // this direct fixture does not prove gate authorization or durable Outcome.
       const executionInput = { ...input, arbiterExecutionIdentity: 'r7gb2a-arbiter' }
       const before = broadcasts.length
       const done = await multisigProvider.finalizeRelease(executionInput, psbtBase64, [buyerSigned])
