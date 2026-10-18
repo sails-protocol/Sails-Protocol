@@ -627,7 +627,7 @@ describe('AUD1X-H1 MULTISIG bearer-capability correction - real PostgreSQL', () 
     const mine = (o: Opened, rows: any[]) => rows.filter((x: any) => x.escrowId === o.escrowId)
 
     const r1 = await runUntilAttempted(liveRound.id)
-    expect(mine(live, r1.resumedUnclaimed)).toHaveLength(1)
+    expect({ resumed: mine(live, r1.resumedUnclaimed), failed: mine(live, r1.failed), manual: mine(live, r1.requiresManualReview), concurrent: mine(live, r1.alreadyClaimedConcurrently), recovered: mine(live, r1.recovered), effects: await effects(live) }).toMatchObject({ resumed: [expect.objectContaining({ escrowId: live.escrowId })] })
     expect(await effects(live)).toMatchObject({ status: 'COMPLETED', broadcasts: 1, authorizations: 1 })
     await verifyBroadcastWitness(live, pubHex(buyerKey))
 
