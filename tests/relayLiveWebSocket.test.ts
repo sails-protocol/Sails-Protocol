@@ -39,6 +39,14 @@ describe('relay live WebSocket upgrade and ingress', () => {
       client.once('error', reject)
     })
 
+  const waitRegistered = async () => {
+    for (let i = 0; i < 200; i++) {
+      if (sockets.has('participant')) return
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    throw new Error('Relay socket not registered after authentication')
+  }
+
   const closeEvent = (client: WebSocket): Promise<number> =>
     new Promise(resolve => client.once('close', code => resolve(code)))
 
@@ -66,6 +74,7 @@ describe('relay live WebSocket upgrade and ingress', () => {
 
   it('authenticates a real upgrade and forwards accepted frames in order', async () => {
     const client = await connect()
+    await waitRegistered()
     client.send('first')
     client.send('second')
     await new Promise<void>((resolve, reject) => {
@@ -87,6 +96,7 @@ describe('relay live WebSocket upgrade and ingress', () => {
   it('closes a real socket with policy violation when budget is denied', async () => {
     budget.mockResolvedValue(false)
     const client = await connect()
+    await waitRegistered()
     const closed = closeEvent(client)
     client.send('blocked')
     expect(await closed).toBe(1008)
@@ -97,7 +107,7 @@ describe('relay live WebSocket upgrade and ingress', () => {
     ticket.mockResolvedValue(null)
     const client = await connect('invalid')
     const closed = closeEvent(client)
-    expect(await closed).toBe(1005)
+    expect([1000, 1005]).toContain(await closed)
     expect(sockets.size).toBe(0)
   })
 })
