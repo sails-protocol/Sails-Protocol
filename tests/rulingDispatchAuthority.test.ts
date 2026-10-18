@@ -266,8 +266,11 @@ describe('decideRulingRevert - what a dispatch failure may do to a committed rul
     expect(await decideRulingRevert(fakeTx({ round: null, escrowStatus: 'COMPLETED', authorization: false }), ids, intent)).toEqual({ action: 'REVERT' })
   })
 
-  it('an authorization on a non-terminal escrow with no round is not an executed dispatch: REVERT', async () => {
-    expect(await decideRulingRevert(fakeTx({ round: null, escrowStatus: 'DISPUTED', authorization: true }), ids, intent)).toEqual({ action: 'REVERT' })
+  it('a matching authorization on a non-terminal escrow with no round preserves the ruling without claiming execution', async () => {
+    const decision = await decideRulingRevert(fakeTx({ round: null, escrowStatus: 'DISPUTED', authorization: true }), ids, intent)
+    expect(decision.action).toBe('PRESERVE')
+    if (decision.action !== 'PRESERVE') throw new Error('Expected unexecuted authorization to preserve ruling')
+    expect(decision.error.message).toMatch(/committed authorization.*not proven/)
   })
 
   it('a missing dispute row cannot prove anything: PRESERVE', async () => {
