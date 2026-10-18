@@ -37,7 +37,7 @@
 import type { FastifyInstance } from 'fastify'
 import { resolveParticipantFromTicket } from '../../common/middleware/ws-auth'
 import { webSocketRelayTransportProvider } from './websocket-relay.service'
-import { consumeRelayBudget } from './relay-ingress-budget'
+import { consumeSharedRelayBudget } from './relay-shared-budget'
 
 export async function relayRoutes(app: FastifyInstance): Promise<void> {
   app.get('/ws/relay', { websocket: true }, async (socket, request) => {
@@ -51,13 +51,13 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
 
     webSocketRelayTransportProvider.registerSocket(participantId, socket)
 
-    socket.on('message', (raw: Buffer) => {
+    socket.on('message', async (raw: Buffer) => {
       // Blind forward, same rule sendToPeer() follows (CISO Privacy Rule,
       // "Blind Relay") — this route never parses the frame, it only hands
       // the raw bytes to whichever onMessage() handler the participant
       // registered via the TransportProvider interface.
       // Count actual received bytes before decoding; no relay payload inspection.
-      if (!consumeRelayBudget(participantId, raw.byteLength)) {
+      if (!await consumeSharedRelayBudget(participantId, raw.byteLength)) {
         socket.close(1008, 'Relay resource budget exceeded')
         return
       }
