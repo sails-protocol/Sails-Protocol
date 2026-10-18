@@ -857,7 +857,10 @@ jobs:
             checksValid:checks===1,intentSuccessValid:success===1,
             durationQuantilesPresent:quantiles
           }));
-          if(missing.length||arrivals!==nominalScheduledArrivals||requestCount!==arrivals*expectedRequestsPerArrival||n('dropped_iterations')!==0||checks!==1||success!==1||quantiles.length!==3||intentDurationKeys.some(k=>Object.keys(intentDurations[k]||{}).length!==3)){
+          const validQuantileTriplet=values=>['med','p(95)','p(99)'].every(k=>Number.isFinite(values?.[k])&&values[k]>=0)&&values.med<=values['p(95)']&&values['p(95)']<=values['p(99)'];
+          // Reject corrupt or reversed operation-scoped latency evidence rather
+          // than accepting three merely-present numeric quantiles.
+          if(missing.length||arrivals!==nominalScheduledArrivals||requestCount!==arrivals*expectedRequestsPerArrival||n('dropped_iterations')!==0||checks!==1||success!==1||!validQuantileTriplet(durations)||intentDurationKeys.some(k=>!validQuantileTriplet(intentDurations[k]))){
             throw Error('Bounded arrival probe missing or invalid aggregate evidence');
           }
           NODE
