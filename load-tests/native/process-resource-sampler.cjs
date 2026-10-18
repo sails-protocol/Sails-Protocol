@@ -32,8 +32,8 @@ function sample(pid){
     try{
       const statm=fs.readFileSync('/proc/'+pid+'/statm','utf8').trim().split(/\s+/);
       const residentPages=Number(statm[1]);
-      // Linux GitHub runner uses 4 KiB pages; fail closed elsewhere rather
-      // than silently treating page counts as KiB.
+      // The workflow verifies the actual kernel page size with getconf.
+      // Fail closed rather than silently treating page counts as KiB.
       const pageKiB=Number(process.env.SAILS_PROC_PAGE_KIB||4);
       if(pageKiB!==4)throw Error('Unsupported process page size');
       const fallbackKiB=residentPages*pageKiB;
@@ -54,7 +54,7 @@ function sample(pid){
     // The original stat snapshot also exposes resident pages (field 24).
     // Accept only a positive, safe counter; never turn absent RSS into zero.
     const statResidentPages=Number(fields[21]);
-    const statResidentKiB=statResidentPages*4;
+    const statResidentKiB=statResidentPages*Number(process.env.SAILS_PROC_PAGE_KIB||4);
     if(Number.isSafeInteger(statResidentKiB)&&statResidentKiB>0)
       return {cpuTicks:ticks,rssKiB:statResidentKiB};
     // Diagnostic category only: no PID, command line, environment or values.
