@@ -14,6 +14,10 @@ if (!/^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/?$/.test(BASE_URL)) {
   throw new Error('Intent arrival probe requires loopback HTTP target')
 }
 const completedIntentPairs = new Counter('sails_completed_intent_pairs')
+// Independent per-operation observation counters are incremented by the
+// shared Intent flow exactly when each latency Trend receives a sample.
+const intentCreateSamples = new Counter('sails_intent_create_samples')
+const intentCancelSamples = new Counter('sails_intent_cancel_samples')
 
 export const options = {
   ...baseOptions,
@@ -31,6 +35,8 @@ export const options = {
     checks: ['rate==1'],
     sails_intent_success: ['rate==1'],
     sails_completed_intent_pairs: ['count==2'],
+    sails_intent_create_samples: ['count==2'],
+    sails_intent_cancel_samples: ['count==2'],
     dropped_iterations: ['count==0'],
     http_req_failed: ['rate==0'],
   },
@@ -42,7 +48,7 @@ export default function () {
   run(user, {
     type: 'TradeIntent',
     payload: { asset: 'BTC', side: 'BUY', maxValue: '100', currency: 'USD' },
-  })
+  }, { onCreateDurationSample: () => intentCreateSamples.add(1), onCancelDurationSample: () => intentCancelSamples.add(1) })
   // Increment only after both create and cancel complete successfully.
   completedIntentPairs.add(1)
 }
