@@ -6,6 +6,7 @@
  * Run only on a disposable loopback backend with a fresh auth-rate-limit window.
  */
 import { Counter } from 'k6/metrics'
+import exec from 'k6/execution'
 import { BASE_URL, baseOptions } from '../k6.config.js'
 import { generateTestUser } from '../utils/data-generator.js'
 import { run } from './intent-creation.js'
@@ -49,7 +50,9 @@ export const options = {
 export default function () {
   // Preserve strict fail-closed accounting. An unexpected third iteration
   // must not consume four additional auth requests or mutate intents.
-  if (__ITER >= 2) throw new Error('Rate candidate scheduled extra arrival (non-comparable)')
+  // __ITER is per-VU, so two VUs can both report iteration 0.
+  // The scenario-wide iteration index is the only valid bound here.
+  if (exec.scenario.iterationInTest >= 2) throw new Error('Rate candidate scheduled extra arrival (non-comparable)')
   const user = generateTestUser(BASE_URL, 'rate-candidate')
   if (!user?.sessionToken) throw new Error('Rate candidate authentication failed')
   authenticated.add(1)
