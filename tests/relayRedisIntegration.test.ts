@@ -400,6 +400,11 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     )
     const registerSpy = jest.spyOn(webSocketRelayTransportProvider, 'registerSocket')
     try {
+      await new Promise<void>((resolve, reject) => {
+        if (transient.status === 'ready') return resolve()
+        transient.once('ready', resolve)
+        transient.once('error', reject)
+      })
       await transient.ping()
       await a.set(key, participant, 'PX', 5000)
       await app.register(websocket)
