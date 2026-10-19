@@ -1,7 +1,7 @@
 /**
  * Opt-in candidate for the Artillery HTTP comparator's 1 arrival/s, 2s window.
  * This is a rate-SHAPE candidate only, not throughput or latency parity proof:
- * the tiny schedule can drop or add a boundary arrival, and Artillery measures only the two
+ * the tiny schedule can drop a boundary arrival, and Artillery measures only the two
  * in-engine Intent HTTP operations while k6 also measures four auth calls.
  * Run only on a disposable loopback backend with a fresh auth-rate-limit window.
  */
@@ -26,7 +26,10 @@ export const options = {
       executor: 'constant-arrival-rate',
       rate: 1,
       timeUnit: '1s',
-      duration: '2s',
+      duration: '1999ms',
+      // Avoid k6's inclusive 2s boundary tick. This is a scheduling
+      // stability candidate only: the requested 2s Artillery window is NOT
+      // claimed equivalent to 1999ms without independent arrival timing proof.
       // k6 may schedule an extra iteration at the 2s boundary. Do not
       // misrepresent it as comparable: reject it before authentication.
       // This bounds side effects, but cannot make a 3-arrival schedule equal 2.
