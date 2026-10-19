@@ -620,7 +620,14 @@ describe('AUD1X-H1 MULTISIG bearer-capability correction - real PostgreSQL', () 
           aggregate[key].push(...lap[key])
         }
         const row = await prisma.escrowPendingTransaction.findUnique({ where: { id: roundId }, select: { unclaimedRecoveryAttemptedAt: true } })
-        if (!row || row.unclaimedRecoveryAttemptedAt) break
+        // The claim timestamp is written BEFORE recovery work and does not
+        // prove completion. Stop only after the target has a terminal
+        // classification or a terminal escrow state; otherwise keep polling.
+        const targetClassified = ['resumedUnclaimed', 'failed', 'requiresManualReview', 'alreadyClaimedConcurrently']
+          .some(key => aggregate[key].some((entry: any) =>
+            typeof entry === 'string' ? entry === live.escrowId : entry.escrowId === live.escrowId))
+        const escrowRow = await prisma.escrow.findUnique({ where: { id: live.escrowId }, select: { status: true } })
+        if (!row || targetClassified || escrowRow?.status === 'COMPLETED') break
       }
       return aggregate
     }
