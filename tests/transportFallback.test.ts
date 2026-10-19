@@ -134,6 +134,18 @@ describe('WebSocketRelayTransportProvider — CISO Privacy Rule (Blind Relay)', 
     expect(oldSocket.sent).toEqual([])
   })
 
+  it('keeps the authenticated replacement registered if closing the stale socket throws', async () => {
+    const relay = new WebSocketRelayTransportProvider()
+    const stale = fakeSocket()
+    stale.close = () => { throw new Error('transport already broken') }
+    const replacement = fakeSocket()
+    relay.registerSocket('buyer', stale)
+    expect(() => relay.registerSocket('buyer', replacement)).not.toThrow()
+    expect(relay.ownsSocket('buyer', replacement)).toBe(true)
+    expect(await relay.sendToPeer('seller', 'buyer', 'healthy')).toBe(true)
+    expect(replacement.sent).toEqual(['healthy'])
+  })
+
   it('reports a participant as connected only while their socket is registered and open', async () => {
     const relay = new WebSocketRelayTransportProvider()
     expect(relay.isConnected('buyer')).toBe(false)
