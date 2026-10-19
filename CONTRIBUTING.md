@@ -332,3 +332,68 @@ Authority, Capability, Asset, SettlementRail/Scope/Adapter/Provider,
 Economic/Transport/Node Identity, etc.) carries exactly one meaning. If
 you find it carrying two, STOP and reconcile — don't add a third
 meaning to route around the conflict (§16.13).
+
+
+---
+
+## Development contract — new networks, settlement rails and adapters
+
+This checklist applies to humans and AI coding agents adding or materially changing a
+network integration, settlement rail, adapter, or provider. It is an implementation
+workflow, **not** a new protocol authority. Follow `AGENTS.md`,
+`docs/engineering/AI_SESSION_ONBOARDING.md`, `docs/ENGINEERING_GOVERNANCE.md`,
+the Semantic Kernel, Protocol Invariants, Core Architecture, applicable specifications,
+and accepted RFCs/ADRs. If those sources disagree, **STOP** and resolve authority
+through governance; do not silently select the most convenient interpretation.
+
+1. **Define the boundary before coding.** Identify the owning module, existing
+   SettlementRail/Scope/Adapter/Provider interfaces, lifecycle states, economic
+   assets, custody model, trust assumptions, and external dependencies. Reuse
+   shared contracts where they genuinely apply; do not force unlike networks
+   into a Bitcoin-specific or EVM-specific abstraction.
+2. **Map invariants explicitly.** In the Issue or design specification, list
+   applicable economic and security invariants and explain how the adapter
+   preserves each one. Record network-specific differences (UTXO vs account,
+   finality/reorgs, fee and nonce handling, signatures, transaction identity,
+   confirmation thresholds, token contracts, chain identity, and replay
+   protection). Mark any non-applicable invariant with a reason, never silence.
+3. **Prove authorization before irreversible effects.** Specify who can
+   authorize each operation, how authorization binds to the exact trade,
+   escrow, asset, chain, destination, amount and transaction, and where
+   authorization is rechecked immediately before an external effect. No
+   adapter may infer authority from a successful RPC response, an unsigned
+   payload, or a previously observed status.
+4. **Design failure and concurrency semantics.** Document durable intent,
+   idempotency keys, claim/CAS transitions, restart recovery, ambiguous
+   timeouts, retries, duplicate submissions, partial failures, reorgs and
+   conflicting observations. Unknown external truth must remain unknown:
+   never convert an explorer/RPC timeout, 404, or 5xx into proof of
+   successful settlement or safe re-execution.
+5. **Keep economic evidence independently verifiable.** Bind persisted
+   identifiers and outputs to the actual network transaction, verify funding
+   and spend surfaces against immutable commitments, and distinguish
+   broadcast, observed, confirmed and finalized states as the network
+   requires. An anomaly must fail closed or enter explicit manual review.
+6. **Test the property, not its mock.** Supply adapter-specific unit,
+   integration and adversarial tests for valid execution, invalid authority,
+   wrong network/asset/destination, stale or concurrent claims, crashes,
+   ambiguous responses, double broadcast, confirmation and reorg behavior,
+   and recovery. Use real serialization/cryptographic validation and
+   database constraints where the property depends on them; mocks may
+   simulate external transport, not bypass the invariant under test.
+7. **Submit evidence through the existing gates.** Link the governing spec,
+   invariant mapping, test commands/results, exact commit SHA, CI runs,
+   known limitations and unresolved risks in the PR. A green CI alone
+   does not prove economic safety. No merge, production enablement or
+   readiness claim while consequential evidence is missing, contradictory,
+   or blocked by a Gatekeeper STOP.
+8. **Leave an agent-readable handoff.** Update the relevant canonical
+   design/specification and operational documentation, register remaining
+   work in the Master Backlog, and explain which shared patterns future
+   adapters may reuse versus which properties require independent proof.
+
+**AI-agent rule:** treat this checklist as a required review path, not as
+permission to change protocol semantics. If the necessary authority, network
+evidence, test environment, or specification is unavailable, report the
+specific blocker and STOP rather than weakening checks, skipping tests, or
+claiming completion.
