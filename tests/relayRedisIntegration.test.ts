@@ -467,6 +467,37 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('never over-admits a shared relay byte budget across independent Node processes', async () => {
+    const { fork } = await import('child_process')
+    const { join } = await import('path')
+    const key = 'test:relay:process-budget:' + randomUUID()
+    const workerPath = join(__dirname, 'helpers', 'relayRedisBudgetWorker.cjs')
+    const workers = Array.from({ length: 12 }, () => fork(workerPath, [], {
+      env: {
+        ...process.env,
+        RELAY_REDIS_INTEGRATION_URL: url!,
+        RELAY_BUDGET_KEY: key,
+        RELAY_BUDGET_SCRIPT,
+      },
+      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+    }))
+    try {
+      const outcomes = await Promise.all(workers.map(worker => new Promise<{ accepted?: number; error?: string }>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Redis budget worker timed out')), 10000)
+        worker.once('message', message => { clearTimeout(timer); resolve(message as { accepted?: number; error?: string }) })
+        worker.once('error', err => { clearTimeout(timer); reject(err) })
+        worker.send('go')
+      })))
+      expect(outcomes.every(item => !item.error)).toBe(true)
+      expect(outcomes.filter(item => item.accepted === 1)).toHaveLength(10)
+      expect(outcomes.filter(item => item.accepted === 0)).toHaveLength(2)
+      expect(await a.hgetall(key)).toMatchObject({ messages: '10', bytes: '100' })
+    } finally {
+      workers.forEach(worker => worker.kill())
+      await a.del(key)
+    }
+  })
+
   it('never over-admits across concurrent clients, expires, then resets', async () => {
     const key = 'test:relay:atomic:' + randomUUID()
     const evalBudget = (client: Redis, bytes: number) =>
