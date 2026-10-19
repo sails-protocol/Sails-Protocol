@@ -18,6 +18,7 @@ const authenticated = new Counter('sails_authenticated_arrivals')
 const completed = new Counter('sails_completed_intent_pairs')
 const createSamples = new Counter('sails_intent_create_samples')
 const cancelSamples = new Counter('sails_intent_cancel_samples')
+const extraScheduledArrivals = new Counter('sails_extra_scheduled_arrivals')
 export const options = {
   ...baseOptions,
   scenarios: {
@@ -43,6 +44,8 @@ export const options = {
     sails_completed_intent_pairs: ['count==2'],
     sails_intent_create_samples: ['count==2'],
     sails_intent_cancel_samples: ['count==2'],
+    // A boundary arrival is a real scheduling mismatch, not an auth failure.
+    sails_extra_scheduled_arrivals: ['count==0'],
     http_req_failed: ['rate==0'],
     dropped_iterations: ['count==0'],
   },
@@ -52,7 +55,12 @@ export default function () {
   // must not consume four additional auth requests or mutate intents.
   // __ITER is per-VU, so two VUs can both report iteration 0.
   // The scenario-wide iteration index is the only valid bound here.
-  if (exec.scenario.iterationInTest >= 2) throw new Error('Rate candidate scheduled extra arrival (non-comparable)')
+  if (exec.scenario.iterationInTest >= 2) {
+    // Record the extra scheduled iteration without performing any auth or Intent I/O.
+    // The strict threshold above keeps this candidate RED and non-comparable.
+    extraScheduledArrivals.add(1)
+    return
+  }
   const user = generateTestUser(BASE_URL, 'rate-candidate')
   if (!user?.sessionToken) throw new Error('Rate candidate authentication failed')
   authenticated.add(1)
