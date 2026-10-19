@@ -908,9 +908,47 @@ jobs:
             console.log('k6 rate candidate generator resource sample:',JSON.stringify(generator));
             console.log('k6 rate candidate backend resource sample:',JSON.stringify(backend));
           })().catch(error=>{
-            console.error('k6 rate candidate failed (details redacted):',
-              error?.message==='Generator resource sample count insufficient: no periodic sample before exit'
-                ?'generator-no-periodic-sample':'execution-or-resource-invalid');
+            // Classify known internal errors without revealing command lines,
+            // request logs, credentials, or raw error messages.
+            const categories={
+              'Generator exited nonzero (output redacted)':'k6-exited-nonzero',
+              'Generator timed out':'k6-timeout',
+              'Generator terminated by signal':'k6-signal',
+              'Generator spawn failed':'k6-spawn',
+              'Generator resource sample count insufficient: no periodic sample before exit':'generator-no-periodic-sample',
+              'Generator resource sample count insufficient':'generator-rss-coverage-insufficient',
+              'Generator resource counters invalid':'generator-counters-invalid',
+            };
+            const message=error?.message;
+            const category=categories[message]||(typeof message==='string'&&message.startsWith('Generator resource sampling read error:')?'generator-sampling-read-error':'execution-or-resource-invalid');
+            console.error('k6 rate candidate failed (details redacted):',category);
+            if(category==='k6-exited-nonzero'){
+              const fs=require('node:fs');
+              const log=fs.readFileSync('/tmp/sails-k6-rate.log','utf8');
+              // Only report fixed allowlisted error categories, never raw log lines.
+              const fingerprints={
+                authFailure:/Rate candidate authentication failed/.test(log),
+                checkThreshold:/thresholds? on metrics? 'checks' have been crossed/i.test(log),
+                intentThreshold:/thresholds? on metrics? 'sails_intent_success' have been crossed/i.test(log),
+                droppedIterations:/thresholds? on metrics? 'dropped_iterations' have been crossed/i.test(log),
+                httpFailures:/thresholds? on metrics? 'http_req_failed' have been crossed/i.test(log),
+                moduleResolution:/could not resolve|unknown module|module not found/i.test(log),
+                runtimeError:/level=error|ERRO\\[|GoError|TypeError|ReferenceError/i.test(log),
+              };
+              console.log('k6 rate candidate failure fingerprints:',JSON.stringify(fingerprints));
+              const summaryPath='/tmp/sails-k6-rate-summary.json';
+              if(fs.existsSync(summaryPath)){
+                const m=JSON.parse(fs.readFileSync(summaryPath,'utf8')).metrics||{};
+                const count=k=>m[k]?.count??null;
+                console.log('k6 rate candidate failure counters:',JSON.stringify({
+                  iterations:count('iterations'),authenticated:count('sails_authenticated_arrivals'),
+                  completed:count('sails_completed_intent_pairs'),create:count('sails_intent_create_samples'),
+                  cancel:count('sails_intent_cancel_samples'),requests:count('http_reqs'),
+                  dropped:count('dropped_iterations'),checksPass:m.checks?.value===1,
+                  intentPass:m.sails_intent_success?.value===1,httpFailureRate:m.http_req_failed?.value??null
+                }));
+              }
+            }
             process.exitCode=1;
           });
           RESOURCE_NODE
