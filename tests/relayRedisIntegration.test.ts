@@ -599,6 +599,26 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('keeps independent participants isolated under concurrent Redis budget pressure', async () => {
+    const first = 'test:relay:isolated-a:' + randomUUID()
+    const second = 'test:relay:isolated-b:' + randomUUID()
+    const evalBudget = (client: Redis, key: string) =>
+      client.eval(RELAY_BUDGET_SCRIPT, 1, key, 10, 5, 50, 5000)
+    try {
+      const results = await Promise.all(Array.from({ length: 40 }, (_, i) =>
+        evalBudget(i % 2 ? a : b, i % 4 < 2 ? first : second),
+      ))
+      expect(results.filter(value => value === 1)).toHaveLength(10)
+      expect(results.filter(value => value === 0)).toHaveLength(30)
+      expect(await a.hgetall(first)).toMatchObject({ messages: '5', bytes: '50' })
+      expect(await b.hgetall(second)).toMatchObject({ messages: '5', bytes: '50' })
+      expect(await evalBudget(a, first)).toBe(0)
+      expect(await evalBudget(b, second)).toBe(0)
+    } finally {
+      await Promise.all([a.del(first), b.del(second)])
+    }
+  })
+
   it('never over-admits across concurrent clients, expires, then resets', async () => {
     const key = 'test:relay:atomic:' + randomUUID()
     const evalBudget = (client: Redis, bytes: number) =>
