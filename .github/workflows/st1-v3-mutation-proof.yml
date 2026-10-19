@@ -1,0 +1,82 @@
+name: ST1 V3 Mutation Proof (isolated)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/st1-v3-mutation-proof.yml'
+  workflow_dispatch:
+
+jobs:
+  mutation-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: sails_protocol
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      REDISMS_DISABLE_POSTINSTALL: 'true'
+      REDISMS_SYSTEM_BINARY: /usr/bin/redis-server
+      DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+      SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
+      TRUSTED_ARBITRATORS: k6-test-arbiter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm install --no-audit --no-fund
+      - run: npm run build -w @sails/core -w @satsails/p2p-schemas -w @satsails/p2p-trading-sdk
+      - run: npm run db:generate
+      - run: npm run db:migrate
+      - name: GREEN - exact ST1 V3 post-persist guard
+        run: |
+          set -o pipefail
+          npm run test:integration:postgres -- --runInBand --runTestsByPath tests/integration/st1TemporalCleanupAuthority.test.ts -t 'V3 after-persist dispatch throw preserves exact durable authority and pending for restart recovery'
+      - name: RED - deliberately disable exact pending dispatch adoption (ephemeral runner only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/modules/open-settlement/ruling-dispatch-authority.ts')
+          s=p.read_text()
+          needle="return { action: 'ADOPT', reason: 'EQUIVALENT_ROUND' }"
+          assert s.count(needle)==1, 'Mutation anchor changed: STOP rather than produce a false RED'
+          p.write_text(s.replace(needle, "return { action: 'REVERT' } // MUTANT: ignores proven persisted dispatch", 1))
+          PY
+          set +e
+          npm run test:integration:postgres -- --runInBand --runTestsByPath tests/integration/st1TemporalCleanupAuthority.test.ts -t 'V3 after-persist dispatch throw preserves exact durable authority and pending for restart recovery' > mutation-red.log 2>&1
+          rc=$?
+          set -e
+          tail -n 100 mutation-red.log
+          if [ "$rc" -eq 0 ]; then
+            echo 'FAIL: mutation survived; test did not detect missing adoption'
+            exit 1
+          fi
+          if ! grep -Eq 'FAIL |Test Suites: 1 failed|Tests:.*failed' mutation-red.log; then
+            echo 'FAIL: nonzero exit without an assertion failure is not a valid RED'
+            exit 1
+          fi
+          echo 'MUTATION KILLED: targeted ST1 V3 test failed under deliberately broken authority decision'
+      - name: Restore production source and re-run GREEN
+        run: |
+          git restore -- src/modules/open-settlement/ruling-dispatch-authority.ts
+          npm run test:integration:postgres -- --runInBand --runTestsByPath tests/integration/st1TemporalCleanupAuthority.test.ts -t 'V3 after-persist dispatch throw preserves exact durable authority and pending for restart recovery'
