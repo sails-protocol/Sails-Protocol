@@ -874,6 +874,61 @@ jobs:
             throw Error('Bounded arrival probe missing or invalid aggregate evidence');
           }
           NODE
+      - name: Execute isolated k6 constant-arrival-rate candidate (not parity approval)
+        env:
+          NODE_ENV: development
+          DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/sails_protocol
+          REDIS_URL: redis://127.0.0.1:6379
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The previous authenticated probe consumes the shared auth budget.
+          # Wait a full fresh rate-limit window; never weaken the limiter.
+          sleep 65
+          node dist/src/main.js > /tmp/sails-k6-rate-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then echo 'Rate candidate backend exited'; exit 1; fi
+            if (echo > /dev/tcp/127.0.0.1/3000) >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then echo 'Rate candidate backend readiness timeout'; exit 1; fi
+          test "$(getconf PAGESIZE)" = "4096" || { echo 'Unsupported process page size'; exit 1; }
+          export SAILS_PROC_PAGE_KIB=4 SAILS_BACKEND_PID="$server_pid"
+          node <<'RESOURCE_NODE'
+          const {runMeasured}=require('./load-tests/native/measured-generator.cjs');
+          const {observe}=require('./load-tests/native/process-resource-sampler.cjs');
+          (async()=>{
+            const {value:generator,usage:backend}=await observe(Number(process.env.SAILS_BACKEND_PID),
+              ()=>runMeasured('k6',['run','--quiet','--summary-export=/tmp/sails-k6-rate-summary.json',
+                '-e','BASE_URL=http://127.0.0.1:3000','load-tests/tests/intent-rate-parity-candidate.js'],
+                {timeoutMs:45000,intervalMs:25,outputFile:'/tmp/sails-k6-rate.log'}),{intervalMs:25});
+            console.log('k6 rate candidate generator resource sample:',JSON.stringify(generator));
+            console.log('k6 rate candidate backend resource sample:',JSON.stringify(backend));
+          })().catch(error=>{
+            console.error('k6 rate candidate failed (details redacted):',
+              error?.message==='Generator resource sample count insufficient: no periodic sample before exit'
+                ?'generator-no-periodic-sample':'execution-or-resource-invalid');
+            process.exitCode=1;
+          });
+          RESOURCE_NODE
+          node <<'NODE'
+          const fs=require('node:fs');
+          const m=JSON.parse(fs.readFileSync('/tmp/sails-k6-rate-summary.json','utf8')).metrics||{};
+          const count=k=>m[k]?.count;
+          const keys=['iterations','sails_authenticated_arrivals','sails_completed_intent_pairs','sails_intent_create_samples','sails_intent_cancel_samples'];
+          const observed=Object.fromEntries(keys.map(k=>[k,count(k)??null]));
+          const valid=keys.every(k=>count(k)===2)&&count('http_reqs')===12&&count('dropped_iterations')===0&&m.checks?.value===1&&m.sails_intent_success?.value===1;
+          const quantiles=['med','p(95)','p(99)'];
+          const operations=['sails_intent_create_duration','sails_intent_cancel_duration'];
+          const latency=Object.fromEntries(operations.map(k=>[k,Object.fromEntries(quantiles.map(q=>[q,m[k]?.[q]??null]))]));
+          const validLatency=operations.every(k=>quantiles.every(q=>Number.isFinite(m[k]?.[q])&&m[k][q]>=0)&&m[k].med<=m[k]['p(95)']&&m[k]['p(95)']<=m[k]['p(99)']);
+          console.log('k6 rate candidate bounded aggregate:',JSON.stringify({requestedRatePerSecond:1,windowSeconds:2,observed,requests:count('http_reqs')??null,dropped:count('dropped_iterations')??null,latency,valid,validLatency}));
+          if(!valid||!validLatency)throw Error('Rate candidate schedule or per-operation evidence not comparable');
+          console.log('Rate candidate k6 shape PASS; cross-engine parity NOT established');
+          NODE
       - name: Baseline security evidence (no dependency removal yet)
         shell: bash
         run: |
