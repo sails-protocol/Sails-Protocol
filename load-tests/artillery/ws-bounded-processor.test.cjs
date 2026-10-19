@@ -47,6 +47,18 @@ class Socket extends EventEmitter {
     await assert.rejects(assertPongFromSocket(socket,{timeoutMs:20}));
     for (const event of ['message','close','error']) assert.equal(socket.listenerCount(event),0,'Leaked '+event+' listener');
   }
+  // Verify that a late PONG after the bounded deadline cannot retroactively pass.
+  const late=new Socket(null);
+  const latePromise=assertPongFromSocket(late,{timeoutMs:15});
+  await assert.rejects(latePromise,/PONG timeout/);
+  late.emit('message',JSON.stringify({type:'PONG'}));
+  for (const event of ['message','close','error']) assert.equal(late.listenerCount(event),0,'Leaked '+event+' listener after late PONG');
+  // An unrelated frame followed by a real PONG must succeed within the same deadline.
+  const mixed=new Socket(null);
+  const mixedPromise=assertPongFromSocket(mixed,{timeoutMs:100});
+  queueMicrotask(()=>{mixed.emit('message',JSON.stringify({type:'OTHER'}));mixed.emit('message',JSON.stringify({type:'PONG'}));});
+  await mixedPromise;
+  for (const event of ['message','close','error']) assert.equal(mixed.listenerCount(event),0,'Leaked '+event+' listener after mixed frames');
   const failedSend=new Socket(null);
   failedSend.send=()=>{throw Error('sensitive transport detail')};
   await assert.rejects(assertPongFromSocket(failedSend,{timeoutMs:100}),/WS send failed/);
