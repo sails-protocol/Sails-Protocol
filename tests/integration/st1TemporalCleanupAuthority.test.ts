@@ -2250,10 +2250,14 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
   it('V2 a committed Economic Disposition Authorization names the round: the cleanup never deletes it, before or after an appeal', async () => {
     const o = await openedDispute('v2')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
-    await stale(pending.id, o)
+    // Commit authorization against the unmodified, Outcome-matching PSBT first.
+    // A stale/corrupted round cannot obtain a new economic authorization.
     const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
-    await authorizeDisputedPendingExecution(row) // the production gate commits the authorization
+    await authorizeDisputedPendingExecution(row)
     expect(await edaCount(o)).toBe(1)
+    // Model later persisted-round corruption only AFTER durable authorization.
+    // Cleanup must still preserve the committed economic disposition.
+    await stale(pending.id, o)
     const authorizedPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
     const authorizedGeneration = await generationOf(pending.id)
     const authorizedOutcomeCount = await outcomeRecords(o)
