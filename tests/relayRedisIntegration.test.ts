@@ -382,6 +382,65 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('closes a live authenticated TCP relay on real Redis client disconnection', async () => {
+    const Fastify = (await import('fastify')).default
+    const websocket = (await import('@fastify/websocket')).default
+    const WebSocket = (await import('ws')).default
+    const { redis } = await import('../src/common/redis')
+    const { relayRoutes } = await import('../src/infrastructure/p2p/relay.routes')
+    const { webSocketRelayTransportProvider } = await import('../src/infrastructure/p2p/websocket-relay.service')
+    const ticket = 'disconnect-failure-' + randomUUID()
+    const key = 'auth:ws-ticket:' + ticket
+    const participant = 'participant-' + randomUUID()
+    const app = Fastify({ logger: false })
+    const transient = new Redis(url!, { maxRetriesPerRequest: 1, enableOfflineQueue: false })
+    let client: InstanceType<typeof WebSocket> | undefined
+    const evalSpy = jest.spyOn(redis, 'eval').mockImplementation(
+      ((...args: unknown[]) => (transient.eval as (...params: unknown[]) => Promise<unknown>)(...args)) as typeof redis.eval,
+    )
+    const registerSpy = jest.spyOn(webSocketRelayTransportProvider, 'registerSocket')
+    try {
+      await transient.ping()
+      await a.set(key, participant, 'PX', 5000)
+      await app.register(websocket)
+      await app.register(relayRoutes)
+      await app.listen({ host: '127.0.0.1', port: 0 })
+      const address = app.server.address()
+      if (!address || typeof address === 'string') throw new Error('Expected TCP listener address')
+      client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/relay?ticket=${ticket}`)
+      await new Promise<void>((resolve, reject) => {
+        client!.once('open', resolve)
+        client!.once('error', reject)
+      })
+      await new Promise<void>((resolve, reject) => {
+        const deadline = Date.now() + 3000
+        const poll = () => {
+          if (registerSpy.mock.calls.some(call => call[0] === participant)) return resolve()
+          if (Date.now() >= deadline) return reject(new Error('Relay authentication did not complete'))
+          setTimeout(poll, 10)
+        }
+        poll()
+      })
+      transient.disconnect()
+      const closeCode = new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Relay remained open after Redis disconnect')), 3000)
+        client!.once('close', code => { clearTimeout(timer); resolve(code) })
+        client!.once('error', err => { clearTimeout(timer); reject(err) })
+      })
+      client.send('frame-after-redis-disconnect')
+      expect(await closeCode).toBe(1011)
+      expect(await b.exists(key)).toBe(0)
+      expect(await b.exists('ratelimit:ws-relay:' + participant)).toBe(0)
+    } finally {
+      client?.terminate()
+      registerSpy.mockRestore()
+      evalSpy.mockRestore()
+      transient.disconnect()
+      await app.close()
+      await a.del(key, 'ratelimit:ws-relay:' + participant)
+    }
+  })
+
   it('keeps the distributed byte budget intact after a client disconnects', async () => {
     const key = 'test:relay:client-disconnect:' + randomUUID()
     const transient = new Redis(url!, { maxRetriesPerRequest: 1 })
