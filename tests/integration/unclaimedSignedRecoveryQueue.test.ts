@@ -166,7 +166,12 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
   async function candidate({ createdAt = new Date(QUEUE_HEAD + (headOffset += 1000)), signed = true } = {}): Promise<Candidate> {
     const trade = await prisma.trade.create({ data: { ...boundTradeRow(sellerAccount), offerId, buyerId, sellerId, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65', status: 'ACTIVE' } })
     const fundingTxid = createHash('sha256').update('queue-funding-' + trade.id).digest('hex')
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', status: 'PAYMENT_PENDING', lockedAmount: '0.001', asset: 'BTC', multisigAddr: fundingAddress, buyerPubkey: Buffer.from(keys[0].publicKey).toString('hex'), sellerPubkey: Buffer.from(keys[1].publicKey).toString('hex'), arbiterPubkey: Buffer.from(keys[2].publicKey).toString('hex'), txLockId: fundingTxid, txLockVout: 0 } })
+    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', status: 'PAYMENT_PENDING', lockedAmount: '0.001', asset: 'BTC', multisigAddr: fundingAddress, txLockId: fundingTxid, txLockVout: 0 } })
+    await prisma.escrowParticipantKey.createMany({ data: [
+      { escrowId: escrow.id, role: 'buyer', participantId: buyerId, pubkey: Buffer.from(keys[0].publicKey).toString('hex') },
+      { escrowId: escrow.id, role: 'seller', participantId: sellerId, pubkey: Buffer.from(keys[1].publicKey).toString('hex') },
+      { escrowId: escrow.id, role: 'arbiter', participantId: 'k6-test-arbiter', pubkey: Buffer.from(keys[2].publicKey).toString('hex') },
+    ] })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
     const psbt = new bitcoin.Psbt({ network: NETWORK })
     psbt.addInput({ hash: fundingTxid, index: 0, witnessUtxo: { script: bitcoin.address.toOutputScript(fundingAddress, NETWORK), value: 100_000n }, witnessScript })
