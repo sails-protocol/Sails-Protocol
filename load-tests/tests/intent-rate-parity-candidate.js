@@ -1,7 +1,7 @@
 /**
  * Opt-in candidate for the Artillery HTTP comparator's 1 arrival/s, 2s window.
  * This is a rate-SHAPE candidate only, not throughput or latency parity proof:
- * the tiny schedule can drop arrivals, and Artillery measures only the two
+ * the tiny schedule can drop or add a boundary arrival, and Artillery measures only the two
  * in-engine Intent HTTP operations while k6 also measures four auth calls.
  * Run only on a disposable loopback backend with a fresh auth-rate-limit window.
  */
@@ -25,6 +25,9 @@ export const options = {
       rate: 1,
       timeUnit: '1s',
       duration: '2s',
+      // k6 may schedule an extra iteration at the 2s boundary. Do not
+      // misrepresent it as comparable: reject it before authentication.
+      // This bounds side effects, but cannot make a 3-arrival schedule equal 2.
       preAllocatedVUs: 2,
       maxVUs: 2,
       gracefulStop: '10s',
@@ -44,6 +47,9 @@ export const options = {
   },
 }
 export default function () {
+  // Preserve strict fail-closed accounting. An unexpected third iteration
+  // must not consume four additional auth requests or mutate intents.
+  if (__ITER >= 2) throw new Error('Rate candidate scheduled extra arrival (non-comparable)')
   const user = generateTestUser(BASE_URL, 'rate-candidate')
   if (!user?.sessionToken) throw new Error('Rate candidate authentication failed')
   authenticated.add(1)
