@@ -430,7 +430,11 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
     const node = startNode()
     jest.spyOn(node.provider as any, 'broadcast').mockImplementation(broadcast as any)
     const r = await node.pass0()
-    expect(failedFor(r, unknown)).toHaveLength(2) // unknown txid -> needs the outpoint -> no participant keys -> fails closed
+    // 404 means the transaction is not found, not that the funding outpoint is safe to spend.
+    // The explorer fixture returns no UTXOs, so the provider must report an anomaly for manual
+    // review, without claiming settlement or attempting a broadcast.
+    expect(r.requiresManualReview.filter((x) => unknown.some((c) => c.escrowId === x.escrowId))).toHaveLength(2)
+    expect(resumed(r, unknown)).toHaveLength(0)
     expect(broadcast).not.toHaveBeenCalled()
     await expectUntouched(unknown)
     expect(st.total).toBe(2)
