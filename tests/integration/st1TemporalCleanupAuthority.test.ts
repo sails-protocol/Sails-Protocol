@@ -2679,7 +2679,11 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       const d2 = await prisma.dispute.findUniqueOrThrow({ where: { id: f2.disputeId } })
       const issuedAt = new Date().toISOString()
       const payload2 = { disputeId: f2.disputeId, escrowId: f2.escrowId, appealRound: d2.appealRound, authorityId: f2.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
-      await expect(getDisputeService().resolveDispute(f2.disputeId, f2.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload2, arbiterKp.secretKey), issuedAt)).rejects.toThrow(/ST1-R2 V3/)
+      // Exact-generation signed authority and pending prove ADOPT after adapter failure.
+      const adopted = await getDisputeService().resolveDispute(f2.disputeId, f2.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload2, arbiterKp.secretKey), issuedAt)
+      expect(adopted.status).toBe('RESOLVED')
+      expect(adopted.ruling).toBe('RELEASE')
+      expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: f2.escrowId } })).not.toBeNull()
       failing.mockRestore()
 
       // Flow 3: a stale round, an appeal, the cleanup, and the real entry point.
