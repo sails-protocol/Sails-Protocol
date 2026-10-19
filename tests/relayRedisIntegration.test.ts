@@ -619,6 +619,29 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('does not extend a denied participant budget window under sustained pressure', async () => {
+    const key = 'test:relay:denial-expiry:' + randomUUID()
+    const windowMs = 1200
+    const evalBudget = () => b.eval(RELAY_BUDGET_SCRIPT, 1, key, 10, 1, 10, windowMs)
+    try {
+      expect(await a.eval(RELAY_BUDGET_SCRIPT, 1, key, 10, 1, 10, windowMs)).toBe(1)
+      const initialTtl = await a.pttl(key)
+      expect(initialTtl).toBeGreaterThan(0)
+      await new Promise(resolve => setTimeout(resolve, 200))
+      const denials = await Promise.all(Array.from({ length: 30 }, () => evalBudget()))
+      expect(denials).toEqual(Array(30).fill(0))
+      const remainingTtl = await a.pttl(key)
+      expect(remainingTtl).toBeGreaterThan(0)
+      expect(remainingTtl).toBeLessThan(initialTtl)
+      expect(await a.hgetall(key)).toMatchObject({ messages: '1', bytes: '10' })
+      await new Promise(resolve => setTimeout(resolve, windowMs + 150))
+      expect(await evalBudget()).toBe(1)
+      expect(await b.hgetall(key)).toMatchObject({ messages: '1', bytes: '10' })
+    } finally {
+      await a.del(key)
+    }
+  })
+
   it('never over-admits across concurrent clients, expires, then resets', async () => {
     const key = 'test:relay:atomic:' + randomUUID()
     const evalBudget = (client: Redis, bytes: number) =>
