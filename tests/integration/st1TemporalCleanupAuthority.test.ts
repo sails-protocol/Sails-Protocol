@@ -1951,6 +1951,23 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await disputeOf(o)).toEqual(before)
     expect(await outcomeRecords(o)).toBe(1)
     expect(await edaCount(o)).toBe(0)
+
+    // V3-OS-LIVE: recovery is not merely a durable no-op. A real bitcoinjs
+    // PSBT signature can still be accepted by the production entrypoint,
+    // and the original signed generation can authorize execution exactly once.
+    await needBothSigners(pending.id, o)
+    const signed = await buyerSigns(pending.id)
+    await submitTransactionSignature(o.escrowId, o.buyerId, signed)
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 1 })
+    const durable = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+    expect(durable.rulingAuthoritySignature).toBe(generation.rulingAuthoritySignature)
+    expect(durable.rulingAppealRound).toBe(generation.rulingAppealRound)
+    await authorizeDisputedPendingExecution(durable)
+    expect(await edaCount(o)).toBe(1)
+    await authorizeDisputedPendingExecution(durable)
+    expect(await edaCount(o)).toBe(1)
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
   })
 
   it('V3-S a signature persisted before dispatch throws is never lost by the rollback path', async () => {
