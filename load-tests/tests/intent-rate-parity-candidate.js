@@ -33,6 +33,13 @@ export const options = {
   thresholds: {
     checks: ['rate==1'],
     sails_intent_success: ['rate==1'],
+    // A rate scheduler may complete fewer or more than two iterations in
+    // this tiny window. Require nonzero observed work, but report the actual
+    // counts rather than pretending exactly two arrivals were guaranteed.
+    sails_authenticated_arrivals: ['count>0'],
+    sails_completed_intent_pairs: ['count>0'],
+    sails_intent_create_samples: ['count>0'],
+    sails_intent_cancel_samples: ['count>0'],
     http_req_failed: ['rate==0'],
     dropped_iterations: ['count==0'],
   },
