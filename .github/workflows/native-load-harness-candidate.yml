@@ -944,7 +944,7 @@ jobs:
                   iterations:count('iterations'),authenticated:count('sails_authenticated_arrivals'),
                   completed:count('sails_completed_intent_pairs'),create:count('sails_intent_create_samples'),
                   cancel:count('sails_intent_cancel_samples'),requests:count('http_reqs'),
-                  dropped:count('dropped_iterations'),nominalArrivals:2,arrivalCountMatchesNominal:count('iterations')===2,
+                  dropped:count('dropped_iterations'),extraScheduledArrivals:count('sails_extra_scheduled_arrivals')??0,nominalArrivals:2,arrivalCountMatchesNominal:count('iterations')===2,
                   requestCountMatchesObservedArrivals:count('http_reqs')===6*count('iterations'),checksPass:m.checks?.value===1,
                   intentPass:m.sails_intent_success?.value===1,httpFailureRate:m.http_req_failed?.value??null
                 }));
@@ -959,12 +959,12 @@ jobs:
           const count=k=>m[k]?.count;
           const keys=['iterations','sails_authenticated_arrivals','sails_completed_intent_pairs','sails_intent_create_samples','sails_intent_cancel_samples'];
           const observed=Object.fromEntries(keys.map(k=>[k,count(k)??null]));
-          const valid=keys.every(k=>count(k)===2)&&count('http_reqs')===12&&count('dropped_iterations')===0&&m.checks?.value===1&&m.sails_intent_success?.value===1;
+          const valid=keys.every(k=>count(k)===2)&&count('iterations')===2&&count('sails_extra_scheduled_arrivals')===undefined&&count('http_reqs')===12&&count('dropped_iterations')===0&&m.checks?.value===1&&m.sails_intent_success?.value===1;
           const quantiles=['med','p(95)','p(99)'];
           const operations=['sails_intent_create_duration','sails_intent_cancel_duration'];
           const latency=Object.fromEntries(operations.map(k=>[k,Object.fromEntries(quantiles.map(q=>[q,m[k]?.[q]??null]))]));
           const validLatency=operations.every(k=>quantiles.every(q=>Number.isFinite(m[k]?.[q])&&m[k][q]>=0)&&m[k].med<=m[k]['p(95)']&&m[k]['p(95)']<=m[k]['p(99)']);
-          console.log('k6 rate candidate bounded aggregate:',JSON.stringify({requestedRatePerSecond:1,windowSeconds:2,observed,requests:count('http_reqs')??null,dropped:count('dropped_iterations')??null,latency,valid,validLatency}));
+          console.log('k6 rate candidate bounded aggregate:',JSON.stringify({requestedRatePerSecond:1,windowSeconds:2,observed,extraScheduledArrivals:count('sails_extra_scheduled_arrivals')??0,requests:count('http_reqs')??null,dropped:count('dropped_iterations')??null,latency,valid,validLatency}));
           if(!valid||!validLatency)throw Error('Rate candidate schedule or per-operation evidence not comparable');
           console.log('Rate candidate k6 shape PASS; cross-engine parity NOT established');
           NODE
