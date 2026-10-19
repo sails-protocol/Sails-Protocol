@@ -446,6 +446,43 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('preserves a consumed ticket and prior budget when Redis client fails then recovers', async () => {
+    const { redis } = await import('../src/common/redis')
+    const { consumeSharedRelayBudget } = await import('../src/infrastructure/p2p/relay-shared-budget')
+    const ticket = 'recovery-' + randomUUID()
+    const ticketKey = 'auth:ws-ticket:' + ticket
+    const participant = 'participant-' + randomUUID()
+    const budgetKey = 'ratelimit:ws-relay:' + participant
+    const transient = new Redis(url!, { maxRetriesPerRequest: 1, enableOfflineQueue: false })
+    const evalSpy = jest.spyOn(redis, 'eval').mockImplementation(
+      ((...args: unknown[]) => (transient.eval as (...params: unknown[]) => Promise<unknown>)(...args)) as typeof redis.eval,
+    )
+    try {
+      await new Promise<void>((resolve, reject) => {
+        if (transient.status === 'ready') return resolve()
+        transient.once('ready', resolve)
+        transient.once('error', reject)
+      })
+      await a.set(ticketKey, participant, 'PX', 5000)
+      expect(await resolveParticipantFromTicket(ticket)).toBe(participant)
+      expect(await consumeSharedRelayBudget(participant, 100)).toBe(true)
+      transient.disconnect()
+      await expect(consumeSharedRelayBudget(participant, 1)).rejects.toThrow()
+      expect(await b.exists(ticketKey)).toBe(0)
+      expect(await b.hgetall(budgetKey)).toMatchObject({ messages: '1', bytes: '100' })
+      evalSpy.mockImplementation(
+        ((...args: unknown[]) => (b.eval as (...params: unknown[]) => Promise<unknown>)(...args)) as typeof redis.eval,
+      )
+      expect(await resolveParticipantFromTicket(ticket)).toBeNull()
+      expect(await consumeSharedRelayBudget(participant, 1)).toBe(true)
+      expect(await a.hgetall(budgetKey)).toMatchObject({ messages: '2', bytes: '101' })
+    } finally {
+      evalSpy.mockRestore()
+      transient.disconnect()
+      await a.del(ticketKey, budgetKey)
+    }
+  })
+
   it('keeps the distributed byte budget intact after a client disconnects', async () => {
     const key = 'test:relay:client-disconnect:' + randomUUID()
     const transient = new Redis(url!, { maxRetriesPerRequest: 1 })
