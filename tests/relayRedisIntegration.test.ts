@@ -324,7 +324,7 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     ).rejects.toThrow()
   })
 
-  it('closes a live authenticated TCP relay when real Redis budget evaluation fails', async () => {
+  it('fails closed with policy code when real Redis budget evaluation fails', async () => {
     const Fastify = (await import('fastify')).default
     const websocket = (await import('@fastify/websocket')).default
     const WebSocket = (await import('ws')).default
@@ -370,7 +370,8 @@ suite('relay shared budget — real Redis concurrent instances', () => {
         client!.once('error', err => { clearTimeout(timer); reject(err) })
       })
       client.send('frame-requiring-budget')
-      expect(await closeCode).toBe(1011)
+      expect(await closeCode).toBe(1008)
+      expect(evalSpy.mock.calls.some(call => String(call[0]).includes('HINCRBY'))).toBe(true)
       expect(await b.exists(key)).toBe(0)
     } finally {
       client?.terminate()
