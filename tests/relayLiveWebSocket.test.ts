@@ -103,6 +103,16 @@ describe('relay live WebSocket upgrade and ingress', () => {
     expect(dispatch).not.toHaveBeenCalled()
   })
 
+  it('enforces the frame cap on a real WebSocket before Redis or dispatch', async () => {
+    const client = await connect()
+    await waitRegistered()
+    const closed = closeEvent(client)
+    client.send(Buffer.alloc(64 * 1024 + 1))
+    expect(await closed).toBe(1009)
+    expect(budget).not.toHaveBeenCalled()
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
   it('rejects invalid tickets without registering the participant', async () => {
     ticket.mockResolvedValue(null)
     const client = await connect('invalid')
