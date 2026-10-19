@@ -100,6 +100,63 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('allows only one Redis ticket claim across two independent TCP listeners', async () => {
+    const Fastify = (await import('fastify')).default
+    const websocket = (await import('@fastify/websocket')).default
+    const WebSocket = (await import('ws')).default
+    const { redis } = await import('../src/common/redis')
+    const { relayRoutes } = await import('../src/infrastructure/p2p/relay.routes')
+    const { webSocketRelayTransportProvider } = await import('../src/infrastructure/p2p/websocket-relay.service')
+    const ticket = 'two-listeners-' + randomUUID()
+    const key = 'auth:ws-ticket:' + ticket
+    const apps = [Fastify({ logger: false }), Fastify({ logger: false })]
+    const clients: InstanceType<typeof WebSocket>[] = []
+    const evalSpy = jest.spyOn(redis, 'eval').mockImplementation(
+      ((...args: unknown[]) => (a.eval as (...params: unknown[]) => Promise<unknown>)(...args)) as typeof redis.eval,
+    )
+    const registerSpy = jest.spyOn(webSocketRelayTransportProvider, 'registerSocket')
+    try {
+      await a.set(key, 'participant-' + randomUUID(), 'PX', 5000)
+      for (const app of apps) {
+        await app.register(websocket)
+        await app.register(relayRoutes)
+        await app.listen({ host: '127.0.0.1', port: 0 })
+      }
+      const observations = await Promise.all(apps.map(async app => {
+        const address = app.server.address()
+        if (!address || typeof address === 'string') throw new Error('Expected TCP listener address')
+        const client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/relay?ticket=${ticket}`)
+        clients.push(client)
+        const messages: string[] = []
+        client.on('message', data => messages.push(data.toString()))
+        await new Promise<void>((resolve, reject) => {
+          client.once('open', resolve)
+          client.once('error', reject)
+        })
+        return { messages }
+      }))
+      await new Promise<void>((resolve, reject) => {
+        const deadline = Date.now() + 3000
+        const poll = () => {
+          if (registerSpy.mock.calls.length === 1 &&
+            observations.some(item => item.messages.some(message => message.includes('already-used ticket')))) return resolve()
+          if (Date.now() >= deadline) return reject(new Error('Cross-listener Redis ticket claim was not exclusive'))
+          setTimeout(poll, 10)
+        }
+        poll()
+      })
+      expect(registerSpy).toHaveBeenCalledTimes(1)
+      expect(observations.filter(item => item.messages.some(message => message.includes('already-used ticket')))).toHaveLength(1)
+      expect(await b.exists(key)).toBe(0)
+    } finally {
+      clients.forEach(client => client.terminate())
+      registerSpy.mockRestore()
+      evalSpy.mockRestore()
+      await Promise.all(apps.map(app => app.close()))
+      await a.del(key)
+    }
+  })
+
   it('rejects a replay after a successful TCP connection has disconnected', async () => {
     const Fastify = (await import('fastify')).default
     const websocket = (await import('@fastify/websocket')).default
