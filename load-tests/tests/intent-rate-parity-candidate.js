@@ -1,5 +1,5 @@
 /**
- * Opt-in candidate for the Artillery HTTP comparator's 1 arrival/s, 2s window.
+ * Opt-in candidate for Artillery's 1 arrival/s, 2s HTTP comparator.\n * k6 deliberately uses a 1999ms window, so temporal parity is NOT established.
  * This is a rate-SHAPE candidate only, not throughput or latency parity proof:
  * the tiny schedule can drop a boundary arrival, and Artillery measures only the two
  * in-engine Intent HTTP operations while k6 also measures four auth calls.
@@ -30,8 +30,7 @@ export const options = {
       // Avoid k6's inclusive 2s boundary tick. This is a scheduling
       // stability candidate only: the requested 2s Artillery window is NOT
       // claimed equivalent to 1999ms without independent arrival timing proof.
-      // k6 may schedule an extra iteration at the 2s boundary. Do not
-      // misrepresent it as comparable: reject it before authentication.
+      // An extra iteration is still possible; if observed, reject it\n      // before authentication and fail the candidate.
       // This bounds side effects, but cannot make a 3-arrival schedule equal 2.
       preAllocatedVUs: 2,
       maxVUs: 2,
