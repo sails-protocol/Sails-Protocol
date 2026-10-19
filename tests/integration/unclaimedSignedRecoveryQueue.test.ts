@@ -107,6 +107,9 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
       select: { id: true, tradeId: true },
     })
     await prisma.trade.updateMany({ where: { id: { in: untouched.map((e) => e.tradeId) } }, data: { escrowId: null } })
+    // These participant keys are owned by this fixture and have a restrictive escrow FK.
+    // Remove them only for untouched fixture escrows before deleting those escrows.
+    await prisma.escrowParticipantKey.deleteMany({ where: { escrowId: { in: untouched.map((e) => e.id) } } })
     await prisma.escrow.deleteMany({ where: { id: { in: untouched.map((e) => e.id) } } })
     await prisma.trade.deleteMany({ where: { id: { in: untouched.map((e) => e.tradeId) } } })
   }
