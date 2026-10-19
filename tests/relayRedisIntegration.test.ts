@@ -425,6 +425,26 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('keeps Redis counters unchanged on repeated concurrent budget denials', async () => {
+    const key = 'test:relay:denied-concurrent:' + randomUUID()
+    const evalBudget = (client: Redis, bytes: number) =>
+      client.eval(RELAY_BUDGET_SCRIPT, 1, key, bytes, 3, 100, 5000)
+    try {
+      expect(await evalBudget(a, 40)).toBe(1)
+      expect(await evalBudget(b, 40)).toBe(1)
+      const denials = await Promise.all(
+        Array.from({ length: 40 }, (_, i) => evalBudget(i % 2 ? a : b, 30)),
+      )
+      expect(denials).toEqual(Array(40).fill(0))
+      expect(await b.hgetall(key)).toMatchObject({ messages: '2', bytes: '80' })
+      expect(await evalBudget(b, 20)).toBe(1)
+      expect(await a.hgetall(key)).toMatchObject({ messages: '3', bytes: '100' })
+      expect(await evalBudget(a, 1)).toBe(0)
+    } finally {
+      await a.del(key)
+    }
+  })
+
   it('never over-admits across concurrent clients, expires, then resets', async () => {
     const key = 'test:relay:atomic:' + randomUUID()
     const evalBudget = (client: Redis, bytes: number) =>
