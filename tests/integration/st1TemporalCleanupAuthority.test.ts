@@ -1968,6 +1968,31 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await edaCount(o)).toBe(1)
     expect(await disputeOf(o)).toEqual(before)
     expect(await outcomeRecords(o)).toBe(1)
+
+    // V3-OS-EXEC: submit the second authentic PSBT signature through the
+    // production completion path. Only the external explorer POST is stubbed;
+    // the provider must construct a valid final Bitcoin transaction itself.
+    let broadcastTxId: string | undefined
+    const fundingFetch = global.fetch
+    global.fetch = jest.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith('/tx') && options?.method === 'POST') {
+        const raw = String(options.body)
+        const tx = bitcoin.Transaction.fromHex(raw)
+        broadcastTxId = tx.getId()
+        return { ok: true, text: async () => broadcastTxId! } as any
+      }
+      return fundingFetch(url, options)
+    }) as any
+    const sellerPsbt = bitcoin.Psbt.fromBase64(durable.unsignedPsbtBase64, { network: bitcoin.networks.testnet })
+    sellerPsbt.signInput(0, sellerKey)
+    const completed = await submitTransactionSignature(o.escrowId, o.sellerId, sellerPsbt.toBase64())
+    expect(completed.complete).toBe(true)
+    expect(broadcastTxId).toMatch(/^[0-9a-f]{64}$/)
+    const settled = await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })
+    expect(settled.status).toBe('COMPLETED')
+    expect(settled.txReleaseId).toBe(broadcastTxId)
+    expect(await edaCount(o)).toBe(1)
+    expect(await outcomeRecords(o)).toBe(1)
   })
 
   it('V3-S a signature persisted before dispatch throws is never lost by the rollback path', async () => {
