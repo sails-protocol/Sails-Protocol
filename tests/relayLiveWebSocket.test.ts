@@ -133,6 +133,39 @@ describe('relay live WebSocket upgrade and ingress', () => {
     expect(ticket).toHaveBeenCalledWith('ticket-two')
   })
 
+  it('opens the live relay through the SDK with a fresh authenticated ticket', async () => {
+    const { SailsClient } = await import('../packages/sails-sdk/src/client')
+    const fetchImpl = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, data: { ticket: 'sdk-ticket', expiresIn: 30 } }),
+    })
+    const sdk = new SailsClient({
+      baseUrl: base.replace(/^ws/, 'http'),
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      webSocketImpl: WebSocket as unknown as typeof globalThis.WebSocket,
+    })
+    sdk.setSessionToken('sdk-session')
+    const client = await sdk.peers.connectRelay() as unknown as WebSocket
+    clients.push(client)
+    if (client.readyState !== WebSocket.OPEN) {
+      await new Promise<void>((resolve, reject) => {
+        client.once('open', resolve)
+        client.once('error', reject)
+      })
+    }
+    await waitRegistered()
+    client.send('sdk-relay-e2e')
+    for (let i = 0; i < 200 && dispatch.mock.calls.length === 0; i++) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    expect(dispatch.mock.calls).toEqual([['participant', 'sdk-relay-e2e']])
+    expect(ticket).toHaveBeenCalledWith('sdk-ticket')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(fetchImpl.mock.calls[0][0]).toMatch(/\\/v1\\/identity\\/ws-ticket$/)
+    expect(fetchImpl.mock.calls[0][1].headers.authorization).toBe('Bearer sdk-session')
+  })
+
   it('rejects invalid tickets without registering the participant', async () => {
     ticket.mockResolvedValue(null)
     const client = await connect('invalid')
