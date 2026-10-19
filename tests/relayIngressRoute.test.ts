@@ -158,6 +158,19 @@ describe('relay authenticated WS ingress queue', () => {
     expect(dispatch).not.toHaveBeenCalled()
   })
 
+  it('rejects the 61st queued frame even when total queued bytes stay below 256 KiB', async () => {
+    budget.mockImplementation(() => new Promise(() => undefined))
+    const socket = new FakeSocket()
+    await route(socket, { query: { ticket: 'valid' } })
+    for (let i = 0; i < 60; i++) socket.emit('message', Buffer.from('x'))
+    expect(socket.close).not.toHaveBeenCalled()
+    socket.emit('message', Buffer.from('x'))
+    expect(socket.close).toHaveBeenCalledWith(1008, 'Relay pending byte budget exceeded')
+    expect(dispatch).not.toHaveBeenCalled()
+    await flush()
+    expect(budget).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects unbounded queued bytes without waiting for Redis', async () => {
     budget.mockImplementation(() => new Promise(() => undefined))
     const socket = new FakeSocket()
