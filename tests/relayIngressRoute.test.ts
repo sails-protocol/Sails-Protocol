@@ -137,6 +137,17 @@ describe('relay authenticated WS ingress queue', () => {
     expect(dispatch).not.toHaveBeenCalled()
   })
 
+  it('admits exactly 64 KiB while still consulting the shared Redis budget', async () => {
+    const socket = new FakeSocket()
+    await route(socket, { query: { ticket: 'valid' } })
+    socket.emit('message', Buffer.alloc(65536))
+    await flush()
+    await flush()
+    expect(budget).toHaveBeenCalledWith('participant', 65536)
+    expect(dispatch).toHaveBeenCalledTimes(1)
+    expect(socket.close).not.toHaveBeenCalled()
+  })
+
   it('rejects an oversized frame before allocating queue buffers or querying Redis', async () => {
     const socket = new FakeSocket()
     await route(socket, { query: { ticket: 'valid' } })
