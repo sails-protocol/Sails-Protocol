@@ -1951,6 +1951,42 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await disputeOf(o)).toEqual(before)
     expect(await outcomeRecords(o)).toBe(1)
     expect(await edaCount(o)).toBe(0)
+
+    // V3-OS-EXEC: this disputed 2-of-3 PSBT already receives the arbiter
+    // signature inside the provider at execution. The single required
+    // external buyer signature is sufficient; requiring both buyer and
+    // seller would create THREE signatures and fail with "Too many signatures".
+    const durable = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+    expect(durable.rulingAuthoritySignature).toBe(generation.rulingAuthoritySignature)
+    expect(durable.rulingAppealRound).toBe(generation.rulingAppealRound)
+    expect(durable.requiredSigners).toEqual([o.buyerId])
+    let broadcastTxId: string | undefined
+    const fundingFetch = global.fetch
+    let broadcastCount = 0
+    global.fetch = jest.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith('/tx') && options?.method === 'POST') {
+        broadcastCount++
+        const tx = bitcoin.Transaction.fromHex(String(options.body))
+        broadcastTxId = tx.getId()
+        return { ok: true, text: async () => broadcastTxId! } as any
+      }
+      return fundingFetch(url, options)
+    }) as any
+    let completed: Awaited<ReturnType<typeof submitTransactionSignature>>
+    try {
+      const signed = await buyerSigns(pending.id)
+      completed = await submitTransactionSignature(o.escrowId, o.buyerId, signed)
+    } finally {
+      global.fetch = fundingFetch
+    }
+    expect(completed.complete).toBe(true)
+    expect(broadcastCount).toBe(1)
+    expect(broadcastTxId).toMatch(/^[0-9a-f]{64}$/)
+    const settled = await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })
+    expect(settled.status).toBe('COMPLETED')
+    expect(settled.txReleaseId).toBe(broadcastTxId)
+    expect(await edaCount(o)).toBe(1)
+    expect(await outcomeRecords(o)).toBe(1)
   })
 
   it('V3-S a signature persisted before dispatch throws is never lost by the rollback path', async () => {

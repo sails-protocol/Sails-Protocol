@@ -620,7 +620,14 @@ describe('AUD1X-H1 MULTISIG bearer-capability correction - real PostgreSQL', () 
           aggregate[key].push(...lap[key])
         }
         const row = await prisma.escrowPendingTransaction.findUnique({ where: { id: roundId }, select: { unclaimedRecoveryAttemptedAt: true } })
-        if (!row || row.unclaimedRecoveryAttemptedAt) break
+        // The claim timestamp is written BEFORE recovery work and does not
+        // prove completion. Stop only after the target has a terminal
+        // classification or a terminal escrow state; otherwise keep polling.
+        const targetClassified = ['resumedUnclaimed', 'failed', 'requiresManualReview', 'alreadyClaimedConcurrently']
+          .some(key => aggregate[key].some((entry: any) =>
+            typeof entry === 'string' ? entry === live.escrowId : entry.escrowId === live.escrowId))
+        const escrowRow = await prisma.escrow.findUnique({ where: { id: live.escrowId }, select: { status: true } })
+        if (!row || targetClassified || escrowRow?.status === 'COMPLETED') break
       }
       return aggregate
     }
@@ -628,7 +635,20 @@ describe('AUD1X-H1 MULTISIG bearer-capability correction - real PostgreSQL', () 
 
     const r1 = await runUntilAttempted(liveRound.id)
     const liveRecovery = { resumed: mine(live, r1.resumedUnclaimed), failed: mine(live, r1.failed), manual: mine(live, r1.requiresManualReview), concurrent: mine(live, r1.alreadyClaimedConcurrently), recovered: mine(live, r1.recovered), effects: await effects(live), pending: await prisma.escrowPendingTransaction.findUnique({ where: { id: liveRound.id }, select: { unclaimedRecoveryAttemptedAt: true, id: true } }) }
-    if (liveRecovery.resumed.length !== 1) throw new Error(`B8 C8 recovery evidence: ${JSON.stringify(liveRecovery)}`)
+    if (liveRecovery.resumed.length !== 1) {
+      // A persisted attemptedAt marker without a recovery report is NOT a
+      // successful recovery. Surface all pass-zero classifications and the
+      // durable signature state so a rare CI failure remains actionable.
+      const signatureRows = await prisma.escrowTransactionSignature.findMany({
+        where: { pendingTxId: liveRound.id },
+        select: { participantId: true },
+      })
+      const durableRound = await prisma.escrowPendingTransaction.findUnique({
+        where: { id: liveRound.id },
+        select: { requiredSigners: true, unclaimedRecoveryAttemptedAt: true, kind: true },
+      })
+      throw new Error(`B8 C8 recovery evidence: ${JSON.stringify({ ...liveRecovery, durableRound, signedParticipantIds: signatureRows.map(s => s.participantId), passZeroReport: r1 })}`)
+    }
     expect(liveRecovery.resumed).toEqual([expect.objectContaining({ escrowId: live.escrowId })])
     expect(await effects(live)).toMatchObject({ status: 'COMPLETED', broadcasts: 1, authorizations: 1 })
     await verifyBroadcastWitness(live, pubHex(buyerKey))
