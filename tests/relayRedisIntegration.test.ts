@@ -100,6 +100,35 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('keeps a Redis ticket single-use across independent Node child processes', async () => {
+    const { fork } = await import('child_process')
+    const { join } = await import('path')
+    const ticket = 'multiprocess-' + randomUUID()
+    const key = 'auth:ws-ticket:' + ticket
+    const workerPath = join(__dirname, 'helpers', 'relayRedisTicketWorker.cjs')
+    const workers = [0, 1].map(() => fork(workerPath, [], {
+      env: { ...process.env, RELAY_REDIS_INTEGRATION_URL: url!, RELAY_TICKET_KEY: key },
+      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+    }))
+    try {
+      await a.set(key, 'participant-' + randomUUID(), 'PX', 5000)
+      const results = await Promise.all(workers.map(worker => new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Redis child process timed out')), 5000)
+        worker.once('message', message => {
+          clearTimeout(timer)
+          resolve(String(message))
+        })
+        worker.once('error', err => { clearTimeout(timer); reject(err) })
+        worker.send('go')
+      })))
+      expect(results.sort()).toEqual(['claimed', 'rejected'])
+      expect(await b.exists(key)).toBe(0)
+    } finally {
+      workers.forEach(worker => worker.kill())
+      await a.del(key)
+    }
+  })
+
   it('allows only one Redis ticket claim across two independent TCP listeners', async () => {
     const Fastify = (await import('fastify')).default
     const websocket = (await import('@fastify/websocket')).default
