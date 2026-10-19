@@ -57,7 +57,14 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
     // Transfer ownership before closing: a stale close callback must not
     // unregister the replacement socket.
     this.sockets.set(participantId, socket)
-    if (previous && previous.readyState === OPEN) previous.close()
+    if (previous && previous.readyState === OPEN) {
+      try {
+        previous.close()
+      } catch {
+        // A broken old transport must not abort registration of the new
+        // authenticated socket. Ownership has already been transferred.
+      }
+    }
   }
 
   ownsSocket(participantId: string, socket: RelaySocket): boolean {
