@@ -51,6 +51,9 @@ export const options = {
   },
 }
 export default function () {
+  // Emit a zero sample on every invocation so the zero-excess threshold
+  // remains evaluable even when no boundary arrival occurs.
+  extraScheduledArrivals.add(0)
   // Preserve strict fail-closed accounting. An unexpected third iteration
   // must not consume four additional auth requests or mutate intents.
   // __ITER is per-VU, so two VUs can both report iteration 0.
