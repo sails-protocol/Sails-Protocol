@@ -933,7 +933,7 @@ jobs:
                 droppedIterations:/thresholds? on metrics? 'dropped_iterations' have been crossed/i.test(log),
                 httpFailures:/thresholds? on metrics? 'http_req_failed' have been crossed/i.test(log),
                 moduleResolution:/could not resolve|unknown module|module not found/i.test(log),
-                runtimeError:/level=error|ERRO\\[|GoError|TypeError|ReferenceError/i.test(log),
+                runtimeError:log.includes('level=error')||log.includes('ERRO[')||log.includes('GoError')||log.includes('TypeError')||log.includes('ReferenceError'),
               };
               console.log('k6 rate candidate failure fingerprints:',JSON.stringify(fingerprints));
               const summaryPath='/tmp/sails-k6-rate-summary.json';
