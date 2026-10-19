@@ -107,7 +107,7 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     const key = 'auth:ws-ticket:' + ticket
     const workerPath = join(__dirname, 'helpers', 'relayRedisTicketWorker.cjs')
     const workers = [0, 1].map(() => fork(workerPath, [], {
-      env: { ...process.env, RELAY_REDIS_INTEGRATION_URL: url!, RELAY_TICKET_KEY: key },
+      env: { ...process.env, RELAY_REDIS_INTEGRATION_URL: url!, RELAY_TICKET_KEY: key, RELAY_ATOMIC_SCRIPT: ATOMIC_CONSUME_SCRIPT },
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
     }))
     try {
