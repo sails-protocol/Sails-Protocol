@@ -113,6 +113,26 @@ describe('relay live WebSocket upgrade and ingress', () => {
     expect(dispatch).not.toHaveBeenCalled()
   })
 
+  it('reconnects with a fresh ticket and retires the previous socket without losing the new owner', async () => {
+    const first = await connect('ticket-one')
+    await waitRegistered()
+    const second = await connect('ticket-two')
+    for (let i = 0; i < 200 && sockets.get('participant') === first; i++) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    expect(sockets.get('participant')).not.toBe(first)
+    first.close()
+    await closeEvent(first)
+    expect(sockets.has('participant')).toBe(true)
+    second.send('after-reconnect')
+    for (let i = 0; i < 200 && dispatch.mock.calls.length === 0; i++) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    expect(dispatch.mock.calls).toEqual([['participant', 'after-reconnect']])
+    expect(ticket).toHaveBeenCalledWith('ticket-one')
+    expect(ticket).toHaveBeenCalledWith('ticket-two')
+  })
+
   it('rejects invalid tickets without registering the participant', async () => {
     ticket.mockResolvedValue(null)
     const client = await connect('invalid')
