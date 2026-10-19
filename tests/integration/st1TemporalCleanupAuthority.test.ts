@@ -1308,7 +1308,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: before.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
     try {
       await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
-        .rejects.toThrow(/committed authorization.*not proven|preserved for reconciliation/i)
+        .rejects.toThrow(/injected: authorized pending disappeared before dispatch returned/)
     } finally {
       failing.mockRestore()
     }
