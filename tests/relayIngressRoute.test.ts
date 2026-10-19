@@ -324,6 +324,50 @@ describe('relay real TCP WebSocket transport', () => {
     }
   })
 
+  it('rejects a frame above 1 MiB at the actual WebSocket transport boundary', async () => {
+    const Fastify = (await import('fastify')).default
+    const websocket = (await import('@fastify/websocket')).default
+    const WebSocket = (await import('ws')).default
+    const app = Fastify({ logger: false })
+    let client: InstanceType<typeof WebSocket> | undefined
+    try {
+      jest.clearAllMocks()
+      resolveTicket.mockResolvedValue('participant')
+      owns.mockReturnValue(true)
+      await app.register(websocket, { options: { maxPayload: 1048576 } })
+      await app.register(relayRoutes)
+      await app.listen({ host: '127.0.0.1', port: 0 })
+      const address = app.server.address()
+      if (!address || typeof address === 'string') throw new Error('Expected TCP server address')
+      client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/relay?ticket=transport-oversized`)
+      await new Promise<void>((resolve, reject) => {
+        client!.once('open', resolve)
+        client!.once('error', reject)
+      })
+      await new Promise<void>((resolve, reject) => {
+        const deadline = Date.now() + 3000
+        const poll = () => {
+          if (register.mock.calls.length === 1) return resolve()
+          if (Date.now() >= deadline) return reject(new Error('TCP relay was not authenticated'))
+          setTimeout(poll, 10)
+        }
+        poll()
+      })
+      const closeCode = new Promise<number>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Transport oversized frame did not close')), 3000)
+        client!.once('close', code => { clearTimeout(timeout); resolve(code) })
+        client!.once('error', err => { clearTimeout(timeout); reject(err) })
+      })
+      client.send(Buffer.alloc(1048577))
+      expect(await closeCode).toBe(1009)
+      expect(budget).not.toHaveBeenCalled()
+      expect(dispatch).not.toHaveBeenCalled()
+    } finally {
+      client?.terminate()
+      await app.close()
+    }
+  })
+
   it('dispatches a frame over a live Fastify WebSocket connection', async () => {
     const Fastify = (await import('fastify')).default
     const websocket = (await import('@fastify/websocket')).default
