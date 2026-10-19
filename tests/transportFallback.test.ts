@@ -117,6 +117,23 @@ describe('WebSocketRelayTransportProvider — CISO Privacy Rule (Blind Relay)', 
     expect(buyerHandler).not.toHaveBeenCalled()
   })
 
+  it('closes a superseded socket without unregistering or disconnecting its replacement', async () => {
+    const relay = new WebSocketRelayTransportProvider()
+    const oldSocket = fakeSocket()
+    const newSocket = fakeSocket()
+    const closeOld = jest.spyOn(oldSocket, 'close')
+    relay.registerSocket('buyer', oldSocket)
+    relay.registerSocket('buyer', newSocket)
+    expect(closeOld).toHaveBeenCalledTimes(1)
+    expect(relay.ownsSocket('buyer', oldSocket)).toBe(false)
+    expect(relay.ownsSocket('buyer', newSocket)).toBe(true)
+    relay.unregisterSocket('buyer', oldSocket)
+    expect(relay.isConnected('buyer')).toBe(true)
+    expect(await relay.sendToPeer('seller', 'buyer', 'after-reconnect')).toBe(true)
+    expect(newSocket.sent).toEqual(['after-reconnect'])
+    expect(oldSocket.sent).toEqual([])
+  })
+
   it('reports a participant as connected only while their socket is registered and open', async () => {
     const relay = new WebSocketRelayTransportProvider()
     expect(relay.isConnected('buyer')).toBe(false)
