@@ -10,7 +10,7 @@ import { BASE_URL, baseOptions } from '../k6.config.js'
 import { generateTestUser } from '../utils/data-generator.js'
 import { run } from './intent-creation.js'
 
-if (!/^http:\\/\\/(?:localhost|127\\.0\\.0\\.1)(?::\\d+)?\\/?$/.test(BASE_URL)) {
+if (!/^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/?$/.test(BASE_URL)) {
   throw new Error('Intent rate candidate requires loopback HTTP target')
 }
 const authenticated = new Counter('sails_authenticated_arrivals')
