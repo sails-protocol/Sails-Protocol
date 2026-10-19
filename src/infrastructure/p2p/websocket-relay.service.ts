@@ -52,7 +52,12 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
   // Called by app.ts's `/ws/relay` route once the client's WebSocket
   // upgrade completes — this is the real "connection", not start() below.
   registerSocket(participantId: string, socket: RelaySocket): void {
+    const previous = this.sockets.get(participantId)
+    if (previous === socket) return
+    // Transfer ownership before closing: a stale close callback must not
+    // unregister the replacement socket.
     this.sockets.set(participantId, socket)
+    if (previous && previous.readyState === OPEN) previous.close()
   }
 
   ownsSocket(participantId: string, socket: RelaySocket): boolean {
