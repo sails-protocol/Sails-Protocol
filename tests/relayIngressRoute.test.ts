@@ -168,7 +168,9 @@ describe('relay authenticated WS ingress queue', () => {
     expect(socket.close).toHaveBeenCalledWith(1008, 'Relay pending byte budget exceeded')
     expect(dispatch).not.toHaveBeenCalled()
     await flush()
-    expect(budget).toHaveBeenCalledTimes(1)
+    // The 61st frame closes the socket synchronously; queued work must not
+    // start Redis admission after the socket is already stopped.
+    expect(budget).not.toHaveBeenCalled()
   })
 
   it('rejects unbounded queued bytes without waiting for Redis', async () => {
