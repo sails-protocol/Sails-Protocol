@@ -1962,17 +1962,25 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(durable.requiredSigners).toEqual([o.buyerId])
     let broadcastTxId: string | undefined
     const fundingFetch = global.fetch
+    let broadcastCount = 0
     global.fetch = jest.fn(async (url: string, options?: RequestInit) => {
       if (url.endsWith('/tx') && options?.method === 'POST') {
+        broadcastCount++
         const tx = bitcoin.Transaction.fromHex(String(options.body))
         broadcastTxId = tx.getId()
         return { ok: true, text: async () => broadcastTxId! } as any
       }
       return fundingFetch(url, options)
     }) as any
-    const signed = await buyerSigns(pending.id)
-    const completed = await submitTransactionSignature(o.escrowId, o.buyerId, signed)
+    let completed: Awaited<ReturnType<typeof submitTransactionSignature>>
+    try {
+      const signed = await buyerSigns(pending.id)
+      completed = await submitTransactionSignature(o.escrowId, o.buyerId, signed)
+    } finally {
+      global.fetch = fundingFetch
+    }
     expect(completed.complete).toBe(true)
+    expect(broadcastCount).toBe(1)
     expect(broadcastTxId).toMatch(/^[0-9a-f]{64}$/)
     const settled = await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })
     expect(settled.status).toBe('COMPLETED')
