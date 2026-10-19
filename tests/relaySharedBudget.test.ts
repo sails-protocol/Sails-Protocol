@@ -26,9 +26,9 @@ describe('shared relay budget — Redis atomic gate', () => {
     expect(args[3]).toBe(42)
   })
 
-  it('fails closed on Redis outage and unexpected result', async () => {
+  it('propagates Redis outage for 1011 handling and rejects unexpected result', async () => {
     evalMock.mockRejectedValueOnce(new Error('redis down')).mockResolvedValueOnce(null)
-    expect(await consumeSharedRelayBudget('a', 1)).toBe(false)
+    await expect(consumeSharedRelayBudget('a', 1)).rejects.toThrow('redis down')
     expect(await consumeSharedRelayBudget('a', 1)).toBe(false)
   })
 })
