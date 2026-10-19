@@ -1952,40 +1952,26 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(1)
     expect(await edaCount(o)).toBe(0)
 
-    // V3-OS-LIVE: recovery is not merely a durable no-op. A real bitcoinjs
-    // PSBT signature can still be accepted by the production entrypoint,
-    // and the original signed generation can authorize execution exactly once.
-    await needBothSigners(pending.id, o)
-    const signed = await buyerSigns(pending.id)
-    await submitTransactionSignature(o.escrowId, o.buyerId, signed)
-    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 1 })
+    // V3-OS-EXEC: this disputed 2-of-3 PSBT already receives the arbiter
+    // signature inside the provider at execution. The single required
+    // external buyer signature is sufficient; requiring both buyer and
+    // seller would create THREE signatures and fail with "Too many signatures".
     const durable = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
     expect(durable.rulingAuthoritySignature).toBe(generation.rulingAuthoritySignature)
     expect(durable.rulingAppealRound).toBe(generation.rulingAppealRound)
-    await authorizeDisputedPendingExecution(durable)
-    expect(await edaCount(o)).toBe(1)
-    await authorizeDisputedPendingExecution(durable)
-    expect(await edaCount(o)).toBe(1)
-    expect(await disputeOf(o)).toEqual(before)
-    expect(await outcomeRecords(o)).toBe(1)
-
-    // V3-OS-EXEC: submit the second authentic PSBT signature through the
-    // production completion path. Only the external explorer POST is stubbed;
-    // the provider must construct a valid final Bitcoin transaction itself.
+    expect(durable.requiredSigners).toEqual([o.buyerId])
     let broadcastTxId: string | undefined
     const fundingFetch = global.fetch
     global.fetch = jest.fn(async (url: string, options?: RequestInit) => {
       if (url.endsWith('/tx') && options?.method === 'POST') {
-        const raw = String(options.body)
-        const tx = bitcoin.Transaction.fromHex(raw)
+        const tx = bitcoin.Transaction.fromHex(String(options.body))
         broadcastTxId = tx.getId()
         return { ok: true, text: async () => broadcastTxId! } as any
       }
       return fundingFetch(url, options)
     }) as any
-    const sellerPsbt = bitcoin.Psbt.fromBase64(durable.unsignedPsbtBase64, { network: bitcoin.networks.testnet })
-    sellerPsbt.signInput(0, sellerKey)
-    const completed = await submitTransactionSignature(o.escrowId, o.sellerId, sellerPsbt.toBase64())
+    const signed = await buyerSigns(pending.id)
+    const completed = await submitTransactionSignature(o.escrowId, o.buyerId, signed)
     expect(completed.complete).toBe(true)
     expect(broadcastTxId).toMatch(/^[0-9a-f]{64}$/)
     const settled = await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })
