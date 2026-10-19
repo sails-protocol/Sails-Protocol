@@ -944,7 +944,8 @@ jobs:
                   iterations:count('iterations'),authenticated:count('sails_authenticated_arrivals'),
                   completed:count('sails_completed_intent_pairs'),create:count('sails_intent_create_samples'),
                   cancel:count('sails_intent_cancel_samples'),requests:count('http_reqs'),
-                  dropped:count('dropped_iterations'),checksPass:m.checks?.value===1,
+                  dropped:count('dropped_iterations'),nominalArrivals:2,arrivalCountMatchesNominal:count('iterations')===2,
+                  requestCountMatchesObservedArrivals:count('http_reqs')===6*count('iterations'),checksPass:m.checks?.value===1,
                   intentPass:m.sails_intent_success?.value===1,httpFailureRate:m.http_req_failed?.value??null
                 }));
               }
