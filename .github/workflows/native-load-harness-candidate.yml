@@ -959,7 +959,7 @@ jobs:
           const count=k=>m[k]?.count;
           const keys=['iterations','sails_authenticated_arrivals','sails_completed_intent_pairs','sails_intent_create_samples','sails_intent_cancel_samples'];
           const observed=Object.fromEntries(keys.map(k=>[k,count(k)??null]));
-          const valid=keys.every(k=>count(k)===2)&&count('iterations')===2&&count('sails_extra_scheduled_arrivals')===undefined&&count('http_reqs')===12&&count('dropped_iterations')===0&&m.checks?.value===1&&m.sails_intent_success?.value===1;
+          const valid=keys.every(k=>count(k)===2)&&count('iterations')===2&&count('sails_extra_scheduled_arrivals')===0&&count('http_reqs')===12&&count('dropped_iterations')===0&&m.checks?.value===1&&m.sails_intent_success?.value===1;
           const quantiles=['med','p(95)','p(99)'];
           const operations=['sails_intent_create_duration','sails_intent_cancel_duration'];
           const latency=Object.fromEntries(operations.map(k=>[k,Object.fromEntries(quantiles.map(q=>[q,m[k]?.[q]??null]))]));
