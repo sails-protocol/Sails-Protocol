@@ -445,6 +445,28 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('recovers after a real Redis client disconnect without resetting the distributed budget', async () => {
+    const key = 'test:relay:recovered-client:' + randomUUID()
+    const transient = new Redis(url!, { maxRetriesPerRequest: 1 })
+    let recovered: Redis | undefined
+    try {
+      expect(await transient.eval(RELAY_BUDGET_SCRIPT, 1, key, 40, 3, 100, 5000)).toBe(1)
+      transient.disconnect()
+      await expect(
+        transient.eval(RELAY_BUDGET_SCRIPT, 1, key, 10, 3, 100, 5000),
+      ).rejects.toThrow()
+      recovered = new Redis(url!, { maxRetriesPerRequest: 1 })
+      expect(await recovered.eval(RELAY_BUDGET_SCRIPT, 1, key, 60, 3, 100, 5000)).toBe(1)
+      expect(await b.hgetall(key)).toMatchObject({ messages: '2', bytes: '100' })
+      expect(await recovered.eval(RELAY_BUDGET_SCRIPT, 1, key, 1, 3, 100, 5000)).toBe(0)
+      expect(await a.hgetall(key)).toMatchObject({ messages: '2', bytes: '100' })
+    } finally {
+      transient.disconnect()
+      if (recovered) await recovered.quit()
+      await a.del(key)
+    }
+  })
+
   it('never over-admits across concurrent clients, expires, then resets', async () => {
     const key = 'test:relay:atomic:' + randomUUID()
     const evalBudget = (client: Redis, bytes: number) =>
