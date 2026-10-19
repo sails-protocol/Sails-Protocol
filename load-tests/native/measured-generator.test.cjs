@@ -21,5 +21,14 @@ assert.throws(()=>assertRssSampleCoverage(0,0),/sample count insufficient/);
   await assert.rejects(runMeasured(process.execPath,['-e','setTimeout(()=>{},100)'],{timeoutMs:99}),/Invalid generator timeout/);
   const fast=await runMeasured(process.execPath,['-e','process.exit(0)'],{timeoutMs:2000,intervalMs:25}).then(()=> 'sampled',error=>error.message);
   assert.ok(fast==='sampled'||fast==='Generator resource sample count insufficient: no periodic sample before exit'||fast==='Generator resource sample count insufficient','Fast child must either be sampled or rejected without a false metric');
+  // The shortened diagnostic must not be confused with a successful sample.
+  // Independently exercise a child that is expected to finish before any 25ms tick.
+  const rapid=await runMeasured(process.execPath,['-e','process.exit(0)'],{timeoutMs:2000,intervalMs:25}).then(value=>({ok:true,value}),error=>({ok:false,message:error.message}));
+  if(rapid.ok){
+    assert.ok(rapid.value.samples>=2);
+    assert.ok(rapid.value.peakRssKiB>0);
+  }else{
+    assert.match(rapid.message,/^Generator resource sample count insufficient(?:: no periodic sample before exit)?$/);
+  }
   console.log('Disposable child generator resource accounting PASS (sampled only)');
 })().catch(e=>{console.error(e.message);process.exitCode=1});
