@@ -964,7 +964,7 @@ jobs:
           const operations=['sails_intent_create_duration','sails_intent_cancel_duration'];
           const latency=Object.fromEntries(operations.map(k=>[k,Object.fromEntries(quantiles.map(q=>[q,m[k]?.[q]??null]))]));
           const validLatency=operations.every(k=>quantiles.every(q=>Number.isFinite(m[k]?.[q])&&m[k][q]>=0)&&m[k].med<=m[k]['p(95)']&&m[k]['p(95)']<=m[k]['p(99)']);
-          console.log('k6 rate candidate bounded aggregate:',JSON.stringify({requestedRatePerSecond:1,windowSeconds:2,observed,extraScheduledArrivals:count('sails_extra_scheduled_arrivals')??0,requests:count('http_reqs')??null,dropped:count('dropped_iterations')??null,latency,valid,validLatency}));
+          console.log('k6 rate candidate bounded aggregate:',JSON.stringify({requestedRatePerSecond:1,configuredWindowSeconds:1.999,artilleryWindowSeconds:2,temporalParityEstablished:false,observed,extraScheduledArrivals:count('sails_extra_scheduled_arrivals')??0,requests:count('http_reqs')??null,dropped:count('dropped_iterations')??null,latency,valid,validLatency}));
           if(!valid||!validLatency)throw Error('Rate candidate schedule or per-operation evidence not comparable');
           console.log('Rate candidate k6 shape PASS; cross-engine parity NOT established');
           NODE
