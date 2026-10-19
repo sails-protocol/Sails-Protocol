@@ -8,7 +8,8 @@ process.on('message', async message => {
   try {
     const accepted = await redis.eval(
       process.env.RELAY_BUDGET_SCRIPT, 1, process.env.RELAY_BUDGET_KEY,
-      10, 100, 100, 5000,
+      10, Number(process.env.RELAY_BUDGET_MAX_MESSAGES || 100),
+      Number(process.env.RELAY_BUDGET_MAX_BYTES || 100), 5000,
     )
     if (process.send) process.send({ accepted })
   } catch (error) {
