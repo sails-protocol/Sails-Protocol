@@ -211,7 +211,17 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     // The event store checks, in its publish transaction, whether the escrow transition already has a
     // durable event (one event per transition, migration 20260930130000); none has, here.
     // #235 R7H-E3 - the repository's binding check; the binding itself is proven on real PostgreSQL (escrowSellerPaymentBinding.test.ts).
-    $queryRaw: jest.fn(async (strings: TemplateStringsArray) => (strings.join('?').includes('escrow_economic_binding_violation') ? [{ violation: null, governed: mockBindingGoverned }] : [])),
+    $queryRaw: jest.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const sql = strings.join('?')
+      if (sql.includes('escrow_economic_binding_violation')) return [{ violation: null, governed: mockBindingGoverned }]
+      // Unit-only transaction fixture: return the escrow row for the same ID as the
+      // SELECT ... FOR UPDATE. Real locking/serialization is tested against PostgreSQL elsewhere.
+      if (/FROM escrows WHERE id = .*FOR UPDATE/.test(sql)) {
+        const escrow = await mockEscrowFindUnique({ where: { id: values[0] } })
+        return escrow ? [{ status: escrow.status }] : []
+      }
+      return []
+    }),
   })
 )
 
@@ -1414,46 +1424,15 @@ describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT
     mockEscrowFundingEvidenceFindMany.mockResolvedValue([])
   })
 
-  it('builds an unsigned split PSBT via the provider and persists both payout addresses', async () => {
+  it('AUD1X-H1: refuses a disputed split with no resolved ruling before provider construction or persistence', async () => {
     mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'DISPUTED' })
-    // Real MultisigProvider.buildUnsignedSplit() only requires ONE more
-    // signer alongside the arbiter's pre-embedded one (still a 2-of-3
-    // script — see that method's own comment); mocked here as buyer-1,
-    // matching its real default pairing.
-    mockBuildUnsignedSplit.mockResolvedValue({ psbtBase64: 'unsigned-split-psbt', requiredSigners: ['buyer-1'] })
-    mockPendingTxCreate.mockResolvedValue({ id: 'ptx-3', escrowId: 'escrow-1', kind: 'split', requiredSigners: ['buyer-1'] })
-
-    const result = await escrowService.initiateSplit('escrow-1', 'tb1qbuyer', 'tb1qseller', 6000, 'arbiter-1')
-
-    expect(mockBuildUnsignedSplit).toHaveBeenCalledWith(
-      expect.objectContaining({ buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY }),
-      'tb1qbuyer',
-      'tb1qseller',
-      6000
-    )
-    expect(mockPendingTxCreate).toHaveBeenCalledWith({
-      data: {
-        escrowId: 'escrow-1', kind: 'split', toAddress: 'tb1qbuyer', toAddressSecondary: 'tb1qseller',
-        unsignedPsbtBase64: 'unsigned-split-psbt', requiredSigners: ['buyer-1'], triggeredBy: 'arbiter-1',
-        // Missão 11 Fase 3 — buyerBps is now persisted on the pending
-        // transaction so submitTransactionSignature() can later compute
-        // the seller's FeeObligation basisAmount for a SPLIT settled via
-        // this path (it wasn't stored anywhere before this pass).
-        buyerBps: 6000,
-        // ADR-005 / #218 — ruling-generation provenance snapshotted
-        // because this escrow is DISPUTED. mockDisputeFindFirst's own
-        // fixture above only sets {id, tradeId, arbiterId} — the other
-        // generation fields are genuinely undefined on that row, exactly
-        // as a real Dispute predating this ADR would report them.
-        disputeId: 'dispute-1',
-        rulingAppealRound: undefined,
-        rulingArbiterId: 'arbiter-1',
-        rulingOutcome: undefined,
-        rulingAuthoritySignature: undefined,
-        rulingAuthorityIssuedAt: undefined,
-      },
-    })
-    expect(result.id).toBe('ptx-3')
+    // A dispute with only an assigned arbiter is not an economic ruling.
+    // Never turn this fixture into a fictitious authorized split to satisfy the legacy test.
+    await expect(
+      escrowService.initiateSplit('escrow-1', 'tb1qbuyer', 'tb1qseller', 6000, 'arbiter-1')
+    ).rejects.toThrow(/AUD1X-H1: dispute .* has no resolved ruling/)
+    expect(mockBuildUnsignedSplit).not.toHaveBeenCalled()
+    expect(mockPendingTxCreate).not.toHaveBeenCalled()
   })
 
   it('rejects buyerBps of 0 or 10000 — those are RELEASE/REFUND in disguise, not a real split', async () => {

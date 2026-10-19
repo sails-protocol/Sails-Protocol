@@ -79,6 +79,7 @@ const disputedPending = {
 function liveDispute(overrides: Record<string, unknown> = {}) {
   return {
     id: 'dispute-1',
+    escrowId: 'escrow-1',
     status: 'RESOLVED',
     appealRound: 0,
     arbiterId: 'arbiter-1',

@@ -107,6 +107,11 @@ jobs:
           npm run test:integration:postgres > postgres-output.txt 2>&1
           result=$?
           echo "PostgreSQL integration exit code: $result"
+          # Surface every failing suite and assertion, not just the final 200 lines.
+          # The complete output remains attached as the jest-output artifact.
+          echo '--- PostgreSQL failure index (all suites/assertions) ---'
+          grep -nE '^[[:space:]]*(FAIL |● |Test Suites:|Tests:)' postgres-output.txt || true
+          echo '--- PostgreSQL final 200 lines ---'
           tail -n 200 postgres-output.txt
           exit "$result"
       - name: Upload test logs

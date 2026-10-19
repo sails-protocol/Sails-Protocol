@@ -37,10 +37,10 @@
  * before this was written that `Psbt.combine()` correctly merges two
  * independently-signed copies of the same unsigned PSBT (and correctly
  * fails to finalize with only one). On a `DISPUTED` release/refund, the
- * arbiter's own required signature is pre-embedded into the unsigned PSBT
- * at build time (its key is still server-derived, see below) — only the
- * other required party (buyer or seller) is a real pending client
- * submission in that case.
+ * arbiter's own required signature is added by the platform
+ * only at authorized execution time, after the durable economic-disposition
+ * gate validates the ruling and generation. The unsigned PSBT carries no
+ * platform signature; only the buyer or seller submits a client signature.
  *
  * Non-custodial in the fund-movement sense — unlike MOCK/WDK_USDT_EVM,
  * this provider never pushes funds into escrow itself. The seller sends

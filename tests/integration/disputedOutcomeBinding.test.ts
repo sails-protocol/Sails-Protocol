@@ -399,7 +399,7 @@ describe('AUD-1 disputed economic Outcome binding - real PostgreSQL', () => {
     const o = await openedDispute('prior')
     const before = await effects(o)
 
-    await expect(escrowService.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId)).rejects.toThrow(/AUD-1 \(H1\)/)
+    await expect(escrowService.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId)).rejects.toThrow(/AUD1X-H1: dispute .* has no resolved ruling/)
 
     expect(await effects(o)).toEqual(before)
     expect(before).toMatchObject({ status: 'DISPUTED', rounds: 0, authorizations: 0, broadcasts: 0 })

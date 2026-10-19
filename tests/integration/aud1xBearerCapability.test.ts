@@ -334,7 +334,7 @@ describe('AUD1X-H1 MULTISIG bearer-capability correction - real PostgreSQL', () 
     return async () => { release(); await done }
   }
 
-  const REFUSED_H1 = /AUD-1 \(H1\)/
+  const REFUSED_H1 = /AUD1X-H1: dispute .* has no resolved ruling/
   const REFUSED = /AUD-1|does not correspond to the authoritative Outcome/
 
   // ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -408,8 +408,7 @@ describe('AUD1X-H1 MULTISIG bearer-capability correction - real PostgreSQL', () 
 
     const outcome = await construct
     expect(outcome).toBeInstanceOf(Error)
-    expect((outcome as Error).message).toMatch(REFUSED_H1)
-    expect((outcome as Error).message).toMatch(/not what this release round was built for/)
+    expect((outcome as Error).message).toMatch(/AUD-1 \(H1\): the ruling authority of dispute .* is not what this release round was built for/)
     expect(await effects(o)).toMatchObject({ status: 'DISPUTED', rounds: 0, signatures: 0, authorizations: 0, broadcasts: 0 })
   })
 
@@ -546,6 +545,25 @@ describe('AUD1X-H1 MULTISIG bearer-capability correction - real PostgreSQL', () 
     await verifyBroadcastWitness(o, pubHex(buyerKey))
   })
 
+  it('B5b a signed ruling cannot execute with a drifted arbiter key; the persisted round remains unsigned by the platform', async () => {
+    const o = await openedDispute('b5b-key-drift')
+    const round = await rule(o, 'RELEASE')
+    const buyerCopy = sign(round.unsignedPsbtBase64, buyerKey)
+    chain(o.txid)
+    const committed = await prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })
+    expect(committed.status).toBe('RESOLVED')
+    expect(committed.authoritySignature).toBeTruthy()
+
+    const realDerive = multisigProvider.deriveArbiterKey.bind(multisigProvider)
+    jest.spyOn(multisigProvider, 'deriveArbiterKey').mockImplementationOnce(() => realDerive(ARBITER2_ID))
+    await expect(submitTransactionSignature(o.escrowId, o.buyerId, buyerCopy))
+      .rejects.toThrow(/does not derive the arbiter public key committed/)
+    expect(await effects(o)).toMatchObject({ status: 'DISPUTED', txReleaseId: null, rounds: 1, signatures: 1, broadcasts: 0 })
+    const retained = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: round.id } })
+    expect(partialSigPubkeys(retained.unsignedPsbtBase64)).toEqual([])
+    expect((await prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })).authoritySignature).toBe(committed.authoritySignature)
+  })
+
   it('B6 restart: an independent module graph (its own client, no memory of the first) finalizes the round persisted by the first - the platform signature derives from configuration alone', async () => {
     const o = await openedDispute('b6')
     const round = await rule(o, 'RELEASE')
@@ -591,18 +609,27 @@ describe('AUD1X-H1 MULTISIG bearer-capability correction - real PostgreSQL', () 
     chain(live.txid)
     const report = (): any => ({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], completionVerified: [], locksAdvanced: [] })
     const runUntilAttempted = async (roundId: string) => {
-      const r = report()
+      // PASS 0 is globally bounded. Preserve reports across laps: an unrelated
+      // candidate may be visited first, and the target may be recovered in an
+      // earlier lap than the one that observes its attemptedAt marker.
+      const aggregate = report()
       for (let i = 0; i < 80; i++) {
-        await reconcileUnclaimedFullySignedPending(r)
+        const lap = report()
+        await reconcileUnclaimedFullySignedPending(lap)
+        for (const key of ['recovered', 'completionEffectsRecovered', 'requiresManualReview', 'failed', 'resumedUnclaimed', 'alreadyClaimedConcurrently', 'projectionsRecovered', 'completionVerified', 'locksAdvanced']) {
+          aggregate[key].push(...lap[key])
+        }
         const row = await prisma.escrowPendingTransaction.findUnique({ where: { id: roundId }, select: { unclaimedRecoveryAttemptedAt: true } })
         if (!row || row.unclaimedRecoveryAttemptedAt) break
       }
-      return r
+      return aggregate
     }
     const mine = (o: Opened, rows: any[]) => rows.filter((x: any) => x.escrowId === o.escrowId)
 
     const r1 = await runUntilAttempted(liveRound.id)
-    expect(mine(live, r1.resumedUnclaimed)).toHaveLength(1)
+    const liveRecovery = { resumed: mine(live, r1.resumedUnclaimed), failed: mine(live, r1.failed), manual: mine(live, r1.requiresManualReview), concurrent: mine(live, r1.alreadyClaimedConcurrently), recovered: mine(live, r1.recovered), effects: await effects(live), pending: await prisma.escrowPendingTransaction.findUnique({ where: { id: liveRound.id }, select: { unclaimedRecoveryAttemptedAt: true, id: true } }) }
+    if (liveRecovery.resumed.length !== 1) throw new Error(`B8 C8 recovery evidence: ${JSON.stringify(liveRecovery)}`)
+    expect(liveRecovery.resumed).toEqual([expect.objectContaining({ escrowId: live.escrowId })])
     expect(await effects(live)).toMatchObject({ status: 'COMPLETED', broadcasts: 1, authorizations: 1 })
     await verifyBroadcastWitness(live, pubHex(buyerKey))
 

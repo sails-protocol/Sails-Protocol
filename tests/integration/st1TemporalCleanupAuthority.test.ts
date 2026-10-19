@@ -51,7 +51,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
   let submitTransactionSignature: (escrowId: string, participantId: string, signedPsbtBase64: string) => Promise<any>
   let authorizeDisputedPendingExecution: (pending: any) => Promise<any>
   let economicDispositionLockKey: (disputeId: string) => string
-  let revertDisputeRulingRecord: (escrowId: string, appealRound: number) => Promise<void>
+  let revertDisputeRulingRecord: (escrowId: string, appealRound: number, authoritySignature: string) => Promise<number>
   let commitAuthoritativeDisputeRuling: (...args: any[]) => Promise<{ committed: boolean }>
   let deletePendingRoundIfStillUnsigned: (pendingId: string, escrowId: string, generation: any) => Promise<string>
   let reconcileStalePendingDisputeTranslations: () => Promise<any>
@@ -866,8 +866,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const issuedAt = new Date().toISOString()
     const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
     try {
-      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
-        .rejects.toThrow(/ST1-R2 V3/)
+      // Proven exact-generation dispatch is ADOPTed; preserve signed authority.
+      const adopted = await getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt)
+      expect(adopted?.status).toBe('RESOLVED')
+      expect(adopted?.authoritySignature).toBe(signAuthorityDecision(payload, arbiterKp.secretKey))
     } finally {
       failing.mockRestore()
     }
@@ -1306,7 +1308,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: before.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
     try {
       await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
-        .rejects.toThrow(/ST1-R2 V3/)
+        .rejects.toThrow(/committed authorization.*not proven.*preserved for reconciliation/i)
     } finally {
       failing.mockRestore()
     }
@@ -1511,14 +1513,19 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
     const signature = signAuthorityDecision(payload, arbiterKp.secretKey)
     try {
-      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signature, issuedAt))
-        .rejects.toThrow(/ST1-R2 V3/)
+      // A proven exact-generation pending round is ADOPTed after adapter failure.
+      const adopted = await getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signature, issuedAt)
+      expect(adopted?.status).toBe('RESOLVED')
+      expect(adopted?.authoritySignature).toBe(signature)
     } finally {
       failing.mockRestore()
     }
     const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
     expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
-    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    const retainedDispute = await disputeOf(o)
+    expect(retainedDispute.status).toBe('RESOLVED')
+    expect(retainedDispute.appealRound).toBe(payload.appealRound)
+    expect(retainedDispute.authoritySignature).toBe(signature)
     expect(await outcomeRecords(o)).toBe(1)
     await age(pending.id)
     const [report] = await reconcileScoped([o.escrowId])
@@ -1854,8 +1861,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const issuedAt = new Date().toISOString()
     const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
     try {
-      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
-        .rejects.toThrow(/ST1-R2 V3/)
+      // Proven exact-generation dispatch is ADOPTed; preserve signed authority.
+      const adopted = await getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt)
+      expect(adopted?.status).toBe('RESOLVED')
+      expect(adopted?.authoritySignature).toBe(signAuthorityDecision(payload, arbiterKp.secretKey))
     } finally {
       failing.mockRestore()
     }
@@ -1959,8 +1968,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const issuedAt = new Date().toISOString()
     const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
     try {
-      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
-        .rejects.toThrow(/ST1-R2 V3/)
+      // Proven exact-generation dispatch is ADOPTed; preserve signed authority.
+      const adopted = await getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt)
+      expect(adopted?.status).toBe('RESOLVED')
+      expect(adopted?.authoritySignature).toBe(signAuthorityDecision(payload, arbiterKp.secretKey))
     } finally {
       failing.mockRestore()
     }
@@ -1983,8 +1994,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const issuedAt = new Date().toISOString()
     const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
     try {
-      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
-        .rejects.toThrow(/ST1-R2 V3/)
+      // Proven exact-generation dispatch is ADOPTed; preserve signed authority.
+      const adopted = await getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt)
+      expect(adopted?.status).toBe('RESOLVED')
+      expect(adopted?.authoritySignature).toBe(signAuthorityDecision(payload, arbiterKp.secretKey))
     } finally {
       failing.mockRestore()
     }
@@ -2014,8 +2027,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const issuedAt = new Date().toISOString()
     const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
     try {
-      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
-        .rejects.toThrow(/ST1-R2 V3/)
+      // Proven exact-generation dispatch is ADOPTed; preserve signed authority.
+      const adopted = await getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt)
+      expect(adopted?.status).toBe('RESOLVED')
+      expect(adopted?.authoritySignature).toBe(signAuthorityDecision(payload, arbiterKp.secretKey))
     } finally {
       failing.mockRestore()
     }
@@ -2235,10 +2250,14 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
   it('V2 a committed Economic Disposition Authorization names the round: the cleanup never deletes it, before or after an appeal', async () => {
     const o = await openedDispute('v2')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
-    await stale(pending.id, o)
+    // Commit authorization against the unmodified, Outcome-matching PSBT first.
+    // A stale/corrupted round cannot obtain a new economic authorization.
     const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
-    await authorizeDisputedPendingExecution(row) // the production gate commits the authorization
+    await authorizeDisputedPendingExecution(row)
     expect(await edaCount(o)).toBe(1)
+    // Model later persisted-round corruption only AFTER durable authorization.
+    // Cleanup must still preserve the committed economic disposition.
+    await stale(pending.id, o)
     const authorizedPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
     const authorizedGeneration = await generationOf(pending.id)
     const authorizedOutcomeCount = await outcomeRecords(o)
@@ -2664,7 +2683,11 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       const d2 = await prisma.dispute.findUniqueOrThrow({ where: { id: f2.disputeId } })
       const issuedAt = new Date().toISOString()
       const payload2 = { disputeId: f2.disputeId, escrowId: f2.escrowId, appealRound: d2.appealRound, authorityId: f2.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
-      await expect(getDisputeService().resolveDispute(f2.disputeId, f2.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload2, arbiterKp.secretKey), issuedAt)).rejects.toThrow(/ST1-R2 V3/)
+      // Exact-generation signed authority and pending prove ADOPT after adapter failure.
+      const adopted = await getDisputeService().resolveDispute(f2.disputeId, f2.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload2, arbiterKp.secretKey), issuedAt)
+      expect(adopted.status).toBe('RESOLVED')
+      expect(adopted.ruling).toBe('RELEASE')
+      expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: f2.escrowId } })).not.toBeNull()
       failing.mockRestore()
 
       // Flow 3: a stale round, an appeal, the cleanup, and the real entry point.

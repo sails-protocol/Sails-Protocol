@@ -180,14 +180,15 @@ describe('Escrow arbiter public-key commitment — real lifecycle + DB-native im
   })
 })
 
-// Missão 11 Fase 5.3 §A/§A.1 — real signature-collection-path proof that
-// assertArbiterMatchesScript()'s triggeredBy context (restored by this
-// phase's own one-line fix in escrow-pending-tx.ts) and the persisted-
-// arbiter-pubkey check (Fase 5.2) both actually fire on the ONLY path
-// MULTISIG uses for a real disputed release/refund/split — never a
-// hand-built MultisigEscrowInput fixture. Complements
-// tests/multisigProvider.test.ts's own unit-level drift-detection suite
-// (which proves the LOGIC in isolation) by proving the WIRING.
+// Missão 11 Fase 5.3 §A/§A.1 — regression tests for the real
+// signature-collection path. AUD1X-H1 now requires a signed, durable
+// ruling before the provider checks triggeredBy and the committed script
+// key. The disputed fixtures below do NOT create such a ruling: they
+// currently prove fail-closed rejection only, not the end-to-end wiring
+// of assertArbiterMatchesScript() or seed-drift detection. Positive
+// signed-ruling coverage is still required before Gate 3 approval.
+// Provider-level key checks are exercised separately in
+// tests/multisigProvider.test.ts.
 describe('Signature-collection path — real triggeredBy/arbiter-context defense-in-depth (Missão 11 Fase 5.3, real Postgres)', () => {
   jest.setTimeout(60_000)
 
@@ -271,16 +272,35 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     return { escrow, buyer, seller, trade, txid }
   }
 
-  it('1. correct arbiter context (triggeredBy matches both the assigned dispute AND the persisted commitment) -> accepted', async () => {
-    requirePostgres('correct context accepted')
-    const { escrow, buyer, txid } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
-    mockExplorerFetch(txid)
-
-    const pending = await escrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)
-    expect(pending.requiredSigners).toEqual([buyer.id])
+  // AUD1X-H1: the legacy fixture above has an assigned arbiter but no
+  // authoritative signed ruling. That is deliberately insufficient to
+  // authorize any disputed settlement, regardless of committed script key.
+  it('AUD1X-H1: assigned arbiter and committed key without a ruling cannot release funds', async () => {
+    requirePostgres('no authoritative ruling')
+    const { escrow } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
+    await expect(
+      escrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)
+    ).rejects.toThrow(/ruling|outcome|authoritative|committed|decision/i)
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: escrow.id } })).toBeNull()
+    expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: escrow.id } })).toBe(0)
+    const after = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+    expect(after.status).toBe('DISPUTED')
+    expect(after.txReleaseId).toBeNull()
   })
 
-  it('2. wrong triggeredBy arbiter (assigned to the dispute, but not the identity baked into the script) -> rejected', async () => {
+  it('1. correct arbiter context (triggeredBy matches both the assigned dispute AND the persisted commitment) -> rejected without signed ruling', async () => {
+    requirePostgres('correct context requires ruling')
+    const { escrow, txid } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
+    // Matching script identity alone is insufficient without a signed, durable ruling.
+    await expect(escrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)).rejects.toThrow(/no resolved ruling/)
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: escrow.id } })).toBeNull()
+    const after = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+    expect(after.status).toBe('DISPUTED')
+    expect(after.txReleaseId).toBeNull()
+    void txid
+  })
+
+  it('2. assigned arbiter without ruling -> rejected before script identity check', async () => {
     requirePostgres('wrong triggeredBy rejected')
     // A different arbiter is genuinely ASSIGNED to this dispute (passes
     // isSellerOrAssignedArbiter's own authorization check against the
@@ -293,12 +313,12 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
 
     await expect(
       escrowService.initiateRelease(escrow.id, RELEASE_ADDR, 'a-different-assigned-arbiter')
-    ).rejects.toThrow(/does not match the arbiter public key committed/)
+    ).rejects.toThrow(/no resolved ruling/)
     void txid // fetch is never reached — confirms the rejection happens before any network call
   })
 
-  it('3/4. correct triggeredBy identity, but the persisted commitment no longer matches live config (MULTISIG_SEED drifted since creation) -> rejected', async () => {
-    requirePostgres('persisted pubkey mismatch rejected')
+  it('3/4. drifted seed without ruling -> rejected before script identity check', async () => {
+    requirePostgres('unresolved dispute with drifted seed rejected')
     // Commitment established under the file's baseline seed.
     const { escrow, txid } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
 
@@ -312,11 +332,11 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
 
     await expect(
       driftedEscrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)
-    ).rejects.toThrow(/does not match the arbiter public key committed/)
+    ).rejects.toThrow(/no resolved ruling/)
   })
 
-  it('5. legacy escrow (no persisted arbiter commitment) under a disputed release -> rejected outright (Missão 11 Fase 9.3 §4 — no persisted commitment = not eligible for real MULTISIG settlement)', async () => {
-    requirePostgres('legacy escrow rejected, not silently accepted')
+  it('5. legacy escrow without ruling -> rejected before script commitment check', async () => {
+    requirePostgres('unresolved legacy escrow rejected')
     // Simulates a pre-Fase-5.2 escrow: buyer/seller keys persisted
     // directly (bypassing submitParticipantKey()'s auto-commitment write,
     // which does not exist for a genuinely historical row), no
@@ -351,7 +371,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     mockExplorerFetch(txid)
     await expect(
       escrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)
-    ).rejects.toThrow(/no persisted arbiter public-key commitment/)
+    ).rejects.toThrow(/no resolved ruling/)
 
     const pending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: escrow.id } })
     expect(pending).toBeNull()

@@ -10,10 +10,13 @@
 // What is real: PostgreSQL, the claim, the reconciler, reconcilePendingSettlement() and its bounded,
 // retried explorer requests (boundedFetch), claimEscrowTransition(), the write-once result and the
 // completion effects. What is controlled: the explorer itself (global.fetch: answer, latency, call count,
-// concurrency; never the public internet) and the reconstruction of the signed transaction, stubbed to a
-// fixed txid per trade (real signed-PSBT reconstruction is proven in m9rClaimRecovery.test.ts). Candidates
-// are fully-signed pending rows on PAYMENT_PENDING MULTISIG escrows. None has participant keys: only an
-// explorer that says "unknown transaction" would get PASS 0 far enough to need them.
+// concurrency; never the public internet). Each candidate now contains a real P2WSH 2-of-3
+// unsigned PSBT and two independently signed copies, verified by production inspectRound().
+// Cryptographic finalization is not mocked; only the explorer network boundary is controlled.
+// Full signed recovery is additionally covered by m9rClaimRecovery.
+// Candidates are fully-signed pending rows on PAYMENT_PENDING MULTISIG escrows. Each escrow
+// persists the same three participant keys used to derive its funded P2WSH address, so production
+// script-commitment validation is exercised rather than bypassed.
 //
 // A "node" is an independent module graph (jest.isolateModules): its own module state, config (explorer
 // timeout and reconciliation interval come from the environment at load) and provider. The PrismaClient
@@ -25,9 +28,20 @@
 
 import { PrismaClient } from '@prisma/client'
 import { createHash, randomUUID } from 'crypto'
+import * as bitcoin from 'bitcoinjs-lib'
+import * as ecc from '@bitcoinerlab/secp256k1'
+import { ECPairFactory } from 'ecpair'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { boundOfferRow, boundTradeRow, sellerPixAccount } from './economicFixtures'
 
+bitcoin.initEccLib(ecc)
+const ECPair = ECPairFactory(ecc)
+const NETWORK = bitcoin.networks.testnet
+const keys = ['buyer','seller','arbiter'].map(n => ECPair.fromPrivateKey(createHash('sha256').update('queue-c8-'+n).digest(), { network: NETWORK }))
+const witnessScript = bitcoin.payments.p2ms({ m: 2, pubkeys: keys.map(k => Buffer.from(k.publicKey)).sort(Buffer.compare), network: NETWORK }).output!
+const fundingAddress = bitcoin.payments.p2wsh({ redeem: { output: witnessScript }, network: NETWORK }).address!
+const destination = bitcoin.payments.p2wpkh({ pubkey: Buffer.from(keys[0].publicKey), network: NETWORK }).address!
+const txidsByTrade = new Map<string, string>()
 const QUEUE_HEAD = Date.parse('2000-01-01T00:00:00.000Z')
 const HOUR = 3_600_000
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -80,21 +94,14 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
   })
 
   /**
-   * Only what this file created. Its pending rows go (signatures cascade), so none stays a PASS 0
-   * candidate. A fixture that never converged goes entirely (escrow and trade too), so none stays an
-   * open MULTISIG escrow that every later claim would have to read past. A converged fixture is a real
-   * settlement (events, fee obligation) and stays, like every other suite's.
+   * Remove only this suite's pending queue entries. The participant keys committed
+   * to the funded MULTISIG address are immutable by DB trigger, even while the
+   * escrow remains PAYMENT_PENDING. Preserve the escrow, keys and trade rather
+   * than bypassing that economic integrity guard during test cleanup.
+   * With the pending entries removed these fixtures are no longer PASS 0 candidates.
    */
   async function removeOwned(pendingIds: string[]): Promise<void> {
-    const rows = await prisma.escrowPendingTransaction.findMany({ where: { id: { in: pendingIds } }, select: { escrowId: true } })
     await prisma.escrowPendingTransaction.deleteMany({ where: { id: { in: pendingIds } } })
-    const untouched = await prisma.escrow.findMany({
-      where: { id: { in: rows.map((r) => r.escrowId) }, status: 'PAYMENT_PENDING', txReleaseId: null, events: { none: {} } },
-      select: { id: true, tradeId: true },
-    })
-    await prisma.trade.updateMany({ where: { id: { in: untouched.map((e) => e.tradeId) } }, data: { escrowId: null } })
-    await prisma.escrow.deleteMany({ where: { id: { in: untouched.map((e) => e.id) } } })
-    await prisma.trade.deleteMany({ where: { id: { in: untouched.map((e) => e.tradeId) } } })
   }
 
   afterAll(async () => {
@@ -119,7 +126,7 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
     budgetMs: number
   }
 
-  const txidOf = (tradeId: string) => createHash('sha256').update('p0q-' + tradeId).digest('hex')
+  const txidOf = (tradeId: string) => { const id = txidsByTrade.get(tradeId); if (!id) throw new Error('missing queue txid'); return id }
 
   /** An independent application instance; explorer timeout and reconciliation interval as its environment says. */
   function startNode({ timeoutMs = 8000, intervalMs = HOUR } = {}): Node {
@@ -129,7 +136,9 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
     jest.isolateModules(() => {
       require('../../src/common/events/handlers').registerEventHandlers()
       const provider = require('../../src/modules/open-settlement/multisig.provider').multisigProvider
-      jest.spyOn(provider, 'buildFinalizedTransaction').mockImplementation(((escrow: { tradeId: string }) => ({ getId: () => txidOf(escrow.tradeId), toHex: () => '00' })) as any) // #235 R7G-B2A: takes the escrow (its funding surface is checked)
+      // Do not mock cryptographic finalization: inspectRound() and the real
+      // P2WSH signing/finalization path must both remain under test.
+      // Network existence is the only controlled external dependency.
       const recon = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service')
       node = {
         pass0: async () => { const r = newReport(); await recon.reconcileUnclaimedFullySignedPending(r); return r },
@@ -149,12 +158,30 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
   /** A fully-signed release on a PAYMENT_PENDING MULTISIG escrow that never claimed its transition (C8). */
   async function candidate({ createdAt = new Date(QUEUE_HEAD + (headOffset += 1000)), signed = true } = {}): Promise<Candidate> {
     const trade = await prisma.trade.create({ data: { ...boundTradeRow(sellerAccount), offerId, buyerId, sellerId, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65', status: 'ACTIVE' } })
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', status: 'PAYMENT_PENDING', lockedAmount: '0.001', asset: 'BTC', txLockId: randomUUID().replace(/-/g, '').padEnd(64, '0'), txLockVout: 0 } })
+    const fundingTxid = createHash('sha256').update('queue-funding-' + trade.id).digest('hex')
+    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', status: 'PAYMENT_PENDING', lockedAmount: '0.001', asset: 'BTC', multisigAddr: fundingAddress, txLockId: fundingTxid, txLockVout: 0 } })
+    await prisma.escrowParticipantKey.createMany({ data: [
+      { escrowId: escrow.id, role: 'buyer', participantId: buyerId, pubkey: Buffer.from(keys[0].publicKey).toString('hex') },
+      { escrowId: escrow.id, role: 'seller', participantId: sellerId, pubkey: Buffer.from(keys[1].publicKey).toString('hex') },
+      { escrowId: escrow.id, role: 'arbiter', participantId: 'k6-test-arbiter', pubkey: Buffer.from(keys[2].publicKey).toString('hex') },
+    ] })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    const pending = await prisma.escrowPendingTransaction.create({ data: { escrowId: escrow.id, kind: 'release', toAddress: 'tb1q-p0q', unsignedPsbtBase64: 'p0q', requiredSigners: [buyerId, sellerId], triggeredBy: sellerId, createdAt } })
+    const psbt = new bitcoin.Psbt({ network: NETWORK })
+    psbt.addInput({ hash: fundingTxid, index: 0, witnessUtxo: { script: bitcoin.address.toOutputScript(fundingAddress, NETWORK), value: 100_000n }, witnessScript })
+    psbt.addOutput({ address: destination, value: 99_000n })
+    const unsigned = psbt.toBase64()
+    const signedCopies = keys.slice(0, 2).map(key => { const copy = bitcoin.Psbt.fromBase64(unsigned, { network: NETWORK }); copy.signInput(0, key); return copy.toBase64() })
+    // Prove fixture signatures actually combine and finalize before persisting a recovery candidate.
+    // A malformed fixture must fail at creation, not masquerade as a PASS 0 crash/restart defect.
+    const finalized = bitcoin.Psbt.fromBase64(unsigned, { network: NETWORK })
+    for (const signedCopy of signedCopies) finalized.combine(bitcoin.Psbt.fromBase64(signedCopy, { network: NETWORK }))
+    finalized.finalizeAllInputs()
+    const expectedTxid = finalized.extractTransaction().getId()
+    txidsByTrade.set(trade.id, expectedTxid)
+    const pending = await prisma.escrowPendingTransaction.create({ data: { escrowId: escrow.id, kind: 'release', toAddress: destination, unsignedPsbtBase64: unsigned, requiredSigners: [buyerId, sellerId], triggeredBy: sellerId, createdAt } })
     await prisma.escrowTransactionSignature.createMany({ data: [
-      { pendingTxId: pending.id, participantId: buyerId, signedPsbtBase64: 'b' },
-      ...(signed ? [{ pendingTxId: pending.id, participantId: sellerId, signedPsbtBase64: 's' }] : []),
+      { pendingTxId: pending.id, participantId: buyerId, signedPsbtBase64: signedCopies[0] },
+      ...(signed ? [{ pendingTxId: pending.id, participantId: sellerId, signedPsbtBase64: signedCopies[1] }] : []),
     ] })
     owned.push(pending.id)
     return { pendingId: pending.id, escrowId: escrow.id, tradeId: trade.id, txid: txidOf(trade.id) }
@@ -198,6 +225,13 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
   const escrowOf = (c: Candidate) => prisma.escrow.findUniqueOrThrow({ where: { id: c.escrowId } })
   const resumed = (r: Report, cs: Candidate[]) => r.resumedUnclaimed.filter((x) => cs.some((c) => c.escrowId === x.escrowId)).map((x) => x.escrowId)
   const failedFor = (r: Report, cs: Candidate[]) => r.failed.filter((x) => cs.some((c) => c.escrowId === x.escrowId)).map((x) => x.escrowId)
+  // Preserve the actual recovery-gate failure in CI output instead of reporting only
+  // a missing resumed escrow. This is diagnostic evidence, not a relaxed assertion.
+  const recoveryEvidence = (r: Report, cs: Candidate[]) => JSON.stringify({
+    failed: r.failed.filter((x) => cs.some((c) => c.escrowId === x.escrowId)),
+    manual: r.requiresManualReview.filter((x) => cs.some((c) => c.escrowId === x.escrowId)),
+    resumed: resumed(r, cs),
+  })
   const stampOf = async (c: Candidate) => (await prisma.escrowPendingTransaction.findUnique({ where: { id: c.pendingId } }))?.unclaimedRecoveryAttemptedAt ?? null
 
   /** Converged exactly once: terminal, the chain's txid as the one result, one completion transition. */
@@ -268,6 +302,23 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
   }
 
   // ═══ A–E: bounded runs drain a backlog ═══════════════════════════════════════════════════════════════
+
+  // AUD1X-H1 / M9-R: these legacy synthetic queue rows are NOT cryptographic
+  // proof. A malformed persisted PSBT must fail closed before any explorer read.
+  // Separate valid-PSBT crash recovery fixtures are still required.
+  it('malformed queued PSBT fails closed before explorer lookup', async () => {
+    requirePostgres('malformed queued PSBT')
+    const [x] = track(await candidates(1))
+    await prisma.escrowPendingTransaction.update({ where: { id: x.pendingId }, data: { unsignedPsbtBase64: 'invalid-psbt' } })
+    const st = explorer()
+    const report = await startNode().pass0()
+    const errors = report.failed.filter((row) => row.escrowId === x.escrowId)
+    expect(errors).toHaveLength(1)
+    expect(errors[0].error).toMatch(/failed to combine\/finalize signatures|PSBT|Uint8Array/)
+    expect(st.total).toBe(0)
+    expect(resumed(report, [x])).toEqual([])
+    await expectUntouched([x])
+  })
 
   it('A. no candidate of ours, only rows still collecting signatures: none of them is claimed, loaded or sent to the explorer, and whatever the run does claim is loaded one row per claim', async () => {
     requirePostgres('A')
@@ -379,7 +430,11 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
     const node = startNode()
     jest.spyOn(node.provider as any, 'broadcast').mockImplementation(broadcast as any)
     const r = await node.pass0()
-    expect(failedFor(r, unknown)).toHaveLength(2) // unknown txid -> needs the outpoint -> no participant keys -> fails closed
+    // 404 means the transaction is not found, not that the funding outpoint is safe to spend.
+    // The explorer fixture returns no UTXOs, so the provider must report an anomaly for manual
+    // review, without claiming settlement or attempting a broadcast.
+    expect(r.requiresManualReview.filter((x) => unknown.some((c) => c.escrowId === x.escrowId))).toHaveLength(2)
+    expect(resumed(r, unknown)).toHaveLength(0)
     expect(broadcast).not.toHaveBeenCalled()
     await expectUntouched(unknown)
     expect(st.total).toBe(2)
@@ -502,7 +557,7 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
     expect(await stampOf(x)).not.toBeNull()
     expect(st.total).toBe(0)
     await expectUntouched([x])
-    expect(resumed(await startNode().pass0(), [x])).toEqual([x.escrowId])
+    { const result = await startNode().pass0(); if (!resumed(result, [x]).includes(x.escrowId)) throw new Error(`PASS 0 did not resume ${x.escrowId}: ${recoveryEvidence(result, [x])}`) }
     await expectConverged([x])
   })
 
