@@ -25,14 +25,9 @@ return 1
 
 export async function consumeSharedRelayBudget(participantId: string, bytes: number): Promise<boolean> {
   if (!participantId || !Number.isSafeInteger(bytes) || bytes < 0 || bytes > RELAY_FRAME_MAX_BYTES) return false
-  try {
-    const result = await redis.eval(
+  const result = await redis.eval(
       RELAY_BUDGET_SCRIPT, 1, 'ratelimit:ws-relay:' + participantId,
       bytes, RELAY_WINDOW_MAX_MESSAGES, RELAY_WINDOW_MAX_BYTES, RELAY_WINDOW_MS,
     )
-    return result === 1
-  } catch {
-    // Never fall back to an instance-local counter on a Redis outage.
-    return false
-  }
+  return result === 1
 }
