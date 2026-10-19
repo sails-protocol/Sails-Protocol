@@ -821,8 +821,9 @@ jobs:
             console.log('k6 backend resource sample:',JSON.stringify(backend));
           })().catch(error=>{
             // No raw process output, URLs, PIDs, credentials or command lines.
-            console.error('Bounded k6 resource measurement failed:',error?.message==='Generator resource sample count insufficient'
-              ?'generator-samples-insufficient':'resource-measurement-invalid');
+            console.error('Bounded k6 resource measurement failed:',error?.message==='Generator resource sample count insufficient: no periodic sample before exit'
+              ?'generator-no-periodic-sample':error?.message==='Generator resource sample count insufficient'
+              ?'generator-rss-coverage-insufficient':'resource-measurement-invalid');
             process.exitCode=1;
           });
           RESOURCE_NODE
