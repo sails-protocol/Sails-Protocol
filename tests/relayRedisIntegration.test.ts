@@ -599,6 +599,39 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('enforces the message cap across independent Node processes even with bytes remaining', async () => {
+    const { fork } = await import('child_process')
+    const { join } = await import('path')
+    const key = 'test:relay:process-message-cap:' + randomUUID()
+    const workerPath = join(__dirname, 'helpers', 'relayRedisBudgetWorker.cjs')
+    const workers = Array.from({ length: 8 }, () => fork(workerPath, [], {
+      env: {
+        ...process.env,
+        RELAY_REDIS_INTEGRATION_URL: url!,
+        RELAY_BUDGET_KEY: key,
+        RELAY_BUDGET_SCRIPT,
+        RELAY_BUDGET_MAX_MESSAGES: '3',
+        RELAY_BUDGET_MAX_BYTES: '1000',
+      },
+      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+    }))
+    try {
+      const outcomes = await Promise.all(workers.map(worker => new Promise<{ accepted?: number; error?: string }>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Redis message-cap worker timed out')), 10000)
+        worker.once('message', message => { clearTimeout(timer); resolve(message as { accepted?: number; error?: string }) })
+        worker.once('error', err => { clearTimeout(timer); reject(err) })
+        worker.send('go')
+      })))
+      expect(outcomes.every(item => !item.error)).toBe(true)
+      expect(outcomes.filter(item => item.accepted === 1)).toHaveLength(3)
+      expect(outcomes.filter(item => item.accepted === 0)).toHaveLength(5)
+      expect(await a.hgetall(key)).toMatchObject({ messages: '3', bytes: '30' })
+    } finally {
+      workers.forEach(worker => worker.kill())
+      await a.del(key)
+    }
+  })
+
   it('keeps independent participants isolated under concurrent Redis budget pressure', async () => {
     const first = 'test:relay:isolated-a:' + randomUUID()
     const second = 'test:relay:isolated-b:' + randomUUID()
