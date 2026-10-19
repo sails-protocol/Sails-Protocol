@@ -94,24 +94,14 @@ describe('Settlement reconciliation PASS 0 — bounded, fair, durable recovery o
   })
 
   /**
-   * Only what this file created. Its pending rows go (signatures cascade), so none stays a PASS 0
-   * candidate. A fixture that never converged goes entirely (escrow and trade too), so none stays an
-   * open MULTISIG escrow that every later claim would have to read past. A converged fixture is a real
-   * settlement (events, fee obligation) and stays, like every other suite's.
+   * Remove only this suite's pending queue entries. The participant keys committed
+   * to the funded MULTISIG address are immutable by DB trigger, even while the
+   * escrow remains PAYMENT_PENDING. Preserve the escrow, keys and trade rather
+   * than bypassing that economic integrity guard during test cleanup.
+   * With the pending entries removed these fixtures are no longer PASS 0 candidates.
    */
   async function removeOwned(pendingIds: string[]): Promise<void> {
-    const rows = await prisma.escrowPendingTransaction.findMany({ where: { id: { in: pendingIds } }, select: { escrowId: true } })
     await prisma.escrowPendingTransaction.deleteMany({ where: { id: { in: pendingIds } } })
-    const untouched = await prisma.escrow.findMany({
-      where: { id: { in: rows.map((r) => r.escrowId) }, status: 'PAYMENT_PENDING', txReleaseId: null, events: { none: {} } },
-      select: { id: true, tradeId: true },
-    })
-    await prisma.trade.updateMany({ where: { id: { in: untouched.map((e) => e.tradeId) } }, data: { escrowId: null } })
-    // These participant keys are owned by this fixture and have a restrictive escrow FK.
-    // Remove them only for untouched fixture escrows before deleting those escrows.
-    await prisma.escrowParticipantKey.deleteMany({ where: { escrowId: { in: untouched.map((e) => e.id) } } })
-    await prisma.escrow.deleteMany({ where: { id: { in: untouched.map((e) => e.id) } } })
-    await prisma.trade.deleteMany({ where: { id: { in: untouched.map((e) => e.tradeId) } } })
   }
 
   afterAll(async () => {
