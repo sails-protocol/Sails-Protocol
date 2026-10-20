@@ -247,8 +247,11 @@ jobs:
           // complete processor contexts, socket targets or bearer-capability URLs.
           const handlerStart=engineLines.findIndex(line=>line.includes('function getMessageHandler('));
           if(handlerStart<0)throw Error('Artillery receive handler missing');
-          const handlerEnd=engineLines.findIndex((line,i)=>i>handlerStart&&/^function |^export (function|class|const) /.test(line));
-          const handler=engineLines.slice(handlerStart,handlerEnd<0?Math.min(handlerStart+110,engineLines.length):handlerEnd);
+          // The engine uses a nested function declaration: stop at the
+          // first top-level closing brace, not the next top-level function.
+          const handlerEnd=engineLines.findIndex((line,i)=>i>handlerStart&&line==='}');
+          if(handlerEnd<0)throw Error('Artillery receive handler closing brace missing');
+          const handler=engineLines.slice(handlerStart,handlerEnd+1);
           const receiveTokens=[...new Set(handler.flatMap(line=>[...line.matchAll(/\\b(match|capture|timeout|callback|params\\.[a-zA-Z_]+)\\b/g)].map(m=>m[0])))].sort();
           console.log('Artillery receive handler bounded contract:',JSON.stringify({startLine:handlerStart+1,lineCount:handler.length,tokens:receiveTokens}));
           if(handler.length<10||handler.length>180)throw Error('Unexpected Artillery receive handler size; manual review required');
