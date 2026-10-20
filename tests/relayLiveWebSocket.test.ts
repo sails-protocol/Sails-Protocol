@@ -72,6 +72,15 @@ describe('relay live WebSocket upgrade and ingress', () => {
     budget.mockResolvedValue(true)
   })
 
+  it('rejects a missing ticket before attempting Redis-backed resolution', async () => {
+    const client = await connect('')
+    const closed = closeEvent(client)
+    expect(await closed).toBe(1008)
+    expect(ticket).not.toHaveBeenCalled()
+    expect(sockets.size).toBe(0)
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
   it('closes an unauthenticated live socket after ticket resolution exceeds its deadline', async () => {
     ticket.mockImplementation(() => new Promise<string | null>(() => {}))
     const client = await connect('stalled-ticket')
