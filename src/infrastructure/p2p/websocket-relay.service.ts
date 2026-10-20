@@ -87,9 +87,17 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
 
   async stop(participantId: string): Promise<void> {
     const socket = this.sockets.get(participantId)
-    if (socket && socket.readyState === OPEN) socket.close()
+    // Revoke ownership before invoking close(): a synchronous close callback
+    // must not remove a replacement registered during shutdown.
     this.sockets.delete(participantId)
     this.messageHandlers.delete(participantId)
+    if (socket && socket.readyState === OPEN) {
+      try {
+        socket.close()
+      } catch {
+        // A broken socket is already unregistered; shutdown remains idempotent.
+      }
+    }
   }
 
   // No topic concept over a point-to-point relay — a no-op, not an error,
