@@ -117,7 +117,10 @@ export class PearNode extends EventEmitter {
   // separate future work — see this same TODO.md item's own note on
   // that larger design.
   async start(): Promise<string> {
-    if (this.isStarted) return this.keyPair!.publicKey.toString('hex')
+    if (this.isStarted) {
+      if (this.swarm && this.dht) return this.keyPair!.publicKey.toString('hex')
+      throw new Error('Pears node is partially initialized; stop must succeed before restart')
+    }
     // Failed teardown retains the resource handle for retry. Never replace
     // such a node with a fresh DHT while the old one may still be live.
     if (this.swarm || this.dht) {
