@@ -23,9 +23,10 @@ async function runMode(mode){
   try{
     const config={config:{target:'ws://127.0.0.1:'+server.address().port,phases:[{duration:1,arrivalRate:1}]},scenarios:[{engine:'ws',flow:[{connect:{}},{send:{payload:JSON.stringify({type:'PING',payload:{}}),match:[{json:'$.type',value:'PONG',strict:true}],response:{timeout:2}}}]}]};
     const file=path.join(dir,'match.yml');
+    const reportFile=path.join(dir,'report.json');
     fs.writeFileSync(file,yaml.stringify(config),{mode:0o600});
     const result=await new Promise((resolve,reject)=>{
-      const child=spawn(path.resolve('node_modules/.bin/artillery'),['run',file],{stdio:['ignore','pipe','pipe'],env:{...process.env,NO_COLOR:'1'}});
+      const child=spawn(path.resolve('node_modules/.bin/artillery'),['run',file,'--output',reportFile],{stdio:['ignore','pipe','pipe'],env:{...process.env,NO_COLOR:'1'}});
       let output='';const limit=32768;
       for(const stream of [child.stdout,child.stderr])stream.on('data',data=>{if(output.length<limit)output+=String(data).slice(0,limit-output.length);});
       const timer=setTimeout(()=>child.kill('SIGKILL'),30000);
@@ -33,9 +34,27 @@ async function runMode(mode){
       child.once('close',(code,signal)=>{clearTimeout(timer);resolve({code,signal,output});});
     });
     assert.ok(pings>0,mode+': actual Artillery PING required');
-    if(mode==='PONG')assert.deepEqual({code:result.code,signal:result.signal},{code:0,signal:null},'PONG must succeed');
-    else assert.ok(result.code!==0||/response timeout|Failed capture or match|vusers.failed|errors\./i.test(result.output),mode+': engine must report an error');
-    console.log('Artillery engine match experiment',mode,'exit:',result.code,'signal:',result.signal||'none','PING count:',pings);
+    assert.deepEqual({code:result.code,signal:result.signal},{code:0,signal:null},mode+': unexpected CLI exit or signal');
+    assert.ok(fs.existsSync(reportFile),mode+': Artillery report missing');
+    const report=JSON.parse(fs.readFileSync(reportFile,'utf8'));
+    const counters=report.aggregate?.counters;
+    assert.ok(counters&&typeof counters==='object',mode+': aggregate counters missing');
+    const completed=Number(counters['vusers.completed']||0);
+    const failed=Number(counters['vusers.failed']||0);
+    const errorCounters=Object.entries(counters).filter(([name,value])=>/^(errors\\.|websocket\\.errors|http\\.errors)/.test(name)&&Number(value)>0).map(([name,value])=>({name,count:Number(value)}));
+    const received=Number(counters['websocket.messages_received']||0);
+    assert.ok(Number.isSafeInteger(completed)&&Number.isSafeInteger(failed)&&Number.isSafeInteger(received),mode+': invalid counters');
+    assert.ok(completed+failed>0,mode+': no virtual users accounted for');
+    if(mode==='PONG'){
+      assert.equal(failed,0,'PONG: failed virtual users');
+      assert.equal(errorCounters.length,0,'PONG: engine errors');
+      assert.ok(completed>0&&received>0,'PONG: successful received message required');
+    }else{
+      assert.ok(failed>0,mode+': expected engine-reported failed virtual user');
+      assert.ok(errorCounters.length>0,mode+': expected Artillery error counters');
+      if(mode==='ERROR')assert.ok(received>0,'ERROR: received application frame required');
+    }
+    console.log('Artillery engine match experiment',mode,JSON.stringify({completed,failed,received,errorCounters,exit:result.code,pings}));
   }finally{
     fs.rmSync(dir,{recursive:true,force:true});
     for(const client of server.clients)client.terminate();
