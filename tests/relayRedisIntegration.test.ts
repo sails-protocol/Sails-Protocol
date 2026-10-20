@@ -164,12 +164,17 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     const { redis } = await import('../src/common/redis')
     const { identityRoutes } = await import('../src/modules/open-identity/identity.routes')
     const { relayRoutes } = await import('../src/infrastructure/p2p/relay.routes')
-    const participantId = 'http-ticket-' + randomUUID()
-    const session = 'http-session-' + randomUUID()
+    const { webSocketRelayTransportProvider: relay } = await import('../src/infrastructure/p2p/websocket-relay.service')
+    const suffix = randomUUID()
+    const participantId = 'http-ticket-' + suffix
+    const bobId = 'http-bob-' + suffix
+    const session = 'http-session-' + suffix
+    const bobSession = 'http-bob-session-' + suffix
     const sessionKey = 'auth:session:' + session
+    const bobSessionKey = 'auth:session:' + bobSession
     const app = Fastify({ logger: false })
-    let client: InstanceType<typeof WebSocket> | undefined
-    let ticketKey: string | undefined
+    const clients: InstanceType<typeof WebSocket>[] = []
+    const ticketKeys: string[] = []
     const evalSpy = jest.spyOn(redis, 'eval').mockImplementation(
       ((...args: unknown[]) => (a.eval as (...params: unknown[]) => Promise<unknown>)(...args)) as typeof redis.eval,
     )
@@ -181,33 +186,56 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     )
     try {
       await a.set(sessionKey, participantId, 'EX', 30)
+      await a.set(bobSessionKey, bobId, 'EX', 30)
       await app.register(websocket)
       await app.register(identityRoutes)
       await app.register(relayRoutes)
       const denied = await app.inject({ method: 'POST', url: '/v1/identity/ws-ticket' })
       expect(denied.statusCode).toBe(401)
-      const issued = await app.inject({ method: 'POST', url: '/v1/identity/ws-ticket', headers: { authorization: 'Bearer ' + session } })
-      expect(issued.statusCode).toBe(200)
-      const ticket = issued.json().data.ticket as string
-      ticketKey = 'auth:ws-ticket:' + ticket
-      expect(await a.get(ticketKey)).toBe(participantId)
+      const issue = async (sessionToken: string, expectedId: string): Promise<string> => {
+        const response = await app.inject({ method: 'POST', url: '/v1/identity/ws-ticket', headers: { authorization: 'Bearer ' + sessionToken } })
+        expect(response.statusCode).toBe(200)
+        const ticket = response.json().data.ticket as string
+        const key = 'auth:ws-ticket:' + ticket
+        ticketKeys.push(key)
+        expect(await a.get(key)).toBe(expectedId)
+        return ticket
+      }
+      const aliceTicket = await issue(session, participantId)
+      const bobTicket = await issue(bobSession, bobId)
       await app.listen({ host: '127.0.0.1', port: 0 })
       const address = app.server.address()
       if (!address || typeof address === 'string') throw new Error('Expected TCP server address')
-      client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/relay?ticket=${ticket}`)
-      await new Promise<void>((resolve, reject) => {
-        client!.once('open', resolve)
-        client!.once('error', reject)
+      const connect = (ticket: string) => new Promise<InstanceType<typeof WebSocket>>((resolve, reject) => {
+        const client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/relay?ticket=${ticket}`)
+        clients.push(client)
+        client.once('open', () => resolve(client))
+        client.once('error', reject)
       })
-      for (let i = 0; i < 200 && await a.exists(ticketKey); i++) await new Promise(resolve => setTimeout(resolve, 10))
-      expect(await a.exists(ticketKey)).toBe(0)
+      const [alice, bob] = await Promise.all([connect(aliceTicket), connect(bobTicket)])
+      for (let i = 0; i < 200 && !(relay.isConnected(participantId) && relay.isConnected(bobId)); i++) {
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+      expect(relay.isConnected(participantId)).toBe(true)
+      expect(relay.isConnected(bobId)).toBe(true)
+      const payload = 'opaque-http-to-redis-to-provider-' + suffix
+      const delivered = new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('HTTP-issued ticket relay delivery timed out')), 3000)
+        bob.once('message', data => { clearTimeout(timer); resolve(data.toString()) })
+      })
+      expect(await relay.sendToPeer(participantId, bobId, payload)).toBe(true)
+      expect(await delivered).toBe(payload)
+      expect(await a.exists(...ticketKeys)).toBe(0)
+      expect(alice.readyState).toBe(WebSocket.OPEN)
     } finally {
-      client?.terminate()
+      clients.forEach(client => client.terminate())
       evalSpy.mockRestore()
       getSpy.mockRestore()
       setSpy.mockRestore()
       await app.close()
-      await a.del(sessionKey, ...(ticketKey ? [ticketKey] : []))
+      await a.del(sessionKey, bobSessionKey, ...ticketKeys)
+      relay.unregisterSocket(participantId)
+      relay.unregisterSocket(bobId)
     }
   })
 
