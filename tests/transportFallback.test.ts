@@ -107,7 +107,7 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     expect(releaseRelay).toBeDefined()
     expect((await fallback.start('same-user')).peerId).toBe('pears:new')
     releaseRelay({ peerId: 'websocket-relay:old' })
-    expect((await older).peerId).toBe('websocket-relay:old')
+    await expect(older).rejects.toThrow('obsolete relay start')
     expect(fallback.activeTransportName('same-user')).toBe('pears')
   })
 
@@ -159,7 +159,7 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     expect(releaseRelay).toBeDefined()
     expect((await fallback.start('participant')).peerId).toBe('pears:new')
     releaseRelay({ peerId: 'relay:stale' })
-    await oldStart
+    await expect(oldStart).rejects.toThrow('obsolete relay start')
     expect(fallback.activeTransportName('participant')).toBe('pears')
   })
 
@@ -187,7 +187,7 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     expect(releaseOld).toBeDefined()
     expect((await fallback.start('participant')).peerId).toBe('relay:new')
     releaseOld({ peerId: 'relay:old' })
-    await older
+    await expect(older).rejects.toThrow('obsolete relay start')
     expect(fallback.activeTransportName('participant')).toBe('websocket-relay')
     expect(secondaryStop).not.toHaveBeenCalled()
   })
