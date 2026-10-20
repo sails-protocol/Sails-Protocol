@@ -48,7 +48,7 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     expect(handle.peerId).toBe('websocket-relay:user-1')
   })
 
-  it('documents a late primary completion after relay fallback without falsely claiming cancellation', async () => {
+  it('cleans up a late primary completion after relay fallback', async () => {
     let completePrimary!: (handle: PeerHandle) => void
     const primaryStart = jest.fn(() => new Promise<PeerHandle>(resolve => { completePrimary = resolve }))
     const primaryStop = jest.fn().mockResolvedValue(undefined)
@@ -60,9 +60,7 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     expect(fallback.activeTransportName('late-primary')).toBe('websocket-relay')
     completePrimary({ peerId: 'pears:late-primary' })
     await new Promise(resolve => setTimeout(resolve, 0))
-    // Current implementation has no cancellation/cleanup of the timed-out primary.
-    // This is a characterization test, NOT proof that the lifecycle risk is fixed.
-    expect(primaryStop).not.toHaveBeenCalled()
+    expect(primaryStop).toHaveBeenCalledWith('late-primary')
     expect(fallback.activeTransportName('late-primary')).toBe('websocket-relay')
   })
 
