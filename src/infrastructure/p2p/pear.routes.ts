@@ -70,7 +70,7 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['peers'] },
   }, async (request, reply) => {
     const participantId = (request as AuthenticatedRequest).participantId
-    await pearNodeRegistry.stop(participantId)
+    await fallbackTransportProvider.stop(participantId)
     return reply.code(200).send({ success: true })
   })
 
