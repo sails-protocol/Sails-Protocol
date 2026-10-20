@@ -399,7 +399,7 @@ export class PearNode extends EventEmitter {
 // Owns exactly one PearNode per active userId. This is what makes "many
 // users, one server process" correct: two users calling start() concurrently
 // get two independent DHT nodes instead of clobbering a shared one.
-class PearNodeRegistry {
+export class PearNodeRegistry {
   private nodes = new Map<string, PearNode>()
   private operations = new Map<string, Promise<void>>()
 
