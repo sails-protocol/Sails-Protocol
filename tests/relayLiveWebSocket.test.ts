@@ -162,7 +162,7 @@ describe('relay live WebSocket upgrade and ingress', () => {
     expect(dispatch.mock.calls).toEqual([['participant', 'sdk-relay-e2e']])
     expect(ticket).toHaveBeenCalledWith('sdk-ticket')
     expect(fetchImpl).toHaveBeenCalledTimes(1)
-    expect(fetchImpl.mock.calls[0][0]).toMatch(/\\/v1\\/identity\\/ws-ticket$/)
+    expect(fetchImpl.mock.calls[0][0]).toBe(base.replace(/^ws/, 'http') + '/v1/identity/ws-ticket')
     expect(fetchImpl.mock.calls[0][1].headers.authorization).toBe('Bearer sdk-session')
   })
 
