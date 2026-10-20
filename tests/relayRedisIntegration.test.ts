@@ -100,6 +100,63 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('delivers through the real provider between two live TCP clients authenticated with real Redis tickets', async () => {
+    const Fastify = (await import('fastify')).default
+    const websocket = (await import('@fastify/websocket')).default
+    const WebSocket = (await import('ws')).default
+    const { redis } = await import('../src/common/redis')
+    const { relayRoutes } = await import('../src/infrastructure/p2p/relay.routes')
+    const { webSocketRelayTransportProvider: relay } = await import('../src/infrastructure/p2p/websocket-relay.service')
+    const suffix = randomUUID()
+    const aliceId = 'redis-alice-' + suffix
+    const bobId = 'redis-bob-' + suffix
+    const aliceTicket = 'redis-alice-ticket-' + suffix
+    const bobTicket = 'redis-bob-ticket-' + suffix
+    const keys = ['auth:ws-ticket:' + aliceTicket, 'auth:ws-ticket:' + bobTicket]
+    const app = Fastify({ logger: false })
+    const clients: InstanceType<typeof WebSocket>[] = []
+    const evalSpy = jest.spyOn(redis, 'eval').mockImplementation(
+      ((...args: unknown[]) => (a.eval as (...params: unknown[]) => Promise<unknown>)(...args)) as typeof redis.eval,
+    )
+    try {
+      await a.set(keys[0], aliceId, 'PX', 5000)
+      await a.set(keys[1], bobId, 'PX', 5000)
+      await app.register(websocket)
+      await app.register(relayRoutes)
+      await app.listen({ host: '127.0.0.1', port: 0 })
+      const address = app.server.address()
+      if (!address || typeof address === 'string') throw new Error('Expected TCP server address')
+      const connect = (ticket: string) => new Promise<InstanceType<typeof WebSocket>>((resolve, reject) => {
+        const client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/relay?ticket=${ticket}`)
+        clients.push(client)
+        client.once('open', () => resolve(client))
+        client.once('error', reject)
+      })
+      const [alice, bob] = await Promise.all([connect(aliceTicket), connect(bobTicket)])
+      for (let i = 0; i < 200 && !(relay.isConnected(aliceId) && relay.isConnected(bobId)); i++) {
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+      expect(relay.isConnected(aliceId)).toBe(true)
+      expect(relay.isConnected(bobId)).toBe(true)
+      const payload = 'opaque-redis-provider-' + suffix
+      const delivered = new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Real Redis relay delivery timed out')), 3000)
+        bob.once('message', data => { clearTimeout(timer); resolve(data.toString()) })
+      })
+      expect(await relay.sendToPeer(aliceId, bobId, payload)).toBe(true)
+      expect(await delivered).toBe(payload)
+      expect(await a.exists(...keys)).toBe(0)
+      expect(alice.readyState).toBe(WebSocket.OPEN)
+    } finally {
+      clients.forEach(client => client.terminate())
+      evalSpy.mockRestore()
+      await app.close()
+      await a.del(...keys)
+      relay.unregisterSocket(aliceId)
+      relay.unregisterSocket(bobId)
+    }
+  })
+
   it('keeps a Redis ticket single-use across independent Node child processes', async () => {
     const { fork } = await import('child_process')
     const { join } = await import('path')
