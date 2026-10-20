@@ -222,3 +222,12 @@ Inspection of `.github/workflows/native-load-harness-candidate.yml` confirms the
 - Exact HEAD `8bc78266ea855e4d50d4fbf866afbb494b7184dd`: CI Tests `39185712257` SUCCESS; native harness runs `39185712252` and `39185707003` SUCCESS; real-service smoke `39185707053` SUCCESS.
 - The disposable rapid-exit regression now independently requires at least two real CPU/RSS samples on success, or an explicit insufficient-coverage error. This prevents treating a short-lived process with no periodic measurement as a valid resource benchmark.
 - The earlier intermittent generator sampling failure is still unresolved at root cause; this test covers truthful failure behavior, not deterministic runner scheduling. Neither matched arrival-rate parity nor application PONG assertions inside Artillery's WS engine nor independent security/architecture signoff has been demonstrated. **CI GREEN / MIGRATION GATE RED; PR #472 DRAFT.**
+
+## Gatekeeper exact-HEAD reconciliation — 2026-10-19 (`d9a30a32`)
+
+- Exact-HEAD CI Tests run `39351982569`: **SUCCESS**; native load candidate runs `39351982377` and `39351977607`: **SUCCESS**; disposable real-service smoke `39351977579`: **SUCCESS**. These are four successful workflow executions, not four independent benchmark repetitions.
+- Artillery README now forbids following the historical raised-rate-limit recipe for current evaluation; the old throughput experiment remains historical and does not represent shipped rate-limit policy.
+- CI's bundled Artillery WS-engine inspection confirmed `_deps.WebSocket`, `new _deps.WebSocket(...)`, and `context.ws.onmessage = getMessageHandler(...)`. These are implementation details, **not** an established supported scenario-level assertion interface.
+- Current Artillery WS comparator still sends PING then waits; it **does not assert application PONG**. Auxiliary socket tests and real disposable transport proofs must not be presented as Artillery engine parity. A positive and negative **in-engine** PONG test is still required.
+- HTTP comparator requests 1 arrival/s for 2s, while the strict k6 rate-shape candidate uses 1999ms and verifies two actual arrivals. Authentication request timing and metric scopes differ; no HTTP latency/throughput parity claim is authorized.
+- **Decision: RED for migration**. PR #472 stays DRAFT; no merge, deploy, Artillery removal, or rate-limit changes until comparable repeated measurements and independent security/architecture review.
