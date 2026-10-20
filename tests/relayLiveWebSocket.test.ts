@@ -76,10 +76,17 @@ describe('relay live WebSocket upgrade and ingress', () => {
     ticket.mockImplementation(() => new Promise<string | null>(() => {}))
     const client = await connect('stalled-ticket')
     const closed = closeEvent(client)
-    expect(await Promise.race([
-      closed,
-      new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('Authentication timeout not enforced')), 7000)),
-    ])).toBe(1011)
+    let watchdog: ReturnType<typeof setTimeout> | undefined
+    try {
+      expect(await Promise.race([
+        closed,
+        new Promise<never>((_resolve, reject) => {
+          watchdog = setTimeout(() => reject(new Error('Authentication timeout not enforced')), 7000)
+        }),
+      ])).toBe(1011)
+    } finally {
+      if (watchdog) clearTimeout(watchdog)
+    }
     expect(sockets.size).toBe(0)
     expect(dispatch).not.toHaveBeenCalled()
   }, 10000)
