@@ -162,7 +162,7 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     const websocket = (await import('@fastify/websocket')).default
     const WebSocket = (await import('ws')).default
     const { redis } = await import('../src/common/redis')
-    const { issueWsTicket, requireAuth } = await import('../src/common/middleware/auth')
+    const { identityRoutes } = await import('../src/modules/open-identity/identity.routes')
     const { relayRoutes } = await import('../src/infrastructure/p2p/relay.routes')
     const participantId = 'http-ticket-' + randomUUID()
     const session = 'http-session-' + randomUUID()
@@ -182,10 +182,7 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     try {
       await a.set(sessionKey, participantId, 'EX', 30)
       await app.register(websocket)
-      app.post('/v1/identity/ws-ticket', { preHandler: requireAuth }, async (request, reply) => {
-        const result = await issueWsTicket((request as typeof request & { participantId: string }).participantId)
-        return reply.send({ success: true, data: result })
-      })
+      await app.register(identityRoutes)
       await app.register(relayRoutes)
       const denied = await app.inject({ method: 'POST', url: '/v1/identity/ws-ticket' })
       expect(denied.statusCode).toBe(401)
