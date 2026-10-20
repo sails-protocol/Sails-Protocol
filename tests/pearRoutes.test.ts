@@ -155,6 +155,9 @@ describe('P2P Transport — /v1/peers/* routes (pear.routes.ts)', () => {
     jest.clearAllMocks()
     authedParticipantId = null
     mockPearNodeGet.mockReset()
+    const { fallbackTransportProvider } = require('../src/infrastructure/p2p/transport-provider')
+    fallbackTransportProvider.activeTransportName.mockReturnValue('pears')
+    fallbackTransportProvider.isConnected.mockReturnValue(false)
   })
 
   // ── Auth ────────────────────────────────────────────────────────────────────
