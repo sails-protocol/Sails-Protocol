@@ -25,6 +25,12 @@
  * wiring with mocked ticket HTTP and ticket resolver boundaries; this is
  * not an end-to-end proof of the production authentication service.
  *
+ * Live delivery evidence: `tests/relayProviderLiveDelivery.test.ts` uses the
+ * actual relay provider with two real TCP WebSocket clients, checking opaque
+ * sender-to-recipient delivery and disconnect isolation. The test mocks
+ * authentication resolution and Redis budget decisions; it does not prove
+ * production ticket issuance or cross-instance delivery.
+ *
  * Scope, stated plainly: this makes `start()`/`sendToPeer()` degrade
  * gracefully when Pears/HyperDHT hole-punching doesn't complete in time
  * (restrictive NAT, corporate firewall — transportFallback.test.ts's
