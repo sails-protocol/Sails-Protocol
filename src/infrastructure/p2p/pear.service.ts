@@ -363,26 +363,44 @@ export class PearNode extends EventEmitter {
 // get two independent DHT nodes instead of clobbering a shared one.
 class PearNodeRegistry {
   private nodes = new Map<string, PearNode>()
+  private operations = new Map<string, Promise<void>>()
+
+  // Serialize lifecycle changes for each user without blocking other users.
+  // Keep a rejected operation from poisoning subsequent cleanup/retries.
+  private enqueue<T>(userId: string, action: () => Promise<T>): Promise<T> {
+    const previous = this.operations.get(userId) ?? Promise.resolve()
+    const result = previous.catch(() => undefined).then(action)
+    const settled = result.then(() => undefined, () => undefined)
+    this.operations.set(userId, settled)
+    void settled.then(() => {
+      if (this.operations.get(userId) === settled) this.operations.delete(userId)
+    })
+    return result
+  }
 
   async start(userId: string): Promise<string> {
-    let node = this.nodes.get(userId)
-    if (!node) {
-      node = new PearNode(userId)
-      this.nodes.set(userId, node)
-    }
-    return node.start()
+    return this.enqueue(userId, async () => {
+      let node = this.nodes.get(userId)
+      if (!node) {
+        node = new PearNode(userId)
+        this.nodes.set(userId, node)
+      }
+      return node.start()
+    })
   }
 
   async stop(userId: string): Promise<void> {
-    const node = this.nodes.get(userId)
-    if (!node) return
-    await node.stop()
-    this.nodes.delete(userId)
+    return this.enqueue(userId, async () => {
+      const node = this.nodes.get(userId)
+      if (!node) return
+      await node.stop()
+      if (this.nodes.get(userId) === node) this.nodes.delete(userId)
+    })
   }
 
   async stopAll(): Promise<void> {
-    await Promise.all(Array.from(this.nodes.values()).map((n) => n.stop()))
-    this.nodes.clear()
+    const users = new Set([...this.nodes.keys(), ...this.operations.keys()])
+    await Promise.all(Array.from(users, userId => this.stop(userId)))
   }
 
   get(userId: string): PearNode | undefined {
