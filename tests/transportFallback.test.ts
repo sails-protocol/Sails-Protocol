@@ -354,6 +354,31 @@ describe('WebSocketRelayTransportProvider — CISO Privacy Rule (Blind Relay)', 
     expect(replacement.sent).toEqual(['healthy'])
   })
 
+  it('preserves a socket registered synchronously during shutdown', async () => {
+    const relay = new WebSocketRelayTransportProvider()
+    const replacement = fakeSocket()
+    const stale = fakeSocket()
+    stale.close = () => {
+      relay.registerSocket('buyer', replacement)
+      relay.unregisterSocket('buyer', stale)
+    }
+    relay.registerSocket('buyer', stale)
+    await relay.stop('buyer')
+    expect(relay.ownsSocket('buyer', replacement)).toBe(true)
+    expect(await relay.sendToPeer('seller', 'buyer', 'reconnected')).toBe(true)
+    expect(replacement.sent).toEqual(['reconnected'])
+  })
+
+  it('removes a broken socket even when close throws during stop', async () => {
+    const relay = new WebSocketRelayTransportProvider()
+    const broken = fakeSocket()
+    broken.close = () => { throw new Error('socket broken') }
+    relay.registerSocket('buyer', broken)
+    await expect(relay.stop('buyer')).resolves.toBeUndefined()
+    expect(relay.isConnected('buyer')).toBe(false)
+    await expect(relay.stop('buyer')).resolves.toBeUndefined()
+  })
+
   it('reports a participant as connected only while their socket is registered and open', async () => {
     const relay = new WebSocketRelayTransportProvider()
     expect(relay.isConnected('buyer')).toBe(false)
