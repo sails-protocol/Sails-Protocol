@@ -163,6 +163,35 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     expect(fallback.activeTransportName('participant')).toBe('pears')
   })
 
+  it('does not stop a newer relay session when an obsolete relay start resolves', async () => {
+    let releaseOld!: (handle: PeerHandle) => void
+    let primaryCalls = 0
+    let secondaryCalls = 0
+    const primary = {
+      ...fakeProvider('pears'),
+      start: jest.fn(async () => { primaryCalls++; throw new Error('Pears unavailable') }),
+    }
+    const secondaryStop = jest.fn().mockResolvedValue(undefined)
+    const secondary = {
+      ...fakeProvider('websocket-relay'),
+      start: jest.fn(() => {
+        secondaryCalls++
+        if (secondaryCalls === 1) return new Promise<PeerHandle>(resolve => { releaseOld = resolve })
+        return Promise.resolve({ peerId: 'relay:new' })
+      }),
+      stop: secondaryStop,
+    }
+    const fallback = new FallbackTransportProvider(primary, secondary, 100)
+    const older = fallback.start('participant')
+    for (let i = 0; i < 20 && !releaseOld; i++) await new Promise(resolve => setTimeout(resolve, 0))
+    expect(releaseOld).toBeDefined()
+    expect((await fallback.start('participant')).peerId).toBe('relay:new')
+    releaseOld({ peerId: 'relay:old' })
+    await older
+    expect(fallback.activeTransportName('participant')).toBe('websocket-relay')
+    expect(secondaryStop).not.toHaveBeenCalled()
+  })
+
   it('falls back to the secondary provider when the primary rejects outright', async () => {
     const primary = fakeProvider('pears', { shouldFail: true })
     const secondary = fakeProvider('websocket-relay')
