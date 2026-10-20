@@ -167,11 +167,31 @@ export class PearNode extends EventEmitter {
   async stop(): Promise<void> {
     if (!this.isStarted) return
 
-    await this.swarm?.destroy()
-    await this.dht?.destroy()
+    // Destroy both resources even if the first teardown fails. Retain
+    // failed resources for a subsequent stop() retry rather than claiming
+    // shutdown succeeded and discarding the only handles to them.
+    let failure: unknown
+    if (this.swarm) {
+      try {
+        await this.swarm.destroy()
+        this.swarm = null
+      } catch (err) {
+        failure = err
+      }
+    }
+    if (this.dht) {
+      try {
+        await this.dht.destroy()
+        this.dht = null
+      } catch (err) {
+        failure ??= err
+      }
+    }
+    if (failure) throw failure
 
     this.isStarted = false
     this.peers.clear()
+    this.userPeerMap.clear()
     this.topicAnnouncements.clear()
 
     await eventBus.emit('peer.disconnected', {
