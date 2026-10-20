@@ -296,6 +296,8 @@ jobs:
           assert.equal(wired,false,'Candidate unexpectedly changed: review WS engine hook and negative proof before enabling');
           console.log('WS candidate remains PONG-unverified; parity promotion blocked (expected)');
           NODE
+      - name: Characterize Artillery silent WebSocket false positive on disposable loopback
+        run: node load-tests/artillery/ws-engine-silent-control.test.cjs
       - name: Generate Prisma client and build
         run: |
           npx prisma generate
