@@ -32,14 +32,23 @@ npx artillery run load-tests/artillery/intent-api.yml
 ```
 
 At the shipped rate-limit defaults (`RATE_LIMIT_AUTH_MAX=10`/min) this
-will mostly measure the rate limiter, not the Intent API — which is a
-real, correct result (the limiter is enforced), just not what "Intent
-API throughput" usually means. To isolate application throughput,
-restart the server with those limits raised first:
+may primarily measure the enforced authentication rate limiter, not the
+Intent API's unrestricted capacity. HTTP 429 is a valid security-enforcement
+result, not permission to weaken the limiter.
 
-```
-RATE_LIMIT_MAX=100000 RATE_LIMIT_AUTH_MAX=100000 npm run dev
-```
+**Current evaluation policy (PR #472):** run only against disposable
+loopback services with the shipped authentication and API rate limits intact.
+Use the bounded comparators documented in `load-tests/README.md` for the
+current k6-versus-Artillery evaluation. Stop and request a separate security
+review before any higher-rate experiment that conflicts with these limits.
+Do not change `RATE_LIMIT_MAX` or `RATE_LIMIT_AUTH_MAX` to make CI or a
+benchmark pass.
+
+**Historical methodology only:** the earlier Intent throughput experiment
+raised rate limits to isolate application behavior, as disclosed in
+`TECHNICAL_WHITEPAPER.md` section 12. Those measurements are not evidence
+of performance under shipped rate limits and must not be presented as a
+current approved runbook or k6/Artillery parity proof.
 
 ## Chat WebSocket (`chat-ws.yml`)
 
