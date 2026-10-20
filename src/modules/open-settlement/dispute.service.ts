@@ -852,15 +852,19 @@ export class DisputeService {
         // Remove it before releasing D -> E locks: a later generation
         // must never observe a reverted dispute with the old Outcome,
         // nor have its own Outcome deleted by a delayed outer catch.
-        await tx.semanticTransitionRecord.deleteMany({
+        // GATE-5 MUTANT ONLY: Outcome deletion deliberately removed from
+        // the atomic D-to-E transaction to test rollback detection.
+        return true
+      })
+      if (mayRevert) {
+        await prisma.semanticTransitionRecord.deleteMany({
           where: {
             interactionId: dispute.escrowId,
             transitionType: 'escrow.dispute.rule',
             appealRound: dispute.appealRound,
           },
         })
-        return true
-      })
+      }
       if (!mayRevert) {
         throw new St1R2DeletionRefused(
           `ST1-R2 V3: dispatch failure cannot prove a safe ruling rollback for dispute ${dispute.id}; preserve durable authority for recovery`,
