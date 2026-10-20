@@ -118,6 +118,11 @@ export class PearNode extends EventEmitter {
   // that larger design.
   async start(): Promise<string> {
     if (this.isStarted) return this.keyPair!.publicKey.toString('hex')
+    // Failed teardown retains the resource handle for retry. Never replace
+    // such a node with a fresh DHT while the old one may still be live.
+    if (this.swarm || this.dht) {
+      throw new Error('Pears node has residual resources; stop must succeed before restart')
+    }
 
     const keyPair = HyperDHT.keyPair()
     this.keyPair = keyPair
