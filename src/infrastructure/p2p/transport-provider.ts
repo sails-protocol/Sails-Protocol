@@ -187,9 +187,13 @@ export class FallbackTransportProvider implements TransportProvider {
     let timedOut = false
     try {
       const handle = await this.withTimeout(primaryStart, this.timeoutMs, () => { timedOut = true })
-      if (this.startGeneration.get(participantId) === generation) this.activeProvider.set(participantId, this.primary)
+      if (this.startGeneration.get(participantId) !== generation) {
+        throw new Error(`FallbackTransportProvider: obsolete primary start for ${participantId}`)
+      }
+      this.activeProvider.set(participantId, this.primary)
       return handle
     } catch (err) {
+      if (this.startGeneration.get(participantId) !== generation) throw err
       log.warn(
         { primary: this.primary.name, secondary: this.secondary.name, participantId, timeoutMs: this.timeoutMs, err: err instanceof Error ? err.message : err },
         '[FallbackTransportProvider] primary did not connect in time — falling back'
@@ -204,6 +208,7 @@ export class FallbackTransportProvider implements TransportProvider {
         // per-attempt resource ownership is available.
         log.warn({ participantId, generation },
           '[FallbackTransportProvider] obsolete relay start completed; cleanup requires per-attempt ownership')
+        throw new Error(`FallbackTransportProvider: obsolete relay start for ${participantId}`)
       } else {
         this.activeProvider.set(participantId, this.secondary)
       }
@@ -240,7 +245,7 @@ export class FallbackTransportProvider implements TransportProvider {
     const generation = (this.startGeneration.get(participantId) ?? 0) + 1
     this.startGeneration.set(participantId, generation)
     await this.provider(participantId).stop(participantId)
-    this.activeProvider.delete(participantId)
+    if (this.startGeneration.get(participantId) === generation) this.activeProvider.delete(participantId)
   }
 
   async joinTopic(participantId: string, topic: string): Promise<void> {
