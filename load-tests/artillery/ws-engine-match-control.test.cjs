@@ -51,7 +51,7 @@ async function runMode(mode){
     assert.ok(counters&&typeof counters==='object',mode+': aggregate counters missing');
     const completed=Number(counters['vusers.completed']||0);
     const failed=Number(counters['vusers.failed']||0);
-    const errorCounters=Object.entries(counters).filter(([name,value])=>/^(errors\\.|websocket\\.errors|http\\.errors)/.test(name)&&Number(value)>0).map(([name,value])=>({name,count:Number(value)}));
+    const errorCounters=Object.entries(counters).filter(([name,value])=>['errors.','websocket.errors','http.errors'].some(prefix=>name.startsWith(prefix))&&Number(value)>0).map(([name,value])=>({name,count:Number(value)}));
     const received=Number(counters['websocket.messages_received']||0);
     assert.ok(Number.isSafeInteger(completed)&&Number.isSafeInteger(failed)&&Number.isSafeInteger(received),mode+': invalid counters');
     assert.ok(completed+failed>0,mode+': no virtual users accounted for');
