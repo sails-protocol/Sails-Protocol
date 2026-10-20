@@ -314,6 +314,8 @@ jobs:
           NODE
       - name: Characterize Artillery silent WebSocket false positive on disposable loopback
         run: node load-tests/artillery/ws-engine-silent-control.test.cjs
+      - name: Experiment with Artillery in-engine PONG match on disposable loopback
+        run: node load-tests/artillery/ws-engine-match-control.test.cjs
       - name: Generate Prisma client and build
         run: |
           npx prisma generate
