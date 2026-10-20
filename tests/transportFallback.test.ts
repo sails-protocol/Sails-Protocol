@@ -86,6 +86,31 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     expect(fallback.activeTransportName('same-user')).toBe('pears')
   })
 
+  it('does not let a stale fallback completion replace the newer primary', async () => {
+    let releaseRelay!: (handle: PeerHandle) => void
+    let primaryCalls = 0
+    const primary = {
+      ...fakeProvider('pears'),
+      start: jest.fn(async () => {
+        primaryCalls++
+        if (primaryCalls === 1) throw new Error('primary temporarily unavailable')
+        return { peerId: 'pears:new' }
+      }),
+    }
+    const secondary = {
+      ...fakeProvider('websocket-relay'),
+      start: jest.fn(() => new Promise<PeerHandle>(resolve => { releaseRelay = resolve })),
+    }
+    const fallback = new FallbackTransportProvider(primary, secondary, 100)
+    const older = fallback.start('same-user')
+    for (let i = 0; i < 20 && !releaseRelay; i++) await new Promise(resolve => setTimeout(resolve, 0))
+    expect(releaseRelay).toBeDefined()
+    expect((await fallback.start('same-user')).peerId).toBe('pears:new')
+    releaseRelay({ peerId: 'websocket-relay:old' })
+    expect((await older).peerId).toBe('websocket-relay:old')
+    expect(fallback.activeTransportName('same-user')).toBe('pears')
+  })
+
   it('falls back to the secondary provider when the primary rejects outright', async () => {
     const primary = fakeProvider('pears', { shouldFail: true })
     const secondary = fakeProvider('websocket-relay')
