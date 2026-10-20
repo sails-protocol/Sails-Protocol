@@ -252,3 +252,61 @@ describe('S3EvidenceProvider — stat()', () => {
     await expect(provider.stat('some-key.bin')).rejects.toMatchObject({ storageReason: 'UNAVAILABLE' })
   })
 })
+
+
+describe('S3EvidenceProvider — bounded request / cancellation truth', () => {
+  it('passes an AbortSignal to the SDK when a deployment timeout is configured', async () => {
+    const sendMock = jest.fn().mockResolvedValue({})
+    jest.spyOn(S3Client.prototype, 'send').mockImplementation(sendMock as never)
+    const provider = new S3EvidenceProvider({ ...TEST_CONFIG, requestTimeoutMs: 1000 })
+
+    await provider.store(new Uint8Array(Buffer.from('bounded')), 'document')
+
+    expect(sendMock).toHaveBeenCalledTimes(1)
+    const options = sendMock.mock.calls[0][1] as { abortSignal?: AbortSignal }
+    expect(options.abortSignal).toBeInstanceOf(AbortSignal)
+    expect(options.abortSignal?.aborted).toBe(false)
+  })
+
+  it('aborts a hung SDK operation at the configured bound and reports mutation outcome as UNAVAILABLE, never as a proven failed write', async () => {
+    const sendMock = jest.fn((_command: unknown, options?: { abortSignal?: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        const signal = options?.abortSignal
+        const rejectAborted = () => {
+          const err = Object.assign(new Error('request aborted at local deadline'), { name: 'AbortError' })
+          reject(err)
+        }
+        if (signal?.aborted) {
+          rejectAborted()
+          return
+        }
+        signal?.addEventListener('abort', rejectAborted, { once: true })
+      })
+    )
+    jest.spyOn(S3Client.prototype, 'send').mockImplementation(sendMock as never)
+    const provider = new S3EvidenceProvider({ ...TEST_CONFIG, requestTimeoutMs: 25 })
+
+    const startedAt = Date.now()
+    const operation = provider.store(new Uint8Array(Buffer.from('ambiguous-write')), 'document')
+
+    await expect(operation).rejects.toMatchObject({ storageReason: 'UNAVAILABLE' })
+    expect(Date.now() - startedAt).toBeLessThan(1000)
+    const options = sendMock.mock.calls[0][1] as { abortSignal?: AbortSignal }
+    expect(options.abortSignal?.aborted).toBe(true)
+  })
+
+  it('does not invent a protocol timeout when none is configured', async () => {
+    const sendMock = jest.fn().mockResolvedValue({})
+    jest.spyOn(S3Client.prototype, 'send').mockImplementation(sendMock as never)
+    const provider = new S3EvidenceProvider(TEST_CONFIG)
+
+    await provider.delete('unbounded-by-sails-default.bin')
+
+    expect(sendMock.mock.calls[0][1]).toBeUndefined()
+  })
+
+  it('rejects invalid configured timeout values at construction', () => {
+    expect(() => new S3EvidenceProvider({ ...TEST_CONFIG, requestTimeoutMs: 0 })).toThrow(/positive finite/)
+    expect(() => new S3EvidenceProvider({ ...TEST_CONFIG, requestTimeoutMs: Number.NaN })).toThrow(/positive finite/)
+  })
+})

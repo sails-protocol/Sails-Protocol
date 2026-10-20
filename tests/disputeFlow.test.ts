@@ -83,16 +83,38 @@ const mockEscrowParticipantKeyFindUnique = jest.fn().mockResolvedValue(null)
 // mockDisputeUpdateMany/mockDisputeFindUnique continues to observe the
 // same calls, now made via `tx` instead of the top-level `prisma` object.
 const mockExecuteRaw = jest.fn().mockResolvedValue(0)
+// Issue #253 - finalizeResolveDispute() now also runs inside a prisma.$transaction() (via
+// applyEventProjectionOnce()'s own claim+effect transaction), routed through this SAME mockTransaction —
+// eventProjectionClaim.createMany defaults to `{ count: 1 }` (a fresh, unclaimed claim) so the existing
+// recordRuling()/slash()/appeal-fee assertions below continue to observe those calls actually happening.
+const mockEventProjectionClaimCreateMany = jest.fn().mockResolvedValue({ count: 1 })
+
+// The ruling path now reads the dispute it is about to displace with SELECT ... FOR UPDATE inside its
+// transaction (tx.$queryRaw). Against this file's stub database that read returns the dispute the test seeded:
+// the last row mockDisputeFindUnique returned (peeked from its results, so no queued value is consumed).
+async function lockedDisputeRead(): Promise<unknown[]> {
+  const results = mockDisputeFindUnique.mock.results
+  const last: any = results.length ? await results[results.length - 1].value : null
+  return last ? [{ status: last.status, appealRound: last.appealRound, arbiterId: last.arbiterId ?? null }] : []
+}
 const mockTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
   fn({
     $executeRaw: (...args: unknown[]) => mockExecuteRaw(...args),
+    $queryRaw: () => lockedDisputeRead(),
     disputeAppealFee: {
       create: (...args: unknown[]) => mockDisputeAppealFeeCreate(...args),
+      updateMany: (...args: unknown[]) => mockDisputeAppealFeeUpdateMany(...args),
     },
     dispute: {
       findUnique: (...args: unknown[]) => mockDisputeFindUnique(...args),
       updateMany: (...args: unknown[]) => mockDisputeUpdateMany(...args),
     },
+    eventProjectionClaim: {
+      createMany: (...args: unknown[]) => mockEventProjectionClaimCreateMany(...args),
+    },
+    // #235 R7G F8C - a failed ruling's revert reads the escrow's terminal transition record (none here: the
+    // displaced status is restored; the terminal case is proven on real PostgreSQL in signingRoundStateCompatibility)
+    escrowEvent: { findFirst: async () => null },
   })
 )
 
@@ -115,6 +137,10 @@ jest.mock('../src/common/database', () => ({
     escrowParticipantKey: { findUnique: (...args: unknown[]) => mockEscrowParticipantKeyFindUnique(...args) },
     user: { findUnique: (...args: unknown[]) => mockUserFindUnique(...args) },
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
+    $executeRaw: (...args: unknown[]) => mockExecuteRaw(...args),
+    // #309 — the evidence append is one UPDATE ... RETURNING "evidenceGeneration" ($queryRaw). It shares
+    // mockExecuteRaw's queued results and recorded SQL: a count of 1 is one committed row, 0 none.
+    $queryRaw: async (...args: unknown[]) => ((await mockExecuteRaw(...args)) ? [{ evidenceGeneration: 1 }] : []),
   },
 }))
 
@@ -143,6 +169,12 @@ const mockIsSignatureCollectionType = jest.fn().mockReturnValue(false)
 jest.mock('../src/modules/open-settlement/escrow.service', () => ({
   escrowService: {
     openDispute: (...args: unknown[]) => mockOpenDispute(...args),
+    // Issue #238 - raiseDispute() establishes the Dispute inside openDisputeEstablishing()'s transaction;
+    // this mock records the same openDispute() call and runs `establish` against the mocked prisma (as tx).
+    openDisputeEstablishing: async (escrowId: string, by: string, reason: string, establish: (tx: unknown) => Promise<unknown>) => {
+      await mockOpenDispute(escrowId, by, reason)
+      return establish(require('../src/common/database').prisma)
+    },
     releaseFunds: (...args: unknown[]) => mockReleaseFunds(...args),
     refundFunds: (...args: unknown[]) => mockRefundFunds(...args),
     splitFunds: (...args: unknown[]) => mockSplitFunds(...args),
@@ -306,7 +338,9 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
     // below (docs/DESTINATION_AUTHORITY_ARCHITECTURE.md).
     await service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', 'bc1qbuyeraddress', undefined, undefined, sig1, issuedAt1)
 
-    expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1')
+    // Issue #254 - dispute.id is now threaded through as real, immutable, generation-scoped provenance
+    // (see escrow.service.ts's releaseFunds() and handlers.ts's wasCausedByDisputeRuling()).
+    expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1', 'dispute-1')
     expect(mockEmit).toHaveBeenCalledWith(
       'dispute.resolved',
       expect.objectContaining({ ruling: 'RELEASE', tradeId: 'trade-1' }),
@@ -320,7 +354,7 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
 
     const [sig2, issuedAt2] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'REFUND')
     await service.resolveDispute('dispute-1', 'arbiter-1', 'REFUND', undefined, undefined, undefined, sig2, issuedAt2)
-    expect(mockRefundFunds).toHaveBeenCalledWith('escrow-1', 'arbiter-1')
+    expect(mockRefundFunds).toHaveBeenCalledWith('escrow-1', 'arbiter-1', 'dispute-1')
   })
 
   // ADR-005 §10 — the old-arbiter in-flight race applyRuling()'s
@@ -406,7 +440,7 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
     mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE' })
     const [sig3, issuedAt3] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'RELEASE')
     await service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', undefined, undefined, undefined, sig3, issuedAt3)
-    expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1')
+    expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1', 'dispute-1')
   })
 
   // RFC-021 D9 (2026-08-02) — the third §1.9 dispute-ruling option finally
@@ -743,8 +777,8 @@ describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)'
     const [sig12, issuedAt12] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'new-arbiter', 'REFUND')
     await marketService.resolveDispute('dispute-1', 'new-arbiter', 'REFUND', undefined, undefined, undefined, sig12, issuedAt12)
 
-    expect(mockSlash).toHaveBeenCalledWith('original-arbiter')
-    expect(mockRecordRuling).toHaveBeenCalledWith('new-arbiter', undefined)
+    expect(mockSlash).toHaveBeenCalledWith('original-arbiter', expect.anything())
+    expect(mockRecordRuling).toHaveBeenCalledWith('new-arbiter', undefined, expect.anything())
   })
 
   it('does NOT slash when the appeal panel upholds the original ruling — a denied, not frivolous-punished, appeal', async () => {
@@ -758,7 +792,7 @@ describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)'
     await marketService.resolveDispute('dispute-1', 'new-arbiter', 'RELEASE', 'bc1qbuyer', undefined, undefined, sig13, issuedAt13)
 
     expect(mockSlash).not.toHaveBeenCalled()
-    expect(mockRecordRuling).toHaveBeenCalledWith('new-arbiter', undefined)
+    expect(mockRecordRuling).toHaveBeenCalledWith('new-arbiter', undefined, expect.anything())
   })
 
   it('does not attempt to slash on an ordinary first-instance (non-appeal) resolution', async () => {
@@ -772,7 +806,7 @@ describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)'
     await marketService.resolveDispute('dispute-1', 'arbiter-1', 'REFUND', undefined, undefined, undefined, sig14, issuedAt14)
 
     expect(mockSlash).not.toHaveBeenCalled()
-    expect(mockRecordRuling).toHaveBeenCalledWith('arbiter-1', undefined)
+    expect(mockRecordRuling).toHaveBeenCalledWith('arbiter-1', undefined, expect.anything())
   })
 
   // RFC-021 D4, Phase 3 — the arbiter-side half of cumulativeFeesObserved.
@@ -787,7 +821,7 @@ describe('DisputeService — resolveDispute() slashing on overturn (RFC-021 D6)'
     const [sig15, issuedAt15] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'RELEASE')
     await marketService.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', 'bc1qbuyer', undefined, undefined, sig15, issuedAt15)
 
-    expect(mockRecordRuling).toHaveBeenCalledWith('arbiter-1', '0.5')
+    expect(mockRecordRuling).toHaveBeenCalledWith('arbiter-1', '0.5', expect.anything())
   })
 })
 
@@ -796,22 +830,31 @@ describe('DisputeService — submitEvidence() (RFC-021 D8)', () => {
 
   beforeEach(() => jest.clearAllMocks())
 
-  it('appends evidence, transitions OPENED -> EVIDENCE_SUBMITTED, and emits the event finally reachable after this pass', async () => {
+  // The write is one conditional UPDATE (see persistEvidence()): these assert its exact shape. That it really
+  // appends atomically and never overwrites a newer state is proven against real PostgreSQL in
+  // tests/integration/disputeEvidenceConcurrency.test.ts.
+  function evidenceWrite(): { sql: string; values: unknown[] } {
+    const [strings, ...values] = mockExecuteRaw.mock.calls[0] as [TemplateStringsArray, ...unknown[]]
+    return { sql: strings.join('?'), values }
+  }
+
+  it('appends evidence, transitions OPENED -> EVIDENCE_SUBMITTED, and emits the event finally reachable after this pass — through one conditional UPDATE', async () => {
     mockDisputeFindUnique.mockResolvedValue({
       id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'OPENED', evidence: [],
     })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
+    mockExecuteRaw.mockResolvedValueOnce(1)
 
     await service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt', note: 'bank confirmation' })
 
-    expect(mockDisputeUpdate).toHaveBeenCalledWith({
-      where: { id: 'dispute-1' },
-      data: {
-        evidence: [expect.objectContaining({ type: 'payment_receipt', note: 'bank confirmation', submittedBy: 'buyer-1' })],
-        status: 'EVIDENCE_SUBMITTED',
-      },
-    })
+    expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    const { sql, values } = evidenceWrite()
+    expect(sql).toMatch(/UPDATE disputes/)
+    expect(sql).toMatch(/status = 'EVIDENCE_SUBMITTED'/)
+    expect(sql).toMatch(/WHERE id = \? AND status IN \('OPENED', 'EVIDENCE_SUBMITTED'\)/)
+    expect(values).toContain('dispute-1')
+    const appendedEntries = JSON.parse(values.find((v) => typeof v === 'string' && v.startsWith('[')) as string)
+    expect(appendedEntries).toEqual([expect.objectContaining({ type: 'payment_receipt', note: 'bank confirmation', submittedBy: 'buyer-1' })])
     expect(mockEmit).toHaveBeenCalledWith(
       'dispute.evidence_submitted',
       expect.objectContaining({ disputeId: 'dispute-1', tradeId: 'trade-1', triggeredBy: 'buyer-1' }),
@@ -819,20 +862,32 @@ describe('DisputeService — submitEvidence() (RFC-021 D8)', () => {
     )
   })
 
-  it('appends to existing evidence rather than overwriting it', async () => {
+  it('appends to the CURRENT evidence in the database rather than rewriting the list it read — the write carries only the new entry', async () => {
     mockDisputeFindUnique.mockResolvedValue({
       id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'EVIDENCE_SUBMITTED',
       evidence: [{ type: 'chat_log', submittedBy: 'seller-1', submittedAt: '2026-01-01T00:00:00.000Z' }],
     })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-    mockDisputeUpdate.mockResolvedValue({})
+    mockExecuteRaw.mockResolvedValueOnce(1)
 
     await service.submitEvidence('dispute-1', 'seller-1', { type: 'payment_receipt' })
 
-    const call = mockDisputeUpdate.mock.calls[0][0]
-    expect(call.data.evidence).toHaveLength(2)
-    expect(call.data.evidence[0].type).toBe('chat_log')
-    expect(call.data.evidence[1].type).toBe('payment_receipt')
+    const { sql, values } = evidenceWrite()
+    expect(sql).toMatch(/SET evidence = \(CASE WHEN jsonb_typeof\(evidence\) = 'array' THEN evidence ELSE '\[\]'::jsonb END\) \|\| \?::jsonb/)
+    const appendedEntries = JSON.parse(values.find((v) => typeof v === 'string' && v.startsWith('[')) as string)
+    expect(appendedEntries).toHaveLength(1) // never the stale list it read (which already had chat_log)
+    expect(appendedEntries[0].type).toBe('payment_receipt')
+  })
+
+  it('a submission whose dispute left evidence-gathering after the read (ruled, proposed, appealed) changes nothing, reports the real current status and emits nothing', async () => {
+    mockDisputeFindUnique
+      .mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'EVIDENCE_SUBMITTED', evidence: [] })
+      .mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'RESOLVED', evidence: [] })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockExecuteRaw.mockResolvedValueOnce(0)
+
+    await expect(service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt' })).rejects.toThrow('cannot accept new evidence from status RESOLVED')
+    expect(mockEmit).not.toHaveBeenCalled()
   })
 
   it('rejects a submitter who is not a party to the trade', async () => {
@@ -841,6 +896,7 @@ describe('DisputeService — submitEvidence() (RFC-021 D8)', () => {
 
     await expect(service.submitEvidence('dispute-1', 'not-a-party', { type: 'payment_receipt' })).rejects.toThrow('is not a party to trade')
     expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    expect(mockExecuteRaw).not.toHaveBeenCalled()
   })
 
   it('rejects new evidence once the dispute has moved past evidence-gathering (RESOLVED/APPEALED/AUTO_PROPOSED)', async () => {
@@ -891,31 +947,65 @@ describe('DisputeService — proposeAutoResolution() / contestAutoResolution() (
     expect(mockEmit).not.toHaveBeenCalled()
   })
 
-  it('contestAutoResolution reverts to EVIDENCE_SUBMITTED and clears the auto-resolution fields', async () => {
+  it('contestAutoResolution reverts to EVIDENCE_SUBMITTED and clears the auto-resolution fields — through a conditional claim on the exact proposal it read, never an update by id alone', async () => {
+    const deadline = new Date(Date.now() + 3600_000)
     mockDisputeFindUnique.mockResolvedValue({
       id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED',
-      autoResolutionDeadline: new Date(Date.now() + 3600_000),
+      autoResolutionDeadline: deadline,
     })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
+    mockExecuteRaw.mockResolvedValueOnce(1)
 
     await service.contestAutoResolution('dispute-1', 'seller-1')
 
-    expect(mockDisputeUpdate).toHaveBeenCalledWith({
-      where: { id: 'dispute-1' },
-      data: {
-        status: 'EVIDENCE_SUBMITTED',
-        autoResolutionRecommendation: null,
-        autoResolutionConfidence: null,
-        autoResolutionReasoning: null,
-        autoResolutionDeadline: null,
-      },
-    })
+    expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    expect(mockDisputeUpdateMany).not.toHaveBeenCalled()
+    expect(mockExecuteRaw).toHaveBeenCalledTimes(1)
+    const [strings, ...values] = mockExecuteRaw.mock.calls[0] as [TemplateStringsArray, ...unknown[]]
+    const sql = strings.join('?')
+    expect(sql).toMatch(/UPDATE disputes/)
+    expect(sql).toMatch(/SET status = 'EVIDENCE_SUBMITTED'/)
+    expect(sql).toMatch(/"autoResolutionRecommendation" = NULL/)
+    expect(sql).toMatch(/"autoResolutionDeadline" = NULL/)
+    expect(sql).toMatch(/WHERE id = \? AND status = 'AUTO_PROPOSED'/)
+    expect(values).toContain('dispute-1')
+    // The identity-and-window predicate: the exact deadline read, still not passed on the database clock.
+    const predicate = values.find((v: any) => v && Array.isArray(v.strings)) as { strings: string[]; values: unknown[] }
+    expect(predicate.strings.join('?')).toMatch(/"autoResolutionDeadline" = \? AND "autoResolutionDeadline" >= \(clock_timestamp\(\) AT TIME ZONE 'UTC'\)/)
+    expect(predicate.values).toEqual([deadline])
     expect(mockEmit).toHaveBeenCalledWith(
       'dispute.auto_resolution_contested',
       expect.objectContaining({ disputeId: 'dispute-1', contestedBy: 'seller-1' }),
       'trade-1'
     )
+  })
+
+  describe('a contest that loses its claim (the proposal changed after it was read) changes nothing and emits nothing', () => {
+    const deadline = new Date(Date.now() + 3600_000)
+    const readRow = { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', autoResolutionDeadline: deadline }
+
+    beforeEach(() => {
+      mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+      mockExecuteRaw.mockResolvedValueOnce(0)
+    })
+
+    it('an arbiter resolved it meanwhile: reports the real current status', async () => {
+      mockDisputeFindUnique.mockResolvedValueOnce(readRow).mockResolvedValueOnce({ ...readRow, status: 'RESOLVED' })
+      await expect(service.contestAutoResolution('dispute-1', 'buyer-1')).rejects.toThrow('no pending automated resolution to contest (status: RESOLVED)')
+      expect(mockEmit).not.toHaveBeenCalled()
+    })
+
+    it('the window closed meanwhile: reports the closed window', async () => {
+      mockDisputeFindUnique.mockResolvedValueOnce(readRow).mockResolvedValueOnce({ ...readRow, autoResolutionDeadline: new Date(Date.now() - 1000) })
+      await expect(service.contestAutoResolution('dispute-1', 'buyer-1')).rejects.toThrow('contest window has already closed')
+      expect(mockEmit).not.toHaveBeenCalled()
+    })
+
+    it("a newer proposal replaced the one being contested: the newer one is never contested on the old one's behalf", async () => {
+      mockDisputeFindUnique.mockResolvedValueOnce(readRow).mockResolvedValueOnce({ ...readRow, autoResolutionDeadline: new Date(Date.now() + 7200_000) })
+      await expect(service.contestAutoResolution('dispute-1', 'buyer-1')).rejects.toThrow('replaced by a newer proposal')
+      expect(mockEmit).not.toHaveBeenCalled()
+    })
   })
 
   it('rejects a contest from someone who is not a party to the trade', async () => {
@@ -959,11 +1049,13 @@ describe('DisputeService — sweepExpiredAutoResolutions() (RFC-021 D8, advisory
 
   beforeEach(() => jest.clearAllMocks())
 
-  it('reverts an expired, uncontested AUTO_PROPOSED dispute to EVIDENCE_SUBMITTED without calling any settlement function', async () => {
+  const EXPIRED_DEADLINE = new Date(Date.now() - 60_000)
+
+  it('reverts an expired, uncontested AUTO_PROPOSED dispute to EVIDENCE_SUBMITTED without calling any settlement function — through a conditional claim on the exact proposal it read', async () => {
     mockDisputeFindMany.mockResolvedValue([
-      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
+      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND', autoResolutionDeadline: EXPIRED_DEADLINE },
     ])
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
+    mockDisputeUpdateMany.mockResolvedValueOnce({ count: 1 })
 
     const result = await service.sweepExpiredAutoResolutions()
 
@@ -971,8 +1063,9 @@ describe('DisputeService — sweepExpiredAutoResolutions() (RFC-021 D8, advisory
     expect(mockReleaseFunds).not.toHaveBeenCalled()
     expect(mockInitiateRefund).not.toHaveBeenCalled()
     expect(mockInitiateRelease).not.toHaveBeenCalled()
-    expect(mockDisputeUpdate).toHaveBeenCalledWith({
-      where: { id: 'dispute-1' },
+    expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    expect(mockDisputeUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'dispute-1', status: 'AUTO_PROPOSED', autoResolutionDeadline: EXPIRED_DEADLINE },
       data: { status: 'EVIDENCE_SUBMITTED', autoResolutionDeadline: null },
     })
     expect(mockEmit).toHaveBeenCalledWith(
@@ -986,14 +1079,27 @@ describe('DisputeService — sweepExpiredAutoResolutions() (RFC-021 D8, advisory
       'trade-1'
     )
     expect(result.revertedToHuman).toEqual(['dispute-1'])
+    expect(result.superseded).toEqual([])
     expect(result.failed).toEqual([])
+  })
+
+  it('a sweep that loses its claim (ruled, contested or re-proposed since its read) changes nothing and emits nothing — reported as superseded, not failed', async () => {
+    mockDisputeFindMany.mockResolvedValue([
+      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND', autoResolutionDeadline: EXPIRED_DEADLINE },
+    ])
+    mockDisputeUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    const result = await service.sweepExpiredAutoResolutions()
+
+    expect(mockEmit).not.toHaveBeenCalled()
+    expect(result).toEqual({ revertedToHuman: [], superseded: ['dispute-1'], failed: [] })
   })
 
   it('reverts a RELEASE recommendation identically — the ruling itself is irrelevant once execution is advisory-only, not automated', async () => {
     mockDisputeFindMany.mockResolvedValue([
-      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'RELEASE' },
+      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'RELEASE', autoResolutionDeadline: EXPIRED_DEADLINE },
     ])
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
+    mockDisputeUpdateMany.mockResolvedValueOnce({ count: 1 })
 
     const result = await service.sweepExpiredAutoResolutions()
 
@@ -1004,12 +1110,12 @@ describe('DisputeService — sweepExpiredAutoResolutions() (RFC-021 D8, advisory
 
   it('collects failures per-dispute without letting one bad row\'s revert failure stop the rest of the sweep', async () => {
     mockDisputeFindMany.mockResolvedValue([
-      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
-      { id: 'dispute-2', tradeId: 'trade-2', escrowId: 'escrow-2', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
+      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND', autoResolutionDeadline: EXPIRED_DEADLINE },
+      { id: 'dispute-2', tradeId: 'trade-2', escrowId: 'escrow-2', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND', autoResolutionDeadline: EXPIRED_DEADLINE },
     ])
-    mockDisputeUpdate
+    mockDisputeUpdateMany
       .mockRejectedValueOnce(new Error('row-1 update failed'))
-      .mockResolvedValueOnce({ id: 'dispute-2', status: 'EVIDENCE_SUBMITTED' })
+      .mockResolvedValueOnce({ count: 1 })
 
     const result = await service.sweepExpiredAutoResolutions()
 

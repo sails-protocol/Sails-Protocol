@@ -26,9 +26,9 @@ import type { ArbiterCandidate as ServerArbiterCandidate } from '../src/modules/
 type AssertIdentical<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 
 describe('DisputeStatus parity — packages/sails-p2p-schemas and packages/sails-sdk vs the real Prisma enum', () => {
-  it('the real, live Prisma enum has exactly the 6 expected values (ground truth, not asserted)', () => {
+  it('the real, live Prisma enum has exactly the 7 expected values (ground truth, not asserted)', () => {
     expect(new Set(Object.values(PrismaDisputeStatus))).toEqual(
-      new Set(['OPENED', 'EVIDENCE_SUBMITTED', 'ARBITRATED', 'RESOLVED', 'APPEALED', 'AUTO_PROPOSED'])
+      new Set(['OPENED', 'EVIDENCE_SUBMITTED', 'ARBITRATED', 'RESOLVED', 'APPEALED', 'AUTO_PROPOSED', 'MOOT']) // #239D MOOT
     )
   })
 

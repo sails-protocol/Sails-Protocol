@@ -65,6 +65,17 @@
  *
  * Testnet only. MULTISIG_SEED empty by default — same "surface a clear
  * config error, don't refuse to boot" pattern as WDK_SEED_PHRASE.
+ *
+ * **Corrected (Issue #220, 2026-09-27):** "Testnet only" described the
+ * Phase-1 state and is stale. The code supports MULTISIG_NETWORK=mainnet
+ * (networkFor() below, normalized at config load) behind a mainnet-specific
+ * boot guard (config/index.ts LB-01), and #220 deliberately leaves MULTISIG
+ * out of escrow-providers.ts's PRODUCTION_INELIGIBLE_TYPES — it is the only
+ * production-selectable settlement rail. Evidence: a disclosed small-value
+ * mainnet rehearsal (docs/MAINNET_MULTISIG_PROOF.md). This states what the
+ * code allows and what was rehearsed, not an audit attestation: no
+ * independent security audit of mainnet operation is recorded in this
+ * repository.
  */
 import * as ecc from 'tiny-secp256k1'
 import { BIP32Factory, type BIP32Interface } from 'bip32'
@@ -72,7 +83,7 @@ import * as bitcoin from 'bitcoinjs-lib'
 import { createHash } from 'crypto'
 import { Prisma } from '@prisma/client'
 import type { BitcoinNetwork } from '@satsails/p2p-schemas'
-import { EscrowError } from '../../common/errors'
+import { EscrowError, ValidationError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
 import { validateOutput, dustThresholdSats } from './bitcoin-dust-policy'
@@ -86,6 +97,33 @@ import { boundedFetch } from './bounded-rpc'
 // read-only explorer queries only. Never applied to broadcast() (a
 // mutating/submission call) — see bounded-rpc.ts's own header.
 const EXPLORER_READ_RETRY = { attempts: 3, backoffMs: 250 }
+
+// Most response-body bytes each explorer call accepts (bounded-rpc.ts's maxResponseBytes). Derived from
+// the esplora/mempool.space response shapes with every field at its widest (tests/httpBoundaryCallSites.test.ts
+// recomputes them):
+// - small: tx status 148 B, outspend 263 B, tip height 10 B, fee estimates 119 B, broadcast txid 64 B. 16 KiB
+//   is 62x the largest, and leaves room for an explorer's broadcast-rejection text.
+// - transaction: GET /tx/{txid} is only asked for this provider's own spends (one 2-of-3 P2WSH input, at
+//   most 3 outputs), 2,747 B at their widest. 64 KiB is 23x that.
+// - UTXO list: grows with the number of outputs paying the escrow address, which anyone can add to; the
+//   protocol itself needs one (the funding output). 277 B per entry at its widest: 1 MiB tolerates 3,785
+//   entries before the read fails closed.
+export const EXPLORER_SMALL_RESPONSE_MAX_BYTES = 16 * 1024
+export const EXPLORER_TRANSACTION_MAX_BYTES = 64 * 1024
+export const EXPLORER_UTXO_LIST_MAX_BYTES = 1024 * 1024
+
+/**
+ * Longest reconcilePendingSettlement() can spend on the explorer for one operation: the existence read
+ * and the UTXO read, each up to EXPLORER_READ_RETRY.attempts timed-out attempts plus the backoff between
+ * them (backoffMs x attempt number), then one broadcast (no retry). 57.5 s at the default 8 s timeout.
+ * Each attempt's timeout covers its headers AND its body (boundedFetch() keeps the deadline armed until
+ * the body is read), so a server that answers and then stalls the body cannot extend this bound.
+ */
+export function pendingSettlementReconciliationWorstCaseMs(timeoutMs: number = config.multisig.explorerRequestTimeoutMs): number {
+  const { attempts, backoffMs } = EXPLORER_READ_RETRY
+  const read = attempts * timeoutMs + backoffMs * ((attempts - 1) * attempts) / 2
+  return 2 * read + timeoutMs
+}
 
 bitcoin.initEccLib(ecc)
 const bip32 = BIP32Factory(ecc)
@@ -233,6 +271,7 @@ export interface TransactionExistence {
 export async function fetchTransactionExistence(txid: string): Promise<TransactionExistence> {
   const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}/status`, {}, {
     timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    maxResponseBytes: EXPLORER_SMALL_RESPONSE_MAX_BYTES,
     retry: EXPLORER_READ_RETRY,
   })
   if (res.status === 404) return { exists: false, confirmed: false }
@@ -251,6 +290,7 @@ export async function fetchTransactionExistence(txid: string): Promise<Transacti
 export async function fetchTransactionConfirmationStatus(txid: string): Promise<TransactionConfirmationStatus> {
   const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}/status`, {}, {
     timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    maxResponseBytes: EXPLORER_SMALL_RESPONSE_MAX_BYTES,
     retry: EXPLORER_READ_RETRY,
   })
   if (!res.ok) {
@@ -281,6 +321,7 @@ export interface BroadcastTransactionOutput {
 export async function fetchTransactionOutputs(txid: string): Promise<BroadcastTransactionOutput[]> {
   const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}`, {}, {
     timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    maxResponseBytes: EXPLORER_TRANSACTION_MAX_BYTES,
     retry: EXPLORER_READ_RETRY,
   })
   if (!res.ok) {
@@ -314,6 +355,7 @@ export interface OutpointSpendStatus {
 export async function fetchOutpointSpendStatus(txid: string, vout: number): Promise<OutpointSpendStatus> {
   const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}/outspend/${vout}`, {}, {
     timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    maxResponseBytes: EXPLORER_SMALL_RESPONSE_MAX_BYTES,
     retry: EXPLORER_READ_RETRY,
   })
   if (!res.ok) {
@@ -331,6 +373,7 @@ export async function fetchOutpointSpendStatus(txid: string, vout: number): Prom
 export async function fetchChainTipHeight(): Promise<number> {
   const res = await boundedFetch(`${config.multisig.explorerApiUrl}/blocks/tip/height`, {}, {
     timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    maxResponseBytes: EXPLORER_SMALL_RESPONSE_MAX_BYTES,
     retry: EXPLORER_READ_RETRY,
   })
   if (!res.ok) {
@@ -424,6 +467,39 @@ export type MultisigEscrowInput = {
   // escrow anywhere lacks this field — undefined/null here now means
   // "reject," not "fall back to live config" (partiesFor() below).
   arbiterPubkey?: string | null
+  // AUD1X-H1: execution-only identity from the committed EDA; never set at construction.
+  arbiterExecutionIdentity?: string
+  // #235 R7G-B2A — the persisted funding address (Escrow.multisigAddr). Every
+  // consumer of an existing funding surface asserts the frozen keyset still
+  // derives exactly this address (assertFundingSurface()).
+  multisigAddr?: string | null
+}
+
+/**
+ * #235 R7G-B2A — MULTISIG_KEY_DISTINCTNESS_V1. Buyer, seller and arbiter keys
+ * must be three different keys: a key listed twice in the 2-of-3 script lets
+ * its single holder fill two CHECKMULTISIG positions alone. Compared as
+ * decoded bytes, never as text.
+ */
+export function assertDistinctMultisigKeys(tradeId: string, keys: { buyer: Buffer; seller: Buffer; arbiter: Buffer }): void {
+  const pairs: Array<[string, Buffer, string, Buffer]> = [
+    ['buyer', keys.buyer, 'seller', keys.seller],
+    ['buyer', keys.buyer, 'arbiter', keys.arbiter],
+    ['seller', keys.seller, 'arbiter', keys.arbiter],
+  ]
+  for (const [a, ka, b, kb] of pairs) {
+    if (ka.equals(kb)) {
+      throw new EscrowError(`MULTISIG escrow for trade ${tradeId}: the ${a} and ${b} public keys are the same key — the three keys of a 2-of-3 escrow must be distinct`)
+    }
+  }
+}
+
+const verifySignature = (pubkey: Uint8Array, msghash: Uint8Array, signature: Uint8Array): boolean => ecc.verify(msghash, pubkey, signature)
+
+/** Only SIGHASH_ALL commits a signer to the exact transaction Sails built. */
+function assertSighashAll(encoded: Uint8Array): void {
+  const { hashType } = bitcoin.script.signature.decode(Buffer.from(encoded))
+  if (hashType !== bitcoin.Transaction.SIGHASH_ALL) throw new Error(`signature uses sighash type ${hashType}, not SIGHASH_ALL`)
 }
 
 export class MultisigProvider implements SettlementProvider {
@@ -474,6 +550,44 @@ export class MultisigProvider implements SettlementProvider {
   // supplies it).
   private resolveArbiterSigningId(escrow: MultisigEscrowInput): string {
     return escrow.triggeredBy ?? this.defaultArbiterId()
+  }
+
+  /**
+   * AUD1X-H1 - the ONLY place the platform arbiter signature is produced. It runs inside buildFinalizedTransaction(),
+   * in memory, immediately before finalization and broadcast, and only for a caller that set
+   * escrow.arbiterExecutionIdentity - which happens after the ADR-005 gate (generation still current, round bound to
+   * the ruling and its durable Outcome, AUD-1), the ADR-004 gate and, on the live path, the atomic status claim.
+   * Nothing here is persisted, returned or logged: a signed round exists only as the transaction about to be sent.
+   *
+   * It signs ONLY the stored round - the PSBT read from the database before any client copy is combined - so what the
+   * arbiter signs is exactly what construction persisted and the gates judged (never data a client supplied). It is
+   * SIGHASH_ALL, deterministic (RFC 6979), so the witness is byte-identical to the one the pre-embedded signature
+   * produced. A signature already present in the stored round (a round persisted before AUD1X-H1) is kept, not
+   * redone.
+   */
+  private addArbiterSignatureAtExecution(escrow: MultisigEscrowInput, psbt: bitcoin.Psbt): void {
+    const identity = escrow.arbiterExecutionIdentity
+    if (!identity) return
+    if (!escrow.arbiterPubkey) {
+      throw new EscrowError(`MULTISIG escrow for trade ${escrow.tradeId} has no persisted arbiter public-key commitment — refusing to sign as the arbiter`)
+    }
+    const arbiterKey = this.deriveArbiterKey(identity)
+    const derived = Buffer.from(arbiterKey.publicKey).toString('hex')
+    if (derived !== escrow.arbiterPubkey) {
+      throw new EscrowError(
+        `MULTISIG provider: identity '${identity}' does not derive the arbiter public key committed into trade ${escrow.tradeId}'s escrow ` +
+        '— refusing to sign as the arbiter (TRUSTED_ARBITRATORS/MULTISIG_SEED changed since creation, or this is not the committed arbiter).'
+      )
+    }
+    for (let i = 0; i < psbt.inputCount; i++) {
+      const input = psbt.data.inputs[i]
+      if ((input.partialSig ?? []).some((ps) => Buffer.from(ps.pubkey).toString('hex') === derived)) continue
+      if (!input.witnessScript) throw new EscrowError(`MULTISIG provider: input ${i} has no witnessScript — refusing to sign as the arbiter`)
+      const inScript = (bitcoin.script.decompile(Buffer.from(input.witnessScript)) ?? [])
+        .some((c) => typeof c !== 'number' && Buffer.from(c).toString('hex') === derived)
+      if (!inScript) throw new EscrowError(`MULTISIG provider: the committed arbiter key is not part of input ${i}'s script — refusing to sign as the arbiter`)
+      psbt.signInput(i, arbiterKey as unknown as bitcoin.Signer, [bitcoin.Transaction.SIGHASH_ALL])
+    }
   }
 
   // Arbiter is the only role this provider still derives itself — buyer
@@ -563,11 +677,28 @@ export class MultisigProvider implements SettlementProvider {
         `MULTISIG escrow for trade ${escrow.tradeId} has no persisted arbiter public-key commitment — this reference implementation refuses to derive an arbiter key from live config for an escrow that never recorded one. Call submitParticipantKey() for both parties first (it always persists this commitment via getDepositAddress()).`
       )
     }
-    return {
-      buyerPubkey,
-      sellerPubkey,
-      arbiterPubkey: this.parsePubkey(escrow.arbiterPubkey, 'arbiter', escrow.tradeId),
+    const arbiterPubkey = this.parsePubkey(escrow.arbiterPubkey, 'arbiter', escrow.tradeId)
+    assertDistinctMultisigKeys(escrow.tradeId, { buyer: buyerPubkey, seller: sellerPubkey, arbiter: arbiterPubkey })
+    return { buyerPubkey, sellerPubkey, arbiterPubkey }
+  }
+
+  /**
+   * #235 R7G-B2A — SCRIPT_AUTHORITY_IMMUTABILITY_V1. An existing funding
+   * surface is consumed only if the escrow's (frozen) keyset still derives
+   * exactly its persisted address; otherwise every lock, rescan, spend and
+   * recovery fails closed — never re-pointed at a newly derived address.
+   */
+  private assertFundingSurface(escrow: MultisigEscrowInput, derivedAddress: string | undefined): string {
+    if (!escrow.multisigAddr) {
+      throw new EscrowError(`MULTISIG escrow for trade ${escrow.tradeId} has no persisted funding address — refusing to derive one outside participant-key submission`)
     }
+    if (derivedAddress !== escrow.multisigAddr) {
+      throw new EscrowError(
+        `MULTISIG escrow for trade ${escrow.tradeId}: its participant keys no longer derive its persisted funding address ${escrow.multisigAddr} — ` +
+        'refusing to lock, spend or recover against a different script (manual review required)'
+      )
+    }
+    return escrow.multisigAddr
   }
 
   // See this file's header comment on the single-arbiter limitation — only
@@ -666,6 +797,7 @@ export class MultisigProvider implements SettlementProvider {
       sellerPubkey: this.parsePubkey(sellerPubkeyHex, 'seller', tradeId),
       arbiterPubkey,
     }
+    assertDistinctMultisigKeys(tradeId, { buyer: parties.buyerPubkey, seller: parties.sellerPubkey, arbiter: arbiterPubkey })
     const { p2wsh } = this.buildScript(parties)
     if (!p2wsh.address) throw new EscrowError(`Failed to derive a P2WSH address for trade ${tradeId}`)
     return { address: p2wsh.address, arbiterPubkeyHex: arbiterPubkey.toString('hex'), arbiterId }
@@ -674,6 +806,7 @@ export class MultisigProvider implements SettlementProvider {
   private async fetchUtxos(address: string): Promise<ExplorerUtxo[]> {
     const res = await boundedFetch(`${config.multisig.explorerApiUrl}/address/${address}/utxo`, {}, {
       timeoutMs: config.multisig.explorerRequestTimeoutMs,
+      maxResponseBytes: EXPLORER_UTXO_LIST_MAX_BYTES,
       retry: EXPLORER_READ_RETRY,
     })
     if (!res.ok) {
@@ -824,13 +957,85 @@ export class MultisigProvider implements SettlementProvider {
   private async findFundingCandidate(escrow: MultisigEscrowInput): Promise<{ address: string; utxo: ExplorerUtxo } | null> {
     const parties = this.partiesFor(escrow)
     const { p2wsh } = this.buildScript(parties)
-    const address = p2wsh.address!
+    const address = this.assertFundingSurface(escrow, p2wsh.address)
     const utxos = await this.fetchUtxos(address)
 
-    const utxo = this.isPolicyAware(escrow)
-      ? utxos.find((u) => u.value === this.requiredFundingSats(escrow) && u.status.confirmed)
-      : utxos.find((u) => u.value >= this.expectedSats(escrow.lockedAmount) && u.status.confirmed)
+    const utxo = utxos.find((u) => this.isCanonicalFundingValue(escrow, u.value) && u.status.confirmed)
     return utxo ? { address, utxo } : null
+  }
+
+  /**
+   * The canonical funding rule's value predicate (lockFunds()): a policy-aware escrow needs exactly T + Fmax in one
+   * outpoint, a legacy one at least T. #235 R7G F8A reads the same predicate to keep a canonical candidate out of
+   * residual recovery — one rule, never two.
+   */
+  isCanonicalFundingValue(escrow: MultisigEscrowInput, valueSats: number): boolean {
+    return this.isPolicyAware(escrow) ? valueSats === this.requiredFundingSats(escrow) : valueSats >= this.expectedSats(escrow.lockedAmount)
+  }
+
+  /**
+   * #235 R7G F8A — every output the explorer reports at this escrow's persisted funding address, classified against
+   * its canonical funding authority. Observation is evidence, never ownership:
+   *   CANONICAL            the escrow's recorded funding outpoint (normal settlement owns it);
+   *   CANONICAL_CANDIDATE  no funding recorded yet and this value satisfies the funding rule (lockFunds() may still
+   *                        legitimately claim it — never residual);
+   *   UNCONFIRMED          below the MULTISIG confirmation policy depth (mempool-only, reorged, or too shallow);
+   *   RESIDUAL             confirmed value on the script that is not, and can no longer become, canonical funding.
+   */
+  async observeScriptOutputs(escrow: MultisigEscrowInput): Promise<Array<{
+    txid: string; vout: number; valueSats: number; confirmations: number; blockHeight: number | null
+    classification: 'CANONICAL' | 'CANONICAL_CANDIDATE' | 'UNCONFIRMED' | 'RESIDUAL'
+  }>> {
+    const { p2wsh } = this.buildScript(this.partiesFor(escrow))
+    const address = this.assertFundingSurface(escrow, p2wsh.address)
+    const required = config.multisig.requiredConfirmations
+    const out = []
+    for (const u of await this.fetchUtxos(address)) {
+      const canonical = !!escrow.txLockId && u.txid === escrow.txLockId && (escrow.txLockVout === null || escrow.txLockVout === undefined || u.vout === escrow.txLockVout)
+      const { depth, blockHeight } = u.status.confirmed ? await this.confirmationDepth(u.txid) : { depth: 0, blockHeight: null }
+      const classification = canonical ? 'CANONICAL' as const
+        : depth < required ? 'UNCONFIRMED' as const
+        : !escrow.txLockId && this.isCanonicalFundingValue(escrow, u.value) ? 'CANONICAL_CANDIDATE' as const
+        : 'RESIDUAL' as const
+      out.push({ txid: u.txid, vout: u.vout, valueSats: u.value, confirmations: depth, blockHeight, classification })
+    }
+    return out
+  }
+
+  /**
+   * #235 R7G F8A — the unsigned recovery spend of ONE residual outpoint under the escrow's ORIGINAL persisted script:
+   * one input, one output to the participant-chosen destination, the fee from the same estimate and ceiling every
+   * other MULTISIG spend uses. Nothing is signed here; the server never signs a residual recovery.
+   */
+  async buildResidualRecoveryPsbt(escrow: MultisigEscrowInput, outpoint: { txid: string; vout: number; valueSats: number }, destination: string): Promise<{ psbtBase64: string; feeSats: bigint }> {
+    const { p2ms, p2wsh, network } = this.buildScript(this.partiesFor(escrow))
+    this.assertFundingSurface(escrow, p2wsh.address)
+    const feeRateSatsPerVByte = await this.fetchFeeRateSatsPerVByte()
+    const feeSats = this.estimateFeeSats(feeRateSatsPerVByte, 1)
+    const feeCeiling = maxExecutionCostSats(1, BigInt(outpoint.valueSats))
+    if (feeSats > feeCeiling) {
+      throw new EscrowError(`MULTISIG provider: estimated fee ${feeSats} sats exceeds the deterministic ceiling ${feeCeiling} sats for a residual recovery — refusing an implausible fee`)
+    }
+    const value = BigInt(outpoint.valueSats) - feeSats
+    if (value <= 0n) throw new EscrowError(`Residual outpoint ${outpoint.txid}:${outpoint.vout} (${outpoint.valueSats} sats) cannot cover the estimated ${feeSats} sat fee`)
+    validateOutput(destination, value, network)
+    const psbt = new bitcoin.Psbt({ network })
+    psbt.addInput({ hash: outpoint.txid, index: outpoint.vout, witnessUtxo: { script: p2wsh.output!, value: BigInt(outpoint.valueSats) }, witnessScript: p2ms.output! })
+    psbt.addOutput({ address: destination, value })
+    return { psbtBase64: psbt.toBase64(), feeSats }
+  }
+
+  /** #235 R7G F8A — the one transaction two validated participant signatures produce (no broadcast). */
+  finalizeResidualRecovery(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): { txid: string; rawTxHex: string } {
+    const tx = this.buildFinalizedTransaction(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+    return { txid: tx.getId(), rawTxHex: tx.toHex() }
+  }
+
+  /** #235 R7G F8A — broadcasts exactly these bytes; the persisted txid is the locally derived one, never the explorer's. */
+  async broadcastResidualRecovery(rawTxHex: string): Promise<void> {
+    const local = bitcoin.Transaction.fromHex(rawTxHex).getId()
+    const reported = await this.broadcast(rawTxHex)
+    if (reported !== local) log.error({ msg: 'MULTISIG provider: broadcast response txid disagrees with the locally-derived txid of a residual recovery — keeping the local one', local, reported })
   }
 
   private noFundingCandidateError(escrow: MultisigEscrowInput, address: string): EscrowError {
@@ -872,9 +1077,7 @@ export class MultisigProvider implements SettlementProvider {
     // claimEscrowTransition()/revertEscrowStatus() flow, unchanged) —
     // confirmed structurally, not assumed (Fase 3.4 §4's own audit).
     if (!candidate) {
-      const parties = this.partiesFor(escrow)
-      const { p2wsh } = this.buildScript(parties)
-      throw this.noFundingCandidateError(escrow, p2wsh.address!)
+      throw this.noFundingCandidateError(escrow, escrow.multisigAddr!)
     }
 
     const { address, utxo: funding } = candidate
@@ -923,8 +1126,13 @@ export class MultisigProvider implements SettlementProvider {
   private async broadcast(txHex: string): Promise<string> {
     const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx`, { method: 'POST', body: txHex }, {
       timeoutMs: config.multisig.explorerRequestTimeoutMs,
+      maxResponseBytes: EXPLORER_SMALL_RESPONSE_MAX_BYTES,
     })
     if (!res.ok) {
+      // An explicit explorer rejection is observable, unlike a transport
+      // timeout or lost response. Keep the existing error contract for
+      // callers and tests; do not silently reinterpret HTTP 503 as a
+      // confirmed network acceptance.
       throw new EscrowError(`MULTISIG provider: broadcast failed with ${res.status}: ${await res.text()}`)
     }
     return (await res.text()).trim()
@@ -947,6 +1155,7 @@ export class MultisigProvider implements SettlementProvider {
     try {
       res = await boundedFetch(`${config.multisig.explorerApiUrl}/v1/fees/recommended`, {}, {
         timeoutMs: config.multisig.explorerRequestTimeoutMs,
+        maxResponseBytes: EXPLORER_SMALL_RESPONSE_MAX_BYTES,
         retry: EXPLORER_READ_RETRY,
       })
     } catch (err) {
@@ -1003,6 +1212,7 @@ export class MultisigProvider implements SettlementProvider {
   ): Promise<{ psbt: bitcoin.Psbt; feeSats: bigint }> {
     this.assertArbiterMatchesScript(escrow)
     const { p2ms, p2wsh, network } = this.buildScript(parties)
+    this.assertFundingSurface(escrow, p2wsh.address)
 
     if (!escrow.txLockId) {
       throw new EscrowError(`Escrow for trade ${escrow.tradeId} has no recorded funding txid (txLockId) — cannot spend before lockFunds() has confirmed one`)
@@ -1134,8 +1344,7 @@ export class MultisigProvider implements SettlementProvider {
     const feeCollectionResult: FeeCollectionResult | null = policyAware ? { feeSats: fmax, waived: fmax === 0 } : null
 
     if (escrow.status === 'DISPUTED') {
-      const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow)) // Fase 7.3.1 §B — see resolveArbiterSigningId()'s own comment
-      psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+      // AUD1X-H1: unsigned construction must never carry the platform arbiter signature.
       if (!escrow.buyerId) {
         throw new EscrowError(`MULTISIG provider: missing buyerId for disputed release of trade ${escrow.tradeId}`)
       }
@@ -1190,8 +1399,7 @@ export class MultisigProvider implements SettlementProvider {
     const { psbt, feeSats } = await this.buildUnsignedSpend(escrow, parties, 1, (spendableValue) => [{ address: sellerRefundAddress, value: spendableValue }])
 
     if (escrow.status === 'DISPUTED') {
-      const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow)) // Fase 7.3.1 §B — see resolveArbiterSigningId()'s own comment
-      psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+      // AUD1X-H1: unsigned construction must never carry the platform arbiter signature.
       if (!escrow.sellerId) {
         throw new EscrowError(`MULTISIG provider: missing sellerId for disputed refund of trade ${escrow.tradeId}`)
       }
@@ -1292,8 +1500,7 @@ export class MultisigProvider implements SettlementProvider {
 
     const feeCollectionResult: FeeCollectionResult | null = policyAware ? { feeSats: collectedFee, waived: feeDecision.waived } : null
 
-    const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow)) // Fase 7.3.1 §B — see resolveArbiterSigningId()'s own comment
-    psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+    // AUD1X-H1: the platform arbiter signs only after the execution authority gates.
     if (!escrow.buyerId) {
       throw new EscrowError(`MULTISIG provider: missing buyerId for disputed split of trade ${escrow.tradeId}`)
     }
@@ -1319,12 +1526,22 @@ export class MultisigProvider implements SettlementProvider {
   // bugs happen, even when they turn out harmless on inspection — here
   // there is only ever one). Never re-derives or re-requests a signature;
   // only recombines what real signers already submitted and persisted.
-  private buildFinalizedTransaction(tradeId: string, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): bitcoin.Transaction {
+  private buildFinalizedTransaction(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): bitcoin.Transaction {
     const network = networkFor(config.multisig.network)
+    const tradeId = escrow.tradeId
     try {
       const merged = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network })
+      // #235 R7G-B2A — the round must spend this escrow's persisted funding
+      // surface, and every signature in it must verify, before anything is
+      // finalized or broadcast (LOCAL_SIGNATURE_VALIDATION_V1).
+      this.assertRoundSpendsFundingSurface(escrow, merged, network)
+      this.addArbiterSignatureAtExecution(escrow, merged)
       for (const signed of signedPsbtBase64List) {
         merged.combine(bitcoin.Psbt.fromBase64(signed, { network }))
+      }
+      for (let i = 0; i < merged.inputCount; i++) {
+        for (const ps of merged.data.inputs[i].partialSig ?? []) assertSighashAll(ps.signature)
+        if (!merged.validateSignaturesOfInput(i, verifySignature)) throw new Error(`input ${i} carries a signature that does not verify`)
       }
       merged.finalizeAllInputs()
       return merged.extractTransaction()
@@ -1335,8 +1552,98 @@ export class MultisigProvider implements SettlementProvider {
     }
   }
 
+  /** #235 R7G-B2A — a signing round is authority only for this escrow's persisted P2WSH output. */
+  private inspectRound(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): { txId: string; unsignedHex: string } {
+    const network = networkFor(config.multisig.network)
+    try {
+      const merged = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network })
+      this.assertRoundSpendsFundingSurface(escrow, merged, network)
+      for (const signed of signedPsbtBase64List) merged.combine(bitcoin.Psbt.fromBase64(signed, { network }))
+      for (let i = 0; i < merged.inputCount; i++) {
+        const present = merged.data.inputs[i].partialSig ?? []
+        for (const ps of present) assertSighashAll(ps.signature)
+        if (present.length > 0 && !merged.validateSignaturesOfInput(i, verifySignature)) throw new Error(`input ${i} carries a signature that does not verify`)
+      }
+      const unsigned = bitcoin.Transaction.fromBuffer(Buffer.from(merged.data.globalMap.unsignedTx.toBuffer()))
+      return { txId: unsigned.getId(), unsignedHex: unsigned.toHex() }
+    } catch (err) {
+      throw new EscrowError(
+        `MULTISIG provider: failed to combine/finalize signatures for trade ${escrow.tradeId}: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
+  }
+
+  private assertRoundSpendsFundingSurface(escrow: MultisigEscrowInput, psbt: bitcoin.Psbt, network: bitcoin.Network): void {
+    if (!escrow.multisigAddr) throw new Error('escrow has no persisted funding address')
+    const fundedScript = Buffer.from(bitcoin.address.toOutputScript(escrow.multisigAddr, network))
+    for (let i = 0; i < psbt.inputCount; i++) {
+      const input = psbt.data.inputs[i]
+      if (!input.witnessUtxo || !input.witnessScript) throw new Error(`input ${i} has no witnessUtxo/witnessScript`)
+      if (!Buffer.from(input.witnessUtxo.script).equals(fundedScript)) throw new Error(`input ${i} does not spend the escrow's funding address`)
+      const program = Buffer.from(bitcoin.payments.p2wsh({ redeem: { output: Buffer.from(input.witnessScript) }, network }).output!)
+      if (!program.equals(fundedScript)) throw new Error(`input ${i}'s witnessScript is not the funded script`)
+    }
+  }
+
+  /**
+   * #235 R7G-B2A — LOCAL_SIGNATURE_VALIDATION_V1. A submitted copy of a
+   * signing round is accepted only if it is that exact round (same unsigned
+   * transaction, same witness data), adds nothing but signatures already in
+   * the round plus the signer's own, and the signer's signature is SIGHASH_ALL
+   * and verifies — against the STORED round's script and amount, never against
+   * anything the submitter supplied or anything re-derived from metadata.
+   */
+  validatePartialSignature(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64: string, signerPubkeyHex: string): void {
+    const network = networkFor(config.multisig.network)
+    const signer = Buffer.from(signerPubkeyHex, 'hex')
+    let round: bitcoin.Psbt
+    let submitted: bitcoin.Psbt
+    try {
+      round = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network })
+      submitted = bitcoin.Psbt.fromBase64(signedPsbtBase64, { network })
+    } catch (err) {
+      throw new ValidationError(`Signed PSBT is not a valid PSBT: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    try {
+      this.assertRoundSpendsFundingSurface(escrow, round, network)
+    } catch (err) {
+      throw new EscrowError(`MULTISIG escrow for trade ${escrow.tradeId}: its signing round failed its authority check: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    if (!Buffer.from(submitted.data.globalMap.unsignedTx.toBuffer()).equals(Buffer.from(round.data.globalMap.unsignedTx.toBuffer()))) {
+      throw new ValidationError("Signed PSBT is not a copy of this escrow's pending transaction")
+    }
+    for (let i = 0; i < round.inputCount; i++) {
+      const stored = round.data.inputs[i]
+      const given = submitted.data.inputs[i]
+      if (!stored.witnessScript || !given.witnessScript || !Buffer.from(given.witnessScript).equals(Buffer.from(stored.witnessScript))
+        || !given.witnessUtxo || !stored.witnessUtxo || given.witnessUtxo.value !== stored.witnessUtxo.value
+        || !Buffer.from(given.witnessUtxo.script).equals(Buffer.from(stored.witnessUtxo.script))) {
+        throw new ValidationError(`Signed PSBT input ${i} does not carry this round's witness data`)
+      }
+      const scriptKeys = (bitcoin.script.decompile(Buffer.from(stored.witnessScript)) ?? [])
+        .filter((c): c is Uint8Array => typeof c !== 'number').map((c) => Buffer.from(c))
+      if (!scriptKeys.some((k) => k.equals(signer))) throw new ValidationError(`Your public key is not part of input ${i}'s script`)
+      const already = stored.partialSig ?? []
+      let own: { pubkey: Uint8Array; signature: Uint8Array } | undefined
+      for (const ps of given.partialSig ?? []) {
+        if (Buffer.from(ps.pubkey).equals(signer)) { own = ps; continue }
+        const known = already.some((a) => Buffer.from(a.pubkey).equals(Buffer.from(ps.pubkey)) && Buffer.from(a.signature).equals(Buffer.from(ps.signature)))
+        if (!known) throw new ValidationError(`Signed PSBT input ${i} carries a signature for a key other than yours`)
+      }
+      if (!own) throw new ValidationError(`Signed PSBT input ${i} carries no signature for your key`)
+      try {
+        assertSighashAll(own.signature)
+        const check = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network })
+        check.updateInput(i, { partialSig: [{ pubkey: own.pubkey, signature: own.signature }] })
+        if (!check.validateSignaturesOfInput(i, verifySignature, signer)) throw new Error('signature does not verify')
+      } catch (err) {
+        throw new ValidationError(`Signature on input ${i} is not a valid signature by your key over this transaction: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+  }
+
   private async finalizeSpend(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string; rawTxHex: string }> {
-    const tx = this.buildFinalizedTransaction(escrow.tradeId, unsignedPsbtBase64, signedPsbtBase64List)
+    const tx = this.buildFinalizedTransaction(escrow, unsignedPsbtBase64, signedPsbtBase64List)
     const rawTxHex = tx.toHex()
     // Sails Core Implementation Program M9-R (R6, provider txid
     // integrity) — a Bitcoin txid is the hash of the exact bytes that
@@ -1415,23 +1722,33 @@ export class MultisigProvider implements SettlementProvider {
     escrow: MultisigEscrowInput,
     unsignedPsbtBase64: string,
     signedPsbtBase64List: string[],
-    beforeFirstBroadcast?: () => Promise<void>
+    // AUD1X-H1 - may return the arbiter identity of the authorization it just committed/re-read: the signature the
+    // platform adds at execution is produced only from that, after the gates ran and before the first broadcast.
+    beforeFirstBroadcast?: () => Promise<void | { arbiterExecutionIdentity?: string }>
   ): Promise<
     | { outcome: 'ALREADY_BROADCAST'; txId: string; rawTxHex: string; detail: string }
     | { outcome: 'NEWLY_BROADCAST'; txId: string; rawTxHex: string; detail: string }
     | { outcome: 'ANOMALY'; detail: string }
   > {
-    const tx = this.buildFinalizedTransaction(escrow.tradeId, unsignedPsbtBase64, signedPsbtBase64List)
-    const expectedTxId = tx.getId()
-    // Sails Core Implementation Program M9 (Recovery) — additive, same
-    // precedent as finalizeSpend()'s own M8.6 change: the recovery path
-    // needs the real, exactly-reconstructed transaction bytes to
-    // (re)evaluate M6 correspondence, exactly like the happy path
-    // already does. Computed once here since `tx` already exists.
-    const rawTxHex = tx.toHex()
+    // AUD1X-H1 - everything judged BEFORE any authority exists needs no arbiter signature: the round must spend this
+    // escrow's funding surface and every signature present must verify (as before), and the transaction's id is that
+    // of the unsigned transaction (a segwit txid does not commit to witnesses), so "is it already on the network?" can
+    // be asked without ever producing the arbiter signature.
+    const inspected = this.inspectRound(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+    const expectedTxId = inspected.txId
 
     const existence = await fetchTransactionExistence(expectedTxId)
     if (existence.exists) {
+      // The finalized bytes when they can be built from material already at hand (a round that carries its arbiter
+      // signature, or a caller that holds an authorization); otherwise the unsigned serialization - same txid, same
+      // outputs. Its only consumer is output-correspondence evidence; it is never broadcast from here.
+      let rawTxHex = inspected.unsignedHex
+      try {
+        const finalized = this.buildFinalizedTransaction(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+        if (finalized.getId() === expectedTxId) rawTxHex = finalized.toHex()
+      } catch {
+        // no arbiter signature available for this round: keep the unsigned serialization
+      }
       return {
         outcome: 'ALREADY_BROADCAST', txId: expectedTxId, rawTxHex,
         detail: `Transaction ${expectedTxId} is already known to the network (confirmed=${existence.confirmed}) — converging local state to this observed truth, no new broadcast.`,
@@ -1442,12 +1759,14 @@ export class MultisigProvider implements SettlementProvider {
       return { outcome: 'ANOMALY', detail: `Escrow for trade ${escrow.tradeId} has no recorded funding txLockId — cannot determine outpoint status.` }
     }
 
-    const parties = this.partiesFor(escrow)
-    const { p2wsh } = this.buildScript(parties)
-    if (!p2wsh.address) {
-      return { outcome: 'ANOMALY', detail: `Failed to re-derive the P2WSH address for trade ${escrow.tradeId} during reconciliation.` }
+    const { p2wsh } = this.buildScript(this.partiesFor(escrow))
+    let fundingAddress: string
+    try {
+      fundingAddress = this.assertFundingSurface(escrow, p2wsh.address)
+    } catch (err) {
+      return { outcome: 'ANOMALY', detail: `Funding surface of trade ${escrow.tradeId} failed its authority check during reconciliation: ${err instanceof Error ? err.message : String(err)}` }
     }
-    const utxos = await this.fetchUtxos(p2wsh.address)
+    const utxos = await this.fetchUtxos(fundingAddress)
     const stillUnspent = escrow.txLockVout !== null && escrow.txLockVout !== undefined
       ? utxos.some((u) => u.txid === escrow.txLockId && u.vout === escrow.txLockVout)
       : utxos.some((u) => u.txid === escrow.txLockId)
@@ -1458,14 +1777,36 @@ export class MultisigProvider implements SettlementProvider {
       // fail-closed commit gate immediately before the first broadcast.
       // ALREADY_BROADCAST never reaches this callback, preserving recovery
       // of external truth after later authority changes.
-      if (beforeFirstBroadcast) await beforeFirstBroadcast()
+      let executionIdentity = escrow.arbiterExecutionIdentity
+      if (beforeFirstBroadcast) {
+        const authority = await beforeFirstBroadcast()
+        if (authority && authority.arbiterExecutionIdentity) executionIdentity = authority.arbiterExecutionIdentity
+      }
+      let tx: bitcoin.Transaction
+      try {
+        tx = this.buildFinalizedTransaction(
+          executionIdentity ? { ...escrow, arbiterExecutionIdentity: executionIdentity } : escrow,
+          unsignedPsbtBase64, signedPsbtBase64List,
+        )
+        if (tx.getId() !== expectedTxId) throw new Error(`finalized transaction id ${tx.getId()} differs from the round's ${expectedTxId}`)
+      } catch (err) {
+        // With a beforeFirstBroadcast hook the caller has already claimed the transition: it must revert it, so the
+        // failure is thrown. Without one nothing was claimed: surfaced as an anomaly, never a broadcast.
+        if (beforeFirstBroadcast) throw err
+        return {
+          outcome: 'ANOMALY',
+          detail: `Round for trade ${escrow.tradeId} cannot be completed from material at hand — no execution authorization supplied the arbiter signature ` +
+            `(${err instanceof Error ? err.message : String(err)}). Nothing was broadcast.`,
+        }
+      }
+      const rawTxHex = tx.toHex()
 
       // Sails Core Implementation Program M9-R (R6, provider txid
       // integrity) — same discipline as finalizeSpend(): `expectedTxId`
-      // was already independently derived from `tx` before this
+      // was already independently derived from the round before this
       // broadcast; the provider's own response text is never persisted
       // as the txid, only compared against it as a diagnostic.
-      const providerReturnedTxId = await this.broadcast(tx.toHex())
+      const providerReturnedTxId = await this.broadcast(rawTxHex)
       if (providerReturnedTxId !== expectedTxId) {
         log.error({
           msg: 'MULTISIG provider: reconciliation broadcast response txid disagrees with the locally-derived txid of the exact transaction that was sent — ignoring the provider-reported value, persisting the locally-derived one',

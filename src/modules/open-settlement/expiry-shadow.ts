@@ -9,10 +9,11 @@
  * elapsed — never to make or influence that decision.
  *
  * The legacy decision is made entirely by
- * `escrow-repository.ts`'s `findExpiredFundsLocked()`:
- *   `prisma.escrow.findMany({ where: { status: 'FUNDS_LOCKED', expiresAt: { lt: now } } })`
+ * `escrow.service.ts`'s sweepExpiredEscrows() refund branch: an escrow
+ * claimed by `claimExpiryCandidates()` (status FUNDS_LOCKED) that also
+ * passes the branch's strict `expiresAt < now`.
  * Every escrow this module ever sees was ALREADY selected by that
- * query before this module runs — nothing here re-decides membership
+ * predicate before this module runs — nothing here re-decides membership
  * in that set, and nothing here can remove an escrow from it either.
  *
  * Hard boundary, enforced by what this module's exported functions
@@ -65,8 +66,8 @@ export interface ExpiryShadowDiagnostic {
 }
 
 /**
- * Mirrors `escrow-repository.ts`'s `findExpiredFundsLocked()` Prisma
- * condition EXACTLY: `expiresAt: { lt: now }`, i.e. a strict
+ * Mirrors the refund branch's own predicate in sweepExpiredEscrows()
+ * EXACTLY: a strict
  * `expiresAt < now`. Kept here ONLY for shadow/diagnostic comparison —
  * never as an alternative implementation of the real query, and never
  * itself used to decide anything. Prisma query builders cannot be

@@ -101,8 +101,12 @@ async function main() {
   buyerChat.close()
 
   step('Seller creates and locks the escrow (settlement.create + settlement.lock)')
+  // MOCK explicitly: without a type, create() picks the asset's real
+  // settlement rail, which needs a funded testnet wallet on the node. The
+  // node refuses MOCK escrows in production.
   const escrow = await sellerWallet.settlement.create({
     tradeId: trade.id,
+    type: 'MOCK',
     lockedAmount: '0.01',
     asset: 'BTC',
   })
@@ -113,8 +117,17 @@ async function main() {
   await buyerWallet.settlement.markPaymentSent(escrow.id)
   console.log('    payment marked sent')
 
+  // Release pays the buyer's own registered payout address for the asset;
+  // the server ignores any address the releasing seller supplies, and
+  // refuses to release when the buyer has none registered.
+  step('Buyer registers a payout address (settlement.setPayoutAddress)')
+  await buyerWallet.settlement.setPayoutAddress({
+    asset: 'BTC',
+    address: 'example-buyer-btc-address', // placeholder: a real wallet registers its own receive address
+  })
+
   step('Seller releases the escrow (settlement.release)')
-  const released = await sellerWallet.settlement.release(escrow.id, 'example-payout-address')
+  const released = await sellerWallet.settlement.release(escrow.id)
   console.log(`    escrow status: ${released.status}, txReleaseId: ${released.txReleaseId}`)
 
   console.log(`\nDone. Paste this tradeId into the Next.js starter's "View a trade" section:\n\n    ${trade.id}\n`)

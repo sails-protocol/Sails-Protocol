@@ -1,3 +1,4 @@
+import { withPersistedFundingAddress } from './helpers/persistedFundingAddress'
 /**
  * MultisigProvider — Missão 11 Fase 4/4.1, MANDATORY satoshi-conservation
  * gate.
@@ -80,7 +81,7 @@ function loadProvider(env: Record<string, string | undefined> = {}) {
     SAILS_PROTOCOL_FEE_COLLECTION_ADDRESS: COLLECTION_ADDRESS,
     ...env,
   }
-  return require('../src/modules/open-settlement/multisig.provider')
+  return withPersistedFundingAddress(require('../src/modules/open-settlement/multisig.provider'))
 }
 
 afterAll(() => {

@@ -9,7 +9,7 @@
  * (`@satsails/p2p-trading-sdk`'s exports) — no reaching into this
  * monorepo's internal services, no mocks. It runs the real golden path
  * (identity → authenticate → publish → discover → trade → chat → escrow
- * → mark payment → release → reputation) against a real local Sails
+ * → mark payment → payout address → release → reputation) against a real local Sails
  * node, exactly like a wallet integrating this protocol for the first
  * time would, ending on the same "rate the trade" step
  * README.md's own endpoint table names last.
@@ -121,8 +121,12 @@ async function main() {
   buyerChat.close()
 
   step('Seller creates and locks the escrow (settlement.create + settlement.lock)')
+  // MOCK explicitly: without a type, create() picks the asset's real
+  // settlement rail, which needs a funded testnet wallet on the node. The
+  // node refuses MOCK escrows in production.
   const escrow = await sellerWallet.settlement.create({
     tradeId: trade.id,
+    type: 'MOCK',
     lockedAmount: '10',
     asset: 'USDT_ERC20',
   })
@@ -133,8 +137,17 @@ async function main() {
   await buyerWallet.settlement.markPaymentSent(escrow.id)
   console.log('    payment marked sent')
 
+  // Release pays the buyer's own registered payout address for the asset;
+  // the server ignores any address the releasing seller supplies, and
+  // refuses to release when the buyer has none registered.
+  step('Buyer registers a payout address (settlement.setPayoutAddress)')
+  await buyerWallet.settlement.setPayoutAddress({
+    asset: 'USDT_ERC20',
+    address: 'example-buyer-usdt-address', // placeholder: a real wallet registers its own receive address
+  })
+
   step('Seller releases the escrow (settlement.release)')
-  const released = await sellerWallet.settlement.release(escrow.id, 'example-payout-address')
+  const released = await sellerWallet.settlement.release(escrow.id)
   console.log(`    escrow status: ${released.status}, txReleaseId: ${released.txReleaseId}`)
 
   // Missão 07.4 — the canonical golden path's own last step (README.md's

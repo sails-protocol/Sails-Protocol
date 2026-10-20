@@ -4,6 +4,9 @@ const mockExecuteRaw = jest.fn().mockResolvedValue(0)
 const mockAuthFindUnique = jest.fn()
 const mockAuthCreate = jest.fn()
 const mockDisputeFindUnique = jest.fn()
+// AUD-1 - the gate also judges WHAT the round does: the escrow's type decides whether a durable Outcome applies.
+const mockEscrowFindUnique = jest.fn()
+const mockOutcomeFindUnique = jest.fn()
 // CTO Gate R1 (#222) finding 1 — the ambiguous-legacy-row check runs OUTSIDE
 // the $transaction (it decides whether to even enter the locked gate at
 // all), via a plain top-level prisma.dispute.findFirst({ where: { escrowId } }).
@@ -18,13 +21,18 @@ const tx = {
   dispute: {
     findUnique: mockDisputeFindUnique,
   },
+  escrow: { findUnique: mockEscrowFindUnique },
+  semanticTransitionRecord: { findUnique: mockOutcomeFindUnique },
 }
 
+const mockRoundFindUnique = jest.fn().mockResolvedValue(null)
 const mockTransaction = jest.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx))
 
 jest.mock('../src/common/database', () => ({
   prisma: {
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
+    // #239D D1 - the gate reads the cooperative round itself to recognise complete bilateral intent.
+    escrowPendingTransaction: { findUnique: (...args: unknown[]) => mockRoundFindUnique(...args) },
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
   },
 }))
@@ -90,6 +98,9 @@ describe('ADR-005 economic disposition commit gate', () => {
       ...data,
     }))
     mockDisputeFindUnique.mockResolvedValue(liveDispute())
+    // Non-MULTISIG default; MULTISIG binding is tested independently.
+    mockEscrowFindUnique.mockResolvedValue({ type: 'LIGHTNING_HODL' })
+    mockOutcomeFindUnique.mockResolvedValue(null)
     // Default: this escrow's trade was never disputed — the durable fact
     // that makes a disputeId-null pending row provably cooperative.
     mockDisputeFindFirst.mockResolvedValue(null)
@@ -130,6 +141,32 @@ describe('ADR-005 economic disposition commit gate', () => {
   it('an ambiguous legacy row stays rejected regardless of the found dispute\'s own status', async () => {
     mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', escrowId: 'escrow-1', status: 'OPENED' })
     await expect(authorizeDisputedPendingExecution(cooperativePending)).rejects.toThrow(/ADR-005/)
+  })
+
+  // #239D D1 - the one exception to the rule above: the cooperative round's complete bilateral set was
+  // accepted (under the escrow lock) before any dispute existed. Anything less stays fail-closed.
+  describe('D1 complete bilateral intent (#239D)', () => {
+    const round = (overrides: Record<string, unknown> = {}) => ({
+      id: 'pending-1', escrowId: 'escrow-1', disputeId: null, requiredSigners: ['buyer-1', 'seller-1'],
+      signatures: [{ participantId: 'buyer-1' }, { participantId: 'seller-1' }], bilateralAuthorityAt: new Date(), ...overrides,
+    })
+    beforeEach(() => mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', escrowId: 'escrow-1', status: 'OPENED' }))
+
+    it('a cooperative round completed before the dispute is the frozen intent: it proceeds despite the dispute', async () => {
+      mockRoundFindUnique.mockResolvedValueOnce(round())
+      await expect(authorizeDisputedPendingExecution(cooperativePending)).resolves.toBeNull()
+      expect(mockRoundFindUnique).toHaveBeenCalledWith({ where: { id: 'pending-1' }, include: { signatures: { select: { participantId: true } } } })
+    })
+
+    it.each([
+      ['a partial set', { signatures: [{ participantId: 'seller-1' }] }],
+      ['a complete set with no pre-dispute authority marker (completed after the dispute, or legacy)', { bilateralAuthorityAt: null }],
+      ['a ruling round', { disputeId: 'dispute-1' }],
+      ['a round of another escrow', { escrowId: 'escrow-2' }],
+    ])('%s does not qualify and stays fail-closed', async (_label, overrides) => {
+      mockRoundFindUnique.mockResolvedValueOnce(round(overrides))
+      await expect(authorizeDisputedPendingExecution(cooperativePending)).rejects.toThrow(/cooperative origin cannot be proven/)
+    })
   })
 
   it('commits economic disposition authority when the recorded generation is still current', async () => {

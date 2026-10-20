@@ -39,7 +39,8 @@ sequenceDiagram
     Note over Seller,Buyer: openp2p.chat(tradeId) — WebSocket, both sides join
     Buyer->>Node: settlement.create() (escrow) + settlement.lock()
     Buyer->>Node: settlement.markPaymentSent()
-    Seller->>Node: settlement.release(escrowId, toAddress)
+    Buyer->>Node: settlement.setPayoutAddress({asset, address})
+    Seller->>Node: settlement.release(escrowId)
     Node-->>Seller: escrow COMPLETED
 ```
 

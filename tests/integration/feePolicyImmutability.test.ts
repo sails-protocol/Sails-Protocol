@@ -30,6 +30,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferRow, boundTradeRow, sellerPixAccount } from './economicFixtures'
 
 describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2.2, real Postgres)', () => {
   jest.setTimeout(60_000)
@@ -213,11 +214,12 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-fee-dest-${suffix}` } })
     const seller = await prisma.user.create({ data: { publicKey: `pk-seller-fee-dest-${suffix}` } })
+    const acct = await sellerPixAccount(prisma, seller.id)
     const offer = await prisma.offer.create({
-      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' },
+      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', ...boundOfferRow(acct) },
     })
     const trade = await prisma.trade.create({
-      data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.01', priceUsd: '65000', totalUsd: '650' },
+      data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.01', priceUsd: '65000', totalUsd: '650' },
     })
     const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.01' } })
 
