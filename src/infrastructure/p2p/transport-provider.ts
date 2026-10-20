@@ -194,17 +194,12 @@ export class FallbackTransportProvider implements TransportProvider {
         { primary: this.primary.name, secondary: this.secondary.name, participantId, timeoutMs: this.timeoutMs, err: err instanceof Error ? err.message : err },
         '[FallbackTransportProvider] primary did not connect in time — falling back'
       )
-      // Attach cleanup immediately, but wait for secondary.start to settle:
-      // Pears may finish after timeout and before relay becomes active.
-      const secondaryStart = this.secondary.start(participantId)
+      // Register late-primary cleanup only after relay is active, so a Pears
+      // completion while secondary.start() is pending cannot escape cleanup.
+      const handle = await this.secondary.start(participantId)
+      if (this.startGeneration.get(participantId) === generation) this.activeProvider.set(participantId, this.secondary)
       if (timedOut) {
         void primaryStart.then(async () => {
-          try {
-            await secondaryStart
-          } catch {
-            // A failed relay start must not be treated as an active fallback.
-            return
-          }
           if (this.startGeneration.get(participantId) === generation &&
               this.activeProvider.get(participantId) === this.secondary) {
             await this.primary.stop(participantId)
@@ -214,8 +209,6 @@ export class FallbackTransportProvider implements TransportProvider {
             '[FallbackTransportProvider] late primary cleanup failed')
         })
       }
-      const handle = await secondaryStart
-      if (this.startGeneration.get(participantId) === generation) this.activeProvider.set(participantId, this.secondary)
       return handle
     }
   }
