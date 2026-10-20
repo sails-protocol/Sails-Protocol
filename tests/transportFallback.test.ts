@@ -192,6 +192,17 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     expect(secondaryStop).not.toHaveBeenCalled()
   })
 
+  it('retains the active provider when stop fails so a retry targets the correct transport', async () => {
+    const stop = jest.fn().mockRejectedValueOnce(new Error('temporary shutdown failure')).mockResolvedValue(undefined)
+    const secondary = { ...fakeProvider('websocket-relay'), stop }
+    const fallback = new FallbackTransportProvider(fakeProvider('pears', { shouldFail: true }), secondary, 100)
+    await fallback.start('stop-retry')
+    await expect(fallback.stop('stop-retry')).rejects.toThrow('temporary shutdown failure')
+    expect(fallback.activeTransportName('stop-retry')).toBe('websocket-relay')
+    await expect(fallback.stop('stop-retry')).resolves.toBeUndefined()
+    expect(stop).toHaveBeenCalledTimes(2)
+  })
+
   it('falls back to the secondary provider when the primary rejects outright', async () => {
     const primary = fakeProvider('pears', { shouldFail: true })
     const secondary = fakeProvider('websocket-relay')
