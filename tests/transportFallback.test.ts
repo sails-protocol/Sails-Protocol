@@ -133,6 +133,8 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     expect(primaryStop).not.toHaveBeenCalled()
     releaseRelay({ peerId: 'websocket-relay:race-user' })
     await pending
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(primaryStop).toHaveBeenCalledWith('race-user')
     expect(fallback.activeTransportName('race-user')).toBe('websocket-relay')
   })
 
