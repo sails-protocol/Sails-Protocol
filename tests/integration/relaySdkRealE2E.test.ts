@@ -66,23 +66,6 @@ describe('#307 SDK -> HTTP ticket -> Redis -> WebSocket relay, real end to end',
     ws.once('close', (code, reason) => resolve({ code, reason: reason.toString() }))
   })
 
-  // `open` is not authentication: the relay is usable only after READY, which
-  // must be the first frame the server sends.
-  const ready = (ws: WebSocket): Promise<WebSocket> => new Promise((resolve, reject) => {
-    ws.once('message', data => {
-      const text = data.toString()
-      if (text === JSON.stringify({ type: 'READY' })) resolve(ws)
-      else reject(new Error('First relay frame was not READY: ' + text))
-    })
-    ws.once('close', (code, reason) => reject(new Error(`Closed before READY: ${code} ${reason}`)))
-    ws.once('error', reject)
-  })
-
-  const opened = async (ws: WebSocket): Promise<WebSocket> => {
-    sockets.push(ws)
-    return ready(ws)
-  }
-
   const newParticipant = async (): Promise<{ sdk: Sdk; id: string; sessionToken: string }> => {
     const sdk = new SailsClient({
       baseUrl: httpBase,
@@ -95,8 +78,25 @@ describe('#307 SDK -> HTTP ticket -> Redis -> WebSocket relay, real end to end',
     return { sdk, id, sessionToken: auth.sessionToken }
   }
 
-  const connect = async (sdk: Sdk): Promise<WebSocket> =>
-    opened(await sdk.peers.connectRelay() as unknown as WebSocket)
+  // connectRelay() resolves only after the server's READY, which the SDK
+  // consumes: every frame observed from here on is application traffic.
+  const connect = async (sdk: Sdk): Promise<WebSocket> => {
+    const ws = await sdk.peers.connectRelay() as unknown as WebSocket
+    sockets.push(ws)
+    return ws
+  }
+
+  const READY_FRAME = JSON.stringify({ type: 'READY' })
+
+  const mintTicket = async (sessionToken: string): Promise<string> => {
+    const res = await fetch(httpBase + '/v1/identity/ws-ticket', {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + sessionToken, 'content-type': 'application/json' },
+      body: '{}',
+    })
+    expect(res.status).toBe(200)
+    return ((await res.json()) as { data: { ticket: string } }).data.ticket
+  }
 
   const ticketOf = (url: string): string => new URL(url).searchParams.get('ticket') ?? ''
 
@@ -106,12 +106,15 @@ describe('#307 SDK -> HTTP ticket -> Redis -> WebSocket relay, real end to end',
   const rawConnect = (query: string): WebSocket =>
     new WebSocket(httpBase.replace(/^http/, 'ws') + '/ws/relay' + query)
 
+  // A rejected ticket never gets READY: collect every frame until the close.
   const rejectedRaw = async (query: string): Promise<{ error: string; closed: Closed }> => {
     const ws = rawConnect(query)
     sockets.push(ws)
-    const error = new Promise<string>(resolve => ws.once('message', data => resolve(data.toString())))
+    const messages: string[] = []
+    ws.on('message', data => messages.push(data.toString()))
     const closed = await closedOf(ws)
-    return { error: await error, closed }
+    expect(messages).not.toContain(READY_FRAME)
+    return { error: messages.join(' | '), closed }
   }
 
   beforeAll(async () => {
@@ -152,7 +155,7 @@ describe('#307 SDK -> HTTP ticket -> Redis -> WebSocket relay, real end to end',
   it('opens the relay with a single-use ticket from the real HTTP route, never the session token', async () => {
     const alice = await newParticipant()
     const ws = await connect(alice.sdk)
-    await until(() => relay.isConnected(alice.id), 'relay registration')
+    expect(relay.isConnected(alice.id)).toBe(true)
 
     expect(openedUrls).toHaveLength(1)
     const ticket = ticketOf(openedUrls[0])
@@ -168,7 +171,7 @@ describe('#307 SDK -> HTTP ticket -> Redis -> WebSocket relay, real end to end',
   it('rejects a replayed ticket and leaves the legitimate connection owned and open', async () => {
     const alice = await newParticipant()
     const ws = await connect(alice.sdk)
-    await until(() => relay.isConnected(alice.id), 'relay registration')
+    expect(relay.isConnected(alice.id)).toBe(true)
 
     const replay = await rejectedRaw('?ticket=' + ticketOf(openedUrls[0]))
     expect(replay.error).toContain('already-used ticket')
@@ -187,15 +190,11 @@ describe('#307 SDK -> HTTP ticket -> Redis -> WebSocket relay, real end to end',
 
   it('rejects missing and expired tickets', async () => {
     const alice = await newParticipant()
-    expect((await rejectedRaw('')).error).toContain('ticket')
+    const missing = await rejectedRaw('')
+    expect(missing.closed).toEqual({ code: 1008, reason: 'Relay ticket required' })
+    expect(missing.error).toBe('')
 
-    const res = await fetch(httpBase + '/v1/identity/ws-ticket', {
-      method: 'POST',
-      headers: { authorization: 'Bearer ' + alice.sessionToken, 'content-type': 'application/json' },
-      body: '{}',
-    })
-    expect(res.status).toBe(200)
-    const { data } = await res.json() as { data: { ticket: string } }
+    const data = { ticket: await mintTicket(alice.sessionToken) }
     // Stand-in for the TTL elapsing: the real Redis key expiry, not a mock.
     await redis.pexpire('auth:ws-ticket:' + data.ticket, 1)
     await until(async () => await redis.exists('auth:ws-ticket:' + data.ticket) === 0, 'ticket expiry')
@@ -222,7 +221,7 @@ describe('#307 SDK -> HTTP ticket -> Redis -> WebSocket relay, real end to end',
   it('closes an oversized frame with 1009 before it reaches the Redis budget', async () => {
     const alice = await newParticipant()
     const ws = await connect(alice.sdk)
-    await until(() => relay.isConnected(alice.id), 'relay registration')
+    expect(relay.isConnected(alice.id)).toBe(true)
     const closed = closedOf(ws)
     ws.send(Buffer.alloc(RELAY_FRAME_MAX_BYTES + 1, 1))
     expect(await closed).toEqual({ code: 1009, reason: 'Relay frame exceeds maximum size' })
@@ -232,7 +231,7 @@ describe('#307 SDK -> HTTP ticket -> Redis -> WebSocket relay, real end to end',
   it('closes on budget exhaustion with 1008 and a reconnect does not reset the budget', async () => {
     const alice = await newParticipant()
     const ws = await connect(alice.sdk)
-    await until(() => relay.isConnected(alice.id), 'relay registration')
+    expect(relay.isConnected(alice.id)).toBe(true)
     for (let i = 0; i < RELAY_WINDOW_MAX_MESSAGES; i++) ws.send('m' + i)
     await until(async () => await admitted(alice.id) === RELAY_WINDOW_MAX_MESSAGES, 'full window admitted')
     const closed = closedOf(ws)
@@ -262,23 +261,17 @@ describe('#307 SDK -> HTTP ticket -> Redis -> WebSocket relay, real end to end',
     expect(seen).toEqual({ a: [], b: ['ciphertext:opaque'], c: [] })
   })
 
-  it('sends READY only after registration; a frame sent on READY is always admitted', async () => {
+  it('connectRelay() resolves only once registered; a frame sent at once is always admitted and READY never reaches the caller', async () => {
     const outcomes: string[] = []
     for (let i = 0; i < 20; i++) {
       const p = await newParticipant()
-      const ws = await p.sdk.peers.connectRelay() as unknown as WebSocket
-      sockets.push(ws)
-      const registeredAtReady = await new Promise<boolean>((resolve, reject) => {
-        ws.once('message', data => {
-          if (data.toString() !== JSON.stringify({ type: 'READY' })) return reject(new Error('not READY: ' + data))
-          const registered = relay.isConnected(p.id)
-          ws.send('sent-on-ready')
-          resolve(registered)
-        })
-        ws.once('close', (code, reason) => reject(new Error(`closed ${code} ${reason}`)))
-      })
-      await until(async () => await admitted(p.id) === 1, 'frame sent on READY admitted')
-      outcomes.push(registeredAtReady && ws.readyState === WebSocket.OPEN ? 'ready+admitted' : 'other')
+      const ws = await connect(p.sdk)
+      const registered = relay.isConnected(p.id)
+      const seen: string[] = []
+      ws.on('message', data => seen.push(data.toString()))
+      ws.send('sent-at-once')
+      await until(async () => await admitted(p.id) === 1, 'frame sent at once admitted')
+      outcomes.push(registered && ws.readyState === WebSocket.OPEN && seen.length === 0 ? 'ready+admitted' : 'other: ' + seen)
       ws.terminate()
     }
     expect(outcomes).toEqual(Array(20).fill('ready+admitted'))
@@ -288,7 +281,8 @@ describe('#307 SDK -> HTTP ticket -> Redis -> WebSocket relay, real end to end',
     const tally: Record<string, number> = {}
     for (let i = 0; i < 20; i++) {
       const p = await newParticipant()
-      const ws = await p.sdk.peers.connectRelay() as unknown as WebSocket
+      // Raw client: the SDK no longer exposes a socket before READY.
+      const ws = rawConnect('?ticket=' + await mintTicket(p.sessionToken))
       sockets.push(ws)
       let readyBeforeClose = false
       ws.once('open', () => ws.send('sent-on-open'))
@@ -315,7 +309,7 @@ describe('#307 SDK -> HTTP ticket -> Redis -> WebSocket relay, real end to end',
   it('fails closed on Redis loss for both frames and ticket issuance, then recovers', async () => {
     const alice = await newParticipant()
     const ws = await connect(alice.sdk)
-    await until(() => relay.isConnected(alice.id), 'relay registration')
+    expect(relay.isConnected(alice.id)).toBe(true)
     const closed = closedOf(ws)
 
     redis.disconnect()

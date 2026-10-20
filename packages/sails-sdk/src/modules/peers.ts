@@ -12,10 +12,30 @@
  * formally adopt, not silently added as if it had always been there.
  */
 import type { SailsTransport } from '../transport'
+import { SailsTransportError } from '../errors'
 import type { PeerStatus } from '../types'
 
 const STATIC_TOPICS = ['marketplace', 'btc', 'lnBtc', 'liquidBtc', 'usdtErc20', 'usdtLiquid'] as const
 export type StaticTopic = (typeof STATIC_TOPICS)[number]
+
+// Exact bytes src/infrastructure/p2p/relay.routes.ts sends; anything else as
+// the first frame is a failed handshake, never a partial match.
+const RELAY_READY_FRAME = JSON.stringify({ type: 'READY' })
+const RELAY_READY_TIMEOUT_MS = 10_000
+
+function relayRejection(data: unknown): string {
+  if (typeof data === 'string') {
+    try {
+      const frame = JSON.parse(data) as { type?: unknown; payload?: { message?: unknown } }
+      if (frame.type === 'ERROR' && typeof frame.payload?.message === 'string') {
+        return `Relay rejected the connection: ${frame.payload.message}`
+      }
+    } catch {
+      // Not JSON: reported as unexpected below.
+    }
+  }
+  return 'Relay sent an unexpected first frame instead of READY'
+}
 
 export class SailsPeersModule {
   constructor(private readonly transport: SailsTransport) {}
@@ -40,15 +60,61 @@ export class SailsPeersModule {
 
   /**
    * Open the server's blind WebSocket relay with a freshly minted, single-use
-   * ticket. The caller owns the socket and its message protocol. Every
+   * ticket. Resolves only after the server's READY frame: the ticket was
+   * consumed and the socket registered, so the caller may send at once
+   * (`open` alone is not authentication; a frame sent before READY makes the
+   * server close the socket). READY is consumed here and never reaches the
+   * caller's listeners. Rejects, and closes the socket, on an ERROR or any
+   * other first frame, on close or error before READY, on `timeoutMs`
+   * (default 10 s) or when `signal` aborts.
+   *
+   * The caller owns the socket and its message protocol afterwards. Every
    * reconnect must call this method again; a consumed ticket cannot be reused.
    * This does not provide Pears topic discovery or DHT broadcast semantics.
    */
-  async connectRelay(): Promise<WebSocket> {
+  async connectRelay(options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<WebSocket> {
+    const { timeoutMs = RELAY_READY_TIMEOUT_MS, signal } = options
+    if (signal?.aborted) throw new SailsTransportError('Relay connection aborted')
     const { ticket } = await this.transport.post<{ ticket: string; expiresIn: number }>(
       '/v1/identity/ws-ticket', {}, true,
     )
-    return this.transport.openWebSocket('/ws/relay', { ticket })
+    if (signal?.aborted) throw new SailsTransportError('Relay connection aborted')
+    const socket = this.transport.openWebSocket('/ws/relay', { ticket })
+
+    return new Promise<WebSocket>((resolve, reject) => {
+      const settle = (error?: SailsTransportError) => {
+        clearTimeout(timer)
+        socket.removeEventListener('message', onMessage)
+        socket.removeEventListener('close', onClose)
+        socket.removeEventListener('error', onError)
+        signal?.removeEventListener('abort', onAbort)
+        if (!error) return resolve(socket)
+        // Closing a still-CONNECTING socket fires `error` (Node's `ws` throws an
+        // unhandled one if nothing listens); this socket is discarded anyway.
+        if (socket.readyState === 0) socket.addEventListener('error', () => undefined)
+        try {
+          socket.close()
+        } catch {
+          // Already closing or never connected; the rejection is what matters.
+        }
+        reject(error)
+      }
+      const onMessage = (event: MessageEvent) => settle(
+        event.data === RELAY_READY_FRAME ? undefined : new SailsTransportError(relayRejection(event.data)),
+      )
+      const onClose = (event: CloseEvent) => settle(new SailsTransportError(
+        `Relay closed before READY (${event.code}${event.reason ? ` ${event.reason}` : ''})`,
+      ))
+      const onError = () => settle(new SailsTransportError('Relay connection failed before READY'))
+      const onAbort = () => settle(new SailsTransportError('Relay connection aborted'))
+      const timer = setTimeout(
+        () => settle(new SailsTransportError(`Relay READY not received within ${timeoutMs}ms`)), timeoutMs,
+      )
+      socket.addEventListener('message', onMessage)
+      socket.addEventListener('close', onClose)
+      socket.addEventListener('error', onError)
+      signal?.addEventListener('abort', onAbort)
+    })
   }
 
   /** Requires an active session. */
