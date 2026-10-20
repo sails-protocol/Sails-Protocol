@@ -18,11 +18,18 @@
  * set arbitrary headers, the same constraint that route already
  * documents). Migrated off a raw `?token=` session token, 2026-08-15
  * security review P1 — see ws-auth.ts's resolveParticipantFromTicket()
- * for the full rationale. Note this route currently has no in-repo SDK
- * client (grep confirms `packages/sails-sdk` never constructs a
- * `/ws/relay` URL) — any external client connecting here needs the same
- * paired update: fetch a ticket via the authenticated HTTP endpoint
- * first, then open the socket with `?ticket=`, not `?token=`.
+ * for the full rationale. The in-repo SDK exposes
+ * `SailsClient.peers.connectRelay()`: it requests a short-lived ticket via
+ * authenticated HTTP, then opens `/ws/relay?ticket=...` (never a raw session
+ * token). `tests/relayLiveWebSocket.test.ts` exercises SDK-to-live-socket
+ * wiring with mocked ticket HTTP and ticket resolver boundaries; this is
+ * not an end-to-end proof of the production authentication service.
+ *
+ * Live delivery evidence: `tests/relayProviderLiveDelivery.test.ts` uses the
+ * actual relay provider with two real TCP WebSocket clients, checking opaque
+ * sender-to-recipient delivery and disconnect isolation. The test mocks
+ * authentication resolution and Redis budget decisions; it does not prove
+ * production ticket issuance or cross-instance delivery.
  *
  * Scope, stated plainly: this makes `start()`/`sendToPeer()` degrade
  * gracefully when Pears/HyperDHT hole-punching doesn't complete in time
@@ -37,11 +44,31 @@
 import type { FastifyInstance } from 'fastify'
 import { resolveParticipantFromTicket } from '../../common/middleware/ws-auth'
 import { webSocketRelayTransportProvider } from './websocket-relay.service'
+import { consumeSharedRelayBudget } from './relay-shared-budget'
+import { RELAY_FRAME_MAX_BYTES } from './relay-ingress-budget'
 
 export async function relayRoutes(app: FastifyInstance): Promise<void> {
   app.get('/ws/relay', { websocket: true }, async (socket, request) => {
+    // @fastify/websocket requires a synchronous message listener: an async
+    // ticket lookup must not leave incoming frames unobserved. Pre-auth
+    // traffic is rejected rather than buffered or forwarded.
+    let preAuthFrameReceived = false
+    const rejectPreAuthFrame = () => {
+      preAuthFrameReceived = true
+      socket.close(1008, 'Relay authentication pending')
+    }
+    socket.on('message', rejectPreAuthFrame)
     const query = request.query as { ticket?: string }
-    const participantId = await resolveParticipantFromTicket(query.ticket)
+    let participantId: string | null
+    try {
+      participantId = await resolveParticipantFromTicket(query.ticket)
+    } catch {
+      socket.off('message', rejectPreAuthFrame)
+      socket.close(1011, 'Relay authentication unavailable')
+      return
+    }
+    socket.off('message', rejectPreAuthFrame)
+    if (preAuthFrameReceived || socket.readyState !== 1) return
     if (!participantId) {
       socket.send(JSON.stringify({ type: 'ERROR', payload: { message: 'Missing, invalid, or already-used ticket query param — call POST /v1/identity/ws-ticket first' } }))
       socket.close()
@@ -50,16 +77,62 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
 
     webSocketRelayTransportProvider.registerSocket(participantId, socket)
 
+    // Serialize asynchronous Redis decisions to preserve ingress dispatch order.
+    // Once the socket is closed/exhausted, queued frames must never dispatch.
+    let pending = Promise.resolve()
+    let stopped = false
+    let queuedBytes = 0
+    let queuedFrames = 0
+    const MAX_PENDING_BYTES = 256 * 1024
+    const MAX_PENDING_FRAMES = 60
     socket.on('message', (raw: Buffer) => {
-      // Blind forward, same rule sendToPeer() follows (CISO Privacy Rule,
-      // "Blind Relay") — this route never parses the frame, it only hands
-      // the raw bytes to whichever onMessage() handler the participant
-      // registered via the TransportProvider interface.
-      webSocketRelayTransportProvider.dispatchIncoming(participantId, raw.toString())
+      if (stopped || !webSocketRelayTransportProvider.ownsSocket(participantId, socket)) return
+      if (raw.byteLength > RELAY_FRAME_MAX_BYTES) {
+        stopped = true
+        socket.close(1009, 'Relay frame exceeds maximum size')
+        return
+      }
+      // Capture raw data synchronously: the callback must not retain mutable
+      // WebSocket-owned buffers across the Redis await.
+      if (queuedFrames >= MAX_PENDING_FRAMES || raw.byteLength > MAX_PENDING_BYTES - queuedBytes) {
+        stopped = true
+        socket.close(1008, 'Relay pending byte budget exceeded')
+        return
+      }
+      const frame = Buffer.from(raw)
+      queuedBytes += frame.byteLength
+      queuedFrames++
+      pending = pending.then(async () => {
+        if (stopped || !webSocketRelayTransportProvider.ownsSocket(participantId, socket)) return
+        // Blind forward: enforce raw byte budgets without parsing payload.
+        if (!await consumeSharedRelayBudget(participantId, frame.byteLength)) {
+          stopped = true
+          socket.close(1008, 'Relay resource budget exceeded')
+          return
+        }
+        if (!stopped && socket.readyState === 1 && webSocketRelayTransportProvider.ownsSocket(participantId, socket)) {
+          webSocketRelayTransportProvider.dispatchIncoming(participantId, frame.toString())
+        }
+      }).catch(() => {
+        // Unexpected asynchronous failures are also fail closed.
+        stopped = true
+        socket.close(1011, 'Relay unavailable')
+      }).finally(() => {
+        queuedBytes -= frame.byteLength
+        queuedFrames--
+      })
     })
 
     socket.on('close', () => {
-      webSocketRelayTransportProvider.unregisterSocket(participantId)
+      stopped = true
+      webSocketRelayTransportProvider.unregisterSocket(participantId, socket)
     })
+
+    // #307: the client's `open` precedes ticket resolution, and frames sent
+    // before this point close the socket. READY is the only signal that the
+    // ticket was consumed and the socket registered with its listeners. It is
+    // sent in the same synchronous turn as registration, so no relayed payload
+    // can reach the client before it: READY is always the first frame.
+    socket.send(JSON.stringify({ type: 'READY' }))
   })
 }
