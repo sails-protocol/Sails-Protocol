@@ -121,8 +121,9 @@ describe('relay live WebSocket upgrade and ingress', () => {
       await new Promise(resolve => setTimeout(resolve, 10))
     }
     expect(sockets.get('participant')).not.toBe(first)
+    const firstClosed = closeEvent(first)
     first.close()
-    await closeEvent(first)
+    await firstClosed
     expect(sockets.has('participant')).toBe(true)
     second.send('after-reconnect')
     for (let i = 0; i < 200 && dispatch.mock.calls.length === 0; i++) {
@@ -164,6 +165,32 @@ describe('relay live WebSocket upgrade and ingress', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     expect(fetchImpl.mock.calls[0][0]).toBe(base.replace(/^ws/, 'http') + '/v1/identity/ws-ticket')
     expect(fetchImpl.mock.calls[0][1].headers.authorization).toBe('Bearer sdk-session')
+  })
+
+  it('keeps two distinct authenticated participants isolated on real sockets', async () => {
+    ticket.mockImplementation(async (value: string) => value === 'alice-ticket' ? 'alice' : value === 'bob-ticket' ? 'bob' : null)
+    const alice = await connect('alice-ticket')
+    const bob = await connect('bob-ticket')
+    for (let i = 0; i < 200 && (!sockets.has('alice') || !sockets.has('bob')); i++) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    expect(sockets.size).toBe(2)
+    expect(sockets.get('alice')).not.toBe(sockets.get('bob'))
+    alice.send('from-alice')
+    bob.send('from-bob')
+    for (let i = 0; i < 200 && dispatch.mock.calls.length < 2; i++) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    expect(dispatch.mock.calls).toEqual(expect.arrayContaining([
+      ['alice', 'from-alice'],
+      ['bob', 'from-bob'],
+    ]))
+    expect(dispatch).toHaveBeenCalledTimes(2)
+    const aliceClosed = closeEvent(alice)
+    alice.close()
+    await aliceClosed
+    expect(sockets.has('alice')).toBe(false)
+    expect(sockets.has('bob')).toBe(true)
   })
 
   it('rejects invalid tickets without registering the participant', async () => {
