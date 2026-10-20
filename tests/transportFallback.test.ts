@@ -192,6 +192,24 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     expect(secondaryStop).not.toHaveBeenCalled()
   })
 
+  it('coalesces concurrent starts for the same participant into one attempt', async () => {
+    let release!: (handle: PeerHandle) => void
+    const primary = {
+      ...fakeProvider('pears'),
+      start: jest.fn(() => new Promise<PeerHandle>(resolve => { release = resolve })),
+    }
+    const secondary = { ...fakeProvider('websocket-relay'), start: jest.fn() }
+    const fallback = new FallbackTransportProvider(primary, secondary, 100)
+    const first = fallback.start('same-user')
+    const second = fallback.start('same-user')
+    expect(primary.start).toHaveBeenCalledTimes(1)
+    expect(first).toBe(second)
+    release({ peerId: 'pears:one' })
+    expect(await first).toEqual({ peerId: 'pears:one' })
+    expect(await second).toEqual({ peerId: 'pears:one' })
+    expect(secondary.start).not.toHaveBeenCalled()
+  })
+
   it('falls back to the secondary provider when the primary rejects outright', async () => {
     const primary = fakeProvider('pears', { shouldFail: true })
     const secondary = fakeProvider('websocket-relay')
