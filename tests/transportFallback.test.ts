@@ -192,6 +192,59 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     expect(secondaryStop).not.toHaveBeenCalled()
   })
 
+  it('rejects an obsolete primary completion without starting the relay', async () => {
+    let releaseOld!: (handle: PeerHandle) => void
+    let calls = 0
+    const primary = {
+      ...fakeProvider('pears'),
+      start: jest.fn(() => {
+        calls++
+        if (calls === 1) return new Promise<PeerHandle>(resolve => { releaseOld = resolve })
+        return Promise.resolve({ peerId: 'pears:new' })
+      }),
+    }
+    const secondary = { ...fakeProvider('relay'), start: jest.fn().mockResolvedValue({ peerId: 'relay' }) }
+    const fallback = new FallbackTransportProvider(primary, secondary, 100)
+    const old = fallback.start('same-user')
+    expect((await fallback.start('same-user')).peerId).toBe('pears:new')
+    releaseOld({ peerId: 'pears:old' })
+    await expect(old).rejects.toThrow('obsolete primary start')
+    expect(secondary.start).not.toHaveBeenCalled()
+    expect(fallback.activeTransportName('same-user')).toBe('pears')
+  })
+
+  it('does not erase a newer start when an earlier stop completes late', async () => {
+    let releaseStop!: () => void
+    const primary = {
+      ...fakeProvider('pears'),
+      stop: jest.fn(() => new Promise<void>(resolve => { releaseStop = resolve })),
+    }
+    const secondary = { ...fakeProvider('relay'), start: jest.fn().mockResolvedValue({ peerId: 'relay:new' }) }
+    const fallback = new FallbackTransportProvider(primary, secondary, 100)
+    await fallback.start('same-user')
+    const stopping = fallback.stop('same-user')
+    const next = fallback.start('same-user')
+    await next
+    releaseStop()
+    await stopping
+    expect(fallback.activeTransportName('same-user')).toBe('pears')
+  })
+
+  it('rejects a pending relay start superseded by stop', async () => {
+    let releaseRelay!: (handle: PeerHandle) => void
+    const secondary = {
+      ...fakeProvider('relay'),
+      start: jest.fn(() => new Promise<PeerHandle>(resolve => { releaseRelay = resolve })),
+    }
+    const fallback = new FallbackTransportProvider(fakeProvider('pears', { shouldFail: true }), secondary, 100)
+    const pending = fallback.start('same-user')
+    for (let i = 0; i < 20 && !releaseRelay; i++) await new Promise(resolve => setTimeout(resolve, 0))
+    expect(releaseRelay).toBeDefined()
+    await fallback.stop('same-user')
+    releaseRelay({ peerId: 'relay:stale' })
+    await expect(pending).rejects.toThrow('obsolete relay start')
+  })
+
   it('retains the active provider when stop fails so a retry targets the correct transport', async () => {
     const stop = jest.fn().mockRejectedValueOnce(new Error('temporary shutdown failure')).mockResolvedValue(undefined)
     const secondary = { ...fakeProvider('websocket-relay'), stop }
