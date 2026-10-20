@@ -197,7 +197,16 @@ export class FallbackTransportProvider implements TransportProvider {
       // Register late-primary cleanup only after relay is active, so a Pears
       // completion while secondary.start() is pending cannot escape cleanup.
       const handle = await this.secondary.start(participantId)
-      if (this.startGeneration.get(participantId) === generation) this.activeProvider.set(participantId, this.secondary)
+      if (this.startGeneration.get(participantId) !== generation) {
+        // The secondary has already started but another start/stop superseded
+        // this attempt. Do not stop it here: providers are keyed by participant,
+        // and stop() could tear down the newer session. Surface the race until
+        // per-attempt resource ownership is available.
+        log.warn({ participantId, generation },
+          '[FallbackTransportProvider] obsolete relay start completed; cleanup requires per-attempt ownership')
+      } else {
+        this.activeProvider.set(participantId, this.secondary)
+      }
       if (timedOut) {
         void primaryStart.then(async () => {
           if (this.startGeneration.get(participantId) === generation &&
