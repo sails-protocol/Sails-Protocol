@@ -142,5 +142,9 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
       stopped = true
       webSocketRelayTransportProvider.unregisterSocket(participantId, socket)
     })
+
+    // Client open precedes ticket authentication; READY confirms registration.
+    // Keep this after listener installation so it is the first server frame.
+    socket.send(JSON.stringify({ type: 'READY' }))
   })
 }
