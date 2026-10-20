@@ -157,6 +157,63 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('issues an HTTP ticket with production auth and consumes it on a real TCP relay', async () => {
+    const Fastify = (await import('fastify')).default
+    const websocket = (await import('@fastify/websocket')).default
+    const WebSocket = (await import('ws')).default
+    const { redis } = await import('../src/common/redis')
+    const { issueWsTicket, requireAuth } = await import('../src/common/middleware/auth')
+    const { relayRoutes } = await import('../src/infrastructure/p2p/relay.routes')
+    const participantId = 'http-ticket-' + randomUUID()
+    const session = 'http-session-' + randomUUID()
+    const sessionKey = 'auth:session:' + session
+    const app = Fastify({ logger: false })
+    let client: InstanceType<typeof WebSocket> | undefined
+    let ticketKey: string | undefined
+    const evalSpy = jest.spyOn(redis, 'eval').mockImplementation(
+      ((...args: unknown[]) => (a.eval as (...params: unknown[]) => Promise<unknown>)(...args)) as typeof redis.eval,
+    )
+    const getSpy = jest.spyOn(redis, 'get').mockImplementation(
+      ((key: string) => a.get(key)) as typeof redis.get,
+    )
+    const setSpy = jest.spyOn(redis, 'set').mockImplementation(
+      ((...args: unknown[]) => (a.set as (...params: unknown[]) => Promise<unknown>)(...args)) as typeof redis.set,
+    )
+    try {
+      await a.set(sessionKey, participantId, 'EX', 30)
+      await app.register(websocket)
+      app.post('/v1/identity/ws-ticket', { preHandler: requireAuth }, async (request, reply) => {
+        const result = await issueWsTicket((request as typeof request & { participantId: string }).participantId)
+        return reply.send({ success: true, data: result })
+      })
+      await app.register(relayRoutes)
+      const denied = await app.inject({ method: 'POST', url: '/v1/identity/ws-ticket' })
+      expect(denied.statusCode).toBe(401)
+      const issued = await app.inject({ method: 'POST', url: '/v1/identity/ws-ticket', headers: { authorization: 'Bearer ' + session } })
+      expect(issued.statusCode).toBe(200)
+      const ticket = issued.json().data.ticket as string
+      ticketKey = 'auth:ws-ticket:' + ticket
+      expect(await a.get(ticketKey)).toBe(participantId)
+      await app.listen({ host: '127.0.0.1', port: 0 })
+      const address = app.server.address()
+      if (!address || typeof address === 'string') throw new Error('Expected TCP server address')
+      client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/relay?ticket=${ticket}`)
+      await new Promise<void>((resolve, reject) => {
+        client!.once('open', resolve)
+        client!.once('error', reject)
+      })
+      for (let i = 0; i < 200 && await a.exists(ticketKey); i++) await new Promise(resolve => setTimeout(resolve, 10))
+      expect(await a.exists(ticketKey)).toBe(0)
+    } finally {
+      client?.terminate()
+      evalSpy.mockRestore()
+      getSpy.mockRestore()
+      setSpy.mockRestore()
+      await app.close()
+      await a.del(sessionKey, ...(ticketKey ? [ticketKey] : []))
+    }
+  })
+
   it('keeps a Redis ticket single-use across independent Node child processes', async () => {
     const { fork } = await import('child_process')
     const { join } = await import('path')
