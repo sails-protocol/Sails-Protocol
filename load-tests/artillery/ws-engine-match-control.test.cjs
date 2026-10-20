@@ -39,7 +39,7 @@ async function runMode(mode){
       try{
         const snapshot=JSON.parse(fs.readFileSync(reportFile,'utf8'));
         const c=snapshot.aggregate?.counters||{};
-        const safe=Object.fromEntries(Object.entries(c).filter(([k])=>/^(vusers\\.|websocket\\.|errors\\.)/.test(k)));
+        const safe=Object.fromEntries(Object.entries(c).filter(([k])=>['vusers.','websocket.','errors.'].some(prefix=>k.startsWith(prefix))));
         console.log('Artillery match diagnostic',mode,JSON.stringify({exit:result.code,signal:result.signal,pings,aggregate:safe}));
       }catch{console.log('Artillery match diagnostic',mode,'report JSON invalid');}
     }else console.log('Artillery match diagnostic',mode,'report absent',JSON.stringify({exit:result.code,signal:result.signal,pings}));
