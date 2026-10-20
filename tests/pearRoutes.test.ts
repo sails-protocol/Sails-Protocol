@@ -172,6 +172,24 @@ describe('P2P Transport — /v1/peers/* routes (pear.routes.ts)', () => {
     })
   })
 
+  describe('POST /v1/peers/start capabilities', () => {
+    it.each([
+      ['pears', { directRelay: false, topicDiscovery: true, topicBroadcast: true }],
+      ['websocket-relay', { directRelay: true, topicDiscovery: false, topicBroadcast: false }],
+    ])('reports supported capabilities for %s', async (transport, capabilities) => {
+      authedParticipantId = 'user-1'
+      const { fallbackTransportProvider } = require('../src/infrastructure/p2p/transport-provider')
+      fallbackTransportProvider.activeTransportName.mockReturnValue(transport)
+      const res = await app.inject({ method: 'POST', url: '/v1/peers/start' })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body)).toEqual({
+        success: true,
+        data: { peerId: 'fake-peer-id', transport, capabilities },
+      })
+      expect(fallbackTransportProvider.start).toHaveBeenCalledWith('user-1')
+    })
+  })
+
   // ── /v1/peers/stop ──────────────────────────────────────────────────────────
 
   describe('POST /v1/peers/stop', () => {
