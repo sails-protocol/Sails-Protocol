@@ -172,6 +172,7 @@ const DEFAULT_FALLBACK_TIMEOUT_MS = 5000
 export class FallbackTransportProvider implements TransportProvider {
   name = 'fallback(pears→websocket-relay)'
   private activeProvider = new Map<string, TransportProvider>()
+  private startGeneration = new Map<string, number>()
 
   constructor(
     private readonly primary: TransportProvider,
@@ -180,11 +181,13 @@ export class FallbackTransportProvider implements TransportProvider {
   ) {}
 
   async start(participantId: string): Promise<PeerHandle> {
+    const generation = (this.startGeneration.get(participantId) ?? 0) + 1
+    this.startGeneration.set(participantId, generation)
     const primaryStart = this.primary.start(participantId)
     let timedOut = false
     try {
       const handle = await this.withTimeout(primaryStart, this.timeoutMs, () => { timedOut = true })
-      this.activeProvider.set(participantId, this.primary)
+      if (this.startGeneration.get(participantId) === generation) this.activeProvider.set(participantId, this.primary)
       return handle
     } catch (err) {
       if (timedOut) {
@@ -192,7 +195,8 @@ export class FallbackTransportProvider implements TransportProvider {
         // stop it only while relay still owns this participant. A newer
         // start may already have chosen Pears; never tear that session down.
         void primaryStart.then(async () => {
-          if (this.activeProvider.get(participantId) === this.secondary) {
+          if (this.startGeneration.get(participantId) === generation &&
+              this.activeProvider.get(participantId) === this.secondary) {
             await this.primary.stop(participantId)
           }
         }).catch(cleanupErr => {
@@ -205,7 +209,7 @@ export class FallbackTransportProvider implements TransportProvider {
         '[FallbackTransportProvider] primary did not connect in time — falling back'
       )
       const handle = await this.secondary.start(participantId)
-      this.activeProvider.set(participantId, this.secondary)
+      if (this.startGeneration.get(participantId) === generation) this.activeProvider.set(participantId, this.secondary)
       return handle
     }
   }
@@ -225,6 +229,8 @@ export class FallbackTransportProvider implements TransportProvider {
   }
 
   async stop(participantId: string): Promise<void> {
+    const generation = (this.startGeneration.get(participantId) ?? 0) + 1
+    this.startGeneration.set(participantId, generation)
     await this.provider(participantId).stop(participantId)
     this.activeProvider.delete(participantId)
   }
