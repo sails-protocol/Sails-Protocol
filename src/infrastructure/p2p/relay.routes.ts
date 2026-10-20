@@ -60,12 +60,21 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
     socket.on('message', rejectPreAuthFrame)
     const query = request.query as { ticket?: string }
     let participantId: string | null
+    const AUTH_TIMEOUT_MS = 5000
+    let authTimer: ReturnType<typeof setTimeout> | undefined
     try {
-      participantId = await resolveParticipantFromTicket(query.ticket)
+      participantId = await Promise.race([
+        resolveParticipantFromTicket(query.ticket),
+        new Promise<never>((_resolve, reject) => {
+          authTimer = setTimeout(() => reject(new Error('Relay authentication timed out')), AUTH_TIMEOUT_MS)
+        }),
+      ])
     } catch {
       socket.off('message', rejectPreAuthFrame)
       socket.close(1011, 'Relay authentication unavailable')
       return
+    } finally {
+      if (authTimer) clearTimeout(authTimer)
     }
     socket.off('message', rejectPreAuthFrame)
     if (preAuthFrameReceived || socket.readyState !== 1) return
