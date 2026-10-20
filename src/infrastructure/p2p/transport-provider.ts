@@ -190,11 +190,21 @@ export class FallbackTransportProvider implements TransportProvider {
       if (this.startGeneration.get(participantId) === generation) this.activeProvider.set(participantId, this.primary)
       return handle
     } catch (err) {
+      log.warn(
+        { primary: this.primary.name, secondary: this.secondary.name, participantId, timeoutMs: this.timeoutMs, err: err instanceof Error ? err.message : err },
+        '[FallbackTransportProvider] primary did not connect in time — falling back'
+      )
+      // Attach cleanup immediately, but wait for secondary.start to settle:
+      // Pears may finish after timeout and before relay becomes active.
+      const secondaryStart = this.secondary.start(participantId)
       if (timedOut) {
-        // A timed-out Pears start cannot be cancelled. If it later succeeds,
-        // stop it only while relay still owns this participant. A newer
-        // start may already have chosen Pears; never tear that session down.
         void primaryStart.then(async () => {
+          try {
+            await secondaryStart
+          } catch {
+            // A failed relay start must not be treated as an active fallback.
+            return
+          }
           if (this.startGeneration.get(participantId) === generation &&
               this.activeProvider.get(participantId) === this.secondary) {
             await this.primary.stop(participantId)
@@ -204,11 +214,7 @@ export class FallbackTransportProvider implements TransportProvider {
             '[FallbackTransportProvider] late primary cleanup failed')
         })
       }
-      log.warn(
-        { primary: this.primary.name, secondary: this.secondary.name, participantId, timeoutMs: this.timeoutMs, err: err instanceof Error ? err.message : err },
-        '[FallbackTransportProvider] primary did not connect in time — falling back'
-      )
-      const handle = await this.secondary.start(participantId)
+      const handle = await secondaryStart
       if (this.startGeneration.get(participantId) === generation) this.activeProvider.set(participantId, this.secondary)
       return handle
     }
