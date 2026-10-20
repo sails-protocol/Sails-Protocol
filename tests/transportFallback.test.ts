@@ -138,6 +138,31 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     expect(fallback.activeTransportName('race-user')).toBe('websocket-relay')
   })
 
+  it('does not register an old relay when a newer start wins during fallback', async () => {
+    let releaseRelay!: (handle: PeerHandle) => void
+    let calls = 0
+    const primary = {
+      ...fakeProvider('pears'),
+      start: jest.fn(async () => {
+        calls++
+        if (calls === 1) throw new Error('temporary failure')
+        return { peerId: 'pears:new' }
+      }),
+    }
+    const secondary = {
+      ...fakeProvider('websocket-relay'),
+      start: jest.fn(() => new Promise<PeerHandle>(resolve => { releaseRelay = resolve })),
+    }
+    const fallback = new FallbackTransportProvider(primary, secondary, 100)
+    const oldStart = fallback.start('participant')
+    for (let i = 0; i < 20 && !releaseRelay; i++) await new Promise(resolve => setTimeout(resolve, 0))
+    expect(releaseRelay).toBeDefined()
+    expect((await fallback.start('participant')).peerId).toBe('pears:new')
+    releaseRelay({ peerId: 'relay:stale' })
+    await oldStart
+    expect(fallback.activeTransportName('participant')).toBe('pears')
+  })
+
   it('falls back to the secondary provider when the primary rejects outright', async () => {
     const primary = fakeProvider('pears', { shouldFail: true })
     const secondary = fakeProvider('websocket-relay')
