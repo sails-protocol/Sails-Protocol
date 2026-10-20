@@ -113,8 +113,9 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
   async sendToPeer(_participantId: string, targetParticipantId: string, payload: unknown): Promise<boolean> {
     const socket = this.sockets.get(targetParticipantId)
     if (!socket || socket.readyState !== OPEN) return false
-    // Blind forward — payload is whatever the caller already encrypted
-    // above this layer. Never parsed, never logged.
+    // Blind forward: payload confidentiality depends on the caller. Intent
+    // payloads have application-layer encryption, but chat/negotiation may
+    // still be plaintext (see module security note). Never parse or log.
     socket.send(typeof payload === 'string' ? payload : JSON.stringify(payload))
     return true
   }
