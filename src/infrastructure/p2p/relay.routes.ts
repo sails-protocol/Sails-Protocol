@@ -127,5 +127,12 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
       stopped = true
       webSocketRelayTransportProvider.unregisterSocket(participantId, socket)
     })
+
+    // #307: the client's `open` precedes ticket resolution, and frames sent
+    // before this point close the socket. READY is the only signal that the
+    // ticket was consumed and the socket registered with its listeners. It is
+    // sent in the same synchronous turn as registration, so no relayed payload
+    // can reach the client before it: READY is always the first frame.
+    socket.send(JSON.stringify({ type: 'READY' }))
   })
 }
