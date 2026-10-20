@@ -217,6 +217,9 @@ describe('relay live WebSocket upgrade and ingress', () => {
     const aliceClosed = closeEvent(alice)
     alice.close()
     await aliceClosed
+    for (let i = 0; i < 200 && sockets.has('alice'); i++) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
     expect(sockets.has('alice')).toBe(false)
     expect(sockets.has('bob')).toBe(true)
   })
