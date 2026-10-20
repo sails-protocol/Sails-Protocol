@@ -33,6 +33,16 @@ async function runMode(mode){
       child.once('error',reject);
       child.once('close',(code,signal)=>{clearTimeout(timer);resolve({code,signal,output});});
     });
+    // Report only aggregate counters; never expose URLs, tickets or raw CLI output.
+    const reportPresent=fs.existsSync(reportFile);
+    if(reportPresent){
+      try{
+        const snapshot=JSON.parse(fs.readFileSync(reportFile,'utf8'));
+        const c=snapshot.aggregate?.counters||{};
+        const safe=Object.fromEntries(Object.entries(c).filter(([k])=>/^(vusers\\.|websocket\\.|errors\\.)/.test(k)));
+        console.log('Artillery match diagnostic',mode,JSON.stringify({exit:result.code,signal:result.signal,pings,aggregate:safe}));
+      }catch{console.log('Artillery match diagnostic',mode,'report JSON invalid');}
+    }else console.log('Artillery match diagnostic',mode,'report absent',JSON.stringify({exit:result.code,signal:result.signal,pings}));
     assert.ok(pings>0,mode+': actual Artillery PING required');
     assert.deepEqual({code:result.code,signal:result.signal},{code:0,signal:null},mode+': unexpected CLI exit or signal');
     assert.ok(fs.existsSync(reportFile),mode+': Artillery report missing');
