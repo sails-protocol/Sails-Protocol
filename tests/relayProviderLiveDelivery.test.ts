@@ -56,6 +56,18 @@ describe('real relay provider with two live TCP WebSocket clients', () => {
     budget.mockResolvedValue(true)
   })
 
+  it('returns false if an OPEN socket throws during send without evicting its owner', async () => {
+    const fakeSocket = { readyState: 1, send: jest.fn(() => { throw new Error('socket failed') }), close: jest.fn() }
+    relay.registerSocket('failed-send-test', fakeSocket)
+    try {
+      await expect(relay.sendToPeer('alice', 'failed-send-test', 'opaque')).resolves.toBe(false)
+      expect(fakeSocket.send).toHaveBeenCalledWith('opaque')
+      expect(relay.ownsSocket('failed-send-test', fakeSocket)).toBe(true)
+    } finally {
+      relay.unregisterSocket('failed-send-test', fakeSocket)
+    }
+  })
+
   it('forwards opaque payload to Bob without echoing to Alice and keeps Bob connected after Alice leaves', async () => {
     const alice = await connect('alice')
     const bob = await connect('bob')
