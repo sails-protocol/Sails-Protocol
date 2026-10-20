@@ -180,11 +180,26 @@ export class FallbackTransportProvider implements TransportProvider {
   ) {}
 
   async start(participantId: string): Promise<PeerHandle> {
+    const primaryStart = this.primary.start(participantId)
+    let timedOut = false
     try {
-      const handle = await this.withTimeout(this.primary.start(participantId), this.timeoutMs)
+      const handle = await this.withTimeout(primaryStart, this.timeoutMs, () => { timedOut = true })
       this.activeProvider.set(participantId, this.primary)
       return handle
     } catch (err) {
+      if (timedOut) {
+        // A timed-out Pears start cannot be cancelled. If it later succeeds,
+        // stop it only while relay still owns this participant. A newer
+        // start may already have chosen Pears; never tear that session down.
+        void primaryStart.then(async () => {
+          if (this.activeProvider.get(participantId) === this.secondary) {
+            await this.primary.stop(participantId)
+          }
+        }).catch(cleanupErr => {
+          log.warn({ participantId, err: cleanupErr instanceof Error ? cleanupErr.message : cleanupErr },
+            '[FallbackTransportProvider] late primary cleanup failed')
+        })
+      }
       log.warn(
         { primary: this.primary.name, secondary: this.secondary.name, participantId, timeoutMs: this.timeoutMs, err: err instanceof Error ? err.message : err },
         '[FallbackTransportProvider] primary did not connect in time — falling back'
@@ -199,9 +214,9 @@ export class FallbackTransportProvider implements TransportProvider {
     return this.activeProvider.get(participantId) ?? this.primary
   }
 
-  private withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  private withTimeout<T>(promise: Promise<T>, ms: number, onTimeout?: () => void): Promise<T> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms)
+      const timer = setTimeout(() => { onTimeout?.(); reject(new Error(`timed out after ${ms}ms`)) }, ms)
       promise.then(
         (value) => { clearTimeout(timer); resolve(value) },
         (err) => { clearTimeout(timer); reject(err) }
