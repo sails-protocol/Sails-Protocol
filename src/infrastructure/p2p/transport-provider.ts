@@ -173,7 +173,6 @@ export class FallbackTransportProvider implements TransportProvider {
   name = 'fallback(pears→websocket-relay)'
   private activeProvider = new Map<string, TransportProvider>()
   private startGeneration = new Map<string, number>()
-  private pendingStart = new Map<string, Promise<PeerHandle>>()
 
   constructor(
     private readonly primary: TransportProvider,
@@ -181,18 +180,7 @@ export class FallbackTransportProvider implements TransportProvider {
     private readonly timeoutMs: number = DEFAULT_FALLBACK_TIMEOUT_MS
   ) {}
 
-  start(participantId: string): Promise<PeerHandle> {
-    const pending = this.pendingStart.get(participantId)
-    if (pending) return pending
-    const attempt = this.startAttempt(participantId)
-    this.pendingStart.set(participantId, attempt)
-    void attempt.finally(() => {
-      if (this.pendingStart.get(participantId) === attempt) this.pendingStart.delete(participantId)
-    }).catch(() => { /* original attempt remains the caller's rejection */ })
-    return attempt
-  }
-
-  private async startAttempt(participantId: string): Promise<PeerHandle> {
+  async start(participantId: string): Promise<PeerHandle> {
     const generation = (this.startGeneration.get(participantId) ?? 0) + 1
     this.startGeneration.set(participantId, generation)
     const primaryStart = this.primary.start(participantId)
