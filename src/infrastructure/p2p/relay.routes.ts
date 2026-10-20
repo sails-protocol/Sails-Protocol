@@ -18,11 +18,12 @@
  * set arbitrary headers, the same constraint that route already
  * documents). Migrated off a raw `?token=` session token, 2026-08-15
  * security review P1 — see ws-auth.ts's resolveParticipantFromTicket()
- * for the full rationale. Note this route currently has no in-repo SDK
- * client (grep confirms `packages/sails-sdk` never constructs a
- * `/ws/relay` URL) — any external client connecting here needs the same
- * paired update: fetch a ticket via the authenticated HTTP endpoint
- * first, then open the socket with `?ticket=`, not `?token=`.
+ * for the full rationale. The in-repo SDK exposes
+ * `SailsClient.peers.connectRelay()`: it requests a short-lived ticket via
+ * authenticated HTTP, then opens `/ws/relay?ticket=...` (never a raw session
+ * token). `tests/relayLiveWebSocket.test.ts` exercises SDK-to-live-socket
+ * wiring with mocked ticket HTTP and ticket resolver boundaries; this is
+ * not an end-to-end proof of the production authentication service.
  *
  * Scope, stated plainly: this makes `start()`/`sendToPeer()` degrade
  * gracefully when Pears/HyperDHT hole-punching doesn't complete in time
