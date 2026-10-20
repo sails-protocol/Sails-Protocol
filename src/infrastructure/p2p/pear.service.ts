@@ -158,15 +158,21 @@ export class PearNode extends EventEmitter {
       log.info({ msg: 'Node started', ownerUserId: this.ownerUserId, peerId })
       return peerId
     } catch (err) {
-      // A failed DB write, discovery flush or event publication must not
-      // leave an apparently running node in the registry. Preserve the
-      // original startup error even if teardown itself fails.
+      // A failed constructor, DB write, discovery flush or event publication
+      // must not leave an apparently running node in the registry. Preserve
+      // the original startup error even if teardown itself fails.
       try {
         // A constructor may fail before isStarted becomes true; the
         // resources that did initialize still need explicit destruction.
         if (this.swarm || this.dht) {
           this.isStarted = true
           await this.stop()
+        }
+        // If construction failed before either resource existed, there is
+        // nothing to tear down; do not retain a phantom node identity.
+        if (!this.swarm && !this.dht) {
+          this.isStarted = false
+          this.keyPair = null
         }
       } catch (cleanupErr) {
         log.error({ ownerUserId: this.ownerUserId, cleanupErr },
