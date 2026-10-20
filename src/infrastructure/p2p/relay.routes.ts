@@ -59,6 +59,12 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
     }
     socket.on('message', rejectPreAuthFrame)
     const query = request.query as { ticket?: string }
+    // Reject absent tickets without allocating an asynchronous Redis lookup.
+    if (typeof query.ticket !== 'string' || query.ticket.length === 0) {
+      socket.off('message', rejectPreAuthFrame)
+      socket.close(1008, 'Relay ticket required')
+      return
+    }
     let participantId: string | null
     const AUTH_TIMEOUT_MS = 5000
     let authTimer: ReturnType<typeof setTimeout> | undefined
