@@ -254,6 +254,10 @@ jobs:
           const handler=engineLines.slice(handlerStart,handlerEnd+1);
           const receiveTokens=[...new Set(handler.flatMap(line=>[...line.matchAll(/\\b(match|capture|timeout|callback|params\\.[a-zA-Z_]+)\\b/g)].map(m=>m[0])))].sort();
           console.log('Artillery receive handler bounded contract:',JSON.stringify({startLine:handlerStart+1,lineCount:handler.length,tokens:receiveTokens}));
+          // Emit only source line numbers and redacted code structure. A plain
+          // word-boundary token scan can miss params?.match or bracket access.
+          const receiveSignals=handler.flatMap((line,i)=>/match|capture|timeout|callback|params|expect|JSON\.parse|emit\(/i.test(line)?[{line:handlerStart+i+1,source:line.trim().slice(0,160)}]:[]);
+          console.log('Artillery receive handler bounded structural signals:',JSON.stringify(receiveSignals.slice(0,36)));
           if(handler.length<10||handler.length>180)throw Error('Unexpected Artillery receive handler size; manual review required');
           console.log('Artillery WS transport extension contract:',JSON.stringify(engineContract));
           if(!engineContract.replaceableWebSocketDependency||!engineContract.constructsFromDependency)throw Error('Artillery WebSocket dependency injection contract changed');
