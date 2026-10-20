@@ -72,6 +72,18 @@ describe('relay live WebSocket upgrade and ingress', () => {
     budget.mockResolvedValue(true)
   })
 
+  it('closes an unauthenticated live socket after ticket resolution exceeds its deadline', async () => {
+    ticket.mockImplementation(() => new Promise<string | null>(() => {}))
+    const client = await connect('stalled-ticket')
+    const closed = closeEvent(client)
+    expect(await Promise.race([
+      closed,
+      new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('Authentication timeout not enforced')), 7000)),
+    ])).toBe(1011)
+    expect(sockets.size).toBe(0)
+    expect(dispatch).not.toHaveBeenCalled()
+  }, 10000)
+
   it('authenticates a real upgrade and forwards accepted frames in order', async () => {
     const client = await connect()
     await waitRegistered()
