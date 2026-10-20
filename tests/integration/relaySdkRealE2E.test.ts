@@ -109,7 +109,12 @@ describe('#307 SDK -> HTTP ticket -> Redis -> WebSocket relay, real end to end',
   const rejectedRaw = async (query: string): Promise<{ error: string; closed: Closed }> => {
     const ws = rawConnect(query)
     sockets.push(ws)
-    const error = new Promise<string>(resolve => ws.once('message', data => resolve(data.toString())))
+    // Missing tickets fail closed before Redis lookup and intentionally emit no ERROR frame.
+    // Resolve on close as well, so a rejected socket cannot hang this test forever.
+    const error = new Promise<string>(resolve => {
+      ws.once('message', data => resolve(data.toString()))
+      ws.once('close', () => resolve(''))
+    })
     const closed = await closedOf(ws)
     return { error: await error, closed }
   }
@@ -187,7 +192,10 @@ describe('#307 SDK -> HTTP ticket -> Redis -> WebSocket relay, real end to end',
 
   it('rejects missing and expired tickets', async () => {
     const alice = await newParticipant()
-    expect((await rejectedRaw('')).error).toContain('ticket')
+    const missing = await rejectedRaw('')
+    expect(missing.error).toBe('')
+    expect(missing.closed.code).toBe(1008)
+    expect(missing.closed.reason).toBe('Relay ticket required')
 
     const res = await fetch(httpBase + '/v1/identity/ws-ticket', {
       method: 'POST',
