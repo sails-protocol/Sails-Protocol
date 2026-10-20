@@ -116,8 +116,14 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
     // Blind forward: payload confidentiality depends on the caller. Intent
     // payloads have application-layer encryption, but chat/negotiation may
     // still be plaintext (see module security note). Never parse or log.
-    socket.send(typeof payload === 'string' ? payload : JSON.stringify(payload))
-    return true
+    try {
+      socket.send(typeof payload === 'string' ? payload : JSON.stringify(payload))
+      return true
+    } catch {
+      // A socket can fail after readyState was checked; report failed delivery.
+      // Do not evict here: a concurrent reconnect may already own the slot.
+      return false
+    }
   }
 
   onMessage(participantId: string, handler: (peerId: string, payload: unknown) => void): void {
