@@ -66,15 +66,21 @@ describe('#307 SDK -> HTTP ticket -> Redis -> WebSocket relay, real end to end',
     ws.once('close', (code, reason) => resolve({ code, reason: reason.toString() }))
   })
 
+  // `open` is not authentication: the relay is usable only after READY, which
+  // must be the first frame the server sends.
+  const ready = (ws: WebSocket): Promise<WebSocket> => new Promise((resolve, reject) => {
+    ws.once('message', data => {
+      const text = data.toString()
+      if (text === JSON.stringify({ type: 'READY' })) resolve(ws)
+      else reject(new Error('First relay frame was not READY: ' + text))
+    })
+    ws.once('close', (code, reason) => reject(new Error(`Closed before READY: ${code} ${reason}`)))
+    ws.once('error', reject)
+  })
+
   const opened = async (ws: WebSocket): Promise<WebSocket> => {
     sockets.push(ws)
-    if (ws.readyState !== WebSocket.OPEN) {
-      await new Promise<void>((resolve, reject) => {
-        ws.once('open', () => resolve())
-        ws.once('error', reject)
-      })
-    }
-    return ws
+    return ready(ws)
   }
 
   const newParticipant = async (): Promise<{ sdk: Sdk; id: string; sessionToken: string }> => {
@@ -254,6 +260,56 @@ describe('#307 SDK -> HTTP ticket -> Redis -> WebSocket relay, real end to end',
     await until(() => seen.b.length === 1, 'delivery to Bob')
     await new Promise(resolve => setTimeout(resolve, 100))
     expect(seen).toEqual({ a: [], b: ['ciphertext:opaque'], c: [] })
+  })
+
+  it('sends READY only after registration; a frame sent on READY is always admitted', async () => {
+    const outcomes: string[] = []
+    for (let i = 0; i < 20; i++) {
+      const p = await newParticipant()
+      const ws = await p.sdk.peers.connectRelay() as unknown as WebSocket
+      sockets.push(ws)
+      const registeredAtReady = await new Promise<boolean>((resolve, reject) => {
+        ws.once('message', data => {
+          if (data.toString() !== JSON.stringify({ type: 'READY' })) return reject(new Error('not READY: ' + data))
+          const registered = relay.isConnected(p.id)
+          ws.send('sent-on-ready')
+          resolve(registered)
+        })
+        ws.once('close', (code, reason) => reject(new Error(`closed ${code} ${reason}`)))
+      })
+      await until(async () => await admitted(p.id) === 1, 'frame sent on READY admitted')
+      outcomes.push(registeredAtReady && ws.readyState === WebSocket.OPEN ? 'ready+admitted' : 'other')
+      ws.terminate()
+    }
+    expect(outcomes).toEqual(Array(20).fill('ready+admitted'))
+  })
+
+  it('never admits a frame sent before READY (send-on-open keeps the pre-auth rejection)', async () => {
+    const tally: Record<string, number> = {}
+    for (let i = 0; i < 20; i++) {
+      const p = await newParticipant()
+      const ws = await p.sdk.peers.connectRelay() as unknown as WebSocket
+      sockets.push(ws)
+      let readyBeforeClose = false
+      ws.once('open', () => ws.send('sent-on-open'))
+      ws.on('message', data => { if (data.toString() === JSON.stringify({ type: 'READY' })) readyBeforeClose = true })
+      const outcome = await Promise.race([
+        closedOf(ws).then(c => `closed ${c.code} ${c.reason}`),
+        until(async () => readyBeforeClose && await admitted(p.id) === 1, 'READY then admission').then(() => 'ready+admitted'),
+      ])
+      // The only two legal interleavings: the frame raced ticket resolution and
+      // was rejected unadmitted, or the server had already authenticated.
+      if (outcome.startsWith('closed')) {
+        expect(outcome).toBe('closed 1008 Relay authentication pending')
+        expect(readyBeforeClose).toBe(false)
+        expect(await admitted(p.id)).toBe(0)
+      } else {
+        expect(outcome).toBe('ready+admitted')
+      }
+      tally[outcome] = (tally[outcome] ?? 0) + 1
+      ws.terminate()
+    }
+    expect(Object.values(tally).reduce((a, b) => a + b, 0)).toBe(20)
   })
 
   it('fails closed on Redis loss for both frames and ticket issuance, then recovers', async () => {
