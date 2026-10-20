@@ -141,14 +141,27 @@ export class PearNode extends EventEmitter {
     this.isStarted = true
     const peerId = keyPair.publicKey.toString('hex')
 
-    await prisma.user.update({ where: { id: this.ownerUserId }, data: { peerId } })
-    await this.joinTopic('marketplace')
+    try {
+      await prisma.user.update({ where: { id: this.ownerUserId }, data: { peerId } })
+      await this.joinTopic('marketplace')
 
-    // correlationId = userId (RFC-010) — no trade to correlate a connectivity
-    // event to; userId is the most specific trace identifier available.
-    await eventBus.emit('peer.connected', { userId: this.ownerUserId, peerId, publicKey: peerId }, this.ownerUserId)
-    log.info({ msg: 'Node started', ownerUserId: this.ownerUserId, peerId })
-    return peerId
+      // correlationId = userId (RFC-010) — no trade to correlate a connectivity
+      // event to; userId is the most specific trace identifier available.
+      await eventBus.emit('peer.connected', { userId: this.ownerUserId, peerId, publicKey: peerId }, this.ownerUserId)
+      log.info({ msg: 'Node started', ownerUserId: this.ownerUserId, peerId })
+      return peerId
+    } catch (err) {
+      // A failed DB write, discovery flush or event publication must not
+      // leave an apparently running node in the registry. Preserve the
+      // original startup error even if teardown itself fails.
+      try {
+        await this.stop()
+      } catch (cleanupErr) {
+        log.error({ ownerUserId: this.ownerUserId, cleanupErr },
+          'Failed to clean up partially started Pears node')
+      }
+      throw err
+    }
   }
 
   async stop(): Promise<void> {
