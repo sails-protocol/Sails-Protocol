@@ -79,6 +79,23 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['peers'] },
   }, async (request, reply) => {
     const participantId = (request as AuthenticatedRequest).participantId
+    const transport = fallbackTransportProvider.activeTransportName(participantId)
+    if (transport === 'websocket-relay') {
+      // Relay start() only selects a transport; the WebSocket may not be connected yet.
+      // Never return Pears registry state as if it described this relay connection.
+      const connected = fallbackTransportProvider.isConnected(participantId)
+      return reply.code(200).send({ success: true, data: {
+        userId: participantId,
+        started: connected,
+        peerId: participantId,
+        connectedPeers: 0,
+        activeTopics: [],
+        peers: [],
+        transport,
+        connected,
+        capabilities: { directRelay: true, topicDiscovery: false, topicBroadcast: false },
+      } })
+    }
     const status = pearNodeRegistry.getStatus(participantId)
     return reply.code(200).send({ success: true, data: status })
   })
