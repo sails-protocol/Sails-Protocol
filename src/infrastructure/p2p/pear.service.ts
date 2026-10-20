@@ -212,9 +212,11 @@ export class PearNode extends EventEmitter {
     this.userPeerMap.clear()
     this.topicAnnouncements.clear()
 
+    const peerId = this.keyPair?.publicKey.toString('hex') ?? ''
+    this.keyPair = null
     await eventBus.emit('peer.disconnected', {
       userId: this.ownerUserId,
-      peerId: this.keyPair?.publicKey.toString('hex') ?? '',
+      peerId,
     }, this.ownerUserId)   // correlationId = userId (RFC-010)
     log.info({ msg: 'Node stopped', ownerUserId: this.ownerUserId })
   }
