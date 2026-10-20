@@ -59,6 +59,20 @@ class Socket extends EventEmitter {
   queueMicrotask(()=>{mixed.emit('message',JSON.stringify({type:'OTHER'}));mixed.emit('message',JSON.stringify({type:'PONG'}));});
   await mixedPromise;
   for (const event of ['message','close','error']) assert.equal(mixed.listenerCount(event),0,'Leaked '+event+' listener after mixed frames');
+  // A malformed but syntactically valid JSON frame must fail closed.
+  for (const frame of ['null','[]','42','"PONG"']) {
+    const socket=new Socket(null);
+    const pending=assertPongFromSocket(socket,{timeoutMs:100});
+    queueMicrotask(()=>socket.emit('message',frame));
+    await assert.rejects(pending,/Invalid WS message/);
+    for (const event of ['message','close','error']) assert.equal(socket.listenerCount(event),0,'Leaked '+event+' listener after invalid JSON value');
+  }
+  // A forged application ERROR followed by PONG cannot be accepted.
+  const errored=new Socket(null);
+  const erroredPending=assertPongFromSocket(errored,{timeoutMs:100});
+  queueMicrotask(()=>{errored.emit('message',JSON.stringify({type:'ERROR'}));errored.emit('message',JSON.stringify({type:'PONG'}));});
+  await assert.rejects(erroredPending,/WS application ERROR/);
+  for (const event of ['message','close','error']) assert.equal(errored.listenerCount(event),0,'Leaked '+event+' listener after application ERROR');
   const failedSend=new Socket(null);
   failedSend.send=()=>{throw Error('sensitive transport detail')};
   await assert.rejects(assertPongFromSocket(failedSend,{timeoutMs:100}),/WS send failed/);
