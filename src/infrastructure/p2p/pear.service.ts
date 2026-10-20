@@ -126,27 +126,26 @@ export class PearNode extends EventEmitter {
 
     const keyPair = HyperDHT.keyPair()
     this.keyPair = keyPair
-
-    this.dht = new HyperDHT({
-      keyPair,
-      bootstrap:
-        config.pear.bootstrapNodes.length > 0
-          ? config.pear.bootstrapNodes.map((addr) => {
-              const [host, port] = addr.split(':')
-              return { host, port: parseInt(port || '49737') }
-            })
-          : undefined,
-    })
-
-    this.swarm = new Hyperswarm({ dht: this.dht, keyPair })
-    this.swarm.on('connection', (conn: unknown, info: unknown) => {
-      this.handleNewConnection(conn, info)
-    })
-
-    this.isStarted = true
-    const peerId = keyPair.publicKey.toString('hex')
-
     try {
+      this.dht = new HyperDHT({
+        keyPair,
+        bootstrap:
+          config.pear.bootstrapNodes.length > 0
+            ? config.pear.bootstrapNodes.map((addr) => {
+                const [host, port] = addr.split(':')
+                return { host, port: parseInt(port || '49737') }
+              })
+            : undefined,
+      })
+
+      this.swarm = new Hyperswarm({ dht: this.dht, keyPair })
+      this.swarm.on('connection', (conn: unknown, info: unknown) => {
+        this.handleNewConnection(conn, info)
+      })
+
+      this.isStarted = true
+      const peerId = keyPair.publicKey.toString('hex')
+
       await prisma.user.update({ where: { id: this.ownerUserId }, data: { peerId } })
       await this.joinTopic('marketplace')
 
@@ -160,7 +159,12 @@ export class PearNode extends EventEmitter {
       // leave an apparently running node in the registry. Preserve the
       // original startup error even if teardown itself fails.
       try {
-        await this.stop()
+        // A constructor may fail before isStarted becomes true; the
+        // resources that did initialize still need explicit destruction.
+        if (this.swarm || this.dht) {
+          this.isStarted = true
+          await this.stop()
+        }
       } catch (cleanupErr) {
         log.error({ ownerUserId: this.ownerUserId, cleanupErr },
           'Failed to clean up partially started Pears node')
