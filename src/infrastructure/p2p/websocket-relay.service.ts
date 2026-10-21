@@ -46,6 +46,8 @@ const OPEN = 1 // WebSocket.OPEN — avoids importing the `ws` package just for 
 
 export class WebSocketRelayTransportProvider implements TransportProvider {
   name = 'websocket-relay'
+  // Process-local only: Redis-backed auth/budgets do not provide cross-instance routing.
+  // Multi-instance deployments require a tested routing backplane or explicit affinity.
   private sockets = new Map<string, RelaySocket>()
   private messageHandlers = new Map<string, (peerId: string, payload: unknown) => void>()
 
@@ -117,6 +119,8 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
   }
 
   async sendToPeer(_participantId: string, targetParticipantId: string, payload: unknown): Promise<boolean> {
+    // A missing local socket must fail closed. Never claim remote delivery:
+    // the provider has no cross-instance participant directory/backplane.
     const socket = this.sockets.get(targetParticipantId)
     if (!socket || socket.readyState !== OPEN) return false
     // Blind forward: payload confidentiality depends on the caller. Intent
