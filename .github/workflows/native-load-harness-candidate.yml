@@ -282,17 +282,18 @@ jobs:
           assert.equal(http.scenarios.length,1,'one HTTP scenario');
           assert.equal(ws.scenarios.length,1,'one WS scenario');
           assert.equal(http.scenarios[0].flow.length,3,'exact HTTP flow length');
-          assert.equal(ws.scenarios[0].flow.length,3,'exact WS flow length');
+          assert.equal(ws.scenarios[0].flow.length,2,'exact WS flow length');
           assert.equal(http.scenarios[0].flow[0].function,'setupCurrentAuthenticatedUser');
           assert.equal(ws.scenarios[0].flow[0].connect.function,'connectWithFreshTicket');
-          assert.equal(ws.scenarios[0].flow[1].send,JSON.stringify({type:'PING',payload:{}}));
-          assert.equal(ws.scenarios[0].flow[2].think,1);
+          assert.equal(ws.scenarios[0].flow[1].send.payload,JSON.stringify({type:'PING',payload:{}}));
+          assert.deepEqual(ws.scenarios[0].flow[1].send.match,[{json:'$.type',value:'PONG',strict:true}]);
+          assert.equal(ws.scenarios[0].flow[1].send.response.timeout,2);
           assert.equal(http.scenarios[0].flow[1].post.url,'/v1/intents');
           assert.equal(http.scenarios[0].flow[2].delete.url,'/v1/intents/{{ intentId }}');
           assert.deepEqual(http.scenarios[0].flow[1].post.expect,[{statusCode:201}]);
           assert.deepEqual(http.scenarios[0].flow[2].delete.expect,[{statusCode:200}]);
-          assert.match(ws.scenarios[0].name,/PONG not asserted/);
-          console.log('Artillery candidate bounds and non-parity labeling PASS');
+          assert.match(ws.scenarios[0].name,/strict application PONG match/);
+          console.log('Artillery candidate bounds and strict PONG match configuration PASS; authenticated parity pending');
           NODE
       - name: Verify Artillery WS engine assertion integration boundary
         shell: bash
@@ -310,7 +311,7 @@ jobs:
           // assertion is integrated and exercised against a nonresponding server.
           const wired=flow.some(step=>step?.function==='assertPongFromSocket'||step?.send?.function==='assertPongFromSocket');
           assert.equal(wired,false,'Candidate unexpectedly changed: review WS engine hook and negative proof before enabling');
-          console.log('WS candidate remains PONG-unverified; parity promotion blocked (expected)');
+          console.log('WS engine match configured; authenticated end-to-end parity and independent review still blocked');
           NODE
       - name: Characterize Artillery silent WebSocket false positive on disposable loopback
         run: node load-tests/artillery/ws-engine-silent-control.test.cjs
