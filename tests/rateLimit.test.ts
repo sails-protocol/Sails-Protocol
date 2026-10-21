@@ -157,6 +157,24 @@ describe('Rate limiting (@fastify/rate-limit, RATE_LIMIT_MAX=5, RATE_LIMIT_AUTH_
     expect(res3.statusCode).toBe(429) // now its own 2-request budget is exhausted
   })
 
+  it('uses a single atomic Redis EVAL per auth request instead of INCR followed by PEXPIRE', async () => {
+    const { redis } = require('../src/common/redis')
+    const evalSpy = redis.eval as jest.Mock
+    const incrSpy = redis.incr as jest.Mock
+    const expireSpy = redis.pexpire as jest.Mock
+    const before = evalSpy.mock.calls.length
+    await app.inject({ method: 'POST', url: '/v1/identity/challenge', payload: { publicKey: 'z'.repeat(64) } })
+    expect(evalSpy.mock.calls.length).toBe(before + 1)
+    const [script, numKeys, key, windowMs] = evalSpy.mock.calls[before]
+    expect(script).toContain("redis.call('INCR', KEYS[1])")
+    expect(script).toContain("redis.call('PEXPIRE', KEYS[1], ARGV[1])")
+    expect(numKeys).toBe(1)
+    expect(key).toContain('ratelimit:')
+    expect(windowMs).toBe(60000)
+    expect(incrSpy).not.toHaveBeenCalled()
+    expect(expireSpy).not.toHaveBeenCalled()
+  })
+
   it('leaves a non-auth route on the more permissive global limit, unaffected by the auth tier being exhausted', async () => {
     const res = await app.inject({ method: 'GET', url: '/health' })
     expect(res.statusCode).toBe(200)
