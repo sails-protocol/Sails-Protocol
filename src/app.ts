@@ -374,6 +374,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   // #307 Phase B: participant-to-participant delivery over the relay. Lazy:
   // no Redis is touched until the first relay participant registers.
   const relayRouter = new RelayRouter({
+    ...config.relay,
     redis,
     host: webSocketRelayTransportProvider,
     findTrade: tradeId => tradeRepository.findById(tradeId),

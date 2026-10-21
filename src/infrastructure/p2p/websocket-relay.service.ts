@@ -37,14 +37,17 @@
 import type { TransportProvider, PeerHandle } from './transport-provider'
 
 export interface RelayRouterHooks {
-  claim(participantId: string): Promise<void>
-  release(participantId: string): Promise<void>
+  /** Resolves with this connection's ownership token. */
+  claim(participantId: string): Promise<string>
+  release(participantId: string, token: string): Promise<void>
+  /** The socket holding this token is registered (acts on an earlier revoke). */
+  registered(participantId: string, token: string): void
   route(fromParticipantId: string, raw: string): Promise<void>
 }
 
 export interface RelaySocket {
   send(data: string): void
-  close(): void
+  close(code?: number, reason?: string): void
   readyState: number
 }
 
@@ -54,6 +57,8 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
   name = 'websocket-relay'
   private sockets = new Map<string, RelaySocket>()
   private messageHandlers = new Map<string, (peerId: string, payload: unknown) => void>()
+  // #307 Phase B.1: ownership token of each registered socket's connection.
+  private tokens = new Map<string, string>()
   // #307 Phase B: participant-to-participant delivery (relay-delivery.ts).
   // Installed by app.ts only; without it the provider keeps its blind,
   // handler-only behaviour.
@@ -64,24 +69,43 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
   }
 
   /** Must resolve before READY: makes this participant reachable from every instance. */
-  async prepareRegistration(participantId: string): Promise<void> {
-    await this.router?.claim(participantId)
+  async prepareRegistration(participantId: string): Promise<string | undefined> {
+    return this.router?.claim(participantId)
   }
 
   /** The socket closed between prepareRegistration() and registration. */
-  abandonRegistration(participantId: string): void {
-    if (this.sockets.has(participantId)) return
-    void this.router?.release(participantId).catch(() => undefined)
+  abandonRegistration(participantId: string, token?: string): void {
+    if (token === undefined || this.tokens.get(participantId) === token) return
+    void this.router?.release(participantId, token).catch(() => undefined)
+  }
+
+  /** True only for an open socket registered with exactly this ownership token. */
+  ownsToken(participantId: string, token: string): boolean {
+    return this.tokens.get(participantId) === token && this.sockets.get(participantId)?.readyState === OPEN
+  }
+
+  /** Closes the socket if, and only if, it is still registered with this token. */
+  closeIfToken(participantId: string, token: string, code: number, reason: string): void {
+    const socket = this.sockets.get(participantId)
+    if (!socket || this.tokens.get(participantId) !== token) return
+    try {
+      socket.close(code, reason)
+    } catch {
+      // Already broken; its close handler unregisters it.
+    }
   }
 
   // Called by app.ts's `/ws/relay` route once the client's WebSocket
   // upgrade completes — this is the real "connection", not start() below.
-  registerSocket(participantId: string, socket: RelaySocket): void {
+  registerSocket(participantId: string, socket: RelaySocket, token?: string): void {
     const previous = this.sockets.get(participantId)
     if (previous === socket) return
     // Transfer ownership before closing: a stale close callback must not
     // unregister the replacement socket.
     this.sockets.set(participantId, socket)
+    if (token === undefined) this.tokens.delete(participantId)
+    else this.tokens.set(participantId, token)
+    if (token !== undefined) this.router?.registered(participantId, token)
     if (previous && previous.readyState === OPEN) {
       try {
         previous.close()
@@ -101,8 +125,10 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
     // the same participant (reconnect/overlapping connections).
     if (socket && this.sockets.get(participantId) !== socket) return
     this.sockets.delete(participantId)
-    // Best effort: a stale owner key only yields UNDELIVERED, never a misdelivery.
-    void this.router?.release(participantId).catch(() => undefined)
+    const token = this.tokens.get(participantId)
+    this.tokens.delete(participantId)
+    // Best effort: a stale owner key expires (TTL) and only yields UNDELIVERED.
+    if (token !== undefined) void this.router?.release(participantId, token).catch(() => undefined)
   }
 
   // Registers intent to use this provider; does not itself open a
@@ -118,6 +144,9 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
     // must not remove a replacement registered during shutdown.
     this.sockets.delete(participantId)
     this.messageHandlers.delete(participantId)
+    const token = this.tokens.get(participantId)
+    this.tokens.delete(participantId)
+    if (token !== undefined) void this.router?.release(participantId, token).catch(() => undefined)
     if (socket && socket.readyState === OPEN) {
       try {
         socket.close()

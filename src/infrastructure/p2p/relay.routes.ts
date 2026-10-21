@@ -95,8 +95,9 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
     // #307 Phase B: delivery ownership must exist before READY, so another
     // instance can reach this participant as soon as the client may send.
     // Still under the pre-auth listener: frames during this wait are rejected.
+    let ownershipToken: string | undefined
     try {
-      await webSocketRelayTransportProvider.prepareRegistration(participantId)
+      ownershipToken = await webSocketRelayTransportProvider.prepareRegistration(participantId)
     } catch {
       socket.off('message', rejectPreAuthFrame)
       socket.close(1011, 'Relay unavailable')
@@ -104,11 +105,11 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
     }
     socket.off('message', rejectPreAuthFrame)
     if (preAuthFrameReceived || socket.readyState !== 1) {
-      webSocketRelayTransportProvider.abandonRegistration(participantId)
+      webSocketRelayTransportProvider.abandonRegistration(participantId, ownershipToken)
       return
     }
 
-    webSocketRelayTransportProvider.registerSocket(participantId, socket)
+    webSocketRelayTransportProvider.registerSocket(participantId, socket, ownershipToken)
 
     // Serialize asynchronous Redis decisions to preserve ingress dispatch order.
     // Once the socket is closed/exhausted, queued frames must never dispatch.

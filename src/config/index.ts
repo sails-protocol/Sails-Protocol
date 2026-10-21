@@ -265,6 +265,14 @@ export const config = {
   // specifically (RED_TEAM_REVIEW.md RT-002's own "this is the field that
   // matters most" — those two routes are what a credential-stuffing/
   // brute-force attempt would actually hit).
+  // #307 relay delivery (relay-delivery.ts). Ownership TTL bounds how long a
+  // participant stays unreachable after their server process dies abruptly;
+  // the ack timeout is when a cross-instance delivery becomes ambiguous.
+  relay: {
+    ownerTtlMs: requiredPositiveInt('RELAY_OWNER_TTL_MS', 30_000),
+    remoteAckTimeoutMs: requiredPositiveInt('RELAY_REMOTE_ACK_TIMEOUT_MS', 3_000),
+    maxPendingRemote: requiredPositiveInt('RELAY_MAX_PENDING_REMOTE', 10_000),
+  },
   rateLimit: {
     max: requiredInt('RATE_LIMIT_MAX', 100),
     timeWindow: process.env.RATE_LIMIT_WINDOW ?? '1 minute',
