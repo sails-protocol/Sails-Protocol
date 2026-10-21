@@ -43,12 +43,14 @@ async function setupCurrentAuthenticatedUser(context, events) {
 }
 // Artillery afterResponse hooks count completed engine-level operations,
 // independently of the global HTTP request total. No payloads or tokens logged.
-function recordIntentCreateResponse(requestParams, response, context, events) {
+function recordIntentCreateResponse(requestParams, response, context, events, next) {
   if (response?.statusCode !== 201) throw Error('Intent create response status mismatch (redacted)');
   events.emit('counter', 'sails.intent_create_responses', 1);
+  return next();
 }
-function recordIntentCancelResponse(requestParams, response, context, events) {
+function recordIntentCancelResponse(requestParams, response, context, events, next) {
   if (response?.statusCode !== 200) throw Error('Intent cancel response status mismatch (redacted)');
   events.emit('counter', 'sails.intent_cancel_responses', 1);
+  return next();
 }
 module.exports = { setupCurrentAuthenticatedUser, recordIntentCreateResponse, recordIntentCancelResponse };
