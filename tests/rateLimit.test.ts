@@ -48,6 +48,14 @@ jest.mock('../src/common/redis', () => ({
       redisStore.delete(key)
       return Promise.resolve(1)
     }),
+    eval: jest.fn((_script: string, _keys: number, key: string, windowMs: number) => {
+      const next = (parseInt(redisStore.get(key) ?? '0', 10) || 0) + 1
+      redisStore.set(key, String(next))
+      // The mock models the atomic increment/expiry contract; no wall-clock
+      // expiry is required for this bounded same-window suite.
+      void windowMs
+      return Promise.resolve(next)
+    }),
     incr: jest.fn((key: string) => {
       const next = (parseInt(redisStore.get(key) ?? '0', 10) || 0) + 1
       redisStore.set(key, String(next))
