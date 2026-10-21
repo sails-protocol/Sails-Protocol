@@ -416,7 +416,13 @@ jobs:
           // occurs in a processor function outside the HTTP engine metrics.
           const endpointRequestCounters=Object.entries(counters).filter(([key])=>
             /plugins\\.metrics-by-endpoint\\.codes\\./.test(key)||/plugins\\.metrics-by-endpoint\\.requests\\./.test(key));
-          console.log('Artillery HTTP endpoint request counter keys:',JSON.stringify(endpointRequestCounters.map(([key])=>key)));
+          const endpointRequestCounterCoverage={
+            matchingCounterKeys:endpointRequestCounters.map(([key])=>key),
+            scopedRequestCountersAvailable:endpointRequestCounters.length>0,
+            scopedRequestCountParityEstablished:false,
+            globalIntentRequests:counters['http.requests']??null
+          };
+          console.log('Artillery HTTP endpoint request counter coverage:',JSON.stringify(endpointRequestCounterCoverage));
 
           assert.equal(errors.length,0,'No Artillery error counters');
           const histograms=report.aggregate?.histograms||{};
