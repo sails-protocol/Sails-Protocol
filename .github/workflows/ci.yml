@@ -123,6 +123,8 @@ jobs:
           DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
           SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
           TRUSTED_ARBITRATORS: k6-test-arbiter
+          # #307: exercise atomic relay Lua against this job's ephemeral Redis service.
+          RELAY_REDIS_INTEGRATION_URL: redis://127.0.0.1:6379
         run: npm test
 
       - name: Run Docker integration test
