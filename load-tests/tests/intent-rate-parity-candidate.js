@@ -2,7 +2,7 @@
  * Opt-in candidate for Artillery's 1 arrival/s, 2s HTTP comparator.\n * k6 deliberately uses a 1999ms window, so temporal parity is NOT established.
  * This is a rate-SHAPE candidate only, not throughput or latency parity proof:
  * the tiny schedule can drop a boundary arrival, and Artillery measures only the two
- * in-engine Intent HTTP operations while k6 also measures four auth calls.
+ * in-engine Intent HTTP operations while k6 also measures eight auth calls (12 HTTP requests total).
  * Run only on a disposable loopback backend with a fresh auth-rate-limit window.
  */
 import { Counter } from 'k6/metrics'
