@@ -56,6 +56,24 @@ describe('real relay provider with two live TCP WebSocket clients', () => {
     budget.mockResolvedValue(true)
   })
 
+  it('rejects a live WebSocket upgrade without a ticket before registration', async () => {
+    const denied = new WebSocket(base + '/ws/relay')
+    clients.push(denied)
+    const closeCode = await new Promise<number>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Unauthenticated upgrade did not close')), 2000)
+      denied.once('close', code => {
+        clearTimeout(timeout)
+        resolve(code)
+      })
+      denied.once('error', error => {
+        clearTimeout(timeout)
+        reject(error)
+      })
+    })
+    expect(closeCode).toBe(1008)
+    expect(ticket).not.toHaveBeenCalled()
+  })
+
   it('rejects unsupported topic discovery instead of silently succeeding', async () => {
     await expect(relay.joinTopic('alice', 'marketplace')).rejects.toThrow('does not support topic discovery')
     await expect(relay.broadcast('alice', { kind: 'offer_announce' })).resolves.toBe(0)
