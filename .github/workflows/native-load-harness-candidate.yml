@@ -469,14 +469,17 @@ jobs:
           const counters=report.aggregate?.counters||{};
           assert.equal(counters['vusers.completed']||0,2,'Exactly two WS candidate virtual users must complete');
           assert.equal(counters['vusers.failed']||0,0,'No failed WS candidate virtual users');
-          // A completed VU is not proof of receiving PONG. Keep this candidate
-          // fail-closed for parity until an engine receive assertion is proven.
+          // Strict in-engine match is configured and separately exercised with
+          // disposable PONG/SILENT/ERROR controls. Check authenticated VUs too.
           const cfg=require('yaml').parse(fs.readFileSync('load-tests/artillery/chat-ws-bounded-comparator.yml','utf8'));
-          assert.match(cfg.scenarios[0].name,/PONG not asserted/);
-          assert.equal(cfg.scenarios[0].flow[2].think,1);
-          const errors=Object.entries(counters).filter(([k,v])=>/(errors\\.|failed|unexpected_response)/.test(k)&&Number(v)>0);
+          const send=cfg.scenarios[0].flow[1].send;
+          assert.deepEqual(send.match,[{json:'$.type',value:'PONG',strict:true}]);
+          assert.equal(send.response.timeout,2);
+          assert.equal(counters['websocket.messages_received']||0,2,'Exactly two authenticated WS responses required');
+          assert.equal(counters['websocket.messages_sent']||0,2,'Exactly two authenticated WS PING frames required');
+          const errors=Object.entries(counters).filter(([k,v])=>['errors.','websocket.errors','http.errors'].some(prefix=>k.startsWith(prefix))&&Number(v)>0);
           assert.equal(errors.length,0,'No Artillery WS candidate error counters');
-          console.log('Bounded Artillery WS candidate completed 2 users, 0 errors; PONG NOT asserted');
+          console.log('Bounded authenticated Artillery WS candidate: 2 PONG matches, 0 failed VUs, 0 errors; independent parity review pending');
           NODE
       - name: Install pinned k6 runner for bounded real-service proof
         uses: grafana/setup-k6-action@db07bd9765aac508ef18982e52ab937fe633a065 # v1.2.1
