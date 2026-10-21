@@ -4,6 +4,12 @@ Status: **NOT HOMOLOGATED / BLOCKED**. This document records evidence, not autho
 
 ## Verified CI evidence
 
+Commit `d88c8f242d1a2e4670f042536d648c867c263b6d` (Docker CI evidence):
+- CI run 39542349709 — success.
+- CI Tests run 39542349739 — success.
+- CodeQL run 39542349831 — success.
+
+
 Commit `b5b21da896e3be25cc85945c6c43affe0935ecea` (cross-instance acceptance evidence):
 - CI run 39537273466 — success, including Docker integration stage.
 - CI Tests run 39537273539 — success.
@@ -61,6 +67,12 @@ Earlier baseline: commit `31182b7ea036862ff0faf08c842d8dcecb68011b` passed CI 39
 3. **Relay readiness semantics**: selecting relay transport does not establish a client WebSocket connection; the client must obtain a single-use ticket and connect separately. The status route now reports relay `connected` using the active provider instead of misrepresenting Pears state, but no deployment-level status verification has been performed.
 4. **Cross-instance delivery boundary**: the relay provider stores `participantId → WebSocket` in an in-memory map local to each server process. Redis-backed ticket and budget tests across processes do **not** prove cross-instance message routing. If Alice and Bob attach to different application instances, the local provider cannot locate Bob's socket without a routing/backplane mechanism or enforced session affinity. Gate 2 must explicitly accept single-instance/sticky-session operation or require a tested cross-instance delivery implementation.
 5. **Privacy boundary**: opaque relay forwarding does not itself guarantee application-layer end-to-end encryption for every message type. Do not claim blanket E2E encryption.
+
+## Proxy/TLS evidence boundary
+
+- `/ws/relay` is a WebSocket upgrade endpoint and accepts a single-use ticket in the URL query. The route itself does not terminate TLS or establish an HTTPS/WSS reverse-proxy configuration.
+- TCP `ws://127.0.0.1` integration tests verify the application protocol and ticket path, **not** public `wss://` termination, proxy upgrade forwarding, secure cookies/headers, deployment certificate validity or the actual deployed network path.
+- Acceptance requires evidence from a representative TLS-terminating proxy with a real WSS upgrade and an authenticated client, including rejection/failure cases. Do not infer that a green Docker integration test proves this.
 
 ## Gate decision
 
