@@ -25,6 +25,7 @@ scenarios:
               side: "BUY"
               maxValue: "100"
               currency: "USD"
+          afterResponse: "recordIntentCreateResponse"
           capture:
             - json: "$.data.id"
               as: "intentId"
@@ -34,5 +35,6 @@ scenarios:
           url: "/v1/intents/{{ intentId }}"
           headers:
             Authorization: "Bearer {{ sessionToken }}"
+          afterResponse: "recordIntentCancelResponse"
           expect:
             - statusCode: 200
