@@ -56,6 +56,11 @@ describe('real relay provider with two live TCP WebSocket clients', () => {
     budget.mockResolvedValue(true)
   })
 
+  it('rejects unsupported topic discovery instead of silently succeeding', async () => {
+    await expect(relay.joinTopic('alice', 'marketplace')).rejects.toThrow('does not support topic discovery')
+    await expect(relay.broadcast('alice', { kind: 'offer_announce' })).resolves.toBe(0)
+  })
+
   it('returns false if an OPEN socket throws during send without evicting its owner', async () => {
     const fakeSocket = { readyState: 1, send: jest.fn(() => { throw new Error('socket failed') }), close: jest.fn() }
     relay.registerSocket('failed-send-test', fakeSocket)
