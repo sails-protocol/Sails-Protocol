@@ -13,7 +13,7 @@ jest.mock('../src/infrastructure/p2p/relay-shared-budget', () => ({
 }))
 
 import { relayRoutes } from '../src/infrastructure/p2p/relay.routes'
-import { webSocketRelayTransportProvider as relay } from '../src/infrastructure/p2p/websocket-relay.service'
+import { WebSocketRelayTransportProvider, webSocketRelayTransportProvider as relay } from '../src/infrastructure/p2p/websocket-relay.service'
 
 describe('real relay provider with two live TCP WebSocket clients', () => {
   let app: ReturnType<typeof Fastify>
@@ -59,6 +59,21 @@ describe('real relay provider with two live TCP WebSocket clients', () => {
   it('rejects unsupported topic discovery instead of silently succeeding', async () => {
     await expect(relay.joinTopic('alice', 'marketplace')).rejects.toThrow('does not support topic discovery')
     await expect(relay.broadcast('alice', { kind: 'offer_announce' })).resolves.toBe(0)
+  })
+
+  it('does not claim delivery to a socket registered in another provider instance', async () => {
+    const serverA = new WebSocketRelayTransportProvider()
+    const serverB = new WebSocketRelayTransportProvider()
+    const bobSocket = { readyState: 1, send: jest.fn(), close: jest.fn() }
+    serverB.registerSocket('bob', bobSocket)
+    try {
+      expect(serverB.isConnected('bob')).toBe(true)
+      expect(serverA.isConnected('bob')).toBe(false)
+      await expect(serverA.sendToPeer('alice', 'bob', 'opaque')).resolves.toBe(false)
+      expect(bobSocket.send).not.toHaveBeenCalled()
+    } finally {
+      await serverB.stop('bob')
+    }
   })
 
   it('returns false if an OPEN socket throws during send without evicting its owner', async () => {
