@@ -21,6 +21,9 @@ jest.mock('../src/infrastructure/p2p/websocket-relay.service', () => ({
       if (sockets.get(id) === socket) sockets.delete(id)
     },
     dispatchIncoming: (...args: unknown[]) => dispatch(...args),
+    // #307 Phase B provider API; no router here, so no delivery ownership.
+    prepareRegistration: async () => undefined,
+    abandonRegistration: () => undefined,
   },
 }))
 

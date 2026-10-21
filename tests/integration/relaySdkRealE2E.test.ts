@@ -271,7 +271,9 @@ describe('#307 SDK -> HTTP ticket -> Redis -> WebSocket relay, real end to end',
       ws.on('message', data => seen.push(data.toString()))
       ws.send('sent-at-once')
       await until(async () => await admitted(p.id) === 1, 'frame sent at once admitted')
-      outcomes.push(registered && ws.readyState === WebSocket.OPEN && seen.length === 0 ? 'ready+admitted' : 'other: ' + seen)
+      // Since #307 Phase B a non-envelope frame is answered REJECTED/MALFORMED;
+      // the property here is only that READY itself never reaches the caller.
+      outcomes.push(registered && ws.readyState === WebSocket.OPEN && !seen.includes(READY_FRAME) ? 'ready+admitted' : 'other: ' + seen)
       ws.terminate()
     }
     expect(outcomes).toEqual(Array(20).fill('ready+admitted'))

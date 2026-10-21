@@ -19,6 +19,9 @@ jest.mock('../src/infrastructure/p2p/websocket-relay.service', () => ({
     unregisterSocket: (...args: unknown[]) => unregister(...args),
     ownsSocket: (...args: unknown[]) => owns(...args),
     dispatchIncoming: (...args: unknown[]) => dispatch(...args),
+    // #307 Phase B provider API; no router here, so no delivery ownership.
+    prepareRegistration: async () => undefined,
+    abandonRegistration: () => undefined,
   },
 }))
 

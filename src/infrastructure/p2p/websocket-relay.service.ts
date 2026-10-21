@@ -36,6 +36,12 @@
  */
 import type { TransportProvider, PeerHandle } from './transport-provider'
 
+export interface RelayRouterHooks {
+  claim(participantId: string): Promise<void>
+  release(participantId: string): Promise<void>
+  route(fromParticipantId: string, raw: string): Promise<void>
+}
+
 export interface RelaySocket {
   send(data: string): void
   close(): void
@@ -48,6 +54,25 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
   name = 'websocket-relay'
   private sockets = new Map<string, RelaySocket>()
   private messageHandlers = new Map<string, (peerId: string, payload: unknown) => void>()
+  // #307 Phase B: participant-to-participant delivery (relay-delivery.ts).
+  // Installed by app.ts only; without it the provider keeps its blind,
+  // handler-only behaviour.
+  private router: RelayRouterHooks | null = null
+
+  useRouter(router: RelayRouterHooks | null): void {
+    this.router = router
+  }
+
+  /** Must resolve before READY: makes this participant reachable from every instance. */
+  async prepareRegistration(participantId: string): Promise<void> {
+    await this.router?.claim(participantId)
+  }
+
+  /** The socket closed between prepareRegistration() and registration. */
+  abandonRegistration(participantId: string): void {
+    if (this.sockets.has(participantId)) return
+    void this.router?.release(participantId).catch(() => undefined)
+  }
 
   // Called by app.ts's `/ws/relay` route once the client's WebSocket
   // upgrade completes — this is the real "connection", not start() below.
@@ -76,6 +101,8 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
     // the same participant (reconnect/overlapping connections).
     if (socket && this.sockets.get(participantId) !== socket) return
     this.sockets.delete(participantId)
+    // Best effort: a stale owner key only yields UNDELIVERED, never a misdelivery.
+    void this.router?.release(participantId).catch(() => undefined)
   }
 
   // Registers intent to use this provider; does not itself open a
@@ -140,8 +167,9 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
 
   // Called by app.ts's `/ws/relay` route on each incoming frame — routes
   // it to whichever onMessage() handler this participant registered.
-  dispatchIncoming(participantId: string, rawPayload: unknown): void {
+  dispatchIncoming(participantId: string, rawPayload: unknown): Promise<void> | void {
     this.messageHandlers.get(participantId)?.(participantId, rawPayload)
+    if (this.router && typeof rawPayload === 'string') return this.router.route(participantId, rawPayload)
   }
 
   isConnected(participantId: string): boolean {

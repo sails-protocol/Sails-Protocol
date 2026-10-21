@@ -25,6 +25,9 @@ import { chatRoutes } from './modules/open-p2p/chat.routes'
 import { settlementRoutes } from './modules/open-settlement/settlement.routes'
 import { peerRoutes } from './infrastructure/p2p/pear.routes'
 import { relayRoutes } from './infrastructure/p2p/relay.routes'
+import { RelayRouter } from './infrastructure/p2p/relay-delivery'
+import { webSocketRelayTransportProvider } from './infrastructure/p2p/websocket-relay.service'
+import { tradeRepository } from './modules/open-p2p/trade-repository'
 import { reputationRoutes } from './modules/open-reputation/reputation.routes'
 import { capabilityRoutes } from './modules/open-agents/capability.routes'
 import { agentRoutes } from './modules/open-agents/agent.routes'
@@ -368,6 +371,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(identityRoutes)
   await app.register(peerRoutes)
   await app.register(relayRoutes)
+  // #307 Phase B: participant-to-participant delivery over the relay. Lazy:
+  // no Redis is touched until the first relay participant registers.
+  const relayRouter = new RelayRouter({
+    redis,
+    host: webSocketRelayTransportProvider,
+    findTrade: tradeId => tradeRepository.findById(tradeId),
+  })
+  webSocketRelayTransportProvider.useRouter(relayRouter)
+  app.addHook('onClose', async () => {
+    webSocketRelayTransportProvider.useRouter(null)
+    await relayRouter.stop()
+  })
   await app.register(liquidityRoutes)
   await app.register(tradeRoutes)
   await app.register(chatRoutes)

@@ -82,11 +82,29 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
     } finally {
       if (authTimer) clearTimeout(authTimer)
     }
-    socket.off('message', rejectPreAuthFrame)
-    if (preAuthFrameReceived || socket.readyState !== 1) return
+    if (preAuthFrameReceived || socket.readyState !== 1) {
+      socket.off('message', rejectPreAuthFrame)
+      return
+    }
     if (!participantId) {
+      socket.off('message', rejectPreAuthFrame)
       socket.send(JSON.stringify({ type: 'ERROR', payload: { message: 'Missing, invalid, or already-used ticket query param — call POST /v1/identity/ws-ticket first' } }))
       socket.close()
+      return
+    }
+    // #307 Phase B: delivery ownership must exist before READY, so another
+    // instance can reach this participant as soon as the client may send.
+    // Still under the pre-auth listener: frames during this wait are rejected.
+    try {
+      await webSocketRelayTransportProvider.prepareRegistration(participantId)
+    } catch {
+      socket.off('message', rejectPreAuthFrame)
+      socket.close(1011, 'Relay unavailable')
+      return
+    }
+    socket.off('message', rejectPreAuthFrame)
+    if (preAuthFrameReceived || socket.readyState !== 1) {
+      webSocketRelayTransportProvider.abandonRegistration(participantId)
       return
     }
 
@@ -126,7 +144,7 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
           return
         }
         if (!stopped && socket.readyState === 1 && webSocketRelayTransportProvider.ownsSocket(participantId, socket)) {
-          webSocketRelayTransportProvider.dispatchIncoming(participantId, frame.toString())
+          await webSocketRelayTransportProvider.dispatchIncoming(participantId, frame.toString())
         }
       }).catch(() => {
         // Unexpected asynchronous failures are also fail closed.
