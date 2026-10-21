@@ -318,12 +318,27 @@ describe('SDK relay ticket wiring', () => {
     const fetchImpl = jest.fn()
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ success: true, data: { ticket: 'one', expiresIn: 30 } }) })
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ success: true, data: { ticket: 'two', expiresIn: 30 } }) })
-    // URL wiring only; the READY handshake itself is proven over real TCP in
-    // tests/sdkRelayReadyHandshake.test.ts and tests/integration/relaySdkRealE2E.test.ts.
-    const socketCtor = jest.fn().mockImplementation(function (this: EventTarget) {
-      const target = new EventTarget()
-      setTimeout(() => target.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ type: 'READY' }) })), 0)
-      return Object.assign(target, { readyState: 1, close: () => undefined })
+    // The transport mock must implement the browser WebSocket event contract:
+    // connectRelay() now waits for an authenticated READY, not construction.
+    const sockets: Array<{ addEventListener: jest.Mock; removeEventListener: jest.Mock; close: jest.Mock }> = []
+    const socketCtor = jest.fn().mockImplementation(() => {
+      const listeners = new Map<string, Set<(event: { data?: string }) => void>>()
+      const socket = {
+        readyState: 1,
+        addEventListener: jest.fn((type: string, fn: (event: { data?: string }) => void) => {
+          if (!listeners.has(type)) listeners.set(type, new Set())
+          listeners.get(type)!.add(fn)
+        }),
+        removeEventListener: jest.fn((type: string, fn: (event: { data?: string }) => void) => {
+          listeners.get(type)?.delete(fn)
+        }),
+        close: jest.fn(),
+      }
+      sockets.push(socket)
+      queueMicrotask(() => {
+        for (const fn of listeners.get('message') ?? []) fn({ data: JSON.stringify({ type: 'READY' }) })
+      })
+      return socket
     })
     const transport = new SailsTransport({
       baseUrl: 'https://relay.example',
@@ -346,5 +361,9 @@ describe('SDK relay ticket wiring', () => {
       'wss://relay.example/ws/relay?ticket=one',
       'wss://relay.example/ws/relay?ticket=two',
     ])
+    expect(sockets).toHaveLength(2)
+    expect(sockets.every(socket => socket.addEventListener.mock.calls.some(call => call[0] === 'message'))).toBe(true)
+    expect(sockets.every(socket => socket.removeEventListener.mock.calls.some(call => call[0] === 'message'))).toBe(true)
+    expect(sockets.every(socket => socket.close.mock.calls.length === 0)).toBe(true)
   })
 })

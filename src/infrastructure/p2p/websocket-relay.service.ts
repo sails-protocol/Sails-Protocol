@@ -127,12 +127,10 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
     }
   }
 
-  // No topic concept over a point-to-point relay — a no-op, not an error,
-  // consistent with RFC-002's "never assumes continuous connectivity /
-  // never assumes symmetric capability across TransportProvider
-  // implementations" reasoning.
+  // Do not silently report success: this relay has no DHT/topic discovery.
+  // Callers must explicitly handle degraded capabilities instead.
   async joinTopic(_participantId: string, _topic: string): Promise<void> {
-    return
+    throw new Error('WebSocket relay does not support topic discovery')
   }
 
   async broadcast(participantId: string, payload: unknown): Promise<number> {
