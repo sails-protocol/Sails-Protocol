@@ -4,6 +4,11 @@ Status: **NOT HOMOLOGATED / BLOCKED**. This document records evidence, not autho
 
 ## Verified CI evidence
 
+Commit `12a5a8165317abe1e78aee4042f85b8cebba5db6` (acceptance evidence refresh):
+- CI run 39528609433 — success.
+- CI Tests run 39528609487 — success.
+- CodeQL run 39528609403 — success.
+
 Commit `b7cd3009c52fb0bed1a56440b0c18c869a2dbc41` (unsupported DHT regression test):
 - CI run 39526515698 — success.
 - CI Tests run 39526515717 — success.
@@ -37,7 +42,8 @@ Earlier baseline: commit `31182b7ea036862ff0faf08c842d8dcecb68011b` passed CI 39
 1. **No DHT equivalence**: relay `joinTopic` explicitly rejects unsupported topic discovery; `broadcast` delivers to zero peers. Discovery and offer broadcast routes still require a PearNode. Relay mode must not be advertised as full Pears fallback.
 2. **No fully unmocked deployment-equivalent end-to-end chain** proven here. A single CI-green integration test now covers HTTP issuance → real Redis ticket consumption → real relay provider → two TCP clients → delivery, but the Redis client is forwarded through Jest spies. This test also does not independently establish the production proxy/TLS path or all shared-budget failure cases in the same scenario (those have separate coverage).
 3. **Relay readiness semantics**: selecting relay transport does not establish a client WebSocket connection; the client must obtain a single-use ticket and connect separately. The status route now reports relay `connected` using the active provider instead of misrepresenting Pears state, but no deployment-level status verification has been performed.
-4. **Privacy boundary**: opaque relay forwarding does not itself guarantee application-layer end-to-end encryption for every message type. Do not claim blanket E2E encryption.
+4. **Cross-instance delivery boundary**: the relay provider stores `participantId → WebSocket` in an in-memory map local to each server process. Redis-backed ticket and budget tests across processes do **not** prove cross-instance message routing. If Alice and Bob attach to different application instances, the local provider cannot locate Bob's socket without a routing/backplane mechanism or enforced session affinity. Gate 2 must explicitly accept single-instance/sticky-session operation or require a tested cross-instance delivery implementation.
+5. **Privacy boundary**: opaque relay forwarding does not itself guarantee application-layer end-to-end encryption for every message type. Do not claim blanket E2E encryption.
 
 ## Gate decision
 
