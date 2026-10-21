@@ -318,7 +318,13 @@ describe('SDK relay ticket wiring', () => {
     const fetchImpl = jest.fn()
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ success: true, data: { ticket: 'one', expiresIn: 30 } }) })
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ success: true, data: { ticket: 'two', expiresIn: 30 } }) })
-    const socketCtor = jest.fn()
+    // URL wiring only; the READY handshake itself is proven over real TCP in
+    // tests/sdkRelayReadyHandshake.test.ts and tests/integration/relaySdkRealE2E.test.ts.
+    const socketCtor = jest.fn().mockImplementation(function (this: EventTarget) {
+      const target = new EventTarget()
+      setTimeout(() => target.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ type: 'READY' }) })), 0)
+      return Object.assign(target, { readyState: 1, close: () => undefined })
+    })
     const transport = new SailsTransport({
       baseUrl: 'https://relay.example',
       fetchImpl: fetchImpl as unknown as typeof fetch,
