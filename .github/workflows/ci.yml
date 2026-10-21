@@ -125,6 +125,8 @@ jobs:
           TRUSTED_ARBITRATORS: k6-test-arbiter
           # #307: exercise atomic relay Lua against this job's ephemeral Redis service.
           RELAY_REDIS_INTEGRATION_URL: redis://127.0.0.1:6379
+          REDIS_URL: redis://127.0.0.1:6379
+          SAILS_INTEGRATION_TEST_REDIS_CONFIRMED: yes-i-am-sure
         run: npm test
 
       - name: Run Docker integration test
