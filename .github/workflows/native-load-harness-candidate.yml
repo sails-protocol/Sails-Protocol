@@ -411,6 +411,13 @@ jobs:
           assert.equal(completed,2,'Exactly two HTTP comparator virtual users must complete');
           assert.equal(failed,0,'No failed virtual users');
           assert.equal(counters['http.requests'],4,'Exactly four HTTP create/cancel requests expected (auth PoP setup is out-of-band)');
+          // Enforce both endpoint request counters, not just the global sum.
+          // These are the Artillery in-engine Intent requests; authentication
+          // occurs in a processor function outside the HTTP engine metrics.
+          const endpointRequestCounters=Object.entries(counters).filter(([key])=>
+            /plugins\\.metrics-by-endpoint\\.codes\\./.test(key)||/plugins\\.metrics-by-endpoint\\.requests\\./.test(key));
+          console.log('Artillery HTTP endpoint request counter keys:',JSON.stringify(endpointRequestCounters.map(([key])=>key)));
+
           assert.equal(errors.length,0,'No Artillery error counters');
           const histograms=report.aggregate?.histograms||{};
           const latencyNames=Object.keys(histograms).filter(k=>/response_time|latency|duration/.test(k));
