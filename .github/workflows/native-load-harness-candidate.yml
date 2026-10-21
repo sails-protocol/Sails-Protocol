@@ -416,6 +416,9 @@ jobs:
           // occurs in a processor function outside the HTTP engine metrics.
           const endpointRequestCounters=Object.entries(counters).filter(([key])=>
             /plugins\\.metrics-by-endpoint\\.codes\\./.test(key)||/plugins\\.metrics-by-endpoint\\.requests\\./.test(key));
+          // Endpoint histograms exist, but histogram sample counts are not
+          // equivalent to separately instrumented HTTP request counters.
+          // Do not infer endpoint counts from medians or global totals.
           const endpointRequestCounterCoverage={
             matchingCounterKeys:endpointRequestCounters.map(([key])=>key),
             scopedRequestCountersAvailable:endpointRequestCounters.length>0,
