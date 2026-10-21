@@ -19,8 +19,9 @@
  * created, because `fastify-plugin`'s `fp()` wrapping the whole plugin
  * breaks the encapsulation a second registration would need. So this is
  * a small, purpose-built preHandler mirroring the plugin's own internal
- * `RedisStore`'s atomic pattern (INCR, then PEXPIRE only on the first
- * hit in a window) — not a general rate-limit framework, just the two
+ * `RedisStore`'s fixed-window semantics, but in one atomic Lua operation
+ * so a crash between INCR and PEXPIRE cannot strand a non-expiring key.
+ * This is not a general rate-limit framework, just the two
  * tiers that are an actual security boundary.
  *
  * Fail-closed on Redis errors (Fase 8's own route matrix): both tiers
@@ -41,6 +42,14 @@ export interface SharedRateLimitOptions {
   keyPrefix: string
 }
 
+export const SHARED_RATE_LIMIT_SCRIPT = `
+local count = redis.call('INCR', KEYS[1])
+if count == 1 or redis.call('PTTL', KEYS[1]) < 0 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+return count
+`
+
 export function createSharedRateLimit(opts: SharedRateLimitOptions) {
   return async function sharedRateLimitPreHandler(req: FastifyRequest): Promise<void> {
     // Each route keeps its own independent budget, same as the
@@ -58,14 +67,8 @@ export function createSharedRateLimit(opts: SharedRateLimitOptions) {
 
     let count: number
     try {
-      count = await redis.incr(key)
-      // Only the request that creates the key sets its expiry — every
-      // later INCR within the window just increments the same counter,
-      // same one-PEXPIRE-per-window shape as @fastify/rate-limit's own
-      // internal RedisStore.js.
-      if (count === 1) {
-        await redis.pexpire(key, opts.windowMs)
-      }
+      count = Number(await redis.eval(SHARED_RATE_LIMIT_SCRIPT, 1, key, opts.windowMs))
+      if (!Number.isSafeInteger(count) || count < 1) throw new Error('Invalid Redis rate limit result')
     } catch (err) {
       req.log.error({
         msg: 'Shared Redis rate limiter unreachable — failing closed (Missão 08B Fase 8 route matrix decision)',
