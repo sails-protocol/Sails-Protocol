@@ -4,6 +4,12 @@ Status: **NOT HOMOLOGATED / BLOCKED**. This document records evidence, not autho
 
 ## Verified CI evidence
 
+Commit `b5b21da896e3be25cc85945c6c43affe0935ecea` (cross-instance acceptance evidence):
+- CI run 39537273466 — success, including Docker integration stage.
+- CI Tests run 39537273539 — success.
+- CodeQL run 39537273564 — success.
+
+
 Commit `8dd8b43b59ce2d10c06df1d1cd58642f26c33b35` (two isolated provider instances regression):
 - CI run 39535744403 — success.
 - CI Tests run 39535744397 — success.
