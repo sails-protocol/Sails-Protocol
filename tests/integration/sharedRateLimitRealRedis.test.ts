@@ -66,6 +66,27 @@ describe('shared rate limit — real Redis atomicity and expiry', () => {
     expect(await redis.pttl(k)).toBeGreaterThan(0)
   })
 
+  it('does not extend a live fixed window on subsequent requests', async () => {
+    const k = key('fixed-window')
+    expect(await run(k, 2000)).toBe(1)
+    const firstTtl = await redis.pttl(k)
+    await new Promise(resolve => setTimeout(resolve, 180))
+    expect(await run(k, 2000)).toBe(2)
+    const nextTtl = await redis.pttl(k)
+    expect(nextTtl).toBeGreaterThan(0)
+    expect(nextTtl).toBeLessThan(firstTtl - 90)
+  })
+
+  it('isolates distinct keys and does not pool independent route budgets', async () => {
+    const a = key('challenge')
+    const b = key('authenticate')
+    expect(await run(a, 2000)).toBe(1)
+    expect(await run(a, 2000)).toBe(2)
+    expect(await run(b, 2000)).toBe(1)
+    expect(await redis.get(a)).toBe('2')
+    expect(await redis.get(b)).toBe('1')
+  })
+
   it('expires the fixed window and starts a new count', async () => {
     const k = key('expiry')
     expect(await run(k, 120)).toBe(1)
