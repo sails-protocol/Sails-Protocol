@@ -41,4 +41,14 @@ async function setupCurrentAuthenticatedUser(context, events) {
     throw Error('current-auth comparator setup failed (details redacted)');
   }
 }
-module.exports = { setupCurrentAuthenticatedUser };
+// Artillery afterResponse hooks count completed engine-level operations,
+// independently of the global HTTP request total. No payloads or tokens logged.
+function recordIntentCreateResponse(requestParams, response, context, events) {
+  if (response?.statusCode !== 201) throw Error('Intent create response status mismatch (redacted)');
+  events.emit('counter', 'sails.intent_create_responses', 1);
+}
+function recordIntentCancelResponse(requestParams, response, context, events) {
+  if (response?.statusCode !== 200) throw Error('Intent cancel response status mismatch (redacted)');
+  events.emit('counter', 'sails.intent_cancel_responses', 1);
+}
+module.exports = { setupCurrentAuthenticatedUser, recordIntentCreateResponse, recordIntentCancelResponse };
