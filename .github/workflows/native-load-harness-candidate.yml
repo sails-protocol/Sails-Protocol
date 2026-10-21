@@ -438,6 +438,16 @@ jobs:
             create:latency[createKeys[0]],
             cancel:latency[cancelKeys[0]]
           };
+          // Artillery's aggregate endpoint histograms may have only two samples;
+          // these quantiles are descriptive, not a statistical parity test.
+          console.log('Artillery HTTP latency comparison limitations:',JSON.stringify({
+            temporalParityEstablished:false,
+            latencyParityEstablished:false,
+            sampleCountPerEndpointExpected:2,
+            authRequestsIncludedInArtilleryHttpMetrics:false,
+            requestTimingBoundaryEquivalenceEstablished:false,
+            generatorResourceSamplingWindowsEquivalent:false
+          }));
           console.log('Artillery HTTP endpoint latency evidence:',JSON.stringify({
             arrivalRatePerSecond:1,configuredWindowSeconds:2,
             temporalParityEstablished:false,
