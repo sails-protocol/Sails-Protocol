@@ -23,10 +23,7 @@ describe('real relay provider with two live TCP WebSocket clients', () => {
   const connect = (name: string): Promise<WebSocket> => new Promise((resolve, reject) => {
     const client = new WebSocket(base + '/ws/relay?ticket=' + name)
     clients.push(client)
-    // WebSocket open precedes authentication; only READY confirms registration.
-    client.once('message', data => data.toString() === JSON.stringify({ type: 'READY' })
-      ? resolve(client)
-      : reject(new Error('First relay frame was not READY: ' + data.toString())))
+    client.once('open', () => resolve(client))
     client.once('error', reject)
   })
 
@@ -57,6 +54,11 @@ describe('real relay provider with two live TCP WebSocket clients', () => {
     jest.clearAllMocks()
     ticket.mockImplementation(async (name: string) => name === 'alice' || name === 'bob' ? name : null)
     budget.mockResolvedValue(true)
+  })
+
+  it('rejects unsupported topic discovery instead of silently succeeding', async () => {
+    await expect(relay.joinTopic('alice', 'marketplace')).rejects.toThrow('does not support topic discovery')
+    await expect(relay.broadcast('alice', { kind: 'offer_announce' })).resolves.toBe(0)
   })
 
   it('returns false if an OPEN socket throws during send without evicting its owner', async () => {
