@@ -62,7 +62,16 @@ async function runMode(mode){
     }else{
       assert.ok(failed>0,mode+': expected engine-reported failed virtual user');
       assert.ok(errorCounters.length>0,mode+': expected Artillery error counters');
-      if(mode==='ERROR')assert.ok(received>0,'ERROR: received application frame required');
+      if(mode==='SILENT'){
+        assert.equal(received,0,'SILENT: unexpected response frame');
+        assert.ok(errorCounters.some(({name,count})=>name==='errors.response timeout'&&count>0),'SILENT: expected exact response timeout');
+        assert.ok(!errorCounters.some(({name})=>name==='errors.Failed capture or match'),'SILENT: unexpected match failure');
+      }
+      if(mode==='ERROR'){
+        assert.ok(received>0,'ERROR: received application frame required');
+        assert.ok(errorCounters.some(({name,count})=>name==='errors.Failed capture or match'&&count>0),'ERROR: expected exact strict match failure');
+        assert.ok(!errorCounters.some(({name})=>name==='errors.response timeout'),'ERROR: unexpected timeout');
+      }
     }
     console.log('Artillery engine match experiment',mode,JSON.stringify({completed,failed,received,errorCounters,exit:result.code,pings}));
   }finally{
