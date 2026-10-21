@@ -4,6 +4,17 @@ Status: **NOT HOMOLOGATED / BLOCKED**. This document records evidence, not autho
 
 ## Verified CI evidence
 
+Commit `8dd8b43b59ce2d10c06df1d1cd58642f26c33b35` (two isolated provider instances regression):
+- CI run 39535744403 — success.
+- CI Tests run 39535744397 — success.
+- CodeQL run 39535744400 — success.
+- Test proves a socket owned by provider B cannot be reached from provider A, and A reports failed delivery instead of false success. **This is negative evidence, not a distributed delivery implementation.**
+
+Commit `d228e4d16289647b9ffdff2a46d6647a069d869d` (process-local routing boundary comments):
+- CI run 39532326558 — success.
+- CI Tests run 39532326486 — success.
+- CodeQL run 39532326546 — success.
+
 Commit `12a5a8165317abe1e78aee4042f85b8cebba5db6` (acceptance evidence refresh):
 - CI run 39528609433 — success.
 - CI Tests run 39528609487 — success.
