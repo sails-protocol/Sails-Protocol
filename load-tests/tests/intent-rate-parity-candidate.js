@@ -46,6 +46,11 @@ export const options = {
     sails_completed_intent_pairs: ['count==2'],
     sails_intent_create_samples: ['count==2'],
     sails_intent_cancel_samples: ['count==2'],
+    // Scope the HTTP operation count to the two measured Intent endpoints.
+    // Auth requests remain separately counted in global http_reqs and must
+    // never be compared against Artillery's in-engine four-request total.
+    'http_reqs{name:intent_create}': ['count==2'],
+    'http_reqs{name:intent_cancel}': ['count==2'],
     // A boundary arrival is a real scheduling mismatch, not an auth failure.
     sails_extra_scheduled_arrivals: ['count==0'],
     http_req_failed: ['rate==0'],
