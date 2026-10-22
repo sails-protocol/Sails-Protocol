@@ -7,6 +7,13 @@ const register = jest.fn()
 const unregister = jest.fn()
 const owns = jest.fn()
 
+jest.mock('../src/infrastructure/p2p/relay-presence', () => ({
+  RELAY_PRESENCE_TTL_MS: 30_000,
+  claimRelayPresence: jest.fn().mockResolvedValue(undefined),
+  renewRelayPresence: jest.fn().mockResolvedValue(true),
+  releaseRelayPresence: jest.fn().mockResolvedValue(true),
+}))
+
 jest.mock('../src/infrastructure/p2p/relay-shared-budget', () => ({
   consumeSharedRelayBudget: (...args: unknown[]) => budget(...args),
 }))
