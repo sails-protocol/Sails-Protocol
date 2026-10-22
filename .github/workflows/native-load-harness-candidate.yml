@@ -1065,6 +1065,9 @@ jobs:
           console.log('k6 observed iteration entry timestamp evidence:',JSON.stringify({
             minEpochMs:observedMin,maxEpochMs:observedMax,
             observedSpanMs:observedMax-observedMin,
+            timestampSamples:count('sails_observed_setup_timestamp_samples'),
+            observedIterations,
+            timestampCoverageVerified:true,
             schedulerArrivalParityEstablished:false,
             measurement:'iteration entry, not executor scheduled arrival'
           }));
