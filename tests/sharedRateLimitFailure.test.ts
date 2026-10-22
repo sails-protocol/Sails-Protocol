@@ -80,6 +80,21 @@ describe('shared rate limit — Redis failure and rejection contract', () => {
       'ratelimit:critical:/v1/identity/challenge:127.0.0.1', 60000)
   })
 
+  it('does not use spoofed forwarding headers as the Redis identity when proxy trust is disabled', async () => {
+    evalMock.mockResolvedValue(1)
+    const req = request()
+    Object.assign(req, { headers: { 'x-forwarded-for': '203.0.113.1', forwarded: 'for=198.51.100.9' } })
+    await expect(limiter(req)).resolves.toBeUndefined()
+    expect(evalMock).toHaveBeenCalledWith(SHARED_RATE_LIMIT_SCRIPT, 1,
+      'ratelimit:auth:/v1/identity/challenge:127.0.0.1', 60000)
+  })
+
+  it('does not allow a request when Redis returns an unexpected nonnumeric value', async () => {
+    evalMock.mockResolvedValueOnce('not-a-counter')
+    await expect(limiter(request())).rejects.toBeInstanceOf(RateLimitUnavailableError)
+    expect(pttlMock).not.toHaveBeenCalled()
+  })
+
   it('allows the limit and rejects the next request with 429', async () => {
     evalMock.mockResolvedValueOnce(2).mockResolvedValueOnce(3)
     pttlMock.mockResolvedValueOnce(1500)
