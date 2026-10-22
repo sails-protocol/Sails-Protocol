@@ -550,3 +550,12 @@ A proposed fix must state what constitutes *proven nonacceptance* versus *unknow
 V3-WK in tests/integration/st1TemporalCleanupAuthority.test.ts starts a real writer OS process, waits for pending persistence, kills it with SIGKILL, then runs recovery in fresh OS processes. The asserted verdict is LEFT_GUARD_PASSED; the pending remains unsigned, with the same generation, Outcome and RESOLVED dispute. This proves restart preservation and idempotence under the fixture, NOT successful settlement or exactly-once economic execution.
 
 The production ruling rollback guard takes dispute then escrow locks (D -> E) and checks durable pending generation and escrow-wide EDA before reversing. Missing acceptance: successful settlement after fault removal; deterministic concurrent signature and N-to-N+1 authority interleaving; mutation RED/GREEN; ambiguous provider-acceptance handling in both live finalize and recovery. Issue #453 OPEN; PR #436 DRAFT. NO MERGE / NO DEPLOY / NO FREEZE.
+
+
+## 2026-10-22 CTO evidence refinement: PostgreSQL recovery and generation interleaving
+
+Exact HEAD `dfd6190a918695465010408022f5317cfaf7cadb` passed CI Tests run 39837771325 (#2197), including migrations, unit tests, and real-PostgreSQL integration tests. PR #436 remains DRAFT.
+
+Independent source review identified V3-PG (real SQLSTATE 22012 abort followed by fresh-OS C4 recovery, one pending and concurrent replay without duplication), V3-PRE (SIGKILL after signed Outcome before pending, fresh-OS recovery), and V3-GI (two distinct PostgreSQL backends queued behind D lock, N+1 appeal wins before stale N cleanup, cleanup returns PROVENANCE_REJECTED). These are meaningful, passing regression assertions for the covered interleavings, not end-to-end settlement proof.
+
+Refine prior missing-acceptance statement: the N-to-N+1 queued appeal interleaving IS covered by V3-GI; a broader concurrent economic execution and settlement interleaving remains unproven. Outstanding decisive acceptance: successful signatures and on-chain economic completion after failure recovery, exactly-once execution when provider response is ambiguous, mutation RED/GREEN for the production authority guard, and independent Gate 2/Gate 3 signoff. Issue #453 OPEN; NO MERGE / NO DEPLOY / NO FREEZE.
