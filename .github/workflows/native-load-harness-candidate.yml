@@ -441,11 +441,15 @@ jobs:
           const startHistogram=histograms['sails.auth_setup_start_epoch_ms'];
           // Diagnose whether Artillery actually exports the timestamp samples.
           // Two hook invocations alone cannot establish measured arrival spacing.
+          // Artillery's HDR histogram median is unreliable for epoch-scale values;
+          // only min/max and independently counted hook invocations are diagnostic.
+          // Never treat a median outside the observed range as arrival evidence.
           console.log('Artillery observed setup timestamp evidence:',JSON.stringify({
             emittedStarts:counters['sails.auth_setup_started']??null,
             histogramAvailable:Boolean(startHistogram),
             histogramCount:Number.isFinite(startHistogram?.count)?startHistogram.count:null,
-            medianEpochMs:Number.isFinite(startHistogram?.median)?startHistogram.median:null,
+            medianEpochMs:null,
+            medianExcludedReason:'epoch-scale histogram quantile is not reliable',
             minEpochMs:Number.isFinite(startHistogram?.min)?startHistogram.min:null,
             maxEpochMs:Number.isFinite(startHistogram?.max)?startHistogram.max:null,
             observedSpanMs:Number.isFinite(startHistogram?.min)&&Number.isFinite(startHistogram?.max)?startHistogram.max-startHistogram.min:null,
