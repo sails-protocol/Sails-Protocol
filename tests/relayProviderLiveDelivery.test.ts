@@ -199,6 +199,24 @@ describe('real relay provider with two live TCP WebSocket clients', () => {
     }
   })
 
+  it('keeps replacement ownership when the stale socket closes during reconnect', async () => {
+    const previous = { readyState: 1, send: jest.fn(), close: jest.fn() }
+    const replacement = { readyState: 1, send: jest.fn(), close: jest.fn() }
+    previous.close.mockImplementation(() => relay.unregisterSocket('reconnect-test', previous))
+    relay.registerSocket('reconnect-test', previous)
+    try {
+      relay.registerSocket('reconnect-test', replacement)
+      expect(previous.close).toHaveBeenCalledTimes(1)
+      expect(relay.ownsSocket('reconnect-test', replacement)).toBe(true)
+      expect(relay.ownsSocket('reconnect-test', previous)).toBe(false)
+      expect(await relay.sendToPeer('alice', 'reconnect-test', 'opaque-after-reconnect')).toBe(true)
+      expect(previous.send).not.toHaveBeenCalled()
+      expect(replacement.send).toHaveBeenCalledWith('opaque-after-reconnect')
+    } finally {
+      relay.unregisterSocket('reconnect-test', replacement)
+    }
+  })
+
   it('returns false if an OPEN socket throws during send without evicting its owner', async () => {
     const fakeSocket = { readyState: 1, send: jest.fn(() => { throw new Error('socket failed') }), close: jest.fn() }
     relay.registerSocket('failed-send-test', fakeSocket)
