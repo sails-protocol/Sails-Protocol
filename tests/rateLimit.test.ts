@@ -175,6 +175,27 @@ describe('Rate limiting (@fastify/rate-limit, RATE_LIMIT_MAX=5, RATE_LIMIT_AUTH_
     expect(expireSpy).not.toHaveBeenCalled()
   })
 
+  it('does not trust spoofed X-Forwarded-For as the auth limiter identity', async () => {
+    const { redis } = require('../src/common/redis')
+    const evalSpy = redis.eval as jest.Mock
+    const before = evalSpy.mock.calls.length
+    await app.inject({
+      method: 'POST', url: '/v1/identity/challenge',
+      headers: { 'x-forwarded-for': '203.0.113.11' },
+      payload: { publicKey: '1'.repeat(64) },
+    })
+    await app.inject({
+      method: 'POST', url: '/v1/identity/challenge',
+      headers: { 'x-forwarded-for': '198.51.100.22' },
+      payload: { publicKey: '2'.repeat(64) },
+    })
+    const keys = evalSpy.mock.calls.slice(before).map((call: unknown[]) => call[2])
+    expect(keys).toHaveLength(2)
+    expect(keys[0]).toBe(keys[1])
+    expect(String(keys[0])).not.toContain('203.0.113.11')
+    expect(String(keys[0])).not.toContain('198.51.100.22')
+  })
+
   it('leaves a non-auth route on the more permissive global limit, unaffected by the auth tier being exhausted', async () => {
     const res = await app.inject({ method: 'GET', url: '/health' })
     expect(res.statusCode).toBe(200)
