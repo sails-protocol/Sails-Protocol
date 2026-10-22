@@ -123,9 +123,9 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
     // the provider has no cross-instance participant directory/backplane.
     const socket = this.sockets.get(targetParticipantId)
     if (!socket || socket.readyState !== OPEN) return false
-    // A caller may race with a reconnect or unregister between lookup and
-    // delivery. Never send via a socket that no longer owns the participant.
-    if (this.sockets.get(targetParticipantId) !== socket) return false
+    // This provider only knows sockets on the current process. A remote
+    // participant must fail closed until a distributed routing backplane is
+    // implemented and verified; Redis ingress budgets are not routing.
     // Blind forward: payload confidentiality depends on the caller. Intent
     // payloads have application-layer encryption, but chat/negotiation may
     // still be plaintext (see module security note). Never parse or log.
