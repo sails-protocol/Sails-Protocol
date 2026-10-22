@@ -11,7 +11,9 @@ assert.throws(()=>assertRssSampleCoverage(2,1),/sample count insufficient/);
 assert.throws(()=>assertRssSampleCoverage(100,-1),/sample count insufficient/);
 assert.throws(()=>assertRssSampleCoverage(0,0),/sample count insufficient/);
 (async()=>{
-  const result=await runMeasured(process.execPath,['-e','setTimeout(()=>{},500)'],{timeoutMs:2000,intervalMs:25});
+  // Allow CI startup jitter without reducing the required live RSS sample coverage.
+  // The previous 500ms child intermittently exited before two valid samples.
+  const result=await runMeasured(process.execPath,['-e','setTimeout(()=>{},1500)'],{timeoutMs:5000,intervalMs:25});
   assert.equal(result.exitCode,0);
   assert.ok(result.samples>=2);
   assert.ok(result.peakRssKiB>0);
