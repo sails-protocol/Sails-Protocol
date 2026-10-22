@@ -77,6 +77,22 @@ jest.mock('../src/modules/open-proof/timestamp-anchor', () => ({
   timestampAnchor: { anchor: jest.fn().mockResolvedValue({ anchorType: 'opentimestamps', anchorId: 'x', submittedAt: new Date().toISOString(), upgraded: false }) },
 }))
 
+// #267 quota/rate mechanics are proved in their dedicated suites. #261's
+// purpose here is HTTP + service economic-scope authorization, so keep those
+// new collaborators deterministic while preserving the required request contract.
+jest.mock('../src/common/middleware/redis-rate-limit', () => {
+  const actual = jest.requireActual('../src/common/middleware/redis-rate-limit')
+  return { ...actual, consumeSharedRateLimitKeys: jest.fn().mockResolvedValue(undefined) }
+})
+jest.mock('../src/modules/open-proof/evidence-quota', () => ({
+  reserveEvidenceQuota: jest.fn(async (input: any) => ({ id: 'scope-reservation', status: 'RESERVED', evidenceRefId: null, ...input })),
+  markEvidenceReservationUnknown: jest.fn().mockResolvedValue(undefined),
+  commitEvidenceReservation: jest.fn(async (_id: string, stored: any, signature: string) => ({
+    id: 'ref-new', proofId: PROOF_TRADE1.id, provider: stored.provider, uri: stored.uri, signature,
+  })),
+  persistCanonicalEvidenceSubmittedEvent: jest.fn().mockResolvedValue({ id: 'scope-event' }),
+}))
+
 // ─── Fixtures: two trades, four participants, one outsider, one arbiter,
 // one replaced (historical) arbiter. Real cross-scope isolation requires
 // more than one trade — a single-trade fixture could not distinguish
@@ -353,7 +369,7 @@ describe('OpenProof economic-scope authorization (Issue #261) — HTTP level', (
       const res = await app.inject({
         method: 'POST', url: `/v1/proof/proofs/${PROOF_TRADE1.id}/evidence`,
         headers: { authorization: `Bearer ${token}` },
-        payload: { mediaBase64: media.toString('base64'), mimeType: 'image', signatureHex },
+        payload: { mediaBase64: media.toString('base64'), mimeType: 'image', signatureHex, idempotencyKey: 'scope-auth-buyer-evidence-1' },
       })
 
       // 403, not 201 — the signature genuinely verifies (proven by the
@@ -375,7 +391,7 @@ describe('OpenProof economic-scope authorization (Issue #261) — HTTP level', (
       const res = await app.inject({
         method: 'POST', url: `/v1/proof/proofs/${PROOF_TRADE1.id}/evidence`,
         headers: { authorization: `Bearer ${token}` },
-        payload: { mediaBase64: media.toString('base64'), mimeType: 'image', signatureHex },
+        payload: { mediaBase64: media.toString('base64'), mimeType: 'image', signatureHex, idempotencyKey: 'scope-auth-buyer-evidence-2' },
       })
 
       expect(res.statusCode).toBe(201)

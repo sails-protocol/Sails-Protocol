@@ -2391,6 +2391,49 @@ model Proof {
 // only (guarded by a regression test in tests/proofService.test.ts) — no
 // migration subsystem exists or is needed today; this comment is the
 // durable constraint for whenever one is.
+enum EvidenceUploadReservationStatus {
+  RESERVED
+  COMMITTED
+  UNKNOWN
+  RELEASED
+}
+
+// Issue #267 — durable quota admission primitive. A reservation is created
+// atomically under the proof/uploader quota locks BEFORE object-storage I/O.
+// This prevents multi-instance over-admission without holding a database
+// transaction open across S3/filesystem network/storage work. UNKNOWN is
+// deliberately retained for crash/ambiguous provider outcomes; it continues
+// consuming budget until reconciliation proves it safe to release.
+model EvidenceUploadReservation {
+  id             String                          @id @default(uuid())
+  proofId        String
+  submittedBy    String
+  sizeBytes      Int
+  operationKey   String
+  mediaSha256    String
+  mimeType       String
+  status         EvidenceUploadReservationStatus @default(RESERVED)
+  evidenceRefId  String?
+  eventRecordId    String?  @unique // #267 canonical durable proof.submitted record; null = publication pending
+  createdAt      DateTime                        @default(now())
+  updatedAt      DateTime                        @updatedAt
+
+  @@unique([submittedBy, operationKey])
+  @@index([proofId])
+  @@index([proofId, submittedBy])
+  @@map("evidence_upload_reservations")
+}
+
+model EvidenceObjectCleanupClaim {
+  id        String   @id @default(uuid())
+  provider  String
+  uri       String
+  createdAt DateTime @default(now())
+
+  @@unique([provider, uri])
+  @@map("evidence_object_cleanup_claims")
+}
+
 model EvidenceReference {
   id          String   @id @default(uuid())
   proofId     String
@@ -2400,10 +2443,13 @@ model EvidenceReference {
   sha256      String // real hash of the stored media bytes — recomputed server-side, same discipline as Proof.evidenceHash
   mimeType    String
   signature   String // signed by the submitting Participant's key
+  submittedBy String // Issue #267 — immutable actual authenticated uploader; quota attribution authority
+  sizeBytes   Int    // Issue #267 — immutable decoded-media byte size; durable quota accounting authority
   anchorProof Json? // RFC-008 D1 — { anchorType, anchorId, submittedAt, upgraded } once/if anchored; null until then
   createdAt   DateTime @default(now())
 
   @@index([proofId])
+  @@index([proofId, submittedBy])
   @@map("evidence_references")
 }
 

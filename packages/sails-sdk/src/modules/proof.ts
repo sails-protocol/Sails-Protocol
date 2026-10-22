@@ -142,13 +142,14 @@ export class SailsProofModule {
     proofId: string,
     media: Uint8Array,
     mimeType: 'image' | 'video' | 'document' | 'ocr' | 'external_reference',
-    wallet: WalletAdapter
+    wallet: WalletAdapter,
+    idempotencyKey: string
   ): Promise<EvidenceReference> {
     const digest = sha256(media)
     const signature = await wallet.signMessage(digest)
     return this.transport.post<EvidenceReference>(
       `/v1/proof/proofs/${proofId}/evidence`,
-      { mediaBase64: bytesToBase64(media), mimeType, signatureHex: bytesToHex(signature) },
+      { mediaBase64: bytesToBase64(media), mimeType, signatureHex: bytesToHex(signature), idempotencyKey },
       true
     )
   }

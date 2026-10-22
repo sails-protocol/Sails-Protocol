@@ -359,7 +359,7 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
         SELECT column_name FROM information_schema.columns WHERE table_name = 'evidence_references'
       `
       expect(columns.map((c) => c.column_name).sort()).toEqual(
-        ['anchorProof', 'createdAt', 'id', 'mimeType', 'provider', 'proofId', 'sha256', 'signature', 'uri'].sort()
+        ['anchorProof', 'createdAt', 'id', 'mimeType', 'provider', 'proofId', 'sha256', 'signature', 'sizeBytes', 'submittedBy', 'uri'].sort()
       )
 
       const idx = await prisma.$queryRaw<Array<{ indexname: string }>>`
@@ -408,7 +408,16 @@ describe('Postgres production readiness (Missao 06, real Postgres)', () => {
         data: { claimId: claim.id, evidence: { note: 'R2 evidence' }, evidenceHash: 'real-pg-hash', submittedBy: 'real-pg-participant' },
       })
       const created = await prisma.evidenceReference.create({
-        data: { proofId: proof.id, provider: 'local-fs', uri: 'real-pg-uri', sha256: 'real-pg-sha256', mimeType: 'document', signature: 'real-pg-signature' },
+        data: {
+          proofId: proof.id,
+          provider: 'local-fs',
+          uri: 'real-pg-uri',
+          sha256: 'real-pg-sha256',
+          mimeType: 'document',
+          signature: 'real-pg-signature',
+          submittedBy: 'real-pg-participant',
+          sizeBytes: 1,
+        },
       })
       expect(created.proofId).toBe(proof.id)
 
