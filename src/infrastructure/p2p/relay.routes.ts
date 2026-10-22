@@ -42,10 +42,12 @@
  * class comment).
  */
 import type { FastifyInstance } from 'fastify'
+import { randomUUID } from 'node:crypto'
 import { resolveParticipantFromTicket } from '../../common/middleware/ws-auth'
 import { webSocketRelayTransportProvider } from './websocket-relay.service'
 import { consumeSharedRelayBudget } from './relay-shared-budget'
 import { RELAY_FRAME_MAX_BYTES } from './relay-ingress-budget'
+import { claimRelayPresence, renewRelayPresence, releaseRelayPresence, RELAY_PRESENCE_TTL_MS } from './relay-presence'
 
 export async function relayRoutes(app: FastifyInstance): Promise<void> {
   app.get('/ws/relay', { websocket: true }, async (socket, request) => {
@@ -90,7 +92,31 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
       return
     }
 
+    // Presence is a short-lived routing hint, not proof of delivery.
+    // Fail closed if Redis cannot register the authenticated connection.
+    const leaseToken = randomUUID()
+    try {
+      await claimRelayPresence(participantId, leaseToken)
+    } catch {
+      socket.close(1011, 'Relay presence unavailable')
+      return
+    }
+    if (preAuthFrameReceived || socket.readyState !== 1) {
+      void releaseRelayPresence(participantId, leaseToken).catch(() => undefined)
+      return
+    }
     webSocketRelayTransportProvider.registerSocket(participantId, socket)
+    const leaseTimer = setInterval(() => {
+      if (!webSocketRelayTransportProvider.ownsSocket(participantId, socket) || socket.readyState !== 1) {
+        clearInterval(leaseTimer)
+        return
+      }
+      void renewRelayPresence(participantId, leaseToken).then(renewed => {
+        if (!renewed && socket.readyState === 1) socket.close(1011, 'Relay presence ownership lost')
+      }).catch(() => {
+        if (socket.readyState === 1) socket.close(1011, 'Relay presence unavailable')
+      })
+    }, Math.floor(RELAY_PRESENCE_TTL_MS / 3))
 
     // Serialize asynchronous Redis decisions to preserve ingress dispatch order.
     // Once the socket is closed/exhausted, queued frames must never dispatch.
@@ -139,6 +165,8 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
     })
 
     socket.on('close', () => {
+      clearInterval(leaseTimer)
+      void releaseRelayPresence(participantId, leaseToken).catch(() => undefined)
       stopped = true
       webSocketRelayTransportProvider.unregisterSocket(participantId, socket)
     })
