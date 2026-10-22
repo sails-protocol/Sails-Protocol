@@ -62,8 +62,12 @@ const ENVELOPE_KEYS = ['body', 'id', 'to', 'trade', 'type', 'v']
 const AUTHORIZED_TRADE_STATUSES = new Set(['PENDING', 'ACTIVE'])
 // A message id may be delivered once per sender within this window.
 const MESSAGE_ID_TTL_SECONDS = 600
-// Internal frames larger than one client frame plus envelope overhead are not ours.
-const MAX_INTERNAL_FRAME_CHARS = 96 * 1024
+// A deliver frame carries a MESSAGE that is itself a JSON string built from a
+// <= 64 KiB client frame, so the body is escaped twice on the way: one body
+// character can grow to 7 characters (a control character: \u0001 then \\u0001).
+// 64 Ki x 7 is ~448 Ki; anything above 1 Mi cannot be one of our frames.
+// (The previous 96 Ki cap silently dropped legitimate escape-heavy bodies.)
+const MAX_INTERNAL_FRAME_CHARS = 1024 * 1024
 // Beyond this many in-window deliver ids an instance refuses new ones
 // (ack false) rather than grow without bound.
 const MAX_SEEN_REQUESTS = 50_000
@@ -200,6 +204,9 @@ export class RelayRouter {
   private heartbeat: ReturnType<typeof setInterval> | null = null
   /** participantId → token of the local connection this instance claimed for. */
   private readonly claims = new Map<string, string>()
+  /** Claim time of tokens whose socket has not registered yet. */
+  private readonly unregisteredSince = new Map<string, number>()
+  private refreshing = false
   private readonly pendingAcks = new Map<string, { from: string; settle(outcome: DeliveryOutcome): void }>()
   /** Deliver request ids already handled, until their deadline: internal replay guard. */
   private readonly seenRequests = new Map<string, number>()
@@ -248,9 +255,27 @@ export class RelayRouter {
   }
 
   private async refreshClaims(): Promise<void> {
+    // A slow beat (Redis latency, many claims) must not stack with the next one.
+    if (this.refreshing) return
+    this.refreshing = true
+    try {
+      await this.refreshClaimsOnce()
+    } finally {
+      this.refreshing = false
+    }
+  }
+
+  private async refreshClaimsOnce(): Promise<void> {
     const now = Date.now()
     for (const [reqId, deadline] of this.seenRequests) if (deadline < now) this.seenRequests.delete(reqId)
     for (const [participantId, token] of [...this.claims]) {
+      const since = this.unregisteredSince.get(token)
+      if (since !== undefined && now - since > this.ownerTtlMs) {
+        // Claimed but never registered (the handshake failed after the
+        // claim): stop refreshing it and give the key up.
+        await this.release(participantId, token).catch(() => undefined)
+        continue
+      }
       let kept: unknown
       try {
         kept = await this.redis.eval(REFRESH_OWNER_SCRIPT, 1, ownerKey(participantId), ownerValue(this.instanceId, token), this.ownerTtlMs)
@@ -260,6 +285,7 @@ export class RelayRouter {
       if (kept !== 1 && this.claims.get(participantId) === token) {
         // Ownership moved or expired: this connection must stop receiving.
         this.claims.delete(participantId)
+        this.unregisteredSince.delete(token)
         this.revokeConnection(participantId, token)
       }
     }
@@ -284,10 +310,14 @@ export class RelayRouter {
       CLAIM_OWNER_SCRIPT, 1, ownerKey(participantId), ownerValue(this.instanceId, token), this.ownerTtlMs,
     ) as string | null)
     this.claims.set(participantId, token)
+    this.unregisteredSince.set(token, Date.now())
     if (previous && previous.instanceId !== this.instanceId) {
-      // The displaced connection lives elsewhere: tell that instance to close it.
+      // The displaced connection lives elsewhere: tell that instance to close
+      // it. Best effort: if this publish fails, that instance's heartbeat sees
+      // the key changed and closes it within TTL/3. Failing the claim here
+      // would leave a claimed-but-never-registered owner behind instead.
       const revoke: RevokeFrame = { kind: 'revoke', participant: participantId, token: previous.token }
-      await this.redis.publish(channelOf(previous.instanceId), JSON.stringify(revoke))
+      await this.redis.publish(channelOf(previous.instanceId), JSON.stringify(revoke)).catch(() => undefined)
     }
     return token
   }
@@ -301,12 +331,14 @@ export class RelayRouter {
 
   /** The socket for this claim is now registered: act on a revoke that arrived first. */
   registered(participantId: string, token: string): void {
+    this.unregisteredSince.delete(token)
     if (!this.revokedEarly.delete(token)) return
     this.host.closeIfToken(participantId, token, 1008, 'Relay ownership moved')
   }
 
   async release(participantId: string, token: string): Promise<void> {
     this.revokedEarly.delete(token)
+    this.unregisteredSince.delete(token)
     if (this.claims.get(participantId) === token) this.claims.delete(participantId)
     await this.redis.eval(RELEASE_OWNER_SCRIPT, 1, ownerKey(participantId), ownerValue(this.instanceId, token))
   }

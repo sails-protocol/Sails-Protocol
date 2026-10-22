@@ -206,6 +206,55 @@ describe('#307 Phase B.1: relay delivery hardening (real Redis, real processes)'
     cleanupKeys.add(`relay:msg:${alice.id}:${out.id}`)
   })
 
+  it('a claim whose socket never registers is given up, not refreshed forever (revoke publish failure)', async () => {
+    // Fault injection, labelled: the real RelayRouter on real Redis, with only
+    // PUBLISH failing — the one step that can fail between the claim's SET and
+    // the socket's registration. No socket ever registers for this claim.
+    const { RelayRouter } = require('../../src/infrastructure/p2p/relay-delivery')
+    const participant = 'orphan-' + randomUUID()
+    cleanupKeys.add('relay:owner:' + participant)
+    const real = new Redis(process.env.REDIS_URL ?? 'redis://127.0.0.1:6379', { maxRetriesPerRequest: 1 })
+    extraClients.push(real)
+    const failingPublish = new Proxy(real, {
+      get(target, prop) {
+        if (prop === 'publish') return async () => { throw new Error('injected publish failure') }
+        if (prop === 'duplicate') return () => target.duplicate()
+        const value = Reflect.get(target, prop)
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+    const host = { ownsToken: () => false, sendToPeer: async () => false, closeIfToken: () => undefined }
+    const router = new RelayRouter({ redis: failingPublish, host, findTrade: async () => null, ownerTtlMs: 600 })
+    try {
+      // Someone else owns the participant, so the claim must publish a revoke.
+      await redis.set('relay:owner:' + participant, 'elsewhere|' + randomBytes(16).toString('base64url'), 'PX', 60_000)
+      await router.claim(participant).catch(() => undefined)
+      const deadline = Date.now() + 4000
+      while (await redis.exists('relay:owner:' + participant) && Date.now() < deadline) await sleep(100)
+      expect(await redis.exists('relay:owner:' + participant)).toBe(0)
+    } finally {
+      await router.stop()
+    }
+  })
+
+  it('delivers a maximal escape-heavy body across instances (internal frame cap fits double JSON escaping)', async () => {
+    // 32 000 double quotes: the client frame stays under the 64 KiB cap, but
+    // the body is escaped again in MESSAGE and once more inside the internal
+    // deliver frame (~128 KiB). A cap below that drops it silently.
+    const [p1, p2] = await Promise.all([spawnServer(), spawnServer()])
+    const alice = await party(p1.base)
+    const bob = await party(p2.base)
+    const tradeId = await trade(alice.id, bob.id)
+    const [a, b] = [await connect(alice), await connect(bob)]
+    const out = envelope(bob.id, tradeId, '"'.repeat(32_000))
+    expect(Buffer.byteLength(JSON.stringify(out))).toBeLessThan(64 * 1024)
+    send(a.ws, out)
+    expect(await ackFor(a.inbox, out.id)).toEqual({ type: 'SENT', id: out.id })
+    const got = await b.inbox.next(f => f.type === 'MESSAGE', 'escape-heavy MESSAGE')
+    expect(got.body).toBe(out.body)
+    cleanupKeys.add(`relay:msg:${alice.id}:${out.id}`)
+  })
+
   it('a reconnect on another instance revokes the old socket, which never receives again', async () => {
     const [p1, p2] = await Promise.all([spawnServer(), spawnServer()])
     const alice = await party(p1.base)
