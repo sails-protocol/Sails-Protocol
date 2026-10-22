@@ -12,6 +12,16 @@ import { redis } from '../../common/redis'
 
 export const RELAY_PRESENCE_TTL_MS = 30_000
 
+export const RELAY_PRESENCE_CLAIM_SCRIPT = `
+local now = redis.call('TIME')
+local nowMs = tonumber(now[1]) * 1000 + math.floor(tonumber(now[2]) / 1000)
+if nowMs > tonumber(ARGV[3]) then
+  return 0
+end
+redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+return 1
+`
+
 export const RELAY_PRESENCE_RELEASE_SCRIPT = `
 if redis.call('GET', KEYS[1]) == ARGV[1] then
   return redis.call('DEL', KEYS[1])
@@ -36,9 +46,13 @@ function validateLeaseToken(token: string): void {
 }
 
 /** Register the most recently authenticated connection as a routing hint. */
-export async function claimRelayPresence(participantId: string, token: string): Promise<void> {
+export async function claimRelayPresence(participantId: string, token: string, deadlineMs = Date.now() + 5000): Promise<void> {
   validateLeaseToken(token)
-  await redis.set(presenceKey(participantId), token, 'PX', RELAY_PRESENCE_TTL_MS)
+  // Redis checks its own clock before writing: a command delayed in the queue
+  // past the caller's deadline must never resurrect a timed-out connection.
+  const claimed = await redis.eval(RELAY_PRESENCE_CLAIM_SCRIPT, 1,
+    presenceKey(participantId), token, RELAY_PRESENCE_TTL_MS, deadlineMs)
+  if (claimed !== 1) throw new Error('Relay presence claim expired')
 }
 
 /** Only the current connection may extend its lease. */
