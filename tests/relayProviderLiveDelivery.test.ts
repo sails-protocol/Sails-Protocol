@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import Fastify from 'fastify'
 import websocket from '@fastify/websocket'
 import WebSocket from 'ws'
@@ -91,6 +95,40 @@ describe('real relay provider with two live TCP WebSocket clients', () => {
     await closed
     expect(ticket).toHaveBeenCalledWith('invalid')
     expect(relay.isConnected('invalid')).toBe(false)
+  })
+
+  it('accepts a ticket-authenticated WSS connection over real TLS', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'relay-wss-'))
+    let secureApp: ReturnType<typeof Fastify> | undefined
+    let secureClient: WebSocket | undefined
+    try {
+      const keyPath = join(dir, 'server.key')
+      const certPath = join(dir, 'server.crt')
+      execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+        '-keyout', keyPath, '-out', certPath, '-days', '1',
+        '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost'], { stdio: 'ignore' })
+      secureApp = Fastify({ logger: false, https: {
+        key: readFileSync(keyPath), cert: readFileSync(certPath),
+      } })
+      await secureApp.register(websocket)
+      await secureApp.register(relayRoutes)
+      await secureApp.listen({ port: 0, host: '127.0.0.1' })
+      const address = secureApp.server.address()
+      if (!address || typeof address === 'string') throw new Error('Unexpected TLS listener')
+      secureClient = new WebSocket('wss://localhost:' + address.port + '/ws/relay?ticket=alice',
+        { rejectUnauthorized: false, family: 4 })
+      const client = secureClient
+      await new Promise<void>((resolve, reject) => {
+        client.once('open', resolve)
+        client.once('error', reject)
+      })
+      await until(() => relay.isConnected('alice'))
+      expect(relay.isConnected('alice')).toBe(true)
+    } finally {
+      secureClient?.terminate()
+      if (secureApp) await secureApp.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('rejects unsupported topic discovery instead of silently succeeding', async () => {
