@@ -19,6 +19,17 @@ const request = () => ({
 describe('shared rate limit — Redis failure and rejection contract', () => {
   beforeEach(() => { evalMock.mockReset(); pttlMock.mockReset() })
 
+  it.each([
+    { max: 0, windowMs: 60000, keyPrefix: 'auth' },
+    { max: 1.5, windowMs: 60000, keyPrefix: 'auth' },
+    { max: 2, windowMs: 0, keyPrefix: 'auth' },
+    { max: 2, windowMs: NaN, keyPrefix: 'auth' },
+    { max: 2, windowMs: 60000, keyPrefix: '' },
+    { max: 2, windowMs: 60000, keyPrefix: 'auth:other' },
+  ])('rejects invalid shared limiter configuration %p before serving traffic', opts => {
+    expect(() => createSharedRateLimit(opts)).toThrow('Invalid shared rate limit configuration')
+  })
+
   it('fails closed without creating unbounded keys when the canonical route is missing', async () => {
     const req = request()
     ;(req.routeOptions as { url?: string }).url = undefined
