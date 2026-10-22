@@ -592,6 +592,52 @@ jobs:
           } > k6-executable-provenance.txt
           # No token-bearing URLs, secrets or environment dumps.
           cat k6-executable-provenance.txt
+      - name: Reproduce isolated k6 arrival scheduling without network I/O
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This probe performs zero HTTP/auth/Intent calls. Each run must
+          # produce exactly two entries and zero boundary extras.
+          node --check load-tests/tests/arrival-scheduler-probe.js
+          for trial in $(seq 1 12); do
+            summary="/tmp/sails-k6-scheduler-probe-${trial}.json"
+            if timeout 20s k6 run --quiet --summary-export="$summary" load-tests/tests/arrival-scheduler-probe.js > /tmp/sails-k6-scheduler-probe.log 2>&1; then
+              node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const [file,trial]=process.argv.slice(2);
+          const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
+          const count=k=>m[k]?.count;
+          const evidence={trial:Number(trial),iterations:count('iterations')??null,
+            entries:count('sails_probe_entries')??null,
+            extras:count('sails_probe_extra_entries')??null,
+            timestampSamples:count('sails_probe_timestamp_samples')??null,
+            dropped:count('dropped_iterations')??0,
+            entrySpanMs:(m.sails_probe_entry_epoch_ms?.max??NaN)-(m.sails_probe_entry_epoch_ms?.min??NaN)};
+          console.log('k6 isolated scheduler evidence:',JSON.stringify(evidence));
+          assert.equal(evidence.iterations,2);
+          assert.equal(evidence.entries,2);
+          assert.equal(evidence.extras,0);
+          assert.equal(evidence.timestampSamples,2);
+          assert.equal(evidence.dropped,0);
+          assert.ok(Number.isFinite(evidence.entrySpanMs));
+          NODE
+            else
+              # Print only bounded metric evidence, never unfiltered runner output.
+              node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const [file,trial]=process.argv.slice(2);
+          const m=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')).metrics||{}:{};
+          const count=k=>m[k]?.count??null;
+          console.error('k6 isolated scheduler FAIL:',JSON.stringify({
+            trial:Number(trial),iterations:count('iterations'),entries:count('sails_probe_entries'),
+            extras:count('sails_probe_extra_entries'),timestampSamples:count('sails_probe_timestamp_samples'),
+            dropped:count('dropped_iterations')}));
+          NODE
+              exit 1
+            fi
+          done
+          echo 'k6 isolated scheduler 12/12 PASS; cross-engine parity NOT established'
       - name: Prove k6 PONG assertion fails against non-PONG loopback fixture
         shell: bash
         run: |
