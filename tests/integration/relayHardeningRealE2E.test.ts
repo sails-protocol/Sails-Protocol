@@ -237,6 +237,56 @@ describe('#307 Phase B.1: relay delivery hardening (real Redis, real processes)'
     }
   })
 
+  it('heartbeat beats never overlap when Redis is slow', async () => {
+    // Fault injection, labelled: real RelayRouter on real Redis, with only the
+    // heartbeat's refresh EVAL delayed past the beat interval (TTL/3 = 100 ms).
+    const { RelayRouter } = require('../../src/infrastructure/p2p/relay-delivery')
+    const real = new Redis(process.env.REDIS_URL ?? 'redis://127.0.0.1:6379', { maxRetriesPerRequest: 1 })
+    extraClients.push(real)
+    let inFlight = 0
+    let maxInFlight = 0
+    const slowRefresh = new Proxy(real, {
+      get(target, prop) {
+        if (prop === 'duplicate') return () => target.duplicate()
+        if (prop === 'eval') {
+          return async (script: string, ...args: unknown[]) => {
+            if (!script.includes('PEXPIRE')) return (target.eval as (...a: unknown[]) => Promise<unknown>)(script, ...args)
+            inFlight++
+            maxInFlight = Math.max(maxInFlight, inFlight)
+            await sleep(450)
+            try {
+              return await (target.eval as (...a: unknown[]) => Promise<unknown>)(script, ...args)
+            } finally {
+              inFlight--
+            }
+          }
+        }
+        const value = Reflect.get(target, prop)
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+    const tokens = new Map<string, string>()
+    const host = {
+      ownsToken: (p: string, t: string) => tokens.get(p) === t,
+      sendToPeer: async () => false,
+      closeIfToken: () => undefined,
+    }
+    const router = new RelayRouter({ redis: slowRefresh, host, findTrade: async () => null, ownerTtlMs: 300 })
+    const participants = ['hb-' + randomUUID(), 'hb-' + randomUUID()]
+    for (const p of participants) cleanupKeys.add('relay:owner:' + p)
+    try {
+      for (const p of participants) {
+        const token = await router.claim(p)
+        tokens.set(p, token)
+        router.registered(p, token)
+      }
+      await sleep(1500)
+      expect(maxInFlight).toBe(1)
+    } finally {
+      await router.stop()
+    }
+  })
+
   it('delivers a maximal escape-heavy body across instances (internal frame cap fits double JSON escaping)', async () => {
     // 32 000 double quotes: the client frame stays under the 64 KiB cap, but
     // the body is escaped again in MESSAGE and once more inside the internal
