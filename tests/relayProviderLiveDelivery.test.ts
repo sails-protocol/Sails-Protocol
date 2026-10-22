@@ -1,3 +1,5 @@
+import { createServer as createHttpsServer } from 'node:https'
+import { connect as connectTcp } from 'node:net'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -127,6 +129,52 @@ describe('real relay provider with two live TCP WebSocket clients', () => {
     } finally {
       secureClient?.terminate()
       if (secureApp) await secureApp.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('upgrades authenticated WSS through a TLS-terminating TCP reverse proxy', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'relay-proxy-'))
+    const keyPath = join(dir, 'server.key')
+    const certPath = join(dir, 'server.crt')
+    let proxy: ReturnType<typeof createHttpsServer> | undefined
+    let client: WebSocket | undefined
+    try {
+      execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+        '-keyout', keyPath, '-out', certPath, '-days', '1',
+        '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost'], { stdio: 'ignore' })
+      proxy = createHttpsServer({ key: readFileSync(keyPath), cert: readFileSync(certPath) })
+      const upstream = app.server.address()
+      if (!upstream || typeof upstream === 'string') throw new Error('Missing upstream listener')
+      proxy.on('upgrade', (request, downstream, head) => {
+        const upstreamSocket = connectTcp(upstream.port, '127.0.0.1')
+        upstreamSocket.once('connect', () => {
+          const headers = Object.entries(request.headers)
+            .filter(([, value]) => value !== undefined)
+            .map(([key, value]) => key + ': ' + value).join('\\r\\n')
+          upstreamSocket.write(request.method + ' ' + request.url + ' HTTP/1.1\\r\\n' + headers + '\\r\\n\\r\\n')
+          if (head.length) upstreamSocket.write(head)
+          downstream.pipe(upstreamSocket).pipe(downstream)
+        })
+        upstreamSocket.on('error', () => downstream.destroy())
+        downstream.on('error', () => upstreamSocket.destroy())
+      })
+      const server = proxy
+      await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+      const address = server.address()
+      if (!address || typeof address === 'string') throw new Error('Missing TLS proxy listener')
+      client = new WebSocket('wss://localhost:' + address.port + '/ws/relay?ticket=alice',
+        { ca: readFileSync(certPath), family: 4 })
+      const connected = client
+      await new Promise<void>((resolve, reject) => {
+        connected.once('open', resolve)
+        connected.once('error', reject)
+      })
+      await until(() => relay.isConnected('alice'))
+      expect(ticket).toHaveBeenCalledWith('alice')
+    } finally {
+      client?.terminate()
+      if (proxy) await new Promise<void>(resolve => proxy!.close(() => resolve()))
       rmSync(dir, { recursive: true, force: true })
     }
   })
