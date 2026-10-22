@@ -62,7 +62,6 @@ export function createSharedRateLimit(opts: SharedRateLimitOptions) {
     // still be reused across several routes in the same tier (settlement/
     // capability/agent routes all share one `criticalRateLimit` const)
     // without pooling their budgets together.
-    const route = req.routeOptions.url ?? req.url
     // Redis keys use the canonical route pattern, not URL parameters.
     // Reject a missing route pattern instead of falling back to req.url:
     // that fallback can include attacker-controlled query strings, causing
@@ -71,7 +70,7 @@ export function createSharedRateLimit(opts: SharedRateLimitOptions) {
       req.log.error({ msg: 'Shared rate limiter missing canonical route pattern', keyPrefix: opts.keyPrefix })
       throw new RateLimitUnavailableError()
     }
-    const key = `ratelimit:${opts.keyPrefix}:${route}:${req.ip}`
+    const key = `ratelimit:${opts.keyPrefix}:${req.routeOptions.url}:${req.ip}`
 
     let count: number
     try {
