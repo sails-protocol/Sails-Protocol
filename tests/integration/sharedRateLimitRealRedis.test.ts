@@ -95,6 +95,25 @@ describe('shared rate limit — real Redis atomicity and expiry', () => {
     expect(await redis.pttl(k)).toBeGreaterThan(0)
   })
 
+  it('rejects a Redis counter containing a fractional value without changing its value or TTL', async () => {
+    const k = key('fractional-poison')
+    await redis.set(k, '1.5', 'PX', 2000)
+    const ttlBefore = await redis.pttl(k)
+    await expect(run(k, 2000)).rejects.toThrow()
+    expect(await redis.get(k)).toBe('1.5')
+    const ttlAfter = await redis.pttl(k)
+    expect(ttlAfter).toBeGreaterThan(0)
+    expect(ttlAfter).toBeLessThanOrEqual(ttlBefore)
+  })
+
+  it('rejects a Redis counter containing a nonnumeric string without creating a fresh window', async () => {
+    const k = key('poison-no-ttl')
+    await redis.set(k, 'not-a-counter')
+    await expect(run(k, 2000)).rejects.toThrow()
+    expect(await redis.get(k)).toBe('not-a-counter')
+    expect(await redis.pttl(k)).toBe(-1)
+  })
+
   it('keeps the original window after concurrent requests and rejects a later overflow', async () => {
     const k = key('overflow')
     const values = await Promise.all(Array.from({ length: 20 }, () => run(k, 2000)))
