@@ -105,6 +105,15 @@ describe('shared rate limit — real Redis atomicity and expiry', () => {
     expect(ttl).toBeLessThanOrEqual(2000)
   })
 
+  it('fails closed at the signed Redis integer boundary without wrapping the counter', async () => {
+    const k = key('integer-overflow')
+    const maxSigned64 = '9223372036854775807'
+    await redis.set(k, maxSigned64, 'PX', 2000)
+    await expect(redis.eval(SHARED_RATE_LIMIT_SCRIPT, 1, k, 2000)).rejects.toThrow()
+    expect(await redis.get(k)).toBe(maxSigned64)
+    expect(await redis.pttl(k)).toBeGreaterThan(0)
+  })
+
   it('expires the fixed window and starts a new count', async () => {
     const k = key('expiry')
     expect(await run(k, 120)).toBe(1)
