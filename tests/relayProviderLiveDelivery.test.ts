@@ -151,8 +151,8 @@ describe('real relay provider with two live TCP WebSocket clients', () => {
         upstreamSocket.once('connect', () => {
           const headers = Object.entries(request.headers)
             .filter(([, value]) => value !== undefined)
-            .map(([key, value]) => key + ': ' + value).join('\\r\\n')
-          upstreamSocket.write(request.method + ' ' + request.url + ' HTTP/1.1\\r\\n' + headers + '\\r\\n\\r\\n')
+            .map(([key, value]) => key + ': ' + value).join('\r\n')
+          upstreamSocket.write(request.method + ' ' + request.url + ' HTTP/1.1\r\n' + headers + '\r\n\r\n')
           if (head.length) upstreamSocket.write(head)
           downstream.pipe(upstreamSocket).pipe(downstream)
         })
