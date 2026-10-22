@@ -322,7 +322,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         checks[label] = {
           ok: false,
           latencyMs: Date.now() - start,
-          error: err instanceof Error ? err.message : String(err),
+          // Keep infrastructure exception details in internal logs, never readiness responses.
+          error: 'Dependency unavailable',
         }
       }
     }
