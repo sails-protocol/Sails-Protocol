@@ -33,6 +33,15 @@
 > for any genuinely fresh deployment going forward (a new environment,
 > disaster recovery, or anyone cloning this repo and running `docker
 > compose up` for the first time).
+>
+> **Corrected 2026-10-22** — the 2026-08-09 bug and its wrapper are gone:
+> on Prisma 7.10 a plain `prisma migrate deploy` applies all migrations
+> from an empty database in one invocation (re-verified by
+> `scripts/docker-migrate-test.sh`), and the wrapper had in fact been
+> inert since the initial migration was renamed `20260807090000_init`
+> (it matched the old name `20260807_init`). `scripts/migrate-deploy-safe.sh`
+> was removed; migrations now run through the dedicated `migrate` image —
+> see section 6.0.
 
 ---
 
@@ -114,9 +123,9 @@ docker compose up -d --build      # Postgres + Redis + the server itself — htt
 
 That's the whole setup. `docker-compose.yml` (repo root) now has three
 services: `postgres`/`redis` (real local infra, unchanged from before),
-plus `migrate` (a one-shot `npx prisma db push` against `postgres`,
-built from the Dockerfile's own `builder` stage so the real `prisma` CLI
-is present) and `app` (the server itself, also built from `builder` —
+plus `migrate` (a one-shot `prisma migrate deploy` + `migrate status`
+against `postgres`, built from the Dockerfile's `migrate` target — see
+section 6.0) and `app` (the server itself, also built from `builder` —
 deliberately not the slim `runtime` stage the production Dockerfile path
 uses, since local dev wants `pino-pretty`'s readable logs, a
 devDependency the production stage prunes). `app` waits for `migrate` to
@@ -200,6 +209,50 @@ an `app` service is reasonable follow-up work once there's a reason to
 containerize the server too (e.g. a real staging deployment), not
 required for local development.
 
+## 6.0 Applying database migrations before a rollout (production procedure)
+
+The server image (`--target runtime`) deliberately has no Prisma CLI and no
+`prisma.config.ts`, and never migrates on start. Migrations are a separate,
+one-shot job from the Dockerfile's `migrate` target: only the Prisma CLI and
+its dependencies (copied from the lockfile-exact tree), `prisma/`, and
+`scripts/migrate-deploy.sh`; non-root, no server code.
+
+**Order of a release (never skip step 2, never run 3 before 2 succeeded):**
+
+1. Build both images from the SAME commit: `docker build --target migrate -t sails-migrate:<sha> .`
+   and `docker build --target runtime -t sails-server:<sha> .`.
+2. Run the migration job against the target database, with `DATABASE_URL` supplied by the
+   platform's secret store (never on a command line you keep in shell history):
+   `docker run --rm -e DATABASE_URL sails-migrate:<sha>`.
+   Exit code 0 means *the database is fully migrated* (`migrate deploy` then
+   `migrate status`); anything else means **stop the release**. The job exits
+   non-zero if `DATABASE_URL` is missing (64), the database is unreachable, the
+   credentials are wrong, a migration's SQL fails, or a previous failed migration
+   is unresolved (then follow section 6.1).
+3. Only then start/roll out `sails-server:<sha>`. In Compose this ordering is
+   declared (`app.depends_on.migrate.condition: service_completed_successfully`)
+   and guarded in CI; on a platform, make the migration job a required pre-deploy
+   step whose failure aborts the deployment.
+
+Migrations must be backward compatible with the *previous* server version
+(add before use, remove only in a later release): step 2 runs while the old
+version still serves traffic, and a rollback of the server does not roll back
+the schema. Take a backup first (section 6.2) for any release that includes a
+destructive migration.
+
+**Rollback:** the server rolls back by redeploying the previous server image
+(its schema is still compatible by the rule above). Prisma has no automatic
+down-migration; a migration that must be undone is a *new* forward migration,
+or, for a failed one, section 6.1 followed by restore from the section 6.2
+backup if the data is affected. Do not run the job from a developer machine
+against production: it needs the same secret-store path as the server.
+
+**Guard:** `scripts/docker-migrate-test.sh` (CI step "Migration job against a
+throwaway PostgreSQL") applies every migration to an empty database, re-runs
+for idempotency, and checks missing configuration, an unreachable database, a
+wrong password, a broken migration, that no secret reaches the logs, and that a
+failing migration prevents the server container from starting.
+
 ## 6.1 Migration Failure Recovery (Prisma P3009)
 
 Real incident, found and reproduced 2026-08-23 auditing this exact
@@ -261,10 +314,9 @@ something in production trips over their absence.
      `migrate deploy` normally.
    - **Partially applied** (some but not all of its DDL took effect) →
      do **not** use either resolve command yet. Manually apply or revert
-     the missing/extra pieces via `prisma db execute` first (see
-     `scripts/migrate-deploy-safe.sh`'s own header comment for a real,
-     narrower precedent of this exact "apply outside the normal
-     `migrate deploy` invocation, then resolve the bookkeeping" pattern),
+     the missing/extra pieces via `prisma db execute` first (apply outside
+     the normal `migrate deploy` invocation, then resolve the
+     bookkeeping),
      so the database and the migration's SQL agree completely, and only
      then mark it `--applied`.
 5. Re-run `npx prisma migrate status` again after resolving — it must

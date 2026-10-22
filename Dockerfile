@@ -110,6 +110,29 @@ RUN npm prune --omit=dev \
       --workspace=packages/sails-sdk \
       --include-workspace-root
 
+# ---- Database migrations: a separate image, never the server ----
+# `docker build --target migrate`. The Prisma CLI is a devDependency, so the `runtime`
+# image (correctly) does not carry it, nor prisma.config.ts; a migration is its own
+# one-shot job that must finish successfully BEFORE the new server version starts.
+# This stage holds only the CLI and its dependencies, copied from the lockfile-exact
+# tree built above (scripts/copy-package-closure.js), the committed migrations, and
+# scripts/migrate-deploy.sh. Last stage of the file stays `runtime` (what a plain
+# `docker build` and App Runner's source build produce).
+FROM builder AS migrate-deps
+RUN node scripts/copy-package-closure.js /migrate prisma dotenv
+
+FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS migrate
+# No version-check/telemetry call to the network from a job that only needs the database.
+ENV NODE_ENV=production PRISMA_HIDE_UPDATE_MESSAGE=1 CHECKPOINT_DISABLE=1
+WORKDIR /app
+COPY --from=migrate-deps --chown=node:node /migrate/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/prisma ./prisma
+COPY --from=builder --chown=node:node /app/prisma.config.ts ./prisma.config.ts
+COPY --from=builder --chown=node:node /app/package.json ./package.json
+COPY --from=builder --chown=node:node /app/scripts/migrate-deploy.sh ./scripts/migrate-deploy.sh
+USER node
+ENTRYPOINT ["sh", "scripts/migrate-deploy.sh"]
+
 # ---- syntax=docker/dockerfile:1.6
 FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS runtime
 
