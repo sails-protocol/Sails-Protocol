@@ -411,6 +411,7 @@ jobs:
           assert.equal(completed,2,'Exactly two HTTP comparator virtual users must complete');
           assert.equal(failed,0,'No failed virtual users');
           assert.equal(counters['http.requests'],4,'Exactly four HTTP create/cancel requests expected (auth PoP setup is out-of-band)');
+          assert.equal(counters['sails.auth_setup_started'],2,'Exactly two observed Artillery auth setup starts required');
           assert.equal(counters['sails.intent_create_responses'],2,'Exactly two instrumented Artillery create responses required');
           assert.equal(counters['sails.intent_cancel_responses'],2,'Exactly two instrumented Artillery cancel responses required');
           console.log('Artillery HTTP independently instrumented response counts:',JSON.stringify({
