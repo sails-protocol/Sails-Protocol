@@ -4,6 +4,14 @@ Status: **NOT HOMOLOGATED / BLOCKED**. This document records evidence, not autho
 
 ## Verified CI evidence
 
+Commit `bcef9979e0b5c7404879641acf8b7674945a19d6` (WSS through local TLS-terminating reverse proxy; HTTP upgrade CRLF fix):
+- CI run 39777714112 — success.
+- CI Tests run 39777714135 — success.
+- CodeQL run 39777714138 — success.
+- Test terminates TLS at a local HTTPS proxy, forwards the HTTP WebSocket upgrade over TCP to Fastify, and establishes an authenticated relay socket using a test-specific trusted self-signed certificate.
+- Previous commit `aa5a1cd08b60a9392332a4cf68d4dbefcba91a9a` failed CI and CI Tests (HTTP 400 from incorrectly encoded CRLF in test proxy); `bcef997` corrects that defect. **The passing test does not validate the deployed reverse proxy, its configuration, public certificate chain, or production ingress path.**
+
+
 Commit `8a7016e22775752100581d06c1c6bca7bb4c9704` (authenticated WSS/TLS integration test):
 - CI run 39714388152 — success.
 - CI Tests run 39714388072 — success.
