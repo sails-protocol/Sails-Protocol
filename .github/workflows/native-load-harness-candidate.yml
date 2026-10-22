@@ -1049,6 +1049,11 @@ jobs:
           const observedMax=observedTiming?.max;
           assert.ok(Number.isFinite(observedMin)&&Number.isFinite(observedMax)&&observedMax>=observedMin,
             'k6 observed setup timestamp trend missing or invalid');
+          const observedIterations=count('iterations');
+          // This trend must cover every invocation, including rejected boundary extras.
+          // A matching range with missing samples would be misleading evidence.
+          assert.ok(Number.isSafeInteger(observedTiming?.count)&&observedTiming.count===observedIterations,
+            'k6 observed timestamp sample count must equal actual iterations');
           console.log('k6 observed iteration entry timestamp evidence:',JSON.stringify({
             minEpochMs:observedMin,maxEpochMs:observedMax,
             observedSpanMs:observedMax-observedMin,
