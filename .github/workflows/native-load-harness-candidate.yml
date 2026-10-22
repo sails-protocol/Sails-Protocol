@@ -599,6 +599,9 @@ jobs:
           # This probe performs zero HTTP/auth/Intent calls. Each run must
           # produce exactly two entries and zero boundary extras.
           node --check load-tests/tests/arrival-scheduler-probe.js
+          # Preserve a failing probe as evidence, but continue the bounded series
+          # to measure reproducibility rather than stopping at the first failure.
+          failures=0
           for trial in $(seq 1 12); do
             summary="/tmp/sails-k6-scheduler-probe-${trial}.json"
             if timeout 20s k6 run --quiet --summary-export="$summary" load-tests/tests/arrival-scheduler-probe.js > /tmp/sails-k6-scheduler-probe.log 2>&1; then
@@ -634,9 +637,11 @@ jobs:
             extras:count('sails_probe_extra_entries'),timestampSamples:count('sails_probe_timestamp_samples'),
             dropped:count('dropped_iterations')}));
           NODE
-              exit 1
+              failures=$((failures + 1))
             fi
           done
+          echo "k6 isolated scheduler failures: $failures / 12; cross-engine parity NOT established"
+          if [ "$failures" -ne 0 ]; then exit 1; fi
           echo 'k6 isolated scheduler 12/12 PASS; cross-engine parity NOT established'
       - name: Prove k6 PONG assertion fails against non-PONG loopback fixture
         shell: bash
