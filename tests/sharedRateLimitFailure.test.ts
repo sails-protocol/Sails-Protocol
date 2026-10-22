@@ -37,6 +37,16 @@ describe('shared rate limit — Redis failure and rejection contract', () => {
     expect(evalMock).not.toHaveBeenCalled()
   })
 
+  it('uses the canonical route rather than attacker-controlled query strings for the Redis key', async () => {
+    evalMock.mockResolvedValue(1)
+    const req = request()
+    Object.defineProperty(req, 'url', { value: '/v1/identity/challenge?nonce=attacker-controlled' })
+    await expect(limiter(req)).resolves.toBeUndefined()
+    expect(evalMock).toHaveBeenCalledWith(
+      SHARED_RATE_LIMIT_SCRIPT, 1, 'ratelimit:auth:/v1/identity/challenge:127.0.0.1', 60000,
+    )
+  })
+
   it('fails closed with 503 when atomic Redis operation rejects', async () => {
     evalMock.mockRejectedValueOnce(new Error('Redis disconnected'))
     await expect(limiter(request())).rejects.toBeInstanceOf(RateLimitUnavailableError)
