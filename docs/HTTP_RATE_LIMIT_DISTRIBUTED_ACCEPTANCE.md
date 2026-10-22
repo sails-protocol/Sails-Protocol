@@ -18,3 +18,17 @@ Status: **RED for multi-instance production acceptance** (2026-10-21). This docu
 ## Decision boundary
 
 No generic `trustProxy: true` patch, no pretend-global quota, and no production authorization without the topology and evidence above. Until then: **global multi-instance HTTP rate limiting RED; Gate 2 RED**. The draft PR remains unmerged.
+
+## Gatekeeper decision record — proxy identity and failure boundaries (2026-10-22)
+
+No production ingress topology has been supplied or verified. Until an infrastructure owner documents the ingress, load balancer, and internal proxy hops, Fastify trustProxy remains disabled. This prevents blind trust of client-supplied X-Forwarded-For; it does not establish that request.ip identifies the end client behind a proxy.
+
+Required independent evidence:
+
+1. Ingress diagram: each hop, TLS termination, trusted proxy CIDRs, and proof that application ports are unreachable directly from untrusted networks.
+2. Header sanitization: edge strips client-supplied Forwarded and X-Forwarded-For before constructing a trusted chain. Test IPv4, IPv6, multi-hop and malicious injected headers.
+3. Explicit Fastify proxy trust limited to known hop(s) or CIDRs; never blanket trustProxy: true without a verified network boundary. Record expected request.ip for ordinary, spoofed and direct requests.
+4. Two independent app processes behind the actual or production-equivalent proxy: alternate requests between instances, enforce one aggregate quota, and exercise bursts, expiry, Redis/edge outages and rollback.
+5. Written global quota owner decision: shared Redis store versus edge limiter; 429 and Retry-After semantics, failure mode, health-check exemptions and observability.
+
+Release guard: green Redis auth/critical tests do not validate the global HTTP quota. Missing deployment topology remains an external blocker. This record does not authorize merge, deployment or Gate 2 sign-off.
