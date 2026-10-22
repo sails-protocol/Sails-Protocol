@@ -134,9 +134,15 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
       renewing = true
       const startedAt = Date.now()
       void renewRelayPresence(participantId, leaseToken).then(renewed => {
-        if (!renewed && socket.readyState === 1) {
+        // A late Redis success cannot revive an expired or replaced socket.
+        if (!webSocketRelayTransportProvider.ownsSocket(participantId, socket) || socket.readyState !== 1) return
+        if (Date.now() >= leaseExpiresAt) {
+          socket.close(1011, 'Relay presence lease expired')
+          return
+        }
+        if (!renewed) {
           socket.close(1011, 'Relay presence ownership lost')
-        } else if (renewed) {
+        } else {
           // Conservatively count from request start, not response time.
           leaseExpiresAt = startedAt + RELAY_PRESENCE_TTL_MS
         }
