@@ -6,12 +6,14 @@ const dispatch = jest.fn()
 const register = jest.fn()
 const unregister = jest.fn()
 const owns = jest.fn()
+const claimPresence = jest.fn()
+const releasePresence = jest.fn()
 
 jest.mock('../src/infrastructure/p2p/relay-presence', () => ({
   RELAY_PRESENCE_TTL_MS: 30_000,
-  claimRelayPresence: jest.fn().mockResolvedValue(undefined),
+  claimRelayPresence: (...args: unknown[]) => claimPresence(...args),
   renewRelayPresence: jest.fn().mockResolvedValue(true),
-  releaseRelayPresence: jest.fn().mockResolvedValue(true),
+  releaseRelayPresence: (...args: unknown[]) => releasePresence(...args),
 }))
 
 jest.mock('../src/infrastructure/p2p/relay-shared-budget', () => ({
@@ -46,6 +48,8 @@ describe('relay authenticated WS ingress queue', () => {
     resolveTicket.mockResolvedValue('participant')
     owns.mockReturnValue(true)
     budget.mockResolvedValue(true)
+    claimPresence.mockResolvedValue(undefined)
+    releasePresence.mockResolvedValue(true)
     await relayRoutes({ get: (_path: string, _opts: unknown, handler: typeof route) => { route = handler } } as never)
   })
 
@@ -68,6 +72,29 @@ describe('relay authenticated WS ingress queue', () => {
     await route(socket, { query: { ticket: 'valid' } })
     expect(socket.close).toHaveBeenCalledWith(1011, 'Relay authentication unavailable')
     expect(register).not.toHaveBeenCalled()
+  })
+
+  it('fails closed if the Redis presence claim rejects before socket registration', async () => {
+    claimPresence.mockRejectedValueOnce(new Error('redis unavailable'))
+    const socket = new FakeSocket()
+    await route(socket, { query: { ticket: 'valid' } })
+    expect(socket.close).toHaveBeenCalledWith(1011, 'Relay presence unavailable')
+    expect(register).not.toHaveBeenCalled()
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it('does not register a socket closed while the Redis presence claim is pending', async () => {
+    let completeClaim!: () => void
+    claimPresence.mockImplementationOnce(() => new Promise<void>(resolve => { completeClaim = resolve }))
+    const socket = new FakeSocket()
+    const pending = route(socket, { query: { ticket: 'valid' } })
+    await flush()
+    expect(claimPresence).toHaveBeenCalledTimes(1)
+    socket.close()
+    completeClaim()
+    await pending
+    expect(register).not.toHaveBeenCalled()
+    expect(releasePresence).toHaveBeenCalledTimes(1)
   })
 
   it('preserves order across delayed asynchronous Redis decisions', async () => {
