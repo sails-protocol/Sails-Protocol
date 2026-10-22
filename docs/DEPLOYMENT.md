@@ -40,8 +40,10 @@
 > `scripts/docker-migrate-test.sh`), and the wrapper had in fact been
 > inert since the initial migration was renamed `20260807090000_init`
 > (it matched the old name `20260807_init`). `scripts/migrate-deploy-safe.sh`
-> was removed; migrations now run through the dedicated `migrate` image —
-> see section 6.0.
+> is therefore inert and no longer used by `docker-compose.yml`; the file is
+> kept only because open PR #451 still references it — removing it is a
+> follow-up for the CTO once #451 is decided. Migrations now run through the
+> dedicated `migrate` image — see section 6.0.
 
 ---
 

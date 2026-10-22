@@ -25,9 +25,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-IMAGE="${MIGRATE_IMAGE_TAG:-sails-migrate-ci:local}"
-PG_IMAGE="${PG_IMAGE:-postgres:16-alpine}"
 RUN="sailsmig$$"
+# A tag unique to this run: concurrent runs (and mutation testing) must never share an image.
+IMAGE="${MIGRATE_IMAGE_TAG:-${RUN}-migrate:local}"
+PG_IMAGE="${PG_IMAGE:-postgres:16-alpine}"
 NETWORK="${RUN}_net"
 DB="${RUN}-pg"
 BROKEN_IMAGE="${RUN}-broken:local"
@@ -49,7 +50,7 @@ cleanup() {
   docker compose -p "${RUN}b" down -v --remove-orphans >/dev/null 2>&1 || true
   docker rm -f "$DB" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
-  docker rmi -f "$BROKEN_IMAGE" >/dev/null 2>&1 || true
+  docker rmi -f "$BROKEN_IMAGE" "$IMAGE" >/dev/null 2>&1 || true
   rm -rf "$LOGS"
   exit "$status"
 }
@@ -90,7 +91,9 @@ docker run --rm --entrypoint sh "$IMAGE" -c 'test ! -e /app/dist && test ! -e /a
 pass "no server code (dist/, packages/) in the image"
 
 step "Start a throwaway PostgreSQL (${PG_IMAGE})"
-docker network create "$NETWORK" >/dev/null
+# --internal: no route out. The job must not need the internet (an engine download at migration
+# time would be both a hard dependency and an unpinned binary); here that would fail the run.
+docker network create --internal "$NETWORK" >/dev/null
 docker run -d --name "$DB" --network "$NETWORK" -e POSTGRES_PASSWORD="$PASSWORD" -e POSTGRES_DB=sails "$PG_IMAGE" >/dev/null
 ready=0
 for _ in $(seq 1 60); do
