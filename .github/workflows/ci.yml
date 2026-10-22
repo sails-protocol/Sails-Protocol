@@ -127,3 +127,14 @@ jobs:
 
       - name: Run Docker integration test
         run: bash ./scripts/docker-test.sh
+
+      # The step above brings up docker-compose, whose `app` service builds the
+      # `builder` stage; the image that is actually deployed (`--target
+      # runtime`) was never built or run by CI, so a missing COPY in that stage
+      # (`Cannot find module '@sails/core'`) kept it from booting unnoticed.
+      # This step builds and runs THAT image: pinned Node, non-root, every
+      # require resolves, production configuration gates refuse unsafe
+      # settings, and /health, /health/live, /health/ready answer in
+      # NODE_ENV=production. Any failure fails the job; nothing is published.
+      - name: Build and boot the production (runtime) Docker image
+        run: bash ./scripts/docker-runtime-test.sh
