@@ -169,6 +169,50 @@ function hashEvidence(evidence: unknown): string {
   return createHash('sha256').update(canonicalize(evidence)).digest('hex')
 }
 
+// Issue #300 — CTO-frozen OpenProof Resource Bound Policy V1.
+// Inline evidence is intentionally small structured JSON. Validate it without
+// recursive traversal before canonicalization/hash so adversarial depth cannot
+// consume the very resource this boundary exists to protect.
+export const INLINE_EVIDENCE_MAX_UTF8_BYTES = 256 * 1024
+export const INLINE_EVIDENCE_MAX_DEPTH = 32
+export const INLINE_EVIDENCE_MAX_NODES = 10_000
+
+export function assertInlineEvidenceResourceBounds(value: unknown): void {
+  // Structural admission MUST happen before JSON.stringify(): stringify itself
+  // recursively descends attacker-controlled objects and therefore cannot be
+  // the mechanism that decides whether depth is safe.
+  let nodes = 0
+  const stack: Array<{ value: unknown; depth: number }> = [{ value, depth: 1 }]
+  while (stack.length > 0) {
+    const current = stack.pop()!
+    nodes += 1
+    if (nodes > INLINE_EVIDENCE_MAX_NODES) {
+      throw new ValidationError('Inline proof evidence exceeds the 10,000-node complexity limit')
+    }
+    if (current.depth > INLINE_EVIDENCE_MAX_DEPTH) {
+      throw new ValidationError('Inline proof evidence exceeds the depth-32 limit')
+    }
+    if (current.value === null || typeof current.value !== 'object') continue
+    const children = Array.isArray(current.value)
+      ? current.value
+      : Object.values(current.value as Record<string, unknown>)
+    for (const child of children) stack.push({ value: child, depth: current.depth + 1 })
+  }
+
+  let serialized: string
+  try {
+    serialized = JSON.stringify(value)
+  } catch {
+    throw new ValidationError('Inline proof evidence must be valid JSON')
+  }
+  if (serialized === undefined) {
+    throw new ValidationError('Inline proof evidence must be valid JSON')
+  }
+  if (Buffer.byteLength(serialized, 'utf8') > INLINE_EVIDENCE_MAX_UTF8_BYTES) {
+    throw new ValidationError('Inline proof evidence exceeds the 256 KiB UTF-8 limit; use EvidenceProvider for larger evidence')
+  }
+}
+
 export interface AssertClaimInput {
   claimedBy: string
   claimType: string
@@ -240,6 +284,10 @@ export class ProofService {
   // a "reject the request" case; it is architecturally impossible for a
   // client-supplied hash to ever reach storage.
   async submitProof(input: SubmitProofInput) {
+    // Resource admission precedes every DB read, authorization traversal,
+    // canonicalization/hash, persistence, registry lookup and event emission.
+    assertInlineEvidenceResourceBounds(input.evidence)
+
     const claim = await prisma.claim.findUnique({ where: { id: input.claimId } })
     if (!claim) throw new NotFoundError('Claim', input.claimId)
 
