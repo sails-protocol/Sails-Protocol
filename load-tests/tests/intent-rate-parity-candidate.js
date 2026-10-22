@@ -29,9 +29,10 @@ export const options = {
       rate: 1,
       timeUnit: '1s',
       duration: '1999ms',
-      // Avoid k6's inclusive 2s boundary tick. This is a scheduling
-      // stability candidate only: the requested 2s Artillery window is NOT
-      // claimed equivalent to 1999ms without independent arrival timing proof.
+      // A 1999ms window avoids an intentional 2s boundary tick, but it does
+      // not guarantee exactly two scheduled iterations: a third has occurred
+      // in CI. This is a rate-shape experiment, not scheduler equivalence.
+      // Never infer a fixed arrival count from duration alone.
       // An extra iteration is still possible; if observed, reject it\n      // before authentication and fail the candidate.
       // This bounds side effects, but cannot make a 3-arrival schedule equal 2.
       preAllocatedVUs: 2,
