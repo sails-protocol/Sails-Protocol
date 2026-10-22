@@ -144,11 +144,13 @@ describe('relay live WebSocket upgrade and ingress', () => {
   it('reconnects with a fresh ticket and retires the previous socket without losing the new owner', async () => {
     const first = await connect('ticket-one')
     await waitRegistered()
+    const originalOwner = sockets.get('participant')
     const second = await connect('ticket-two')
-    for (let i = 0; i < 200 && sockets.get('participant') === first; i++) {
+    for (let i = 0; i < 200 && sockets.get('participant') === originalOwner; i++) {
       await new Promise(resolve => setTimeout(resolve, 10))
     }
-    expect(sockets.get('participant')).not.toBe(first)
+    expect(sockets.get('participant')).toBeDefined()
+    expect(sockets.get('participant')).not.toBe(originalOwner)
     const firstClosed = closeEvent(first)
     first.close()
     await firstClosed
