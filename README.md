@@ -1,9 +1,9 @@
 # Sails Protocol
 
 [![npm version](https://img.shields.io/npm/v/@satsails/p2p-trading-sdk.svg)](https://www.npmjs.com/package/@satsails/p2p-trading-sdk)
-[![CI](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml)
+[![CI](https://github.com/sails-protocol/Sails-Protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/sails-protocol/Sails-Protocol/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Architecture Diagrams](https://img.shields.io/badge/architecture-diagrams-informational.svg)](https://alan-schramm.github.io/Sails-Protocol/)
+[![Architecture Diagrams](https://img.shields.io/badge/architecture-diagrams-informational.svg)](https://github.com/sails-protocol/Sails-Protocol/blob/main/docs/SYSTEM_DESIGN.md)
 
 **Sails Protocol is an Economic Coordination Protocol.**
 
@@ -76,7 +76,7 @@ Applications / Integrators
                      wallet, transport and settlement stacks
 ```
 
-This diagram is orientation, not specification. For the consolidated current system-level technical map, start with [System Design](docs/SYSTEM_DESIGN.md). Deeper architecture ownership remains with the governing architecture documents, and rendered architecture diagrams are available at [alan-schramm.github.io/Sails-Protocol](https://alan-schramm.github.io/Sails-Protocol/).
+This diagram is orientation, not specification. For the consolidated current system-level technical map, start with [System Design](docs/SYSTEM_DESIGN.md). Deeper architecture ownership remains with the governing architecture documents, and rendered architecture diagrams are available at [Sails Protocol System Design](https://github.com/sails-protocol/Sails-Protocol/blob/main/docs/SYSTEM_DESIGN.md).
 
 ## Start here
 

@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
   - name: Architecture / Protocol question
-    url: https://github.com/alan-schramm/Sails-Protocol/blob/main/docs/GOVERNANCE.md
+    url: https://github.com/sails-protocol/Sails-Protocol/blob/main/docs/GOVERNANCE.md
     about: Read the RFC process before proposing a primitive, module, or spec change.
