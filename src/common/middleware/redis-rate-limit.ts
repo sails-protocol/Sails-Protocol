@@ -51,6 +51,11 @@ return count
 `
 
 export function createSharedRateLimit(opts: SharedRateLimitOptions) {
+  if (!Number.isSafeInteger(opts.max) || opts.max < 1 ||
+      !Number.isSafeInteger(opts.windowMs) || opts.windowMs < 1 ||
+      !/^[a-zA-Z0-9_-]{1,64}$/.test(opts.keyPrefix)) {
+    throw new Error('Invalid shared rate limit configuration')
+  }
   return async function sharedRateLimitPreHandler(req: FastifyRequest): Promise<void> {
     // Each route keeps its own independent budget, same as the
     // @fastify/rate-limit per-route `config.rateLimit` override this
