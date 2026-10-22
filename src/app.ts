@@ -12,7 +12,8 @@ import { prisma } from './common/database'
 import { connectDatabase } from './common/database'
 import { redis } from './common/redis'
 import { connectRedis } from './common/redis'
-import { AppError, ERROR_DOCS_URL } from './common/errors'
+import { AppError, DependencyUnavailableError, ERROR_DOCS_URL } from './common/errors'
+import { isRedisUnavailableError } from './common/redis/unavailable'
 import { registerEventHandlers } from './common/events/handlers'
 import { eventBus } from './common/events/event-bus'
 import { intentEngine } from './core/intent-engine'
@@ -290,6 +291,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         requestId: request.id,
         docsUrl: ERROR_DOCS_URL,
       })
+    }
+
+    if (isRedisUnavailableError(error)) {
+      app.log.warn({ msg: 'Redis unavailable or over its command bound', err: error instanceof Error ? error.message : String(error) })
+      const unavailable = new DependencyUnavailableError()
+      return reply.code(unavailable.statusCode).send({ ...unavailable.toResponse(), requestId: request.id })
     }
 
     app.log.error(error)

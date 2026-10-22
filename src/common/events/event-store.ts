@@ -264,7 +264,9 @@ export class PostgresEventStore implements EventStore {
     if (this.crossInstanceSubscriber) return // idempotent — a second call is a no-op, not an error
     this.crossInstancePublisher = publisher
 
-    const subscriber = publisher.duplicate()
+    // A long-lived background subscription, never on a request path: keep it
+    // unbounded (the shared client's commandTimeout would be inherited).
+    const subscriber = publisher.duplicate({ commandTimeout: undefined })
     this.crossInstanceSubscriber = subscriber
 
     subscriber.on('error', (err) => {
@@ -557,6 +559,11 @@ export class RedisStreamsEventStore implements EventStore {
     private readonly blockMs = 1_000
   ) {
     this.consumerName = `${consumerGroup}-${process.pid}-${uuidv4().slice(0, 8)}`
+    // #307 B.3: XREADGROUP BLOCK on a client with commandTimeout is rejected
+    // ("Command timed out") whenever no message arrives within the bound.
+    if (typeof client.options?.commandTimeout === 'number') {
+      throw new Error('RedisStreamsEventStore needs a dedicated Redis client without commandTimeout (blocking XREADGROUP)')
+    }
   }
 
   private streamKey(eventName: SailsEventName): string {

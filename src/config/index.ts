@@ -220,6 +220,10 @@ export const config = {
     url: isProductionEnv
       ? required('REDIS_URL')
       : required('REDIS_URL', 'redis://localhost:6379'),
+    // #307 B.3: upper bound for any one command on the shared client, so a
+    // Redis that stops answering fails a request (503) instead of holding it
+    // until the caller gives up. Blocking reads must use a dedicated client.
+    commandTimeoutMs: requiredPositiveInt('REDIS_COMMAND_TIMEOUT_MS', 2_000),
   },
 
   auth: {
