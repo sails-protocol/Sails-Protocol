@@ -134,10 +134,10 @@ pass "expected tables exist"
 fingerprint() {
   psql_q "select md5(coalesce((select string_agg(table_name||'.'||column_name||':'||data_type||':'||is_nullable, ',' order by table_name, ordinal_position) from information_schema.columns where table_schema='public'),'')) || '/' || md5(coalesce((select string_agg(migration_name||':'||checksum, ',' order by migration_name) from _prisma_migrations),''))"
 }
-BEFORE=$(fingerprint)
 # A job that dropped and recreated everything would reproduce the same schema; data written
-# between the runs must therefore survive the second one.
+# before the second run must therefore survive it. (Written BEFORE the fingerprint is taken.)
 psql_q "create table migrate_test_sentinel(id int); insert into migrate_test_sentinel values (1)" >/dev/null
+BEFORE=$(fingerprint)
 
 step "Second run is idempotent"
 run_migrate second 0 -e "DATABASE_URL=$URL" "$IMAGE"
