@@ -114,6 +114,27 @@ describe('relay authenticated WS ingress queue', () => {
     }
   })
 
+  it('does not revive a socket when Redis confirms renewal after its lease expired', async () => {
+    jest.useFakeTimers()
+    try {
+      let finishRenewal!: (value: boolean) => void
+      renewPresence.mockImplementationOnce(() => new Promise<boolean>(resolve => { finishRenewal = resolve }))
+      const socket = new FakeSocket()
+      await route(socket, { query: { ticket: 'valid' } })
+      await jest.advanceTimersByTimeAsync(10_000)
+      expect(renewPresence).toHaveBeenCalledTimes(1)
+      await jest.advanceTimersByTimeAsync(20_000)
+      expect(socket.close).toHaveBeenCalledWith(1011, 'Relay presence lease expired')
+      finishRenewal(true)
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(socket.readyState).toBe(3)
+      expect(register).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it('preserves order across delayed asynchronous Redis decisions', async () => {
     let release!: (value: boolean) => void
     budget.mockImplementationOnce(() => new Promise<boolean>(resolve => { release = resolve }))
