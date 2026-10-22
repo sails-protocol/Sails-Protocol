@@ -46,6 +46,7 @@ import packageJson from '../package.json'
 // stale (package.json is 0.1.1). Reading it from the one real source
 // means this can't silently drift again.
 const API_VERSION = packageJson.version
+export const HTTP_BODY_LIMIT_BYTES = 1024 * 1024
 
 export interface BuildAppOptions {
   // Technical Debt #57 bounded remediation (2026-09-10). @fastify/swagger
@@ -80,6 +81,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   )
 
   const app = Fastify({
+    bodyLimit: HTTP_BODY_LIMIT_BYTES,
     logger: {
       level: config.app.logLevel,
       transport:
@@ -227,17 +229,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     else if (reply.statusCode === 429) recordSuspiciousActivity('RATE_LIMITED', identity, app.log)
   })
 
-  // Unauthenticated by default, matching standard Prometheus exporter
-  // convention (Prometheus itself has no notion of a Bearer token without
-  // extra scrape-config wiring) — restrict actual access at the network
-  // layer (security group / reverse-proxy allowlist) in production, the
-  // same expectation DEPLOYMENT.md already sets for the Postgres/Redis
-  // ports. Contains only aggregate counters, never per-user data — safe
-  // under this protocol's own no-platform-operator-visibility principle.
-  app.get('/metrics', async (_request, reply) => {
-    reply.header('content-type', metricsRegistry.contentType)
-    return metricsRegistry.metrics()
-  })
+  if (config.observability.metricsEnabled) {
+    app.get('/metrics', async (_request, reply) => {
+      reply.header('content-type', metricsRegistry.contentType)
+      return metricsRegistry.metrics()
+    })
+  }
 
   // ── Error Handler ─────────────────────────────────────────────────────────
   app.setErrorHandler((error, request, reply) => {
@@ -311,7 +308,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }))
 
   app.get('/health/ready', async (_request, reply) => {
-    const checks: Record<string, { ok: boolean; latencyMs: number; error?: string }> = {}
+    const checks: Record<string, { ok: boolean; latencyMs: number }> = {}
 
     const timed = async <T,>(label: string, fn: () => Promise<T>) => {
       const start = Date.now()
@@ -319,10 +316,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         await fn()
         checks[label] = { ok: true, latencyMs: Date.now() - start }
       } catch (err) {
+        app.log.error({ err, dependency: label }, 'Readiness dependency unavailable')
         checks[label] = {
           ok: false,
           latencyMs: Date.now() - start,
-          error: err instanceof Error ? err.message : String(err),
         }
       }
     }
@@ -348,10 +345,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     protocol: 'Sails Protocol',
     module: 'Sails OpenP2P',
     referenceImplementation: 'Satsails Wallet',
-    features: {
-      mockEscrow: config.features.mockEscrow,
-      mockSettlement: config.features.mockSettlement,
-    },
+    ...(config.isProduction
+      ? {}
+      : {
+          features: {
+            mockEscrow: config.features.mockEscrow,
+            mockSettlement: config.features.mockSettlement,
+          },
+        }),
   }))
 
   app.get('/', async () => ({

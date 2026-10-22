@@ -94,7 +94,7 @@ describe('/health/ready', () => {
 
   it('reports 503 not_ready when redis is unreachable, without crashing', async () => {
     jest.doMock('../src/common/database', () => ({ prisma: { $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]) } }))
-    jest.doMock('../src/common/redis', () => ({ redis: { ping: jest.fn().mockRejectedValue(new Error('ECONNREFUSED')) } }))
+    jest.doMock('../src/common/redis', () => ({ redis: { ping: jest.fn().mockRejectedValue(new Error('connect redis.internal:6379 password=secret ECONNREFUSED')) } }))
     const { buildApp } = require('../src/app')
     const app = await buildApp({ registerSwaggerUi: false })
     try {
@@ -104,7 +104,7 @@ describe('/health/ready', () => {
       expect(body.status).toBe('not_ready')
       expect(body.checks.postgres.ok).toBe(true)
       expect(body.checks.redis.ok).toBe(false)
-      expect(body.checks.redis.error).toContain('ECONNREFUSED')
+      expect(JSON.stringify(body)).not.toMatch(/redis\.internal|password=secret|ECONNREFUSED/)
     } finally {
       await app.close()
     }
@@ -120,9 +120,91 @@ describe('/health/ready', () => {
       expect(res.statusCode).toBe(503)
       const body = JSON.parse(res.body)
       expect(body.checks.redis.ok).toBe(false)
-      expect(body.checks.redis.error).toContain('WEIRD')
+      expect(body.checks.redis).toEqual({ ok: false, latencyMs: expect.any(Number) })
     } finally {
       await app.close()
+    }
+  })
+
+  it('reports 503 not_ready when postgres fails without exposing connection details', async () => {
+    jest.doMock('../src/common/database', () => ({ prisma: { $queryRaw: jest.fn().mockRejectedValue(new Error('postgres.internal:5432/sails_protocol password=secret socket timeout')) } }))
+    jest.doMock('../src/common/redis', () => ({ redis: { ping: jest.fn().mockResolvedValue('PONG') } }))
+    const { buildApp } = require('../src/app')
+    const app = await buildApp({ registerSwaggerUi: false })
+    try {
+      const res = await app.inject({ method: 'GET', url: '/health/ready' })
+      expect(res.statusCode).toBe(503)
+      const body = JSON.parse(res.body)
+      expect(body.checks.postgres).toEqual({ ok: false, latencyMs: expect.any(Number) })
+      expect(JSON.stringify(body)).not.toMatch(/postgres\.internal|sails_protocol|password=secret|socket timeout/)
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('keeps production health public but hides internal posture and metrics by default', async () => {
+    const originalEnv = process.env
+    process.env = {
+      ...process.env,
+      NODE_ENV: 'production',
+      MOCK_ESCROW: 'false',
+      MOCK_SETTLEMENT: 'false',
+      ENFORCE_CAPABILITIES: 'true',
+      DATABASE_URL: 'postgresql://postgres.internal/sails_protocol',
+      REDIS_URL: 'redis://redis.internal:6379',
+      MULTISIG_NETWORK: 'testnet',
+      EVIDENCE_PROVIDER: 's3',
+      EVIDENCE_S3_BUCKET: 'real-evidence-bucket',
+      EVIDENCE_S3_ACCESS_KEY_ID: 'real-access-key',
+      EVIDENCE_S3_SECRET_ACCESS_KEY: 'real-secret-key',
+      METRICS_ENABLED: 'false',
+    }
+    jest.resetModules()
+    jest.doMock('../src/common/database', () => ({ prisma: { $queryRaw: jest.fn(), $disconnect: jest.fn() } }))
+    jest.doMock('../src/common/redis', () => ({ redis: { ping: jest.fn(), quit: jest.fn() } }))
+    const { buildApp } = require('../src/app')
+    const app = await buildApp({ registerSwaggerUi: false })
+    try {
+      const health = await app.inject({ method: 'GET', url: '/health' })
+      const metrics = await app.inject({ method: 'GET', url: '/metrics' })
+      expect(health.statusCode).toBe(200)
+      expect(JSON.parse(health.body).features).toBeUndefined()
+      expect(metrics.statusCode).toBe(404)
+    } finally {
+      await app.close()
+      process.env = originalEnv
+    }
+  })
+
+  it('serves production metrics only when explicitly enabled', async () => {
+    const originalEnv = process.env
+    process.env = {
+      ...process.env,
+      NODE_ENV: 'production',
+      MOCK_ESCROW: 'false',
+      MOCK_SETTLEMENT: 'false',
+      ENFORCE_CAPABILITIES: 'true',
+      DATABASE_URL: 'postgresql://postgres.internal/sails_protocol',
+      REDIS_URL: 'redis://redis.internal:6379',
+      MULTISIG_NETWORK: 'testnet',
+      EVIDENCE_PROVIDER: 's3',
+      EVIDENCE_S3_BUCKET: 'real-evidence-bucket',
+      EVIDENCE_S3_ACCESS_KEY_ID: 'real-access-key',
+      EVIDENCE_S3_SECRET_ACCESS_KEY: 'real-secret-key',
+      METRICS_ENABLED: 'true',
+    }
+    jest.resetModules()
+    jest.doMock('../src/common/database', () => ({ prisma: { $queryRaw: jest.fn(), $disconnect: jest.fn() } }))
+    jest.doMock('../src/common/redis', () => ({ redis: { ping: jest.fn(), quit: jest.fn() } }))
+    const { buildApp } = require('../src/app')
+    const app = await buildApp({ registerSwaggerUi: false })
+    try {
+      const metrics = await app.inject({ method: 'GET', url: '/metrics' })
+      expect(metrics.statusCode).toBe(200)
+      expect(metrics.body).toContain('# HELP sails_http_requests_total')
+    } finally {
+      await app.close()
+      process.env = originalEnv
     }
   })
 })
