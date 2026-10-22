@@ -19,6 +19,14 @@ const request = () => ({
 describe('shared rate limit — Redis failure and rejection contract', () => {
   beforeEach(() => { evalMock.mockReset(); pttlMock.mockReset() })
 
+  it('fails closed without creating unbounded keys when the canonical route is missing', async () => {
+    const req = request()
+    ;(req.routeOptions as { url?: string }).url = undefined
+    req.url = '/v1/identity/challenge?attacker=unique'
+    await expect(limiter(req)).rejects.toBeInstanceOf(RateLimitUnavailableError)
+    expect(evalMock).not.toHaveBeenCalled()
+  })
+
   it('fails closed with 503 when atomic Redis operation rejects', async () => {
     evalMock.mockRejectedValueOnce(new Error('Redis disconnected'))
     await expect(limiter(request())).rejects.toBeInstanceOf(RateLimitUnavailableError)
