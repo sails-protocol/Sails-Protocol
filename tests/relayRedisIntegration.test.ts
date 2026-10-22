@@ -6,6 +6,7 @@
 import Redis from 'ioredis'
 import { randomUUID } from 'crypto'
 import { RELAY_BUDGET_SCRIPT } from '../src/infrastructure/p2p/relay-shared-budget'
+import { RELAY_PRESENCE_RELEASE_SCRIPT, RELAY_PRESENCE_RENEW_SCRIPT } from '../src/infrastructure/p2p/relay-presence'
 import { ATOMIC_CONSUME_SCRIPT, atomicConsume } from '../src/common/redis/atomic-consume'
 import { resolveParticipantFromTicket } from '../src/common/middleware/ws-auth'
 
@@ -22,6 +23,24 @@ suite('relay shared budget — real Redis concurrent instances', () => {
   })
   afterAll(async () => {
     await Promise.all([a?.quit(), b?.quit()])
+  })
+
+  it('fences stale presence release and renewal across independent Redis clients', async () => {
+    const key = 'test:relay:presence:' + randomUUID()
+    const oldToken = randomUUID()
+    const newToken = randomUUID()
+    try {
+      await a.set(key, oldToken, 'PX', 5000)
+      await b.set(key, newToken, 'PX', 5000)
+      expect(await a.eval(RELAY_PRESENCE_RELEASE_SCRIPT, 1, key, oldToken)).toBe(0)
+      expect(await a.eval(RELAY_PRESENCE_RENEW_SCRIPT, 1, key, oldToken, 5000)).toBe(0)
+      expect(await b.get(key)).toBe(newToken)
+      expect(await b.eval(RELAY_PRESENCE_RENEW_SCRIPT, 1, key, newToken, 5000)).toBe(1)
+      expect(await a.eval(RELAY_PRESENCE_RELEASE_SCRIPT, 1, key, newToken)).toBe(1)
+      expect(await b.get(key)).toBeNull()
+    } finally {
+      await a.del(key)
+    }
   })
 
   it('rejects a missing ticket through the production resolver without Redis access', async () => {
