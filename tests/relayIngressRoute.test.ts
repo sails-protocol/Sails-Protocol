@@ -8,11 +8,12 @@ const unregister = jest.fn()
 const owns = jest.fn()
 const claimPresence = jest.fn()
 const releasePresence = jest.fn()
+const renewPresence = jest.fn()
 
 jest.mock('../src/infrastructure/p2p/relay-presence', () => ({
   RELAY_PRESENCE_TTL_MS: 30_000,
   claimRelayPresence: (...args: unknown[]) => claimPresence(...args),
-  renewRelayPresence: jest.fn().mockResolvedValue(true),
+  renewRelayPresence: (...args: unknown[]) => renewPresence(...args),
   releaseRelayPresence: (...args: unknown[]) => releasePresence(...args),
 }))
 
@@ -50,6 +51,7 @@ describe('relay authenticated WS ingress queue', () => {
     budget.mockResolvedValue(true)
     claimPresence.mockResolvedValue(undefined)
     releasePresence.mockResolvedValue(true)
+    renewPresence.mockResolvedValue(true)
     await relayRoutes({ get: (_path: string, _opts: unknown, handler: typeof route) => { route = handler } } as never)
   })
 
@@ -95,6 +97,21 @@ describe('relay authenticated WS ingress queue', () => {
     await pending
     expect(register).not.toHaveBeenCalled()
     expect(releasePresence).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes a registered socket when a Redis presence renewal never settles', async () => {
+    jest.useFakeTimers()
+    try {
+      renewPresence.mockImplementation(() => new Promise<boolean>(() => undefined))
+      const socket = new FakeSocket()
+      await route(socket, { query: { ticket: 'valid' } })
+      expect(register).toHaveBeenCalledTimes(1)
+      await jest.advanceTimersByTimeAsync(31_000)
+      expect(renewPresence).toHaveBeenCalledTimes(1)
+      expect(socket.close).toHaveBeenCalledWith(1011, 'Relay presence lease expired')
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('preserves order across delayed asynchronous Redis decisions', async () => {
