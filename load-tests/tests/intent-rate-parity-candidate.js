@@ -5,7 +5,7 @@
  * in-engine Intent HTTP operations while k6 also measures eight auth calls (12 HTTP requests total).
  * Run only on a disposable loopback backend with a fresh auth-rate-limit window.
  */
-import { Counter } from 'k6/metrics'
+import { Counter, Trend } from 'k6/metrics'
 import exec from 'k6/execution'
 import { BASE_URL, baseOptions } from '../k6.config.js'
 import { generateTestUser } from '../utils/data-generator.js'
@@ -14,6 +14,7 @@ import { run } from './intent-creation.js'
 if (!/^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/?$/.test(BASE_URL)) {
   throw new Error('Intent rate candidate requires loopback HTTP target')
 }
+const observedSetupEpochMs = new Trend('sails_observed_setup_start_epoch_ms')
 const authenticated = new Counter('sails_authenticated_arrivals')
 const completed = new Counter('sails_completed_intent_pairs')
 const createSamples = new Counter('sails_intent_create_samples')
@@ -61,6 +62,9 @@ export default function () {
   // Emit a zero sample on every invocation so the zero-excess threshold
   // remains evaluable even when no boundary arrival occurs.
   extraScheduledArrivals.add(0)
+  // Observed k6 iteration entry, not the executor's scheduled arrival timestamp.
+  // Include boundary extras so a rejected third arrival cannot disappear from timing evidence.
+  observedSetupEpochMs.add(Date.now())
   // Preserve strict fail-closed accounting. An unexpected third iteration
   // must not consume four additional auth requests or mutate intents.
   // __ITER is per-VU, so two VUs can both report iteration 0.
