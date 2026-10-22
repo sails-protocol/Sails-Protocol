@@ -4,6 +4,18 @@ Status: **NOT HOMOLOGATED / BLOCKED**. This document records evidence, not autho
 
 ## Verified CI evidence
 
+Commit `8a7016e22775752100581d06c1c6bca7bb4c9704` (authenticated WSS/TLS integration test):
+- CI run 39714388152 — success.
+- CI Tests run 39714388072 — success.
+- CodeQL run 39714388097 — success.
+- Test opens a real `wss://` connection to a Fastify HTTPS listener with an ephemeral self-signed certificate and a mocked ticket resolver. Client certificate verification is disabled only in this test. **This is not reverse-proxy, public CA, or production deployment evidence.**
+
+Commit `caaab99661c9803ec370a9c2068f2a28741d54c1` (invalid ticket rejection):
+- CI run 39710444369 — success.
+- CI Tests run 39710444361 — success.
+- CodeQL run 39710444362 — success.
+
+
 Commit `d88c8f242d1a2e4670f042536d648c867c263b6d` (Docker CI evidence):
 - CI run 39542349709 — success.
 - CI Tests run 39542349739 — success.
@@ -71,7 +83,7 @@ Earlier baseline: commit `31182b7ea036862ff0faf08c842d8dcecb68011b` passed CI 39
 ## Proxy/TLS evidence boundary
 
 - `/ws/relay` is a WebSocket upgrade endpoint and accepts a single-use ticket in the URL query. The route itself does not terminate TLS or establish an HTTPS/WSS reverse-proxy configuration.
-- TCP `ws://127.0.0.1` integration tests verify the application protocol and ticket path, **not** public `wss://` termination, proxy upgrade forwarding, secure cookies/headers, deployment certificate validity or the actual deployed network path.
+- TCP `ws://127.0.0.1` integration tests verify the application protocol and ticket path. A separate green `wss://` integration test now verifies TLS directly at the Fastify listener with a self-signed certificate and mocked ticket resolver. **Neither proves** reverse-proxy upgrade forwarding, public certificate validity, production security headers, or the actual deployed network path.
 - Acceptance requires evidence from a representative TLS-terminating proxy with a real WSS upgrade and an authenticated client, including rejection/failure cases. Do not infer that a green Docker integration test proves this.
 
 ## Gate decision
