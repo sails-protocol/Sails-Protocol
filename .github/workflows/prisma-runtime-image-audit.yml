@@ -1,0 +1,74 @@
+name: Prisma runtime image audit
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/prisma-runtime-image-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-image-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact PR 449 source
+        uses: actions/checkout@v4
+        with:
+          ref: 5b80d579ab06c5e5845133e9436cc944da76a766
+          path: reference
+
+      - name: Verify checked out SHA
+        run: test "$(git -C reference rev-parse HEAD)" = "5b80d579ab06c5e5845133e9436cc944da76a766"
+
+      - name: Build the final production image
+        working-directory: reference
+        run: docker build --target runtime --tag sails-prisma-runtime-audit:449 -f Dockerfile .
+
+      - name: Inspect packages in the final image
+        working-directory: reference
+        run: |
+          docker image inspect --format 'user={{.Config.User}} env={{json .Config.Env}} entrypoint={{json .Config.Entrypoint}} cmd={{json .Config.Cmd}}' sails-prisma-runtime-audit:449 > runtime-image-report.txt
+          docker run --rm --entrypoint node sails-prisma-runtime-audit:449 -e '
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const names = ["prisma", "@prisma/config", "mysql2", "deepmerge-ts", "@prisma/client", "@prisma/adapter-pg"];
+          const installed = new Map(names.map((name) => [name, []]));
+
+          function scan(nodeModules) {
+            if (!fs.existsSync(nodeModules)) return;
+            for (const entry of fs.readdirSync(nodeModules, { withFileTypes: true })) {
+              if (entry.name === ".bin") continue;
+              const entryPath = path.join(nodeModules, entry.name);
+              if (entry.isDirectory() && entry.name.startsWith("@")) {
+                scan(entryPath);
+                continue;
+              }
+              if (!entry.isDirectory()) continue;
+              const manifestPath = path.join(entryPath, "package.json");
+              if (fs.existsSync(manifestPath)) {
+                const pkg = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+                if (installed.has(pkg.name)) installed.get(pkg.name).push({ path: entryPath, version: pkg.version });
+              }
+              scan(path.join(entryPath, "node_modules"));
+            }
+          }
+
+          scan(path.resolve("node_modules"));
+          for (const name of names) {
+            let requireResolvable = true;
+            try { require.resolve(name); } catch { requireResolvable = false; }
+            console.log(JSON.stringify({ name, physicallyInstalled: installed.get(name).length > 0, requireResolvable, matches: installed.get(name) }));
+          }
+          ' >> runtime-image-report.txt
+          cat runtime-image-report.txt
+
+      - name: Preserve final image report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prisma-runtime-image-449
+          path: reference/runtime-image-report.txt
+          if-no-files-found: warn
+          retention-days: 7
