@@ -87,6 +87,24 @@ describe('shared rate limit — real Redis atomicity and expiry', () => {
     expect(await redis.get(b)).toBe('1')
   })
 
+  it('rejects a poisoned non-integer counter without silently resetting the key', async () => {
+    const k = key('poisoned')
+    await redis.set(k, 'invalid', 'PX', 2000)
+    await expect(run(k, 2000)).rejects.toThrow()
+    expect(await redis.get(k)).toBe('invalid')
+    expect(await redis.pttl(k)).toBeGreaterThan(0)
+  })
+
+  it('keeps the original window after concurrent requests and rejects a later overflow', async () => {
+    const k = key('overflow')
+    const values = await Promise.all(Array.from({ length: 20 }, () => run(k, 2000)))
+    expect([...values].sort((a, b) => a - b)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1))
+    expect(await run(k, 2000)).toBe(21)
+    const ttl = await redis.pttl(k)
+    expect(ttl).toBeGreaterThan(0)
+    expect(ttl).toBeLessThanOrEqual(2000)
+  })
+
   it('expires the fixed window and starts a new count', async () => {
     const k = key('expiry')
     expect(await run(k, 120)).toBe(1)
