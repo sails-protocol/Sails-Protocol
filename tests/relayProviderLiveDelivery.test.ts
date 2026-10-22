@@ -198,6 +198,18 @@ describe('real relay provider with two live TCP WebSocket clients', () => {
     }
   })
 
+  it('does not route across isolated provider instances or report false delivery', async () => {
+    const instanceA = new WebSocketRelayTransportProvider()
+    const instanceB = new WebSocketRelayTransportProvider()
+    const remoteSocket = { readyState: 1, send: jest.fn(), close: jest.fn() }
+    instanceB.registerSocket('bob', remoteSocket)
+    expect(instanceB.isConnected('bob')).toBe(true)
+    expect(instanceA.isConnected('bob')).toBe(false)
+    expect(await instanceA.sendToPeer('alice', 'bob', 'must-not-arrive')).toBe(false)
+    expect(remoteSocket.send).not.toHaveBeenCalled()
+    await instanceB.stop('bob')
+  })
+
   it('rejects unsupported topic discovery instead of silently succeeding', async () => {
     await expect(relay.joinTopic('alice', 'marketplace')).rejects.toThrow('does not support topic discovery')
     await expect(relay.broadcast('alice', { kind: 'offer_announce' })).resolves.toBe(0)
