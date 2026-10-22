@@ -139,6 +139,7 @@ describe('real relay provider with two live TCP WebSocket clients', () => {
     const certPath = join(dir, 'server.crt')
     let proxy: ReturnType<typeof createHttpsServer> | undefined
     let client: WebSocket | undefined
+    let bobClient: WebSocket | undefined
     try {
       execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes',
         '-keyout', keyPath, '-out', certPath, '-days', '1',
@@ -172,8 +173,26 @@ describe('real relay provider with two live TCP WebSocket clients', () => {
       })
       await until(() => relay.isConnected('alice'))
       expect(ticket).toHaveBeenCalledWith('alice')
+      bobClient = new WebSocket('wss://localhost:' + address.port + '/ws/relay?ticket=bob',
+        { ca: readFileSync(certPath), family: 4 })
+      const bob = bobClient
+      await new Promise<void>((resolve, reject) => {
+        bob.once('open', resolve)
+        bob.once('error', reject)
+      })
+      await until(() => relay.isConnected('bob'))
+      const received = new Promise<string>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Proxy relay delivery timed out')), 2000)
+        bob.once('message', data => {
+          clearTimeout(timeout)
+          resolve(data.toString())
+        })
+      })
+      expect(await relay.sendToPeer('alice', 'bob', 'opaque-through-wss-proxy')).toBe(true)
+      expect(await received).toBe('opaque-through-wss-proxy')
     } finally {
       client?.terminate()
+      bobClient?.terminate()
       if (proxy) await new Promise<void>(resolve => proxy!.close(() => resolve()))
       rmSync(dir, { recursive: true, force: true })
     }
