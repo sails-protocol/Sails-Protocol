@@ -132,12 +132,16 @@ fingerprint() {
   psql_q "select md5(coalesce((select string_agg(table_name||'.'||column_name||':'||data_type||':'||is_nullable, ',' order by table_name, ordinal_position) from information_schema.columns where table_schema='public'),'')) || '/' || md5(coalesce((select string_agg(migration_name||':'||checksum, ',' order by migration_name) from _prisma_migrations),''))"
 }
 BEFORE=$(fingerprint)
+# A job that dropped and recreated everything would reproduce the same schema; data written
+# between the runs must therefore survive the second one.
+psql_q "create table migrate_test_sentinel(id int); insert into migrate_test_sentinel values (1)" >/dev/null
 
 step "Second run is idempotent"
 run_migrate second 0 -e "DATABASE_URL=$URL" "$IMAGE"
 grep -q 'No pending migrations to apply' "$LOGS/second.log" || fail "second run did not report 'No pending migrations to apply'"
 grep -q 'Applying migration' "$LOGS/second.log" && fail "second run re-applied a migration"
 [ "$(fingerprint)" = "$BEFORE" ] || fail "schema or migration checksums changed on the second run"
+[ "$(psql_q 'select count(*) from migrate_test_sentinel')" = "1" ] || fail "data written before the second run did not survive it"
 [ "$(psql_q 'select count(*) from _prisma_migrations')" = "$EXPECTED_MIGRATIONS" ] || fail "migration history changed on the second run"
 pass "no-op: same exit, nothing applied, schema fingerprint and checksums identical"
 
