@@ -644,6 +644,51 @@ jobs:
           echo 'Scheduler probe interpretation: a passing series does not disprove previously reproduced third arrivals; retain fail-closed count thresholds.'
           if [ "$failures" -ne 0 ]; then exit 1; fi
           echo 'k6 isolated scheduler 12/12 PASS; cross-engine parity NOT established'
+      - name: Evaluate shorter isolated scheduler window separately
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          failures=0
+          for trial in $(seq 1 12); do
+            summary="/tmp/sails-k6-short-probe-${trial}.json"
+            if SAILS_SCHEDULER_PROBE_DURATION=1900ms timeout 20s k6 run --quiet --summary-export="$summary" load-tests/tests/arrival-scheduler-probe.js > /tmp/sails-k6-short-probe.log 2>&1; then
+              node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const [file,trial]=process.argv.slice(2);
+          const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
+          const count=k=>m[k]?.count;
+          const evidence={trial:Number(trial),windowMs:1900,iterations:count('iterations')??null,
+            entries:count('sails_probe_entries')??null,extras:count('sails_probe_extra_entries')??null,
+            samples:count('sails_probe_timestamp_samples')??null,dropped:count('dropped_iterations')??0,
+            spanMs:(m.sails_probe_entry_epoch_ms?.max??NaN)-(m.sails_probe_entry_epoch_ms?.min??NaN)};
+          console.log('k6 shorter scheduler evidence:',JSON.stringify(evidence));
+          assert.equal(evidence.iterations,2);
+          assert.equal(evidence.entries,2);
+          assert.equal(evidence.extras,0);
+          assert.equal(evidence.samples,2);
+          assert.equal(evidence.dropped,0);
+          assert.ok(Number.isFinite(evidence.spanMs));
+          NODE
+            else
+              node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const [file,trial]=process.argv.slice(2);
+          const m=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')).metrics||{}:{};
+          const count=k=>m[k]?.count??null;
+          console.error('k6 shorter scheduler FAIL:',JSON.stringify({
+            trial:Number(trial),windowMs:1900,iterations:count('iterations'),
+            entries:count('sails_probe_entries'),extras:count('sails_probe_extra_entries'),
+            samples:count('sails_probe_timestamp_samples'),dropped:count('dropped_iterations')}));
+          NODE
+              failures=$((failures + 1))
+            fi
+          done
+          echo "k6 shorter scheduler failures: $failures / 12; 1900ms is NOT Artillery temporal parity"
+          if [ "$failures" -ne 0 ]; then exit 1; fi
+          echo 'k6 shorter scheduler 12/12 PASS; cross-engine parity NOT established'
+
       - name: Prove k6 PONG assertion fails against non-PONG loopback fixture
         shell: bash
         run: |
