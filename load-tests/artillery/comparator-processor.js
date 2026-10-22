@@ -21,6 +21,7 @@ async function setupCurrentAuthenticatedUser(context, events) {
     // The start of this processor hook is an observed VU setup timestamp,
     // not the Artillery scheduler's exact arrival timestamp.
     events.emit('histogram', 'sails.auth_setup_start_epoch_ms', Date.now());
+    events.emit('counter', 'sails.auth_setup_started', 1);
     const pair = nacl.sign.keyPair();
     const publicKey = hex(pair.publicKey);
     const displayName = 'artillery-comparator-' + publicKey.slice(0, 8);
