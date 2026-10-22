@@ -438,6 +438,17 @@ jobs:
 
           assert.equal(errors.length,0,'No Artillery error counters');
           const histograms=report.aggregate?.histograms||{};
+          const startHistogram=histograms['sails.auth_setup_start_epoch_ms'];
+          // Diagnose whether Artillery actually exports the timestamp samples.
+          // Two hook invocations alone cannot establish measured arrival spacing.
+          console.log('Artillery observed setup timestamp evidence:',JSON.stringify({
+            emittedStarts:counters['sails.auth_setup_started']??null,
+            histogramAvailable:Boolean(startHistogram),
+            histogramCount:Number.isFinite(startHistogram?.count)?startHistogram.count:null,
+            medianEpochMs:Number.isFinite(startHistogram?.median)?startHistogram.median:null,
+            spacingEstablished:false,
+            schedulerArrivalParityEstablished:false
+          }));
           const latencyNames=Object.keys(histograms).filter(k=>/response_time|latency|duration/.test(k));
           const latency=Object.fromEntries(latencyNames.map(k=>{
             const h=histograms[k]||{};
