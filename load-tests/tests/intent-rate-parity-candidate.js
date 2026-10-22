@@ -15,6 +15,7 @@ if (!/^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/?$/.test(BASE_URL)) {
   throw new Error('Intent rate candidate requires loopback HTTP target')
 }
 const observedSetupEpochMs = new Trend('sails_observed_setup_start_epoch_ms')
+const observedSetupSamples = new Counter('sails_observed_setup_timestamp_samples')
 const authenticated = new Counter('sails_authenticated_arrivals')
 const completed = new Counter('sails_completed_intent_pairs')
 const createSamples = new Counter('sails_intent_create_samples')
@@ -65,6 +66,7 @@ export default function () {
   // Observed k6 iteration entry, not the executor's scheduled arrival timestamp.
   // Include boundary extras so a rejected third arrival cannot disappear from timing evidence.
   observedSetupEpochMs.add(Date.now())
+  observedSetupSamples.add(1)
   // Preserve strict fail-closed accounting. An unexpected third iteration
   // must not consume four additional auth requests or mutate intents.
   // __ITER is per-VU, so two VUs can both report iteration 0.
