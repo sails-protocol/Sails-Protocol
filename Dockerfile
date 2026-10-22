@@ -22,9 +22,17 @@
 #     pruned.
 #   - Non-root user (`node`) added to the runtime stage so a future
 #     container-escape doesn't land as root inside the host namespace.
+#
+# Node 24 LTS (CTO decision, 2026-10-23): Node 20 reached end of life and
+# got no fix for the October 2026 security release (CVE-2026-111497 Brotli
+# RCE and nine others); 24.22.1 is that release's fixed LTS build. Both
+# stages pin the exact tag AND the image digest, so a rebuild cannot drift
+# to a different image; bump both together, deliberately. Also: dependencies
+# already declare Node >= 22 (e.g. @arkade-os/sdk ">=22.12.0 <27"), which
+# Node 20 never satisfied.
 
 # ---- syntax=docker/dockerfile:1.6 ----
-FROM node:20-bookworm-slim AS builder
+FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS builder
 
 # python3/make/g++: required to build this project's native addons
 # (sodium-native, tiny-secp256k1) from source when no matching prebuilt
@@ -87,7 +95,7 @@ FROM builder AS pruned
 RUN npm prune --omit=dev
 
 # ---- syntax=docker/dockerfile:1.6
-FROM node:20-bookworm-slim AS runtime
+FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS runtime
 
 # OCI labels - indexable by `docker inspect` / registry searches, also
 # surface in Docker Desktop and any container-image scanner (trivy,
@@ -137,7 +145,7 @@ COPY --from=pruned --chown=node:node /app/packages/sails-sdk/dist ./packages/sai
 COPY --from=pruned --chown=node:node /app/packages/sails-sdk/package.json ./packages/sails-sdk/package.json
 COPY --from=pruned --chown=node:node /app/packages/sails-sdk/node_modules ./packages/sails-sdk/node_modules
 
-# node:20-bookworm-slim ships a non-root `node` user (uid 1000). Run as
+# node:24-bookworm-slim ships a non-root `node` user (uid 1000). Run as
 # `node` so the process doesn't hold root privileges inside the container
 # namespace - a future container-escape vulnerability lands as a normal
 # user, not root. `node` is the canonical image-level user; we don't
