@@ -104,7 +104,8 @@ describe('/health/ready', () => {
       expect(body.status).toBe('not_ready')
       expect(body.checks.postgres.ok).toBe(true)
       expect(body.checks.redis.ok).toBe(false)
-      expect(body.checks.redis.error).toContain('ECONNREFUSED')
+      expect(body.checks.redis.error).toBe('Dependency unavailable')
+      expect(res.body).not.toContain('ECONNREFUSED')
     } finally {
       await app.close()
     }
@@ -120,7 +121,8 @@ describe('/health/ready', () => {
       expect(res.statusCode).toBe(503)
       const body = JSON.parse(res.body)
       expect(body.checks.redis.ok).toBe(false)
-      expect(body.checks.redis.error).toContain('WEIRD')
+      expect(body.checks.redis.error).toBe('Dependency unavailable')
+      expect(res.body).not.toContain('WEIRD')
     } finally {
       await app.close()
     }
