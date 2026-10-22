@@ -1078,7 +1078,10 @@ jobs:
           const scopedRequestEvidenceAvailable=Object.values(scopedRequestCounts).every(n=>Number.isSafeInteger(n));
           // Fail closed if the runner omits scoped submetrics from its summary;
           // never infer endpoint counts from the global 12-request aggregate.
-          const valid=keys.every(k=>count(k)===2)&&count('iterations')===2&&count('sails_extra_scheduled_arrivals')===0&&count('http_reqs')===12&&count('dropped_iterations')===0&&m.checks?.value===1&&m.sails_intent_success?.value===1&&scopedRequestEvidenceAvailable&&scopedRequestCounts.intent_create===2&&scopedRequestCounts.intent_cancel===2;
+          // An exact two-arrival run must have two independent timestamp samples.
+          // Reject missing or surplus samples even when the exported Trend range looks plausible.
+          const timestampCoverageValid=count('sails_observed_setup_timestamp_samples')===2&&observedIterations===2;
+          const valid=timestampCoverageValid&&keys.every(k=>count(k)===2)&&count('iterations')===2&&count('sails_extra_scheduled_arrivals')===0&&count('http_reqs')===12&&count('dropped_iterations')===0&&m.checks?.value===1&&m.sails_intent_success?.value===1&&scopedRequestEvidenceAvailable&&scopedRequestCounts.intent_create===2&&scopedRequestCounts.intent_cancel===2;
           const quantiles=['med','p(95)','p(99)'];
           const operations=['sails_intent_create_duration','sails_intent_cancel_duration'];
           const latency=Object.fromEntries(operations.map(k=>[k,Object.fromEntries(quantiles.map(q=>[q,m[k]?.[q]??null]))]));
