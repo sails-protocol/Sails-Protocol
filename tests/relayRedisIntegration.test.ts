@@ -6,7 +6,7 @@
 import Redis from 'ioredis'
 import { randomUUID } from 'crypto'
 import { RELAY_BUDGET_SCRIPT } from '../src/infrastructure/p2p/relay-shared-budget'
-import { RELAY_PRESENCE_RELEASE_SCRIPT, RELAY_PRESENCE_RENEW_SCRIPT } from '../src/infrastructure/p2p/relay-presence'
+import { RELAY_PRESENCE_CLAIM_SCRIPT, RELAY_PRESENCE_RELEASE_SCRIPT, RELAY_PRESENCE_RENEW_SCRIPT } from '../src/infrastructure/p2p/relay-presence'
 import { ATOMIC_CONSUME_SCRIPT, atomicConsume } from '../src/common/redis/atomic-consume'
 import { resolveParticipantFromTicket } from '../src/common/middleware/ws-auth'
 
@@ -23,6 +23,19 @@ suite('relay shared budget — real Redis concurrent instances', () => {
   })
   afterAll(async () => {
     await Promise.all([a?.quit(), b?.quit()])
+  })
+
+  it('rejects a presence claim delayed beyond its deadline on the Redis server', async () => {
+    const key = 'test:relay:presence:deadline:' + randomUUID()
+    try {
+      const expired = Date.now() - 60_000
+      expect(await a.eval(RELAY_PRESENCE_CLAIM_SCRIPT, 1, key, randomUUID(), 30_000, expired)).toBe(0)
+      expect(await b.get(key)).toBeNull()
+      expect(await b.eval(RELAY_PRESENCE_CLAIM_SCRIPT, 1, key, randomUUID(), 30_000, Date.now() + 60_000)).toBe(1)
+      expect(await a.pttl(key)).toBeGreaterThan(0)
+    } finally {
+      await a.del(key)
+    }
   })
 
   it('fences stale presence release and renewal across independent Redis clients', async () => {
