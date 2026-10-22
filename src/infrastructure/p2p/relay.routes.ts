@@ -93,13 +93,22 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // Presence is a short-lived routing hint, not proof of delivery.
-    // Fail closed if Redis cannot register the authenticated connection.
+    // A stalled Redis call must not leave an authenticated socket hanging.
     const leaseToken = randomUUID()
+    const PRESENCE_CLAIM_TIMEOUT_MS = 5000
+    let claimTimer: ReturnType<typeof setTimeout> | undefined
     try {
-      await claimRelayPresence(participantId, leaseToken)
+      await Promise.race([
+        claimRelayPresence(participantId, leaseToken),
+        new Promise<never>((_resolve, reject) => {
+          claimTimer = setTimeout(() => reject(new Error('Relay presence claim timed out')), PRESENCE_CLAIM_TIMEOUT_MS)
+        }),
+      ])
     } catch {
       socket.close(1011, 'Relay presence unavailable')
       return
+    } finally {
+      if (claimTimer) clearTimeout(claimTimer)
     }
     if (preAuthFrameReceived || socket.readyState !== 1) {
       void releaseRelayPresence(participantId, leaseToken).catch(() => undefined)
