@@ -380,7 +380,17 @@ describe('#235 R7C — payment-account binding + peer attestation authority (rea
     expect((await events(t1.id)) + (await events(t2.id))).toBe(1)
     // A later authorized attestation is a no-op; the database refuses any direct rewrite.
     await paymentAccountService.attestFromTrade(t1.id, acct.accountHash, b1.id)
-    expect(await row(acct.accountHash)).toEqual(final)
+    const afterRetry = await row(acct.accountHash)
+    // The write-once attestation is immutable; the independent, asynchronous
+    // clean-completion projection may legitimately increment completedTrades
+    // (and updatedAt) while this test is running. Do not conflate those facts.
+    expect({ signed: afterRetry.signed, signedBy: afterRetry.signedBy, signedAt: afterRetry.signedAt,
+      attestationSource: afterRetry.attestationSource, attestedTradeId: afterRetry.attestedTradeId })
+      .toEqual({ signed: final.signed, signedBy: final.signedBy, signedAt: final.signedAt,
+        attestationSource: final.attestationSource, attestedTradeId: final.attestedTradeId })
+    expect(afterRetry.completedTrades).toBeGreaterThanOrEqual(final.completedTrades)
+    expect(afterRetry.completedTrades).toBeLessThanOrEqual(2)
+    expect((await events(t1.id)) + (await events(t2.id))).toBe(1)
     await expect(prisma.paymentAccount.update({ where: { id: acct.id }, data: { signedBy: 'someone-else' } })).rejects.toThrow(/attestation is write-once/)
   })
 
