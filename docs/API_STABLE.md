@@ -170,7 +170,7 @@ would just be a synonym, not a real accessibility gain.
 ### `paymentAccounts`
 - `register(accountHash, paymentMethod)` → `PaymentAccount` *(requires session; idempotent for an already-registered hash — hash the raw account identifier client-side first via the top-level `hashPaymentAccount()` export, never send the raw value)*
 - `get(accountHash)` → `PublicPaymentAccount` *(no session required — deliberately public-by-hash, RFC-021 D5's own age-witness design. Missão 11 Fase 9.3.1: narrowed from `PaymentAccount & { tradeLimit }` — no `ownerId`/`signedBy`/`id` here, ever. Verifying a payment rail's trust history never requires knowing which platform identity owns or attested it — see `docs/SECURITY_MODEL.md`'s privacy-boundary section)*
-- `sign(accountHash)` → `PaymentAccount` *(requires session; RFC-021 D1 — attests a specific completed trade, not a general vouch for the account owner)*
+- `sign(accountHash, tradeId)` → `PaymentAccount` *(requires session; RFC-021 D1 — attests a specific completed trade, not a general vouch for the account owner. #235 R7C: the server requires `tradeId` and accepts only the buyer of that trade, once it completed cleanly, for the account bound to it; `accountHash` must be that account. `tradeId` stays optional in the TypeScript signature for compatibility; without it the server answers 400)*
 
 ### `proof`
 - `assertClaim(input)` → `Proof` *(requires session; `input: { claimType, assertion, tradeId? }`)*

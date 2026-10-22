@@ -88,7 +88,7 @@ const mockEscrowUpdate = jest.fn()
 // file's own comment. Defaults to a successful claim.
 const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowCreate = jest.fn()
-const mockEscrowEventCreate = jest.fn()
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockTradeFindUnique = jest.fn()
 const mockCapabilityGrantFindMany = jest.fn()
@@ -120,7 +120,11 @@ const mockEscrowFundingEvidenceFindMany = jest.fn().mockResolvedValue([])
 // went through, exactly like a real Prisma transaction would.
 const mockTransaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
   callback({
-    escrow: { updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args) },
+    escrow: {
+      updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args),
+      findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args),
+      update: (...args: unknown[]) => mockEscrowUpdate(...args),
+    },
     escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
     // Missão 11 Fase 9.7 — emitEscrowTransition() now does its own
     // escrowEvent existence-check-then-create INSIDE withEscrowFundingLock(),
@@ -130,12 +134,19 @@ const mockTransaction = jest.fn(async (callback: (tx: unknown) => Promise<unknow
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
       create: (...args: unknown[]) => mockEscrowEventCreate(...args),
     },
+    // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+    eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
     $executeRaw: jest.fn().mockResolvedValue(0),
+    // #235 R7G-B1 - lockFunds() re-reads the trade's status under the trade-lifecycle lock before its claim.
+    trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
   })
 )
 
+const mockExpiryClaim = jest.fn()
 jest.mock('../src/common/database', () => ({
   prisma: {
+    // claimExpiryCandidates() (the timelock sweep's bounded claim): resolves to the claimed ids
+    $queryRaw: (...args: unknown[]) => mockExpiryClaim(...args),
     escrow: {
       findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args),
       findMany: (...args: unknown[]) => mockEscrowFindMany(...args),
@@ -171,7 +182,7 @@ jest.mock('../src/common/events/event-bus', () => ({
 }))
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { escrowService } = require('../src/modules/open-settlement/escrow.service')
+const { escrowService, EXPIRY_SWEEP_BATCH } = require('../src/modules/open-settlement/escrow.service')
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { eventBus } = require('../src/common/events/event-bus')
 
@@ -648,7 +659,7 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       expect(updateCall.data.txReleaseId).toMatch(/mock-split-.*,mock-split-/)
     })
 
-    it('rejects a SAFE_GUARD_EVM escrow — that provider has no direct splitFunds() (signature-collection type, use initiateSplit instead)', async () => {
+    it('rejects a SAFE_GUARD_EVM escrow — a signature-collection rail, refused before any claim (use initiateSplit instead)', async () => {
       // getProvider() short-circuits to MOCK whenever config.features.mockEscrow
       // is true (this file's own header comment) — must disable it here to
       // actually reach the real safeGuardEvmProvider instance and its
@@ -656,8 +667,9 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       mockEscrowFeatureFlag = false
       mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, type: 'SAFE_GUARD_EVM', status: 'DISPUTED' })
       mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
+      // #235 R7G F8B — the rail check now refuses first; before it, the missing provider splitFunds() refused (also pre-claim)
       await expect(escrowService.splitFunds('escrow-1', '0xbuyer', '0xseller', 6000, 'arbiter-1')).rejects.toThrow(
-        /does not support a SPLIT settlement action/
+        /settles only through signature collection: use POST .*initiate-split/
       )
     })
   })
@@ -709,20 +721,24 @@ describe('escrowService.sweepExpiredEscrows', () => {
     mockDisputeFindFirst.mockResolvedValue(null)
   })
 
-  it('queries only FUNDS_LOCKED escrows past their own expiresAt', async () => {
-    mockEscrowFindMany.mockResolvedValue([])
+  it('claims only FUNDS_LOCKED escrows past their own expiresAt, at most one batch per pass', async () => {
+    mockExpiryClaim.mockResolvedValue([])
 
     await escrowService.sweepExpiredEscrows()
 
-    expect(mockEscrowFindMany).toHaveBeenCalledWith({
-      where: { status: 'FUNDS_LOCKED', expiresAt: { lt: expect.any(Date) } },
-    })
+    const [sql, now, limit] = mockExpiryClaim.mock.calls[0] as [TemplateStringsArray, Date, number]
+    expect(sql.join('?')).toMatch(/WHERE e\.status = 'FUNDS_LOCKED' AND e\."expiresAt" <= \?/)
+    expect(now).toBeInstanceOf(Date)
+    expect(limit).toBe(EXPIRY_SWEEP_BATCH)
+    expect(mockEscrowFindMany).not.toHaveBeenCalled() // nothing claimed, nothing loaded
   })
 
   it("refunds every expired escrow, attributing triggeredBy to that trade's own seller", async () => {
+    const expiredAt = new Date(Date.now() - 60_000)
+    mockExpiryClaim.mockResolvedValue([{ id: 'escrow-1' }, { id: 'escrow-2' }])
     mockEscrowFindMany.mockResolvedValue([
-      { ...baseEscrow, id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED' },
-      { ...baseEscrow, id: 'escrow-2', tradeId: 'trade-2', status: 'FUNDS_LOCKED' },
+      { ...baseEscrow, id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED', expiresAt: expiredAt },
+      { ...baseEscrow, id: 'escrow-2', tradeId: 'trade-2', status: 'FUNDS_LOCKED', expiresAt: expiredAt },
     ])
     mockTradeFindUnique.mockImplementation(({ where: { id } }: { where: { id: string } }) =>
       Promise.resolve(
@@ -752,9 +768,11 @@ describe('escrowService.sweepExpiredEscrows', () => {
   })
 
   it('a failure on one expired escrow does not stop the sweep from refunding the rest', async () => {
+    const expiredAt = new Date(Date.now() - 60_000)
+    mockExpiryClaim.mockResolvedValue([{ id: 'escrow-1' }, { id: 'escrow-2' }])
     mockEscrowFindMany.mockResolvedValue([
-      { ...baseEscrow, id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED' },
-      { ...baseEscrow, id: 'escrow-2', tradeId: 'trade-2', status: 'FUNDS_LOCKED' },
+      { ...baseEscrow, id: 'escrow-1', tradeId: 'trade-1', status: 'FUNDS_LOCKED', expiresAt: expiredAt },
+      { ...baseEscrow, id: 'escrow-2', tradeId: 'trade-2', status: 'FUNDS_LOCKED', expiresAt: expiredAt },
     ])
     mockTradeFindUnique.mockImplementation(({ where: { id } }: { where: { id: string } }) =>
       Promise.resolve(

@@ -18,9 +18,10 @@
  * `opentimestamps`) depend on `request`/`request-promise` — both
  * long-deprecated, unmaintained, with known vulnerabilities — plus a
  * heavy, partly-unrelated dependency tree (`bitcore-lib`, `web3`). This
- * file talks to the calendar server directly via the same plain `fetch()`
- * this codebase already uses for `mempool.space` (`multisig.provider.ts`)
- * rather than pull in a vulnerable dependency for one HTTP POST — the
+ * file talks to the calendar server directly through the same bounded
+ * transport (`boundedFetch()`) this codebase uses for `mempool.space`
+ * (`multisig.provider.ts`) rather than pull in a vulnerable dependency for
+ * one HTTP POST — the
  * calendar protocol itself is a simple, stable, documented wire format,
  * not something that needs a client library to speak correctly.
  *
@@ -36,6 +37,8 @@
  * states for this whole codebase. `anchor()` itself is fully real: a
  * genuine submission to a live calendar server, not a stub.
  */
+
+import { boundedFetch } from '../open-settlement/bounded-rpc'
 
 export interface AnchorProof {
   anchorType: 'opentimestamps'
@@ -55,6 +58,19 @@ export interface TimestampAnchor {
 
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/i
 
+// CTO_DECISION_314A: one calendar submission is bounded by 30 s, end to end (connection, headers and the
+// whole proof body, boundedFetch()'s own contract). One attempt, never retried: a POST that timed out may
+// still have been aggregated by the calendar, and nothing here proves resubmitting it is harmless.
+export const OTS_CALENDAR_TIMEOUT_MS = 30_000
+
+// Most proof-body bytes a calendar answer may have. A calendar's answer to POST /digest is one serialized
+// pending timestamp for one digest: a short chain of commitment operations (a nonce append, hashes, and
+// one append/prepend of a 32-byte sibling per level of the calendar's aggregation tree) ending in a
+// pending attestation naming the calendar's URL. Even a tree of 2^32 digests is 32 levels of ~34 bytes,
+// about 1.1 KiB in all with the attestation; 16 KiB is over ten times that. More is not a proof this
+// node can use: it fails the read (boundedFetch() counts the bytes actually received).
+export const OTS_CALENDAR_MAX_RESPONSE_BYTES = 16 * 1024
+
 export class OpenTimestampsAnchor implements TimestampAnchor {
   anchorType = 'opentimestamps' as const
 
@@ -66,10 +82,13 @@ export class OpenTimestampsAnchor implements TimestampAnchor {
     }
     const digest = Buffer.from(sha256Hex, 'hex')
 
-    const res = await fetch(`${this.calendarUrl}/digest`, {
+    const res = await boundedFetch(`${this.calendarUrl}/digest`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/vnd.opentimestamps.v1' },
       body: digest,
+    }, {
+      timeoutMs: OTS_CALENDAR_TIMEOUT_MS,
+      maxResponseBytes: OTS_CALENDAR_MAX_RESPONSE_BYTES,
     })
     if (!res.ok) {
       throw new Error(`OpenTimestamps calendar server (${this.calendarUrl}) returned ${res.status} — refusing to fabricate an anchor`)

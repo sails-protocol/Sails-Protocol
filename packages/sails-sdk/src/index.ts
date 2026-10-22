@@ -56,6 +56,7 @@ export {
 } from './modules/openp2p'
 export {
   SailsSettlementModule,
+  type EconomicPolicy,
   type CreateEscrowInput,
   recommendedEscrowType,
   type SafeGuardBundle,
@@ -228,6 +229,7 @@ export type {
   Dispute,
   Message,
   PaginatedMessages,
+  TradeReconciliation,
   ReputationScore,
   LeaderboardEntry,
   LeaderboardResult,

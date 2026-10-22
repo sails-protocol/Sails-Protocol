@@ -69,7 +69,7 @@ jobs:
           [[ "$REQUESTED_SOURCE_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'source_sha must be an exact commit SHA' >&2; exit 1; }
 
       - name: Checkout exact source SHA
-        uses: actions/checkout@v6
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ env.REQUESTED_SOURCE_SHA }}
           fetch-depth: 0
@@ -87,7 +87,7 @@ jobs:
             git cat-file -e 'HEAD:.github/workflows/schemas-release.yml'
           fi
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: 'https://registry.npmjs.org'
@@ -208,7 +208,7 @@ jobs:
           EOF
 
       - name: Upload verified release evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: schemas-release-evidence-${{ steps.identity.outputs.version }}
           path: release-evidence/
@@ -238,12 +238,13 @@ jobs:
       GH_TOKEN: ${{ github.token }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: 'https://registry.npmjs.org'
@@ -251,7 +252,7 @@ jobs:
 
       - run: npm install --global npm@${NPM_VERSION}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: schemas-release-evidence-${{ needs.validate.outputs.version }}
           path: release-evidence
@@ -271,7 +272,11 @@ jobs:
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git tag -a "$TAG" "$SOURCE_SHA" -m "$PACKAGE_NAME@$VERSION from $SOURCE_SHA"
-            git push origin "refs/tags/$TAG"
+            # checkout credentials are intentionally disabled. Cross the
+            # tag-mutation boundary with the job-scoped token only for
+            # this single explicit push, rather than persisting credentials
+            # in the repository's git config for later steps.
+            git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/$TAG"
           fi
 
       - name: Reconcile registry before publish

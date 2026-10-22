@@ -1,3 +1,4 @@
+import { withPersistedFundingAddress } from './helpers/persistedFundingAddress'
 /**
  * Missão 10 — Outpoint Integrity: provider-level UTXO selection tests.
  *
@@ -26,7 +27,7 @@ const SELLER_PUBKEY = '038e41e2cb09677fd4bde9f232871533925c4b628c25efdb9d5725462
 function loadProvider(env: Record<string, string | undefined> = {}) {
   jest.resetModules()
   process.env = { ...ORIGINAL_ENV, MOCK_ESCROW: 'false', MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1', ...env }
-  return require('../src/modules/open-settlement/multisig.provider')
+  return withPersistedFundingAddress(require('../src/modules/open-settlement/multisig.provider'))
 }
 
 afterAll(() => {

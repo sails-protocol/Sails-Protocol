@@ -23,7 +23,24 @@
  * it is *that* write `escrowService.releaseFunds()`/`refundFunds()` react
  * to — verified directly in that file before writing this one, not
  * assumed.
+ *
+ * **Corrected/disclosed (Issue #255, 2026-09-22):** "posting collateral"
+ * above describes the intended design, not what `register()` actually
+ * verifies. `monetaryCollateral` is a bare, caller-declared decimal
+ * string — no deposit txid, no on-chain lock, no escrow, no funding
+ * verification of any kind exists anywhere in this codebase. `slash()`
+ * only ever decrements this same internal column; there is no external
+ * seizure/burn to perform. This does NOT make `effectiveStake`
+ * cosmetic — `eligibleFor()`/`assign()`/`assignAppealPanel()` below are
+ * real code that grants real arbitration authority (dispute assignment
+ * + RELEASE/REFUND/SPLIT power) in proportion to this declared number,
+ * which is exactly why `ARBITRATION_MODE=market` is refused at boot in
+ * production (`arbitration-policy.ts`'s
+ * `assertMarketArbitrationCollateralProductionEligible()`) until a real
+ * funding/custody adapter exists — see that RFC's own D3 correction for
+ * the full trace.
  */
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../../common/database'
 import { EscrowError } from '../../common/errors'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
@@ -211,8 +228,8 @@ export class MarketArbitrationProvider implements ArbitrationProvider {
    * own persisted `tradeId` (authoritative), not the `_tradeId` parameter
    * alone, though the two should always agree for a correct caller.
    */
-  async assign(disputeId: string, _tradeId: string): Promise<string> {
-    const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
+  async assign(disputeId: string, _tradeId: string, tx?: Prisma.TransactionClient): Promise<string> {
+    const dispute = await (tx ?? prisma).dispute.findUnique({ where: { id: disputeId } })
     if (!dispute) throw new EscrowError(`MarketArbitrationProvider: no dispute found for id ${disputeId}`)
     const escrow = await this.repo.findById(dispute.escrowId)
     if (!escrow) throw new EscrowError(`MarketArbitrationProvider: no escrow found for dispute ${disputeId}`)
@@ -321,17 +338,26 @@ export class MarketArbitrationProvider implements ArbitrationProvider {
    * dispute.service.ts's resolveDispute() is the only real caller today,
    * invoked when an appeal panel's ruling differs from the ruling being
    * appealed.
+   *
+   * Issue #253 - `tx`, when supplied, runs the write inside the caller's own durable claim+effect
+   * transaction (dispute.service.ts's finalizeResolveDispute()) and DEFERS the `arbiter.slashed` emit to
+   * that caller (it emits only after the claim commits, from the forfeitedCollateral this method returns —
+   * mirrors reputation.service.ts's recordOutcomeOnce()/vouch.service.ts's burnVouchesForOnce()'s own
+   * "write inside the transaction, emit after commit" shape). A standalone call (tx omitted) keeps the
+   * original behavior byte-for-byte, including emitting here.
    */
-  async slash(participantId: string): Promise<ArbiterCandidate> {
-    const existing = await prisma.arbiterProfile.findUnique({ where: { participantId } })
+  async slash(participantId: string, tx?: Prisma.TransactionClient): Promise<ArbiterCandidate & { forfeitedCollateral: string }> {
+    const client = tx ?? prisma
+    const existing = await client.arbiterProfile.findUnique({ where: { participantId } })
     if (!existing) throw new EscrowError(`MarketArbitrationProvider.slash: no ArbiterProfile for ${participantId}`)
 
     const currentCollateral = Number(existing.monetaryCollateral)
     const forfeited = currentCollateral * SLASH_COLLATERAL_FRACTION
     const newCollateral = (currentCollateral - forfeited).toFixed(8)
     const newReputation = Math.max(0, existing.arbiterReputation + OVERTURNED_PENALTY)
+    const forfeitedCollateral = forfeited.toFixed(8)
 
-    const updated = await prisma.arbiterProfile.update({
+    const updated = await client.arbiterProfile.update({
       where: { participantId },
       data: {
         monetaryCollateral: newCollateral,
@@ -340,14 +366,11 @@ export class MarketArbitrationProvider implements ArbitrationProvider {
       },
     })
 
-    await eventBus.emit('arbiter.slashed', {
-      participantId,
-      forfeitedCollateral: forfeited.toFixed(8),
-      newCollateral,
-      newReputation,
-    }, participantId)
+    if (!tx) {
+      await eventBus.emit('arbiter.slashed', { participantId, forfeitedCollateral, newCollateral, newReputation }, participantId)
+    }
 
-    return this.toCandidate(updated)
+    return { ...this.toCandidate(updated), forfeitedCollateral }
   }
 
   /**
@@ -358,8 +381,8 @@ export class MarketArbitrationProvider implements ArbitrationProvider {
    * charged a real fee (Phase 0) — absent/zero in the bootstrap phase,
    * same as everywhere else this field is read.
    */
-  async recordRuling(participantId: string, feeObserved?: string): Promise<void> {
-    await prisma.arbiterProfile.update({
+  async recordRuling(participantId: string, feeObserved?: string, tx?: Prisma.TransactionClient): Promise<void> {
+    await (tx ?? prisma).arbiterProfile.update({
       where: { participantId },
       data: {
         rulingsTotal: { increment: 1 },

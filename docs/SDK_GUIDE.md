@@ -222,9 +222,9 @@ interface SailsClient {
   // releaseAsset()/dispute() above is the path most applications
   // should use instead
   settlement: {
-    create(input: { tradeId: string; type?: EscrowType; lockedAmount: string; asset: AssetType; network?: string; timelockHours?: number }): Promise<Escrow>   // requires an active session
+    create(input: { tradeId: string; type?: EscrowType; lockedAmount: string; asset: AssetType; network?: string; timelockHours?: number }): Promise<Escrow>   // requires an active session; timelockHours is deprecated and ignored (the server's DEFAULT_TIMELOCK_HOURS policy applies, returned as Escrow.timelockHours); #235 R7F-B: `asset` and `lockedAmount` must equal the trade's own asset and amount (exact decimal; the escrow always stores the trade's values), `type` must be the trade asset's registered rail, and trades in an asset with no authorized settlement translation (LN_BTC, USDT_LIGHTNING, SPARK, STACKS, RSK_BTC) cannot be escrowed; #235 R7G-A: a CANCELLED trade cannot be escrowed (409)
     get(escrowId: string): Promise<Escrow>   // requires an active session + trade party/assigned arbiter
-    submitKey(escrowId: string, pubkeyHex: string, capabilityProfile?: string): Promise<{ escrow: Escrow; buyerKeySubmitted: boolean; sellerKeySubmitted: boolean }>   // requires an active session; capabilityProfile is enforced where the escrow type requires one
+    submitKey(escrowId: string, pubkeyHex: string, capabilityProfile?: string): Promise<{ escrow: Escrow; buyerKeySubmitted: boolean; sellerKeySubmitted: boolean }>   // requires an active session; capabilityProfile is enforced where the escrow type requires one; #235 R7G-B2A: a key can be corrected until both keys have derived the deposit address — after that the same key is a no-op and a different key is refused (409); the buyer, seller and arbiter keys must be distinct
     lock(escrowId: string): Promise<Escrow>   // requires an active session
     markPaymentSent(escrowId: string): Promise<Escrow>   // requires an active session
     release(escrowId: string, toAddress?: string): Promise<Escrow>   // requires an active session; toAddress is retained for source compatibility but is inert under current destination-authority rules
@@ -232,7 +232,7 @@ interface SailsClient {
     refund(escrowId: string): Promise<Escrow>   // requires an active session
     initiateRelease(escrowId: string, toAddress?: string): Promise<EscrowPendingTransaction>   // requires an active session — MULTISIG multi-signer release; toAddress is retained for compatibility but current destination authority comes from the beneficiary's registered payout address
     initiateRefund(escrowId: string): Promise<EscrowPendingTransaction>   // requires an active session — mirror of initiateRelease
-    submitTransactionSignature(escrowId: string, signedPsbtBase64: string): Promise<{ complete: boolean }>   // requires an active session
+    submitTransactionSignature(escrowId: string, signedPsbtBase64: string): Promise<{ complete: boolean }>   // requires an active session; #235 R7G-B2A: the PSBT must be a copy of the escrow's pending round carrying a valid SIGHASH_ALL signature by your own participant key (otherwise 400, nothing stored)
     getPendingTransaction(escrowId: string): Promise<EscrowPendingTransaction>   // requires an active session + trade party/assigned arbiter
     listDisputes(pagination?: { limit?: number; offset?: number }): Promise<PaginatedDisputes>   // requires an active session — always scoped to the caller's own arbiterId
     getDispute(disputeId: string): Promise<Dispute>   // requires an active session + trade party/assigned arbiter; not a public read
@@ -263,10 +263,10 @@ interface SailsClient {
     trade(offerId: string, amount: string): Promise<Trade>   // requires an active session — note the required amount, a real deviation from an earlier two-arg draft of this signature
     getTrade(tradeId: string): Promise<Trade>
     getTradeByIntent(intentId: string): Promise<Trade>
-    updateTradeStatus(tradeId: string, status: 'ACTIVE' | 'CANCELLED'): Promise<Trade>   // requires an active session
+    updateTradeStatus(tradeId: string, status: 'ACTIVE' | 'CANCELLED'): Promise<Trade>   // requires an active session; #235 R7G-B1: CANCELLED is refused (400) once funds may exist for the trade — an escrow past CREATED, a MULTISIG escrow with a deposit address, or a WDK escrow with a possibly-submitted transfer — use refund/dispute/settlement instead
     chat(tradeId: string, options?: WebSocketChannelOptions): WebSocketChannel   // requires an active session — real reconnect-with-backoff by default (2026-08-02); onConnectionStateChange() reports 'open'/'reconnecting'/'closed'
     getMessages(tradeId: string): Promise<Message[]>   // requires an active session
-    reconcileTrade(tradeId: string, sinceMessageCreatedAt: Date | null): Promise<Message[]>   // requires an active session — RFC-011 client-side reconciliation, returns missed messages since the given timestamp
+    reconcileTrade(tradeId: string, sinceMessageCreatedAt: Date | null): Promise<TradeReconciliation>   // requires an active session — RFC-011 client-side reconciliation: current trade/escrow status + messages missed since the given timestamp
   }
 
   // Capability declaration/grants — RFC-005 (rfcs/RFC-005-capability-model.md),

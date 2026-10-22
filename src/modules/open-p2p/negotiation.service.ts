@@ -198,6 +198,15 @@ export class NegotiationService {
     return new HumanChatChannel(buyerId, sellerId, tradeId)
   }
 
+  /**
+   * #235 R7H-NF-E3C-5 — the in-memory status of a negotiation whose `negotiation.opened` / status_changed events were
+   * already committed with the trade (atomic admission, trade-repository.ts). open() is not called for it any more:
+   * this only restores the status cache open() used to set, after COMMIT. Non-authoritative by construction.
+   */
+  markOpened(tradeId: string): void {
+    this.status.set(tradeId, 'NEGOTIATING')
+  }
+
   getStatus(tradeId: string): NegotiationStatus {
     return this.status.get(tradeId) ?? 'CREATED'
   }

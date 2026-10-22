@@ -30,7 +30,12 @@ import { capabilityRoutes } from './modules/open-agents/capability.routes'
 import { agentRoutes } from './modules/open-agents/agent.routes'
 import { proofRoutes } from './modules/open-proof/proof.routes'
 import { escrowService } from './modules/open-settlement/escrow.service'
+import { wdkSettlementProvider } from './modules/open-settlement/wdk-settlement.provider'
+import { startSettlementRecoverySchedule, type SettlementRecoverySchedule } from './modules/open-settlement/settlement-recovery-schedule'
+import { startQuoteCollector, type QuoteCollector } from './modules/open-valuation/quote-collector'
+import { startGuardedInterval, type GuardedInterval } from './common/guarded-interval'
 import { assertArbitrationModeCompatibleWithAvailableRails } from './modules/open-settlement/escrow-providers'
+import { assertMarketArbitrationCollateralProductionEligible } from './modules/open-settlement/arbitration-policy'
 import { getDisputeService } from './modules/open-settlement/dispute.service'
 import { sweepMultisigFeeConfirmations } from './modules/open-settlement/multisig-fee-confirmation-job'
 import { sweepMultisigFeeReorgs } from './modules/open-settlement/multisig-fee-reorg-sweep'
@@ -46,6 +51,7 @@ import packageJson from '../package.json'
 // stale (package.json is 0.1.1). Reading it from the one real source
 // means this can't silently drift again.
 const API_VERSION = packageJson.version
+export const HTTP_BODY_LIMIT_BYTES = 1024 * 1024
 
 export interface BuildAppOptions {
   // Technical Debt #57 bounded remediation (2026-09-10). @fastify/swagger
@@ -79,7 +85,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     config.settlement.arbitrationPolicyByEscrowType,
   )
 
+  // Issue #255 — same "loud startup validation failure" mandate as the check above, closing a
+  // different concern: market-mode collateral is caller-declared bookkeeping, not economically backed
+  // (see arbitration-policy.ts's own comment on this function for the full trace/evidence).
+  assertMarketArbitrationCollateralProductionEligible(config.settlement.arbitrationMode, config.isProduction)
+
   const app = Fastify({
+    bodyLimit: HTTP_BODY_LIMIT_BYTES,
     logger: {
       level: config.app.logLevel,
       transport:
@@ -227,17 +239,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     else if (reply.statusCode === 429) recordSuspiciousActivity('RATE_LIMITED', identity, app.log)
   })
 
-  // Unauthenticated by default, matching standard Prometheus exporter
-  // convention (Prometheus itself has no notion of a Bearer token without
-  // extra scrape-config wiring) — restrict actual access at the network
-  // layer (security group / reverse-proxy allowlist) in production, the
-  // same expectation DEPLOYMENT.md already sets for the Postgres/Redis
-  // ports. Contains only aggregate counters, never per-user data — safe
-  // under this protocol's own no-platform-operator-visibility principle.
-  app.get('/metrics', async (_request, reply) => {
-    reply.header('content-type', metricsRegistry.contentType)
-    return metricsRegistry.metrics()
-  })
+  if (config.observability.metricsEnabled) {
+    app.get('/metrics', async (_request, reply) => {
+      reply.header('content-type', metricsRegistry.contentType)
+      return metricsRegistry.metrics()
+    })
+  }
 
   // ── Error Handler ─────────────────────────────────────────────────────────
   app.setErrorHandler((error, request, reply) => {
@@ -311,7 +318,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   }))
 
   app.get('/health/ready', async (_request, reply) => {
-    const checks: Record<string, { ok: boolean; latencyMs: number; error?: string }> = {}
+    const checks: Record<string, { ok: boolean; latencyMs: number }> = {}
 
     const timed = async <T,>(label: string, fn: () => Promise<T>) => {
       const start = Date.now()
@@ -319,10 +326,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         await fn()
         checks[label] = { ok: true, latencyMs: Date.now() - start }
       } catch (err) {
+        app.log.error({ err, dependency: label }, 'Readiness dependency unavailable')
         checks[label] = {
           ok: false,
           latencyMs: Date.now() - start,
-          error: err instanceof Error ? err.message : String(err),
         }
       }
     }
@@ -332,6 +339,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       const pong = await redis.ping()
       if (pong !== 'PONG') throw new Error(`unexpected PING reply: ${pong}`)
     })
+    // #235 R7G-F6B - WDK_CHAIN_ID_PINNING_V1: a configured WDK rail is ready only while its RPC serves the
+    // pinned chain (every WDK economic operation also re-checks it).
+    if (config.wdk.seedPhrase) await timed('wdk_chain', () => wdkSettlementProvider.verifyNetwork())
 
     const allOk = Object.values(checks).every((c) => c.ok)
     return reply.code(allOk ? 200 : 503).send({
@@ -348,10 +358,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     protocol: 'Sails Protocol',
     module: 'Sails OpenP2P',
     referenceImplementation: 'Satsails Wallet',
-    features: {
-      mockEscrow: config.features.mockEscrow,
-      mockSettlement: config.features.mockSettlement,
-    },
+    ...(config.isProduction
+      ? {}
+      : {
+          features: {
+            mockEscrow: config.features.mockEscrow,
+            mockSettlement: config.features.mockSettlement,
+          },
+        }),
   }))
 
   app.get('/', async () => ({
@@ -415,9 +429,16 @@ export async function startServer() {
   // implicitly. Explicit here so a container orchestrator's SIGTERM ->
   // graceful-shutdown path leaves no dangling connections on the DB/
   // Redis side even if something delays the actual process exit.
+  let settlementRecovery: SettlementRecoverySchedule | undefined
+  let quoteCollector: QuoteCollector | undefined
+  const backgroundSweepers: GuardedInterval[] = []
   const shutdown = async (signal: string) => {
     app.log.info({ msg: 'Shutting down gracefully', signal })
+    // Stop scheduling first, then drain any recovery tick or sweeper run already in flight before its
+    // Postgres/Redis connections are closed (an interrupted run would be safe, only noisier).
+    const drained = Promise.all([settlementRecovery?.stop(), quoteCollector?.stop(), ...backgroundSweepers.map((sweeper) => sweeper.stop())])
     await app.close()
+    await drained
     await eventBus.disableCrossInstanceFanout()
     await prisma.$disconnect()
     await redis.quit()
@@ -463,12 +484,12 @@ export async function startServer() {
   }
 
   // BACKLOG.md P0, "Escrow timelock proactive sweeper" — off by default,
-  // see config/index.ts's own comment for why. `unref()`'d so a running
-  // sweeper never keeps the process alive on its own; the process's
-  // normal `shutdown()` above already calls `process.exit(0)` directly,
-  // which terminates regardless of any pending interval either way.
+  // see config/index.ts's own comment for why. Scheduled through
+  // startGuardedInterval() (never two runs at once in this process;
+  // stopped and drained by shutdown() above), like the fee-confirmation
+  // and funding-reorg sweepers below.
   if (config.features.escrowTimelockSweeper) {
-    const sweepInterval = setInterval(() => {
+    backgroundSweepers.push(startGuardedInterval(() =>
       escrowService.sweepExpiredEscrows()
         .then(({ refunded, requiresManualRecovery, failed }) => {
           if (refunded.length || requiresManualRecovery.length || failed.length) {
@@ -487,24 +508,61 @@ export async function startServer() {
             })
           }
         })
-        .catch((err) => app.log.error({ msg: 'Escrow sweep failed', module: 'escrow-sweeper', err: err instanceof Error ? err.message : err }))
-    }, config.trade.timelockSweepIntervalMs)
-    sweepInterval.unref()
+        .catch((err) => app.log.error({ msg: 'Escrow sweep failed', module: 'escrow-sweeper', err: err instanceof Error ? err.message : err })),
+    config.trade.timelockSweepIntervalMs))
+  }
+
+  // Issue #291/#298 hardening - settlement crash recovery. On by default (see config comment). Each pass
+  // is idempotent and write-once-safe, and safe with several instances running it concurrently. A tick
+  // never overlaps the previous one in this process. M9-R/C4 dispatch recovery runs in the same tick
+  // (settlement-recovery-schedule.ts).
+  if (config.features.escrowSettlementReconciler) {
+    settlementRecovery = startSettlementRecoverySchedule(app.log, config.trade.settlementReconcileIntervalMs)
+  }
+
+  // #235 R7H-E2 — economic authority separation. The application's credential must not be able to publish
+  // valuation quotes (migration 20261016120000_economic_authority_roles); while it still can (it connects as the
+  // schema owner, not as a sails_app member), the deployment is not separated and says so on every start.
+  let separation: Array<{ separated: boolean }> | undefined
+  try {
+    separation = await prisma.$queryRaw<Array<{ separated: boolean }>>`SELECT NOT has_table_privilege('valuation_quotes', 'INSERT') AS separated`
+  } catch (err) {
+    app.log.warn({ msg: 'Could not check economic authority separation', module: 'economic-authority', err: err instanceof Error ? err.message : err })
+  }
+  if (separation?.[0]?.separated === false) {
+    app.log.error({ msg: 'Application database credential can publish valuation quotes: economic authority is not separated (connect DATABASE_URL as a sails_app member, see docs/DEPLOYMENT.md)', module: 'economic-authority' })
+  }
+
+  // #235 R7H-E2 — BTC/USD canonical quote collector, only with its own credential (see config/index.ts).
+  if (config.quoteCollector.databaseUrl) {
+    quoteCollector = await startQuoteCollector(app.log, {
+      databaseUrl: config.quoteCollector.databaseUrl,
+      intervalMs: config.quoteCollector.intervalMs,
+      sourceTimeoutMs: config.quoteCollector.sourceTimeoutMs,
+      strictCredential: config.isProduction,
+    })
   }
 
   // RFC-021 D8 — off by default, see config/index.ts's own comment.
-  // unref()'d for the same reason the escrow sweeper above is.
+  // Scheduled through startGuardedInterval() like the sweepers above;
+  // each revert is a conditional claim on the exact proposal it read
+  // (sweepExpiredAutoResolutions()), so a sweep that loses a race to a
+  // ruling, a contest or a newer proposal is a no-op (`superseded`).
   if (config.features.disputeAutoResolutionSweeper) {
-    const disputeSweepInterval = setInterval(() => {
-      getDisputeService().sweepExpiredAutoResolutions()
-        .then(({ revertedToHuman, failed }) => {
-          if (revertedToHuman.length || failed.length) {
-            app.log.info({ msg: 'Dispute auto-resolution sweep completed (advisory-only, Missão 13 Fase 2)', module: 'dispute-auto-resolution-sweeper', revertedToHuman: revertedToHuman.length, failed: failed.length })
+    backgroundSweepers.push(startGuardedInterval(() =>
+      // getDisputeService() is synchronous and throws on a misconfiguration (no
+      // trusted arbitrators); started inside the chain, that throw is logged
+      // below like any other sweep failure instead of escaping the timer
+      // callback as an uncaught exception that would take the process down.
+      Promise.resolve()
+        .then(() => getDisputeService().sweepExpiredAutoResolutions())
+        .then(({ revertedToHuman, superseded, failed }) => {
+          if (revertedToHuman.length || superseded.length || failed.length) {
+            app.log.info({ msg: 'Dispute auto-resolution sweep completed (advisory-only, Missão 13 Fase 2)', module: 'dispute-auto-resolution-sweeper', revertedToHuman: revertedToHuman.length, superseded: superseded.length, failed: failed.length })
           }
         })
-        .catch((err) => app.log.error({ msg: 'Dispute auto-resolution sweep failed', module: 'dispute-auto-resolution-sweeper', err: err instanceof Error ? err.message : err }))
-    }, config.trade.disputeAutoResolutionSweepIntervalMs)
-    disputeSweepInterval.unref()
+        .catch((err) => app.log.error({ msg: 'Dispute auto-resolution sweep failed', module: 'dispute-auto-resolution-sweeper', err: err instanceof Error ? err.message : err })),
+    config.trade.disputeAutoResolutionSweepIntervalMs))
   }
 
   // Missão 11 Fase 5 §7 — off by default, see config/index.ts's own
@@ -513,39 +571,42 @@ export async function startServer() {
   // FeePolicyVersion is published for MULTISIG — safe to enable ahead of
   // that.
   if (config.features.multisigFeeConfirmationSweeper) {
-    const feeConfirmationInterval = setInterval(() => {
+    backgroundSweepers.push(startGuardedInterval(() =>
       sweepMultisigFeeConfirmations()
         .then(({ collected, stillPending, failed }) => {
           if (collected.length || failed.length) {
             app.log.info({ msg: 'MULTISIG fee confirmation sweep completed', module: 'multisig-fee-confirmation-sweeper', collected: collected.length, stillPending: stillPending.length, failed: failed.length })
           }
         })
-        .catch((err) => app.log.error({ msg: 'MULTISIG fee confirmation sweep failed', module: 'multisig-fee-confirmation-sweeper', err: err instanceof Error ? err.message : err }))
-    }, config.trade.multisigFeeConfirmationSweepIntervalMs)
-    feeConfirmationInterval.unref()
+        .catch((err) => app.log.error({ msg: 'MULTISIG fee confirmation sweep failed', module: 'multisig-fee-confirmation-sweeper', err: err instanceof Error ? err.message : err })),
+    config.trade.multisigFeeConfirmationSweepIntervalMs))
   }
 
   // Missão 11 Fase 8.1 LB-08 — off by default, same reasoning as the
   // sweepers above. Structurally inert until a real COLLECTED/DISTRIBUTED
-  // MULTISIG obligation exists — safe to enable ahead of that.
+  // MULTISIG obligation exists — safe to enable ahead of that. Each pass
+  // only re-checks obligations inside the reorg window, and every reorg
+  // decision is taken under the obligation's row lock per confirmation
+  // generation, so a concurrent node or a late pass never records or
+  // reverts twice (multisig-fee-reorg-sweep.ts); the guard only keeps this
+  // process from overlapping its own passes.
   if (config.features.multisigFeeReorgSweeper) {
-    const feeReorgInterval = setInterval(() => {
+    backgroundSweepers.push(startGuardedInterval(() =>
       sweepMultisigFeeReorgs()
-        .then(({ reverted, flaggedDistributed, failed }) => {
-          if (reverted.length || flaggedDistributed.length || failed.length) {
-            app.log.info({ msg: 'MULTISIG fee reorg sweep completed', module: 'multisig-fee-reorg-sweeper', reverted: reverted.length, flaggedDistributed: flaggedDistributed.length, failed: failed.length })
+        .then(({ reverted, flaggedDistributed, superseded, failed }) => {
+          if (reverted.length || flaggedDistributed.length || superseded.length || failed.length) {
+            app.log.info({ msg: 'MULTISIG fee reorg sweep completed', module: 'multisig-fee-reorg-sweeper', reverted: reverted.length, flaggedDistributed: flaggedDistributed.length, superseded: superseded.length, failed: failed.length })
           }
         })
-        .catch((err) => app.log.error({ msg: 'MULTISIG fee reorg sweep failed', module: 'multisig-fee-reorg-sweeper', err: err instanceof Error ? err.message : err }))
-    }, config.trade.multisigFeeReorgSweepIntervalMs)
-    feeReorgInterval.unref()
+        .catch((err) => app.log.error({ msg: 'MULTISIG fee reorg sweep failed', module: 'multisig-fee-reorg-sweeper', err: err instanceof Error ? err.message : err })),
+    config.trade.multisigFeeReorgSweepIntervalMs))
   }
 
   // Missão 11 Fase 8.1 LB-08(A) — off by default, same reasoning. Detects
   // only; see multisig-funding-reorg-sweep.ts's own header comment for
   // why it does not change Escrow.status.
   if (config.features.multisigFundingReorgSweeper) {
-    const fundingReorgInterval = setInterval(() => {
+    backgroundSweepers.push(startGuardedInterval(() =>
       sweepMultisigFundingReorgs()
         .then(({ reverted, reconfirmed, replacementObserved, failed }) => {
           if (reverted.length || reconfirmed.length || replacementObserved.length || failed.length) {
@@ -555,9 +616,8 @@ export async function startServer() {
             })
           }
         })
-        .catch((err) => app.log.error({ msg: 'MULTISIG funding reorg sweep failed', module: 'multisig-funding-reorg-sweeper', err: err instanceof Error ? err.message : err }))
-    }, config.trade.multisigFundingReorgSweepIntervalMs)
-    fundingReorgInterval.unref()
+        .catch((err) => app.log.error({ msg: 'MULTISIG funding reorg sweep failed', module: 'multisig-funding-reorg-sweeper', err: err instanceof Error ? err.message : err })),
+    config.trade.multisigFundingReorgSweepIntervalMs))
   }
 
   // Sails Core Implementation Program M9-F — off by default, same
@@ -565,21 +625,25 @@ export async function startServer() {
   // MAIN MULTISIG release/refund/split payout (never previously
   // monitored at all — only the fee sub-output was). Detection +
   // durable evidence recording only; see that sweep's own header
-  // comment for why it never attempts an automatic rebroadcast.
+  // comment for why it never attempts an automatic rebroadcast. Bounded
+  // per pass (in-window escrows plus a durable, round-robin batch of
+  // first observations), and every write is checked against the escrow's
+  // latest evidence under the escrow lock, so concurrent nodes never
+  // record the same fact twice; the guard only keeps this process from
+  // overlapping its own passes.
   if (config.features.multisigReleaseReorgSweeper) {
-    const releaseReorgInterval = setInterval(() => {
+    backgroundSweepers.push(startGuardedInterval(() =>
       sweepMultisigReleaseReorgs()
-        .then(({ reconfirmed, requiresManualReview, failed }) => {
-          if (reconfirmed.length || requiresManualReview.length || failed.length) {
+        .then(({ reconfirmed, requiresManualReview, superseded, failed }) => {
+          if (reconfirmed.length || requiresManualReview.length || superseded.length || failed.length) {
             app.log.info({
               msg: 'MULTISIG release-leg reorg sweep completed', module: 'multisig-release-reorg-sweeper',
-              reconfirmed: reconfirmed.length, requiresManualReview: requiresManualReview.length, failed: failed.length,
+              reconfirmed: reconfirmed.length, requiresManualReview: requiresManualReview.length, superseded: superseded.length, failed: failed.length,
             })
           }
         })
-        .catch((err) => app.log.error({ msg: 'MULTISIG release-leg reorg sweep failed', module: 'multisig-release-reorg-sweeper', err: err instanceof Error ? err.message : err }))
-    }, config.trade.multisigReleaseReorgSweepIntervalMs)
-    releaseReorgInterval.unref()
+        .catch((err) => app.log.error({ msg: 'MULTISIG release-leg reorg sweep failed', module: 'multisig-release-reorg-sweeper', err: err instanceof Error ? err.message : err })),
+    config.trade.multisigReleaseReorgSweepIntervalMs))
   }
 
   return app

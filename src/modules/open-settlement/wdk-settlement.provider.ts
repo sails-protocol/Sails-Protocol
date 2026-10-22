@@ -28,24 +28,27 @@
  * trustless multisig (nobody has built yet), not a claim to have closed
  * that gap.
  *
- * Bounded Remediation (WDK Fund-Moving Safety, 2026-09-08) — every method
- * below that self-initiates a real transfer (`lockFunds`/`releaseFunds`/
- * `refundFunds`/`splitFunds`) now runs through `wdk-execution-truth.ts`'s
- * `ensureAttempt()`/`waitForReceiptOutcome()`, closing the DEMONSTRATED
- * retry-safety and receipt-verification gaps
- * `docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` (#56) and
- * `docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md` (#58) found. See that
- * module's own header comment for the full design. This does NOT change
- * `WDK_USDT_EVM`'s `PRODUCTION-INELIGIBLE` status (RFC-019) — it closes
- * one class of blocker, not all of them.
+ * #235 R7G-F6B / R7G-F6C — this provider no longer moves funds itself: every LOCK, release, refund and
+ * split leg is a transaction signed with an explicit nonce, persisted before it is broadcast, and made
+ * final only on corroborated evidence (wdk-lock-authority.ts, wdk-outbound-authority.ts). It supplies the
+ * accounts, the signing and the read-only reconciliation of legacy transfer() attempts (#251). This does
+ * NOT change `WDK_USDT_EVM`'s `PRODUCTION-INELIGIBLE` status (RFC-019).
  */
 import WalletManagerEvm, { type WalletAccountEvm } from '@tetherto/wdk-wallet-evm'
 import { createHash } from 'crypto'
 import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
-import { ensureAttempt, markSubmissionAttempted, waitForReceiptOutcome } from './wdk-execution-truth'
+import { decimalAmountsEqual, receiptStatusOf } from './wdk-execution-truth'
 import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
+import { createWdkRpc, type WdkRpc } from './wdk-rpc'
+
+// Issue #251 - Day-0 restart convergence for a terminal WDK_USDT_EVM RELEASE/REFUND whose settlement
+// result was never durably persisted. 'MISMATCH' covers every fail-closed corruption/contradiction case
+// (Case D): wrong amount, wrong destination, a CONFIRMED row with no txHash, or an unrecognized status.
+export type WdkTerminalReconciliationResult =
+  | { outcome: 'CONFIRMED'; txHash: string }
+  | { outcome: 'PENDING' | 'NO_ATTEMPT' | 'SUBMISSION_UNKNOWN' | 'NOT_STARTED' | 'REVERTED' | 'MISMATCH'; reason: string }
 
 // USDT's real, historically-fixed decimal precision on every EVM chain
 // it's deployed on — deliberately not read from the token contract at
@@ -79,29 +82,58 @@ export function fromBaseUnits(baseUnits: bigint, decimals: number): string {
   return `${negative ? '-' : ''}${whole}.${fractionDigits}`
 }
 
-// Deterministic per-trade escrow account index — a BIP-44 non-hardened
-// index must fit in 31 bits (0..2^31-1). sha256(tradeId) gives a stable,
-// evenly-distributed source; same tradeId always re-derives the same
-// escrow account, which is what lets releaseFunds()/refundFunds() find
-// the account lockFunds() funded without persisting the derivation path
-// anywhere.
+// LEGACY derivation only (#235 R7G-F6A-1). sha256(tradeId) % (2^31-1) is not unique (distinct
+// trades collide, and it shares 0'/0/<i> with the treasury and buyer accounts), so it is no longer
+// an authority: an escrow's account is its persisted Escrow.wdkAccountPath (wdkEscrowAccountPath()
+// below). Kept for the read-only preflight and for tests that prove legacy rows keep this value.
 export function escrowIndexFor(tradeId: string): number {
   const hash = createHash('sha256').update(tradeId).digest()
   return hash.readUInt32BE(0) % 0x7fffffff
 }
 
-// Same derivation shape as escrowIndexFor, distinct salt (`buyer:` prefix)
-// so a buyer's receiving-address index and a trade's escrow-account index
-// never collide even for coincidentally-equal input strings. Stands in for
-// real per-user EVM address onboarding, which doesn't exist yet in this
-// reference implementation (this provider's own header comment) — a
-// deterministic per-buyer top-level account at least means different
-// buyers get different, stable addresses, not the same hardcoded demo
-// address every time settlement-orchestrator.ts's auto-settle handler
-// (common/events/handlers.ts) releases funds.
+// LEGACY derivation only (#235 R7G NF-B1). sha256('buyer:' + buyerId) % (2^31-1) collides between distinct
+// buyers (a pair is found in ~18k random ids) and shares 0'/0/<i> with the treasury and legacy escrow
+// accounts; the account is held by the Sails seed, not the buyer. No settlement path derives it any more:
+// every WDK release pays the buyer's registered payout address (wdk-outbound-authority.ts). Kept for the
+// read-only preflight (scripts/wdk-escrow-account-preflight.ts) and the tests that prove the collision.
 export function buyerIndexFor(buyerId: string): number {
   const hash = createHash('sha256').update(`buyer:${buyerId}`).digest()
   return hash.readUInt32BE(0) % 0x7fffffff
+}
+
+/** The escrow fields that identify its WDK account. */
+export type WdkEscrowAccountIdentity = {
+  id: string
+  wdkAccountScheme?: string | null
+  wdkAccountPath?: string | null
+  multisigAddr?: string | null
+}
+export type WdkEscrowInput = WdkEscrowAccountIdentity & { tradeId: string; lockedAmount: string }
+
+const ACCOUNT_PATH_BY_SCHEME: Record<string, RegExp> = {
+  LEGACY_TRADE_HASH_V0: /^0'\/0\/[1-9][0-9]{0,9}$/,
+  ALLOCATED_V1: /^1'\/0\/(0|[1-9][0-9]{0,9})$/,
+}
+const MAX_NON_HARDENED_INDEX = 0x7fffffff
+
+/**
+ * #235 R7G-F6A-1 - WDK_ESCROW_ACCOUNT_STABILITY_V1. The escrow's account is the derivation path the
+ * database persisted for it (allocated on INSERT, or the legacy path the migration recorded), never
+ * a value recomputed from the trade. Anything else fails closed. Same checks as the database CHECK.
+ */
+export function wdkEscrowAccountPath(escrow: WdkEscrowAccountIdentity): string {
+  const path = escrow.wdkAccountPath
+  const pattern = escrow.wdkAccountScheme ? ACCOUNT_PATH_BY_SCHEME[escrow.wdkAccountScheme] : undefined
+  if (!path || !pattern || !pattern.test(path) || Number(path.split('/')[2]) > MAX_NON_HARDENED_INDEX) {
+    throw new EscrowError(
+      `WDK_USDT_EVM escrow ${escrow.id} has no valid persisted account identity (scheme=${escrow.wdkAccountScheme ?? 'none'}, path=${path ?? 'none'}) — refusing to derive its account`
+    )
+  }
+  return path
+}
+
+function outboundOnlyThroughAuthority(escrowId: string, operation: string): EscrowError {
+  return new EscrowError(`WDK_USDT_EVM ${operation} for escrow ${escrowId} is executed only by the signed outbound authority (wdk-outbound-authority.ts)`, 'UNAVAILABLE')
 }
 
 export class WdkSettlementProvider implements SettlementProvider {
@@ -130,193 +162,242 @@ export class WdkSettlementProvider implements SettlementProvider {
     if (!config.wdk.usdtContract) {
       throw new EscrowError('WDK_USDT_EVM provider requires WDK_USDT_CONTRACT configured (.env.example) — no token address to transfer')
     }
-    this.wallet = new WalletManagerEvm(config.wdk.seedPhrase, { provider: config.wdk.rpcUrl })
+    this.wallet = new WalletManagerEvm(config.wdk.seedPhrase, { provider: config.wdk.rpcUrl, ...(config.wdk.chainId ? { chainId: config.wdk.chainId } : {}) })
     return this.wallet
+  }
+
+  private rpcClient: WdkRpc | null = null
+
+  /** #235 R7G-F6B — the JSON-RPC primitives WDK does not expose safely (wdk-rpc.ts), on the pinned chain. */
+  rpc(): WdkRpc {
+    if (this.rpcClient) return this.rpcClient
+    if (!config.wdk.chainId) {
+      throw new EscrowError('WDK_USDT_EVM requires WDK_CHAIN_ID: no WDK economic operation runs on an unpinned chain', 'UNAVAILABLE')
+    }
+    this.rpcClient = createWdkRpc(config.wdk.rpcUrl, config.wdk.chainId)
+    return this.rpcClient
+  }
+
+  /**
+   * #235 R7G-F6B — WDK_CHAIN_ID_PINNING_V1. The RPC must serve exactly the configured chain, checked before
+   * every economic operation (an endpoint behind a failover can change). Returns the pinned chain id.
+   */
+  async verifyNetwork(): Promise<number> {
+    const rpc = this.rpc()
+    const configured = config.wdk.chainId as number
+    const reported = await rpc.chainId()
+    if (reported !== BigInt(configured)) {
+      throw new EscrowError(`WDK RPC serves chain ${reported}, but WDK_CHAIN_ID is ${configured} — refusing every WDK economic operation`, 'UNAVAILABLE')
+    }
+    return configured
+  }
+
+  private corroboratorClient: WdkRpc | null = null
+
+  /**
+   * #235 R7G-F6B-P1 — the corroborating endpoint (WDK_IRREVERSIBLE_RPC_CORROBORATION_V1): evidence authority
+   * only, never used to broadcast. Missing, or the same URL as the primary, means no irreversible WDK
+   * conclusion is available.
+   */
+  corroboratorRpc(): WdkRpc {
+    if (this.corroboratorClient) return this.corroboratorClient
+    const url = config.wdk.corroboratingRpcUrl
+    if (!url) throw new EscrowError('WDK_CORROBORATING_RPC_URL is not configured: no irreversible WDK conclusion can be reached', 'UNAVAILABLE')
+    if (url.toLowerCase() === config.wdk.rpcUrl.trim().toLowerCase()) {
+      throw new EscrowError('WDK_CORROBORATING_RPC_URL is the primary WDK_RPC_URL: it cannot corroborate anything', 'UNAVAILABLE')
+    }
+    if (!config.wdk.chainId) throw new EscrowError('WDK_USDT_EVM requires WDK_CHAIN_ID: no WDK economic operation runs on an unpinned chain', 'UNAVAILABLE')
+    if (config.wdk.rpcLabel === config.wdk.corroboratingRpcLabel) throw new EscrowError('WDK_RPC_LABEL and WDK_CORROBORATING_RPC_LABEL must name two different sources', 'UNAVAILABLE')
+    this.corroboratorClient = createWdkRpc(url, config.wdk.chainId)
+    return this.corroboratorClient
+  }
+
+  /** The corroborating endpoint must also serve exactly the pinned chain. */
+  async verifyCorroboratorNetwork(): Promise<WdkRpc> {
+    const rpc = this.corroboratorRpc()
+    const reported = await rpc.chainId()
+    if (reported !== BigInt(config.wdk.chainId as number)) {
+      throw new EscrowError(`WDK corroborating RPC serves chain ${reported}, but WDK_CHAIN_ID is ${config.wdk.chainId} — no corroborated conclusion`, 'UNAVAILABLE')
+    }
+    return rpc
+  }
+
+  async treasuryAddress(): Promise<string> {
+    return (await this.treasuryAccount()).getAddress()
+  }
+
+  /** The escrow's own account address, from its persisted identity (WDK_ESCROW_ACCOUNT_STABILITY_V1). */
+  async escrowAddress(escrow: WdkEscrowAccountIdentity): Promise<string> {
+    return (await this.escrowAccount(escrow)).getAddress()
+  }
+
+  /** Signs locally with the treasury key; WDK's signTransaction() neither populates nor broadcasts. */
+  async signTreasuryTransaction(tx: Parameters<WalletAccountEvm['signTransaction']>[0]): Promise<string> {
+    return (await this.treasuryAccount()).signTransaction(tx)
   }
 
   private async treasuryAccount(): Promise<WalletAccountEvm> {
     return this.getWallet().getAccount(0)
   }
 
-  private async escrowAccount(tradeId: string): Promise<WalletAccountEvm> {
-    const index = escrowIndexFor(tradeId)
-    return this.getWallet().getAccountByPath(`0'/0/${index}`)
+  // The persisted path is the authority; a persisted economic address (set by a completed lock) must
+  // be what that path derives, otherwise nothing is done with this account.
+  private async escrowAccount(escrow: WdkEscrowAccountIdentity): Promise<WalletAccountEvm> {
+    const account = await this.getWallet().getAccountByPath(wdkEscrowAccountPath(escrow))
+    if (escrow.multisigAddr) {
+      const derived = await account.getAddress()
+      if (derived.toLowerCase() !== escrow.multisigAddr.toLowerCase()) {
+        throw new EscrowError(
+          `WDK_USDT_EVM escrow ${escrow.id}: its account path derives ${derived}, not its persisted address ${escrow.multisigAddr} — refusing to use either`
+        )
+      }
+    }
+    return account
   }
 
-  // Demo/inspection helper, not part of the SettlementProvider interface
-  // — src/demo/pix-to-usdt-flow.ts uses this to get a real address to
-  // release funds to, standing in for a buyer's own independently
-  // controlled wallet (this reference implementation doesn't onboard
-  // per-user EVM keys yet — see that script's own doc comment).
+  // Inspection helper, not part of the SettlementProvider interface: the address of account 0'/0/<index>
+  // (the reconciler reads the treasury, index 0). #235 R7G NF-B1: never a settlement destination - a
+  // Sails-seed account is not a buyer's wallet.
   async getAccountAddress(index: number): Promise<string> {
     const account = await this.getWallet().getAccount(index)
     return account.getAddress()
   }
 
-  async lockFunds(escrow: { id: string; tradeId: string; lockedAmount: string }): Promise<{ txId: string; address: string }> {
-    const treasury = await this.treasuryAccount()
-    const escrowAcct = await this.escrowAccount(escrow.tradeId)
-    const escrowAddress = await escrowAcct.getAddress()
-    const amount = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
-
-    const txId = await this.executeTransfer(escrow.id, 'LOCK', treasury, escrowAddress, escrow.lockedAmount, amount)
-    return { txId, address: escrowAddress }
-  }
-
-  // Bounded Remediation (WDK Fund-Moving Safety, 2026-09-08) — the one
-  // shared, provider-local execution path every self-initiated transfer
-  // below (lock/release/refund, and each of splitFunds()'s two legs)
-  // goes through: ensureAttempt() (durable identity before the side
-  // effect, Property A; blocks an unsafe blind retry, Property B) ->
-  // the real transfer() call -> waitForReceiptOutcome() (never declares
-  // success on a bare hash, Property C). Kept as one method rather than
-  // duplicated per caller — the exact same sequence, same error
-  // semantics, same durable bookkeeping, for every WDK_USDT_EVM
-  // operation type. See wdk-execution-truth.ts's own header comment for
-  // the full design and docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md §13 for
-  // why this is the minimum mechanism chosen (a single shared helper
-  // inside this ONE provider file, not a generic cross-provider
-  // abstraction).
-  private async executeTransfer(
-    escrowId: string,
-    operationType: 'LOCK' | 'RELEASE' | 'REFUND' | 'SPLIT_BUYER' | 'SPLIT_SELLER',
-    sourceAccount: WalletAccountEvm,
-    destination: string,
-    decimalAmount: string,
-    baseUnitsAmount: bigint
-  ): Promise<string> {
-    const outcome = await ensureAttempt(escrowId, operationType, destination, decimalAmount, sourceAccount)
-    if (outcome.action === 'RESUME_CONFIRMED') {
-      return outcome.txHash
+  // Issue #251 - the reconciler's ONLY point of contact with this provider's wallet/chain access.
+  // #235 R7G-F6C: it now serves only legacy transfer() attempts - the transfer() path and its
+  // ensureAttempt() writer were removed; signed outbound converges in wdk-outbound-authority.ts.
+  // Deliberately READ-ONLY against both the chain (never calls transfer()) and WdkTransferAttempt
+  // (never calls updateStatus()) - a live caller may be concurrently running ensureAttempt()'s own
+  // CAS-guarded status transitions for this exact attempt (escrow.service.ts's releaseFunds()/
+  // refundFunds() never blocks their own retry on a terminal-but-unrecorded escrow the way a
+  // still-PAYMENT_PENDING one would; see this method's own caller for why that race is real), and
+  // this method must never contend with that CAS nor with a second, independent classification of
+  // the same on-chain fact. It only tells the caller what the durable attempt ledger + a fresh
+  // on-chain receipt already prove; escrow-settlement-reconciliation.service.ts is the only thing
+  // that ever turns that into a written Escrow.txReleaseId, and only through the frozen write-once
+  // persistSettlementResult() path (Issue #291) - WdkTransferAttempt itself never becomes protocol
+  // authority.
+  async reconcileTerminalTransfer(
+    escrow: WdkEscrowInput,
+    operationType: 'RELEASE' | 'REFUND' | 'SPLIT_BUYER' | 'SPLIT_SELLER',
+    expectedDestination: string,
+    // Issue #250 - RELEASE/REFUND always transfer the FULL escrow.lockedAmount, so callers always pass
+    // it here and get a real, independent anti-corruption check. A SPLIT leg transfers only its own
+    // bps-derived share, and buyerBps is not durably recoverable for this direct-call rail (no
+    // EscrowPendingTransaction row exists for it) - there is no independently-known expected amount
+    // for ONE leg alone to check against. Passing `undefined` skips this check HONESTLY rather than
+    // fabricating a value that would make it vacuously pass; reconcileWdkSplitTransfer() (the only
+    // SPLIT_BUYER/SPLIT_SELLER caller) instead verifies the one invariant that IS independently true
+    // regardless of bps - both legs' own recorded amounts sum to escrow.lockedAmount - before this
+    // method is ever called for either leg.
+    expectedAmount?: string
+  ): Promise<WdkTerminalReconciliationResult> {
+    const latest = await wdkTransferAttemptRepository.findLatest(escrow.id, operationType)
+    if (!latest) {
+      return { outcome: 'NO_ATTEMPT', reason: `No WdkTransferAttempt exists for escrow ${escrow.id}/${operationType} — nothing to converge from.` }
+    }
+    // Case D - fail closed on any mismatch rather than guessing which attempt/value is the real one.
+    // escrowId/operationType mismatches are already excluded by findLatest()'s own WHERE clause.
+    if (expectedAmount !== undefined && !decimalAmountsEqual(latest.amount.toString(), expectedAmount)) {
+      return {
+        outcome: 'MISMATCH',
+        reason: `WdkTransferAttempt ${latest.id} amount ${latest.amount.toString()} does not match the expected ${operationType} amount ${expectedAmount} for escrow ${escrow.id} — refusing to treat it as authoritative evidence.`,
+      }
+    }
+    if (latest.destination !== expectedDestination) {
+      return {
+        outcome: 'MISMATCH',
+        reason: `WdkTransferAttempt ${latest.id} destination ${latest.destination} does not match the independently-derived expected ${operationType} destination ${expectedDestination} — refusing to treat it as authoritative evidence.`,
+      }
     }
 
-    const attemptId = outcome.attemptId
+    switch (latest.status) {
+      case 'CONFIRMED':
+        if (!latest.txHash) {
+          return { outcome: 'MISMATCH', reason: `WdkTransferAttempt ${latest.id} is CONFIRMED but has no persisted txHash — data integrity violation, refusing to resume.` }
+        }
+        return { outcome: 'CONFIRMED', txHash: latest.txHash }
 
-    // CTO Gate Correction (2026-09-08) — the durable pre-submission
-    // commit, written BEFORE transfer() is ever called (not after
-    // catching a throw). Closes the PREPARED -> transfer() -> SUBMITTED
-    // crash window: a crash at ANY point from here on — including
-    // mid-transfer(), after a real broadcast already succeeded, before
-    // the JS promise ever settles — now leaves this attempt durably at
-    // SUBMISSION_UNKNOWN, which wdk-execution-truth.ts's ensureAttempt()
-    // already blocks unconditionally on the next call. See that file's
-    // own header comment and markSubmissionAttempted()'s own doc comment
-    // for the full reasoning.
-    await markSubmissionAttempted(attemptId)
+      case 'SUBMITTED': {
+        if (!latest.txHash) {
+          return { outcome: 'MISMATCH', reason: `WdkTransferAttempt ${latest.id} is SUBMITTED but has no persisted txHash — data integrity violation.` }
+        }
+        // A genuine RPC/transport failure here throws and propagates to the caller as a technical
+        // failure - never silently downgraded to REVERTED/PENDING (Case B: never infer failure
+        // merely from a query failure).
+        const account = await this.escrowAccount(escrow)
+        const receipt = await account.getTransactionReceipt(latest.txHash)
+        if (!receipt) {
+          return { outcome: 'PENDING', reason: `WdkTransferAttempt ${latest.id}'s transaction ${latest.txHash} is not yet confirmed on-chain — remains pending, no resubmission.` }
+        }
+        const status = receiptStatusOf(receipt)
+        if (status === 1) return { outcome: 'CONFIRMED', txHash: latest.txHash }
+        if (status === null) {
+          // #235 R7G-F6B — NF2: no recognizable status is unresolved, never a revert.
+          return { outcome: 'PENDING', reason: `WdkTransferAttempt ${latest.id}'s transaction ${latest.txHash} has a receipt with no recognizable status (${JSON.stringify((receipt as { status?: unknown }).status)}) — unresolved, no resubmission.` }
+        }
+        return { outcome: 'REVERTED', reason: `WdkTransferAttempt ${latest.id}'s transaction ${latest.txHash} reverted on-chain — no funds were delivered by this attempt.` }
+      }
 
-    let hash: string
-    try {
-      const result = await sourceAccount.transfer({ token: config.wdk.usdtContract, recipient: destination, amount: baseUnitsAmount })
-      hash = result.hash
-    } catch (err) {
-      // Already SUBMISSION_UNKNOWN from the pre-commit above — this call
-      // cannot distinguish "never reached the network" from "reached it
-      // and the response was lost" either way
-      // (docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md's own central finding
-      // about this exact WDK API), so nothing further needs writing;
-      // re-asserting the same status here is a harmless, idempotent
-      // safety net, not the primary mechanism.
-      // The pre-submit CAS already established SUBMISSION_UNKNOWN. Do not let a stale catch path\n      // rewrite a newer SUBMITTED/CONFIRMED truth.\n      // No additional status write is needed here.
-      throw err
+      case 'SUBMISSION_UNKNOWN':
+        // Case C - never inferred as FAILED, never blindly retried. No txHash exists to query, so no
+        // automatic convergence is possible; this must remain an explicit, inspectable state.
+        return {
+          outcome: 'SUBMISSION_UNKNOWN',
+          reason: `WdkTransferAttempt ${latest.id} outcome is UNKNOWN — no transaction hash was ever obtained, so nothing can be queried; this cannot be automatically converged and must not be retried blindly.`,
+        }
+
+      case 'PREPARED':
+      case 'FAILED_BEFORE_SUBMISSION':
+      case 'REVERTED':
+        // Definitively no funds delivered BY THIS ATTEMPT — but this method has no authority to undo
+        // the escrow's own terminal claim (that would be a different, larger recovery than #251
+        // scopes: reverting an already-claimed terminal status with no txReleaseId). Surfaced for
+        // manual review, exactly like every other case this method cannot positively converge.
+        return {
+          outcome: 'NOT_STARTED',
+          reason: `WdkTransferAttempt ${latest.id} is ${latest.status} — no funds were ever delivered by this attempt; the escrow's terminal claim cannot be automatically corroborated from provider evidence.`,
+        }
+
+      case 'SIGNED':
+      case 'NONCE_CONSUMED_ELSEWHERE':
+        // #235 R7G-F6B — signed-raw states exist only for LOCK, which this terminal reconciler never reads.
+        return { outcome: 'MISMATCH', reason: `WdkTransferAttempt ${latest.id} is ${latest.status}, a signed-transaction LOCK state, on a ${operationType} attempt.` }
+
+      default: {
+        const exhaustive: never = latest.status
+        return { outcome: 'MISMATCH', reason: `WdkTransferAttempt ${latest.id} has an unrecognized status: ${String(exhaustive)}` }
+      }
     }
-
-    // If THIS write itself fails (e.g. a transient DB error), the attempt
-    // simply remains at whatever the pre-commit above set —
-    // SUBMISSION_UNKNOWN — which is exactly correct: Sails has a real
-    // hash in local memory that was never durably recorded, so a retry
-    // must be blocked exactly as if the outcome were genuinely unknown,
-    // never silently reverted to retryable. No try/catch needed here —
-    // the thrown error already propagates correctly, and the row's last
-    // successfully-written state already blocks the next attempt.
-    await wdkTransferAttemptRepository.updateStatus(attemptId, 'SUBMITTED', { txHash: hash }, ['SUBMISSION_UNKNOWN'])
-
-    const receiptOutcome = await waitForReceiptOutcome(sourceAccount, hash)
-    if (receiptOutcome === 'CONFIRMED') {
-      await wdkTransferAttemptRepository.updateStatus(attemptId, 'CONFIRMED', undefined, ['SUBMITTED'])
-      return hash
-    }
-    if (receiptOutcome === 'REVERTED') {
-      await wdkTransferAttemptRepository.updateStatus(attemptId, 'REVERTED', undefined, ['SUBMITTED'])
-      throw new EscrowError(`WDK_USDT_EVM ${operationType} transfer ${hash} for escrow ${escrowId} reverted on-chain — no funds were delivered.`)
-    }
-    // PENDING — the bounded wait elapsed with no receipt yet. Stays
-    // SUBMITTED; a subsequent call (retry) will re-check this exact
-    // hash's receipt via ensureAttempt() before ever broadcasting again.
-    throw new EscrowError(`WDK_USDT_EVM ${operationType} transfer ${hash} for escrow ${escrowId} was submitted but is not yet confirmed on-chain within the bounded wait — this is not a failure; retry will reconcile automatically once the transaction is mined.`)
   }
 
-  // Missão 11 Fase 4 — rail-parity audit: NOT extended with fee-aware
-  // construction, deliberately. This provider funds its own escrow from
-  // Sails' own treasury account (this file's own header comment) — there
-  // is no external, seller-controlled deposit for a "seller-funded
-  // reserve" to attach to, so this rail is explicitly non-authoritative
-  // as evidence for (or against) the non-custodial funding model designed
-  // for MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM. Its existing recordObligationForEscrowSettlement()
-  // call (via escrow.service.ts's direct-call path) still runs, using the
-  // generic, non-Bitcoin-specific fixture-only small-trade rule — never
-  // this rail's own (nonexistent) dust/collection-address logic.
-  async releaseFunds(escrow: { id: string; tradeId: string; lockedAmount: string }, toAddress: string): Promise<{ txId: string }> {
-    const escrowAcct = await this.escrowAccount(escrow.tradeId)
-    const amount = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
-
-    const txId = await this.executeTransfer(escrow.id, 'RELEASE', escrowAcct, toAddress, escrow.lockedAmount, amount)
-    return { txId }
+  // #235 R7G-F6B — a WDK LOCK is no longer a transfer() call (RPC-chosen nonce, hash known only after
+  // broadcast). It is signed, persisted and broadcast by wdk-lock-authority.ts, which escrow.service's
+  // lockFunds() uses for this rail; nothing else may lock WDK funds.
+  async lockFunds(escrow: WdkEscrowInput): Promise<{ txId: string; address: string }> {
+    throw new EscrowError(`WDK_USDT_EVM LOCK for escrow ${escrow.id} is executed only by the signed-transaction LOCK authority (wdk-lock-authority.ts)`, 'UNAVAILABLE')
   }
 
-  async refundFunds(escrow: { id: string; tradeId: string; lockedAmount: string }): Promise<{ txId: string }> {
-    const treasury = await this.treasuryAccount()
-    const treasuryAddress = await treasury.getAddress()
-    const escrowAcct = await this.escrowAccount(escrow.tradeId)
-    const amount = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
-
-    const txId = await this.executeTransfer(escrow.id, 'REFUND', escrowAcct, treasuryAddress, escrow.lockedAmount, amount)
-    return { txId }
+  // #235 R7G-F6C — WDK outbound (release / refund / split) is no longer a transfer() call either (RPC-chosen
+  // nonce, hash known only after broadcast, a revert of the escrow claim on any error: DF1). Each leg is signed
+  // by the escrow's own account, persisted, then broadcast, by wdk-outbound-authority.ts, which escrow.service
+  // uses for this rail; nothing else may move WDK escrow funds.
+  async releaseFunds(escrow: WdkEscrowInput): Promise<{ txId: string }> {
+    throw outboundOnlyThroughAuthority(escrow.id, 'RELEASE')
   }
 
-  // RFC-021 D9 (2026-08-02) — real, two separate on-chain transfers (no
-  // atomic multi-recipient primitive on this provider's transfer() API,
-  // same constraint releaseFunds()/refundFunds() above already live
-  // with). buyerBps is out of 10000; the seller gets the exact remainder
-  // (computed from what's left over, not a second independent
-  // percentage) so the two legs always sum to the full lockedAmount with
-  // no truncation dust unaccounted for.
-  // Bounded Remediation (WDK Fund-Moving Safety, 2026-09-08) — Property D
-  // (Safe Multi-Leg Resume), closing docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md
-  // §5's DEMONSTRATED partial-execution gap. The two legs are tracked as
-  // two entirely independent logical operations (SPLIT_BUYER,
-  // SPLIT_SELLER — separate WdkTransferAttempt rows), each going through
-  // the exact same executeTransfer() every other method above uses. The
-  // seller leg is never attempted until the buyer leg has a real,
-  // receipt-confirmed txHash — resuming (skipping the transfer() call
-  // entirely) whenever a prior attempt already reached CONFIRMED, exactly
-  // satisfying the mission's own four named cases: buyer CONFIRMED +
-  // seller not started -> resumes at seller only; buyer CONFIRMED +
-  // seller UNKNOWN -> executeTransfer()'s own ensureAttempt() call for
-  // the seller leg blocks until reconciled; buyer UNKNOWN -> blocked
-  // before ever reaching the seller leg (buyer never repeated); buyer
-  // CONFIRMED + a prior seller REVERTED -> the seller leg's own
-  // ensureAttempt() call safely starts a fresh seller attempt (a
-  // definitively reverted transfer proves no funds moved), the buyer leg
-  // is never touched again.
-  async splitFunds(escrow: { id: string; tradeId: string; lockedAmount: string }, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ txIds: string[] }> {
-    const escrowAcct = await this.escrowAccount(escrow.tradeId)
-    const total = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
-    const buyerAmount = (total * BigInt(buyerBps)) / 10000n
-    const sellerAmount = total - buyerAmount
-
-    const buyerTxId = await this.executeTransfer(escrow.id, 'SPLIT_BUYER', escrowAcct, buyerAddress, fromBaseUnits(buyerAmount, USDT_DECIMALS), buyerAmount)
-    // The seller leg is only ever attempted once the buyer leg above has
-    // returned — executeTransfer() either resumed a real, confirmed prior
-    // txHash or genuinely reached CONFIRMED just now; either way, by this
-    // line, the buyer leg is durably CONFIRMED. If it wasn't, the line
-    // above already threw and this code is never reached — the seller
-    // leg's transfer() is never even attempted, let alone the buyer leg
-    // repeated.
-    const sellerTxId = await this.executeTransfer(escrow.id, 'SPLIT_SELLER', escrowAcct, sellerAddress, fromBaseUnits(sellerAmount, USDT_DECIMALS), sellerAmount)
-
-    return { txIds: [buyerTxId, sellerTxId] }
+  async refundFunds(escrow: WdkEscrowInput): Promise<{ txId: string }> {
+    throw outboundOnlyThroughAuthority(escrow.id, 'REFUND')
   }
 
+  async splitFunds(escrow: WdkEscrowInput): Promise<{ txIds: string[] }> {
+    throw outboundOnlyThroughAuthority(escrow.id, 'SPLIT')
+  }
+
+  /** #235 R7G-F6C — signs one outbound leg with the escrow's own account (its persisted path; see escrowAccount()). */
+  async signEscrowTransaction(escrow: WdkEscrowAccountIdentity, tx: Parameters<WalletAccountEvm['signTransaction']>[0]): Promise<string> {
+    return (await this.escrowAccount(escrow)).signTransaction(tx)
+  }
 }
 
 export const wdkSettlementProvider = new WdkSettlementProvider()

@@ -10,6 +10,7 @@
 export {} // same forced-module reasoning used throughout this suite
 
 import nacl from 'tweetnacl'
+import { BoundedRpcTimeoutError, BoundedResponseTooLargeError } from '../src/modules/open-settlement/bounded-rpc'
 
 jest.mock('../src/config', () => ({
   config: { proof: { submissionWindowHours: 72, verificationNonceTtlSeconds: 300 } },
@@ -280,6 +281,21 @@ describe('ProofService.anchorEvidence() — RFC-008 D1', () => {
     expect(mockAnchor).toHaveBeenCalledWith('abc123')
     expect(mockEvidenceReferenceUpdate).toHaveBeenCalledWith({ where: { id: 'ref-1' }, data: { anchorProof } })
     expect(result.anchorProof).toEqual(anchorProof)
+  })
+
+  it('a calendar failure of any kind (timeout, oversized or broken body, refusal) writes nothing: no anchorProof is persisted', async () => {
+    for (const failure of [
+      new BoundedRpcTimeoutError('https://calendar.example/digest', 30_000),
+      new BoundedResponseTooLargeError('https://calendar.example/digest', 16 * 1024),
+      new TypeError('terminated'),
+      new Error('OpenTimestamps calendar server (https://calendar.example) returned 503 — refusing to fabricate an anchor'),
+    ]) {
+      jest.clearAllMocks()
+      mockEvidenceReferenceFindUnique.mockResolvedValue({ id: 'ref-1', sha256: 'abc123', proof: { claim: { tradeId: null, claimedBy: 'user-1' } } })
+      mockAnchor.mockRejectedValue(failure)
+      await expect(new ProofService().anchorEvidence('ref-1', 'user-1')).rejects.toBe(failure)
+      expect(mockEvidenceReferenceUpdate).not.toHaveBeenCalled()
+    }
   })
 
   it('throws NotFoundError for an unknown evidenceReferenceId', async () => {

@@ -1,6 +1,6 @@
 import { AssetType, TradeSide, PaymentMethod, OfferStatus } from '../../common/types'
 import { prisma } from '../../common/database'
-import { NotFoundError, ForbiddenError } from '../../common/errors'
+import { NotFoundError, ForbiddenError, ValidationError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { intentEngine } from '../../core/intent-engine'
 import { intentRepository } from '../../core/intent-repository'
@@ -11,6 +11,7 @@ import type { Prisma } from '@prisma/client'
 import { config } from '../../config'
 import { qvacDetectionInvocationsTotal, qvacDetectionFailuresTotal } from '../../common/metrics'
 import { withIdempotency, isUniqueConstraintError } from '../../common/idempotency'
+import { paymentAccountService } from '../open-settlement/payment-account.service'
 
 const log = childLogger('liquidity')
 
@@ -199,6 +200,12 @@ export interface PublicOfferDetail {
   description: string | null
   createdAt: string
   updatedAt: string
+  /**
+   * #235 R7H-E3C — whether a SELL offer carries its seller's committed PaymentAccount (never which one). On a
+   * governed rail an unbound SELL offer admits no trade (trade-repository.ts), so a client can say so up front.
+   * Always false for a BUY offer: its seller is whoever takes it, and declares the account then.
+   */
+  paymentAccountBound: boolean
   seller: PublicOfferSeller
 }
 
@@ -216,6 +223,7 @@ type PublicOfferDetailRow = {
   description: string | null
   createdAt: Date
   updatedAt: Date
+  paymentAccountId?: string | null
   user: {
     id: string
     publicKey: string
@@ -246,6 +254,7 @@ function mapOfferToPublicDetail(offer: PublicOfferDetailRow): PublicOfferDetail 
     description: offer.description,
     createdAt: offer.createdAt.toISOString(),
     updatedAt: offer.updatedAt.toISOString(),
+    paymentAccountBound: offer.paymentAccountId != null,
     seller: {
       id: offer.user.id,
       publicKey: offer.user.publicKey,
@@ -340,6 +349,10 @@ export interface CreateOfferInput {
   // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 37) — optional; omitted means
   // exactly today's behavior. See src/common/idempotency.ts's own header.
   idempotencyKey?: string
+  // #235 R7C — on a SELL offer the maker is the seller (fiat receiver) and
+  // may declare the PaymentAccount buyers will pay into, by its public hash.
+  // Rejected on a BUY offer (the maker is the fiat sender there).
+  paymentAccountHash?: string
 }
 
 // RFC-018 (rfcs/RFC-018-intent-as-canonical-trade-entry-point.md) — an Offer is
@@ -450,6 +463,7 @@ export class LiquidityRouter {
           asset: input.asset, side: input.side, priceUsd: input.priceUsd, priceBrl: input.priceBrl,
           minAmount: input.minAmount, maxAmount: input.maxAmount, paymentMethod: input.paymentMethod,
           paymentDetails: input.paymentDetails, network: input.network, description: input.description,
+          paymentAccountHash: input.paymentAccountHash,
         },
       },
       (claimId) => this.persistOffer(input, claimId),
@@ -498,6 +512,16 @@ export class LiquidityRouter {
   // handles the residual, genuinely-concurrent case the same way R4's
   // Intent-side reconciliation does.
   private async persistOffer(input: CreateOfferInput, claimId: string | null) {
+    // #235 R7C — verified before any write (the Intent below is the first),
+    // so a rejected declaration leaves nothing behind.
+    let paymentAccountId: string | undefined
+    if (input.paymentAccountHash) {
+      if (input.side !== 'SELL') {
+        throw new ValidationError('Only a SELL offer declares a payment account: on a BUY offer the maker sends the fiat, the seller who takes it receives it')
+      }
+      paymentAccountId = await paymentAccountService.bindableAccountId({ accountHash: input.paymentAccountHash }, input.userId, input.paymentMethod)
+    }
+
     let intentId: string
     if (!claimId) {
       const intent = await intentEngine.create('TradeIntent', buildTradeIntentPayload(input), input.userId)
@@ -535,6 +559,7 @@ export class LiquidityRouter {
       network: input.network,
       description: input.description,
       intentId,
+      paymentAccountId,
     }
 
     if (!claimId) {
@@ -635,7 +660,7 @@ export class LiquidityRouter {
       select: {
         id: true, asset: true, side: true, priceUsd: true, priceBrl: true,
         minAmount: true, maxAmount: true, paymentMethod: true, status: true,
-        network: true, description: true, createdAt: true, updatedAt: true,
+        network: true, description: true, createdAt: true, updatedAt: true, paymentAccountId: true,
         user: { select: {
           id: true, publicKey: true, displayName: true, peerId: true,
           verified: true, reputationScore: true, totalTrades: true, disputeCount: true,

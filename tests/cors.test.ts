@@ -86,6 +86,9 @@ const ENV_BASE = {
   EVIDENCE_S3_BUCKET: 'test-evidence-bucket',
   EVIDENCE_S3_ACCESS_KEY_ID: 'test-access-key',
   EVIDENCE_S3_SECRET_ACCESS_KEY: 'test-secret-key',
+  // Master Backlog R5 — DEFAULT_TIMELOCK_HOURS is now required in production
+  // (an unset value no longer falls back to the dev default there).
+  DEFAULT_TIMELOCK_HOURS: '24',
 }
 
 async function buildAppWithEnv(envOverrides: Record<string, string>): Promise<FastifyInstance> {

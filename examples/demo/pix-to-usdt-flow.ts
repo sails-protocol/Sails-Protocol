@@ -81,7 +81,6 @@ import { issueRegistrationChallenge, registrationProofMessage } from '../../src/
 import { liquidityRouter } from '../../src/modules/open-liquidity/liquidity.service'
 import { tradeService } from '../../src/modules/open-p2p/trade.service'
 import { executeSettlement } from '../../src/modules/open-settlement/settlement-orchestrator'
-import { wdkSettlementProvider } from '../../src/modules/open-settlement/wdk-settlement.provider'
 import { qvacAgentProvider } from '../../src/modules/open-agents/qvac-agent.provider'
 import { BuyerAgent } from '../../src/modules/open-agents/buyer-agent'
 import { SellerAgent } from '../../src/modules/open-agents/seller-agent'
@@ -90,8 +89,6 @@ import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../src/core/c
 import { pearsTransportProvider } from '../../src/infrastructure/p2p/transport-provider'
 import { pearNodeRegistry } from '../../src/infrastructure/p2p/pear.service'
 import { decryptFromPeer } from '../../src/infrastructure/p2p/payload-crypto'
-
-const BUYER_DEMO_ACCOUNT_INDEX = 1 // treasury is account 0 — see wdk-settlement.provider.ts
 
 function step(n: number, total: number, label: string) {
   console.log(`\n[${n}/${total}] ${label}`)
@@ -235,9 +232,13 @@ export async function main() {
 
   step(8, TOTAL, 'executeSettlement(): escrow travado, PIX (emulado) confirmado pelo Vendedor, USDT liberado...')
   const usingRealWdk = !config.features.mockEscrow && Boolean(config.wdk.seedPhrase)
-  const buyerAddress = usingRealWdk
-    ? await wdkSettlementProvider.getAccountAddress(BUYER_DEMO_ACCOUNT_INDEX)
-    : 'mock-buyer-address'
+  if (usingRealWdk) {
+    // #235 R7G NF-B1: executeSettlement() acts for both parties on an emulated PIX confirmation, so it runs only on
+    // the MOCK rail. A real WDK settlement is the seller's / arbiter's own release to the buyer's registered payout.
+    console.log('   executeSettlement() roda apenas no trilho MOCK (NF-B1): com WDK real, o release é do próprio Vendedor para o endereço de payout registrado do Comprador. Defina MOCK_ESCROW=true para este demo.')
+    process.exit(0)
+  }
+  const buyerAddress = 'mock-buyer-address'
 
   const settlement = await executeSettlement({
     tradeId: trade.id,

@@ -1,5 +1,5 @@
 import type { EventStore } from './event-store'
-import { PostgresEventStore } from './event-store'
+import { PostgresEventStore, type PublishOutcome } from './event-store'
 
 /**
  * Sails Protocol — Event Contract
@@ -42,6 +42,15 @@ export interface OpenP2PMessageSentEvent {
 }
 
 // ─── Sails OpenSettlement events ───────────────────────────────────────────────
+// #235 R7C — the one emitter is payment-account.service.ts's attestFromTrade(), after the atomic
+// write that made the account PEER-signed (same post-write shape as reputation.vouch.created).
+export interface PaymentAccountAttestedEvent {
+  accountHash: string
+  tradeId: string
+  attesterId: string
+  attestationSource: 'PEER'
+}
+
 export interface SettlementEscrowCreatedEvent {
   escrowId: string
   tradeId: string
@@ -58,6 +67,18 @@ export interface SettlementEscrowStatusChangedEvent {
   triggeredBy: string
   txId?: string
   note?: string
+  // Issue #298 - id of the EscrowEvent transition claim that produced this event: the stable
+  // identity recovery uses to tell 'claimed' from 'published' from 'projected'.
+  transitionId?: string
+  // Issue #254 - set ONLY by a direct-call-rail (MOCK/WDK_USDT_EVM) settlement action driven by a real
+  // dispute ruling (dispute.service.ts's applyRuling(), never a cooperative seller action) - captured at
+  // the exact moment fund movement is triggered, immutable and event-carried from that point forward.
+  // A later appeal() mutating Dispute.status/ruling can never retroactively change what THIS event means:
+  // common/events/handlers.ts's reputation-outcome derivation reads this field instead of re-querying
+  // current (mutable) Dispute state. Absent for a plain, non-disputed release/refund, and absent for the
+  // signature-collection rails (MULTISIG has its own immutable semantic_transition_records provenance;
+  // LIGHTNING_HODL/SAFE_GUARD_EVM are a disclosed residual - see handlers.ts's own comment).
+  disputeId?: string
 }
 
 
@@ -218,6 +239,9 @@ export interface DisputeAppealedEvent extends DisputeEvent {
 // DisputeResolvedEvent already extend the base shape with it.
 export interface DisputeEvidenceSubmittedEvent extends DisputeEvent {
   tradeId: string
+  // #309 — the evidence snapshot this submission committed. Optional only for replay of events
+  // persisted before generation binding existed.
+  evidenceGeneration?: number
 }
 
 // dispute.auto_resolution_proposed's real payload — RFC-021 D8. QVAC's
@@ -250,6 +274,18 @@ export interface ArbiterSlashedEvent {
   forfeitedCollateral: string
   newCollateral: string
   newReputation: number
+}
+
+// #235 R7H-NF-E3C-5 (L1) — a LEGACY trade (no tradeIntentId) was cancelled while the Offer Intent it shares with
+// sibling trades was deliberately left untouched. Durable audit of a decision, never a Intent transition: the Intent's
+// own history records nothing for it.
+export interface OpenP2PTradeIntentUnchangedEvent {
+  tradeId: string
+  intentId: string
+  intentStatus: string
+  reason: 'SHARED_INTENT_SIBLING_TRADES_LIVE' | 'SHARED_INTENT_ALREADY_TERMINAL'
+  liveSiblingTrades: number
+  triggeredBy: string
 }
 
 // ─── Negotiation primitive events — PROTOCOL_SPECIFICATION.md §1.4 ───────────
@@ -375,6 +411,7 @@ export interface SailsEventMap {
   // Sails OpenP2P — trade lifecycle
   'openp2p.trade.created': OpenP2PTradeCreatedEvent
   'openp2p.trade.status_changed': OpenP2PTradeStatusChangedEvent
+  'openp2p.trade.intent_unchanged': OpenP2PTradeIntentUnchangedEvent // L1 — legacy shared Intent left untouched
   'openp2p.trade.completed': OpenP2PTradeStatusChangedEvent
   'openp2p.trade.disputed': OpenP2PTradeStatusChangedEvent
   'openp2p.trade.cancelled': OpenP2PTradeStatusChangedEvent
@@ -382,6 +419,7 @@ export interface SailsEventMap {
 
   // Sails OpenSettlement — escrow lifecycle
   'settlement.escrow.created': SettlementEscrowCreatedEvent
+  'settlement.payment_account.attested': PaymentAccountAttestedEvent // #235 R7C
   'settlement.escrow.locked': SettlementEscrowStatusChangedEvent
   'settlement.escrow.payment_pending': SettlementEscrowStatusChangedEvent
   'settlement.escrow.released': SettlementEscrowStatusChangedEvent
@@ -483,6 +521,16 @@ export class SailsEventBus {
     await this.store.publish(event, payload, correlationId)
   }
 
+  // emit(), returning what a durable store did: an escrow transition that was already published is
+  // not minted again (PublishOutcome.minted false, eventId = the existing canonical event).
+  async publish<K extends SailsEventName>(
+    event: K,
+    payload: SailsEventMap[K],
+    correlationId: string
+  ): Promise<PublishOutcome | void> {
+    return this.store.publish(event, payload, correlationId)
+  }
+
   // Handler signature is unchanged from pre-RFC-010 (still receives the bare
   // payload) — this is what let every existing eventBus.on(...) call site in
   // handlers.ts stay untouched. correlationId is available on the event as
@@ -512,6 +560,38 @@ export class SailsEventBus {
     listener: (event: import('./event-store').DurableEvent<K>) => void | Promise<void>
   ): void {
     this.store.subscribe(event, listener)
+  }
+
+  // #235 R7H-NF-E3C-5 — appends events to the durable log inside the CALLER's transaction and returns the
+  // post-commit `dispatch()`. Only the Postgres store can share a caller's transaction; any other store cannot make
+  // the events atomic with the caller's writes, so this fails closed rather than silently publishing late. The
+  // events appear in the durable log with the transaction (or not at all); dispatch is non-authoritative.
+  async publishInTransaction(
+    tx: import('@prisma/client').Prisma.TransactionClient,
+    events: Array<{ [K in SailsEventName]: { eventName: K; payload: SailsEventMap[K]; correlationId: string } }[SailsEventName]>,
+  ): Promise<() => void> {
+    if (!('publishInTransaction' in this.store)) {
+      throw new Error(`Event store '${this.store.storeName}' cannot publish inside a caller's transaction — atomic trade admission requires the PostgreSQL event store`)
+    }
+    const store = this.store as import('./event-store').PostgresEventStore
+    const dispatches: Array<() => void> = []
+    for (const e of events) {
+      const { dispatch } = await store.publishInTransaction(tx, e.eventName, e.payload as never, e.correlationId)
+      dispatches.push(dispatch)
+    }
+    return () => { for (const d of dispatches) d() }
+  }
+
+  // Issue #298 - re-drive an ALREADY-persisted durable event to this instance's local handlers
+  // (recovery of an incomplete projection). Not part of the generic EventStore interface for the
+  // same reason enableCrossInstanceFanout() is not: only PostgresEventStore can reload a row by id.
+  // Safe because every economically relevant projection is idempotent per (eventId, projectionKey,
+  // subjectId) - redelivery cannot duplicate an effect. Returns false if the event does not exist.
+  async redeliver(eventId: string): Promise<boolean> {
+    if ('redeliver' in this.store) {
+      return (this.store as import('./event-store').PostgresEventStore).redeliver(eventId)
+    }
+    return false
   }
 
   // Missão 08B — thin passthrough, same shape as getEvents() above. Not

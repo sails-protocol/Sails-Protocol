@@ -1,16 +1,17 @@
+import { childLogger } from '../../common/logger'
 import { Prisma } from '@prisma/client'
-import { createHash } from 'crypto'
 import { prisma } from '../../common/database'
-import { NotFoundError, EscrowError, ForbiddenError } from '../../common/errors'
+import { NotFoundError, EscrowError, ForbiddenError, SettlementResultConflictError } from '../../common/errors'
 import { AssetType } from '../../common/types'
 import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
 import { payoutAddressService } from './payout-address.service'
-import { escrowRepository } from './escrow-repository'
+import { escrowRepository, type DirectExecutionDisposition, type DirectExecutionIntent } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { assertCircuitClosed, recordEscrowConflict } from './escrow-circuit-breaker'
 import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../core/capability-registry'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
+import { claimEscrowTransitionRecord, computeEscrowEventHash } from './escrow-transition-claim'
 
 /**
  * Sails OpenSettlement — Escrow lifecycle shared helpers
@@ -324,8 +325,10 @@ export async function loadParticipantPubkeys(escrowId: string): Promise<{ buyerP
 
 /** Atomic escrow.status transition — the same conditional updateMany +
  *  count === 0 → throw + revert idiom every mutating method below uses
- *  (the robustness-audit fix from 2026-07-20). */
-export async function claimEscrowTransition(escrowId: string, fromStatus: string, toStatus: string): Promise<void> {
+ *  (the robustness-audit fix from 2026-07-20).
+ *  #247/#248 - `intent` is passed only by the direct-call releaseFunds()/refundFunds()/splitFunds():
+ *  the claim then also freezes (or must identically match) that execution's economic intent. */
+export async function claimEscrowTransition(escrowId: string, fromStatus: string, toStatus: string, intent?: DirectExecutionIntent): Promise<void> {
   // 2026-08-15 — checked first and cheaply, before any real work: once
   // this escrow's circuit is open, every further attempt should fail
   // fast, not pay for an authorization check + DB round trip first. See
@@ -339,13 +342,64 @@ export async function claimEscrowTransition(escrowId: string, fromStatus: string
   if (!allowed.includes(toStatus)) {
     throw new EscrowError(`Invalid escrow transition: ${fromStatus} → ${toStatus}. Allowed: ${allowed.join(', ') || 'none'}`)
   }
-  const claimedCount = await escrowRepository.claimTransition(escrowId, fromStatus, toStatus)
+  const claimedCount = intent
+    ? await escrowRepository.claimDirectExecution(escrowId, fromStatus, toStatus as DirectExecutionDisposition, intent)
+    : await escrowRepository.claimTransition(escrowId, fromStatus, toStatus)
   if (claimedCount === 0) {
     // A real, concrete anomaly on this specific escrow — not a heuristic
     // guess — so it feeds the circuit breaker directly.
     recordEscrowConflict(escrowId)
+    if (intent) await assertNoDivergentFrozenIntent(escrowId, fromStatus, toStatus, intent)
     throw new EscrowError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
   }
+}
+
+// #247/#248 - first economic intent wins within an authority phase: a direct-call attempt whose
+// intent differs from the one this phase already froze (even after that attempt's provider call failed
+// and the status was reverted) is refused with the frozen intent named, never allowed to replace it.
+// Cooperative intent includes its actor; arbitrated intent does not - who may execute it is the
+// current assigned arbiter, already enforced by loadEscrowWithAuthorization() before any claim.
+async function assertNoDivergentFrozenIntent(escrowId: string, fromStatus: string, toStatus: string, intent: DirectExecutionIntent): Promise<void> {
+  const row = await escrowRepository.findById(escrowId)
+  if (!row) return
+  const requestedBps = intent.splitBuyerBps ?? null
+  if (fromStatus === 'DISPUTED') {
+    if (!row.arbitratedDisposition || (row.arbitratedDisposition === toStatus && row.splitBuyerBps === requestedBps)) return
+    throw new EscrowError(
+      `Escrow ${escrowId} already froze its arbitrated execution intent (${row.arbitratedDisposition}${row.splitBuyerBps === null ? '' : ` at buyerBps=${row.splitBuyerBps}`}); ` +
+      `refusing a divergent ${toStatus}${requestedBps === null ? '' : ` at buyerBps=${requestedBps}`}.`
+    )
+  }
+  if (!row.cooperativeDisposition || (row.cooperativeDisposition === toStatus && row.cooperativeTriggeredBy === intent.triggeredBy)) return
+  throw new EscrowError(
+    `Escrow ${escrowId} already froze its cooperative execution intent (${row.cooperativeDisposition} by ${row.cooperativeTriggeredBy}); ` +
+    `refusing a divergent ${toStatus} by ${intent.triggeredBy}.`
+  )
+}
+
+const lifecycleLog = childLogger('escrow-lifecycle')
+
+/**
+ * Issue #291 - error boundary AFTER external economic execution succeeded.
+ *
+ * Once the provider call has returned successfully the economic operation may
+ * already have happened externally. A later LOCAL step failing (persisting the
+ * result, fee accounting, publishing the event) must NOT revert the escrow
+ * status as though nothing happened: the escrow stays in its claimed terminal
+ * state and reconciliation (PASS 0/1/2/3) owns convergence from durable facts.
+ * A settlement-result integrity conflict is surfaced unchanged.
+ */
+export function settlementSucceededButLocalStepFailed(escrowId: string, operation: string, resultRef: string | undefined, err: unknown): Error {
+  if (err instanceof SettlementResultConflictError) return err
+  const reason = err instanceof Error ? err.message : String(err)
+  lifecycleLog.error({
+    msg: 'Provider execution succeeded but a local completion step failed - escrow NOT reverted, reconciliation owns convergence',
+    escrowId, operation, resultRef, err: reason,
+  })
+  return new EscrowError(
+    `${operation} for escrow ${escrowId} executed externally (result ${resultRef ?? 'unknown'}) but a local completion step failed (${reason}). ` +
+    'The escrow status was NOT reverted; reconciliation will converge it from durable facts.'
+  )
 }
 
 /** Revert-on-failure boilerplate — every provider call in this class wraps
@@ -369,18 +423,10 @@ export function assertEscrowTransition(current: string, next: string) {
   }
 }
 
-// RFC-008 D2 amendment (Missão 05.5, 2026-08-15) — EscrowEvent's own hash
-// chain, same composition and same reasoning as intent-engine.ts's
-// writeIntentEvent(): sha256(fromStatus + toStatus + triggeredBy +
-// prevHash). Deliberately excludes `note` and `createdAt` from the hash —
-// mirroring IntentEvent's own precedent exactly, not inventing a new
-// composition. Exported so verifyEscrowEventChain() below (and its own
-// tests) can recompute and compare against the stored entryHash — the
-// only way to catch an entry mutated in place, not just prevHash links
-// reordered.
-export function computeEscrowEventHash(fromStatus: string, toStatus: string, triggeredBy: string, prevHash: string): string {
-  return createHash('sha256').update(`${fromStatus}|${toStatus}|${triggeredBy}|${prevHash}`).digest('hex')
-}
+// computeEscrowEventHash(), the recoverable-transition sets and the transition claim itself live in
+// escrow-transition-claim.ts (no event bus / service imports, so the timelock-expiry commit can claim its
+// transition in its own transaction); re-exported here for every existing importer.
+export { computeEscrowEventHash, RECOVERABLE_TRANSITION_EVENTS, EVENT_NAME_BY_TARGET_STATUS } from './escrow-transition-claim'
 
 // Missão 11 Fase 9.7 — CONC-03's "C5" closure (found auditing this exact
 // function while investigating whether Fase 9.6's own crash-recovery
@@ -420,32 +466,36 @@ export async function emitEscrowTransition(
   eventExtra: Record<string, unknown> = {},
   note?: string
 ): Promise<boolean> {
-  // entryHash/prevHash are never accepted from a caller — this function's
-  // own signature has no such parameters, so they can only ever be what
-  // the server itself derives here.
-  const claimed = await withEscrowFundingLock(escrowId, async (tx) => {
-    const alreadyEmitted = await tx.escrowEvent.findFirst({ where: { escrowId, toStatus: to as any } })
-    if (alreadyEmitted) return false
-
-    const last = await tx.escrowEvent.findFirst({ where: { escrowId }, orderBy: { createdAt: 'desc' } })
-    const prevHash = last?.entryHash ?? 'genesis'
-    const entryHash = computeEscrowEventHash(from, to, triggeredBy, prevHash)
-
-    await tx.escrowEvent.create({
-      data: { escrowId, fromStatus: from as any, toStatus: to as any, triggeredBy, note, entryHash, prevHash },
-    })
-    return true
-  })
-
+  const claimed = await withEscrowFundingLock<string | false>(escrowId, (tx) =>
+    claimEscrowTransitionRecord(tx, { escrowId, from, to, triggeredBy, eventName: eventName as string, note })
+  )
   if (!claimed) return false
+  await publishEscrowTransition(escrowId, tradeId, from, to, triggeredBy, eventName, eventExtra, claimed)
+  return true
+}
 
+/**
+ * Publishes an already-claimed escrow transition (claimEscrowTransitionRecord()) as its canonical durable
+ * event, carrying the transition's id. If this never happens (a crash, a failed publish), PASS 3
+ * re-publishes it from the durable claim for every RECOVERABLE_TRANSITION_EVENTS transition.
+ */
+export async function publishEscrowTransition(
+  escrowId: string,
+  tradeId: string,
+  from: string,
+  to: string,
+  triggeredBy: string,
+  eventName: Parameters<typeof eventBus.emit>[0],
+  eventExtra: Record<string, unknown>,
+  transitionId: string
+): Promise<void> {
   // correlationId = tradeId (RFC-010) — stand-in for intentId until Intent
   // persistence exists; Trade already IS the concrete TradeIntent (§2.3).
-  // Deliberately outside the lock/transaction above — this cascades into
+  // Deliberately outside the lock/transaction of the claim — this cascades into
   // several other modules' own writes (OpenP2P, OpenReputation), and
   // holding a Postgres advisory lock open across that whole chain would
   // be a real architectural liability for no added safety once the
-  // EscrowEvent claim above has already made this the sole winner.
+  // EscrowEvent claim has already made this the sole winner.
   await eventBus.emit(eventName as any, {
     escrowId,
     tradeId,
@@ -453,8 +503,8 @@ export async function emitEscrowTransition(
     to,
     triggeredBy,
     ...eventExtra,
+    transitionId,
   }, tradeId)
-  return true
 }
 
 // RFC-008 D2 amendment — Fase 5's own verification primitive. Same shape

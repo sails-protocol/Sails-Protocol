@@ -16,25 +16,72 @@ jest.mock('../src/config', () => ({
   // failure path (recordEscrowConflict()); this mock previously omitted
   // it entirely because nothing in this file called claimEscrowTransition()
   // before this pass. Real production defaults, not arbitrary test values.
-  config: { multisig: { network: 'testnet' }, escrowCircuitBreaker: { failureThreshold: 5, windowMs: 30_000, cooldownMs: 120_000 } },
+  // PASS 0's per-run time budget is derived from the reconciliation interval and the explorer timeout.
+  config: { multisig: { network: 'testnet', explorerRequestTimeoutMs: 8000 }, trade: { settlementReconcileIntervalMs: 60_000 }, escrowCircuitBreaker: { failureThreshold: 5, windowMs: 30_000, cooldownMs: 120_000 } },
 }))
 
-const mockFindTerminalWithoutTxReleaseId = jest.fn()
-const mockFindTerminalWithTxReleaseId = jest.fn()
+const mockClaimResultRecoveryBatch = jest.fn()
+const mockClaimCompletionVerificationBatch = jest.fn()
 // M9-R (Recovery Closure, Part 3, C8) — claimEscrowTransition() (the
 // REAL, unmocked function from escrow-lifecycle.ts) calls through to
 // escrowRepository.claimTransition(); since this whole module is
 // jest.mock()'d, that method needs its own stub here too, even though
 // only the new C8-specific tests below actually exercise it.
 const mockClaimTransition = jest.fn()
+// PASS 2 marks a settlement it finds converged (real PostgreSQL proof of the predicate:
+// tests/integration/settlementReconciliationBoundedness.test.ts). Defaults to "not converged", so
+// every PASS 2 case below runs the per-escrow recovery exactly as before the bounded queue existed.
+const mockMarkCompletionVerifiedIfConverged = jest.fn()
 const mockUpdateSignatureCollectionResult = jest.fn()
+// PASS 0 claims its candidates one at a time from a durable queue (real PostgreSQL proof of the
+// eligibility predicate and the order: tests/integration/unclaimedSignedRecoveryQueue.test.ts), then
+// loads the claimed row. None by default; a C8 test below stages exactly one claim.
+const mockClaimUnclaimedSignedPendingOperation = jest.fn()
+// Issue #251 - reconcileWdkTerminalTransfer()'s own write-once path.
+const mockUpdateReleaseResult = jest.fn()
+const mockUpdateRefundResult = jest.fn()
+const mockUpdateSplitResult = jest.fn()
 jest.mock('../src/modules/open-settlement/escrow-repository', () => ({
   escrowRepository: {
-    findTerminalWithoutTxReleaseId: (...args: unknown[]) => mockFindTerminalWithoutTxReleaseId(...args),
-    findTerminalWithTxReleaseId: (...args: unknown[]) => mockFindTerminalWithTxReleaseId(...args),
+    claimSettlementResultRecoveryBatch: (...args: unknown[]) => mockClaimResultRecoveryBatch(...args),
+    claimCompletionVerificationBatch: (...args: unknown[]) => mockClaimCompletionVerificationBatch(...args),
+    markCompletionVerifiedIfConverged: (...args: unknown[]) => mockMarkCompletionVerifiedIfConverged(...args),
+    claimUnclaimedSignedPendingOperation: (...args: unknown[]) => mockClaimUnclaimedSignedPendingOperation(...args),
     claimTransition: (...args: unknown[]) => mockClaimTransition(...args),
     updateSignatureCollectionResult: (...args: unknown[]) => mockUpdateSignatureCollectionResult(...args),
+    updateReleaseResult: (...args: unknown[]) => mockUpdateReleaseResult(...args),
+    updateRefundResult: (...args: unknown[]) => mockUpdateRefundResult(...args),
+    updateSplitResult: (...args: unknown[]) => mockUpdateSplitResult(...args),
   },
+}))
+
+// Issue #251 - reconcileWdkTerminalTransfer()'s only point of contact with the WDK provider/wallet;
+// the real read-only state machine (CONFIRMED/SUBMITTED/SUBMISSION_UNKNOWN/mismatch classification)
+// is proven separately against real PostgreSQL in tests/integration/wdkTerminalRestartConvergence.test.ts.
+// This suite only proves the ORCHESTRATION around it.
+const mockGetAccountAddress = jest.fn()
+const mockReconcileTerminalTransfer = jest.fn()
+jest.mock('../src/modules/open-settlement/wdk-settlement.provider', () => ({
+  wdkSettlementProvider: {
+    getAccountAddress: (...args: unknown[]) => mockGetAccountAddress(...args),
+    reconcileTerminalTransfer: (...args: unknown[]) => mockReconcileTerminalTransfer(...args),
+  },
+}))
+
+// Issue #250 - reconcileWdkSplitTransfer()'s own amount-sum verification reads both leg attempts
+// directly (reconcileTerminalTransfer()'s result deliberately carries no amount for a SPLIT leg - see
+// that method's own comment on why).
+const mockWdkFindLatest = jest.fn()
+jest.mock('../src/modules/open-settlement/wdk-transfer-attempt-repository', () => ({
+  wdkTransferAttemptRepository: { findLatest: (...args: unknown[]) => mockWdkFindLatest(...args) },
+}))
+
+// resolvePayoutAddress() (the REAL, unmocked escrow-lifecycle.ts function) reads this for RELEASE's
+// expected destination — mocked one hop above the DB, same convention this file already uses for
+// payoutAddressService's own sibling services.
+const mockGetPayoutAddress = jest.fn()
+jest.mock('../src/modules/open-settlement/payout-address.service', () => ({
+  payoutAddressService: { getPayoutAddress: (...args: unknown[]) => mockGetPayoutAddress(...args) },
 }))
 
 const mockTradeFindById = jest.fn()
@@ -47,6 +94,8 @@ jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
   multisigProvider: { reconcilePendingSettlement: (...args: unknown[]) => mockReconcilePendingSettlement(...args) },
   identifyFeeOutput: jest.fn(() => ({ vout: 0, scriptPubKeyHex: 'deadbeef', amountSats: 1000 })),
   networkFor: jest.fn(() => 'testnet'),
+  // PASS 0's per-run time budget: the real value at the default 8 s explorer timeout.
+  pendingSettlementReconciliationWorstCaseMs: jest.fn(() => 57_500),
 }))
 
 const mockRecordObligation = jest.fn()
@@ -96,7 +145,9 @@ const mockEscrowFindUnique = jest.fn()
 const mockEscrowUpdate = jest.fn()
 const mockParticipantKeyFindMany = jest.fn()
 const mockEscrowEventFindFirst = jest.fn()
-const mockEscrowEventCreate = jest.fn()
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
+// Issue #240
+const mockFinalizationAttemptFindUnique = jest.fn()
 // Same passthrough shape multisigFundingReorgSweep.test.ts's own
 // withEscrowFundingLock() mock uses — no real transactional semantics
 // needed for a unit-level proof of the orchestration; the real locked
@@ -104,6 +155,8 @@ const mockEscrowEventCreate = jest.fn()
 // tests/integration/escrowFundingConcurrency.test.ts.
 const mockTransaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
   callback({
+    // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+    eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
     $executeRaw: jest.fn().mockResolvedValue(0),
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args), update: (...args: unknown[]) => mockEscrowUpdate(...args) },
     // Missão 11 Fase 9.7 — emitEscrowTransition() now does its own
@@ -120,6 +173,10 @@ const mockTransaction = jest.fn(async (callback: (tx: unknown) => Promise<unknow
 )
 jest.mock('../src/common/database', () => ({
   prisma: {
+    eventProjectionClaim: { findMany: jest.fn().mockResolvedValue([]) },
+    // Issue #298 - PASS 3 claims its queue of claimed-but-unprojected transitions with one raw
+    // statement (event-projection.ts's claimTransitionRecoveryBatch()); none by default.
+    $queryRaw: jest.fn().mockResolvedValue([]),
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
     escrowPendingTransaction: {
       findUnique: (...args: unknown[]) => mockPendingTxFindUnique(...args),
@@ -131,17 +188,40 @@ jest.mock('../src/common/database', () => ({
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
       create: (...args: unknown[]) => mockEscrowEventCreate(...args),
     },
+    // Issue #240 - reconcileSignatureCollectionTerminalTransfer()'s own durable evidence lookup.
+    signatureCollectionFinalizationAttempt: { findUnique: (...args: unknown[]) => mockFinalizationAttemptFindUnique(...args) },
+    // #235 R7G-F6B - the LOCK pass: no signed or legacy LOCK attempts and no halted lane by default.
+    // count: #235 R7G-F6C hasSignedOutbound() / hasLegacyOutbound() - these WDK escrows carry legacy transfer()
+    // attempts (the provider mock's reconcileTerminalTransfer() reads them) and no signed obligation: the legacy path
+    wdkTransferAttempt: {
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn(async ({ where }: { where: { authority?: string } }) => (where.authority === 'LEGACY_TRANSFER_V0' ? 1 : 0)),
+    },
+    wdkLaneHalt: { findMany: jest.fn().mockResolvedValue([]) }, // #235 R7G-F6B-P1: halts replaced wdk_nonce_lanes.haltedAt
   },
 }))
 
-import { reconcilePendingSettlements } from '../src/modules/open-settlement/escrow-settlement-reconciliation.service'
+import { reconcilePendingSettlements, SETTLEMENT_RECOVERY_BATCH } from '../src/modules/open-settlement/escrow-settlement-reconciliation.service'
 import { resetEscrowCircuitBreaker } from '../src/modules/open-settlement/escrow-circuit-breaker'
+import { SettlementResultConflictError } from '../src/common/errors'
 
 function multisigEscrowFixture(overrides: Record<string, any> = {}) {
   return {
     id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'COMPLETED', txReleaseId: null,
     lockedAmount: { toString: () => '0.001' }, txLockId: 'a'.repeat(64), txLockVout: 0,
     snapshotFeeCollectionAddress: null,
+    // #247/#248 - no frozen execution intent (legacy / signature-collection row shape).
+    cooperativeDisposition: null, cooperativeTriggeredBy: null, arbitratedDisposition: null, arbitratedTriggeredBy: null, splitBuyerBps: null,
+    ...overrides,
+  }
+}
+
+// Issue #251
+function wdkEscrowFixture(overrides: Record<string, any> = {}) {
+  return {
+    id: 'escrow-1', tradeId: 'trade-1', type: 'WDK_USDT_EVM', status: 'COMPLETED', txReleaseId: null,
+    lockedAmount: { toString: () => '0.001' }, asset: 'USDT_ERC20',
+    cooperativeDisposition: null, cooperativeTriggeredBy: null, arbitratedDisposition: null, arbitratedTriggeredBy: null, splitBuyerBps: null,
     ...overrides,
   }
 }
@@ -169,14 +249,26 @@ beforeEach(() => {
   mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1' })
   mockPendingTxDelete.mockResolvedValue({})
   mockClaimTransition.mockResolvedValue(1)
+  mockMarkCompletionVerifiedIfConverged.mockResolvedValue(false)
   mockUpdateSignatureCollectionResult.mockResolvedValue({ id: 'escrow-1' })
+  mockUpdateReleaseResult.mockResolvedValue({ id: 'escrow-1' })
+  mockUpdateRefundResult.mockResolvedValue({ id: 'escrow-1' })
+  mockUpdateSplitResult.mockResolvedValue({ id: 'escrow-1' })
+  mockGetAccountAddress.mockResolvedValue('treasury-address')
+  mockGetPayoutAddress.mockImplementation(async (participantId: string) =>
+    participantId === 'seller-1' ? { address: 'seller-payout-address' } : { address: 'buyer-payout-address' }
+  )
+  mockWdkFindLatest.mockResolvedValue(null)
+  mockReconcileTerminalTransfer.mockResolvedValue({ outcome: 'NO_ATTEMPT', reason: 'no attempt' })
+  mockFinalizationAttemptFindUnique.mockResolvedValue(null)
   // PASS 0 (M9-R, C8) candidates default to none — tests that specifically
-  // want one set mockPendingTxFindMany explicitly.
+  // want one stage a claim and set mockPendingTxFindMany (the claimed row's load) explicitly.
+  mockClaimUnclaimedSignedPendingOperation.mockResolvedValue(null)
   mockPendingTxFindMany.mockResolvedValue([])
   // PASS 2 (Fase 9.7) candidates default to none, so every PASS-1-only
   // (Fase 9.6) test below exercises exactly the scenario it names —
   // tests that specifically want a PASS 2 candidate set it explicitly.
-  mockFindTerminalWithTxReleaseId.mockResolvedValue([])
+  mockClaimCompletionVerificationBatch.mockResolvedValue([])
 })
 
 // Sails Core Implementation Program M9-R (Recovery Closure, Part 3) —
@@ -190,18 +282,19 @@ beforeEach(() => {
 describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signed-pending recovery (PASS 0)', () => {
   it('no PASS 0 candidates — a clean report on that side', async () => {
     mockPendingTxFindMany.mockResolvedValue([])
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
     const report = await reconcilePendingSettlements()
     expect(report.resumedUnclaimed).toEqual([])
     expect(report.alreadyClaimedConcurrently).toEqual([])
   })
 
   it('a pending row still collecting signatures (not fully signed) is silently not a candidate — the ordinary C7 state', async () => {
+    mockClaimUnclaimedSignedPendingOperation.mockResolvedValueOnce('pending-1')
     mockPendingTxFindMany.mockResolvedValue([{
       ...pendingTxFixture(), signatures: [{ participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' }],
       escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
     }])
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
 
     const report = await reconcilePendingSettlements()
 
@@ -211,10 +304,11 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
   })
 
   it('fully signed, escrow non-terminal — asks the chain FIRST, then claims the transition and runs the shared downstream effects', async () => {
+    mockClaimUnclaimedSignedPendingOperation.mockResolvedValueOnce('pending-1')
     mockPendingTxFindMany.mockResolvedValue([{
       ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
     }])
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
     mockReconcilePendingSettlement.mockImplementation(async (_input, _unsigned, _signed, beforeFirstBroadcast) => {
       await beforeFirstBroadcast()
       return { outcome: 'NEWLY_BROADCAST', txId: 'c8-txid-1', detail: 'broadcast for the first time', rawTxHex: 'c8-raw-hex' }
@@ -227,17 +321,18 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
     expect(mockAuthorizePendingExecution).toHaveBeenCalledWith(expect.objectContaining({ id: 'pending-1' }))
     expect(mockAuthorizeDisputedPendingExecution.mock.invocationCallOrder[0]).toBeLessThan(mockAuthorizePendingExecution.mock.invocationCallOrder[0])
     expect(mockClaimTransition).toHaveBeenCalledWith('escrow-1', 'DISPUTED', 'COMPLETED')
-    expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: 'c8-txid-1', releasedAt: expect.any(Date) })
+    expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: 'c8-txid-1', releasedAt: expect.any(Date) }, { operation: { pendingOperationId: 'pending-1' } })
     expect(report.resumedUnclaimed).toEqual([{ escrowId: 'escrow-1', txId: 'c8-txid-1', outcome: 'NEWLY_BROADCAST' }])
     expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'RELEASE', undefined, undefined)
     expect(mockRecordLiveCorrespondenceIfApplicable).toHaveBeenCalledWith('escrow-1', 'trade-1', 'MULTISIG', 'c8-raw-hex')
   })
 
   it('ALREADY_BROADCAST recovery converges external truth without asking for fresh execution authority', async () => {
+    mockClaimUnclaimedSignedPendingOperation.mockResolvedValueOnce('pending-1')
     mockPendingTxFindMany.mockResolvedValue([{
       ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
     }])
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
     mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'c8-known', detail: 'already known', rawTxHex: 'c8-known-raw' })
 
     const report = await reconcilePendingSettlements()
@@ -248,10 +343,11 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
   })
 
   it('NEWLY_BROADCAST recovery fails closed when ADR-005 commit gate rejects before the provider side effect', async () => {
+    mockClaimUnclaimedSignedPendingOperation.mockResolvedValueOnce('pending-1')
     mockPendingTxFindMany.mockResolvedValue([{
       ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
     }])
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
     mockAuthorizeDisputedPendingExecution.mockRejectedValueOnce(new Error('ruling generation no longer current'))
     mockReconcilePendingSettlement.mockImplementation(async (_input, _unsigned, _signed, beforeFirstBroadcast) => {
       await beforeFirstBroadcast()
@@ -267,10 +363,11 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
   })
 
   it('ANOMALY (unexpected outpoint spend) — fails closed, transition never claimed, reported for manual review as C8', async () => {
+    mockClaimUnclaimedSignedPendingOperation.mockResolvedValueOnce('pending-1')
     mockPendingTxFindMany.mockResolvedValue([{
       ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
     }])
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
     mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ANOMALY', detail: 'unexpected spend — manual review required' })
 
     const report = await reconcilePendingSettlements()
@@ -281,10 +378,11 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
   })
 
   it('duplicate workers: claimEscrowTransition losing the atomic race is reported as a benign concurrent claim, not a failure', async () => {
+    mockClaimUnclaimedSignedPendingOperation.mockResolvedValueOnce('pending-1')
     mockPendingTxFindMany.mockResolvedValue([{
       ...pendingTxFixture(), escrow: multisigEscrowFixture({ status: 'DISPUTED' }),
     }])
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
     mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'c8-txid-2', detail: 'already known', rawTxHex: 'c8-raw-hex-2' })
     mockClaimTransition.mockResolvedValue(0) // lost the atomic claim — a concurrent caller (or a resubmitting signer) already won it
 
@@ -299,22 +397,201 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
 
 describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash recovery orchestration', () => {
   it('no candidates — a clean, empty report', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
     const report = await reconcilePendingSettlements()
-    expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [] })
+    expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], completionVerified: [], locksAdvanced: [] })
   })
 
-  it('a non-MULTISIG rail has no automated recovery primitive in scope — fails closed, flagged for manual review, no chain calls attempted', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ type: 'WDK_USDT_EVM' })])
+  it('a rail with no automated recovery primitive at all (e.g. a legacy/unregistered type) fails closed, flagged for manual review, no chain calls attempted', async () => {
+    mockClaimResultRecoveryBatch.mockResolvedValue([multisigEscrowFixture({ type: 'LIQUID_COVENANT' })])
     const report = await reconcilePendingSettlements()
     expect(report.requiresManualReview).toHaveLength(1)
     expect(report.requiresManualReview[0].escrowId).toBe('escrow-1')
     expect(report.requiresManualReview[0].reason).toMatch(/no automated crash-recovery reconciliation primitive/)
     expect(mockReconcilePendingSettlement).not.toHaveBeenCalled()
+    expect(mockReconcileTerminalTransfer).not.toHaveBeenCalled()
+  })
+
+  // Issue #251 - WDK_USDT_EVM RELEASE/REFUND restart convergence orchestration. The real,
+  // read-only CONFIRMED/SUBMITTED/SUBMISSION_UNKNOWN/mismatch classification is proven against real
+  // PostgreSQL + a fake wallet in tests/integration/wdkTerminalRestartConvergence.test.ts; this suite
+  // only proves reconcileTxReleaseId() dispatches to it correctly and wires its result end to end.
+  describe('WDK_USDT_EVM RELEASE/REFUND terminal recovery (Issue #251)', () => {
+    it('CONFIRMED: persists the existing txHash through the write-once path and runs completion effects — never calls the multisig path', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([wdkEscrowFixture()])
+      mockReconcileTerminalTransfer.mockResolvedValue({ outcome: 'CONFIRMED', txHash: '0xconfirmed' })
+
+      const report = await reconcilePendingSettlements()
+
+      expect(mockGetPayoutAddress).toHaveBeenCalledWith('buyer-1', 'USDT_ERC20')
+      expect(mockReconcileTerminalTransfer).toHaveBeenCalledWith(
+        { id: 'escrow-1', tradeId: 'trade-1', lockedAmount: '0.001' }, 'RELEASE', 'buyer-payout-address', '0.001'
+      )
+      expect(mockUpdateReleaseResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: '0xconfirmed', releasedAt: expect.any(Date), feeCharged: null }, { tx: expect.anything() })
+      expect(mockUpdateRefundResult).not.toHaveBeenCalled()
+      expect(mockReconcilePendingSettlement).not.toHaveBeenCalled() // MULTISIG path never touched
+      expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xconfirmed', outcome: 'ALREADY_CONFIRMED' }])
+      expect(report.requiresManualReview).toEqual([])
+    })
+
+    it('REFUND CONFIRMED: verifies against the treasury address (index 0), never the buyer payout lookup', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([wdkEscrowFixture({ status: 'REFUNDED' })])
+      mockReconcileTerminalTransfer.mockResolvedValue({ outcome: 'CONFIRMED', txHash: '0xrefund' })
+
+      const report = await reconcilePendingSettlements()
+
+      expect(mockGetAccountAddress).toHaveBeenCalledWith(0)
+      expect(mockGetPayoutAddress).not.toHaveBeenCalled()
+      expect(mockReconcileTerminalTransfer).toHaveBeenCalledWith(
+        { id: 'escrow-1', tradeId: 'trade-1', lockedAmount: '0.001' }, 'REFUND', 'treasury-address', '0.001'
+      )
+      expect(mockUpdateRefundResult).toHaveBeenCalledWith('escrow-1', '0xrefund', { tx: expect.anything() })
+      expect(mockUpdateReleaseResult).not.toHaveBeenCalled()
+      expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xrefund', outcome: 'ALREADY_CONFIRMED' }])
+    })
+
+    it.each(['PENDING', 'NO_ATTEMPT', 'SUBMISSION_UNKNOWN', 'NOT_STARTED', 'REVERTED', 'MISMATCH'] as const)(
+      'a non-CONFIRMED outcome (%s) never writes a result — surfaced as manual review only',
+      async (outcome) => {
+        mockClaimResultRecoveryBatch.mockResolvedValue([wdkEscrowFixture()])
+        mockReconcileTerminalTransfer.mockResolvedValue({ outcome, reason: `test reason for ${outcome}` })
+
+        const report = await reconcilePendingSettlements()
+
+        expect(mockUpdateReleaseResult).not.toHaveBeenCalled()
+        expect(mockUpdateRefundResult).not.toHaveBeenCalled()
+        expect(mockEscrowEventCreate).not.toHaveBeenCalled()
+        expect(report.recovered).toEqual([])
+        expect(report.requiresManualReview).toHaveLength(1)
+        expect(report.requiresManualReview[0].reason).toContain(`test reason for ${outcome}`)
+        expect(report.requiresManualReview[0].reason).toContain(`outcome=${outcome}`)
+      }
+    )
+
+    it('no registered buyer payout address for a RELEASE: cannot corroborate destination, fails closed without ever calling the provider', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([wdkEscrowFixture()])
+      mockGetPayoutAddress.mockResolvedValue(null) // resolvePayoutAddress() throws on this
+
+      const report = await reconcilePendingSettlements()
+
+      expect(mockReconcileTerminalTransfer).not.toHaveBeenCalled()
+      expect(mockUpdateReleaseResult).not.toHaveBeenCalled()
+      expect(report.requiresManualReview).toHaveLength(1)
+      expect(report.requiresManualReview[0].reason).toMatch(/could not independently derive the expected destination/)
+    })
+
+    // Issue #250 - WDK SPLIT restart convergence (two independent legs).
+    describe('SPLIT (Issue #250)', () => {
+      function mockLegs(buyer: any, seller: any) {
+        mockWdkFindLatest.mockImplementation(async (_escrowId: string, operationType: string) =>
+          operationType === 'SPLIT_BUYER' ? buyer : seller
+        )
+      }
+
+      it('both legs CONFIRMED and sum to lockedAmount: persists the joined txHash (buyer,seller order) through the write-once path', async () => {
+        mockClaimResultRecoveryBatch.mockResolvedValue([wdkEscrowFixture({ status: 'SPLIT' })])
+        mockReconcileTerminalTransfer.mockImplementation(async (_escrow: any, operationType: string) =>
+          operationType === 'SPLIT_BUYER' ? { outcome: 'CONFIRMED', txHash: '0xbuyer' } : { outcome: 'CONFIRMED', txHash: '0xseller' }
+        )
+        mockLegs({ id: 'a-1', amount: { toString: () => '0.0004' } }, { id: 'a-2', amount: { toString: () => '0.0006' } })
+
+        const report = await reconcilePendingSettlements()
+
+        expect(mockGetPayoutAddress).toHaveBeenCalledWith('buyer-1', 'USDT_ERC20')
+        expect(mockGetPayoutAddress).toHaveBeenCalledWith('seller-1', 'USDT_ERC20')
+        expect(mockReconcileTerminalTransfer).toHaveBeenCalledWith({ id: 'escrow-1', tradeId: 'trade-1', lockedAmount: '0.001' }, 'SPLIT_BUYER', 'buyer-payout-address')
+        expect(mockReconcileTerminalTransfer).toHaveBeenCalledWith({ id: 'escrow-1', tradeId: 'trade-1', lockedAmount: '0.001' }, 'SPLIT_SELLER', 'seller-payout-address')
+        expect(mockUpdateReleaseResult).not.toHaveBeenCalled()
+        expect(mockUpdateRefundResult).not.toHaveBeenCalled()
+        expect(mockUpdateSplitResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: '0xbuyer,0xseller', releasedAt: expect.any(Date) }, { tx: expect.anything() })
+        expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xbuyer,0xseller', outcome: 'ALREADY_CONFIRMED' }])
+        expect(report.requiresManualReview).toEqual([])
+      })
+
+      it('buyer CONFIRMED, seller not started: neither resubmitted, no result written, surfaced with both legs\' status', async () => {
+        mockClaimResultRecoveryBatch.mockResolvedValue([wdkEscrowFixture({ status: 'SPLIT' })])
+        mockReconcileTerminalTransfer.mockImplementation(async (_escrow: any, operationType: string) =>
+          operationType === 'SPLIT_BUYER'
+            ? { outcome: 'CONFIRMED', txHash: '0xbuyer' }
+            : { outcome: 'NO_ATTEMPT', reason: 'no attempt yet' }
+        )
+
+        const report = await reconcilePendingSettlements()
+
+        expect(report.recovered).toEqual([])
+        expect(report.requiresManualReview).toHaveLength(1)
+        expect(report.requiresManualReview[0].reason).toContain('buyer leg CONFIRMED (0xbuyer)')
+        expect(report.requiresManualReview[0].reason).toContain('seller leg NO_ATTEMPT - no attempt yet')
+      })
+
+      it('legs CONFIRMED but amounts do not sum to lockedAmount: fails closed, never writes a result', async () => {
+        mockClaimResultRecoveryBatch.mockResolvedValue([wdkEscrowFixture({ status: 'SPLIT' })])
+        mockReconcileTerminalTransfer.mockImplementation(async (_escrow: any, operationType: string) =>
+          operationType === 'SPLIT_BUYER' ? { outcome: 'CONFIRMED', txHash: '0xbuyer' } : { outcome: 'CONFIRMED', txHash: '0xseller' }
+        )
+        mockLegs({ id: 'a-1', amount: { toString: () => '0.0004' } }, { id: 'a-2', amount: { toString: () => '0.0004' } }) // sums to 0.0008, not 0.001
+
+        const report = await reconcilePendingSettlements()
+
+        expect(report.recovered).toEqual([])
+        expect(mockUpdateReleaseResult).not.toHaveBeenCalled()
+        expect(report.requiresManualReview).toHaveLength(1)
+        expect(report.requiresManualReview[0].reason).toMatch(/does not equal escrow.lockedAmount/)
+      })
+
+      it('Trade not found: fails closed without ever calling the provider', async () => {
+        mockClaimResultRecoveryBatch.mockResolvedValue([wdkEscrowFixture({ status: 'SPLIT' })])
+        mockTradeFindById.mockResolvedValue(null)
+
+        const report = await reconcilePendingSettlements()
+
+        expect(mockReconcileTerminalTransfer).not.toHaveBeenCalled()
+        expect(report.requiresManualReview).toHaveLength(1)
+        expect(report.requiresManualReview[0].reason).toMatch(/Trade trade-1 not found/)
+      })
+
+      it('a settlement result conflict from a concurrent writer is surfaced, not swallowed — the persisted evidence is never overwritten', async () => {
+        mockClaimResultRecoveryBatch.mockResolvedValue([wdkEscrowFixture({ status: 'SPLIT' })])
+        mockReconcileTerminalTransfer.mockImplementation(async (_escrow: any, operationType: string) =>
+          operationType === 'SPLIT_BUYER' ? { outcome: 'CONFIRMED', txHash: '0xbuyer' } : { outcome: 'CONFIRMED', txHash: '0xseller' }
+        )
+        mockLegs({ id: 'a-1', amount: { toString: () => '0.0004' } }, { id: 'a-2', amount: { toString: () => '0.0006' } })
+        mockUpdateSplitResult.mockRejectedValue(new SettlementResultConflictError('conflict: already 0xother,0xother2'))
+
+        const report = await reconcilePendingSettlements()
+
+        expect(report.requiresManualReview).toHaveLength(1)
+        expect(report.requiresManualReview[0].reason).toMatch(/conflict: already 0xother,0xother2/)
+        expect(mockEscrowEventCreate).not.toHaveBeenCalled()
+      })
+    })
+
+    it('Trade not found: fails closed without ever calling the provider', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([wdkEscrowFixture()])
+      mockTradeFindById.mockResolvedValue(null)
+
+      const report = await reconcilePendingSettlements()
+
+      expect(mockReconcileTerminalTransfer).not.toHaveBeenCalled()
+      expect(report.requiresManualReview).toHaveLength(1)
+      expect(report.requiresManualReview[0].reason).toMatch(/Trade trade-1 not found/)
+    })
+
+    it('a settlement result conflict from a concurrent writer is surfaced, not swallowed — the persisted evidence is never overwritten', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([wdkEscrowFixture()])
+      mockReconcileTerminalTransfer.mockResolvedValue({ outcome: 'CONFIRMED', txHash: '0xconfirmed' })
+      mockUpdateReleaseResult.mockRejectedValue(new SettlementResultConflictError('conflict: already 0xother'))
+
+      const report = await reconcilePendingSettlements()
+
+      expect(report.requiresManualReview).toHaveLength(1)
+      expect(report.requiresManualReview[0].reason).toMatch(/conflict: already 0xother/)
+      expect(mockEscrowEventCreate).not.toHaveBeenCalled()
+    })
   })
 
   it('a MULTISIG escrow with no surviving pending-transaction row — nothing to reconstruct from, fails closed', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture()])
+    mockClaimResultRecoveryBatch.mockResolvedValue([multisigEscrowFixture()])
     mockPendingTxFindUnique.mockResolvedValue(null)
     const report = await reconcilePendingSettlements()
     expect(report.requiresManualReview).toHaveLength(1)
@@ -322,7 +599,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
   })
 
   it('a pending-transaction kind that does not match the escrow\'s claimed terminal status — structurally shouldn\'t happen, fails closed rather than guess', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ status: 'REFUNDED' })])
+    mockClaimResultRecoveryBatch.mockResolvedValue([multisigEscrowFixture({ status: 'REFUNDED' })])
     mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture({ kind: 'release' })) // implies COMPLETED, not REFUNDED
     const report = await reconcilePendingSettlements()
     expect(report.requiresManualReview).toHaveLength(1)
@@ -330,7 +607,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
   })
 
   it('a required signer\'s signature is missing — structurally shouldn\'t happen (the escrow could not have reached a terminal status without all of them), fails closed', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture()])
+    mockClaimResultRecoveryBatch.mockResolvedValue([multisigEscrowFixture()])
     mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture({ signatures: [{ participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' }] }))
     const report = await reconcilePendingSettlements()
     expect(report.requiresManualReview).toHaveLength(1)
@@ -339,7 +616,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
   })
 
   it('an ANOMALY outcome from the on-chain-truth check is never auto-resolved — fails closed, full detail preserved for manual review', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture()])
+    mockClaimResultRecoveryBatch.mockResolvedValue([multisigEscrowFixture()])
     mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture())
     mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ANOMALY', detail: 'unexpected spend — manual review required' })
 
@@ -351,14 +628,15 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
   })
 
   it('Estado B (ALREADY_BROADCAST) converges local state — persists txReleaseId, records the fee obligation, emits the settlement event, deletes the pending row — without a new broadcast (that already happened before this reconciliation ever ran)', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture()])
+    mockClaimResultRecoveryBatch.mockResolvedValue([multisigEscrowFixture()])
     mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture())
     mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'real-txid-1', detail: 'already known to the network', rawTxHex: 'raw-hex-1' })
 
     const report = await reconcilePendingSettlements()
 
     expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: 'real-txid-1', outcome: 'ALREADY_BROADCAST' }])
-    expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-txid-1', releasedAt: expect.any(Date) } })
+    // Issue #291 - PASS 1 now writes through the shared write-once primitive, bound to the pending operation.
+    expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: 'real-txid-1', releasedAt: expect.any(Date) }, { tx: expect.anything(), operation: { pendingOperationId: 'pending-1' } })
     expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'RELEASE', undefined, undefined)
     expect(mockPendingTxDelete).toHaveBeenCalledWith({ where: { id: 'pending-1' } })
     // M9 — PASS 1 threads its own exact-reconstruction rawTxHex straight
@@ -367,7 +645,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
   })
 
   it('Estado A (NEWLY_BROADCAST) converges the same way — the broadcast itself already happened inside reconcilePendingSettlement(), this orchestrator never calls a provider a second time', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture()])
+    mockClaimResultRecoveryBatch.mockResolvedValue([multisigEscrowFixture()])
     mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture())
     mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'NEWLY_BROADCAST', txId: 'real-txid-2', detail: 'broadcast for the first time' })
 
@@ -375,22 +653,22 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
 
     expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: 'real-txid-2', outcome: 'NEWLY_BROADCAST' }])
     expect(mockReconcilePendingSettlement).toHaveBeenCalledTimes(1) // never called twice — no retry loop, no second attempt
-    expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-txid-2', releasedAt: expect.any(Date) } })
+    expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: 'real-txid-2', releasedAt: expect.any(Date) }, { tx: expect.anything(), operation: { pendingOperationId: 'pending-1' } })
   })
 
   it('a refund convergence omits releasedAt — matches submitTransactionSignature()\'s own refund-vs-release/split field shape exactly', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ status: 'REFUNDED' })])
+    mockClaimResultRecoveryBatch.mockResolvedValue([multisigEscrowFixture({ status: 'REFUNDED' })])
     mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture({ kind: 'refund' }))
     mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'real-txid-3', detail: 'already known' })
 
     await reconcilePendingSettlements()
 
-    expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-txid-3' } })
+    expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: 'real-txid-3' }, { tx: expect.anything(), operation: { pendingOperationId: 'pending-1' } })
     expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'FULL_REFUND', undefined, undefined)
   })
 
   it('a concurrent convergence already ran (txReleaseId no longer null when the lock is acquired) — the authoritative re-check inside the lock skips the write, no double-write', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture()])
+    mockClaimResultRecoveryBatch.mockResolvedValue([multisigEscrowFixture()])
     mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture())
     mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'real-txid-4', detail: 'already known' })
     // A concurrent reconciliation run (or, structurally impossible but
@@ -400,7 +678,10 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
 
     await reconcilePendingSettlements()
 
+    // Issue #291 - the decision "same result -> idempotent no-op" now lives INSIDE the shared write-once
+    // primitive (escrow-repository.ts), so PASS 1 always routes through it; it never writes around it.
     expect(mockEscrowUpdate).not.toHaveBeenCalled()
+    expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledTimes(1)
     // Downstream side effects (obligation/event/pending-row cleanup)
     // still run — recordObligationForEscrowSettlement() is independently
     // idempotent (findByEscrowId() check), and emitEscrowTransition()
@@ -410,8 +691,25 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     // dedicated emitEscrowTransition() idempotency tests below).
   })
 
+  // Issue #291 - PASS 1 and C8 use the same write-once semantics as every live writer: a DIFFERENT
+  // persisted result is an integrity conflict (manual review), never silently ignored and never overwritten.
+  it('PASS 1: a conflicting persisted settlement result is surfaced for manual review - no overwrite, no downstream effects', async () => {
+    const { SettlementResultConflictError } = require('../src/common/errors')
+    mockClaimResultRecoveryBatch.mockResolvedValue([multisigEscrowFixture()])
+    mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture())
+    mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'chain-txid', detail: 'already known' })
+    mockUpdateSignatureCollectionResult.mockRejectedValueOnce(new SettlementResultConflictError('durable txReleaseId A cannot be replaced by chain-txid'))
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.requiresManualReview).toEqual([{ escrowId: 'escrow-1', reason: expect.stringContaining('cannot be replaced') }])
+    expect(report.recovered).toEqual([])
+    expect(mockRecordObligation).not.toHaveBeenCalled()
+    expect(mockEscrowUpdate).not.toHaveBeenCalled()
+  })
+
   it('an escrow that throws mid-reconciliation lands in `failed`, not `recovered` or silently dropped — and does not stop the rest of the batch', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([
+    mockClaimResultRecoveryBatch.mockResolvedValue([
       multisigEscrowFixture({ id: 'escrow-broken' }),
       multisigEscrowFixture({ id: 'escrow-ok' }),
     ])
@@ -425,6 +723,91 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     expect(report.failed).toEqual([{ escrowId: 'escrow-broken', error: 'DB unavailable' }])
     expect(report.recovered).toEqual([{ escrowId: 'escrow-ok', txId: 'ok-txid', outcome: 'ALREADY_BROADCAST' }])
   })
+
+  // Issue #240 - LIGHTNING_HODL/SAFE_GUARD_EVM terminal recovery orchestration. The real, read-only
+  // ensureFinalizationAttempt()/recordFinalizationOutcome() primitive and the reconciler dispatch are
+  // proven against real PostgreSQL (plus the real provider entrypoint for the external-boundary
+  // proof) in tests/integration/signatureCollectionRestartConvergence.test.ts; this suite only proves
+  // reconcileTxReleaseId() dispatches to reconcileSignatureCollectionTerminalTransfer() correctly.
+  describe.each(['LIGHTNING_HODL', 'SAFE_GUARD_EVM'] as const)('%s terminal recovery (Issue #240)', (type) => {
+    function wdkishFixture(overrides: Record<string, any> = {}) {
+      return { id: 'escrow-1', tradeId: 'trade-1', type, status: 'COMPLETED', txReleaseId: null, lockedAmount: { toString: () => '0.001' }, asset: 'BTC', ...overrides }
+    }
+
+    it('no durable attempt: fails closed without ever touching updateSignatureCollectionResult', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([wdkishFixture()])
+      mockFinalizationAttemptFindUnique.mockResolvedValue(null)
+
+      const report = await reconcilePendingSettlements()
+
+      expect(mockUpdateSignatureCollectionResult).not.toHaveBeenCalled()
+      expect(report.recovered).toEqual([])
+      expect(report.requiresManualReview).toHaveLength(1)
+      expect(report.requiresManualReview[0].reason).toMatch(/no durable finalization attempt exists/)
+    })
+
+    it('SUBMISSION_UNKNOWN: never inferred as FAILED, never converges', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([wdkishFixture()])
+      mockPendingTxFindUnique.mockResolvedValue({ id: 'ptx-1', escrowId: 'escrow-1', kind: 'release', triggeredBy: 'seller-1' })
+      mockFinalizationAttemptFindUnique.mockResolvedValue({ id: 'att-1', pendingTxId: 'ptx-1', kind: 'release', status: 'SUBMISSION_UNKNOWN', txHash: null })
+
+      const report = await reconcilePendingSettlements()
+
+      expect(mockUpdateSignatureCollectionResult).not.toHaveBeenCalled()
+      expect(report.recovered).toEqual([])
+      expect(report.requiresManualReview[0].reason).toContain('is SUBMISSION_UNKNOWN')
+    })
+
+    it('pendingTxId mismatch (stale attempt): fails closed', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([wdkishFixture()])
+      mockPendingTxFindUnique.mockResolvedValue({ id: 'ptx-current', escrowId: 'escrow-1', kind: 'release', triggeredBy: 'seller-1' })
+      mockFinalizationAttemptFindUnique.mockResolvedValue({ id: 'att-1', pendingTxId: 'ptx-stale', kind: 'release', status: 'CONFIRMED', txHash: '0xabc' })
+
+      const report = await reconcilePendingSettlements()
+
+      expect(mockUpdateSignatureCollectionResult).not.toHaveBeenCalled()
+      expect(report.requiresManualReview[0].reason).toMatch(/is bound to pending operation ptx-stale/)
+    })
+
+    it('CONFIRMED RELEASE converges through the same write-once path every other rail uses', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([wdkishFixture()])
+      mockPendingTxFindUnique.mockResolvedValue({ id: 'ptx-1', escrowId: 'escrow-1', kind: 'release', triggeredBy: 'seller-1' })
+      mockFinalizationAttemptFindUnique.mockResolvedValue({ id: 'att-1', pendingTxId: 'ptx-1', kind: 'release', status: 'CONFIRMED', txHash: '0xconfirmed' })
+
+      const report = await reconcilePendingSettlements()
+
+      expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith(
+        'escrow-1', { txReleaseId: '0xconfirmed', releasedAt: expect.any(Date) }, { tx: expect.anything(), operation: { pendingOperationId: 'ptx-1' } }
+      )
+      expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xconfirmed', outcome: 'ALREADY_CONFIRMED' }])
+      expect(report.requiresManualReview).toEqual([])
+    })
+
+    it('CONFIRMED REFUND converges without releasedAt', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([wdkishFixture({ status: 'REFUNDED' })])
+      mockPendingTxFindUnique.mockResolvedValue({ id: 'ptx-2', escrowId: 'escrow-1', kind: 'refund', triggeredBy: 'seller-1' })
+      mockFinalizationAttemptFindUnique.mockResolvedValue({ id: 'att-2', pendingTxId: 'ptx-2', kind: 'refund', status: 'CONFIRMED', txHash: '0xrefund' })
+
+      const report = await reconcilePendingSettlements()
+
+      expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith(
+        'escrow-1', { txReleaseId: '0xrefund' }, { tx: expect.anything(), operation: { pendingOperationId: 'ptx-2' } }
+      )
+      expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xrefund', outcome: 'ALREADY_CONFIRMED' }])
+    })
+
+    it('a settlement result conflict from a concurrent writer is surfaced, not swallowed', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([wdkishFixture()])
+      mockPendingTxFindUnique.mockResolvedValue({ id: 'ptx-1', escrowId: 'escrow-1', kind: 'release', triggeredBy: 'seller-1' })
+      mockFinalizationAttemptFindUnique.mockResolvedValue({ id: 'att-1', pendingTxId: 'ptx-1', kind: 'release', status: 'CONFIRMED', txHash: '0xconfirmed' })
+      mockUpdateSignatureCollectionResult.mockRejectedValue(new SettlementResultConflictError('conflict: already 0xother'))
+
+      const report = await reconcilePendingSettlements()
+
+      expect(report.requiresManualReview[0].reason).toMatch(/conflict: already 0xother/)
+      expect(mockEscrowEventCreate).not.toHaveBeenCalled()
+    })
+  })
 })
 
 // Missão 11 Fase 9.7 — PASS 2: CONC-03's "C5" gap. txReleaseId is
@@ -434,15 +817,15 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
 // volume) ever ran.
 describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-completion-effects recovery (PASS 2)', () => {
   it('no PASS 2 candidates — a clean report on that side', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
-    mockFindTerminalWithTxReleaseId.mockResolvedValue([])
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
+    mockClaimCompletionVerificationBatch.mockResolvedValue([])
     const report = await reconcilePendingSettlements()
     expect(report.completionEffectsRecovered).toEqual([])
   })
 
   it('an escrow whose downstream effects already ran (a matching EscrowEvent exists) is left alone — the overwhelmingly common case, zero writes attempted', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
-    mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'already-set' })])
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
+    mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'already-set' })])
     mockEscrowEventFindFirst.mockResolvedValue({ id: 'evt-1', escrowId: 'escrow-1', toStatus: 'COMPLETED' }) // the peek query itself
     mockPendingTxFindUnique.mockResolvedValue(null) // no surviving pending row — nothing to reconstruct from
 
@@ -460,6 +843,57 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
     expect(mockRecordLiveCorrespondenceIfApplicable).toHaveBeenCalledWith('escrow-1', 'trade-1', 'MULTISIG', undefined)
   })
 
+  it('each pass claims at most SETTLEMENT_RECOVERY_BATCH escrows per run', async () => {
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
+    mockClaimCompletionVerificationBatch.mockResolvedValue([])
+
+    await reconcilePendingSettlements()
+
+    expect(mockClaimResultRecoveryBatch).toHaveBeenCalledWith(SETTLEMENT_RECOVERY_BATCH)
+    expect(mockClaimCompletionVerificationBatch).toHaveBeenCalledWith(SETTLEMENT_RECOVERY_BATCH)
+  })
+
+  it('a settlement already converged is marked verified and nothing else runs for it — no event peek, no correspondence, no effects', async () => {
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
+    mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'already-set' })])
+    mockMarkCompletionVerifiedIfConverged.mockResolvedValue(true)
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.completionVerified).toEqual(['escrow-1'])
+    expect(mockMarkCompletionVerifiedIfConverged).toHaveBeenCalledTimes(1)
+    expect(mockEscrowEventFindFirst).not.toHaveBeenCalled()
+    expect(mockRecordLiveCorrespondenceIfApplicable).not.toHaveBeenCalled()
+    expect(mockRecordObligation).not.toHaveBeenCalled()
+  })
+
+  it('a settlement whose missing effects this run recovers is re-checked afterwards and marked verified once converged', async () => {
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
+    mockClaimCompletionVerificationBatch.mockResolvedValue([wdkEscrowFixture({ txReleaseId: 'already-set', status: 'COMPLETED' })])
+    mockEscrowEventFindFirst.mockResolvedValue(null) // completion effects never ran
+    mockPendingTxFindUnique.mockResolvedValue(null)
+    mockMarkCompletionVerifiedIfConverged.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.completionEffectsRecovered.map((r) => r.escrowId)).toEqual(['escrow-1'])
+    expect(report.completionVerified).toEqual(['escrow-1'])
+    expect(mockMarkCompletionVerifiedIfConverged).toHaveBeenCalledTimes(2)
+  })
+
+  it('a settlement that is still not converged after this run is not marked — it stays in the queue', async () => {
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
+    mockClaimCompletionVerificationBatch.mockResolvedValue([wdkEscrowFixture({ txReleaseId: 'already-set', status: 'COMPLETED' })])
+    mockEscrowEventFindFirst.mockResolvedValue(null)
+    mockTradeFindById.mockResolvedValue(null) // completion catch-up cannot run: manual review
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.requiresManualReview.map((r) => r.escrowId)).toEqual(['escrow-1'])
+    expect(report.completionVerified).toEqual([])
+    expect(mockMarkCompletionVerifiedIfConverged).toHaveBeenCalledTimes(2)
+  })
+
   // Sails Core Implementation Program M9 (Recovery, Execution Uncertainty
   // & Semantic Reconciliation) — closes the crash window PASS 2 did NOT
   // cover before this mission: the completion event (settlement.escrow.*)
@@ -472,8 +906,8 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
   // catch-up) are now checked and repaired independently.
   describe('reconcilePendingSettlements() — Sails M9, correspondence catch-up decoupled from the completion-effects gate', () => {
     it('completion effects ALREADY ran (alreadyEmitted=true) AND the pending row + all signatures still survive — correspondence recovery reconstructs the exact transaction and is attempted with the real rawTxHex, while completion effects are correctly NOT re-run', async () => {
-      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
-      mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid-m9', status: 'COMPLETED' })])
+      mockClaimResultRecoveryBatch.mockResolvedValue([])
+      mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid-m9', status: 'COMPLETED' })])
       mockEscrowEventFindFirst.mockResolvedValue({ id: 'evt-1', escrowId: 'escrow-1', toStatus: 'COMPLETED' }) // completion effects already ran
       mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture()) // pending row survives with all signatures
       mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'confirmed-txid-m9', detail: 'already known', rawTxHex: 'recovered-raw-hex' })
@@ -487,8 +921,8 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
     })
 
     it('completion effects already ran AND a required signature is missing from the surviving pending row — reconstruction is skipped (never attempted with a partial/guessed signature set), correspondence is still attempted with rawTxHex undefined, never fatal', async () => {
-      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
-      mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid-partial', status: 'COMPLETED' })])
+      mockClaimResultRecoveryBatch.mockResolvedValue([])
+      mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid-partial', status: 'COMPLETED' })])
       mockEscrowEventFindFirst.mockResolvedValue({ id: 'evt-1', escrowId: 'escrow-1', toStatus: 'COMPLETED' })
       mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture({ signatures: [{ participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' }] }))
 
@@ -500,8 +934,8 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
     })
 
     it('reconstruction itself throws (e.g. transient chain-lookup failure inside reconcilePendingSettlement) — non-fatal, correspondence is still attempted with rawTxHex undefined, and the rest of the pass is unaffected', async () => {
-      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
-      mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid-throws', status: 'COMPLETED' })])
+      mockClaimResultRecoveryBatch.mockResolvedValue([])
+      mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid-throws', status: 'COMPLETED' })])
       mockEscrowEventFindFirst.mockResolvedValue({ id: 'evt-1', escrowId: 'escrow-1', toStatus: 'COMPLETED' })
       mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture())
       // *Once* — this mock has no per-test isolation for its
@@ -519,8 +953,8 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
     })
 
     it('a non-MULTISIG escrow never attempts correspondence recovery in PASS 2 (no authoritative reconstruction primitive exists for that rail)', async () => {
-      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
-      mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ id: 'escrow-mock-2', type: 'MOCK', txReleaseId: 'mock-txid-2', status: 'COMPLETED' })])
+      mockClaimResultRecoveryBatch.mockResolvedValue([])
+      mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({ id: 'escrow-mock-2', type: 'MOCK', txReleaseId: 'mock-txid-2', status: 'COMPLETED' })])
       mockEscrowEventFindFirst.mockResolvedValue({ id: 'evt-1', escrowId: 'escrow-mock-2', toStatus: 'COMPLETED' })
 
       await reconcilePendingSettlements()
@@ -529,8 +963,8 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
     })
 
     it('a MULTISIG escrow with no txReleaseId is not a PASS-2 candidate at all — correspondence recovery is never reached for it here (PASS 1\'s own job)', async () => {
-      mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
-      mockFindTerminalWithTxReleaseId.mockResolvedValue([]) // findTerminalWithTxReleaseId() itself only returns rows with txReleaseId set — nothing to feed PASS 2 here
+      mockClaimResultRecoveryBatch.mockResolvedValue([])
+      mockClaimCompletionVerificationBatch.mockResolvedValue([]) // findTerminalWithTxReleaseId() itself only returns rows with txReleaseId set — nothing to feed PASS 2 here
 
       await reconcilePendingSettlements()
 
@@ -539,8 +973,8 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
   })
 
   it('C5 recovery for a MULTISIG (signature-collection-rail) escrow with a surviving pending row — records the obligation, emits the transition, cleans up the pending row', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
-    mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid-1', status: 'COMPLETED' })])
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
+    mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid-1', status: 'COMPLETED' })])
     // Peek (outside the write path) finds nothing; the escrowEvent.create
     // mock inside the transaction (same mock function) will now actually
     // record the creation for this escrow's completion.
@@ -556,8 +990,8 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
   })
 
   it('C5 recovery for a direct-call-rail escrow (MOCK/WDK_USDT_EVM — no pending-transaction concept) still catches up RELEASE/REFUND obligations and the completion event', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
-    mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ id: 'escrow-mock-1', type: 'MOCK', txReleaseId: 'mock-txid-1', status: 'COMPLETED' })])
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
+    mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({ id: 'escrow-mock-1', type: 'MOCK', txReleaseId: 'mock-txid-1', status: 'COMPLETED' })])
     mockEscrowEventFindFirst.mockResolvedValue(null)
     mockPendingTxFindUnique.mockResolvedValue(null) // no such concept for this rail
 
@@ -569,9 +1003,9 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
     expect(mockPendingTxDelete).not.toHaveBeenCalled()
   })
 
-  it('C5 recovery for a direct-call-rail SPLIT with no surviving pending row — buyerBps is genuinely unrecoverable, obligation recording is SKIPPED (not guessed), but the completion event still fires', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
-    mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ id: 'escrow-split-1', type: 'MOCK', txReleaseId: 'split-txid-1', status: 'SPLIT' })])
+  it('C5 recovery for a legacy direct-call-rail SPLIT (no frozen allocation, no surviving pending row) — buyerBps is genuinely unrecoverable, obligation recording is SKIPPED (not guessed), but the completion event still fires', async () => {
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
+    mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({ id: 'escrow-split-1', type: 'MOCK', txReleaseId: 'split-txid-1', status: 'SPLIT' })])
     mockEscrowEventFindFirst.mockResolvedValue(null)
     mockPendingTxFindUnique.mockResolvedValue(null)
 
@@ -582,9 +1016,99 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
     expect(mockEscrowEventCreate).toHaveBeenCalledTimes(1) // the event itself still recovers — only the fee obligation is unrecoverable
   })
 
+  // #247/#248 - recovery reuses the economic intent the direct-call claim froze, never a substitute.
+  describe('frozen direct-execution intent (#247/#248)', () => {
+    const eventTriggeredBy = () => mockEscrowEventCreate.mock.calls.map(([arg]: any[]) => arg.data.triggeredBy)
+
+    it('C5 SPLIT: the fee obligation is recorded with the frozen buyerBps and the event is attributed to the frozen actor', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([])
+      mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({
+        id: 'escrow-split-2', type: 'MOCK', txReleaseId: 'split-txid-2', status: 'SPLIT',
+        arbitratedDisposition: 'SPLIT', arbitratedTriggeredBy: 'arbiter-1', splitBuyerBps: 2500,
+      })])
+      mockEscrowEventFindFirst.mockResolvedValue(null)
+      mockPendingTxFindUnique.mockResolvedValue(null)
+
+      const report = await reconcilePendingSettlements()
+
+      expect(report.completionEffectsRecovered).toEqual([{ escrowId: 'escrow-split-2', obligationSkipped: false }])
+      expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-split-2' }), 'SPLIT', 2500, undefined)
+      expect(eventTriggeredBy()).toEqual(['arbiter-1'])
+    })
+
+    it('C5 RELEASE after a failed cooperative attempt and arbitration: the event is attributed to the authorized arbiter, not the cooperative actor or the seller stand-in', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([])
+      mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({
+        id: 'escrow-mock-3', type: 'MOCK', txReleaseId: 'mock-txid-3', status: 'COMPLETED',
+        cooperativeDisposition: 'COMPLETED', cooperativeTriggeredBy: 'seller-1', arbitratedDisposition: 'COMPLETED', arbitratedTriggeredBy: 'arbiter-1',
+      })])
+      mockEscrowEventFindFirst.mockResolvedValue(null)
+      mockPendingTxFindUnique.mockResolvedValue(null)
+
+      await reconcilePendingSettlements()
+
+      expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-mock-3' }), 'RELEASE', undefined, undefined)
+      expect(eventTriggeredBy()).toEqual(['arbiter-1'])
+    })
+
+    it('C5 cooperative REFUND: the event is attributed to the frozen cooperative actor', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([])
+      mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({
+        id: 'escrow-mock-5', type: 'MOCK', txReleaseId: 'mock-txid-5', status: 'REFUNDED',
+        cooperativeDisposition: 'REFUNDED', cooperativeTriggeredBy: 'seller-agent-1',
+      })])
+      mockEscrowEventFindFirst.mockResolvedValue(null)
+      mockPendingTxFindUnique.mockResolvedValue(null)
+
+      await reconcilePendingSettlements()
+
+      expect(eventTriggeredBy()).toEqual(['seller-agent-1'])
+    })
+
+    it('a legacy direct-call row (no frozen actor) keeps the pre-existing seller stand-in', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([])
+      mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({ id: 'escrow-mock-4', type: 'MOCK', txReleaseId: 'mock-txid-4', status: 'COMPLETED' })])
+      mockEscrowEventFindFirst.mockResolvedValue(null)
+      mockPendingTxFindUnique.mockResolvedValue(null)
+
+      await reconcilePendingSettlements()
+
+      expect(eventTriggeredBy()).toEqual(['seller-1'])
+    })
+
+    it('WDK RELEASE terminal convergence (#251/#328) attributes the recovered event to the frozen actor; its convergence decision is unchanged', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([wdkEscrowFixture({ arbitratedDisposition: 'COMPLETED', arbitratedTriggeredBy: 'arbiter-1' })])
+      mockReconcileTerminalTransfer.mockResolvedValue({ outcome: 'CONFIRMED', txHash: '0xconfirmed' })
+
+      const report = await reconcilePendingSettlements()
+
+      expect(mockReconcileTerminalTransfer).toHaveBeenCalledWith(
+        { id: 'escrow-1', tradeId: 'trade-1', lockedAmount: '0.001' }, 'RELEASE', 'buyer-payout-address', '0.001'
+      )
+      expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xconfirmed', outcome: 'ALREADY_CONFIRMED' }])
+      expect(eventTriggeredBy()).toEqual(['arbiter-1'])
+    })
+
+    it('WDK SPLIT convergence (#250/#332) records the obligation with the frozen buyerBps and the frozen actor; its leg classification is unchanged', async () => {
+      mockClaimResultRecoveryBatch.mockResolvedValue([wdkEscrowFixture({ status: 'SPLIT', arbitratedDisposition: 'SPLIT', arbitratedTriggeredBy: 'arbiter-1', splitBuyerBps: 4000 })])
+      mockReconcileTerminalTransfer.mockImplementation(async (_escrow: any, operationType: string) =>
+        operationType === 'SPLIT_BUYER' ? { outcome: 'CONFIRMED', txHash: '0xbuyer' } : { outcome: 'CONFIRMED', txHash: '0xseller' }
+      )
+      mockWdkFindLatest.mockImplementation(async (_escrowId: string, operationType: string) =>
+        operationType === 'SPLIT_BUYER' ? { id: 'a-1', amount: { toString: () => '0.0004' } } : { id: 'a-2', amount: { toString: () => '0.0006' } }
+      )
+
+      const report = await reconcilePendingSettlements()
+
+      expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: '0xbuyer,0xseller', outcome: 'ALREADY_CONFIRMED' }])
+      expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'SPLIT', 4000, undefined)
+      expect(eventTriggeredBy()).toEqual(['arbiter-1'])
+    })
+  })
+
   it('a Trade lookup failure during C5 catch-up is reported for manual review, not silently swallowed or crashed on', async () => {
-    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
-    mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid-2' })])
+    mockClaimResultRecoveryBatch.mockResolvedValue([])
+    mockClaimCompletionVerificationBatch.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid-2' })])
     mockEscrowEventFindFirst.mockResolvedValue(null)
     mockTradeFindById.mockResolvedValue(null)
 

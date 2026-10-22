@@ -114,7 +114,7 @@ export async function sweepMultisigFundingReorgs(): Promise<FundingReorgSweepRes
       const { buyerPubkey, sellerPubkey, arbiterPubkey } = await loadParticipantPubkeys(escrow.id)
       const input: MultisigEscrowInput = {
         tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString(),
-        buyerPubkey, sellerPubkey, arbiterPubkey,
+        buyerPubkey, sellerPubkey, arbiterPubkey, multisigAddr: escrow.multisigAddr,
         feePolicyVersionId: escrow.feePolicyVersionId,
         snapshotProtocolFeeRate: escrow.snapshotProtocolFeeRate?.toString() ?? null,
         snapshotFeeCollectionAddress: escrow.snapshotFeeCollectionAddress,
