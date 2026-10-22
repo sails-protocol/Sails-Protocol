@@ -96,6 +96,26 @@ try {
   fail('generated Prisma client exports PrismaClient', String(error.message).split('\n')[0])
 }
 
+// 6: the installed production tree is consistent with its manifests. `npm ls` also
+// lists "extraneous" copies (present but not required by the server); those are not a
+// functional fault and are reported, but a MISSING or INVALID dependency fails the check.
+const ls = require('child_process').spawnSync('npm', ['ls', '--omit=dev', '--all', '--json'], { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+try {
+  const problems = JSON.parse(ls.stdout).problems || []
+  const broken = problems.filter(p => !p.startsWith('extraneous:'))
+  if (broken.length === 0) pass('production dependency tree has no missing/invalid packages', `${problems.length} extraneous`)
+  else for (const p of broken) fail('dependency tree', p.slice(0, 200))
+} catch (error) {
+  fail('dependency tree', `npm ls output not parseable: ${String(error.message).split('\n')[0]}`)
+}
+
+// 7: packages of the other workspaces (front-end / examples) must not ride along into the
+// server image: the `pruned` stage installs only the server's closure. (react and
+// typescript are NOT sentinels: Prisma's CLI studio legitimately requires them.)
+const leaked = ['next', 'tailwindcss', 'lucide-react'].filter(name => fs.existsSync(path.join(root, 'node_modules', name)))
+if (leaked.length === 0) pass('no other-workspace packages in node_modules')
+else fail('other-workspace packages in node_modules', leaked.join(', '))
+
 if (failures.length > 0) {
   console.log(`\n${failures.length} runtime image check(s) FAILED: ${failures.join('; ')}`)
   process.exit(1)

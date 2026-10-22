@@ -91,8 +91,24 @@ RUN npm run build
 # crashed on the exact same missing-pino-pretty error the runtime image
 # has, defeating the entire reason to target `builder` in the first
 # place).
+# Production dependencies of the SERVER only: the root package plus the three
+# workspace packages it actually uses (@sails/core, @satsails/p2p-schemas,
+# @satsails/p2p-trading-sdk). A bare `npm prune --omit=dev` here keeps - and
+# even re-installs, because `COPY . .` above made every workspace directory
+# exist - the dependencies of the OTHER workspaces (packages/sails-ui,
+# packages/sdk-react, examples/*, contracts): next, lucide-react, radix, the
+# tailwind toolchain, sharp, etc., none of which the server can reach
+# (374 lock entries, ~380 MB; see docs and scripts/docker-image-size-report.sh).
+# Measured on a synthetic monorepo and on this one: with the workspace filter
+# npm installs exactly the server's closure. Nothing the server requires is
+# removed; scripts/docker-runtime-test.sh (resolution of every require in
+# dist/, dependency-integrity check, production boot) is the guard.
 FROM builder AS pruned
-RUN npm prune --omit=dev
+RUN npm prune --omit=dev \
+      --workspace=packages/sails-core \
+      --workspace=packages/sails-p2p-schemas \
+      --workspace=packages/sails-sdk \
+      --include-workspace-root
 
 # ---- syntax=docker/dockerfile:1.6
 FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS runtime
