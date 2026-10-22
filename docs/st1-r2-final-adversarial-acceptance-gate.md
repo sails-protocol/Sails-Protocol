@@ -543,3 +543,10 @@ A proposed fix must state what constitutes *proven nonacceptance* versus *unknow
 - Workflow `39055074753` at `dc0135cb` completed **SUCCESS**, following workflows `39050314661` and `39051760448` (also SUCCESS). The exact HEAD validated by that run is `dc0135cb`; this documentation addition requires a new exact-head CI.
 - Issue #453 remains **OPEN** and its CTO review explicitly requires a D→E-locked, generation/provenance-checked dispatch-failure classification and ruling rollback decision. A green CI alone does not close the V3 orphan-pending liveness finding. Acceptance must demonstrate persisted unsigned pending after throw, concurrent signature, changed generation, process restart and idempotent recovery, plus mutation RED/GREEN and independent CTO review.
 - Gate 3 unknown-broadcast classification and read-side outage evidence remain open as previously recorded. Maintain NO MERGE / NO DEPLOY / NO FREEZE pending integrated ST1-R2/AUD1X-R4 review. Do not interpret the estimated preparation percentage as formal acceptance.
+
+
+## 2026-10-22 CTO review: restart preservation versus settlement completion
+
+V3-WK in tests/integration/st1TemporalCleanupAuthority.test.ts starts a real writer OS process, waits for pending persistence, kills it with SIGKILL, then runs recovery in fresh OS processes. The asserted verdict is LEFT_GUARD_PASSED; the pending remains unsigned, with the same generation, Outcome and RESOLVED dispute. This proves restart preservation and idempotence under the fixture, NOT successful settlement or exactly-once economic execution.
+
+The production ruling rollback guard takes dispute then escrow locks (D -> E) and checks durable pending generation and escrow-wide EDA before reversing. Missing acceptance: successful settlement after fault removal; deterministic concurrent signature and N-to-N+1 authority interleaving; mutation RED/GREEN; ambiguous provider-acceptance handling in both live finalize and recovery. Issue #453 OPEN; PR #436 DRAFT. NO MERGE / NO DEPLOY / NO FREEZE.
