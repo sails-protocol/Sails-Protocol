@@ -74,6 +74,25 @@ describe('real relay provider with two live TCP WebSocket clients', () => {
     expect(ticket).not.toHaveBeenCalled()
   })
 
+  it('rejects an invalid ticket without registering a relay socket', async () => {
+    const denied = new WebSocket(base + '/ws/relay?ticket=invalid')
+    clients.push(denied)
+    const closed = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Invalid ticket socket did not close')), 2000)
+      denied.once('close', () => {
+        clearTimeout(timeout)
+        resolve()
+      })
+      denied.once('error', error => {
+        clearTimeout(timeout)
+        reject(error)
+      })
+    })
+    await closed
+    expect(ticket).toHaveBeenCalledWith('invalid')
+    expect(relay.isConnected('invalid')).toBe(false)
+  })
+
   it('rejects unsupported topic discovery instead of silently succeeding', async () => {
     await expect(relay.joinTopic('alice', 'marketplace')).rejects.toThrow('does not support topic discovery')
     await expect(relay.broadcast('alice', { kind: 'offer_announce' })).resolves.toBe(0)
