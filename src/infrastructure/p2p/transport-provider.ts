@@ -172,6 +172,7 @@ const DEFAULT_FALLBACK_TIMEOUT_MS = 5000
 export class FallbackTransportProvider implements TransportProvider {
   name = 'fallback(pears→websocket-relay)'
   private activeProvider = new Map<string, TransportProvider>()
+  private startGeneration = new Map<string, number>()
 
   constructor(
     private readonly primary: TransportProvider,
@@ -180,17 +181,48 @@ export class FallbackTransportProvider implements TransportProvider {
   ) {}
 
   async start(participantId: string): Promise<PeerHandle> {
+    const generation = (this.startGeneration.get(participantId) ?? 0) + 1
+    this.startGeneration.set(participantId, generation)
+    const primaryStart = this.primary.start(participantId)
+    let timedOut = false
     try {
-      const handle = await this.withTimeout(this.primary.start(participantId), this.timeoutMs)
+      const handle = await this.withTimeout(primaryStart, this.timeoutMs, () => { timedOut = true })
+      if (this.startGeneration.get(participantId) !== generation) {
+        throw new Error(`FallbackTransportProvider: obsolete primary start for ${participantId}`)
+      }
       this.activeProvider.set(participantId, this.primary)
       return handle
     } catch (err) {
+      if (this.startGeneration.get(participantId) !== generation) throw err
       log.warn(
         { primary: this.primary.name, secondary: this.secondary.name, participantId, timeoutMs: this.timeoutMs, err: err instanceof Error ? err.message : err },
         '[FallbackTransportProvider] primary did not connect in time — falling back'
       )
+      // Register late-primary cleanup only after relay is active, so a Pears
+      // completion while secondary.start() is pending cannot escape cleanup.
       const handle = await this.secondary.start(participantId)
-      this.activeProvider.set(participantId, this.secondary)
+      if (this.startGeneration.get(participantId) !== generation) {
+        // The secondary has already started but another start/stop superseded
+        // this attempt. Do not stop it here: providers are keyed by participant,
+        // and stop() could tear down the newer session. Surface the race until
+        // per-attempt resource ownership is available.
+        log.warn({ participantId, generation },
+          '[FallbackTransportProvider] obsolete relay start completed; cleanup requires per-attempt ownership')
+        throw new Error(`FallbackTransportProvider: obsolete relay start for ${participantId}`)
+      } else {
+        this.activeProvider.set(participantId, this.secondary)
+      }
+      if (timedOut) {
+        void primaryStart.then(async () => {
+          if (this.startGeneration.get(participantId) === generation &&
+              this.activeProvider.get(participantId) === this.secondary) {
+            await this.primary.stop(participantId)
+          }
+        }).catch(cleanupErr => {
+          log.warn({ participantId, err: cleanupErr instanceof Error ? cleanupErr.message : cleanupErr },
+            '[FallbackTransportProvider] late primary cleanup failed')
+        })
+      }
       return handle
     }
   }
@@ -199,9 +231,9 @@ export class FallbackTransportProvider implements TransportProvider {
     return this.activeProvider.get(participantId) ?? this.primary
   }
 
-  private withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  private withTimeout<T>(promise: Promise<T>, ms: number, onTimeout?: () => void): Promise<T> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms)
+      const timer = setTimeout(() => { onTimeout?.(); reject(new Error(`timed out after ${ms}ms`)) }, ms)
       promise.then(
         (value) => { clearTimeout(timer); resolve(value) },
         (err) => { clearTimeout(timer); reject(err) }
@@ -210,8 +242,10 @@ export class FallbackTransportProvider implements TransportProvider {
   }
 
   async stop(participantId: string): Promise<void> {
+    const generation = (this.startGeneration.get(participantId) ?? 0) + 1
+    this.startGeneration.set(participantId, generation)
     await this.provider(participantId).stop(participantId)
-    this.activeProvider.delete(participantId)
+    if (this.startGeneration.get(participantId) === generation) this.activeProvider.delete(participantId)
   }
 
   async joinTopic(participantId: string, topic: string): Promise<void> {

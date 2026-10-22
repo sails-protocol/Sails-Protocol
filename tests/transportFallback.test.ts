@@ -48,6 +48,214 @@ describe('FallbackTransportProvider (03-implementation_plan.md section 3)', () =
     expect(handle.peerId).toBe('websocket-relay:user-1')
   })
 
+  it('cleans up a late primary completion after relay fallback', async () => {
+    let completePrimary!: (handle: PeerHandle) => void
+    const primaryStart = jest.fn(() => new Promise<PeerHandle>(resolve => { completePrimary = resolve }))
+    const primaryStop = jest.fn().mockResolvedValue(undefined)
+    const primary = { ...fakeProvider('pears'), start: primaryStart, stop: primaryStop }
+    const secondary = fakeProvider('websocket-relay')
+    const fallback = new FallbackTransportProvider(primary, secondary, 5)
+
+    expect((await fallback.start('late-primary')).peerId).toBe('websocket-relay:late-primary')
+    expect(fallback.activeTransportName('late-primary')).toBe('websocket-relay')
+    completePrimary({ peerId: 'pears:late-primary' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(primaryStop).toHaveBeenCalledWith('late-primary')
+    expect(fallback.activeTransportName('late-primary')).toBe('websocket-relay')
+  })
+
+  it('does not stop a newer primary when an older timed-out start completes', async () => {
+    let completeOld!: (handle: PeerHandle) => void
+    let calls = 0
+    const primaryStop = jest.fn().mockResolvedValue(undefined)
+    const primary = {
+      ...fakeProvider('pears'),
+      start: jest.fn(async () => {
+        calls++
+        if (calls === 1) return new Promise<PeerHandle>(resolve => { completeOld = resolve })
+        return { peerId: 'pears:new' }
+      }),
+      stop: primaryStop,
+    }
+    const fallback = new FallbackTransportProvider(primary, fakeProvider('websocket-relay'), 5)
+    expect((await fallback.start('same-user')).peerId).toBe('websocket-relay:same-user')
+    expect((await fallback.start('same-user')).peerId).toBe('pears:new')
+    completeOld({ peerId: 'pears:old' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(primaryStop).not.toHaveBeenCalled()
+    expect(fallback.activeTransportName('same-user')).toBe('pears')
+  })
+
+  it('does not let a stale fallback completion replace the newer primary', async () => {
+    let releaseRelay!: (handle: PeerHandle) => void
+    let primaryCalls = 0
+    const primary = {
+      ...fakeProvider('pears'),
+      start: jest.fn(async () => {
+        primaryCalls++
+        if (primaryCalls === 1) throw new Error('primary temporarily unavailable')
+        return { peerId: 'pears:new' }
+      }),
+    }
+    const secondary = {
+      ...fakeProvider('websocket-relay'),
+      start: jest.fn(() => new Promise<PeerHandle>(resolve => { releaseRelay = resolve })),
+    }
+    const fallback = new FallbackTransportProvider(primary, secondary, 100)
+    const older = fallback.start('same-user')
+    for (let i = 0; i < 20 && !releaseRelay; i++) await new Promise(resolve => setTimeout(resolve, 0))
+    expect(releaseRelay).toBeDefined()
+    expect((await fallback.start('same-user')).peerId).toBe('pears:new')
+    releaseRelay({ peerId: 'websocket-relay:old' })
+    await expect(older).rejects.toThrow('obsolete relay start')
+    expect(fallback.activeTransportName('same-user')).toBe('pears')
+  })
+
+  it('does not clean up a late primary while relay fallback is still starting', async () => {
+    let releasePrimary!: (handle: PeerHandle) => void
+    let releaseRelay!: (handle: PeerHandle) => void
+    const primaryStop = jest.fn().mockResolvedValue(undefined)
+    const primary = {
+      ...fakeProvider('pears'),
+      start: jest.fn(() => new Promise<PeerHandle>(resolve => { releasePrimary = resolve })),
+      stop: primaryStop,
+    }
+    const secondary = {
+      ...fakeProvider('websocket-relay'),
+      start: jest.fn(() => new Promise<PeerHandle>(resolve => { releaseRelay = resolve })),
+    }
+    const fallback = new FallbackTransportProvider(primary, secondary, 5)
+    const pending = fallback.start('race-user')
+    for (let i = 0; i < 20 && !releaseRelay; i++) await new Promise(resolve => setTimeout(resolve, 0))
+    expect(releaseRelay).toBeDefined()
+    releasePrimary({ peerId: 'pears:late' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(primaryStop).not.toHaveBeenCalled()
+    releaseRelay({ peerId: 'websocket-relay:race-user' })
+    await pending
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(primaryStop).toHaveBeenCalledWith('race-user')
+    expect(fallback.activeTransportName('race-user')).toBe('websocket-relay')
+  })
+
+  it('does not register an old relay when a newer start wins during fallback', async () => {
+    let releaseRelay!: (handle: PeerHandle) => void
+    let calls = 0
+    const primary = {
+      ...fakeProvider('pears'),
+      start: jest.fn(async () => {
+        calls++
+        if (calls === 1) throw new Error('temporary failure')
+        return { peerId: 'pears:new' }
+      }),
+    }
+    const secondary = {
+      ...fakeProvider('websocket-relay'),
+      start: jest.fn(() => new Promise<PeerHandle>(resolve => { releaseRelay = resolve })),
+    }
+    const fallback = new FallbackTransportProvider(primary, secondary, 100)
+    const oldStart = fallback.start('participant')
+    for (let i = 0; i < 20 && !releaseRelay; i++) await new Promise(resolve => setTimeout(resolve, 0))
+    expect(releaseRelay).toBeDefined()
+    expect((await fallback.start('participant')).peerId).toBe('pears:new')
+    releaseRelay({ peerId: 'relay:stale' })
+    await expect(oldStart).rejects.toThrow('obsolete relay start')
+    expect(fallback.activeTransportName('participant')).toBe('pears')
+  })
+
+  it('does not stop a newer relay session when an obsolete relay start resolves', async () => {
+    let releaseOld!: (handle: PeerHandle) => void
+    let primaryCalls = 0
+    let secondaryCalls = 0
+    const primary = {
+      ...fakeProvider('pears'),
+      start: jest.fn(async () => { primaryCalls++; throw new Error('Pears unavailable') }),
+    }
+    const secondaryStop = jest.fn().mockResolvedValue(undefined)
+    const secondary = {
+      ...fakeProvider('websocket-relay'),
+      start: jest.fn(() => {
+        secondaryCalls++
+        if (secondaryCalls === 1) return new Promise<PeerHandle>(resolve => { releaseOld = resolve })
+        return Promise.resolve({ peerId: 'relay:new' })
+      }),
+      stop: secondaryStop,
+    }
+    const fallback = new FallbackTransportProvider(primary, secondary, 100)
+    const older = fallback.start('participant')
+    for (let i = 0; i < 20 && !releaseOld; i++) await new Promise(resolve => setTimeout(resolve, 0))
+    expect(releaseOld).toBeDefined()
+    expect((await fallback.start('participant')).peerId).toBe('relay:new')
+    releaseOld({ peerId: 'relay:old' })
+    await expect(older).rejects.toThrow('obsolete relay start')
+    expect(fallback.activeTransportName('participant')).toBe('websocket-relay')
+    expect(secondaryStop).not.toHaveBeenCalled()
+  })
+
+  it('rejects an obsolete primary completion without starting the relay', async () => {
+    let releaseOld!: (handle: PeerHandle) => void
+    let calls = 0
+    const primary = {
+      ...fakeProvider('pears'),
+      start: jest.fn(() => {
+        calls++
+        if (calls === 1) return new Promise<PeerHandle>(resolve => { releaseOld = resolve })
+        return Promise.resolve({ peerId: 'pears:new' })
+      }),
+    }
+    const secondary = { ...fakeProvider('relay'), start: jest.fn().mockResolvedValue({ peerId: 'relay' }) }
+    const fallback = new FallbackTransportProvider(primary, secondary, 100)
+    const old = fallback.start('same-user')
+    expect((await fallback.start('same-user')).peerId).toBe('pears:new')
+    releaseOld({ peerId: 'pears:old' })
+    await expect(old).rejects.toThrow('obsolete primary start')
+    expect(secondary.start).not.toHaveBeenCalled()
+    expect(fallback.activeTransportName('same-user')).toBe('pears')
+  })
+
+  it('does not erase a newer start when an earlier stop completes late', async () => {
+    let releaseStop!: () => void
+    const primary = {
+      ...fakeProvider('pears'),
+      stop: jest.fn(() => new Promise<void>(resolve => { releaseStop = resolve })),
+    }
+    const secondary = { ...fakeProvider('relay'), start: jest.fn().mockResolvedValue({ peerId: 'relay:new' }) }
+    const fallback = new FallbackTransportProvider(primary, secondary, 100)
+    await fallback.start('same-user')
+    const stopping = fallback.stop('same-user')
+    const next = fallback.start('same-user')
+    await next
+    releaseStop()
+    await stopping
+    expect(fallback.activeTransportName('same-user')).toBe('pears')
+  })
+
+  it('rejects a pending relay start superseded by stop', async () => {
+    let releaseRelay!: (handle: PeerHandle) => void
+    const secondary = {
+      ...fakeProvider('relay'),
+      start: jest.fn(() => new Promise<PeerHandle>(resolve => { releaseRelay = resolve })),
+    }
+    const fallback = new FallbackTransportProvider(fakeProvider('pears', { shouldFail: true }), secondary, 100)
+    const pending = fallback.start('same-user')
+    for (let i = 0; i < 20 && !releaseRelay; i++) await new Promise(resolve => setTimeout(resolve, 0))
+    expect(releaseRelay).toBeDefined()
+    await fallback.stop('same-user')
+    releaseRelay({ peerId: 'relay:stale' })
+    await expect(pending).rejects.toThrow('obsolete relay start')
+  })
+
+  it('retains the active provider when stop fails so a retry targets the correct transport', async () => {
+    const stop = jest.fn().mockRejectedValueOnce(new Error('temporary shutdown failure')).mockResolvedValue(undefined)
+    const secondary = { ...fakeProvider('websocket-relay'), stop }
+    const fallback = new FallbackTransportProvider(fakeProvider('pears', { shouldFail: true }), secondary, 100)
+    await fallback.start('stop-retry')
+    await expect(fallback.stop('stop-retry')).rejects.toThrow('temporary shutdown failure')
+    expect(fallback.activeTransportName('stop-retry')).toBe('websocket-relay')
+    await expect(fallback.stop('stop-retry')).resolves.toBeUndefined()
+    expect(stop).toHaveBeenCalledTimes(2)
+  })
+
   it('falls back to the secondary provider when the primary rejects outright', async () => {
     const primary = fakeProvider('pears', { shouldFail: true })
     const secondary = fakeProvider('websocket-relay')
@@ -115,6 +323,60 @@ describe('WebSocketRelayTransportProvider — CISO Privacy Rule (Blind Relay)', 
 
     expect(sellerHandler).toHaveBeenCalledWith('seller', 'incoming-blob')
     expect(buyerHandler).not.toHaveBeenCalled()
+  })
+
+  it('closes a superseded socket without unregistering or disconnecting its replacement', async () => {
+    const relay = new WebSocketRelayTransportProvider()
+    const oldSocket = fakeSocket()
+    const newSocket = fakeSocket()
+    const closeOld = jest.spyOn(oldSocket, 'close')
+    relay.registerSocket('buyer', oldSocket)
+    relay.registerSocket('buyer', newSocket)
+    expect(closeOld).toHaveBeenCalledTimes(1)
+    expect(relay.ownsSocket('buyer', oldSocket)).toBe(false)
+    expect(relay.ownsSocket('buyer', newSocket)).toBe(true)
+    relay.unregisterSocket('buyer', oldSocket)
+    expect(relay.isConnected('buyer')).toBe(true)
+    expect(await relay.sendToPeer('seller', 'buyer', 'after-reconnect')).toBe(true)
+    expect(newSocket.sent).toEqual(['after-reconnect'])
+    expect(oldSocket.sent).toEqual([])
+  })
+
+  it('keeps the authenticated replacement registered if closing the stale socket throws', async () => {
+    const relay = new WebSocketRelayTransportProvider()
+    const stale = fakeSocket()
+    stale.close = () => { throw new Error('transport already broken') }
+    const replacement = fakeSocket()
+    relay.registerSocket('buyer', stale)
+    expect(() => relay.registerSocket('buyer', replacement)).not.toThrow()
+    expect(relay.ownsSocket('buyer', replacement)).toBe(true)
+    expect(await relay.sendToPeer('seller', 'buyer', 'healthy')).toBe(true)
+    expect(replacement.sent).toEqual(['healthy'])
+  })
+
+  it('preserves a socket registered synchronously during shutdown', async () => {
+    const relay = new WebSocketRelayTransportProvider()
+    const replacement = fakeSocket()
+    const stale = fakeSocket()
+    stale.close = () => {
+      relay.registerSocket('buyer', replacement)
+      relay.unregisterSocket('buyer', stale)
+    }
+    relay.registerSocket('buyer', stale)
+    await relay.stop('buyer')
+    expect(relay.ownsSocket('buyer', replacement)).toBe(true)
+    expect(await relay.sendToPeer('seller', 'buyer', 'reconnected')).toBe(true)
+    expect(replacement.sent).toEqual(['reconnected'])
+  })
+
+  it('removes a broken socket even when close throws during stop', async () => {
+    const relay = new WebSocketRelayTransportProvider()
+    const broken = fakeSocket()
+    broken.close = () => { throw new Error('socket broken') }
+    relay.registerSocket('buyer', broken)
+    await expect(relay.stop('buyer')).resolves.toBeUndefined()
+    expect(relay.isConnected('buyer')).toBe(false)
+    await expect(relay.stop('buyer')).resolves.toBeUndefined()
   })
 
   it('reports a participant as connected only while their socket is registered and open', async () => {

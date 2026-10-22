@@ -251,6 +251,11 @@ jest.mock('../src/common/redis', () => ({
     // call-count/always-succeeds stub.
     eval: jest.fn((script: string, _numKeys: number, ...args: unknown[]) => {
       const key = args[0] as string
+      if (script.includes("redis.call('INCR', KEYS[1])")) {
+        const next = (parseInt(redisStore.get(key) ?? '0', 10) || 0) + 1
+        redisStore.set(key, String(next))
+        return Promise.resolve(next)
+      }
       if (script.includes('ARGV[1]')) {
         const expected = args[1] as string
         if (redisStore.get(key) === expected) {
