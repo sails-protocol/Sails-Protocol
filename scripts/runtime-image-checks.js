@@ -116,6 +116,12 @@ const leaked = ['next', 'tailwindcss', 'lucide-react'].filter(name => fs.existsS
 if (leaked.length === 0) pass('no other-workspace packages in node_modules')
 else fail('other-workspace packages in node_modules', leaked.join(', '))
 
+// ... and neither may the root's devDependencies (test runners, load-test and local test
+// infrastructure): a prune that skips the root package ships them to production.
+const devOnly = ['artillery', 'jest', 'ts-jest', 'embedded-postgres', 'redis-memory-server', 'pino-pretty'].filter(name => fs.existsSync(path.join(root, 'node_modules', name)))
+if (devOnly.length === 0) pass('no devDependencies in node_modules')
+else fail('devDependencies in node_modules', devOnly.join(', '))
+
 if (failures.length > 0) {
   console.log(`\n${failures.length} runtime image check(s) FAILED: ${failures.join('; ')}`)
   process.exit(1)
