@@ -58,6 +58,28 @@ describe('shared rate limit — Redis failure and rejection contract', () => {
     await expect(limiter(request())).rejects.toBeInstanceOf(RateLimitUnavailableError)
   })
 
+  it('isolates distinct canonical routes even when the client IP is the same', async () => {
+    evalMock.mockResolvedValue(1)
+    const challenge = request()
+    const authenticate = request()
+    ;(authenticate.routeOptions as { url?: string }).url = '/v1/identity/authenticate'
+    await expect(limiter(challenge)).resolves.toBeUndefined()
+    await expect(limiter(authenticate)).resolves.toBeUndefined()
+    expect(evalMock).toHaveBeenNthCalledWith(1, SHARED_RATE_LIMIT_SCRIPT, 1,
+      'ratelimit:auth:/v1/identity/challenge:127.0.0.1', 60000)
+    expect(evalMock).toHaveBeenNthCalledWith(2, SHARED_RATE_LIMIT_SCRIPT, 1,
+      'ratelimit:auth:/v1/identity/authenticate:127.0.0.1', 60000)
+  })
+
+  it('isolates auth and critical namespaces for the same route and IP', async () => {
+    evalMock.mockResolvedValue(1)
+    const critical = createSharedRateLimit({ max: 2, windowMs: 60000, keyPrefix: 'critical' })
+    await expect(limiter(request())).resolves.toBeUndefined()
+    await expect(critical(request())).resolves.toBeUndefined()
+    expect(evalMock).toHaveBeenNthCalledWith(2, SHARED_RATE_LIMIT_SCRIPT, 1,
+      'ratelimit:critical:/v1/identity/challenge:127.0.0.1', 60000)
+  })
+
   it('allows the limit and rejects the next request with 429', async () => {
     evalMock.mockResolvedValueOnce(2).mockResolvedValueOnce(3)
     pttlMock.mockResolvedValueOnce(1500)
