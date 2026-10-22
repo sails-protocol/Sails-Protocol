@@ -36,9 +36,18 @@
  */
 import type { TransportProvider, PeerHandle } from './transport-provider'
 
+export interface RelayRouterHooks {
+  /** Resolves with this connection's ownership token. */
+  claim(participantId: string): Promise<string>
+  release(participantId: string, token: string): Promise<void>
+  /** The socket holding this token is registered (acts on an earlier revoke). */
+  registered(participantId: string, token: string): void
+  route(fromParticipantId: string, raw: string): Promise<void>
+}
+
 export interface RelaySocket {
   send(data: string): void
-  close(): void
+  close(code?: number, reason?: string): void
   readyState: number
 }
 
@@ -48,15 +57,78 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
   name = 'websocket-relay'
   private sockets = new Map<string, RelaySocket>()
   private messageHandlers = new Map<string, (peerId: string, payload: unknown) => void>()
+  // #307 Phase B.1: ownership token of each registered socket's connection.
+  private tokens = new Map<string, string>()
+  // #307 Phase B: participant-to-participant delivery (relay-delivery.ts).
+  // Installed by app.ts only; without it the provider keeps its blind,
+  // handler-only behaviour.
+  private router: RelayRouterHooks | null = null
+
+  useRouter(router: RelayRouterHooks | null): void {
+    this.router = router
+  }
+
+  /** Must resolve before READY: makes this participant reachable from every instance. */
+  async prepareRegistration(participantId: string): Promise<string | undefined> {
+    return this.router?.claim(participantId)
+  }
+
+  /** The socket closed between prepareRegistration() and registration. */
+  abandonRegistration(participantId: string, token?: string): void {
+    if (token === undefined || this.tokens.get(participantId) === token) return
+    void this.router?.release(participantId, token).catch(() => undefined)
+  }
+
+  /** True only for an open socket registered with exactly this ownership token. */
+  ownsToken(participantId: string, token: string): boolean {
+    return this.tokens.get(participantId) === token && this.sockets.get(participantId)?.readyState === OPEN
+  }
+
+  /** Closes the socket if, and only if, it is still registered with this token. */
+  closeIfToken(participantId: string, token: string, code: number, reason: string): void {
+    const socket = this.sockets.get(participantId)
+    if (!socket || this.tokens.get(participantId) !== token) return
+    try {
+      socket.close(code, reason)
+    } catch {
+      // Already broken; its close handler unregisters it.
+    }
+  }
 
   // Called by app.ts's `/ws/relay` route once the client's WebSocket
   // upgrade completes — this is the real "connection", not start() below.
-  registerSocket(participantId: string, socket: RelaySocket): void {
+  registerSocket(participantId: string, socket: RelaySocket, token?: string): void {
+    const previous = this.sockets.get(participantId)
+    if (previous === socket) return
+    // Transfer ownership before closing: a stale close callback must not
+    // unregister the replacement socket.
     this.sockets.set(participantId, socket)
+    if (token === undefined) this.tokens.delete(participantId)
+    else this.tokens.set(participantId, token)
+    if (token !== undefined) this.router?.registered(participantId, token)
+    if (previous && previous.readyState === OPEN) {
+      try {
+        previous.close()
+      } catch {
+        // A broken old transport must not abort registration of the new
+        // authenticated socket. Ownership has already been transferred.
+      }
+    }
   }
 
-  unregisterSocket(participantId: string): void {
+  ownsSocket(participantId: string, socket: RelaySocket): boolean {
+    return this.sockets.get(participantId) === socket
+  }
+
+  unregisterSocket(participantId: string, socket?: RelaySocket): void {
+    // A stale close event must not remove a newer socket registered for
+    // the same participant (reconnect/overlapping connections).
+    if (socket && this.sockets.get(participantId) !== socket) return
     this.sockets.delete(participantId)
+    const token = this.tokens.get(participantId)
+    this.tokens.delete(participantId)
+    // Best effort: a stale owner key expires (TTL) and only yields UNDELIVERED.
+    if (token !== undefined) void this.router?.release(participantId, token).catch(() => undefined)
   }
 
   // Registers intent to use this provider; does not itself open a
@@ -68,17 +140,26 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
 
   async stop(participantId: string): Promise<void> {
     const socket = this.sockets.get(participantId)
-    if (socket && socket.readyState === OPEN) socket.close()
+    // Revoke ownership before invoking close(): a synchronous close callback
+    // must not remove a replacement registered during shutdown.
     this.sockets.delete(participantId)
     this.messageHandlers.delete(participantId)
+    const token = this.tokens.get(participantId)
+    this.tokens.delete(participantId)
+    if (token !== undefined) void this.router?.release(participantId, token).catch(() => undefined)
+    if (socket && socket.readyState === OPEN) {
+      try {
+        socket.close()
+      } catch {
+        // A broken socket is already unregistered; shutdown remains idempotent.
+      }
+    }
   }
 
-  // No topic concept over a point-to-point relay — a no-op, not an error,
-  // consistent with RFC-002's "never assumes continuous connectivity /
-  // never assumes symmetric capability across TransportProvider
-  // implementations" reasoning.
+  // Do not silently report success: this relay has no DHT/topic discovery.
+  // Callers must explicitly handle degraded capabilities instead.
   async joinTopic(_participantId: string, _topic: string): Promise<void> {
-    return
+    throw new Error('WebSocket relay does not support topic discovery')
   }
 
   async broadcast(participantId: string, payload: unknown): Promise<number> {
@@ -94,10 +175,17 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
   async sendToPeer(_participantId: string, targetParticipantId: string, payload: unknown): Promise<boolean> {
     const socket = this.sockets.get(targetParticipantId)
     if (!socket || socket.readyState !== OPEN) return false
-    // Blind forward — payload is whatever the caller already encrypted
-    // above this layer. Never parsed, never logged.
-    socket.send(typeof payload === 'string' ? payload : JSON.stringify(payload))
-    return true
+    // Blind forward: payload confidentiality depends on the caller. Intent
+    // payloads have application-layer encryption, but chat/negotiation may
+    // still be plaintext (see module security note). Never parse or log.
+    try {
+      socket.send(typeof payload === 'string' ? payload : JSON.stringify(payload))
+      return true
+    } catch {
+      // A socket can fail after readyState was checked; report failed delivery.
+      // Do not evict here: a concurrent reconnect may already own the slot.
+      return false
+    }
   }
 
   onMessage(participantId: string, handler: (peerId: string, payload: unknown) => void): void {
@@ -106,8 +194,9 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
 
   // Called by app.ts's `/ws/relay` route on each incoming frame — routes
   // it to whichever onMessage() handler this participant registered.
-  dispatchIncoming(participantId: string, rawPayload: unknown): void {
+  dispatchIncoming(participantId: string, rawPayload: unknown): Promise<void> | void {
     this.messageHandlers.get(participantId)?.(participantId, rawPayload)
+    if (this.router && typeof rawPayload === 'string') return this.router.route(participantId, rawPayload)
   }
 
   isConnected(participantId: string): boolean {
