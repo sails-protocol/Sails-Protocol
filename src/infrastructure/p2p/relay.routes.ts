@@ -116,16 +116,30 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
     }
     webSocketRelayTransportProvider.registerSocket(participantId, socket)
     let renewing = false
+    // A renewal can hang without rejecting. Never keep a socket open after
+    // its last confirmed lease may have expired.
+    let leaseExpiresAt = Date.now() + RELAY_PRESENCE_TTL_MS
     const leaseTimer = setInterval(() => {
       if (!webSocketRelayTransportProvider.ownsSocket(participantId, socket) || socket.readyState !== 1) {
+        clearInterval(leaseTimer)
+        return
+      }
+      if (Date.now() >= leaseExpiresAt) {
+        socket.close(1011, 'Relay presence lease expired')
         clearInterval(leaseTimer)
         return
       }
       // A stalled Redis request must not accumulate concurrent renewals.
       if (renewing) return
       renewing = true
+      const startedAt = Date.now()
       void renewRelayPresence(participantId, leaseToken).then(renewed => {
-        if (!renewed && socket.readyState === 1) socket.close(1011, 'Relay presence ownership lost')
+        if (!renewed && socket.readyState === 1) {
+          socket.close(1011, 'Relay presence ownership lost')
+        } else if (renewed) {
+          // Conservatively count from request start, not response time.
+          leaseExpiresAt = startedAt + RELAY_PRESENCE_TTL_MS
+        }
       }).catch(() => {
         if (socket.readyState === 1) socket.close(1011, 'Relay presence unavailable')
       }).finally(() => {
