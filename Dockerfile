@@ -150,8 +150,6 @@ COPY --from=pruned --chown=node:node /app/packages/sails-sdk/node_modules ./pack
 # with "Cannot find module '@sails/core'" (found 2026-10-23 by the first
 # real run of this runtime stage; CI's docker-compose test builds the
 # `builder` target, which has the full tree, so it never saw this).
-COPY --from=pruned --chown=node:node /app/packages/sails-core/dist ./packages/sails-core/dist
-COPY --from=pruned --chown=node:node /app/packages/sails-core/package.json ./packages/sails-core/package.json
 
 # node:24-bookworm-slim ships a non-root `node` user (uid 1000). Run as
 # `node` so the process doesn't hold root privileges inside the container
