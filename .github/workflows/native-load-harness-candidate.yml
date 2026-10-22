@@ -1043,6 +1043,17 @@ jobs:
           const count=k=>m[k]?.count;
           const keys=['iterations','sails_authenticated_arrivals','sails_completed_intent_pairs','sails_intent_create_samples','sails_intent_cancel_samples'];
           const observed=Object.fromEntries(keys.map(k=>[k,count(k)??null]));
+          const observedTiming=m['sails_observed_setup_start_epoch_ms'];
+          const observedMin=observedTiming?.min;
+          const observedMax=observedTiming?.max;
+          assert.ok(Number.isFinite(observedMin)&&Number.isFinite(observedMax)&&observedMax>=observedMin,
+            'k6 observed setup timestamp trend missing or invalid');
+          console.log('k6 observed iteration entry timestamp evidence:',JSON.stringify({
+            minEpochMs:observedMin,maxEpochMs:observedMax,
+            observedSpanMs:observedMax-observedMin,
+            schedulerArrivalParityEstablished:false,
+            measurement:'iteration entry, not executor scheduled arrival'
+          }));
           const scopedRequestCounts={
             intent_create:count('http_reqs{name:intent_create}')??null,
             intent_cancel:count('http_reqs{name:intent_cancel}')??null
