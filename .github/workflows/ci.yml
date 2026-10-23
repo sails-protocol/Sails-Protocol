@@ -148,3 +148,11 @@ jobs:
       # Never touches any real database.
       - name: Migration job against a throwaway PostgreSQL
         run: bash ./scripts/docker-migrate-test.sh
+
+      # The provider-agnostic self-hosting kit (deploy/self-host, docs/SELF_HOSTING.md) on a
+      # throwaway Compose project: clean install, update, a failing migration and one with an
+      # unknown result (the previous server keeps serving), a server started by hand on an
+      # unmigrated database (refuses to boot), rollback, backup/restore, no secret in the logs.
+      # No cloud, no registry, no real database.
+      - name: Self-hosting kit (install, update, failed update, rollback, restore)
+        run: bash ./scripts/self-host-test.sh
