@@ -216,6 +216,16 @@ pass "only 127.0.0.1:${SAILS_PORT} is published; postgres, redis and seaweedfs p
 pass "the server runs as non-root"
 ! docker image inspect "sails-server:$RUN-t2" "sails-migrate:$RUN-t2" --format '{{json .Config.Env}}{{json .Config.Cmd}}' | grep -qF -e "$PGPASS" -e "$S3PASS" || fail "a secret is baked into an image"
 pass "no secret is baked into the images"
+step "The kit's compose file keeps the structural migration gate"
+( export SAILS_SERVER_IMAGE=x SAILS_MIGRATE_IMAGE=y SAILS_HOME_HOST="$(host_path "$SAILS_NODE_HOME")" WSLENV="${WSLENV:+$WSLENV:}SAILS_SERVER_IMAGE:SAILS_MIGRATE_IMAGE:SAILS_HOME_HOST"
+  docker compose -f "$(host_path "$PWD/deploy/self-host/compose.yml")" config --format json ) >"$WORK/compose.json" 2>/dev/null || fail "cannot render the kit compose file"
+docker run --rm -i --entrypoint node "sails-server:$RUN-t2" -e '
+  const c = JSON.parse(require("fs").readFileSync(0, "utf8")).services
+  const gate = c.server.depends_on && c.server.depends_on.migrate && c.server.depends_on.migrate.condition
+  if (gate !== "service_completed_successfully") { console.error("server.depends_on.migrate.condition =", gate); process.exit(1) }
+  if (c.migrate.restart !== "no") { console.error("migrate.restart =", c.migrate.restart); process.exit(1) }
+' <"$WORK/compose.json" || fail "the kit compose file no longer gates the server on a successful migration"
+pass "server waits for service_completed_successfully of migrate; migrate never restarts itself"
 ( export COMPOSE_PROFILES=evidence-store,tls SAILS_DOMAIN=node.example.org SAILS_SERVER_IMAGE=x SAILS_MIGRATE_IMAGE=y SAILS_HOME_HOST="$(host_path "$SAILS_NODE_HOME")"
   export WSLENV="${WSLENV:+$WSLENV:}COMPOSE_PROFILES:SAILS_DOMAIN:SAILS_SERVER_IMAGE:SAILS_MIGRATE_IMAGE:SAILS_HOME_HOST"
   docker compose -f "$(host_path "$PWD/deploy/self-host/compose.yml")" config -q ) >/dev/null 2>&1 || fail "the tls profile does not render"
