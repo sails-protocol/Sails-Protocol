@@ -25,6 +25,21 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     await Promise.all([a?.quit(), b?.quit()])
   })
 
+  it('rejects a delayed renewal without extending an existing Redis lease', async () => {
+    const key = 'test:relay:presence:renew-deadline:' + randomUUID()
+    const token = randomUUID()
+    try {
+      await a.set(key, token, 'PX', 30_000)
+      const ttlBefore = await a.pttl(key)
+      expect(await b.eval(RELAY_PRESENCE_RENEW_SCRIPT, 1, key, token, 30_000, Date.now() - 60_000)).toBe(0)
+      const ttlAfter = await a.pttl(key)
+      expect(ttlAfter).toBeLessThanOrEqual(ttlBefore)
+      expect(await b.get(key)).toBe(token)
+    } finally {
+      await a.del(key)
+    }
+  })
+
   it('rejects a presence claim delayed beyond its deadline on the Redis server', async () => {
     const key = 'test:relay:presence:deadline:' + randomUUID()
     try {
