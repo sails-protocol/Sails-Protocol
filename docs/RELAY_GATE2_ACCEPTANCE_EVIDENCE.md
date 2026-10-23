@@ -91,7 +91,44 @@ Earlier baseline: commit `31182b7ea036862ff0faf08c842d8dcecb68011b` passed CI 39
 - `tests/relayRedisIntegration.test.ts`: real Redis-backed single-use ticket resolution, concurrent/replayed ticket races and shared budget, including multi-process and multiple listener cases. The latest integration test exercises production `identityRoutes` HTTP ticket issuance with production `requireAuth` for two authenticated participants, real Redis ticket storage/consumption, two real TCP WebSocket clients, and opaque provider delivery from Alice to Bob **in one test**. Redis calls are forwarded to a disposable integration Redis client via Jest spies; the test is therefore instrumented, not a fully unmocked deployment-equivalent E2E scenario.
 - `tests/pearRoutes.test.ts`: verifies `POST /v1/peers/start` reports Pears versus WebSocket relay capabilities and `GET /v1/peers/status` reports connected/disconnected relay states without reading Pears registry state. Auth, transport selection and connection state are mocked for these route-level tests. A previous CI failure caused by a mock transport state leaking between tests was fixed by resetting the mock in `beforeEach`; commit `f50dcea` is green.
 
-## Cross-instance delivery implementation contract (not yet implemented)
+## Isolated Redis Pub/Sub candidate — evidence boundary (2026-10-23)
+
+The candidate branch now contains `relay-delivery-command.ts`, `relay-delivery-destination.ts`,
+`relay-delivery-ack.ts`, `relay-delivery-pending.ts`, `relay-delivery-origin.ts`, and
+`relay-delivery-redis.ts`. These implement a bounded request/ACK protocol and an
+**isolated, not route-wired** Redis Pub/Sub adapter. This is implementation evidence,
+not a completed cross-instance capability.
+
+- Exact commit `097f827296b9f15f4cc1c4855b9b7aef4ad81558`:
+  CI `40036921690`, CI Tests `40036921669`, CodeQL `40036921670` all succeeded.
+- `tests/relayDeliveryRedis.test.ts` uses an in-memory RedisBus mock with separate
+  provider instances. It does **not** prove Redis networking or process isolation.
+- `tests/relayDeliveryRedis.integration.test.ts` uses four independent ioredis TCP
+  connections **only when** `RELAY_REDIS_INTEGRATION_URL` is set. Without it,
+  Jest skips this suite. Passing the default CI therefore does **not** prove
+  the real-Redis integration ran. This suite still runs in one OS process.
+- The current presence value stores a connection lease token, not a server
+  instance/channel identifier. No authoritative, atomic owner-channel lookup
+  connects presence to the adapter.
+- Pub/Sub channel naming is validated syntactically but sender authorization,
+  channel ACLs and authenticated reply provenance are not established. A
+  valid-looking channel name is not a trust boundary.
+- The adapter has no production lifecycle wiring and no two-process Redis
+  acceptance evidence. A positive ACK means only that the destination
+  attempted an OPEN local socket send without a synchronous exception;
+  it is not proof of client receipt.
+- The implementation's `start()` / `close()` races, subscription reconnect
+  semantics, forged ACKs, duplicate commands and backpressure require
+  adversarial review and real-boundary tests before enabling it.
+
+**Decision frontier / STOP:** Do not enable this adapter in `relay.routes.ts`
+or advertise distributed delivery until the responsible architecture owner
+defines the trusted instance identity, channel authorization and presence
+routing contract. Record the chosen topology and acceptance tests through
+the existing governance process. This STOP does not invalidate isolated
+prototype work, but prohibits silently treating it as production routing.
+
+## Cross-instance delivery acceptance contract (not yet satisfied)
 
 A Redis presence lease is a routing hint only. An ACK for publishing to Redis, an enqueue result, or a presence lookup **must not** be reported as successful delivery. The current provider's `sendToPeer()` returns `false` for remote sockets.
 
