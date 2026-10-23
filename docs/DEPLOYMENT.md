@@ -305,9 +305,17 @@ Where it is **not** proven — AWS App Runner (the production target of section 
   (section 8.2, step 4); whether it deploys automatically on every push, and
   which health check it uses, are console settings this repository cannot show.
 - If automatic deployment is on, a push builds and starts the new version with no
-  migration step at all, and nothing in the server stops it: it does not check for
-  pending migrations at boot (`/health/ready` only checks PostgreSQL and Redis
-  connectivity) and, deliberately, never migrates on start.
+  migration step at all. **Corrected 2026-10-23:** the server no longer simply runs
+  on an unmigrated database — in production it now refuses to boot unless every
+  migration shipped in its own image is applied
+  (`src/common/database/migration-gate.ts`; a database *ahead* of the image is
+  accepted so a rollback works, an unreadable migration table counts as not
+  migrated). What App Runner then does with a deployment that crashes at start
+  (whether it keeps serving the previous version) is platform behaviour that was
+  not verified. The server still, deliberately, never migrates on start.
+- Since the owner's 2026-10-23 decision AWS is no longer the required production
+  target: the portable, tested path is `docs/SELF_HOSTING.md`. The App Runner
+  notes in this section stay as a record for an operator who chooses it.
 - I have not verified, against AWS, any App Runner feature that blocks a
   deployment on the exit status of a separate job.
 
@@ -317,9 +325,9 @@ images from one commit, runs the migration image where it can reach the private
 RDS (for example a one-off ECS task or CodeBuild project inside the VPC, with
 `DATABASE_URL` from Secrets Manager), and calls the App Runner deployment only
 when that task exited 0; and, as defence in depth, **(B)** a server-side
-readiness check that stays not-ready while migrations are pending, with the App
-Runner health check set to HTTP `/health/ready` (B is an application change that
-has not been made). Acceptance evidence for (A): a deployment attempt with a
+check against pending migrations (made on 2026-10-23 as a boot refusal, see
+above; it is not a readiness-endpoint check, so `/health/ready` does not
+report migration state). Acceptance evidence for (A): a deployment attempt with a
 deliberately failing migration job leaves the running App Runner version
 untouched. Until that is shown on the real platform, production stays gated
 on it.
