@@ -733,6 +733,32 @@ jobs:
           echo "k6 1500ms scheduler failures: $failures / 12; NOT temporal parity"
           if [ "$failures" -ne 0 ]; then exit 1; fi
           echo 'k6 1500ms scheduler 12/12 PASS; cross-engine parity NOT established'
+      - name: Observe exact two-second k6 scheduler boundary without network
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          for trial in $(seq 1 6); do
+            summary="/tmp/sails-k6-2s-control-${trial}.json"
+            SAILS_SCHEDULER_PROBE_DURATION=2s timeout 20s k6 run --quiet --summary-export="$summary" load-tests/tests/arrival-scheduler-probe.js > /tmp/sails-k6-2s-control.log 2>&1 || true
+            node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const [file,trial]=process.argv.slice(2);
+          if (!fs.existsSync(file)) {
+            console.error('k6 exact-boundary control missing summary:',trial);
+            process.exitCode=1;
+          } else {
+            const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
+            const count=k=>m[k]?.count??null;
+            const evidence={trial:Number(trial),window:'2s',iterations:count('iterations'),
+              entries:count('sails_probe_entries'),extras:count('sails_probe_extra_entries'),
+              samples:count('sails_probe_timestamp_samples'),dropped:count('dropped_iterations')};
+            console.log('k6 exact-boundary control evidence:',JSON.stringify(evidence));
+            if (evidence.iterations===null || evidence.entries===null || evidence.extras===null) process.exitCode=1;
+          }
+          NODE
+          done
+          echo 'Exact two-second boundary control is diagnostic only; it does not relax the original fail-closed gate'
       - name: Prove k6 PONG assertion fails against non-PONG loopback fixture
         shell: bash
         run: |
