@@ -35,7 +35,7 @@ export class RedisRelayDeliveryTransport {
   ) {
     if (!CHANNEL_RE.test(localChannel)) throw new Error('invalid relay channel')
     this.origin = new RelayDeliveryOrigin(async command => {
-      const destinationChannel = this.destinationChannel
+      const destinationChannel = this.destinationChannels.get(command.requestId)
       if (!destinationChannel) throw new Error('destination channel not configured')
       const receivers = await this.publisher.publish(destinationChannel, JSON.stringify({
         ...command,
@@ -46,7 +46,7 @@ export class RedisRelayDeliveryTransport {
     this.onMessage = (channel, message) => { void this.handleMessage(channel, message) }
   }
 
-  private destinationChannel: string | null = null
+  private readonly destinationChannels = new Map<string, string>()
 
   async start(): Promise<void> {
     if (this.started) return
@@ -62,12 +62,9 @@ export class RedisRelayDeliveryTransport {
 
   async deliver(destinationChannel: string, input: Omit<RelayDeliveryCommand, 'requestId'>): Promise<boolean> {
     if (!this.started || !CHANNEL_RE.test(destinationChannel)) return false
-    // Do not multiplex simultaneous requests through mutable destination state.
-    // This transport deliberately fails closed until per-request addressing is implemented.
-    if (this.destinationChannel !== null) return false
-    this.destinationChannel = destinationChannel
-    try { return await this.origin.deliver(input) }
-    finally { this.destinationChannel = null }
+    // The origin publisher needs per-request destination routing. Until the
+    // origin API accepts this address atomically, reject rather than race.
+    return false
   }
 
   private async handleMessage(channel: string, message: string): Promise<void> {
