@@ -3,8 +3,10 @@
  * Explicitly opt in: k6 run load-tests/tests/arrival-scheduler-probe.js
  * Alternate diagnostics: k6 run -e SAILS_SCHEDULER_PROBE_DURATION=1900ms load-tests/tests/arrival-scheduler-probe.js
  * and 1500ms; neither is claimed equivalent to Artillery's 2s window.
- * The 1999ms constant-arrival-rate window is experimental; three iterations
- * have occurred in the full comparator. Never infer parity from this probe.
+ * The 1999ms constant-arrival-rate window is experimental. On 2026-10-23,
+ * isolated CI trials observed four third arrivals across 24 attempts at 1999ms;
+ * 1900ms and 1500ms each had 0/24 failures in that same run. These are
+ * observations, not a parity or reliability guarantee. Never infer parity.
  */
 import { Counter, Trend } from 'k6/metrics'
 import exec from 'k6/execution'
