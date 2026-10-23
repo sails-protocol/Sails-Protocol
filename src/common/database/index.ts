@@ -8,6 +8,7 @@ import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { config } from '../../config'
 import { childLogger } from '../logger'
+import { assertMigrationsApplied, MigrationRow } from './migration-gate'
 
 const log = childLogger('database')
 
@@ -38,6 +39,11 @@ if (!config.isProduction) {
 
 export async function connectDatabase(): Promise<void> {
   await prisma.$connect()
+  if (config.isProduction) {
+    await assertMigrationsApplied(
+      () => prisma.$queryRaw<MigrationRow[]>`SELECT migration_name, finished_at, rolled_back_at FROM _prisma_migrations`,
+    )
+  }
   log.info({ msg: 'Connected' })
 }
 
