@@ -111,10 +111,11 @@ export type EscrowRecord = {
 // `lockFunds()` claims the CREATED->FUNDS_LOCKED status PROVISIONALLY,
 // atomically, BEFORE calling `provider.lockFunds()` below — the real
 // verification (or fund movement) happens AFTER that claim, inside the
-// provider call itself, and a failed provider call reverts the claim.
-// `FUNDS_LOCKED` can therefore exist in the database while the provider
-// call is still executing; it is not itself durable settlement
-// evidence. The real, unchanged property is: a lock is only
+// provider call itself. P4: an unclassified provider exception does
+// NOT revert the claim because a lost response may conceal a completed
+// external effect. `FUNDS_LOCKED` may be provisional/UNKNOWN without
+// durable funding evidence; it must not be treated as proven funding.
+// Automated recovery for every provider is NOT established. The real, unchanged property is: a lock is only
 // finalized/evidenced (result persisted, funding evidence recorded,
 // `settlement.escrow.locked` emitted) once `provider.lockFunds()`
 // succeeds.
