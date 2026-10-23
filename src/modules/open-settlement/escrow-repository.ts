@@ -494,6 +494,11 @@ class PrismaEscrowRepository implements EscrowRepository {
       // never trigger this). Same P2002-to-EscrowError wrap
       // escrow-pending-tx.ts's initiateSignatureCollectionCore() already
       // uses for its own unique-constraint race.
+      if (err?.code === 'P2025') {
+        throw new EscrowError(
+          `Escrow ${escrowId} no longer has an unrecorded FUNDS_LOCKED claim; refusing to attach a stale or duplicate funding result. Reconcile authoritative evidence before retry.`
+        )
+      }
       if (err?.code === 'P2002') {
         throw new EscrowError(
           `Funding outpoint ${data.txLockId}:${data.txLockVout} is already claimed by another escrow — refusing to double-assign the same Bitcoin UTXO.`
