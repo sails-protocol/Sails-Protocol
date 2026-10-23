@@ -25,6 +25,24 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     await Promise.all([a?.quit(), b?.quit()])
   })
 
+  it('rejects missing or malformed presence deadlines without mutating Redis', async () => {
+    const key = 'test:relay:presence:invalid-deadline:' + randomUUID()
+    const token = randomUUID()
+    try {
+      expect(await a.eval(RELAY_PRESENCE_CLAIM_SCRIPT, 1, key, token, 30_000)).toBe(0)
+      expect(await a.eval(RELAY_PRESENCE_CLAIM_SCRIPT, 1, key, token, 30_000, 'invalid')).toBe(0)
+      expect(await b.get(key)).toBeNull()
+      await a.set(key, token, 'PX', 30_000)
+      const before = await a.pttl(key)
+      expect(await b.eval(RELAY_PRESENCE_RENEW_SCRIPT, 1, key, token, 30_000)).toBe(0)
+      expect(await b.eval(RELAY_PRESENCE_RENEW_SCRIPT, 1, key, token, 30_000, 'invalid')).toBe(0)
+      expect(await a.pttl(key)).toBeLessThanOrEqual(before)
+      expect(await b.get(key)).toBe(token)
+    } finally {
+      await a.del(key)
+    }
+  })
+
   it('rejects a delayed renewal without extending an existing Redis lease', async () => {
     const key = 'test:relay:presence:renew-deadline:' + randomUUID()
     const token = randomUUID()
