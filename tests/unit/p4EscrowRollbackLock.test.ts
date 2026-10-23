@@ -41,4 +41,19 @@ describe('P4 escrow rollback serialization contract', () => {
     await expect(escrowRepository.revertStatus('escrow-p4', 'COMPLETED', 'FUNDS_LOCKED'))
       .rejects.toThrow('rollback failed')
   })
+  it('returns zero without claiming a rollback when another writer won', async () => {
+    updateMany.mockResolvedValueOnce({ count: 0 })
+    await expect(escrowRepository.revertStatus('escrow-p4', 'COMPLETED', 'FUNDS_LOCKED'))
+      .resolves.toBe(0)
+    expect(executeRaw).toHaveBeenCalledTimes(1)
+    expect(updateMany).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not touch the escrow row when acquiring E lock fails', async () => {
+    executeRaw.mockRejectedValueOnce(new Error('advisory lock unavailable'))
+    await expect(escrowRepository.revertStatus('escrow-p4', 'COMPLETED', 'FUNDS_LOCKED'))
+      .rejects.toThrow('advisory lock unavailable')
+    expect(updateMany).not.toHaveBeenCalled()
+  })
+
 })
