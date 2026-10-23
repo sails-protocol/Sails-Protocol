@@ -98,10 +98,16 @@ pass "t2, t3, t4 derived from t1"
 
 step "init: data directory and secrets"
 node_cmd init 0 init
-[ "$(stat -c %a "$SAILS_NODE_HOME/secrets/db.env")" = "600" ] || fail "db.env is not mode 600"
-[ "$(stat -c %a "$SAILS_NODE_HOME/secrets")" = "700" ] || fail "secrets/ is not mode 700"
 node_cmd init-again nonzero init
-pass "secrets created 0600/0700; a second init refuses to overwrite them"
+# File modes can only be asserted on a filesystem that stores them (not NTFS reached through WSL).
+touch "$WORK/mode-probe"; chmod 640 "$WORK/mode-probe"
+if [ "$(stat -c %a "$WORK/mode-probe")" = "640" ]; then
+  [ "$(stat -c %a "$SAILS_NODE_HOME/secrets/db.env")" = "600" ] || fail "db.env is not mode 600"
+  [ "$(stat -c %a "$SAILS_NODE_HOME/secrets")" = "700" ] || fail "secrets/ is not mode 700"
+  pass "secrets created 0600/0700; a second init refuses to overwrite them"
+else
+  pass "a second init refuses to overwrite the secrets (SKIPPED: file modes — this filesystem does not store POSIX modes, so 0600/0700 was NOT verified here)"
+fi
 PGPASS="$(cat "$SAILS_NODE_HOME/secrets/postgres_password")"
 MINIOPASS="$(sed -n 's/^MINIO_ROOT_PASSWORD=//p' "$SAILS_NODE_HOME/secrets/minio.env")"
 [ -n "$PGPASS" ] && [ -n "$MINIOPASS" ] || fail "generated secrets are empty"
