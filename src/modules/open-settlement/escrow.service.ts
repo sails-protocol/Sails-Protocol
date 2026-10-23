@@ -813,7 +813,22 @@ export class EscrowService {
     // header comment on withEscrowFundingLock() for why this specific
     // mechanism closes the race.
     const claimedCount = await withEscrowFundingLock(escrowId, async (tx) => {
-      if (escrow.type === 'WDK_USDT_EVM') await assertWdkFundingProven(tx, escrowId)
+      if (escrow.type === 'WDK_USDT_EVM') {
+        await assertWdkFundingProven(tx, escrowId)
+      } else {
+        // P4: FUNDS_LOCKED is a provisional claim until the provider result
+        // has been persisted. Never let a buyer act on status alone after an
+        // ambiguous lockFunds() outcome or a crash before updateLockResult().
+        const funding = await tx.escrow.findUnique({
+          where: { id: escrowId },
+          select: { txLockId: true, lockedAt: true },
+        })
+        if (!funding?.txLockId || !funding.lockedAt) {
+          throw new EscrowError(
+            `Escrow ${escrowId} has provisional FUNDS_LOCKED status without durable funding result; payment confirmation requires funding reconciliation.`
+          )
+        }
+      }
       const uncertain = await escrowFundingEvidenceService.isFundingUncertain(escrowId, tx)
       if (uncertain) {
         throw new EscrowError(
