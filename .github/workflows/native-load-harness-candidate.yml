@@ -1290,7 +1290,7 @@ jobs:
             'dropped_iterations']);
           const points={};
           if(fs.existsSync(metricsFile)){
-            const records=fs.readFileSync(metricsFile,'utf8').split('\\n');
+            const records=fs.readFileSync(metricsFile,'utf8').split(String.fromCharCode(10));
             for(const line of records){
               if(!line)continue;
               let entry;try{entry=JSON.parse(line)}catch{continue}
