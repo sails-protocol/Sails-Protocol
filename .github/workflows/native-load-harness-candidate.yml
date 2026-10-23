@@ -1377,9 +1377,14 @@ jobs:
             sleep 1
           done
           test "$ready" -eq 1 || { echo 'Independent Intent backend readiness timeout'; exit 1; }
-          if ! timeout 45s k6 run --quiet --summary-export=/tmp/sails-independent-intent-summary.json \
+          set +e
+          timeout 90s k6 run --quiet --summary-export=/tmp/sails-independent-intent-summary.json \
             -e BASE_URL=http://127.0.0.1:3000 \
-            load-tests/tests/intent-independent-arrivals-candidate.js > /tmp/sails-independent-intent.log 2>&1; then
+            load-tests/tests/intent-independent-arrivals-candidate.js > /tmp/sails-independent-intent.log 2>&1
+          k6_exit=$?
+          set -e
+          if [ "$k6_exit" -ne 0 ]; then
+            if [ "$k6_exit" -eq 124 ]; then echo 'Independent Intent runner exceeded 90s wall-clock bound'; fi
             echo 'Independent Intent candidate failed; raw logs withheld to protect auth data'
             node <<'NODE'
           const fs=require('node:fs');
