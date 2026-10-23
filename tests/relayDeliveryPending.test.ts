@@ -5,7 +5,7 @@ describe('bounded cross-instance delivery pending registry', () => {
     const registry = new RelayDeliveryPendingRegistry()
     const pending = registry.register()!
     expect(registry.acknowledge({ requestId: 'unrelated', accepted: true })).toBe(false)
-    expect(registry.acknowledge({ requestId: pending.requestId, accepted: false })).toBe(false)
+    expect(registry.acknowledge({ requestId: pending.requestId, accepted: 'true' })).toBe(false)
     expect(registry.acknowledge({ requestId: pending.requestId, accepted: true })).toBe(true)
     expect(await pending.result).toBe(true)
     expect(registry.acknowledge({ requestId: pending.requestId, accepted: true })).toBe(false)
