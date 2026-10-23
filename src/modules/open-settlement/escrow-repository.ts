@@ -479,7 +479,13 @@ class PrismaEscrowRepository implements EscrowRepository {
 
   async updateLockResult(escrowId: string, data: { txLockId: string; txLockVout: number | null; multisigAddr: string; lockedAt: Date; expiresAt: Date; fundedAmount?: number }) {
     try {
-      return await prisma.escrow.update({ where: { id: escrowId }, data })
+      // P4: never attach a late provider result to an escrow whose claim
+      // was reverted, superseded, or already given funding evidence.
+      // The unique id plus predicates are checked atomically by PostgreSQL.
+      return await prisma.escrow.update({
+        where: { id: escrowId, status: 'FUNDS_LOCKED', txLockId: null },
+        data,
+      })
     } catch (err: any) {
       // Missão 10 — the @@unique([txLockId, txLockVout]) constraint
       // firing here means another escrow already claimed this exact
