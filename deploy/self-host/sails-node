@@ -272,8 +272,9 @@ cmd_restore_evidence() {
   file="$(cd "$(dirname "$file")" && pwd)/$(basename "$file")"
   compose up --no-start seaweedfs
   compose stop seaweedfs
-  local entries; entries="$(docker run --rm -v "$EVIDENCE_VOLUME:/data" --entrypoint sh postgres:16-alpine -c 'ls -A /data | wc -l')"
-  [ "$entries" = "0" ] || die "the evidence volume is not empty: restore only into a fresh store (docs/SELF_HOSTING.md)"
+  # A fresh volume is not literally empty (the image ships an empty filerldb2/): it must hold no FILE.
+  local files; files="$(docker run --rm -v "$EVIDENCE_VOLUME:/data" --entrypoint sh postgres:16-alpine -c 'find /data -type f | wc -l')"
+  [ "$files" = "0" ] || die "the evidence volume already holds data ($files files): restore only into a fresh store (docs/SELF_HOSTING.md)"
   say "restoring $file"
   evidence_unpack "$(dirname "$file")" "$(basename "$file")"
   compose up -d --wait seaweedfs
