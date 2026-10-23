@@ -13,6 +13,16 @@ describe('bounded cross-instance delivery pending registry', () => {
     registry.close()
   })
 
+  it('settles a valid negative ACK immediately and rejects its replay', async () => {
+    const registry = new RelayDeliveryPendingRegistry()
+    const pending = registry.register()!
+    expect(registry.acknowledge({ requestId: pending.requestId, accepted: false })).toBe(true)
+    expect(await pending.result).toBe(false)
+    expect(registry.size).toBe(0)
+    expect(registry.acknowledge({ requestId: pending.requestId, accepted: true })).toBe(false)
+    registry.close()
+  })
+
   it('caps outstanding requests and releases capacity after rejection', async () => {
     const registry = new RelayDeliveryPendingRegistry()
     const entries = Array.from({ length: RELAY_MAX_PENDING_DELIVERIES }, () => registry.register()!)
