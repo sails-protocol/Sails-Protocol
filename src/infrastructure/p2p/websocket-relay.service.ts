@@ -56,6 +56,8 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
   // upgrade completes — this is the real "connection", not start() below.
   registerSocket(participantId: string, socket: RelaySocket, ownerToken?: string): void {
     const previous = this.sockets.get(participantId)
+    // A duplicate registration of the same socket must not silently replace
+    // its fencing token. Only a new authenticated socket can take ownership.
     if (previous === socket) return
     // Transfer ownership before closing: a stale close callback must not
     // unregister the replacement socket.
