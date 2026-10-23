@@ -1380,7 +1380,31 @@ jobs:
           if ! timeout 45s k6 run --quiet --summary-export=/tmp/sails-independent-intent-summary.json \
             -e BASE_URL=http://127.0.0.1:3000 \
             load-tests/tests/intent-independent-arrivals-candidate.js > /tmp/sails-independent-intent.log 2>&1; then
-            echo 'Independent Intent candidate failed; logs withheld to protect auth data'
+            echo 'Independent Intent candidate failed; raw logs withheld to protect auth data'
+            node <<'NODE'
+          const fs=require('node:fs');
+          const file='/tmp/sails-independent-intent-summary.json';
+          const log=fs.readFileSync('/tmp/sails-independent-intent.log','utf8');
+          const fingerprints={
+            authentication:/Rate candidate authentication failed/.test(log),
+            runtimeError:/GoError|TypeError|ReferenceError|ERRO\\[|level=error/.test(log),
+            moduleResolution:/could not resolve|unknown module|module not found/i.test(log),
+            threshold:/thresholds? on metrics?/i.test(log)
+          };
+          if(fs.existsSync(file)){
+            const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
+            const count=k=>m[k]?.count??null;
+            const keys=['iterations','sails_authenticated_arrivals','sails_completed_intent_pairs',
+              'sails_intent_create_samples','sails_intent_cancel_samples',
+              'sails_observed_setup_timestamp_samples','http_reqs',
+              'sails_extra_scheduled_arrivals','dropped_iterations'];
+            console.log('Independent Intent failure aggregate:',JSON.stringify({
+              counts:Object.fromEntries(keys.map(k=>[k,count(k)])),
+              checks:m.checks?.value??null,intentSuccess:m.sails_intent_success?.value??null,
+              httpFailureRate:m.http_req_failed?.value??null,fingerprints
+            }));
+          }else console.log('Independent Intent failure aggregate:',JSON.stringify({summaryPresent:false,fingerprints}));
+          NODE
             exit 1
           fi
           node <<'NODE'
