@@ -61,9 +61,9 @@ suite('relay shared budget — real Redis concurrent instances', () => {
       await a.set(key, oldToken, 'PX', 5000)
       await b.set(key, newToken, 'PX', 5000)
       expect(await a.eval(RELAY_PRESENCE_RELEASE_SCRIPT, 1, key, oldToken)).toBe(0)
-      expect(await a.eval(RELAY_PRESENCE_RENEW_SCRIPT, 1, key, oldToken, 5000)).toBe(0)
+      expect(await a.eval(RELAY_PRESENCE_RENEW_SCRIPT, 1, key, oldToken, 5000, Date.now() + 60_000)).toBe(0)
       expect(await b.get(key)).toBe(newToken)
-      expect(await b.eval(RELAY_PRESENCE_RENEW_SCRIPT, 1, key, newToken, 5000)).toBe(1)
+      expect(await b.eval(RELAY_PRESENCE_RENEW_SCRIPT, 1, key, newToken, 5000, Date.now() + 60_000)).toBe(1)
       expect(await a.eval(RELAY_PRESENCE_RELEASE_SCRIPT, 1, key, newToken)).toBe(1)
       expect(await b.get(key)).toBeNull()
     } finally {
