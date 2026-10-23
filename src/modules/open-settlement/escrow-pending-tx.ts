@@ -583,8 +583,18 @@ export async function submitTransactionSignature(escrowId: string, participantId
       ? await provider.finalizeRefund(finalizeEscrow, pending.unsignedPsbtBase64, signedList, pending.id)
       : await provider.finalizeSplit!(finalizeEscrow, pending.unsignedPsbtBase64, signedList)
   } catch (err) {
-    await revertEscrowStatus(escrowId, targetStatus, escrow.status)
-    throw err
+    // P4: finalize may broadcast successfully and then lose its response.
+    // An arbitrary thrown error is NOT proof that no external effect occurred.
+    // Preserve the terminal claim and pending signed operation for read-only
+    // chain/provider reconciliation; do not enable a second broadcast by
+    // automatically returning the escrow to its pre-execution state.
+    // A proven definitive rejection requires a separate typed contract.
+    throw settlementSucceededButLocalStepFailed(
+      escrowId,
+      `ambiguous ${pending.kind} provider finalize (reconciliation required)`,
+      undefined,
+      err
+    )
   }
 
   try {
