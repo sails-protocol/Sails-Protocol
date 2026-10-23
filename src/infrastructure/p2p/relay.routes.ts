@@ -144,7 +144,13 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
           socket.close(1011, 'Relay presence ownership lost')
         } else {
           // Conservatively count from request start, not response time.
-          leaseExpiresAt = startedAt + RELAY_PRESENCE_TTL_MS
+          // A delayed success cannot extend the socket beyond that deadline.
+          const renewedUntil = startedAt + RELAY_PRESENCE_TTL_MS
+          if (Date.now() >= renewedUntil) {
+            socket.close(1011, 'Relay presence lease expired')
+            return
+          }
+          leaseExpiresAt = renewedUntil
         }
       }).catch(() => {
         if (socket.readyState === 1) socket.close(1011, 'Relay presence unavailable')
