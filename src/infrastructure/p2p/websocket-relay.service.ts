@@ -49,16 +49,19 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
   // Process-local only: Redis-backed auth/budgets do not provide cross-instance routing.
   // Multi-instance deployments require a tested routing backplane or explicit affinity.
   private sockets = new Map<string, RelaySocket>()
+  private socketTokens = new Map<string, string>()
   private messageHandlers = new Map<string, (peerId: string, payload: unknown) => void>()
 
   // Called by app.ts's `/ws/relay` route once the client's WebSocket
   // upgrade completes — this is the real "connection", not start() below.
-  registerSocket(participantId: string, socket: RelaySocket): void {
+  registerSocket(participantId: string, socket: RelaySocket, ownerToken?: string): void {
     const previous = this.sockets.get(participantId)
     if (previous === socket) return
     // Transfer ownership before closing: a stale close callback must not
     // unregister the replacement socket.
     this.sockets.set(participantId, socket)
+    if (ownerToken) this.socketTokens.set(participantId, ownerToken)
+    else this.socketTokens.delete(participantId)
     if (previous && previous.readyState === OPEN) {
       try {
         previous.close()
@@ -78,6 +81,7 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
     // the same participant (reconnect/overlapping connections).
     if (socket && this.sockets.get(participantId) !== socket) return
     this.sockets.delete(participantId)
+    this.socketTokens.delete(participantId)
   }
 
   // Registers intent to use this provider; does not itself open a
@@ -92,6 +96,7 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
     // Revoke ownership before invoking close(): a synchronous close callback
     // must not remove a replacement registered during shutdown.
     this.sockets.delete(participantId)
+    this.socketTokens.delete(participantId)
     this.messageHandlers.delete(participantId)
     if (socket && socket.readyState === OPEN) {
       try {
@@ -137,6 +142,15 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
       // Do not evict here: a concurrent reconnect may already own the slot.
       return false
     }
+  }
+
+  /** Future backplane destination primitive: reject stale ownership before local send.
+   * A successful return means only that socket.send() accepted the bytes locally.
+   * Never interpret it as remote client receipt or application acknowledgment.
+   */
+  async sendToPeerIfOwner(targetParticipantId: string, ownerToken: string, payload: unknown): Promise<boolean> {
+    if (!ownerToken || this.socketTokens.get(targetParticipantId) !== ownerToken) return false
+    return this.sendToPeer('', targetParticipantId, payload)
   }
 
   onMessage(participantId: string, handler: (peerId: string, payload: unknown) => void): void {
