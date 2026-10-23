@@ -7,10 +7,17 @@
  * trials, with exactly two iterations, no extras or drops, and observed entry
  * spans of 1000-1001ms. This zero-I/O result cannot be extrapolated to
  * latency-bearing Intent operations or an open arrival-rate schedule.
+ * SAILS_FIXED_PROBE_WORK_MS=250 is an explicitly allowlisted synthetic delay
+ * used to demonstrate that closed-model iteration spacing includes work time.
  */
 import { Counter, Trend } from 'k6/metrics'
 import exec from 'k6/execution'
 import { sleep } from 'k6'
+
+const syntheticWorkMs = Number(__ENV.SAILS_FIXED_PROBE_WORK_MS || '0')
+if (![0, 250].includes(syntheticWorkMs)) {
+  throw new Error('Unsupported synthetic work duration')
+}
 
 const entries = new Counter('sails_fixed_entries')
 const extras = new Counter('sails_fixed_extras')
@@ -39,5 +46,8 @@ export default function () {
   timestamps.add(Date.now())
   entries.add(1)
   extras.add(iteration >= 2 ? 1 : 0)
-  if (iteration === 0) sleep(1)
+  if (iteration === 0) {
+    if (syntheticWorkMs > 0) sleep(syntheticWorkMs / 1000)
+    sleep(1)
+  }
 }
