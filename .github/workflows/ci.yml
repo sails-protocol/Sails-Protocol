@@ -54,6 +54,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Syntax only, no execution: bash runs a script incrementally, so a syntax error late in a long test
+      # script (an unbalanced quote at line 282 cost a 17-minute run) only shows when it gets there.
+      - name: Shell syntax check (scripts and self-hosting kit)
+        run: |
+          for f in scripts/*.sh deploy/self-host/sails-node; do
+            bash -n "$f" || { echo "syntax error in $f"; exit 1; }
+          done
+
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
