@@ -695,6 +695,10 @@ export class EscrowService {
       await claimEscrowTransition(escrowId, escrow.status, 'FUNDS_LOCKED')
     })
 
+    // P4: a provider exception can mean "broadcast accepted, response lost".
+    // Do not roll back a funding claim based on an unclassified exception.
+    // Keep FUNDS_LOCKED until an authoritative read-only reconciliation
+    // proves whether funding happened. This is intentionally fail-closed.
     try {
       const provider = getSettlementProvider(escrow.type)
       // MULTISIG/LIGHTNING_HODL need the client-submitted pubkeys
@@ -758,13 +762,17 @@ export class EscrowService {
 
       return updated
     } catch (err) {
-      // Revert the claim — an escrow left claiming FUNDS_LOCKED with no
-      // real lock behind it (the provider call failed) would otherwise
-      // block every future lockFunds() attempt via assertEscrowTransition,
-      // with no way to retry. Same revert-on-failure idiom
-      // dispute.service.ts's resolveDispute() already established.
-      await revertEscrowStatus(escrowId, 'FUNDS_LOCKED', escrow.status)
-      throw err
+      // UNKNOWN includes failures after provider success (DB/event writes)
+      // as well as a transport error during provider.lockFunds().
+      // Neither is evidence that the external funding effect did not occur.
+      const reason = err instanceof Error ? err.message : String(err)
+      log.error({
+        msg: 'P4: escrow funding outcome UNKNOWN; FUNDS_LOCKED claim retained; read-only reconciliation required before retry',
+        escrowId, escrowType: escrow.type, reason,
+      })
+      throw new EscrowError(
+        `Funding outcome UNKNOWN for escrow ${escrowId}. No automatic rollback or retry; reconcile authoritative funding evidence first.`
+      )
     }
   }
 
