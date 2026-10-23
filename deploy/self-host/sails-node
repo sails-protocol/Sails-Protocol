@@ -10,6 +10,7 @@
 #   sails-node rollback             start the previous server image again (the schema is not rolled back)
 #   sails-node backup               pg_dump the database to $SAILS_NODE_HOME/backups
 #   sails-node restore FILE         restore a backup into an EMPTY database, then verify the migrations
+#   sails-node resolve-rolled-back NAME   after a failed migration: mark it rolled back (docs/DEPLOYMENT.md 6.1)
 #   sails-node status               containers and server readiness
 #
 # The rule enforced by `update`: the new server version is started ONLY after the migration job
@@ -214,7 +215,20 @@ cmd_restore() {
   say "restore verified"
 }
 
+# Recovery after a FAILED migration (docs/DEPLOYMENT.md 6.1). Prisma refuses every further
+# migration until the failed one is resolved; marking it rolled back is only correct once you
+# have checked that the database really does not contain its partial effects.
+cmd_resolve_rolled_back() {
+  need_init
+  local name="${1:?usage: sails-node resolve-rolled-back MIGRATION_NAME}" tag; tag="$(state_get current)"
+  [ -n "$tag" ] || die "nothing deployed yet"
+  with_images "$tag"
+  say "marking $name as rolled back: do this only after verifying the schema (docs/DEPLOYMENT.md 6.1)"
+  compose run --rm --entrypoint node migrate node_modules/prisma/build/index.js migrate resolve --rolled-back "$name"
+}
+
 cmd_status() {
+
   need_init
   local tag; tag="$(state_get current)"; [ -n "$tag" ] || die "nothing deployed yet"
   with_images "$tag"
@@ -230,6 +244,7 @@ case "${1:-}" in
   rollback) shift; cmd_rollback "$@" ;;
   backup) shift; cmd_backup "$@" ;;
   restore) shift; cmd_restore "$@" ;;
+  resolve-rolled-back) shift; cmd_resolve_rolled_back "$@" ;;
   status) shift; cmd_status "$@" ;;
   *) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 2 ;;
 esac

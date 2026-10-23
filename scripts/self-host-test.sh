@@ -181,8 +181,16 @@ node_cmd rollback 0 rollback
 server_ready || fail "t1 is not ready on the t2 schema"
 [ "$(sql "select id from install_sentinel")" = "42" ] || fail "data changed during rollback"
 pass "t1 serves on a t2-migrated database (migrations are backward compatible)"
+
+step "After a failed migration Prisma blocks every further update until it is resolved (P3009), then recovery works"
+node_cmd update-t2-blocked nonzero update "$RUN-t2"
+grep -q "New migrations cannot be applied before the error is recovered from" "$LOGS/$N-update-t2-blocked.log" || fail "the block is not the expected P3009 refusal"
+[ "$(running_image)" = "sails-server:$RUN-t1" ] || fail "the server changed while the update was blocked"
+pass "update blocked (fail closed) while the failed migration is unresolved; t1 untouched"
+node_cmd resolve 0 resolve-rolled-back 99990101000002_selfhost_broken
 node_cmd update-t2-final 0 update "$RUN-t2"
-[ "$(running_image)" = "sails-server:$RUN-t2" ] || fail "could not return to t2"
+[ "$(running_image)" = "sails-server:$RUN-t2" ] || fail "could not return to t2 after resolving"
+pass "resolved as documented; update to t2 succeeds"
 
 step "Backup and restore into an EMPTY database"
 node_cmd backup 0 backup
