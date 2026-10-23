@@ -248,6 +248,19 @@ grep -q 'database is up to date' "$LOGS/push-refused.log" && fail "a schema with
 [ "$(psql_db sails_push "select count(*) from information_schema.tables where table_schema='public'")" = "$TABLES_BEFORE" ] \
   && [ "$(psql_db sails_push "select count(*) from migrate_sentinel.t")" = "1" ] || fail "the refused run changed the database"
 pass "schema without history -> exit ${STATUS} (P3005), database untouched"
+# Inspecting a database of unknown state must be read-only (docs/DEPLOYMENT.md 6.0.1 step 0):
+# with default_transaction_read_only the CLI reads (status lists everything as unapplied, the
+# diff is empty) and a WRITE is refused, so it cannot create the history table or baseline.
+RO_URL="${PUSH_URL}?options=-c%20default_transaction_read_only%3Don"
+FIRST_MIGRATION=$(ls prisma/migrations | grep -v '\.toml$' | sort | head -n 1)
+run_migrate push-ro-status nonzero -e "DATABASE_URL=$RO_URL" --entrypoint node "$IMAGE" "$PRISMA_CLI" migrate status
+grep -q "$FIRST_MIGRATION" "$LOGS/push-ro-status.log" || fail "read-only status did not list the unapplied migrations"
+run_migrate push-ro-diff 0 -e "DATABASE_URL=$RO_URL" --entrypoint node "$IMAGE" "$PRISMA_CLI" migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+run_migrate push-ro-write nonzero -e "DATABASE_URL=$RO_URL" --entrypoint node "$IMAGE" "$PRISMA_CLI" migrate resolve --applied "$FIRST_MIGRATION"
+[ "$(psql_db sails_push "select to_regclass('public._prisma_migrations') is null")" = "t" ] \
+  && [ "$(psql_db sails_push "select count(*) from information_schema.tables where table_schema='public'")" = "$TABLES_BEFORE" ] \
+  || fail "the read-only inspection changed the database"
+pass "read-only inspection: status and diff read, a write is refused, nothing changed"
 # (The sentinel lives in its own schema: prisma diffs only `public`, and a stray table there would be drift.)
 # The procedure of docs/DEPLOYMENT.md 6.0.1: the live schema must equal schema.prisma (empty diff,
 # otherwise STOP), then every committed migration is marked applied, then the job runs normally.

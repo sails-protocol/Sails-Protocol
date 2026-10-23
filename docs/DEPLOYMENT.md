@@ -269,13 +269,41 @@ The migration job refuses such a database — `P3005 The database schema is not
 empty`, exit 1, nothing changed — which is the safe outcome. It must be
 **baselined once** before the job can run there:
 
-1. Take a backup (section 6.2) and read the real state: `migrate status` with the
-   migration image (`docker run --rm -e DATABASE_URL --entrypoint node
-   sails-migrate:<sha> node_modules/prisma/build/index.js migrate status`).
+0. **Inspect first, read-only** (this step changes nothing and needs no
+   authorization beyond access to the secret store; steps 1-4 write and do).
+   Connect with a database role that can only `SELECT`, or append
+   `?options=-c%20default_transaction_read_only%3Don` to `DATABASE_URL`: PostgreSQL
+   then refuses every write of that session whatever the client attempts. Both were
+   verified against a throwaway database, including the control that a write
+   (`migrate resolve --applied`) is refused. With the migration image
+   (`docker run --rm -e DATABASE_URL --entrypoint node sails-migrate:<sha>
+   node_modules/prisma/build/index.js <command>`):
+   - `psql "$DATABASE_URL" -Atc "select to_regclass('public._prisma_migrations')"`
+     — empty means there is **no history**. Plain SQL: no Prisma involved.
+   - `migrate status` — with no history it lists *every* migration as unapplied and
+     exits 1 (it cannot tell "no history" from "all pending", hence the query above);
+     with a history it exits 0 only when everything is applied.
+   - `migrate diff --from-config-datasource --to-schema prisma/schema.prisma
+     --exit-code` — exit 0 ("No difference detected") means the live schema equals
+     what the migrations produce.
+
+   | what you see | meaning | next |
+   |---|---|---|
+   | history table present, `status` exit 0 | fully migrated | nothing to baseline; the job is a no-op |
+   | history table present, some pending | partially migrated | run the job (it applies the rest) |
+   | history table present, a failed migration (P3009) | interrupted | section 6.1 |
+   | **no history**, `diff` exit 0 | provisioned with `db push`, schema as expected | baseline, steps 1-4 |
+   | **no history**, `diff` not 0 | drifted | **STOP and escalate** |
+
+   **Steps 1-4 below modify a real database (`migrate resolve`, then the job). They
+   require explicit written authorization from the owner/CTO, a verified backup, and
+   a named operator. No agent or CI job in this repository runs them against a real
+   database.**
+
+1. Take a backup (section 6.2); confirm the inspection above still holds.
    Nothing below applies if the database already has a history.
-2. Prove the live schema equals what the migrations produce: the same image with
-   `migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code`.
-   Exit 0 ("No difference detected") is required. **Any other result means the
+2. Prove the live schema equals what the migrations produce: the same `migrate
+   diff ... --exit-code`. Exit 0 is required. **Any other result means the
    database drifted from the migrations: STOP and escalate — baselining would
    record migrations as applied that were never applied.**
 3. Mark every committed migration as applied, one `migrate resolve --applied
@@ -283,9 +311,10 @@ empty`, exit 1, nothing changed — which is the safe outcome. It must be
    loop, see `push-baseline` in `docker-migrate-test.sh`).
 4. Run the migration job normally; it must report "No pending migrations".
 
-`docker-migrate-test.sh` runs this whole sequence (refusal, empty diff, baseline,
-no-op) against a throwaway database. It has **not** been run against the real RDS
-instance, whose current state is unknown to this repository.
+`docker-migrate-test.sh` runs steps 2-4 (refusal, empty diff, baseline, no-op)
+against a throwaway database; the read-only inspection was verified separately
+(PG16, with write controls). Neither has been run against the real RDS instance,
+whose current state is unknown to this repository.
 
 ### 6.0.2 Platform gate: what is proven and what is not
 
@@ -579,7 +608,10 @@ Do not proceed with a restore, and escalate instead, if:
       — no migration history exists in this repo, see this file's own
       2026-08-02 header note) is the real, tested command, run once
       against the new RDS instance before the service's first real
-      traffic.
+      traffic. *Historical record, superseded 2026-10-23:* migration
+      history exists now and production schema changes are applied only by
+      the migration job (section 6.0), never by `db push`; a database that
+      was provisioned this way is baselined as described in section 6.0.1.
 
 ## 8. AWS Production Deployment (2026-08-02)
 
