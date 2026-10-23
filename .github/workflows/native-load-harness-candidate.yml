@@ -826,6 +826,37 @@ jobs:
           NODE
           done
           echo 'Closed-model spacing includes synthetic work; this is NOT open-model parity'
+      - name: Validate independently offset one-shot scheduler under synthetic work
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check load-tests/tests/open-two-arrivals-probe.js
+          for work in 0 250; do
+            for trial in $(seq 1 8); do
+              summary="/tmp/sails-open-two-${work}-${trial}.json"
+              SAILS_OPEN_TWO_WORK_MS="$work" timeout 20s k6 run --quiet --summary-export="$summary" load-tests/tests/open-two-arrivals-probe.js > /tmp/sails-open-two.log 2>&1
+              node - "$summary" "$work" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const [file,work,trial]=process.argv.slice(2);
+          const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
+          const count=k=>m[k]?.count??0;
+          const span=(m.sails_open_two_entry_epoch_ms?.max??NaN)-(m.sails_open_two_entry_epoch_ms?.min??NaN);
+          console.log('k6 independent-start diagnostic evidence:',JSON.stringify({
+            workMs:Number(work),trial:Number(trial),iterations:count('iterations'),
+            entries:count('sails_open_two_entries'),extras:count('sails_open_two_extras'),
+            dropped:count('dropped_iterations'),spanMs:span}));
+          assert.equal(count('iterations'),2);
+          assert.equal(count('sails_open_two_entries'),2);
+          assert.equal(count('sails_open_two_extras'),0);
+          assert.equal(count('dropped_iterations'),0);
+          assert.ok(Number.isFinite(span) && span>=700 && span<=1300,
+            'independent one-shot starts must remain near 1s even with work');
+          NODE
+            done
+          done
+          echo 'Independent-start probe is experimental; Artillery parity NOT established'
       - name: Prove k6 PONG assertion fails against non-PONG loopback fixture
         shell: bash
         run: |
