@@ -52,11 +52,11 @@ services:
   seaweedfs:
     profiles: [evidence-store]
     image: chrislusf/seaweedfs:4.48
-    command: ["server", "-dir=/data", "-s3", "-s3.config=/run/secrets/seaweedfs_s3"]
-    # SSE-S3 key: the server asks for AES256 server-side encryption on every upload, which
-    # SeaweedFS only accepts once a 32-byte key (WEED_S3_SSE_KEK) is configured.
+    command: ["server", "-dir=/data", "-s3"]
+    # The S3 credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) and the SSE-S3 key (WEED_S3_SSE_KEK: the server
+    # asks for AES256 on every upload, which SeaweedFS only accepts with a 32-byte key) come from an env_file, not
+    # from a mounted secret file: a 0600 file of the operator is unreadable by the store's unprivileged user.
     env_file: ${SAILS_HOME_HOST:?}/secrets/seaweedfs.env
-    secrets: [seaweedfs_s3]
     volumes: [seaweedfs-data:/data]
     healthcheck:
       # Informational: the master answers. Readiness for the SERVER is not decided by this check but by the
@@ -110,8 +110,6 @@ services:
 secrets:
   postgres_password:
     file: ${SAILS_HOME_HOST:?}/secrets/postgres_password
-  seaweedfs_s3:
-    file: ${SAILS_HOME_HOST:?}/secrets/seaweedfs-s3.json
 
 volumes:
   postgres-data:

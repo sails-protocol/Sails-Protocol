@@ -134,7 +134,7 @@ A complete recovery needs **four** things; the database dump is only one of them
 | PostgreSQL | volume `postgres-data` | `sails-node backup` (`pg_dump -Fc`) |
 | Evidence objects | volume `seaweedfs-data` (bundled store) | `sails-node backup-evidence`: cold snapshot, the store is stopped while it is copied (uploads fail meanwhile). Objects stay **encrypted**. |
 | The SSE key | `secrets/seaweedfs.env` | **Not inside any archive.** Copy `secrets/` to offline, encrypted storage yourself. |
-| Credentials and settings | `secrets/` (`server.env`, `db.env`, `seaweedfs-s3.json`, `postgres_password`) | same: copy `secrets/` yourself |
+| Credentials and settings | `secrets/` (`server.env`, `db.env`, `seaweedfs.env`, `postgres_password`) | same: copy `secrets/` yourself |
 
 Order on a new host: restore `secrets/` (`init` refuses to overwrite it), `sails-node restore <dump>`,
 `sails-node restore-evidence <archive>` (into a fresh store), then `sails-node update`. After it, read an
