@@ -99,8 +99,13 @@ export async function snapshotRelayPresence(participantId: string): Promise<{ to
   const result = await redis.eval(RELAY_PRESENCE_SNAPSHOT_SCRIPT, 1, presenceKey(participantId))
   if (!Array.isArray(result) || result.length !== 2) throw new Error('Invalid relay presence snapshot')
   const [token, ttlMs] = result
-  if (token === null || token === false) return null
-  if (typeof token !== 'string' || typeof ttlMs !== 'number' || !Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
+  if (token === null || token === false) {
+    if (typeof ttlMs !== 'number' || !Number.isSafeInteger(ttlMs) || ttlMs > 0) {
+      throw new Error('Invalid relay presence snapshot')
+    }
+    return null
+  }
+  if (typeof token !== 'string' || token.length === 0 || typeof ttlMs !== 'number' || !Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
     throw new Error('Invalid relay presence snapshot')
   }
   return { token, ttlMs }
