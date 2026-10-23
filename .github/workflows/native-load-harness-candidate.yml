@@ -1406,7 +1406,14 @@ jobs:
             connection:/connection refused|connect:|dial tcp/i.test(log),
             rateLimit:/429|rate.limit/i.test(log),
             fatal:/panic:|fatal error:/i.test(log),
-            signal:/signal:|interrupted|terminated/i.test(log)
+            signal:/signal:|interrupted|terminated/i.test(log),
+            assertion:/assertion failed|assert\.equal|AssertionError/i.test(log),
+            unhandledException:/uncaught|unhandled|exception/i.test(log),
+            invalidJson:/unexpected token|JSON\.parse|invalid json/i.test(log),
+            networkTimeout:/request timeout|context deadline exceeded|i\/o timeout/i.test(log),
+            httpStatus:/status code|response status/i.test(log),
+            scriptError:/script exception|script execution|error running/i.test(log),
+            metricThreshold:/thresholds have failed|thresholds crossed/i.test(log)
           };
           if(fs.existsSync(file)){
             const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
