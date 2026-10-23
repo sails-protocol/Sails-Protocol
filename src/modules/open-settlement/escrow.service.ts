@@ -763,7 +763,7 @@ export class EscrowService {
       // block every future lockFunds() attempt via assertEscrowTransition,
       // with no way to retry. Same revert-on-failure idiom
       // dispute.service.ts's resolveDispute() already established.
-      await revertEscrowStatus(escrowId, 'FUNDS_LOCKED', escrow.status)
+      await revertEscrowStatus(escrowId, 'FUNDS_LOCKED', escrow.status, err)
       throw err
     }
   }

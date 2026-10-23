@@ -587,11 +587,20 @@ class PrismaEscrowRepository implements EscrowRepository {
   }
 
   async revertStatus(escrowId: string, claimedStatus: string, fromStatus: string) {
-    const reverted = await prisma.escrow.updateMany({
-      where: { id: escrowId, status: claimedStatus as any },
-      data: { status: fromStatus as any },
+    // P4 / Gate 3 - the revert takes the same escrow advisory lock persistSettlementResult() and PASS 1's
+    // convergence write take. A failed (or ambiguous) broadcast attempt can learn nothing while another writer
+    // converges the same escrow from chain truth; unserialized, its revert could land between that writer's
+    // read and write and leave a recorded result beside a non-terminal escrow. Serialized, either the revert
+    // commits first (the converging writer sees the moved status and refuses) or the result is recorded first
+    // (the status-frozen trigger then refuses this revert, as before).
+    return prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
+      const reverted = await tx.escrow.updateMany({
+        where: { id: escrowId, status: claimedStatus as any },
+        data: { status: fromStatus as any },
+      })
+      return reverted.count
     })
-    return reverted.count
   }
 }
 

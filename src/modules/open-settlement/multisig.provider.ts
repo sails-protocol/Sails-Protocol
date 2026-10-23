@@ -92,6 +92,7 @@ import { estimatedVBytesForOutputCount, maxExecutionCostSats } from './execution
 import type { FeeCollectionResult } from './escrow-providers'
 import { childLogger } from '../../common/logger'
 import { boundedFetch } from './bounded-rpc'
+import { markBroadcastAttempted } from './broadcast-outcome'
 
 // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded, safe retry for
 // read-only explorer queries only. Never applied to broadcast() (a
@@ -1124,18 +1125,25 @@ export class MultisigProvider implements SettlementProvider {
   // "did not confirm this attempt succeeded," never as "definitely
   // failed" — no escrow-state semantics are changed by this fix.
   private async broadcast(txHex: string): Promise<string> {
-    const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx`, { method: 'POST', body: txHex }, {
-      timeoutMs: config.multisig.explorerRequestTimeoutMs,
-      maxResponseBytes: EXPLORER_SMALL_RESPONSE_MAX_BYTES,
-    })
-    if (!res.ok) {
-      // An explicit explorer rejection is observable, unlike a transport
-      // timeout or lost response. Keep the existing error contract for
-      // callers and tests; do not silently reinterpret HTTP 503 as a
-      // confirmed network acceptance.
-      throw new EscrowError(`MULTISIG provider: broadcast failed with ${res.status}: ${await res.text()}`)
+    // P4 / Gate 3 - every failure raised from here on came from a request that was (or may have been) transmitted:
+    // marked so callers and operators can tell it from a definite pre-broadcast failure (see broadcast-outcome.ts).
+    // Classification only - the error and its message are unchanged.
+    try {
+      const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx`, { method: 'POST', body: txHex }, {
+        timeoutMs: config.multisig.explorerRequestTimeoutMs,
+        maxResponseBytes: EXPLORER_SMALL_RESPONSE_MAX_BYTES,
+      })
+      if (!res.ok) {
+        // An explicit explorer rejection is observable, unlike a transport
+        // timeout or lost response. Keep the existing error contract for
+        // callers and tests; do not silently reinterpret HTTP 503 as a
+        // confirmed network acceptance.
+        throw new EscrowError(`MULTISIG provider: broadcast failed with ${res.status}: ${await res.text()}`)
+      }
+      return (await res.text()).trim()
+    } catch (err) {
+      throw markBroadcastAttempted(err)
     }
-    return (await res.text()).trim()
   }
 
   // Real fee estimation (2026-08-02) — closes this provider's own former

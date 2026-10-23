@@ -472,7 +472,7 @@ export async function reconcileUnclaimedFullySignedPending(report: Reconciliatio
           }
         )
       } catch (err) {
-        if (claimedBeforeBroadcast) await revertEscrowStatus(escrow.id, targetStatus, escrow.status)
+        if (claimedBeforeBroadcast) await revertEscrowStatus(escrow.id, targetStatus, escrow.status, err)
         if (err instanceof EscrowError && /already transitioned by a concurrent request/.test(err.message)) {
           report.alreadyClaimedConcurrently.push(escrow.id)
           continue
@@ -650,11 +650,16 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
   // Issue #291 - PASS 1 uses the SAME write-once primitive as every other
   // writer: empty -> write, same -> idempotent, DIFFERENT -> integrity
   // conflict (previously this branch silently ignored a differing value).
-  let wroteTxReleaseId = false
+  let wroteTxReleaseId: boolean | null = false
   try {
     wroteTxReleaseId = await withEscrowFundingLock(escrow.id, async (tx) => {
       const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
       if (!fresh) return false
+      // P4 / Gate 3 - the claim this pass read under may have been reverted since: the attempt that owned it
+      // failed or lost its answer while the transaction was already public. A result recorded now would leave
+      // funds moved beside an escrow that is no longer in the terminal state it settled. The round and its
+      // signatures are intact, so PASS 0 converges it through the claim-gated path.
+      if (fresh.status !== targetStatus) return null
       const updateData = targetStatus === 'REFUNDED' ? { txReleaseId: result.txId } : { txReleaseId: result.txId, releasedAt: new Date() }
       await escrowRepository.updateSignatureCollectionResult(escrow.id, updateData, { tx, operation: { pendingOperationId: pending.id } })
       return fresh.txReleaseId === null
@@ -666,6 +671,10 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
       return
     }
     throw writeErr
+  }
+  if (wroteTxReleaseId === null) {
+    log.warn({ msg: 'PASS 1: the claim was reverted while the chain truth was being read - nothing recorded, PASS 0 owns the convergence', escrowId: escrow.id, txId: result.txId, targetStatus })
+    return
   }
 
   log.info({ msg: 'Reconciliation: convergence path determined', escrowId: escrow.id, outcome: result.outcome, txId: result.txId, detail: result.detail, wroteTxReleaseId })
@@ -1037,11 +1046,14 @@ async function reconcileSignatureCollectionTerminalTransfer(escrow: NonNullable<
   // signature-collection rail (updateSignatureCollectionResult -> persistSettlementResult, bound to
   // the exact live pending operation, Issue #291), and the same idempotent completion-effects path
   // PASS 1's MULTISIG branch and reconcileWdkTerminalTransfer() above already use.
-  let wroteTxReleaseId = false
+  let wroteTxReleaseId: boolean | null = false
   try {
     wroteTxReleaseId = await withEscrowFundingLock(escrow.id, async (tx) => {
       const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
       if (!fresh) return false
+      // P4 / Gate 3 - same precondition as MULTISIG's PASS 1: a result is recorded only while the escrow is
+      // still in the terminal state this pass read it in (its claim may have been reverted since).
+      if (fresh.status !== escrow.status) return null
       const updateData = attempt.kind === 'refund' ? { txReleaseId: attempt.txHash! } : { txReleaseId: attempt.txHash!, releasedAt: new Date() }
       await escrowRepository.updateSignatureCollectionResult(escrow.id, updateData, { tx, operation: { pendingOperationId: pending.id } })
       return fresh.txReleaseId === null
@@ -1053,6 +1065,10 @@ async function reconcileSignatureCollectionTerminalTransfer(escrow: NonNullable<
       return
     }
     throw writeErr
+  }
+  if (wroteTxReleaseId === null) {
+    log.warn({ msg: `${escrow.type} terminal recovery: the claim was reverted while the finalization attempt was read - nothing recorded`, escrowId: escrow.id, txHash: attempt.txHash })
+    return
   }
 
   log.info({ msg: `${escrow.type} terminal recovery: convergence path determined`, escrowId: escrow.id, kind: attempt.kind, txHash: attempt.txHash, wroteTxReleaseId })

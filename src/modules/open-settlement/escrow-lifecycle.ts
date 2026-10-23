@@ -12,6 +12,7 @@ import { assertCircuitClosed, recordEscrowConflict } from './escrow-circuit-brea
 import { capabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../../core/capability-registry'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import { claimEscrowTransitionRecord, computeEscrowEventHash } from './escrow-transition-claim'
+import { isBroadcastOutcomeUnknown } from './broadcast-outcome'
 import { assertDispositionMatchesRuling } from './disposition-ruling-binding'
 import { economicDispositionLockKey } from './economic-disposition-lock'
 
@@ -422,10 +423,31 @@ export function settlementSucceededButLocalStepFailed(escrowId: string, operatio
  *  the revert swallows the unlikely double-fault so the original provider
  *  error reaches the caller — they already saw the problem, a "revert
  *  also failed" chain would just bury the real failure. */
-export async function revertEscrowStatus(escrowId: string, claimedStatus: string, fromStatus: string): Promise<void> {
+export async function revertEscrowStatus(escrowId: string, claimedStatus: string, fromStatus: string, cause?: unknown): Promise<void> {
   // #241 — rollback is ownership-sensitive. A delayed worker may restore
   // the prior state only while it still owns the exact claimed state.
-  await escrowRepository.revertStatus(escrowId, claimedStatus, fromStatus).catch(() => {})
+  //
+  // P4 / Gate 3 - a failed rollback must not mask the error that caused it (the caller rethrows `cause`
+  // unchanged), but it must not be silent either: the escrow then stays in its claimed state and reconciliation
+  // owns it, which an operator needs to be able to see. `cause` is only read for the log line; when it came from a
+  // broadcast request, its outcome is UNKNOWN (isBroadcastOutcomeUnknown) - the revert is still taken, because
+  // recovery asks chain truth for the round's deterministic txid, never the error.
+  const context = {
+    escrowId, claimedStatus, fromStatus,
+    cause: cause instanceof Error ? cause.message : cause === undefined ? undefined : String(cause),
+    broadcastOutcome: cause === undefined ? undefined : isBroadcastOutcomeUnknown(cause) ? 'UNKNOWN' : 'NOT_BROADCAST',
+  }
+  try {
+    const reverted = await escrowRepository.revertStatus(escrowId, claimedStatus, fromStatus)
+    if (reverted === 0) {
+      lifecycleLog.warn({ msg: 'Claim revert matched nothing - the escrow no longer holds the claimed state (already converged or reverted); nothing changed', ...context })
+    }
+  } catch (revertErr) {
+    lifecycleLog.error({
+      msg: 'Claim revert FAILED - the escrow stays in its claimed state; reconciliation owns it. The original error is surfaced unchanged',
+      ...context, revertError: revertErr instanceof Error ? revertErr.message : String(revertErr),
+    })
+  }
 }
 
 export function assertEscrowTransition(current: string, next: string) {
