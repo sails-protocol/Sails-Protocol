@@ -150,7 +150,16 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
    */
   async sendToPeerIfOwner(targetParticipantId: string, ownerToken: string, payload: unknown): Promise<boolean> {
     if (!ownerToken || this.socketTokens.get(targetParticipantId) !== ownerToken) return false
-    return this.sendToPeer('', targetParticipantId, payload)
+    const socket = this.sockets.get(targetParticipantId)
+    if (!socket || socket.readyState !== OPEN) return false
+    // Check ownership and send in the same synchronous turn: do not await
+    // between fencing validation and the socket write.
+    try {
+      socket.send(typeof payload === 'string' ? payload : JSON.stringify(payload))
+      return true
+    } catch {
+      return false
+    }
   }
 
   onMessage(participantId: string, handler: (peerId: string, payload: unknown) => void): void {
