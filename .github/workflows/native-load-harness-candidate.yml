@@ -759,6 +759,49 @@ jobs:
           NODE
           done
           echo 'Exact two-second boundary control is diagnostic only; it does not relax the original fail-closed gate'
+      - name: Validate fixed-count closed-model diagnostic without network
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check load-tests/tests/fixed-two-arrivals-probe.js
+          failures=0
+          for trial in $(seq 1 12); do
+            summary="/tmp/sails-k6-fixed-two-${trial}.json"
+            if timeout 20s k6 run --quiet --summary-export="$summary" load-tests/tests/fixed-two-arrivals-probe.js > /tmp/sails-k6-fixed-two.log 2>&1; then
+              node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const [file,trial]=process.argv.slice(2);
+          const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
+          const count=k=>m[k]?.count;
+          const evidence={trial:Number(trial),iterations:count('iterations')??null,
+            entries:count('sails_fixed_entries')??null,extras:count('sails_fixed_extras')??null,
+            dropped:count('dropped_iterations')??0,
+            spanMs:(m.sails_fixed_entry_epoch_ms?.max??NaN)-(m.sails_fixed_entry_epoch_ms?.min??NaN)};
+          console.log('k6 fixed-count diagnostic evidence:',JSON.stringify(evidence));
+          assert.equal(evidence.iterations,2);
+          assert.equal(evidence.entries,2);
+          assert.equal(evidence.extras,0);
+          assert.equal(evidence.dropped,0);
+          assert.ok(Number.isFinite(evidence.spanMs));
+          NODE
+            else
+              node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const [file,trial]=process.argv.slice(2);
+          const m=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')).metrics||{}:{};
+          const count=k=>m[k]?.count??null;
+          console.error('k6 fixed-count diagnostic FAIL:',JSON.stringify({
+            trial:Number(trial),iterations:count('iterations'),
+            entries:count('sails_fixed_entries'),extras:count('sails_fixed_extras'),
+            dropped:count('dropped_iterations')}));
+          NODE
+              failures=$((failures + 1))
+            fi
+          done
+          echo "k6 fixed-count diagnostic failures: $failures / 12; closed-model NOT Artillery arrival parity"
+          if [ "$failures" -ne 0 ]; then exit 1; fi
       - name: Prove k6 PONG assertion fails against non-PONG loopback fixture
         shell: bash
         run: |
