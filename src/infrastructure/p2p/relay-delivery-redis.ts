@@ -26,6 +26,7 @@ function parseWire(raw: string): unknown {
 export class RedisRelayDeliveryTransport {
   private started = false
   private inFlightCommands = 0
+  private starting: Promise<void> | null = null
   private readonly origin: RelayDeliveryOrigin
   private readonly onMessage: (channel: string, message: string) => void
 
@@ -49,6 +50,12 @@ export class RedisRelayDeliveryTransport {
 
   async start(): Promise<void> {
     if (this.started) return
+    if (this.starting) return this.starting
+    this.starting = this.subscribeOnce()
+    try { await this.starting } finally { this.starting = null }
+  }
+
+  private async subscribeOnce(): Promise<void> {
     this.subscriber.on('message', this.onMessage)
     try {
       await this.subscriber.subscribe(this.localChannel)
