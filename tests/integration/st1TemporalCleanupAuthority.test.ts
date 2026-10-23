@@ -55,7 +55,8 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
   let commitAuthoritativeDisputeRuling: (...args: any[]) => Promise<{ committed: boolean }>
   let deletePendingRoundIfStillUnsigned: (pendingId: string, escrowId: string, generation: any) => Promise<string>
   let reconcileStalePendingDisputeTranslations: () => Promise<any>
-  let restarted: { prisma: PrismaClient; deletePendingRoundIfStillUnsigned: typeof deletePendingRoundIfStillUnsigned; redis: { quit(): Promise<unknown> } } | undefined
+  let reconcileMissingDispatch: (limit?: number) => Promise<any>
+  let restarted: { prisma: PrismaClient; deletePendingRoundIfStillUnsigned: typeof deletePendingRoundIfStillUnsigned; reconcileStalePendingDisputeTranslations: typeof reconcileStalePendingDisputeTranslations; redis: { quit(): Promise<unknown> } } | undefined
 
   const ARBITER_ID = 'st1-temporal-arbiter-1'
   const ARBITER2_ID = 'st1-temporal-arbiter-2'
@@ -64,6 +65,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
   const buyerKey = keyOf('buyer')
   const sellerKey = keyOf('seller')
   let realFetch: typeof fetch
+  const displacedArbiterKeys = new Map<string, any>()
 
   beforeAll(async () => {
     process.env.MOCK_ESCROW = 'false'
@@ -86,6 +88,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     ;({ authorizeDisputedPendingExecution, economicDispositionLockKey } = require('../../src/modules/open-settlement/economic-disposition-authority'))
     ;({ revertDisputeRulingRecord, commitAuthoritativeDisputeRuling } = require('../../src/modules/open-settlement/dispute-outcome'))
     ;({ deletePendingRoundIfStillUnsigned, reconcileStalePendingDisputeTranslations } = require('../../src/modules/open-settlement/dispute-pending-reconciliation'))
+    ;({ reconcileMissingDispatch } = require('../../src/modules/open-settlement/dispute-dispatch-recovery'))
     const { intentEngine } = require('../../src/core/intent-engine')
     const { OpenP2PTradeIntentHandler } = require('../../src/modules/open-p2p/intent-handler')
     intentEngine.registerHandler(OpenP2PTradeIntentHandler)
@@ -94,6 +97,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       restarted = {
         prisma: require('../../src/common/database').prisma,
         deletePendingRoundIfStillUnsigned: require('../../src/modules/open-settlement/dispute-pending-reconciliation').deletePendingRoundIfStillUnsigned,
+        reconcileStalePendingDisputeTranslations: require('../../src/modules/open-settlement/dispute-pending-reconciliation').reconcileStalePendingDisputeTranslations,
         redis: require('../../src/common/redis').redis,
       }
     })
@@ -123,6 +127,18 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
 
   afterAll(async () => {
     if (dbAvailable) {
+      // Restore the exact arbiter commitment removed by the legacy appeal fixture.
+      // Do not let a synthetic P3 violation escape into the shared PG lane.
+      for (const [escrowId, original] of displacedArbiterKeys) {
+        await prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SET LOCAL session_replication_role = replica`
+          const current = await tx.escrowParticipantKey.findFirst({ where: { escrowId, role: 'arbiter' } })
+          // An appeal may install a new arbiter commitment for the next generation.
+          // Preserve it: restoring the previous key would rewrite current authority.
+          // The original absence must still be repaired when no commitment exists.
+          if (!current) await tx.escrowParticipantKey.create({ data: original })
+        })
+      }
       await prisma.$disconnect()
       if (restarted) {
         await restarted.prisma.$disconnect()
@@ -176,6 +192,113 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     return { escrowId: escrow.id, tradeId: trade.id, disputeId: dispute.id, buyerId: buyer.id, sellerId: seller.id, arbiterId: dispute.arbiterId, buyerDestination, sellerDestination }
   }
 
+  /**
+   * Real PostgreSQL, real escrow service, and the actual MOCK provider registry.
+   * MOCK is intentionally test-only and never counts as Day 0 rail evidence.
+   * The injected provider exception represents an UNKNOWN external outcome.
+   */
+  it.each([
+    ['release', 'COMPLETED'],
+    ['refund', 'REFUNDED'],
+    ['split', 'SPLIT'],
+  ] as const)('V3-DIRECT-%s quarantines an unknown provider outcome without redispatch', async (operation, terminal) => {
+    requirePostgres('v3-direct-unknown-' + operation)
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const arbiter = operation === 'split' ? await registerTestParticipant(identityService, 'Arbiter') : null
+    const offer = await liquidityRouter.createOffer({
+      userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001',
+      ...boundOfferInput(await sellerPixAccount(prisma, seller.id)),
+    })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const escrow = await escrowService.createEscrow({
+      tradeId: trade.id, type: 'MOCK', lockedAmount: '0.001', asset: 'BTC',
+    }, seller.id)
+    await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
+    await escrowService.lockFunds(escrow.id, seller.id)
+    if (operation === 'release') {
+      await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'PAYMENT_PENDING' } })
+    } else if (operation === 'split') {
+      // SPLIT is valid only for a disputed escrow. Preserve the actual
+      // state-machine precondition rather than bypassing its guard.
+      await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'DISPUTED' } })
+      await prisma.dispute.create({
+        data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, arbiterId: arbiter!.id, reason: 'V3-DIRECT unknown-outcome split' },
+      })
+    }
+    // Release and split require registered payout destinations. The test
+    // must reach the provider fault boundary, not fail a pre-dispatch guard.
+    await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', destination('mock-buyer-' + escrow.id))
+    await payoutAddressService.setPayoutAddress(seller.id, 'BTC', destination('mock-seller-' + escrow.id))
+    const { PROVIDERS } = require('../../src/modules/open-settlement/escrow-providers')
+    const provider = PROVIDERS.MOCK
+    let attempts = 0
+    const fault = jest.spyOn(provider, operation === 'release' ? 'releaseFunds' : operation === 'refund' ? 'refundFunds' : 'splitFunds')
+      .mockImplementation(async () => {
+        attempts++
+        throw new Error('injected: external execution outcome unknown')
+      })
+    const executorId = operation === 'split' ? arbiter!.id : seller.id
+    const execute = () => operation === 'release'
+      ? escrowService.releaseFunds(escrow.id, undefined, seller.id)
+      : operation === 'refund'
+        ? escrowService.refundFunds(escrow.id, seller.id)
+        : escrowService.splitFunds(escrow.id, undefined, undefined, 5000, executorId)
+    try {
+      if (operation === 'split') {
+        // While DISPUTED, seller authority is suspended. The rejection must
+        // happen before any provider call or economic-intent claim.
+        await expect(escrowService.splitFunds(escrow.id, undefined, undefined, 5000, seller.id))
+          .rejects.toThrow(/not the current assigned arbiter/)
+        expect(attempts).toBe(0)
+        const beforeAuthorizedClaim = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+        expect(beforeAuthorizedClaim.status).toBe('DISPUTED')
+        expect(beforeAuthorizedClaim.arbitratedDisposition).toBeNull()
+      }
+      await expect(execute()).rejects.toThrow(/outcome unknown/)
+      const claimed = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+      expect(claimed.status).toBe(terminal)
+      if (operation === 'split') {
+        expect(claimed.arbitratedDisposition).toBe('SPLIT')
+        expect(claimed.arbitratedTriggeredBy).toBe(arbiter!.id)
+        expect(claimed.splitBuyerBps).toBe(5000)
+        expect(claimed.cooperativeDisposition).toBeNull()
+      } else {
+        expect(claimed.cooperativeDisposition).toBe(terminal)
+        expect(claimed.cooperativeTriggeredBy).toBe(seller.id)
+      }
+      // A claimed terminal status is an uncertainty quarantine, not a
+      // fabricated receipt. Neither tx evidence nor release time may appear.
+      expect(claimed.txReleaseId).toBeNull()
+      expect(claimed.releasedAt).toBeNull()
+      await expect(execute()).rejects.toThrow()
+      if (operation === 'split') {
+        // A second assigned-arbiter request with a different split ratio
+        // must not change the frozen 5000 bps or dispatch another transfer.
+        await expect(escrowService.splitFunds(escrow.id, undefined, undefined, 6000, arbiter!.id))
+          .rejects.toThrow()
+      }
+      expect(attempts).toBe(1)
+      const afterRetry = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+      expect(afterRetry.status).toBe(terminal)
+      expect(afterRetry.txReleaseId).toBeNull()
+      expect(afterRetry.releasedAt).toBeNull()
+      if (operation !== 'split') {
+        expect(afterRetry.cooperativeDisposition).toBe(terminal)
+        expect(afterRetry.cooperativeTriggeredBy).toBe(seller.id)
+        expect(afterRetry.arbitratedDisposition).toBeNull()
+      }
+      if (operation === 'split') {
+        expect(afterRetry.splitBuyerBps).toBe(5000)
+        expect(afterRetry.arbitratedTriggeredBy).toBe(arbiter!.id)
+        expect(afterRetry.arbitratedDisposition).toBe('SPLIT')
+        expect(afterRetry.cooperativeDisposition).toBeNull()
+      }
+    } finally {
+      fault.mockRestore()
+    }
+  })
+
   /** Rules the dispute through the production path; the production dispatch persists the pending round. */
   async function rule(o: Opened, service: any, ruling: 'RELEASE' | 'REFUND', arbiterId: string, kp: nacl.SignKeyPair) {
     const dispute = await prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })
@@ -200,7 +323,11 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const commitment = await tx.escrowParticipantKey.findUnique({ where: { escrowId_role: { escrowId: o.escrowId, role: 'arbiter' } } })
     if (commitment) removedArbiterCommitments.push({ escrowId: commitment.escrowId, role: commitment.role, participantId: commitment.participantId, pubkey: commitment.pubkey })
     await tx.$executeRaw`SET LOCAL session_replication_role = replica`
-    await tx.escrowParticipantKey.deleteMany({ where: { escrowId: o.escrowId, role: 'arbiter' } })
+    const original = await tx.escrowParticipantKey.findFirst({ where: { escrowId: o.escrowId, role: 'arbiter' } })
+    if (!original) throw new Error(`ST1 fixture missing original arbiter commitment for ${o.escrowId}`)
+    const deleted = await tx.escrowParticipantKey.deleteMany({ where: { escrowId: o.escrowId, role: 'arbiter' } })
+    if (deleted.count !== 1) throw new Error(`ST1 fixture expected one arbiter commitment for ${o.escrowId}`)
+    displacedArbiterKeys.set(o.escrowId, original)
   })
   /** A DisputeService whose appeal panel is ARBITER2 (the market provider is not the subject here). */
   const appealService = () => new DisputeService({
@@ -652,63 +779,1638 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
   // (4) reversal of the authority; already committed economic effects
   // ════════════════════════════════════════════════════════════════════════════════════════════════
 
-  it('V1 production reversal after the round was persisted: the cleanup, nominated before the reversal, no longer has authority and deletes nothing', async () => {
-    const o = await openedDispute('v1')
-    // FAULT INJECTION: the dispatch fails after the round was persisted (the window the guard-failure cleanup,
-    // itself failing, leaves): the real initiateRelease() runs, then the call throws. The ruling is then reverted
-    // by production code (dispute.service.ts's revert transaction and revertDisputeRulingRecord()).
+  it('E1 production resolveDispute guard failure deletes only its unsigned exact round before reverting authority', async () => {
+    const o = await openedDispute('e1')
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    let persistedId: string | undefined
     jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      const result = await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+      persistedId = pending.id
+      // Inject an invalid translation precisely after production persists it and
+      // before resolveDispute's own guard inspects it. No helper is called by the test.
+      await corrupt(pending.id)
+      // The service guards the returned translation, not a second DB read.
+      // Reflect the corrupted persisted PSBT in the production service's
+      // return value so both guard inputs and durable bytes are identical.
+      const corrupted = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+      return { ...(result as object), unsignedPsbtBase64: corrupted.unsignedPsbtBase64 }
+    })
+    const dispute = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    const signature = signAuthorityDecision(payload, arbiterKp.secretKey)
+    await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signature, issuedAt)).rejects.toThrow()
+    expect(persistedId).toBeDefined()
+    expect(await roundState(persistedId!)).toEqual({ pending: false, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(0)
+    expect((await disputeOf(o)).status).not.toBe('RESOLVED')
+  })
+
+  it('F1 declared miner fee mismatch rejects exact unsigned round without erasing its ruling before proof', async () => {
+    const o = await openedDispute('fee-mismatch')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const stored = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+    // Fault injection: the declared fee no longer agrees with the signed transaction's
+    // economic outputs. This is durable input to the same production guard used by cleanup.
+    await prisma.escrowPendingTransaction.update({
+      where: { id: pending.id },
+      data: { minerFeeSats: Number(stored.minerFeeSats ?? 0) + 1 },
+    })
+    expect(await decide(pending.id, o.escrowId, await generationOf(pending.id))).toBe('DELETED')
+    expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(1)
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+  })
+
+  it('F2 signed pending with mismatched miner fee is never deleted by fee-parity cleanup', async () => {
+    const o = await openedDispute('fee-signed')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const stored = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+    await prisma.escrowPendingTransaction.update({
+      where: { id: pending.id },
+      data: { minerFeeSats: Number(stored.minerFeeSats ?? 0) + 1 },
+    })
+    await prisma.escrowTransactionSignature.create({
+      data: { pendingTxId: pending.id, participantId: o.buyerId, signedPsbtBase64: 'st1-f2-signed-veto' },
+    })
+    expect(await decide(pending.id, o.escrowId, await generationOf(pending.id))).toBe('SIGNED_MEANWHILE')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 1 })
+    expect(await outcomeRecords(o)).toBe(1)
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+  })
+
+  it('E2 production resolveDispute refuses cleanup of a signed round and preserves the committed ruling', async () => {
+    const o = await openedDispute('e2')
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    let persistedId: string | undefined
+    jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      const result = await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+      persistedId = pending.id
+      await corrupt(pending.id)
+      // Simulate a signer winning the race before the service guard runs.
+      // An existing signature is durable economic evidence: deletion must refuse.
+      await prisma.escrowTransactionSignature.create({
+        data: { pendingTxId: pending.id, participantId: o.buyerId, signedPsbtBase64: 'st1-e2-race-proof' },
+      })
+      const corrupted = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+      return { ...(result as object), unsignedPsbtBase64: corrupted.unsignedPsbtBase64 }
+    })
+    const dispute = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    const signature = signAuthorityDecision(payload, arbiterKp.secretKey)
+    await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signature, issuedAt))
+      .rejects.toThrow(/ST1-R2|deletion proof|SIGNED_MEANWHILE/i)
+    expect(persistedId).toBeDefined()
+    expect(await roundState(persistedId!)).toEqual({ pending: true, signatures: 1 })
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+  })
+
+  it('V1 after-persist throw never erases the committed Outcome; cleanup deletes an invalid unsigned pending', async () => {
+    const o = await openedDispute('v1')
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
       await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
       throw new Error('injected: failure after the round was persisted')
     })
     const dispute = await prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })
     const issuedAt = new Date().toISOString()
     const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
-    const signature = signAuthorityDecision(payload, arbiterKp.secretKey)
-    await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signature, issuedAt))
-      .rejects.toThrow(/injected/)
-    jest.restoreAllMocks()
-
-    const orphan = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
-    expect(orphan.disputeId).toBe(o.disputeId) // the round of the reverted ruling survived
-    expect((await disputeOf(o)).status).not.toBe('RESOLVED') // production reverted the authority
-    expect((await disputeOf(o)).ruling).toBeNull()
-    expect(await outcomeRecords(o)).toBe(0)
-
-    await stale(orphan.id, o)
-    expect(await decide(orphan.id, o.escrowId, await generationOf(orphan.id))).toBe('PROVENANCE_REJECTED')
-    expect(await roundState(orphan.id)).toEqual({ pending: true, signatures: 0 })
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/ST1-R2 V3/)
+    } finally {
+      failing.mockRestore()
+    }
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    expect(pending.disputeId).toBe(o.disputeId)
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+    await stale(pending.id, o)
+    expect(await decide(pending.id, o.escrowId, await generationOf(pending.id))).toBe('DELETED')
+    expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
   })
 
-  it('V3 FINDING (liveness, not safety): the orphan of a reverted ruling is reclaimable by nothing - the next ruling of the arbiter is refused by that very round', async () => {
+  it('V3-L legacy direct dispatch uncertainty preserves ruling without EDA', async () => {
+    const o = await openedDispute('v3-legacy-direct-rollback')
+    const before = await disputeOf(o)
+    const service = getDisputeService()
+    // Isolate the legacy applyRuling route on a real PostgreSQL dispute.
+    // This is a characterization test, NOT proof of unknown-outcome safety:
+    // the external transfer is not executed or simulated.
+    const signatureType = jest.spyOn(escrowService, 'isSignatureCollectionType').mockReturnValue(false)
+    const directFailure = jest.spyOn(escrowService, 'releaseFunds').mockRejectedValueOnce(
+      new Error('injected: direct provider outcome unknown'),
+    )
+    try {
+      await expect((service as any).applyRuling(
+        { id: o.disputeId, escrowId: o.escrowId, tradeId: o.tradeId, status: before.status, appealRound: before.appealRound },
+        'RELEASE', o.arbiterId,
+      )).rejects.toThrow(/direct provider outcome unknown/)
+    } finally {
+      directFailure.mockRestore()
+      signatureType.mockRestore()
+    }
+    const after = await disputeOf(o)
+    expect(after.status).toBe('RESOLVED')
+    expect(after.ruling).toBe('RELEASE')
+    // Legacy applyRuling does not create the Core semantic Outcome record.
+    expect(await outcomeRecords(o)).toBe(0)
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+    // A legacy direct failure has no pending-operation EDA to guard rollback.
+    expect(await edaCount(o)).toBe(0)
+  })
+
+  it('V3-L-UNKNOWN direct provider uncertain result preserves ruling (fail-closed regression)', async () => {
+    const o = await openedDispute('v3-legacy-unknown')
+    const before = await disputeOf(o)
+    const signatureType = jest.spyOn(escrowService, 'isSignatureCollectionType').mockReturnValue(false)
+    // Fault model: provider has made an irreversible external transfer, but
+    // the caller receives a timeout/error. No fake chain transaction is
+    // claimed here; this tests only the rollback authority decision.
+    let externalTransferExecuted = false
+    const directFailure = jest.spyOn(escrowService, 'releaseFunds').mockImplementationOnce(async () => {
+      externalTransferExecuted = true
+      throw new Error('injected: transfer executed but acknowledgement lost')
+    })
+    try {
+      await expect((getDisputeService() as any).applyRuling(
+        { id: o.disputeId, escrowId: o.escrowId, tradeId: o.tradeId, status: before.status, appealRound: before.appealRound },
+        'RELEASE', o.arbiterId,
+      )).rejects.toThrow(/acknowledgement lost/)
+    } finally {
+      directFailure.mockRestore()
+      signatureType.mockRestore()
+    }
+    expect(externalTransferExecuted).toBe(true)
+    // Required safety invariant: uncertainty cannot authorize removal of
+    // the economic ruling. This is a positive regression after the guard.
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect((await disputeOf(o)).ruling).toBe('RELEASE')
+  })
+
+  it('V3-L-PRE legacy pre-dispatch rejection preserves exact rollback semantics', async () => {
+    const o = await openedDispute('v3-legacy-pre-dispatch')
+    const before = await disputeOf(o)
+    const service = getDisputeService()
+    // A signature-collection dispatch is a separate route, and the
+    // injected rejection happens before any direct provider invocation.
+    const signatureType = jest.spyOn(escrowService, 'isSignatureCollectionType').mockReturnValue(true)
+    const rejected = jest.spyOn(escrowService, 'initiateRelease').mockRejectedValueOnce(
+      new Error('injected: no provider dispatch started'),
+    )
+    const direct = jest.spyOn(escrowService, 'releaseFunds')
+    try {
+      await expect((service as any).applyRuling(
+        { id: o.disputeId, escrowId: o.escrowId, tradeId: o.tradeId, status: before.status, appealRound: before.appealRound },
+        'RELEASE', o.arbiterId,
+      )).rejects.toThrow(/no provider dispatch started/)
+      expect(direct).not.toHaveBeenCalled()
+    } finally {
+      direct.mockRestore()
+      rejected.mockRestore()
+      signatureType.mockRestore()
+    }
+    const after = await disputeOf(o)
+    expect(after.status).toBe(before.status)
+    expect(after.ruling).toBeNull()
+    expect(await edaCount(o)).toBe(0)
+  })
+
+  it('V3-N no-persist dispatch failure reverts the exact ruling and Outcome without orphan pending', async () => {
+    const o = await openedDispute('v3-no-persist')
+    const before = await disputeOf(o)
+    const failure = jest.spyOn(escrowService, 'initiateRelease').mockRejectedValueOnce(new Error('injected: dispatch rejected before persistence'))
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: before.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/dispatch rejected before persistence/)
+    } finally {
+      failure.mockRestore()
+    }
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+    const after = await disputeOf(o)
+    expect(after.status).toBe(before.status)
+    expect(after.ruling).toBeNull()
+    expect(after.authoritySignature).toBeNull()
+    expect(await outcomeRecords(o)).toBe(0)
+  })
+
+  it('V3-A injected Outcome deletion failure rolls back the dispute update atomically', async () => {
+    const o = await openedDispute('v3-atomic-fault')
+    const before = await disputeOf(o)
+    const realTransaction = prisma.$transaction.bind(prisma)
+    let injected = false
+    // Intercept only the transaction that deletes this escrow's ruling Outcome.
+    // The actual dispute update and database transaction still execute against PostgreSQL.
+    const transactionSpy = jest.spyOn(prisma, '$transaction').mockImplementation(((callback: any, options?: any) => {
+      if (typeof callback !== 'function') return (realTransaction as any)(callback, options)
+      return (realTransaction as any)(async (tx: any) => callback(new Proxy(tx, {
+        get(target, prop) {
+          if (prop === 'semanticTransitionRecord') {
+            return new Proxy(target.semanticTransitionRecord, {
+              get(delegate, method) {
+                if (method === 'deleteMany') return async (args: any) => {
+                  if (args?.where?.interactionId === o.escrowId &&
+                      args?.where?.transitionType === 'escrow.dispute.rule') {
+                    injected = true
+                    throw new Error('injected: atomic Outcome deletion failure')
+                  }
+                  return delegate.deleteMany(args)
+                }
+                const value = (delegate as any)[method]
+                return typeof value === 'function' ? value.bind(delegate) : value
+              },
+            })
+          }
+          const value = (target as any)[prop]
+          return typeof value === 'function' ? value.bind(target) : value
+        },
+      })), options)
+    }) as any)
+    const dispatch = jest.spyOn(escrowService, 'initiateRelease')
+      .mockRejectedValueOnce(new Error('injected: dispatch failed before pending persistence'))
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: before.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/atomic Outcome deletion failure/)
+    } finally {
+      dispatch.mockRestore()
+      transactionSpy.mockRestore()
+    }
+    expect(injected).toBe(true)
+    // If updateMany were committed before deleteMany, this would incorrectly
+    // restore OPEN while leaving the committed Outcome behind.
+    const afterFault = await disputeOf(o)
+    expect(afterFault.status).toBe('RESOLVED')
+    expect(afterFault.ruling).toBe('RELEASE')
+    expect(afterFault.authoritySignature).toBeTruthy()
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+
+    // Remove the injected fault, then retry the same signed decision. The
+    // original ruling is still durable and must not be duplicated or erased.
+    // A repeated call must not manufacture a second Outcome or pending round.
+    const dispatchRetry = jest.spyOn(escrowService, 'initiateRelease')
+      .mockRejectedValueOnce(new Error('injected: retry dispatch unavailable'))
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow()
+    } finally {
+      dispatchRetry.mockRestore()
+    }
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+  })
+
+  it('V3-PG PostgreSQL division-by-zero aborts the real D-to-E rollback transaction atomically', async () => {
+    const o = await openedDispute('v3-pg-atomic')
+    const before = await disputeOf(o)
+    const realTransaction = prisma.$transaction.bind(prisma)
+    let databaseFaultAttempted = false
+    // Trigger a real SQLSTATE 22012 inside the same live PostgreSQL
+    // transaction, at the Outcome-delete boundary AFTER dispute.updateMany.
+    const transactionSpy = jest.spyOn(prisma, '$transaction').mockImplementation(((callback: any, options?: any) => {
+      if (typeof callback !== 'function') return (realTransaction as any)(callback, options)
+      return (realTransaction as any)((tx: any) => callback(new Proxy(tx, {
+        get(target, prop) {
+          if (prop === 'semanticTransitionRecord') {
+            return new Proxy(target.semanticTransitionRecord, {
+              get(delegate, method) {
+                if (method === 'deleteMany') return async (args: any) => {
+                  if (args?.where?.interactionId === o.escrowId &&
+                      args?.where?.transitionType === 'escrow.dispute.rule') {
+                    databaseFaultAttempted = true
+                    await tx.$executeRawUnsafe('SELECT 1 / 0')
+                    throw new Error('PostgreSQL unexpectedly accepted division by zero')
+                  }
+                  return delegate.deleteMany(args)
+                }
+                const value = (delegate as any)[method]
+                return typeof value === 'function' ? value.bind(delegate) : value
+              },
+            })
+          }
+          const value = (target as any)[prop]
+          return typeof value === 'function' ? value.bind(target) : value
+        },
+      })), options)
+    }) as any)
+    const dispatch = jest.spyOn(escrowService, 'initiateRelease')
+      .mockRejectedValueOnce(new Error('injected: no pending persisted'))
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: before.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/division by zero/i)
+    } finally {
+      dispatch.mockRestore()
+      transactionSpy.mockRestore()
+    }
+    expect(databaseFaultAttempted).toBe(true)
+    // The PostgreSQL error must roll back the *entire* dispute mutation,
+    // not merely preserve status while silently altering the generation.
+    const afterSqlFault = await disputeOf(o)
+    expect(afterSqlFault.status).toBe('RESOLVED')
+    expect(afterSqlFault.ruling).toBe('RELEASE')
+    expect(afterSqlFault.appealRound).toBe(before.appealRound)
+    expect(afterSqlFault.authoritySignature).toBeTruthy()
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+
+    // Fault is removed. A fresh dispatch failure must now take the normal
+    // guarded rollback path and remove the original ruling/Outcome exactly once.
+    const retryFailure = jest.spyOn(escrowService, 'initiateRelease')
+      .mockRejectedValueOnce(new Error('injected: clean retry without pending'))
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow()
+    } finally {
+      retryFailure.mockRestore()
+    }
+    // A repeated decision must not erase the durable authority established
+    // before the database fault or manufacture a second Outcome.
+    const afterReplay = await disputeOf(o)
+    expect(afterReplay.status).toBe('RESOLVED')
+    expect(afterReplay.ruling).toBe('RELEASE')
+    expect(afterReplay.appealRound).toBe(before.appealRound)
+    expect(afterReplay.authoritySignature).toBe(afterSqlFault.authoritySignature)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+
+    // Gate 2: use the production C4 reconciler, not the rejected public
+    // resolveDispute replay, to recover the committed ruling with no pending.
+    const { reconcileMissingDispatch } = require('../../src/modules/open-settlement/dispute-dispatch-recovery')
+    // The FIRST recovery must be a fresh OS process with a separate Prisma
+    // pool, not an in-process call followed by a child-process replay.
+    const { resolve: resolvePath } = require('path') as typeof import('path')
+    const firstRecoveryCode = String.raw`
+      require('ts-node/register/transpile-only')
+      const { prisma } = require('./src/common/database')
+      const { reconcileMissingDispatch } = require('./src/modules/open-settlement/dispute-dispatch-recovery')
+      // Match the production writer's handler registration in V3-WK.
+      // A new process has an empty in-memory handler registry even when
+      // PostgreSQL already contains the signed ruling and Outcome.
+      const { intentEngine } = require('./src/core/intent-engine')
+      const { OpenP2PTradeIntentHandler } = require('./src/modules/open-p2p/intent-handler')
+      intentEngine.registerHandler(OpenP2PTradeIntentHandler)
+      require('./src/common/events/handlers').registerEventHandlers()
+      // The parent Jest process mocks the explorer; a new OS process does not
+      // inherit global.fetch. Reproduce only the explorer transport fixture,
+      // never mock the production reconciler or database state.
+      const txid = process.env.ST1_C4_FUNDING_TXID
+      global.fetch = async url => {
+        const path = String(url)
+        if (path.includes('/blocks/tip/height')) return { ok: true, text: async () => '100' }
+        if (path.includes('/tx/' + txid + '/status')) return { ok: true, json: async () => ({ confirmed: true, block_height: 100 }) }
+        if (path.includes('/v1/fees/recommended')) return { ok: true, json: async () => ({ halfHourFee: 5, fastestFee: 8 }) }
+        return { ok: true, json: async () => [{ txid, vout: 0, value: 100000, status: { confirmed: true } }] }
+      }
+      reconcileMissingDispatch(100).then(async report => {
+        // Flush the diagnostic marker before process exit: a child may exit 0
+        // while its pipe has not delivered a buffered stdout write to Jest.
+        await new Promise((resolve, reject) => process.stdout.write('ST1_C4_FIRST:' + JSON.stringify(report) + '\n', err => err ? reject(err) : resolve(undefined)))
+        await prisma.$disconnect()
+        process.exit(0)
+      }).catch(async err => {
+        process.stderr.write(String(err.stack || err))
+        await prisma.$disconnect()
+        process.exit(1)
+      })
+    `
+    // Use async spawn so the parent Jest process does not block its event loop.
+    const { spawn: spawnFirst } = require('child_process') as typeof import('child_process')
+    const c4FundingTxid = (await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })).txLockId!
+    const firstRecovery = await new Promise<{ code: number | null; output: string; errors: string }>((done, reject) => {
+      const child = spawnFirst(process.execPath, ['-e', firstRecoveryCode], {
+        cwd: resolvePath(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed',
+          ST1_C4_FUNDING_TXID: c4FundingTxid },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let output = ''; let errors = ''
+      child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => { errors += chunk.toString() })
+      const watchdog = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('C4 first recovery timeout: ' + errors.slice(-2000))) }, 60_000)
+      child.on('error', err => { clearTimeout(watchdog); reject(err) })
+      child.on('close', code => { clearTimeout(watchdog); done({ code, output, errors }) })
+    })
+    expect(firstRecovery.code).toBe(0)
+    const firstLine = firstRecovery.output.split('\n').find(x => x.startsWith('ST1_C4_FIRST:'))
+    if (!firstLine) {
+      throw new Error('C4 fresh-process recovery exited without ST1_C4_FIRST marker; code=' + firstRecovery.code
+        + '; stdout=' + firstRecovery.output.slice(-4000) + '; stderr=' + firstRecovery.errors.slice(-4000))
+    }
+    const firstReport = JSON.parse(firstLine.slice('ST1_C4_FIRST:'.length))
+    // Fail with the actual production reconciler verdict, not only an empty
+    // resumed array. This distinguishes a transport error from an eligibility,
+    // outcome translation or candidate-claim failure without hiding any one.
+    const c4Evidence = JSON.stringify({
+      claimed: firstReport.claimed?.includes(o.escrowId),
+      resumed: firstReport.resumed?.filter((entry: any) => entry.escrowId === o.escrowId),
+      failed: firstReport.failed?.filter((entry: any) => entry.escrowId === o.escrowId),
+      guardFailed: firstReport.guardFailed?.filter((entry: any) => entry.escrowId === o.escrowId),
+      notEligible: firstReport.notEligible?.filter((entry: any) => entry.escrowId === o.escrowId),
+      alreadyResumedConcurrently: firstReport.alreadyResumedConcurrently?.includes(o.escrowId),
+      stderr: firstRecovery.errors.slice(-1500),
+    })
+    if (!firstReport.claimed.includes(o.escrowId)) throw new Error('C4 did not claim expected escrow: ' + c4Evidence)
+    if (firstReport.failed.some((entry: any) => entry.escrowId === o.escrowId)) throw new Error('C4 recovery failed: ' + c4Evidence)
+    if (!firstReport.resumed.some((entry: any) => entry.escrowId === o.escrowId)) throw new Error('C4 did not resume expected escrow: ' + c4Evidence)
+    expect(firstReport.resumed.filter((entry: any) => entry.escrowId === o.escrowId)).toEqual([
+      expect.objectContaining({ escrowId: o.escrowId, disputeId: o.disputeId, ruling: 'RELEASE' }),
+    ])
+    // A concurrent in-process replay must now see the child-created pending.
+    const [firstRecoveryA, firstRecoveryB] = await Promise.all([
+      reconcileMissingDispatch(100),
+      reconcileMissingDispatch(100),
+    ])
+    expect([firstRecoveryA, firstRecoveryB].flatMap((report: any) =>
+      report.resumed.filter((entry: any) => entry.escrowId === o.escrowId))).toEqual([])
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    const resumedPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    expect(resumedPending.disputeId).toBe(o.disputeId)
+    expect(resumedPending.rulingAppealRound).toBe(before.appealRound)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect((await disputeOf(o)).authoritySignature).toBe(afterSqlFault.authoritySignature)
+    // Two independent recovery invocations must observe the durable pending
+    // rather than creating a second dispatch or altering economic authority.
+    const [replayRecoveryA, replayRecoveryB] = await Promise.all([
+      reconcileMissingDispatch(100),
+      reconcileMissingDispatch(100),
+    ])
+    for (const replayRecovery of [replayRecoveryA, replayRecoveryB]) {
+      expect(replayRecovery.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    }
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect((await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })).id).toBe(resumedPending.id)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
+
+    // A fresh OS process with a new Prisma connection must also see the
+    // recovered dispatch as complete, without creating another pending.
+    const { spawn } = require('child_process') as typeof import('child_process')
+    const { resolve } = require('path') as typeof import('path')
+    const recoveryCode = String.raw`
+      require('ts-node/register/transpile-only')
+      const { prisma } = require('./src/common/database')
+      const { reconcileMissingDispatch } = require('./src/modules/open-settlement/dispute-dispatch-recovery')
+      reconcileMissingDispatch(100).then(async report => {
+        process.stdout.write('ST1_C4_REPLAY:' + JSON.stringify(report) + '\n')
+        await prisma.$disconnect()
+        process.exit(0)
+      }).catch(async err => {
+        process.stderr.write(String(err.stack || err))
+        await prisma.$disconnect()
+        process.exit(1)
+      })
+    `
+    const freshReplay = await new Promise<{ code: number | null; output: string; errors: string }>((done, reject) => {
+      const child = spawn(process.execPath, ['-e', recoveryCode], {
+        cwd: resolve(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let output = ''; let errors = ''
+      child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => { errors += chunk.toString() })
+      const watchdog = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('C4 replay timeout: ' + errors.slice(-2000))) }, 60_000)
+      child.on('error', err => { clearTimeout(watchdog); reject(err) })
+      child.on('close', code => { clearTimeout(watchdog); done({ code, output, errors }) })
+    })
+    expect(freshReplay.code).toBe(0)
+    const freshLine = freshReplay.output.split('\n').find((line: string) => line.startsWith('ST1_C4_REPLAY:'))
+    expect(freshLine).toBeDefined()
+    const freshReport = JSON.parse(freshLine!.slice('ST1_C4_REPLAY:'.length))
+    expect(freshReport.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect((await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })).id).toBe(resumedPending.id)
+    expect(await outcomeRecords(o)).toBe(1)
+
+    // The public resolveDispute API intentionally refuses replay of a
+    // RESOLVED ruling. Recovery of a persisted ruling is a separate operation,
+    // not another signed decision through the original endpoint.
+    await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+      .rejects.toThrow(/already resolved/i)
+    expect((await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })).id).toBe(resumedPending.id)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect((await disputeOf(o)).authoritySignature).toBe(afterSqlFault.authoritySignature)
+  })
+
+  it('V3-E durable economic authorization refuses rollback even when dispatch loses its pending round', async () => {
+    const o = await openedDispute('v3-eda-no-pending')
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+      await authorizeDisputedPendingExecution(pending)
+      expect(await edaCount(o)).toBe(1)
+      // Fault injection: emulate pending lifecycle loss after a durable economic
+      // authorization. This is an adversarial state, not claimed as a normal path.
+      await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } })
+      throw new Error('injected: authorized pending disappeared before dispatch returned')
+    })
+    const before = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: before.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/ST1-R2 V3/)
+    } finally {
+      failing.mockRestore()
+    }
+    expect(await edaCount(o)).toBe(1)
+    // A durable EDA is keyed to the immutable operation, not the lifetime
+    // of its pending row. Preserve its full committed record across cleanup.
+    const committedEda = await prisma.economicDispositionAuthorization.findFirstOrThrow({
+      where: { escrowId: o.escrowId },
+    })
+    expect(committedEda.pendingOperationId).toBeTruthy()
+    expect(committedEda.operationDigest).toMatch(/^[0-9a-f]{64}$/)
+    const preserved = await disputeOf(o)
+    expect(preserved.status).toBe('RESOLVED')
+    expect(preserved.ruling).toBe('RELEASE')
+    expect(preserved.appealRound).toBe(before.appealRound)
+    expect(preserved.authoritySignature).toBeTruthy()
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+    const originalOutcome = await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })
+    // The recovery sweep must not erase a committed economic authorization
+    // merely because its originating pending row is absent.
+    const [recovery] = await reconcileScoped([o.escrowId])
+    expect(recovery.reconciled).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    expect(await edaCount(o)).toBe(1)
+    expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+      where: { pendingOperationId: committedEda.pendingOperationId },
+    })).toEqual(committedEda)
+    expect(await disputeOf(o)).toEqual(preserved)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })).toEqual(originalOutcome)
+    expect(await prisma.economicDispositionAuthorization.count({
+      where: { pendingOperationId: committedEda.pendingOperationId },
+    })).toBe(1)
+    expect(await prisma.escrowPendingTransaction.findUnique({
+      where: { escrowId: o.escrowId },
+    })).toBeNull()
+    // C4 must not mistake durable EDA + missing pending for a never-dispatched ruling.
+    // The original authorization may already have caused an external side effect.
+    const c4 = await reconcileMissingDispatch(100)
+    expect(c4.claimed).not.toContain(o.escrowId)
+    expect(c4.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+      where: { pendingOperationId: committedEda.pendingOperationId },
+    })).toEqual(committedEda)
+    expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })).toEqual(originalOutcome)
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+  })
+
+  it('V3-E2 an authorized missing pending keeps its exact EDA and ruling through repeated recovery', async () => {
+    const o = await openedDispute('v3-eda-repeat-recovery')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const committed = await authorizeDisputedPendingExecution(pending)
+    expect(committed).not.toBeNull()
+    const durable = await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+      where: { pendingOperationId: pending.id },
+    })
+    const ruling = await disputeOf(o)
+    expect(ruling.status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+
+    // Adversarial missing-pending fixture. No claim that a production
+    // completion removed this pending or that terminalization occurred.
+    await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } })
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const [recovery] = await reconcileScoped([o.escrowId])
+      expect(recovery.reconciled).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+      expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+        where: { pendingOperationId: pending.id },
+      })).toEqual(durable)
+      expect(await disputeOf(o)).toEqual(ruling)
+      expect(await outcomeRecords(o)).toBe(1)
+      expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+      // Independent C4 passes must also reject the same committed economic
+      // authorization, not rebuild a second operation after the pending loss.
+      const c4 = await reconcileMissingDispatch(100)
+      expect(c4.claimed).not.toContain(o.escrowId)
+      expect(c4.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+      expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+        where: { pendingOperationId: pending.id },
+      })).toEqual(durable)
+      expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: o.escrowId } })).toBeNull()
+    }
+  })
+
+  it('V3-E3 concurrent C4 sweeps exclude an EDA-authorized escrow with no pending', async () => {
+    const o = await openedDispute('v3-eda-parallel-c4')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await authorizeDisputedPendingExecution(pending)
+    const eda = await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+      where: { pendingOperationId: pending.id },
+    })
+    const ruling = await disputeOf(o)
+    const outcome = await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })
+    await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } })
+
+    // Both sweeps execute the production C4 query against the same real PG
+    // database. This proves exclusion when EDA predates both claims, not
+    // the distinct check-to-use interleaving where EDA commits later.
+    const [a, b] = await Promise.all([
+      reconcileMissingDispatch(100),
+      reconcileMissingDispatch(100),
+    ])
+    for (const report of [a, b]) {
+      expect(report.claimed).not.toContain(o.escrowId)
+      expect(report.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    }
+    expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+      where: { pendingOperationId: pending.id },
+    })).toEqual(eda)
+    expect(await disputeOf(o)).toEqual(ruling)
+    expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })).toEqual(outcome)
+    expect(await prisma.escrowPendingTransaction.findUnique({
+      where: { escrowId: o.escrowId },
+    })).toBeNull()
+  })
+
+  it('V3-E3b an EDA-committed missing pending cannot be recreated by direct disputed dispatch', async () => {
+    const o = await openedDispute('v3-eda-direct-dispatch-guard')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await authorizeDisputedPendingExecution(pending)
+    const durable = await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+      where: { pendingOperationId: pending.id },
+    })
+    const originalOutcome = await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })
+    // Fault injection: the committed EDA survives even if the pending row is lost.
+    await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } })
+    await expect(escrowService.initiateRelease(
+      o.escrowId, o.buyerDestination, o.arbiterId,
+    )).rejects.toThrow()
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(0)
+    expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+      where: { pendingOperationId: pending.id },
+    })).toEqual(durable)
+    expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })).toEqual(originalOutcome)
+  })
+
+  it('V3-E3c C4 preflight loses the race to committed EDA and cannot recreate pending', async () => {
+    const o = await openedDispute('v3-eda-c4-check-use-race')
+    const originalPending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const ruling = await disputeOf(o)
+    const outcome = await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })
+    await prisma.escrowPendingTransaction.delete({ where: { id: originalPending.id } })
+    expect(await edaCount(o)).toBe(0)
+
+    let entered!: () => void
+    const atDispatch = new Promise<void>((resolve) => { entered = resolve })
+    let resume!: () => void
+    const resumed = new Promise<void>((resolve) => { resume = resolve })
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    let targetAttempts = 0
+    const spy = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      if (args[0] !== o.escrowId) return (realInitiate as (...a: unknown[]) => Promise<any>)(...args)
+      targetAttempts++
+      entered()
+      await resumed
+      return (realInitiate as (...a: unknown[]) => Promise<any>)(...args)
+    })
+    let report: any
+    try {
+      // Production C4 has passed its external EDA preflight and is paused
+      // immediately before production dispatch. A competing writer now commits
+      // the economic authorization, then loses the pending (fault injection).
+      const sweep = reconcileMissingDispatch(100)
+      await atDispatch
+      const competingPending = await (realInitiate as (...a: unknown[]) => Promise<any>)(
+        o.escrowId, o.buyerDestination, o.arbiterId,
+      )
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({
+        where: { escrowId: o.escrowId },
+      })
+      expect(competingPending).toBeDefined()
+      await authorizeDisputedPendingExecution(pending)
+      const durable = await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+        where: { pendingOperationId: pending.id },
+      })
+      await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } })
+      resume()
+      report = await sweep
+      expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+        where: { pendingOperationId: pending.id },
+      })).toEqual(durable)
+    } finally {
+      resume()
+      spy.mockRestore()
+    }
+    expect(targetAttempts).toBe(1)
+    expect(report.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(0)
+    expect(await edaCount(o)).toBe(1)
+    expect(await disputeOf(o)).toMatchObject({
+      status: ruling.status, ruling: ruling.ruling, authoritySignature: ruling.authoritySignature,
+    })
+    expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })).toEqual(outcome)
+  })
+
+  it('V3-E3d disputed dispatch waits on D before writing pending, then honors committed EDA', async () => {
+    const o = await openedDispute('v3-eda-d-lock-first')
+    const originalPending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await prisma.escrowPendingTransaction.delete({ where: { id: originalPending.id } })
+    const releaseD = await holdD(o)
+    const beforeWaiters = await waitingOnAdvisoryLocks()
+    const dispatch = escrowService.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId)
+    try {
+      await untilWaiting(beforeWaiters + 1)
+      // The production dispatch cannot persist while another transaction holds D.
+      expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(0)
+    } finally {
+      await releaseD()
+    }
+    await dispatch
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({
+      where: { escrowId: o.escrowId },
+    })
+    await authorizeDisputedPendingExecution(pending)
+    expect(await edaCount(o)).toBe(1)
+    await expect(escrowService.initiateRelease(
+      o.escrowId, o.buyerDestination, o.arbiterId,
+    )).rejects.toThrow()
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+  })
+
+  it('V3-E3e C4-first pending is bound by EDA while replay remains excluded', async () => {
+    const o = await openedDispute('v3-eda-c4-first-bound')
+    const originalPending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await prisma.escrowPendingTransaction.delete({ where: { id: originalPending.id } })
+    expect(await edaCount(o)).toBe(0)
+
+    let entered!: () => void
+    const atDispatch = new Promise<void>((resolve) => { entered = resolve })
+    let resume!: () => void
+    const resumed = new Promise<void>((resolve) => { resume = resolve })
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    let attempts = 0
+    const spy = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      if (args[0] !== o.escrowId) return (realInitiate as (...a: unknown[]) => Promise<any>)(...args)
+      attempts++
+      const result = await (realInitiate as (...a: unknown[]) => Promise<any>)(...args)
+      entered()
+      await resumed
+      return result
+    })
+    let report: any
+    try {
+      const sweep = reconcileMissingDispatch(100)
+      await atDispatch
+      // C4 has already committed the pending via the production dispatch.
+      // EDA must bind to that exact pending, not synthesize another operation.
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({
+        where: { escrowId: o.escrowId },
+      })
+      expect(await edaCount(o)).toBe(0)
+      await authorizeDisputedPendingExecution(pending)
+      const durable = await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+        where: { pendingOperationId: pending.id },
+      })
+      expect(durable.pendingOperationId).toBe(pending.id)
+      resume()
+      report = await sweep
+      expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+        where: { pendingOperationId: pending.id },
+      })).toEqual(durable)
+    } finally {
+      resume()
+      spy.mockRestore()
+    }
+    expect(attempts).toBe(1)
+    expect(report.claimed).toContain(o.escrowId)
+    expect(report.resumed).toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect(await edaCount(o)).toBe(1)
+    const replay = await reconcileMissingDispatch(100)
+    expect(replay.claimed).not.toContain(o.escrowId)
+    expect(replay.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+  })
+
+  it('V3-E4 C4 initiates target once, commits EDA for that pending and excludes replay', async () => {
+    const o = await openedDispute('v3-eda-after-claim')
+    const originalPending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const originalDispute = await disputeOf(o)
+    const originalOutcome = await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })
+    // Make the ruling eligible for C4's SQL candidate selection without
+    // authorizing an operation yet. This is a fault-injected missing-pending
+    // state, NOT evidence that production normally loses the pending.
+    await prisma.escrowPendingTransaction.delete({ where: { id: originalPending.id } })
+    expect(await edaCount(o)).toBe(0)
+
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    let targetAttempts = 0
+    const unrelatedEscrows: string[] = []
+    const intercepted = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      const escrowId = args[0] as string
+      // C4 is a batch reconciler, not a single-escrow API. Other eligible
+      // escrows from earlier integration fixtures can be claimed in the same
+      // sweep. Forward those calls unchanged and count ONLY this target.
+      if (escrowId !== o.escrowId) {
+        unrelatedEscrows.push(escrowId)
+        return (realInitiate as (...a: unknown[]) => Promise<any>)(...args)
+      }
+      targetAttempts++
+      // C4 has claimed this target and passed its last EDA read. Real
+      // initiation persists a pending, then the production EDA gate
+      // authorizes that exact pending before control returns to C4.
+      const created = await (realInitiate as (...a: unknown[]) => Promise<any>)(...args)
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({
+        where: { escrowId: o.escrowId },
+      })
+      await authorizeDisputedPendingExecution(pending)
+      return created
+    })
+    try {
+      const report = await reconcileMissingDispatch(100)
+      expect(report.claimed).toContain(o.escrowId)
+      expect(report.resumed).toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    } finally {
+      intercepted.mockRestore()
+    }
+    expect(targetAttempts).toBe(1)
+    // Unrelated batch work must never be misreported as duplicate target dispatch.
+    expect(unrelatedEscrows).not.toContain(o.escrowId)
+    expect(await edaCount(o)).toBe(1)
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    const recoveredDispute = await disputeOf(o)
+    // C4 legitimately records its recovery attempt on the dispute row.
+    // Assert that the economic/ruling authority remains identical while
+    // explicitly requiring the operational recovery marker to advance.
+    expect(recoveredDispute.dispatchRecoveryAttemptedAt).not.toBeNull()
+    expect({
+      ...recoveredDispute,
+      dispatchRecoveryAttemptedAt: originalDispute.dispatchRecoveryAttemptedAt,
+    }).toEqual(originalDispute)
+    expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })).toEqual(originalOutcome)
+    const replay = await reconcileMissingDispatch(100)
+    expect(replay.claimed).not.toContain(o.escrowId)
+    expect(replay.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    expect(await edaCount(o)).toBe(1)
+  })
+
+  it('V3 after-persist dispatch throw preserves exact durable authority and pending for restart recovery', async () => {
     const o = await openedDispute('v3')
     const realInitiate = escrowService.initiateRelease.bind(escrowService)
     const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
       await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
       throw new Error('injected: failure after the round was persisted')
     })
-    const sign = async () => {
-      const dispute = await prisma.dispute.findUniqueOrThrow({ where: { id: o.disputeId } })
-      const issuedAt = new Date().toISOString()
-      const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
-      return { signature: signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt }
+    const dispute = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    const signature = signAuthorityDecision(payload, arbiterKp.secretKey)
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signature, issuedAt))
+        .rejects.toThrow(/ST1-R2 V3/)
+    } finally {
+      failing.mockRestore()
     }
-    const first = await sign()
-    await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, first.signature, first.issuedAt)).rejects.toThrow(/injected/)
-    failing.mockRestore()
-    const orphan = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
-
-    // Neither the cleanup (the dispute is not RESOLVED, so the round is not even nominated, and its generation
-    // is no longer current) nor the next ruling (the dispatch gate sees a round already recorded for this
-    // authorization; a ruling's own round is never superseded) can move it.
-    await age(orphan.id)
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+    await age(pending.id)
     const [report] = await reconcileScoped([o.escrowId])
-    expect(report).toEqual({ reconciled: [], skippedTooYoung: [], skippedHasSignatures: [], alreadyCleaned: [], failed: [] })
-    const second = await sign()
-    await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, second.signature, second.issuedAt))
-      .rejects.toThrow(/dispatch already occurred for this exact semantic authorization|already has a pending release transaction awaiting signatures/)
-    expect(await roundState(orphan.id)).toEqual({ pending: true, signatures: 0 })
+    expect(report.reconciled).toEqual(expect.arrayContaining([
+      expect.objectContaining({ escrowId: o.escrowId, verdict: 'LEFT_GUARD_PASSED' }),
+    ]))
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(1)
+  })
+
+  it('V3-WK SIGKILLs the actual writer OS process after its real pending persists, then recovers independently', async () => {
+    const o = await openedDispute('v3-writer-sigkill')
+    const escrow = await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })
+    const dispute = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    const signature = signAuthorityDecision(payload, arbiterKp.secretKey)
+    const { spawn } = require('child_process') as typeof import('child_process')
+    const { resolve } = require('path') as typeof import('path')
+    const childCode = String.raw`
+      require('ts-node/register/transpile-only')
+      const { prisma } = require('./src/common/database')
+      const { escrowService } = require('./src/modules/open-settlement/escrow.service')
+      const { getDisputeService } = require('./src/modules/open-settlement/dispute.service')
+      const { intentEngine } = require('./src/core/intent-engine')
+      const { OpenP2PTradeIntentHandler } = require('./src/modules/open-p2p/intent-handler')
+      intentEngine.registerHandler(OpenP2PTradeIntentHandler)
+      require('./src/common/events/handlers').registerEventHandlers()
+      const txid = process.env.ST1_WRITER_TXID
+      global.fetch = async url => {
+        const path = String(url)
+        if (path.includes('/blocks/tip/height')) return { ok: true, text: async () => '100' }
+        if (path.includes('/tx/' + txid + '/status')) return { ok: true, json: async () => ({ confirmed: true, block_height: 100 }) }
+        if (path.includes('/v1/fees/recommended')) return { ok: true, json: async () => ({ halfHourFee: 5, fastestFee: 8 }) }
+        return { ok: true, json: async () => [{ txid, vout: 0, value: 100000, status: { confirmed: true } }] }
+      }
+      const realInitiate = escrowService.initiateRelease.bind(escrowService)
+      escrowService.initiateRelease = async (...args) => {
+        const result = await realInitiate(...args)
+        const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: process.env.ST1_WRITER_ESCROW } })
+        process.stdout.write('ST1_WRITER_PERSISTED:' + row.id + '\n')
+        await new Promise(() => {})
+        return result
+      }
+      getDisputeService().resolveDispute(
+        process.env.ST1_WRITER_DISPUTE, process.env.ST1_WRITER_ARBITER, 'RELEASE',
+        undefined, undefined, undefined, process.env.ST1_WRITER_SIGNATURE,
+        process.env.ST1_WRITER_ISSUED_AT
+      ).catch(e => { process.stderr.write(String(e.stack || e)); process.exit(1) })
+    `
+    const child = spawn(process.execPath, ['-e', childCode], {
+      cwd: resolve(__dirname, '../..'),
+      env: {
+        ...process.env, MOCK_ESCROW: 'false',
+        MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed',
+        TRUSTED_ARBITRATORS: process.env.TRUSTED_ARBITRATORS || ARBITER_ID,
+        ST1_WRITER_TXID: escrow.txLockId!, ST1_WRITER_ESCROW: o.escrowId,
+        ST1_WRITER_DISPUTE: o.disputeId, ST1_WRITER_ARBITER: o.arbiterId,
+        ST1_WRITER_SIGNATURE: signature, ST1_WRITER_ISSUED_AT: issuedAt,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    const marker = await new Promise<string>((done, reject) => {
+      const watchdog = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('writer never persisted: ' + stderr.slice(-2000))) }, 60_000)
+      child.stdout.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString()
+        const match = stdout.match(/ST1_WRITER_PERSISTED:([^\r\n]+)/)
+        if (match) { clearTimeout(watchdog); done(match[1]) }
+      })
+      child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+      child.on('error', err => { clearTimeout(watchdog); reject(err) })
+      child.on('exit', code => { if (!stdout.includes('ST1_WRITER_PERSISTED:')) { clearTimeout(watchdog); reject(new Error('writer exited ' + code + ': ' + stderr.slice(-2000))) } })
+    })
+    const killed = new Promise<{ signal: NodeJS.Signals | null }>((done) => child.once('close', (_code, signal) => done({ signal })))
+    child.kill('SIGKILL')
+    expect((await killed).signal).toBe('SIGKILL')
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: marker } })
+    const before = await disputeOf(o)
+    const generation = await generationOf(marker)
+    expect(before.status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+    await age(marker)
+    const agedPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: marker } })
+    expect(agedPending.id).toBe(pending.id)
+    const recoveryCode = String.raw`
+      require('ts-node/register/transpile-only')
+      const { prisma } = require('./src/common/database')
+      const { reconcileStalePendingDisputeTranslations } = require('./src/modules/open-settlement/dispute-pending-reconciliation')
+      reconcileStalePendingDisputeTranslations().then(async report => {
+        process.stdout.write('ST1_RECOVERY:' + JSON.stringify(report) + '\n')
+        await prisma.$disconnect()
+        process.exit(0)
+      }).catch(async e => { process.stderr.write(String(e.stack || e)); await prisma.$disconnect(); process.exit(1) })
+    `
+    const recovered = await new Promise<{ code: number | null; output: string; errors: string }>((done, reject) => {
+      const worker = spawn(process.execPath, ['-e', recoveryCode], {
+        cwd: resolve(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let output = ''; let errors = ''
+      worker.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
+      worker.stderr.on('data', (chunk: Buffer) => { errors += chunk.toString() })
+      const watchdog = setTimeout(() => worker.kill('SIGKILL'), 60_000)
+      worker.on('error', e => { clearTimeout(watchdog); reject(e) })
+      worker.on('close', code => { clearTimeout(watchdog); done({ code, output, errors }) })
+    })
+    expect(recovered.code).toBe(0)
+    const line = recovered.output.split('\n').find(x => x.startsWith('ST1_RECOVERY:'))
+    expect(line).toBeDefined()
+    const report = JSON.parse(line!.slice('ST1_RECOVERY:'.length))
+    expect(report.reconciled).toContainEqual(expect.objectContaining({
+      escrowId: o.escrowId, pendingTransactionId: marker, verdict: 'LEFT_GUARD_PASSED',
+    }))
+    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: marker } })).toEqual(agedPending)
+    expect(await generationOf(marker)).toEqual(generation)
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
+    // Repeat the recovery from another fresh OS process after the writer's
+    // SIGKILL. No duplicate pending, signature, Outcome, or dispatch may emerge.
+    const replay = await new Promise<{ code: number | null; output: string; errors: string }>((done, reject) => {
+      const worker = spawn(process.execPath, ['-e', recoveryCode], {
+        cwd: resolve(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let output = ''; let errors = ''
+      worker.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
+      worker.stderr.on('data', (chunk: Buffer) => { errors += chunk.toString() })
+      const watchdog = setTimeout(() => worker.kill('SIGKILL'), 60_000)
+      worker.on('error', e => { clearTimeout(watchdog); reject(e) })
+      worker.on('close', code => { clearTimeout(watchdog); done({ code, output, errors }) })
+    })
+    expect({ code: replay.code, errors: replay.errors.slice(-2000) }).toEqual({ code: 0, errors: expect.any(String) })
+    const replayLine = replay.output.split('\n').find(x => x.startsWith('ST1_RECOVERY:'))
+    expect(replayLine).toBeDefined()
+    const replayReport = JSON.parse(replayLine!.slice('ST1_RECOVERY:'.length))
+    expect(replayReport.reconciled).not.toContainEqual(expect.objectContaining({
+      escrowId: o.escrowId, verdict: 'DELETED_GUARD_FAILED',
+    }))
+    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: marker } })).toEqual(agedPending)
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect(await roundState(marker)).toEqual({ pending: true, signatures: 0 })
+    expect(await generationOf(marker)).toEqual(generation)
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
+  })
+
+
+  it('V3-PRE SIGKILLs a real writer after signed Outcome commit but before first pending and recovers in fresh OS', async () => {
+    const o = await openedDispute('v3-pre-pending-sigkill')
+    const escrow = await prisma.escrow.findUniqueOrThrow({ where: { id: o.escrowId } })
+    const before = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: before.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    const signature = signAuthorityDecision(payload, arbiterKp.secretKey)
+    const { spawn } = require('child_process') as typeof import('child_process')
+    const { resolve } = require('path') as typeof import('path')
+    const childCode = String.raw`
+      require('ts-node/register/transpile-only')
+      const { prisma } = require('./src/common/database')
+      const { escrowService } = require('./src/modules/open-settlement/escrow.service')
+      const { getDisputeService } = require('./src/modules/open-settlement/dispute.service')
+      const { intentEngine } = require('./src/core/intent-engine')
+      const { OpenP2PTradeIntentHandler } = require('./src/modules/open-p2p/intent-handler')
+      intentEngine.registerHandler(OpenP2PTradeIntentHandler)
+      require('./src/common/events/handlers').registerEventHandlers()
+      const txid = process.env.ST1_WRITER_TXID
+      global.fetch = async url => {
+        const path = String(url)
+        if (path.includes('/blocks/tip/height')) return { ok: true, text: async () => '100' }
+        if (path.includes('/tx/' + txid + '/status')) return { ok: true, json: async () => ({ confirmed: true, block_height: 100 }) }
+        if (path.includes('/v1/fees/recommended')) return { ok: true, json: async () => ({ halfHourFee: 5, fastestFee: 8 }) }
+        return { ok: true, json: async () => [{ txid, vout: 0, value: 100000, status: { confirmed: true } }] }
+      }
+      escrowService.initiateRelease = async () => {
+        const d = await prisma.dispute.findUniqueOrThrow({ where: { id: process.env.ST1_WRITER_DISPUTE } })
+        const outcome = await prisma.semanticTransitionRecord.findFirst({
+          where: { interactionId: process.env.ST1_WRITER_ESCROW, transitionType: 'escrow.dispute.rule' }
+        })
+        const pending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: process.env.ST1_WRITER_ESCROW } })
+        if (d.status !== 'RESOLVED' || !d.authoritySignature || !outcome || pending)
+          throw new Error('Pre-pending crash point not reached with durable signed Outcome')
+        process.stdout.write('ST1_PRE_PENDING_DURABLE:' + d.authoritySignature + '\\n')
+        await new Promise(() => {})
+      }
+      getDisputeService().resolveDispute(
+        process.env.ST1_WRITER_DISPUTE, process.env.ST1_WRITER_ARBITER, 'RELEASE',
+        undefined, undefined, undefined, process.env.ST1_WRITER_SIGNATURE,
+        process.env.ST1_WRITER_ISSUED_AT
+      ).catch(e => { process.stderr.write(String(e.stack || e)); process.exit(1) })
+    `
+    const env = {
+      ...process.env, MOCK_ESCROW: 'false',
+      MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed',
+      TRUSTED_ARBITRATORS: process.env.TRUSTED_ARBITRATORS || ARBITER_ID,
+      ST1_WRITER_TXID: escrow.txLockId!, ST1_WRITER_ESCROW: o.escrowId,
+      ST1_WRITER_DISPUTE: o.disputeId, ST1_WRITER_ARBITER: o.arbiterId,
+      ST1_WRITER_SIGNATURE: signature, ST1_WRITER_ISSUED_AT: issuedAt,
+      ST1_C4_FUNDING_TXID: escrow.txLockId!,
+    }
+    const writer = spawn(process.execPath, ['-e', childCode], {
+      cwd: resolve(__dirname, '../..'), env, stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let output = ''; let errors = ''
+    await new Promise<void>((done, reject) => {
+      const watchdog = setTimeout(() => {
+        writer.kill('SIGKILL')
+        reject(new Error('Writer did not reach durable pre-pending boundary: ' + errors.slice(-2000)))
+      }, 60_000)
+      writer.stdout.on('data', (chunk: Buffer) => {
+        output += chunk.toString()
+        if (output.includes('ST1_PRE_PENDING_DURABLE:')) { clearTimeout(watchdog); done() }
+      })
+      writer.stderr.on('data', (chunk: Buffer) => { errors += chunk.toString() })
+      writer.on('error', err => { clearTimeout(watchdog); reject(err) })
+      writer.on('exit', code => {
+        if (!output.includes('ST1_PRE_PENDING_DURABLE:')) {
+          clearTimeout(watchdog)
+          reject(new Error('Writer exited before pre-pending boundary ' + code + ': ' + errors.slice(-2000)))
+        }
+      })
+    })
+    const killed = new Promise<NodeJS.Signals | null>(done => writer.once('close', (_code, signal) => done(signal)))
+    writer.kill('SIGKILL')
+    expect(await killed).toBe('SIGKILL')
+    const durable = await disputeOf(o)
+    expect(durable.status).toBe('RESOLVED')
+    expect(durable.ruling).toBe('RELEASE')
+    expect(durable.authoritySignature).toBe(signature)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(0)
+
+    // This must be the FIRST recovery: separate OS, new Prisma pool and real C4.
+    const firstRecoveryCode = String.raw`
+      require('ts-node/register/transpile-only')
+      const { prisma } = require('./src/common/database')
+      const { reconcileMissingDispatch } = require('./src/modules/open-settlement/dispute-dispatch-recovery')
+      // Match the production writer's handler registration in V3-WK.
+      // A new process has an empty in-memory handler registry even when
+      // PostgreSQL already contains the signed ruling and Outcome.
+      const { intentEngine } = require('./src/core/intent-engine')
+      const { OpenP2PTradeIntentHandler } = require('./src/modules/open-p2p/intent-handler')
+      intentEngine.registerHandler(OpenP2PTradeIntentHandler)
+      require('./src/common/events/handlers').registerEventHandlers()
+      // The parent Jest process mocks the explorer; a new OS process does not
+      // inherit global.fetch. Reproduce only the explorer transport fixture,
+      // never mock the production reconciler or database state.
+      const txid = process.env.ST1_C4_FUNDING_TXID
+      global.fetch = async url => {
+        const path = String(url)
+        if (path.includes('/blocks/tip/height')) return { ok: true, text: async () => '100' }
+        if (path.includes('/tx/' + txid + '/status')) return { ok: true, json: async () => ({ confirmed: true, block_height: 100 }) }
+        if (path.includes('/v1/fees/recommended')) return { ok: true, json: async () => ({ halfHourFee: 5, fastestFee: 8 }) }
+        return { ok: true, json: async () => [{ txid, vout: 0, value: 100000, status: { confirmed: true } }] }
+      }
+      reconcileMissingDispatch(100).then(async report => {
+        process.stdout.write('ST1_C4_FIRST:' + JSON.stringify(report) + '\n')
+        await prisma.$disconnect()
+        process.exit(0)
+      }).catch(async err => {
+        process.stderr.write(String(err.stack || err))
+        await prisma.$disconnect()
+        process.exit(1)
+      })
+    `
+    const recovered = await new Promise<{ code: number | null; output: string; errors: string }>((done, reject) => {
+      const child = spawn(process.execPath, ['-e', firstRecoveryCode], {
+        cwd: resolve(__dirname, '../..'), env, stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let output = ''; let errors = ''
+      const watchdog = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('C4 timed out: ' + errors.slice(-2000))) }, 60_000)
+      child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => { errors += chunk.toString() })
+      child.on('error', err => { clearTimeout(watchdog); reject(err) })
+      child.on('close', code => { clearTimeout(watchdog); done({ code, output, errors }) })
+    })
+    if (recovered.code !== 0) throw new Error('C4 process failed: ' + recovered.errors.slice(-3000))
+    const line = recovered.output.split('\n').find(x => x.startsWith('ST1_C4_FIRST:'))
+    expect(line).toBeDefined()
+    const report = JSON.parse(line!.slice('ST1_C4_FIRST:'.length))
+    if (!report.resumed.some((entry: any) => entry.escrowId === o.escrowId)) {
+      throw new Error('C4 failed to resume pre-pending crash: ' + JSON.stringify(report))
+    }
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect((await disputeOf(o)).authoritySignature).toBe(signature)
+    expect(await edaCount(o)).toBe(0)
+    const recoveredPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    expect(recoveredPending.disputeId).toBe(o.disputeId)
+    expect(recoveredPending.rulingAppealRound).toBe(before.appealRound)
+    expect(recoveredPending.rulingArbiterId).toBe(o.arbiterId)
+    expect(recoveredPending.rulingOutcome).toBe('RELEASE')
+    expect(recoveredPending.rulingAuthoritySignature).toBe(signature)
+    expect(recoveredPending.rulingAuthorityIssuedAt?.toISOString()).toBe(issuedAt)
+    // Replaying the production recovery must not manufacture a second
+    // pending round or overwrite the original signed economic authority.
+    const replay = await new Promise<{ code: number | null; output: string; errors: string }>((done, reject) => {
+      const child = spawn(process.execPath, ['-e', firstRecoveryCode], {
+        cwd: resolve(__dirname, '../..'), env, stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let output = ''; let errors = ''
+      const watchdog = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('C4 replay timed out: ' + errors.slice(-2000))) }, 60_000)
+      child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => { errors += chunk.toString() })
+      child.on('error', err => { clearTimeout(watchdog); reject(err) })
+      child.on('close', code => { clearTimeout(watchdog); done({ code, output, errors }) })
+    })
+    if (replay.code !== 0) throw new Error('C4 replay process failed: ' + replay.errors.slice(-3000))
+    const replayLine = replay.output.split('\n').find(x => x.startsWith('ST1_C4_FIRST:'))
+    expect(replayLine).toBeDefined()
+    const replayReport = JSON.parse(replayLine!.slice('ST1_C4_FIRST:'.length))
+    expect(replayReport.resumed.filter((entry: any) => entry.escrowId === o.escrowId)).toEqual([])
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })).toEqual(recoveredPending)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect((await disputeOf(o)).authoritySignature).toBe(signature)
+    expect(await edaCount(o)).toBe(0)
+  })
+
+  it('V3-OS a fresh OS process preserves the exact persisted ruling after a writer-side post-persist failure', async () => {
+    const o = await openedDispute('v3-os-post-persist')
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
+      throw new Error('injected: writer returned failure after durable pending')
+    })
+    const dispute = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/ST1-R2 V3/)
+    } finally {
+      failing.mockRestore()
+    }
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    const before = await disputeOf(o)
+    const generation = await generationOf(pending.id)
+    await age(pending.id)
+    const { spawn } = require('child_process') as typeof import('child_process')
+    const { resolve } = require('path') as typeof import('path')
+    const childCode = `
+      require('ts-node/register/transpile-only')
+      const { prisma } = require('./src/common/database')
+      const { reconcileStalePendingDisputeTranslations } = require('./src/modules/open-settlement/dispute-pending-reconciliation')
+      ;(async () => {
+        const report = await reconcileStalePendingDisputeTranslations()
+        process.stdout.write('ST1_V3_OS_RESULT:' + JSON.stringify(report) + '\\n')
+        await prisma.$disconnect()
+        process.exit(0)
+      })().catch(async err => {
+        process.stderr.write(String(err.stack || err) + '\\n')
+        await prisma.$disconnect().catch(() => {})
+        process.exit(1)
+      })
+    `
+    const result = await new Promise<{ code: number | null; stdout: string; stderr: string }>((done, reject) => {
+      const child = spawn(process.execPath, ['-e', childCode], {
+        cwd: resolve(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let stdout = ''; let stderr = ''
+      child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+      const watchdog = setTimeout(() => child.kill('SIGKILL'), 60_000)
+      child.on('error', err => { clearTimeout(watchdog); reject(err) })
+      child.on('close', code => { clearTimeout(watchdog); done({ code, stdout, stderr }) })
+    })
+    expect({ code: result.code, stderr: result.stderr.slice(-2000) }).toEqual({ code: 0, stderr: expect.any(String) })
+    const line = result.stdout.split('\n').find(x => x.startsWith('ST1_V3_OS_RESULT:'))
+    expect(line).toBeDefined()
+    const report = JSON.parse(line!.slice('ST1_V3_OS_RESULT:'.length))
+    expect(report.reconciled).toContainEqual(expect.objectContaining({
+      escrowId: o.escrowId, pendingTransactionId: pending.id, verdict: 'LEFT_GUARD_PASSED',
+    }))
+    // A committed generation must not be changed by the recovery worker.
+    // Compare both the pending row and its parent dispute, not just counts.
+    const afterPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+    expect(afterPending.rulingAuthoritySignature).toBe(generation.rulingAuthoritySignature)
+    expect(afterPending.rulingAppealRound).toBe(generation.rulingAppealRound)
+    expect(afterPending.disputeId).toBe(o.disputeId)
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
+    // A second independent recovery process must be idempotent: no new
+    // pending, signature, Outcome, or economic authorization may appear.
+    const replay = await new Promise<{ code: number | null; stdout: string; stderr: string }>((done, reject) => {
+      const child = spawn(process.execPath, ['-e', childCode], {
+        cwd: resolve(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let stdout = ''; let stderr = ''
+      child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+      const watchdog = setTimeout(() => child.kill('SIGKILL'), 60_000)
+      child.on('error', err => { clearTimeout(watchdog); reject(err) })
+      child.on('close', code => { clearTimeout(watchdog); done({ code, stdout, stderr }) })
+    })
+    expect({ code: replay.code, stderr: replay.stderr.slice(-2000) }).toEqual({ code: 0, stderr: expect.any(String) })
+    const replayLine = replay.stdout.split('\n').find(x => x.startsWith('ST1_V3_OS_RESULT:'))
+    expect(replayLine).toBeDefined()
+    const replayReport = JSON.parse(replayLine!.slice('ST1_V3_OS_RESULT:'.length))
+    expect(replayReport.reconciled).not.toContainEqual(expect.objectContaining({
+      escrowId: o.escrowId, verdict: 'DELETED_GUARD_FAILED',
+    }))
+    const replayPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    expect(replayPending.id).toBe(pending.id)
+    expect(replayPending.rulingAuthoritySignature).toBe(generation.rulingAuthoritySignature)
+    expect(replayPending.rulingAppealRound).toBe(generation.rulingAppealRound)
+    expect(replayPending.disputeId).toBe(o.disputeId)
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
+  })
+
+  it('V3-S a signature persisted before dispatch throws is never lost by the rollback path', async () => {
+    const o = await openedDispute('v3-signed')
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+      await prisma.escrowTransactionSignature.create({
+        data: { pendingTxId: pending.id, participantId: o.buyerId, signedPsbtBase64: 'st1-v3-signed-before-throw' },
+      })
+      throw new Error('injected: signed after persist')
+    })
+    const dispute = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/ST1-R2 V3/)
+    } finally {
+      failing.mockRestore()
+    }
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 1 })
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await decide(pending.id, o.escrowId, await generationOf(pending.id))).toBe('SIGNED_MEANWHILE')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 1 })
+  })
+
+  it('V3-R repeated restart-style reconciliation preserves the same valid generation without duplicate dispatch', async () => {
+    const o = await openedDispute('v3-repeat')
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
+      throw new Error('injected: after persisted dispatch')
+    })
+    const dispute = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/ST1-R2 V3/)
+    } finally {
+      failing.mockRestore()
+    }
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    await age(pending.id)
+    const reports = await reconcileScoped([o.escrowId], 2)
+    for (const report of reports) {
+      expect(report.failed).toEqual([])
+      expect(report.reconciled).toEqual(expect.arrayContaining([
+        expect.objectContaining({ escrowId: o.escrowId, verdict: 'LEFT_GUARD_PASSED' }),
+      ]))
+    }
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+  })
+
+  it('V3-I independent module graph reconciles an after-persist throw using only durable state', async () => {
+    const o = await openedDispute('v3-isolated')
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      await (realInitiate as (...a: unknown[]) => Promise<unknown>)(...args)
+      throw new Error('injected: after persisted dispatch')
+    })
+    const dispute = await disputeOf(o)
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: o.disputeId, escrowId: o.escrowId, appealRound: dispute.appealRound, authorityId: o.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    try {
+      await expect(getDisputeService().resolveDispute(o.disputeId, o.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKp.secretKey), issuedAt))
+        .rejects.toThrow(/ST1-R2 V3/)
+    } finally {
+      failing.mockRestore()
+    }
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: o.escrowId } })
+    await age(pending.id)
+    // The separately loaded module graph uses a different Prisma client.
+    // Scope the scan to this escrow without substituting the reconciler.
+    const independent = restarted!
+    const delegate: any = independent.prisma.escrowPendingTransaction
+    const realFindMany = delegate.findMany.bind(delegate)
+    const spy = jest.spyOn(delegate, 'findMany').mockImplementation((args: any) =>
+      realFindMany({ ...args, where: { AND: [args?.where ?? {}, { escrowId: o.escrowId }] } }))
+    try {
+      const report = await independent.reconcileStalePendingDisputeTranslations()
+      expect(report.failed).toEqual([])
+      expect(report.reconciled).toEqual(expect.arrayContaining([
+        expect.objectContaining({ escrowId: o.escrowId, verdict: 'LEFT_GUARD_PASSED' }),
+      ]))
+    } finally {
+      spy.mockRestore()
+    }
+    expect(await roundState(pending.id, independent.prisma)).toEqual({ pending: true, signatures: 0 })
+    expect((await disputeOf(o)).status).toBe('RESOLVED')
+    expect(await outcomeRecords(o)).toBe(1)
+  })
+
+  it('V3-G an older generation cannot authorize deletion after appeal advances the dispute', async () => {
+    const o = await openedDispute('v3-generation')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const oldGeneration = await generationOf(pending.id)
+    await stale(pending.id, o)
+    await makeAppealable(o)
+    await appealService().appeal(o.disputeId, o.buyerId)
+    const appealed = await disputeOf(o)
+    expect(appealed.status).not.toBe('RESOLVED')
+    expect(appealed.appealRound).toBeGreaterThan(oldGeneration.rulingAppealRound)
+    const outcomeBefore = await outcomeRecords(o)
+    expect(await decide(pending.id, o.escrowId, oldGeneration)).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(outcomeBefore)
+    const after = await disputeOf(o)
+    expect(after.appealRound).toBe(appealed.appealRound)
+    expect(after.status).toBe(appealed.status)
+    expect(await edaCount(o)).toBe(0)
+  })
+
+  it('V3-GA an N+1 appeal committed first makes an old-generation cleanup fail closed', async () => {
+    const o = await openedDispute('v3-generation-appeal-first')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const oldGeneration = await generationOf(pending.id)
+    await stale(pending.id, o)
+    await makeAppealable(o)
+    // The legacy MULTISIG appeal fixture advances the generation using the
+    // actual appeal service. It must commit before old cleanup is invoked.
+    await appealService().appeal(o.disputeId, o.buyerId)
+    const appealed = await disputeOf(o)
+    expect(appealed.appealRound).toBeGreaterThan(oldGeneration.rulingAppealRound)
+    expect(appealed.status).not.toBe('RESOLVED')
+    const outcomeCount = await outcomeRecords(o)
+    const pendingBefore = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+    // The stale N decision cannot delete a pending or rewrite an N+1 dispute.
+    const verdict = await decide(pending.id, o.escrowId, oldGeneration)
+    expect(verdict).toBe('PROVENANCE_REJECTED')
+    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })).toEqual(pendingBefore)
+    expect(await disputeOf(o)).toEqual(appealed)
+    expect(await outcomeRecords(o)).toBe(outcomeCount)
+    expect(await edaCount(o)).toBe(0)
+    // Exercise the production sweep as well as the direct guarded deleter.
+    // A stale worker must not reinterpret the old pending as deletable after
+    // the appeal has committed a new generation.
+    const [recovery] = await reconcileScoped([o.escrowId])
+    expect(recovery.reconciled).not.toContainEqual(expect.objectContaining({
+      escrowId: o.escrowId,
+      verdict: 'DELETED_GUARD_FAILED',
+    }))
+    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })).toEqual(pendingBefore)
+    expect(await disputeOf(o)).toEqual(appealed)
+    expect(await outcomeRecords(o)).toBe(outcomeCount)
+    // Idempotent replay: a second sweep must not reinterpret the N+1 state
+    // as permission to delete the old pending or its economic Outcome.
+    const [secondRecovery] = await reconcileScoped([o.escrowId])
+    expect(secondRecovery.reconciled).not.toContainEqual(expect.objectContaining({
+      escrowId: o.escrowId,
+      verdict: 'DELETED_GUARD_FAILED',
+    }))
+    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })).toEqual(pendingBefore)
+    expect(await disputeOf(o)).toEqual(appealed)
+    expect(await outcomeRecords(o)).toBe(outcomeCount)
+    expect(await edaCount(o)).toBe(0)
+  })
+
+  it('V3-G0 intact MULTISIG arbiter commitment rejects N+1 appeal without mutating N', async () => {
+    const o = await openedDispute('v3-intact-appeal-guard')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const beforeDispute = await disputeOf(o)
+    const beforePending = await prisma.escrowPendingTransaction.findUniqueOrThrow({
+      where: { id: pending.id },
+    })
+    const beforeOutcome = await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })
+    const beforeCount = await outcomeRecords(o)
+    const beforeEda = await edaCount(o)
+    const committedKey = await prisma.escrowParticipantKey.findUniqueOrThrow({
+      where: { escrowId_role: { escrowId: o.escrowId, role: 'arbiter' } },
+    })
+    expect(committedKey.participantId).toBe(o.arbiterId)
+
+    // No SET LOCAL session_replication_role, no key deletion, no legacy fixture:
+    // this is the normal new-write MULTISIG appeal API and must fail closed.
+    await expect(appealService().appeal(o.disputeId, o.buyerId))
+      .rejects.toThrow(/immutable, script-committed arbiter identity/)
+    expect(await disputeOf(o)).toEqual(beforeDispute)
+    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({
+      where: { id: pending.id },
+    })).toEqual(beforePending)
+    expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })).toEqual(beforeOutcome)
+    expect(await outcomeRecords(o)).toBe(beforeCount)
+    expect(await edaCount(o)).toBe(beforeEda)
+    expect(await prisma.escrowParticipantKey.findUniqueOrThrow({
+      where: { escrowId_role: { escrowId: o.escrowId, role: 'arbiter' } },
+    })).toEqual(committedKey)
+  })
+
+  it('V3-GR blocked old-generation cleanup resumes safely after the D lock is released', async () => {
+    const o = await openedDispute('v3-generation-race')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const oldGeneration = await generationOf(pending.id)
+    await stale(pending.id, o)
+    await makeAppealable(o)
+    const releaseD = await holdD(o)
+    let released = false
+    try {
+      const cleanup = decide(pending.id, o.escrowId, oldGeneration)
+      for (let i = 0; i < 1000; i++) {
+        if ((await lockMap(o)).some(row => row.lock === 'D' && !row.granted)) break
+        if (i === 999) throw new Error('old-generation cleanup never waited on D lock')
+        await new Promise<void>(done => setTimeout(done, 10))
+      }
+      await releaseD()
+      released = true
+      // Cleanup is allowed to delete this stale unsigned pending before
+      // the appeal commits. It must not mutate the later appeal generation.
+      expect(await cleanup).toBe('DELETED')
+      expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
+      await appealService().appeal(o.disputeId, o.buyerId)
+      const appealed = await disputeOf(o)
+      expect(appealed.appealRound).toBeGreaterThan(oldGeneration.rulingAppealRound)
+      expect(await decide(pending.id, o.escrowId, oldGeneration)).not.toBe('DELETED')
+      expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
+      const after = await disputeOf(o)
+      expect(after.appealRound).toBe(appealed.appealRound)
+      expect(after.status).toBe(appealed.status)
+    } finally {
+      if (!released) await releaseD()
+    }
+  })
+
+  it('V3-GI a queued N+1 appeal commits before an old N cleanup blocked on the same D lock', async () => {
+    const o = await openedDispute('v3-generation-interleave')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const oldGeneration = await generationOf(pending.id)
+    await stale(pending.id, o)
+    await makeAppealable(o)
+    const beforePending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+    const outcomeCount = await outcomeRecords(o)
+    const originalDispute = await disputeOf(o)
+    const originalOutcome = await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })
+    const releaseD = await holdD(o)
+    let released = false
+    try {
+      // Queue the production appeal first while D is held, then queue
+      // the old cleanup behind it. Both use independent DB transactions.
+      const appeal = appealService().appeal(o.disputeId, o.buyerId)
+      for (let i = 0; i < 1000; i++) {
+        if ((await lockMap(o)).some(row => row.lock === 'D' && !row.granted)) break
+        if (i === 999) throw new Error('N+1 appeal never waited on D lock')
+        await new Promise<void>(done => setTimeout(done, 10))
+      }
+      const cleanup = decide(pending.id, o.escrowId, oldGeneration)
+      let waitingBackends: number[] = []
+      for (let i = 0; i < 1000; i++) {
+        waitingBackends = (await lockMap(o))
+          .filter(row => row.lock === 'D' && !row.granted)
+          .map(row => row.pid)
+        if (new Set(waitingBackends).size >= 2) break
+        if (i === 999) throw new Error('old N cleanup never queued behind the appeal on a distinct PG backend')
+        await new Promise<void>(done => setTimeout(done, 10))
+      }
+      // A single re-entrant connection cannot establish this interleaving:
+      // the appeal and stale cleanup must actually wait on distinct PG backends.
+      expect(new Set(waitingBackends).size).toBeGreaterThanOrEqual(2)
+      await releaseD()
+      released = true
+      await appeal
+      const appealed = await disputeOf(o)
+      expect(appealed.appealRound).toBeGreaterThan(oldGeneration.rulingAppealRound)
+      expect(appealed.status).toBe('APPEALED')
+      expect(await cleanup).toBe('PROVENANCE_REJECTED')
+      expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })).toEqual(beforePending)
+      expect(await disputeOf(o)).toEqual(appealed)
+      expect(appealed.appealRound).toBe(originalDispute.appealRound + 1)
+      expect(await outcomeRecords(o)).toBe(outcomeCount)
+      expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+        where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+      })).toEqual(originalOutcome)
+      expect(await edaCount(o)).toBe(0)
+    } finally {
+      if (!released) await releaseD()
+    }
   })
 
   it('V2 a committed Economic Disposition Authorization names the round: the cleanup never deletes it, before or after an appeal', async () => {
@@ -718,6 +2420,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
     await authorizeDisputedPendingExecution(row) // the production gate commits the authorization
     expect(await edaCount(o)).toBe(1)
+    const authorizedPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+    const authorizedGeneration = await generationOf(pending.id)
+    const authorizedOutcomeCount = await outcomeRecords(o)
+    expect(authorizedOutcomeCount).toBe(1)
 
     expect(await decide(pending.id, o.escrowId, await generationOf(pending.id))).toBe('PROVENANCE_REJECTED')
     await makeAppealable(o)
@@ -725,6 +2431,11 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await decide(pending.id, o.escrowId, await generationOf(pending.id))).toBe('PROVENANCE_REJECTED')
     expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
     expect(await edaCount(o)).toBe(1)
+    const preservedPending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { id: pending.id } })
+    expect(preservedPending.id).toBe(authorizedPending.id)
+    expect(preservedPending.rulingAuthoritySignature).toBe(authorizedPending.rulingAuthoritySignature)
+    expect(await generationOf(pending.id)).toEqual(authorizedGeneration)
+    expect(await outcomeRecords(o)).toBe(authorizedOutcomeCount)
   })
 
   // ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -769,6 +2480,71 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     ;[report] = await reconcileScoped([o.escrowId])
     expect(report.failed).toEqual([{ escrowId: o.escrowId, error: 'missing or ambiguous pending ruling provenance; refusing cleanup' }])
     expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+  })
+
+  it('P1b a caller without generation or with the wrong escrow cannot delete an unsigned guard-failing round', async () => {
+    const o = await openedDispute('p1b')
+    const other = await openedDispute('p1b-other')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await stale(pending.id, o)
+    const generation = await generationOf(pending.id)
+
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId, undefined)).toBe('PROVENANCE_REJECTED')
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, other.escrowId, generation)).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(1)
+
+    // The same round is deletable only with its exact escrow and recorded generation.
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId, generation)).toBe('DELETED')
+    expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(1)
+  })
+
+  it('P1c a forged authority signature in the nominated generation cannot delete a pending round', async () => {
+    const o = await openedDispute('p1c')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await stale(pending.id, o)
+    const generation = await generationOf(pending.id)
+
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId, {
+      ...generation, rulingAuthoritySignature: generation.rulingAuthoritySignature + '-forged',
+    })).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(1)
+
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId, generation)).toBe('DELETED')
+    expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(1)
+  })
+
+  it('P1d a forged ruling appeal round cannot delete the current generation', async () => {
+    const o = await openedDispute('p1d')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await stale(pending.id, o)
+    const generation = await generationOf(pending.id)
+
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId, {
+      ...generation, rulingAppealRound: generation.rulingAppealRound + 1,
+    })).toBe('PROVENANCE_REJECTED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(1)
+
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId, generation)).toBe('DELETED')
+    expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(1)
+  })
+
+  it('P1e an exact generation is not permission to delete a translation that still passes its Outcome guard', async () => {
+    const o = await openedDispute('p1e')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const generation = await generationOf(pending.id)
+
+    // The candidate is unsigned and has exact provenance, but its production
+    // translation is intact. The outcome guard must veto deletion.
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId, generation)).toBe('GUARD_PASSED')
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await outcomeRecords(o)).toBe(1)
   })
 
   it('P2 a round whose recorded provenance names another escrow\'s dispute is rejected even though it is internally consistent', async () => {
@@ -851,6 +2627,179 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     expect(await outcomeRecords(o)).toBe(1)
   })
 
+  it('R1-P a fresh OS child process executes the real reconciliation entrypoint against persisted state', async () => {
+    const o = await openedDispute('r1-os-child')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await stale(pending.id, o)
+    const before = await disputeOf(o)
+    const { spawn } = require('child_process') as typeof import('child_process')
+    const { resolve } = require('path') as typeof import('path')
+    const childCode = `
+      require('ts-node/register/transpile-only')
+      const { prisma } = require('./src/common/database')
+      const { reconcileStalePendingDisputeTranslations } = require('./src/modules/open-settlement/dispute-pending-reconciliation')
+      ;(async () => {
+        const result = await reconcileStalePendingDisputeTranslations()
+        process.stdout.write('ST1_CHILD_RESULT:' + JSON.stringify(result) + '\\n')
+        await prisma.$disconnect()
+        process.exit(0)
+      })().catch(async err => {
+        process.stderr.write(String(err.stack || err) + '\\n')
+        await prisma.$disconnect().catch(() => {})
+        process.exit(1)
+      })
+    `
+    const childResult = await new Promise<{ code: number | null; stdout: string; stderr: string }>((done, reject) => {
+      const child = spawn(process.execPath, ['-e', childCode], {
+        cwd: resolve(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', MULTISIG_SEED: process.env.MULTISIG_SEED || 'st1-temporal-seed' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let stdout = ''
+      let stderr = ''
+      child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+      const watchdog = setTimeout(() => child.kill('SIGKILL'), 60_000)
+      child.on('error', (err) => { clearTimeout(watchdog); reject(err) })
+      child.on('close', (code) => { clearTimeout(watchdog); done({ code, stdout, stderr }) })
+    })
+    expect({ exitCode: childResult.code, stderr: childResult.stderr.slice(-4000) }).toEqual({ exitCode: 0, stderr: expect.any(String) })
+    const resultLine = childResult.stdout.split('\n').find(line => line.startsWith('ST1_CHILD_RESULT:'))
+    expect({ foundResultLine: Boolean(resultLine), exitCode: childResult.code, stdoutTail: childResult.stdout.slice(-2000), stderrTail: childResult.stderr.slice(-2000) }).toEqual({ foundResultLine: true, exitCode: 0, stdoutTail: expect.any(String), stderrTail: expect.any(String) })
+    const report = JSON.parse(resultLine!.slice('ST1_CHILD_RESULT:'.length))
+    expect(report.reconciled).toContainEqual({
+      escrowId: o.escrowId, pendingTransactionId: pending.id, verdict: 'DELETED_GUARD_FAILED',
+    })
+    expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
+    // Replay through the production entrypoint after the independent child
+    // has exited: no additional deletion, dispatch, or authority change.
+    const [replay] = await reconcileScoped([o.escrowId])
+    expect(replay).toEqual({
+      reconciled: [], skippedTooYoung: [], skippedHasSignatures: [], alreadyCleaned: [], failed: [],
+    })
+    expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
+  })
+
+  it('R1-K an OS process is SIGKILLed after a durable ruling, and a fresh process reconciles without changing authority', async () => {
+    const o = await openedDispute('r1-killed-child')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await stale(pending.id, o)
+    const generation = await generationOf(pending.id)
+    const before = await disputeOf(o)
+    const { spawn } = require('child_process') as typeof import('child_process')
+    const { resolve } = require('path') as typeof import('path')
+    const childCode = `
+      require('ts-node/register/transpile-only')
+      const { prisma } = require('./src/common/database')
+      const { reconcileStalePendingDisputeTranslations } = require('./src/modules/open-settlement/dispute-pending-reconciliation')
+      ;(async () => {
+        const result = await reconcileStalePendingDisputeTranslations()
+        process.stdout.write('ST1_CHILD_RESULT:' + JSON.stringify(result) + '\\n')
+        await prisma.$disconnect()
+        process.exit(0)
+      })().catch(async err => {
+        process.stderr.write(String(err.stack || err) + '\\n')
+        await prisma.$disconnect().catch(() => {})
+        process.exit(1)
+      })
+    `
+    // A holds the real E lock, preventing any cleanup mutation by process B.
+    // B must be demonstrably waiting on that lock before the OS kills it.
+    const releaseE = await holdE(o)
+    let child: import('child_process').ChildProcessWithoutNullStreams | undefined
+    try {
+      child = spawn(process.execPath, ['-e', childCode], {
+        cwd: resolve(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', TRUSTED_ARBITRATORS: process.env.TRUSTED_ARBITRATORS || '' },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      let childStdout = ''; let childStderr = ''
+      child.stdout.on('data', (chunk: Buffer) => { childStdout += chunk.toString() })
+      child.stderr.on('data', (chunk: Buffer) => { childStderr += chunk.toString() })
+      const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((done, reject) => {
+        child!.on('error', reject)
+        child!.on('close', (code, signal) => done({ code, signal }))
+      })
+      // Observe this escrow's E-lock waiter, not an unrelated suite's advisory lock.
+      // The child must still be alive when PostgreSQL reports the blocked worker.
+      let waitTimeout: ReturnType<typeof setTimeout> | undefined
+      const waitForTarget = (async (): Promise<'waiting'> => {
+        for (let i = 0; i < 1000; i++) {
+          if ((await lockMap(o)).some(row => row.lock === 'E' && !row.granted)) return 'waiting'
+          await new Promise<void>(done => setTimeout(done, 10))
+        }
+        throw new Error('R1-K child did not wait on the target escrow E lock')
+      })()
+      const waitResult = await Promise.race([
+        waitForTarget,
+        exited.then(() => 'exited' as const),
+        new Promise<'timeout'>(done => { waitTimeout = setTimeout(() => done('timeout'), 45_000) }),
+      ]).finally(() => { if (waitTimeout) clearTimeout(waitTimeout) })
+      if (waitResult !== 'waiting') {
+        throw new Error(`R1-K child did not reach advisory lock (${waitResult}); stdout=${childStdout.slice(-2000)} stderr=${childStderr.slice(-2000)}`)
+      }
+      const targetWaiters = (await lockMap(o)).filter(row => row.lock === 'E' && !row.granted)
+      expect(targetWaiters).toHaveLength(1)
+      // Confirm the target waiter is a live PostgreSQL backend. This alone does
+      // not correlate its PID to the Node child; process identity remains unproven.
+      const waiterActivity = await prisma.$queryRaw<Array<{ pid: number; state: string | null }>>`
+        SELECT pid, state FROM pg_stat_activity WHERE pid = ${targetWaiters[0].pid}::int
+      `
+      expect(waiterActivity).toHaveLength(1)
+      expect(waiterActivity[0].state).toBe('active')
+      child.kill('SIGKILL')
+      const death = await exited
+      expect(death.signal).toBe('SIGKILL')
+    } finally {
+      if (child && !child.killed) child.kill('SIGKILL')
+      await releaseE()
+    }
+    expect(await roundState(pending.id)).toEqual({ pending: true, signatures: 0 })
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
+    // Recovery must be performed by a fresh OS process, not the Jest parent.
+    const recovery = await new Promise<{ code: number | null; stdout: string; stderr: string }>((done, reject) => {
+      const worker = spawn(process.execPath, ['-e', childCode], {
+        cwd: resolve(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', TRUSTED_ARBITRATORS: process.env.TRUSTED_ARBITRATORS || '' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let stdout = ''; let stderr = ''
+      const watchdog = setTimeout(() => worker.kill('SIGKILL'), 60_000)
+      worker.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+      worker.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+      worker.on('error', err => { clearTimeout(watchdog); reject(err) })
+      worker.on('close', code => { clearTimeout(watchdog); done({ code, stdout, stderr }) })
+    })
+    expect({ code: recovery.code, stderr: recovery.stderr.slice(-2000) }).toEqual({ code: 0, stderr: expect.any(String) })
+    const marker = recovery.stdout.split('\n').find(line => line.startsWith('ST1_CHILD_RESULT:'))
+    expect(marker).toBeDefined()
+    const report = JSON.parse(marker!.slice('ST1_CHILD_RESULT:'.length))
+    expect(report.reconciled).toContainEqual({ escrowId: o.escrowId, pendingTransactionId: pending.id, verdict: 'DELETED_GUARD_FAILED' })
+    expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
+    expect(await deletePendingRoundIfStillUnsigned(pending.id, o.escrowId, generation)).toBe('ALREADY_GONE')
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
+    // Re-enter the actual reconciliation entrypoint after the recovered process exits.
+    // The old generation must not be nominated or mutated again.
+    const [postRecoveryReplay] = await reconcileScoped([o.escrowId])
+    expect(postRecoveryReplay).toEqual({
+      reconciled: [], skippedTooYoung: [], skippedHasSignatures: [], alreadyCleaned: [], failed: [],
+    })
+    expect(await roundState(pending.id)).toEqual({ pending: false, signatures: 0 })
+    expect(await disputeOf(o)).toEqual(before)
+    expect(await outcomeRecords(o)).toBe(1)
+    expect(await edaCount(o)).toBe(0)
+  })
+
   it('R2 replaying the whole sweep after the round is gone changes nothing durable', async () => {
     const o = await openedDispute('r2')
     const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
@@ -885,7 +2834,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       await age(p1.id)
       await decide(p1.id, f1.escrowId, await generationOf(p1.id))
 
-      // Flow 2: a ruling whose dispatch fails after the round was persisted (the revert path), then the cleanup.
+      // Flow 2: after-persist dispatch failure preserves the ruling under D -> E locks.
       const f2 = await openedDispute('x1b'); escrowIds.add(f2.escrowId)
       const realInitiate = escrowService.initiateRelease.bind(escrowService)
       const failing = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
@@ -895,7 +2844,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       const d2 = await prisma.dispute.findUniqueOrThrow({ where: { id: f2.disputeId } })
       const issuedAt = new Date().toISOString()
       const payload2 = { disputeId: f2.disputeId, escrowId: f2.escrowId, appealRound: d2.appealRound, authorityId: f2.arbiterId, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
-      await expect(getDisputeService().resolveDispute(f2.disputeId, f2.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload2, arbiterKp.secretKey), issuedAt)).rejects.toThrow(/injected/)
+      await expect(getDisputeService().resolveDispute(f2.disputeId, f2.arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload2, arbiterKp.secretKey), issuedAt)).rejects.toThrow(/ST1-R2 V3/)
       failing.mockRestore()
 
       // Flow 3: a stale round, an appeal, the cleanup, and the real entry point.

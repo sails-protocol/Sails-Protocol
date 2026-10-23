@@ -187,7 +187,7 @@ export async function deletePendingRoundIfStillUnsigned(
         content.ruling !== generation.rulingOutcome) return 'OUTCOME_MISMATCH'
     const record = fromDisputeRulingRow(row)
     if (!record.outcome) return 'OUTCOME_ABSENT'
-    const verdict = validateTranslatedOutputsAgainstOutcome(pending.unsignedPsbtBase64, record.outcome, networkFor(config.multisig.network))
+    const verdict = validateTranslatedOutputsAgainstOutcome(pending.unsignedPsbtBase64, record.outcome, networkFor(config.multisig.network), pending.minerFeeSats ?? undefined)
     if (verdict.ok) return 'GUARD_PASSED'
 
     const { count } = await tx.escrowPendingTransaction.deleteMany({

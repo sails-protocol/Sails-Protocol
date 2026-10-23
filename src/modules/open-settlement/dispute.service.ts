@@ -46,6 +46,11 @@ import { economicDispositionLockKey } from './economic-disposition-authority'
 import { assertDisputeDispatchEligible } from './dispute-dispatch'
 import { assertTranslationMatchesOutcome } from './dispatch-translation-guard'
 import { networkFor } from './multisig.provider'
+import { deletePendingRoundIfStillUnsigned } from './dispute-pending-reconciliation'
+
+// ST1-R2: a failed deletion proof must not trigger the generic ruling-revert path.
+// It is an operational anomaly, not evidence that the durable ruling can be undone.
+class St1R2DeletionRefused extends Error {}
 
 // RFC-021 D6 — appeal fee, PROTOCOL_ECONOMY.md §4.4's own arbitration-fee
 // baseline (1-2% of the disputed amount, charged as Escrow.feeCharged by
@@ -507,6 +512,7 @@ export class DisputeService {
       return { updated: row, displacedStatus: locked!.status }
     })
 
+    let directDispatchAttempted = false
     try {
       // Second real bug found while building SPLIT (RFC-021 D9,
       // 2026-08-02) — see escrowService.isSignatureCollectionType()'s own
@@ -538,12 +544,14 @@ export class DisputeService {
           // Issue #254 - dispute.id is real, immutable, generation-scoped provenance: it travels with
           // the settlement.escrow.released event itself, so a later appeal() mutating Dispute can never
           // retroactively change what this specific release meant.
+          directDispatchAttempted = true
           await escrowService.releaseFunds(dispute.escrowId, undefined, triggeredBy, dispute.id)
         }
       } else if (ruling === 'REFUND') {
         if (needsSignatureCollection) {
           await escrowService.initiateRefund(dispute.escrowId, triggeredBy, undefined)
         } else {
+          directDispatchAttempted = true
           await escrowService.refundFunds(dispute.escrowId, triggeredBy, dispute.id)
         }
       } else if (ruling === 'SPLIT') {
@@ -564,10 +572,15 @@ export class DisputeService {
         if (needsSignatureCollection) {
           await escrowService.initiateSplit(dispute.escrowId, undefined, undefined, splitBuyerBps, triggeredBy)
         } else {
+          directDispatchAttempted = true
           await escrowService.splitFunds(dispute.escrowId, undefined, undefined, splitBuyerBps, triggeredBy)
         }
       }
     } catch (err) {
+      // Direct provider errors may mean funds moved but the acknowledgement was lost.
+      // Never erase signed economic authority on an uncertain external outcome.
+      // A pre-dispatch failure still follows the exact-generation rollback below.
+      if (directDispatchAttempted) throw err
       // CTO Gate R2 (#222) finding R2-1 — this revert used to be an
       // unconditional `prisma.dispute.update()` by id alone, running
       // AFTER the resolve-write's own lock already released (the provider
@@ -693,7 +706,7 @@ export class DisputeService {
       const buyerDestination = commitResult.destinations.find((d) => d.beneficiary === buyerId)?.destination
       const sellerDestination = commitResult.destinations.find((d) => d.beneficiary === sellerId)?.destination
 
-      let pending: { unsignedPsbtBase64: string; minerFeeSats: number | null }
+      let pending: Awaited<ReturnType<typeof escrowService.initiateRelease>>
       if (payload.outcome === 'RELEASE') {
         pending = await escrowService.initiateRelease(dispute.escrowId, buyerDestination, payload.authorityId)
       } else if (payload.outcome === 'REFUND') {
@@ -719,10 +732,42 @@ export class DisputeService {
         // actually blocks dispatch (mission §19: "blocked before
         // broadcast if translated intent is inspectable" — it was, and
         // this is the block).
-        await prisma.escrowPendingTransaction.deleteMany({ where: { escrowId: dispute.escrowId } })
+        const generation = pending.disputeId && pending.rulingAppealRound !== null &&
+          pending.rulingArbiterId && pending.rulingOutcome &&
+          pending.rulingAuthoritySignature && pending.rulingAuthorityIssuedAt
+          ? {
+              disputeId: pending.disputeId,
+              rulingAppealRound: pending.rulingAppealRound,
+              rulingArbiterId: pending.rulingArbiterId,
+              rulingOutcome: pending.rulingOutcome,
+              rulingAuthoritySignature: pending.rulingAuthoritySignature,
+              rulingAuthorityIssuedAt: pending.rulingAuthorityIssuedAt,
+            }
+          : undefined
+        let deletion: Awaited<ReturnType<typeof deletePendingRoundIfStillUnsigned>>
+        try {
+          deletion = await deletePendingRoundIfStillUnsigned(pending.id, dispute.escrowId, generation)
+        } catch (cleanupErr) {
+          // A lock timeout or database failure proves nothing about this pending.
+          // Never fall into the generic ruling rollback after an unproven cleanup.
+          throw new St1R2DeletionRefused(
+            `ST1-R2: deletion proof failed for pending ${pending.id}; preserve ruling for reconciliation: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`,
+          )
+        }
+        if (deletion !== 'DELETED') {
+          throw new St1R2DeletionRefused(
+            `ST1-R2: guard rejected pending ${pending.id} but exact-generation deletion was refused (${deletion}); preserve durable authority for reconciliation`,
+          )
+        }
         throw guardErr
       }
     } catch (err) {
+      if (err instanceof St1R2DeletionRefused) {
+        // A signed, replaced, committed or otherwise unprovable round cannot be erased.
+        // The durable ruling must remain available for explicit reconciliation.
+        // Do not execute the generic rollback against an authority we did not prove safe to unwind.
+        throw err
+      }
       // Same revert discipline as applyRuling()'s own catch above,
       // extended to also delete the durable Core record this method
       // additionally created — a reverted ruling must never leave a
@@ -751,10 +796,47 @@ export class DisputeService {
       // cleared, or drop a proposal that really was displaced. The
       // proposal fields themselves need no restoring: the ruling claim
       // never touches them, and nothing can change them while RESOLVED.
-      await prisma.$transaction(async (tx) => {
+      // V3: the dispatch adapter may persist a pending PSBT and throw before
+      // returning. A generic rollback would strand that round without its
+      // Outcome, making both reconciliation and retry impossible. Inspect
+      // durable state under D -> E locks before any reversal. Preserve
+      // authority only when the pending belongs to this exact committed
+      // ruling generation. A pre-existing cooperative round is not proof
+      // of this ruling's dispatch and must not suppress a valid rollback.
+      // Signature and translation safety remain owned by the locked
+      // reconciliation guard, never by this catch block.
+      const mayRevert = await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
-
-        await tx.dispute.updateMany({
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dispute.escrowId})::bigint)`
+        const pending = await tx.escrowPendingTransaction.findUnique({
+          where: { escrowId: dispute.escrowId },
+          select: {
+            id: true, disputeId: true, rulingAppealRound: true,
+            rulingArbiterId: true, rulingOutcome: true,
+            rulingAuthoritySignature: true, rulingAuthorityIssuedAt: true,
+          },
+        })
+        // Fail closed when any economic disposition authorization is already durable
+        // for this escrow. A missing/replaced pending is not evidence that an
+        // authorization was never committed; authorization is indexed by its
+        // pending operation ID and must survive later pending lifecycle changes.
+        // Conservative escrow-wide check also protects older generations.
+        const committedEconomicAuthority = await tx.economicDispositionAuthorization.findFirst({
+          where: { escrowId: dispute.escrowId },
+          select: { id: true },
+        })
+        if (committedEconomicAuthority) return false
+        // A pre-existing cooperative signing round is NOT proof that
+        // this ruling's dispatch happened. Preserve authority only for
+        // the exact generation this invocation committed.
+        if (pending &&
+            pending.disputeId === dispute.id &&
+            pending.rulingAppealRound === dispute.appealRound &&
+            pending.rulingArbiterId === payload.authorityId &&
+            pending.rulingOutcome === payload.outcome &&
+            pending.rulingAuthoritySignature === authoritySignature &&
+            pending.rulingAuthorityIssuedAt?.getTime() === new Date(payload.issuedAt).getTime()) return false
+        const reverted = await tx.dispute.updateMany({
           where: {
             id: dispute.id,
             status: 'RESOLVED',
@@ -765,8 +847,25 @@ export class DisputeService {
           },
           data: { ...(await rulingRevertTarget(tx, dispute.escrowId, commitResult.displacedStatus)), ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
         })
+        if (reverted.count !== 1) return false
+        // The Outcome belongs to the same generation as this ruling.
+        // Remove it before releasing D -> E locks: a later generation
+        // must never observe a reverted dispute with the old Outcome,
+        // nor have its own Outcome deleted by a delayed outer catch.
+        await tx.semanticTransitionRecord.deleteMany({
+          where: {
+            interactionId: dispute.escrowId,
+            transitionType: 'escrow.dispute.rule',
+            appealRound: dispute.appealRound,
+          },
+        })
+        return true
       })
-      await revertDisputeRulingRecord(dispute.escrowId, dispute.appealRound)
+      if (!mayRevert) {
+        throw new St1R2DeletionRefused(
+          `ST1-R2 V3: dispatch failure cannot prove a safe ruling rollback for dispute ${dispute.id}; preserve durable authority for recovery`,
+        )
+      }
       throw err
     }
 

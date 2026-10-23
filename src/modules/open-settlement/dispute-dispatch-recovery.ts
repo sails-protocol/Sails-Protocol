@@ -73,6 +73,7 @@ import { evaluateDisputeDispatchEligibility } from './dispute-dispatch'
 import { blocksRulingDispatch } from './pending-round-supersession'
 import { assertTranslationMatchesOutcome, TranslationGuardError } from './dispatch-translation-guard'
 import { networkFor } from './multisig.provider'
+import { deletePendingRoundIfStillUnsigned } from './dispute-pending-reconciliation'
 import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from './discretionary-authority'
 import { childLogger } from '../../common/logger'
 
@@ -152,6 +153,13 @@ async function claimCandidates(limit: number): Promise<ClaimedCandidate[]> {
         AND NOT EXISTS (SELECT 1 FROM escrow_pending_transactions p WHERE p."escrowId" = d."escrowId"
           AND (p."disputeId" IS NOT NULL
                OR cardinality(p."requiredSigners") <= (SELECT count(*) FROM escrow_transaction_signatures s WHERE s."pendingTxId" = p.id)))
+        -- A committed economic execution authorization survives pending-row loss.
+        -- Never treat that state as an unexecuted C4 dispatch: external settlement
+        -- may already be in flight or have succeeded without local confirmation.
+        AND NOT EXISTS (
+          SELECT 1 FROM economic_disposition_authorizations a
+          WHERE a."escrowId" = d."escrowId"
+        )
         AND EXISTS (
           SELECT 1 FROM semantic_transition_records r
           WHERE r."interactionId" = d."escrowId"
@@ -232,7 +240,24 @@ export async function reconcileMissingDispatch(limit: number = DISPATCH_RECOVERY
         continue
       }
 
-      let pending: { unsignedPsbtBase64: string; minerFeeSats: number | null }
+      // Defense in depth: a durable EDA may appear after claimCandidates()
+      // but before this worker reaches dispatch. Never rebuild an operation
+      // once execution authority was committed for this escrow.
+      // This second read is not a serialization proof: the initiation path
+      // must still enforce its own concurrent authority invariants.
+      const committedExecution = await prisma.economicDispositionAuthorization.findFirst({
+        where: { escrowId: dispute.escrowId },
+        select: { id: true },
+      })
+      if (committedExecution) {
+        report.notEligible.push({
+          escrowId: dispute.escrowId,
+          reason: 'committed economic disposition authorization exists; refusing C4 redispatch',
+        })
+        continue
+      }
+
+      let pending: Awaited<ReturnType<typeof escrowService.initiateRelease>>
       try {
         if (ruling === 'RELEASE') {
           pending = await escrowService.initiateRelease(dispute.escrowId, buyerDestination, triggeredBy)
@@ -268,7 +293,27 @@ export async function reconcileMissingDispatch(limit: number = DISPATCH_RECOVERY
       try {
         assertTranslationMatchesOutcome(pending.unsignedPsbtBase64, outcome, network, pending.minerFeeSats ?? undefined)
       } catch (guardErr) {
-        await prisma.escrowPendingTransaction.deleteMany({ where: { escrowId: dispute.escrowId } })
+        const generation = pending.disputeId && pending.rulingAppealRound !== null &&
+          pending.rulingArbiterId && pending.rulingOutcome &&
+          pending.rulingAuthoritySignature && pending.rulingAuthorityIssuedAt
+          ? {
+              disputeId: pending.disputeId,
+              rulingAppealRound: pending.rulingAppealRound,
+              rulingArbiterId: pending.rulingArbiterId,
+              rulingOutcome: pending.rulingOutcome,
+              rulingAuthoritySignature: pending.rulingAuthoritySignature,
+              rulingAuthorityIssuedAt: pending.rulingAuthorityIssuedAt,
+            }
+          : undefined
+        const deletion = await deletePendingRoundIfStillUnsigned(pending.id, dispute.escrowId, generation)
+        if (deletion !== 'DELETED') {
+          report.failed.push({
+            escrowId: dispute.escrowId,
+            error: `ST1-R2 guard rejection; exact pending preserved: ${deletion}`,
+          })
+          log.error({ msg: 'ST1-R2: guarded C4 deletion refused; pending preserved', escrowId: dispute.escrowId, pendingId: pending.id, deletion })
+          continue
+        }
         const mismatches = guardErr instanceof TranslationGuardError ? guardErr.mismatches : [guardErr instanceof Error ? guardErr.message : String(guardErr)]
         report.guardFailed.push({ escrowId: dispute.escrowId, mismatches })
         log.error({ msg: 'M9-R: resumed dispatch failed re-validation against its own durable Outcome — deleted, zero signatures collected yet, no fund-movement risk', escrowId: dispute.escrowId, mismatches })

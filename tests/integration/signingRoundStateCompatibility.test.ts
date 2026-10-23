@@ -472,6 +472,65 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     expect({ escrow: await escrowOf(f.escrowId), distinct: [...new Set(chain.sailsBroadcasts)] }).toEqual({ escrow: { status: 'REFUNDED', txReleaseId: refundTxid(f) }, distinct: [refundTxid(f)] })
   })
 
+  it('PASS 0 transport-loss oracle: accepted refund with rejected network promise is recovered from chain truth on a fresh C8 run', async () => {
+    pg.requirePostgres('PASS 0 transport loss')
+    const f = await signedUnclaimedRefund('pass0-lost-response')
+    const inner = global.fetch
+    let injected = false
+    global.fetch = (async (url: string, init?: { method?: string; body?: string }) => {
+      if (!injected && init?.method === 'POST' && String(url).endsWith('/tx')) {
+        injected = true
+        const txid = bitcoin.Transaction.fromHex(init.body!).getId()
+        chain.sailsBroadcasts.push(txid)
+        chain.spentBy = txid
+        chain.known.add(txid)
+        throw new Error('transport connection lost after explorer accepted transaction')
+      }
+      return (inner as any)(url, init)
+    }) as any
+    const first = await c8Until(f.escrowId, restarted!.reconcile)
+    expect(injected).toBe(true)
+    expect(first.failed.map((x) => x.error)).toEqual([expect.stringMatching(/transport connection lost after explorer accepted transaction/)])
+    // The current PASS 0 catch reverts its claim. The durable signed operation
+    // must still be recovered from the exact txid already visible on chain.
+    expect(await escrowOf(f.escrowId)).toEqual({ status: 'FUNDS_LOCKED', txReleaseId: null })
+    const next = await c8Until(f.escrowId, restarted!.reconcile)
+    expect(next.resumed.map((x) => x.outcome)).toEqual(['ALREADY_BROADCAST'])
+    expect(await escrowOf(f.escrowId)).toEqual({ status: 'REFUNDED', txReleaseId: refundTxid(f) })
+    expect(chain.sailsBroadcasts).toEqual([refundTxid(f)])
+  })
+
+  it('LIVE transport-loss oracle: accepted refund with rejected network promise converges through C8 without rebroadcast', async () => {
+    pg.requirePostgres('LIVE transport loss')
+    const f = await locked('live-lost-response')
+    const round = await escrowService.initiateRefund(f.escrowId, f.sellerId)
+    const inner = global.fetch
+    let injected = false
+    global.fetch = (async (url: string, init?: { method?: string; body?: string }) => {
+      if (!injected && init?.method === 'POST' && String(url).endsWith('/tx')) {
+        injected = true
+        const txid = bitcoin.Transaction.fromHex(init.body!).getId()
+        chain.sailsBroadcasts.push(txid)
+        chain.spentBy = txid
+        chain.known.add(txid)
+        throw new Error('live transport lost after explorer accepted transaction')
+      }
+      return (inner as any)(url, init)
+    }) as any
+    let error = ''
+    for (const id of round.requiredSigners) {
+      const result = await settle(escrowService.submitTransactionSignature(f.escrowId, id, signPsbt(round.unsignedPsbtBase64, keyOf(f, id))))
+      if (!result.ok) error = result.e
+    }
+    expect(injected).toBe(true)
+    expect(error).toMatch(/live transport lost after explorer accepted transaction/)
+    expect(await escrowOf(f.escrowId)).toEqual({ status: 'FUNDS_LOCKED', txReleaseId: null })
+    const recovered = await c8Until(f.escrowId, restarted!.reconcile)
+    expect(recovered.resumed.map((x) => x.outcome)).toEqual(['ALREADY_BROADCAST'])
+    expect(chain.sailsBroadcasts).toHaveLength(1)
+    expect(await escrowOf(f.escrowId)).toEqual({ status: 'REFUNDED', txReleaseId: chain.sailsBroadcasts[0] })
+  })
+
   it('O/P: an ambiguous broadcast, then a payment claim: C8 sees the transaction on the network but never claims an invalid transition (manual review); a dispute then converges it once', async () => {
     pg.requirePostgres('O/P')
     const f = await locked('op')

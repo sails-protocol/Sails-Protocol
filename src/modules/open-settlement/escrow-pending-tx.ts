@@ -173,6 +173,19 @@ async function initiateSignatureCollectionCore(
     // escrow-lifecycle.ts's own header comment on withEscrowFundingLock()
     // for why this specific mechanism closes the race.
     return await withEscrowFundingLock(escrowId, async (tx) => {
+      if (arbitratedDispatch) {
+        // Serialize with the independent EDA commit writer under D -> E.
+        // The C4 preflight outside this transaction is not authoritative.
+        const committedExecution = await tx.economicDispositionAuthorization.findFirst({
+          where: { escrowId },
+          select: { id: true },
+        })
+        if (committedExecution) {
+          throw new EscrowError(
+            `Escrow ${escrowId} already has committed Economic Disposition Authority; refusing a new disputed pending operation`
+          )
+        }
+      }
       if (kind === 'release' || kind === 'split') {
         const uncertain = await escrowFundingEvidenceService.isFundingUncertain(escrowId, tx)
         if (uncertain) {
@@ -213,7 +226,7 @@ async function initiateSignatureCollectionCore(
           ...extraData,
         },
       })
-    })
+    }, arbitratedDispatch ? String(disputedRulingProvenance.disputeId) : undefined)
   } catch (err: any) {
     if (err?.code === 'P2002') {
       throw new EscrowError(`Escrow ${escrowId} already has a pending transaction awaiting signatures (concurrent initiate)`)

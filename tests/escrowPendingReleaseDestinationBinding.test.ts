@@ -172,6 +172,7 @@ jest.mock('../src/common/database', () => ({
         // top-level mocks so both call sites observe the same state.
         dispute: { findUnique: (...args: unknown[]) => mockDisputeFindUniqueLive(...args) },
         economicDispositionAuthorization: {
+          findFirst: (...args: unknown[]) => mockEdaFindUnique(...args),
           findUnique: (...args: unknown[]) => mockEdaFindUnique(...args),
           create: (...args: unknown[]) => mockEdaCreate(...args),
         },

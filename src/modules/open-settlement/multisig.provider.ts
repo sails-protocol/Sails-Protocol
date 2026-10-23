@@ -1089,6 +1089,10 @@ export class MultisigProvider implements SettlementProvider {
       maxResponseBytes: EXPLORER_SMALL_RESPONSE_MAX_BYTES,
     })
     if (!res.ok) {
+      // An explicit explorer rejection is observable, unlike a transport
+      // timeout or lost response. Keep the existing error contract for
+      // callers and tests; do not silently reinterpret HTTP 503 as a
+      // confirmed network acceptance.
       throw new EscrowError(`MULTISIG provider: broadcast failed with ${res.status}: ${await res.text()}`)
     }
     return (await res.text()).trim()

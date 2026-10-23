@@ -187,6 +187,8 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
       create: (...args: unknown[]) => mockParticipantKeyCreate(...args),
       findUnique: (...args: unknown[]) => mockParticipantKeyFindUnique(...(args as [any])),
     },
+    // Arbitrated dispatch must check EDA within the same transaction; no EDA in these fixtures.
+    economicDispositionAuthorization: { findFirst: jest.fn().mockResolvedValue(null) },
     escrowPendingTransaction: {
       create: (...args: unknown[]) => mockPendingTxCreate(...args),
       // Issue #291 - persistSettlementResult() verifies the live pending operation inside its transaction.
