@@ -587,11 +587,16 @@ class PrismaEscrowRepository implements EscrowRepository {
   }
 
   async revertStatus(escrowId: string, claimedStatus: string, fromStatus: string) {
-    const reverted = await prisma.escrow.updateMany({
-      where: { id: escrowId, status: claimedStatus as any },
-      data: { status: fromStatus as any },
+    // P4: serialize rollback with PASS 1 and settlement-result persistence.
+    // A provider result already recorded is never safe to roll back.
+    return prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
+      const reverted = await tx.escrow.updateMany({
+        where: { id: escrowId, status: claimedStatus as any, txReleaseId: null },
+        data: { status: fromStatus as any },
+      })
+      return reverted.count
     })
-    return reverted.count
   }
 }
 
