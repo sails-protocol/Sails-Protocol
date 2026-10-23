@@ -29,6 +29,34 @@ class MockRedis extends EventEmitter {
 }
 
 describe('Redis relay delivery transport with independent provider instances', () => {
+  it('does not accept forged positive ACKs from a different request ID', async () => {
+    const bus = new RedisBus()
+    const publisher = new MockRedis(bus)
+    const alice = new RedisRelayDeliveryTransport(
+      publisher as never, new MockRedis(bus) as never,
+      'sails:relay:delivery:origin', new WebSocketRelayTransportProvider(),
+    )
+    const blackhole = new MockRedis(bus)
+    await alice.start()
+    await blackhole.subscribe('sails:relay:delivery:blackhole')
+    try {
+      const delivery = alice.deliver('sails:relay:delivery:blackhole', {
+        destinationParticipantId: 'bob',
+        destinationLeaseToken: randomUUID(),
+        deadlineMs: Date.now() + 2500,
+        payload: 'opaque',
+      })
+      bus.publish('sails:relay:delivery:origin', JSON.stringify({
+        requestId: randomUUID(), accepted: true,
+      }))
+      // An unmatched ACK cannot complete delivery; only its timeout can.
+      expect(await delivery).toBe(false)
+    } finally {
+      await alice.close()
+      await blackhole.unsubscribe('sails:relay:delivery:blackhole')
+    }
+  })
+
   it('fails closed without a subscribed destination and leaves no pending request', async () => {
     const bus = new RedisBus()
     const alice = new RedisRelayDeliveryTransport(
