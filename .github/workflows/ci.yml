@@ -139,6 +139,19 @@ jobs:
       - name: Build and boot the production (runtime) Docker image
         run: bash ./scripts/docker-runtime-test.sh
 
+      # Vulnerability audit of what the production image REALLY contains (the image the step
+      # above just built): `npm audit` over the lockfile, failing only on high/critical advisories
+      # whose range matches a package copy installed in the image. This keeps the Prisma CLI chain
+      # (it lives in the migrate image) and the front-end workspaces out of the verdict without
+      # `--omit=optional`, which would also drop the native runtime the QVAC SDK needs. Known,
+      # tracked findings are formal exceptions with an expiry date, printed on every run
+      # (scripts/production-image-audit.exceptions.json). An audit that cannot run fails the step.
+      - name: Audit the packages shipped in the production image
+        run: |
+          docker run --rm -i --entrypoint node sails-runtime-ci:local - < scripts/image-package-inventory.js > image-inventory.tsv
+          npm audit --omit=dev --json > npm-audit.json || true
+          node scripts/production-image-audit.js npm-audit.json image-inventory.tsv scripts/production-image-audit.exceptions.json
+
       # The migration job a release runs BEFORE starting the new server version
       # (docs/DEPLOYMENT.md 6.0), against a throwaway PostgreSQL started by the
       # script itself: applies every migration to an empty database, is
