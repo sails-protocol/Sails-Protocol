@@ -42,7 +42,7 @@ cleanup() {
   status=$?
   if [ "$status" -ne 0 ]; then
     echo; echo "::group::FAILED during: ${STEP} (exit ${status})"
-    tail -n 40 "$LOGS"/*.log 2>/dev/null || true
+    tail -n 120 "$LOGS"/*.log 2>/dev/null || true
     docker logs "$SERVER" 2>&1 | tail -n 30 || true
     echo "::endgroup::"
   fi

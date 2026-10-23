@@ -163,8 +163,14 @@ ensure_evidence_bucket() {
       })()'
 }
 
-cmd_update() {
-  need_init
+# Starts the bundled evidence store and makes sure its bucket exists. Every failure is fatal and loud:
+# `a && b` under `set -e` would have skipped the store silently (the server boots without evidence storage).
+start_evidence_store() {
+  compose up -d --wait seaweedfs || { compose logs --tail 40 seaweedfs >&2 || true; die "the bundled evidence store did not become healthy"; }
+  ensure_evidence_bucket "$1" || die "the evidence bucket is not available"
+}
+
+cmd_update() {  need_init
   local tag="${1:-$(default_tag)}"
   docker image inspect "sails-server:$tag" >/dev/null 2>&1 && docker image inspect "sails-migrate:$tag" >/dev/null 2>&1 || cmd_build "$tag"
   with_images "$tag"
@@ -172,7 +178,7 @@ cmd_update() {
 
   say "starting the database services"
   compose up -d --wait postgres redis
-  case ",${COMPOSE_PROFILES:-}," in *,evidence-store,*) compose up -d --wait seaweedfs && ensure_evidence_bucket "$tag" ;; esac
+  case ",${COMPOSE_PROFILES:-}," in *,evidence-store,*) start_evidence_store "$tag" ;; esac
 
   if [ -n "$(compose exec -T postgres psql -h 127.0.0.1 -U sails -d sails -Atc "select to_regclass('public._prisma_migrations')" 2>/dev/null)" ]; then
     cmd_backup
