@@ -1520,6 +1520,32 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     })).toEqual(outcome)
   })
 
+  it('V3-E3d disputed dispatch waits on D before writing pending, then honors committed EDA', async () => {
+    const o = await openedDispute('v3-eda-d-lock-first')
+    const originalPending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await prisma.escrowPendingTransaction.delete({ where: { id: originalPending.id } })
+    const releaseD = await holdD(o)
+    const beforeWaiters = await waitingOnAdvisoryLocks()
+    const dispatch = escrowService.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId)
+    try {
+      await untilWaiting(beforeWaiters + 1)
+      // The production dispatch cannot persist while another transaction holds D.
+      expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(0)
+    } finally {
+      await releaseD()
+    }
+    await dispatch
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({
+      where: { escrowId: o.escrowId },
+    })
+    await authorizeDisputedPendingExecution(pending)
+    expect(await edaCount(o)).toBe(1)
+    await expect(escrowService.initiateRelease(
+      o.escrowId, o.buyerDestination, o.arbiterId,
+    )).rejects.toThrow()
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+  })
+
   it('V3-E4 C4 initiates target once, commits EDA for that pending and excludes replay', async () => {
     const o = await openedDispute('v3-eda-after-claim')
     const originalPending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
