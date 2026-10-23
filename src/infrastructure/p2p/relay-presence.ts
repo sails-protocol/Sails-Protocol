@@ -80,3 +80,28 @@ export async function releaseRelayPresence(participantId: string, token: string)
 export async function lookupRelayPresence(participantId: string): Promise<string | null> {
   return redis.get(presenceKey(participantId))
 }
+
+/**
+ * Read a routing lease with its remaining TTL in one Redis operation.
+ * This is still only a hint, never proof of remote socket delivery.
+ * The Lua script avoids pairing a token from one lease with the TTL of
+ * a replacement lease read in a separate round trip.
+ */
+export const RELAY_PRESENCE_SNAPSHOT_SCRIPT = `
+local token = redis.call('GET', KEYS[1])
+if not token then return { false, -2 } end
+local ttl = redis.call('PTTL', KEYS[1])
+if ttl <= 0 then return { false, ttl } end
+return { token, ttl }
+`
+
+export async function snapshotRelayPresence(participantId: string): Promise<{ token: string; ttlMs: number } | null> {
+  const result = await redis.eval(RELAY_PRESENCE_SNAPSHOT_SCRIPT, 1, presenceKey(participantId))
+  if (!Array.isArray(result) || result.length !== 2) throw new Error('Invalid relay presence snapshot')
+  const [token, ttlMs] = result
+  if (token === null || token === false) return null
+  if (typeof token !== 'string' || typeof ttlMs !== 'number' || !Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
+    throw new Error('Invalid relay presence snapshot')
+  }
+  return { token, ttlMs }
+}
