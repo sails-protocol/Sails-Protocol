@@ -10,6 +10,7 @@ describe('P4 escrow rollback serialization contract', () => {
   const transaction = prisma.$transaction as jest.Mock
   const updateMany = jest.fn()
   const executeRaw = jest.fn()
+  const claimUpdateMany = jest.fn()
 
   beforeEach(() => {
     jest.clearAllMocks()
@@ -17,6 +18,27 @@ describe('P4 escrow rollback serialization contract', () => {
       fn({ $executeRaw: executeRaw, escrow: { updateMany } }))
     executeRaw.mockResolvedValue(0)
     updateMany.mockResolvedValue({ count: 1 })
+  })
+
+  it('uses the caller transaction for the funding claim, not a separate Prisma write', async () => {
+    claimUpdateMany.mockResolvedValueOnce({ count: 1 })
+    const tx = { escrow: { updateMany: claimUpdateMany } } as any
+    await expect(escrowRepository.claimTransition('escrow-p4', 'CREATED', 'FUNDS_LOCKED', tx))
+      .resolves.toBe(1)
+    expect(claimUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'escrow-p4', status: 'CREATED' },
+      data: { status: 'FUNDS_LOCKED' },
+    })
+    expect(transaction).not.toHaveBeenCalled()
+    expect(prisma.escrow.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('returns a lost-race result from the caller transaction', async () => {
+    claimUpdateMany.mockResolvedValueOnce({ count: 0 })
+    const tx = { escrow: { updateMany: claimUpdateMany } } as any
+    await expect(escrowRepository.claimTransition('escrow-p4', 'CREATED', 'FUNDS_LOCKED', tx))
+      .resolves.toBe(0)
+    expect(transaction).not.toHaveBeenCalled()
   })
 
   it('acquires escrow advisory lock before the conditional rollback', async () => {
