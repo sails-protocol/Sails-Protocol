@@ -160,6 +160,14 @@ jobs:
           npm audit --omit=dev --json > npm-audit.json || true
           node scripts/production-image-audit.js npm-audit.json image-inventory.tsv scripts/production-image-audit.exceptions.json
 
+      # The migration image is shipped too and carries the Prisma CLI chain the server image does not
+      # (mysql2, deepmerge-ts, ...). Same audit, same exceptions file, against the image's own inventory.
+      - name: Audit the packages shipped in the migration image
+        run: |
+          docker build --target migrate -t sails-migrate-audit:local .
+          docker run --rm -i --entrypoint node sails-migrate-audit:local - < scripts/image-package-inventory.js > migrate-inventory.tsv
+          node scripts/production-image-audit.js npm-audit.json migrate-inventory.tsv scripts/production-image-audit.exceptions.json
+
       # The migration job a release runs BEFORE starting the new server version
       # (docs/DEPLOYMENT.md 6.0), against a throwaway PostgreSQL started by the
       # script itself: applies every migration to an empty database, is
