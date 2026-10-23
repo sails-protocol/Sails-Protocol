@@ -711,6 +711,13 @@ export class EscrowService {
         : { buyerPubkey: undefined, sellerPubkey: undefined, arbiterPubkey: undefined }
       const result = await provider.lockFunds(providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey, arbiterPubkey }))
 
+      // The provider interface promises a durable transaction identifier.
+      // Never persist an empty identifier as funding proof. A malformed
+      // response is still UNKNOWN, not proof of external non-acceptance.
+      if (typeof result.txId !== 'string' || result.txId.trim().length === 0) {
+        throw new EscrowError(`Provider returned no funding transaction identifier for escrow ${escrowId}; external outcome UNKNOWN`)
+      }
+
       const now = new Date()
       const expiresAt = new Date(now.getTime() + escrow.timelockHours * 3600 * 1000)
 
