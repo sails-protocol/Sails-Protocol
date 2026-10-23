@@ -114,7 +114,7 @@ export async function relayRoutes(app: FastifyInstance): Promise<void> {
       void releaseRelayPresence(participantId, leaseToken).catch(() => undefined)
       return
     }
-    webSocketRelayTransportProvider.registerSocket(participantId, socket)
+    webSocketRelayTransportProvider.registerSocket(participantId, socket, leaseToken)
     let renewing = false
     // A renewal can hang without rejecting. Never keep a socket open after
     // its last confirmed lease may have expired.
