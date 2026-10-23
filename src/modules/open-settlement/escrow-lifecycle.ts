@@ -282,9 +282,17 @@ export async function assertFundingNotUncertain(escrowId: string, escrowType: st
 // requirement that the mechanism stay scoped to the affected escrow.
 export async function withEscrowFundingLock<T>(
   escrowId: string,
-  fn: (tx: Prisma.TransactionClient) => Promise<T>
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  disputeId?: string
 ): Promise<T> {
   return prisma.$transaction(async (tx) => {
+    // Disputed dispatch must serialize with EDA commits on D BEFORE taking E.
+    // EDA's writer takes D, while funding/signature writers take E.
+    // Never reverse this order: D -> E is the established lock hierarchy.
+    if (disputeId) {
+      const disputeLockKey = `economic-disposition:${disputeId}`
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${disputeLockKey})::bigint)`
+    }
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
     return fn(tx)
   })
