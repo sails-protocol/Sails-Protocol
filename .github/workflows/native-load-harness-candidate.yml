@@ -1356,6 +1356,66 @@ jobs:
           if(!valid||!validLatency)throw Error('Rate candidate schedule or per-operation evidence not comparable');
           console.log('Rate candidate k6 shape PASS; cross-engine parity NOT established');
           NODE
+      - name: Exercise independent-start Intent candidate against disposable loopback backend
+        if: always()
+        env:
+          NODE_ENV: development
+          DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/sails_protocol
+          REDIS_URL: redis://127.0.0.1:6379
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Separate the auth budget from previous tests; never bypass rate limits.
+          sleep 65
+          node dist/src/main.js > /tmp/sails-independent-intent-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then echo 'Independent Intent backend exited'; exit 1; fi
+            if (echo > /dev/tcp/127.0.0.1/3000) >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" -eq 1 || { echo 'Independent Intent backend readiness timeout'; exit 1; }
+          if ! timeout 45s k6 run --quiet --summary-export=/tmp/sails-independent-intent-summary.json \
+            -e BASE_URL=http://127.0.0.1:3000 \
+            load-tests/tests/intent-independent-arrivals-candidate.js > /tmp/sails-independent-intent.log 2>&1; then
+            echo 'Independent Intent candidate failed; logs withheld to protect auth data'
+            exit 1
+          fi
+          node <<'NODE'
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const m=JSON.parse(fs.readFileSync('/tmp/sails-independent-intent-summary.json','utf8')).metrics||{};
+          const count=k=>m[k]?.count;
+          const required={
+            iterations:2,sails_authenticated_arrivals:2,sails_completed_intent_pairs:2,
+            sails_intent_create_samples:2,sails_intent_cancel_samples:2,
+            sails_observed_setup_timestamp_samples:2,http_reqs:12,
+            'http_reqs{name:intent_create}':2,'http_reqs{name:intent_cancel}':2,
+            sails_extra_scheduled_arrivals:0,dropped_iterations:0
+          };
+          const observed=Object.fromEntries(Object.keys(required).map(k=>[k,count(k)??null]));
+          const timing=m.sails_observed_setup_start_epoch_ms;
+          const span=(timing?.max??NaN)-(timing?.min??NaN);
+          console.log('Independent Intent bounded evidence:',JSON.stringify({
+            observed,entrySpanMs:Number.isFinite(span)?span:null,
+            checks:m.checks?.value??null,intentSuccess:m.sails_intent_success?.value??null,
+            httpFailureRate:m.http_req_failed?.value??null,artilleryParityEstablished:false
+          }));
+          for(const [k,v] of Object.entries(required))assert.equal(count(k),v,'Invalid '+k);
+          assert.equal(m.checks?.value,1);
+          assert.equal(m.sails_intent_success?.value,1);
+          assert.equal(m.http_req_failed?.value,0);
+          assert.ok(Number.isFinite(span)&&span>=700&&span<=1300,
+            'Independent Intent entry spacing outside experimental bound');
+          for(const key of ['sails_intent_create_duration','sails_intent_cancel_duration']){
+            const metric=m[key];
+            assert.ok(metric,'Missing scoped latency '+key);
+            for(const q of ['med','p(95)','p(99)'])
+              assert.ok(Number.isFinite(metric[q])&&metric[q]>=0,'Invalid latency '+key+' '+q);
+          }
+          NODE
       - name: Baseline security evidence (no dependency removal yet)
         shell: bash
         run: |
