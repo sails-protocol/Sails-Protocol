@@ -1435,6 +1435,30 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     })).toBeNull()
   })
 
+  it('V3-E3b an EDA-committed missing pending cannot be recreated by direct disputed dispatch', async () => {
+    const o = await openedDispute('v3-eda-direct-dispatch-guard')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await authorizeDisputedPendingExecution(pending)
+    const durable = await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+      where: { pendingOperationId: pending.id },
+    })
+    const originalOutcome = await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })
+    // Fault injection: the committed EDA survives even if the pending row is lost.
+    await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } })
+    await expect(escrowService.initiateRelease(
+      o.escrowId, o.buyerDestination, o.arbiterId,
+    )).rejects.toThrow()
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(0)
+    expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+      where: { pendingOperationId: pending.id },
+    })).toEqual(durable)
+    expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })).toEqual(originalOutcome)
+  })
+
   it('V3-E4 C4 initiates target once, commits EDA for that pending and excludes replay', async () => {
     const o = await openedDispute('v3-eda-after-claim')
     const originalPending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
