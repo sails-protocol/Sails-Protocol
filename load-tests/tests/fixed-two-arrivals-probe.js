@@ -9,6 +9,9 @@
  * latency-bearing Intent operations or an open arrival-rate schedule.
  * SAILS_FIXED_PROBE_WORK_MS=250 is an explicitly allowlisted synthetic delay
  * used to demonstrate that closed-model iteration spacing includes work time.
+ * On 2026-10-23 CI confirmed 12/12 delayed trials with 1250-1252ms
+ * entry spans, versus 1000-1001ms in zero-work trials. This directly
+ * disqualifies this naive closed-model pacing as an open-arrival substitute.
  */
 import { Counter, Trend } from 'k6/metrics'
 import exec from 'k6/execution'
