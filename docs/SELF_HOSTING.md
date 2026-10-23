@@ -192,7 +192,10 @@ today carries them.**
   P3-B, economic and protocol interoperability between several independently operated nodes, is *not*
   covered and remains unproven.
 - The boot gate compares migration *names*, not checksums: a migration file edited after it was applied
-  passes the gate (`prisma migrate status` would flag it). Treat applied migrations as immutable.
+  passes the gate (confirmed by an independent reproduction; `prisma migrate status` would flag it). Treat applied
+  migrations as immutable. Comparing checksums is a possible hardening, not done here: the bytes Prisma hashed must
+  equal the bytes shipped in the image, and a Windows checkout with CRLF SQL files would turn that into false
+  refusals.
 - Images are built from source on the operator's host. There is no signed registry release yet, so
   build provenance is your own checkout. `apt` packages in the migration image are not version-pinned
   (see the OpenSSL note in the P3 report): rebuilds pick up current Debian security updates.

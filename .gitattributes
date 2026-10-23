@@ -4,5 +4,6 @@
 # "set: Illegal option -" — the Docker stack could not be brought up from
 # Windows at all. Always check them out with LF.
 *.sh text eol=lf
-# extensionless shell script: must stay LF on a Windows checkout
-deploy/self-host/sails-node text eol=lf
+# the self-hosting kit is read by Linux tools (an extensionless shell script, a compose file, an env file whose
+# values would otherwise carry a trailing CR): always LF
+deploy/self-host/* text eol=lf
