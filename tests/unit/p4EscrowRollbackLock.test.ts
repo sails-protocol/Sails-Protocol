@@ -3,7 +3,7 @@ import { escrowRepository } from '../../src/modules/open-settlement/escrow-repos
 import { prisma } from '../../src/common/database'
 
 jest.mock('../../src/common/database', () => ({
-  prisma: { $transaction: jest.fn(), escrow: { updateMany: jest.fn() } },
+  prisma: { $transaction: jest.fn(), escrow: { updateMany: jest.fn(), update: jest.fn() } },
 }))
 
 describe('P4 escrow rollback serialization contract', () => {
@@ -76,6 +76,31 @@ describe('P4 escrow rollback serialization contract', () => {
     await expect(escrowRepository.revertStatus('escrow-p4', 'COMPLETED', 'FUNDS_LOCKED'))
       .rejects.toThrow('advisory lock unavailable')
     expect(updateMany).not.toHaveBeenCalled()
+  })
+
+  it('writes funding evidence only under an unrecorded FUNDS_LOCKED claim', async () => {
+    const update = prisma.escrow.update as jest.Mock
+    update.mockResolvedValueOnce({ id: 'escrow-p4', status: 'FUNDS_LOCKED' })
+    const funding = {
+      txLockId: 'tx-p4', txLockVout: 0, multisigAddr: 'addr-p4',
+      lockedAt: new Date('2026-10-23T12:00:00Z'),
+      expiresAt: new Date('2026-10-24T12:00:00Z'),
+    }
+    await escrowRepository.updateLockResult('escrow-p4', funding)
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'escrow-p4', status: 'FUNDS_LOCKED', txLockId: null },
+      data: funding,
+    })
+  })
+
+  it('fails closed on stale funding result after claim changed', async () => {
+    const update = prisma.escrow.update as jest.Mock
+    update.mockRejectedValueOnce({ code: 'P2025' })
+    await expect(escrowRepository.updateLockResult('escrow-p4', {
+      txLockId: 'tx-p4', txLockVout: 0, multisigAddr: 'addr-p4',
+      lockedAt: new Date('2026-10-23T12:00:00Z'),
+      expiresAt: new Date('2026-10-24T12:00:00Z'),
+    })).rejects.toThrow('Reconcile authoritative evidence')
   })
 
 })
