@@ -46,7 +46,7 @@ deploy/self-host/sails-node status
 
 - Secrets live in `~/.sails-node/secrets/` (`SAILS_NODE_HOME` to change it), never in an image or in
   the repository. The database password is generated for you and used only by the stack.
-- The server listens on `127.0.0.1:3000` only. PostgreSQL, Redis and the evidence store publish no ports.
+- **Back up `secrets/` as well as the database.** With the bundled store, `secrets/seaweedfs.env` holds the\n  key that encrypts the evidence at rest (the server requests AES256 on every upload, which SeaweedFS accepts\n  only when it has that key). Lose the key and the stored evidence cannot be read back.\n- The server listens on `127.0.0.1:3000` only. PostgreSQL, Redis and the evidence store publish no ports.
 - `server.env` must satisfy the production gates (`docs/DEPLOYMENT.md`): the server **refuses to
   boot** on `MOCK_ESCROW`, a missing `MULTISIG_NETWORK`, disabled capability enforcement, local-fs
   evidence storage, and so on. Real-custody secrets (for example `MULTISIG_SEED`) are yours to supply

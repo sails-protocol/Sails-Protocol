@@ -53,6 +53,7 @@ services:
     profiles: [evidence-store]
     image: chrislusf/seaweedfs:4.48
     command: ["server", "-dir=/data", "-s3", "-s3.config=/run/secrets/seaweedfs_s3"]
+    # SSE-S3 key: the server asks for AES256 server-side encryption on every upload, which\n    # SeaweedFS only accepts once a 32-byte key (WEED_S3_SSE_KEK) is configured.\n    env_file: ${SAILS_HOME_HOST:?}/secrets/seaweedfs.env
     secrets: [seaweedfs_s3]
     volumes: [seaweedfs-data:/data]
     healthcheck:

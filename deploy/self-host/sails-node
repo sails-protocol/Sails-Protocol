@@ -92,6 +92,9 @@ cmd_init() {
   # the store reads them from a secret file, the server from server.env.
   local s3_secret; s3_secret="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   printf '{"identities":[{"name":"sails","credentials":[{"accessKey":"sails-evidence","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}\n' "$s3_secret" >"$SAILS_NODE_HOME/secrets/seaweedfs-s3.json"
+  # 32-byte key for the store's server-side encryption (the server requests AES256 on every upload).
+  # LOSING IT MAKES THE STORED EVIDENCE UNREADABLE: back up secrets/ together with the database.
+  printf 'WEED_S3_SSE_KEK=%s\n' "$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" >"$SAILS_NODE_HOME/secrets/seaweedfs.env"
   cp "$HERE/server.env.example" "$SAILS_NODE_HOME/secrets/server.env"
   cat >>"$SAILS_NODE_HOME/secrets/server.env" <<EOF
 
