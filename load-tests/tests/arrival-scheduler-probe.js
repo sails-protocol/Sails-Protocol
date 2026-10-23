@@ -1,7 +1,8 @@
 /**
  * Isolated k6 scheduler diagnostic. No network, auth, or Intent I/O.
  * Explicitly opt in: k6 run load-tests/tests/arrival-scheduler-probe.js
- * Alternate diagnostic: k6 run -e SAILS_SCHEDULER_PROBE_DURATION=1900ms load-tests/tests/arrival-scheduler-probe.js
+ * Alternate diagnostics: k6 run -e SAILS_SCHEDULER_PROBE_DURATION=1900ms load-tests/tests/arrival-scheduler-probe.js
+ * and 1500ms; neither is claimed equivalent to Artillery's 2s window.
  * The 1999ms constant-arrival-rate window is experimental; three iterations
  * have occurred in the full comparator. Never infer parity from this probe.
  */
@@ -14,7 +15,7 @@ const timestamps = new Trend('sails_probe_entry_epoch_ms')
 const timestampSamples = new Counter('sails_probe_timestamp_samples')
 
 const probeDuration = __ENV.SAILS_SCHEDULER_PROBE_DURATION || '1999ms'
-if (!['1999ms', '1900ms'].includes(probeDuration)) {
+if (!['1999ms', '1900ms', '1500ms'].includes(probeDuration)) {
   throw new Error('Unsupported scheduler probe duration')
 }
 
