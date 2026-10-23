@@ -698,20 +698,28 @@ export class EscrowService {
       await claimEscrowTransition(escrowId, escrow.status, 'FUNDS_LOCKED', undefined, tx)
     })
 
-    // P4: a provider exception can mean "broadcast accepted, response lost".
-    // Do not roll back a funding claim based on an unclassified exception.
-    // Keep FUNDS_LOCKED until an authoritative read-only reconciliation
-    // proves whether funding happened. This is intentionally fail-closed.
-    try {
+    // Preparation cannot have invoked the provider. A failed pubkey read or
+    // unsupported provider is therefore not an ambiguous external funding
+    // outcome. Revert the claim under the repository's escrow advisory lock.
+    const preparation = async () => {
       const provider = getSettlementProvider(escrow.type)
-      // MULTISIG/LIGHTNING_HODL need the client-submitted pubkeys
-      // (EscrowParticipantKey) to re-derive the same script lockFunds()
-      // verifies against — every other provider ignores these extra
-      // fields, same "optional, only two providers care" shape as
-      // buyerId/sellerId below.
       const { buyerPubkey, sellerPubkey, arbiterPubkey } = NON_CUSTODIAL_PROVIDERS[escrow.type]
         ? await loadParticipantPubkeys(escrowId)
         : { buyerPubkey: undefined, sellerPubkey: undefined, arbiterPubkey: undefined }
+      return { provider, buyerPubkey, sellerPubkey, arbiterPubkey }
+    }
+    let prepared: Awaited<ReturnType<typeof preparation>>
+    try {
+      prepared = await preparation()
+    } catch (err) {
+      await this.repo.revertStatus(escrowId, 'FUNDS_LOCKED', escrow.status)
+      throw err
+    }
+
+    // After invoking the provider, a lost response can conceal accepted
+    // funding. Do not revert without authoritative external evidence.
+    try {
+      const { provider, buyerPubkey, sellerPubkey, arbiterPubkey } = prepared
       const result = await provider.lockFunds(providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey, arbiterPubkey }))
 
       // The provider interface promises a durable transaction identifier.
