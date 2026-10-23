@@ -171,6 +171,20 @@ docker rm -f "${RUN}-manual-boot" >/dev/null 2>&1 || true
 grep -q 'not verifiably migrated' "$OUT" || fail "the refusal is not the migration gate: $(tail -n 3 "$OUT")"
 pass "t3 refuses to boot: exit ${MSTATUS}, 'not verifiably migrated'"
 
+step "A migration edited AFTER it was applied makes the server refuse to boot (checksum gate)"
+# t5 = the t2 server whose first migration.sql differs from what the database applied. Prisma itself does not
+# notice (neither migrate status nor migrate deploy re-checks checksums), so the server gate is the only line.
+mkdir -p "$WORK/ctx-t5"
+printf 'FROM sails-server:%s-t2\nUSER root\nRUN first=$(ls /app/prisma/migrations | grep -v migration_lock | head -n 1) && echo "-- edited after apply" >> "/app/prisma/migrations/$first/migration.sql"\nUSER node\n' "$RUN" >"$WORK/ctx-t5/Dockerfile"
+docker build -q -t "sails-server:$RUN-t5" -f "$(rel "$WORK")/ctx-t5/Dockerfile" "$(rel "$WORK")/ctx-t5" >/dev/null
+OUT5="$LOGS/edited-migration-boot.log"; S5=0
+timeout 60 docker run --rm --name "${RUN}-edited-boot" --network "${RUN}_default" --env-file "$(host_path "$SAILS_NODE_HOME/secrets/db.env")" --env-file "$(host_path "$SAILS_NODE_HOME/secrets/server.env")" -e HOST=0.0.0.0 "sails-server:$RUN-t5" >"$OUT5" 2>&1 || S5=$?
+docker rm -f "${RUN}-edited-boot" >/dev/null 2>&1 || true
+[ "$S5" -ne 124 ] || fail "the server booted on a database whose applied migration was edited (still running after 60s)"
+[ "$S5" -ne 0 ] || fail "the server booted on a database whose applied migration was edited"
+grep -q 'checksum mismatch' "$OUT5" || fail "the refusal is not the checksum gate: $(tail -n 3 "$OUT5")"
+docker rmi -f "sails-server:$RUN-t5" >/dev/null 2>&1 || true
+pass "edited migration: exit ${S5}, 'checksum mismatch'"
 step "An UNKNOWN migration result (the job never finishes) blocks the update"
 SAILS_MIGRATE_TIMEOUT=10 node_cmd update-t4 nonzero update "$RUN-t4"
 grep -q 'UNKNOWN' "$LOGS/$N-update-t4.log" || fail "the timeout was not reported as an unknown result"
@@ -279,7 +293,7 @@ docker run --rm -i --entrypoint node "sails-server:$RUN-t2" -e '
   const gate = c.server.depends_on && c.server.depends_on.migrate && c.server.depends_on.migrate.condition
   if (gate !== "service_completed_successfully") { console.error("server.depends_on.migrate.condition =", gate); process.exit(1) }
   if (c.migrate.restart !== "no") { console.error("migrate.restart =", c.migrate.restart); process.exit(1) }
-  // A mounted secret FILE is unreadable by the store's unprivileged user when it is 0600 (CI: "permission denied", S3 gateway dead).
+  // A mounted secret FILE is unreadable by the unprivileged user of the store when it is 0600 (CI: permission denied, S3 gateway dead).
   if (c.seaweedfs && c.seaweedfs.secrets) { console.error("seaweedfs mounts a secret file:", JSON.stringify(c.seaweedfs.secrets)); process.exit(1) }
 ' <"$WORK/compose.json" || fail "the kit compose file no longer gates the server on a successful migration"
 pass "server waits for service_completed_successfully of migrate; migrate never restarts itself; the store mounts no secret file"
