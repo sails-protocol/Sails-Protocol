@@ -10,6 +10,7 @@ import type { RelayDeliveryCommand } from './relay-delivery-command'
 import type { WebSocketRelayTransportProvider } from './websocket-relay.service'
 
 const MAX_WIRE_BYTES = 1024 * 1024
+const MAX_INBOUND_COMMANDS = 256
 const CHANNEL_RE = /^sails:relay:delivery:[a-zA-Z0-9_-]{1,80}$/
 
 function parseWire(raw: string): unknown {
@@ -24,6 +25,7 @@ function parseWire(raw: string): unknown {
  */
 export class RedisRelayDeliveryTransport {
   private started = false
+  private inFlightCommands = 0
   private readonly origin: RelayDeliveryOrigin
   private readonly onMessage: (channel: string, message: string) => void
 
@@ -69,10 +71,16 @@ export class RedisRelayDeliveryTransport {
     const record = wire as Record<string, unknown>
     if ('replyChannel' in record) {
       if (typeof record.replyChannel !== 'string' || !CHANNEL_RE.test(record.replyChannel)) return
-      const { replyChannel, ...command } = record
-      const ack = await acceptRelayDeliveryAtDestination(this.destinationProvider, command)
-      if (!ack) return
-      try { await this.publisher.publish(replyChannel, JSON.stringify(ack)) } catch { /* origin times out */ }
+      if (this.inFlightCommands >= MAX_INBOUND_COMMANDS) return
+      this.inFlightCommands++
+      try {
+        const { replyChannel, ...command } = record
+        const ack = await acceptRelayDeliveryAtDestination(this.destinationProvider, command)
+        if (!ack || !this.started) return
+        try { await this.publisher.publish(replyChannel, JSON.stringify(ack)) } catch { /* origin times out */ }
+      } finally {
+        this.inFlightCommands--
+      }
     } else {
       this.origin.acknowledge(record)
     }
