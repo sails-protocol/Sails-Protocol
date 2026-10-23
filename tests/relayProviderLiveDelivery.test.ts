@@ -228,6 +228,20 @@ describe('real relay provider with two live TCP WebSocket clients', () => {
     expect(await destination.sendToPeerIfOwner('remote-bob', 'lease-new', 'offline')).toBe(false)
   })
 
+  it('fails fenced delivery closed when the current owner socket throws', async () => {
+    const destination = new WebSocketRelayTransportProvider()
+    const broken = { readyState: 1, send: jest.fn(() => { throw new Error('socket unavailable') }), close: jest.fn() }
+    destination.registerSocket('fenced-bob', broken, 'lease-current')
+    try {
+      expect(await destination.sendToPeerIfOwner('fenced-bob', 'lease-current', 'opaque')).toBe(false)
+      expect(await destination.sendToPeerIfOwner('fenced-bob', 'lease-stale', 'opaque')).toBe(false)
+      expect(broken.send).toHaveBeenCalledTimes(1)
+      expect(destination.ownsSocket('fenced-bob', broken)).toBe(true)
+    } finally {
+      destination.unregisterSocket('fenced-bob', broken)
+    }
+  })
+
   it('rejects unsupported topic discovery instead of silently succeeding', async () => {
     await expect(relay.joinTopic('alice', 'marketplace')).rejects.toThrow('does not support topic discovery')
     await expect(relay.broadcast('alice', { kind: 'offer_announce' })).resolves.toBe(0)
