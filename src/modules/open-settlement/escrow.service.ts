@@ -351,7 +351,10 @@ function resolveEscrowType(asset: AssetType, explicitType: EscrowType | undefine
 
 function resolveEscrowTypeCandidate(asset: AssetType, explicitType: EscrowType | undefined): EscrowType {
   if (explicitType === 'MOCK') return 'MOCK'
-  if (!explicitType && config.features.mockEscrow) return 'MOCK'
+  // Day 0: never silently select fake settlement outside the dedicated
+  // test environment. Developers may still request MOCK explicitly;
+  // assertDeploymentEligible() rejects it in production.
+  if (!explicitType && config.features.mockEscrow && process.env.NODE_ENV === 'test') return 'MOCK'
 
   const scope = translateLegacyAssetType(asset)
   if (scope) {
