@@ -2,6 +2,17 @@
 
 Status: **NOT HOMOLOGATED / BLOCKED**. This document records evidence, not authorization to merge or deploy.
 
+## Current CI restoration (2026-10-23)
+
+Commit `34e1290b3f12f1c3f99f847b05e7b4ae16bcd597`:
+- CI run 39956617699 — success.
+- CI Tests run 39956617662 — success.
+- CodeQL run 39956617843 — success.
+- Previous `b2fc2c8` failed the two test-bearing workflows: 1 failed test in `tests/relayRedisIntegration.test.ts`, Redis Lua `attempt to compare nil with number` in the presence fencing test.
+- `6591c93` made both claim and renew scripts reject missing/malformed deadline arguments without mutating the Redis lease; `34e1290` added a real Redis regression for both paths.
+- This is CI restoration evidence, **not** Gate 2 homologation, proof of production WSS ingress, or cross-instance delivery.
+- Jest also reported a worker teardown warning in the prior failed run; do not silently treat that warning as independently remediated by the lease fix.
+
 ## Verified CI evidence
 
 Commit `bcef9979e0b5c7404879641acf8b7674945a19d6` (WSS through local TLS-terminating reverse proxy; HTTP upgrade CRLF fix):
