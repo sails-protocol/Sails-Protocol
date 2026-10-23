@@ -34,8 +34,7 @@ export class RedisRelayDeliveryTransport {
     private readonly destinationProvider: WebSocketRelayTransportProvider,
   ) {
     if (!CHANNEL_RE.test(localChannel)) throw new Error('invalid relay channel')
-    this.origin = new RelayDeliveryOrigin(async command => {
-      const destinationChannel = this.destinationChannels.get(command.requestId)
+    this.origin = new RelayDeliveryOrigin(async (command, destinationChannel) => {
       if (!destinationChannel) throw new Error('destination channel not configured')
       const receivers = await this.publisher.publish(destinationChannel, JSON.stringify({
         ...command,
@@ -45,8 +44,6 @@ export class RedisRelayDeliveryTransport {
     })
     this.onMessage = (channel, message) => { void this.handleMessage(channel, message) }
   }
-
-  private readonly destinationChannels = new Map<string, string>()
 
   async start(): Promise<void> {
     if (this.started) return
@@ -62,9 +59,7 @@ export class RedisRelayDeliveryTransport {
 
   async deliver(destinationChannel: string, input: Omit<RelayDeliveryCommand, 'requestId'>): Promise<boolean> {
     if (!this.started || !CHANNEL_RE.test(destinationChannel)) return false
-    // The origin publisher needs per-request destination routing. Until the
-    // origin API accepts this address atomically, reject rather than race.
-    return false
+    return this.origin.deliver(input, destinationChannel)
   }
 
   private async handleMessage(channel: string, message: string): Promise<void> {
