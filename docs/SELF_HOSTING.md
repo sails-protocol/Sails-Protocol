@@ -102,9 +102,18 @@ checking the schema first), then run `update` again.
 deploy/self-host/sails-node rollback
 ```
 
-Starts the previous server image. **The database schema is not rolled back.** That is why every
-migration must be backward compatible with the previous server version (add before use; remove only in
-a later release). A migration that must be undone is a new forward migration, or a restore from backup.
+Starts the previous server image. **The database schema is not rolled back, and this kit cannot verify
+that the previous version still works on the migrated schema.** Rollback is therefore *limited*, not a
+universal guarantee:
+
+- It is safe only if every migration applied since that version was backward compatible (expand before
+  use; contract - drop/rename/tighten - only in a later release). Nothing in the kit classifies a
+  migration; that review is yours. The tests prove it for an additive migration only.
+- The server's boot gate accepts a database *ahead* of the image. That makes the rollback *start*; it does
+  not prove the old code *works* on the new schema.
+- If a migration was not backward compatible, do not roll back: restore the backup taken before the update
+  (`update` takes one automatically) into an empty database, or ship a new forward migration.
+- The automatic rollback inside `update` (when the new server does not become ready) has the same limit.
 
 ## Back up and restore
 
@@ -114,9 +123,29 @@ deploy/self-host/sails-node restore ~/.sails-node/backups/<file>.dump
 ```
 
 `restore` refuses a database that is not empty, restores, then runs the migration job against it to
-verify the result. Copy backups off the host and **test a restore** before you rely on them
-(`docs/DEPLOYMENT.md` 6.2). The evidence bucket and `secrets/` are not in the dump: back them up
-separately. A dump is as sensitive as the database.
+verify the result. A dump is as sensitive as the database.
+
+### Recovering everything: database, evidence objects, key and credentials
+
+A complete recovery needs **four** things; the database dump is only one of them:
+
+| What | Where it lives | How it is saved |
+|---|---|---|
+| PostgreSQL | volume `postgres-data` | `sails-node backup` (`pg_dump -Fc`) |
+| Evidence objects | volume `seaweedfs-data` (bundled store) | `sails-node backup-evidence`: cold snapshot, the store is stopped while it is copied (uploads fail meanwhile). Objects stay **encrypted**. |
+| The SSE key | `secrets/seaweedfs.env` | **Not inside any archive.** Copy `secrets/` to offline, encrypted storage yourself. |
+| Credentials and settings | `secrets/` (`server.env`, `db.env`, `seaweedfs-s3.json`, `postgres_password`) | same: copy `secrets/` yourself |
+
+Order on a new host: restore `secrets/` (`init` refuses to overwrite it), `sails-node restore <dump>`,
+`sails-node restore-evidence <archive>` (into a fresh store), then `sails-node update`. After it, read an
+evidence object back before declaring success.
+
+**What is tested** (`scripts/self-host-test.sh`): the database restore into an empty database with migration
+verification; the evidence restore after the store's container and volume were deleted, with the original bytes
+read back through the production `S3EvidenceProvider`; and that a *different* SSE key cannot read the restored
+object while the preserved key can. **What is not tested:** a single end-to-end drill on a brand-new host from
+off-site copies; restoring when the evidence store is your own S3-compatible service (use its own tools).
+The kit does not encrypt backup archives.
 
 ## Health and logs
 
@@ -140,6 +169,17 @@ What a node needs besides its own containers. None is operated by Satsails; all 
 
 The server source contains no endpoint of Satsails, AWS or any specific hosting provider.
 
+## Dependency audit of the image
+
+CI audits what the production image really contains (`scripts/production-image-audit.js`): `npm audit` over the
+lockfile, failing on high/critical advisories whose range matches a package copy installed in the image. The
+Prisma CLI chain (it lives in the migration image) and the front-end workspaces are not part of the verdict;
+the native runtime QVAC needs is. (PR #451's `--omit=optional` was rejected because it also removes that
+runtime.) Known findings are **formal exceptions with an expiry date** in
+`scripts/production-image-audit.exceptions.json`, printed on every run, and the step fails once one expires.
+As of this writing `main` ships `fastify 5.12.1`, which has high advisories including an authentication bypass;
+they are fixed by the draft PR #449 and are excepted only so CI stays informative. **A node built from `main`
+today carries them.**
 ## What this does not prove
 
 - **Not multi-operator interoperability.** Running your own node proves you can host one. It does not
@@ -148,6 +188,11 @@ The server source contains no endpoint of Satsails, AWS or any specific hosting 
   open; do not read "self-hostable" as "multi-operator complete".
 - Not exercised: real TLS issuance, a real VPS, pgbouncer / managed PostgreSQL, very large databases,
   key management for real custody, and a restore drill on real data.
+- **P3-A vs P3-B.** This document and its tests cover P3-A: distributing and operating a node independently.
+  P3-B, economic and protocol interoperability between several independently operated nodes, is *not*
+  covered and remains unproven.
+- The boot gate compares migration *names*, not checksums: a migration file edited after it was applied
+  passes the gate (`prisma migrate status` would flag it). Treat applied migrations as immutable.
 - Images are built from source on the operator's host. There is no signed registry release yet, so
   build provenance is your own checkout. `apt` packages in the migration image are not version-pinned
   (see the OpenSSL note in the P3 report): rebuilds pick up current Debian security updates.
