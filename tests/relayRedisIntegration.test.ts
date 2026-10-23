@@ -39,6 +39,18 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     }
   })
 
+  it('treats an expired or missing lease snapshot as absence without inventing ownership', async () => {
+    const key = 'test:relay:presence:snapshot-expiry:' + randomUUID()
+    try {
+      await a.set(key, randomUUID(), 'PX', 100)
+      await new Promise(resolve => setTimeout(resolve, 150))
+      expect(await b.eval(RELAY_PRESENCE_SNAPSHOT_SCRIPT, 1, key)).toEqual([null, -2])
+      expect(await a.get(key)).toBeNull()
+    } finally {
+      await a.del(key)
+    }
+  })
+
   it('reads an atomic presence token and TTL snapshot across Redis clients', async () => {
     const key = 'test:relay:presence:snapshot:' + randomUUID()
     const oldToken = randomUUID()
