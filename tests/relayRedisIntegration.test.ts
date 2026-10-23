@@ -25,6 +25,20 @@ suite('relay shared budget — real Redis concurrent instances', () => {
     await Promise.all([a?.quit(), b?.quit()])
   })
 
+  it('rejects malformed presence snapshot replies instead of treating them as absence', async () => {
+    const { redis } = await import('../src/common/redis')
+    const { snapshotRelayPresence } = await import('../src/infrastructure/p2p/relay-presence')
+    const spy = jest.spyOn(redis, 'eval')
+    try {
+      for (const malformed of [[false, 30000], [false, 'invalid'], ['', 30000], ['owner', -2], ['owner', 0], ['owner', 'invalid'], 'invalid']) {
+        spy.mockResolvedValueOnce(malformed as never)
+        await expect(snapshotRelayPresence('snapshot-malformed-' + randomUUID())).rejects.toThrow('Invalid relay presence snapshot')
+      }
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('reads an atomic presence token and TTL snapshot across Redis clients', async () => {
     const key = 'test:relay:presence:snapshot:' + randomUUID()
     const oldToken = randomUUID()
