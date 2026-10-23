@@ -184,7 +184,7 @@ pass "t1 serves on a t2-migrated database (migrations are backward compatible)"
 
 step "After a failed migration Prisma blocks every further update until it is resolved (P3009), then recovery works"
 node_cmd update-t2-blocked nonzero update "$RUN-t2"
-grep -q "New migrations cannot be applied before the error is recovered from" "$LOGS/$N-update-t2-blocked.log" || fail "the block is not the expected P3009 refusal"
+grep -q "P3009" "$LOGS/$N-update-t2-blocked.log" || fail "the block is not the expected P3009 refusal"
 [ "$(running_image)" = "sails-server:$RUN-t1" ] || fail "the server changed while the update was blocked"
 pass "update blocked (fail closed) while the failed migration is unresolved; t1 untouched"
 node_cmd resolve 0 resolve-rolled-back 99990101000002_selfhost_broken
