@@ -4,7 +4,7 @@
  * This module cannot prove publication, socket delivery, or client receipt.
  */
 import { randomUUID } from 'node:crypto'
-import { correlateRelayDeliveryAck } from './relay-delivery-ack'
+import { parseRelayDeliveryAck } from './relay-delivery-ack'
 
 export const RELAY_MAX_PENDING_DELIVERIES = 256
 export const RELAY_DELIVERY_TIMEOUT_MS = 3000
@@ -37,8 +37,9 @@ export class RelayDeliveryPendingRegistry {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false
     const requestId = (raw as Record<string, unknown>).requestId
     if (typeof requestId !== 'string' || !this.pending.has(requestId)) return false
-    if (!correlateRelayDeliveryAck(requestId, raw)) return false
-    return this.settle(requestId, true)
+    const ack = parseRelayDeliveryAck(raw)
+    if (!ack || ack.requestId !== requestId) return false
+    return this.settle(requestId, ack.accepted)
   }
 
   reject(requestId: string): boolean { return this.settle(requestId, false) }
