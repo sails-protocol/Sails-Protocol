@@ -1,4 +1,5 @@
 import { prisma } from '../../common/database'
+import { childLogger } from '../../common/logger'
 import { lockWdkEscrow, assertWdkFundingProven, wdkLockMayHoldFunds } from './wdk-lock-authority'
 import { assertWdkOutboundPolicy, planWdkOutbound, settleWdkOutbound, wdkOutboundFailure } from './wdk-outbound-authority'
 import { NotFoundError, EscrowError, ForbiddenError, ValidationError } from '../../common/errors'
@@ -26,7 +27,6 @@ import {
   loadEscrowWithAuthorization,
   loadParticipantPubkeys,
   claimEscrowTransition,
-  revertEscrowStatus,
   settlementSucceededButLocalStepFailed,
   assertEscrowTransition,
   emitEscrowTransition,
@@ -766,7 +766,7 @@ export class EscrowService {
       // as well as a transport error during provider.lockFunds().
       // Neither is evidence that the external funding effect did not occur.
       const reason = err instanceof Error ? err.message : String(err)
-      console.error('[P4] escrow funding outcome UNKNOWN; FUNDS_LOCKED claim retained; reconciliation required', {
+      childLogger('escrow-service').error({ msg: 'P4: escrow funding outcome UNKNOWN; FUNDS_LOCKED claim retained; reconciliation required',
         escrowId, escrowType: escrow.type, reason,
       })
       throw new EscrowError(
