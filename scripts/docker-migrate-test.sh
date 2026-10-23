@@ -17,7 +17,15 @@
 #   5. no secret reaches the logs: the database password appears in no output of any run;
 #   6. the rollout gate: with a failing migration the server container is NEVER started, with a
 #      good one it is (docker compose `service_completed_successfully`); and the repository's
-#      real docker-compose.yml still declares that gate on `app`.
+#      real docker-compose.yml still declares that gate on `app`;
+#   7. the awkward states a real database is in: malformed DATABASE_URL values, two jobs at
+#      once, a partially migrated database, a schema with no migration history (what `db push`
+#      leaves: refused with P3005, then baselined exactly as docs/DEPLOYMENT.md 6.0.1 says),
+#      and a recorded failed migration (blocks with P3009 until resolved, then converges) —
+#      each preserving data written before the run;
+#   8. the Dockerfile's LAST stage is `runtime`, i.e. what a plain `docker build` (and App
+#      Runner's source build) produces is the server, never the migration job.
+# Everything runs on an `--internal` network: no internet at all.
 #
 # Usage: bash scripts/docker-migrate-test.sh        (from the repo root)
 #        PG_IMAGE=postgres:18-alpine bash scripts/docker-migrate-test.sh
@@ -32,6 +40,7 @@ PG_IMAGE="${PG_IMAGE:-postgres:16-alpine}"
 NETWORK="${RUN}_net"
 DB="${RUN}-pg"
 BROKEN_IMAGE="${RUN}-broken:local"
+PARTIAL_IMAGE="${RUN}-partial:local"
 PASSWORD="pw-$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')"
 # Inside the repo, not /tmp: the build context below must be visible to the Docker daemon
 # (e.g. Docker Desktop reached from WSL cannot see the WSL /tmp). Removed on exit.
@@ -50,7 +59,7 @@ cleanup() {
   docker compose -p "${RUN}b" down -v --remove-orphans >/dev/null 2>&1 || true
   docker rm -f "$DB" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
-  docker rmi -f "$BROKEN_IMAGE" "$IMAGE" >/dev/null 2>&1 || true
+  docker rmi -f "$BROKEN_IMAGE" "$PARTIAL_IMAGE" "$IMAGE" >/dev/null 2>&1 || true
   rm -rf "$LOGS"
   exit "$status"
 }
@@ -60,6 +69,11 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 step() { STEP="$*"; echo; echo "=== $*"; }
 pass() { echo "PASS  $*"; }
 psql_q() { docker exec "$DB" psql -h 127.0.0.1 -U postgres -d sails -Atc "$1"; }
+# The awkward-state scenarios each get their own database in the same throwaway server.
+newdb() { docker exec "$DB" psql -h 127.0.0.1 -U postgres -d postgres -Atc "create database $1" >/dev/null; }
+psql_db() { docker exec "$DB" psql -h 127.0.0.1 -U postgres -d "$1" -Atc "$2"; }
+url_db() { echo "postgresql://postgres:${PASSWORD}@${DB}:5432/$1"; }
+PRISMA_CLI="node_modules/prisma/build/index.js"
 
 # run_migrate <name> <expected: 0|nonzero|N> [docker run args...]  -> $LOGS/<name>.log, sets STATUS
 run_migrate() {
@@ -89,6 +103,14 @@ PINNED=$(grep -E '^FROM node:' Dockerfile | sed -E 's/^FROM node:([0-9]+\.[0-9]+
 pass "Node $PINNED (pinned in the Dockerfile)"
 docker run --rm --entrypoint sh "$IMAGE" -c 'test ! -e /app/dist && test ! -e /app/packages' || fail "server code is present in the migration image"
 pass "no server code (dist/, packages/) in the image"
+# libssl3 is installed unpinned on purpose (Dockerfile, `migrate` stage): the base image is
+# digest-pinned, the library takes Debian security updates. Recorded here so every run says
+# which one it tested; the --internal network below fails the run if Prisma cannot use it.
+LIBSSL3=$(docker run --rm --entrypoint dpkg-query "$IMAGE" -W -f '${Version}' libssl3) || fail "libssl3 is not installed in the migration image: the bundled schema engine cannot load"
+pass "libssl3 ${LIBSSL3}"
+LAST_STAGE=$(grep -E '^FROM .* AS ' Dockerfile | tail -n 1 | sed -E 's/.* AS ([A-Za-z0-9_-]+).*/\1/')
+[ "$LAST_STAGE" = "runtime" ] || fail "the Dockerfile's last stage is '$LAST_STAGE', not 'runtime': a plain docker build would not produce the server"
+pass "last Dockerfile stage is runtime (a plain docker build / source build is the server)"
 
 step "Start a throwaway PostgreSQL (${PG_IMAGE})"
 # --internal: no route out. The job must not need the internet (an engine download at migration
@@ -118,6 +140,16 @@ pass "closed port -> exit ${STATUS}"
 run_migrate wrong-password nonzero -e "DATABASE_URL=postgresql://postgres:not-the-password@${DB}:5432/sails" "$IMAGE"
 pass "wrong password -> exit ${STATUS}"
 [ "$(psql_q "select count(*) from information_schema.tables where table_schema='public'")" = "0" ] || fail "a failed connection changed the database"
+
+step "Malformed DATABASE_URL values fail closed"
+# Each embeds the real password: the final "No secret in any log" step scans these logs too, so a
+# parser error that echoes the value back would fail the run there.
+i=0
+for bad in "postgres//postgres:${PASSWORD}@${DB}/sails" "mysql://postgres:${PASSWORD}@${DB}:3306/sails" "postgresql://postgres:${PASSWORD}@${DB}:notaport/sails" "${PASSWORD}"; do
+  i=$((i + 1))
+  run_migrate "malformed-$i" nonzero -e "DATABASE_URL=$bad" "$IMAGE"
+done
+pass "4 malformed values -> non-zero exit, nothing connected"
 
 step "Empty database: migrate deploy + migrate status"
 run_migrate first 0 -e "DATABASE_URL=$URL" "$IMAGE"
@@ -163,6 +195,70 @@ grep -q 'database is up to date' "$LOGS/broken.log" && fail "a failed migration 
 [ "$(psql_q "select count(*) from _prisma_migrations where finished_at is null")" = "1" ] || fail "the failed migration was not recorded as failed"
 run_migrate broken-again nonzero -e "DATABASE_URL=$URL" "$BROKEN_IMAGE"
 pass "re-running while the failure is unresolved still fails (exit ${STATUS}): no silent success"
+grep -q 'P3009' "$LOGS/broken-again.log" || fail "the unresolved failure was not reported as P3009"
+# docs/DEPLOYMENT.md 6.1: after the operator has dealt with the cause, mark it rolled back; the
+# next run must then converge (and the good image does not carry the broken migration).
+run_migrate broken-resolve 0 -e "DATABASE_URL=$URL" --entrypoint node "$IMAGE" "$PRISMA_CLI" migrate resolve --rolled-back 99990101000000_broken
+run_migrate recovered 0 -e "DATABASE_URL=$URL" "$IMAGE"
+[ "$(psql_q "select count(*) from _prisma_migrations where finished_at is not null and rolled_back_at is null")" = "$EXPECTED_MIGRATIONS" ] || fail "after recovery the applied migrations are not the committed ones"
+pass "P3009 blocks until resolved (--rolled-back), then the job converges: exit 0, ${EXPECTED_MIGRATIONS} applied"
+
+step "Two migration jobs at the same time on an empty database"
+newdb sails_conc
+CONC_URL=$(url_db sails_conc)
+( run_migrate conc-a 0 -e "DATABASE_URL=$CONC_URL" "$IMAGE" ) &
+PID_A=$!
+( run_migrate conc-b 0 -e "DATABASE_URL=$CONC_URL" "$IMAGE" ) &
+PID_B=$!
+wait "$PID_A" || fail "concurrent job A failed (see conc-a.log)"
+wait "$PID_B" || fail "concurrent job B failed (see conc-b.log)"
+[ "$(psql_db sails_conc "select count(*) from _prisma_migrations where finished_at is not null and rolled_back_at is null")" = "$EXPECTED_MIGRATIONS" ] \
+  && [ "$(psql_db sails_conc "select count(*) from _prisma_migrations")" = "$EXPECTED_MIGRATIONS" ] \
+  || fail "concurrent jobs left a duplicated or partial migration history"
+pass "both jobs exit 0 and every migration was applied exactly once"
+
+step "Partially migrated database: the rest is applied and existing data survives"
+newdb sails_part
+PART_URL=$(url_db sails_part)
+KEEP=$((EXPECTED_MIGRATIONS / 2))
+PART_CTX="$LOGS/part-ctx"
+mkdir -p "$PART_CTX/migrations"
+cp prisma/migrations/migration_lock.toml "$PART_CTX/migrations/"
+for m in $(ls prisma/migrations | grep -v '\.toml$' | sort | head -n "$KEEP"); do cp -r "prisma/migrations/$m" "$PART_CTX/migrations/$m"; done
+# COPY alone would merge into the image's existing directory: remove it first.
+printf 'FROM %s\nRUN rm -rf /app/prisma/migrations\nCOPY --chown=node:node migrations /app/prisma/migrations\n' "$IMAGE" >"$PART_CTX/Dockerfile"
+docker build -q -t "$PARTIAL_IMAGE" "${PART_CTX#"$PWD"/}" >/dev/null
+run_migrate part-1 0 -e "DATABASE_URL=$PART_URL" "$PARTIAL_IMAGE"
+[ "$(psql_db sails_part "select count(*) from _prisma_migrations where finished_at is not null")" = "$KEEP" ] || fail "the partial image did not stop at $KEEP migrations (the scenario would prove nothing)"
+psql_db sails_part "create table migrate_test_sentinel(id int); insert into migrate_test_sentinel values (1)" >/dev/null
+run_migrate part-2 0 -e "DATABASE_URL=$PART_URL" "$IMAGE"
+[ "$(psql_db sails_part "select count(*) from _prisma_migrations where finished_at is not null and rolled_back_at is null")" = "$EXPECTED_MIGRATIONS" ] || fail "the remaining migrations were not applied"
+[ "$(psql_db sails_part "select count(*) from migrate_test_sentinel")" = "1" ] || fail "data written between the two runs did not survive"
+pass "from ${KEEP} applied to ${EXPECTED_MIGRATIONS}; the sentinel row survived"
+
+step "A schema with no migration history (what db push leaves) is refused, then baselined"
+newdb sails_push
+PUSH_URL=$(url_db sails_push)
+run_migrate push-seed 0 -e "DATABASE_URL=$PUSH_URL" "$IMAGE"
+psql_db sails_push "create schema migrate_sentinel; create table migrate_sentinel.t(id int); insert into migrate_sentinel.t values (1); drop table _prisma_migrations" >/dev/null
+TABLES_BEFORE=$(psql_db sails_push "select count(*) from information_schema.tables where table_schema='public'")
+run_migrate push-refused nonzero -e "DATABASE_URL=$PUSH_URL" "$IMAGE"
+grep -q 'P3005' "$LOGS/push-refused.log" || fail "a schema without history was not refused with P3005"
+grep -q 'database is up to date' "$LOGS/push-refused.log" && fail "a schema without history printed the success marker"
+[ "$(psql_db sails_push "select count(*) from information_schema.tables where table_schema='public'")" = "$TABLES_BEFORE" ] \
+  && [ "$(psql_db sails_push "select count(*) from migrate_sentinel.t")" = "1" ] || fail "the refused run changed the database"
+pass "schema without history -> exit ${STATUS} (P3005), database untouched"
+# (The sentinel lives in its own schema: prisma diffs only `public`, and a stray table there would be drift.)
+# The procedure of docs/DEPLOYMENT.md 6.0.1: the live schema must equal schema.prisma (empty diff,
+# otherwise STOP), then every committed migration is marked applied, then the job runs normally.
+run_migrate push-diff 0 -e "DATABASE_URL=$PUSH_URL" --entrypoint node "$IMAGE" "$PRISMA_CLI" migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+run_migrate push-baseline 0 -e "DATABASE_URL=$PUSH_URL" --entrypoint sh "$IMAGE" -c \
+  "for m in \$(ls prisma/migrations | grep -v '\\.toml\$' | sort); do node $PRISMA_CLI migrate resolve --applied \"\$m\" || exit 1; done"
+run_migrate push-after-baseline 0 -e "DATABASE_URL=$PUSH_URL" "$IMAGE"
+grep -q 'No pending migrations to apply' "$LOGS/push-after-baseline.log" || fail "after the baseline the job should have nothing to apply"
+[ "$(psql_db sails_push "select count(*) from _prisma_migrations where finished_at is not null and rolled_back_at is null")" = "$EXPECTED_MIGRATIONS" ] \
+  && [ "$(psql_db sails_push "select count(*) from migrate_sentinel.t")" = "1" ] || fail "baseline did not leave ${EXPECTED_MIGRATIONS} applied migrations with the data intact"
+pass "empty schema diff -> baseline -> the job is a no-op; ${EXPECTED_MIGRATIONS} recorded, data intact"
 
 step "No secret in any log"
 if grep -rqF -- "$PASSWORD" "$LOGS"/*.log; then

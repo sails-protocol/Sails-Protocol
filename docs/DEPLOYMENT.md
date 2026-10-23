@@ -34,7 +34,7 @@
 > disaster recovery, or anyone cloning this repo and running `docker
 > compose up` for the first time).
 >
-> **Corrected 2026-10-22** — the 2026-08-09 bug and its wrapper are gone:
+> **Corrected 2026-10-22** — the 2026-08-09 bug no longer reproduces and its wrapper is inert:
 > on Prisma 7.10 a plain `prisma migrate deploy` applies all migrations
 > from an empty database in one invocation (re-verified by
 > `scripts/docker-migrate-test.sh`), and the wrapper had in fact been
@@ -234,7 +234,8 @@ its dependencies (copied from the lockfile-exact tree), `prisma/`, and
 3. Only then start/roll out `sails-server:<sha>`. In Compose this ordering is
    declared (`app.depends_on.migrate.condition: service_completed_successfully`)
    and guarded in CI; on a platform, make the migration job a required pre-deploy
-   step whose failure aborts the deployment.
+   step whose failure aborts the deployment (for AWS App Runner this is **not yet
+   in place or proven** — section 6.0.2).
 
 Migrations must be backward compatible with the *previous* server version
 (add before use, remove only in a later release): step 2 runs while the old
@@ -250,10 +251,78 @@ backup if the data is affected. Do not run the job from a developer machine
 against production: it needs the same secret-store path as the server.
 
 **Guard:** `scripts/docker-migrate-test.sh` (CI step "Migration job against a
-throwaway PostgreSQL") applies every migration to an empty database, re-runs
-for idempotency, and checks missing configuration, an unreachable database, a
-wrong password, a broken migration, that no secret reaches the logs, and that a
-failing migration prevents the server container from starting.
+throwaway PostgreSQL", run on an `--internal` network, i.e. with no internet)
+applies every migration to an empty database, re-runs for idempotency with data
+preserved, and checks missing configuration, an unreachable database, a wrong
+password, malformed `DATABASE_URL` values, a broken migration (P3009 until
+resolved, then convergence), two jobs at once, a partially migrated database, a
+schema with no migration history (P3005, then the baseline of section 6.0.1),
+that no secret reaches the logs, and that a failing migration prevents the
+server container from starting. It tests a throwaway PostgreSQL only: it says
+nothing about RDS, TLS connection strings or poolers.
+
+### 6.0.1 A database that was provisioned with `db push` (no migration history)
+
+Section 8 of the 2026-08 deployment provisioned the AWS RDS instance with
+`prisma db push`, so it may have the tables but no `_prisma_migrations` table.
+The migration job refuses such a database — `P3005 The database schema is not
+empty`, exit 1, nothing changed — which is the safe outcome. It must be
+**baselined once** before the job can run there:
+
+1. Take a backup (section 6.2) and read the real state: `migrate status` with the
+   migration image (`docker run --rm -e DATABASE_URL --entrypoint node
+   sails-migrate:<sha> node_modules/prisma/build/index.js migrate status`).
+   Nothing below applies if the database already has a history.
+2. Prove the live schema equals what the migrations produce: the same image with
+   `migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code`.
+   Exit 0 ("No difference detected") is required. **Any other result means the
+   database drifted from the migrations: STOP and escalate — baselining would
+   record migrations as applied that were never applied.**
+3. Mark every committed migration as applied, one `migrate resolve --applied
+   <name>` per directory of `prisma/migrations/` (the script does exactly this
+   loop, see `push-baseline` in `docker-migrate-test.sh`).
+4. Run the migration job normally; it must report "No pending migrations".
+
+`docker-migrate-test.sh` runs this whole sequence (refusal, empty diff, baseline,
+no-op) against a throwaway database. It has **not** been run against the real RDS
+instance, whose current state is unknown to this repository.
+
+### 6.0.2 Platform gate: what is proven and what is not
+
+The requirement: *a migration that has not exited 0 must prevent the new server
+version from starting.* Where it is proven:
+
+- **Docker Compose** — `app.depends_on.migrate.condition:
+  service_completed_successfully`, exercised by `docker-migrate-test.sh` with a
+  failing and a good migration (the server never starts after the former).
+- **The job's contract** — exit 0 only when `migrate deploy` and `migrate status`
+  both succeeded; 64 without `DATABASE_URL`; non-zero in every failure tested.
+
+Where it is **not** proven — AWS App Runner (the production target of section 8):
+
+- This repository contains no workflow that builds or deploys the server. The
+  App Runner service is created in the AWS console from the GitHub source
+  (section 8.2, step 4); whether it deploys automatically on every push, and
+  which health check it uses, are console settings this repository cannot show.
+- If automatic deployment is on, a push builds and starts the new version with no
+  migration step at all, and nothing in the server stops it: it does not check for
+  pending migrations at boot (`/health/ready` only checks PostgreSQL and Redis
+  connectivity) and, deliberately, never migrates on start.
+- I have not verified, against AWS, any App Runner feature that blocks a
+  deployment on the exit status of a separate job.
+
+What production needs before the first real rollout, owned by whoever holds the
+AWS account: **(A)** automatic deployment off, and a pipeline that builds both
+images from one commit, runs the migration image where it can reach the private
+RDS (for example a one-off ECS task or CodeBuild project inside the VPC, with
+`DATABASE_URL` from Secrets Manager), and calls the App Runner deployment only
+when that task exited 0; and, as defence in depth, **(B)** a server-side
+readiness check that stays not-ready while migrations are pending, with the App
+Runner health check set to HTTP `/health/ready` (B is an application change that
+has not been made). Acceptance evidence for (A): a deployment attempt with a
+deliberately failing migration job leaves the running App Runner version
+untouched. Until that is shown on the real platform, production stays gated
+on it.
 
 ## 6.1 Migration Failure Recovery (Prisma P3009)
 
@@ -563,11 +632,14 @@ fails, the error will point at exactly which assumption above was wrong.
 4. **App Runner** — create a service from the GitHub source, Dockerfile
    build mode, port 3000, environment variables per section 8.3 below
    (non-secret ones set directly, secret ones referenced from step 3).
-5. **`npx prisma db push`** against the RDS instance — run once, from a
-   machine that can reach the database (locally via an SSH
-   tunnel/bastion, or as a one-off App Runner/ECS task), *before* the
-   service serves its first real request. This is the "real Postgres
-   migration run" section 7 flags as newly closed.
+5. **Apply the migrations** to the RDS instance with the migration job of
+   section 6.0 (`prisma migrate deploy`; never `db push` against production),
+   from a place that can reach the database, *before* the service serves its
+   first real request. *Corrected 2026-10-23:* this step used to say
+   `npx prisma db push`, which contradicts section 6.0 and leaves no
+   `_prisma_migrations` history. A database that was already provisioned with
+   `db push` must be baselined first — section 6.0.1. Whether App Runner may
+   deploy before this step has succeeded is the platform gate of section 6.0.2.
 
 ### 8.3 Production environment variables (real values, not the
     `.env.example` local-dev defaults)

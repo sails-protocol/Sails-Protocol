@@ -139,11 +139,16 @@ RUN node scripts/copy-package-closure.js /migrate prisma dotenv
 FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS migrate
 # No version-check/telemetry call to the network from a job that only needs the database.
 ENV NODE_ENV=production PRISMA_HIDE_UPDATE_MESSAGE=1 CHECKPOINT_DISABLE=1
-# openssl: bookworm-slim has no libssl3, so the bundled schema-engine (debian-openssl-3.0.x)
+# libssl3: bookworm-slim has no libssl3, so the bundled schema-engine (debian-openssl-3.0.x)
 # cannot load and Prisma silently falls back to DOWNLOADING an engine from binaries.prisma.sh
 # at migration time. The job must work with no internet access (docker-migrate-test.sh runs
-# it on an --internal network).
-RUN apt-get update && apt-get install -y --no-install-recommends openssl \
+# it on an --internal network). The library only, not the `openssl` CLI package: the engine
+# needs just the library and Prisma finds it without the binary (verified).
+# Deliberately NOT pinned to a version or an apt snapshot: the base image is digest-pinned, and
+# freezing this library would also freeze its Debian security fixes (old versions leave the
+# mirror, so a pin would eventually break the build instead). docker-migrate-test.sh prints
+# the installed version on every run.
+RUN apt-get update && apt-get install -y --no-install-recommends libssl3 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=migrate-deps --chown=node:node /migrate/node_modules ./node_modules
