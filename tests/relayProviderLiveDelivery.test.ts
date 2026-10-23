@@ -210,6 +210,24 @@ describe('real relay provider with two live TCP WebSocket clients', () => {
     await instanceB.stop('bob')
   })
 
+  it('fences stale cross-instance destination tokens on replacement and unregister', async () => {
+    const destination = new WebSocketRelayTransportProvider()
+    const previous = { readyState: 1, send: jest.fn(), close: jest.fn() }
+    const replacement = { readyState: 1, send: jest.fn(), close: jest.fn() }
+    destination.registerSocket('remote-bob', previous, 'lease-old')
+    expect(await destination.sendToPeerIfOwner('remote-bob', 'lease-old', 'opaque-1')).toBe(true)
+    destination.registerSocket('remote-bob', replacement, 'lease-new')
+    destination.unregisterSocket('remote-bob', previous)
+    expect(await destination.sendToPeerIfOwner('remote-bob', 'lease-old', 'stale')).toBe(false)
+    expect(await destination.sendToPeerIfOwner('remote-bob', '', 'missing')).toBe(false)
+    expect(await destination.sendToPeerIfOwner('remote-bob', 'lease-new', 'opaque-2')).toBe(true)
+    expect(previous.send).toHaveBeenCalledTimes(1)
+    expect(replacement.send).toHaveBeenCalledTimes(1)
+    expect(replacement.send).toHaveBeenCalledWith('opaque-2')
+    destination.unregisterSocket('remote-bob', replacement)
+    expect(await destination.sendToPeerIfOwner('remote-bob', 'lease-new', 'offline')).toBe(false)
+  })
+
   it('rejects unsupported topic discovery instead of silently succeeding', async () => {
     await expect(relay.joinTopic('alice', 'marketplace')).rejects.toThrow('does not support topic discovery')
     await expect(relay.broadcast('alice', { kind: 'offer_announce' })).resolves.toBe(0)
