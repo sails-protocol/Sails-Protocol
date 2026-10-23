@@ -572,6 +572,36 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
       .toEqual({ escrow: { status: 'REFUNDED', txReleaseId: refundTxid(f) }, distinct: [refundTxid(f)] })
   })
 
+  it('P4-D: a failure raised by the broadcast request is classified outcome-UNKNOWN on the error the live finalize surfaces, while behavior (revert, retained round) is unchanged', async () => {
+    pg.requirePostgres('P4-D')
+    const f = await locked('p4d')
+    const round = await escrowService.initiateRefund(f.escrowId, f.sellerId)
+    chain.refuseSailsBroadcasts = true
+    let surfaced: (Error & { broadcastAttempted?: boolean }) | undefined
+    for (const id of round.requiredSigners) {
+      try { await escrowService.submitTransactionSignature(f.escrowId, id, signPsbt(round.unsignedPsbtBase64, keyOf(f, id))) } catch (e) { surfaced = e as Error }
+    }
+    chain.refuseSailsBroadcasts = false
+    expect(surfaced?.message).toMatch(/broadcast failed with 503/)
+    expect(surfaced?.broadcastAttempted).toBe(true)
+    expect(await escrowOf(f.escrowId)).toEqual({ status: 'FUNDS_LOCKED', txReleaseId: null })
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: f.escrowId } })).toBe(1)
+  })
+
+  /** PASS 1 laps until it takes `escrowId` (a shared database holds other escrows that compete for each batch). */
+  async function pass1Until(escrowId: string, reconcile: typeof reconcilePendingSettlements) {
+    for (let lap = 0; lap < 60; lap++) {
+      const report = await reconcile()
+      const mine = {
+        recovered: report.recovered.filter((r) => r.escrowId === escrowId),
+        failed: report.failed.filter((r) => r.escrowId === escrowId),
+        manual: report.requiresManualReview.filter((r) => r.escrowId === escrowId),
+      }
+      if (mine.recovered.length + mine.failed.length + mine.manual.length > 0) return mine
+    }
+    throw new Error(`PASS 1 never took escrow ${escrowId}`)
+  }
+
   /** Every explorer READ fails (transport error) until `restore()`; broadcasts (POST) are untouched. */
   function explorerReadOutage() {
     const inner = global.fetch
@@ -613,13 +643,14 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     await hold.reached
     expect(await escrowOf(f.escrowId)).toEqual({ status: 'REFUNDED', txReleaseId: null })
     const outage = explorerReadOutage()
-    const during = await isolatedReconciler()()
-    expect(during.recovered.filter((r) => r.escrowId === f.escrowId)).toEqual([])
-    expect(during.failed.filter((r) => r.escrowId === f.escrowId).map((r) => r.error)).toEqual([expect.stringMatching(/explorer unreachable/)])
+    const pass1 = isolatedReconciler()
+    const during = await pass1Until(f.escrowId, pass1)
+    expect(during.recovered).toEqual([])
+    expect(during.failed.map((r) => r.error)).toEqual([expect.stringMatching(/explorer unreachable/)])
     expect(await escrowOf(f.escrowId)).toEqual({ status: 'REFUNDED', txReleaseId: null })
     outage.restore()
-    const after = await isolatedReconciler()()
-    expect(after.recovered.filter((r) => r.escrowId === f.escrowId)).toHaveLength(1)
+    const after = await pass1Until(f.escrowId, pass1)
+    expect(after.recovered).toHaveLength(1)
     hold.release()
     await owner
     expect({ escrow: await escrowOf(f.escrowId), distinct: [...new Set(chain.sailsBroadcasts)] }).toEqual({ escrow: { status: 'REFUNDED', txReleaseId: refundTxid(f) }, distinct: [refundTxid(f)] })

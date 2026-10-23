@@ -472,7 +472,7 @@ export async function reconcileUnclaimedFullySignedPending(report: Reconciliatio
           }
         )
       } catch (err) {
-        if (claimedBeforeBroadcast) await revertEscrowStatus(escrow.id, targetStatus, escrow.status)
+        if (claimedBeforeBroadcast) await revertEscrowStatus(escrow.id, targetStatus, escrow.status, err)
         if (err instanceof EscrowError && /already transitioned by a concurrent request/.test(err.message)) {
           report.alreadyClaimedConcurrently.push(escrow.id)
           continue

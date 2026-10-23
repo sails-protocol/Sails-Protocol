@@ -583,7 +583,7 @@ export async function submitTransactionSignature(escrowId: string, participantId
       ? await provider.finalizeRefund(finalizeEscrow, pending.unsignedPsbtBase64, signedList, pending.id)
       : await provider.finalizeSplit!(finalizeEscrow, pending.unsignedPsbtBase64, signedList)
   } catch (err) {
-    await revertEscrowStatus(escrowId, targetStatus, escrow.status)
+    await revertEscrowStatus(escrowId, targetStatus, escrow.status, err)
     throw err
   }
 
