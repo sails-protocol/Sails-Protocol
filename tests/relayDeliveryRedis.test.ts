@@ -29,6 +29,49 @@ class MockRedis extends EventEmitter {
 }
 
 describe('Redis relay delivery transport with independent provider instances', () => {
+  it('fails closed without a subscribed destination and leaves no pending request', async () => {
+    const bus = new RedisBus()
+    const alice = new RedisRelayDeliveryTransport(
+      new MockRedis(bus) as never, new MockRedis(bus) as never,
+      'sails:relay:delivery:origin', new WebSocketRelayTransportProvider(),
+    )
+    await alice.start()
+    try {
+      expect(await alice.deliver('sails:relay:delivery:missing', {
+        destinationParticipantId: 'bob',
+        destinationLeaseToken: randomUUID(),
+        deadlineMs: Date.now() + 2000,
+        payload: 'opaque',
+      })).toBe(false)
+    } finally {
+      await alice.close()
+    }
+  })
+
+  it('rejects stale owner commands even with a live destination subscriber', async () => {
+    const bus = new RedisBus()
+    const provider = new WebSocketRelayTransportProvider()
+    const socket = { readyState: 1, send: jest.fn(), close: jest.fn() }
+    provider.registerSocket('bob', socket, randomUUID())
+    const make = (name: string, destination: WebSocketRelayTransportProvider) =>
+      new RedisRelayDeliveryTransport(new MockRedis(bus) as never, new MockRedis(bus) as never,
+        'sails:relay:delivery:' + name, destination)
+    const alice = make('alice', new WebSocketRelayTransportProvider())
+    const bob = make('bob', provider)
+    await Promise.all([alice.start(), bob.start()])
+    try {
+      expect(await alice.deliver('sails:relay:delivery:bob', {
+        destinationParticipantId: 'bob',
+        destinationLeaseToken: randomUUID(),
+        deadlineMs: Date.now() + 2000,
+        payload: 'never-send',
+      })).toBe(false)
+      expect(socket.send).not.toHaveBeenCalled()
+    } finally {
+      await Promise.all([alice.close(), bob.close()])
+    }
+  })
+
   it('delivers concurrent commands to the correct destination and correlates ACKs', async () => {
     const bus = new RedisBus()
     const aliceProvider = new WebSocketRelayTransportProvider()
