@@ -216,9 +216,9 @@ pass "only 127.0.0.1:${SAILS_PORT} is published; postgres, redis and seaweedfs p
 pass "the server runs as non-root"
 ! docker image inspect "sails-server:$RUN-t2" "sails-migrate:$RUN-t2" --format '{{json .Config.Env}}{{json .Config.Cmd}}' | grep -qF -e "$PGPASS" -e "$S3PASS" || fail "a secret is baked into an image"
 pass "no secret is baked into the images"
-COMPOSE_PROFILES=evidence-store,tls SAILS_DOMAIN=node.example.org bash -c "docker compose -f '$(host_path "$PWD/deploy/self-host/compose.yml")' config -q" >/dev/null 2>&1 \
-  || SAILS_SERVER_IMAGE=x SAILS_MIGRATE_IMAGE=y SAILS_HOME_HOST="$(host_path "$SAILS_NODE_HOME")" COMPOSE_PROFILES=evidence-store,tls SAILS_DOMAIN=node.example.org docker compose -f "$(host_path "$PWD/deploy/self-host/compose.yml")" config -q \
-  || fail "the tls profile does not render"
+( export COMPOSE_PROFILES=evidence-store,tls SAILS_DOMAIN=node.example.org SAILS_SERVER_IMAGE=x SAILS_MIGRATE_IMAGE=y SAILS_HOME_HOST="$(host_path "$SAILS_NODE_HOME")"
+  export WSLENV="${WSLENV:+$WSLENV:}COMPOSE_PROFILES:SAILS_DOMAIN:SAILS_SERVER_IMAGE:SAILS_MIGRATE_IMAGE:SAILS_HOME_HOST"
+  docker compose -f "$(host_path "$PWD/deploy/self-host/compose.yml")" config -q ) >/dev/null 2>&1 || fail "the tls profile does not render"
 pass "the optional tls profile renders (syntax only: a real certificate needs public DNS and is NOT exercised here)"
 
 echo
