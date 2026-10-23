@@ -3,6 +3,10 @@
  * Unlike shared-iterations, the second VU's start is not paced by work in
  * the first. This is an experimental schedule, NOT Artillery parity.
  * The fixed offset is an observed-start target, not a scheduled-time proof.
+ * CI 2026-10-23: 32/32 trials across two candidate jobs passed, including
+ * 16 trials with 250ms work on the first VU; observed spans 1000-1001ms
+ * in both conditions. These are entry timestamps, not engine schedule times,
+ * and do not establish HTTP, latency, or Artillery parity.
  */
 import { Counter, Trend } from 'k6/metrics'
 import { sleep } from 'k6'
