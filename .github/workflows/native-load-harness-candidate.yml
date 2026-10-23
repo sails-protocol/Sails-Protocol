@@ -802,6 +802,30 @@ jobs:
           done
           echo "k6 fixed-count diagnostic failures: $failures / 12; closed-model NOT Artillery arrival parity"
           if [ "$failures" -ne 0 ]; then exit 1; fi
+      - name: Demonstrate closed-model spacing sensitivity to synthetic work
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          for trial in $(seq 1 6); do
+            summary="/tmp/sails-k6-fixed-work-${trial}.json"
+            SAILS_FIXED_PROBE_WORK_MS=250 timeout 20s k6 run --quiet --summary-export="$summary" load-tests/tests/fixed-two-arrivals-probe.js > /tmp/sails-k6-fixed-work.log 2>&1
+            node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const [file,trial]=process.argv.slice(2);
+          const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
+          const count=k=>m[k]?.count??0;
+          const span=(m.sails_fixed_entry_epoch_ms?.max??NaN)-(m.sails_fixed_entry_epoch_ms?.min??NaN);
+          console.log('k6 closed-model synthetic-work evidence:',JSON.stringify({
+            trial:Number(trial),workMs:250,iterations:count('iterations'),
+            extras:count('sails_fixed_extras'),spanMs:span}));
+          assert.equal(count('iterations'),2);
+          assert.equal(count('sails_fixed_extras'),0);
+          assert.ok(span>=1200 && span<=1750,'synthetic work must shift the second closed-model entry');
+          NODE
+          done
+          echo 'Closed-model spacing includes synthetic work; this is NOT open-model parity'
       - name: Prove k6 PONG assertion fails against non-PONG loopback fixture
         shell: bash
         run: |
