@@ -15,7 +15,8 @@ export const RELAY_PRESENCE_TTL_MS = 30_000
 export const RELAY_PRESENCE_CLAIM_SCRIPT = `
 local now = redis.call('TIME')
 local nowMs = tonumber(now[1]) * 1000 + math.floor(tonumber(now[2]) / 1000)
-if nowMs > tonumber(ARGV[3]) then
+local deadlineMs = tonumber(ARGV[3])
+if not deadlineMs or nowMs > deadlineMs then
   return 0
 end
 redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
@@ -32,7 +33,8 @@ return 0
 export const RELAY_PRESENCE_RENEW_SCRIPT = `
 local now = redis.call('TIME')
 local nowMs = tonumber(now[1]) * 1000 + math.floor(tonumber(now[2]) / 1000)
-if nowMs > tonumber(ARGV[3]) then
+local deadlineMs = tonumber(ARGV[3])
+if not deadlineMs or nowMs > deadlineMs then
   return 0
 end
 if redis.call('GET', KEYS[1]) == ARGV[1] then
