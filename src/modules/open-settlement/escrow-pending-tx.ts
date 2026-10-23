@@ -8,7 +8,6 @@ import {
   assertDisputedDispositionAuthority,
   loadParticipantPubkeys,
   claimEscrowTransition,
-  revertEscrowStatus,
   settlementSucceededButLocalStepFailed,
   emitEscrowTransition,
   resolvePayoutAddress,
