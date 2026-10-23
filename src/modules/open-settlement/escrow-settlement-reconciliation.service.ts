@@ -654,7 +654,16 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
   try {
     wroteTxReleaseId = await withEscrowFundingLock(escrow.id, async (tx) => {
       const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
-      if (!fresh) return false
+      if (!fresh) throw new SettlementResultConflictError(`PASS 1: escrow ${escrow.id} disappeared before settlement evidence could be persisted`)
+      // P4: the external chain check ran outside the E lock. A concurrent
+      // rollback may have changed the escrow status in that window.
+      // Never attach a broadcast result to an escrow no longer in the
+      // expected terminal disposition; require explicit reconciliation.
+      if (fresh.status !== targetStatus) {
+        throw new SettlementResultConflictError(
+          `PASS 1: escrow ${escrow.id} changed status to ${fresh.status} (expected ${targetStatus}) before settlement evidence write; manual reconciliation required`
+        )
+      }
       const updateData = targetStatus === 'REFUNDED' ? { txReleaseId: result.txId } : { txReleaseId: result.txId, releasedAt: new Date() }
       await escrowRepository.updateSignatureCollectionResult(escrow.id, updateData, { tx, operation: { pendingOperationId: pending.id } })
       return fresh.txReleaseId === null
