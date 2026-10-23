@@ -163,7 +163,10 @@ pass "exit ${STATUS}; t2 still running and ready; state and data unchanged"
 
 step "A server started by hand on the failed database refuses to boot (the server's own migration gate)"
 OUT="$LOGS/manual-boot.log"; MSTATUS=0
-docker run --rm --network "${RUN}_default" --env-file "$(host_path "$SAILS_NODE_HOME/secrets/db.env")" --env-file "$(host_path "$SAILS_NODE_HOME/secrets/server.env")" -e HOST=0.0.0.0 "sails-server:$RUN-t3" >"$OUT" 2>&1 || MSTATUS=$?
+# A server that DOES boot never exits: bound the run, and treat a timeout as the failure it is.
+timeout 60 docker run --rm --name "${RUN}-manual-boot" --network "${RUN}_default" --env-file "$(host_path "$SAILS_NODE_HOME/secrets/db.env")" --env-file "$(host_path "$SAILS_NODE_HOME/secrets/server.env")" -e HOST=0.0.0.0 "sails-server:$RUN-t3" >"$OUT" 2>&1 || MSTATUS=$?
+docker rm -f "${RUN}-manual-boot" >/dev/null 2>&1 || true
+[ "$MSTATUS" -ne 124 ] || fail "the t3 server booted on a database with a failed migration (it was still running after 60s)"
 [ "$MSTATUS" -ne 0 ] || fail "the t3 server booted on a database with a failed migration"
 grep -q 'not verifiably migrated' "$OUT" || fail "the refusal is not the migration gate: $(tail -n 3 "$OUT")"
 pass "t3 refuses to boot: exit ${MSTATUS}, 'not verifiably migrated'"
@@ -204,6 +207,59 @@ pass "restore refuses a non-empty database, restores an empty one, and the migra
 node_cmd update-after-restore 0 update "$RUN-t2"
 server_ready || fail "the server is not ready after the restore"
 
+kit_compose() { # docker compose against the kit file, with the variables sails-node would set
+  ( export SAILS_SERVER_IMAGE="sails-server:$RUN-t2" SAILS_MIGRATE_IMAGE="sails-migrate:$RUN-t2" SAILS_HOME_HOST="$(host_path "$SAILS_NODE_HOME")"
+    export WSLENV="${WSLENV:+$WSLENV:}SAILS_SERVER_IMAGE:SAILS_MIGRATE_IMAGE:SAILS_HOME_HOST:COMPOSE_PROFILES:COMPOSE_PROJECT_NAME:SAILS_PORT"
+    docker compose -f "$(host_path "$PWD/deploy/self-host/compose.yml")" "$@" )
+}
+evidence_js() { # store | retrieve <uri>  ->  "<uri> <sha256>"  |  "<sha256>"   (the production S3EvidenceProvider)
+  docker exec -e MODE="$1" -e URI="${2:-}" "$SERVER" node -e '
+    const { createHash } = require("crypto")
+    const { S3EvidenceProvider } = require("/app/dist/src/modules/open-proof/s3-evidence-provider.js")
+    const p = new S3EvidenceProvider({ endpoint: process.env.EVIDENCE_S3_ENDPOINT, region: process.env.EVIDENCE_S3_REGION, bucket: process.env.EVIDENCE_S3_BUCKET,
+      accessKeyId: process.env.EVIDENCE_S3_ACCESS_KEY_ID, secretAccessKey: process.env.EVIDENCE_S3_SECRET_ACCESS_KEY, forcePathStyle: process.env.EVIDENCE_S3_FORCE_PATH_STYLE === "true" })
+    ;(async () => {
+      if (process.env.MODE === "store") {
+        const s = await p.store(Buffer.from("selfhost-evidence-recovery-" + Date.now()), "image/png")
+        console.log(s.uri, s.sha256)
+      } else {
+        console.log(createHash("sha256").update(Buffer.from(await p.retrieve(process.env.URI))).digest("hex"))
+      }
+    })().catch(e => { console.error("evidence error:", e.message); process.exit(1) })'
+}
+# Bounded wait for a store that was just (re)started: up to 30 s, polling every 2 s.
+evidence_readable() { # <uri> <expected sha>
+  local i
+  for i in $(seq 1 15); do
+    [ "$(evidence_js retrieve "$1" 2>/dev/null || true)" = "$2" ] && return 0
+    sleep 2
+  done
+  return 1
+}
+
+step "Evidence recovery: stored objects, the SSE key and read-back (bundled store)"
+read -r EV_URI EV_SHA < <(evidence_js store)
+evidence_readable "$EV_URI" "$EV_SHA" || fail "cannot read the stored object before the backup"
+node_cmd backup-evidence 0 backup-evidence
+EV_BACKUP="$(ls -t "$SAILS_NODE_HOME"/backups/evidence-*.tar.gz | head -n1)"
+[ -s "$EV_BACKUP" ] || fail "no evidence backup was written"
+kit_compose rm -sf seaweedfs >/dev/null 2>&1
+docker volume rm "${RUN}_seaweedfs-data" >/dev/null || fail "cannot remove the evidence volume"
+docker volume inspect "${RUN}_seaweedfs-data" >/dev/null 2>&1 && fail "the evidence volume still exists"
+node_cmd restore-evidence 0 restore-evidence "$EV_BACKUP"
+evidence_readable "$EV_URI" "$EV_SHA" || fail "the restored store does not return the original bytes"
+pass "the store was wiped (container and volume removed), restored from the backup, and the object reads back byte-for-byte"
+cp "$SAILS_NODE_HOME/secrets/seaweedfs.env" "$WORK/seaweedfs.env.good"
+printf 'WEED_S3_SSE_KEK=%s\n' "$(printf '%064d' 7)" >"$SAILS_NODE_HOME/secrets/seaweedfs.env"
+kit_compose up -d --force-recreate --wait seaweedfs >/dev/null 2>&1 || fail "cannot restart the store with the wrong key"
+# The negative check only means something if the store is up and writing: a write under the new key must succeed.
+up=0; for i in $(seq 1 15); do evidence_js store >/dev/null 2>&1 && { up=1; break; }; sleep 2; done
+[ "$up" -eq 1 ] || fail "the store never accepted a write after the restart with the wrong key"
+[ "$(evidence_js retrieve "$EV_URI" 2>/dev/null || true)" != "$EV_SHA" ] || fail "the object was readable with a DIFFERENT SSE key: the key does not protect the stored objects"
+cp "$WORK/seaweedfs.env.good" "$SAILS_NODE_HOME/secrets/seaweedfs.env"
+kit_compose up -d --force-recreate --wait seaweedfs >/dev/null 2>&1 || fail "cannot restart the store with the right key"
+evidence_readable "$EV_URI" "$EV_SHA" || fail "the object is not readable again with the preserved key"
+pass "with a different SSE key the restored object is NOT readable; with the preserved key it is: the backup is only a recovery together with secrets/seaweedfs.env"
 step "Security properties"
 if grep -rqF -e "$PGPASS" -e "$S3PASS" "$LOGS"/*.log; then fail "a secret appears in a log: $(grep -rlF -e "$PGPASS" -e "$S3PASS" "$LOGS"/*.log | xargs -n1 basename | tr '\n' ' ')"; fi
 pass "neither the database nor the evidence-store secret appears in any of $(ls "$LOGS"/*.log | wc -l | tr -d ' ') logs"

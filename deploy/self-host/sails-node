@@ -10,6 +10,8 @@
 #   sails-node rollback             start the previous server image again (the schema is not rolled back)
 #   sails-node backup               pg_dump the database to $SAILS_NODE_HOME/backups
 #   sails-node restore FILE         restore a backup into an EMPTY database, then verify the migrations
+#   sails-node backup-evidence      cold snapshot of the bundled evidence store (objects stay encrypted; the key is NOT inside)
+#   sails-node restore-evidence FILE   restore that snapshot into a fresh store (needs the same secrets/seaweedfs.env)
 #   sails-node resolve-rolled-back NAME   after a failed migration: mark it rolled back (docs/DEPLOYMENT.md 6.1)
 #   sails-node status               containers and server readiness
 #
@@ -130,15 +132,35 @@ run_migration_job() {
 
 # Creates the evidence bucket in the bundled store (idempotent). Runs the server image's own S3 SDK,
 # so no extra tool image is needed; credentials come from server.env, not from the command line.
+#
+# Bounded retry against the S3 endpoint the server really uses: the store's healthcheck passes
+# when its master is up, a moment before the S3 gateway accepts connections (reproduced:
+# `Error ECONNREFUSED`, which failed the first CI run). Polls every 2 s until READY_TIMEOUT, then
+# fails with the last error; it never loops forever and never reports success it did not see.
 ensure_evidence_bucket() {
   docker run --rm --network "${PROJECT}_default" --env-file "$(host_path "$SAILS_NODE_HOME/secrets/server.env")" \
-    --entrypoint node "sails-server:$1" -e '
+    -e "BUCKET_TIMEOUT_S=$READY_TIMEOUT" --entrypoint node "sails-server:$1" -e '
       const { S3Client, HeadBucketCommand, CreateBucketCommand } = require("@aws-sdk/client-s3")
-      const c = new S3Client({ endpoint: process.env.EVIDENCE_S3_ENDPOINT, region: process.env.EVIDENCE_S3_REGION || "us-east-1", forcePathStyle: true,
+      const c = new S3Client({ endpoint: process.env.EVIDENCE_S3_ENDPOINT, region: process.env.EVIDENCE_S3_REGION || "us-east-1", forcePathStyle: true, maxAttempts: 1,
         credentials: { accessKeyId: process.env.EVIDENCE_S3_ACCESS_KEY_ID, secretAccessKey: process.env.EVIDENCE_S3_SECRET_ACCESS_KEY } })
       const Bucket = process.env.EVIDENCE_S3_BUCKET
-      c.send(new HeadBucketCommand({ Bucket })).catch(() => c.send(new CreateBucketCommand({ Bucket })))
-        .then(() => console.log("evidence bucket ready:", Bucket), e => { console.error("evidence bucket failed:", e.name); process.exit(1) })'
+      const timeoutS = Number(process.env.BUCKET_TIMEOUT_S)
+      const deadline = Date.now() + timeoutS * 1000
+      ;(async () => {
+        for (;;) {
+          try {
+            await c.send(new HeadBucketCommand({ Bucket })).catch(() => c.send(new CreateBucketCommand({ Bucket })))
+            console.log("evidence bucket ready:", Bucket)
+            return
+          } catch (e) {
+            if (Date.now() >= deadline) {
+              console.error("evidence store not ready within " + timeoutS + "s: " + e.name + " " + (e.code || "") + " " + e.message)
+              process.exit(1)
+            }
+            await new Promise(r => setTimeout(r, 2000))
+          }
+        }
+      })()'
 }
 
 cmd_update() {
@@ -185,7 +207,7 @@ cmd_rollback() {
   local previous; previous="$(state_get previous)"
   [ -n "$previous" ] && [ "$previous" != "none" ] || die "no previous version recorded"
   with_images "$previous"
-  say "starting the previous server $previous (the database schema is NOT rolled back; migrations must be backward compatible)"
+  say "starting the previous server $previous. The database schema is NOT rolled back, and this kit CANNOT verify that the previous version still works on it: that holds only if every migration since then was additive (docs/SELF_HOSTING.md, Roll back). If it does not, restore the pre-update backup instead."
   compose up -d --no-deps server && wait_ready || die "the previous server did not become ready"
   state_set previous "$(state_get current)"
   state_set current "$previous"
@@ -213,6 +235,49 @@ cmd_restore() {
   say "verifying the migrations against the restored database"
   run_migration_job || die "the restored database did not verify: do not start the server"
   say "restore verified"
+}
+
+EVIDENCE_VOLUME="${PROJECT}_seaweedfs-data"
+need_evidence_store() {
+  case ",${COMPOSE_PROFILES:-}," in *,evidence-store,*) ;; *) die "no bundled evidence store (COMPOSE_PROFILES=evidence-store): back up your own S3-compatible store with its own tools" ;; esac
+}
+# One-shot containers with tar (the PostgreSQL alpine image the stack already uses).
+evidence_pack() { # <backup dir> <archive name>
+  docker run --rm -v "$EVIDENCE_VOLUME:/data:ro" -v "$(host_path "$1"):/backup" --entrypoint sh postgres:16-alpine \
+    -c 'tar czf "/backup/$0" -C /data . && chown "$1:$2" "/backup/$0" && chmod 600 "/backup/$0"' "$2" "$(id -u)" "$(id -g)"
+}
+evidence_unpack() { # <backup dir> <archive name>
+  docker run --rm -v "$EVIDENCE_VOLUME:/data" -v "$(host_path "$1"):/backup:ro" --entrypoint sh postgres:16-alpine \
+    -c 'tar xzf "/backup/$0" -C /data' "$2"
+}
+# Evidence objects live in the store, not in the PostgreSQL dump. This is a COLD snapshot of the
+# store's volume: the store is stopped while it is copied (uploads fail meanwhile) so the files are
+# consistent. The objects stay ENCRYPTED with the SSE key in secrets/seaweedfs.env, which is NOT in
+# the archive: without that key the objects cannot be read back (back up secrets/ separately).
+cmd_backup_evidence() {
+  need_init; need_evidence_store
+  local name="evidence-$(date -u +%Y%m%dT%H%M%SZ).tar.gz" rc=0
+  say "stopping the evidence store for a consistent snapshot (uploads fail until it is back)"
+  compose stop seaweedfs
+  evidence_pack "$SAILS_NODE_HOME/backups" "$name" || rc=$?
+  compose up -d --wait seaweedfs
+  [ "$rc" -eq 0 ] && [ -s "$SAILS_NODE_HOME/backups/$name" ] || die "evidence backup failed (exit $rc); the store was restarted"
+  say "evidence backup written: $SAILS_NODE_HOME/backups/$name ($(wc -c <"$SAILS_NODE_HOME/backups/$name") bytes), encrypted; the key in secrets/seaweedfs.env is NOT inside it"
+}
+
+cmd_restore_evidence() {
+  need_init; need_evidence_store
+  local file="${1:?usage: sails-node restore-evidence FILE}"
+  [ -s "$file" ] || die "no such backup: $file"
+  file="$(cd "$(dirname "$file")" && pwd)/$(basename "$file")"
+  compose up --no-start seaweedfs
+  compose stop seaweedfs
+  local entries; entries="$(docker run --rm -v "$EVIDENCE_VOLUME:/data" --entrypoint sh postgres:16-alpine -c 'ls -A /data | wc -l')"
+  [ "$entries" = "0" ] || die "the evidence volume is not empty: restore only into a fresh store (docs/SELF_HOSTING.md)"
+  say "restoring $file"
+  evidence_unpack "$(dirname "$file")" "$(basename "$file")"
+  compose up -d --wait seaweedfs
+  say "evidence restored; the store reads it only with the SSE key that was in secrets/seaweedfs.env when the objects were written"
 }
 
 # Recovery after a FAILED migration (docs/DEPLOYMENT.md 6.1). Prisma refuses every further
@@ -244,7 +309,9 @@ case "${1:-}" in
   rollback) shift; cmd_rollback "$@" ;;
   backup) shift; cmd_backup "$@" ;;
   restore) shift; cmd_restore "$@" ;;
+  backup-evidence) shift; cmd_backup_evidence "$@" ;;
+  restore-evidence) shift; cmd_restore_evidence "$@" ;;
   resolve-rolled-back) shift; cmd_resolve_rolled_back "$@" ;;
   status) shift; cmd_status "$@" ;;
-  *) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 2 ;;
+  *) sed -n '2,24p' "${BASH_SOURCE[0]}"; exit 2 ;;
 esac

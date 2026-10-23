@@ -59,7 +59,8 @@ services:
     secrets: [seaweedfs_s3]
     volumes: [seaweedfs-data:/data]
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:9333/cluster/status || exit 1"]
+      # healthy only when the master answers AND the S3 gateway (the endpoint the server uses) listens
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8333 && wget -q --spider http://127.0.0.1:9333/cluster/status"]
       interval: 5s
       timeout: 5s
       retries: 30
