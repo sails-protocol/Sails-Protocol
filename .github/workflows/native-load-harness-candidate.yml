@@ -1389,7 +1389,7 @@ jobs:
           k6_exit=$?
           set -e
           if [ "$k6_exit" -ne 0 ]; then
-            echo "Independent Intent runner exit category: $(if [ \"$k6_exit\" -eq 124 ]; then echo timeout; elif [ \"$k6_exit\" -eq 1 ]; then echo nonzero-1; elif [ \"$k6_exit\" -eq 2 ]; then echo nonzero-2; else echo other-nonzero; fi)"
+            echo "Independent Intent runner exit code: $k6_exit"
             if [ "$k6_exit" -eq 124 ]; then echo 'Independent Intent runner exceeded 90s wall-clock bound'; fi
             echo 'Independent Intent candidate failed; raw logs withheld to protect auth data'
             node <<'NODE'
@@ -1400,7 +1400,13 @@ jobs:
             authentication:/Rate candidate authentication failed/.test(log),
             runtimeError:/GoError|TypeError|ReferenceError|level=error/.test(log)||log.includes('ERRO['),
             moduleResolution:/could not resolve|unknown module|module not found/i.test(log),
-            threshold:/thresholds? on metrics?/i.test(log)
+            threshold:/thresholds? on metrics?/i.test(log),
+            initialization:/could not initialize|initializing|init context|error while evaluating/i.test(log),
+            invalidOptions:/invalid option|invalid configuration|unknown executor/i.test(log),
+            connection:/connection refused|connect:|dial tcp/i.test(log),
+            rateLimit:/429|rate.limit/i.test(log),
+            fatal:/panic:|fatal error:/i.test(log),
+            signal:/signal:|interrupted|terminated/i.test(log)
           };
           if(fs.existsSync(file)){
             const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
