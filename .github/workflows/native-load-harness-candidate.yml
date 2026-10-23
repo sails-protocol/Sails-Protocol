@@ -1387,7 +1387,7 @@ jobs:
           const log=fs.readFileSync('/tmp/sails-independent-intent.log','utf8');
           const fingerprints={
             authentication:/Rate candidate authentication failed/.test(log),
-            runtimeError:/GoError|TypeError|ReferenceError|ERRO\\[|level=error/.test(log),
+            runtimeError:/GoError|TypeError|ReferenceError|level=error/.test(log)||log.includes('ERRO['),
             moduleResolution:/could not resolve|unknown module|module not found/i.test(log),
             threshold:/thresholds? on metrics?/i.test(log)
           };
