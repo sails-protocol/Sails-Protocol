@@ -27,7 +27,7 @@ cd "$(dirname "$0")/.."
 RUN="sailssh$$"
 export COMPOSE_PROJECT_NAME="$RUN"
 export SAILS_PORT="${SAILS_TEST_PORT:-$((20000 + RANDOM % 20000))}"
-export COMPOSE_PROFILES=minio
+export COMPOSE_PROFILES=evidence-store
 # Inside the repo (not /tmp): a Windows-hosted Docker client cannot see a WSL /tmp. Removed on exit.
 WORK="$(mktemp -d "$PWD/.self-host-test.XXXXXX")"
 export SAILS_NODE_HOME="$WORK/home"
@@ -109,12 +109,8 @@ else
   pass "a second init refuses to overwrite the secrets (SKIPPED: file modes — this filesystem does not store POSIX modes, so 0600/0700 was NOT verified here)"
 fi
 PGPASS="$(cat "$SAILS_NODE_HOME/secrets/postgres_password")"
-MINIOPASS="$(sed -n 's/^MINIO_ROOT_PASSWORD=//p' "$SAILS_NODE_HOME/secrets/minio.env")"
-[ -n "$PGPASS" ] && [ -n "$MINIOPASS" ] || fail "generated secrets are empty"
-
-step "Bundled evidence store (self-hosted MinIO) and its bucket"
-node_cmd bucket 0 evidence-bucket
-pass "evidence bucket created"
+S3PASS="$(sed -n 's/^EVIDENCE_S3_SECRET_ACCESS_KEY=//p' "$SAILS_NODE_HOME/secrets/server.env" | tail -n1)"
+[ -n "$PGPASS" ] && [ -n "$S3PASS" ] || fail "generated secrets are empty"
 
 step "Clean install: update t1"
 node_cmd update-t1 0 update "$RUN-t1"
@@ -123,6 +119,24 @@ server_ready || fail "t1 is not ready"
 sql "create table install_sentinel(id int); insert into install_sentinel values (42)" >/dev/null
 [ "$(sql "select count(*) from _prisma_migrations where finished_at is not null")" -gt 30 ] || fail "the migrations were not applied"
 pass "t1 installed from nothing: migrated, server ready, sentinel written"
+
+step "The server's own evidence provider works against the bundled store (store, retrieve, delete)"
+grep -q "evidence bucket ready" "$LOGS/$N-update-t1.log" || fail "update did not report the evidence bucket"
+docker exec "$SERVER" node -e "
+  const { S3EvidenceProvider } = require('/app/dist/src/modules/open-proof/s3-evidence-provider.js')
+  const p = new S3EvidenceProvider({ endpoint: process.env.EVIDENCE_S3_ENDPOINT, region: process.env.EVIDENCE_S3_REGION, bucket: process.env.EVIDENCE_S3_BUCKET,
+    accessKeyId: process.env.EVIDENCE_S3_ACCESS_KEY_ID, secretAccessKey: process.env.EVIDENCE_S3_SECRET_ACCESS_KEY, forcePathStyle: process.env.EVIDENCE_S3_FORCE_PATH_STYLE === 'true' })
+  ;(async () => {
+    const h = await p.health(); if (!h.healthy) throw new Error('health: ' + h.detail)
+    const bytes = Buffer.from('selfhost-evidence-' + Date.now())
+    const stored = await p.store(bytes, 'image/png')
+    const back = Buffer.from(await p.retrieve(stored.uri))
+    if (!back.equals(bytes)) throw new Error('retrieved bytes differ')
+    await p.delete(stored.uri)
+    console.log('roundtrip ok')
+  })().catch(e => { console.error('roundtrip FAILED:', e.message); process.exit(1) })
+" >"$LOGS/evidence-roundtrip.log" 2>&1 || fail "evidence provider roundtrip failed: $(tail -n 3 "$LOGS/evidence-roundtrip.log")"
+pass "S3EvidenceProvider (the production code, with its SSE header) works against the bundled store"
 
 step "Update to t2 (additive migration): data persists"
 node_cmd update-t2 0 update "$RUN-t2"
@@ -183,19 +197,19 @@ node_cmd update-after-restore 0 update "$RUN-t2"
 server_ready || fail "the server is not ready after the restore"
 
 step "Security properties"
-if grep -rqF -e "$PGPASS" -e "$MINIOPASS" "$LOGS"/*.log; then fail "a secret appears in a log: $(grep -rlF -e "$PGPASS" -e "$MINIOPASS" "$LOGS"/*.log | xargs -n1 basename | tr '\n' ' ')"; fi
+if grep -rqF -e "$PGPASS" -e "$S3PASS" "$LOGS"/*.log; then fail "a secret appears in a log: $(grep -rlF -e "$PGPASS" -e "$S3PASS" "$LOGS"/*.log | xargs -n1 basename | tr '\n' ' ')"; fi
 pass "neither the database nor the evidence-store secret appears in any of $(ls "$LOGS"/*.log | wc -l | tr -d ' ') logs"
 PUBLISHED="$(docker port "$SERVER")"
 echo "$PUBLISHED" | grep -q '127.0.0.1' || fail "the server port is not bound to loopback: $PUBLISHED"
 echo "$PUBLISHED" | grep -qE '0\.0\.0\.0|:::' && fail "the server port is exposed beyond loopback: $PUBLISHED"
-for c in postgres redis minio; do [ -z "$(docker port "${RUN}-$c-1")" ] || fail "$c publishes a port"; done
-pass "only 127.0.0.1:${SAILS_PORT} is published; postgres, redis and minio publish nothing"
+for c in postgres redis seaweedfs; do [ -z "$(docker port "${RUN}-$c-1")" ] || fail "$c publishes a port"; done
+pass "only 127.0.0.1:${SAILS_PORT} is published; postgres, redis and seaweedfs publish nothing"
 [ "$(docker exec "$SERVER" id -u)" != "0" ] || fail "the server runs as root"
 pass "the server runs as non-root"
-! docker image inspect "sails-server:$RUN-t2" "sails-migrate:$RUN-t2" --format '{{json .Config.Env}}{{json .Config.Cmd}}' | grep -qF -e "$PGPASS" -e "$MINIOPASS" || fail "a secret is baked into an image"
+! docker image inspect "sails-server:$RUN-t2" "sails-migrate:$RUN-t2" --format '{{json .Config.Env}}{{json .Config.Cmd}}' | grep -qF -e "$PGPASS" -e "$S3PASS" || fail "a secret is baked into an image"
 pass "no secret is baked into the images"
-COMPOSE_PROFILES=minio,tls SAILS_DOMAIN=node.example.org bash -c "docker compose -f '$(host_path "$PWD/deploy/self-host/compose.yml")' config -q" >/dev/null 2>&1 \
-  || SAILS_SERVER_IMAGE=x SAILS_MIGRATE_IMAGE=y SAILS_HOME_HOST="$(host_path "$SAILS_NODE_HOME")" COMPOSE_PROFILES=minio,tls SAILS_DOMAIN=node.example.org docker compose -f "$(host_path "$PWD/deploy/self-host/compose.yml")" config -q \
+COMPOSE_PROFILES=evidence-store,tls SAILS_DOMAIN=node.example.org bash -c "docker compose -f '$(host_path "$PWD/deploy/self-host/compose.yml")' config -q" >/dev/null 2>&1 \
+  || SAILS_SERVER_IMAGE=x SAILS_MIGRATE_IMAGE=y SAILS_HOME_HOST="$(host_path "$SAILS_NODE_HOME")" COMPOSE_PROFILES=evidence-store,tls SAILS_DOMAIN=node.example.org docker compose -f "$(host_path "$PWD/deploy/self-host/compose.yml")" config -q \
   || fail "the tls profile does not render"
 pass "the optional tls profile renders (syntax only: a real certificate needs public DNS and is NOT exercised here)"
 

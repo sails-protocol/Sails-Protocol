@@ -45,22 +45,22 @@ services:
     restart: unless-stopped
 
   # Production refuses local-fs evidence storage and requires an S3-COMPATIBLE bucket
-  # (EVIDENCE_PROVIDER=s3). This self-hosted MinIO satisfies that without any cloud account;
-  # enable it with COMPOSE_PROFILES=minio, or point EVIDENCE_S3_ENDPOINT at your own
-  # S3-compatible store and leave the profile off.
-  minio:
-    profiles: [minio]
-    image: minio/minio:latest
-    command: ["server", "/data"]
-    env_file: ${SAILS_HOME_HOST:?}/secrets/minio.env
-    volumes: [minio-data:/data]
+  # (EVIDENCE_PROVIDER=s3). This self-hosted SeaweedFS (Apache-2.0, actively maintained)
+  # satisfies that without any cloud account; enable it with COMPOSE_PROFILES=evidence-store,
+  # or point EVIDENCE_S3_ENDPOINT at your own S3-compatible store and leave the profile off.
+  # (MinIO is NOT used: its community edition was archived and its images discontinued.)
+  seaweedfs:
+    profiles: [evidence-store]
+    image: chrislusf/seaweedfs:4.48
+    command: ["server", "-dir=/data", "-s3", "-s3.config=/run/secrets/seaweedfs_s3"]
+    secrets: [seaweedfs_s3]
+    volumes: [seaweedfs-data:/data]
     healthcheck:
-      test: ["CMD-SHELL", "mc ready local || curl -fsS http://127.0.0.1:9000/minio/health/live"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:9333/cluster/status || exit 1"]
       interval: 5s
       timeout: 5s
-      retries: 20
+      retries: 30
     restart: unless-stopped
-
   # One-shot: applies the committed migrations of THIS version and proves the result.
   # restart "no": a failed migration is a failure to read, never something to retry silently.
   migrate:
@@ -105,9 +105,11 @@ services:
 secrets:
   postgres_password:
     file: ${SAILS_HOME_HOST:?}/secrets/postgres_password
+  seaweedfs_s3:
+    file: ${SAILS_HOME_HOST:?}/secrets/seaweedfs-s3.json
 
 volumes:
   postgres-data:
   redis-data:
-  minio-data:
+  seaweedfs-data:
   caddy-data:

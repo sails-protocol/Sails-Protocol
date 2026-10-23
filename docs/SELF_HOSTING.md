@@ -28,7 +28,8 @@ requires no credential from Satsails and no privileged access to the Sails Marke
 - Outbound internet for building (npm) and for the services listed in
   [Dependencies](#dependencies-on-other-services). Running the migration job needs **no** internet.
 - An S3-compatible bucket for evidence. Production refuses local disk storage. The kit can run a
-  self-hosted MinIO for you (below).
+  self-hosted SeaweedFS (Apache-2.0) for you. MinIO is deliberately not used: its community edition was
+  archived and its images discontinued in 2025-2026.
 
 ## Install
 
@@ -36,17 +37,16 @@ requires no credential from Satsails and no privileged access to the Sails Marke
 git clone https://github.com/sails-protocol/Sails-Protocol.git
 cd Sails-Protocol
 git checkout <the release tag or commit you audited>
-export COMPOSE_PROFILES=minio          # self-hosted evidence store; omit if you bring your own S3
+export COMPOSE_PROFILES=evidence-store   # self-hosted S3-compatible evidence store; omit if you bring your own
 deploy/self-host/sails-node init       # creates ~/.sails-node (secrets 0600), generates DB secrets
 $EDITOR ~/.sails-node/secrets/server.env   # network, custody secrets, evidence store: see the comments
-deploy/self-host/sails-node update     # build, back up, MIGRATE, then start the server
-deploy/self-host/sails-node evidence-bucket   # once, with the bundled MinIO
+deploy/self-host/sails-node update     # build, back up, MIGRATE, then start the server (also creates the evidence bucket)
 deploy/self-host/sails-node status
 ```
 
 - Secrets live in `~/.sails-node/secrets/` (`SAILS_NODE_HOME` to change it), never in an image or in
   the repository. The database password is generated for you and used only by the stack.
-- The server listens on `127.0.0.1:3000` only. PostgreSQL, Redis and MinIO publish no ports.
+- The server listens on `127.0.0.1:3000` only. PostgreSQL, Redis and the evidence store publish no ports.
 - `server.env` must satisfy the production gates (`docs/DEPLOYMENT.md`): the server **refuses to
   boot** on `MOCK_ESCROW`, a missing `MULTISIG_NETWORK`, disabled capability enforcement, local-fs
   evidence storage, and so on. Real-custody secrets (for example `MULTISIG_SEED`) are yours to supply
@@ -55,7 +55,7 @@ deploy/self-host/sails-node status
 ### TLS
 
 Put any reverse proxy in front of `127.0.0.1:3000`. The kit includes an optional Caddy profile with
-automatic certificates: `COMPOSE_PROFILES=minio,tls SAILS_DOMAIN=node.example.org` (public DNS for
+automatic certificates: `COMPOSE_PROFILES=evidence-store,tls SAILS_DOMAIN=node.example.org` (public DNS for
 that name must point at the host; ports 80/443 are then published). The profile's configuration is
 checked to render, but a real certificate issuance is **not** exercised by the test suite.
 
@@ -131,7 +131,7 @@ What a node needs besides its own containers. None is operated by Satsails; all 
 
 | Need | Used for | Notes |
 |---|---|---|
-| S3-compatible object storage | Evidence (required in production) | Bundled MinIO, or any S3-compatible store |
+| S3-compatible object storage | Evidence (required in production) | Bundled SeaweedFS, or any S3-compatible store |
 | Bitcoin explorer API (`MULTISIG_EXPLORER_API_URL`) | MULTISIG funding/settlement checks | Defaults to a public testnet endpoint; run or choose your own (Esplora/mempool-compatible) |
 | Arkade ASP / explorer | Only if the Arkade rail is used | `ARKADE_ASP_URL`, `ARKADE_EXPLORER_API_URL` |
 | EVM RPC | Only if an EVM rail is used | `WDK_RPC_URL`, `SAFE_GUARD_EVM_RPC_URL` |
