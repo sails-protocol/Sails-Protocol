@@ -766,8 +766,7 @@ export class EscrowService {
       // as well as a transport error during provider.lockFunds().
       // Neither is evidence that the external funding effect did not occur.
       const reason = err instanceof Error ? err.message : String(err)
-      log.error({
-        msg: 'P4: escrow funding outcome UNKNOWN; FUNDS_LOCKED claim retained; read-only reconciliation required before retry',
+      console.error('[P4] escrow funding outcome UNKNOWN; FUNDS_LOCKED claim retained; reconciliation required', {
         escrowId, escrowType: escrow.type, reason,
       })
       throw new EscrowError(
