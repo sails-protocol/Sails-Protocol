@@ -30,6 +30,11 @@ return 0
 `
 
 export const RELAY_PRESENCE_RENEW_SCRIPT = `
+local now = redis.call('TIME')
+local nowMs = tonumber(now[1]) * 1000 + math.floor(tonumber(now[2]) / 1000)
+if nowMs > tonumber(ARGV[3]) then
+  return 0
+end
 if redis.call('GET', KEYS[1]) == ARGV[1] then
   return redis.call('PEXPIRE', KEYS[1], ARGV[2])
 end
@@ -56,10 +61,10 @@ export async function claimRelayPresence(participantId: string, token: string, d
 }
 
 /** Only the current connection may extend its lease. */
-export async function renewRelayPresence(participantId: string, token: string): Promise<boolean> {
+export async function renewRelayPresence(participantId: string, token: string, deadlineMs = Date.now() + 5000): Promise<boolean> {
   validateLeaseToken(token)
   return await redis.eval(RELAY_PRESENCE_RENEW_SCRIPT, 1,
-    presenceKey(participantId), token, RELAY_PRESENCE_TTL_MS) === 1
+    presenceKey(participantId), token, RELAY_PRESENCE_TTL_MS, deadlineMs) === 1
 }
 
 /** A delayed close from an old connection must not evict a newer owner. */
