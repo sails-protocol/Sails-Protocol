@@ -541,6 +541,90 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
       .toEqual({ escrow: { status: 'REFUNDED', txReleaseId: refundTxid(f) }, distinct: [refundTxid(f)] })
   })
 
+  // The status re-check alone is not enough: PASS 1 passes it, and only then does the claim owner's answer get lost.
+  // The revert must therefore wait for the lock PASS 1's transaction already holds, not commit between its re-check
+  // and its write (the window P4-A's lock-queue orders cannot reach).
+  it('P4-B: the lost answer arrives AFTER PASS 1 passed its locked status re-check and BEFORE its write: the revert waits, the result is recorded on a REFUNDED escrow', async () => {
+    pg.requirePostgres('P4-B')
+    const f = await signedUnclaimedRefund('p4b')
+    const lostAnswer = acceptNextBroadcastThenLoseResponse()
+    const claimOwner = settle(restarted!.reconcile())
+    await lostAnswer.reached
+    expect(await escrowOf(f.escrowId)).toEqual({ status: 'REFUNDED', txReleaseId: null })
+    const original = escrowRepository.updateSignatureCollectionResult.bind(escrowRepository)
+    let interleaved = false
+    const spy = jest.spyOn(escrowRepository, 'updateSignatureCollectionResult').mockImplementation(async (...args: Parameters<typeof original>) => {
+      if (!interleaved && args[0] === f.escrowId) {
+        interleaved = true
+        // PASS 1 is inside its locked transaction, past the status re-check, about to write: the owner's answer is lost now
+        lostAnswer.release()
+        await Promise.race([untilWaiting(1).catch(() => undefined), claimOwner])
+      }
+      return original(...args)
+    })
+    try {
+      const report = await reconcilePendingSettlements()
+      expect(interleaved).toBe(true)
+      expect(report.failed.filter((r) => r.escrowId === f.escrowId)).toEqual([])
+    } finally { spy.mockRestore(); lostAnswer.release() }
+    expect((await claimOwner).ok).toBe(true)
+    expect({ escrow: await escrowOf(f.escrowId), distinct: [...new Set(chain.sailsBroadcasts)] })
+      .toEqual({ escrow: { status: 'REFUNDED', txReleaseId: refundTxid(f) }, distinct: [refundTxid(f)] })
+  })
+
+  /** Every explorer READ fails (transport error) until `restore()`; broadcasts (POST) are untouched. */
+  function explorerReadOutage() {
+    const inner = global.fetch
+    let down = true
+    global.fetch = (async (url: string, init?: { method?: string }) => {
+      if (down && init?.method !== 'POST') throw new Error('explorer unreachable (read-side outage)')
+      return (inner as any)(url, init)
+    }) as any
+    return { restore: () => { down = false } }
+  }
+
+  it('P4-C1 (PASS 0): an accepted broadcast whose answer was lost, then an explorer READ outage: C8 fails closed - no claim, no rebroadcast - and converges once reads return', async () => {
+    pg.requirePostgres('P4-C1')
+    const f = await locked('p4c1')
+    const round = await escrowService.initiateRefund(f.escrowId, f.sellerId)
+    chain.sailsBroadcasts = []
+    acceptNextBroadcastAmbiguously()
+    for (const id of round.requiredSigners) await settle(escrowService.submitTransactionSignature(f.escrowId, id, signPsbt(round.unsignedPsbtBase64, keyOf(f, id))))
+    const accepted = [...chain.sailsBroadcasts]
+    expect(accepted).toHaveLength(1)
+    expect(await escrowOf(f.escrowId)).toEqual({ status: 'FUNDS_LOCKED', txReleaseId: null })
+    const outage = explorerReadOutage()
+    const during = await c8Until(f.escrowId, restarted!.reconcile)
+    expect({ resumed: during.resumed, manual: during.manual }).toEqual({ resumed: [], manual: [] })
+    expect(during.failed.map((x) => x.error)).toEqual([expect.stringMatching(/explorer unreachable/)])
+    expect(await escrowOf(f.escrowId)).toEqual({ status: 'FUNDS_LOCKED', txReleaseId: null })
+    expect(chain.sailsBroadcasts).toEqual(accepted)
+    outage.restore()
+    const after = await c8Until(f.escrowId, restarted!.reconcile)
+    expect(after.resumed.map((x) => x.outcome)).toEqual(['ALREADY_BROADCAST'])
+    expect({ escrow: await escrowOf(f.escrowId), broadcasts: chain.sailsBroadcasts }).toEqual({ escrow: { status: 'REFUNDED', txReleaseId: accepted[0] }, broadcasts: accepted })
+  })
+
+  it('P4-C2 (PASS 1): a claim owner stuck at its broadcast, then an explorer READ outage: PASS 1 fails closed - claim kept, nothing recorded - and converges once reads return', async () => {
+    pg.requirePostgres('P4-C2')
+    const f = await signedUnclaimedRefund('p4c2')
+    const hold = holdNextBroadcast()
+    const owner = settle(restarted!.reconcile())
+    await hold.reached
+    expect(await escrowOf(f.escrowId)).toEqual({ status: 'REFUNDED', txReleaseId: null })
+    const outage = explorerReadOutage()
+    const during = await isolatedReconciler()()
+    expect(during.recovered.filter((r) => r.escrowId === f.escrowId)).toEqual([])
+    expect(during.failed.filter((r) => r.escrowId === f.escrowId).map((r) => r.error)).toEqual([expect.stringMatching(/explorer unreachable/)])
+    expect(await escrowOf(f.escrowId)).toEqual({ status: 'REFUNDED', txReleaseId: null })
+    outage.restore()
+    const after = await isolatedReconciler()()
+    expect(after.recovered.filter((r) => r.escrowId === f.escrowId)).toHaveLength(1)
+    hold.release()
+    await owner
+    expect({ escrow: await escrowOf(f.escrowId), distinct: [...new Set(chain.sailsBroadcasts)] }).toEqual({ escrow: { status: 'REFUNDED', txReleaseId: refundTxid(f) }, distinct: [refundTxid(f)] })
+  })
+
   it('PASS 0 transport-loss oracle: accepted refund with rejected network promise is recovered from chain truth on a fresh C8 run', async () => {
     pg.requirePostgres('PASS 0 transport loss')
     const f = await signedUnclaimedRefund('pass0-lost-response')
