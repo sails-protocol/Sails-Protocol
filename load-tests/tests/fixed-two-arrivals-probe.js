@@ -3,6 +3,10 @@
  * This avoids duration-boundary over-scheduling but is NOT an open arrival-rate
  * executor and cannot establish Artillery arrival-model parity.
  * Never promote it to the Intent candidate without an explicit parity review.
+ * On 2026-10-23, two CI candidate jobs recorded 24/24 successful isolated
+ * trials, with exactly two iterations, no extras or drops, and observed entry
+ * spans of 1000-1001ms. This zero-I/O result cannot be extrapolated to
+ * latency-bearing Intent operations or an open arrival-rate schedule.
  */
 import { Counter, Trend } from 'k6/metrics'
 import exec from 'k6/execution'
