@@ -589,11 +589,14 @@ export async function submitTransactionSignature(escrowId: string, participantId
     // chain/provider reconciliation; do not enable a second broadcast by
     // automatically returning the escrow to its pre-execution state.
     // A proven definitive rejection requires a separate typed contract.
-    throw settlementSucceededButLocalStepFailed(
-      escrowId,
-      `ambiguous ${pending.kind} provider finalize (reconciliation required)`,
-      undefined,
-      err
+    const reason = err instanceof Error ? err.message : String(err)
+    log.error({
+      msg: 'P4: provider finalize outcome UNKNOWN; no automatic rollback or retry; reconciliation required',
+      escrowId, pendingOperationId: pending.id, kind: pending.kind, reason,
+    })
+    throw new EscrowError(
+      `Provider finalize outcome UNKNOWN for escrow ${escrowId} (operation ${pending.id}). ` +
+      'Escrow claim and signed pending operation retained; do not retry broadcast until authoritative reconciliation.'
     )
   }
 
