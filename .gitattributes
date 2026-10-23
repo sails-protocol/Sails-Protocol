@@ -7,3 +7,6 @@
 # the self-hosting kit is read by Linux tools (an extensionless shell script, a compose file, an env file whose
 # values would otherwise carry a trailing CR): always LF
 deploy/self-host/* text eol=lf
+# Applied migrations are immutable and the server compares their SHA-256 with what Prisma stored: a CRLF checkout
+# would change the bytes (Prisma does not normalise line endings). Pin the SQL to LF on every OS.
+prisma/migrations/**/migration.sql text eol=lf

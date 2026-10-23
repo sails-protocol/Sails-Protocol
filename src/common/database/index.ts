@@ -41,7 +41,7 @@ export async function connectDatabase(): Promise<void> {
   await prisma.$connect()
   if (config.isProduction) {
     await assertMigrationsApplied(
-      () => prisma.$queryRaw<MigrationRow[]>`SELECT migration_name, finished_at, rolled_back_at FROM _prisma_migrations`,
+      () => prisma.$queryRaw<MigrationRow[]>`SELECT migration_name, checksum, finished_at, rolled_back_at FROM _prisma_migrations`,
     )
   }
   log.info({ msg: 'Connected' })

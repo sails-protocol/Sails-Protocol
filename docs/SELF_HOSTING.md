@@ -85,7 +85,7 @@ it, none of which depends on a cloud platform:
 2. `compose.yml` declares `server: depends_on: migrate: service_completed_successfully`, so even a
    hand-run `docker compose up` cannot start the server after a failed job.
 3. The server itself refuses to start in production when its database is not fully migrated to the
-   migrations shipped in its own image (`src/common/database/migration-gate.ts`). This holds on any
+   migrations shipped in its own image (every shipped migration finished, and applied from byte-identical SQL) (`src/common/database/migration-gate.ts`). This holds on any
    host or orchestrator, including one that ignores the first two layers. A database *ahead* of the
    server is accepted so that a rollback works; an unreadable migration table is treated as "not
    migrated".
@@ -191,11 +191,14 @@ today carries them.**
 - **P3-A vs P3-B.** This document and its tests cover P3-A: distributing and operating a node independently.
   P3-B, economic and protocol interoperability between several independently operated nodes, is *not*
   covered and remains unproven.
-- The boot gate compares migration *names*, not checksums: a migration file edited after it was applied
-  passes the gate (confirmed by an independent reproduction; `prisma migrate status` would flag it). Treat applied
-  migrations as immutable. Comparing checksums is a possible hardening, not done here: the bytes Prisma hashed must
-  equal the bytes shipped in the image, and a Windows checkout with CRLF SQL files would turn that into false
-  refusals.
+- The boot gate also compares each shipped migration's SHA-256 with the checksum Prisma stored when it applied it,
+  so a migration edited after being applied is refused. This is the *only* place that is caught: measured on
+  Prisma 7.10, neither `migrate status` nor `migrate deploy` re-checks the checksum. There is no line-ending
+  normalisation (Prisma does not normalise either, and normalising would hide real edits), so a database migrated
+  from different *bytes* than the image ships is refused too, e.g. a CRLF checkout vs an LF one. `.gitattributes`
+  pins `prisma/migrations/**/migration.sql` to LF so a checkout on any OS gives the same bytes; one `sails-node`
+  build produces both images from a single checkout. Tested by unit tests and by a hand-started server on a
+  database whose applied migration was edited (`scripts/self-host-test.sh`).
 - Images are built from source on the operator's host. There is no signed registry release yet, so
   build provenance is your own checkout. `apt` packages in the migration image are not version-pinned
   (see the OpenSSL note in the P3 report): rebuilds pick up current Debian security updates.
