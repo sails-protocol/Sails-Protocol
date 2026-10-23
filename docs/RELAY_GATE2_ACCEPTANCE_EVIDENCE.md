@@ -91,6 +91,20 @@ Earlier baseline: commit `31182b7ea036862ff0faf08c842d8dcecb68011b` passed CI 39
 - `tests/relayRedisIntegration.test.ts`: real Redis-backed single-use ticket resolution, concurrent/replayed ticket races and shared budget, including multi-process and multiple listener cases. The latest integration test exercises production `identityRoutes` HTTP ticket issuance with production `requireAuth` for two authenticated participants, real Redis ticket storage/consumption, two real TCP WebSocket clients, and opaque provider delivery from Alice to Bob **in one test**. Redis calls are forwarded to a disposable integration Redis client via Jest spies; the test is therefore instrumented, not a fully unmocked deployment-equivalent E2E scenario.
 - `tests/pearRoutes.test.ts`: verifies `POST /v1/peers/start` reports Pears versus WebSocket relay capabilities and `GET /v1/peers/status` reports connected/disconnected relay states without reading Pears registry state. Auth, transport selection and connection state are mocked for these route-level tests. A previous CI failure caused by a mock transport state leaking between tests was fixed by resetting the mock in `beforeEach`; commit `f50dcea` is green.
 
+## Cross-instance delivery implementation contract (not yet implemented)
+
+A Redis presence lease is a routing hint only. An ACK for publishing to Redis, an enqueue result, or a presence lookup **must not** be reported as successful delivery. The current provider's `sendToPeer()` returns `false` for remote sockets.
+
+Required implementation invariants before enabling cross-instance delivery:
+1. Give each server process an unpredictable instance ID and each authenticated socket a fencing token. The destination must compare its **current local socket owner** with the addressed token before any send.
+2. Send an opaque payload through a bounded, authenticated inter-instance channel with a unique request ID, absolute deadline, byte cap and bounded outstanding requests. Never inspect or log message bodies.
+3. The destination responds positively only after confirming that it owns an OPEN socket and its synchronous `socket.send()` invocation did not throw. This is a **local send-accepted** acknowledgment, not proof the remote application processed the message. If stronger delivery semantics are required, add an explicit client acknowledgment protocol.
+4. On missing destination, expired deadline, Redis disconnect, malformed reply, owner replacement, timeout or process crash, the origin must return `false` (or propagate a clearly typed failure) and never synthesize success.
+5. Validate isolation using **two distinct server processes** and real Redis: Alice on A, Bob on B, successful forwarding; Bob disconnect/reconnect race; old-owner fencing; Redis outage; duplicate and delayed responses; backpressure and payload limits. One-process/mocked-provider tests are insufficient.
+6. Preserve the documented degraded-mode choice: either implement and validate this backplane or formally restrict Gate 2 to a verified affinity/single-instance topology. DHT discovery/broadcast parity is a separate acceptance decision.
+
+No distributed delivery is claimed by this contract. Production WSS/TLS ingress and privacy limitations remain independent gates.
+
 ## Explicit acceptance gaps
 
 1. **No DHT equivalence**: relay `joinTopic` explicitly rejects unsupported topic discovery; `broadcast` delivers to zero peers. Discovery and offer broadcast routes still require a PearNode. Relay mode must not be advertised as full Pears fallback.
