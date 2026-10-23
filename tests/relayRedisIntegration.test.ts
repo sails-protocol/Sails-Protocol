@@ -6,7 +6,7 @@
 import Redis from 'ioredis'
 import { randomUUID } from 'crypto'
 import { RELAY_BUDGET_SCRIPT } from '../src/infrastructure/p2p/relay-shared-budget'
-import { RELAY_PRESENCE_CLAIM_SCRIPT, RELAY_PRESENCE_RELEASE_SCRIPT, RELAY_PRESENCE_RENEW_SCRIPT } from '../src/infrastructure/p2p/relay-presence'
+import { RELAY_PRESENCE_CLAIM_SCRIPT, RELAY_PRESENCE_RELEASE_SCRIPT, RELAY_PRESENCE_RENEW_SCRIPT, RELAY_PRESENCE_SNAPSHOT_SCRIPT } from '../src/infrastructure/p2p/relay-presence'
 import { ATOMIC_CONSUME_SCRIPT, atomicConsume } from '../src/common/redis/atomic-consume'
 import { resolveParticipantFromTicket } from '../src/common/middleware/ws-auth'
 
@@ -23,6 +23,27 @@ suite('relay shared budget — real Redis concurrent instances', () => {
   })
   afterAll(async () => {
     await Promise.all([a?.quit(), b?.quit()])
+  })
+
+  it('reads an atomic presence token and TTL snapshot across Redis clients', async () => {
+    const key = 'test:relay:presence:snapshot:' + randomUUID()
+    const oldToken = randomUUID()
+    const currentToken = randomUUID()
+    try {
+      expect(await a.eval(RELAY_PRESENCE_SNAPSHOT_SCRIPT, 1, key)).toEqual([null, -2])
+      await a.set(key, oldToken, 'PX', 30_000)
+      const oldSnapshot = await b.eval(RELAY_PRESENCE_SNAPSHOT_SCRIPT, 1, key) as [string, number]
+      expect(oldSnapshot[0]).toBe(oldToken)
+      expect(oldSnapshot[1]).toBeGreaterThan(0)
+      await b.set(key, currentToken, 'PX', 30_000)
+      const currentSnapshot = await a.eval(RELAY_PRESENCE_SNAPSHOT_SCRIPT, 1, key) as [string, number]
+      expect(currentSnapshot[0]).toBe(currentToken)
+      expect(currentSnapshot[1]).toBeGreaterThan(0)
+      await a.del(key)
+      expect(await b.eval(RELAY_PRESENCE_SNAPSHOT_SCRIPT, 1, key)).toEqual([null, -2])
+    } finally {
+      await a.del(key)
+    }
   })
 
   it('rejects missing or malformed presence deadlines without mutating Redis', async () => {
