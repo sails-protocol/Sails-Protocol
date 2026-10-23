@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+# deploy/self-host/sails-node — install, update, roll back, back up and restore a Sails Node.
+#
+# Provider-agnostic: needs only Docker Engine + the Compose plugin, git and a shell. Nothing
+# here talks to any cloud or to Satsails. Read docs/SELF_HOSTING.md first.
+#
+#   sails-node init                 create the data directory and generate the database secret
+#   sails-node build [TAG]          build the server and migration images from this checkout
+#   sails-node update [TAG]         back up, MIGRATE, and only if that succeeded start the new server
+#   sails-node rollback             start the previous server image again (the schema is not rolled back)
+#   sails-node backup               pg_dump the database to $SAILS_NODE_HOME/backups
+#   sails-node restore FILE         restore a backup into an EMPTY database, then verify the migrations
+#   sails-node evidence-bucket      create the evidence bucket in the bundled MinIO (COMPOSE_PROFILES=minio)
+#   sails-node status               containers and server readiness
+#
+# The rule enforced by `update`: the new server version is started ONLY after the migration job
+# of that same version exited 0. A failed, timed-out, missing or unreadable result stops the update
+# and leaves the running server untouched.
+#
+# Environment: SAILS_NODE_HOME (default ~/.sails-node), SAILS_PORT (3000), COMPOSE_PROJECT_NAME
+# (sails-node), SAILS_MIGRATE_TIMEOUT seconds (600), SAILS_READY_TIMEOUT seconds (120),
+# COMPOSE_PROFILES (minio, tls), SAILS_DOMAIN (with the tls profile).
+
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$HERE/../.." && pwd)"
+export SAILS_NODE_HOME="${SAILS_NODE_HOME:-$HOME/.sails-node}"
+export SAILS_PORT="${SAILS_PORT:-3000}"
+MIGRATE_TIMEOUT="${SAILS_MIGRATE_TIMEOUT:-600}"
+READY_TIMEOUT="${SAILS_READY_TIMEOUT:-120}"
+STATE="$SAILS_NODE_HOME/state"
+# A Windows docker client (Docker Desktop reached from WSL) needs Windows-style paths; on a Linux
+# host this is the identity.
+host_path() {
+  if command -v wslpath >/dev/null 2>&1 && [ "$(docker version -f '{{.Client.Os}}' 2>/dev/null)" = windows ]; then wslpath -m "$1"; else echo "$1"; fi
+}
+export SAILS_HOME_HOST="$(host_path "$SAILS_NODE_HOME")"
+COMPOSE_FILE_HOST="$(host_path "$HERE/compose.yml")"
+REPO_HOST="$(host_path "$REPO")"
+PROJECT="${COMPOSE_PROJECT_NAME:-sails-node}"
+export COMPOSE_PROJECT_NAME="$PROJECT"
+JOB_NAME="$PROJECT-migrate-job"
+# Commands that start no application container still need the variables to render the file.
+export SAILS_SERVER_IMAGE="${SAILS_SERVER_IMAGE:-sails-server:unset}" SAILS_MIGRATE_IMAGE="${SAILS_MIGRATE_IMAGE:-sails-migrate:unset}"
+
+die() { echo "sails-node: $*" >&2; exit 1; }
+say() { echo "sails-node: $*"; }
+compose() { docker compose -f "$COMPOSE_FILE_HOST" "$@"; }
+state_get() { [ -f "$STATE" ] && sed -n "s/^$1=//p" "$STATE" | tail -n1 || true; }
+state_set() { # key value
+  touch "$STATE"; chmod 600 "$STATE"
+  grep -v "^$1=" "$STATE" >"$STATE.tmp" || true
+  echo "$1=$2" >>"$STATE.tmp"; mv "$STATE.tmp" "$STATE"
+}
+with_images() { # tag -> exports the image variables for compose
+  export SAILS_SERVER_IMAGE="sails-server:$1" SAILS_MIGRATE_IMAGE="sails-migrate:$1"
+}
+need_init() { [ -f "$SAILS_NODE_HOME/secrets/server.env" ] || die "not initialised: run 'sails-node init' first"; }
+
+default_tag() {
+  git -C "$REPO" diff --quiet HEAD -- 2>/dev/null || die "the checkout has uncommitted changes; commit them or pass an explicit TAG"
+  git -C "$REPO" rev-parse --short=12 HEAD
+}
+
+server_ready() { # is the running server answering /health/ready with 200?
+  compose exec -T server node -e "require('http').get('http://127.0.0.1:3000/health/ready',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))" >/dev/null 2>&1
+}
+
+wait_ready() {
+  local waited=0
+  while [ "$waited" -lt "$READY_TIMEOUT" ]; do
+    server_ready && return 0
+    sleep 2; waited=$((waited + 2))
+  done
+  return 1
+}
+
+cmd_init() {
+  [ ! -e "$SAILS_NODE_HOME/secrets" ] || die "$SAILS_NODE_HOME/secrets already exists; refusing to overwrite secrets"
+  umask 077
+  mkdir -p "$SAILS_NODE_HOME/secrets" "$SAILS_NODE_HOME/backups"
+  local pw; pw="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  printf '%s' "$pw" >"$SAILS_NODE_HOME/secrets/postgres_password"
+  # db.env holds the connection string for the migration job and the server; the password never
+  # appears in an image, in a compose file or on a command line.
+  printf 'DATABASE_URL=postgresql://sails:%s@postgres:5432/sails\n' "$pw" >"$SAILS_NODE_HOME/secrets/db.env"
+  local minio_pw; minio_pw="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  printf 'MINIO_ROOT_USER=sails-evidence\nMINIO_ROOT_PASSWORD=%s\n' "$minio_pw" >"$SAILS_NODE_HOME/secrets/minio.env"
+  cp "$HERE/server.env.example" "$SAILS_NODE_HOME/secrets/server.env"
+  cat >>"$SAILS_NODE_HOME/secrets/server.env" <<EOF
+
+# Generated by 'sails-node init' for the bundled MinIO (COMPOSE_PROFILES=minio):
+EVIDENCE_S3_ACCESS_KEY_ID=sails-evidence
+EVIDENCE_S3_SECRET_ACCESS_KEY=$minio_pw
+EOF
+  chmod 600 "$SAILS_NODE_HOME"/secrets/*
+  say "created $SAILS_NODE_HOME (secrets 0600). Edit $SAILS_NODE_HOME/secrets/server.env, then run: sails-node update"
+}
+
+cmd_build() {
+  local tag="${1:-$(default_tag)}"
+  say "building sails-server:$tag and sails-migrate:$tag from $REPO"
+  docker build --target runtime -t "sails-server:$tag" "$REPO_HOST"
+  docker build --target migrate -t "sails-migrate:$tag" "$REPO_HOST"
+}
+
+# The gate. Returns 0 only when the migration job of this version exited 0.
+run_migration_job() {
+  local rc=0
+  docker rm -f "$JOB_NAME" >/dev/null 2>&1 || true
+  timeout "$MIGRATE_TIMEOUT" docker compose -f "$COMPOSE_FILE_HOST" run --rm --name "$JOB_NAME" migrate || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    docker rm -f "$JOB_NAME" >/dev/null 2>&1 || true # a timed-out job must not keep running
+    if [ "$rc" -eq 124 ]; then
+      echo "sails-node: the migration job timed out after ${MIGRATE_TIMEOUT}s: its result is UNKNOWN" >&2
+    fi
+    return "$rc"
+  fi
+}
+
+cmd_update() {
+  need_init
+  local tag="${1:-$(default_tag)}"
+  docker image inspect "sails-server:$tag" >/dev/null 2>&1 && docker image inspect "sails-migrate:$tag" >/dev/null 2>&1 || cmd_build "$tag"
+  with_images "$tag"
+  local previous; previous="$(state_get current)"
+
+  say "starting the database services"
+  compose up -d --wait postgres redis
+  case ",${COMPOSE_PROFILES:-}," in *,minio,*) compose up -d --wait minio ;; esac
+
+  if [ -n "$(compose exec -T postgres psql -h 127.0.0.1 -U sails -d sails -Atc "select to_regclass('public._prisma_migrations')" 2>/dev/null)" ]; then
+    cmd_backup
+  else
+    say "empty database: nothing to back up"
+  fi
+
+  say "running the migration job for $tag"
+  if ! run_migration_job; then
+    die "MIGRATION FAILED or unknown: the server was NOT updated${previous:+ (still $previous)}. Fix the cause (docs/DEPLOYMENT.md 6.1), then run update again."
+  fi
+
+  # Re-running update for the version already deployed must not overwrite the rollback target.
+  if [ "$previous" != "$tag" ]; then state_set previous "${previous:-none}"; fi
+  say "migration confirmed; starting the server $tag"
+  if compose up -d server && wait_ready; then
+    state_set current "$tag"
+    say "server $tag is ready"
+  else
+    say "server $tag did not become ready within ${READY_TIMEOUT}s"
+    if [ -n "$previous" ] && [ "$previous" != "none" ]; then
+      say "rolling back to $previous"
+      with_images "$previous"; compose up -d server && wait_ready || say "ROLLBACK ALSO FAILED: inspect 'docker compose logs server'"
+      state_set current "$previous"
+    fi
+    return 1
+  fi
+}
+
+cmd_rollback() {
+  need_init
+  local previous; previous="$(state_get previous)"
+  [ -n "$previous" ] && [ "$previous" != "none" ] || die "no previous version recorded"
+  with_images "$previous"
+  say "starting the previous server $previous (the database schema is NOT rolled back; migrations must be backward compatible)"
+  compose up -d --no-deps server && wait_ready || die "the previous server did not become ready"
+  state_set previous "$(state_get current)"
+  state_set current "$previous"
+}
+
+cmd_backup() {
+  need_init
+  local file="$SAILS_NODE_HOME/backups/sails-$(date -u +%Y%m%dT%H%M%SZ).dump"
+  (umask 077; compose exec -T postgres pg_dump -h 127.0.0.1 -U sails -d sails -Fc >"$file")
+  [ -s "$file" ] || { rm -f "$file"; die "backup produced an empty file"; }
+  say "backup written: $file ($(wc -c <"$file") bytes)"
+}
+
+cmd_restore() {
+  need_init
+  local file="${1:?usage: sails-node restore FILE}"
+  [ -s "$file" ] || die "no such backup: $file"
+  local tag; tag="$(state_get current)"; [ -n "$tag" ] || tag="$(default_tag)"
+  with_images "$tag"
+  compose up -d --wait postgres
+  local tables; tables="$(compose exec -T postgres psql -h 127.0.0.1 -U sails -d sails -Atc "select count(*) from information_schema.tables where table_schema='public'")"
+  [ "$tables" = "0" ] || die "the target database is not empty ($tables tables): restore only into a fresh database (docs/SELF_HOSTING.md)"
+  say "restoring $file"
+  compose exec -T postgres pg_restore -h 127.0.0.1 -U sails -d sails --no-owner <"$file" >/dev/null
+  say "verifying the migrations against the restored database"
+  run_migration_job || die "the restored database did not verify: do not start the server"
+  say "restore verified"
+}
+
+cmd_evidence_bucket() { # create the evidence bucket in the bundled MinIO (idempotent)
+  need_init
+  compose up -d --wait minio
+  local bucket user pass
+  bucket="$(sed -n 's/^EVIDENCE_S3_BUCKET=//p' "$SAILS_NODE_HOME/secrets/server.env" | tail -n1)"
+  user="$(sed -n 's/^MINIO_ROOT_USER=//p' "$SAILS_NODE_HOME/secrets/minio.env")"
+  pass="$(sed -n 's/^MINIO_ROOT_PASSWORD=//p' "$SAILS_NODE_HOME/secrets/minio.env")"
+  # credentials go through the environment of a one-shot container, not the command line
+  MC_HOST_local="http://$user:$pass@minio:9000" docker run --rm --network "${PROJECT}_default" -e MC_HOST_local minio/mc:latest mb --ignore-existing "local/$bucket"
+}
+
+cmd_status() {
+  need_init
+  local tag; tag="$(state_get current)"; [ -n "$tag" ] || die "nothing deployed yet"
+  with_images "$tag"
+  say "current=$tag previous=$(state_get previous)"
+  compose ps
+  if server_ready; then say "server: ready"; else say "server: NOT ready"; return 1; fi
+}
+
+case "${1:-}" in
+  init) shift; cmd_init "$@" ;;
+  build) shift; cmd_build "$@" ;;
+  update) shift; cmd_update "$@" ;;
+  rollback) shift; cmd_rollback "$@" ;;
+  backup) shift; cmd_backup "$@" ;;
+  evidence-bucket) shift; cmd_evidence_bucket "$@" ;;
+  restore) shift; cmd_restore "$@" ;;
+  status) shift; cmd_status "$@" ;;
+  *) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 2 ;;
+esac

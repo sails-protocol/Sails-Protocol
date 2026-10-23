@@ -39,3 +39,5 @@ internal/
 docker-compose.override.yml
 
 .migrate-test.*/
+
+.self-host-test.*/
