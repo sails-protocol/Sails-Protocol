@@ -1280,28 +1280,7 @@ jobs:
               const fs=require('node:fs');
               const log=fs.readFileSync('/tmp/sails-k6-rate.log','utf8');
               // Only report fixed allowlisted error categories, never raw log lines.
-              // Extract only numeric, allowlisted k6 metric points. Never print tags,
-          // URLs, log lines, response bodies, or auth data.
-          const metricsFile='/tmp/sails-independent-intent-metrics.json';
-          const safeMetricNames=new Set(['iterations','http_reqs','http_req_failed',
-            'sails_authenticated_arrivals','sails_completed_intent_pairs',
-            'sails_intent_create_samples','sails_intent_cancel_samples',
-            'sails_observed_setup_timestamp_samples','sails_extra_scheduled_arrivals',
-            'dropped_iterations']);
-          const points={};
-          if(fs.existsSync(metricsFile)){
-            const records=fs.readFileSync(metricsFile,'utf8').split(String.fromCharCode(10));
-            for(const line of records){
-              if(!line)continue;
-              let entry;try{entry=JSON.parse(line)}catch{continue}
-              if(entry.type!=='Point'||!safeMetricNames.has(entry.metric))continue;
-              const v=entry.data?.value;
-              if(typeof v==='number'&&Number.isFinite(v))
-                points[entry.metric]=(points[entry.metric]||0)+v;
-            }
-          }
-          console.log('Independent Intent safe metric points:',JSON.stringify(points));
-          const fingerprints={
+              const fingerprints={
                 authFailure:/Rate candidate authentication failed/.test(log),
                 checkThreshold:/thresholds? on metrics? 'checks' have been crossed/i.test(log),
                 intentThreshold:/thresholds? on metrics? 'sails_intent_success' have been crossed/i.test(log),
@@ -1417,6 +1396,27 @@ jobs:
           const fs=require('node:fs');
           const file='/tmp/sails-independent-intent-summary.json';
           const log=fs.readFileSync('/tmp/sails-independent-intent.log','utf8');
+          // Extract only numeric, allowlisted k6 metric points. Never print tags,
+          // URLs, log lines, response bodies, or auth data.
+          const metricsFile='/tmp/sails-independent-intent-metrics.json';
+          const safeMetricNames=new Set(['iterations','http_reqs','http_req_failed',
+            'sails_authenticated_arrivals','sails_completed_intent_pairs',
+            'sails_intent_create_samples','sails_intent_cancel_samples',
+            'sails_observed_setup_timestamp_samples','sails_extra_scheduled_arrivals',
+            'dropped_iterations']);
+          const points={};
+          if(fs.existsSync(metricsFile)){
+            const records=fs.readFileSync(metricsFile,'utf8').split(String.fromCharCode(10));
+            for(const line of records){
+              if(!line)continue;
+              let entry;try{entry=JSON.parse(line)}catch{continue}
+              if(entry.type!=='Point'||!safeMetricNames.has(entry.metric))continue;
+              const v=entry.data?.value;
+              if(typeof v==='number'&&Number.isFinite(v))
+                points[entry.metric]=(points[entry.metric]||0)+v;
+            }
+          }
+          console.log('Independent Intent safe metric points:',JSON.stringify(points));
           const fingerprints={
             authentication:/Rate candidate authentication failed/.test(log),
             runtimeError:/GoError|TypeError|ReferenceError|level=error/.test(log)||log.includes('ERRO['),
