@@ -163,11 +163,18 @@ ensure_evidence_bucket() {
       })()'
 }
 
-# Starts the bundled evidence store and makes sure its bucket exists. Every failure is fatal and loud:
-# `a && b` under `set -e` would have skipped the store silently (the server boots without evidence storage).
+# Starts the bundled evidence store and waits until the S3 endpoint the server really uses accepts the real
+# credentials (bounded, see ensure_evidence_bucket). It does NOT rely on `compose --wait`: whether a container
+# counts as healthy depends on the Docker host (the master elects a leader in ~2 s on a laptop and ~20 s on a
+# small CI VM), which is what failed twice in CI. Every failure is fatal and loud: `a && b` under `set -e` would
+# have skipped the store silently.
 start_evidence_store() {
-  compose up -d --wait seaweedfs || { compose logs --tail 40 seaweedfs >&2 || true; die "the bundled evidence store did not become healthy"; }
-  ensure_evidence_bucket "$1" || die "the evidence bucket is not available"
+  compose up -d seaweedfs || die "cannot start the bundled evidence store"
+  if ! ensure_evidence_bucket "$1"; then
+    compose logs --tail 60 seaweedfs >&2 || true
+    docker inspect -f '{{json .State.Health}}' "$(compose ps -q seaweedfs)" >&2 || true
+    die "the bundled evidence store is not usable"
+  fi
 }
 
 cmd_update() {  need_init
@@ -266,7 +273,7 @@ cmd_backup_evidence() {
   say "stopping the evidence store for a consistent snapshot (uploads fail until it is back)"
   compose stop seaweedfs
   evidence_pack "$SAILS_NODE_HOME/backups" "$name" || rc=$?
-  compose up -d --wait seaweedfs
+  compose up -d seaweedfs
   [ "$rc" -eq 0 ] && [ -s "$SAILS_NODE_HOME/backups/$name" ] || die "evidence backup failed (exit $rc); the store was restarted"
   say "evidence backup written: $SAILS_NODE_HOME/backups/$name ($(wc -c <"$SAILS_NODE_HOME/backups/$name") bytes), encrypted; the key in secrets/seaweedfs.env is NOT inside it"
 }
@@ -283,8 +290,8 @@ cmd_restore_evidence() {
   [ "$files" = "0" ] || die "the evidence volume already holds data ($files files): restore only into a fresh store (docs/SELF_HOSTING.md)"
   say "restoring $file"
   evidence_unpack "$(dirname "$file")" "$(basename "$file")"
-  compose up -d --wait seaweedfs
-  say "evidence restored; the store reads it only with the SSE key that was in secrets/seaweedfs.env when the objects were written"
+  compose up -d seaweedfs
+  say "evidence restored; the store reads it only with the SSE key that was in secrets/seaweedfs.env when the objects were written (allow it up to ~30 s to start answering)"
 }
 
 # Recovery after a FAILED migration (docs/DEPLOYMENT.md 6.1). Prisma refuses every further

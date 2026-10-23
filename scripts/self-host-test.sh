@@ -251,13 +251,13 @@ evidence_readable "$EV_URI" "$EV_SHA" || fail "the restored store does not retur
 pass "the store was wiped (container and volume removed), restored from the backup, and the object reads back byte-for-byte"
 cp "$SAILS_NODE_HOME/secrets/seaweedfs.env" "$WORK/seaweedfs.env.good"
 printf 'WEED_S3_SSE_KEK=%s\n' "$(printf '%064d' 7)" >"$SAILS_NODE_HOME/secrets/seaweedfs.env"
-kit_compose up -d --force-recreate --wait seaweedfs >/dev/null 2>&1 || fail "cannot restart the store with the wrong key"
+kit_compose up -d --force-recreate seaweedfs >/dev/null 2>&1 || fail "cannot restart the store with the wrong key"
 # The negative check only means something if the store is up and writing: a write under the new key must succeed.
 up=0; for i in $(seq 1 15); do evidence_js store >/dev/null 2>&1 && { up=1; break; }; sleep 2; done
 [ "$up" -eq 1 ] || fail "the store never accepted a write after the restart with the wrong key"
 [ "$(evidence_js retrieve "$EV_URI" 2>/dev/null || true)" != "$EV_SHA" ] || fail "the object was readable with a DIFFERENT SSE key: the key does not protect the stored objects"
 cp "$WORK/seaweedfs.env.good" "$SAILS_NODE_HOME/secrets/seaweedfs.env"
-kit_compose up -d --force-recreate --wait seaweedfs >/dev/null 2>&1 || fail "cannot restart the store with the right key"
+kit_compose up -d --force-recreate seaweedfs >/dev/null 2>&1 || fail "cannot restart the store with the right key"
 evidence_readable "$EV_URI" "$EV_SHA" || fail "the object is not readable again with the preserved key"
 pass "with a different SSE key the restored object is NOT readable; with the preserved key it is: the backup is only a recovery together with secrets/seaweedfs.env"
 step "Security properties"

@@ -59,9 +59,9 @@ services:
     secrets: [seaweedfs_s3]
     volumes: [seaweedfs-data:/data]
     healthcheck:
-      # healthy only when the master answers AND the S3 gateway (the endpoint the server uses) listens;
-      # probed on the container's own address, which holds whether the gateway binds to it or to 0.0.0.0
-      test: ["CMD-SHELL", "nc -z $$(hostname -i | cut -d' ' -f1) 8333 && wget -q --spider http://127.0.0.1:9333/cluster/status"]
+      # Informational: the master answers. Readiness for the SERVER is not decided by this check but by the
+      # bounded wait on the real S3 endpoint with the real credentials (sails-node: ensure_evidence_bucket).
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:9333/cluster/status || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 30
