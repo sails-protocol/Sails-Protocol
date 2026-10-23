@@ -472,6 +472,75 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     expect({ escrow: await escrowOf(f.escrowId), distinct: [...new Set(chain.sailsBroadcasts)] }).toEqual({ escrow: { status: 'REFUNDED', txReleaseId: refundTxid(f) }, distinct: [refundTxid(f)] })
   })
 
+  /**
+   * P4 / Gate 3 - the explorer ACCEPTS the next Sails broadcast on arrival, but the caller's answer is held and then
+   * lost (a transport error): the attempt owning the claim learns nothing while the transaction is already public.
+   */
+  function acceptNextBroadcastThenLoseResponse() {
+    const b = barrier()
+    const inner = global.fetch
+    let done = false
+    global.fetch = (async (url: string, init?: { method?: string; body?: string }) => {
+      if (!done && init?.method === 'POST' && String(url).endsWith('/tx')) {
+        done = true
+        const txid = bitcoin.Transaction.fromHex(init.body!).getId()
+        chain.sailsBroadcasts.push(txid); chain.spentBy = txid; chain.known.add(txid)
+        await b.hold()
+        throw new Error('transport connection lost after explorer accepted transaction')
+      }
+      return (inner as any)(url, init)
+    }) as any
+    return b
+  }
+
+  // The claim owner holds REFUNDED and the transaction is already public (the M/N window); its answer is then
+  // lost, so its catch reverts the claim, while PASS 1 on another instance has read that chain truth and is about
+  // to record the result. Both serializations of the revert and PASS 1's write are exercised, each with the
+  // escrow lock held so the interleaving is deterministic rather than timing-dependent.
+  it.each([
+    ['PASS 1 queues first, the revert second', false],
+    ['the revert queues first, PASS 1 second', true],
+  ])('P4-A (%s): the escrow never ends non-terminal beside a recorded settlement result, and converges once', async (_name, revertQueuesFirst) => {
+    pg.requirePostgres('P4-A')
+    const f = await signedUnclaimedRefund(revertQueuesFirst ? 'p4a-revert-first' : 'p4a-pass1-first')
+    const lostAnswer = acceptNextBroadcastThenLoseResponse()
+    const claimOwner = settle(restarted!.reconcile())
+    await lostAnswer.reached
+    expect(await escrowOf(f.escrowId)).toEqual({ status: 'REFUNDED', txReleaseId: null })
+    const releaseLock = await holdEscrowLock(f.escrowId)
+    let pass1!: ReturnType<typeof settle>
+    const startPass1 = async (waiters: number) => { pass1 = settle(isolatedReconciler()()); await untilWaiting(waiters) }
+    try {
+      if (revertQueuesFirst) {
+        // the lost answer reaches the owner's catch first: its revert parks on the escrow lock, then PASS 1 reads the same chain truth
+        lostAnswer.release()
+        await untilWaiting(1)
+        await startPass1(2)
+      } else {
+        await startPass1(1)
+        lostAnswer.release()
+        // serialized, the revert parks behind the held lock; an unserialized revert would complete (and settle the owner) at once
+        await Promise.race([untilWaiting(2).catch(() => undefined), claimOwner])
+      }
+    } catch (choreographyError) {
+      // never leave the escrow lock held (or the parked broadcast pending) for the tests that follow
+      lostAnswer.release()
+      await releaseLock().catch(() => undefined)
+      throw choreographyError
+    }
+    await releaseLock()
+    expect((await claimOwner).ok).toBe(true)
+    expect((await pass1).ok).toBe(true)
+
+    const after = await escrowOf(f.escrowId)
+    // the contradiction this test guards: a settlement result recorded on an escrow that is not in the terminal state it settled
+    expect(after.txReleaseId !== null ? after.status : 'REFUNDED').toBe('REFUNDED')
+    // and whatever state it is in converges to the one transaction the chain holds, with no second spend
+    if (after.txReleaseId === null) await c8Until(f.escrowId, restarted!.reconcile)
+    expect({ escrow: await escrowOf(f.escrowId), distinct: [...new Set(chain.sailsBroadcasts)] })
+      .toEqual({ escrow: { status: 'REFUNDED', txReleaseId: refundTxid(f) }, distinct: [refundTxid(f)] })
+  })
+
   it('PASS 0 transport-loss oracle: accepted refund with rejected network promise is recovered from chain truth on a fresh C8 run', async () => {
     pg.requirePostgres('PASS 0 transport loss')
     const f = await signedUnclaimedRefund('pass0-lost-response')

@@ -245,7 +245,13 @@ beforeEach(() => {
   mockParticipantKeyFindMany.mockResolvedValue([])
   mockEscrowEventFindFirst.mockResolvedValue(null)
   mockTradeFindById.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-  mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', txReleaseId: null })
+  // P4 / Gate 3 - PASS 1 records a result only while the escrow still has the terminal status it read, so the
+  // locked re-read reports the status of the candidate the recovery batch handed out (unchanged unless a test says so).
+  mockEscrowFindUnique.mockImplementation(async () => {
+    const results = mockClaimResultRecoveryBatch.mock.results
+    const batch = await results[results.length - 1]?.value
+    return { id: 'escrow-1', txReleaseId: null, status: batch?.[0]?.status ?? 'COMPLETED' }
+  })
   mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1' })
   mockPendingTxDelete.mockResolvedValue({})
   mockClaimTransition.mockResolvedValue(1)
@@ -674,7 +680,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     // A concurrent reconciliation run (or, structurally impossible but
     // defended anyway, a live request) already converged this escrow
     // between this test's own chain-truth determination and the lock.
-    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', txReleaseId: 'already-set-by-someone-else' })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', txReleaseId: 'already-set-by-someone-else', status: 'COMPLETED' })
 
     await reconcilePendingSettlements()
 
@@ -689,6 +695,20 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     // cascade fires — its own (escrowId, toStatus) claim, not this
     // txReleaseId write, is the real double-fire guard (see the
     // dedicated emitEscrowTransition() idempotency tests below).
+  })
+
+  it('P4 / Gate 3 - PASS 1: the claim was reverted between the chain read and the locked write (status no longer the terminal one) - nothing recorded, nothing reported as recovered', async () => {
+    mockClaimResultRecoveryBatch.mockResolvedValue([multisigEscrowFixture()])
+    mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture())
+    mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'real-txid-5', detail: 'already known' })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', txReleaseId: null, status: 'FUNDS_LOCKED' })
+
+    const report = await reconcilePendingSettlements()
+
+    expect(mockUpdateSignatureCollectionResult).not.toHaveBeenCalled()
+    expect(mockRecordObligation).not.toHaveBeenCalled()
+    expect(report.recovered).toEqual([])
+    expect(report.failed).toEqual([])
   })
 
   // Issue #291 - PASS 1 and C8 use the same write-once semantics as every live writer: a DIFFERENT
