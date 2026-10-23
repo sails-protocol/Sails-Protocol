@@ -3,8 +3,11 @@
  * Explicitly opt in: k6 run load-tests/tests/arrival-scheduler-probe.js
  * Alternate diagnostics: k6 run -e SAILS_SCHEDULER_PROBE_DURATION=1900ms load-tests/tests/arrival-scheduler-probe.js
  * and 1500ms; neither is claimed equivalent to Artillery's 2s window.
- * The 2s control tests the exact comparator duration; it is expected to
- * expose the third boundary arrival and is diagnostic only.
+ * The 2s control tests the exact comparator duration and is diagnostic only.
+ * On 2026-10-23 two CI candidate jobs observed a third entry in 7/12 2s
+ * control trials, while the 1999ms, 1900ms and 1500ms probes each passed
+ * 24/24 trials. Previous 1999ms failures remain unresolved; green samples
+ * do not prove scheduler parity or erase the reproduced boundary defect.
  * The 1999ms constant-arrival-rate window is experimental. On 2026-10-23,
  * isolated CI trials observed four third arrivals across 24 attempts at 1999ms;
  * 1900ms and 1500ms each had 0/24 failures in that same run. These are
