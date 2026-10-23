@@ -111,7 +111,7 @@ try {
 
 // 7: packages of the other workspaces (front-end / examples) must not ride along into the
 // server image: the `pruned` stage installs only the server's closure. (react and
-// typescript are NOT sentinels: Prisma's CLI studio legitimately requires them.)
+// typescript are NOT sentinels: other packages in that closure may legitimately need them.)
 const leaked = ['next', 'tailwindcss', 'lucide-react'].filter(name => fs.existsSync(path.join(root, 'node_modules', name)))
 if (leaked.length === 0) pass('no other-workspace packages in node_modules')
 else fail('other-workspace packages in node_modules', leaked.join(', '))
@@ -121,6 +121,21 @@ else fail('other-workspace packages in node_modules', leaked.join(', '))
 const devOnly = ['artillery', 'jest', 'ts-jest', 'embedded-postgres', 'redis-memory-server', 'pino-pretty'].filter(name => fs.existsSync(path.join(root, 'node_modules', name)))
 if (devOnly.length === 0) pass('no devDependencies in node_modules')
 else fail('devDependencies in node_modules', devOnly.join(', '))
+
+// 8: the Prisma CLI chain is NOT in the serving image (it lives in the `migrate` image), while
+// the Prisma runtime pieces and the optional native runtime QVAC needs ARE.
+const cliChain = ['prisma', '@prisma/config', '@prisma/engines', '@prisma/studio-core', 'mysql2', 'deepmerge-ts', 'c12', 'effect'].filter(name => fs.existsSync(path.join(root, 'node_modules', name)))
+if (cliChain.length === 0) pass('Prisma CLI chain absent from the serving image')
+else fail('Prisma CLI chain in the serving image', cliChain.join(', '))
+// `npm prune --omit=optional` would also drop bare-runtime-linux-x64: the QVAC SDK spawns its worker with it.
+for (const name of ['@prisma/client', '@prisma/adapter-pg', 'pg', 'bare-runtime', 'bare-runtime-linux-x64']) {
+  try {
+    rootRequire.resolve(name)
+    pass(`present: ${name}`)
+  } catch {
+    fail(`present: ${name}`, 'not resolvable from /app')
+  }
+}
 
 if (failures.length > 0) {
   console.log(`\n${failures.length} runtime image check(s) FAILED: ${failures.join('; ')}`)

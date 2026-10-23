@@ -109,6 +109,15 @@ RUN npm prune --omit=dev \
       --workspace=packages/sails-p2p-schemas \
       --workspace=packages/sails-sdk \
       --include-workspace-root
+# The Prisma CLI is an OPTIONAL PEER of @prisma/client, so the prune above keeps it, with
+# its CLI-only chain (@prisma/config, mysql2, deepmerge-ts, c12, effect, studio-core, the
+# schema engine...). The server needs only the generated client + the pg adapter; the CLI
+# lives in the separate `migrate` image. `npm uninstall` removes exactly that chain and
+# touches neither package.json nor the lockfile. (PR #451 reached the same goal with
+# `--omit=optional`, which ALSO removes every other optional dependency — among them
+# bare-runtime-linux-x64, the binary the QVAC SDK starts its worker with — so it is not
+# used here; scripts/runtime-image-checks.js guards both properties.)
+RUN npm uninstall prisma --no-save --ignore-scripts
 
 # ---- Database migrations: a separate image, never the server ----
 # `docker build --target migrate`. The Prisma CLI is a devDependency, so the `runtime`
