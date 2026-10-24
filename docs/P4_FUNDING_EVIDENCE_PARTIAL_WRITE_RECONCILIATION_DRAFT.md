@@ -65,3 +65,26 @@ PR #524 correctly refuses to roll `FUNDS_LOCKED` back to `CREATED` once `txLockI
 **Implementation implication:** introduce an explicit modern funding-obligation/provenance discriminator before changing the sweep; the new repair path must not reinterpret `skippedNoBaseline` globally. Preserve the current legacy skip and add an independently verified, lock-serialized recovery for positively marked modern escrows only.
 
 **New negative acceptance case:** inject evidence append failure after durable `txLockId`; run existing sweep and assert it reports `skippedNoBaseline` (baseline behavior); run proposed recovery without valid chain proof and assert no synthetic `OBSERVED_CONFIRMED`; only after independently valid confirmation and locked tail recheck may the new recovery append a row. A concurrent reorg invalidation must not be superseded by stale recovery proof.
+
+## Rollout gates and recovery decision matrix (CTO review)
+
+This section is a proposed contract, not shipped functionality.
+
+| Persisted provenance | Escrow state | Evidence tail | Chain scan | Allowed outcome |
+| --- | --- | --- | --- | --- |
+| NULL (legacy) | FUNDS_LOCKED | Empty | Any | Keep legacy compatibility; report `skippedNoBaseline`; **never backfill** |
+| Modern marker present | FUNDS_LOCKED with txLockId/vout | Empty | Unknown / unreachable | **UNCERTAIN**; block payment/release/split, retain refund/dispute/recovery |
+| Modern marker present | FUNDS_LOCKED with txLockId/vout | Empty | Outpoint missing or wrong script/value | **UNCERTAIN**; no fabricated confirmation or provider retry |
+| Modern marker present | FUNDS_LOCKED with txLockId/vout | Empty | Independently matched and sufficiently confirmed | Append one baseline only after locked tail re-read and exact outpoint revalidation |
+| Modern marker present | FUNDS_LOCKED | REORGED_INVALIDATED or AMBIGUOUS | Old/stale confirmation | Keep **UNCERTAIN**; never overwrite a later invalidation with stale scan |
+| Modern marker present | FUNDS_LOCKED | OBSERVED_CONFIRMED | Same independently confirmed outpoint | Idempotent no-op; no duplicate baseline |
+| Modern marker present | CREATED, txLockId NULL | Empty | Unknown external provider result | **UNCERTAIN** pending explicit reconciliation; never blindly re-invoke provider |
+| Any | Any | Any | Provider/chain timeout | Fail closed for economic progression, preserve evidence history and recovery paths |
+
+**Concurrency linearization point:** a per-escrow PostgreSQL advisory-locked transaction must re-read the escrow marker, persisted outpoint and latest evidence *after* the external chain scan, compare the scan to the current authoritative outpoint and chain tip/depth, then append at most one observation. If the scan can become stale before the transaction commits, conservatively record AMBIGUOUS or defer; never promote an invalidated escrow based on a pre-lock snapshot. The existing sweep's `withEscrowFundingLock()` is reusable but its unlocked `peek.length === 0` shortcut cannot be used to authorize modern repair.
+
+**Event boundary:** evidence reconciliation and the durable event-outbox write must commit together, or event delivery must remain explicitly pending and retryable with an idempotency key. Never emit a success event merely because a previous `FUNDS_LOCKED` status exists.
+
+**Required test gates before code is enabled:** (1) real PG post-`updateLockResult` append failure; (2) process death before/after marker and provider invocation; (3) provider outcome unknown; (4) chain offline; (5) outpoint mismatch; (6) shallow confirmations; (7) reorg during recovery; (8) concurrent sweeps/recovery; (9) legacy empty log untouched; (10) no duplicate provider call, baseline row or event. Each gate must run against the exact commit SHA and a database with the migration actually applied. No CI skip counts as proof.
+
+**Release order:** isolated schema migration review → pre-provider marker write → conservative uncertain classifier → manual/read-only reconciliation visibility → independently verified repair behind disabled-by-default feature gate → real PG race tests → explicit authorization for any production enablement. A schema migration is **not** authorized by this design document.
