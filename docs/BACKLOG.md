@@ -1401,26 +1401,35 @@ four are preserved below in the order they were registered:
    Issue. No new primitive — reuses the exact existing signature/
    verification mechanism.
 2. **The Implementation Sequence itself (ADR-001 §21, updated
-   2026-09-09 twice — first to insert two new Day-0 identity/binding
-   items, then to insert two new Day-0 economics items)** — (a)
-   portable signed Offers, (b) persistent Participant Transport
-   Identity (corrected naming, 2026-09-09, CTO Gate — see item 4/5
-   below; not Operational Sails Node Identity), (c) Economic
-   Identity ↔ Transport Identity Binding, (d) propagation/bootstrap,
-   (e) multi-node discovery/convergence, (f) cross-node trade
-   coordination, (g) pagination/discovery-scaling wiring, (h)
-   professional-provider inventory locking, (i) cross-node
-   restart/resume, (j) Node Contribution Accounting, (k) Incentive
-   Compatibility / No-Cannibalization Evidence, (l) stranger-node test,
-   (m) stranger-developer test, (n) first independent partner-wallet
+   2026-09-09 three times — first to insert two new Day-0
+   identity/binding items, then to insert two new Day-0 economics
+   items, then to insert (d) Operational Sails Node Identity and
+   renumber everything after it, CTO decision, PR #108
+   final-precision pass, reconciled with PR #106's own independent
+   A/B/C/D taxonomy on merge)** — (a) portable signed Offers, (b)
+   persistent Participant Transport Identity (corrected naming,
+   2026-09-09 — not Operational Sails Node Identity), (c) Economic
+   Identity ↔ Transport Identity Binding, **(d) Operational Sails Node
+   Identity** — ~~Sails Node Operator Identity~~, renamed 2026-09-09
+   per the C≠D separation in item 5 below and
+   `docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5 — (e) propagation/
+   bootstrap, (f) multi-node discovery/convergence, (g) cross-node
+   trade coordination, (h) pagination/discovery-scaling wiring, (i)
+   professional-provider inventory locking, (j) cross-node
+   restart/resume, (k) Node Contribution Accounting, (l) Incentive
+   Compatibility / No-Cannibalization Evidence, (m) stranger-node test,
+   (n) stranger-developer test, (o) first independent partner-wallet
    beta — registered as the concrete, ordered obligation that
    supersedes this file's own prior "16 evidence-required properties"
    framing (still accurate as *scope*, now given an actual build
    order). Explicitly **not** authorized for implementation by the ADR
    or this entry — requires its own separate CTO Gate before any step
-   begins. **Actual payout execution is separate from and later than
-   this sequence** — gated by the Production Readiness Consolidated
-   Gate, may remain disabled through the entire beta; (j)/(k) make
+   begins. **Critical dependency, explicit:** (e) propagation/bootstrap
+   must not be implemented before (d) has its own CTO-approved design
+   and evidence. **Actual payout execution is separate from and later
+   than this sequence** — gated by the Production Readiness
+   Consolidated Gate, may remain disabled through the entire beta;
+   (k)/(l) make
    contribution accounting and entitlement recognition testable, they
    do not activate payment.
 
@@ -1440,27 +1449,98 @@ represented anywhere in this repository:
    explicitly not chosen (a real cryptographic design decision);
    explicitly forbidden: reusing `User.publicKey` directly as the Pears
    transport key.
-4. **Persistent Node Identity (ADR-001 §7) — corrected, 2026-09-09, CTO
-   Gate, final institutional precision pass.** `"A Sails Node
-   participating in network discovery must have a stable operational
-   identity across ordinary restarts."` ~~Today's node-level identity
-   (HyperDHT's ephemeral, per-session `peerId`) is classified as a
-   current implementation gap against the accepted Day-0 architecture,
-   not a future nicety — the ADR's own gossip model (§4) depends on
-   stable peer relationships surviving restarts.~~ **Corrected:** this
-   artifact is **Participant Transport Identity** (B), scoped per
-   participant, not an operator/deployment-level identity — see item 5
-   below and `docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5 for the full
-   A/B/C/D taxonomy. §4's gossip-relay model needs **Operational Sails
-   Node Identity (C)**, which does not exist and is not closed by
-   persisting B. Classified as a current implementation gap against the
-   accepted Day-0 architecture for the participant-to-participant
-   property only, not a future nicety.
+4. **Persistent Participant Transport Identity (ADR-001 §7/§7.1),
+   renamed from "Persistent Node Identity" 2026-09-09 (CTO Gate B
+   correction on PR #108, ADR-001 §7.2).** `"A Sails Node participating
+   in network discovery must have a stable operational identity across
+   ordinary restarts."` Today's participant-scoped transport identity
+   (HyperDHT's ephemeral, per-session `peerId`, tied 1:1 to a `User`
+   row via `PearNode.start()`'s own `prisma.user.update({..., data:
+   {peerId}})`) is classified as a **current implementation gap against
+   the accepted Day-0 architecture**, not a future nicety — a
+   participant's own direct-connection relationships (trade
+   communication, reconnection) need it to survive ordinary restarts.
+   **Corrected, 2026-09-09 (final-precision pass):** this obligation is
+   **not** the same property as "the ADR's own gossip model (§4)
+   depends on stable peer relationships surviving restarts" — §4's
+   gossip-relay peer network is operator-to-operator (item 5, §21(d)),
+   not participant-to-participant; conflating them here was itself an
+   error, now removed. **Closed by PR #108** (`participant-transport-identity.ts`)
+   — narrowly: this closes ONLY the participant-scoped, direct-connection
+   gap. It does **not** close item 5 below, and it does **not** make any
+   gossip-relay peer relationship stable (no operator-level identity for
+   gossip to attach to exists yet). **Narrow claim (2026-09-09,
+   final-precision pass):** "Local participant transport identity
+   persistence across ordinary restarts on the same persisted storage."
+   **Explicitly does not close**: cross-node portability; node
+   migration; recovery; rotation; node gossip identity; participant
+   continuity after changing operator (see the new node-switch-continuity
+   entry below).
+
+5. **Operational Sails Node Identity — new, 2026-09-09 (CTO Gate B
+   correction on PR #108, ADR-001 §7.2).** ~~Sails Node Operator
+   Identity~~, renamed 2026-09-09 (PR #108 ↔ PR #106 merge) to match the
+   C≠D separation below. A cryptographic identity for the
+   operator/deployment itself, independent of any single hosted
+   participant, required by §4's gossip-relay peer model ("each node
+   maintains connections to a bounded set of known peer nodes") and
+   §16's node economics ("a node was genuinely used by a real
+   participant to reach a real, confirmed trade" — compensating the
+   infrastructure that served the trade, distinct from the participant
+   who traded). **Confirmed, by direct code and `prisma/schema.prisma`
+   search, not to exist anywhere in this codebase today** — no model, no
+   keypair; the only "node operator" references are
+   `nodeOperatorShare`/`nodeOperatorPct` payout-percentage fields inside
+   distribution-policy models, not an identity. **Not solved or designed
+   in this pass** — no gossip, node-registry protocol, or federation
+   mechanism is proposed. Item 4 above (Participant Transport Identity)
+   does **not** close this — they are structurally distinct, confirmed
+   by the fact that a single operator can host many participants (one
+   `PearNode` per `ownerUserId`), so no per-participant identity can
+   stand in for an operator-level one. **Sequenced (2026-09-09, CTO
+   decision, final-precision correction pass on PR #108): ADR-001
+   §21(d)**, inserted immediately after (c) Economic Identity ↔
+   Transport Identity Binding and before (e) Propagation/bootstrap — an
+   ordered Day-0 prerequisite, not merely "sometime before
+   gossip/economics." Propagation/bootstrap (e) must not be implemented
+   before this step has its own CTO-approved design and evidence.
+   **Duplicate check (2026-09-09, PR #108 ↔ PR #106 merge):** this is
+   the *same* obligation as the "Day-0 Completeness Cold Sweep" section
+   below's own item 5, "Node identity lifecycle + operator-recipient
+   separation" — both independently found the identical gap from
+   different missions. Not double-counted: that entry carries the fuller
+   A/B/C/D taxonomy (including the C≠D cardinality correction) and is
+   treated as the canonical registration; this entry is kept for its
+   §21(d) sequencing detail and cross-referenced, not re-counted in any
+   total.
+
+**Node-switch continuity — investigated, reconciled, not a sixth
+obligation (2026-09-09, CTO Gate B final-precision pass, ADR-001 §7.3).**
+Question investigated: if the same participant moves from Sails Node A
+to Sails Node B, what happens to its Participant Transport Identity
+today? Demonstrated against the real implementation
+(`tests/participantTransportIdentity.test.ts` test 8): two different
+nodes' local storage produce two different seeds/`peerId`s for the
+identical participant — `Node A local storage → seed A → peerId A`,
+`Node B empty local storage → seed B → peerId B`, confirmed unequal.
+Property named, not solved: `"Changing Sails Node must not silently
+destroy participant identity continuity."` Two model families evaluated
+without choosing (Model P1 — portable, participant-controlled
+re-derivation; Model P2 — rotatable, re-bound via §21(c)'s own
+mechanism). **Classification: this decomposes into two already-registered
+obligations, not a new one.** Model P1 is a refinement of the existing
+Identity Root & Multi-Protocol Identity UX obligation (PR #91,
+`docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`, which already surveys Pears
+as one of its seven protocol rows). Model P2 is a refinement of item 3
+above (§21(c) binding). **Total remains 5 — no sixth obligation
+registered.**
 
 **Updated again, 2026-09-09 (CTO Gate, Fase 2-5/9) — Node Contribution
 Accounting and Incentive Compatibility, classified before registering:**
 both are **new content inside the already-counted Implementation
-Sequence obligation (item 2, now sequence items (j)/(k))**, deliberately
+Sequence obligation (item 2, sequence items (j)/(k) at the time of this
+entry, renumbered to (k)/(l) 2026-09-09 by the later (d) Sails Node
+Operator Identity insertion)**, deliberately
 **not** registered as separate fifth/sixth top-level obligations — they
 are sub-obligations of the same "build this ordered sequence" item
 already counted above, and double-counting them would contradict this
@@ -1513,6 +1593,17 @@ obligation).
 Classification: **BACKLOG DELTA DETECTED AND SYNCED** — two genuinely
 new obligations (settlement-release signatures; the ordered
 implementation sequence), everything else confirmed already covered.
+
+**Updated again, 2026-09-09 (CTO Gate B correction on PR #108) — one
+further genuinely new obligation: item 5, Sails Node Operator Identity**
+(see above). PR #108 itself was initially returned to CTO claiming
+"BACKLOG DELTA: ZERO" for closing item 4 — that claim is **corrected,
+not retracted for item 4 itself**: item 4, now precisely renamed
+Persistent *Participant* Transport Identity, genuinely is closed by PR
+#108 with zero delta of its own. The zero-delta claim was wrong only in
+implicitly assuming item 4 was the *entire* content of ADR-001 §7; §7.2
+found it was not. **Total: 5** distinct obligations under this ADR
+entry, not 4.
 No new Norte macrofront. Norte remains 38.
 
 
@@ -1600,6 +1691,14 @@ Preserved:
    this registration.** Once C exists, its own lifecycle (backup/
    recovery, compromise/rotation/replacement, superseded-key distrust)
    is required before production.
+
+   **Duplicate check (2026-09-09, PR #108 ↔ PR #106 merge):** this is
+   the *same* underlying obligation as the ADR-001 §21 Implementation
+   Sequence registration above's own item 5 ("Operational Sails Node
+   Identity"), reached independently by a separate mission. This entry
+   is the canonical one (fuller A/B/C/D taxonomy); the other carries the
+   §21(d) sequencing detail this one doesn't restate. One obligation,
+   cross-referenced from both sides, not counted twice in any total.
 
 6. **Eclipse / peer-diversity / selective-forwarding resilience —
    Day-0 evidence obligation.** One malicious bootstrap peer, relay set,
