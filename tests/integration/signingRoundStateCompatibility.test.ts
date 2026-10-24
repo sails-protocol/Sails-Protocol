@@ -313,6 +313,40 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     }
   })
 
+  it('P4 funding/cancellation race: funding claim wins and manual cancellation is refused', async () => {
+    if (!dbAvailable) return
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)) })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
+    createdEscrowIds.push(escrow.id)
+    const { lockTradeLifecycle } = require('../../src/modules/open-p2p/trade-lifecycle-lock')
+    const { tradeRepository } = require('../../src/modules/open-p2p/trade-repository')
+    let entered!: () => void
+    let release!: () => void
+    const acquired = new Promise<void>((resolve) => { entered = resolve })
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const fundingClaim = prisma.$transaction(async (tx) => {
+      await lockTradeLifecycle(tx, trade.id)
+      await claimEscrowTransition(escrow.id, 'CREATED', 'FUNDS_LOCKED', undefined, tx)
+      entered()
+      await gate
+    })
+    await acquired
+    const cancellation = tradeRepository.transitionManually(trade.id, trade.status, 'CANCELLED', new Date())
+    try {
+      release()
+      await fundingClaim
+      const cancelled = await cancellation
+      expect(cancelled).toMatchObject({ ok: false, reason: 'ECONOMIC_COMMITMENT', escrowStatus: 'FUNDS_LOCKED' })
+      expect((await prisma.trade.findUniqueOrThrow({ where: { id: trade.id } })).status).not.toBe('CANCELLED')
+      expect((await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })).status).toBe('FUNDS_LOCKED')
+    } finally {
+      release()
+    }
+  })
+
   it('P4 funding claim: real PostgreSQL rolls back transition with caller transaction', async () => {
     if (!dbAvailable) return
     const seller = await registerTestParticipant(identityService, 'Seller')
