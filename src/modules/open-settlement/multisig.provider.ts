@@ -1833,6 +1833,22 @@ export class MultisigProvider implements SettlementProvider {
     }
   }
 
+  /**
+   * P4 / Gate 3 (iii-a) - read-only: is the escrow's canonical funding outpoint (txLockId:txLockVout) still unspent
+   * according to the explorer? Same predicate reconcilePendingSettlement() uses. Throws when it cannot be read;
+   * the caller (the disputed re-creation guard) treats that as unknown and fails closed.
+   */
+  async canonicalOutpointState(escrow: MultisigEscrowInput): Promise<'UNSPENT' | 'SPENT'> {
+    if (!escrow.txLockId) throw new EscrowError(`Escrow for trade ${escrow.tradeId} has no recorded funding txLockId - cannot determine outpoint status.`)
+    const { p2wsh } = this.buildScript(this.partiesFor(escrow))
+    const fundingAddress = this.assertFundingSurface(escrow, p2wsh.address)
+    const utxos = await this.fetchUtxos(fundingAddress)
+    const unspent = escrow.txLockVout !== null && escrow.txLockVout !== undefined
+      ? utxos.some((u) => u.txid === escrow.txLockId && u.vout === escrow.txLockVout)
+      : utxos.some((u) => u.txid === escrow.txLockId)
+    return unspent ? 'UNSPENT' : 'SPENT'
+  }
+
   async finalizeRelease(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string; rawTxHex: string }> {
     return this.finalizeSpend(escrow, unsignedPsbtBase64, signedPsbtBase64List)
   }

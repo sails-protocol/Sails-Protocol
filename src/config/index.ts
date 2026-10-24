@@ -581,6 +581,11 @@ export const config = {
     timelockSweepIntervalMs: requiredIntervalMs('ESCROW_TIMELOCK_SWEEP_INTERVAL_MS', 300000),
     // 0, a negative value or one above Node's timer limit would make Node fire the settlement/C4 tick every 1ms.
     settlementReconcileIntervalMs: requiredIntervalMs('ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS', 60000),
+    // P4 / Gate 3 (iii-a): how long after an Economic Disposition Authorization is committed a disputed signing round
+    // that was LOST may be re-created at all. Must exceed the broadcast timeout plus an explorer propagation margin.
+    // Unset = not configured = a lost round is never re-created automatically (fail closed; the pre-guard behavior of
+    // the C4 preflight, extended to direct dispatch). A policy number, not a proof (docs/p4-gate3-unknown-outcome-contract.md 5.6).
+    disputedRecreationSettleWindowMs: optionalPositiveInt('DISPUTED_RECREATION_SETTLE_WINDOW_MS'),
     // How often the RFC-021 D8 sweeper (when enabled) checks for
     // AUTO_PROPOSED disputes past their contest deadline. Same 5-minute
     // default as the escrow sweeper above, same reasoning.

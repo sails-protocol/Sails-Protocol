@@ -123,6 +123,7 @@ const mockSignatureFindMany = jest.fn((_arg?: unknown) => Promise.resolve(signat
 // calls prisma.dispute.findUnique({ where: { id } }) directly.
 const mockDisputeFindUniqueLive = jest.fn()
 const mockEdaFindUnique = jest.fn().mockResolvedValue(null)
+const mockEdaFindMany = jest.fn().mockResolvedValue([])
 // AUD1X-H1 - a disputed MULTISIG round is built only for a RESOLVED ruling, re-read under the dispute and escrow locks
 // (the FOR UPDATE row read is the transaction's $queryRaw) after both advisory locks were taken, dispute first.
 const mockExecuteRaw = jest.fn().mockResolvedValue(0)
@@ -146,6 +147,8 @@ jest.mock('../src/common/database', () => ({
     },
     economicDispositionAuthorization: {
       findUnique: (...args: unknown[]) => mockEdaFindUnique(...args),
+      // P4 (iii-a): the disputed re-creation guard looks for a live authorization whose pending was lost; none here.
+      findMany: (...args: unknown[]) => mockEdaFindMany(...args),
       create: (...args: unknown[]) => mockEdaCreate(...args),
     },
     escrowEvent: {
@@ -194,6 +197,7 @@ jest.mock('../src/common/database', () => ({
         dispute: { findUnique: (...args: unknown[]) => mockDisputeFindUniqueLive(...args) },
         economicDispositionAuthorization: {
           findUnique: (...args: unknown[]) => mockEdaFindUnique(...args),
+          findMany: (...args: unknown[]) => mockEdaFindMany(...args),
           create: (...args: unknown[]) => mockEdaCreate(...args),
         },
         // AUD1X-R3 - the gate records the id of the durable Outcome record it judged (the binding is stubbed here).
