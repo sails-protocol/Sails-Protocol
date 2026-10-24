@@ -23,6 +23,7 @@ import { createHash } from 'crypto'
 import nacl from 'tweetnacl'
 import { ECPairFactory } from 'ecpair'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { databaseClock, removeLostPendingCandidates } from './lostPendingCandidates'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import { boundOfferInput, sellerPixAccount } from './economicFixtures'
@@ -66,6 +67,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
   const sellerKey = keyOf('seller')
   let realFetch: typeof fetch
   const displacedArbiterKeys = new Map<string, any>()
+  let suiteStartedAt: Date
 
   beforeAll(async () => {
     process.env.MOCK_ESCROW = 'false'
@@ -77,6 +79,7 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     if (!dbAvailable) return
 
     ;({ prisma } = require('../../src/common/database'))
+    suiteStartedAt = await databaseClock(prisma)
     ;({ escrowService } = require('../../src/modules/open-settlement/escrow.service'))
     ;({ identityService } = require('../../src/modules/open-identity/identity.service'))
     ;({ liquidityRouter } = require('../../src/modules/open-liquidity/liquidity.service'))
@@ -116,6 +119,10 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
 
   afterAll(async () => {
     if (dbAvailable) {
+      // The "pending lost" fault injections leave a PASS 0b recovery candidate (a DISPUTED escrow with a live
+      // authorization and no pending operation); in the shared lane it would be recovered by a later suite's global
+      // reconciliation. Remove only the ones this suite created.
+      await removeLostPendingCandidates(prisma, suiteStartedAt)
       // Restore the exact arbiter commitment removed by the legacy appeal fixture.
       // Do not let a synthetic P3 violation escape into the shared PG lane.
       for (const [escrowId, original] of displacedArbiterKeys) {
