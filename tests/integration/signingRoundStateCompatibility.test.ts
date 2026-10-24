@@ -321,6 +321,29 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     // No automatic repair, no provider re-lock and no synthetic confirmation is attempted.
   })
 
+  it('P4 partial funding persistence: retry refuses before invoking the provider a second time', async () => {
+    if (!dbAvailable) return
+    const fixture = await locked('funding-evidence-retry-no-rebroadcast', true)
+    const before = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
+    expect(before.txLockId).toBe(chain.fundingTxid)
+    expect(before.status).toBe('FUNDS_LOCKED')
+
+    const providerSpy = jest.spyOn(multisigProvider, 'lockFunds')
+    try {
+      await expect(escrowService.lockFunds(fixture.escrowId, fixture.sellerId)).rejects.toThrow()
+      expect(providerSpy).not.toHaveBeenCalled()
+    } finally {
+      providerSpy.mockRestore()
+    }
+
+    const after = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
+    expect(after.status).toBe('FUNDS_LOCKED')
+    expect(after.txLockId).toBe(before.txLockId)
+    expect(after.txLockVout).toBe(before.txLockVout)
+    expect(await prisma.escrowFundingEvidence.count({ where: { escrowId: fixture.escrowId } })).toBe(0)
+    // Characterization only: an explicit verifier/reconciler remains required.
+  })
+
   const keyOf = (f: { buyerId: string }, id: string) => (id === f.buyerId ? buyerKey : sellerKey)
   const tradeOf = (id: string) => prisma.trade.findUniqueOrThrow({ where: { id }, select: { status: true } })
   /** A barrier: `hold()` parks a caller until `release()`; `reached` resolves once one is parked. */
