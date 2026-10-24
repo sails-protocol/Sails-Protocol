@@ -30,6 +30,7 @@ export class RedisRelayDeliveryTransport {
   private closing = false
   private readonly origin: RelayDeliveryOrigin
   private readonly onMessage: (channel: string, message: string) => void
+  private readonly onSubscriberClose: () => void
 
   constructor(
     private readonly publisher: Redis,
@@ -48,6 +49,15 @@ export class RedisRelayDeliveryTransport {
     })
     // Redis emits messages without awaiting listeners. A rejected async handler
     // must not escape as an unhandled rejection or fabricate a positive ACK.
+    // A Redis reconnect must not silently restore delivery without re-establishing
+    // the authenticated channel and routing contract. Fail closed permanently.
+    this.onSubscriberClose = () => {
+      this.closing = true
+      this.started = false
+      this.origin.close()
+      this.subscriber.off('message', this.onMessage)
+      this.subscriber.off('close', this.onSubscriberClose)
+    }
     this.onMessage = (channel, message) => {
       void this.handleMessage(channel, message).catch(() => undefined)
     }
@@ -62,6 +72,7 @@ export class RedisRelayDeliveryTransport {
   }
 
   private async subscribeOnce(): Promise<void> {
+    this.subscriber.on('close', this.onSubscriberClose)
     this.subscriber.on('message', this.onMessage)
     try {
       await this.subscriber.subscribe(this.localChannel)
@@ -73,6 +84,7 @@ export class RedisRelayDeliveryTransport {
       this.started = true
     } catch (error) {
       this.subscriber.off('message', this.onMessage)
+      this.subscriber.off('close', this.onSubscriberClose)
       throw error
     }
   }
@@ -110,6 +122,7 @@ export class RedisRelayDeliveryTransport {
     this.started = false
     this.origin.close()
     this.subscriber.off('message', this.onMessage)
+    this.subscriber.off('close', this.onSubscriberClose)
     if (this.starting) {
       try { await this.starting } catch { /* subscription failed; no active channel */ }
     }
