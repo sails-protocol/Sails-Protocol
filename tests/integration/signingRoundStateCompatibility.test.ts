@@ -269,6 +269,20 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', bitcoin.payments.p2wpkh({ pubkey: Buffer.from(buyerKey.publicKey), network: NETWORK }).address!)
     return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id }
   }
+  it('P4 funding rollback CAS: real PostgreSQL refuses FUNDS_LOCKED→CREATED after txLockId persistence', async () => {
+    if (!dbAvailable) return
+    const fixture = await locked('funding-revert-guard')
+    const before = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
+    expect(before.status).toBe('FUNDS_LOCKED')
+    expect(before.txLockId).toBeTruthy()
+    const reverted = await escrowRepository.revertStatus(fixture.escrowId, 'FUNDS_LOCKED', 'CREATED')
+    expect(reverted).toBe(0)
+    const after = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
+    expect(after.status).toBe('FUNDS_LOCKED')
+    expect(after.txLockId).toBe(before.txLockId)
+    expect(after.txLockVout).toBe(before.txLockVout)
+  })
+
   const keyOf = (f: { buyerId: string }, id: string) => (id === f.buyerId ? buyerKey : sellerKey)
   const tradeOf = (id: string) => prisma.trade.findUniqueOrThrow({ where: { id }, select: { status: true } })
   /** A barrier: `hold()` parks a caller until `release()`; `reached` resolves once one is parked. */
