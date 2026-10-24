@@ -91,6 +91,28 @@ Earlier baseline: commit `31182b7ea036862ff0faf08c842d8dcecb68011b` passed CI 39
 - `tests/relayRedisIntegration.test.ts`: real Redis-backed single-use ticket resolution, concurrent/replayed ticket races and shared budget, including multi-process and multiple listener cases. The latest integration test exercises production `identityRoutes` HTTP ticket issuance with production `requireAuth` for two authenticated participants, real Redis ticket storage/consumption, two real TCP WebSocket clients, and opaque provider delivery from Alice to Bob **in one test**. Redis calls are forwarded to a disposable integration Redis client via Jest spies; the test is therefore instrumented, not a fully unmocked deployment-equivalent E2E scenario.
 - `tests/pearRoutes.test.ts`: verifies `POST /v1/peers/start` reports Pears versus WebSocket relay capabilities and `GET /v1/peers/status` reports connected/disconnected relay states without reading Pears registry state. Auth, transport selection and connection state are mocked for these route-level tests. A previous CI failure caused by a mock transport state leaking between tests was fixed by resetting the mock in `beforeEach`; commit `f50dcea` is green.
 
+## Redis Pub/Sub lifecycle hardening — evidence update (2026-10-24)
+
+- Commit `ddce51d339365f15d68150698e480ae9be945b83`: CI
+  `40082219625`, CI Tests `40082219620`, CodeQL `40082219682`
+  all completed successfully.
+- The isolated adapter now includes tests for asynchronous destination failure,
+  subscriber/publisher close events, publisher loss during subscription, close
+  during subscription, and concurrent `close()` awaiting one unsubscribe.
+- These tests use an in-memory Redis bus and simulated connection events. They
+  **do not** establish real network failure behavior, reconnect recovery, separate
+  OS process isolation, Pub/Sub authorization or deployed routing.
+- A disconnected publisher/subscriber is treated as permanently closed for new
+  deliveries. This is a fail-closed prototype policy, **not** a production
+  recovery strategy; the application has no supervised replacement lifecycle.
+- Remaining engineering risks include Redis client disconnect while an
+  unsubscribe is pending, command duplication/replay, ACK provenance and
+  backpressure under adversarial traffic. No claim of exhaustive lifecycle
+  safety is made.
+
+**Acceptance remains RED / NO-GO.** CI GREEN is limited to the tested commit
+and cannot authorize production activation, merge or deployment.
+
 ## Isolated Redis Pub/Sub candidate — evidence boundary (2026-10-23)
 
 The candidate branch now contains `relay-delivery-command.ts`, `relay-delivery-destination.ts`,
