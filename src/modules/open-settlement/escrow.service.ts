@@ -1,4 +1,5 @@
 import { prisma } from '../../common/database'
+import { childLogger } from '../../common/logger'
 import { lockWdkEscrow, assertWdkFundingProven, wdkLockMayHoldFunds } from './wdk-lock-authority'
 import { assertWdkOutboundPolicy, planWdkOutbound, settleWdkOutbound, wdkOutboundFailure } from './wdk-outbound-authority'
 import { NotFoundError, EscrowError, ForbiddenError, ValidationError } from '../../common/errors'
@@ -26,7 +27,6 @@ import {
   loadEscrowWithAuthorization,
   loadParticipantPubkeys,
   claimEscrowTransition,
-  revertEscrowStatus,
   settlementSucceededButLocalStepFailed,
   assertEscrowTransition,
   emitEscrowTransition,
@@ -351,7 +351,10 @@ function resolveEscrowType(asset: AssetType, explicitType: EscrowType | undefine
 
 function resolveEscrowTypeCandidate(asset: AssetType, explicitType: EscrowType | undefined): EscrowType {
   if (explicitType === 'MOCK') return 'MOCK'
-  if (!explicitType && config.features.mockEscrow) return 'MOCK'
+  // Day 0: never silently select fake settlement outside the dedicated
+  // test environment. Developers may still request MOCK explicitly;
+  // assertDeploymentEligible() rejects it in production.
+  if (!explicitType && config.features.mockEscrow && process.env.NODE_ENV === 'test') return 'MOCK'
 
   const scope = translateLegacyAssetType(asset)
   if (scope) {
@@ -692,20 +695,49 @@ export class EscrowService {
       if (current?.status === 'CANCELLED') {
         throw new EscrowError(`Trade ${escrow.tradeId} is CANCELLED: its escrow cannot be locked`)
       }
-      await claimEscrowTransition(escrowId, escrow.status, 'FUNDS_LOCKED')
+      await claimEscrowTransition(escrowId, escrow.status, 'FUNDS_LOCKED', undefined, tx)
     })
 
-    try {
+    // Preparation cannot have invoked the provider. A failed pubkey read or
+    // unsupported provider is therefore not an ambiguous external funding
+    // outcome. Revert the claim under the repository's escrow advisory lock.
+    const preparation = async () => {
       const provider = getSettlementProvider(escrow.type)
-      // MULTISIG/LIGHTNING_HODL need the client-submitted pubkeys
-      // (EscrowParticipantKey) to re-derive the same script lockFunds()
-      // verifies against — every other provider ignores these extra
-      // fields, same "optional, only two providers care" shape as
-      // buyerId/sellerId below.
       const { buyerPubkey, sellerPubkey, arbiterPubkey } = NON_CUSTODIAL_PROVIDERS[escrow.type]
         ? await loadParticipantPubkeys(escrowId)
         : { buyerPubkey: undefined, sellerPubkey: undefined, arbiterPubkey: undefined }
+      return { provider, buyerPubkey, sellerPubkey, arbiterPubkey }
+    }
+    let prepared: Awaited<ReturnType<typeof preparation>>
+    try {
+      prepared = await preparation()
+    } catch (err) {
+      // No provider side effect has begun. Still, a conditional revert can
+      // lose a race or find durable evidence; never report it as successful
+      // unless the guarded update actually restored exactly one row.
+      const reverted = await this.repo.revertStatus(escrowId, 'FUNDS_LOCKED', escrow.status)
+      if (reverted !== 1) {
+        childLogger('escrow-service').error({
+          msg: 'P4: pre-provider funding rollback not confirmed; reconciliation required',
+          escrowId, reverted, preparationError: err instanceof Error ? err.message : String(err),
+        })
+        throw new EscrowError(`Funding preparation rollback not confirmed for escrow ${escrowId}; reconciliation required`)
+      }
+      throw err
+    }
+
+    // After invoking the provider, a lost response can conceal accepted
+    // funding. Do not revert without authoritative external evidence.
+    try {
+      const { provider, buyerPubkey, sellerPubkey, arbiterPubkey } = prepared
       const result = await provider.lockFunds(providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey, arbiterPubkey }))
+
+      // The provider interface promises a durable transaction identifier.
+      // Never persist an empty identifier as funding proof. A malformed
+      // response is still UNKNOWN, not proof of external non-acceptance.
+      if (typeof result.txId !== 'string' || result.txId.trim().length === 0) {
+        throw new EscrowError(`Provider returned no funding transaction identifier for escrow ${escrowId}; external outcome UNKNOWN`)
+      }
 
       const now = new Date()
       const expiresAt = new Date(now.getTime() + escrow.timelockHours * 3600 * 1000)
@@ -758,13 +790,16 @@ export class EscrowService {
 
       return updated
     } catch (err) {
-      // Revert the claim — an escrow left claiming FUNDS_LOCKED with no
-      // real lock behind it (the provider call failed) would otherwise
-      // block every future lockFunds() attempt via assertEscrowTransition,
-      // with no way to retry. Same revert-on-failure idiom
-      // dispute.service.ts's resolveDispute() already established.
-      await revertEscrowStatus(escrowId, 'FUNDS_LOCKED', escrow.status)
-      throw err
+      // UNKNOWN includes failures after provider success (DB/event writes)
+      // as well as a transport error during provider.lockFunds().
+      // Neither is evidence that the external funding effect did not occur.
+      const reason = err instanceof Error ? err.message : String(err)
+      childLogger('escrow-service').error({ msg: 'P4: escrow funding outcome UNKNOWN; FUNDS_LOCKED claim retained; reconciliation required',
+        escrowId, escrowType: escrow.type, reason,
+      })
+      throw new EscrowError(
+        `Funding outcome UNKNOWN for escrow ${escrowId}. No automatic rollback or retry; reconcile authoritative funding evidence first.`
+      )
     }
   }
 
@@ -806,7 +841,22 @@ export class EscrowService {
     // header comment on withEscrowFundingLock() for why this specific
     // mechanism closes the race.
     const claimedCount = await withEscrowFundingLock(escrowId, async (tx) => {
-      if (escrow.type === 'WDK_USDT_EVM') await assertWdkFundingProven(tx, escrowId)
+      if (escrow.type === 'WDK_USDT_EVM') {
+        await assertWdkFundingProven(tx, escrowId)
+      } else {
+        // P4: FUNDS_LOCKED is a provisional claim until the provider result
+        // has been persisted. Never let a buyer act on status alone after an
+        // ambiguous lockFunds() outcome or a crash before updateLockResult().
+        const funding = await tx.escrow.findUnique({
+          where: { id: escrowId },
+          select: { txLockId: true, lockedAt: true },
+        })
+        if (!funding?.txLockId || !funding.lockedAt) {
+          throw new EscrowError(
+            `Escrow ${escrowId} has provisional FUNDS_LOCKED status without durable funding result; payment confirmation requires funding reconciliation.`
+          )
+        }
+      }
       const uncertain = await escrowFundingEvidenceService.isFundingUncertain(escrowId, tx)
       if (uncertain) {
         throw new EscrowError(

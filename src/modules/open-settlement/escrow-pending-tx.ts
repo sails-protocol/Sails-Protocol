@@ -8,7 +8,6 @@ import {
   assertDisputedDispositionAuthority,
   loadParticipantPubkeys,
   claimEscrowTransition,
-  revertEscrowStatus,
   settlementSucceededButLocalStepFailed,
   emitEscrowTransition,
   resolvePayoutAddress,
@@ -23,7 +22,7 @@ import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
 import { feeCollectionRecognitionService } from './fee-collection-recognition.service'
-import { identifyFeeOutput, networkFor } from './multisig.provider'
+import { identifyFeeOutput, networkFor, MultisigPreBroadcastError } from './multisig.provider'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { authorizePendingExecution } from './capability-execution-authorization'
 import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
@@ -583,8 +582,32 @@ export async function submitTransactionSignature(escrowId: string, participantId
       ? await provider.finalizeRefund(finalizeEscrow, pending.unsignedPsbtBase64, signedList, pending.id)
       : await provider.finalizeSplit!(finalizeEscrow, pending.unsignedPsbtBase64, signedList)
   } catch (err) {
-    await revertEscrowStatus(escrowId, targetStatus, escrow.status)
-    throw err
+    if (escrow.type === 'MULTISIG' && err instanceof MultisigPreBroadcastError) {
+      // The MULTISIG provider guarantees this error only occurs during
+      // local signature assembly, before it attempts POST /tx. Roll back
+      // under the escrow E lock; never erase a concurrently persisted txid.
+      const reverted = await escrowRepository.revertStatus(escrowId, targetStatus, escrow.status)
+      if (reverted !== 1) {
+        log.error({ msg: 'P4: pre-broadcast rollback not confirmed; manual reconciliation required', escrowId, pendingOperationId: pending.id, reverted })
+        throw new EscrowError(`Pre-broadcast rollback not confirmed for escrow ${escrowId}; reconciliation required`)
+      }
+      throw err
+    }
+    // P4: finalize may broadcast successfully and then lose its response.
+    // An arbitrary thrown error is NOT proof that no external effect occurred.
+    // Preserve the terminal claim and pending signed operation for read-only
+    // chain/provider reconciliation; do not enable a second broadcast by
+    // automatically returning the escrow to its pre-execution state.
+    // A proven definitive rejection requires a separate typed contract.
+    const reason = err instanceof Error ? err.message : String(err)
+    log.error({
+      msg: 'P4: provider finalize outcome UNKNOWN; no automatic rollback or retry; reconciliation required',
+      escrowId, pendingOperationId: pending.id, kind: pending.kind, reason,
+    })
+    throw new EscrowError(
+      `Provider finalize outcome UNKNOWN for escrow ${escrowId} (operation ${pending.id}). ` +
+      'Escrow claim and signed pending operation retained; do not retry broadcast until authoritative reconciliation.'
+    )
   }
 
   try {

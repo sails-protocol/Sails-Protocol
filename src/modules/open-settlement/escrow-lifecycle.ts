@@ -342,7 +342,7 @@ export async function loadParticipantPubkeys(escrowId: string): Promise<{ buyerP
  *  (the robustness-audit fix from 2026-07-20).
  *  #247/#248 - `intent` is passed only by the direct-call releaseFunds()/refundFunds()/splitFunds():
  *  the claim then also freezes (or must identically match) that execution's economic intent. */
-export async function claimEscrowTransition(escrowId: string, fromStatus: string, toStatus: string, intent?: DirectExecutionIntent): Promise<void> {
+export async function claimEscrowTransition(escrowId: string, fromStatus: string, toStatus: string, intent?: DirectExecutionIntent, tx?: Prisma.TransactionClient): Promise<void> {
   // 2026-08-15 — checked first and cheaply, before any real work: once
   // this escrow's circuit is open, every further attempt should fail
   // fast, not pay for an authorization check + DB round trip first. See
@@ -356,9 +356,10 @@ export async function claimEscrowTransition(escrowId: string, fromStatus: string
   if (!allowed.includes(toStatus)) {
     throw new EscrowError(`Invalid escrow transition: ${fromStatus} → ${toStatus}. Allowed: ${allowed.join(', ') || 'none'}`)
   }
+  if (intent && tx) throw new EscrowError('Direct execution intent cannot use the plain transition transaction overload')
   const claimedCount = intent
     ? await escrowRepository.claimDirectExecution(escrowId, fromStatus, toStatus as DirectExecutionDisposition, intent)
-    : await escrowRepository.claimTransition(escrowId, fromStatus, toStatus)
+    : await escrowRepository.claimTransition(escrowId, fromStatus, toStatus, tx)
   if (claimedCount === 0) {
     // A real, concrete anomaly on this specific escrow — not a heuristic
     // guess — so it feeds the circuit breaker directly.
@@ -416,16 +417,27 @@ export function settlementSucceededButLocalStepFailed(escrowId: string, operatio
   )
 }
 
-/** Revert-on-failure boilerplate — every provider call in this class wraps
- *  the same try/catch so a partial transition can never leave an escrow
- *  "claiming COMPLETED with no funds behind it." The .catch(() => {}) on
- *  the revert swallows the unlikely double-fault so the original provider
- *  error reaches the caller — they already saw the problem, a "revert
- *  also failed" chain would just bury the real failure. */
+/** Revert only when the claimed status is still owned and no settlement
+ * evidence has been recorded. Never hide a database failure: operators must
+ * distinguish a failed revert from a successful or superseded revert. */
 export async function revertEscrowStatus(escrowId: string, claimedStatus: string, fromStatus: string): Promise<void> {
-  // #241 — rollback is ownership-sensitive. A delayed worker may restore
-  // the prior state only while it still owns the exact claimed state.
-  await escrowRepository.revertStatus(escrowId, claimedStatus, fromStatus).catch(() => {})
+  // #241 / P4 — escrow-scoped E lock and txReleaseId guard live in the repository.
+  try {
+    const count = await escrowRepository.revertStatus(escrowId, claimedStatus, fromStatus)
+    if (count !== 1) {
+      lifecycleLog.warn({
+        msg: 'Escrow rollback did not change status; claim superseded or settlement evidence exists; reconciliation required',
+        escrowId, claimedStatus, fromStatus, affectedRows: count,
+      })
+    }
+  } catch (err) {
+    lifecycleLog.error({
+      msg: 'Escrow rollback FAILED; reconciliation required',
+      escrowId, claimedStatus, fromStatus,
+      err: err instanceof Error ? err.message : String(err),
+    })
+    throw err
+  }
 }
 
 export function assertEscrowTransition(current: string, next: string) {

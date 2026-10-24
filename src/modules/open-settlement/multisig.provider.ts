@@ -502,6 +502,14 @@ function assertSighashAll(encoded: Uint8Array): void {
   if (hashType !== bitcoin.Transaction.SIGHASH_ALL) throw new Error(`signature uses sighash type ${hashType}, not SIGHASH_ALL`)
 }
 
+/** Definitive local signature assembly failure, before Bitcoin broadcast. */
+export class MultisigPreBroadcastError extends EscrowError {
+  constructor(message: string) {
+    super(message)
+    this.name = 'MultisigPreBroadcastError'
+  }
+}
+
 export class MultisigProvider implements SettlementProvider {
   name = 'MULTISIG'
   readonly custodyModel = 'client-held-buyer-seller-keys-server-held-arbiter' as const
@@ -1643,7 +1651,13 @@ export class MultisigProvider implements SettlementProvider {
   }
 
   private async finalizeSpend(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string; rawTxHex: string }> {
-    const tx = this.buildFinalizedTransaction(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+    // A signing/assembly failure here is definitive: no broadcast started.
+    let tx: bitcoin.Transaction
+    try {
+      tx = this.buildFinalizedTransaction(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+    } catch (err) {
+      throw new MultisigPreBroadcastError(err instanceof Error ? err.message : String(err))
+    }
     const rawTxHex = tx.toHex()
     // Sails Core Implementation Program M9-R (R6, provider txid
     // integrity) — a Bitcoin txid is the hash of the exact bytes that

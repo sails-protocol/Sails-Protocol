@@ -479,7 +479,13 @@ class PrismaEscrowRepository implements EscrowRepository {
 
   async updateLockResult(escrowId: string, data: { txLockId: string; txLockVout: number | null; multisigAddr: string; lockedAt: Date; expiresAt: Date; fundedAmount?: number }) {
     try {
-      return await prisma.escrow.update({ where: { id: escrowId }, data })
+      // P4: never attach a late provider result to an escrow whose claim
+      // was reverted, superseded, or already given funding evidence.
+      // The unique id plus predicates are checked atomically by PostgreSQL.
+      return await prisma.escrow.update({
+        where: { id: escrowId, status: 'FUNDS_LOCKED', txLockId: null },
+        data,
+      })
     } catch (err: any) {
       // Missão 10 — the @@unique([txLockId, txLockVout]) constraint
       // firing here means another escrow already claimed this exact
@@ -488,6 +494,11 @@ class PrismaEscrowRepository implements EscrowRepository {
       // never trigger this). Same P2002-to-EscrowError wrap
       // escrow-pending-tx.ts's initiateSignatureCollectionCore() already
       // uses for its own unique-constraint race.
+      if (err?.code === 'P2025') {
+        throw new EscrowError(
+          `Escrow ${escrowId} no longer has an unrecorded FUNDS_LOCKED claim; refusing to attach a stale or duplicate funding result. Reconcile authoritative evidence before retry.`
+        )
+      }
       if (err?.code === 'P2002') {
         throw new EscrowError(
           `Funding outpoint ${data.txLockId}:${data.txLockVout} is already claimed by another escrow — refusing to double-assign the same Bitcoin UTXO.`
@@ -587,11 +598,22 @@ class PrismaEscrowRepository implements EscrowRepository {
   }
 
   async revertStatus(escrowId: string, claimedStatus: string, fromStatus: string) {
-    const reverted = await prisma.escrow.updateMany({
-      where: { id: escrowId, status: claimedStatus as any },
-      data: { status: fromStatus as any },
+    // P4: serialize rollback with PASS 1 and settlement-result persistence.
+    // A provider result already recorded is never safe to roll back.
+    return prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
+      const reverted = await tx.escrow.updateMany({
+        where: {
+          id: escrowId, status: claimedStatus as any,
+          // Funding claim and settlement claim have different durable
+          // evidence columns. Never undo FUNDS_LOCKED after a txLockId
+          // was recorded, even if txReleaseId remains null.
+          ...(claimedStatus === 'FUNDS_LOCKED' ? { txLockId: null } : { txReleaseId: null }),
+        },
+        data: { status: fromStatus as any },
+      })
+      return reverted.count
     })
-    return reverted.count
   }
 }
 

@@ -17,6 +17,7 @@ import * as ecc from '@bitcoinerlab/secp256k1'
 import { createHash } from 'crypto'
 import nacl from 'tweetnacl'
 import { ECPairFactory } from 'ecpair'
+import { MultisigPreBroadcastError } from '../../src/modules/open-settlement/multisig.provider'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
@@ -575,8 +576,9 @@ describe('AUD1X-R2 dispatch authority and recovery - real PostgreSQL', () => {
     const round = await roundOf(o)
     const buyerCopy = sign(round.unsignedPsbtBase64, buyerKey)
     chain(o.txid)
-    // FAULT INJECTION: the provider fails after the gate committed the authorization and the claim was taken (the claim is reverted)
-    jest.spyOn(multisigProvider, 'finalizeRelease').mockImplementationOnce(async () => { throw new Error('injected: provider failure after the authorization') })
+    // FAULT INJECTION: a proven local signature-assembly failure BEFORE any broadcast.
+    // Only this typed error permits rollback; a generic provider exception is UNKNOWN.
+    jest.spyOn(multisigProvider, 'finalizeRelease').mockImplementationOnce(async () => { throw new MultisigPreBroadcastError('injected: local signature assembly failed before broadcast') })
     expect((await settle(submitTransactionSignature(o.escrowId, o.buyerId, buyerCopy))).ok).toBe(false)
     expect(await effects(o)).toMatchObject({ escrow: 'DISPUTED', authorizations: 1, broadcasts: 0, dispute: 'RESOLVED', outcome: 'present' })
     jest.restoreAllMocks()
