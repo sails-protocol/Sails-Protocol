@@ -97,7 +97,49 @@ export interface TradeRepository {
 
   /** updateStatus()'s own write — cancelledAt is the caller's job to compute (status === 'CANCELLED' ? new Date() : undefined), same as today. */
   updateStatus(tradeId: string, status: TradeStatus, cancelledAt: Date | undefined): Promise<TradeRow>
+
+  /**
+   * Issue #294 - project the PERSISTED Escrow state onto the Trade (Escrow is
+   * authoritative, Trade is only a projection). Runs under the escrow-scoped
+   * advisory lock, reads the escrow's CURRENT persisted status (never the state
+   * an event payload claims), and applies it monotonically:
+   *   - a stale/reordered event can never regress the Trade (terminal never
+   *     goes back to ACTIVE/DISPUTED; DISPUTED never goes back to ACTIVE);
+   *   - completedAt / cancelledAt are write-once (a replay never re-stamps them);
+   *   - a terminal Escrow state converges the Trade to it (Escrow outranks a
+   *     conflicting Trade terminal, e.g. an earlier manual cancel).
+   */
+  projectEscrowStatus(tradeId: string, escrowId: string, opts?: { tx?: Prisma.TransactionClient }): Promise<TradeProjectionResult>
+
+  /**
+   * Issue #294 - a participant-requested Trade transition (PENDING/ACTIVE ->
+   * ACTIVE/CANCELLED) with the same authoritative-state discipline as the
+   * Escrow-derived projection: CAS on the Trade's expected current status,
+   * serialized under the escrow lock, and refused once the Escrow already
+   * governs the economic outcome (DISPUTED / COMPLETED / SPLIT / REFUNDED).
+   */
+  transitionManually(tradeId: string, from: TradeStatus, to: TradeStatus, cancelledAt: Date | undefined): Promise<ManualTradeTransitionResult>
 }
+
+export type TradeProjectionResult =
+  | { applied: true; from: TradeStatus; to: TradeStatus }
+  | { applied: false; reason: 'ESCROW_NOT_FOUND' | 'TRADE_MISMATCH' | 'NO_PROJECTION' | 'ALREADY_PROJECTED' | 'STALE_OR_WEAKER'; tradeStatus?: TradeStatus }
+
+export type ManualTradeTransitionResult =
+  | { ok: true; trade: NonNullable<Awaited<ReturnType<typeof prisma.trade.findUnique>>> }
+  | { ok: false; reason: 'STALE_STATUS' | 'ESCROW_GOVERNED'; escrowStatus?: string }
+
+// Escrow (authoritative) -> the Trade status it projects. EXPIRED/CREATED project nothing.
+const ESCROW_TO_TRADE_STATUS: Record<string, TradeStatus | undefined> = {
+  FUNDS_LOCKED: 'ACTIVE',
+  PAYMENT_PENDING: 'ACTIVE',
+  DISPUTED: 'DISPUTED',
+  COMPLETED: 'COMPLETED',
+  SPLIT: 'COMPLETED',
+  REFUNDED: 'CANCELLED',
+}
+const TRADE_RANK: Record<string, number> = { PENDING: 0, ACTIVE: 1, DISPUTED: 2, COMPLETED: 3, CANCELLED: 3 }
+const ESCROW_GOVERNED_STATUSES = new Set(['DISPUTED', 'COMPLETED', 'SPLIT', 'REFUNDED'])
 
 const ACTIVE_TRADE_STATUSES = ['PENDING', 'ACTIVE'] as const
 
@@ -175,6 +217,76 @@ class PrismaTradeRepository implements TradeRepository {
 
   async updateStatus(tradeId: string, status: TradeStatus, cancelledAt: Date | undefined) {
     return prisma.trade.update({ where: { id: tradeId }, data: { status, cancelledAt } })
+  }
+
+  async projectEscrowStatus(tradeId: string, escrowId: string, opts: { tx?: Prisma.TransactionClient } = {}): Promise<TradeProjectionResult> {
+    const run = async (tx: Prisma.TransactionClient): Promise<TradeProjectionResult> => {
+      // Same escrow-scoped advisory lock emitEscrowTransition()/withEscrowFundingLock()/persistSettlementResult() take.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
+      const escrow = await tx.escrow.findUnique({ where: { id: escrowId } })
+      if (!escrow) return { applied: false, reason: 'ESCROW_NOT_FOUND' } as const
+      if (escrow.tradeId !== tradeId) return { applied: false, reason: 'TRADE_MISMATCH' } as const
+
+      const target = ESCROW_TO_TRADE_STATUS[escrow.status]
+      if (!target) return { applied: false, reason: 'NO_PROJECTION' } as const
+
+      const trade = await tx.trade.findUnique({ where: { id: tradeId } })
+      if (!trade) return { applied: false, reason: 'TRADE_MISMATCH' } as const
+      const current = trade.status as TradeStatus
+
+      const targetIsTerminal = TRADE_RANK[target] === 3
+      const converges =
+        TRADE_RANK[target] > TRADE_RANK[current] ||
+        // Authoritative terminal Escrow state outranks a different Trade terminal.
+        (targetIsTerminal && TRADE_RANK[current] === 3 && current !== target)
+
+      if (!converges) {
+        // Same status: only backfill a missing write-once timestamp (never re-stamp).
+        if (current === target && targetIsTerminal) {
+          const needsStamp = target === 'COMPLETED' ? trade.completedAt == null : trade.cancelledAt == null
+          if (needsStamp) {
+            await tx.trade.update({
+              where: { id: tradeId },
+              data: target === 'COMPLETED' ? { completedAt: new Date() } : { cancelledAt: new Date() },
+            })
+          }
+        }
+        return current === target
+          ? ({ applied: false, reason: 'ALREADY_PROJECTED', tradeStatus: current } as const)
+          : ({ applied: false, reason: 'STALE_OR_WEAKER', tradeStatus: current } as const)
+      }
+
+      await tx.trade.update({
+        where: { id: tradeId },
+        data: {
+          status: target,
+          ...(target === 'COMPLETED' && trade.completedAt == null ? { completedAt: new Date() } : {}),
+          ...(target === 'CANCELLED' && trade.cancelledAt == null ? { cancelledAt: new Date() } : {}),
+        },
+      })
+      return { applied: true, from: current, to: target } as const
+    }
+    return opts.tx ? run(opts.tx) : prisma.$transaction(run)
+  }
+
+  async transitionManually(tradeId: string, from: TradeStatus, to: TradeStatus, cancelledAt: Date | undefined): Promise<ManualTradeTransitionResult> {
+    return prisma.$transaction(async (tx) => {
+      const escrow = await tx.escrow.findUnique({ where: { tradeId } })
+      if (escrow) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrow.id})::bigint)`
+        const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
+        if (fresh && ESCROW_GOVERNED_STATUSES.has(fresh.status)) {
+          return { ok: false, reason: 'ESCROW_GOVERNED', escrowStatus: fresh.status } as const
+        }
+      }
+      const claimed = await tx.trade.updateMany({
+        where: { id: tradeId, status: from },
+        data: { status: to, ...(cancelledAt ? { cancelledAt } : {}) },
+      })
+      if (claimed.count === 0) return { ok: false, reason: 'STALE_STATUS' } as const
+      const trade = await tx.trade.findUnique({ where: { id: tradeId } })
+      return { ok: true, trade: trade! } as const
+    })
   }
 }
 
