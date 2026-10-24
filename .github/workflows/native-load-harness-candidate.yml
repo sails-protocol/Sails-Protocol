@@ -1402,6 +1402,12 @@ jobs:
             moduleResolution:/could not resolve|unknown module|module not found/i.test(log),
             invalidOptions:/invalid option|invalid configuration/i.test(log),
             javascript:/GoError|TypeError|ReferenceError|SyntaxError/i.test(log)||log.includes('ERRO['),
+            missingFile:/no such file or directory/i.test(log),
+            permissionDenied:/permission denied/i.test(log),
+            execFormat:/exec format/i.test(log),
+            missingScript:/intent-independent-arrivals-candidate\\.js.*no such file/i.test(log),
+            missingDependency:/node_modules|open .*: no such file/i.test(log),
+            filesystemPath:/stat |open |lstat /i.test(log),
             executable:/no such file|permission denied|exec format/i.test(log),
             missingBaseUrl:/loopback HTTP target/i.test(log)
           };
