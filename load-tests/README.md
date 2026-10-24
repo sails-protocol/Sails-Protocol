@@ -27,9 +27,10 @@ Artillery suite covers Intent API and chat WebSocket. The candidate
 `load-tests/native/run.js` now provides protocol-only authenticated smoke;
 its duplicate `runPhases` load scheduler and benchmark modes have been retired.
 This does **not** establish sustained k6/Artillery parity or complete migration. The
-Artillery bounded HTTP and WS comparators are retained as baselines. In
-particular, the bounded Artillery WS candidate sends PING but does **not**
-assert receipt of PONG; it must not be presented as protocol parity.
+Artillery bounded HTTP and WS comparators are retained as baselines. The bounded Artillery WS candidate now declares a strict in-engine PONG
+match, but authenticated end-to-end comparator evidence and independent
+security review remain pending; its configuration alone is not proof of
+protocol parity.
 
 **Bounded k6 WS candidate:** `load-tests/tests/chat-ws-bounded.js` creates a
 real PoP identity, requests a single-use ticket, opens an authenticated
