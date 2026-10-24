@@ -1405,7 +1405,7 @@ jobs:
             missingFile:/no such file or directory/i.test(log),
             permissionDenied:/permission denied/i.test(log),
             execFormat:/exec format/i.test(log),
-            missingScript:/intent-independent-arrivals-candidate\\.js.*no such file/i.test(log),
+            missingScript:log.includes('intent-independent-arrivals-candidate.js')&&/no such file/i.test(log),
             missingDependency:/node_modules|open .*: no such file/i.test(log),
             filesystemPath:/stat |open |lstat /i.test(log),
             executable:/no such file|permission denied|exec format/i.test(log),
