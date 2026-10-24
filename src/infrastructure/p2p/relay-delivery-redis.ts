@@ -58,6 +58,7 @@ export class RedisRelayDeliveryTransport {
       this.origin.close()
       this.subscriber.off('message', this.onMessage)
       this.subscriber.off('close', this.onSubscriberClose)
+      this.publisher.off('close', this.onPublisherClose)
     }
     // The publishing connection is an independent failure boundary: do not
     // continue accepting delivery requests after it drops.
