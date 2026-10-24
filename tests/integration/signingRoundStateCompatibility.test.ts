@@ -279,6 +279,25 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', bitcoin.payments.p2wpkh({ pubkey: Buffer.from(buyerKey.publicKey), network: NETWORK }).address!)
     return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id }
   }
+  it('P4 funding claim: real PostgreSQL rolls back transition with caller transaction', async () => {
+    if (!dbAvailable) return
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)) })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
+    createdEscrowIds.push(escrow.id)
+    await expect(prisma.$transaction(async (tx) => {
+      await claimEscrowTransition(escrow.id, 'CREATED', 'FUNDS_LOCKED', undefined, tx)
+      const within = await tx.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+      expect(within.status).toBe('FUNDS_LOCKED')
+      throw new Error('P4 intentional transaction rollback')
+    })).rejects.toThrow('P4 intentional transaction rollback')
+    const persisted = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+    expect(persisted.status).toBe('CREATED')
+    expect(persisted.txLockId).toBeNull()
+  })
+
   it('P4 trade cancellation gate: a cancelled trade cannot claim funding or invoke provider', async () => {
     if (!dbAvailable) return
     const seller = await registerTestParticipant(identityService, 'Seller')
