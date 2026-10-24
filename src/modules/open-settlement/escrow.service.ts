@@ -728,10 +728,11 @@ export class EscrowService {
       if (escrow.multisigAddr && result.address !== escrow.multisigAddr) {
         throw new EscrowError(`Escrow ${escrowId} was locked at ${result.address}, not at its persisted funding address ${escrow.multisigAddr} — refusing to change it`)
       }
-      const updated = await this.repo.updateLockResult(escrowId, {
+      const updated = await prisma.$transaction(async (tx) => {
+        const persisted = await this.repo.updateLockResult(escrowId, {
         txLockId: result.txId, txLockVout: result.vout ?? null, multisigAddr: escrow.multisigAddr ?? result.address, lockedAt: now, expiresAt,
         ...(result.fundedAmount !== undefined ? { fundedAmount: result.fundedAmount } : {}),
-      })
+        }, tx)
 
       // Missão 11 Fase 9.1 §1 — the durable historical record of "funding
       // was accepted under evidence X at time T," so a later reorg
@@ -747,8 +748,10 @@ export class EscrowService {
           ...(result.fundedAmount !== undefined ? { amountSats: BigInt(Math.round(result.fundedAmount)) } : {}),
           ...(result.confirmedAtHeight !== undefined ? { observedAtHeight: result.confirmedAtHeight } : {}),
           ...(result.tipHeightAtObservation !== undefined ? { tipHeightAtObservation: result.tipHeightAtObservation } : {}),
-        })
+        }, tx)
       }
+      return persisted
+      })
 
       // NOTE: previously this method also called prisma.trade.update(...) to set
       // Trade.status = 'ACTIVE'. That write belonged to OpenP2P, not here. The
