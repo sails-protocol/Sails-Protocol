@@ -28,6 +28,7 @@ export class RedisRelayDeliveryTransport {
   private inFlightCommands = 0
   private starting: Promise<void> | null = null
   private closing = false
+  private closePromise: Promise<void> | null = null
   private readonly origin: RelayDeliveryOrigin
   private readonly onMessage: (channel: string, message: string) => void
   private readonly onSubscriberClose: () => void
@@ -131,16 +132,20 @@ export class RedisRelayDeliveryTransport {
   }
 
   async close(): Promise<void> {
-    if (this.closing) return
+    if (this.closePromise) return this.closePromise
+    // Mark closed synchronously so concurrent callers cannot initiate work.
     this.closing = true
     this.started = false
     this.origin.close()
     this.subscriber.off('message', this.onMessage)
     this.subscriber.off('close', this.onSubscriberClose)
     this.publisher.off('close', this.onPublisherClose)
-    if (this.starting) {
-      try { await this.starting } catch { /* subscription failed; no active channel */ }
-    }
-    await this.subscriber.unsubscribe(this.localChannel)
+    this.closePromise = (async () => {
+      if (this.starting) {
+        try { await this.starting } catch { /* subscription failed; no active channel */ }
+      }
+      await this.subscriber.unsubscribe(this.localChannel)
+    })()
+    return this.closePromise
   }
 }
