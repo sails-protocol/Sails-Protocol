@@ -344,6 +344,20 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     // Characterization only: an explicit verifier/reconciler remains required.
   })
 
+  it('P4 baseline sweep cannot repair an escrow after the evidence insert fails', async () => {
+    if (!dbAvailable) return
+    const fixture = await locked('funding-no-baseline-sweep', true)
+    const { sweepMultisigFundingReorgs } = require('../../src/modules/open-settlement/multisig-funding-reorg-sweep')
+    const report = await sweepMultisigFundingReorgs()
+    expect(report.skippedNoBaseline).toContain(fixture.escrowId)
+    const escrow = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
+    expect(escrow.status).toBe('FUNDS_LOCKED')
+    expect(escrow.txLockId).toBe(chain.fundingTxid)
+    expect(await prisma.escrowFundingEvidence.count({ where: { escrowId: fixture.escrowId } })).toBe(0)
+    // Known gap: legacy-safe skip also skips modern interrupted evidence writes.
+    // A future repair path must distinguish provenance and independently verify chain truth.
+  })
+
   const keyOf = (f: { buyerId: string }, id: string) => (id === f.buyerId ? buyerKey : sellerKey)
   const tradeOf = (id: string) => prisma.trade.findUniqueOrThrow({ where: { id }, select: { status: true } })
   /** A barrier: `hold()` parks a caller until `release()`; `reached` resolves once one is parked. */
