@@ -27,6 +27,7 @@ export class RedisRelayDeliveryTransport {
   private started = false
   private inFlightCommands = 0
   private starting: Promise<void> | null = null
+  private closing = false
   private readonly origin: RelayDeliveryOrigin
   private readonly onMessage: (channel: string, message: string) => void
 
@@ -53,6 +54,7 @@ export class RedisRelayDeliveryTransport {
   }
 
   async start(): Promise<void> {
+    if (this.closing) throw new Error('relay transport is closed')
     if (this.started) return
     if (this.starting) return this.starting
     this.starting = this.subscribeOnce()
@@ -63,6 +65,11 @@ export class RedisRelayDeliveryTransport {
     this.subscriber.on('message', this.onMessage)
     try {
       await this.subscriber.subscribe(this.localChannel)
+      if (this.closing) {
+        this.subscriber.off('message', this.onMessage)
+        await this.subscriber.unsubscribe(this.localChannel)
+        return
+      }
       this.started = true
     } catch (error) {
       this.subscriber.off('message', this.onMessage)
@@ -98,10 +105,14 @@ export class RedisRelayDeliveryTransport {
   }
 
   async close(): Promise<void> {
-    if (!this.started) { this.origin.close(); return }
+    if (this.closing) return
+    this.closing = true
     this.started = false
     this.origin.close()
     this.subscriber.off('message', this.onMessage)
+    if (this.starting) {
+      try { await this.starting } catch { /* subscription failed; no active channel */ }
+    }
     await this.subscriber.unsubscribe(this.localChannel)
   }
 }
