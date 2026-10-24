@@ -1382,6 +1382,16 @@ jobs:
             sleep 1
           done
           test "$ready" -eq 1 || { echo 'Independent Intent backend readiness timeout'; exit 1; }
+          # Presence checks separate checkout/toolchain loss from k6 parse errors.
+          # Print booleans only; no filesystem paths or stderr.
+          test -f load-tests/tests/intent-independent-arrivals-candidate.js && script_present=1 || script_present=0
+          command -v k6 >/dev/null 2>&1 && k6_present=1 || k6_present=0
+          test -f load-tests/k6.config.js && config_present=1 || config_present=0
+          echo "Independent Intent preflight presence: script=$script_present config=$config_present k6=$k6_present"
+          test "$script_present" -eq 1 && test "$config_present" -eq 1 && test "$k6_present" -eq 1 || {
+            echo 'Independent Intent prerequisite absent; fail closed'
+            exit 1
+          }
           # Preflight parses and initializes the script without issuing HTTP requests.
           # Only the exit status is emitted; stderr can contain sensitive config.
           set +e
