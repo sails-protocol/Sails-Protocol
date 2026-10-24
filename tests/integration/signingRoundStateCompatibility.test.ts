@@ -161,17 +161,7 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     await escrowService.submitParticipantKey(escrow.id, seller.id, Buffer.from(sellerKey.publicKey).toString('hex'), MULTISIG_CAPABILITY_PROFILE_V1)
     chain.fundingTxid = createHash('sha256').update(`r7gf8c-${suffix}-${Date.now()}-${Math.random()}`).digest('hex')
     mockExplorer()
-    if (failFundingEvidence) {
-      const { escrowFundingEvidenceRepository } = require('../../src/modules/open-settlement/escrow-funding-evidence-repository')
-      const recordSpy = jest.spyOn(escrowFundingEvidenceRepository, 'record').mockRejectedValueOnce(new Error('P4 injected funding evidence failure'))
-      try {
-        await expect(escrowService.lockFunds(escrow.id, seller.id)).rejects.toThrow('P4 injected funding evidence failure')
-      } finally {
-        recordSpy.mockRestore()
-      }
-    } else {
-      await escrowService.lockFunds(escrow.id, seller.id)
-    }
+    await escrowService.lockFunds(escrow.id, seller.id)
     await payoutAddressService.setPayoutAddress(seller.id, 'BTC', bitcoin.payments.p2wpkh({ pubkey: Buffer.from(sellerKey.publicKey), network: NETWORK }).address!)
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', bitcoin.payments.p2wpkh({ pubkey: Buffer.from(buyerKey.publicKey), network: NETWORK }).address!)
     await escrowService.markPaymentSent(escrow.id, buyer.id)
@@ -274,7 +264,17 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     await escrowService.submitParticipantKey(escrow.id, seller.id, Buffer.from(sellerKey.publicKey).toString('hex'), MULTISIG_CAPABILITY_PROFILE_V1)
     chain.fundingTxid = createHash('sha256').update(`r7gf8c-${suffix}-${Date.now()}-${Math.random()}`).digest('hex')
     mockExplorer()
-    await escrowService.lockFunds(escrow.id, seller.id)
+    if (failFundingEvidence) {
+      const { escrowFundingEvidenceRepository } = require('../../src/modules/open-settlement/escrow-funding-evidence-repository')
+      const recordSpy = jest.spyOn(escrowFundingEvidenceRepository, 'record').mockRejectedValueOnce(new Error('P4 injected funding evidence failure'))
+      try {
+        await expect(escrowService.lockFunds(escrow.id, seller.id)).rejects.toThrow('P4 injected funding evidence failure')
+      } finally {
+        recordSpy.mockRestore()
+      }
+    } else {
+      await escrowService.lockFunds(escrow.id, seller.id)
+    }
     await payoutAddressService.setPayoutAddress(seller.id, 'BTC', bitcoin.payments.p2wpkh({ pubkey: Buffer.from(sellerKey.publicKey), network: NETWORK }).address!)
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', bitcoin.payments.p2wpkh({ pubkey: Buffer.from(buyerKey.publicKey), network: NETWORK }).address!)
     return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id }
