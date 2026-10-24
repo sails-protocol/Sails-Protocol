@@ -696,6 +696,7 @@ export class EscrowService {
       await claimEscrowTransition(escrowId, escrow.status, 'FUNDS_LOCKED', undefined, tx)
     })
 
+    let providerReturned = false
     try {
       const provider = getSettlementProvider(escrow.type)
       // MULTISIG/LIGHTNING_HODL need the client-submitted pubkeys
@@ -708,6 +709,7 @@ export class EscrowService {
         : { buyerPubkey: undefined, sellerPubkey: undefined, arbiterPubkey: undefined }
       const result = await provider.lockFunds(providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey, arbiterPubkey }))
 
+      providerReturned = true
       const now = new Date()
       const expiresAt = new Date(now.getTime() + escrow.timelockHours * 3600 * 1000)
 
@@ -767,7 +769,10 @@ export class EscrowService {
       // block every future lockFunds() attempt via assertEscrowTransition,
       // with no way to retry. Same revert-on-failure idiom
       // dispute.service.ts's resolveDispute() already established.
-      await revertEscrowStatus(escrowId, 'FUNDS_LOCKED', escrow.status, err)
+      // A provider that returned success may have moved real funds. A failed DB commit
+      // must NOT reopen CREATED for a second broadcast; retain the claimed status
+      // for explicit reconciliation against the chain/provider.
+      if (!providerReturned) await revertEscrowStatus(escrowId, 'FUNDS_LOCKED', escrow.status, err)
       throw err
     }
   }
