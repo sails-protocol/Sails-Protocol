@@ -732,27 +732,28 @@ export class EscrowService {
       }
       const updated = await prisma.$transaction(async (tx) => {
         const persisted = await this.repo.updateLockResult(escrowId, {
-        txLockId: result.txId, txLockVout: result.vout ?? null, multisigAddr: escrow.multisigAddr ?? result.address, lockedAt: now, expiresAt,
-        ...(result.fundedAmount !== undefined ? { fundedAmount: result.fundedAmount } : {}),
+          txLockId: result.txId, txLockVout: result.vout ?? null,
+          multisigAddr: escrow.multisigAddr ?? result.address, lockedAt: now, expiresAt,
+          ...(result.fundedAmount !== undefined ? { fundedAmount: result.fundedAmount } : {}),
         }, tx)
 
-      // Missão 11 Fase 9.1 §1 — the durable historical record of "funding
-      // was accepted under evidence X at time T," so a later reorg
-      // sweep (multisig-funding-reorg-sweep.ts) has something concrete to
-      // invalidate/reconfirm against, and so this fact is never lost even
-      // though Escrow.status/txLockId themselves are never retroactively
-      // rewritten. Only meaningful for a provider with a real Bitcoin-style
-      // outpoint (result.vout !== undefined — MULTISIG today); every other
-      // provider has no funding-reorg concept to record.
-      if (result.vout !== undefined) {
-        await escrowFundingEvidenceRepository.record({
-          escrowId, kind: 'OBSERVED_CONFIRMED', txid: result.txId, vout: result.vout,
-          ...(result.fundedAmount !== undefined ? { amountSats: BigInt(Math.round(result.fundedAmount)) } : {}),
-          ...(result.confirmedAtHeight !== undefined ? { observedAtHeight: result.confirmedAtHeight } : {}),
-          ...(result.tipHeightAtObservation !== undefined ? { tipHeightAtObservation: result.tipHeightAtObservation } : {}),
-        }, tx)
-      }
-      return persisted
+        // Missão 11 Fase 9.1 §1 — the durable historical record of "funding
+        // was accepted under evidence X at time T," so a later reorg
+        // sweep (multisig-funding-reorg-sweep.ts) has something concrete to
+        // invalidate/reconfirm against, and so this fact is never lost even
+        // though Escrow.status/txLockId themselves are never retroactively
+        // rewritten. Only meaningful for a provider with a real Bitcoin-style
+        // outpoint (result.vout !== undefined — MULTISIG today); every other
+        // provider has no funding-reorg concept to record.
+        if (result.vout !== undefined) {
+          await escrowFundingEvidenceRepository.record({
+            escrowId, kind: 'OBSERVED_CONFIRMED', txid: result.txId, vout: result.vout,
+            ...(result.fundedAmount !== undefined ? { amountSats: BigInt(Math.round(result.fundedAmount)) } : {}),
+            ...(result.confirmedAtHeight !== undefined ? { observedAtHeight: result.confirmedAtHeight } : {}),
+            ...(result.tipHeightAtObservation !== undefined ? { tipHeightAtObservation: result.tipHeightAtObservation } : {}),
+          }, tx)
+        }
+        return persisted
       })
 
       // NOTE: previously this method also called prisma.trade.update(...) to set
