@@ -340,6 +340,121 @@ describe('P4 (iii-a) disputed pending re-creation guard - RED specification (rea
     expect({ refusedWhileLive: !whileLive.ok, acceptedAfterSupersession: afterSupersession.ok }).toEqual({ refusedWhileLive: true, acceptedAfterSupersession: true })
   })
 
+  // ── R13-R15: the settle window at its edges, unconfigured, and across a real process restart ─────────────────────
+  const WINDOW_MS = 15 * 60_000
+  const ageEdaTo = (o: Opened, ageMs: number) =>
+    prisma.economicDispositionAuthorization.updateMany({ where: { escrowId: o.escrowId }, data: { authorizedAt: new Date(Date.now() - ageMs) } })
+
+  it('R13 [BOUNDARY] one minute before the window closes the re-creation is refused (WINDOW); one minute after, it is allowed', async () => {
+    const before = await committedThenLost('r13a', 'never-sent')
+    await ageEdaTo(before.o, WINDOW_MS - 60_000)
+    const early = await settle(recreate(before.o))
+    const after = await committedThenLost('r13b', 'never-sent')
+    await ageEdaTo(after.o, WINDOW_MS + 60_000)
+    const late = await settle(recreate(after.o))
+    expect({
+      early: { refused: !early.ok, cause: early.ok ? 'none' : cause(early.error), pendings: await pendingCount(before.o) },
+      late: { allowed: late.ok, pendings: await pendingCount(after.o) },
+    }).toEqual({ early: { refused: true, cause: 'WINDOW', pendings: 0 }, late: { allowed: true, pendings: 1 } })
+  })
+
+  it('R14 [UNCONFIGURED] with no settle window configured (a fresh module graph with the variable absent) an old, otherwise eligible authorization is still refused: fail closed', async () => {
+    const { o } = await committedThenLost('r14', 'never-sent')
+    await ageEdaTo(o, 3 * 3_600_000)
+    const saved = process.env[SETTLE_WINDOW_ENV]
+    delete process.env[SETTLE_WINDOW_ENV]
+    let isolated!: { initiateRelease: (...a: any[]) => Promise<any>; prisma: PrismaClient; redis: { quit(): Promise<unknown> } }
+    try {
+      jest.isolateModules(() => {
+        isolated = {
+          initiateRelease: require('../../src/modules/open-settlement/escrow-pending-tx').initiateRelease,
+          prisma: require('../../src/common/database').prisma,
+          redis: require('../../src/common/redis').redis,
+        }
+      })
+    } finally { process.env[SETTLE_WINDOW_ENV] = saved }
+    try {
+      const attempt = await settle(isolated.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId))
+      expect({
+        refused: !attempt.ok, cause: attempt.ok ? 'none' : cause(attempt.error), configured: attempt.ok ? 'n/a' : /not configured/.test(attempt.error),
+        pendings: await pendingCount(o), transmitted: o.ctl.posts,
+      }).toEqual({ refused: true, cause: 'WINDOW', configured: true, pendings: 0, transmitted: [] })
+    } finally {
+      await isolated.prisma.$disconnect()
+      await isolated.redis.quit().catch(() => undefined)
+    }
+  })
+
+  /** initiate-release for the escrow in a NEW OS PROCESS (no memory of the first), with or without the window configured. */
+  async function initiateInFreshProcess(o: Opened, windowEnv: string | undefined) {
+    const { spawn } = require('child_process') as typeof import('child_process')
+    const { resolve: resolvePath } = require('path') as typeof import('path')
+    const code = String.raw`
+      require('ts-node/register/transpile-only')
+      const state = JSON.parse(process.env.P15_CHAIN)
+      const known = new Set(state.known)
+      global.fetch = async (url, init) => {
+        const u = String(url)
+        if (init && init.method === 'POST') return { ok: false, status: 400, text: async () => 'unexpected transmission from a re-creation' }
+        if (u.includes('/blocks/tip/height')) return { ok: true, status: 200, text: async () => '100' }
+        if (u.includes('/v1/fees/recommended')) return { ok: true, status: 200, json: async () => ({ halfHourFee: 5, fastestFee: 8 }) }
+        const m = u.match(/\/tx\/([0-9a-f]{64})\/status/)
+        if (m) return (m[1] === state.funding || known.has(m[1]))
+          ? { ok: true, status: 200, json: async () => ({ confirmed: true, block_height: 100 }) }
+          : { ok: false, status: 404, text: async () => 'Transaction not found', json: async () => ({}) }
+        return { ok: true, status: 200, json: async () => (state.spentBy ? [] : [{ txid: state.funding, vout: 0, value: 100000, status: { confirmed: true } }]) }
+      }
+      const { prisma } = require('./src/common/database')
+      const { intentEngine } = require('./src/core/intent-engine')
+      intentEngine.registerHandler(require('./src/modules/open-p2p/intent-handler').OpenP2PTradeIntentHandler)
+      require('./src/common/events/handlers').registerEventHandlers()
+      const { initiateRelease } = require('./src/modules/open-settlement/escrow-pending-tx')
+      ;(async () => {
+        let result
+        try { await initiateRelease(process.env.P15_ESCROW, process.env.P15_DEST, process.env.P15_ARBITER); result = { ok: true } }
+        catch (e) { result = { ok: false, error: String(e && e.message) } }
+        await new Promise((res, rej) => process.stdout.write('P15_RESULT:' + JSON.stringify(result) + '\n', (e) => (e ? rej(e) : res())))
+        await prisma.$disconnect()
+        process.exit(0)
+      })().catch(async (err) => { process.stderr.write(String(err && err.stack || err)); await prisma.$disconnect(); process.exit(1) })
+    `
+    const env: NodeJS.ProcessEnv = {
+      ...process.env, MOCK_ESCROW: 'false', P15_ESCROW: o.escrowId, P15_DEST: o.buyerDestination, P15_ARBITER: o.arbiterId,
+      P15_CHAIN: JSON.stringify({ funding: o.ctl.funding, known: [...o.ctl.known], spentBy: o.ctl.spentBy }),
+    }
+    if (windowEnv === undefined) delete env[SETTLE_WINDOW_ENV]; else env[SETTLE_WINDOW_ENV] = windowEnv
+    return await new Promise<{ code: number | null; result: { ok: boolean; error?: string } | null; stderr: string }>((done, reject) => {
+      const child = spawn(process.execPath, ['-e', code], { cwd: resolvePath(__dirname, '../..'), env, stdio: ['ignore', 'pipe', 'pipe'] })
+      let out = ''; let err = ''
+      child.stdout.on('data', (c: Buffer) => { out += c.toString() })
+      child.stderr.on('data', (c: Buffer) => { err += c.toString() })
+      const watchdog = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('fresh-process initiate timeout: ' + err.slice(-1500))) }, 150_000)
+      child.on('error', (e) => { clearTimeout(watchdog); reject(e) })
+      child.on('close', (c) => {
+        clearTimeout(watchdog)
+        const line = out.split('\n').find((l) => l.startsWith('P15_RESULT:'))
+        done({ code: c, result: line ? JSON.parse(line.slice('P15_RESULT:'.length)) : null, stderr: err.slice(-1500) })
+      })
+    })
+  }
+
+  it('R15 [RESTART] after a real process restart the evidence on disk decides: with the window configured an old authorization is re-created once and superseded; without it the same state is refused', async () => {
+    const eligible = await committedThenLost('r15a', 'never-sent')
+    await ageEdaTo(eligible.o, 3 * 3_600_000)
+    const allowed = await initiateInFreshProcess(eligible.o, String(WINDOW_MS))
+    const rows = await edaRows(eligible.o)
+    const unconfigured = await committedThenLost('r15b', 'never-sent')
+    await ageEdaTo(unconfigured.o, 3 * 3_600_000)
+    const refused = await initiateInFreshProcess(unconfigured.o, undefined)
+    expect({
+      allowed: { code: allowed.code, stderr: allowed.stderr, ok: allowed.result?.ok, pendings: await pendingCount(eligible.o), superseded: rows.rows.filter((r) => r.supersededAt !== null).length },
+      refused: { code: refused.code, ok: refused.result?.ok, cause: cause(refused.result?.error ?? ''), pendings: await pendingCount(unconfigured.o) },
+    }).toEqual({
+      allowed: { code: 0, stderr: '', ok: true, pendings: 1, superseded: 1 },
+      refused: { code: 0, ok: false, cause: 'WINDOW', pendings: 0 },
+    })
+  })
+
   // ── R10 assumption pin (section 5.2) ─────────────────────────────────────────────────────────────────────────────
   it('R10 [ASSUMPTION PIN] two rounds for one disputed escrow both spend only the canonical outpoint and pay only the Outcome\'s destination (and the fee address)', async () => {
     const { o, pending } = await committedThenLost('r10', 'never-sent')
