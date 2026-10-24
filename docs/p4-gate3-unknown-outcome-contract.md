@@ -78,3 +78,63 @@ Today's guarantee is one-directional: the status-frozen trigger refuses a status
 3. **Complexity added:** a lock in the revert, one re-read in PASS 1, a leaf classification module, log lines.
 4. **Earned:** yes for the first three; the classification is observability only until the typed contract exists.
 5. **Not demonstrated:** non-MULTISIG rails; SPLIT after a real process restart (covered only at dispatch level); deadlock stress; funding-UNKNOWN recovery outside MULTISIG; the #436 STOP above; production behavior of any explorer.
+
+## 5. Option (iii) for the #436 STOP - narrow guard on re-creating a disputed pending after a committed EDA (DESIGN + RED tests; NOT implemented)
+
+Decision requested by the CTO: refuse re-creation *only when the authorization's digest cannot be reproduced*. This section tests that wording against the code first, then designs what can actually be narrow.
+
+### 5.1 The digest cannot be the discriminator
+`economicDispositionOperationDigest()` hashes `pendingOperationId`, `unsignedPsbtBase64`, fees, signers and the ruling generation. A re-created round always has a new `pendingOperationId` and a freshly built PSBT, so its digest can **never** equal the committed one. "Refuse when the digest cannot be reproduced" therefore refuses in 100% of re-creations: it is option (i) (the #436 blanket guard) under another name. Narrowing needs a different discriminator.
+
+### 5.2 What actually bounds the risk (read from the tree; SUPPORTED, not yet DEMONSTRATED)
+- A MULTISIG round spends exactly one input, the canonical funding outpoint (`buildUnsignedSpend`: `txLockId:txLockVout`); two rounds for one escrow therefore conflict at consensus - at most one can confirm. There is no double payout; the bound is the chain, not Sails.
+- Recipients and amounts of a disputed round are bound to the ruling's durable Outcome (`assertRoundBoundToDisputeAuthority`); two rounds can differ only in miner fee / signers' copies.
+- The platform arbiter signature is added in memory at execution only (AUD1X R30), so after the pending row is lost nobody else can complete a disputed round.
+- Consequence: the residue of a re-creation is **bookkeeping and operator load**, not funds: a second transmission attempt that the network refuses, or a settlement by the old transaction whose txid Sails no longer knows (reported as `ANOMALY`, manual review). This is an assumption to be pinned by a test, listed below.
+
+### 5.3 Proposed narrow guard (iii-a) - needs a schema addition, hence specific CTO approval
+Durable facts added to `EconomicDispositionAuthorization` at commit time (all nullable, additive): `unsignedTxid` (deterministic from the round, `inspectRound`; a segwit txid does not commit to witnesses), `intentDigest` (hash of escrowId, disputeId, appealRound, arbiterId, ruling, authority signature, kind, destinations, buyerBps - **without** `pendingOperationId`/PSBT/fees), `supersededAt`, `supersededByPendingOperationId`; plus a partial unique index: at most one non-superseded row per (`escrowId`, `disputeId`, `appealRound`).
+Re-creation of a disputed pending, inside the D -> E transaction, is allowed only if **all** hold; otherwise it is refused with the committed EDA untouched:
+1. G1 intent: the new round's `intentDigest` equals the committed EDA's (same generation, same disposition).
+2. G2 age: `now - authorizedAt >= settleWindow` (configurable, longer than the broadcast timeout plus an explorer propagation margin; fail closed if unset).
+3. G3 identity: the EDA carries `unsignedTxid` (legacy rows with null are refused - cannot be proven).
+4. G4 external truth, definitive reads only: `GET /tx/{unsignedTxid}/status` is a 404 **and** the canonical outpoint is reported unspent; any transport error, 5xx or unreadable body refuses (fail closed, retried later).
+5. G5 supersession: the old EDA is marked superseded in the same transaction, keeping `unsignedTxid` so that recovery still recognizes the old transaction if it appears later (a superseded txid found on-chain converges the escrow to it instead of raising `ANOMALY`).
+If the old txid **is** public (G4 false): never re-create; converge to that txid through the existing PASS 0/PASS 1 identity path (needs the txid from the EDA - the one new recovery path).
+
+| Situation | Decision |
+|---|---|
+| EDA just committed, pending lost (V3-E3b, V3-E3c) | refuse (G2) |
+| window elapsed, txid unknown on chain, outpoint unspent, same intent | allow, supersede old EDA |
+| old txid public | refuse; converge to it |
+| outpoint spent by another transaction | refuse; manual review |
+| explorer unreadable / ambiguous | refuse (fail closed) |
+| legacy EDA without `unsignedTxid` | refuse |
+| different intent / generation | refuse (already refused by AUD-1 binding) |
+| two re-creations race | one wins under D -> E; the second sees the superseding row and the unique index |
+
+Effect on existing contracts: V3-E3b/E3c stay as written (refusal inside the window, so #436's invariant holds for the case it tests); `aud1xR2DispatchAuthority` AR-01/AR-03 (same pending, reuse by `pendingOperationId`) are untouched; liveness returns after the window instead of requiring manual repair.
+
+### 5.4 Smaller variant (iii-b), no migration
+Refuse re-creation only when the canonical outpoint is no longer unspent or cannot be read; allow otherwise. It needs no new column but does **not** keep V3-E3b/E3c (funding is unspent there, so re-creation is allowed): it is option (ii) hardened, and #436's two tests would have to be rewritten to the AUD1X invariant. Not recommended if #436's invariant is to be preserved.
+
+### 5.5 RED tests first (expected result today = chain + P4 `9928321b`)
+| Id | Setup (real PostgreSQL, real PSBTs) | Assertion | Today |
+|---|---|---|---|
+| R1 = V3-E3b | EDA committed, pending deleted, direct `initiateRelease` | rejected, EDA/Outcome unchanged | **RED (executed: fails on the chain with and without P4)** |
+| R2 = V3-E3c | C4 paused after preflight, competing EDA commit, pending lost | C4 does not resume/recreate | **RED (executed, same)** |
+| R3 | EDA committed, the old round's transaction already public, pending lost | no second distinct txid is transmitted; escrow converges to the public txid | RED (spec; needs the disputed-round helpers of `aud1xR2DispatchAuthority`) |
+| R4 | `unsignedTxid` recorded; window elapsed; txid 404; outpoint unspent; same intent | exactly one new round; old EDA superseded; one live EDA | RED (needs the new columns/index) |
+| R5 | as R4 but explorer read fails (throw / 503 / unreadable) | refused; EDA unchanged; retried later | RED (needs the guard) |
+| R6 | as R4 but outpoint spent by another tx | refused; manual review; nothing transmitted | RED |
+| R7 | legacy EDA (`unsignedTxid` null), window elapsed | refused | RED |
+| R8 | different ruling generation / destination / buyerBps | refused | expected control through the AUD-1 binding (`assertRoundBoundToDisputeAuthority`); not re-run for this design |
+| R9 | two concurrent re-creations (two backends) after the window | exactly one pending/EDA; the other refused; no deadlock | RED |
+| R10 | assumption pin: two rounds for one disputed escrow both spend only the canonical outpoint and pay the Outcome's destinations | holds | to be written; failing it invalidates 5.2 |
+Mutants (each must turn a named test RED): drop G2 (R1/R2), drop G3 (R7), drop G4 outpoint (R6), drop G4 txid (R3/R4), treat a read error as "unknown txid" (R5), drop the unique index (R9), skip supersession (R4).
+
+### 5.6 Risks of (iii-a)
+Additive migration on a financial table (rollback: drop the columns and the index; data-free); the `settleWindow` is a policy number, not a proof - an evicted transaction can be re-broadcast by anyone who holds the raw bytes, which is why G5 keeps the old txid for later recognition rather than relying on G4 alone; one more external read on the C4 and direct-dispatch paths; D -> E order must be preserved (the guard runs inside the existing `withEscrowFundingLock(..., { disputeLockId })` transaction, adding no lock).
+
+### 5.7 Decision requested
+(i) adopt #436's blanket guard (simplest; no automatic recovery after pending loss), (ii)/(iii-b) keep the chain and rewrite V3-E3b/E3c, or **(iii-a)** as designed above (recommended if both #436's invariant and recovery liveness are wanted). No code, test or migration for (iii-a) exists yet.
