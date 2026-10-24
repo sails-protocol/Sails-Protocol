@@ -1,0 +1,1569 @@
+name: Native load harness candidate verification
+on:
+  push:
+    branches: [security/artillery-native-loadtest-replacement]
+  pull_request:
+    branches: [security/ts-node-dev-removal-validated]
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: sails_protocol
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Dependency-free syntax and safety guard checks
+        run: |
+          node --check load-tests/testkit/loopback-target.cjs
+          node --check load-tests/testkit/loopback-target.test.cjs
+          node load-tests/testkit/loopback-target.test.cjs
+          node --check load-tests/testkit/protocol-assertions.cjs
+          node --check load-tests/testkit/protocol-assertions.test.cjs
+          node load-tests/testkit/protocol-assertions.test.cjs
+          node --check load-tests/testkit/ws-protocol.cjs
+          node --check load-tests/testkit/ws-protocol.test.cjs
+          node load-tests/testkit/ws-protocol.test.cjs
+          node --check load-tests/native/run.js
+          node --check load-tests/tests/chat-ws-bounded.js
+          node --check load-tests/tests/intent-bounded.js
+          node --check load-tests/tests/intent-arrival-probe.js
+          node --check load-tests/tests/intent-rate-parity-candidate.js
+          node --check load-tests/tests/intent-independent-arrivals-candidate.js
+          node --check load-tests/tests/chat-ws-no-pong-negative.js
+          node --check load-tests/native/non-pong-fixture.cjs
+          node --check load-tests/artillery/comparator-processor.js
+          node --check load-tests/artillery/prepare-bounded-ws.js
+          node --check load-tests/artillery/ws-bounded-processor.js
+          node --check load-tests/artillery/ws-bounded-processor.test.cjs
+          node load-tests/artillery/ws-bounded-processor.test.cjs
+          node --check load-tests/artillery/ws-real-transport.test.cjs
+          if SAILS_LOAD_HTTP_TARGET=https://example.com node load-tests/native/run.js intent > /tmp/load-guard.out 2>&1; then echo 'Unsafe target accepted'; exit 1; fi
+          grep -q 'Unsupported target protocol' /tmp/load-guard.out
+          if SAILS_LOAD_HTTP_TARGET=http://example.com node load-tests/native/run.js intent > /tmp/load-host-guard.out 2>&1; then echo 'Nonlocal HTTP host accepted'; exit 1; fi
+          grep -q 'restricted to loopback targets' /tmp/load-host-guard.out
+          if SAILS_LOAD_WS_TARGET=wss://example.com node load-tests/native/run.js ws > /tmp/ws-guard.out 2>&1; then echo 'Unsafe WS target accepted'; exit 1; fi
+          grep -q 'Unsupported target protocol' /tmp/ws-guard.out
+          if SAILS_LOAD_WS_TARGET=ws://example.com node load-tests/native/run.js ws > /tmp/ws-host-guard.out 2>&1; then echo 'Nonlocal WS host accepted'; exit 1; fi
+          grep -q 'restricted to loopback targets' /tmp/ws-host-guard.out
+          if SAILS_LOAD_HTTP_TARGET=http://user:password@localhost:3000 node load-tests/native/run.js intent > /tmp/credential-guard.out 2>&1; then echo 'Embedded credentials accepted'; exit 1; fi
+          grep -q 'Target URL must not contain credentials' /tmp/credential-guard.out
+          if SAILS_LOAD_HTTP_TARGET=http://localhost:3000/other node load-tests/native/run.js smoke > /tmp/path-guard.out 2>&1; then echo 'Target path accepted'; exit 1; fi
+          grep -q 'Target URL must not contain path, query or fragment' /tmp/path-guard.out
+          if SAILS_LOAD_WS_TARGET=ws://localhost:3000/?ticket=secret node load-tests/native/run.js smoke > /tmp/query-guard.out 2>&1; then echo 'Target query accepted'; exit 1; fi
+          grep -q 'Target URL must not contain path, query or fragment' /tmp/query-guard.out
+          node -e "require('node:assert/strict').equal(typeof WebSocket,'function')"
+          # Native scheduler/session-pool modes retired. Target guards above
+          # and real authenticated smoke below remain mandatory.
+      - name: Install dependencies with existing script policy (fail closed)
+        run: npm ci --no-audit --no-fund
+      - name: Validate comparator exports after dependency installation
+        run: node -e "const p=require('./load-tests/artillery/comparator-processor.js');if(typeof p.setupCurrentAuthenticatedUser!=='function')process.exit(1);const w=require('./load-tests/artillery/ws-bounded-processor.js');if(typeof w.connectWithFreshTicket!=='function'||typeof w.assertPongFromSocket!=='function')process.exit(1)"
+      - name: Fail-closed WebSocket PONG assertion unit proofs
+        shell: bash
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict');
+          const {EventEmitter} = require('node:events');
+          const {assertPongFromSocket} = require('./load-tests/artillery/ws-bounded-processor.js');
+          const fake = () => { const ws=new EventEmitter();ws.send=()=>{};return ws; };
+          (async()=>{
+            const good=fake();const ok=assertPongFromSocket(good,{timeoutMs:100});
+            good.emit('message',JSON.stringify({type:'PONG'}));await ok;
+            const malformed=fake();const malformedResult=assertPongFromSocket(malformed,{timeoutMs:20});
+            malformed.emit('message',JSON.stringify({type:'PING'}));
+            await assert.rejects(malformedResult,/PONG timeout/);
+            assert.throws(()=>assertPongFromSocket(fake(),{timeoutMs:30001}),/Invalid bounded PONG timeout/);
+            const missing=fake();await assert.rejects(assertPongFromSocket(missing,{timeoutMs:15}),/PONG timeout/);
+            const bad=fake();const rejected=assertPongFromSocket(bad,{timeoutMs:100});
+            bad.emit('message',JSON.stringify({type:'ERROR'}));await assert.rejects(rejected,/application ERROR/);
+            const closed=fake();const early=assertPongFromSocket(closed,{timeoutMs:100});
+            closed.emit('close');await assert.rejects(early,/closed before PONG/);
+            console.log('PONG assertion primitive: positive, wrong-type, timeout bounds, timeout, ERROR, early-close PASS');
+          })().catch(()=>process.exit(1));
+          NODE
+      - name: Fail-closed WS session-pool negative proof
+        shell: bash
+        run: |
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const fs=require('node:fs');
+          const path=require('node:path');
+          const {connectWithFreshTicket}=require('./load-tests/artillery/ws-bounded-processor.js');
+          const root=path.join(process.cwd(),'load-tests/artillery');
+          const file=path.join(root,'bounded-ws-users.json');
+          const test=()=>new Promise(resolve=>{
+            connectWithFreshTicket({}, {}, err=>resolve(err));
+          });
+          (async()=>{
+            assert.equal(fs.existsSync(file),false,'No stale session pool permitted');
+            fs.writeFileSync(file,'[{"sessionToken":"test-only"}]',{mode:0o644,flag:'wx'});
+            try {
+              assert.match((await test()).message,/Bounded WS ticket setup failed/);
+            } finally {fs.unlinkSync(file);}
+            fs.writeFileSync(file,'[{}]',{mode:0o600,flag:'wx'});
+            try {
+              assert.match((await test()).message,/Bounded WS ticket setup failed/);
+            } finally {fs.unlinkSync(file);}
+            fs.writeFileSync(file,'[{"sessionToken":"test-only"}]',{mode:0o600,flag:'wx'});
+            const link=path.join(root,'bounded-ws-users-symlink-target.json');
+            try {
+              fs.renameSync(file,link);
+              fs.symlinkSync(link,file);
+              assert.match((await test()).message,/Bounded WS ticket setup failed/);
+            } finally {
+              fs.rmSync(file,{force:true});
+              fs.rmSync(link,{force:true});
+            }
+            console.log('WS session-pool permissions, malformed-schema, symlink negatives PASS (no network requests)');
+          })().catch(()=>process.exit(1));
+          NODE
+      - name: Inspect installed Artillery WS receive assertion surface
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const path=require('node:path');
+          const roots=['node_modules/@artilleryio/engine-ws','node_modules/artillery/node_modules/@artilleryio/engine-ws','node_modules/artillery-engine-ws'];
+          const matches=[];
+          for(const root of roots){
+            if(!fs.existsSync(root))continue;
+            const walk=(dir,depth)=>{
+              if(depth>5)return;
+              for(const ent of fs.readdirSync(dir,{withFileTypes:true})){
+                const full=path.join(dir,ent.name);
+                if(ent.isDirectory())walk(full,depth+1);
+                else if(ent.isFile()&&/\\.(js|mjs|cjs)$/.test(ent.name)){
+                  const source=fs.readFileSync(full,'utf8');
+                  for(const word of ['receive','expect','onMessage','message']){
+                    if(source.includes(word))matches.push(path.relative('.',full)+':'+word);
+                  }
+                }
+              }
+            };
+            walk(root,0);
+          }
+          console.log('Installed WS engine receive-related source locations (paths only):',JSON.stringify(matches.slice(0,40)));
+          console.log('Inspection is diagnostic, not proof of an assertion hook');
+          NODE
+      - name: Identify resolved Artillery WS engine package
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const path=require('node:path');
+          const pkg=require('./node_modules/artillery/package.json');
+          const deps={...pkg.dependencies,...pkg.optionalDependencies};
+          console.log('Artillery version:',pkg.version);
+          console.log('WS-related dependency names:',Object.keys(deps).filter(x=>/ws|websocket|engine/i.test(x)).sort().join(',')||'(none)');
+          const candidates=['@artilleryio/engine-ws','artillery-engine-ws','ws'];
+          for(const name of candidates){
+            try{
+              const resolved=require.resolve(name,{paths:[path.resolve('node_modules/artillery'),process.cwd()]});
+              console.log('Resolved module:',name,path.relative(process.cwd(),resolved));
+            }catch{console.log('Module not directly resolvable:',name);}
+          }
+          const dirs=['node_modules/artillery/lib','node_modules/artillery/dist','node_modules/@artilleryio'];
+          for(const dir of dirs)if(fs.existsSync(dir))console.log('Present package directory:',dir);
+          NODE
+      - name: Prove PONG and no-PONG over real disposable WebSocket transport
+        shell: bash
+        run: |
+          node load-tests/artillery/ws-real-transport.test.cjs
+      - name: Validate bounded process CPU and RSS sampler
+        shell: bash
+        run: |
+          node load-tests/native/process-resource-sampler.test.cjs
+          node load-tests/native/measured-generator.test.cjs
+      - name: Inspect bundled Artillery WebSocket engine implementation
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const path=require('node:path');
+          const artilleryEntry=require.resolve('artillery');
+          const artilleryRoot=path.dirname(require.resolve('artillery/package.json'));
+          const roots=[path.join(artilleryRoot,'dist'),path.join(artilleryRoot,'lib')];
+          if(!roots.some(root=>fs.existsSync(root)))throw Error('Artillery compiled implementation not found');
+          console.log('Resolved Artillery entry relative path:',path.relative('.',artilleryEntry));
+          console.log('Resolved Artillery package root:',path.relative('.',artilleryRoot));
+          const matches=[];
+          const maxFiles=6000;
+          let scanned=0;
+          function walk(dir,depth){
+            if(depth>8||scanned>=maxFiles)return;
+            for(const ent of fs.readdirSync(dir,{withFileTypes:true})){
+              if(scanned>=maxFiles)return;
+              const full=path.join(dir,ent.name);
+              if(ent.isDirectory())walk(full,depth+1);
+              else if(ent.isFile()&&/\.(js|cjs|mjs)$/.test(ent.name)){
+                scanned++;
+                const src=fs.readFileSync(full,'utf8');
+                const lines=src.split('\n');
+                for(let i=0;i<lines.length;i++){
+                  const line=lines[i];
+                  if(line.includes('engine-ws')||line.includes('WebSocketEngine')||line.includes('ws.on(')||line.includes('ws.once(')){
+                    matches.push({file:path.relative('.',full),line:i+1,kind:/engine-ws|WebSocketEngine/.test(line)?'engine-reference':'socket-reference'});
+                  }
+                }
+              }
+            }
+          }
+          for(const root of roots)if(fs.existsSync(root))walk(root,0);
+          console.log('Artillery bundled WS implementation source references (paths and line numbers only):',JSON.stringify(matches.slice(0,60)));
+          console.log('Scanned JavaScript files:',scanned,'total matches:',matches.length);
+          if(scanned===0)throw Error('Artillery implementation inspection scanned zero files');
+          const wsEngine=path.join(artilleryRoot,'dist/lib/core/engine_ws.js');
+          if(!fs.existsSync(wsEngine))throw Error('Resolved Artillery WebSocket engine source missing');
+          const engineLines=fs.readFileSync(wsEngine,'utf8').split('\n');
+          const interesting=/\.on\(|\.once\(|ping|pong|message|WebSocket/i;
+          const bounded=engineLines.flatMap((line,i)=>interesting.test(line)?[{line:i+1,text:line.trim().slice(0,180)}]:[]).slice(0,80);
+          console.log('Artillery WS engine bounded event/messaging source inspection:',JSON.stringify(bounded));
+          const engineSource=engineLines.join('\n');
+          const engineContract={
+            replaceableWebSocketDependency:engineSource.includes('export const _deps = { WebSocket };'),
+            constructsFromDependency:engineSource.includes('new _deps.WebSocket('),
+            applicationMessageHandler:engineSource.includes('context.ws.onmessage = getMessageHandler('),
+            explicitPongListener:/\.on\(['"]pong['"]/.test(engineSource)||/\.once\(['"]pong['"]/.test(engineSource)
+          };
+          // Bounded source evidence for the receive-step contract. Never log
+          // complete processor contexts, socket targets or bearer-capability URLs.
+          const handlerStart=engineLines.findIndex(line=>line.includes('function getMessageHandler('));
+          if(handlerStart<0)throw Error('Artillery receive handler missing');
+          // The engine uses a nested function declaration: stop at the
+          // first top-level closing brace, not the next top-level function.
+          const handlerEnd=engineLines.findIndex((line,i)=>i>handlerStart&&line==='}');
+          if(handlerEnd<0)throw Error('Artillery receive handler closing brace missing');
+          const handler=engineLines.slice(handlerStart,handlerEnd+1);
+          const receiveTokens=[...new Set(handler.flatMap(line=>[...line.matchAll(/\\b(match|capture|timeout|callback|params\\.[a-zA-Z_]+)\\b/g)].map(m=>m[0])))].sort();
+          console.log('Artillery receive handler bounded contract:',JSON.stringify({startLine:handlerStart+1,lineCount:handler.length,tokens:receiveTokens}));
+          // Emit only source line numbers and redacted code structure. A plain
+          // word-boundary token scan can miss params?.match or bracket access.
+          const receiveSignals=handler.flatMap((line,i)=>/match|capture|timeout|callback|params|expect|JSON\.parse|emit\(/i.test(line)?[{line:handlerStart+i+1,source:line.trim().slice(0,160)}]:[]);
+          console.log('Artillery receive handler bounded structural signals:',JSON.stringify(receiveSignals.slice(0,36)));
+          if(handler.length<10||handler.length>180)throw Error('Unexpected Artillery receive handler size; manual review required');
+          console.log('Artillery WS transport extension contract:',JSON.stringify(engineContract));
+          if(!engineContract.replaceableWebSocketDependency||!engineContract.constructsFromDependency)throw Error('Artillery WebSocket dependency injection contract changed');
+          console.log('Diagnostic only: no assertion hook or PONG parity inferred');
+          NODE
+      - name: Bound Artillery candidate scope and prevent false WS parity
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const yaml=require('yaml');
+          const root='load-tests/artillery/';
+          const http=yaml.parse(fs.readFileSync(root+'intent-api-bounded-comparator.yml','utf8'));
+          const ws=yaml.parse(fs.readFileSync(root+'chat-ws-bounded-comparator.yml','utf8'));
+          for(const [name,cfg] of [['HTTP',http],['WS',ws]]){
+            assert.equal(cfg.config.phases.length,1,name+' single phase');
+            assert.equal(cfg.config.phases[0].duration,2,name+' bounded duration');
+            assert.equal(cfg.config.phases[0].arrivalRate,1,name+' bounded rate');
+            assert.equal(cfg.config.target,(name==='HTTP'?'http':'ws')+'://127.0.0.1:3000',name+' loopback only');
+          }
+          assert.equal(http.scenarios.length,1,'one HTTP scenario');
+          assert.equal(ws.scenarios.length,1,'one WS scenario');
+          assert.equal(http.scenarios[0].flow.length,3,'exact HTTP flow length');
+          assert.equal(ws.scenarios[0].flow.length,2,'exact WS flow length');
+          assert.equal(http.scenarios[0].flow[0].function,'setupCurrentAuthenticatedUser');
+          assert.equal(ws.scenarios[0].flow[0].connect.function,'connectWithFreshTicket');
+          assert.equal(ws.scenarios[0].flow[1].send.payload,JSON.stringify({type:'PING',payload:{}}));
+          assert.deepEqual(ws.scenarios[0].flow[1].send.match,[{json:'$.type',value:'PONG',strict:true}]);
+          assert.equal(ws.scenarios[0].flow[1].send.response.timeout,2);
+          assert.equal(http.scenarios[0].flow[1].post.url,'/v1/intents');
+          assert.equal(http.scenarios[0].flow[2].delete.url,'/v1/intents/{{ intentId }}');
+          assert.deepEqual(http.scenarios[0].flow[1].post.expect,[{statusCode:201}]);
+          assert.deepEqual(http.scenarios[0].flow[2].delete.expect,[{statusCode:200}]);
+          assert.match(ws.scenarios[0].name,/strict application PONG match/);
+          console.log('Artillery candidate bounds and strict PONG match configuration PASS; authenticated parity pending');
+          NODE
+      - name: Verify Artillery WS engine assertion integration boundary
+        shell: bash
+        run: |
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const fs=require('node:fs');
+          const yaml=require('yaml');
+          const ws=yaml.parse(fs.readFileSync('load-tests/artillery/chat-ws-bounded-comparator.yml','utf8'));
+          const flow=ws.scenarios[0].flow;
+          assert.equal(flow[0].connect.function,'connectWithFreshTicket');
+          const processor=require('./load-tests/artillery/ws-bounded-processor.js');
+          assert.equal(typeof processor.assertPongFromSocket,'function');
+          // This intentionally blocks promotion until an engine-supported PONG
+          // assertion is integrated and exercised against a nonresponding server.
+          const wired=flow.some(step=>step?.function==='assertPongFromSocket'||step?.send?.function==='assertPongFromSocket');
+          assert.equal(wired,false,'Candidate unexpectedly changed: review WS engine hook and negative proof before enabling');
+          console.log('WS engine match configured; authenticated end-to-end parity and independent review still blocked');
+          NODE
+      - name: Characterize Artillery silent WebSocket false positive on disposable loopback
+        run: node load-tests/artillery/ws-engine-silent-control.test.cjs
+      - name: Experiment with Artillery in-engine PONG match on disposable loopback
+        run: node load-tests/artillery/ws-engine-match-control.test.cjs
+      - name: Generate Prisma client and build
+        run: |
+          npx prisma generate
+          npm run build
+      - name: Real-service smoke with disposable PostgreSQL and Redis
+        env:
+          NODE_ENV: development
+          DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/sails_protocol
+          REDIS_URL: redis://127.0.0.1:6379
+          SAILS_LOAD_HTTP_TARGET: http://127.0.0.1:3000
+          SAILS_LOAD_WS_TARGET: ws://127.0.0.1:3000
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run db:migrate
+          node dist/src/main.js > /tmp/sails-native-smoke-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then echo 'API exited during startup'; exit 1; fi
+            if (echo > /dev/tcp/127.0.0.1/3000) >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then echo 'API readiness timeout'; exit 1; fi
+          timeout 90s node load-tests/native/run.js smoke
+      - name: Execute bounded Artillery HTTP comparator against disposable backend
+        env:
+          NODE_ENV: development
+          DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/sails_protocol
+          REDIS_URL: redis://127.0.0.1:6379
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Native protocol smoke already ran. Let the default auth
+          # rate-limit window expire instead of weakening production limits.
+          sleep 65
+          node dist/src/main.js > /tmp/sails-artillery-http-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then echo 'Artillery comparator API exited'; exit 1; fi
+            if (echo > /dev/tcp/127.0.0.1/3000) >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then echo 'Artillery comparator API readiness timeout'; exit 1; fi
+          export SAILS_BACKEND_PID="$server_pid"
+          # Verify the runner's actual Linux page size before interpreting
+          # /proc/<pid>/statm and /proc/<pid>/stat resident page counters.
+          page_bytes="$(getconf PAGESIZE)"
+          if [ "$page_bytes" != "4096" ]; then
+            echo 'Unsupported Linux process page size for RSS sampling'
+            exit 1
+          fi
+          export SAILS_PROC_PAGE_KIB=4
+          node <<'RESOURCE_NODE'
+          const {runMeasured}=require('./load-tests/native/measured-generator.cjs');
+          const {observe}=require('./load-tests/native/process-resource-sampler.cjs');
+          observe(Number(process.env.SAILS_BACKEND_PID),()=>runMeasured('./node_modules/.bin/artillery',[
+            'run','load-tests/artillery/intent-api-bounded-comparator.yml',
+            '--output','/tmp/sails-artillery-bounded-http.json'
+          ],{timeoutMs:90000,intervalMs:25}).catch(error=>{
+            const category=error?.message;
+            const allowed=new Set(['Generator timed out','Generator exited nonzero (output redacted)','Generator terminated by signal','Generator runtime error','Generator spawn failed','Generator resource sample count insufficient','Generator resource counters invalid','Generator resource sampling read error: permission','Generator resource sampling read error: io','Generator resource sampling read error: cpu-incomplete','Generator resource sampling read error: rss-incomplete','Generator resource sampling read error: rss-live-no-positive','Generator resource sampling read error: rss-state-changed','Generator resource sampling read error: malformed','Generator resource sampling read error: other']);
+            throw Error('Generator: '+(allowed.has(category)?category:'Unclassified generator failure (details withheld)'));
+          }),{intervalMs:25}).then(({value:usage,usage:backend})=>{
+            console.log('Artillery HTTP backend bounded resource sample:',JSON.stringify(backend));
+            console.log('Artillery HTTP generator resource sample:',JSON.stringify(usage));
+          }).catch(error=>{
+            const backendCategories=new Map([
+              ['Incomplete resource sample','Backend resource sample incomplete'],
+              ['Non-monotonic CPU counters','Backend CPU counters non-monotonic'],
+              ['Incomplete process RSS counters','Backend RSS counter missing'],
+              ['Incomplete process CPU counters','Backend CPU counter missing'],
+              ['Process exited during resource sample','Backend process exited during sample'],
+              ['Malformed proc stat','Backend process stat malformed']
+            ]);
+            const category=typeof error?.message==='string' ? error.message : '';
+            console.error('Artillery HTTP failure category:',category.startsWith('Generator: ')?category:backendCategories.get(category)||'Unclassified backend observation failure (details withheld)');
+            process.exitCode=1;
+          });
+          RESOURCE_NODE
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const fs=require('node:fs');
+          const report=JSON.parse(fs.readFileSync('/tmp/sails-artillery-bounded-http.json','utf8'));
+          const counters=report.aggregate?.counters||{};
+          const completed=counters['vusers.completed']||0;
+          const failed=counters['vusers.failed']||0;
+          const errors=Object.entries(counters).filter(([k,v])=>/(errors\\.|failed|unexpected_response)/.test(k)&&Number(v)>0);
+          assert.equal(completed,2,'Exactly two HTTP comparator virtual users must complete');
+          assert.equal(failed,0,'No failed virtual users');
+          assert.equal(counters['http.requests'],4,'Exactly four HTTP create/cancel requests expected (auth PoP setup is out-of-band)');
+          assert.equal(counters['sails.auth_setup_started'],2,'Exactly two observed Artillery auth setup starts required');
+          assert.equal(counters['sails.intent_create_responses'],2,'Exactly two instrumented Artillery create responses required');
+          assert.equal(counters['sails.intent_cancel_responses'],2,'Exactly two instrumented Artillery cancel responses required');
+          console.log('Artillery HTTP independently instrumented response counts:',JSON.stringify({
+            create:counters['sails.intent_create_responses'],
+            cancel:counters['sails.intent_cancel_responses'],
+            verified:true,
+            measurement:'afterResponse callback, separate from plugin endpoint counters'
+          }));
+          // Audit availability of endpoint-scoped request counters; these are
+          // NOT enforced because this Artillery runner has not emitted them.
+          // Authentication occurs outside the in-engine HTTP metrics.
+          const endpointRequestCounters=Object.entries(counters).filter(([key])=>
+            /plugins\\.metrics-by-endpoint\\.codes\\./.test(key)||/plugins\\.metrics-by-endpoint\\.requests\\./.test(key));
+          // Endpoint histograms exist, but histogram sample counts are not
+          // equivalent to separately instrumented HTTP request counters.
+          // Do not infer endpoint counts from medians or global totals.
+          const endpointRequestCounterCoverage={
+            matchingCounterKeys:endpointRequestCounters.map(([key])=>key),
+            scopedRequestCountersAvailable:endpointRequestCounters.length>0,
+            scopedRequestCountParityEstablished:false,
+            globalIntentRequests:counters['http.requests']??null
+          };
+          console.log('Artillery HTTP endpoint request counter coverage:',JSON.stringify(endpointRequestCounterCoverage));
+
+          assert.equal(errors.length,0,'No Artillery error counters');
+          const histograms=report.aggregate?.histograms||{};
+          const startHistogram=histograms['sails.auth_setup_start_epoch_ms'];
+          // Diagnose whether Artillery actually exports the timestamp samples.
+          // Two hook invocations alone cannot establish measured arrival spacing.
+          // Artillery's HDR histogram median is unreliable for epoch-scale values;
+          // only min/max and independently counted hook invocations are diagnostic.
+          // Never treat a median outside the observed range as arrival evidence.
+          console.log('Artillery observed setup timestamp evidence:',JSON.stringify({
+            emittedStarts:counters['sails.auth_setup_started']??null,
+            histogramAvailable:Boolean(startHistogram),
+            histogramCount:Number.isFinite(startHistogram?.count)?startHistogram.count:null,
+            medianEpochMs:null,
+            medianExcludedReason:'epoch-scale histogram quantile is not reliable',
+            minEpochMs:Number.isFinite(startHistogram?.min)?startHistogram.min:null,
+            maxEpochMs:Number.isFinite(startHistogram?.max)?startHistogram.max:null,
+            observedSpanMs:Number.isFinite(startHistogram?.min)&&Number.isFinite(startHistogram?.max)?startHistogram.max-startHistogram.min:null,
+            spacingEstablished:false,
+            schedulerArrivalParityEstablished:false
+          }));
+          const latencyNames=Object.keys(histograms).filter(k=>/response_time|latency|duration/.test(k));
+          const latency=Object.fromEntries(latencyNames.map(k=>{
+            const h=histograms[k]||{};
+            return [k,Object.fromEntries(['median','p50','p95','p99'].filter(q=>typeof h[q]==='number'&&Number.isFinite(h[q])).map(q=>[q,h[q]]))];
+          }));
+          console.log('Artillery HTTP sanitized metrics:',JSON.stringify({
+            completed,failed,errors:errors.length,
+            httpRequests:counters['http.requests']??null,
+            latencyMs:latency
+          }));
+          assert.ok(latencyNames.length>0,'Artillery HTTP latency histogram missing');
+          assert.ok(latencyNames.some(k=>Object.keys(latency[k]).length>0),'Artillery HTTP latency quantiles missing');
+          // The comparison is meaningless if one operation silently loses its
+          // endpoint-specific histogram. Reject missing or non-finite quantiles.
+          const endpointKeys=latencyNames.filter(k=>/metrics-by-endpoint.*response_time/.test(k));
+          const createKeys=endpointKeys.filter(k=>/\/v1\/intents$/.test(k));
+          const cancelKeys=endpointKeys.filter(k=>/\/v1\/intents\//.test(k));
+          assert.ok(createKeys.length>0,'Artillery create endpoint histogram missing');
+          assert.ok(cancelKeys.length>0,'Artillery cancel endpoint histogram missing');
+          // Preserve sanitized, per-operation Artillery quantiles for later
+          // cross-engine review. Do not claim temporal or latency parity.
+          const endpointLatency={
+            create:latency[createKeys[0]],
+            cancel:latency[cancelKeys[0]]
+          };
+          // Artillery's aggregate endpoint histograms may have only two samples;
+          // these quantiles are descriptive, not a statistical parity test.
+          console.log('Artillery HTTP latency comparison limitations:',JSON.stringify({
+            temporalParityEstablished:false,
+            latencyParityEstablished:false,
+            sampleCountPerEndpointExpected:2,
+            authRequestsIncludedInArtilleryHttpMetrics:false,
+            requestTimingBoundaryEquivalenceEstablished:false,
+            generatorResourceSamplingWindowsEquivalent:false
+          }));
+          console.log('Artillery HTTP endpoint latency evidence:',JSON.stringify({
+            arrivalRatePerSecond:1,configuredWindowSeconds:2,
+            temporalParityEstablished:false,
+            endpointLatency
+          }));
+          for(const [operation,keys] of [['create',createKeys],['cancel',cancelKeys]]){
+            assert.ok(keys.every(k=>{const v=latency[k];return ['median','p95','p99'].every(q=>Number.isFinite(v?.[q])&&v[q]>=0)&&v.median<=v.p95&&v.p95<=v.p99;}),
+              'Artillery '+operation+' endpoint median/p95/p99 missing');
+          }
+          NODE
+      - name: Execute bounded Artillery WS candidate against disposable backend
+        env:
+          NODE_ENV: development
+          DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/sails_protocol
+          REDIS_URL: redis://127.0.0.1:6379
+        shell: bash
+        run: |
+          set -euo pipefail
+          # HTTP comparator consumed eight auth requests. Wait for the shared
+          # auth window; never weaken production security settings.
+          sleep 65
+          node dist/src/main.js > /tmp/sails-artillery-ws-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; rm -f load-tests/artillery/bounded-ws-users.json' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then echo 'WS candidate API exited'; exit 1; fi
+            if (echo > /dev/tcp/127.0.0.1/3000) >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then echo 'WS candidate API readiness timeout'; exit 1; fi
+          node load-tests/artillery/prepare-bounded-ws.js
+          timeout 90s ./node_modules/.bin/artillery run load-tests/artillery/chat-ws-bounded-comparator.yml --output /tmp/sails-artillery-bounded-ws.json > /tmp/sails-artillery-ws-output.log 2>&1 || {
+            echo 'Artillery WS candidate failed (logs retained locally only)'; exit 1;
+          }
+          node <<'NODE'
+          const assert=require('node:assert/strict');
+          const fs=require('node:fs');
+          const report=JSON.parse(fs.readFileSync('/tmp/sails-artillery-bounded-ws.json','utf8'));
+          const counters=report.aggregate?.counters||{};
+          assert.equal(counters['vusers.completed']||0,2,'Exactly two WS candidate virtual users must complete');
+          assert.equal(counters['vusers.failed']||0,0,'No failed WS candidate virtual users');
+          // Strict in-engine match is configured and separately exercised with
+          // disposable PONG/SILENT/ERROR controls. Check authenticated VUs too.
+          const cfg=require('yaml').parse(fs.readFileSync('load-tests/artillery/chat-ws-bounded-comparator.yml','utf8'));
+          const send=cfg.scenarios[0].flow[1].send;
+          assert.deepEqual(send.match,[{json:'$.type',value:'PONG',strict:true}]);
+          assert.equal(send.response.timeout,2);
+          assert.equal(counters['websocket.messages_received']||0,2,'Exactly two authenticated WS responses required');
+          assert.equal(counters['websocket.messages_sent']||0,2,'Exactly two authenticated WS PING frames required');
+          const errors=Object.entries(counters).filter(([k,v])=>['errors.','websocket.errors','http.errors'].some(prefix=>k.startsWith(prefix))&&Number(v)>0);
+          assert.equal(errors.length,0,'No Artillery WS candidate error counters');
+          console.log('Bounded authenticated Artillery WS candidate: 2 PONG matches, 0 failed VUs, 0 errors; independent parity review pending');
+          NODE
+      - name: Install pinned k6 runner for bounded real-service proof
+        uses: grafana/setup-k6-action@db07bd9765aac508ef18982e52ab937fe633a065 # v1.2.1
+        with:
+          k6-version: '1.2.3'
+      - name: Enforce pinned k6 setup action reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const source = fs.readFileSync('.github/workflows/native-load-harness-candidate.yml', 'utf8');
+          const refs = [...source.matchAll(/^\s*uses:\s*(grafana\/setup-k6-action@\S+)/gm)].map(m => m[1]);
+          if (refs.length !== 1) throw new Error('Expected exactly one k6 setup action');
+          const expectedAction = 'grafana/setup-k6-action@db07bd9765aac508ef18982e52ab937fe633a065';
+          if (refs[0] !== expectedAction) {
+            console.error('k6 setup action differs from reviewed immutable commit');
+            process.exit(1);
+          }
+          const versions = [...source.matchAll(/^\s*k6-version:\s*['"]?([^\s'"]+)['"]?\s*$/gm)].map(m => m[1]);
+          if (versions.length !== 1 || versions[0] !== '1.2.3') {
+            console.error('k6 version differs from reviewed pinned release');
+            process.exit(1);
+          }
+          console.log('k6 setup action immutable reference verified');
+          NODE
+      - name: Record resolved k6 executable provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          k6_path="$(command -v k6)"
+          test -n "$k6_path"
+          test -f "$k6_path"
+          expected_version="v1.2.3"
+          installed_version="$(k6 version)"
+          case "$installed_version" in
+            *"$expected_version"*) ;;
+            *) echo 'Expected pinned k6 version was not installed'; exit 1 ;;
+          esac
+          {
+            printf 'runner=%s\n' 'ubuntu-latest'
+            printf 'k6_version='
+            k6 version
+            printf 'k6_sha256='
+            sha256sum "$k6_path" | cut -d ' ' -f 1
+          } > k6-executable-provenance.txt
+          # No token-bearing URLs, secrets or environment dumps.
+          cat k6-executable-provenance.txt
+      - name: Reproduce isolated k6 arrival scheduling without network I/O
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This probe performs zero HTTP/auth/Intent calls. Each run must
+          # produce exactly two entries and zero boundary extras.
+          node --check load-tests/tests/arrival-scheduler-probe.js
+          # Preserve a failing probe as evidence, but continue the bounded series
+          # to measure reproducibility rather than stopping at the first failure.
+          failures=0
+          for trial in $(seq 1 12); do
+            summary="/tmp/sails-k6-scheduler-probe-${trial}.json"
+            if timeout 20s k6 run --quiet --summary-export="$summary" load-tests/tests/arrival-scheduler-probe.js > /tmp/sails-k6-scheduler-probe.log 2>&1; then
+              node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const [file,trial]=process.argv.slice(2);
+          const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
+          const count=k=>m[k]?.count;
+          const evidence={trial:Number(trial),iterations:count('iterations')??null,
+            entries:count('sails_probe_entries')??null,
+            extras:count('sails_probe_extra_entries')??null,
+            timestampSamples:count('sails_probe_timestamp_samples')??null,
+            dropped:count('dropped_iterations')??0,
+            entrySpanMs:(m.sails_probe_entry_epoch_ms?.max??NaN)-(m.sails_probe_entry_epoch_ms?.min??NaN)};
+          console.log('k6 isolated scheduler evidence:',JSON.stringify(evidence));
+          assert.equal(evidence.iterations,2);
+          assert.equal(evidence.entries,2);
+          assert.equal(evidence.extras,0);
+          assert.equal(evidence.timestampSamples,2);
+          assert.equal(evidence.dropped,0);
+          assert.ok(Number.isFinite(evidence.entrySpanMs));
+          NODE
+            else
+              # Print only bounded metric evidence, never unfiltered runner output.
+              node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const [file,trial]=process.argv.slice(2);
+          const m=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')).metrics||{}:{};
+          const count=k=>m[k]?.count??null;
+          console.error('k6 isolated scheduler FAIL:',JSON.stringify({
+            trial:Number(trial),iterations:count('iterations'),entries:count('sails_probe_entries'),
+            extras:count('sails_probe_extra_entries'),timestampSamples:count('sails_probe_timestamp_samples'),
+            dropped:count('dropped_iterations')}));
+          NODE
+              failures=$((failures + 1))
+            fi
+          done
+          echo "k6 isolated scheduler failures: $failures / 12; cross-engine parity NOT established"
+          echo 'Scheduler probe interpretation: a passing series does not disprove previously reproduced third arrivals; retain fail-closed count thresholds.'
+          if [ "$failures" -ne 0 ]; then exit 1; fi
+          echo 'k6 isolated scheduler 12/12 PASS; cross-engine parity NOT established'
+      - name: Evaluate shorter isolated scheduler window separately
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          failures=0
+          for trial in $(seq 1 12); do
+            summary="/tmp/sails-k6-short-probe-${trial}.json"
+            if SAILS_SCHEDULER_PROBE_DURATION=1900ms timeout 20s k6 run --quiet --summary-export="$summary" load-tests/tests/arrival-scheduler-probe.js > /tmp/sails-k6-short-probe.log 2>&1; then
+              node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const [file,trial]=process.argv.slice(2);
+          const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
+          const count=k=>m[k]?.count;
+          const evidence={trial:Number(trial),windowMs:1900,iterations:count('iterations')??null,
+            entries:count('sails_probe_entries')??null,extras:count('sails_probe_extra_entries')??null,
+            samples:count('sails_probe_timestamp_samples')??null,dropped:count('dropped_iterations')??0,
+            spanMs:(m.sails_probe_entry_epoch_ms?.max??NaN)-(m.sails_probe_entry_epoch_ms?.min??NaN)};
+          console.log('k6 shorter scheduler evidence:',JSON.stringify(evidence));
+          assert.equal(evidence.iterations,2);
+          assert.equal(evidence.entries,2);
+          assert.equal(evidence.extras,0);
+          assert.equal(evidence.samples,2);
+          assert.equal(evidence.dropped,0);
+          assert.ok(Number.isFinite(evidence.spanMs));
+          NODE
+            else
+              node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const [file,trial]=process.argv.slice(2);
+          const m=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')).metrics||{}:{};
+          const count=k=>m[k]?.count??null;
+          console.error('k6 shorter scheduler FAIL:',JSON.stringify({
+            trial:Number(trial),windowMs:1900,iterations:count('iterations'),
+            entries:count('sails_probe_entries'),extras:count('sails_probe_extra_entries'),
+            samples:count('sails_probe_timestamp_samples'),dropped:count('dropped_iterations')}));
+          NODE
+              failures=$((failures + 1))
+            fi
+          done
+          echo "k6 shorter scheduler failures: $failures / 12; 1900ms is NOT Artillery temporal parity"
+          if [ "$failures" -ne 0 ]; then exit 1; fi
+          echo 'k6 shorter scheduler 12/12 PASS; cross-engine parity NOT established'
+
+      - name: Evaluate 1500ms scheduler window as separate zero-I/O diagnostic
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          failures=0
+          for trial in $(seq 1 12); do
+            summary="/tmp/sails-k6-1500-probe-${trial}.json"
+            if SAILS_SCHEDULER_PROBE_DURATION=1500ms timeout 20s k6 run --quiet --summary-export="$summary" load-tests/tests/arrival-scheduler-probe.js > /tmp/sails-k6-1500-probe.log 2>&1; then
+              node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const [file,trial]=process.argv.slice(2);
+          const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
+          const count=k=>m[k]?.count;
+          const evidence={trial:Number(trial),windowMs:1500,iterations:count('iterations')??null,
+            entries:count('sails_probe_entries')??null,extras:count('sails_probe_extra_entries')??null,
+            samples:count('sails_probe_timestamp_samples')??null,dropped:count('dropped_iterations')??0,
+            spanMs:(m.sails_probe_entry_epoch_ms?.max??NaN)-(m.sails_probe_entry_epoch_ms?.min??NaN)};
+          console.log('k6 1500ms scheduler evidence:',JSON.stringify(evidence));
+          assert.equal(evidence.iterations,2);
+          assert.equal(evidence.entries,2);
+          assert.equal(evidence.extras,0);
+          assert.equal(evidence.samples,2);
+          assert.equal(evidence.dropped,0);
+          assert.ok(Number.isFinite(evidence.spanMs));
+          NODE
+            else
+              node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const [file,trial]=process.argv.slice(2);
+          const m=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')).metrics||{}:{};
+          const count=k=>m[k]?.count??null;
+          console.error('k6 1500ms scheduler FAIL:',JSON.stringify({
+            trial:Number(trial),windowMs:1500,iterations:count('iterations'),
+            entries:count('sails_probe_entries'),extras:count('sails_probe_extra_entries'),
+            samples:count('sails_probe_timestamp_samples'),dropped:count('dropped_iterations')}));
+          NODE
+              failures=$((failures + 1))
+            fi
+          done
+          echo "k6 1500ms scheduler failures: $failures / 12; NOT temporal parity"
+          if [ "$failures" -ne 0 ]; then exit 1; fi
+          echo 'k6 1500ms scheduler 12/12 PASS; cross-engine parity NOT established'
+      - name: Observe exact two-second k6 scheduler boundary without network
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          for trial in $(seq 1 6); do
+            summary="/tmp/sails-k6-2s-control-${trial}.json"
+            SAILS_SCHEDULER_PROBE_DURATION=2s timeout 20s k6 run --quiet --summary-export="$summary" load-tests/tests/arrival-scheduler-probe.js > /tmp/sails-k6-2s-control.log 2>&1 || true
+            node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const [file,trial]=process.argv.slice(2);
+          if (!fs.existsSync(file)) {
+            console.error('k6 exact-boundary control missing summary:',trial);
+            process.exitCode=1;
+          } else {
+            const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
+            const count=k=>m[k]?.count??null;
+            const evidence={trial:Number(trial),window:'2s',iterations:count('iterations'),
+              entries:count('sails_probe_entries'),extras:count('sails_probe_extra_entries'),
+              samples:count('sails_probe_timestamp_samples'),dropped:count('dropped_iterations')};
+            console.log('k6 exact-boundary control evidence:',JSON.stringify(evidence));
+            if (evidence.iterations===null || evidence.entries===null || evidence.extras===null) process.exitCode=1;
+          }
+          NODE
+          done
+          echo 'Exact two-second boundary control is diagnostic only; it does not relax the original fail-closed gate'
+      - name: Validate fixed-count closed-model diagnostic without network
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check load-tests/tests/fixed-two-arrivals-probe.js
+          failures=0
+          for trial in $(seq 1 12); do
+            summary="/tmp/sails-k6-fixed-two-${trial}.json"
+            if timeout 20s k6 run --quiet --summary-export="$summary" load-tests/tests/fixed-two-arrivals-probe.js > /tmp/sails-k6-fixed-two.log 2>&1; then
+              node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const [file,trial]=process.argv.slice(2);
+          const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
+          const count=k=>m[k]?.count;
+          const evidence={trial:Number(trial),iterations:count('iterations')??null,
+            entries:count('sails_fixed_entries')??null,extras:count('sails_fixed_extras')??null,
+            dropped:count('dropped_iterations')??0,
+            spanMs:(m.sails_fixed_entry_epoch_ms?.max??NaN)-(m.sails_fixed_entry_epoch_ms?.min??NaN)};
+          console.log('k6 fixed-count diagnostic evidence:',JSON.stringify(evidence));
+          assert.equal(evidence.iterations,2);
+          assert.equal(evidence.entries,2);
+          assert.equal(evidence.extras,0);
+          assert.equal(evidence.dropped,0);
+          assert.ok(Number.isFinite(evidence.spanMs));
+          NODE
+            else
+              node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const [file,trial]=process.argv.slice(2);
+          const m=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')).metrics||{}:{};
+          const count=k=>m[k]?.count??null;
+          console.error('k6 fixed-count diagnostic FAIL:',JSON.stringify({
+            trial:Number(trial),iterations:count('iterations'),
+            entries:count('sails_fixed_entries'),extras:count('sails_fixed_extras'),
+            dropped:count('dropped_iterations')}));
+          NODE
+              failures=$((failures + 1))
+            fi
+          done
+          echo "k6 fixed-count diagnostic failures: $failures / 12; closed-model NOT Artillery arrival parity"
+          if [ "$failures" -ne 0 ]; then exit 1; fi
+      - name: Demonstrate closed-model spacing sensitivity to synthetic work
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          for trial in $(seq 1 6); do
+            summary="/tmp/sails-k6-fixed-work-${trial}.json"
+            SAILS_FIXED_PROBE_WORK_MS=250 timeout 20s k6 run --quiet --summary-export="$summary" load-tests/tests/fixed-two-arrivals-probe.js > /tmp/sails-k6-fixed-work.log 2>&1
+            node - "$summary" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const [file,trial]=process.argv.slice(2);
+          const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
+          const count=k=>m[k]?.count??0;
+          const span=(m.sails_fixed_entry_epoch_ms?.max??NaN)-(m.sails_fixed_entry_epoch_ms?.min??NaN);
+          console.log('k6 closed-model synthetic-work evidence:',JSON.stringify({
+            trial:Number(trial),workMs:250,iterations:count('iterations'),
+            extras:count('sails_fixed_extras'),spanMs:span}));
+          assert.equal(count('iterations'),2);
+          assert.equal(count('sails_fixed_extras'),0);
+          assert.ok(span>=1200 && span<=1750,'synthetic work must shift the second closed-model entry');
+          NODE
+          done
+          echo 'Closed-model spacing includes synthetic work; this is NOT open-model parity'
+      - name: Validate independently offset one-shot scheduler under synthetic work
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check load-tests/tests/open-two-arrivals-probe.js
+          for work in 0 250; do
+            for trial in $(seq 1 8); do
+              summary="/tmp/sails-open-two-${work}-${trial}.json"
+              SAILS_OPEN_TWO_WORK_MS="$work" timeout 20s k6 run --quiet --summary-export="$summary" load-tests/tests/open-two-arrivals-probe.js > /tmp/sails-open-two.log 2>&1
+              node - "$summary" "$work" "$trial" <<'NODE'
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const [file,work,trial]=process.argv.slice(2);
+          const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
+          const count=k=>m[k]?.count??0;
+          const span=(m.sails_open_two_entry_epoch_ms?.max??NaN)-(m.sails_open_two_entry_epoch_ms?.min??NaN);
+          console.log('k6 independent-start diagnostic evidence:',JSON.stringify({
+            workMs:Number(work),trial:Number(trial),iterations:count('iterations'),
+            entries:count('sails_open_two_entries'),extras:count('sails_open_two_extras'),
+            dropped:count('dropped_iterations'),spanMs:span}));
+          assert.equal(count('iterations'),2);
+          assert.equal(count('sails_open_two_entries'),2);
+          assert.equal(count('sails_open_two_extras'),0);
+          assert.equal(count('dropped_iterations'),0);
+          assert.ok(Number.isFinite(span) && span>=700 && span<=1300,
+            'independent one-shot starts must remain near 1s even with work');
+          NODE
+            done
+          done
+          echo 'Independent-start probe is experimental; Artillery parity NOT established'
+      - name: Prove k6 PONG assertion fails against non-PONG loopback fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          node load-tests/native/non-pong-fixture.cjs > /tmp/sails-non-pong-fixture.log 2>&1 &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 30); do
+            if ! kill -0 "$fixture_pid" 2>/dev/null; then echo 'Non-PONG fixture exited'; exit 1; fi
+            if (echo > /dev/tcp/127.0.0.1/39871) >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then echo 'Non-PONG fixture readiness timeout'; exit 1; fi
+          if timeout 30s k6 run --quiet load-tests/tests/chat-ws-no-pong-negative.js > /tmp/sails-k6-negative.log 2>&1; then
+            echo 'FAIL: k6 accepted missing application PONG'; exit 1
+          fi
+          if ! grep -q 'Authenticated WS PONG protocol check failed' /tmp/sails-k6-negative.log; then
+            echo 'FAIL: negative test did not fail for missing PONG'
+            # This fixture uses no credentials. Emit only bounded diagnostic categories,
+            # never raw k6 logs or ticket-bearing URLs.
+            if grep -Eqi 'module|import|resolve|syntax' /tmp/sails-k6-negative.log; then
+              if grep -Eqi 'unknown module|could not resolve|module specifier|module not found' /tmp/sails-k6-negative.log; then
+                echo 'DIAGNOSTIC: module resolution error detected'
+              elif grep -Eqi 'syntaxerror|unexpected token' /tmp/sails-k6-negative.log; then
+                echo 'DIAGNOSTIC: JavaScript syntax error detected'
+              fi
+              echo 'DIAGNOSTIC: k6 module/import/syntax failure suspected'
+            elif grep -Eqi 'connect|refused|timeout|handshake' /tmp/sails-k6-negative.log; then
+              echo 'DIAGNOSTIC: k6 transport/handshake failure suspected'
+            elif grep -Eqi 'threshold' /tmp/sails-k6-negative.log; then
+              echo 'DIAGNOSTIC: k6 threshold failure without required assertion marker'
+            else
+              echo 'DIAGNOSTIC: unclassified failure; raw logs withheld'
+            fi
+            exit 1
+          fi
+          echo 'k6 negative proof PASS: missing PONG fails closed'
+      - name: Isolate k6 TweetNaCl from unsupported Node crypto import
+        shell: bash
+        run: |
+          set -euo pipefail
+          # k6's automatic dependency analyzer traverses require('crypto')
+          # even when TweetNaCl's browser WebCrypto branch is selected.
+          # Patch ONLY the disposable runner's installed dependency.
+          # The source package, lockfile and application remain untouched.
+          node <<'NODE'
+          const fs=require('node:fs');
+          const path='node_modules/tweetnacl/nacl-fast.js';
+          const source=fs.readFileSync(path,'utf8');
+          const needle="require('crypto')";
+          const occurrences=source.split(needle).length-1;
+          if(occurrences!==1) throw new Error('Unexpected TweetNaCl crypto import count: '+occurrences);
+          const patched=source.replace(needle,'undefined /* k6: browser CSPRNG supplied by globalThis.crypto */');
+          if(patched.includes(needle)) throw new Error('Unsupported Node crypto import remains');
+          fs.writeFileSync(path,patched);
+          console.log('k6-only TweetNaCl Node crypto import neutralized; WebCrypto signing remains required');
+          NODE
+      - name: Isolate k6 Ed25519 CSPRNG compatibility before authenticated smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          # No credentials or network requests. Distinguish loader failures from
+          # secure RNG and Ed25519 signing before starting the real backend.
+          cat > load-tests/tests/crypto-preflight.js <<'EOF'
+          import { check } from 'k6'
+          globalThis.self = globalThis
+          const nacl = require('../../node_modules/tweetnacl/nacl-fast.js')
+          if (!globalThis.crypto || typeof globalThis.crypto.getRandomValues !== 'function') {
+            throw new Error('K6_CRYPTO_PREFLIGHT_WEBCRYPTO_UNAVAILABLE')
+          }
+          nacl.setPRNG((buffer, length) => {
+            for (let i = 0; i < length; i += 65536) {
+              globalThis.crypto.getRandomValues(buffer.subarray(i, Math.min(i + 65536, length)))
+            }
+          })
+          export const options = { vus: 1, iterations: 1, thresholds: { checks: ['rate==1'] } }
+          export default function () {
+            const pair = nacl.sign.keyPair()
+            const message = new Uint8Array([83, 97, 105, 108, 115])
+            const signature = nacl.sign.detached(message, pair.secretKey)
+            check(signature, { 'ed25519 sign and verify': sig => nacl.sign.detached.verify(message, sig, pair.publicKey) })
+          }
+          EOF
+          # Check the actual dependency path before k6 runs; no secret material.
+          node <<'NODE'
+          const fs=require('node:fs');
+          for(const path of ['node_modules/tweetnacl/nacl-fast.js','load-tests/tests/crypto-preflight.js']){
+            console.log('k6 preflight file presence:',JSON.stringify({file:path,exists:fs.existsSync(path)}));
+          }
+          NODE
+                    if ! timeout 30s k6 run --quiet load-tests/tests/crypto-preflight.js > /tmp/sails-k6-crypto-preflight.log 2>&1; then
+            node <<'NODE'
+          const fs=require('node:fs');
+          const log=fs.readFileSync('/tmp/sails-k6-crypto-preflight.log','utf8');
+          // Isolated offline fixture: no credentials, tokens, URLs or user data.
+          // Show a bounded, redacted loader error so the root cause is actionable.
+          const sanitized=log.split(/\r?\n/).filter(line=>/level=error|ERRO\[|error=|no such file|could not|failed to/i.test(line))
+            .slice(0,5).map(line=>line.slice(0,600)
+              .replace(/https?:\/\/\S+/g,'[URL]')
+              .replace(/(?:token|authorization|secret|password)=\S+/gi,'[REDACTED]'));
+          console.log('k6 offline crypto loader errors:',JSON.stringify(sanitized));
+          // This fixture has no credentials or network calls. Emit only the
+          // allowlisted, literal module-resolution error, never a raw log line.
+          const allowed=[
+            'The moduleSpecifier "../../node_modules/tweetnacl/nacl-fast.js" couldn\'t be found on local disk.',
+            'GoError: The moduleSpecifier "../../node_modules/tweetnacl/nacl-fast.js" couldn\'t be found on local disk.',
+          ];
+          console.log('k6 preflight known module error:',allowed.some(msg=>log.includes(msg)));
+          console.log('k6 preflight error fingerprints:',JSON.stringify({
+            fileNotFound: log.toLowerCase().includes('no such file'),
+            moduleSpecifier: log.includes('moduleSpecifier'),
+            cannotOpen: log.toLowerCase().includes('open') && log.toLowerCase().includes('failed'),
+            relativePath: log.includes('../../node_modules/tweetnacl/nacl-fast.js'),
+          }));
+          // String matching only: diagnostics must never fail due to a malformed regex.
+          const lower=log.toLowerCase();
+          const has=(...terms)=>terms.some(term=>lower.includes(term.toLowerCase()));
+          const reasons={
+            webcryptoUnavailable: has('K6_CRYPTO_PREFLIGHT_WEBCRYPTO_UNAVAILABLE'),
+            moduleResolution: has('unknown module','could not resolve','module not found'),
+            tweetnaclInitialization: has('tweetnacl','nacl-fast'),
+            errorLevel: has('level=error','erro['),
+            gojaRuntime: has('goerror','goja','runtime'),
+            requireFailure: has('require','module','import'),
+            cryptoReference: has('crypto','self','globalthis'),
+            permissionOrFilesystem: has('permission denied','no such file'),
+            parseFailure: has('unexpected token','parsing','syntax'),
+            prngUnavailable: has('no prng','random source','random bytes','getrandomvalues'),
+            runtimeException: has('goerror','typeerror','referenceerror','syntaxerror'),
+            signatureCheck: has('thresholds on metrics','thresholds have been crossed'),
+          };
+          console.log('k6 isolated Ed25519 preflight failure:',JSON.stringify(reasons));
+          NODE
+            echo 'k6 isolated Ed25519 preflight failed; raw logs withheld'; exit 1
+          fi
+          echo 'k6 isolated Ed25519 preflight PASS'
+      - name: Execute bounded k6 Intent and WS PONG on real disposable backend
+        env:
+          NODE_ENV: development
+          DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/sails_protocol
+          REDIS_URL: redis://127.0.0.1:6379
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Previous comparator used eight auth-tier calls. Never weaken limits.
+          sleep 65
+          node dist/src/main.js > /tmp/sails-k6-smoke-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then echo 'k6 API exited during startup'; exit 1; fi
+            if (echo > /dev/tcp/127.0.0.1/3000) >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then echo 'k6 API readiness timeout'; exit 1; fi
+          export SAILS_BACKEND_PID="$server_pid"
+          node <<'RESOURCE_NODE' || {
+          const {runMeasured}=require('./load-tests/native/measured-generator.cjs');
+          const {observe}=require('./load-tests/native/process-resource-sampler.cjs');
+          observe(Number(process.env.SAILS_BACKEND_PID),()=>runMeasured('k6',[
+            'run','--quiet','--summary-export=/tmp/sails-k6-intent-summary.json',
+            '-e','BASE_URL=http://127.0.0.1:3000','load-tests/tests/intent-bounded.js'
+          ],{timeoutMs:90000,intervalMs:25,outputFile:'/tmp/sails-k6-intent.log'}),{intervalMs:25}).then(({value:usage,usage:backend})=>{
+            console.log('k6 Intent backend bounded resource sample:',JSON.stringify(backend));
+            console.log('k6 Intent generator resource sample:',JSON.stringify(usage));
+          }).catch(()=>{
+            console.error('k6 Intent generator or resource accounting failed (output withheld)');
+            process.exitCode=1;
+          });
+          RESOURCE_NODE
+            # Print fixed-category diagnostics only; never expose auth material.
+            node <<'NODE'
+          const fs=require('node:fs');
+          const log=fs.readFileSync('/tmp/sails-k6-intent.log','utf8');
+          const categories={
+            moduleLoad: /(?:could not resolve|unknown module|module not found|syntaxerror)/i.test(log),
+            authFailure: /(?:authentication failed|registration failed|\b401\b|\b403\b)/i.test(log),
+            rateLimit: /(?:\b429\b|too many requests|rate.limit)/i.test(log),
+            intentFailure: /(?:intent.*(?:failed|rejected)|(?:failed|rejected).*intent)/i.test(log),
+            deadline: /(?:timeout|timed out|deadline exceeded)/i.test(log),
+            assertionThreshold: /(?:thresholds on metrics|thresholds have been crossed)/i.test(log),
+            javascriptRuntime: /(?:TypeError|ReferenceError|GoError|cannot read properties|not a function)/i.test(log),
+            runtimePanic: /(?:panic:|fatal error:|out of memory)/i.test(log),
+            httpFailure: /(?:HTTP [45][0-9][0-9]|status[=: ]+[45][0-9][0-9])/i.test(log),
+            setupFailure: /(?:setup\(\)|setup function|setup failed|error in setup)/i.test(log),
+            uncaughtException: /(?:uncaught|exception|ERRO\[)/i.test(log),
+            thresholdFailure: /(?:threshold|checks.*rate|sails_intent_success)/i.test(log),
+            runtimeErrorLine: /(?:level=error|level=warning|\berror\b|\bfailed\b)/i.test(log),
+            requestCheckFailed: /(?:✗|failed checks|checks.*[0-9]+\.[0-9]+%)/i.test(log),
+            signalOrExit: /(?:signal:|exit status|context canceled|interrupt)/i.test(log),
+            transportFailure: /(?:connection refused|connection reset|dial tcp|network error|no such host)/i.test(log),
+          };
+          const safeLines=log.split('\\n').filter(line=>/level=error|level=warning|\\berror\\b|\\bfailed\\b/i.test(line));
+          const signatures={
+            gojaModule: safeLines.some(line=>/GoError|module|import|require|crypto|tweetnacl/i.test(line)),
+            runtimeSetup: safeLines.some(line=>/setup|initialize|init context/i.test(line)),
+            httpTransport: safeLines.some(line=>/request|dial|connection|socket|http/i.test(line)),
+            serverSide: safeLines.some(line=>/internal server|database|postgres|redis/i.test(line)),
+            k6Runner: safeLines.some(line=>/executor|scenario|invalid|unsupported|unexpected/i.test(line)),
+          };
+          console.log('k6 bounded Intent sanitized failure classification:',JSON.stringify(categories));
+          const moduleFailureTypes={
+            requireCrypto: /(?:require|module|import)[^\\n]{0,90}(?:crypto|node:crypto)/i.test(log),
+            tweetnacl: /tweetnacl|nacl-fast/i.test(log),
+            randomSource: /(?:no PRNG|secure random|random bytes|random source|getRandomValues)/i.test(log),
+            unsupportedRequire: /(?:unknown module|cannot find module|module not found|could not resolve|unsupported module)/i.test(log),
+            scriptException: /(?:GoError|TypeError|ReferenceError|SyntaxError)/i.test(log),
+            networkBeforeAuth: /(?:dial tcp|connection refused|connection reset)/i.test(log),
+          };
+          console.log('k6 bounded Intent sanitized error signatures:',JSON.stringify(signatures));
+          const naclFailurePhase={
+            bundler: log.includes('tweetnacl') && /could not resolve|cannot find|module not found|unknown module/i.test(log),
+            import: log.includes('tweetnacl') && /import|require|initializ/i.test(log),
+            cryptoInit: log.includes('tweetnacl') && /crypto|random|prng/i.test(log),
+            gojaRuntime: log.includes('tweetnacl') && /GoError|TypeError|ReferenceError/i.test(log),
+            errorContext: log.includes('tweetnacl') && /level=error|ERRO/i.test(log),
+          };
+          console.log('k6 bounded Intent module failure types:',JSON.stringify(moduleFailureTypes));
+          console.log('k6 bounded Intent nacl failure phase:',JSON.stringify(naclFailurePhase));
+          NODE
+            echo 'k6 real-service Intent smoke failed; logs withheld to protect credentials'; exit 1;
+          }
+          # Intent setup consumes four auth-tier calls. WS setup consumes
+          # another four; wait for the shared window before the second k6 run.
+          sleep 65
+          timeout 90s k6 run --quiet --summary-export=/tmp/sails-k6-ws-summary.json -e BASE_URL=http://127.0.0.1:3000 load-tests/tests/chat-ws-bounded.js > /tmp/sails-k6-ws.log 2>&1 || {
+            # Keep logs private: k6 may print the one-time ticket in a WS URL.
+            # Report only a fixed allowlist of classifications. Never echo raw k6 output,
+          # WebSocket URLs, bearer sessions, or one-time tickets.
+          node <<'NODE'
+          const fs=require('node:fs');
+          const log=fs.readFileSync('/tmp/sails-k6-ws.log','utf8');
+          const categories={
+            rateLimit: /(?:\b429\b|too many requests|rate.limit)/i.test(log),
+            authFailure: /(?:authentication failed|\b401\b|\b403\b)/i.test(log),
+            ticketFailure: /(?:WS ticket request rejected|Missing WS ticket)/.test(log),
+            pongFailure: /Authenticated WS PONG protocol check failed/.test(log),
+            deadline: /(?:timeout|timed out|deadline exceeded)/i.test(log),
+            assertionThreshold: /(?:thresholds on metrics|thresholds have been crossed)/i.test(log),
+          };
+          console.log('k6 bounded WS sanitized failure classification:',JSON.stringify(categories));
+          NODE
+          echo 'k6 real-service WS PONG smoke failed; raw logs withheld to protect ticket URLs'; exit 1;
+          }
+          # Parse structured k6 summary exports, not terminal formatting.
+          # Only print aggregate metric names and presence of required fields.
+          # No raw summary/log artifacts or bearer credentials are uploaded.
+          node <<'NODE'
+          const fs=require('node:fs');
+          const required=['checks','iterations','http_req_duration','http_reqs'];
+          for(const [name,path] of [['intent','/tmp/sails-k6-intent-summary.json'],['ws','/tmp/sails-k6-ws-summary.json']]){
+            const report=JSON.parse(fs.readFileSync(path,'utf8'));
+            const metrics=report.metrics||{};
+            const missing=required.filter(key=>!metrics[key]);
+            const duration=metrics.http_req_duration||{};
+            const durationShape=Object.keys(metrics.http_req_duration||{});
+            const summaryRootKeys=Object.keys(report);
+            const quantiles=['med','p(95)','p(99)'].filter(key=>typeof duration[key]==='number');
+            const configuredQuantiles=report.options?.summaryTrendStats||[];
+            console.log('k6 structured metric inventory:',JSON.stringify({
+              scenario:name,
+              requiredPresent:required.filter(key=>!!metrics[key]),
+              missing,
+              durationQuantilesPresent:quantiles,
+              configuredQuantiles:configuredQuantiles.filter(key=>['med','p(95)','p(99)'].includes(key)),
+              durationValueKeys:Object.keys(duration),
+              durationShape,
+              summaryRootKeys,
+              totalMetricCount:Object.keys(metrics).length
+            }));
+            if(missing.length)throw new Error('Missing required k6 aggregate metrics for '+name);
+            if(name==='intent'&&quantiles.length!==3)throw new Error('Missing configured Intent latency quantiles (see safe key inventory)');
+          }
+          NODE
+          echo 'k6 real-service bounded Intent and WS PONG PASS (one iteration each)'
+      - name: Execute opt-in bounded authenticated arrival probe
+        env:
+          NODE_ENV: development
+          DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/sails_protocol
+          REDIS_URL: redis://127.0.0.1:6379
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Isolate rate-limit windows from prior Intent/WS authentication.
+          sleep 65
+          node dist/src/main.js > /tmp/sails-k6-probe-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then echo 'Arrival probe backend exited'; exit 1; fi
+            if (echo > /dev/tcp/127.0.0.1/3000) >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then echo 'Arrival probe backend readiness timeout'; exit 1; fi
+          # Sample both the backend and the k6 generator under the same
+          # bounded process-counter mechanism used by the Artillery comparator.
+          page_bytes="$(getconf PAGESIZE)"
+          if [ "$page_bytes" != "4096" ]; then
+            echo 'Unsupported Linux process page size for RSS sampling'
+            exit 1
+          fi
+          export SAILS_PROC_PAGE_KIB=4 SAILS_BACKEND_PID="$server_pid"
+          node <<'RESOURCE_NODE'
+          const {runMeasured}=require('./load-tests/native/measured-generator.cjs');
+          const {observe}=require('./load-tests/native/process-resource-sampler.cjs');
+          (async()=>{
+            const {value:generator,usage:backend}=await observe(Number(process.env.SAILS_BACKEND_PID),
+              ()=>runMeasured('k6',['run','--quiet','--summary-export=/tmp/sails-k6-arrival-summary.json',
+                '-e','BASE_URL=http://127.0.0.1:3000','load-tests/tests/intent-arrival-probe.js'],
+                {timeoutMs:45000,intervalMs:25,outputFile:'/tmp/sails-k6-arrival.log'}),
+              {intervalMs:25});
+            console.log('k6 generator resource sample:',JSON.stringify(generator));
+            console.log('k6 backend resource sample:',JSON.stringify(backend));
+          })().catch(error=>{
+            // No raw process output, URLs, PIDs, credentials or command lines.
+            console.error('Bounded k6 resource measurement failed:',error?.message==='Generator resource sample count insufficient: no periodic sample before exit'
+              ?'generator-no-periodic-sample':error?.message==='Generator resource sample count insufficient'
+              ?'generator-rss-coverage-insufficient':'resource-measurement-invalid');
+            process.exitCode=1;
+          });
+          RESOURCE_NODE
+          node <<'NODE'
+          const fs=require('node:fs');
+          const m=JSON.parse(fs.readFileSync('/tmp/sails-k6-arrival-summary.json','utf8')).metrics||{};
+          const required=['iterations','checks','sails_intent_success','http_req_duration','http_reqs','dropped_iterations','sails_intent_create_duration','sails_intent_cancel_duration','sails_completed_intent_pairs','sails_authenticated_arrivals','sails_intent_create_samples','sails_intent_cancel_samples'];
+          const missing=required.filter(k=>!m[k]);
+          // k6 summary-export must retain a genuine count for each operation;
+          // quantiles alone cannot prove that create/cancel were observed.
+          const operationSamples=['sails_intent_create_duration','sails_intent_cancel_duration'];
+          const operationCounts=Object.fromEntries(operationSamples.map(k=>[k,m[k]?.count??null]));
+          const n=k=>typeof m[k]?.count==='number'?m[k].count:undefined;
+          const checks=m.checks?.value;
+          const success=m.sails_intent_success?.value;
+          const quantiles=['med','p(95)','p(99)'].filter(k=>typeof m.http_req_duration?.[k]==='number'&&Number.isFinite(m.http_req_duration[k]));
+          const durations=Object.fromEntries(quantiles.map(k=>[k,m.http_req_duration[k]]));
+          const requestCount=n('http_reqs');
+          const arrivals=n('iterations');
+          const completedIntentPairs=n('sails_completed_intent_pairs');
+          const authenticatedArrivals=n('sails_authenticated_arrivals');
+          const createSamples=n('sails_intent_create_samples');
+          const cancelSamples=n('sails_intent_cancel_samples');
+          // Each arrival performs four PoP auth HTTP calls and two Intent calls.
+          // Reject missing/extra requests rather than silently treating auth as unmeasured.
+          const expectedRequestsPerArrival=6;
+          // Deterministic two-iteration accounting probe; no arrival-rate claim.
+          const nominalScheduledArrivals=2;
+          const requestedRatePerSecond=null;
+          const scheduledWindowSeconds=null;
+          const achievedRatePerSecond=null;
+          const intentDurationKeys=['sails_intent_create_duration','sails_intent_cancel_duration'];
+          const intentDurations=Object.fromEntries(intentDurationKeys.filter(k=>m[k]).map(k=>[k,Object.fromEntries(['med','p(95)','p(99)'].filter(q=>typeof m[k][q]==='number'&&Number.isFinite(m[k][q])).map(q=>[q,m[k][q]]))]));
+          console.log('arrival probe sanitized inventory:',JSON.stringify({
+            requiredPresent:required.filter(k=>!!m[k]),missing,
+            iterations:arrivals,authenticatedArrivals,completedIntentPairs,createSamples,cancelSamples,dropped:n('dropped_iterations'),httpRequests:requestCount,
+            expectedRequestsPerArrival,requestAccountingValid:requestCount===arrivals*expectedRequestsPerArrival,nominalArrivalAccountingValid:arrivals===nominalScheduledArrivals,
+            requestedRatePerSecond,scheduledWindowSeconds,nominalScheduledArrivals,achievedRatePerSecond,
+            durationMs:durations,intentDurationMs:intentDurations,intentOperationSampleCounts:operationCounts,
+            checksValid:checks===1,intentSuccessValid:success===1,
+            durationQuantilesPresent:quantiles
+          }));
+          const validQuantileTriplet=values=>['med','p(95)','p(99)'].every(k=>Number.isFinite(values?.[k])&&values[k]>=0)&&values.med<=values['p(95)']&&values['p(95)']<=values['p(99)'];
+          // Reject corrupt or reversed operation-scoped latency evidence rather
+          // than accepting three merely-present numeric quantiles.
+          if(missing.length||arrivals!==nominalScheduledArrivals||authenticatedArrivals!==arrivals||completedIntentPairs!==arrivals||createSamples!==arrivals||cancelSamples!==arrivals||requestCount!==arrivals*expectedRequestsPerArrival||n('dropped_iterations')!==0||checks!==1||success!==1||!validQuantileTriplet(durations)||intentDurationKeys.some(k=>!validQuantileTriplet(intentDurations[k])||(operationCounts[k]!==null&&operationCounts[k]!==arrivals))){
+            throw Error('Bounded arrival probe missing or invalid aggregate evidence');
+          }
+          NODE
+      - name: Execute isolated k6 constant-arrival-rate candidate (not parity approval)
+        env:
+          NODE_ENV: development
+          DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/sails_protocol
+          REDIS_URL: redis://127.0.0.1:6379
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The previous authenticated probe consumes the shared auth budget.
+          # Wait a full fresh rate-limit window; never weaken the limiter.
+          sleep 65
+          node dist/src/main.js > /tmp/sails-k6-rate-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then echo 'Rate candidate backend exited'; exit 1; fi
+            if (echo > /dev/tcp/127.0.0.1/3000) >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then echo 'Rate candidate backend readiness timeout'; exit 1; fi
+          test "$(getconf PAGESIZE)" = "4096" || { echo 'Unsupported process page size'; exit 1; }
+          export SAILS_PROC_PAGE_KIB=4 SAILS_BACKEND_PID="$server_pid"
+          node <<'RESOURCE_NODE'
+          const {runMeasured}=require('./load-tests/native/measured-generator.cjs');
+          const {observe}=require('./load-tests/native/process-resource-sampler.cjs');
+          (async()=>{
+            const {value:generator,usage:backend}=await observe(Number(process.env.SAILS_BACKEND_PID),
+              ()=>runMeasured('k6',['run','--quiet','--summary-export=/tmp/sails-k6-rate-summary.json',
+                '-e','BASE_URL=http://127.0.0.1:3000','load-tests/tests/intent-rate-parity-candidate.js'],
+                {timeoutMs:45000,intervalMs:25,outputFile:'/tmp/sails-k6-rate.log'}),{intervalMs:25});
+            console.log('k6 rate candidate generator resource sample:',JSON.stringify(generator));
+            console.log('k6 rate candidate backend resource sample:',JSON.stringify(backend));
+          })().catch(error=>{
+            // Classify known internal errors without revealing command lines,
+            // request logs, credentials, or raw error messages.
+            const categories={
+              'Generator exited nonzero (output redacted)':'k6-exited-nonzero',
+              'Generator timed out':'k6-timeout',
+              'Generator terminated by signal':'k6-signal',
+              'Generator spawn failed':'k6-spawn',
+              'Generator resource sample count insufficient: no periodic sample before exit':'generator-no-periodic-sample',
+              'Generator resource sample count insufficient':'generator-rss-coverage-insufficient',
+              'Generator resource counters invalid':'generator-counters-invalid',
+            };
+            const message=error?.message;
+            const category=categories[message]||(typeof message==='string'&&message.startsWith('Generator resource sampling read error:')?'generator-sampling-read-error':'execution-or-resource-invalid');
+            console.error('k6 rate candidate failed (details redacted):',category);
+            if(category==='k6-exited-nonzero'){
+              const fs=require('node:fs');
+              const log=fs.readFileSync('/tmp/sails-k6-rate.log','utf8');
+              // Only report fixed allowlisted error categories, never raw log lines.
+              const fingerprints={
+                authFailure:/Rate candidate authentication failed/.test(log),
+                checkThreshold:/thresholds? on metrics? 'checks' have been crossed/i.test(log),
+                intentThreshold:/thresholds? on metrics? 'sails_intent_success' have been crossed/i.test(log),
+                droppedIterations:/thresholds? on metrics? 'dropped_iterations' have been crossed/i.test(log),
+                httpFailures:/thresholds? on metrics? 'http_req_failed' have been crossed/i.test(log),
+                moduleResolution:/could not resolve|unknown module|module not found/i.test(log),
+            javascriptInit:/could not initialize|initializing|init context|error while evaluating/i.test(log),
+            invalidOptions:/invalid option|invalid configuration|unknown executor/i.test(log),
+            connection:/connection refused|connect:|dial tcp/i.test(log),
+            authLimiter:/429|rate.limit/i.test(log),
+            k6Panic:/panic:|fatal error:/i.test(log),
+                runtimeError:log.includes('level=error')||log.includes('ERRO[')||log.includes('GoError')||log.includes('TypeError')||log.includes('ReferenceError'),
+              };
+              console.log('k6 rate candidate failure fingerprints:',JSON.stringify(fingerprints));
+              const summaryPath='/tmp/sails-k6-rate-summary.json';
+              if(fs.existsSync(summaryPath)){
+                const m=JSON.parse(fs.readFileSync(summaryPath,'utf8')).metrics||{};
+                const count=k=>m[k]?.count??null;
+                console.log('k6 rate candidate failure counters:',JSON.stringify({
+                  iterations:count('iterations'),authenticated:count('sails_authenticated_arrivals'),
+                  completed:count('sails_completed_intent_pairs'),create:count('sails_intent_create_samples'),
+                  cancel:count('sails_intent_cancel_samples'),requests:count('http_reqs'),
+                  dropped:count('dropped_iterations'),extraScheduledArrivals:count('sails_extra_scheduled_arrivals')??0,
+                  timestampSamples:count('sails_observed_setup_timestamp_samples'),
+                  timestampCoverageMatchesIterations:count('sails_observed_setup_timestamp_samples')===count('iterations'),
+                  observedEntrySpanMs:Number.isFinite(m.sails_observed_setup_start_epoch_ms?.min)&&Number.isFinite(m.sails_observed_setup_start_epoch_ms?.max)?m.sails_observed_setup_start_epoch_ms.max-m.sails_observed_setup_start_epoch_ms.min:null,
+                  nominalArrivals:2,arrivalCountMatchesNominal:count('iterations')===2,
+                  requestCountMatchesObservedArrivals:count('http_reqs')===6*count('iterations'),checksPass:m.checks?.value===1,
+                  intentPass:m.sails_intent_success?.value===1,httpFailureRate:m.http_req_failed?.value??null
+                }));
+              }
+            }
+            process.exitCode=1;
+          });
+          RESOURCE_NODE
+          node <<'NODE'
+          const fs=require('node:fs');
+          const m=JSON.parse(fs.readFileSync('/tmp/sails-k6-rate-summary.json','utf8')).metrics||{};
+          const count=k=>m[k]?.count;
+          const keys=['iterations','sails_authenticated_arrivals','sails_completed_intent_pairs','sails_intent_create_samples','sails_intent_cancel_samples'];
+          const observed=Object.fromEntries(keys.map(k=>[k,count(k)??null]));
+          const assert=require('node:assert/strict');
+          const observedTiming=m['sails_observed_setup_start_epoch_ms'];
+          const observedMin=observedTiming?.min;
+          const observedMax=observedTiming?.max;
+          assert.ok(Number.isFinite(observedMin)&&Number.isFinite(observedMax)&&observedMax>=observedMin,
+            'k6 observed setup timestamp trend missing or invalid');
+          const observedIterations=count('iterations');
+          // This trend must cover every invocation, including rejected boundary extras.
+          // A matching range with missing samples would be misleading evidence.
+          assert.ok(Number.isSafeInteger(count('sails_observed_setup_timestamp_samples'))&&count('sails_observed_setup_timestamp_samples')===observedIterations,
+            'k6 observed timestamp sample count must equal actual iterations');
+          console.log('k6 observed iteration entry timestamp evidence:',JSON.stringify({
+            minEpochMs:observedMin,maxEpochMs:observedMax,
+            observedSpanMs:observedMax-observedMin,
+            timestampSamples:count('sails_observed_setup_timestamp_samples'),
+            observedIterations,
+            timestampCoverageVerified:true,
+            schedulerArrivalParityEstablished:false,
+            measurement:'iteration entry, not executor scheduled arrival'
+          }));
+          const scopedRequestCounts={
+            intent_create:count('http_reqs{name:intent_create}')??null,
+            intent_cancel:count('http_reqs{name:intent_cancel}')??null
+          };
+          const scopedRequestEvidenceAvailable=Object.values(scopedRequestCounts).every(n=>Number.isSafeInteger(n));
+          // Fail closed if the runner omits scoped submetrics from its summary;
+          // never infer endpoint counts from the global 12-request aggregate.
+          // An exact two-arrival run must have two independent timestamp samples.
+          // Reject missing or surplus samples even when the exported Trend range looks plausible.
+          const timestampCoverageValid=count('sails_observed_setup_timestamp_samples')===2&&observedIterations===2;
+          const valid=timestampCoverageValid&&keys.every(k=>count(k)===2)&&count('iterations')===2&&count('sails_extra_scheduled_arrivals')===0&&count('http_reqs')===12&&count('dropped_iterations')===0&&m.checks?.value===1&&m.sails_intent_success?.value===1&&scopedRequestEvidenceAvailable&&scopedRequestCounts.intent_create===2&&scopedRequestCounts.intent_cancel===2;
+          const quantiles=['med','p(95)','p(99)'];
+          const operations=['sails_intent_create_duration','sails_intent_cancel_duration'];
+          const latency=Object.fromEntries(operations.map(k=>[k,Object.fromEntries(quantiles.map(q=>[q,m[k]?.[q]??null]))]));
+          const validLatency=operations.every(k=>quantiles.every(q=>Number.isFinite(m[k]?.[q])&&m[k][q]>=0)&&m[k].med<=m[k]['p(95)']&&m[k]['p(95)']<=m[k]['p(99)']);
+          console.log('k6 rate candidate bounded aggregate:',JSON.stringify({requestedRatePerSecond:1,configuredWindowSeconds:1.999,artilleryWindowSeconds:2,temporalParityEstablished:false,observed,scopedRequestCounts,scopedRequestEvidenceAvailable,extraScheduledArrivals:count('sails_extra_scheduled_arrivals')??0,requests:count('http_reqs')??null,dropped:count('dropped_iterations')??null,latency,valid,validLatency}));
+          if(!valid||!validLatency)throw Error('Rate candidate schedule or per-operation evidence not comparable');
+          console.log('Rate candidate k6 shape PASS; cross-engine parity NOT established');
+          NODE
+      - name: Exercise independent-start Intent candidate against disposable loopback backend
+        if: always()
+        env:
+          NODE_ENV: development
+          DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/sails_protocol
+          REDIS_URL: redis://127.0.0.1:6379
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Separate the auth budget from previous tests; never bypass rate limits.
+          sleep 65
+          node dist/src/main.js > /tmp/sails-independent-intent-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then echo 'Independent Intent backend exited'; exit 1; fi
+            if (echo > /dev/tcp/127.0.0.1/3000) >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" -eq 1 || { echo 'Independent Intent backend readiness timeout'; exit 1; }
+          # Presence checks separate checkout/toolchain loss from k6 parse errors.
+          # Print booleans only; no filesystem paths or stderr.
+          test -f load-tests/tests/intent-independent-arrivals-candidate.js && script_present=1 || script_present=0
+          command -v k6 >/dev/null 2>&1 && k6_present=1 || k6_present=0
+          test -f load-tests/k6.config.js && config_present=1 || config_present=0
+          echo "Independent Intent preflight presence: script=$script_present config=$config_present k6=$k6_present"
+          # Validate direct imports and filesystem context without disclosing paths.
+          test -f load-tests/tests/intent-creation.js && intent_import=1 || intent_import=0
+          test -f load-tests/utils/data-generator.js && generator_import=1 || generator_import=0
+          test -d /tmp && test -w /tmp && temp_writable=1 || temp_writable=0
+          echo "Independent Intent import presence: intent=$intent_import generator=$generator_import tempWritable=$temp_writable"
+          test "$intent_import" -eq 1 && test "$generator_import" -eq 1 && test "$temp_writable" -eq 1 || {
+            echo 'Independent Intent import or temporary-directory prerequisite absent'
+            exit 1
+          }
+          test "$script_present" -eq 1 && test "$config_present" -eq 1 && test "$k6_present" -eq 1 || {
+            echo 'Independent Intent prerequisite absent; fail closed'
+            exit 1
+          }
+          # Preflight parses and initializes the script without issuing HTTP requests.
+          # Only the exit status is emitted; stderr can contain sensitive config.
+          set +e
+          k6 inspect -e BASE_URL=http://127.0.0.1:3000 \
+            load-tests/tests/intent-independent-arrivals-candidate.js > /tmp/sails-independent-intent-inspect.log 2>&1
+          inspect_exit=$?
+          set -e
+          echo "Independent Intent k6 inspect exit code: $inspect_exit"
+          if [ "$inspect_exit" -ne 0 ]; then
+            node <<'NODE'
+          const fs=require('node:fs');
+          const log=fs.readFileSync('/tmp/sails-independent-intent-inspect.log','utf8');
+          // Fixed booleans only: k6 stderr can contain URLs or credentials.
+          const categories={
+            unsupportedFlag:/unknown flag|unknown shorthand flag|flag provided but not defined/i.test(log),
+            usage:/usage:|available commands:/i.test(log),
+            invalidArgument:/accepts? [0-9]+ arg|requires? (an? )?argument/i.test(log),
+            moduleResolution:/could not resolve|unknown module|module not found/i.test(log),
+            invalidOptions:/invalid option|invalid configuration/i.test(log),
+            javascript:/GoError|TypeError|ReferenceError|SyntaxError/i.test(log)||log.includes('ERRO['),
+            // Differentiate Go's own runtime/temporary-file errors from
+            // k6 JavaScript module or test-script resolution failures.
+            goRuntime:/runtime\/|goroutine |go: |GOMAXPROCS|GOMEMLIMIT/i.test(log),
+            tempDirectory:/\/tmp\/|temporary directory|tempdir/i.test(log),
+            resourceExhaustion:/too many open files|cannot allocate memory|no space left|resource temporarily unavailable/i.test(log),
+            missingFile:/no such file or directory/i.test(log),
+            permissionDenied:/permission denied/i.test(log),
+            execFormat:/exec format/i.test(log),
+            missingScript:log.includes('intent-independent-arrivals-candidate.js')&&/no such file/i.test(log),
+            missingDependency:/node_modules|open .*: no such file/i.test(log),
+            filesystemPath:/stat |open |lstat /i.test(log),
+            executable:/no such file|permission denied|exec format/i.test(log),
+            missingBaseUrl:/loopback HTTP target/i.test(log)
+          };
+          console.log('Independent Intent inspect sanitized diagnostics:',JSON.stringify(categories));
+          NODE
+            echo 'Independent Intent script preflight failed; no HTTP candidate run attempted'
+            exit 1
+          fi
+          set +e
+          timeout 90s k6 run --quiet --out json=/tmp/sails-independent-intent-metrics.json --summary-export=/tmp/sails-independent-intent-summary.json \
+            -e BASE_URL=http://127.0.0.1:3000 \
+            load-tests/tests/intent-independent-arrivals-candidate.js > /tmp/sails-independent-intent.log 2>&1
+          k6_exit=$?
+          set -e
+          # Record only process-level evidence; never expose raw k6 stderr.
+          if [ -f /tmp/sails-independent-intent-metrics.json ]; then
+            echo 'Independent Intent metrics file: present'
+          else
+            echo 'Independent Intent metrics file: absent'
+          fi
+          if [ -f /tmp/sails-independent-intent-summary.json ]; then
+            echo 'Independent Intent summary file: present'
+          else
+            echo 'Independent Intent summary file: absent'
+          fi
+          if [ "$k6_exit" -ne 0 ]; then
+            echo "Independent Intent runner exit code: $k6_exit"
+            if [ "$k6_exit" -eq 124 ]; then echo 'Independent Intent runner exceeded 90s wall-clock bound'; fi
+            echo 'Independent Intent candidate failed; raw logs withheld to protect auth data'
+            node <<'NODE'
+          const fs=require('node:fs');
+          const file='/tmp/sails-independent-intent-summary.json';
+          const log=fs.readFileSync('/tmp/sails-independent-intent.log','utf8');
+          // Extract only numeric, allowlisted k6 metric points. Never print tags,
+          // URLs, log lines, response bodies, or auth data.
+          const metricsFile='/tmp/sails-independent-intent-metrics.json';
+          const safeMetricNames=new Set(['iterations','http_reqs','http_req_failed',
+            'sails_authenticated_arrivals','sails_completed_intent_pairs',
+            'sails_intent_create_samples','sails_intent_cancel_samples',
+            'sails_observed_setup_timestamp_samples','sails_extra_scheduled_arrivals',
+            'dropped_iterations']);
+          const points={};
+          if(fs.existsSync(metricsFile)){
+            const records=fs.readFileSync(metricsFile,'utf8').split(String.fromCharCode(10));
+            for(const line of records){
+              if(!line)continue;
+              let entry;try{entry=JSON.parse(line)}catch{continue}
+              if(entry.type!=='Point'||!safeMetricNames.has(entry.metric))continue;
+              const v=entry.data?.value;
+              if(typeof v==='number'&&Number.isFinite(v))
+                points[entry.metric]=(points[entry.metric]||0)+v;
+            }
+          }
+          console.log('Independent Intent safe metric points:',JSON.stringify(points));
+          const fingerprints={
+            authentication:/Rate candidate authentication failed/.test(log),
+            runtimeError:/GoError|TypeError|ReferenceError|level=error/.test(log)||log.includes('ERRO['),
+            moduleResolution:/could not resolve|unknown module|module not found/i.test(log),
+            threshold:/thresholds? on metrics?/i.test(log),
+            initialization:/could not initialize|initializing|init context|error while evaluating/i.test(log),
+            invalidOptions:/invalid option|invalid configuration|unknown executor/i.test(log),
+            connection:/connection refused|connect:|dial tcp/i.test(log),
+            rateLimit:/429|rate.limit/i.test(log),
+            fatal:/panic:|fatal error:/i.test(log),
+            signal:/signal:|interrupted|terminated/i.test(log),
+            assertion:/assertion failed|AssertionError/i.test(log)||log.includes('assert.equal'),
+            unhandledException:/uncaught|unhandled|exception/i.test(log),
+            invalidJson:/unexpected token|invalid json/i.test(log)||log.includes('JSON.parse'),
+            networkTimeout:/request timeout|context deadline exceeded|timeout/i.test(log),
+            httpStatus:/status code|response status/i.test(log),
+            scriptError:/script exception|script execution|error running/i.test(log),
+            metricThreshold:/thresholds have failed|thresholds crossed/i.test(log)
+          };
+          if(fs.existsSync(file)){
+            const m=JSON.parse(fs.readFileSync(file,'utf8')).metrics||{};
+            const count=k=>m[k]?.count??null;
+            const keys=['iterations','sails_authenticated_arrivals','sails_completed_intent_pairs',
+              'sails_intent_create_samples','sails_intent_cancel_samples',
+              'sails_observed_setup_timestamp_samples','http_reqs',
+              'sails_extra_scheduled_arrivals','dropped_iterations'];
+            console.log('Independent Intent failure aggregate:',JSON.stringify({
+              counts:Object.fromEntries(keys.map(k=>[k,count(k)])),
+              checks:m.checks?.value??null,intentSuccess:m.sails_intent_success?.value??null,
+              httpFailureRate:m.http_req_failed?.value??null,fingerprints
+            }));
+          }else console.log('Independent Intent failure aggregate:',JSON.stringify({summaryPresent:false,fingerprints}));
+          NODE
+            exit 1
+          fi
+          node <<'NODE'
+          const fs=require('node:fs');
+          const assert=require('node:assert/strict');
+          const m=JSON.parse(fs.readFileSync('/tmp/sails-independent-intent-summary.json','utf8')).metrics||{};
+          const count=k=>m[k]?.count;
+          const required={
+            iterations:2,sails_authenticated_arrivals:2,sails_completed_intent_pairs:2,
+            sails_intent_create_samples:2,sails_intent_cancel_samples:2,
+            sails_observed_setup_timestamp_samples:2,http_reqs:12,
+            'http_reqs{name:intent_create}':2,'http_reqs{name:intent_cancel}':2,
+            sails_extra_scheduled_arrivals:0,dropped_iterations:0
+          };
+          const observed=Object.fromEntries(Object.keys(required).map(k=>[k,count(k)??null]));
+          const timing=m.sails_observed_setup_start_epoch_ms;
+          const span=(timing?.max??NaN)-(timing?.min??NaN);
+          console.log('Independent Intent bounded evidence:',JSON.stringify({
+            observed,entrySpanMs:Number.isFinite(span)?span:null,
+            checks:m.checks?.value??null,intentSuccess:m.sails_intent_success?.value??null,
+            httpFailureRate:m.http_req_failed?.value??null,artilleryParityEstablished:false
+          }));
+          for(const [k,v] of Object.entries(required))assert.equal(count(k),v,'Invalid '+k);
+          assert.equal(m.checks?.value,1);
+          assert.equal(m.sails_intent_success?.value,1);
+          assert.equal(m.http_req_failed?.value,0);
+          assert.ok(Number.isFinite(span)&&span>=700&&span<=1300,
+            'Independent Intent entry spacing outside experimental bound');
+          for(const key of ['sails_intent_create_duration','sails_intent_cancel_duration']){
+            const metric=m[key];
+            assert.ok(metric,'Missing scoped latency '+key);
+            for(const q of ['med','p(95)','p(99)'])
+              assert.ok(Number.isFinite(metric[q])&&metric[q]>=0,'Invalid latency '+key+' '+q);
+          }
+          NODE
+      - name: Baseline security evidence (no dependency removal yet)
+        shell: bash
+        run: |
+          npm audit --json > native-load-candidate-audit.json || true
+          node -e "const a=require('./native-load-candidate-audit.json');console.log(JSON.stringify(a.metadata?.vulnerabilities));"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-load-harness-baseline
+          path: |
+            native-load-candidate-audit.json
+            k6-executable-provenance.txt
+          if-no-files-found: warn

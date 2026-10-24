@@ -1,0 +1,62 @@
+name: Native harness real-service smoke candidate
+on:
+  push:
+    branches: [security/artillery-native-loadtest-replacement]
+permissions:
+  contents: read
+jobs:
+  real-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: sails_protocol
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/sails_protocol
+      REDIS_URL: redis://127.0.0.1:6379
+      SAILS_LOAD_HTTP_TARGET: http://127.0.0.1:3000
+      SAILS_LOAD_WS_TARGET: ws://127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install, generate, migrate and build
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build -w @sails/core -w @satsails/p2p-schemas -w @satsails/p2p-trading-sdk
+          npm run db:generate
+          npm run db:migrate
+          npm run build
+      - name: Start isolated API and run authenticated smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          node dist/src/main.js > /tmp/sails-native-smoke-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 60); do
+            if ! kill -0 "$server_pid" 2>/dev/null; then echo 'API exited during startup'; exit 1; fi
+            if (echo > /dev/tcp/127.0.0.1/3000) >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then echo 'API readiness timeout'; exit 1; fi
+          timeout 90s node load-tests/native/run.js smoke
+      - name: Publish smoke status only (no server logs or tokens)
+        if: always()
+        run: echo 'Real-service smoke candidate completed; inspect job outcome. No credentials or server logs uploaded.'

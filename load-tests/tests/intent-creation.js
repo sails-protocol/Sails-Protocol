@@ -5,9 +5,9 @@
  * file itself moved from src/routes/intentRoutes.ts 2026-08-10),
  * same round trip load-tests/artillery/intent-api.yml already proved out
  * with Artillery. `setup()`
- * registers one real, authenticated identity once per run (not once per
- * iteration/VU) — every iteration reuses that same session, since this
- * test is about Intent API throughput, not auth throughput (see
+ * registers one real, PoP-authenticated identity once per run (not once
+ * per iteration/VU) — every iteration reuses that same session, since
+ * this test is about Intent API throughput, not auth throughput (see
  * reconciliation.js/trade-lifecycle.js for flows where a fresh identity
  * per iteration is the actual point).
  *
@@ -32,17 +32,20 @@ export function setup() {
 }
 
 /** One real create+cancel round trip — exported so scenarios/*.js can drive this same flow under a different load shape. */
-export function run(user) {
-  const intent = generateTestIntent()
+export function run(user, intentOverride, sampleHooks = {}) {
+  const intent = intentOverride || generateTestIntent()
   const createRes = http.post(`${BASE_URL}/v1/intents`, JSON.stringify(intent), {
     ...authHeaders(user),
     tags: { name: 'intent_create' },
   })
   const created = check(createRes, { 'create: 201': (r) => r.status === 201 })
   recordFlow({ successRate: intentSuccessRate, duration: intentCreateDuration, durationMs: createRes.timings.duration, ok: created, response: createRes })
-  if (!created) return
+  sampleHooks.onCreateDurationSample?.()
+  if (!created) throw new Error('Intent create failed (status redacted)')
 
   const intentId = createRes.json('data.id')
+  const hasIntentId = check(createRes, { 'create: nonempty intent id': () => typeof intentId === 'string' && intentId.length > 0 })
+  if (!hasIntentId) throw new Error('Intent create returned invalid identifier')
   // '{}', not null — Fastify's JSON body parser 400s on an empty body
   // when Content-Type: application/json is set (authHeaders() always
   // sets it), found running this against the real server.
@@ -52,6 +55,8 @@ export function run(user) {
   })
   const cancelled = check(cancelRes, { 'cancel: 200': (r) => r.status === 200 })
   recordFlow({ successRate: intentSuccessRate, duration: intentCancelDuration, durationMs: cancelRes.timings.duration, ok: cancelled, response: cancelRes })
+  sampleHooks.onCancelDurationSample?.()
+  if (!cancelled) throw new Error('Intent cancellation failed (status redacted)')
 }
 
 export const options = {

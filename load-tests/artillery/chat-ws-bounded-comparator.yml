@@ -1,0 +1,27 @@
+# Candidate WS comparator with strict in-engine PONG match. Experimental only:
+# disposable positive/negative controls are required, but authenticated
+# end-to-end parity and independent security review remain pending.
+# Do not run in production.
+# First run: node load-tests/artillery/prepare-bounded-ws.js
+# Remove bounded-ws-users.json immediately after the disposable test.
+config:
+  target: "ws://127.0.0.1:3000"
+  processor: "./ws-bounded-processor.js"
+  phases:
+    - duration: 2
+      arrivalRate: 1
+      name: Bounded two-arrival WS rehearsal
+scenarios:
+  - name: "One-time-ticket WS PING with strict application PONG match (candidate)"
+    engine: "ws"
+    flow:
+      - connect:
+          function: "connectWithFreshTicket"
+      - send:
+          payload: '{"type":"PING","payload":{}}'
+          match:
+            - json: "$.type"
+              value: "PONG"
+              strict: true
+          response:
+            timeout: 2

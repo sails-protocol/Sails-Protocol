@@ -31,7 +31,7 @@
  *    `import` line is written — so `require()` is used for tweetnacl
  *    here instead (executes in the position it's written), not `import`.
  *
- * Signing detail carried over unchanged from processor.js: the server
+ * Registration now additionally signs the PoP domain-separated message\n * `sails-registration-proof-of-possession:v1:<challenge>:<displayName>`\n * before participant creation; this is required by the live server.\n *\n * Signing detail carried over unchanged from processor.js: the server
  * verifies against the UTF-8 bytes of the challenge *string* itself,
  * not the raw bytes the returned hex represents (a hex round-trip is a
  * documented no-op — see common/middleware/auth.ts).
@@ -39,9 +39,21 @@
 import http from 'k6/http'
 import { check } from 'k6'
 
+// k6 exposes WebCrypto, but tweetnacl's UMD loader may select the Node
+// require('crypto') path because Goja also defines require. Explicitly
+// supply the CSPRNG from k6 WebCrypto after module initialization.
 globalThis.self = globalThis
 // eslint-disable-next-line
 const nacl = require('../../node_modules/tweetnacl/nacl-fast.js')
+if (!globalThis.crypto || typeof globalThis.crypto.getRandomValues !== 'function') {
+  throw new Error('k6 WebCrypto secure random source unavailable')
+}
+nacl.setPRNG((buffer, length) => {
+  const maxChunk = 65536 // WebCrypto getRandomValues per-call quota
+  for (let offset = 0; offset < length; offset += maxChunk) {
+    globalThis.crypto.getRandomValues(buffer.subarray(offset, Math.min(offset + maxChunk, length)))
+  }
+})
 
 // Real AssetType enum — src/core/intent.routes.ts's tradeIntentPayloadSchema
 // (which is also what liquidity/trade/settlement routes constrain to at
@@ -88,7 +100,20 @@ export function generateTestUser(baseUrl, tag) {
   const publicKey = bytesToHex(keyPair.publicKey)
   const displayName = `k6-${tag || 'user'}-${publicKey.slice(0, 8)}`
 
-  const regRes = http.post(`${baseUrl}/v1/identity/participants`, JSON.stringify({ publicKey, displayName }), {
+  // Registration is proof-of-possession protected. A bare publicKey/displayName
+  // request is no longer accepted by the live protocol.
+  const regChallengeRes = http.post(`${baseUrl}/v1/identity/register-challenge`, JSON.stringify({ publicKey }), {
+    headers: { 'Content-Type': 'application/json' },
+    tags: { name: 'identity_register_challenge' },
+  })
+  if (!check(regChallengeRes, { 'register challenge: 200': (r) => r.status === 200 })) return null
+  const registrationChallenge = regChallengeRes.json('data.challenge')
+  if (typeof registrationChallenge !== 'string' || !registrationChallenge) throw new Error('Missing registration challenge')
+  const registrationMessage = `sails-registration-proof-of-possession:v1:${registrationChallenge}:${displayName}`
+  const registrationSignature = bytesToHex(nacl.sign.detached(utf8Bytes(registrationMessage), keyPair.secretKey))
+  const regRes = http.post(`${baseUrl}/v1/identity/participants`, JSON.stringify({
+    publicKey, displayName, signature: registrationSignature,
+  }), {
     headers: { 'Content-Type': 'application/json' },
     tags: { name: 'identity_register' },
   })
