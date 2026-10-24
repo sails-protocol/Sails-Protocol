@@ -1391,6 +1391,14 @@ jobs:
           # Validate direct imports and filesystem context without disclosing paths.
           test -f load-tests/tests/intent-creation.js && intent_import=1 || intent_import=0
           test -f load-tests/utils/data-generator.js && generator_import=1 || generator_import=0
+          # Verify the transitive tweetnacl module used by data-generator.js.
+          # Presence only: never emit module contents or loader stderr.
+          test -f node_modules/tweetnacl/nacl-fast.js && nacl_present=1 || nacl_present=0
+          echo "Independent Intent transitive dependency presence: tweetnacl=$nacl_present"
+          test "$nacl_present" -eq 1 || {
+            echo 'Independent Intent transitive dependency missing; fail closed'
+            exit 1
+          }
           test -d /tmp && test -w /tmp && temp_writable=1 || temp_writable=0
           echo "Independent Intent import presence: intent=$intent_import generator=$generator_import tempWritable=$temp_writable"
           test "$intent_import" -eq 1 && test "$generator_import" -eq 1 && test "$temp_writable" -eq 1 || {
