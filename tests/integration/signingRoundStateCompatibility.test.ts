@@ -306,6 +306,21 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     // A separate reconciliation proof must restore the missing evidence/event.
   })
 
+  it('P4 characterization: an evidence-write failure is currently classified as not uncertain (known gap)', async () => {
+    if (!dbAvailable) return
+    const fixture = await locked('funding-evidence-empty-log-classification', true)
+    const { escrowFundingEvidenceService } = require('../../src/modules/open-settlement/escrow-funding-evidence.service')
+    const escrow = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
+    const evidence = await prisma.escrowFundingEvidence.findMany({ where: { escrowId: fixture.escrowId } })
+    expect(escrow.status).toBe('FUNDS_LOCKED')
+    expect(escrow.txLockId).toBe(chain.fundingTxid)
+    expect(evidence).toHaveLength(0)
+    // CHARACTERIZATION, NOT ACCEPTANCE: legacy compatibility treats an empty log as trustworthy.
+    // This pins the exact dangerous behavior until modern-vs-legacy provenance can be persisted.
+    expect(await escrowFundingEvidenceService.isFundingUncertain(fixture.escrowId)).toBe(false)
+    // No automatic repair, no provider re-lock and no synthetic confirmation is attempted.
+  })
+
   const keyOf = (f: { buyerId: string }, id: string) => (id === f.buyerId ? buyerKey : sellerKey)
   const tradeOf = (id: string) => prisma.trade.findUniqueOrThrow({ where: { id }, select: { status: true } })
   /** A barrier: `hold()` parks a caller until `release()`; `reached` resolves once one is parked. */
