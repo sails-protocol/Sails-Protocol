@@ -737,6 +737,209 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
       .toEqual({ escrow: { status: 'REFUNDED', txReleaseId: txid }, broadcasts: [txid], dispute: 'MOOT' })
   })
 
+  // ── P5: UNKNOWN-outcome policy evidence ───────────────────────────────────────────────────────────
+  // Strategy-neutral: each scenario asserts INVARIANTS (one distinct transaction, no result beside a non-terminal
+  // escrow, convergence to the transaction the chain holds, nothing blocked for good) and records what the policy
+  // under test actually does to P4_OBS (one JSON line per observation) so the A/B comparison reads real runs.
+  const observe = (label: string, data: Record<string, unknown>) => {
+    const file = process.env.P4_OBS
+    if (file) require('fs').appendFileSync(file, JSON.stringify({ label, ...data }) + '\n')
+  }
+  /** Recovery laps (PASS 0 + PASS 1 + ...) until the escrow has a settlement result; returns the lap, or -1. */
+  async function convergeUntil(escrowId: string, reconcile: typeof reconcilePendingSettlements = reconcilePendingSettlements, laps = 40) {
+    const manual: string[] = []
+    for (let lap = 1; lap <= laps; lap++) {
+      const report = await reconcile()
+      for (const m of report.requiresManualReview) if (m.escrowId === escrowId) manual.push(m.reason)
+      if ((await escrowOf(escrowId)).txReleaseId !== null) return { lap, manual }
+    }
+    return { lap: -1, manual }
+  }
+  /** A cooperative REFUND round whose live finalize ended in an AMBIGUOUS broadcast: accepted by the network, HTTP 502. */
+  async function ambiguousAcceptedRefund(suffix: string) {
+    const f = await locked(suffix)
+    const round = await escrowService.initiateRefund(f.escrowId, f.sellerId)
+    chain.sailsBroadcasts = []
+    acceptNextBroadcastAmbiguously()
+    for (const id of round.requiredSigners) await settle(escrowService.submitTransactionSignature(f.escrowId, id, signPsbt(round.unsignedPsbtBase64, keyOf(f, id))))
+    expect(chain.sailsBroadcasts).toHaveLength(1)
+    return { ...f, round, txid: chain.sailsBroadcasts[0] }
+  }
+
+  it('P5-1 expiry: an accepted-but-unacknowledged refund, then the escrow\'s timelock expires: the escrow never ends EXPIRED beside the refund on the network without converging or a visible signal', async () => {
+    pg.requirePostgres('P5-1')
+    const f = await ambiguousAcceptedRefund('p5-1')
+    const afterFailure = await escrowOf(f.escrowId)
+    await prisma.escrow.update({ where: { id: f.escrowId }, data: { expiresAt: new Date(Date.now() - 3_600_000) } })
+    const swept = await escrowService.sweepExpiredEscrows()
+    const afterSweep = await escrowOf(f.escrowId)
+    const { lap, manual } = await convergeUntil(f.escrowId, reconcilePendingSettlements, 12)
+    const final = await escrowOf(f.escrowId)
+    observe('P5-1', { afterFailure, afterSweep, sweptRefunded: swept.refunded.includes(f.escrowId), lap, manualReview: manual.length, final, distinct: [...new Set(chain.sailsBroadcasts)].length })
+    expect([...new Set(chain.sailsBroadcasts)]).toEqual([f.txid])
+    // the invariant: the refund is on the network, so the escrow either converged to it or the disagreement is surfaced
+    expect(final.txReleaseId === f.txid || manual.length > 0).toBe(true)
+    expect(final.txReleaseId !== null ? final.status : 'REFUNDED').toBe('REFUNDED')
+  })
+
+  it('P5-2 definite refusal (HTTP 503, nothing accepted), then the explorer returns: the round converges to its one transaction - nothing is blocked for good', async () => {
+    pg.requirePostgres('P5-2')
+    const f = await locked('p5-2')
+    const round = await escrowService.initiateRefund(f.escrowId, f.sellerId)
+    chain.sailsBroadcasts = []
+    chain.refuseSailsBroadcasts = true
+    for (const id of round.requiredSigners) await settle(escrowService.submitTransactionSignature(f.escrowId, id, signPsbt(round.unsignedPsbtBase64, keyOf(f, id))))
+    chain.refuseSailsBroadcasts = false
+    const afterRefusal = await escrowOf(f.escrowId)
+    const txid = refundTxid({ round, buyerId: f.buyerId })
+    const { lap } = await convergeUntil(f.escrowId)
+    observe('P5-2', { afterRefusal, lap, final: await escrowOf(f.escrowId), distinct: [...new Set(chain.sailsBroadcasts)].length })
+    expect(lap).toBeGreaterThan(0)
+    expect({ escrow: await escrowOf(f.escrowId), distinct: [...new Set(chain.sailsBroadcasts)] }).toEqual({ escrow: { status: 'REFUNDED', txReleaseId: txid }, distinct: [txid] })
+  })
+
+  it('P5-2b dispute eligibility after a definite refusal: recorded for the policy; either way the round still converges once', async () => {
+    pg.requirePostgres('P5-2b')
+    const f = await locked('p5-2b')
+    const round = await escrowService.initiateRefund(f.escrowId, f.sellerId)
+    chain.sailsBroadcasts = []
+    chain.refuseSailsBroadcasts = true
+    for (const id of round.requiredSigners) await settle(escrowService.submitTransactionSignature(f.escrowId, id, signPsbt(round.unsignedPsbtBase64, keyOf(f, id))))
+    chain.refuseSailsBroadcasts = false
+    const afterRefusal = await escrowOf(f.escrowId)
+    const dispute = await settle(getDisputeService().raiseDispute(f.tradeId, f.sellerId, 'the explorer refused the refund'))
+    const { lap } = await convergeUntil(f.escrowId)
+    observe('P5-2b', { afterRefusal, disputeRaised: dispute.ok, disputeError: dispute.ok ? null : dispute.e.slice(0, 120), lap, final: await escrowOf(f.escrowId) })
+    expect(lap).toBeGreaterThan(0)
+    expect([...new Set(chain.sailsBroadcasts)]).toHaveLength(1)
+    expect((await escrowOf(f.escrowId)).status).toBe('REFUNDED')
+  })
+
+  /** Runs the recovery passes in a NEW OS PROCESS (fresh module graph, Prisma pool, Redis connection; no inherited
+   *  fetch mock) against the same database, with a deterministic explorer fixture seeded from the parent's chain model. */
+  async function recoverInFreshProcess(escrowId: string) {
+    const { spawn } = require('child_process') as typeof import('child_process')
+    const { resolve: resolvePath } = require('path') as typeof import('path')
+    const code = String.raw`
+      require('ts-node/register/transpile-only')
+      const bitcoin = require('bitcoinjs-lib')
+      const state = JSON.parse(process.env.P5_CHAIN)
+      const known = new Set(state.known)
+      const posts = []
+      global.fetch = async (url, init) => {
+        const u = String(url)
+        if (init && init.method === 'POST' && u.endsWith('/tx')) {
+          const txid = bitcoin.Transaction.fromHex(init.body).getId()
+          posts.push(txid); known.add(txid); state.spentBy = txid
+          return { ok: true, status: 200, text: async () => txid }
+        }
+        if (u.includes('/blocks/tip/height')) return { ok: true, status: 200, text: async () => '100' }
+        if (u.includes('/v1/fees/recommended')) return { ok: true, status: 200, json: async () => ({ halfHourFee: 5, fastestFee: 8 }) }
+        const m = u.match(/\/tx\/([0-9a-f]{64})\/status/)
+        if (m) return (m[1] === state.fundingTxid || known.has(m[1]))
+          ? { ok: true, status: 200, json: async () => ({ confirmed: true, block_height: 100 }) }
+          : { ok: false, status: 404, text: async () => 'Transaction not found', json: async () => ({}) }
+        return { ok: true, status: 200, json: async () => (state.spentBy ? [] : [{ txid: state.fundingTxid, vout: 0, value: 100000, status: { confirmed: true } }]) }
+      }
+      const { prisma } = require('./src/common/database')
+      const { intentEngine } = require('./src/core/intent-engine')
+      intentEngine.registerHandler(require('./src/modules/open-p2p/intent-handler').OpenP2PTradeIntentHandler)
+      require('./src/common/events/handlers').registerEventHandlers()
+      const { reconcilePendingSettlements } = require('./src/modules/open-settlement/escrow-settlement-reconciliation.service')
+      ;(async () => {
+        let laps = 0
+        const mine = { recovered: [], resumed: [], failed: [], manual: [] }
+        for (; laps < 30; laps++) {
+          const r = await reconcilePendingSettlements()
+          const id = process.env.P5_ESCROW
+          mine.recovered.push(...r.recovered.filter(x => x.escrowId === id).map(x => x.outcome))
+          mine.resumed.push(...r.resumedUnclaimed.filter(x => x.escrowId === id).map(x => x.outcome))
+          mine.failed.push(...r.failed.filter(x => x.escrowId === id).map(x => x.error))
+          mine.manual.push(...r.requiresManualReview.filter(x => x.escrowId === id).map(x => x.reason))
+          const row = await prisma.escrow.findUnique({ where: { id }, select: { txReleaseId: true } })
+          if (row && row.txReleaseId) break
+        }
+        await new Promise((res, rej) => process.stdout.write('P5_REPORT:' + JSON.stringify({ laps, posts, ...mine }) + '\n', e => e ? rej(e) : res()))
+        await prisma.$disconnect()
+        process.exit(0)
+      })().catch(async err => { process.stderr.write(String(err.stack || err)); await prisma.$disconnect(); process.exit(1) })
+    `
+    return await new Promise<{ code: number | null; report: { laps: number; posts: string[]; recovered: string[]; resumed: string[]; failed: string[]; manual: string[] } | null; stderr: string }>((done, reject) => {
+      const child = spawn(process.execPath, ['-e', code], {
+        cwd: resolvePath(__dirname, '../..'),
+        env: { ...process.env, MOCK_ESCROW: 'false', P5_ESCROW: escrowId, P5_CHAIN: JSON.stringify({ fundingTxid: chain.fundingTxid, known: [...chain.known], spentBy: chain.spentBy }) },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let out = ''; let err = ''
+      child.stdout.on('data', (c: Buffer) => { out += c.toString() })
+      child.stderr.on('data', (c: Buffer) => { err += c.toString() })
+      const watchdog = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('fresh-process recovery timeout: ' + err.slice(-1500))) }, 150_000)
+      child.on('error', (e) => { clearTimeout(watchdog); reject(e) })
+      child.on('close', (c) => {
+        clearTimeout(watchdog)
+        const line = out.split('\n').find((l) => l.startsWith('P5_REPORT:'))
+        done({ code: c, report: line ? JSON.parse(line.slice('P5_REPORT:'.length)) : null, stderr: err.slice(-1500) })
+      })
+    })
+  }
+
+  it('P5-3 real process restart, transaction ALREADY on the network (accepted, answer lost): a fresh OS process converges it and transmits nothing', async () => {
+    pg.requirePostgres('P5-3')
+    const f = await ambiguousAcceptedRefund('p5-3')
+    const before = await escrowOf(f.escrowId)
+    const child = await recoverInFreshProcess(f.escrowId)
+    observe('P5-3', { before, childCode: child.code, report: child.report, final: await escrowOf(f.escrowId) })
+    expect({ code: child.code, stderr: child.stderr }).toEqual({ code: 0, stderr: '' })
+    expect(child.report?.posts).toEqual([])
+    expect(await escrowOf(f.escrowId)).toEqual({ status: 'REFUNDED', txReleaseId: f.txid })
+  })
+
+  it('P5-3b real process restart, nothing accepted (definite refusal): a fresh OS process transmits exactly the round\'s one transaction, once', async () => {
+    pg.requirePostgres('P5-3b')
+    const f = await locked('p5-3b')
+    const round = await escrowService.initiateRefund(f.escrowId, f.sellerId)
+    chain.sailsBroadcasts = []
+    chain.refuseSailsBroadcasts = true
+    for (const id of round.requiredSigners) await settle(escrowService.submitTransactionSignature(f.escrowId, id, signPsbt(round.unsignedPsbtBase64, keyOf(f, id))))
+    chain.refuseSailsBroadcasts = false
+    const txid = refundTxid({ round, buyerId: f.buyerId })
+    const before = await escrowOf(f.escrowId)
+    const child = await recoverInFreshProcess(f.escrowId)
+    observe('P5-3b', { before, childCode: child.code, report: child.report, final: await escrowOf(f.escrowId) })
+    expect({ code: child.code, stderr: child.stderr }).toEqual({ code: 0, stderr: '' })
+    expect(child.report?.posts).toEqual([txid])
+    expect(await escrowOf(f.escrowId)).toEqual({ status: 'REFUNDED', txReleaseId: txid })
+  })
+
+  it('P5-4 four recovery workers race one fully-signed round: at most one transaction is ever transmitted, exactly one worker resumes it, the escrow converges', async () => {
+    pg.requirePostgres('P5-4')
+    const f = await signedUnclaimedRefund('p5-4')
+    const workers = [isolatedReconciler(), isolatedReconciler(), isolatedReconciler(), isolatedReconciler()]
+    const reports = await Promise.all(workers.map((w) => w()))
+    for (let lap = 0; lap < 20 && (await escrowOf(f.escrowId)).txReleaseId === null; lap++) await Promise.all(workers.map((w) => w()))
+    const resumed = reports.flatMap((r) => r.resumedUnclaimed.filter((x) => x.escrowId === f.escrowId))
+    observe('P5-4', { resumed: resumed.length, distinct: [...new Set(chain.sailsBroadcasts)].length, total: chain.sailsBroadcasts.length, final: await escrowOf(f.escrowId) })
+    expect(resumed).toHaveLength(1)
+    expect([...new Set(chain.sailsBroadcasts)]).toEqual([refundTxid(f)])
+    expect(await escrowOf(f.escrowId)).toEqual({ status: 'REFUNDED', txReleaseId: refundTxid(f) })
+  })
+
+  it('P5-4b PASS 0 and PASS 1 together: a stuck claim owner plus three workers: still one transaction, converged, the late owner changes nothing', async () => {
+    pg.requirePostgres('P5-4b')
+    const f = await signedUnclaimedRefund('p5-4b')
+    const hold = holdNextBroadcast()
+    const owner = settle(restarted!.reconcile())
+    await hold.reached
+    const workers = [isolatedReconciler(), isolatedReconciler(), isolatedReconciler()]
+    await Promise.all(workers.map((w) => w()))
+    for (let lap = 0; lap < 20 && (await escrowOf(f.escrowId)).txReleaseId === null; lap++) await Promise.all(workers.map((w) => w()))
+    hold.release()
+    expect((await owner).ok).toBe(true)
+    observe('P5-4b', { distinct: [...new Set(chain.sailsBroadcasts)].length, total: chain.sailsBroadcasts.length, final: await escrowOf(f.escrowId) })
+    expect([...new Set(chain.sailsBroadcasts)]).toEqual([refundTxid(f)])
+    expect(await escrowOf(f.escrowId)).toEqual({ status: 'REFUNDED', txReleaseId: refundTxid(f) })
+  })
+
   it('L: the reverse order of RACE-A - the ruling reverts first, then C8 completes: the terminal record makes the dispute MOOT', async () => {
     pg.requirePostgres('L')
     const f = await h1CompletedThenDisputed('l')
