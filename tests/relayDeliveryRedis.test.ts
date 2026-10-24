@@ -29,6 +29,34 @@ class MockRedis extends EventEmitter {
 }
 
 describe('Redis relay delivery transport with independent provider instances', () => {
+  it('contains destination send rejection without acknowledging success', async () => {
+    const bus = new RedisBus()
+    const destinationProvider = new WebSocketRelayTransportProvider()
+    const lease = randomUUID()
+    const socket = { readyState: 1, send: jest.fn(), close: jest.fn() }
+    destinationProvider.registerSocket('bob', socket, lease)
+    const originalSend = destinationProvider.sendToPeerIfOwner.bind(destinationProvider)
+    jest.spyOn(destinationProvider, 'sendToPeerIfOwner')
+      .mockRejectedValueOnce(new Error('simulated destination failure'))
+    const make = (name: string, provider: WebSocketRelayTransportProvider) =>
+      new RedisRelayDeliveryTransport(new MockRedis(bus) as never, new MockRedis(bus) as never,
+        'sails:relay:delivery:' + name, provider)
+    const alice = make('alice', new WebSocketRelayTransportProvider())
+    const bob = make('bob', destinationProvider)
+    await Promise.all([alice.start(), bob.start()])
+    try {
+      expect(await alice.deliver('sails:relay:delivery:bob', {
+        destinationParticipantId: 'bob', destinationLeaseToken: lease,
+        deadlineMs: Date.now() + 2500, payload: 'must-not-send',
+      })).toBe(false)
+      expect(socket.send).not.toHaveBeenCalled()
+      expect(await originalSend('bob', lease, 'subsequent-local-send')).toBe(true)
+      expect(socket.send).toHaveBeenCalledWith('subsequent-local-send')
+    } finally {
+      await Promise.all([alice.close(), bob.close()])
+    }
+  })
+
   it('does not accept forged positive ACKs from a different request ID', async () => {
     const bus = new RedisBus()
     const publisher = new MockRedis(bus)
