@@ -279,6 +279,112 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', bitcoin.payments.p2wpkh({ pubkey: Buffer.from(buyerKey.publicKey), network: NETWORK }).address!)
     return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id }
   }
+  it('P4 funding/cancellation race: cancellation holds lifecycle lock before funding can claim', async () => {
+    if (!dbAvailable) return
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)) })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
+    createdEscrowIds.push(escrow.id)
+    await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
+    let releaseCancellation!: () => void
+    let cancellationEntered!: () => void
+    const entered = new Promise<void>((resolve) => { cancellationEntered = resolve })
+    const release = new Promise<void>((resolve) => { releaseCancellation = resolve })
+    const { tradeRepository } = require('../../src/modules/open-p2p/trade-repository')
+    const cancellation = tradeRepository.transitionManually(trade.id, trade.status, 'CANCELLED', new Date(), async () => {
+      cancellationEntered()
+      await release
+    })
+    await entered
+    const providerSpy = jest.spyOn(multisigProvider, 'lockFunds')
+    try {
+      const funding = escrowService.lockFunds(escrow.id, seller.id)
+      releaseCancellation()
+      const cancelled = await cancellation
+      expect(cancelled.ok).toBe(true)
+      await expect(funding).rejects.toThrow(/CANCELLED/)
+      expect(providerSpy).not.toHaveBeenCalled()
+      expect((await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })).status).toBe('CREATED')
+    } finally {
+      releaseCancellation()
+      providerSpy.mockRestore()
+    }
+  })
+
+  it('P4 funding/cancellation race: funding claim wins and manual cancellation is refused', async () => {
+    if (!dbAvailable) return
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)) })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
+    createdEscrowIds.push(escrow.id)
+    const { lockTradeLifecycle } = require('../../src/modules/open-p2p/trade-lifecycle-lock')
+    const { tradeRepository } = require('../../src/modules/open-p2p/trade-repository')
+    let entered!: () => void
+    let release!: () => void
+    const acquired = new Promise<void>((resolve) => { entered = resolve })
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const fundingClaim = prisma.$transaction(async (tx) => {
+      await lockTradeLifecycle(tx, trade.id)
+      await claimEscrowTransition(escrow.id, 'CREATED', 'FUNDS_LOCKED', undefined, tx)
+      entered()
+      await gate
+    })
+    await acquired
+    const cancellation = tradeRepository.transitionManually(trade.id, trade.status, 'CANCELLED', new Date())
+    try {
+      release()
+      await fundingClaim
+      const cancelled = await cancellation
+      expect(cancelled).toMatchObject({ ok: false, reason: 'ECONOMIC_COMMITMENT', escrowStatus: 'FUNDS_LOCKED' })
+      expect((await prisma.trade.findUniqueOrThrow({ where: { id: trade.id } })).status).not.toBe('CANCELLED')
+      expect((await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })).status).toBe('FUNDS_LOCKED')
+    } finally {
+      release()
+    }
+  })
+
+  it('P4 funding claim: real PostgreSQL rolls back transition with caller transaction', async () => {
+    if (!dbAvailable) return
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)) })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
+    createdEscrowIds.push(escrow.id)
+    await expect(prisma.$transaction(async (tx) => {
+      await claimEscrowTransition(escrow.id, 'CREATED', 'FUNDS_LOCKED', undefined, tx)
+      const within = await tx.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+      expect(within.status).toBe('FUNDS_LOCKED')
+      throw new Error('P4 intentional transaction rollback')
+    })).rejects.toThrow('P4 intentional transaction rollback')
+    const persisted = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })
+    expect(persisted.status).toBe('CREATED')
+    expect(persisted.txLockId).toBeNull()
+  })
+
+  it('P4 trade cancellation gate: a cancelled trade cannot claim funding or invoke provider', async () => {
+    if (!dbAvailable) return
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)) })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
+    createdEscrowIds.push(escrow.id)
+    await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id, status: 'CANCELLED' } })
+    const providerSpy = jest.spyOn(multisigProvider, 'lockFunds')
+    try {
+      await expect(escrowService.lockFunds(escrow.id, seller.id)).rejects.toThrow(/CANCELLED/)
+      expect(providerSpy).not.toHaveBeenCalled()
+    } finally {
+      providerSpy.mockRestore()
+    }
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })).status).toBe('CREATED')
+  })
+
   it('P4 funding rollback CAS: real PostgreSQL refuses FUNDS_LOCKED→CREATED after txLockId persistence', async () => {
     if (!dbAvailable) return
     const fixture = await locked('funding-revert-guard')
@@ -304,6 +410,58 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     expect(evidence).toHaveLength(0)
     // This is intentionally a partial failure, not a claim of completed recovery.
     // A separate reconciliation proof must restore the missing evidence/event.
+  })
+
+  it('P4 characterization: an evidence-write failure is currently classified as not uncertain (known gap)', async () => {
+    if (!dbAvailable) return
+    const fixture = await locked('funding-evidence-empty-log-classification', true)
+    const { escrowFundingEvidenceService } = require('../../src/modules/open-settlement/escrow-funding-evidence.service')
+    const escrow = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
+    const evidence = await prisma.escrowFundingEvidence.findMany({ where: { escrowId: fixture.escrowId } })
+    expect(escrow.status).toBe('FUNDS_LOCKED')
+    expect(escrow.txLockId).toBe(chain.fundingTxid)
+    expect(evidence).toHaveLength(0)
+    // CHARACTERIZATION, NOT ACCEPTANCE: legacy compatibility treats an empty log as trustworthy.
+    // This pins the exact dangerous behavior until modern-vs-legacy provenance can be persisted.
+    expect(await escrowFundingEvidenceService.isFundingUncertain(fixture.escrowId)).toBe(false)
+    // No automatic repair, no provider re-lock and no synthetic confirmation is attempted.
+  })
+
+  it('P4 partial funding persistence: retry refuses before invoking the provider a second time', async () => {
+    if (!dbAvailable) return
+    const fixture = await locked('funding-evidence-retry-no-rebroadcast', true)
+    const before = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
+    expect(before.txLockId).toBe(chain.fundingTxid)
+    expect(before.status).toBe('FUNDS_LOCKED')
+
+    const providerSpy = jest.spyOn(multisigProvider, 'lockFunds')
+    try {
+      await expect(escrowService.lockFunds(fixture.escrowId, fixture.sellerId)).rejects.toThrow()
+      expect(providerSpy).not.toHaveBeenCalled()
+    } finally {
+      providerSpy.mockRestore()
+    }
+
+    const after = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
+    expect(after.status).toBe('FUNDS_LOCKED')
+    expect(after.txLockId).toBe(before.txLockId)
+    expect(after.txLockVout).toBe(before.txLockVout)
+    expect(await prisma.escrowFundingEvidence.count({ where: { escrowId: fixture.escrowId } })).toBe(0)
+    // Characterization only: an explicit verifier/reconciler remains required.
+  })
+
+  it('P4 baseline sweep cannot repair an escrow after the evidence insert fails', async () => {
+    if (!dbAvailable) return
+    const fixture = await locked('funding-no-baseline-sweep', true)
+    const { sweepMultisigFundingReorgs } = require('../../src/modules/open-settlement/multisig-funding-reorg-sweep')
+    const report = await sweepMultisigFundingReorgs()
+    expect(report.skippedNoBaseline).toContain(fixture.escrowId)
+    const escrow = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
+    expect(escrow.status).toBe('FUNDS_LOCKED')
+    expect(escrow.txLockId).toBe(chain.fundingTxid)
+    expect(await prisma.escrowFundingEvidence.count({ where: { escrowId: fixture.escrowId } })).toBe(0)
+    // Known gap: legacy-safe skip also skips modern interrupted evidence writes.
+    // A future repair path must distinguish provenance and independently verify chain truth.
   })
 
   const keyOf = (f: { buyerId: string }, id: string) => (id === f.buyerId ? buyerKey : sellerKey)

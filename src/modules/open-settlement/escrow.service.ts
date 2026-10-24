@@ -692,7 +692,8 @@ export class EscrowService {
       if (current?.status === 'CANCELLED') {
         throw new EscrowError(`Trade ${escrow.tradeId} is CANCELLED: its escrow cannot be locked`)
       }
-      await claimEscrowTransition(escrowId, escrow.status, 'FUNDS_LOCKED')
+      // Use the same transaction as the trade lifecycle lock and cancellation check.
+      await claimEscrowTransition(escrowId, escrow.status, 'FUNDS_LOCKED', undefined, tx)
     })
 
     try {
