@@ -1391,6 +1391,22 @@ jobs:
           set -e
           echo "Independent Intent k6 inspect exit code: $inspect_exit"
           if [ "$inspect_exit" -ne 0 ]; then
+            node <<'NODE'
+          const fs=require('node:fs');
+          const log=fs.readFileSync('/tmp/sails-independent-intent-inspect.log','utf8');
+          // Fixed booleans only: k6 stderr can contain URLs or credentials.
+          const categories={
+            unsupportedFlag:/unknown flag|unknown shorthand flag|flag provided but not defined/i.test(log),
+            usage:/usage:|available commands:/i.test(log),
+            invalidArgument:/accepts? [0-9]+ arg|requires? (an? )?argument/i.test(log),
+            moduleResolution:/could not resolve|unknown module|module not found/i.test(log),
+            invalidOptions:/invalid option|invalid configuration/i.test(log),
+            javascript:/GoError|TypeError|ReferenceError|SyntaxError|ERRO\\[/i.test(log),
+            executable:/no such file|permission denied|exec format/i.test(log),
+            missingBaseUrl:/loopback HTTP target/i.test(log)
+          };
+          console.log('Independent Intent inspect sanitized diagnostics:',JSON.stringify(categories));
+          NODE
             echo 'Independent Intent script preflight failed; no HTTP candidate run attempted'
             exit 1
           fi
