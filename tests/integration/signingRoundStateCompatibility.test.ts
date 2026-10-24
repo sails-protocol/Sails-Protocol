@@ -251,7 +251,7 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
   /** The chain model holds one funding outpoint: a new fixture in the same test starts from a fresh one. */
   const freshChain = () => { chain.spentBy = null; chain.known.clear() }
   /** Funded MULTISIG escrow in FUNDS_LOCKED with both payout addresses registered. */
-  async function locked(suffix: string) {
+  async function locked(suffix: string, failFundingEvidence = false) {
     freshChain()
     const seller = await registerTestParticipant(identityService, 'Seller')
     const buyer = await registerTestParticipant(identityService, 'Buyer')
@@ -264,11 +264,48 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     await escrowService.submitParticipantKey(escrow.id, seller.id, Buffer.from(sellerKey.publicKey).toString('hex'), MULTISIG_CAPABILITY_PROFILE_V1)
     chain.fundingTxid = createHash('sha256').update(`r7gf8c-${suffix}-${Date.now()}-${Math.random()}`).digest('hex')
     mockExplorer()
-    await escrowService.lockFunds(escrow.id, seller.id)
+    if (failFundingEvidence) {
+      const { escrowFundingEvidenceRepository } = require('../../src/modules/open-settlement/escrow-funding-evidence-repository')
+      const recordSpy = jest.spyOn(escrowFundingEvidenceRepository, 'record').mockRejectedValueOnce(new Error('P4 injected funding evidence failure'))
+      try {
+        await expect(escrowService.lockFunds(escrow.id, seller.id)).rejects.toThrow('P4 injected funding evidence failure')
+      } finally {
+        recordSpy.mockRestore()
+      }
+    } else {
+      await escrowService.lockFunds(escrow.id, seller.id)
+    }
     await payoutAddressService.setPayoutAddress(seller.id, 'BTC', bitcoin.payments.p2wpkh({ pubkey: Buffer.from(sellerKey.publicKey), network: NETWORK }).address!)
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', bitcoin.payments.p2wpkh({ pubkey: Buffer.from(buyerKey.publicKey), network: NETWORK }).address!)
     return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id }
   }
+  it('P4 funding rollback CAS: real PostgreSQL refuses FUNDS_LOCKED→CREATED after txLockId persistence', async () => {
+    if (!dbAvailable) return
+    const fixture = await locked('funding-revert-guard')
+    const before = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
+    expect(before.status).toBe('FUNDS_LOCKED')
+    expect(before.txLockId).toBeTruthy()
+    const reverted = await escrowRepository.revertStatus(fixture.escrowId, 'FUNDS_LOCKED', 'CREATED')
+    expect(reverted).toBe(0)
+    const after = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
+    expect(after.status).toBe('FUNDS_LOCKED')
+    expect(after.txLockId).toBe(before.txLockId)
+    expect(after.txLockVout).toBe(before.txLockVout)
+  })
+
+  it('P4 post-persistence failure: real PostgreSQL preserves funded state when evidence recording fails', async () => {
+    if (!dbAvailable) return
+    const fixture = await locked('funding-evidence-failure', true)
+    const after = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
+    expect(after.status).toBe('FUNDS_LOCKED')
+    expect(after.txLockId).toBe(chain.fundingTxid)
+    expect(after.txLockVout).toBe(0)
+    const evidence = await prisma.escrowFundingEvidence.findMany({ where: { escrowId: fixture.escrowId } })
+    expect(evidence).toHaveLength(0)
+    // This is intentionally a partial failure, not a claim of completed recovery.
+    // A separate reconciliation proof must restore the missing evidence/event.
+  })
+
   const keyOf = (f: { buyerId: string }, id: string) => (id === f.buyerId ? buyerKey : sellerKey)
   const tradeOf = (id: string) => prisma.trade.findUniqueOrThrow({ where: { id }, select: { status: true } })
   /** A barrier: `hold()` parks a caller until `release()`; `reached` resolves once one is parked. */

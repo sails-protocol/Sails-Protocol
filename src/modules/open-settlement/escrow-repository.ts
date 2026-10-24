@@ -596,7 +596,14 @@ class PrismaEscrowRepository implements EscrowRepository {
     return prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
       const reverted = await tx.escrow.updateMany({
-        where: { id: escrowId, status: claimedStatus as any },
+        where: {
+          id: escrowId,
+          status: claimedStatus as any,
+          // Funding rollback is only safe before a durable funding transaction is recorded.
+          // Do not apply this predicate to settlement reversions: their independent
+          // settlement-result status-frozen trigger protects committed outcomes.
+          ...(claimedStatus === 'FUNDS_LOCKED' && fromStatus === 'CREATED' ? { txLockId: null } : {}),
+        },
         data: { status: fromStatus as any },
       })
       return reverted.count
