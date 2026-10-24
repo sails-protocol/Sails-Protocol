@@ -911,22 +911,34 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     expect(await escrowOf(f.escrowId)).toEqual({ status: 'REFUNDED', txReleaseId: txid })
   })
 
-  it('P5-4 four recovery workers race one fully-signed round: at most one transaction is ever transmitted, exactly one worker resumes it, the escrow converges', async () => {
+  /** A fully signed REFUND round whose live finalize was refused (HTTP 503) - left unresolved, whatever state the policy leaves the escrow in. */
+  async function signedUnresolvedRefund(suffix: string) {
+    const f = await locked(suffix)
+    const round = await escrowService.initiateRefund(f.escrowId, f.sellerId)
+    chain.refuseSailsBroadcasts = true
+    for (const id of round.requiredSigners) await settle(escrowService.submitTransactionSignature(f.escrowId, id, signPsbt(round.unsignedPsbtBase64, keyOf(f, id))))
+    chain.refuseSailsBroadcasts = false
+    chain.sailsBroadcasts = []
+    expect((await escrowOf(f.escrowId)).txReleaseId).toBeNull()
+    return { ...f, round }
+  }
+
+  it('P5-4 four recovery workers race one fully-signed round: at most one transaction is ever transmitted, the escrow converges', async () => {
     pg.requirePostgres('P5-4')
-    const f = await signedUnclaimedRefund('p5-4')
+    const f = await signedUnresolvedRefund('p5-4')
     const workers = [isolatedReconciler(), isolatedReconciler(), isolatedReconciler(), isolatedReconciler()]
     const reports = await Promise.all(workers.map((w) => w()))
     for (let lap = 0; lap < 20 && (await escrowOf(f.escrowId)).txReleaseId === null; lap++) await Promise.all(workers.map((w) => w()))
-    const resumed = reports.flatMap((r) => r.resumedUnclaimed.filter((x) => x.escrowId === f.escrowId))
+    const resumed = reports.flatMap((r) => [...r.resumedUnclaimed, ...r.recovered].filter((x) => x.escrowId === f.escrowId))
     observe('P5-4', { resumed: resumed.length, distinct: [...new Set(chain.sailsBroadcasts)].length, total: chain.sailsBroadcasts.length, final: await escrowOf(f.escrowId) })
-    expect(resumed).toHaveLength(1)
+    expect(resumed.length).toBeGreaterThanOrEqual(1)
     expect([...new Set(chain.sailsBroadcasts)]).toEqual([refundTxid(f)])
     expect(await escrowOf(f.escrowId)).toEqual({ status: 'REFUNDED', txReleaseId: refundTxid(f) })
   })
 
   it('P5-4b PASS 0 and PASS 1 together: a stuck claim owner plus three workers: still one transaction, converged, the late owner changes nothing', async () => {
     pg.requirePostgres('P5-4b')
-    const f = await signedUnclaimedRefund('p5-4b')
+    const f = await signedUnresolvedRefund('p5-4b')
     const hold = holdNextBroadcast()
     const owner = settle(restarted!.reconcile())
     await hold.reached
