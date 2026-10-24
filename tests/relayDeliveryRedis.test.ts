@@ -29,6 +29,33 @@ class MockRedis extends EventEmitter {
 }
 
 describe('Redis relay delivery transport with independent provider instances', () => {
+  it('does not revive a transport closed while Redis subscription is pending', async () => {
+    const bus = new RedisBus()
+    const subscriber = new MockRedis(bus)
+    const originalSubscribe = subscriber.subscribe.bind(subscriber)
+    let finishSubscription!: () => void
+    jest.spyOn(subscriber, 'subscribe').mockImplementation(async channel => {
+      await new Promise<void>(resolve => { finishSubscription = resolve })
+      return originalSubscribe(channel)
+    })
+    const transport = new RedisRelayDeliveryTransport(
+      new MockRedis(bus) as never, subscriber as never,
+      'sails:relay:delivery:closing', new WebSocketRelayTransportProvider(),
+    )
+    const starting = transport.start()
+    const closing = transport.close()
+    finishSubscription()
+    await Promise.all([starting, closing])
+    expect(await transport.deliver('sails:relay:delivery:missing', {
+      destinationParticipantId: 'bob',
+      destinationLeaseToken: randomUUID(),
+      deadlineMs: Date.now() + 2500,
+      payload: 'never-publish',
+    })).toBe(false)
+    await expect(transport.start()).rejects.toThrow('relay transport is closed')
+    expect(bus.publish('sails:relay:delivery:closing', 'ignored')).toBe(0)
+  })
+
   it('contains destination send rejection without acknowledging success', async () => {
     const bus = new RedisBus()
     const destinationProvider = new WebSocketRelayTransportProvider()
