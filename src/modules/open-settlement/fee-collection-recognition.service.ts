@@ -79,15 +79,21 @@ export class FeeCollectionRecognitionService {
    * real, non-waived Sails output was actually constructed.
    */
   async recordBroadcastAndAdvance(feeObligationId: string, evidence: BroadcastEvidenceInput): Promise<void> {
-    await this.evidenceRepo.record({
-      feeObligationId,
-      kind: 'BROADCAST',
-      txid: evidence.txid,
-      vout: evidence.vout,
-      scriptPubKey: evidence.scriptPubKey,
-      amount: new Prisma.Decimal(evidence.amountSats).dividedBy(1e8),
+    // Day-0 #245 — BROADCAST evidence and the lifecycle claim are one
+    // crash-consistent fact. If the CAS loses a concurrent race, throwing
+    // rolls this transaction's evidence insert back as well; no orphaned
+    // BROADCAST row can survive while the obligation is still PENDING.
+    await this.runInTransaction(async (tx) => {
+      await this.evidenceRepo.record({
+        feeObligationId,
+        kind: 'BROADCAST',
+        txid: evidence.txid,
+        vout: evidence.vout,
+        scriptPubKey: evidence.scriptPubKey,
+        amount: new Prisma.Decimal(evidence.amountSats).dividedBy(1e8),
+      }, tx)
+      await this.obligationService.transitionCollectionStatus(feeObligationId, 'PENDING_COLLECTION', 'IN_PROGRESS', tx)
     })
-    await this.obligationService.transitionCollectionStatus(feeObligationId, 'PENDING_COLLECTION', 'IN_PROGRESS')
   }
 
   /**
