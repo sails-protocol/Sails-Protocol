@@ -57,3 +57,11 @@ PR #524 correctly refuses to roll `FUNDS_LOCKED` back to `CREATED` once `txLockI
 **Rollout gates:** first prove baseline failure in isolated PG; then approve additive schema + migration and rollback compatibility; next add negative tests for unknown outpoint, stale chain observation, concurrent reorg, duplicate recovery worker, process restart, and event replay. No release gate until those tests pass on an exact SHA.
 
 **Known nuance:** A pre-provider marker with `status=FUNDS_LOCKED` but no `txLockId` can be a claimed in-flight operation, not confirmed funding. Never infer a settled lock from status or marker alone.
+
+## Additional code-audit finding — sweep cannot self-heal missing baseline
+
+`multisig-funding-reorg-sweep.ts` already uses `withEscrowFundingLock()` to serialize its evidence read/write against lifecycle transitions. **However, when `listForEscrow()` returns no rows, the sweep explicitly pushes the escrow into `skippedNoBaseline` and returns without appending anything.** This behavior correctly avoids fabricating history for legacy escrows, but also means a modern partial-write escrow with `txLockId` and no evidence cannot be recovered by simply waiting for the existing sweep.
+
+**Implementation implication:** introduce an explicit modern funding-obligation/provenance discriminator before changing the sweep; the new repair path must not reinterpret `skippedNoBaseline` globally. Preserve the current legacy skip and add an independently verified, lock-serialized recovery for positively marked modern escrows only.
+
+**New negative acceptance case:** inject evidence append failure after durable `txLockId`; run existing sweep and assert it reports `skippedNoBaseline` (baseline behavior); run proposed recovery without valid chain proof and assert no synthetic `OBSERVED_CONFIRMED`; only after independently valid confirmation and locked tail recheck may the new recovery append a row. A concurrent reorg invalidation must not be superseded by stale recovery proof.
