@@ -1388,6 +1388,15 @@ jobs:
           command -v k6 >/dev/null 2>&1 && k6_present=1 || k6_present=0
           test -f load-tests/k6.config.js && config_present=1 || config_present=0
           echo "Independent Intent preflight presence: script=$script_present config=$config_present k6=$k6_present"
+          # Validate direct imports and filesystem context without disclosing paths.
+          test -f load-tests/tests/intent-creation.js && intent_import=1 || intent_import=0
+          test -f load-tests/utils/data-generator.js && generator_import=1 || generator_import=0
+          test -d /tmp && test -w /tmp && temp_writable=1 || temp_writable=0
+          echo "Independent Intent import presence: intent=$intent_import generator=$generator_import tempWritable=$temp_writable"
+          test "$intent_import" -eq 1 && test "$generator_import" -eq 1 && test "$temp_writable" -eq 1 || {
+            echo 'Independent Intent import or temporary-directory prerequisite absent'
+            exit 1
+          }
           test "$script_present" -eq 1 && test "$config_present" -eq 1 && test "$k6_present" -eq 1 || {
             echo 'Independent Intent prerequisite absent; fail closed'
             exit 1
