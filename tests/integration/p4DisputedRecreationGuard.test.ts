@@ -311,6 +311,27 @@ describe('P4 (iii-a) disputed pending re-creation guard - RED specification (rea
       .toEqual({ winners: 1, pendings: 1, schema: 'present', live: 1 })
   })
 
+  // ── R11 / R12 added with the implementation: the window, and the database backstop ──────────────────────────────
+  it('R11 [BEHAVIOR] inside the settle window (just committed), txid unknown, outpoint unspent, same intent: refused with WINDOW - the lost round may still be in flight', async () => {
+    const { o } = await committedThenLost('r11', 'never-sent')
+    const attempt = await settle(recreate(o))
+    expect({ refused: !attempt.ok, cause: attempt.ok ? 'none' : cause(attempt.error), pendings: await pendingCount(o), transmitted: o.ctl.posts })
+      .toEqual({ refused: true, cause: 'WINDOW', pendings: 0, transmitted: [] })
+  })
+
+  it('R12 [INDEX] the database refuses a second LIVE authorization for one dispute generation, and accepts it once the first is superseded', async () => {
+    const { o } = await committedThenLost('r12', 'never-sent')
+    const eda = await prisma.economicDispositionAuthorization.findFirstOrThrow({ where: { escrowId: o.escrowId } })
+    let n = 0
+    const another = () => prisma.economicDispositionAuthorization.create({
+      data: { pendingOperationId: `r12-${Date.now()}-${++n}`, escrowId: eda.escrowId, disputeId: eda.disputeId, appealRound: eda.appealRound, arbiterId: eda.arbiterId, ruling: eda.ruling, operationDigest: 'r12' },
+    })
+    const whileLive = await settle(another())
+    await prisma.economicDispositionAuthorization.update({ where: { id: eda.id }, data: { supersededAt: new Date() } })
+    const afterSupersession = await settle(another())
+    expect({ refusedWhileLive: !whileLive.ok, acceptedAfterSupersession: afterSupersession.ok }).toEqual({ refusedWhileLive: true, acceptedAfterSupersession: true })
+  })
+
   // ── R10 assumption pin (section 5.2) ─────────────────────────────────────────────────────────────────────────────
   it('R10 [ASSUMPTION PIN] two rounds for one disputed escrow both spend only the canonical outpoint and pay only the Outcome\'s destination (and the fee address)', async () => {
     const { o, pending } = await committedThenLost('r10', 'never-sent')
