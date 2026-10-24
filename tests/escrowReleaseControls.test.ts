@@ -506,64 +506,39 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
     // settlement.escrow.locked (the event handlers.ts's Intent
     // COMMITTED transition reacts to) — a provider failure must never
     // leave a half-locked escrow or a falsely-COMMITTED Intent behind.
-    it('a provider lock failure leaves the escrow unpersisted and never emits settlement.escrow.locked', async () => {
+    it('an ambiguous provider lock failure preserves the claim and emits no success event', async () => {
       jest.clearAllMocks()
-      // mockEscrow must be off here — otherwise getProvider() always
-      // short-circuits to the harmless MOCK provider regardless of
-      // escrow.type, and this test would never actually exercise
-      // LightningHodlProvider's failure path.
       mockEscrowFeatureFlag = false
       mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-      // LIGHTNING_HODL's provider (lightning-hodl.provider.ts, real since
-      // the Arkade build) reliably throws with no ARKADE_SEED configured
-      // (this file's config mock leaves it empty) — real, already-existing
-      // behavior, reused here rather than fabricating a new failure mode.
       mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, type: 'LIGHTNING_HODL', status: 'CREATED' })
 
-      await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow(/requires a submitted buyer pubkey/)
-
-      // Robustness-audit fix (2026-07-20): lockFunds() now claims
-      // FUNDS_LOCKED atomically *before* calling the provider, so a
-      // failed provider call does leave one update() call behind — the
-      // revert back to the original status (escrow.service.ts's own
-      // catch block), not a leftover lock. "Unpersisted" means no lock
-      // *fields* (txLockId/multisigAddr/lockedAt/expiresAt) were ever
-      // set, not "update() was never called" — checked precisely below.
-      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'CREATED' } })
-      expect(eventBus.emit).not.toHaveBeenCalledWith('settlement.escrow.locked', expect.anything(), expect.anything())
+      await expect(escrowService.lockFunds('escrow-1', 'seller-1'))
+        .rejects.toThrow(/Funding outcome UNKNOWN/)
+      // A provider exception is not authoritative evidence that no funding
+      // happened. Do not roll the FUNDS_LOCKED claim back for a retry.
+      expect(mockEscrowUpdateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: 'CREATED' } }),
+      )
+      expect(eventBus.emit).not.toHaveBeenCalledWith(
+        'settlement.escrow.locked', expect.anything(), expect.anything(),
+      )
     })
 
-    // Security-validation round (2026-07-19, "settlement falhando / retry
-    // seguro" scenario): the test above proves a failed lock leaves
-    // nothing persisted — this one proves the OTHER half of "safe retry":
-    // the same escrow row is still in a state where a corrected attempt
-    // (here: the operator fixes the escrow's type, the real-world
-    // equivalent of retrying against a working provider) goes through
-    // cleanly via the exact same code path, no leftover half-locked state
-    // from the failed attempt getting in the way.
-    it('a failed lock leaves the escrow retry-safe — a subsequent attempt on the same row succeeds cleanly', async () => {
+    it('refuses a blind retry after an ambiguous provider funding failure', async () => {
       jest.clearAllMocks()
       mockEscrowFeatureFlag = false
       mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
       mockEscrowFindUnique.mockResolvedValueOnce({ ...baseEscrow, type: 'LIGHTNING_HODL', status: 'CREATED' })
 
-      await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow(/requires a submitted buyer pubkey/)
+      await expect(escrowService.lockFunds('escrow-1', 'seller-1'))
+        .rejects.toThrow(/Funding outcome UNKNOWN/)
 
-      // Retry: same escrow id, still status CREATED (never advanced), now
-      // routed through a working provider — mockEscrow back on, matching
-      // an operator retrying with the config actually fixed.
+      // Simulate the claimed status on the next read. A second attempt
+      // must fail before calling the provider, even if configuration changed.
       mockEscrowFeatureFlag = true
-      mockEscrowFindUnique.mockResolvedValueOnce({ ...baseEscrow, type: 'MOCK', status: 'CREATED' })
-      mockEscrowUpdate.mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED' })
-
-      const result = await escrowService.lockFunds('escrow-1', 'seller-1')
-
-      expect(result.status).toBe('FUNDS_LOCKED')
-      // 2, not 1: the failed first attempt above already contributed one
-      // update() call (the revert-back-to-CREATED — see the previous
-      // test's identical comment), and this successful retry contributes
-      // its own field-fill update() — both real, both expected.
-      expect(mockEscrowUpdate).toHaveBeenCalledTimes(1)
+      mockEscrowFindUnique.mockResolvedValueOnce({ ...baseEscrow, type: 'MOCK', status: 'FUNDS_LOCKED' })
+      await expect(escrowService.lockFunds('escrow-1', 'seller-1')).rejects.toThrow()
+      expect(mockEscrowUpdate).not.toHaveBeenCalled()
     })
   })
 
