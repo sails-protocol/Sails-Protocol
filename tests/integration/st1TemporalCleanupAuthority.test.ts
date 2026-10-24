@@ -1435,6 +1435,173 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
     })).toBeNull()
   })
 
+  it('V3-E3b an EDA-committed missing pending cannot be recreated by direct disputed dispatch', async () => {
+    const o = await openedDispute('v3-eda-direct-dispatch-guard')
+    const pending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await authorizeDisputedPendingExecution(pending)
+    const durable = await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+      where: { pendingOperationId: pending.id },
+    })
+    const originalOutcome = await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })
+    // Fault injection: the committed EDA survives even if the pending row is lost.
+    await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } })
+    await expect(escrowService.initiateRelease(
+      o.escrowId, o.buyerDestination, o.arbiterId,
+    )).rejects.toThrow()
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(0)
+    expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+      where: { pendingOperationId: pending.id },
+    })).toEqual(durable)
+    expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })).toEqual(originalOutcome)
+  })
+
+  it('V3-E3c C4 preflight loses the race to committed EDA and cannot recreate pending', async () => {
+    const o = await openedDispute('v3-eda-c4-check-use-race')
+    const originalPending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    const ruling = await disputeOf(o)
+    const outcome = await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })
+    await prisma.escrowPendingTransaction.delete({ where: { id: originalPending.id } })
+    expect(await edaCount(o)).toBe(0)
+
+    let entered!: () => void
+    const atDispatch = new Promise<void>((resolve) => { entered = resolve })
+    let resume!: () => void
+    const resumed = new Promise<void>((resolve) => { resume = resolve })
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    let targetAttempts = 0
+    const spy = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      if (args[0] !== o.escrowId) return (realInitiate as (...a: unknown[]) => Promise<any>)(...args)
+      targetAttempts++
+      entered()
+      await resumed
+      return (realInitiate as (...a: unknown[]) => Promise<any>)(...args)
+    })
+    let report: any
+    try {
+      // Production C4 has passed its external EDA preflight and is paused
+      // immediately before production dispatch. A competing writer now commits
+      // the economic authorization, then loses the pending (fault injection).
+      const sweep = reconcileMissingDispatch(100)
+      await atDispatch
+      const competingPending = await (realInitiate as (...a: unknown[]) => Promise<any>)(
+        o.escrowId, o.buyerDestination, o.arbiterId,
+      )
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({
+        where: { escrowId: o.escrowId },
+      })
+      expect(competingPending).toBeDefined()
+      await authorizeDisputedPendingExecution(pending)
+      const durable = await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+        where: { pendingOperationId: pending.id },
+      })
+      await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } })
+      resume()
+      report = await sweep
+      expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+        where: { pendingOperationId: pending.id },
+      })).toEqual(durable)
+    } finally {
+      resume()
+      spy.mockRestore()
+    }
+    expect(targetAttempts).toBe(1)
+    expect(report.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(0)
+    expect(await edaCount(o)).toBe(1)
+    expect(await disputeOf(o)).toMatchObject({
+      status: ruling.status, ruling: ruling.ruling, authoritySignature: ruling.authoritySignature,
+    })
+    expect(await prisma.semanticTransitionRecord.findFirstOrThrow({
+      where: { interactionId: o.escrowId, transitionType: 'escrow.dispute.rule' },
+    })).toEqual(outcome)
+  })
+
+  it('V3-E3d disputed dispatch waits on D before writing pending, then honors committed EDA', async () => {
+    const o = await openedDispute('v3-eda-d-lock-first')
+    const originalPending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await prisma.escrowPendingTransaction.delete({ where: { id: originalPending.id } })
+    const releaseD = await holdD(o)
+    const beforeWaiters = await waitingOnAdvisoryLocks()
+    const dispatch = escrowService.initiateRelease(o.escrowId, o.buyerDestination, o.arbiterId)
+    try {
+      await untilWaiting(beforeWaiters + 1)
+      // The production dispatch cannot persist while another transaction holds D.
+      expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(0)
+    } finally {
+      await releaseD()
+    }
+    await dispatch
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({
+      where: { escrowId: o.escrowId },
+    })
+    await authorizeDisputedPendingExecution(pending)
+    expect(await edaCount(o)).toBe(1)
+    await expect(escrowService.initiateRelease(
+      o.escrowId, o.buyerDestination, o.arbiterId,
+    )).rejects.toThrow()
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+  })
+
+  it('V3-E3e C4-first pending is bound by EDA while replay remains excluded', async () => {
+    const o = await openedDispute('v3-eda-c4-first-bound')
+    const originalPending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)
+    await prisma.escrowPendingTransaction.delete({ where: { id: originalPending.id } })
+    expect(await edaCount(o)).toBe(0)
+
+    let entered!: () => void
+    const atDispatch = new Promise<void>((resolve) => { entered = resolve })
+    let resume!: () => void
+    const resumed = new Promise<void>((resolve) => { resume = resolve })
+    const realInitiate = escrowService.initiateRelease.bind(escrowService)
+    let attempts = 0
+    const spy = jest.spyOn(escrowService, 'initiateRelease').mockImplementation(async (...args: unknown[]) => {
+      if (args[0] !== o.escrowId) return (realInitiate as (...a: unknown[]) => Promise<any>)(...args)
+      attempts++
+      const result = await (realInitiate as (...a: unknown[]) => Promise<any>)(...args)
+      entered()
+      await resumed
+      return result
+    })
+    let report: any
+    try {
+      const sweep = reconcileMissingDispatch(100)
+      await atDispatch
+      // C4 has already committed the pending via the production dispatch.
+      // EDA must bind to that exact pending, not synthesize another operation.
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({
+        where: { escrowId: o.escrowId },
+      })
+      expect(await edaCount(o)).toBe(0)
+      await authorizeDisputedPendingExecution(pending)
+      const durable = await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+        where: { pendingOperationId: pending.id },
+      })
+      expect(durable.pendingOperationId).toBe(pending.id)
+      resume()
+      report = await sweep
+      expect(await prisma.economicDispositionAuthorization.findUniqueOrThrow({
+        where: { pendingOperationId: pending.id },
+      })).toEqual(durable)
+    } finally {
+      resume()
+      spy.mockRestore()
+    }
+    expect(attempts).toBe(1)
+    expect(report.claimed).toContain(o.escrowId)
+    expect(report.resumed).toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: o.escrowId } })).toBe(1)
+    expect(await edaCount(o)).toBe(1)
+    const replay = await reconcileMissingDispatch(100)
+    expect(replay.claimed).not.toContain(o.escrowId)
+    expect(replay.resumed).not.toContainEqual(expect.objectContaining({ escrowId: o.escrowId }))
+  })
+
   it('V3-E4 C4 initiates target once, commits EDA for that pending and excludes replay', async () => {
     const o = await openedDispute('v3-eda-after-claim')
     const originalPending = await rule(o, getDisputeService(), 'RELEASE', o.arbiterId, arbiterKp)

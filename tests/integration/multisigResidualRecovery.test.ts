@@ -204,6 +204,19 @@ describe('#235 R7G F8A — MULTISIG residual value recovery (real PostgreSQL, re
     return { t, e, buyer, seller, stranger, keys, addr }
   }
   type Fx = Awaited<ReturnType<typeof addressed>>
+  /**
+   * The residual preflight reads EVERY MULTISIG escrow in the database, one explorer observation each, serially
+   * (scripts/multisig-residual-preflight.ts), so its duration grows with whatever earlier suites left in a shared
+   * database. Measured: ~14 s per PREFLIGHT test on an empty database, 62-68 s after two heavy suites (128 MULTISIG
+   * escrows), and in CI the whole file took 303 s, then 351 s at the last green run - two tests against a 180 s limit.
+   * The assertions of the two preflight tests concern only the escrows they create, so the scan is bounded to those
+   * through the script's own `observe` seam. Classification logic, assertions and the timeout are unchanged; escrows
+   * outside the set are simply not observed (their classification is not asserted anywhere).
+   */
+  const observeOnly = (tradeIds: string[]) => async (input: { tradeId: string }) =>
+    tradeIds.includes(input.tradeId)
+      ? require('../../src/modules/open-settlement/multisig.provider').multisigProvider.observeScriptOutputs(input)
+      : []
   async function locked(label: string) {
     const f = await addressed(label)
     const funding = deposit(f.addr, FUNDING)
@@ -554,13 +567,14 @@ describe('#235 R7G F8A — MULTISIG residual value recovery (real PostgreSQL, re
     const snapshot = async () => JSON.stringify(await prisma.escrow.findMany({ where: { id: { in: [clean.e.id, stray.e.id, late.e.id] } }, orderBy: { id: 'asc' } }))
     const before = await snapshot()
     const recoveriesBefore = await prisma.escrowResidualRecovery.count()
-    const report = await runMultisigResidualPreflight(process.env.DATABASE_URL)
+    const own = observeOnly([clean.e.tradeId, stray.e.tradeId, late.e.tradeId])
+    const report = await runMultisigResidualPreflight(process.env.DATABASE_URL, own)
     const of = (id: string) => report.results.find((r: any) => r.escrowId === id)
     expect(of(clean.e.id).classification).toBe('SAFE')
     expect([of(stray.e.id).classification, of(stray.e.id).findings.map((x: any) => x.kind).sort()]).toEqual(['REVIEW_REQUIRED', ['ADDRESSED_CREATED_HOLDS_VALUE', 'RESIDUAL_VALUE']])
     expect([of(late.e.id).classification, of(late.e.id).findings.map((x: any) => x.kind)]).toEqual(['REVIEW_REQUIRED', ['RESIDUAL_VALUE']])
     outage = true
-    const down = await runMultisigResidualPreflight(process.env.DATABASE_URL)
+    const down = await runMultisigResidualPreflight(process.env.DATABASE_URL, own)
     outage = false
     expect(down.results.find((r: any) => r.escrowId === clean.e.id).classification).toBe('UNVERIFIABLE') // never SAFE without evidence
     expect([await snapshot(), await prisma.escrowResidualRecovery.count()]).toEqual([before, recoveriesBefore])
@@ -703,7 +717,8 @@ describe('#235 R7G F8A — MULTISIG residual value recovery (real PostgreSQL, re
     const snapshot = async () => JSON.stringify([await prisma.escrow.findMany({ where: { id: { in: ids } }, orderBy: { id: 'asc' } }), await prisma.escrowResidualRecovery.count()])
     const before = await snapshot()
 
-    const report = await runMultisigResidualPreflight(process.env.DATABASE_URL)
+    const own = observeOnly([modern.e.tradeId, legacy.e.tradeId])
+    const report = await runMultisigResidualPreflight(process.env.DATABASE_URL, own)
     const of = (r: any, id: string) => r.results.find((x: any) => x.escrowId === id)
     const finding = of(report, legacy.e.id).findings.find((x: any) => x.kind === 'CANONICAL_OUTPOINT_VOUT_UNKNOWN')
     expect(of(report, legacy.e.id).classification).toBe('REVIEW_REQUIRED')
@@ -717,7 +732,7 @@ describe('#235 R7G F8A — MULTISIG residual value recovery (real PostgreSQL, re
 
     // an explorer outage never turns the null-vout row into SAFE (or merely UNVERIFIABLE)
     outage = true
-    const down = await runMultisigResidualPreflight(process.env.DATABASE_URL)
+    const down = await runMultisigResidualPreflight(process.env.DATABASE_URL, own)
     outage = false
     expect([of(down, legacy.e.id).classification, of(down, legacy.e.id).findings.map((x: any) => x.kind).sort()])
       .toEqual(['REVIEW_REQUIRED', ['CANONICAL_OUTPOINT_VOUT_UNKNOWN', 'EXPLORER_UNAVAILABLE']])
