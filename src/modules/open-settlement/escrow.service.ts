@@ -773,11 +773,11 @@ export class EscrowService {
       // A provider that returned success may have moved real funds. A failed DB commit
       // must NOT reopen CREATED for a second broadcast; retain the claimed status
       // for explicit reconciliation against the chain/provider.
-      // A DB unique-outpoint collision proves THIS escrow did not acquire the
-      // already-owned outpoint. Preserve the historical retryable CREATED state
-      // for this specific rejected claim; unknown provider outcomes stay locked.
-      const outpointAlreadyClaimed = err instanceof EscrowError && err.message.includes('is already claimed by another escrow')
-      if (!providerReturned || outpointAlreadyClaimed) await revertEscrowStatus(escrowId, 'FUNDS_LOCKED', escrow.status, err)
+      // An outpoint uniqueness conflict only proves that the database refused
+      // this claim. It does NOT prove that the provider performed no external
+      // side effect. Keep the claim fenced after any returned provider result.
+      // Fail closed until an explicit provider/chain reconciliation resolves it.
+      if (!providerReturned) await revertEscrowStatus(escrowId, 'FUNDS_LOCKED', escrow.status, err)
       throw err
     }
   }
