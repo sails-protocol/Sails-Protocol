@@ -40,6 +40,20 @@ function requiredPositiveInt(name: string, fallback: number): number {
   return parsed
 }
 
+function requiredFiniteNumber(name: string, fallback: number, validate: (value: number) => boolean, expectation: string): number {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  const parsed = Number(raw)
+  if (raw.trim() === '' || !Number.isFinite(parsed) || !validate(parsed)) {
+    throw new Error(`Invalid ${name}: must be ${expectation}, got: ${raw}`)
+  }
+  return parsed
+}
+
+function requiredStrictPositiveInt(name: string, fallback: number): number {
+  return requiredFiniteNumber(name, fallback, (value) => Number.isInteger(value) && value > 0, 'a positive integer')
+}
+
 // Missão 11 Fase 8.1 LB-03 — NODE_ENV used to be a bare `=== 'production'`
 // string comparison with no validation of anything else. Every fail-closed
 // guard in this file (RT-001, ENFORCE_CAPABILITIES, DATABASE_URL/REDIS_URL
@@ -471,7 +485,7 @@ export const config = {
     // How often the RFC-021 D8 sweeper (when enabled) checks for
     // AUTO_PROPOSED disputes past their contest deadline. Same 5-minute
     // default as the escrow sweeper above, same reasoning.
-    disputeAutoResolutionSweepIntervalMs: requiredInt('DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS', 300000),
+    disputeAutoResolutionSweepIntervalMs: requiredStrictPositiveInt('DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS', 300000),
     // How often the Fase 5 confirmation sweeper (when enabled) checks
     // IN_PROGRESS MULTISIG fee obligations against the chain. Same
     // 5-minute default as the other two sweepers — confirmation depth
@@ -588,10 +602,20 @@ export const config = {
     // proposed — anything lower falls straight through to the human
     // arbiter, unchanged. Starting conservative (high bar), tunable per
     // deployment as real-world calibration data accumulates.
-    qvacAutoResolutionConfidenceThreshold: parseFloat(process.env.QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD ?? '0.85'),
-    // How long either trade party has to contest a proposed automated
-    // ruling before sweepExpiredAutoResolutions() applies it.
-    qvacAutoResolutionWindowHours: parseFloat(process.env.QVAC_AUTO_RESOLUTION_WINDOW_HOURS ?? '24'),
+    qvacAutoResolutionConfidenceThreshold: requiredFiniteNumber(
+      'QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD',
+      0.85,
+      (value) => value >= 0 && value <= 1,
+      'a finite number in the range [0, 1]'
+    ),
+    // How long either trade party has to contest a proposed advisory ruling
+    // before sweepExpiredAutoResolutions() returns it to human review.
+    qvacAutoResolutionWindowHours: requiredFiniteNumber(
+      'QVAC_AUTO_RESOLUTION_WINDOW_HOURS',
+      24,
+      (value) => value > 0,
+      'a finite number greater than 0'
+    ),
   },
 
   // WDK_USDT_EVM SettlementProvider (wdk-settlement.provider.ts) — real
