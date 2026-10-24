@@ -58,6 +58,14 @@ describe('P4 escrow rollback serialization contract', () => {
     })
   })
 
+  it('guards funding rollback against an already persisted txLockId', async () => {
+    await escrowRepository.revertStatus('escrow-p4', 'FUNDS_LOCKED', 'CREATED')
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 'escrow-p4', status: 'FUNDS_LOCKED', txLockId: null },
+      data: { status: 'CREATED' },
+    })
+  })
+
   it('propagates database failure instead of reporting a successful revert', async () => {
     updateMany.mockRejectedValueOnce(new Error('rollback failed'))
     await expect(escrowRepository.revertStatus('escrow-p4', 'COMPLETED', 'FUNDS_LOCKED'))
