@@ -41,3 +41,19 @@ PR #524 correctly refuses to roll `FUNDS_LOCKED` back to `CREATED` once `txLockI
 ## Decision
 
 **YELLOW** for a safe design and test plan; **RED** for automatic repair or production until the above invariants are proved. PR #524 CI green covers rollback guard only, not full reconciliation.
+
+## Schema and write-order decision record — 2026-10-24
+
+**Observed in source:** `Escrow.txLockId` and `txLockVout` already exist; `EscrowFundingEvidence` has a separate append-only table and `recordedAt`. `lockFunds()` first calls `updateLockResult()`, then `record()`, then `emitEscrowTransition()`. No transaction joins these three writes. `isFundingUncertain()` returns false on an empty evidence log for compatibility.
+
+**Candidate A — versioned obligation marker:** an additive nullable marker (for example `fundingEvidenceRequiredVersion`) on Escrow, written *before* invoking the provider for MULTISIG only. NULL means legacy/unclassified, not proof of safety; version 1 means this escrow must have durable funding evidence before sensitive transitions. Marker must be immutable once set, protected by DB constraints or trigger. This is a proposal, not a migration approval.
+
+**Critical sequencing:** If the marker is written after `updateLockResult()`, a crash between the writes reproduces the undetectable hole. The marker must therefore be durable before provider side effects. A marker alone is insufficient for `FUNDS_LOCKED` claims that never reached external confirmation: verification must distinguish `PENDING_EXTERNAL`, `CONFIRMED`, and `UNKNOWN` using independently observed chain truth.
+
+**Candidate B — atomic evidence/result commit:** where the provider already returned independently verifiable funding proof, move the Escrow result update and append-only evidence insert into one per-escrow database transaction. This eliminates the current gap between these two writes for new calls, but does not repair previously interrupted escrows, prevent a crash after the provider side effect but before either write, or guarantee event delivery. It therefore complements, rather than replaces, durable provenance and a recovery worker.
+
+**Event delivery:** record a stable event key in a transactional outbox in the same transaction as the accepted state; consumers must deduplicate. Publishing directly after commit without a durable outbox leaves a second crash window. Do not re-emit legacy events speculatively.
+
+**Rollout gates:** first prove baseline failure in isolated PG; then approve additive schema + migration and rollback compatibility; next add negative tests for unknown outpoint, stale chain observation, concurrent reorg, duplicate recovery worker, process restart, and event replay. No release gate until those tests pass on an exact SHA.
+
+**Known nuance:** A pre-provider marker with `status=FUNDS_LOCKED` but no `txLockId` can be a claimed in-flight operation, not confirmed funding. Never infer a settled lock from status or marker alone.
