@@ -455,7 +455,8 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     const fixture = await locked('funding-no-baseline-sweep', true)
     const { sweepMultisigFundingReorgs } = require('../../src/modules/open-settlement/multisig-funding-reorg-sweep')
     const report = await sweepMultisigFundingReorgs()
-    expect(report.skippedNoBaseline).toContain(fixture.escrowId)
+    // No persisted outpoint means the legacy baseline sweep cannot discover this claim.
+    expect(report.skippedNoBaseline).not.toContain(fixture.escrowId)
     const escrow = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
     expect(escrow.status).toBe('FUNDS_LOCKED')
     expect(escrow.txLockId).toBeNull()
