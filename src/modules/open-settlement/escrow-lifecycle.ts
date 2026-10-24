@@ -440,7 +440,7 @@ export async function revertEscrowStatus(escrowId: string, claimedStatus: string
   try {
     const reverted = await escrowRepository.revertStatus(escrowId, claimedStatus, fromStatus)
     if (reverted === 0) {
-      lifecycleLog.warn({ msg: 'Claim revert matched nothing - the escrow no longer holds the claimed state (already converged or reverted); nothing changed', ...context })
+      lifecycleLog.warn({ msg: 'Claim revert matched nothing - state changed, already converged, or durable funding prevents compensation; reconciliation may be required', ...context })
     }
   } catch (revertErr) {
     lifecycleLog.error({
