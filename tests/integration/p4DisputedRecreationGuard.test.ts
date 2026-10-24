@@ -64,6 +64,7 @@ describe('P4 (iii-a) disputed pending re-creation guard - RED specification (rea
   const sellerKey = keyOf('seller')
   let realFetch: typeof fetch
   let seq = 0
+  const createdEscrowIds: string[] = []
 
   beforeAll(async () => {
     process.env.MOCK_ESCROW = 'false'
@@ -96,6 +97,12 @@ describe('P4 (iii-a) disputed pending re-creation guard - RED specification (rea
   afterAll(async () => {
     delete process.env[SETTLE_WINDOW_ENV]
     if (dbAvailable) {
+      // The "lost pending" scenarios leave exactly the state PASS 0b exists to find (a DISPUTED escrow with a live
+      // authorization and no pending operation). Left in a shared database it is a recovery candidate for every later
+      // suite - one that asserts a global reconciliation report under a permissive explorer mock sees it (reproduced:
+      // signatureCollectionRestartConvergence after this file). Remove this suite's authorizations and rounds.
+      await prisma.economicDispositionAuthorization.deleteMany({ where: { escrowId: { in: createdEscrowIds } } })
+      await prisma.escrowPendingTransaction.deleteMany({ where: { escrowId: { in: createdEscrowIds } } })
       await prisma.$disconnect()
       await closeTestRedis()
     }
@@ -142,6 +149,7 @@ describe('P4 (iii-a) disputed pending re-creation guard - RED specification (rea
     })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
+    createdEscrowIds.push(escrow.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
     await escrowService.submitParticipantKey(escrow.id, buyer.id, pubHex(buyerKey), MULTISIG_CAPABILITY_PROFILE_V1)
     await escrowService.submitParticipantKey(escrow.id, seller.id, pubHex(sellerKey), MULTISIG_CAPABILITY_PROFILE_V1)
