@@ -399,13 +399,13 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     expect(after.txLockVout).toBe(before.txLockVout)
   })
 
-  it('P4 post-persistence failure: real PostgreSQL preserves funded state when evidence recording fails', async () => {
+  it('P4 atomic evidence write: failed insert rolls back outpoint but retains funding claim', async () => {
     if (!dbAvailable) return
     const fixture = await locked('funding-evidence-failure', true)
     const after = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
     expect(after.status).toBe('FUNDS_LOCKED')
-    expect(after.txLockId).toBe(chain.fundingTxid)
-    expect(after.txLockVout).toBe(0)
+    expect(after.txLockId).toBeNull()
+    expect(after.txLockVout).toBeNull()
     const evidence = await prisma.escrowFundingEvidence.findMany({ where: { escrowId: fixture.escrowId } })
     expect(evidence).toHaveLength(0)
     // This is intentionally a partial failure, not a claim of completed recovery.
@@ -419,7 +419,7 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     const escrow = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
     const evidence = await prisma.escrowFundingEvidence.findMany({ where: { escrowId: fixture.escrowId } })
     expect(escrow.status).toBe('FUNDS_LOCKED')
-    expect(escrow.txLockId).toBe(chain.fundingTxid)
+    expect(escrow.txLockId).toBeNull()
     expect(evidence).toHaveLength(0)
     // CHARACTERIZATION, NOT ACCEPTANCE: legacy compatibility treats an empty log as trustworthy.
     // This pins the exact dangerous behavior until modern-vs-legacy provenance can be persisted.
@@ -427,11 +427,11 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     // No automatic repair, no provider re-lock and no synthetic confirmation is attempted.
   })
 
-  it('P4 partial funding persistence: retry refuses before invoking the provider a second time', async () => {
+  it('P4 atomic evidence failure: retry refuses before invoking provider a second time', async () => {
     if (!dbAvailable) return
     const fixture = await locked('funding-evidence-retry-no-rebroadcast', true)
     const before = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
-    expect(before.txLockId).toBe(chain.fundingTxid)
+    expect(before.txLockId).toBeNull()
     expect(before.status).toBe('FUNDS_LOCKED')
 
     const providerSpy = jest.spyOn(multisigProvider, 'lockFunds')
@@ -450,7 +450,7 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     // Characterization only: an explicit verifier/reconciler remains required.
   })
 
-  it('P4 baseline sweep cannot repair an escrow after the evidence insert fails', async () => {
+  it('P4 baseline sweep cannot repair a claimed escrow with rolled-back outpoint', async () => {
     if (!dbAvailable) return
     const fixture = await locked('funding-no-baseline-sweep', true)
     const { sweepMultisigFundingReorgs } = require('../../src/modules/open-settlement/multisig-funding-reorg-sweep')
@@ -458,7 +458,7 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     expect(report.skippedNoBaseline).toContain(fixture.escrowId)
     const escrow = await prisma.escrow.findUniqueOrThrow({ where: { id: fixture.escrowId } })
     expect(escrow.status).toBe('FUNDS_LOCKED')
-    expect(escrow.txLockId).toBe(chain.fundingTxid)
+    expect(escrow.txLockId).toBeNull()
     expect(await prisma.escrowFundingEvidence.count({ where: { escrowId: fixture.escrowId } })).toBe(0)
     // Known gap: legacy-safe skip also skips modern interrupted evidence writes.
     // A future repair path must distinguish provenance and independently verify chain truth.
