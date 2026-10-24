@@ -563,6 +563,9 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       // so each call gets the status it should actually see.
       mockEscrowFindUnique
         .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED', txLockId: 'funding-tx-1', lockedAt: new Date('2026-10-23T12:00:00Z') })
+        // Authoritative funding read inside withEscrowFundingLock().
+        .mockResolvedValueOnce({ txLockId: 'funding-tx-1', lockedAt: new Date('2026-10-23T12:00:00Z') })
+        // Post-claim re-fetch must reflect the transitioned row.
         .mockResolvedValueOnce({ ...baseEscrow, status: 'PAYMENT_PENDING', txLockId: 'funding-tx-1', lockedAt: new Date('2026-10-23T12:00:00Z') })
       const result = await escrowService.markPaymentSent('escrow-1', 'buyer-1')
       expect(result.status).toBe('PAYMENT_PENDING')
