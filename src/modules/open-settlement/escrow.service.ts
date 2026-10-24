@@ -712,7 +712,17 @@ export class EscrowService {
     try {
       prepared = await preparation()
     } catch (err) {
-      await this.repo.revertStatus(escrowId, 'FUNDS_LOCKED', escrow.status)
+      // No provider side effect has begun. Still, a conditional revert can
+      // lose a race or find durable evidence; never report it as successful
+      // unless the guarded update actually restored exactly one row.
+      const reverted = await this.repo.revertStatus(escrowId, 'FUNDS_LOCKED', escrow.status)
+      if (reverted !== 1) {
+        childLogger('escrow-service').error({
+          msg: 'P4: pre-provider funding rollback not confirmed; reconciliation required',
+          escrowId, reverted, preparationError: err instanceof Error ? err.message : String(err),
+        })
+        throw new EscrowError(`Funding preparation rollback not confirmed for escrow ${escrowId}; reconciliation required`)
+      }
       throw err
     }
 
