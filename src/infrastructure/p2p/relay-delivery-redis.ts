@@ -45,7 +45,11 @@ export class RedisRelayDeliveryTransport {
       }))
       if (receivers < 1) throw new Error('no relay destination subscriber')
     })
-    this.onMessage = (channel, message) => { void this.handleMessage(channel, message) }
+    // Redis emits messages without awaiting listeners. A rejected async handler
+    // must not escape as an unhandled rejection or fabricate a positive ACK.
+    this.onMessage = (channel, message) => {
+      void this.handleMessage(channel, message).catch(() => undefined)
+    }
   }
 
   async start(): Promise<void> {
