@@ -1,0 +1,36 @@
+name: Image security audit
+
+# Independent, periodic re-scan of the shipped images. New advisories appear after a PR is merged, so a
+# green PR run says nothing about next week: this job rebuilds both images from the default branch and
+# runs the same Trivy gate as CI (security/trivy-*.json) against the freshest vulnerability database.
+# It publishes nothing and touches no environment; the report is uploaded as an artifact.
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trivy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the server and migration images
+        run: |
+          docker build --target runtime -t sails-runtime-audit:local .
+          docker build --target migrate -t sails-migrate-audit:local .
+
+      - name: Trivy scan of the server and migration images
+        run: bash ./scripts/trivy-scan-image.sh sails-runtime-audit:local sails-migrate-audit:local trivy-report
+
+      - name: Upload the Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report/
+          if-no-files-found: warn

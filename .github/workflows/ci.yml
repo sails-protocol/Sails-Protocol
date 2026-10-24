@@ -168,6 +168,22 @@ jobs:
           docker run --rm -i --entrypoint node sails-migrate-audit:local - < scripts/image-package-inventory.js > migrate-inventory.tsv
           node scripts/production-image-audit.js npm-audit.json migrate-inventory.tsv scripts/production-image-audit.exceptions.json
 
+      # Trivy over both images (OS packages AND Node packages, wherever they sit in the image, the
+      # base image's bundled npm included). Scanner pinned by digest in security/trivy-scanner.json;
+      # policy in security/trivy-gate.json (observe: reports exactly what WOULD fail, exit 0; enforce:
+      # CRITICAL/HIGH without a formal, expiring exception in security/trivy-exceptions.json fail the
+      # step). The report is uploaded even when the step fails.
+      - name: Trivy scan of the server and migration images
+        run: bash ./scripts/trivy-scan-image.sh sails-runtime-ci:local sails-migrate-audit:local trivy-report
+
+      - name: Upload the Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report/
+          if-no-files-found: warn
+
       # The migration job a release runs BEFORE starting the new server version
       # (docs/DEPLOYMENT.md 6.0), against a throwaway PostgreSQL started by the
       # script itself: applies every migration to an empty database, is
