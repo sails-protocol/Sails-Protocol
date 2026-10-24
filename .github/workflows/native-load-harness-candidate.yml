@@ -1401,7 +1401,7 @@ jobs:
             invalidArgument:/accepts? [0-9]+ arg|requires? (an? )?argument/i.test(log),
             moduleResolution:/could not resolve|unknown module|module not found/i.test(log),
             invalidOptions:/invalid option|invalid configuration/i.test(log),
-            javascript:/GoError|TypeError|ReferenceError|SyntaxError|ERRO\\[/i.test(log),
+            javascript:/GoError|TypeError|ReferenceError|SyntaxError/i.test(log)||log.includes('ERRO['),
             executable:/no such file|permission denied|exec format/i.test(log),
             missingBaseUrl:/loopback HTTP target/i.test(log)
           };
