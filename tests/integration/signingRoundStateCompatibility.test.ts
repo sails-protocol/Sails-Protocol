@@ -766,6 +766,27 @@ describe('#235 R7G F8C — signing-round / escrow-state authority consistency (r
     return { ...f, round, txid: chain.sailsBroadcasts[0] }
   }
 
+  it('P5-5 provisional funding claim: FUNDS_LOCKED with no durable funding result (a crash between the claim and the provider result) cannot be confirmed as paid', async () => {
+    pg.requirePostgres('P5-5')
+    freshChain()
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)) })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
+    createdEscrowIds.push(escrow.id)
+    await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
+    // exactly the state lockFunds() leaves when the process dies after its atomic claim and before the provider result is persisted
+    const claimed = await settle(prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'FUNDS_LOCKED' } }))
+    observe('P5-5', { claimedProvisionalState: claimed.ok, claimError: claimed.ok ? null : claimed.e.slice(0, 160) })
+    if (!claimed.ok) { expect(claimed.e).toMatch(/./); return }
+    const confirmed = await settle(escrowService.markPaymentSent(escrow.id, buyer.id))
+    const row = await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id }, select: { status: true, txLockId: true } })
+    observe('P5-5', { markPaymentSent: confirmed.ok ? 'ACCEPTED' : confirmed.e.slice(0, 160), row })
+    expect(confirmed.ok).toBe(false)
+    expect(row.status).toBe('FUNDS_LOCKED')
+  })
+
   it('P5-1 expiry: an accepted-but-unacknowledged refund, then the escrow\'s timelock expires: the escrow never ends EXPIRED beside the refund on the network without converging or a visible signal', async () => {
     pg.requirePostgres('P5-1')
     const f = await ambiguousAcceptedRefund('p5-1')
