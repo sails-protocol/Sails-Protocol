@@ -97,6 +97,9 @@ export class RedisRelayDeliveryTransport {
       }
       this.started = true
     } catch (error) {
+      this.started = false
+      this.closing = true
+      this.origin.close()
       this.subscriber.off('message', this.onMessage)
       this.subscriber.off('close', this.onSubscriberClose)
       this.publisher.off('close', this.onPublisherClose)
