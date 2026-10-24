@@ -326,7 +326,7 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
     expect(mockAuthorizeDisputedPendingExecution).toHaveBeenCalledWith(expect.objectContaining({ id: 'pending-1' }))
     expect(mockAuthorizePendingExecution).toHaveBeenCalledWith(expect.objectContaining({ id: 'pending-1' }))
     expect(mockAuthorizeDisputedPendingExecution.mock.invocationCallOrder[0]).toBeLessThan(mockAuthorizePendingExecution.mock.invocationCallOrder[0])
-    expect(mockClaimTransition).toHaveBeenCalledWith('escrow-1', 'DISPUTED', 'COMPLETED')
+    expect(mockClaimTransition).toHaveBeenCalledWith('escrow-1', 'DISPUTED', 'COMPLETED', undefined)
     expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: 'c8-txid-1', releasedAt: expect.any(Date) }, { operation: { pendingOperationId: 'pending-1' } })
     expect(report.resumedUnclaimed).toEqual([{ escrowId: 'escrow-1', txId: 'c8-txid-1', outcome: 'NEWLY_BROADCAST' }])
     expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'RELEASE', undefined, undefined)

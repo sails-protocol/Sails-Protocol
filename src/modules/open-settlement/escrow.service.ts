@@ -692,9 +692,11 @@ export class EscrowService {
       if (current?.status === 'CANCELLED') {
         throw new EscrowError(`Trade ${escrow.tradeId} is CANCELLED: its escrow cannot be locked`)
       }
-      await claimEscrowTransition(escrowId, escrow.status, 'FUNDS_LOCKED')
+      // Use the same transaction as the trade lifecycle lock and cancellation check.
+      await claimEscrowTransition(escrowId, escrow.status, 'FUNDS_LOCKED', undefined, tx)
     })
 
+    let providerReturned = false
     try {
       const provider = getSettlementProvider(escrow.type)
       // MULTISIG/LIGHTNING_HODL need the client-submitted pubkeys
@@ -707,6 +709,7 @@ export class EscrowService {
         : { buyerPubkey: undefined, sellerPubkey: undefined, arbiterPubkey: undefined }
       const result = await provider.lockFunds(providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey, arbiterPubkey }))
 
+      providerReturned = true
       const now = new Date()
       const expiresAt = new Date(now.getTime() + escrow.timelockHours * 3600 * 1000)
 
@@ -727,27 +730,31 @@ export class EscrowService {
       if (escrow.multisigAddr && result.address !== escrow.multisigAddr) {
         throw new EscrowError(`Escrow ${escrowId} was locked at ${result.address}, not at its persisted funding address ${escrow.multisigAddr} — refusing to change it`)
       }
-      const updated = await this.repo.updateLockResult(escrowId, {
-        txLockId: result.txId, txLockVout: result.vout ?? null, multisigAddr: escrow.multisigAddr ?? result.address, lockedAt: now, expiresAt,
-        ...(result.fundedAmount !== undefined ? { fundedAmount: result.fundedAmount } : {}),
-      })
+      const updated = await prisma.$transaction(async (tx) => {
+        const persisted = await this.repo.updateLockResult(escrowId, {
+          txLockId: result.txId, txLockVout: result.vout ?? null,
+          multisigAddr: escrow.multisigAddr ?? result.address, lockedAt: now, expiresAt,
+          ...(result.fundedAmount !== undefined ? { fundedAmount: result.fundedAmount } : {}),
+        }, tx)
 
-      // Missão 11 Fase 9.1 §1 — the durable historical record of "funding
-      // was accepted under evidence X at time T," so a later reorg
-      // sweep (multisig-funding-reorg-sweep.ts) has something concrete to
-      // invalidate/reconfirm against, and so this fact is never lost even
-      // though Escrow.status/txLockId themselves are never retroactively
-      // rewritten. Only meaningful for a provider with a real Bitcoin-style
-      // outpoint (result.vout !== undefined — MULTISIG today); every other
-      // provider has no funding-reorg concept to record.
-      if (result.vout !== undefined) {
-        await escrowFundingEvidenceRepository.record({
-          escrowId, kind: 'OBSERVED_CONFIRMED', txid: result.txId, vout: result.vout,
-          ...(result.fundedAmount !== undefined ? { amountSats: BigInt(Math.round(result.fundedAmount)) } : {}),
-          ...(result.confirmedAtHeight !== undefined ? { observedAtHeight: result.confirmedAtHeight } : {}),
-          ...(result.tipHeightAtObservation !== undefined ? { tipHeightAtObservation: result.tipHeightAtObservation } : {}),
-        })
-      }
+        // Missão 11 Fase 9.1 §1 — the durable historical record of "funding
+        // was accepted under evidence X at time T," so a later reorg
+        // sweep (multisig-funding-reorg-sweep.ts) has something concrete to
+        // invalidate/reconfirm against, and so this fact is never lost even
+        // though Escrow.status/txLockId themselves are never retroactively
+        // rewritten. Only meaningful for a provider with a real Bitcoin-style
+        // outpoint (result.vout !== undefined — MULTISIG today); every other
+        // provider has no funding-reorg concept to record.
+        if (result.vout !== undefined) {
+          await escrowFundingEvidenceRepository.record({
+            escrowId, kind: 'OBSERVED_CONFIRMED', txid: result.txId, vout: result.vout,
+            ...(result.fundedAmount !== undefined ? { amountSats: BigInt(Math.round(result.fundedAmount)) } : {}),
+            ...(result.confirmedAtHeight !== undefined ? { observedAtHeight: result.confirmedAtHeight } : {}),
+            ...(result.tipHeightAtObservation !== undefined ? { tipHeightAtObservation: result.tipHeightAtObservation } : {}),
+          }, tx)
+        }
+        return persisted
+      })
 
       // NOTE: previously this method also called prisma.trade.update(...) to set
       // Trade.status = 'ACTIVE'. That write belonged to OpenP2P, not here. The
@@ -763,7 +770,14 @@ export class EscrowService {
       // block every future lockFunds() attempt via assertEscrowTransition,
       // with no way to retry. Same revert-on-failure idiom
       // dispute.service.ts's resolveDispute() already established.
-      await revertEscrowStatus(escrowId, 'FUNDS_LOCKED', escrow.status, err)
+      // A provider that returned success may have moved real funds. A failed DB commit
+      // must NOT reopen CREATED for a second broadcast; retain the claimed status
+      // for explicit reconciliation against the chain/provider.
+      // An outpoint uniqueness conflict only proves that the database refused
+      // this claim. It does NOT prove that the provider performed no external
+      // side effect. Keep the claim fenced after any returned provider result.
+      // Fail closed until an explicit provider/chain reconciliation resolves it.
+      if (!providerReturned) await revertEscrowStatus(escrowId, 'FUNDS_LOCKED', escrow.status, err)
       throw err
     }
   }

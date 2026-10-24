@@ -175,7 +175,7 @@ export interface EscrowRepository {
    *  fundedAmount (Missão 11 Fase 4) is purely observational — undefined
    *  for legacy escrows and any provider that doesn't report it, keeping
    *  the column NULL exactly as it already is for every existing row. */
-  updateLockResult(escrowId: string, data: { txLockId: string; txLockVout: number | null; multisigAddr: string; lockedAt: Date; expiresAt: Date; fundedAmount?: number }): Promise<EscrowRow>
+  updateLockResult(escrowId: string, data: { txLockId: string; txLockVout: number | null; multisigAddr: string; lockedAt: Date; expiresAt: Date; fundedAmount?: number }, tx?: Prisma.TransactionClient): Promise<EscrowRow>
 
   /** Atomic conditional update — returns the affected-row count (0 = a concurrent caller already transitioned this Escrow).
    *  Optional tx (Missão 11 Fase 9.3) — lets markPaymentSent() run this
@@ -477,9 +477,9 @@ class PrismaEscrowRepository implements EscrowRepository {
     return prisma.escrow.update({ where: { id: escrowId }, data: { multisigAddr } })
   }
 
-  async updateLockResult(escrowId: string, data: { txLockId: string; txLockVout: number | null; multisigAddr: string; lockedAt: Date; expiresAt: Date; fundedAmount?: number }) {
+  async updateLockResult(escrowId: string, data: { txLockId: string; txLockVout: number | null; multisigAddr: string; lockedAt: Date; expiresAt: Date; fundedAmount?: number }, tx?: Prisma.TransactionClient) {
     try {
-      return await prisma.escrow.update({ where: { id: escrowId }, data })
+      return await (tx ?? prisma).escrow.update({ where: { id: escrowId }, data })
     } catch (err: any) {
       // Missão 10 — the @@unique([txLockId, txLockVout]) constraint
       // firing here means another escrow already claimed this exact

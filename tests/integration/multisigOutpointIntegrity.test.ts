@@ -141,13 +141,11 @@ describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
     expect(rejected).toHaveLength(1)
     expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/already claimed/)
 
-    // The losing escrow must NOT be left half-claiming FUNDS_LOCKED with
-    // no real lock behind it (lockFunds()'s existing revert-on-failure
-    // path, exercised here for a NEW failure mode it didn't previously
-    // need to handle).
+    // A provider result preceded the duplicate rejection. Keep FUNDS_LOCKED
+    // so a retry cannot repeat an external operation without reconciliation.
     const loserEscrowId = fulfilled[0].status === 'fulfilled' && (fulfilled[0].value as any).id === a.escrowId ? b.escrowId : a.escrowId
     const loserRow = await prisma.escrow.findUnique({ where: { id: loserEscrowId } })
-    expect(loserRow!.status).toBe('CREATED')
+    expect(loserRow!.status).toBe('FUNDS_LOCKED')
     expect(loserRow!.txLockId).toBeNull()
 
     const winnerEscrowId = loserEscrowId === a.escrowId ? b.escrowId : a.escrowId
@@ -174,6 +172,6 @@ describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
     await expect(escrowService.lockFunds(b.escrowId, b.sellerId)).rejects.toThrow(/already claimed/)
 
     const bRow = await prisma.escrow.findUnique({ where: { id: b.escrowId } })
-    expect(bRow!.status).toBe('CREATED') // reverted, not stuck claiming FUNDS_LOCKED
+    expect(bRow!.status).toBe('FUNDS_LOCKED') // fail closed after provider result
   })
 })
