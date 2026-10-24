@@ -31,6 +31,7 @@ export class RedisRelayDeliveryTransport {
   private readonly origin: RelayDeliveryOrigin
   private readonly onMessage: (channel: string, message: string) => void
   private readonly onSubscriberClose: () => void
+  private readonly onPublisherClose: () => void
 
   constructor(
     private readonly publisher: Redis,
@@ -58,6 +59,16 @@ export class RedisRelayDeliveryTransport {
       this.subscriber.off('message', this.onMessage)
       this.subscriber.off('close', this.onSubscriberClose)
     }
+    // The publishing connection is an independent failure boundary: do not
+    // continue accepting delivery requests after it drops.
+    this.onPublisherClose = () => {
+      this.closing = true
+      this.started = false
+      this.origin.close()
+      this.publisher.off('close', this.onPublisherClose)
+      this.subscriber.off('message', this.onMessage)
+      this.subscriber.off('close', this.onSubscriberClose)
+    }
     this.onMessage = (channel, message) => {
       void this.handleMessage(channel, message).catch(() => undefined)
     }
@@ -72,6 +83,7 @@ export class RedisRelayDeliveryTransport {
   }
 
   private async subscribeOnce(): Promise<void> {
+    this.publisher.on('close', this.onPublisherClose)
     this.subscriber.on('close', this.onSubscriberClose)
     this.subscriber.on('message', this.onMessage)
     try {
@@ -85,6 +97,7 @@ export class RedisRelayDeliveryTransport {
     } catch (error) {
       this.subscriber.off('message', this.onMessage)
       this.subscriber.off('close', this.onSubscriberClose)
+      this.publisher.off('close', this.onPublisherClose)
       throw error
     }
   }
@@ -123,6 +136,7 @@ export class RedisRelayDeliveryTransport {
     this.origin.close()
     this.subscriber.off('message', this.onMessage)
     this.subscriber.off('close', this.onSubscriberClose)
+    this.publisher.off('close', this.onPublisherClose)
     if (this.starting) {
       try { await this.starting } catch { /* subscription failed; no active channel */ }
     }
