@@ -587,8 +587,8 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       // explicitly (not relying on this describe's single-value default)
       // so each call gets the status it should actually see.
       mockEscrowFindUnique
-        .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED' })
-        .mockResolvedValueOnce({ ...baseEscrow, status: 'PAYMENT_PENDING' })
+        .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED', txLockId: 'funding-tx-1', lockedAt: new Date('2026-10-23T12:00:00Z') })
+        .mockResolvedValueOnce({ ...baseEscrow, status: 'PAYMENT_PENDING', txLockId: 'funding-tx-1', lockedAt: new Date('2026-10-23T12:00:00Z') })
       const result = await escrowService.markPaymentSent('escrow-1', 'buyer-1')
       expect(result.status).toBe('PAYMENT_PENDING')
     })
