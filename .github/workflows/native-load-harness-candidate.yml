@@ -1402,6 +1402,11 @@ jobs:
             moduleResolution:/could not resolve|unknown module|module not found/i.test(log),
             invalidOptions:/invalid option|invalid configuration/i.test(log),
             javascript:/GoError|TypeError|ReferenceError|SyntaxError/i.test(log)||log.includes('ERRO['),
+            // Differentiate Go's own runtime/temporary-file errors from
+            // k6 JavaScript module or test-script resolution failures.
+            goRuntime:/runtime\/|goroutine |go: |GOMAXPROCS|GOMEMLIMIT/i.test(log),
+            tempDirectory:/\/tmp\/|temporary directory|tempdir/i.test(log),
+            resourceExhaustion:/too many open files|cannot allocate memory|no space left|resource temporarily unavailable/i.test(log),
             missingFile:/no such file or directory/i.test(log),
             permissionDenied:/permission denied/i.test(log),
             execFormat:/exec format/i.test(log),
