@@ -929,6 +929,15 @@ At inspection, PR #531 remained **OPEN / DRAFT**, head `a1bc05fe315873becf293db4
 
 **Institutional #125:** live issue is OPEN and explicitly owns cross-surface GitHub/Mintlify/GitBook Day-0 truth alignment. PR #531's three-file GitHub documentation patch does **not** independently complete #125's external publication alignment or reviewer acceptance. Keep #125 separate from the bounded CTO continuity handoff.
 
+
+### Post-Master-100 conformance sequencing — issue-comment provenance (2026-10-25)
+
+The latest available comments on live **#125** and **#165** independently carry the founder's **2026-10-08 CTO POST-100 WORKSTREAM** directive: *after Master Backlog 100%*, independently audit whether running Sails implements existing engineering principles. Inputs explicitly named include `docs/engineering/INTELLECTUAL_ENGINEERING_REFERENCES.md`, `docs/ENGINEERING_GOVERNANCE.md`, `docs/SEMANTIC_KERNEL.md`, `docs/SAILS_PROTOCOL_ANATOMY.md`, `docs/PROTOCOL_SPECIFICATION.md` and accepted ADRs. Intellectual inspirations are **not** protocol authority. This is **not** a mandate to start a parallel Claude mission or change the frozen architecture before Master closure. Retain #125 for institutional/document truth and #165 for integration/reality validation; do not open a duplicate epic.
+
+**Strict sequencing distinction:** post-100 *conformance audit* is a separate workstream; already-required Day-0/Partner Beta acceptance criteria in #105/#165 cannot be quietly moved post-launch. Plan now; execute when its stated Master-100 prerequisite is independently satisfied.
+
+**Live PR check before this documentation update:** #531 OPEN/DRAFT, head `a246cbc57505b183847fa14fe05e8943894294e7`; PR-triggered **CI Tests / CI / CodeQL all QUEUED** with no conclusion. No outcome is asserted for the new commit this edit creates.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
