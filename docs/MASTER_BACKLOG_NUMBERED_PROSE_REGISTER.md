@@ -55,3 +55,26 @@ The 40 numbered primary headings are now assigned to nine semantic queues with e
 - Distinguish architecture, design direction, historical closed documentation, accepted implementation and current release blockers. Follow source supersession dates and issue/PR evidence.
 - Extract nested prose clauses, checklist bullets, tables and gates separately before claiming global Master denominator or checklist 8 complete.
 - No BP row has independent gatekeeper acceptance in this extraction. No production, deployment or code change authorized.
+
+## Semantic crosswalk batch 1 — economic commitments, identities and authority (2026-10-25)
+
+**Method:** compare the *meaning* of a BP heading with the corresponding #105 MO source requirement, not a keyword match. The mappings below are **candidate overlaps**, not accepted equivalence, deduplication, implementation evidence or Gatekeeper approval. Preserve narrower BP tests even when a broader MO item owns the domain. The original 40 BP and 54 MO source counts do not change.
+
+| BP source | Candidate #105 owner(s) | Relationship hypothesis | Distinct proof still required |
+| --- | --- | --- | --- |
+| BP-1397 settlement-release signatures | MO-024; MO-033 | PARTIAL DOMAIN OVERLAP: rail-specific custody/signature authority | Exact signer quorum and enforceable release evidence; ADR-001 architectural source is not proof |
+| BP-1405 implementation sequence | MO-001; MO-004–MO-053 | SEQUENCING META / NOT AN ADDITIVE RUNTIME FEATURE | Check accepted ordering and gates; do not turn one sequence heading into 53 extra obligations |
+| BP-1433 economic↔transport identity binding | MO-011; MO-10a | STRONG SUBJECT OVERLAP / PROVISIONAL | Signed identity binding, replay and lifecycle proof remain necessary |
+| BP-1445 persistent node identity | MO-10b; MO-012 | STRONG SUBJECT OVERLAP / PROVISIONAL | Backup, restore, rotation and node continuity; self-host P3-R4 signing identity is NOT VERIFIED |
+| BP-1705 signed rail/network semantics | MO-008; MO-021; MO-024 | PARTIAL MULTI-GATE OVERLAP | Offer signature and trade-open settlement terms are different stages |
+| BP-1716 exact revision/terms + replay | MO-009; MO-021; MO-028 | PARTIAL MULTI-GATE OVERLAP | Tombstone freshness, exact trade commitment and double-commit are distinct predicates |
+| BP-1730 concurrent acceptance | MO-027; MO-028 | STRONG SUBJECT OVERLAP / PROVISIONAL | Inventory reservation and replay rejection under concurrency |
+| BP-1752 fiat obligation + payment destination | MO-021; MO-022; MO-023 | PARTIAL MULTI-GATE OVERLAP | Exact fiat terms, private commitment and authenticated amendments |
+| BP-1766 custody/settlement semantics | MO-024; MO-033 | PARTIAL MULTI-GATE OVERLAP | Pre-commit rail choice and post-dispute funds authority differ |
+| BP-1777 fee/policy commitment | MO-025 | STRONG SUBJECT OVERLAP / PROVISIONAL | Exact fee/policy version and participant acknowledgement |
+| BP-1787 cross-node arbitration | MO-026; MO-031; MO-032; MO-033 | PARTIAL MULTI-GATE OVERLAP | Pre-commit arbiter authority, dispute continuity, liveness and rail disposition each need evidence |
+| BP-1817 public OfferDetail privacy | MO-003 | HISTORICAL REMEDIATION / ACCEPTANCE SEPARATE | PR #117 historical merge evidence exists in MO register; independent partner gate remains pending |
+| BP-1843 partner asset/rail scope | MO-004; MO-005; MO-006; MO-007; MO-049 | PARTIAL SCOPE + ELIGIBILITY OVERLAP | Product freeze does not prove provider eligibility or actual supported rails |
+| BP-2287 quote-currency discoverability | MO-007; MO-008 | CONDITIONAL EXTENSION, NOT AUTOMATIC DUPLICATE | Currency scope and signed envelope are not necessarily discoverability UX/API proof |
+
+**Batch result:** 14 BP source headings routed to 14 semantic hypotheses; **0 accepted merges / 0 closed obligations**. This batch establishes candidate joins only, leaving the other 26 BP headings and all unnumbered/nested source clauses for subsequent adjudication. Existing historical fix claims are not independently revalidated here. Decisions on missing economic/custody behavior remain for post-Master Day-0 planning, while release gates stay blocked until independently satisfied.
