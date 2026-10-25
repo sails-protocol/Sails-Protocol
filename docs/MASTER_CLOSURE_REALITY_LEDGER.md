@@ -818,6 +818,17 @@ Direct source verification of `docs/TECHNICAL_DEBT_AUDIT.md` resolves the previo
 
 **Classification:** `TD #61 — STATIC FIX OBSERVED IN CURRENT DEFAULT-BRANCH CODE; NOT FORMALLY ACCEPTED`. The audit's historical OPEN finding is **not** a valid claim that the original raw-row leak still exists today. **Tests, CI status, exact introducing commit, full mapper field-by-field review, ownership-gated pairwise delivery and independent acceptance remain UNKNOWN.** Do not close the Partner Beta gate on this inspection alone.
 
+
+### TD-AUDIT §61 second technical pass — mapper, ownership and regression tests (2026-10-25)
+
+**Default-branch source inspection, not test execution:**
+
+- `src/modules/open-liquidity/liquidity.service.ts` blob `d35fceee498cd860c20334e734bf7ba2a1b451dc`, **L234–259**: `mapOfferToPublicDetail()` explicitly allowlists top-level offer fields and public seller identity/reputation; no `paymentDetails`, raw `userId`, `moduleId`, `protocolVersion`, `intentType` or `intentId` returned.
+- `src/modules/open-p2p/trade.routes.ts` blob `c77d5c026147d4f17164e95260bcb6b5221132ac`, **L100–109**: trade detail requires `requireAuth` and rejects callers whose authenticated participantId is neither buyer nor seller.
+- `tests/publicOfferDetailDisclosure.test.ts` blob `3d2d4742fb24580835b5c2fe41c3c33993b155d1`: source tests cover public offer privacy (L126–206) and buyer/seller access, nonparty 403, unauthenticated 401 for payment instructions (L227–280). Tests use app injection and mocked persistence, so they are **regression test definitions**, not independent proof of successful execution or real database integration.
+
+**Classification update:** TD #61 has **static code fix + explicit adversarial regression coverage present in default-branch source**. Runtime Jest execution, current GitHub Actions check results, exact introduction/acceptance PR, and real-DB end-to-end evidence **NOT VERIFIED**. No blanket security certification or Partner Beta closure.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
