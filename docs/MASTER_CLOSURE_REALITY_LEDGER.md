@@ -284,3 +284,9 @@ When sources disagree: capture **claim A / claim B / timestamps / normative owne
 - [ ] CTO-reviewed and merged to main (PR #531 remains draft).
 
 **Interpretation:** the continuity contract is documented; the entire Master and release gates are NOT 100% accepted. This distinction is non-negotiable.
+
+## Important correction: #420 versus #500 and release-stage sequencing
+
+The live #420 issue explicitly classifies the incident corpus as a **post-Master / Beta Readiness** workstream. It is therefore not a blanket blocker for the *current bounded Master closure*; it is a later release gate unless a discovered issue independently proves a present Day-0 defect. #500 is a **continuous audit program**, not a finite item whose issue state should be counted as a completion percentage. #105 enumerates 53 launch-oriented obligations in its latest body; that is **not** a verified normalized Master denominator, and many are multi-part or overlap #165. Reconcile scope before counting.
+
+The top-level entrypoint for incoming CTOs is [CTO_START_HERE.md](CTO_START_HERE.md). New CTOs must check this before using historical phase tables or conversation summaries.
