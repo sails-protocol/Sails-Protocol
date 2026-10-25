@@ -29,6 +29,29 @@ class MockRedis extends EventEmitter {
 }
 
 describe('Redis relay delivery transport with independent provider instances', () => {
+  it('does not revive when unsubscribe fails after close during subscription', async () => {
+    const bus = new RedisBus()
+    const subscriber = new MockRedis(bus)
+    const originalSubscribe = subscriber.subscribe.bind(subscriber)
+    let finishSubscription!: () => void
+    jest.spyOn(subscriber, 'subscribe').mockImplementation(async channel => {
+      await new Promise<void>(resolve => { finishSubscription = resolve })
+      return originalSubscribe(channel)
+    })
+    jest.spyOn(subscriber, 'unsubscribe').mockRejectedValue(new Error('Redis unavailable'))
+    const transport = new RedisRelayDeliveryTransport(
+      new MockRedis(bus) as never, subscriber as never,
+      'sails:relay:delivery:unsubscribe_failure', new WebSocketRelayTransportProvider(),
+    )
+    const starting = transport.start()
+    const closing = transport.close()
+    finishSubscription()
+    await starting
+    await expect(closing).rejects.toThrow('Redis unavailable')
+    await expect(transport.start()).rejects.toThrow('relay transport is closed')
+    expect(subscriber.listenerCount('message')).toBe(0)
+  })
+
   it('cleans up a partially registered Redis channel after subscribe rejects', async () => {
     const bus = new RedisBus()
     const subscriber = new MockRedis(bus)
