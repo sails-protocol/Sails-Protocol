@@ -2,6 +2,21 @@
 
 Status: **NOT HOMOLOGATED / BLOCKED**. This document records evidence, not authorization to merge or deploy.
 
+## Parallel investigation lane: Jest worker warning and backplane trust (2026-10-25 UTC)
+
+This lane is **non-blocking to the pending CI run** and is a review checklist, not an implemented or approved production architecture.
+
+**Jest open-handles warning investigation:** The green CI log for `91a1572` includes `A worker process has failed to exit gracefully and has been force exited`. The offending suite or handle has **not** been identified. First reproduce with a scoped diagnostic run of the new Redis process test using `--runInBand --detectOpenHandles`, then compare with the full suite using the same options on an ephemeral CI runner. Capture actual open handles, identify ownership, fix teardown in the responsible test, and rerun the standard parallel CI. Do not assume the new Redis test caused the warning; do not silence Jest, increase timeouts to hide it, or claim resolution based on a passing test alone.
+
+**Backplane trust decision required before production wiring:**
+1. Define authenticated instance identities and a channel ACL that rejects publication/subscription outside the instance's authorized scope. A channel-name regex is **not** authorization.
+2. Define the authoritative participant-to-instance ownership lease, monotonic fencing semantics, expiry and atomic takeover. Local `ownerToken` checks alone are not a distributed directory.
+3. Bind each ACK to a verified destination identity, exact request ID, destination lease/epoch, command digest and bounded validity window; reject replay, cross-instance spoofing and late ACKs. Current Redis Pub/Sub ACK payloads are **not authenticated**.
+4. Specify fail-closed behavior on Redis partition/restart, Redis ACL revocation, instance death, stale subscription and ownership takeover; specify metrics and supervised restart/rollback.
+5. Obtain CISO/privacy and architecture review for WSS ingress, plaintext chat/negotiation risk and HyperDHT fallback parity before enabling any route.
+
+**Evidence required:** threat-model review, independent test cases for spoofed publisher/ACK and replay, outage/restart fault injection, and approval recorded against an exact commit SHA. No new acceptance criteria are marked passed by writing this checklist.
+
 ## False-positive prevention in distributed acceptance (2026-10-25 UTC)
 
 - Audit found that the missing-destination assertion in `tests/relayDeliveryRedis.process.integration.test.ts` was performed **after** the origin publisher disconnected. Its false return therefore could be explained by a permanently closed origin rather than an absent destination subscriber.
