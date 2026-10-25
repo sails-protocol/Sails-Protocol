@@ -37,3 +37,11 @@ Statuses: `OPEN / IMPLEMENTING / EVIDENCE PENDING / ACCEPTED / BLOCKED / DEFERRE
 Read → compare current truth → issue bounded Claude mission → reproduce/review independently → document exact SHA/limits → CTO gate → freeze/merge only when explicitly approved → update canonical issue and ledger → next mission. No shared DB migration, deploy, production or protocol-semantic change by implication.
 
 **Documentation scope acceptance:** this file can be approved independently from the entire Master backlog and from Beta/production gates. Merging PR #531 requires separate CTO review.
+
+## Measured closure of this documentation reconciliation (2026-10-24)
+
+**Baseline:** 6 of 10 acceptance checklist items are documented (60% of this *bounded checklist*, not 60% of Master Backlog or independently approved institutional truth). The ten items and their individual [x]/[ ] states are in [MASTER_CLOSURE_REALITY_LEDGER.md](MASTER_CLOSURE_REALITY_LEDGER.md), section E. This percentage is an **authoring progress indicator only**: checked means recorded, not independently accepted.
+
+**Remaining 4 of 10:** (7) extract/deduplicate all normative prose obligations; (8) cross-check issue comments, PR diffs, code and independent evidence for each obligation; (9) independently reconcile public/developer docs under #125; (10) obtain CTO review and merge #531 to main. These are not equally sized work items; no ETA is supported. No other CTO should convert this into a time-to-completion estimate.
+
+**Suggested gate:** remain YELLOW until 7–9 have inspectable evidence and a reviewer signs off; move to GREEN for *institutional continuity documentation only* after 10 is approved and the merged main content is verified. Production, Beta, P3/P4 and Day-0 retain their own independent gates.
