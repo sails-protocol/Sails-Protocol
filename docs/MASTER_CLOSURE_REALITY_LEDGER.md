@@ -58,65 +58,65 @@ Master Backlog closure → Reality Validation → SDK/Adapter Conformance → As
 
 ## Reconciliation sweep — 2026-10-24: indexed Day-0 issue candidates
 
-> **Independent integrity finding (2026-10-25):** All 53 issue-number cells in the lexical index below currently render `#undefined`. Titles were captured but the numeric IDs were not persisted correctly. **Do not use this table for issue-ID joins until every number has been independently rehydrated from GitHub and verified against its title.** This is an index data-quality defect, not evidence that 53 normative obligations are missing. The separate 29-issue state verification further below is intact.
+> **Integrity repair (2026-10-25):** All 53 lexical issue IDs below were independently matched against live GitHub issue titles and restored. This is a title-to-issue-ID integrity repair, **not** independent technical acceptance, an exhaustive Day-0 denominator or proof that all 53 are release blockers. The separate 29-issue state verification remains intact.
 
 This is a **search-derived index of 53 open issues matching the phrase Day-0**, not a count of all Master obligations or proof each is a Day-0 release blocker. GitHub issue search is lexical and includes discovery, future and institutional-memory issues. **Issue OPEN ≠ implementation absent; PR merged ≠ independently accepted.** Classify each entry against normative Master/ADR, latest comments, linked PR and exact-SHA tests before assigning its gate.
 
 | Issue | Title | Verified issue state / evidence status |
 | --- | --- | --- |
-| #undefined | [Day-0 Security] Bound production observability and readiness disclosure | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Recovery] Arbiter disappearance after economic commitment | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Discovery] Production P2P Benchmark & Missing Behavior Sweep | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Security] Bound authenticated WebSocket relay resource consumption | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Security] AI-era public repository adversarial security audit | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Testability] Production-isolated signature-collection test rail | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | Institutional Alignment — Day-0 truth across GitHub, Mintlify and GitBook | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0] Multi-Operator Network + Partner Beta Completion Gate | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Evidence] Production EvidenceProvider contract and durable object storage | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Security] Pin privileged GitHub Actions to immutable commit SHAs | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Security] Atomically serialize auto-resolution contest and expiry sweep | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [CTO MEMORY] Day-0 decentralized nodes, shared liquidity & production sequencing | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Security] Preserve UNKNOWN outcome across signature-collection provider submission | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Evidence] Storage lifecycle, privacy, arbiter access & OpenProof/Dispute unification | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Evidence] Evidence upload idempotency, rate limits, quotas and cleanup | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Temporal Safety] Delayed live settlement can overwrite reconciled txReleaseId | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Recovery] WDK partial SPLIT has no automated restart convergence | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Crash Consistency] Direct-call recovery can misattribute settlement actor | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Recovery] Cooperative pending signature round can be abandoned indefinitely | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 recovery] Bound M9-R dispatch recovery scan under accumulated PostgreSQL state | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Security] Validate QVAC advisory outputs at the provider trust boundary | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Security] Bound OpenProof evidence upload and inline proof payload size | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Recovery] WDK confirmed RELEASE/REFUND cannot automatically converge after restart | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Temporal Defect] Delayed escrow event can regress terminal Trade state | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Temporal Defect] Dispute opening is not atomic with Escrow freeze | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Security] Add server-side session revocation and bound stolen-session authority | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Crash Consistency] Durable settlement event does not prove downstream projections completed | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Result Integrity] SAFE bundler response can replace the signed UserOperation identity | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Economic Idempotency] Arbiter collateral top-up has no durable contribution identity | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Crash Consistency] Direct-call SPLIT loses durable allocation needed for recovery | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Concurrency] Stale dispute-pending cleanup can delete a newly signed round | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Defect] Payment-account trade-limit ramp is computed but not enforced | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Security] Bind QVAC auto-resolution proposals to the exact evidence generation assessed | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Accounting Consistency] Fee BROADCAST evidence and IN_PROGRESS transition are not atomic | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Economic Safety] Signature-collection provider UNKNOWN can be rolled back as FAILED | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Temporal Consistency] Reputation outcome is derived from mutable Dispute state at handler time | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 #254 residual] Persist immutable dispute provenance for LIGHTNING_HODL / SAFE_GUARD_EVM settlement completion | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 P2P Reality Audit] Lifecycle timers, no-show/griefing, payment-risk and basic trade-safety gaps | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Day-0 Security] Fail closed on invalid QVAC auto-resolution configuration and remove stale authority docs | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Master Backlog][Scalability] Multi-Integrator SDK & Million-MAU Readiness — Claude evidence mission | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Post-Master Backlog][Security] Adversarial resilience, AI guardrails & engineering evidence gates | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | Sails Beta Readiness — Integration & Reality Validation Gate | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [CTO MEMORY] Operating model, Claude executor boundary & active institutional pipeline | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Product Discovery] DePix Terminal for Sails Market / P2P operators | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | Horizon: Sails Sandbox, Playground & Test Harness | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Arbitration Market / Future Policy] BTC-native arbiter bond, Taproot exit/slashing and reputation-at-risk | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Production Readiness] Production Surface Audit — mocks, stubs, fallbacks & unsafe runtime exposure | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | Institutional Product Direction — Sails Market-operated public bootstrap fleet | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | Beta Readiness — Industry Precedent / Incident Corpus | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | Backlog Delta — Fault-domain independence, dependency security, and Lightning footgun defense | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | Final Red Team Horizon: bounded adversarial case library | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Architecture] Sails AI Harnesses — Engineering Harness, QVAC Runtime Harness & AI Governance Contract | OPEN (issue); acceptance NOT VERIFIED |
-| #undefined | [Strategy] First-party wallet-kit adapters + multi-rail OpenP2P distribution | OPEN (issue); acceptance NOT VERIFIED |
+| #306 | [Day-0 Security] Bound production observability and readiness disclosure | OPEN (issue); acceptance NOT VERIFIED |
+| #237 | [Day-0 Recovery] Arbiter disappearance after economic commitment | OPEN (issue); acceptance NOT VERIFIED |
+| #256 | [Day-0 Discovery] Production P2P Benchmark & Missing Behavior Sweep | OPEN (issue); acceptance NOT VERIFIED |
+| #307 | [Day-0 Security] Bound authenticated WebSocket relay resource consumption | OPEN (issue); acceptance NOT VERIFIED |
+| #297 | [Day-0 Security] AI-era public repository adversarial security audit | OPEN (issue); acceptance NOT VERIFIED |
+| #228 | [Day-0 Testability] Production-isolated signature-collection test rail | OPEN (issue); acceptance NOT VERIFIED |
+| #125 | Institutional Alignment — Day-0 truth across GitHub, Mintlify and GitBook | OPEN (issue); acceptance NOT VERIFIED |
+| #105 | [Day-0] Multi-Operator Network + Partner Beta Completion Gate | OPEN (issue); acceptance NOT VERIFIED |
+| #265 | [Day-0 Evidence] Production EvidenceProvider contract and durable object storage | OPEN (issue); acceptance NOT VERIFIED |
+| #304 | [Day-0 Security] Pin privileged GitHub Actions to immutable commit SHAs | OPEN (issue); acceptance NOT VERIFIED |
+| #308 | [Day-0 Security] Atomically serialize auto-resolution contest and expiry sweep | OPEN (issue); acceptance NOT VERIFIED |
+| #99 | [CTO MEMORY] Day-0 decentralized nodes, shared liquidity & production sequencing | OPEN (issue); acceptance NOT VERIFIED |
+| #299 | [Day-0 Security] Preserve UNKNOWN outcome across signature-collection provider submission | OPEN (issue); acceptance NOT VERIFIED |
+| #234 | [Day-0 Evidence] Storage lifecycle, privacy, arbiter access & OpenProof/Dispute unification | OPEN (issue); acceptance NOT VERIFIED |
+| #267 | [Day-0 Evidence] Evidence upload idempotency, rate limits, quotas and cleanup | OPEN (issue); acceptance NOT VERIFIED |
+| #252 | [Day-0 Temporal Safety] Delayed live settlement can overwrite reconciled txReleaseId | OPEN (issue); acceptance NOT VERIFIED |
+| #250 | [Day-0 Recovery] WDK partial SPLIT has no automated restart convergence | OPEN (issue); acceptance NOT VERIFIED |
+| #248 | [Day-0 Crash Consistency] Direct-call recovery can misattribute settlement actor | OPEN (issue); acceptance NOT VERIFIED |
+| #239 | [Day-0 Recovery] Cooperative pending signature round can be abandoned indefinitely | OPEN (issue); acceptance NOT VERIFIED |
+| #343 | [Day-0 recovery] Bound M9-R dispatch recovery scan under accumulated PostgreSQL state | OPEN (issue); acceptance NOT VERIFIED |
+| #310 | [Day-0 Security] Validate QVAC advisory outputs at the provider trust boundary | OPEN (issue); acceptance NOT VERIFIED |
+| #300 | [Day-0 Security] Bound OpenProof evidence upload and inline proof payload size | OPEN (issue); acceptance NOT VERIFIED |
+| #251 | [Day-0 Recovery] WDK confirmed RELEASE/REFUND cannot automatically converge after restart | OPEN (issue); acceptance NOT VERIFIED |
+| #236 | [Day-0 Temporal Defect] Delayed escrow event can regress terminal Trade state | OPEN (issue); acceptance NOT VERIFIED |
+| #238 | [Day-0 Temporal Defect] Dispute opening is not atomic with Escrow freeze | OPEN (issue); acceptance NOT VERIFIED |
+| #312 | [Day-0 Security] Add server-side session revocation and bound stolen-session authority | OPEN (issue); acceptance NOT VERIFIED |
+| #253 | [Day-0 Crash Consistency] Durable settlement event does not prove downstream projections completed | OPEN (issue); acceptance NOT VERIFIED |
+| #258 | [Day-0 Result Integrity] SAFE bundler response can replace the signed UserOperation identity | OPEN (issue); acceptance NOT VERIFIED |
+| #255 | [Day-0 Economic Idempotency] Arbiter collateral top-up has no durable contribution identity | OPEN (issue); acceptance NOT VERIFIED |
+| #247 | [Day-0 Crash Consistency] Direct-call SPLIT loses durable allocation needed for recovery | OPEN (issue); acceptance NOT VERIFIED |
+| #244 | [Day-0 Concurrency] Stale dispute-pending cleanup can delete a newly signed round | OPEN (issue); acceptance NOT VERIFIED |
+| #235 | [Day-0 Defect] Payment-account trade-limit ramp is computed but not enforced | OPEN (issue); acceptance NOT VERIFIED |
+| #309 | [Day-0 Security] Bind QVAC auto-resolution proposals to the exact evidence generation assessed | OPEN (issue); acceptance NOT VERIFIED |
+| #245 | [Day-0 Accounting Consistency] Fee BROADCAST evidence and IN_PROGRESS transition are not atomic | OPEN (issue); acceptance NOT VERIFIED |
+| #240 | [Day-0 Economic Safety] Signature-collection provider UNKNOWN can be rolled back as FAILED | OPEN (issue); acceptance NOT VERIFIED |
+| #254 | [Day-0 Temporal Consistency] Reputation outcome is derived from mutable Dispute state at handler time | OPEN (issue); acceptance NOT VERIFIED |
+| #341 | [Day-0 #254 residual] Persist immutable dispute provenance for LIGHTNING_HODL / SAFE_GUARD_EVM settlement completion | OPEN (issue); acceptance NOT VERIFIED |
+| #293 | [Day-0 P2P Reality Audit] Lifecycle timers, no-show/griefing, payment-risk and basic trade-safety gaps | OPEN (issue); acceptance NOT VERIFIED |
+| #311 | [Day-0 Security] Fail closed on invalid QVAC auto-resolution configuration and remove stale authority docs | OPEN (issue); acceptance NOT VERIFIED |
+| #473 | [Master Backlog][Scalability] Multi-Integrator SDK & Million-MAU Readiness — Claude evidence mission | OPEN (issue); acceptance NOT VERIFIED |
+| #487 | [Post-Master Backlog][Security] Adversarial resilience, AI guardrails & engineering evidence gates | OPEN (issue); acceptance NOT VERIFIED |
+| #165 | Sails Beta Readiness — Integration & Reality Validation Gate | OPEN (issue); acceptance NOT VERIFIED |
+| #221 | [CTO MEMORY] Operating model, Claude executor boundary & active institutional pipeline | OPEN (issue); acceptance NOT VERIFIED |
+| #231 | [Product Discovery] DePix Terminal for Sails Market / P2P operators | OPEN (issue); acceptance NOT VERIFIED |
+| #78 | Horizon: Sails Sandbox, Playground & Test Harness | OPEN (issue); acceptance NOT VERIFIED |
+| #438 | [Arbitration Market / Future Policy] BTC-native arbiter bond, Taproot exit/slashing and reputation-at-risk | OPEN (issue); acceptance NOT VERIFIED |
+| #220 | [Production Readiness] Production Surface Audit — mocks, stubs, fallbacks & unsafe runtime exposure | OPEN (issue); acceptance NOT VERIFIED |
+| #361 | Institutional Product Direction — Sails Market-operated public bootstrap fleet | OPEN (issue); acceptance NOT VERIFIED |
+| #420 | Beta Readiness — Industry Precedent / Incident Corpus | OPEN (issue); acceptance NOT VERIFIED |
+| #123 | Backlog Delta — Fault-domain independence, dependency security, and Lightning footgun defense | OPEN (issue); acceptance NOT VERIFIED |
+| #77 | Final Red Team Horizon: bounded adversarial case library | OPEN (issue); acceptance NOT VERIFIED |
+| #155 | [Architecture] Sails AI Harnesses — Engineering Harness, QVAC Runtime Harness & AI Governance Contract | OPEN (issue); acceptance NOT VERIFIED |
+| #86 | [Strategy] First-party wallet-kit adapters + multi-rail OpenP2P distribution | OPEN (issue); acceptance NOT VERIFIED |
 
 ### Unresolved classification tasks
 
@@ -620,3 +620,6 @@ No merge, shared database migration, VPS staging, production deploy, or release 
 - Rechecked core issues #99, #105, #125, #165, #221, #293, #420, #500: OPEN; issue state is not an independent acceptance.
 - **Reviewer decision: YELLOW for check 8.** The branch is usable as a provisional operational handoff map with disclosed imperfections, but is not independently signed off as a complete, normalized Master obligation-to-evidence ledger. Separate gates govern #125 public docs, #531 merge, Master technical closure and release.
 - **Next bounded steps:** (1) correct issue IDs by title-to-live-GitHub validation; (2) normalize and deduplicate normative obligations across the entire prose Master, ADR-001, #105 and current owners; (3) map each to code/PR/SHA/CI/independent acceptance or explicit UNKNOWN; (4) log unresolved contradictions; (5) obtain independent reviewer and designated CTO gate sign-off for the accurately bounded documentary scope. Never infer production clearance.
+
+
+**Issue-index reconciliation checkpoint (2026-10-25):** 53/53 lexical index rows have exact title-to-GitHub issue-number matches; zero unmatched/ambiguous. Master normative denominator remains NOT MEASURED; check 8 remains PENDING.
