@@ -2,6 +2,12 @@
 
 Status: **NOT HOMOLOGATED / BLOCKED**. This document records evidence, not authorization to merge or deploy.
 
+## False-positive prevention in distributed acceptance (2026-10-25 UTC)
+
+- Audit found that the missing-destination assertion in `tests/relayDeliveryRedis.process.integration.test.ts` was performed **after** the origin publisher disconnected. Its false return therefore could be explained by a permanently closed origin rather than an absent destination subscriber.
+- Commit `3870d552a3e620f4ca3aa3adf253575b4580830c` moves the absent-destination check **before** the publisher disconnect and verifies no payload was received. This is a test-evidence correction, not an additional distributed scenario.
+- CI evidence for this commit remains pending. Keep **2/5 distributed scenarios and 2/14 remaining acceptance criteria** as the verified tally until the new HEAD passes. Full Redis server outage/restart, recovery supervision, channel/ACK trust and the Jest open-handles warning remain unresolved.
+
 ## Publisher disconnect evidence and reconnect regression pending (2026-10-25 UTC)
 
 - Commit `104de8a63c160dae1e6c736d4de72bb9d35c472b`: CI `40160251407`, CI Tests `40160251504`, CodeQL `40160251409` all success. CI build log explicitly reports `PASS tests/relayDeliveryRedis.process.integration.test.ts`; Jest: 197/197 suites and 2633/2633 tests.
