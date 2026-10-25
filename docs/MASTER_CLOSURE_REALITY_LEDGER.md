@@ -836,6 +836,16 @@ GitHub commit `2ffb67153819429363784bcc9dd86005b3ae73ea` is the merge commit of 
 
 **Evidence chain now established:** TD-AUDIT §61 historical finding → PR #117 merge commit → current default-branch projection + authorization guard + regression test source. **Limit:** the GitHub combined-status lookup for code-search snapshot `456d3e5267e98ba0d9bac2927faa57f1de4e0d6c` returned **zero status entries** and the associated PR-triggered workflow-run lookup returned **zero runs**; this does **not** mean CI passed, failed, or never ran (endpoint scope/retention may differ). No current test execution was performed. TD §61 remains **implementation evidence present / formal independent acceptance not verified**.
 
+
+### TD-AUDIT §57 — bounded implementation provenance and unresolved systemic risk (2026-10-25)
+
+- **Merged PR #115** is independently identified by merge commit `8e12ffa3f05c667deb2cd5875b2fff9aa6c2da29` (https://github.com/sails-protocol/Sails-Protocol/commit/8e12ffa3f05c667deb2cd5875b2fff9aa6c2da29). Changed files include `src/app.ts`, 13 test callers, `tests/swaggerUiRegistration.test.ts`, and `docs/TECHNICAL_DEBT_AUDIT.md`.
+- **Current default-branch static code** `src/app.ts` **L66–70, L200** declares `registerSwaggerUi?: boolean`, default **true**, and conditionally registers Swagger-UI outside production. This supports a narrow test-bootstrap opt-out while retaining the default application documentation path.
+- **Audit source L2320–2435** records historical 10/10 suites, 86/86 tests at 1/2/10 workers, and full 156/156 suites, 2006/2006 tests, plus an isolated resource-pressure failure that did not consistently reproduce. These are **reported September 2026 executions**, not re-executed in this reconciliation.
+- **Authoritative classification** at audit **L2419–2422** and subsequent CTO Gate FREEZE: Swagger-UI bounded remediation **CLOSED/FROZEN**; **the broader TD §57 test/bootstrap parallel-contention phenomenon remains OPEN / partially understood**. No single causal mechanism proved, no blanket harness reliability acceptance.
+
+**Outstanding independent evidence:** fresh CI run/test execution under relevant concurrency and infrastructure conditions, exact failure-rate acceptance criterion, owner, and independent signoff. Do not equate PR #115 merged with TD §57 resolved or #105 Gate A fully closed.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
