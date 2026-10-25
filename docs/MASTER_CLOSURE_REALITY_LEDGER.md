@@ -829,6 +829,13 @@ Direct source verification of `docs/TECHNICAL_DEBT_AUDIT.md` resolves the previo
 
 **Classification update:** TD #61 has **static code fix + explicit adversarial regression coverage present in default-branch source**. Runtime Jest execution, current GitHub Actions check results, exact introduction/acceptance PR, and real-DB end-to-end evidence **NOT VERIFIED**. No blanket security certification or Partner Beta closure.
 
+
+### TD §61 provenance refinement — merged implementation PR (2026-10-25)
+
+GitHub commit `2ffb67153819429363784bcc9dd86005b3ae73ea` is the merge commit of **PR #117**, title **`fix(td61): explicit PublicOfferDetail projection for GET /offers/:id`**. Its changed-file list includes `src/modules/open-liquidity/liquidity.service.ts`, `tests/publicOfferDetailDisclosure.test.ts`, `tests/liquidityOfferRouteCollision.test.ts`, SDK/UI adaptations and `docs/TECHNICAL_DEBT_AUDIT.md`. Source: https://github.com/sails-protocol/Sails-Protocol/commit/2ffb67153819429363784bcc9dd86005b3ae73ea .
+
+**Evidence chain now established:** TD-AUDIT §61 historical finding → PR #117 merge commit → current default-branch projection + authorization guard + regression test source. **Limit:** the GitHub combined-status lookup for code-search snapshot `456d3e5267e98ba0d9bac2927faa57f1de4e0d6c` returned **zero status entries** and the associated PR-triggered workflow-run lookup returned **zero runs**; this does **not** mean CI passed, failed, or never ran (endpoint scope/retention may differ). No current test execution was performed. TD §61 remains **implementation evidence present / formal independent acceptance not verified**.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
