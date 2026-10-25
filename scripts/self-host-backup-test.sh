@@ -24,6 +24,9 @@ PG="${RUN}-postgres-1"
 SERVER="${RUN}-server-1"
 TAG="${SAILS_BACKUP_TEST_TAG:-$RUN-t1}"
 BUILT_HERE=0; [ -n "${SAILS_BACKUP_TEST_TAG:-}" ] || BUILT_HERE=1
+# SAILS_IMAGE_FLAVOR=distroless runs the same test against the CANDIDATE distroless images (no shell, /nodejs/bin/node).
+export SAILS_IMAGE_FLAVOR="${SAILS_IMAGE_FLAVOR:-debian}"
+if [ "$SAILS_IMAGE_FLAVOR" = distroless ]; then NODE=/nodejs/bin/node; else NODE=node; fi
 STEP="starting"; N=0
 
 cleanup() {
@@ -62,10 +65,12 @@ expect_in_log() { grep -q -- "$1" "$LASTLOG" || fail "the output does not say '$
 kit_compose() {
   ( export SAILS_SERVER_IMAGE="sails-server:$TAG" SAILS_MIGRATE_IMAGE="sails-migrate:$TAG" SAILS_HOME_HOST="$(host_path "$SAILS_NODE_HOME")"
     export WSLENV="${WSLENV:+$WSLENV:}SAILS_SERVER_IMAGE:SAILS_MIGRATE_IMAGE:SAILS_HOME_HOST:COMPOSE_PROFILES:COMPOSE_PROJECT_NAME:SAILS_PORT"
-    docker compose -f "$(host_path "$PWD/deploy/self-host/compose.yml")" "$@" )
+    local files=(-f "$(host_path "$PWD/deploy/self-host/compose.yml")")
+    [ "$SAILS_IMAGE_FLAVOR" != distroless ] || files+=(-f "$(host_path "$PWD/deploy/self-host/compose.distroless.yml")")
+    docker compose "${files[@]}" "$@" )
 }
 evidence_store_one() { # prints "<uri>"
-  docker exec -e PAYLOAD="$1" "$SERVER" node -e '
+  docker exec -e PAYLOAD="$1" "$SERVER" "$NODE" -e '
     const { S3EvidenceProvider } = require("/app/dist/src/modules/open-proof/s3-evidence-provider.js")
     const p = new S3EvidenceProvider({ endpoint: process.env.EVIDENCE_S3_ENDPOINT, region: process.env.EVIDENCE_S3_REGION, bucket: process.env.EVIDENCE_S3_BUCKET,
       accessKeyId: process.env.EVIDENCE_S3_ACCESS_KEY_ID, secretAccessKey: process.env.EVIDENCE_S3_SECRET_ACCESS_KEY, forcePathStyle: process.env.EVIDENCE_S3_FORCE_PATH_STYLE === "true" })
@@ -93,7 +98,7 @@ pass "init printed the secrets/ warning"
 step "G6 update under a hardened migrate service: the migration job still works"
 node_cmd update 0 update "$TAG"
 CFG="$(kit_compose config --format json 2>/dev/null)" || fail "cannot render the compose file"
-echo "$CFG" | docker run --rm -i --entrypoint node "sails-server:$TAG" -e '
+echo "$CFG" | docker run --rm -i --entrypoint "$NODE" "sails-server:$TAG" -e '
   let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
     const m = JSON.parse(s).services.migrate
     const ok = (m.cap_drop || []).includes("ALL") && (m.security_opt || []).includes("no-new-privileges:true")

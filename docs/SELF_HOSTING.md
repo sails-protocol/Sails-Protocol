@@ -170,6 +170,28 @@ object while the preserved key can. **What is not tested:** a single end-to-end 
 off-site copies; restoring when the evidence store is your own S3-compatible service (use its own tools).
 The kit does not encrypt backup archives.
 
+## Distroless candidate (opt-in, not the default, not homologated)
+
+`SAILS_IMAGE_FLAVOR=distroless` makes `sails-node build` produce the server and migration images on Distroless Debian 13
+(`deploy/self-host/distroless/Dockerfile`) instead of Debian bookworm-slim. Set it for **every** `sails-node` command of that
+node (build, update, rollback, backup, ...): it also selects `/nodejs/bin/node` for the kit's own helper containers and adds
+`compose.distroless.yml` (read-only root filesystem, private `/tmp`) to every Compose call. The default flavor is unchanged.
+
+What changes for the operator: there is **no shell and no package manager** in either image (an ephemeral debug container
+replaces `docker exec ... sh`); the server runs as uid 65532; `node` is not on `PATH`, so `docker exec <container> node` must
+use `/nodejs/bin/node`; the migration job is a Node entrypoint with the same contract as `scripts/migrate-deploy.sh`.
+The Bare runtime the QVAC SDK spawns is made executable at build time, which a read-only root filesystem requires.
+
+**Update strategy.** Both distroless bases are pinned by digest in the Dockerfile. A new base is adopted by a reviewed commit:
+resolve the new digest of `gcr.io/distroless/nodejs24-debian13`, rebuild, and require the same evidence as any image change
+(`scripts/runtime-image-checks.js` with `REQUIRE_BARE_EXECUTABLE=1`, the Trivy gate, `scripts/self-host-test.sh` and
+`scripts/self-host-backup-test.sh` with `SAILS_IMAGE_FLAVOR=distroless`). The weekly image audit rebuilds the default images; a
+digest bump is what makes a fixed Debian package reach a distroless node. No registry, signing or SBOM publication exists yet:
+the scan writes a CycloneDX SBOM per image as a CI artifact, unsigned.
+
+**Status.** Candidate. Its evidence and its limits are in the PR that introduced it; do not use it for a production node until
+the CTO homologates it.
+
 ## Health and logs
 
 - `GET /health/live`, `/health/ready` (PostgreSQL and Redis checks), `/health`.
