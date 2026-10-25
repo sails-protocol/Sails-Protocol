@@ -12,7 +12,8 @@ import { prisma } from './common/database'
 import { connectDatabase } from './common/database'
 import { redis } from './common/redis'
 import { connectRedis } from './common/redis'
-import { AppError, ERROR_DOCS_URL } from './common/errors'
+import { AppError, DependencyUnavailableError, ERROR_DOCS_URL } from './common/errors'
+import { isRedisUnavailableError } from './common/redis/unavailable'
 import { registerEventHandlers } from './common/events/handlers'
 import { eventBus } from './common/events/event-bus'
 import { intentEngine } from './core/intent-engine'
@@ -25,6 +26,9 @@ import { chatRoutes } from './modules/open-p2p/chat.routes'
 import { settlementRoutes } from './modules/open-settlement/settlement.routes'
 import { peerRoutes } from './infrastructure/p2p/pear.routes'
 import { relayRoutes } from './infrastructure/p2p/relay.routes'
+import { RelayRouter } from './infrastructure/p2p/relay-delivery'
+import { webSocketRelayTransportProvider } from './infrastructure/p2p/websocket-relay.service'
+import { tradeRepository } from './modules/open-p2p/trade-repository'
 import { reputationRoutes } from './modules/open-reputation/reputation.routes'
 import { capabilityRoutes } from './modules/open-agents/capability.routes'
 import { agentRoutes } from './modules/open-agents/agent.routes'
@@ -289,6 +293,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       })
     }
 
+    if (isRedisUnavailableError(error)) {
+      app.log.warn({ msg: 'Redis unavailable or over its command bound', err: error instanceof Error ? error.message : String(error) })
+      const unavailable = new DependencyUnavailableError()
+      return reply.code(unavailable.statusCode).send({ ...unavailable.toResponse(), requestId: request.id })
+    }
+
     app.log.error(error)
     const message = error instanceof Error ? error.message : String(error)
     return reply.code(500).send({
@@ -368,6 +378,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(identityRoutes)
   await app.register(peerRoutes)
   await app.register(relayRoutes)
+  // #307 Phase B: participant-to-participant delivery over the relay. Lazy:
+  // no Redis is touched until the first relay participant registers.
+  const relayRouter = new RelayRouter({
+    ...config.relay,
+    redis,
+    host: webSocketRelayTransportProvider,
+    findTrade: tradeId => tradeRepository.findById(tradeId),
+  })
+  webSocketRelayTransportProvider.useRouter(relayRouter)
+  app.addHook('onClose', async () => {
+    webSocketRelayTransportProvider.useRouter(null)
+    await relayRouter.stop()
+  })
   await app.register(liquidityRoutes)
   await app.register(tradeRoutes)
   await app.register(chatRoutes)

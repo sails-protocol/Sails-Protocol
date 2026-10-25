@@ -11,10 +11,23 @@ import { childLogger } from '../logger'
 
 const log = childLogger('redis')
 
+// #307 B.3. Every command on this shared client is bounded (it also bounds
+// commands queued while disconnected). A timeout rejects the caller only: the
+// command may still run on Redis afterwards, so a timeout is never treated as
+// "did not happen". autoResendUnfulfilledCommands is off: a command that was
+// sent but not answered when the connection dropped is rejected, not re-sent
+// on reconnect — INCR, ticket consumption, budget and message-id claims are
+// not idempotent. Blocking reads (XREADGROUP BLOCK, BLPOP…) cannot run here:
+// use a dedicated client without commandTimeout (RedisStreamsEventStore
+// enforces this).
 export const redis = new Redis(config.redis.url, {
   maxRetriesPerRequest: 3,
   retryStrategy: (attempts: number) => Math.min(attempts * 200, 2000),
+  commandTimeout: config.redis.commandTimeoutMs,
+  autoResendUnfulfilledCommands: false,
 })
+
+export { isRedisUnavailableError } from './unavailable'
 
 redis.on('error', (err) => {
   log.error({ msg: 'Connection error', err: err.message })

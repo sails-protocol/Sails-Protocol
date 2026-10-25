@@ -62,6 +62,10 @@ jobs:
       # affected test file individually, since the dependency is on
       # ambient environment, not on any one file.
       TRUSTED_ARBITRATORS: k6-test-arbiter
+      # #307: enable real Redis concurrency/TTL test against disposable service.
+      RELAY_REDIS_INTEGRATION_URL: redis://127.0.0.1:6379
+      # #307 B.3: redisTimeoutRealE2E pauses/kills connections on this job's ephemeral Redis.
+      SAILS_REDIS_FAULT_INJECTION_CONFIRMED: yes-isolated-redis
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
