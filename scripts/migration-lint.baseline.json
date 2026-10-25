@@ -1,0 +1,153 @@
+{
+  "schema": 1,
+  "migrations": {
+    "20260807090000_init": {
+      "class": "additive",
+      "sha256": "33c981abf841e1b3b6060db84e598452df3f9b0cbf7b02086e6e7a687d24af62"
+    },
+    "20260807100000_add_indices": {
+      "class": "additive",
+      "sha256": "5c1e3d71e51bf7bd34d8570d465c6594061f52f602baf38482841b3484de1cd4"
+    },
+    "20260808090000_add_escrow_and_intent_event_indices": {
+      "class": "potentially-destructive",
+      "sha256": "3b0a6428ae916dc6e2366815574628d8fe1ecf56e9287946888e8735445d27f9"
+    },
+    "20260809090000_remove_offer_requires_kyc": {
+      "class": "destructive",
+      "sha256": "0590a4d7073b7ab351ddfc24bec41452059d02e76f510f058c144d3de037d157"
+    },
+    "20260815090000_add_escrow_event_hash_chain": {
+      "class": "additive",
+      "sha256": "0ec5f7ddb48168f707a54a7920ad7b518fb228c98fe5914633b95a1de7d50d9e"
+    },
+    "20260815100000_add_durable_events_table": {
+      "class": "additive",
+      "sha256": "001e7082be9b38c5f219c2be971cdb49dbf3acf13db7c80b50584b3a77cf5dcc"
+    },
+    "20260816000000_durable_events_payload_json_not_jsonb": {
+      "class": "potentially-destructive",
+      "sha256": "eb5e1bff453b7ba9ab3c8ed794bf37421b1261f9e5303eaf6f439c2ad4ac1afa"
+    },
+    "20260817000000_add_claim_trade_id": {
+      "class": "additive",
+      "sha256": "88d7d008118ce4fa384bca89deccf1690a68b35d26f9e53350ba090faccfff84"
+    },
+    "20260817010000_reconcile_payout_evidence_proof_index": {
+      "class": "potentially-destructive",
+      "sha256": "618be7c38aefaa08fab91f76301548abf91f1f790bdc5d0b75b3a9cd09a78885"
+    },
+    "20260819000000_add_escrow_tx_lock_vout": {
+      "class": "potentially-destructive",
+      "sha256": "8b66b29ca45a2d2dc612a4b52a71d861bea6a34bddf28b06a9060b70fba34c52"
+    },
+    "20260821232008_add_fee_policy_versioning_foundation": {
+      "class": "potentially-destructive",
+      "sha256": "520da1bfd12cef9c7c23bb9157b63767016bc514f06499b8713e724a26b25685"
+    },
+    "20260822022356_add_pending_tx_buyer_bps": {
+      "class": "additive",
+      "sha256": "adf310d044ad14ab11610cef9d253851fefc9375e702238f657e65d98e35cbc0"
+    },
+    "20260822133126_add_escrow_funded_amount": {
+      "class": "additive",
+      "sha256": "9543672ac10c63fb42bd2b80e2daf9e7034af654b2cb1cf281ce84303dcbb3fc"
+    },
+    "20260822133947_add_pending_tx_fee_collection": {
+      "class": "additive",
+      "sha256": "037f6f4d9ffc691994607f7c3dd01996bc11933f7dbc6fe6744a1e5068b93284"
+    },
+    "20260822142102_add_fee_collection_prefunding_freeze": {
+      "class": "additive",
+      "sha256": "44e649c93e90963cac2c1fc2df458133a02ce822550c98d05868477fb0be6dde"
+    },
+    "20260822210746_add_fee_policy_required_confirmations": {
+      "class": "additive",
+      "sha256": "046d7175f5f5b0d1dbb3d07c5376f45f744867bec236d783d56866302b218530"
+    },
+    "20260822222605_escrow_arbiter_pubkey_commitment": {
+      "class": "additive",
+      "sha256": "4e120fb30f7f066db96d20df0220d063434d266e963f045ca66509e12a32e0da"
+    },
+    "20260823002127_distribution_entitlement_accounting_foundation": {
+      "class": "additive",
+      "sha256": "15b5be7b5c6518c68a5ade00f298878cfb42636e164247c13fda95700575a7e9"
+    },
+    "20260823020000_legacy_fee_distribution_write_freeze": {
+      "class": "additive",
+      "sha256": "8424764fa576af29b04d0e3edc07b9853bccc24fee9cf36cf211f3d83e55efb1"
+    },
+    "20260823182951_collected_time_distribution_freeze_and_policy_exclusivity": {
+      "class": "potentially-destructive",
+      "sha256": "cf418d25b4016b510431fde97e264859094250ad3e45704e9a84b54c4a27d4ea"
+    },
+    "20260824005829_custody_attestation_foundation": {
+      "class": "additive",
+      "sha256": "1dd29004feb46345f2b2fea37eeb24c0244c8321789aea8c8613b1abd805711e"
+    },
+    "20260824015513_escrow_expired_status": {
+      "class": "additive",
+      "sha256": "d4ebad134a4af77457ae747fcbb06a7a49f3bc80ef4223faaf3df4dc8e554e2d"
+    },
+    "20260824184105_escrow_funding_evidence_foundation": {
+      "class": "additive",
+      "sha256": "02e73142b2df17cb32fb9330ed45431c04c8eb8095fe15b82042de70590741e7"
+    },
+    "20260824211122_escrow_participant_capability_profile": {
+      "class": "additive",
+      "sha256": "5c395a6ad2e010cf48d548936645eb669ce11b818a433b5a7f2bcf7ffd351999"
+    },
+    "20260824222816_escrow_pending_transaction_miner_fee_sats": {
+      "class": "additive",
+      "sha256": "dc1af826903748dfa3e7ce3938a010a5ea43150a2bd012b0f856edbdd532a481"
+    },
+    "20260829135217_arbitration_authority_decision": {
+      "class": "additive",
+      "sha256": "8d981f9e6577077f8a6fb37f80e887cb63e59ddebda8e5731eed75bb40cb6c70"
+    },
+    "20260830041220_add_semantic_transition_record": {
+      "class": "additive",
+      "sha256": "c04df48b05a38795f18407d1427870dbd79228370b2f96245a1b56d965cd6068"
+    },
+    "20260830050000_m8r_dispute_ruling_transition_record": {
+      "class": "potentially-destructive",
+      "sha256": "c6baca299d01b4f8028a82fa1e447a1c85c985b352bd04614264bee40641039f"
+    },
+    "20260830212332_m9r_correspondence_evaluation_identity": {
+      "class": "potentially-destructive",
+      "sha256": "6c1e52229ef6cd5c8eeef795ecd406200e4441f2c338e35334edfa818972209b"
+    },
+    "20260831003019_m9f_escrow_release_evidence": {
+      "class": "additive",
+      "sha256": "5c8dad0c03d6aae3ecb1cdcb2fb363ec1e223ead0408176a6a9fb43c58dabef2"
+    },
+    "20260908000000_wdk_transfer_attempt": {
+      "class": "additive",
+      "sha256": "33958d774ad3588e0600a71fde6e75f2d82d354a90272cc21b7a1489a4367823"
+    },
+    "20260909000000_offer_envelope": {
+      "class": "additive",
+      "sha256": "35014ffcf0c6ea950ea1ddac0903b803c914f23e3a2c0683c43a81d5f3264611"
+    },
+    "20260914000000_idempotency_keys_and_intent_claim_marker": {
+      "class": "potentially-destructive",
+      "sha256": "e9b13f65f17bf1ea20b623f3c00e2ea6777a6c57331c24a4ab35a4023b2d2173"
+    },
+    "20260914010000_offer_intent_id_unique": {
+      "class": "potentially-destructive",
+      "sha256": "b6527e68931da580fcb0c94afdec23dce250f1e1902f77c8ae85ea2f217b4f6b"
+    },
+    "20260918191500_capability_execution_authorization": {
+      "class": "additive",
+      "sha256": "928c6034e22989fee2025bef09049de02cee1669ff9dcbca64d307a03aaaa297"
+    },
+    "20260918220000_economic_disposition_authority": {
+      "class": "additive",
+      "sha256": "f16c1965449e188d824735b2c46eb1964cd4756e05129574f6e66085b61f6f07"
+    },
+    "20260919170000_wdk_active_generation_ownership": {
+      "class": "potentially-destructive",
+      "sha256": "5653ee9c165d148c660f0bec42664e515bedd75088451a0b5350b0ea3bb45d53"
+    }
+  }
+}
