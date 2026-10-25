@@ -430,6 +430,70 @@ Incoming CTOs may use this ledger as a **provisional navigation and conflict-res
 
 The ten A–J gate headings above are **gate categories**, not the full obligation denominator. The live #105 body also includes an ordered implementation/evidence path, adversarial tests, and subsequent numbered cold-sweep additions (including signed economic-term binding, replay/double-commit, fiat/payment-instruction commitments, arbitration continuity, public-offer privacy, and partner-beta asset/rail support). A reviewer must extract and deduplicate these requirements against ADR-001, `docs/BACKLOG.md`, and the cold-sweep document before claiming check 8 complete. **No numeric global obligation denominator or acceptance percentage is established here.** Source: https://github.com/sails-protocol/Sails-Protocol/issues/105 .
 
+
+### #105 canonical execution-order register — 54 source entries (2026-10-25)
+
+The current #105 sequence has labels **1–53 with item 10 decomposed into 10a and 10b**: 54 executable source entries. This is a source-level inventory, **not** a deduplicated Master denominator, implementation failure count, or evidence acceptance. Multi-line descriptions remain authoritative in the linked issue; short labels below are index keys only. Earlier historical discovery lists must not be added to this count.
+
+| Source item | Gate | Source requirement/milestone (first line) | Independent evidence |
+| --- | --- | --- | --- |
+| 1 | A | Merge/freeze PR #106 institutional memory after CTO Gate + green CI. | NOT VERIFIED |
+| 2 | A | Resume and close Technical Debt #57 (`buildApp()` parallel contention) so the harness does not produce false evidence during the Day-0 implementation program. | NOT VERIFIED |
+| 3 | A | Close #61 Public OfferDetail privacy defect before any partner receives the current endpoint. | NOT VERIFIED |
+| 4 | B | Publish the Partner Beta Asset × Network/Rail × Wallet Adapter × Settlement Capability × Maturity matrix. | NOT VERIFIED |
+| 5 | B | Decide whether first beta is BTC-only, bounded BTC+USDT, or includes DePix. | NOT VERIFIED |
+| 6 | B | If DePix is in scope, make DePix representable end-to-end and do not claim support before its real settlement path is eligible. | NOT VERIFIED |
+| 7 | B | Freeze the fiat quote-currency scope for the beta. | NOT VERIFIED |
+| 8 | C | Implement canonical signed OfferEnvelope, including exact asset + network/rail + quote-currency semantics needed by the beta. | NOT VERIFIED |
+| 9 | C | Implement stale-resurrection-safe revision/tombstone persistence. | NOT VERIFIED |
+| 10a | C | Implement **Participant Transport Identity (B) persistence** — a | NOT VERIFIED |
+| 10b | C | Design and implement **Operational Sails Node Identity (C)** — an | NOT VERIFIED |
+| 11 | C | Implement Economic Identity (A) ↔ Participant Transport Identity | NOT VERIFIED |
+| 12 | C | Implement Operational Sails Node Identity (C) lifecycle: backup, | NOT VERIFIED |
+| 13 | C | Implement self-authenticating Node Descriptor, signed/authenticated | NOT VERIFIED |
+| 14 | D | Implement bootstrap + peer exchange without mandatory Satsails authority. | NOT VERIFIED |
+| 15 | D | Implement signed Offer gossip + dedup. | NOT VERIFIED |
+| 16 | D | Implement catch-up / anti-entropy for late join and partition healing. | NOT VERIFIED |
+| 17 | D | Implement multi-node discovery/convergence into the local order-book projection. | NOT VERIFIED |
+| 18 | D | Implement gossip resource bounds/backpressure. | NOT VERIFIED |
+| 19 | D | Demonstrate peer diversity / eclipse / selective-forwarding resilience. | NOT VERIFIED |
+| 20 | D | Define clock-health behavior for signed expiries. | NOT VERIFIED |
+| 21 | E | Implement jointly-verifiable trade-open anchor binding exact Offer revision/envelope hash, amount, price, asset, network/rail, quote fiat amount/currency, payment method and replay/idempotency context. | NOT VERIFIED |
+| 22 | E | Bind privacy-preserving payment-destination commitment; keep raw payment instructions private/pairwise. | NOT VERIFIED |
+| 23 | E | Require authenticated amendment for any post-commit payment-instruction change. | NOT VERIFIED |
+| 24 | E | Bind the selected settlement mechanism / EscrowType / custody and signer semantics. | NOT VERIFIED |
+| 25 | E | Bind participant-facing fee/policy version before commitment. | NOT VERIFIED |
+| 26 | E | Bind arbitration authority/policy/appeal semantics before funds are committed. | NOT VERIFIED |
+| 27 | F | Implement professional-provider inventory reservation across concurrent acceptance paths. | NOT VERIFIED |
+| 28 | F | Prove duplicate/replayed trade-open cannot double-commit a limited Offer. | NOT VERIFIED |
+| 29 | F | Implement cross-node restart/offline/resume using signed trade anchors as re-entry truth. | NOT VERIFIED |
+| 30 | F | Prove node switching does not create economic amnesia. | NOT VERIFIED |
+| 31 | F | Make dispute evidence/ruling/appeal continuity independently verifiable across nodes. | NOT VERIFIED |
+| 32 | F | Prove one party node disappearing does not make a valid dispute unresolvable. | NOT VERIFIED |
+| 33 | F | Preserve rail-specific funds-authority semantics through resolution. | NOT VERIFIED |
+| 34 | G | Implement Node Contribution Accounting for the contribution classes actually verifiable in Day-0 scope. | NOT VERIFIED |
+| 35 | G | Demonstrate Incentive Compatibility / No-Cannibalization against the real accounting model. | NOT VERIFIED |
+| 36 | G | Keep liquidity propagation rational and do not pay for unverifiable relay claims. | NOT VERIFIED |
+| 37 | G | Keep real payout activation separately gated; accounting/entitlement evidence may run through beta with payout disabled. | NOT VERIFIED |
+| 38 | H | Pass Stranger Node Test. | NOT VERIFIED |
+| 39 | H | Pass Independent Node Operator No-Assistance Test. | NOT VERIFIED |
+| 40 | H | Pass Stranger Developer Test: integrate SDK from public docs/package with no Satsails team help. | NOT VERIFIED |
+| 41 | H | Prove wallet integration and backend/web-service integration paths. | NOT VERIFIED |
+| 42 | H | Provide recoverable service-event consumption before public production. | NOT VERIFIED |
+| 43 | I | Pass all scope-relevant adversarial tests from `docs/DAY0_COMPLETENESS_COLD_SWEEP.md`. | NOT VERIFIED |
+| 44 | I | Run the first independent partner-wallet integration. | NOT VERIFIED |
+| 45 | I | Run at least one professional/web-service integration if that class is in beta scope. | NOT VERIFIED |
+| 46 | I | Exercise restart, offline, node switch, partition heal, dispute and recovery with no privileged operator shortcut. | NOT VERIFIED |
+| 47 | I | Only then claim shared-liquidity multi-node beta evidence for the bounded tested scope. | NOT VERIFIED |
+| 48 | J | Run Production Readiness Consolidated Gate. | NOT VERIFIED |
+| 49 | J | Provider production eligibility per enabled beta/launch rail. | NOT VERIFIED |
+| 50 | J | Network Simulation + Final Red Team at the accepted sequencing point. | NOT VERIFIED |
+| 51 | J | External security audit/remediation. | NOT VERIFIED |
+| 52 | J | RC1 + bounded real-value validation. | NOT VERIFIED |
+| 53 | J | Public production activation only after claim/evidence alignment. | NOT VERIFIED |
+
+**Source coverage:** 54/54 canonical entries indexed; **cross-document deduplication:** PENDING; **independent acceptance:** PENDING; **global Master completion:** NOT MEASURED. Source: https://github.com/sails-protocol/Sails-Protocol/issues/105 .
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
