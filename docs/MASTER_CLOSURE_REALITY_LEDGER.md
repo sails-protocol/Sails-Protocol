@@ -290,3 +290,41 @@ When sources disagree: capture **claim A / claim B / timestamps / normative owne
 The live #420 issue explicitly classifies the incident corpus as a **post-Master / Beta Readiness** workstream. It is therefore not a blanket blocker for the *current bounded Master closure*; it is a later release gate unless a discovered issue independently proves a present Day-0 defect. #500 is a **continuous audit program**, not a finite item whose issue state should be counted as a completion percentage. #105 enumerates 53 launch-oriented obligations in its latest body; that is **not** a verified normalized Master denominator, and many are multi-part or overlap #165. Reconcile scope before counting.
 
 The top-level entrypoint for incoming CTOs is [CTO_START_HERE.md](CTO_START_HERE.md). New CTOs must check this before using historical phase tables or conversation summaries.
+
+## Economic/security verification queue — 2026-10-24
+
+These 29 numbered issue owners must be checked individually against current issue body/comments, linked code, exact-SHA CI, independent acceptance and environment before counting any as accepted. The list is a **verification queue**, not a claim that all issue states were independently checked.
+
+| Owner | Independent acceptance |
+| --- | --- |
+| #235 | NOT VERIFIED |
+| #236 | NOT VERIFIED |
+| #237 | NOT VERIFIED |
+| #238 | NOT VERIFIED |
+| #239 | NOT VERIFIED |
+| #240 | NOT VERIFIED |
+| #244 | NOT VERIFIED |
+| #245 | NOT VERIFIED |
+| #247 | NOT VERIFIED |
+| #248 | NOT VERIFIED |
+| #250 | NOT VERIFIED |
+| #251 | NOT VERIFIED |
+| #252 | NOT VERIFIED |
+| #253 | NOT VERIFIED |
+| #254 | NOT VERIFIED |
+| #255 | NOT VERIFIED |
+| #258 | NOT VERIFIED |
+| #265 | NOT VERIFIED |
+| #267 | NOT VERIFIED |
+| #293 | NOT VERIFIED |
+| #299 | NOT VERIFIED |
+| #304 | NOT VERIFIED |
+| #308 | NOT VERIFIED |
+| #309 | NOT VERIFIED |
+| #310 | NOT VERIFIED |
+| #311 | NOT VERIFIED |
+| #312 | NOT VERIFIED |
+| #341 | NOT VERIFIED |
+| #343 | NOT VERIFIED |
+
+Prior attempted individual verification did not persist into the branch; do not count it as completed. This section restores the work queue without inventing results.
