@@ -14,14 +14,14 @@ cd "$here/../.."
 BW="${1:?bookworm runtime image}"; DL="${2:?distroless runtime image}"
 EXPECTED_NODE="${EXPECTED_NODE:-24.22.1}"
 POPIMG="${POPIMG:-docker:cli}"   # any image with a shell, used only to fill the throwaway volumes
-R="r21a$$"; VOLS=""
+R="r21a$$-$(date +%s)"; VOLS=""   # unique per run: a reused volume name would silently reuse the previous run's contents
 NET="${R}_net"; PG="${R}-pg"; RD="${R}-redis"; APP="${R}-app"
 cleanup() { docker rm -fv "$APP" "$PG" "$RD" >/dev/null 2>&1 || true; docker network rm "$NET" >/dev/null 2>&1 || true; for v in $VOLS; do docker volume rm -f "$v" >/dev/null 2>&1 || true; done; }
 trap cleanup EXIT
 
 n=0
 mkvol() { # <shell snippet executed inside the new volume mounted at /v>  -> echoes the volume name
-  n=$((n + 1)); local v="${R}-v$n"; docker volume create "$v" >/dev/null; VOLS="$VOLS $v"
+  n=$((n + 1)); local v="${R}-v$n"; docker volume rm -f "$v" >/dev/null 2>&1; docker volume create "$v" >/dev/null; VOLS="$VOLS $v"
   docker run --rm -v "$v:/v" -w /v --entrypoint sh "$POPIMG" -c "$1" >/dev/null 2>&1 || { echo "FILL-FAILED"; return 1; }
   echo "$v"
 }
