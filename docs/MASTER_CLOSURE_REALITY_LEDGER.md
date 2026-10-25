@@ -512,3 +512,13 @@ The canonical BACKLOG snapshot contains **5906 lines**. Its narrative sections c
 4. Only after the review decide whether #531 is ready to leave draft and merge. No implicit approval is granted here.
 
 **Next-turn safety:** If another CTO has updated this branch, refetch its current blob SHA before writing. Do not overwrite concurrent work.
+
+## Verification loop — 2026-10-25 00:53 local: current-state reconciliation
+
+**Live recheck:** #531 remains OPEN / DRAFT / NOT MERGED. The current document includes 29/29 directly fetched issue-state checks under **Direct issue-state verification**; a prior claim that the check was missing was superseded by later branch work. The exact section heading differs from the earlier planned heading; absence of that string alone is not absence of the evidence. No independent acceptance of the 29 risks is claimed.
+
+**Measured documentation score:** **7/8 (87.5%)** checks PASS in the bounded *CTO handoff readiness scorecard*; check 8 remains FAIL/PENDING. This is **not** 87.5% of Master technical completion, 87.5% of Day-0 readiness, or a claim that the 8 checks have equal risk/effort. The remaining check is large and cannot be inferred to be 12.5% of effort.
+
+**Unresolved before check 8:** exhaustive prose extraction and deduplication; comment-level temporal correction review; per-obligation code/PR/SHA/CI/independent acceptance; GitBook/Mintlify #125 gate; CTO sign-off and main merge. None are bypassed by a green workflow or an executor's self-report.
+
+**Continuation protocol:** future CTO must first re-fetch this file's blob SHA and #531 HEAD, review the open contradictions, and record the next verification loop. No merge/deploy/migration/production approval from this entry.
