@@ -339,3 +339,32 @@ All 29 specifically queued economic/security issue numbers below were individual
 | #255, #258, #265, #267, #293, #299, #304, #308, #309, #310, #311, #312, #341, #343 | Direct GitHub issue fetch |
 
 **Result: 29/29 state checks complete; 0/29 independent acceptance checks complete.** This replaces the earlier queue-only statement for *state*, not for acceptance. This is not a Master denominator.
+
+## CTO handoff readiness scorecard — 2026-10-25 (documentation-only)
+
+**Scope:** readiness of this institutional handoff proposal, not completion of the Master backlog, Day-0, beta or production. Score uses eight explicitly defined checks, each worth 12.5 percentage points. No subjective weighting, and a checked documentation item is not a code acceptance.
+
+| Check | Result | Evidence / limitation |
+| --- | --- | --- |
+| 1. Historical phase warning in Master | PASS | BACKLOG.md links this ledger ahead of the stale phase snapshot |
+| 2. Source authority and contradiction rule | PASS | CTO current-truth operating contract |
+| 3. Incoming CTO checklist | PASS | First-hour checklist and tool role separation |
+| 4. Current owner/issue index | PASS | 53 lexical Day-0 issue candidates and active owner map; explicitly not exhaustive |
+| 5. Historical Master table inventory | PASS | 56 mechanical candidate rows, not normative obligations |
+| 6. Active PR topology and non-merge status | PASS | Snapshot of #512/#515/#516/#519/#521/#523/#525/#531; must re-fetch on handoff |
+| 7. Individual issue state checks for risk queue | PASS | 29/29 direct OPEN-state checks; independent acceptance 0/29 |
+| 8. Exhaustive obligation-to-evidence reconciliation and independent CTO sign-off | FAIL / PENDING | Prose obligations and comments not exhaustively classified; no final sign-off, #125 alignment or main merge |
+
+**Measured documentation score: 7/8 = 87.5%.** The remaining 12.5% is a substantial audit gate, not merely editorial polishing. **This score cannot be used as a Master completion percentage.** The documentation PR is DRAFT and has not changed main. 
+
+### Closeout protocol for check 8
+
+1. Enumerate every *normative* Day-0 obligation from BACKLOG prose, ADR-001 and issue #105; deduplicate by stable obligation ID and classify research/post-Master separately.
+2. For each obligation, record canonical owner, current implementation SHA, related PRs and comments, exact-SHA CI, independent reviewer and acceptance status. Do not convert old DONE to current ACCEPTED without evidence.
+3. Record every unresolved contradiction as a bounded issue with explicit source timestamps, priority and next action. Mark missing evidence UNKNOWN, not PASS.
+4. Verify GitBook/Mintlify truth against repository as a separate #125 gate; do not declare it complete from this PR.
+5. Obtain independent CTO review, confirm no unapproved semantic edits, and decide whether PR #531 may leave draft. Merge requires separate authorization.
+
+### Handoff instruction while check 8 is open
+
+Incoming CTOs may use this ledger as a **provisional navigation and conflict-resolution index**, but must not treat it as a frozen exhaustive Master truth or use its 87.5% score for production readiness. Recheck live states before work; never re-run a supposedly completed mission solely because an older paragraph says NOT STARTED.
