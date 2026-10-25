@@ -894,6 +894,25 @@ A distinct local Jest haste-map/worktree-collision incident is documented in `do
 
 **Minimum independent evidence matrix for engineering/acceptance (not a claim of execution):** (1) distinct operators/keys/nodes and documented bootstrap; (2) signed offer publication on node A and verified discovery on B; (3) injected private `paymentDetails` never appears in signed/gossiped wire payload; (4) revision/tombstone/equivocation and partition-heal replay behavior; (5) stranger developer installs externally published SDK and completes real wallet/service integration; (6) attached reproducible logs, versions, checks and reviewer identity. Preserve #105 gates as OPEN until independently evidenced; no new duplicate backlog issue.
 
+
+### Post-reconciliation execution routing — live GitHub ownership crosswalk (2026-10-25)
+
+**Issue status independently queried:** all of the following are OPEN; the queried issues have **no individual GitHub assignee**. 'Owner' below means *scope/registry authority*, not a person or implementation assignment. Do not create duplicates or silently assign owners.
+
+| Outstanding proof/work | Existing canonical issue(s) | Routing and evidence boundary | Sequencing |
+|---|---|---|---|
+| Independent multi-operator signed-offer gossip, bootstrap, partition healing, wire privacy, external Partner Beta | **#105**; scenario registry **#165** | #105 is durable multi-node/Partner Beta gate; #165 general Beta validation. Neither is closed by signed-offer local persistence or relay SDK. | Before corresponding Day-0/Beta gate acceptance; engineering can execute after backlog reconciliation but cannot defer acceptance requirement |
+| Authenticated relay SDK client and reconnect E2E | **#497** | Transport SDK deliverable, not economic offer gossip acceptance. | Engineering execution queue; evidence feeds #105/#165 where relevant |
+| Essential DHT fallback gaps | **#498** | Fallback-specific implementation/evidence, not automatic multi-node correctness. | Engineering queue; gate-dependent |
+| WebSocket relay resource bounds / 64 KiB transport cap | **#307**, **#499** | Separate resource exhaustion and wire cap constraints; no closure inferred. | Security gate-dependent |
+| Broader production surface and adversarial security audits | **#220**, **#297**; ongoing discovery **#500** | Discovery/verification lanes, not substitutes for exact fixes or independent partner tests. | Before production claims; some audit execution follows Master Backlog sequencing |
+| P2P lifecycle/payment-risk behavior and comparative audit | **#293**, **#256** | Preserve product-specific risk and concrete evidence; do not conflate with gossip. | Day-0 trade-safety acceptance as applicable |
+| Multi-integrator SDK scalability | **#473** | Existing engineering evidence mission; independent external integrator acceptance still #105/#165. | Master Backlog sequencing and Beta proof |
+| Documentation institutional truth | **#125** | Align GitHub/Mintlify/GitBook only after provenance checks. | Reconciliation then publication/acceptance |
+| Jest TD-AUDIT §57 systemic bootstrap contention | **Audit-local §57**, with **#500** as ongoing discovery cross-reference | No verified dedicated GitHub implementation owner in this sweep; **do not equate GitHub issue #57 with audit §57** or treat PR #115 Swagger-UI slice as whole fix. | Must be risk-assessed for Beta/CI reliability; remediation scope to be explicitly assigned in normal backlog governance |
+
+**Operational routing:** CTO reconciles evidence and gates; executor/maintainer is **not assigned by this ledger**. An assignee/implementation PR is required for a concrete delivery, and independent reviewers must evaluate the proof before closing #105/#165 or other gates. This crosswalk does not approve new architecture, implementation, merge or deployment.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
