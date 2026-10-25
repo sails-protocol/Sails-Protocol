@@ -92,8 +92,13 @@ export class RedisRelayDeliveryTransport {
       await this.subscriber.subscribe(this.localChannel)
       if (this.closing) {
         this.subscriber.off('message', this.onMessage)
-        // close() owns the unsubscribe and must surface failures to its caller.
-        // Do not attempt it here as well: duplicate unsubscribe calls can race.
+        // Explicit close() owns cleanup. An independent Redis close event has
+        // no closePromise, so startup must release its partial subscription.
+        if (!this.closePromise) {
+          try { await this.subscriber.unsubscribe(this.localChannel) } catch {
+            // Remain permanently closed; remote cleanup is not guaranteed.
+          }
+        }
         return
       }
       this.started = true
