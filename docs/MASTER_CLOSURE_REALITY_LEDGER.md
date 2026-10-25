@@ -885,6 +885,15 @@ The default-branch `docs/PRE_STATE_LIFECYCLE_DECISION_GATE.md` **§3.2 L46–56*
 
 A distinct local Jest haste-map/worktree-collision incident is documented in `docs/TEST_HARNESS_RELIABILITY.md`, but that evidence is **not a substitute** for TD-AUDIT §57's parallel-bootstrap contention acceptance. These are separate failure mechanisms and separate test requirements.
 
+
+### Partner Beta evidence bar vs. signed-offer building blocks (2026-10-25)
+
+**Independent acceptance boundary:** `docs/PARTNER_BETA_INTEGRATION_REALITY.md` **§10–11 L481–520** distinguishes internal reference integrations/rehearsals from an independently operated external wallet/service installing the SDK as an external package and demonstrating a real end-to-end path. The document states neither independent Partner Beta nor production-readiness bar is met at that evidence snapshot. No fresh independent partner artifact was verified in this sweep. **Status: independent partner evidence UNVERIFIED, not accepted.**
+
+**Architecture/transport boundary:** `docs/SAILS_NODE_SHARED_LIQUIDITY_DISCOVERY.md` **L194, L456–463** reports no relay-to-relay gossip and no existing shared network at its research snapshot; `docs/PRE_STATE_LIFECYCLE_DECISION_GATE.md` **L46–56** separately confirms signed-offer hashing/verification/persistence exist but were not wired to routes/gossip at that later snapshot. These corroborate that the `OfferEnvelope` data model alone cannot satisfy operator-to-operator propagation, partition recovery, bootstrap, or independent multi-node verification. These are **documented snapshots**, not an exhaustive present-day network runtime test.
+
+**Minimum independent evidence matrix for engineering/acceptance (not a claim of execution):** (1) distinct operators/keys/nodes and documented bootstrap; (2) signed offer publication on node A and verified discovery on B; (3) injected private `paymentDetails` never appears in signed/gossiped wire payload; (4) revision/tombstone/equivocation and partition-heal replay behavior; (5) stranger developer installs externally published SDK and completes real wallet/service integration; (6) attached reproducible logs, versions, checks and reviewer identity. Preserve #105 gates as OPEN until independently evidenced; no new duplicate backlog issue.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
