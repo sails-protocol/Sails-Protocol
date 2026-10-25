@@ -1185,3 +1185,10 @@ Added [`MASTER_BACKLOG_BULLET_SOURCE_INVENTORY.md`](MASTER_BACKLOG_BULLET_SOURCE
 **Cross-lane provenance:** the P3-R4 and P4 rows are **external mission reports**, not normalized BACKLOG source rows and not proof of global gaps; obtain published evidence and exact institutional joins before promoting them. The P4 CI status does not substitute for the Gatekeeper. Preserve #436 attestation assertion concerns separately; do not adopt weakened assertion 9143bbcc without equivalent adversarial coverage.
 
 **Progress accounting:** 54 MO + 54 BL + 40 BP + 156 BB = 304 **source records across bounded extractions**, not 304 distinct obligations. Independent normalized acceptance and global denominator remain unestablished; continuity check 8 remains OPEN (7/8 only). Decisions deferred ≠ gate closed.
+
+
+## Batch semantic routing milestone — BP + BL (2026-10-25)
+
+The [numbered prose register](MASTER_BACKLOG_NUMBERED_PROSE_REGISTER.md) now has **40/40** provisional BP-to-MO/BB/source hypotheses across two batches (14 + 26). The [historical table register](MASTER_BACKLOG_TABLE_CANDIDATE_REGISTER.md) now has **54/54** per-record provisional BL routing, including **4 section-navigation placeholders** (BL-0051, BL-0084, BL-0245, BL-0264) that must not automatically be counted as standalone obligations. These are **94/94 routed source records**, not 94 unique accepted obligations. No new acceptance or deduplication decision was made.
+
+**Evidence-first next pass:** prioritize BL-0060 signer quorum, BL-0067 escrow timelock sweeper, BL-0251/0252 SPLIT/payout authority, BL-0259/0260 MULTISIG independent signing and PSBT verification, and BP-3314 creation idempotency. Verify exact source, implementation SHA, tests, CI, effective supersession and independent gate before closure. Continue source extraction for unnumbered/nested clauses and semantic adjudication of BB/MO. Do not add source counts to construct a global denominator. Owner's economic/technical choices remain scheduled for post-Master Day-0; current safety gates are not waived.
