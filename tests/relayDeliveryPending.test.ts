@@ -26,6 +26,27 @@ describe('bounded cross-instance delivery pending registry', () => {
     registry.close()
   })
 
+  it('rejects malformed or ambiguous ACK envelopes without settling a pending request', async () => {
+    const registry = new RelayDeliveryPendingRegistry()
+    const pending = registry.register()!
+    const invalid: unknown[] = [
+      null, [], 'ack', 1,
+      { requestId: pending.requestId, accepted: 'true' },
+      { requestId: pending.requestId, accepted: 1 },
+      { requestId: pending.requestId, accepted: true, unexpected: 'field' },
+      { requestId: pending.requestId.toUpperCase() + 'x', accepted: true },
+      { requestId: '00000000-0000-0000-0000-000000000000', accepted: true },
+      { requestId: pending.requestId },
+    ]
+    for (const raw of invalid) {
+      expect(registry.acknowledge(raw)).toBe(false)
+      expect(registry.size).toBe(1)
+    }
+    expect(registry.acknowledge({ requestId: pending.requestId, accepted: false })).toBe(true)
+    expect(await pending.result).toBe(false)
+    registry.close()
+  })
+
   it('settles a valid negative ACK immediately and rejects its replay', async () => {
     const registry = new RelayDeliveryPendingRegistry()
     const pending = registry.register()!
