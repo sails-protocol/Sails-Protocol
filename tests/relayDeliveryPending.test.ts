@@ -73,6 +73,34 @@ describe('bounded cross-instance delivery pending registry', () => {
     expect(registry.register()).toBeNull()
   })
 
+  it('rejects duplicate positive ACK while a second request remains pending', async () => {
+    const registry = new RelayDeliveryPendingRegistry()
+    const first = registry.register()!
+    const second = registry.register()!
+    expect(first.requestId).not.toBe(second.requestId)
+    expect(registry.acknowledge({ requestId: first.requestId, accepted: true })).toBe(true)
+    expect(await first.result).toBe(true)
+    expect(registry.acknowledge({ requestId: first.requestId, accepted: true })).toBe(false)
+    expect(registry.size).toBe(1)
+    expect(registry.acknowledge({ requestId: second.requestId, accepted: false })).toBe(true)
+    expect(await second.result).toBe(false)
+    expect(registry.size).toBe(0)
+    registry.close()
+  })
+
+  it('fails closed on close with outstanding requests and ignores subsequent ACKs', async () => {
+    const registry = new RelayDeliveryPendingRegistry()
+    const first = registry.register()!
+    const second = registry.register()!
+    registry.close()
+    expect(await Promise.all([first.result, second.result])).toEqual([false, false])
+    expect(registry.acknowledge({ requestId: first.requestId, accepted: true })).toBe(false)
+    expect(registry.acknowledge({ requestId: second.requestId, accepted: true })).toBe(false)
+    expect(registry.size).toBe(0)
+    expect(registry.register()).toBeNull()
+    registry.close()
+  })
+
   it('expires unanswered requests and rejects late ACKs', async () => {
     jest.useFakeTimers()
     try {
