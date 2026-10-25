@@ -533,6 +533,70 @@ The ADR contains **29 numbered top-level heading occurrences** because section 7
 
 **Source integrity:** 29/29 top-level numbered ADR heading occurrences indexed; **normative obligation-level coverage:** NOT MEASURED; **acceptance:** NOT VERIFIED. This register is a structural checkpoint, not a release gate.
 
+
+### #105-to-ADR crosswalk — bounded gate-level mapping (2026-10-25)
+
+**Method:** Each of the 54 canonical #105 entries inherits a **candidate ADR topic family** from its gate. These are review pointers, not proven one-to-one normative equivalences. ADR subclauses, cold-sweep, BACKLOG prose, owners and SHA-level implementation/evidence must be inspected before marking a row accepted. Multiple rows can map to one ADR family; one row can require multiple proofs. No new authority is created.
+
+| #105 item | Gate | Candidate ADR-001 sections (review pointers) | Master owner/evidence |
+| --- | --- | --- | --- |
+| 1 | A | §21, §25 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 2 | A | §21, §25 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 3 | A | §21, §25 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 4 | B | §15, §20, §25 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 5 | B | §15, §20, §25 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 6 | B | §15, §20, §25 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 7 | B | §15, §20, §25 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 8 | C | §2, §3, §7, §7.1, §26, §27 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 9 | C | §2, §3, §7, §7.1, §26, §27 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 10a | C | §2, §3, §7, §7.1, §26, §27 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 10b | C | §2, §3, §7, §7.1, §26, §27 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 11 | C | §2, §3, §7, §7.1, §26, §27 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 12 | C | §2, §3, §7, §7.1, §26, §27 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 13 | C | §2, §3, §7, §7.1, §26, §27 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 14 | D | §4, §5, §6, §9, §26 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 15 | D | §4, §5, §6, §9, §26 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 16 | D | §4, §5, §6, §9, §26 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 17 | D | §4, §5, §6, §9, §26 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 18 | D | §4, §5, §6, §9, §26 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 19 | D | §4, §5, §6, §9, §26 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 20 | D | §4, §5, §6, §9, §26 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 21 | E | §3, §8, §11, §27, §28 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 22 | E | §3, §8, §11, §27, §28 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 23 | E | §3, §8, §11, §27, §28 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 24 | E | §3, §8, §11, §27, §28 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 25 | E | §3, §8, §11, §27, §28 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 26 | E | §3, §8, §11, §27, §28 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 27 | F | §8, §9, §11, §13, §28 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 28 | F | §8, §9, §11, §13, §28 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 29 | F | §8, §9, §11, §13, §28 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 30 | F | §8, §9, §11, §13, §28 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 31 | F | §8, §9, §11, §13, §28 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 32 | F | §8, §9, §11, §13, §28 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 33 | F | §8, §9, §11, §13, §28 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 34 | G | §16, §17 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 35 | G | §16, §17 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 36 | G | §16, §17 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 37 | G | §16, §17 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 38 | H | §18, §19, §20 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 39 | H | §18, §19, §20 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 40 | H | §18, §19, §20 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 41 | H | §18, §19, §20 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 42 | H | §18, §19, §20 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 43 | I | §18, §19, §20, §21 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 44 | I | §18, §19, §20, §21 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 45 | I | §18, §19, §20, §21 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 46 | I | §18, §19, §20, §21 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 47 | I | §18, §19, §20, §21 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 48 | J | §11, §21, §23, §24 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 49 | J | §11, §21, §23, §24 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 50 | J | §11, §21, §23, §24 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 51 | J | §11, §21, §23, §24 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 52 | J | §11, §21, §23, §24 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+| 53 | J | §11, §21, §23, §24 | OWNER / SHA / CI / INDEPENDENT ACCEPTANCE: NOT VERIFIED |
+
+**Bounded progress:** 54/54 #105 source entries assigned to a gate-level ADR review family; **0/54 independently validated at item-level by this crosswalk** (not a claim that none were implemented or accepted elsewhere). BACKLOG line-level joins, item-specific normative deduplication, and evidence ownership are still OPEN. **No global Master percentage.**
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
