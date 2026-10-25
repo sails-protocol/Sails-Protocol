@@ -787,6 +787,15 @@ Read directly against BACKLOG source passages, **not** derived from keyword coun
 
 **Boundary:** These six source interpretations are not six delivered gates. The historical #105 numbering cited by BACKLOG L4294–4300 may differ from the later 54-entry canonical sequence; **join by substantive requirement, never by unqualified old item number**. Current owner, SHA, CI and external acceptance are still unverified in this pass. No release, payout or merge authority follows from these notes.
 
+
+### Live issue-number collision — #105 item 2 / 3 references (verified 2026-10-25)
+
+**Direct GitHub issue lookup (current repository issue objects):** issue **#57 is CLOSED**, but its title is **“ci(architecture-pages): fix shallow-checkout evidence failure”**, not the `buildApp()` parallel contention debt described in #105 canonical item 2. Issue **#61 is CLOSED**, but its title is **“conformance(recovery): B — partial recovery/reconciliation conformance, MULTISIG-scoped”**, not the Public OfferDetail privacy defect described in #105 item 3. The #105 issue itself remains **OPEN**.
+
+**Adjudication:** The references to “Technical Debt #57” and “#61” inside #105 are **not valid live GitHub issue links to those obligations**. They may be document-local audit identifiers (`docs/TECHNICAL_DEBT_AUDIT.md`) rather than GitHub issue numbers; this hypothesis requires source verification. Do **not** infer that the harness or privacy blocker was closed merely because GitHub issues #57/#61 are closed, and do **not** assign those unrelated GitHub issues as owners. BACKLOG L1817–1836 independently records Public OfferDetail as a Partner Beta privacy blocker at its historical snapshot. Current code status remains UNKNOWN.
+
+**Required remediation:** Disambiguate the #105 references explicitly as audit-local IDs where supported by the technical debt source; attach exact file/heading links and actual implementation PR/commit/test evidence. Do not silently renumber or rewrite historical evidence. This is a confirmed **identifier namespace collision**, not a newly discovered code vulnerability.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
