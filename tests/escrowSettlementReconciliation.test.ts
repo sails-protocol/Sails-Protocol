@@ -158,6 +158,8 @@ const mockTransaction = jest.fn(async (callback: (tx: unknown) => Promise<unknow
     // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
     eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
     $executeRaw: jest.fn().mockResolvedValue(0),
+    // PASS 3's claim (claimTransitionRecoveryBatch) runs in a transaction that takes an advisory lock first, then claims: none by default.
+    $queryRaw: jest.fn().mockResolvedValue([]),
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args), update: (...args: unknown[]) => mockEscrowUpdate(...args) },
     // Missão 11 Fase 9.7 — emitEscrowTransition() now does its own
     // escrowEvent existence-check-then-create INSIDE withEscrowFundingLock()
