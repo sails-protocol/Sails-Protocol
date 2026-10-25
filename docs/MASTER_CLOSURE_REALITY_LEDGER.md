@@ -746,6 +746,17 @@ Unlike the earlier literal-search tables, the entries below were classified from
 
 **Institutional risk:** A 54/54 *navigation* lookup does not reconcile this cross-source conflict. This is a confirmed **source-authority mismatch**, not proof of code defect or proof of delivery. #105 remains the sequence owner; the newer BACKLOG freeze controls product scope. No issue edit, implementation, merge or release is authorized by this note.
 
+
+### Gate B second-pass authority — XAUT and fiat scope (2026-10-25)
+
+**BACKLOG L1994–1996:** XAUT (Tether Gold) on Ethereum is **Day-0-required**; its previously pending network choice is expressly superseded by the 2026-09-10 Product Direction Freeze. Do **not** register an unresolved XAUT-network decision or infer production readiness from this product requirement.
+
+**BACKLOG L1998–2010:** Asset × Network × Settlement-Capability decomposition remains an **open architecture decision** despite the frozen product target. Neither a combinatorial flat enum expansion nor a generic multi-chain EVM provider has been approved by the product freeze. Implementation needs a separately gated architecture mission.
+
+**BACKLOG L2287–2299:** quote-currency discoverability is **conditional on multi-fiat beta support**, distinct from the asset/rail freeze. The same passage explicitly upgrades DePix/Liquid and DePix/Spark representability tests to **unconditional Day-0 evidence**. #105 item 7 therefore remains a distinct unresolved fiat-scope/evidence question; #105 item 6's conditional wording is obsolete.
+
+**Decision boundary:** Product requirement **≠** protocol representation **≠** settlement-provider maturity **≠** beta eligibility. These are three additional passage-level authority checks, **not** three accepted implementations. Gate B cannot be marked complete without the canonical matrix, approved architecture and independently checked evidence.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
