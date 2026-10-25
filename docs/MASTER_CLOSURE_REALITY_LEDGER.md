@@ -878,6 +878,13 @@ Direct GitHub checks queried against **the exact merge commits**, not the curren
 
 **Gate implication:** Signed schema exclusion is encouraging, but signed-envelope gossip wire behavior and independent Partner Beta tests remain separate required evidence; TD §57 remains an open systemic reliability risk even with successful PR #115 workflows.
 
+
+### Wire-gossip implementation boundary — source corroboration (2026-10-25)
+
+The default-branch `docs/PRE_STATE_LIFECYCLE_DECISION_GATE.md` **§3.2 L46–56** explicitly identifies the current `OfferEnvelope` verification/hash/persistence modules as **not yet wired to HTTP routes or the gossip transport**; ADR-001 remains architecture acceptance only. This corroborates the static `OfferEnvelopeContent` allowlist finding, and tightens the verdict: **signed-content schema privacy is evidenced; actual gossip serialization/private-field exclusion cannot yet be end-to-end verified because the transport integration is not demonstrated**. Do not treat absence of a `paymentDetails` field in a TypeScript interface as a wire-level adversarial test. Keep cold-sweep #23 and multioperator Gate A **OPEN / implementation-dependent**.
+
+A distinct local Jest haste-map/worktree-collision incident is documented in `docs/TEST_HARNESS_RELIABILITY.md`, but that evidence is **not a substitute** for TD-AUDIT §57's parallel-bootstrap contention acceptance. These are separate failure mechanisms and separate test requirements.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
