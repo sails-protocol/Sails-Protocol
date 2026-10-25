@@ -78,3 +78,38 @@ The 40 numbered primary headings are now assigned to nine semantic queues with e
 | BP-2287 quote-currency discoverability | MO-007; MO-008 | CONDITIONAL EXTENSION, NOT AUTOMATIC DUPLICATE | Currency scope and signed envelope are not necessarily discoverability UX/API proof |
 
 **Batch result:** 14 BP source headings routed to 14 semantic hypotheses; **0 accepted merges / 0 closed obligations**. This batch establishes candidate joins only, leaving the other 26 BP headings and all unnumbered/nested source clauses for subsequent adjudication. Existing historical fix claims are not independently revalidated here. Decisions on missing economic/custody behavior remain for post-Master Day-0 planning, while release gates stay blocked until independently satisfied.
+
+## Semantic crosswalk batch 2 — remaining 26 numbered headings (2026-10-25)
+
+**Evidence boundary:** all mappings below are source-heading/description crosswalks, not code/CI revalidation, reviewer acceptance, or a claim that the underlying findings are still present. Source anchors are the BP rows above and the referenced BB/MO rows. Product decisions remain reserved for post-Master Day-0 planning; current release blockers remain effective.
+
+| BP source | Topic | Candidate owner / related source | Provisional relationship | Unresolved proof boundary |
+| --- | --- | --- | --- | --- |
+| BP-2322 | Product layering | BB-2334; BB-2351; MO-040; MO-041 | PRODUCT CONTRACT / PARTIAL OVERLAP | Funding/signing UI and white-label are separate from partner SDK integration evidence |
+| BP-2383 | Market design direction | BP-2322; BB-2334; BB-2351 | DESIGN DIRECTION / NOT RUNTIME ACCEPTANCE | Design principles and screens require independent implementation and UX tests |
+| BP-2399 | SDK family and capability truth | MO-040; MO-041; MO-049; BB-5676 | PRODUCT CONTRACT / ELIGIBILITY OVERLAP | SDK boundary, maturity labels and rail eligibility require distinct proof |
+| BP-2430 | Design language foundation | BP-2383; BP-2472 | HISTORICAL PARTIAL IMPLEMENTATION | Navigation/design tokens and accessibility require exact code and regression evidence |
+| BP-2472 | Navigation and filters | BP-2430; BP-2524 | PRODUCT UX / HISTORICAL CORRECTION | Nav state and filter application need independent behavior checks |
+| BP-2524 | UI polish and filter semantics | BP-2472; BP-2624 | HISTORICAL FIX CLAIM / VERIFY | Filter staged-draft behavior and authority corrections not presumed current without code/CI |
+| BP-2571 | Actor experience | BP-2624; BP-2681; MO-040; MO-041 | PRODUCT ACTOR MODEL / DISTINCT AUTHORITY | Actor taxonomy is design authority, not implementation or actor-specific proof |
+| BP-2624 | P2P product journey | BP-2571; BP-2728; MO-021–MO-033 | PRODUCT JOURNEY / ECONOMIC STAGE OVERLAP | Journey stages do not replace signed trade commitments or rail settlement tests |
+| BP-2681 | Market entry authentication | BP-2571; BP-2728; MO-040 | AUTH BOUNDARY / PARTIAL OVERLAP | Public discovery, session identity and wallet authorization remain distinct |
+| BP-2728 | Journey/access flywheel | BP-2624; BP-2681; MO-021 | INSTITUTIONAL CORRECTION / NOT NEW FEATURE | Runtime Trade creation is not automatically economic commitment |
+| BP-2809 | System coherence audit | BP-2909; BP-2977; BP-3273 | AUDIT FINDING PARENT / NOT ADDITIVE | 17 findings need individual owners and supersession evidence |
+| BP-2909 | SPLIT and destination privacy | BP-2809; BP-2977; BB-4373; MO-033 | HISTORICAL FIX / TEMPORAL AUTHORITY REVIEW | F-06 supersession and SPLIT proof must follow later corrections, not old defect labels |
+| BP-2977 | Pre-M3 reality gate | BP-2809; BP-2909; BP-3205 | HISTORICAL GATE / RESIDUAL SUBGAPS | Six fixed, one already correct, one escalated is source claim pending exact proof |
+| BP-3205 | Error and recovery semantics | BB-5605; BP-2977; MO-033 | CURRENT CROSS-LAYER DESIGN OBLIGATION | Typed errors and recovery UX separate from one historical 401 fix |
+| BP-3273 | Cross-layer semantic audit | BP-3314; BP-4056; BP-4106; BP-4160 | AUDIT PARENT / NOT 28 EXTRA ACCEPTED TASKS | Each CSC finding needs own owner, test and supersession join |
+| BP-3314 | Creation idempotency | MO-028; BP-3273; BB-5337 | DISTINCT CREATE RETRY / PARTIAL ABUSE OVERLAP | Idempotency on Trade/Offer/Evidence differs from economic spam policy |
+| BP-4056 | SDK type shape | BP-3273; MO-040; MO-041 | SDK CONTRACT GAP / VERIFY | DisputeStatus parity and SDK shape need exact source and consumer compatibility proof |
+| BP-4106 | Capability denial reasons | BP-3273; BB-5676; MO-049 | ERROR CONTRACT / ELIGIBILITY OVERLAP | Structured denial reasons do not establish production rail eligibility |
+| BP-4160 | Protocol version readiness | BP-3273; MO-040; MO-041 | FUTURE DECISION / CONDITIONAL GATE | Version negotiation before multi-language SDK; not automatic current Mission 3 blocker |
+| BP-4216 | Roadmap/backlog reconciliation | BP-4363; BP-4483 | INSTITUTIONAL SYNC / NON-RUNTIME | Evidence of historical synchronization not a new implementation feature |
+| BP-4363 | Business rules discovery | BP-4216; BB-4373; BP-4565 | HISTORICAL SYNC / SUPERSESSION | Stale F-06 and comment delta must not override later destination authority closure |
+| BP-4483 | Decision institutionalization | BP-4363; BP-4565 | HISTORICAL DECISION RECORD | Preserve dated accepted decisions, do not reopen or replace without authority |
+| BP-4565 | State lifecycle delta | BP-4483; BP-4728; BB-4610 | OWNERSHIP INDEX / RESIDUAL RISKS | Seller-release historical fix separate from appeal and crash-window obligations |
+| BP-4728 | Authority backlog delta | BP-4565; BB-4610; BB-4744 | CROSS-REFERENCE / NO DUPLICATE FIX | Earlier seller-release observation superseded by later fix claim; verify merged SHA |
+| BP-5100 | External P2P baseline | MO-038–MO-047; MO-049–MO-051 | BENCHMARK / EXTERNAL GATE DISTINCT | Comparative research cannot substitute stranger/partner tests or external audit |
+| BP-5850 | SDK release governance | MO-040; MO-041; BP-2399 | PACKAGING GOVERNANCE / DISTINCT RELEASE GATE | Packaging policy is not published SDK integration or release acceptance |
+
+**Batch result:** 26 of 26 remaining BP headings mapped provisionally. Combined with batch 1, **40/40 BP headings now have a documented semantic routing hypothesis**; 0 new accepted equivalences, 0 new closed obligations, and no global Master denominator. Next pass must validate exact underlying clauses and crosswalk historical BL candidates and unnumbered/nested source evidence. Do not mistake this 40/40 source-routing milestone for Master completion.
