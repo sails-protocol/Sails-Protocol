@@ -38,7 +38,9 @@ Read → compare current truth → issue bounded Claude mission → reproduce/re
 
 **Documentation scope acceptance:** this file can be approved independently from the entire Master backlog and from Beta/production gates. Merging PR #531 requires separate CTO review.
 
-## Measured closure of this documentation reconciliation (2026-10-24)
+> **Current metric hierarchy (independent review 2026-10-25):** The controlling handoff metric is the **7/8 scorecard (87.5%)** in the ledger, pending check 8. The 6/10 and 8/12 metrics below are retained solely as dated authoring-history snapshots, not competing current scores. Neither the handoff score nor authoring-history scores measure Master technical completion, Beta readiness or production clearance.
+
+## Measured closure of this documentation reconciliation (2026-10-24) — historical authoring snapshot
 
 **Baseline:** 6 of 10 acceptance checklist items are documented (60% of this *bounded checklist*, not 60% of Master Backlog or independently approved institutional truth). The ten items and their individual [x]/[ ] states are in [MASTER_CLOSURE_REALITY_LEDGER.md](MASTER_CLOSURE_REALITY_LEDGER.md), section E. This percentage is an **authoring progress indicator only**: checked means recorded, not independently accepted.
 
@@ -46,7 +48,7 @@ Read → compare current truth → issue bounded Claude mission → reproduce/re
 
 **Suggested gate:** remain YELLOW until 7–9 have inspectable evidence and a reviewer signs off; move to GREEN for *institutional continuity documentation only* after 10 is approved and the merged main content is verified. Production, Beta, P3/P4 and Day-0 retain their own independent gates.
 
-## Continuity reconciliation progress — 2026-10-25
+## Continuity reconciliation progress — 2026-10-25 — superseded authoring checklist
 
 **Bounded documentation-control checklist (not Master completion):**
 
