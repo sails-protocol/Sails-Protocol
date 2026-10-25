@@ -183,3 +183,16 @@ Read-only source inspection on PR #531 HEAD before this documentation update; **
 | QVAC ↔ BL-0059 capability enforcement | `trade.routes.ts` uses `requireAuth` for trade creation; RFC-023 bounds proposal/discovery, ADR-004 requires independent capability checks for covered economic operations | Authentication is not economic authorization; review real Trade/escrow capability and human-signing gates at execution boundary, including asynchronous revocation |
 
 **Disposition:** evidence-backed historical classification improved; **no guardrail bypass**, no claim that every QVAC route is safe, no production flag change, no accepted security gate. This does not turn RFC-023's bounded negotiation into autonomous settlement.
+
+
+## Three-lane source verification batch — escrow, signing, idempotency (2026-10-25)
+
+Inspected directly at PR #531 HEAD `b8720f7f66f3f70ec0f649f7b70ac668ab02a938`: `src/app.ts`, `tests/expiryAuthority.test.ts`, `packages/sails-ui/src/hooks/useEscrowKey.ts`, `tests/multisigSigningIntentUi.test.ts`, `src/common/idempotency.ts`. **Code and test definitions inspected, named suites not executed in this review.**
+
+| Lane / BL candidate | Concrete source evidence | Residual gate; do not count as accepted |
+| --- | --- | --- |
+| Escrow expiry / BL-0067 | `src/app.ts` lines 470–472 invokes `sweepExpiredEscrows()` only when `config.features.escrowTimelockSweeper` is true. `tests/expiryAuthority.test.ts` contains fail-closed and deadline-boundary pure authority cases. | Operational feature enablement, worker restart/duplication, persistence, crash recovery, and actual funded escrow outcome are not shown by pure tests. |
+| MULTISIG / BL-0259, BL-0260 | `packages/sails-ui/src/hooks/useEscrowKey.ts` lines 211–212 constructs an expected signing intent and calls `verifyAndSignEscrowPsbt`. `tests/multisigSigningIntentUi.test.ts` includes correct-PSBT positive path and explicit refusal of SPLIT, missing funded amount, fee, address and signer keys. | This narrows historical blind-signing allegation for inspected hook; cannot prove all signing entrypoints or server-independent cooperative spend. SPLIT is intentionally refused, not implemented. |
+| Idempotency / cross-cutting trade and escrow | `src/common/idempotency.ts` exports `withIdempotency()` and documents a two-callback recovery approach to committed state and event emission. | Must audit each economic caller's idempotency-key propagation and replay/partial-write behavior; helper existence is not full end-to-end guarantee. |
+
+**No promotion of historical DONE to acceptance; no production configuration change.** Required next evidence: exact-SHA test executions, per-route caller inventory, multi-worker and restart rehearsals in disposable infrastructure, and independent reviewer sign-off.
