@@ -196,3 +196,13 @@ Inspected directly at PR #531 HEAD `b8720f7f66f3f70ec0f649f7b70ac668ab02a938`: `
 | Idempotency / cross-cutting trade and escrow | `src/common/idempotency.ts` exports `withIdempotency()` and documents a two-callback recovery approach to committed state and event emission. | Must audit each economic caller's idempotency-key propagation and replay/partial-write behavior; helper existence is not full end-to-end guarantee. |
 
 **No promotion of historical DONE to acceptance; no production configuration change.** Required next evidence: exact-SHA test executions, per-route caller inventory, multi-worker and restart rehearsals in disposable infrastructure, and independent reviewer sign-off.
+
+
+## Idempotency caller-path audit — trade creation (2026-10-25)
+
+Inspected `src/modules/open-p2p/trade.routes.ts`, `src/modules/open-p2p/trade.service.ts`, `src/common/idempotency.ts`, and `tests/idempotency.test.ts` at HEAD `973ba32dab8e9f2479ea5a87aa66ad1a417cac77` (source/test definitions, not a recorded Jest run).
+
+- HTTP trade creation accepts **optional** `idempotencyKey` (`trade.routes.ts` line 38), forwards it to `tradeService.createTrade` (lines 84–88), and the service passes it to `withIdempotency` (lines 59–64). This is verified **route → service → helper propagation**, not proof that clients always supply the key.
+- The helper distinguishes `COMPLETED`, `UNKNOWN`, `FAILED`, `IN_PROGRESS` and documents post-persist side effects. `tests/idempotency.test.ts` defines tests for exact retries, concurrent races, payload mismatch, failure/retry, cross-participant scope, and recovery when completion bookkeeping fails.
+- **Safety gap in scope, not newly proven defect:** missing client key permits separate logical creations; `tests/idempotency.test.ts` explicitly tests that two no-key calls remain allowed. Do not call this universally idempotent. Reconcile UI/SDK key generation and retry contract separately, without silently changing API semantics.
+- **Still open:** verify executed tests at exact SHA; inspect offer/evidence/dispute callers, persistent-store crash windows and post-persist event/outbox guarantees. No claim of complete distributed exactly-once effects or accepted release gate.
