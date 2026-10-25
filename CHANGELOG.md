@@ -19,6 +19,13 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **Continuous image security and migration controls (2026-10-24, P3-R3, draft).** Trivy now scans the server and migration
+  images in CI (scanner pinned by digest, OS and Node packages, report uploaded as an artifact, plus a weekly independent
+  re-scan). The gate starts in **observe** mode: it reports exactly what would fail (125 blocking findings on the #521 images)
+  and exits 0; **no exception is registered** for any current finding. Prisma migrations are now linted and frozen by SHA-256,
+  require a reasoned annotation when not additive, and are probed for compatibility with the previous server version on a
+  throwaway database (`docs/MIGRATIONS.md`). Decision record: `docs/adr/ADR-006-self-host-image-security-and-migration-governance.md`;
+  open items: `docs/SELF_HOST_ACCEPTANCE.md`. Self-hosting is still not approved for production.
 - **Known HIGH/critical advisories removed from the shipped images (2026-10-23).** The server
   image carried `fastify 5.12.1` (authentication bypass via malformed URLs and three validation
   bypasses), `zod 4.4.3` (memory exhaustion on oversized constrained collections),

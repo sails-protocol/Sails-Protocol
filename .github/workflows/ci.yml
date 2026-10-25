@@ -105,6 +105,18 @@ jobs:
           DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
         run: npm run db:migrate
 
+      # Migration controls (docs/MIGRATIONS.md): no applied migration was edited, every new non-additive one
+      # carries a reasoned contract annotation, and the previous server version stays compatible with the
+      # schema the new migrations produce (the probe creates and drops its OWN database on the CI service).
+      - name: Migration lint and old-version compatibility probe
+        env:
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/postgres
+          COMPAT_PROBE_DATABASE_URL: postgresql://postgres:password@localhost:5432/postgres
+        run: |
+          node scripts/migration-lint.js
+          node scripts/migration-compat-probe.js
+          npx jest tests/migrationControls.test.ts --no-coverage
+
       - name: Run unit tests
         # Vars scoped to this step only (Missão 11 Fase 6.3B.1) —
         # SAILS_INTEGRATION_TEST_DB_CONFIRMED is the explicit, deliberate
