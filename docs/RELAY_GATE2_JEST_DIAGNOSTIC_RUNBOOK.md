@@ -26,6 +26,10 @@ RELAY_REDIS_INTEGRATION_URL=redis://127.0.0.1:6379 \
 
 Use the repository's exact package-manager/test scripts if CI invokes Jest through a wrapper; preserve environment parity. Do not add `--forceExit`, suppress stderr, or globally increase timeouts to make the warning disappear.
 
+## CI observation — evidence collection blocked
+
+At the time of this update, commit `6a46c833afd4c0f9c8c88dda3941ea18faabb8f1` showed CodeQL and CI Tests completed successfully; the main CI `build` job (ID `121077045102`) remained `in_progress`. An attempt to retrieve its job log returned GitHub storage `404 BlobNotFound`. **Do not interpret the missing log as a green result, a failing test, or proof that the worker-exit warning disappeared.** Retry after job completion and record the immutable SHA and final log artifact before making any assertion about open handles.
+
 ## Triage and acceptance
 
 1. Capture SHA, Node/Jest versions, exact command, Redis service lifecycle, logs, and exit status for each run.
