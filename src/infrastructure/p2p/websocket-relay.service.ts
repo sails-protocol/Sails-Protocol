@@ -52,10 +52,29 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
   // Called by app.ts's `/ws/relay` route once the client's WebSocket
   // upgrade completes — this is the real "connection", not start() below.
   registerSocket(participantId: string, socket: RelaySocket): void {
+    const previous = this.sockets.get(participantId)
+    if (previous === socket) return
+    // Transfer ownership before closing: a stale close callback must not
+    // unregister the replacement socket.
     this.sockets.set(participantId, socket)
+    if (previous && previous.readyState === OPEN) {
+      try {
+        previous.close()
+      } catch {
+        // A broken old transport must not abort registration of the new
+        // authenticated socket. Ownership has already been transferred.
+      }
+    }
   }
 
-  unregisterSocket(participantId: string): void {
+  ownsSocket(participantId: string, socket: RelaySocket): boolean {
+    return this.sockets.get(participantId) === socket
+  }
+
+  unregisterSocket(participantId: string, socket?: RelaySocket): void {
+    // A stale close event must not remove a newer socket registered for
+    // the same participant (reconnect/overlapping connections).
+    if (socket && this.sockets.get(participantId) !== socket) return
     this.sockets.delete(participantId)
   }
 
@@ -94,8 +113,9 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
   async sendToPeer(_participantId: string, targetParticipantId: string, payload: unknown): Promise<boolean> {
     const socket = this.sockets.get(targetParticipantId)
     if (!socket || socket.readyState !== OPEN) return false
-    // Blind forward — payload is whatever the caller already encrypted
-    // above this layer. Never parsed, never logged.
+    // Blind forward: payload confidentiality depends on the caller. Intent
+    // payloads have application-layer encryption, but chat/negotiation may
+    // still be plaintext (see module security note). Never parse or log.
     socket.send(typeof payload === 'string' ? payload : JSON.stringify(payload))
     return true
   }
