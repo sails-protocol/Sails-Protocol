@@ -2,6 +2,19 @@
 
 Status: **NOT HOMOLOGATED / BLOCKED**. This document records evidence, not authorization to merge or deploy.
 
+## Execution plan and measurable gates (2026-10-25 UTC)
+
+**Scope:** isolated Redis Pub/Sub candidate on `security/307-relay-bounded-frames-candidate`. Percentages below count verified acceptance criteria, not subjective readiness. No merge, production wiring, deployment or Gate 2 approval is authorized.
+
+1. **Distributed process proof — 0/5 acceptance scenarios confirmed:** two distinct OS processes with real Redis; A-to-B local-send-accepted; stale-owner fencing after reconnect; Redis outage and restart; duplicate/delayed ACK and backpressure/byte-cap behavior. The current four-client real-Redis Jest test is **one process** and cannot satisfy this gate.
+2. **Backplane trust and routing — 0/4 contracts approved:** authoritative participant-to-instance ownership and fencing; authenticated publisher/subscriber identity and channel ACL; authenticated ACK provenance/replay policy; documented lifecycle supervision and failure recovery. Code-level input validation is not a substitute for authorization.
+3. **Operational integration — 0/3 approvals:** explicit architecture RFC/ADR choosing distributed backplane versus affinity; independently validated WSS ingress and privacy boundary; approved staged rollout/rollback with observable failure modes. Do not wire `relay.routes.ts` before these decisions.
+4. **Independent acceptance — 0/2 signoffs:** evidence review tied to exact SHA/environment and explicit responsible-owner approval. CI green is necessary but insufficient.
+
+**Priority order:** first build a two-process, real-Redis *test-only* harness and run it in CI; then define/approve the trust/routing contract; only then implement production integration behind an explicit gate. Preserve red runs and test limitations in this file. Investigate the Jest open-handles warning independently; do not claim it is resolved without a targeted diagnostic.
+
+**Progress reporting:** use `passed / required` for each gate and the current HEAD's three workflows separately. These gates are intentionally strict and currently **0/14 confirmed**; this does not negate the already-green unit and one-process Redis integration tests.
+
 ## Verified real-Redis candidate CI (2026-10-25 UTC)
 
 - Commit `c170f52208bdb6bf411ca0b088b30625638f8339`: CI run `40153288016`, CI Tests `40153288041`, CodeQL `40153288023` all succeeded.
