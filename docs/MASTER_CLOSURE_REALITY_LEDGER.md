@@ -152,3 +152,68 @@ Later comments in #221 supersede earlier discussion: **Open CodeReview + Claude 
 ### Outstanding work before closure percentage
 
 The 53-row lexical issue index and live PR topology above are **not a complete obligation-level reconciliation**. The next pass must extract and normalize every numbered Master requirement, then check current issue body **and comments**, PR diff, current code, exact-SHA CI and independent acceptance for each. Record contradictions explicitly instead of choosing the most recent conversational claim. Until then the global percentage remains **not measurable**.
+
+## Master BACKLOG.md table-row inventory — mechanical baseline (2026-10-24)
+
+This inventory parses rows from the current default-branch BACKLOG.md. It is a **mechanical candidate list**, not a normative denominator: some rows are headings, historical/superseded entries, duplicates or explanatory records. The status column is a keyword from the row text and **not current acceptance**. Source line numbers are from the inspected 5,904-line snapshot and may drift after edits.
+
+| Source line | Section | Candidate item | Historical text keyword | Acceptance |
+| ---: | --- | --- | --- | --- |
+| 53 | P0 — Core Primitives (block everything else) | Participant Model | NOT STARTED | UNVERIFIED |
+| 54 | P0 — Core Primitives (block everything else) | Proof Primitive (Claim/Proof/Verification) | DONE | UNVERIFIED |
+| 55 | P0 — Core Primitives (block everything else) | **Intent Engine** *(new — 03-implementation_plan.md, CISO+CTO-approved MVP blueprint)* | DONE | UNVERIFIED |
+| 56 | P0 — Core Primitives (block everything else) | POST /api/v1/intents, DELETE /api/v1/intents/:id *(new)* | DONE | UNVERIFIED |
+| 57 | P0 — Core Primitives (block everything else) | **Coordination Engine** *(new — RFC-012, rfcs/RFC-012-intent-validation-and-coordination.md)* | DONE | UNVERIFIED |
+| 58 | P0 — Core Primitives (block everything else) | **Capability Registry** *(new — RFC-013, rfcs/RFC-013-capability-registry-and-wallet-adapter.md)* | DONE | UNVERIFIED |
+| 59 | P0 — Core Primitives (block everything else) | **Capability Registry Enforcement** *(new — RFC-014, rfcs/RFC-014-capability-registry-enforcement.md; rel | DONE | UNVERIFIED |
+| 60 | P0 — Core Primitives (block everything else) | **Two-Person Control for Escrow Release** *(new — RFC-015, rfcs/RFC-015-dual-authorization-escrow-release | DONE | UNVERIFIED |
+| 61 | P0 — Core Primitives (block everything else) | **Real Protocol Fee collection** *(new — RFC-021 Phase 0, rfcs/RFC-021-market-based-arbitration-and-payme | DONE | UNVERIFIED |
+| 62 | P0 — Core Primitives (block everything else) | **Permissionless arbiter registration** *(new — RFC-021 Phase 1, D1-D3)* | DONE | UNVERIFIED |
+| 63 | P0 — Core Primitives (block everything else) | **Payment-account trust ramp** *(new — RFC-021 Phase 4, D5)* | DONE | UNVERIFIED |
+| 64 | P0 — Core Primitives (block everything else) | **Slashing + reputation-weighted appeal escalation** *(new — RFC-021 Phase 2, D6)* | DONE | UNVERIFIED |
+| 65 | P0 — Core Primitives (block everything else) | **cumulativeFeesObserved wiring (cost-to-fabricate floor, real)** *(new — RFC-021 Phase 3, D4)* | DONE | UNVERIFIED |
+| 66 | P0 — Core Primitives (block everything else) | **DATABASE.md missing ArbiterProfile/PaymentAccount** *(gap found — RFC-021 doc-correction pass, 2026-07- | CLOSED | UNVERIFIED |
+| 67 | P0 — Core Primitives (block everything else) | **Escrow timelock proactive sweeper** *(gap found — security-validation round, 2026-07-19, "trade abandon | DONE | UNVERIFIED |
+| 68 | P0 — Core Primitives (block everything else) | Jest test framework *(new)* | DONE | UNVERIFIED |
+| 69 | P0 — Core Primitives (block everything else) | Transport Provider | DONE | UNVERIFIED |
+| 70 | P0 — Core Primitives (block everything else) | PearsTransportProvider.sendIntentToPeer() *(new)* | DONE | UNVERIFIED |
+| 71 | P0 — Core Primitives (block everything else) | Negotiation State Machine + Channel | UNCLASSIFIED | UNVERIFIED |
+| 72 | P0 — Core Primitives (block everything else) | ReconciliationService on peer reconnect *(new — RFC-011)* | DONE | UNVERIFIED |
+| 73 | P0 — Core Primitives (block everything else) | Event Bus update | DONE | UNVERIFIED |
+| 74 | P0 — Core Primitives (block everything else) | EventStore + mandatory correlationId *(new — RFC-010)* | DONE | UNVERIFIED |
+| 75 | P0 — Core Primitives (block everything else) | RedisStreamsEventStore (durable backend) *(new — RFC-010)* | DONE | UNVERIFIED |
+| 76 | P0 — Core Primitives (block everything else) | PostgresEventStore (durable backend, active default) *(new — RFC-008 D2 amendment, Missão 05.7)* | DONE | UNVERIFIED |
+| 77 | P0 — Core Primitives (block everything else) | ↳ **Hard precondition before RedisStreamsEventStore can be switched in as the active store** (found by a  | NOT STARTED | UNVERIFIED |
+| 78 | P0 — Core Primitives (block everything else) | **Future RFC candidate — Event Processing Guarantees** *(registered, not drafted — CTO-role recommendatio | NOT STARTED | UNVERIFIED |
+| 79 | P0 — Core Primitives (block everything else) | Timeline read-model *(new — RFC-007 D5, real as of RFC-017)* | DONE | UNVERIFIED |
+| 80 | P0 — Core Primitives (block everything else) | Timeline hash-chaining *(new — RFC-008 D2)* | DONE | UNVERIFIED |
+| 86 | P1 — First Proven Module + SDK Core | Sails OpenP2P (trade lifecycle + chat) | OPEN | UNVERIFIED |
+| 87 | P1 — First Proven Module + SDK Core | SDK Core (@satsails/p2p-trading-sdk, ships as **Sails P2P Trading SDK** per the Named-SDK Rule, PROJECT_C | PARTIAL | UNVERIFIED |
+| 88 | P1 — First Proven Module + SDK Core | **@satsails/p2p-schemas** *(new — 04-Deepseek Review Task 1)* | DONE | UNVERIFIED |
+| 89 | P1 — First Proven Module + SDK Core | CRDT / WebRTC adoption | UNCLASSIFIED | UNVERIFIED |
+| 247 | P2 — Cross-Module Services | Sails OpenSettlement | OPEN | UNVERIFIED |
+| 248 | P2 — Cross-Module Services | Float → Decimal schema migration *(new — RFC-009)* | DONE | UNVERIFIED |
+| 249 | P2 — Cross-Module Services | PendingBankSettlement status *(new — RFC-007 D3)* | UNCLASSIFIED | UNVERIFIED |
+| 250 | P2 — Cross-Module Services | Dispute persistence + raiseDispute()/resolveDispute() *(new — 04-Deepseek Review Task 2)* | DONE | UNVERIFIED |
+| 251 | P2 — Cross-Module Services | SPLIT ruling settlement action | DONE | UNVERIFIED |
+| 252 | P2 — Cross-Module Services | Participant payout address | DONE | UNVERIFIED |
+| 253 | P2 — Cross-Module Services | Sails OpenIdentity | UNCLASSIFIED | UNVERIFIED |
+| 254 | P2 — Cross-Module Services | Operational Profiles *(new — RFC-007 D8/D11)* | NOT STARTED | UNVERIFIED |
+| 255 | P2 — Cross-Module Services | Sails OpenReputation | DONE | UNVERIFIED |
+| 256 | P2 — Cross-Module Services | Outcome Engine + rate() demotion *(new — RFC-007 D8/D9)* | DONE | UNVERIFIED |
+| 257 | P2 — Cross-Module Services | **Sails OpenProof** *(new — RFC-006)* | CLOSED | UNVERIFIED |
+| 258 | P2 — Cross-Module Services | Proof Registry, EvidenceProvider, Evidence Bundle, TimestampAnchor *(RFC-007 D1/D2/D6, RFC-008 D1)* | DONE | UNVERIFIED |
+| 259 | P2 — Cross-Module Services | MULTISIG cooperative spend without the server *(audit — Missão 11, Fase 9.1 §8, 2026-08-24)* | PARTIAL | UNVERIFIED |
+| 260 | P2 — Cross-Module Services | sails-ui signs MULTISIG PSBTs blind, bypassing the SDK's own verification *(gap found — Missão 11, Fase 9 | CLOSED | UNVERIFIED |
+| 266 | P3 — Advanced / Aspirational Modules | Sails OpenLiquidity | UNCLASSIFIED | UNVERIFIED |
+| 267 | P3 — Advanced / Aspirational Modules | Sails OpenFinance | NOT STARTED | UNVERIFIED |
+| 268 | P3 — Advanced / Aspirational Modules | Sails OpenAgents | CLOSED | UNVERIFIED |
+| 269 | P3 — Advanced / Aspirational Modules | Social Engineering Agent *(new — RFC-007 D7, real as of RFC-017)* | UNCLASSIFIED | UNVERIFIED |
+| 805 | Institutional Cold Sweep / Production Readiness (2026-09-08) | Issue | UNCLASSIFIED | UNVERIFIED |
+| 807 | Institutional Cold Sweep / Production Readiness (2026-09-08) | **#75** | UNCLASSIFIED | UNVERIFIED |
+| 808 | Institutional Cold Sweep / Production Readiness (2026-09-08) | **#77** | UNCLASSIFIED | UNVERIFIED |
+| 809 | Institutional Cold Sweep / Production Readiness (2026-09-08) | **#78** | UNCLASSIFIED | UNVERIFIED |
+| 810 | Institutional Cold Sweep / Production Readiness (2026-09-08) | **#84** | OPEN | UNVERIFIED |
+| 811 | Institutional Cold Sweep / Production Readiness (2026-09-08) | **#86** | PARTIAL | UNVERIFIED |
+
+**Next audit:** normalize these candidates together with prose obligations and issue-only deltas; determine canonical ID, duplicate/superseded status, Day-0 scope, linked PR and independent evidence. Do not use row count as project percentage.
