@@ -328,3 +328,14 @@ These 29 numbered issue owners must be checked individually against current issu
 | #343 | NOT VERIFIED |
 
 Prior attempted individual verification did not persist into the branch; do not count it as completed. This section restores the work queue without inventing results.
+
+## Direct issue-state verification — 2026-10-25
+
+All 29 specifically queued economic/security issue numbers below were individually fetched from GitHub and returned **OPEN**. This verifies issue state only; code, comments, PR evidence, independent acceptance and Day-0 severity still need per-owner review. Do not infer absence of implementation from OPEN.
+
+| Verified OPEN issue numbers | Verification scope |
+| --- | --- |
+| #235, #236, #237, #238, #239, #240, #244, #245, #247, #248, #250, #251, #252, #253, #254 | Direct GitHub issue fetch |
+| #255, #258, #265, #267, #293, #299, #304, #308, #309, #310, #311, #312, #341, #343 | Direct GitHub issue fetch |
+
+**Result: 29/29 state checks complete; 0/29 independent acceptance checks complete.** This replaces the earlier queue-only statement for *state*, not for acceptance. This is not a Master denominator.
