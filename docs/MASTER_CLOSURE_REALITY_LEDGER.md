@@ -945,6 +945,11 @@ Verified canonical `docs/adr/ADR-002-asset-settlement-rail-adapter-provider-arch
 
 **PR CI snapshot:** on head `ac3a8eed6e56dff87195709e30c2bc469c603752`, **CI / CI Tests / CodeQL QUEUED** (no conclusion), zero combined status contexts, PR #531 OPEN/DRAFT. New commit needs its own CI check; no green assertion.
 
+
+### Normalized source register created for #105 review (2026-10-25)
+
+New bounded review artifact: [`DAY0_MULTI_OPERATOR_OBLIGATION_REGISTER.md`](DAY0_MULTI_OPERATOR_OBLIGATION_REGISTER.md), created on draft PR #531 at `4fc9282cb7e2bcda8d4ae737de292f33b40d58bd`. It contains **54 individually keyed #105 source entries**, gate and normative routing, provisional `EVIDENCE PENDING`, and explicit `NOT VERIFIED` / `NOT ACCEPTED` proof and decision columns. The row count was checked mechanically against the pre-existing 54-entry #105 ledger source table. This is the first obligation-row review surface, **not** full BACKLOG prose normalization or independent acceptance. It must be expanded with source-line/temporal joins, real implementation SHAs, proof, duplicate adjudication and independent sign-off; check 8 remains OPEN.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
