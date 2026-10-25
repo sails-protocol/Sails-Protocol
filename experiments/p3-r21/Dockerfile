@@ -42,6 +42,13 @@ HEALTHCHECK --interval=15s --timeout=3s --start-period=30s --retries=3 \
 ENTRYPOINT ["/nodejs/bin/node"]
 CMD ["dist/src/main.js"]
 
+# ---- Variant: same server image with the QVAC native runtime executable at build time ----
+# Measured finding (see README): bare-runtime-linux-x64/bin/bare is mode 644 after `npm ci`; the package's own
+# wrapper (bare-runtime/lib/spawn.js) chmods it at first spawn, which fails on a read-only root filesystem
+# (EROFS). Setting the mode at build time removes that run-time write. One extra layer (~95 MB).
+FROM runtime-distroless AS runtime-distroless-rofix
+COPY --from=pruned --chown=65532:65532 --chmod=755 /app/node_modules/bare-runtime-linux-x64/bin/bare /app/node_modules/bare-runtime-linux-x64/bin/bare
+
 # ---- Migration job on Distroless Debian 13: an explicit Node entrypoint, no shell/npm/npx ----
 # scripts/migrate-deploy.sh re-implemented in Node (experiments/p3-r21/migrate-deploy.mjs), same
 # contract: refuse without DATABASE_URL (exit 64), `prisma migrate deploy`, then `migrate status`.

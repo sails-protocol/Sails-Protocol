@@ -46,6 +46,7 @@ COPY --from=src /app /app
 COPY --from=npmsrc /usr/local/lib/node_modules/npm /npm_tree
 RUN $cmd
 FROM $DISTROLESS
+ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=mut $chown /app /app
 COPY --from=mut /usr/local /usr/local
@@ -104,7 +105,7 @@ docker rm -f "$APP" >/dev/null 2>&1
 
 section "E5 the non-root user loses what it needs, or runs as root"
 checks "$DL" /nodejs/bin/node --user 0:0; detected "E5a distroless run with --user 0:0" 'runs as a non-root user'
-t="$(rebase dl-rootowned 'chmod 644 /app/node_modules/bare-runtime-linux-x64/bin/bare' keep-root)"
+t="$(rebase dl-rootowned 'chown -R 0:0 /app/node_modules/bare-runtime-linux-x64 && chmod 644 /app/node_modules/bare-runtime-linux-x64/bin/bare' keep-root)"
 out="$(docker run --rm --entrypoint /nodejs/bin/node "$t" /app/node_modules/bare-runtime/bin/bare --version 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] && pass "E5b files owned by root + mode 644: Bare cannot start as uid 65532 ($(echo "$out" | tr '\n' ' ' | cut -c1-140))" || fail "E5b Bare started despite root-owned 644 binary ($out)"
 checks "$t" /nodejs/bin/node; if [ "$CHK_RC" -eq 0 ]; then measure "E5b GAP: runtime-image-checks does NOT notice the unspawnable Bare binary (exit 0); a check that spawns 'bare --version' would"; else pass "E5b detected by the checks: $(echo "$CHK_OUT" | grep '^FAIL' | head -n1 | cut -c1-140)"; fi
