@@ -493,3 +493,22 @@ The canonical BACKLOG snapshot contains **5906 lines**. Its narrative sections c
 1. **87.5% = 7/8 handoff documentation checklist**, a process-readiness metric.
 2. **Master completion = NOT MEASURED**, because normative obligation denominator and accepted numerator are incomplete.
 3. **Day-0 / Beta / production readiness = NO-GO**, separately gated; no percentage inferred from documentation.
+
+## Continuity verification loop — 2026-10-25 (live recheck)
+
+**Recheck scope:** PR #531 state, current branch content, Master warning and seven core institutional gate issues. This is a bounded repeatable handoff check, not an independent acceptance of all Master obligations.
+
+- PR #531: OPEN, draft=true, merged=false; inspected head SHA `216d74d6f23d9fc5da5d9a482d37a43acf460775` before this documentation update. Never treat this SHA as the new head after the update.
+- `docs/BACKLOG.md`: current-reality warning present on reconciliation branch.
+- Core owner issue states at check time: #105 OPEN; #125 OPEN; #165 OPEN; #221 OPEN; #293 OPEN; #420 OPEN; #500 OPEN.
+- The 29/29 economic/security issue-state checks in this ledger **do not** equal 29 independent acceptances. All remain unverified for that purpose.
+- **Gate status:** YELLOW for documentation review; Master acceptance NOT MEASURED; production NO-GO.
+
+### Required next reviewer actions (check 8)
+
+1. Identify every prose-only normative obligation and assign a stable identifier; deduplicate historical revisions against accepted ADR/RFC and live issue owner.
+2. Sample-check every 'DONE', 'CLOSED', 'BLOCKED' and 'SUPERSEDED' historical row against the latest correction and exact code/evidence; log unresolved conflicts, never silently mark accepted.
+3. Obtain independent CTO sign-off on the resulting denominator and evidence mapping, including #125's separate GitBook/Mintlify gate.
+4. Only after the review decide whether #531 is ready to leave draft and merge. No implicit approval is granted here.
+
+**Next-turn safety:** If another CTO has updated this branch, refetch its current blob SHA before writing. Do not overwrite concurrent work.
