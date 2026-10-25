@@ -1208,3 +1208,22 @@ The [numbered prose register](MASTER_BACKLOG_NUMBERED_PROSE_REGISTER.md) now has
 **Gatekeeper evidence request (non-destructive):** (1) record PR head SHA and exact CI workflow IDs for the named test suites; (2) inspect actual results for `tests/idempotency.test.ts`, `tests/expiryAuthority.test.ts`, `tests/multisigSigningIntentUi.test.ts`; (3) run/inspect failure-mode tests against isolated disposable stores only; (4) check expiry flag behavior in the intended configuration without enabling production; (5) independently adjudicate keyless retry, multi-instance expiry, SPLIT authority and signer recovery. No reviewer sign-off, source dedup acceptance, deployment or policy choice is inferred.
 
 **Progress scope:** 3 named adversarial suites inspected, 4 risk groups routed; 0 suites executed here, 0 newly accepted gates. Master global denominator remains unknown; continuity checklist remains 7/8 until independent acceptance evidence exists.
+
+
+## QVAC agent guardrail boundary — institutional crosswalk (2026-10-25)
+
+**Disposition:** NO bypass of model or protocol guardrails is required or authorized. This is a documentation crosswalk, **not** a new implementation mandate, policy override, gate acceptance, or change to frozen RFC/ADR authority. Implementation and economic-autonomy decisions remain deferred to post-Master-Backlog Day-0 planning; existing security gates remain binding.
+
+| Existing authority | Existing boundary / evidence | Review question (NOT accepted) |
+| --- | --- | --- |
+| [RFC-016](rfcs/RFC-016-qvac-crypto-native-agent-boundary.md) | QVAC is a crypto-native agent; no banking API, PIX, ACH, SEPA or fiat movement by the agent | Verify future tools and connectors cannot cross the fiat boundary; do not equate natural-language mention of PIX with authority to operate fiat rails |
+| [RFC-023](rfcs/RFC-023-qvac-negotiated-trade-proposal.md) | Autonomous bounded offer discovery/negotiation; human approves proposal before existing trade creation; no autonomous escrow/settlement authority | Verify model/tool output cannot trigger trade creation, escrow lock/release or settlement without separately authorized flow |
+| [ADR-004](adr/ADR-004-capability-grant-temporal-authority.md) | CapabilityGrant is policy/eligibility authority, separate from economic disposition, execution, destination and signer identity; admission and execution-commit revalidation, with production enforcement invariant documented | Review revocation/expiry, async pending operations, restart and side-effect boundary at exact implementation SHA; do not infer runtime enforcement solely from ADR acceptance |
+
+**Threat-model checklist for independent review:** untrusted prompt/tool-output injection; per-tool least privilege and scoped identities; backend-side authorization at *execution*, not just at AI Gateway; user approval and cryptographic signing on economically sensitive operations; bounded rate/value/time; revocation and expiry during async work; tamper-evident audit/trace attribution; replay/idempotency; deny-by-default on ambiguous tool arguments. These are **review hypotheses** to deduplicate against existing obligations, not claims of missing controls or new Day-0 scope.
+
+**Policy Engine terminology:** RFC-023's flow-specific `evaluateIntentPolicy()` is not evidence that the complete multi-stakeholder Policy Engine is delivered. Avoid inventing a new universal `Sails AI Gateway` component as already implemented. A provider's model-level safety controls never substitute for backend capability checks.
+
+**CI evidence, limited scope:** PR [#531](https://github.com/sails-protocol/Sails-Protocol/pull/531), HEAD `54b0bce52b55911eb2be262a05d610d29c4229c7`: GitHub Actions [CI run 40202854872](https://github.com/sails-protocol/Sails-Protocol/actions/runs/40202854872), [CI Tests run 40202854873](https://github.com/sails-protocol/Sails-Protocol/actions/runs/40202854873), [CodeQL run 40202854885](https://github.com/sails-protocol/Sails-Protocol/actions/runs/40202854885) all returned **success** in GitHub workflow-run status. This proves the workflows completed successfully at that SHA, **not** that every named adversarial suite ran or that a Gatekeeper accepted economic/security closure. This docs-only commit will create a new SHA requiring its own CI observation.
+
+**Status:** QVAC bypass = **REJECTED as architecture direction**; QVAC guardrail crosswalk = **DOCUMENTED FOR REVIEW**; independent normalized acceptance = **OPEN**; global Master completion percentage = **NOT AUDITED**.
