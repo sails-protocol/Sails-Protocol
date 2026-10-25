@@ -494,6 +494,45 @@ The current #105 sequence has labels **1–53 with item 10 decomposed into 10a a
 
 **Source coverage:** 54/54 canonical entries indexed; **cross-document deduplication:** PENDING; **independent acceptance:** PENDING; **global Master completion:** NOT MEASURED. Source: https://github.com/sails-protocol/Sails-Protocol/issues/105 .
 
+
+### ADR-001 source-anchor reconciliation — 2026-10-25
+
+The ADR contains **29 numbered top-level heading occurrences** because section 7 also has a 7.1 heading. These are **28 major sections plus one explicit subsection (7.1)**, not 29 independent obligations. The 54 canonical #105 execution entries and ADR headings are different source structures; adding their counts would be a false denominator. Below is an auditable source-anchor registry; the detailed normative subrequirements within each section still require atomization and cross-document deduplication.
+
+| ADR anchor | Source heading | Relation to #105 / Master | Evidence acceptance |
+| --- | --- | --- | --- |
+| §1 | Shared Market Invariant (frozen) | Cross-document mapping PENDING | NOT VERIFIED |
+| §2 | Object authority | Cross-document mapping PENDING | NOT VERIFIED |
+| §3 | Signed Offer envelope (Protocol Envelope) | Cross-document mapping PENDING | NOT VERIFIED |
+| §4 | Propagation model | Cross-document mapping PENDING | NOT VERIFIED |
+| §5 | Convergence / conflict | Cross-document mapping PENDING | NOT VERIFIED |
+| §6 | Bootstrap and membership | Cross-document mapping PENDING | NOT VERIFIED |
+| §7 | Node identity and Sybil | Cross-document mapping PENDING | NOT VERIFIED |
+| §7 | 1 Economic Identity ↔ Transport Identity Binding (correction, 2026-09-09, CTO Gate) | Cross-document mapping PENDING | NOT VERIFIED |
+| §8 | Trade ownership / handoff | Cross-document mapping PENDING | NOT VERIFIED |
+| §9 | Offline / restart / resume | Cross-document mapping PENDING | NOT VERIFIED |
+| §10 | Reputation portability | Cross-document mapping PENDING | NOT VERIFIED |
+| §11 | Settlement / evidence portability | Cross-document mapping PENDING | NOT VERIFIED |
+| §12 | Privacy | Cross-document mapping PENDING | NOT VERIFIED |
+| §13 | Professional liquidity provider | Cross-document mapping PENDING | NOT VERIFIED |
+| §14 | Liquidity discovery scaling | Cross-document mapping PENDING | NOT VERIFIED |
+| §15 | Capability / rail discovery | Cross-document mapping PENDING | NOT VERIFIED |
+| §16 | Node economics | Cross-document mapping PENDING | NOT VERIFIED |
+| §17 | Incentive compatibility / no-cannibalization property | Cross-document mapping PENDING | NOT VERIFIED |
+| §18 | Stranger-node test (future evidence gate) | Cross-document mapping PENDING | NOT VERIFIED |
+| §19 | Stranger-developer test (future evidence gate) | Cross-document mapping PENDING | NOT VERIFIED |
+| §20 | Partner-wallet evidence gate | Cross-document mapping PENDING | NOT VERIFIED |
+| §21 | Implementation Sequence (obligatory order, not a "future" list) | Cross-document mapping PENDING | NOT VERIFIED |
+| §22 | Complexity tests (applied to this ADR's own new artifacts) | Cross-document mapping PENDING | NOT VERIFIED |
+| §23 | Claims not yet demonstrated (discipline, restated) | Cross-document mapping PENDING | NOT VERIFIED |
+| §24 | Migration from current single-node topology | Cross-document mapping PENDING | NOT VERIFIED |
+| §25 | BACKLOG DELTA | Cross-document mapping PENDING | NOT VERIFIED |
+| §26 | Day-0 Completeness Cold Sweep — implementation consequence (2026-09-09) | Cross-document mapping PENDING | NOT VERIFIED |
+| §27 | Exact economic binding correction (2026-09-09) | Cross-document mapping PENDING | NOT VERIFIED |
+| §28 | Real-money agreement and dispute-authority correction (2026-09-09) | Cross-document mapping PENDING | NOT VERIFIED |
+
+**Source integrity:** 29/29 top-level numbered ADR heading occurrences indexed; **normative obligation-level coverage:** NOT MEASURED; **acceptance:** NOT VERIFIED. This register is a structural checkpoint, not a release gate.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
