@@ -869,6 +869,15 @@ Direct GitHub checks queried against **the exact merge commits**, not the curren
 
 **Gate decision:** TD §61 HTTP defect = implemented and original-head CI green; privacy multi-node envelope = unproven; TD §57 Swagger-UI slice = merged and original-head CI green; systemic contention = still OPEN. **No Partner Beta or #105 gate blanket closure, no formal reviewer approval inferred.**
 
+
+### Parallel follow-up — signed envelope schema and distinct harness failure classes (2026-10-25)
+
+**Multi-node signed OfferEnvelope static boundary:** current default-branch `src/modules/open-liquidity/offer-envelope.ts`, blob `3aa1aed47837eafd9c098947811d7bb5b442f1ea`, **L185–210**, defines `OfferEnvelopeContent` with explicit fields (`logicalOfferId`, `ownerPublicKey`, asset/side/prices/amounts, **`paymentMethod`**, revision/timestamps/status) and `SignedOfferEnvelope` adds only signature. It contains **no `paymentDetails` field**. `tests/offerEnvelope.test.ts`, blob `28c48fcb6d60bb90a19539d01a85e2a14dca13c8`, tests signature/canonicalization/relay equivalence. **This is static schema evidence for private-field exclusion in signed content, NOT proof of gossip transport serialization, an adversarial runtime test injecting `paymentDetails`, or multi-operator wire acceptance.** Cold-sweep #23 remains **PARTIALLY EVIDENCED / NOT CLOSED**.
+
+**Distinct harness failure class:** `docs/TEST_HARNESS_RELIABILITY.md`, blob `7eb2341aa642bfae60b4ff10233e017a555a5566`, describes Jest haste-map duplicate module resolution due to local `.claude/worktrees/` artifacts, with an exclusion/clean-checkout mitigation. It explicitly separates this from audit-local TD §57 (`buildApp()` parallel/bootstrap contention), which **remains OPEN**. Do not conflate a worktree collision fix or CI clean-checkout success with TD §57 causal closure.
+
+**Gate implication:** Signed schema exclusion is encouraging, but signed-envelope gossip wire behavior and independent Partner Beta tests remain separate required evidence; TD §57 remains an open systemic reliability risk even with successful PR #115 workflows.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
