@@ -57,6 +57,7 @@ import { prisma } from '../../common/database'
 import { EscrowError } from '../../common/errors'
 import { isCompleteBilateralIntent } from './pending-round-supersession'
 import { economicDispositionLockKey } from './economic-disposition-lock'
+import { unsignedTxidOfPsbt } from './psbt-identity'
 
 export { economicDispositionLockKey }
 import { assertRoundBoundToDisputeAuthority } from './disputed-outcome-binding'
@@ -119,6 +120,22 @@ export function economicDispositionOperationDigest(pending: DisputedPendingFacts
     rulingAuthorityIssuedAt: pending.rulingAuthorityIssuedAt ? pending.rulingAuthorityIssuedAt.toISOString() : null,
   })
   return createHash('sha256').update(canonical).digest('hex')
+}
+
+/**
+ * P4 / Gate 3 (iii-a) - what a ruling DECIDED, independent of any particular round: the signed generation and the
+ * disposition. Deliberately WITHOUT pendingOperationId / PSBT bytes / fees (which differ for every re-created round,
+ * and are why economicDispositionOperationDigest() can never match a re-creation). Destinations and amounts of a
+ * disputed round are judged separately, against the durable Outcome (assertRoundBoundToDisputeAuthority()).
+ */
+export function economicIntentDigest(i: {
+  escrowId: string; disputeId: string; appealRound: number | null; arbiterId: string | null; ruling: string | null
+  authoritySignature: string | null; kind: string; buyerBps: number | null
+}): string {
+  return createHash('sha256').update(JSON.stringify({
+    escrowId: i.escrowId, disputeId: i.disputeId, appealRound: i.appealRound, arbiterId: i.arbiterId, ruling: i.ruling,
+    authoritySignature: i.authoritySignature, kind: i.kind, buyerBps: i.buyerBps,
+  })).digest('hex')
 }
 
 async function assertBound(
@@ -265,6 +282,13 @@ export async function authorizeDisputedPendingExecution(pending: DisputedPending
         operationDigest,
         rulingAuthoritySignature: currentDispute.authoritySignature,
         outcomeRecordId: outcomeRecord?.id ?? null,
+        // P4 / Gate 3 (iii-a): what the disputed re-creation guard needs to ask the network about this round once its
+        // pending row is gone. Only a MULTISIG round has a Bitcoin transaction identity.
+        unsignedTxid: escrowType === 'MULTISIG' ? unsignedTxidOfPsbt(pending.unsignedPsbtBase64) : null,
+        intentDigest: economicIntentDigest({
+          escrowId: pending.escrowId, disputeId, appealRound: currentDispute.appealRound, arbiterId: currentDispute.arbiterId,
+          ruling: currentDispute.ruling, authoritySignature: currentDispute.authoritySignature, kind: pending.kind, buyerBps: pending.buyerBps,
+        }),
       },
     })
   })

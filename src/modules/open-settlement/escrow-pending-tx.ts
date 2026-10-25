@@ -27,6 +27,7 @@ import { identifyFeeOutput, networkFor } from './multisig.provider'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { authorizePendingExecution } from './capability-execution-authorization'
 import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
+import { assessDisputedRecreation, assertRecreationStillCleared, supersedeClearedAuthorization } from './disputed-recreation-guard'
 import { assertRoundBoundToDisputeAuthority } from './disputed-outcome-binding'
 import { childLogger } from '../../common/logger'
 
@@ -169,6 +170,19 @@ async function initiateSignatureCollectionCore(
   // existed; only its input was missing.
   const escrowRecord = { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey, arbiterPubkey, triggeredBy }
 
+  // P4 / Gate 3 (iii-a) - phase 1 of the disputed re-creation guard (disputed-recreation-guard.ts): before anything is
+  // built, and outside every lock, decide whether a disputed round may be created over an authorization whose pending
+  // operation was lost. Null when no authorization is involved (the normal first creation).
+  const recreationGeneration = disputedMultisig
+    ? { id: disputedDispute!.id, appealRound: disputedDispute!.appealRound, arbiterId: disputedDispute!.arbiterId, ruling: disputedDispute!.ruling, authoritySignature: disputedDispute!.authoritySignature }
+    : null
+  const recreationClearance = recreationGeneration
+    ? await assessDisputedRecreation({
+      escrowId, escrowRecord, generation: recreationGeneration, kind,
+      buyerBps: typeof extraData?.buyerBps === 'number' ? extraData.buyerBps : null,
+    })
+    : null
+
   const result = await buildProvider(provider, escrowRecord)
 
   try {
@@ -252,13 +266,16 @@ async function initiateSignatureCollectionCore(
           authorityBuyerBps: judgedDispute.authorityBuyerBps,
         })
       }
+      // P4 / Gate 3 (iii-a) - phase 2, under the D -> E locks held by this transaction: exactly the authorization cleared
+      // before the build must still be the only live one and its pending still absent.
+      if (recreationGeneration) await assertRecreationStillCleared(tx, escrowId, recreationGeneration, recreationClearance)
       const current = await tx.escrowPendingTransaction.findUnique({ where: { escrowId }, include: { signatures: { select: { participantId: true } } } })
       if (current) {
         assertSupersedableByThisDispatch(current, arbitratedDispatch, escrowId)
         await tx.escrowPendingTransaction.delete({ where: { id: current.id } })
         log.warn({ msg: 'Superseded a cooperative signing round that can no longer execute (escrow disputed, round not fully signed) with the ruling dispatch', escrowId, supersededRoundId: current.id, kind: current.kind, signaturesDiscarded: current.signatures.length })
       }
-      return tx.escrowPendingTransaction.create({
+      const created = await tx.escrowPendingTransaction.create({
         data: {
           escrowId,
           kind,
@@ -284,6 +301,9 @@ async function initiateSignatureCollectionCore(
           ...extraData,
         },
       })
+      // P4 / Gate 3 (iii-a): the cleared authorization is superseded by this round in the same transaction.
+      if (recreationClearance) await supersedeClearedAuthorization(tx, recreationClearance, created.id)
+      return created
     }, disputedMultisig ? { disputeLockId: disputedDispute!.id } : undefined)
   } catch (err: any) {
     if (err?.code === 'P2002') {

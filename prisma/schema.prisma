@@ -2652,6 +2652,13 @@ model EconomicDispositionAuthorization {
   // AUD1X-R3: exact signed ruling and durable Outcome identity; legacy null is unproven.
   rulingAuthoritySignature String?
   outcomeRecordId          String?
+  // P4 / Gate 3 (iii-a): nullable, additive; legacy null = unproven. The partial unique index
+  // economic_disposition_one_live_per_generation (escrowId, disputeId, appealRound WHERE supersededAt IS NULL) lives in
+  // the migration only (Prisma cannot express a partial index).
+  unsignedTxid                    String?
+  intentDigest                    String?
+  supersededAt                    DateTime?
+  supersededByPendingOperationId  String?
 
   @@index([escrowId])
   @@index([disputeId])

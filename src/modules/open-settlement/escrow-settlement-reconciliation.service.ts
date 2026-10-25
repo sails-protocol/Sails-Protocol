@@ -11,7 +11,7 @@ import { escrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
 import { feeCollectionRecognitionService } from './fee-collection-recognition.service'
-import { multisigProvider, identifyFeeOutput, networkFor, pendingSettlementReconciliationWorstCaseMs, type MultisigEscrowInput } from './multisig.provider'
+import { multisigProvider, identifyFeeOutput, networkFor, pendingSettlementReconciliationWorstCaseMs, fetchTransactionExistence, type MultisigEscrowInput } from './multisig.provider'
 import { wdkSettlementProvider } from './wdk-settlement.provider'
 import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
@@ -1326,10 +1326,66 @@ function emptyReport(): ReconciliationReport {
   }
 }
 
+/**
+ * PASS 0b - P4 / Gate 3 (iii-a). A DISPUTED MULTISIG escrow whose committed Economic Disposition Authorization names a
+ * transaction (unsignedTxid) that IS on the network, while the pending operation that carried it is gone: nothing else
+ * can ever learn the outcome (PASS 0 needs the signed round, PASS 1 needs a terminal status). The escrow converges to
+ * that public transaction: terminal status per the ruling, the txid as its settlement result, the usual completion
+ * effects - with no pending row, so no fee-output evidence and no raw transaction (both recorded as absent, never
+ * fabricated; a SPLIT without a recorded buyerBps skips its fee obligation and is flagged, as for any pending-less
+ * recovery). It never builds, signs or transmits anything. A transaction that is NOT public is left to the re-creation
+ * guard (disputed-recreation-guard.ts); an unreadable network is a failed (retried) candidate, never a conclusion.
+ * Bounded per run; candidates are rare (a lost pending row is a fault, not a flow).
+ */
+const LOST_PENDING_BATCH = 20
+const RULING_TARGET_STATUS: Record<string, 'COMPLETED' | 'REFUNDED' | 'SPLIT'> = { RELEASE: 'COMPLETED', REFUND: 'REFUNDED', SPLIT: 'SPLIT' }
+
+export async function reconcileLostPendingPublicTransactions(report: ReconciliationReport): Promise<void> {
+  const candidates = await prisma.$queryRaw<Array<{ edaId: string; escrowId: string; disputeId: string; arbiterId: string; ruling: string; unsignedTxid: string }>>`
+    SELECT a.id AS "edaId", a."escrowId", a."disputeId", a."arbiterId", a.ruling::text AS ruling, a."unsignedTxid"
+    FROM economic_disposition_authorizations a
+    JOIN escrows e ON e.id = a."escrowId"
+    WHERE a."supersededAt" IS NULL AND a."unsignedTxid" IS NOT NULL
+      AND e.type = 'MULTISIG' AND e.status = 'DISPUTED' AND e."txReleaseId" IS NULL
+      AND NOT EXISTS (SELECT 1 FROM escrow_pending_transactions p WHERE p.id = a."pendingOperationId")
+      AND NOT EXISTS (SELECT 1 FROM escrow_pending_transactions p2 WHERE p2."escrowId" = e.id)
+    ORDER BY a."authorizedAt"
+    LIMIT ${LOST_PENDING_BATCH}`
+  for (const c of candidates) {
+    try {
+      const target = RULING_TARGET_STATUS[c.ruling]
+      if (!target) continue
+      if (!(await fetchTransactionExistence(c.unsignedTxid)).exists) continue
+      const converged = await withEscrowFundingLock(c.escrowId, async (tx) => {
+        // re-judged under D -> E: still disputed, still no result, still no pending, authorization still live
+        const fresh = await tx.escrow.findUnique({ where: { id: c.escrowId } })
+        if (!fresh || fresh.status !== 'DISPUTED' || fresh.txReleaseId !== null) return false
+        if (await tx.escrowPendingTransaction.findUnique({ where: { escrowId: c.escrowId }, select: { id: true } })) return false
+        const eda = await tx.economicDispositionAuthorization.findUnique({ where: { id: c.edaId }, select: { supersededAt: true } })
+        if (!eda || eda.supersededAt !== null) return false
+        if ((await escrowRepository.claimTransition(c.escrowId, 'DISPUTED', target, tx)) === 0) return false
+        await escrowRepository.updateSignatureCollectionResult(
+          c.escrowId, target === 'REFUNDED' ? { txReleaseId: c.unsignedTxid } : { txReleaseId: c.unsignedTxid, releasedAt: new Date() }, { tx },
+        )
+        return true
+      }, { disputeLockId: c.disputeId })
+      if (!converged) continue
+      const escrow = await escrowRepository.findById(c.escrowId)
+      if (!escrow) continue
+      log.warn({ msg: 'Lost disputed pending operation: the escrow converged to the transaction of its committed authorization, already on the network', escrowId: c.escrowId, txId: c.unsignedTxid, target })
+      await applyDownstreamCompletionEffects(c.escrowId, escrow.tradeId, target, c.arbiterId, c.unsignedTxid, escrow, null, undefined)
+      report.recovered.push({ escrowId: c.escrowId, txId: c.unsignedTxid, outcome: 'ALREADY_BROADCAST' })
+    } catch (err) {
+      report.failed.push({ escrowId: c.escrowId, error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+}
+
 export async function reconcilePendingSettlements(options: { projectionGraceMs?: number } = {}): Promise<ReconciliationReport> {
   const report = emptyReport()
 
   await reconcileUnclaimedFullySignedPending(report)
+  await reconcileLostPendingPublicTransactions(report)
 
   const txReleaseIdCandidates = await escrowRepository.claimSettlementResultRecoveryBatch(SETTLEMENT_RECOVERY_BATCH)
   for (const escrow of txReleaseIdCandidates) {

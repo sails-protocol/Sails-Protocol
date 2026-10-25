@@ -16,6 +16,7 @@ import { createHash } from 'crypto'
 import { ECPairFactory } from 'ecpair'
 import nacl from 'tweetnacl'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { databaseClock, removeLostPendingCandidates } from './lostPendingCandidates'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
@@ -67,6 +68,7 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
     return copy.toBase64()
   }
   let realFetch: typeof fetch
+  let suiteStartedAt: Date
 
   function mockExplorerForUtxo(txid: string, vout: number, valueSats: number): void {
     global.fetch = jest.fn(async (url: string) => {
@@ -85,6 +87,7 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
     dbAvailable = pg.isAvailable()
     if (!dbAvailable) return
     ;({ prisma } = require('../../src/common/database'))
+    suiteStartedAt = await databaseClock(prisma)
     ;({ escrowService } = require('../../src/modules/open-settlement/escrow.service'))
     ;({ identityService } = require('../../src/modules/open-identity/identity.service'))
     ;({ liquidityRouter } = require('../../src/modules/open-liquidity/liquidity.service'))
@@ -130,6 +133,9 @@ describe('#239 pending-signature round lifecycle — real Postgres', () => {
       const fullySigned = rounds.filter((r) => r.requiredSigners.every((id) => r.signatures.some((s) => s.participantId === id))).map((r) => r.id)
       await prisma.signatureCollectionFinalizationAttempt.deleteMany({ where: { escrowId: { in: createdEscrowIds } } })
       await prisma.escrowPendingTransaction.deleteMany({ where: { id: { in: fullySigned } } })
+      // Deleting those rounds leaves their escrows as PASS 0b recovery candidates (live authorization, no pending);
+      // remove them so a later suite's global reconciliation does not recover this suite's escrows.
+      await removeLostPendingCandidates(prisma, suiteStartedAt)
       await prisma.$disconnect()
       if (restarted) {
         await restarted.prisma.$disconnect()
