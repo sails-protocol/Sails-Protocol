@@ -2,6 +2,13 @@
 
 Status: **NOT HOMOLOGATED / BLOCKED**. This document records evidence, not authorization to merge or deploy.
 
+## Reconnection/fencing evidence and outage test pending (2026-10-25 UTC)
+
+- Commit `f7e4c93634278cd0c7fc4ff8db74a0b20c1ee27b`: CI `40159137086`, CI Tests `40159137026`, CodeQL `40159137058` all success. The CI build log explicitly shows `PASS tests/relayDeliveryRedis.process.integration.test.ts`, `197/197` suites and `2633/2633` tests.
+- That test now replaces Bob's owner lease **inside the separate child process**, proves the old lease is rejected and the new lease is accepted. **Distributed scenarios: 2/5 verified; remaining acceptance criteria: 2/14 verified.**
+- Commit `e63b90f7ce168a0de16750f1185bedcd6cd65e01` adds a publisher-disconnect fail-closed check; its CI result is **not yet established**. This is not proof of full Redis outage/restart recovery and must not be counted as a third completed distributed scenario.
+- The same CI log still warns that a Jest worker was force-exited due to possible open handles. This warning remains an explicit unresolved reliability item; passing tests do not establish its root cause.
+
 ## Two-process real-Redis CI evidence (2026-10-25 UTC)
 
 - Commit `44d394049458fdff3a51b60200fb911c6df7a777`: CI run `40158113367`, CI Tests `40158113358`, CodeQL `40158113357` all completed successfully.
