@@ -938,6 +938,13 @@ The latest available comments on live **#125** and **#165** independently carry 
 
 **Live PR check before this documentation update:** #531 OPEN/DRAFT, head `a246cbc57505b183847fa14fe05e8943894294e7`; PR-triggered **CI Tests / CI / CodeQL all QUEUED** with no conclusion. No outcome is asserted for the new commit this edit creates.
 
+
+### ADR-002 architecture freeze vs implementation authorization (2026-10-25)
+
+Verified canonical `docs/adr/ADR-002-asset-settlement-rail-adapter-provider-architecture.md` header: **Accepted — architecture decision only, no implementation authorized**. It explicitly prohibits treating the ADR itself as permission to change `AssetType`, `EscrowType`, `prisma/schema.prisma`, SDK runtime contracts, QVAC schema, Reference UI, provider/registry code or `docs/SEMANTIC_KERNEL.md`. The frozen product vocabulary is not proof that corresponding runtime adapters/providers exist. Architecture implementation requires a separately authorized bounded mission and evidence; institutional cross-surface truth reconciliation remains under **#125 OPEN**. Do not auto-generate implementation tasks from this ledger or silently claim the matrix is live.
+
+**PR CI snapshot:** on head `ac3a8eed6e56dff87195709e30c2bc469c603752`, **CI / CI Tests / CodeQL QUEUED** (no conclusion), zero combined status contexts, PR #531 OPEN/DRAFT. New commit needs its own CI check; no green assertion.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
