@@ -14,6 +14,20 @@
 
 **Current acceptance:** 7/8 continuity controls documented; the final independent review is still pending. The PR remains draft until an authorized review decision. Do not confuse the historical 6/10 and 8/12 authoring snapshots below with the operative handoff score.
 
+## Sails Projects #3 — operational workboard (2026-10-25)
+
+**Start here for active work:** [Sails GitHub Projects #3](https://github.com/users/alan-schramm/projects/3). This is the existing operational board, not a replacement for canonical GitHub issues, PRs, ADRs, or this institutional entrypoint. Before acting, check the board **and** the live issue/PR/CI state; the board may lag behind the repository.
+
+**Organize by workstream, without duplicating issues:**
+
+- **Master Backlog — closure:** obligations already in the canonical Master Backlog and their actual implementation/acceptance status. Reference [BACKLOG.md](BACKLOG.md) and the relevant issue/PR. Do not mark a backlog item complete based only on a document or green CI.
+- **Post-Master / Day 0 — release readiness:** integration, security, multi-operator, recovery, distributed testing, Gatekeeper decisions and launch prerequisites that emerged during/after Master closure. Keep technical acceptance separate from documentation and CI. Canonical starting points include [#105](https://github.com/sails-protocol/Sails-Protocol/issues/105) and [#165](https://github.com/sails-protocol/Sails-Protocol/issues/165).
+- **Roadmap / discovery:** product concepts, future integrations and enhancements that have not been approved as Day-0 requirements. Discovery is not an implementation commitment or release blocker unless formally promoted through its canonical issue/decision.
+
+**Board design recommendation:** retain existing Project items and current workflow until its actual fields/views are inspected. Prefer one shared Kanban **Status** (e.g., Backlog, Ready, In progress, Blocked / awaiting CI or Gatekeeper, Done), plus a **Workstream** field (Master, Post-Master / Day 0, Roadmap) and filtered views. If the current board already has equivalent fields or views, reuse them. Avoid a separate board per stream, duplicate cards, bulk status changes, and mass importing historical source registers. Do not claim these suggested fields/views have been configured until verified directly in Projects.
+
+**CTO handoff workflow:** open Projects #3 → select the active workstream and item → read the linked canonical issue/PR, latest decision and exact-SHA CI → execute and record progress in that issue/PR → update the Project status if access is available. This document remains the memory index; Projects is the live operational overview.
+
 ## Read in this order
 
 1. [BACKLOG.md](BACKLOG.md): institutional technical backlog and history; its early phase table contains explicitly superseded snapshots. Read corrections, not just the first DONE.
