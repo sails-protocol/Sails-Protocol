@@ -684,6 +684,54 @@ Unlike the earlier literal-search tables, the entries below were classified from
 
 **Bounded sample:** 16/54 canonical entries received a literal BACKLOG lookup; 38 remain outside this item-level triage. All 16 have **evidence status UNKNOWN**, not FAIL. Do not combine these with earlier topic-search totals. This does not satisfy check 8 or set a Master denominator.
 
+
+### Remaining #105 item-level BACKLOG lookup — 38 entries (2026-10-25)
+
+**Method:** For each remaining #105 canonical entry, tokenize its first-line title, discard generic stopwords, and find the BACKLOG line with the largest number of matching distinct terms (minimum 2). Ties resolve to earliest line. This is a **heuristic navigation index only**, not proof of equivalence, ownership, implementation, or independent acceptance. A match can be unrelated or historical; NO CANDIDATE means only that this limited method did not find one. Prior 16 entries used literal phrase probes and must not be confused with this different method.
+
+| #105 item | Gate | BACKLOG candidate | Sample discriminating terms | Status |
+| --- | --- | --- | --- | --- |
+| 1 | A | L239 (3 shared terms) | institutional, memory, gate, green | NOT SEMANTICALLY VERIFIED |
+| 2 | A | L231 (10 shared terms) | technical, debt, buildapp, parallel, contention | NOT SEMANTICALLY VERIFIED |
+| 3 | A | L1817 (5 shared terms) | public, offerdetail, privacy, defect, partner | NOT SEMANTICALLY VERIFIED |
+| 4 | B | L1851 (7 shared terms) | partner, asset, network, rail, wallet | NOT SEMANTICALLY VERIFIED |
+| 5 | B | L1862 (3 shared terms) | whether, btc-only, bounded, usdt, includes | NOT SEMANTICALLY VERIFIED |
+| 6 | B | L249 (7 shared terms) | depix, scope, representable, end-to-end, claim | NOT SEMANTICALLY VERIFIED |
+| 7 | B | L2299 (2 shared terms) | fiat, quote-currency, scope | NOT SEMANTICALLY VERIFIED |
+| 12 | C | L88 (3 shared terms) | operational, sails, identity, lifecycle, backup | NOT SEMANTICALLY VERIFIED |
+| 14 | D | L249 (3 shared terms) | bootstrap, peer, exchange, mandatory, satsails | NOT SEMANTICALLY VERIFIED |
+| 15 | D | L268 (2 shared terms) | offer, gossip, dedup | NOT SEMANTICALLY VERIFIED |
+| 17 | D | L1412 (3 shared terms) | multi-node, discovery, convergence, local, order-book | NOT SEMANTICALLY VERIFIED |
+| 18 | D | L1613 (3 shared terms) | gossip, resource, bounds, backpressure | NOT SEMANTICALLY VERIFIED |
+| 19 | D | L1606 (5 shared terms) | peer, diversity, eclipse, selective-forwarding, resilience | NOT SEMANTICALLY VERIFIED |
+| 23 | E | L1803 (3 shared terms) | authenticated, amendment, post-commit, payment-instruction, change | NOT SEMANTICALLY VERIFIED |
+| 24 | E | L249 (5 shared terms) | settlement, mechanism, escrowtype, custody, signer | NOT SEMANTICALLY VERIFIED |
+| 25 | E | L2740 (3 shared terms) | participant-facing, policy, version, commitment | NOT SEMANTICALLY VERIFIED |
+| 27 | F | L241 (3 shared terms) | professional-provider, inventory, reservation, concurrent, acceptance | NOT SEMANTICALLY VERIFIED |
+| 28 | F | L1736 (3 shared terms) | duplicate, replayed, trade-open, cannot, double-commit | NOT SEMANTICALLY VERIFIED |
+| 29 | F | L249 (3 shared terms) | cross-node, restart, offline, using, trade | NOT SEMANTICALLY VERIFIED |
+| 30 | F | L57 (2 shared terms) | switching, create, economic, amnesia | NOT SEMANTICALLY VERIFIED |
+| 31 | F | L249 (6 shared terms) | dispute, evidence, ruling, appeal, continuity | NOT SEMANTICALLY VERIFIED |
+| 32 | F | L202 (2 shared terms) | party, disappearing, valid, dispute, unresolvable | NOT SEMANTICALLY VERIFIED |
+| 33 | F | L249 (2 shared terms) | preserve, rail-specific, funds-authority, semantics, resolution | NOT SEMANTICALLY VERIFIED |
+| 36 | G | L229 (2 shared terms) | liquidity, propagation, rational, unverifiable, relay | NOT SEMANTICALLY VERIFIED |
+| 37 | G | L63 (3 shared terms) | payout, activation, separately, gated, accounting | NOT SEMANTICALLY VERIFIED |
+| 41 | H | L89 (3 shared terms) | wallet, integration, backend, web-service, paths | NOT SEMANTICALLY VERIFIED |
+| 42 | H | L1640 (2 shared terms) | recoverable, service-event, consumption, public | NOT SEMANTICALLY VERIFIED |
+| 43 | I | L221 (4 shared terms) | scope-relevant, adversarial, tests, docs, completeness | NOT SEMANTICALLY VERIFIED |
+| 44 | I | L4300 (3 shared terms) | independent, partner-wallet, integration | NOT SEMANTICALLY VERIFIED |
+| 45 | I | L227 (3 shared terms) | least, professional, web-service, integration, class | NOT SEMANTICALLY VERIFIED |
+| 46 | I | L249 (3 shared terms) | restart, offline, switch, partition, heal | NOT SEMANTICALLY VERIFIED |
+| 47 | I | L241 (5 shared terms) | claim, shared-liquidity, multi-node, evidence, bounded | NOT SEMANTICALLY VERIFIED |
+| 48 | J | L719 (3 shared terms) | readiness, consolidated, gate | NOT SEMANTICALLY VERIFIED |
+| 49 | J | L249 (4 shared terms) | provider, eligibility, enabled, launch, rail | NOT SEMANTICALLY VERIFIED |
+| 50 | J | L21 (3 shared terms) | network, simulation, final, team, accepted | NOT SEMANTICALLY VERIFIED |
+| 51 | J | L261 (3 shared terms) | external, security, audit, remediation | NOT SEMANTICALLY VERIFIED |
+| 52 | J | L202 (2 shared terms) | bounded, real-value, validation | NOT SEMANTICALLY VERIFIED |
+| 53 | J | L249 (3 shared terms) | public, activation, claim, evidence, alignment | NOT SEMANTICALLY VERIFIED |
+
+**Combined first-pass lookup:** 16 literal-probe items + 38 heuristic items = **54/54 #105 source entries triaged for BACKLOG navigation**. **Semantically validated joins: NOT MEASURED; evidence accepted by this pass: NONE; normative Master denominator: NOT MEASURED.** The next required action is human-quality passage-level adjudication of each candidate and owner/SHA/CI evidence retrieval, not more raw search counts.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
