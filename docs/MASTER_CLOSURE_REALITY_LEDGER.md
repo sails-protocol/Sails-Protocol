@@ -1158,3 +1158,8 @@ No merge, shared database migration, VPS staging, production deploy, or release 
 ### Numbered prose source anchors (2026-10-25)
 
 Added [`MASTER_BACKLOG_NUMBERED_PROSE_REGISTER.md`](MASTER_BACKLOG_NUMBERED_PROSE_REGISTER.md) with **40** numbered bold-heading prose candidates from the 5,906-line BACKLOG snapshot (ADR-001 discussion and Cold Sweep primary items 12–47). It is a bounded extraction, **not** complete prose enumeration, and cannot be added to 54 MO or 54 BL as a global denominator. Next evidence pass: nested clauses, unnumbered gates, temporal authority and exact semantic MO/BL crosswalk; independent reviewer sign-off remains missing.
+
+
+### Master bullet-clause source inventory (2026-10-25)
+
+Added [`MASTER_BACKLOG_BULLET_SOURCE_INVENTORY.md`](MASTER_BACKLOG_BULLET_SOURCE_INVENTORY.md): **156** line-anchored Markdown bullet source records across MULTISIG (28), Identity (15), Production (12), Multi-node (19), Cold Sweep (76), OpenProof (6). This is a **partial source extraction**, not 156 deduplicated requirements or acceptance claims. Some bullets are historical fixes, risk constraints, explanatory text, or nested tests. Full semantic adjudication and other unnumbered prose remain open. This does not close continuity checklist 8 or authorize production.
