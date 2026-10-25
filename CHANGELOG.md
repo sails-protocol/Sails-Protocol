@@ -19,6 +19,13 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **Image hardening, P3-R2 (2026-10-24).** `npm` and `corepack` (shipped by the Node base image, with HIGH
+  advisories in their vendored `brace-expansion`, `undici` and `http-cache-semantics`) are removed from the final
+  `runtime` and `migrate` stages; `scripts/runtime-image-checks.js` no longer needs `npm ls` (it walks the
+  manifests from `/app`, fails on a missing or out-of-range dependency, and asserts npm/corepack are gone).
+  `fast-uri` 3.1.8 -> 3.1.9 (two copies) and 4.1.5 -> 4.2.3 (four moderate/low advisories). Debian OS findings
+  are not remediated by this change; see `docs/SELF_HOSTING.md`.
+
 - **Known HIGH/critical advisories removed from the shipped images (2026-10-23).** The server
   image carried `fastify 5.12.1` (authentication bypass via malformed URLs and three validation
   bypasses), `zod 4.4.3` (memory exhaustion on oversized constrained collections),
