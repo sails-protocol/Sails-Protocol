@@ -53,10 +53,11 @@ for k in bookworm distroless; do
 done
 
 section "E2 a required dependency disappears"
-v="$(mkvol 'true')"
+# A tmpfs is empty by construction. (An EMPTY named volume would be populated from the image path on first use, which
+# would silently leave the package in place; the first version of this case fell into that.)
 for k in bookworm distroless; do
-  checks "${IMGOF[$k]}" "${NODEOF[$k]}" --mount "type=volume,src=$v,dst=/app/node_modules/fast-json-stringify"
-  detected "E2 $k runtime, fast-json-stringify shadowed by an empty directory" 'missing: fast-json-stringify'
+  checks "${IMGOF[$k]}" "${NODEOF[$k]}" --mount "type=tmpfs,dst=/app/node_modules/fast-json-stringify"
+  detected "E2 $k runtime, fast-json-stringify shadowed by an empty tmpfs directory" 'missing: fast-json-stringify'
 done
 
 section "E3 an installed version violates the declared range"
