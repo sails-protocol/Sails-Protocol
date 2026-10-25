@@ -106,6 +106,14 @@ integration('two-process Redis relay candidate', () => {
         destinationParticipantId: 'bob', destinationLeaseToken: newLease,
         deadlineMs: Date.now() + 2500, payload: 'new-owner-after-reconnect',
       })).toBe(true)
+      // Publisher disconnect is a permanent fail-closed state for this
+      // isolated transport. Redis publication must never masquerade as ACK.
+      publisher.disconnect()
+      expect(await origin.deliver(destinationChannel, {
+        destinationParticipantId: 'bob', destinationLeaseToken: newLease,
+        deadlineMs: Date.now() + 2500, payload: 'after-publisher-disconnect',
+      })).toBe(false)
+      expect(received).not.toContain('after-publisher-disconnect')
       expect(await origin.deliver('sails:relay:delivery:absent_' + suffix, {
         destinationParticipantId: 'bob', destinationLeaseToken: lease,
         deadlineMs: Date.now() + 2500, payload: 'absent',
