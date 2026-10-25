@@ -922,6 +922,13 @@ On that exact head SHA, the available PR-triggered workflow query returned **`CI
 
 **Operational rule:** a green workflow (if later observed) is necessary evidence for its bounded CI scope, **not** sufficient for check 8 institutional obligation-to-evidence normalization, reviewer sign-off, Gate #105, Beta, or release. Do not merge draft #531 or claim 100% without an independent bounded approval.
 
+
+### Recheck after prior checkpoint — PR #531 head and workflow visibility (2026-10-25)
+
+At inspection, PR #531 remained **OPEN / DRAFT**, head `a1bc05fe315873becf293db48d300bda85273360`. GitHub PR-triggered workflow query for this exact head returned **CI Tests, CI and CodeQL each QUEUED, with no conclusion**. Do not copy the prior original-head PR #115/#117 green conclusions onto #531. No green/red outcome has been verified for this newer head. Because this ledger update itself creates a **new** head, its checks must be queried afresh; a queued snapshot for the previous head is not a status claim about the new commit.
+
+**Institutional #125:** live issue is OPEN and explicitly owns cross-surface GitHub/Mintlify/GitBook Day-0 truth alignment. PR #531's three-file GitHub documentation patch does **not** independently complete #125's external publication alignment or reviewer acceptance. Keep #125 separate from the bounded CTO continuity handoff.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
