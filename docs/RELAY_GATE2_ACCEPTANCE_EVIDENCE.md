@@ -2,6 +2,14 @@
 
 Status: **NOT HOMOLOGATED / BLOCKED**. This document records evidence, not authorization to merge or deploy.
 
+## Verified real-Redis candidate CI (2026-10-25 UTC)
+
+- Commit `c170f52208bdb6bf411ca0b088b30625638f8339`: CI run `40153288016`, CI Tests `40153288041`, CodeQL `40153288023` all succeeded.
+- The CI build log explicitly reports `PASS tests/relayDeliveryRedis.integration.test.ts` with `RELAY_REDIS_INTEGRATION_URL=redis://127.0.0.1:6379` configured against the CI Redis service. This establishes execution of the optional **real Redis** test in this run; it is no longer accurate to characterize this specific run as mock-only or skipped.
+- The Jest suite summary for that run reports 196 passing suites and 2,632 passing tests. The log also includes a Jest worker teardown/open-handles warning. Passing exit status does **not** resolve or attribute that warning.
+- This test uses four distinct TCP Redis clients and two in-process provider instances. It does **not** demonstrate two OS processes, authenticated channels or ACK provenance, authoritative instance routing, or production WSS ingress. The candidate remains isolated and Gate 2 is **NO-GO**.
+- The earlier commits `f33bfc9` and `b902691` were **RED** in CI and CI Tests (CodeQL green): a subscriber remained registered after publisher close during subscription. Commit `c170f52` restored the tested behavior; retain the failed-run history rather than presenting an uninterrupted green chain.
+
 ## Current CI restoration (2026-10-23)
 
 Commit `34e1290b3f12f1c3f99f847b05e7b4ae16bcd597`:
