@@ -156,3 +156,17 @@ Read-only source inspection on PR #531 HEAD before this documentation update; **
 | BL-0251 / BP-2909 SPLIT representation | `packages/sails-p2p-schemas/src/trade.ts` includes `dispute_resolved_split` and maps ruling SPLIT accordingly | **F-01 representation fix is present in schema code** | SPLIT settlement execution, rail-specific funds authority and independent gate acceptance |
 
 **Critical distinction:** source presence is **not** proof that an endpoint, job, UI route or participant can actually execute the capability. The source-level conclusions here are deliberately narrower than historical BACKLOG audit labels. No rows changed to ACCEPTED; no decision made on funds, custody, policy or post-Master Day-0 scope.
+
+## Follow-up code-path verification batch — Trade / Offer / Evidence, expiry scheduler and UI signer (2026-10-25)
+
+**Scope:** direct read of named source and test files on PR #531 branch; **no tests were executed** and no CI result or independent gate acceptance is claimed. This **supersedes only the overly broad uncertainty** in the preceding code-path evidence batch, not the residual-risk analysis.
+
+| Area | Direct source evidence | Revised conclusion | Residual gate |
+| --- | --- | --- | --- |
+| BP-3314 Trade creation | `src/modules/open-p2p/trade.routes.ts` L38 and L88 accept/forward optional `idempotencyKey`; `trade.service.ts` L60–64 calls `withIdempotency` | Keyed idempotency implemented at service boundary | Key omission permits separate requests; inspect crash/claim semantics and run tests |
+| BP-3314 Offer creation | `src/modules/open-liquidity/liquidity.service.ts` L424–429 calls `withIdempotency` on optional key | **Offer idempotency mechanism present**, contrary to historical blanket absence | Two-write durability/residuals documented around L466–569; API propagation and adversarial CI not independently validated |
+| BP-3314 Evidence creation | `src/modules/open-settlement/dispute.service.ts` L1106–1116 calls `withIdempotency`; `settlement.routes.ts` L152–156 and L688–692 accept/forward optional key | **Evidence idempotency mechanism present**, contrary to historical blanket absence | QVAC post-persist behavior, omitted key and race/crash recovery need test/CI proof |
+| BL-0067 expiry | `src/app.ts` L471–472 invokes `escrowService.sweepExpiredEscrows()` in `setInterval`; `escrow.service.ts` L1060 defines method; `expiry-authority.ts` routes authority to atomic expiry transition | **Scheduler invocation and authority method both present**; do not claim proactive sweeper absent | Timer lifecycle, eligible states, clocks, restart and distributed workers need adversarial execution proof |
+| BL-0260 MULTISIG UI signing | `packages/sails-ui/src/hooks/useEscrowKey.ts` L211–212 constructs expected intent and calls `verifyAndSignEscrowPsbt`; `tests/multisigSigningIntentUi.test.ts` exercises valid and negative cases and SPLIT rejection | **Real UI hook and dedicated source-level test suite present**; blanket “UI signs blind” is no longer supported by this inspected path | Tests not executed in this pass; prove every signing entrypoint, participant verification, key isolation and rail-specific SPLIT behavior |
+
+**Risk interpretation:** implementation exists for all three *keyed* creation paths and for the scheduler/signing hook. This does not establish unconditional idempotency, production-safe expiry, independent PSBT signer authority or completed gate. No rows accepted or policy choices made.
