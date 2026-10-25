@@ -16,7 +16,8 @@ const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
 
-const COLUMNS = `SELECT table_name, column_name, udt_name, is_nullable, column_default IS NOT NULL AS has_default, is_generated, is_identity
+const COLUMNS = `SELECT table_name, column_name, udt_name, is_nullable, column_default IS NOT NULL AS has_default, is_generated, is_identity,
+    character_maximum_length AS len, numeric_precision AS prec, numeric_scale AS scale
   FROM information_schema.columns WHERE table_schema = 'public' AND table_name <> '_prisma_migrations'`
 const ENUMS = `SELECT t.typname AS type, e.enumlabel AS label FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid
   JOIN pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = 'public'`
@@ -24,7 +25,10 @@ const ENUMS = `SELECT t.typname AS type, e.enumlabel AS label FROM pg_type t JOI
 async function snapshot(client) {
   const columns = {}
   for (const r of (await client.query(COLUMNS)).rows) {
-    columns[`${r.table_name}.${r.column_name}`] = { type: r.udt_name, notNull: r.is_nullable === 'NO', hasDefault: r.has_default || r.is_generated === 'ALWAYS' || r.is_identity === 'YES' }
+    columns[`${r.table_name}.${r.column_name}`] = {
+      type: r.udt_name, notNull: r.is_nullable === 'NO', hasDefault: r.has_default || r.is_generated === 'ALWAYS' || r.is_identity === 'YES',
+      len: r.len, prec: r.prec, scale: r.scale,
+    }
   }
   const enums = new Set((await client.query(ENUMS)).rows.map(r => `${r.type}:${r.label}`))
   return { columns, enums }
@@ -38,6 +42,13 @@ function diff(before, after) {
     if (!now) { problems.push(`${name}: removed (old code still reads/writes it)`); continue }
     if (now.type !== old.type) problems.push(`${name}: type ${old.type} -> ${now.type}`)
     if (now.notNull && !old.notNull) problems.push(`${name}: became NOT NULL (old code may write NULL)`)
+    // same base type, narrower: values the old code still writes (or that exist) may no longer fit
+    if (now.type === old.type) {
+      if (old.len != null && now.len != null && now.len < old.len) problems.push(`${name}: length ${old.len} -> ${now.len}`)
+      if (old.prec != null && now.prec != null && (now.prec < old.prec || (now.scale ?? 0) < (old.scale ?? 0))) problems.push(`${name}: precision/scale (${old.prec},${old.scale}) -> (${now.prec},${now.scale})`)
+    }
+    // old INSERTs that omit the column relied on its default
+    if (old.notNull && old.hasDefault && now.notNull && !now.hasDefault) problems.push(`${name}: DEFAULT removed from a NOT NULL column (old INSERTs that omit it fail)`)
   }
   for (const [name, now] of Object.entries(after.columns)) {
     if (!before.columns[name] && now.notNull && !now.hasDefault) {

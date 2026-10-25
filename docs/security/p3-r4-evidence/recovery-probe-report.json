@@ -1,0 +1,74 @@
+{
+  "run": "r4probe-34f5d1",
+  "images": {
+    "STORE": "chrislusf/seaweedfs:4.48",
+    "TOOLS": "postgres:16-alpine"
+  },
+  "report": [
+    {
+      "id": "E1 baseline read",
+      "status": "PASS",
+      "note": "object reads back byte-for-byte"
+    },
+    {
+      "id": "E2 cold snapshot taken",
+      "status": "PASS",
+      "note": "12339 bytes"
+    },
+    {
+      "id": "E3 restore + right key",
+      "status": "PASS",
+      "note": "restored object reads back byte-for-byte"
+    },
+    {
+      "id": "E4 restore + wrong key",
+      "status": "PASS",
+      "note": "read refused (InternalError); no plaintext, no wrong bytes returned"
+    },
+    {
+      "id": "E5 truncated snapshot is detectable",
+      "status": "PASS",
+      "note": "tar -tzf fails on the truncated archive (a pre-restore check would catch it)"
+    },
+    {
+      "id": "E5b serving from a half-extracted archive",
+      "status": "PASS",
+      "note": "extraction exit 1; object not served (NoSuchKey): fails closed, but the store is up and looks healthy"
+    },
+    {
+      "id": "E6 tampered data file",
+      "status": "PASS",
+      "note": "store refused to serve the tampered object (InternalError)"
+    },
+    {
+      "id": "E7 rotation by copy A->B",
+      "status": "PASS",
+      "note": "5/5 read under the old key, 5/5 verified byte-for-byte under the new key"
+    },
+    {
+      "id": "E8 new store survives the loss of the old key and volume",
+      "status": "PASS",
+      "note": "objects read with the new key alone"
+    },
+    {
+      "id": "D1 pg_restore --list on a truncated dump",
+      "status": "INFO",
+      "note": "the table of contents is intact, so --list ACCEPTS a truncated dump: it is not an integrity check; a sha256 sidecar (or a full test restore) is"
+    },
+    {
+      "id": "D2 default restore of a truncated dump",
+      "status": "PASS",
+      "note": "pg_restore exit 1 (non-zero = it does not claim success); LEFT BEHIND: 1 table(s), 0 row(s) in t (a partial database that a naive \"restore verified\" would not notice)"
+    },
+    {
+      "id": "D3 --single-transaction restore of a truncated dump",
+      "status": "PASS",
+      "note": "exit 1; tables left behind: 0 (atomic: nothing partial survives)"
+    },
+    {
+      "id": "D4 intact dump restores and matches",
+      "status": "PASS",
+      "note": "exit 0; content digest of source and restored table equal"
+    }
+  ]
+}

@@ -56,6 +56,11 @@ const RULES = [
 function classify(sql) {
   const reasons = new Set()
   let klass = ADDITIVE
+  // An anonymous DO block runs arbitrary code that this text lint cannot read (it may EXECUTE dynamic DDL): never additive.
+  if (/\bDO\s+(LANGUAGE\s+\w+\s+)?\$/i.test(sql.replace(/--[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' '))) {
+    reasons.add('DO block (unclassifiable)')
+    klass = POTENTIAL
+  }
   const clean = stripNoise(sql)
   const created = new Set([...clean.matchAll(/\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?/gi)].map(m => m[1]))
   for (const raw of clean.split(';')) {
@@ -71,7 +76,17 @@ function classify(sql) {
 }
 
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex')
-const ANNOTATION = /^--\s*migration-class:\s*contract:\s*(.{20,})$/m
+const ANNOTATION = /^--\s*migration-class:\s*contract:\s*(.{20,})$/
+// Only the leading comment block counts: the same text inside a block comment, a string or a function body is not a statement by the author.
+const hasAnnotation = (sql) => {
+  for (const line of sql.split(/\r?\n/)) {
+    const t = line.trim()
+    if (t === '') continue
+    if (!t.startsWith('--')) return false
+    if (ANNOTATION.test(t)) return true
+  }
+  return false
+}
 
 function lint({ dir, baseline }) {
   const violations = []
@@ -93,7 +108,7 @@ function lint({ dir, baseline }) {
     if (frozen) {
       if (frozen.sha256 !== hash) violations.push(`${name}: applied migration was EDITED (sha256 ${hash.slice(0, 12)} != baseline ${frozen.sha256.slice(0, 12)}); write a new migration instead`)
     } else if (klass !== ADDITIVE) {
-      row.annotated = ANNOTATION.test(sql)
+      row.annotated = hasAnnotation(sql)
       if (!row.annotated) {
         violations.push(`${name}: ${klass} (${reasons.join(', ')}) without "-- migration-class: contract: <reason>"; follow the expand/contract steps in docs/MIGRATIONS.md`)
       }

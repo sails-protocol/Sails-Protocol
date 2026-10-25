@@ -48,6 +48,23 @@ migration written in a function body is not. Reviewers decide; the lint makes su
 4. **Freezing at release.** When a release is cut, `node scripts/migration-lint.js --write-baseline` records the
    migrations it shipped. That is a reviewed commit: it is what turns "new" into "shipped" for the two controls above.
 
+Hardening added in P3-R4 after adversarial review (each has a test in `tests/migrationControls.test.ts`):
+an anonymous `DO $$ ... $$` block is never classified additive (it can `EXECUTE` DDL the text lint cannot read); the
+annotation counts only in the leading comment block (not after the statement, not inside a block comment or a function
+body); the probe also flags a narrowed `varchar`/`numeric` and a `DEFAULT` removed from a `NOT NULL` column; a
+whitespace-only or CRLF-only edit of a frozen migration fails.
+
+### Schema compatibility is not query compatibility
+
+The probe answers "does every column the old server knew still exist, with a type and nullability it can use?". It does
+**not** answer "does every query of the old server still return the same result?". Things it cannot see: a new `UNIQUE`,
+`CHECK` or foreign key that an old write now violates (it depends on the data and on the code); a changed meaning of an
+existing column; an enum value added by the new version that the old Prisma client cannot read back (reading such a row
+throws in the old client); row-level triggers; lock duration and table rewrites on large tables; data migrations. The
+lint's `potentially-destructive` class and the reviewer's annotation cover the first of these by asking a human; nothing
+here replaces running the previous server's own test suite against the new schema, which is a planned step
+(`docs/P3_NEXT_PHASE_TEST_PLAN.md`).
+
 What the probe does **not** prove: that the previous server's *queries* still work (it compares the schema shape, not the
 code); behaviour of data migrations on production-sized data; lock durations. These need the staged tests listed in
 `docs/P3_NEXT_PHASE_TEST_PLAN.md`.
