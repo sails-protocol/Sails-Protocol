@@ -2,6 +2,18 @@
 
 > **Snapshot:** 2026-10-24. **Status:** documentation PR #531 (DRAFT), not merged. This entrypoint is a navigation and contradiction-prevention protocol, **not** a new economic/architectural authority or production approval. Always recheck live issue/PR/CI states when taking over.
 
+## Mission and exit criterion — continuity, not endless backlog certification (2026-10-25)
+
+**Why this consolidation exists:** architectural/product conversations created new GitHub issues and decisions faster than incoming CTO sessions could read them. The deliverable is a **usable institutional handoff**: a successor must know what is being implemented, what was only discussed, where the current authority and issue owner live, and what to do next. It is **not** a requirement to prove that every technical backlog item is complete before a CTO can take over.
+
+**Success for this documentation mission (bounded):** (1) this entrypoint provides an ordered reading path; (2) the ledger points to canonical issue/ADR/RFC owners and clearly separates historical claims, draft work and accepted evidence; (3) historical Master candidate registers are navigable without treating each candidate as an independent obligation; (4) an incoming CTO can continue with current issue/PR/CI verification, and unresolved technical gates remain explicitly OPEN; (5) an independent reviewer accepts this as a **truthful, bounded continuity map**. This fifth condition is the only outstanding **independent handoff acceptance**, not an obligation to close every Day-0 or Beta technical gate.
+
+**Verified correction:** the ledger's 53-entry Day-0 lexical index now has numeric issue IDs restored; the earlier `#undefined` observation was historical and **must not** be repeated as a current blocker. This index remains lexical, not a release denominator. The ledger's 40 BP, 54 BL, 156 BB and 54 MO source records are overlapping navigation populations, **not** a sum of unique obligations or a completion percentage.
+
+**Operational handoff for the next CTO:** read this page, check the current GitHub issue/PR owners and latest comments, consult the relevant ledger/register only for the active mission, verify the exact current SHA and CI, then advance the canonical issue. Do **not** reread the entire historical backlog or append speculative crosswalk rows before doing engineering work. Open technical work remains owned by its own gates; a GREEN continuity handoff would **not** mean Day-0, Beta or production GREEN.
+
+**Current acceptance:** 7/8 continuity controls documented; the final independent review is still pending. The PR remains draft until an authorized review decision. Do not confuse the historical 6/10 and 8/12 authoring snapshots below with the operative handoff score.
+
 ## Read in this order
 
 1. [BACKLOG.md](BACKLOG.md): institutional technical backlog and history; its early phase table contains explicitly superseded snapshots. Read corrections, not just the first DONE.
