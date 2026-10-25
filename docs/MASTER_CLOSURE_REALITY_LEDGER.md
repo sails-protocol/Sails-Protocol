@@ -773,6 +773,20 @@ Read directly against BACKLOG source passages, **not** derived from keyword coun
 
 **Counting:** These six rows are **cross-source adjudications**, not six new Master obligations, not six completed gates. Identity B/C/D and network/trade properties need distinct item-level code/owner/SHA/CI/independent-review proof. No acceptance is implied by source presence.
 
+
+### Gates F–J authority adjudication — bounded source reading (2026-10-25)
+
+| Family | BACKLOG source | Finding | Acceptance |
+| --- | --- | --- | --- |
+| F — cross-node restart/resume | L932–941 vs L1414–1415 and L4299 | **Different scopes:** earlier fund-moving restart/resume safety was described as substantially closed under #56/#58/#59, but cross-node continuity and user-facing offline/resume remain canonical and unproven. Do not reuse the earlier DONE to close the network/UI requirement. | UNKNOWN |
+| F — professional inventory reservation | L1413–1414 and L4295 | Already canonical under #105; no mechanism chosen per later deduplication review. Do not create a duplicate top-level obligation or assume implementation. | UNKNOWN |
+| G — accounting and incentives | L1415–1425 | Contribution accounting and no-cannibalization are **sub-obligations** of the ordered sequence; actual payout execution is **separate and later**, behind Production Readiness, and can stay disabled throughout beta. | UNKNOWN |
+| H/I — independent developer/operator/partner | L4294–4300 | No-assistance developer, integrator bootstrap, pagination, offline/resume and real independent partner wallet are already canonical. Pagination and external partner wallet are **Partner Beta blockers**, not production-only niceties. | UNKNOWN |
+| J — consolidated production readiness | L719–731 | A single composite Production Readiness Gate is explicitly registered; individual provider/migration DONE does not close it. | UNKNOWN |
+| J — external audit and RC1 | L794–799 | BACKLOG states no external code security audit had happened and RC1 was not started **at the cited historical snapshot**; live present-day status requires independent recheck, not blind perpetuation of historical negatives. | NOT RECHECKED |
+
+**Boundary:** These six source interpretations are not six delivered gates. The historical #105 numbering cited by BACKLOG L4294–4300 may differ from the later 54-entry canonical sequence; **join by substantive requirement, never by unqualified old item number**. Current owner, SHA, CI and external acceptance are still unverified in this pass. No release, payout or merge authority follows from these notes.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
