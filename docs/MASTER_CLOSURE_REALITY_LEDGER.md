@@ -543,3 +543,11 @@ The following are **explicit resolution rules**, not implementation acceptance:
 ### Independent review boundary
 
 The 8th handoff check cannot be marked PASS merely by adding more indexes. It requires a reviewed obligation denominator, duplicate/superseded disposition, individual evidence links and CTO sign-off. This loop improves clarity but leaves the score **7/8 = 87.5%**. Main merge and GitBook/Mintlify #125 remain unapproved.
+
+## Gatekeeper verification — 2026-10-25 00:55 local: eliminate false missing-evidence alert
+
+**Direct inspection of PR #531 HEAD `dd1857272b3dfa0179c99b68a1c085d9f2c5548e`:** the previously reported missing 29-issue verification is **present** under the exact heading `Direct issue-state verification — 2026-10-25`. The earlier alert was a false negative caused by checking for a different planned section heading, not by absence of the verification data. Do not instruct the next CTO to 'restore missing 29 issue section' based on that obsolete alert.
+
+**Scope of that verification:** 29/29 individually fetched issue *states*, **zero claims of independent acceptance**. It is a registry consistency check, not an implementation, security or production clearance. The handoff checklist remains **7/8 = 87.5%**; check 8 remains pending substantive evidence and independent CTO approval. No branch merge, database migration, staging, or release is authorized.
+
+**Safe continuation:** re-fetch live #531 HEAD and file blob before editing; inspect exact section content instead of relying on heading-string matching; compare against the current default-branch Master and issue comments; append contradiction resolution with time and owner. This correction supersedes earlier chat claims that the 29-item register was absent.
