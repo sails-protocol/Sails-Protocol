@@ -65,7 +65,19 @@ integration('two-process Redis relay candidate', () => {
         destinationParticipantId: 'bob', destinationLeaseToken: lease,
         deadlineMs: Date.now() + 2500, payload: 'opaque-two-process',
       })).toBe(true)
-      expect(received).toContain('opaque-two-process')
+      await new Promise<void>((resolve, reject) => {
+        if (received.includes('opaque-two-process')) return resolve()
+        const timeout = setTimeout(() => { child.off('message', listener); reject(new Error('destination IPC receipt timeout')) }, 1000)
+        const listener = (msg: unknown) => {
+          const record = msg as { type?: string; payload?: string }
+          if (record?.type === 'received' && record.payload === 'opaque-two-process') {
+            clearTimeout(timeout)
+            child.off('message', listener)
+            resolve()
+          }
+        }
+        child.on('message', listener)
+      })
       expect(await origin.deliver(destinationChannel, {
         destinationParticipantId: 'bob', destinationLeaseToken: randomUUID(),
         deadlineMs: Date.now() + 2500, payload: 'stale',
