@@ -122,8 +122,27 @@ deploy/self-host/sails-node backup                       # pg_dump -Fc to ~/.sai
 deploy/self-host/sails-node restore ~/.sails-node/backups/<file>.dump
 ```
 
-`restore` refuses a database that is not empty, restores, then runs the migration job against it to
-verify the result. A dump is as sensitive as the database.
+`restore` refuses a database that is not empty, restores **in one transaction** (a failed restore leaves the
+database empty, so you can retry), then runs the migration job against it to verify the result. A dump is as
+sensitive as the database.
+
+**Backup integrity.** Every backup (`.dump` and the evidence `.tar.gz`) gets a `FILE.sha256` sidecar, and
+`restore`/`restore-evidence` verify it, plus the file's structure, *before touching anything*. A backup without
+a sidecar (taken by an older version) is refused unless you set `SAILS_RESTORE_UNVERIFIED=1`; a sidecar that does
+not match is never overridable. `sails-node verify-backup FILE` checks a backup at any time, and `--deep` also
+restores a dump into a scratch database and drops it. **The sidecar detects accidents, not an attacker:** whoever
+can change the archive can change the sidecar. Keep a copy of the sidecar (or a signature of it) where the host
+cannot write. `pg_restore --list` alone is not an integrity check (it can accept a damaged dump).
+
+**Evidence checks.** `sails-node verify-evidence` reads back every stored object and compares its content with the
+SHA-256 in its name; it fails if the store runs with the wrong key, if an object is damaged, or if the store
+cannot list or read.
+
+**Rotating the evidence key.** `sails-node rotate-evidence-key` copies every object into a second store that uses a
+NEW key (each copy verified), then swaps the stores and verifies again; any failure before the swap leaves the
+running store untouched, and a failure after it restores the pre-rotation snapshot and the old key. The old key is
+kept in `secrets/seaweedfs.env.prev-<timestamp>`: keep it while old evidence archives may still need restoring,
+then destroy it, and copy the new `secrets/` off the host at once.
 
 ### Recovering everything: database, evidence objects, key and credentials
 
@@ -140,7 +159,11 @@ Order on a new host: restore `secrets/` (`init` refuses to overwrite it), `sails
 `sails-node restore-evidence <archive>` (into a fresh store), then `sails-node update`. After it, read an
 evidence object back before declaring success.
 
-**What is tested** (`scripts/self-host-test.sh`): the database restore into an empty database with migration
+**What is tested** (`scripts/self-host-backup-test.sh`, throwaway project): the sidecar, a stale or forged one, a
+truncated dump, damaged data that only `--deep` catches, atomic restore, the evidence restore refusing a truncated
+or replaced archive before the store is touched, `verify-evidence` with a wrong and the right key, the rotation
+(and its refusal over an unfinished one), no key or password in any log, and that `migrate` runs with dropped
+capabilities and `no-new-privileges`. **And** (`scripts/self-host-test.sh`): the database restore into an empty database with migration
 verification; the evidence restore after the store's container and volume were deleted, with the original bytes
 read back through the production `S3EvidenceProvider`; and that a *different* SSE key cannot read the restored
 object while the preserved key can. **What is not tested:** a single end-to-end drill on a brand-new host from

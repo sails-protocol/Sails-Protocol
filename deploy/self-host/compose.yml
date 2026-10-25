@@ -66,6 +66,15 @@ services:
       timeout: 5s
       retries: 30
     restart: unless-stopped
+  # Only ever started by `sails-node rotate-evidence-key`: a second store with the NEW encryption key, filled by a
+  # verified copy of every object and then swapped in. Never part of a normal start.
+  seaweedfs-next:
+    profiles: [evidence-rotate]
+    image: chrislusf/seaweedfs:4.48
+    command: ["server", "-dir=/data", "-s3"]
+    env_file: ${SAILS_HOME_HOST:?}/secrets/seaweedfs.next.env
+    volumes: [seaweedfs-next-data:/data]
+    restart: "no"
   # One-shot: applies the committed migrations of THIS version and proves the result.
   # restart "no": a failed migration is a failure to read, never something to retry silently.
   migrate:
@@ -73,6 +82,10 @@ services:
     env_file: ${SAILS_HOME_HOST:?}/secrets/db.env
     depends_on:
       postgres: { condition: service_healthy }
+    # Same container hardening as the server: the image carries setuid binaries (mount, su, ...) that
+    # no-new-privileges and dropped capabilities make unusable. The job only talks to PostgreSQL.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     restart: "no"
 
   server:
@@ -115,4 +128,5 @@ volumes:
   postgres-data:
   redis-data:
   seaweedfs-data:
+  seaweedfs-next-data:
   caddy-data:

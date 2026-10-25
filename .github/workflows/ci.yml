@@ -213,3 +213,8 @@ jobs:
       # No cloud, no registry, no real database.
       - name: Self-hosting kit (install, update, failed update, rollback, restore)
         run: bash ./scripts/self-host-test.sh
+
+      # Adversarial backup/recovery of the same kit: sha256 sidecars, truncated/forged/tampered backups,
+      # atomic restore, evidence verification, key rotation, hardened migrate service. Throwaway project.
+      - name: Self-hosting kit (backup integrity, atomic restore, evidence key rotation)
+        run: bash ./scripts/self-host-backup-test.sh
