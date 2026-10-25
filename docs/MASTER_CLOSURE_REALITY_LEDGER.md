@@ -1163,3 +1163,25 @@ Added [`MASTER_BACKLOG_NUMBERED_PROSE_REGISTER.md`](MASTER_BACKLOG_NUMBERED_PROS
 ### Master bullet-clause source inventory (2026-10-25)
 
 Added [`MASTER_BACKLOG_BULLET_SOURCE_INVENTORY.md`](MASTER_BACKLOG_BULLET_SOURCE_INVENTORY.md): **156** line-anchored Markdown bullet source records across MULTISIG (28), Identity (15), Production (12), Multi-node (19), Cold Sweep (76), OpenProof (6). This is a **partial source extraction**, not 156 deduplicated requirements or acceptance claims. Some bullets are historical fixes, risk constraints, explanatory text, or nested tests. Full semantic adjudication and other unnumbered prose remain open. This does not close continuity checklist 8 or authorize production.
+
+
+## Post-Master Backlog Day-0 decision boundary — CTO routing (2026-10-25)
+
+**Decision policy:** decisions deferred by the project owner are to be resolved in the **post-Master Backlog Day-0 implementation planning phase**. This is a scheduling/classification rule, **not** an acceptance, risk waiver, production eligibility grant, or permission to defer evidence necessary for an existing safety gate. Keep each unresolved blocker visible until its authorized gate is satisfied. No economic or custody design has been chosen here.
+
+**Canonical triage detail:** [MASTER_BACKLOG_BULLET_SOURCE_INVENTORY.md](MASTER_BACKLOG_BULLET_SOURCE_INVENTORY.md), section “Post-Master Day-0 decision queue”. This ledger is a cross-reference, not a duplicate source register.
+
+| Decision / verification cluster | Source pointers | Current treatment | Post-Master deliverable |
+| --- | --- | --- | --- |
+| Funding and signing UX | BB-2334; BB-2351; BACKLOG L2334–2355 | BTC MULTISIG destination not rendered in inspected Trade.tsx; other rails unverified; silent signing feedback source-claimed | Rail-by-rail UX contract, test criteria and implementation ownership |
+| Economic abuse / no-show | BB-5285; BB-5337 | Related but non-identical risks; no penalty or bond selected | Threat model, policy decision, acceptance tests |
+| Missing co-signer and silent arbiter | BB-5554; BACKLOG L5566–5591 | Recovery/authority decisions remain open; no unsafe unilateral reassignment | Authorized recovery and escalation rules, adversarial tests |
+| Recovery-truth representation | BB-5605; BACKLOG L5605–5675 | Mixed new, partial and covered source cases; not eight independently new tasks | Typed states/evidence and bounded UX criteria where justified |
+| Capability exposure | BB-5676 | Existing doctrine, residual eligibility asymmetry requiring verification | Exact rail eligibility matrix and boot/runtime guard criteria |
+| Destination/dispute historical authority | BB-4373; BB-4610; BB-4744 | Superseded F-06 and historically fixed seller-release claim are not newly reopened; separate appeal/crash decisions remain | Exact SHA/CI verification, independent gate for remaining risks |
+| Self-host backup and node signing identity | P3-R4 Claude report, **not yet committed evidence**; PR #529 | Recovery probe and six kit gaps reported locally; signing identity preservation explicitly NOT VERIFIED | Custody/identity recovery design decision and reproducible restore acceptance evidence |
+| P4 Gate 3 residual policy | PR #525, HEAD 22c4f6ebb3fbe5ea710cbe8215def3c60bce0e6c | CI Tests green; Gatekeeper independent review not yet recorded; production NO-GO | Review before gate closure; policy choices for SPLIT/window/legacy authorization after Master |
+
+**Cross-lane provenance:** the P3-R4 and P4 rows are **external mission reports**, not normalized BACKLOG source rows and not proof of global gaps; obtain published evidence and exact institutional joins before promoting them. The P4 CI status does not substitute for the Gatekeeper. Preserve #436 attestation assertion concerns separately; do not adopt weakened assertion 9143bbcc without equivalent adversarial coverage.
+
+**Progress accounting:** 54 MO + 54 BL + 40 BP + 156 BB = 304 **source records across bounded extractions**, not 304 distinct obligations. Independent normalized acceptance and global denominator remain unestablished; continuity check 8 remains OPEN (7/8 only). Decisions deferred ≠ gate closed.
