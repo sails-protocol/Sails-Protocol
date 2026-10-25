@@ -84,11 +84,12 @@ docker rm -f "$APP" >/dev/null 2>&1
 section "E5 the non-root user loses what it needs, or the container runs as root"
 checks "$DL" /nodejs/bin/node --user 0:0; detected "E5a distroless run with --user 0:0" 'runs as a non-root user'
 checks "$BW" node --user 0:0; detected "E5a bookworm run with --user 0:0" 'runs as a non-root user'
-vb="$(mkvol 'mkdir -p bin && echo "not-a-binary" > bin/bare && chmod 644 bin/bare')"   # root-owned, mode 644, cannot be chmod'ed by uid 65532/1000
+vb="$(mkvol 'echo "not-a-binary" > bare && chmod 644 bare')"   # a root-owned 644 file, mounted over the single file bin/bare (volume-subpath): the non-root user cannot chmod it
+BAREMNT="type=volume,src=$vb,dst=/app/node_modules/bare-runtime-linux-x64/bin/bare,volume-subpath=bare"
 for k in distroless bookworm; do
-  out="$(docker run --rm --mount "type=volume,src=$vb,dst=/app/node_modules/bare-runtime-linux-x64/bin" --entrypoint "${NODEOF[$k]}" "${IMGOF[$k]}" /app/node_modules/bare-runtime/bin/bare --version 2>&1)"; rc=$?
-  [ "$rc" -ne 0 ] && pass "E5b $k: root-owned 644 Bare binary cannot be made executable by the non-root user ($(echo "$out" | tr '\n' ' ' | grep -o 'EPERM[^ ]*\|EACCES[^ ]*' | head -n1))" || fail "E5b $k: Bare started despite a root-owned 644 binary ($out)"
-  checks "${IMGOF[$k]}" "${NODEOF[$k]}" --mount "type=volume,src=$vb,dst=/app/node_modules/bare-runtime-linux-x64/bin"
+  out="$(docker run --rm --mount "$BAREMNT" --entrypoint "${NODEOF[$k]}" "${IMGOF[$k]}" /app/node_modules/bare-runtime/bin/bare --version 2>&1)"; rc=$?
+  { [ "$rc" -ne 0 ] && echo "$out" | grep -qE 'EPERM|EACCES'; } && pass "E5b $k: a root-owned 644 Bare binary cannot be made executable by the non-root user ($(echo "$out" | grep -oE 'E(PERM|ACCES)[^,]*' | head -n1))" || fail "E5b $k: unexpected result (exit $rc): $(echo "$out" | tr '\n' ' ' | cut -c1-200)"
+  checks "${IMGOF[$k]}" "${NODEOF[$k]}" --mount "$BAREMNT"
   if [ "$CHK_RC" -eq 0 ]; then measure "E5b GAP ($k): runtime-image-checks does NOT notice an unspawnable Bare binary (exit 0); a check that spawns 'bare --version' would"; else pass "E5b $k detected by the checks: $(echo "$CHK_OUT" | grep '^FAIL' | head -n1 | cut -c1-140)"; fi
 done
 
