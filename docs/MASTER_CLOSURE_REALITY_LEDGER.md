@@ -425,6 +425,11 @@ Incoming CTOs may use this ledger as a **provisional navigation and conflict-res
 
 **Deduplication rule:** ADR sections define the normative architecture, #105 gates own completion evidence, and BACKLOG rows track work/debt. One obligation can reference all three without becoming three independent requirements. No percentage may use these 28+10 anchors as an additive denominator. Every gate needs independent proof; if absent record EVIDENCE PENDING, not PASS.
 
+
+### #105 scope guard — live issue inspection (2026-10-25)
+
+The ten A–J gate headings above are **gate categories**, not the full obligation denominator. The live #105 body also includes an ordered implementation/evidence path, adversarial tests, and subsequent numbered cold-sweep additions (including signed economic-term binding, replay/double-commit, fiat/payment-instruction commitments, arbitration continuity, public-offer privacy, and partner-beta asset/rail support). A reviewer must extract and deduplicate these requirements against ADR-001, `docs/BACKLOG.md`, and the cold-sweep document before claiming check 8 complete. **No numeric global obligation denominator or acceptance percentage is established here.** Source: https://github.com/sails-protocol/Sails-Protocol/issues/105 .
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
