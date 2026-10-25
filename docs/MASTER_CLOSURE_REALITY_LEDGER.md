@@ -614,6 +614,33 @@ This is a **seven-family source-presence sample**, not exhaustive 54-item or 5,9
 
 **Sample coverage:** 7/7 selected topic families have a BACKLOG anchor; **47 other #105 entries are not thereby mapped** and the seven selected families are not an exhaustive partition. **Cross-document obligation denominator and independent acceptance remain NOT MEASURED.**
 
+
+### BACKLOG semantic presence expansion — 17 bounded topics (2026-10-25)
+
+Search performed against the **5,906-line BACKLOG at the PR branch snapshot**, with case-insensitive literal phrase matching. This improves navigation, **not** normative atomization, proof of implementation, or historical/current authority classification. Counts reflect phrase occurrences and can include superseded claims, negative statements and historical tables; therefore no row is PASS. The earlier seven-topic sample is preserved as a prior checkpoint and must not be added to these 17 as distinct obligations.
+
+| Topic | First BACKLOG line | Literal occurrences | Interpretation |
+| --- | ---: | ---: | --- |
+| Portable Offer envelope | L1487 | 1 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+| Participant transport identity | L176 | 11 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+| Node descriptor | L1561 | 4 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+| Anti-entropy | L1549 | 2 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+| Clock health | L1623 | 2 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+| Trade-open commitment | L1487 | 6 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+| Payment-destination commitment | L1752 | 4 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+| Settlement mechanism | L1767 | 1 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+| Arbitration authority | L1787 | 3 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+| Inventory reservation | L4295 | 1 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+| Node switching | L1692 | 1 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+| Dispute evidence | L3317 | 1 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+| Contribution accounting | L1415 | 5 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+| No-cannibalization | L1416 | 2 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+| Stranger developer | L831 | 5 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+| Partner wallet | L1367 | 5 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+| External audit | L794 | 2 | TOPIC PRESENT; AUTHORITY / ACCEPTANCE UNKNOWN |
+
+**Search coverage:** 17/17 chosen phrases located; **54-item #105 line-by-line join:** PENDING; **temporal authority adjudication:** PENDING; **independent evidence:** PENDING; **Master denominator:** NOT MEASURED.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
