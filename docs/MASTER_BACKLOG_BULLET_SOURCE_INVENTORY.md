@@ -99,8 +99,8 @@
 | BB-1977 | L1977 | COLD | **USDT**: Ethereum; Base; Optimism; Polygon; Avalanche; Solana; | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-1992 | L1992 | COLD | **USDC**: Ethereum; Base; Optimism; Arbitrum; Avalanche; Polygon. | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-1994 | L1994 | COLD | **XAUT (Tether Gold)**: Ethereum. Day-0 required. (Network | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
-| BB-2334 | L2334 | COLD | **FundingRequest UX — proven concrete gap (source-traced, | COLD SWEEP EXPLICIT OPEN DECISION / REVIEW | BACKLOG Cold Sweep open decision; verify owner, gate, and supersession | NOT ACCEPTED |
-| BB-2351 | L2351 | COLD | **SigningRequest UX (real gap, same source).** Participant-key | COLD SWEEP EXPLICIT OPEN DECISION / REVIEW | BACKLOG Cold Sweep open decision; verify owner, gate, and supersession | NOT ACCEPTED |
+| BB-2334 | L2334 | COLD | **FundingRequest UX — proven concrete gap (source-traced, | DAY0 PRODUCT UX GAP / FUNDING DESTINATION | BACKLOG L2334–2350; packages/sails-ui/src/pages/Trade.tsx inspected: no multisigAddr reference; BTC MULTISIG funding instructions gap supported, other rails require independent checks; POST-MASTER DECISION / NOT ACCEPTED | NOT ACCEPTED |
+| BB-2351 | L2351 | COLD | **SigningRequest UX (real gap, same source).** Participant-key | DAY0 PRODUCT UX GAP / SIGNING FEEDBACK | BACKLOG L2351–2355; packages/sails-ui/src/hooks/useEscrowKey.ts exists (219 lines); source claims silent participant-key/signature UX; full rendered-flow verification pending; POST-MASTER DECISION / NOT ACCEPTED | NOT ACCEPTED |
 | BB-2356 | L2356 | COLD | **Rail-aware UX beyond the single BTC label fix.** PR #130 fixed | COLD SWEEP HISTORICAL STATUS CLAIM / VERIFY | BACKLOG Cold Sweep claimed status; demand exact code/CI and acceptance | NOT ACCEPTED |
 | BB-2359 | L2359 | COLD | **White-label configuration model.** No tenant-configuration | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-2363 | L2363 | COLD | **Dogfooding evidence obligation.** §2D item 3's non-privilege | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
@@ -111,7 +111,7 @@
 | BB-4225 | L4225 | COLD | Mission 3 (Partner Wallet Integration & Identity Continuity), PR | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-4228 | L4228 | COLD | Mission 4 (Adaptive Execution / Capability Routing), PR #151, R1- | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-4235 | L4235 | COLD | External Extensibility Blind-Spot & Precedent Consolidation, PR | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
-| BB-4373 | L4373 | COLD | **F-06 supersession (Destination Authority residual gap) and BRD-01 | COLD SWEEP EXPLICIT OPEN DECISION / REVIEW | BACKLOG Cold Sweep open decision; verify owner, gate, and supersession | NOT ACCEPTED |
+| BB-4373 | L4373 | COLD | **F-06 supersession (Destination Authority residual gap) and BRD-01 | HISTORICAL SUPERSESSION / NOT NEW GAP | BACKLOG L4373–4394 states F-06 destination authority closed on 2026-09-11 and BRD-01 stale comment is documentation delta; preserve authority history, verify exact code/gate before accepted closure | NOT ACCEPTED |
 | BB-4398 | L4398 | COLD | **F-05 supersession (Dispute `RESOLVED`/`appeal()` — prior | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-4408 | L4408 | COLD | **Offer status lifecycle — Product Decision required (`BR-OFFER-02`/ | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-4422 | L4422 | COLD | **RFC-021 formal governance acceptance — distinct from its already- | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
@@ -122,12 +122,12 @@
 | BB-4583 | L4583 | COLD | Trade terminal while its linked Escrow is non-terminal — already | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-4590 | L4590 | COLD | MULTISIG-only automated settlement reconciliation — already | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-4604 | L4604 | COLD | **`Offer.PAUSED` semantics — `PRODUCT DECISION REQUIRED BEFORE | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
-| BB-4610 | L4610 | COLD | **Seller release during an open Dispute — `FIXED / VERIFIED` | HISTORICAL FIX CLAIM / VERIFY AUTHORITY | BACKLOG L4610 FIXED / VERIFIED seller release during dispute; reconcile L4744 and exact code/CI | NOT ACCEPTED |
+| BB-4610 | L4610 | COLD | **Seller release during an open Dispute — `FIXED / VERIFIED` | HISTORICAL FIX / SEPARATE RESIDUAL RISKS | BACKLOG L4610–4626 cites merged PR #210 SHA 56056a5e for disputed seller release guard; appeal pending instruction and crash-window decisions explicitly not closed; CI not re-run here | NOT ACCEPTED |
 | BB-4627 | L4627 | COLD | **Appeal leaving a prior ruling's pending fund-movement instruction | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-4643 | L4643 | COLD | **Dispute→Escrow crash-window non-atomicity — `ARCHITECTURE / | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-4655 | L4655 | COLD | **Cooperative `EscrowPendingTransaction` abandonment — | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-4664 | L4664 | COLD | **Intent `EXPIRABLE_STATES` vs. `VALID_TRANSITIONS` inconsistency — | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
-| BB-4744 | L4744 | COLD | Seller release during an open Dispute — owned by item 44. Authority | CROSS-REFERENCE / DISPUTE AUTHORITY OVERLAP | BACKLOG L4744 points to item 44 dispute authority; overlap with L4610, no duplicate acceptance | NOT ACCEPTED |
+| BB-4744 | L4744 | COLD | Seller release during an open Dispute — owned by item 44. Authority | CROSS-REFERENCE TO BB-4610 / HISTORICAL | BACKLOG L4744–4747 is an earlier authority-angle reference; reconcile with later BB-4610 fix; do not create duplicate unresolved seller-release obligation | NOT ACCEPTED |
 | BB-4748 | L4748 | COLD | F-08A (session revocation absence) — owned by item 42. Authority | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-4753 | L4753 | COLD | Offer A3's implementation delta — owned by item 43, untouched by | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-4755 | L4755 | COLD | RFC-021 B2 / BRD-03 (uncapped appeal-round cost disclosure) — | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
@@ -196,6 +196,20 @@ These are two distinct recovery subjects, not two accepted Day-0 closures. Neith
 **BB-5676:** The source explicitly says protocol capability does not imply production eligibility and describes an existing WDK production guard plus a residual MULTISIG asymmetry. Treat the doctrine as a **cross-reference to existing policy**, not a newly accepted closure; confirm the actual config guard and deployment matrix before upgrading this classification.
 
 These two entries must remain separate from co-signer stall, silent-arbiter stall, no-show economics and spam, although they share recovery and eligibility governance. All remain `NOT ACCEPTED`.
+
+## Post-Master Day-0 decision queue — scoped routing, not approval (2026-10-25)
+
+**Decision timing agreed:** classify and preserve open questions now; choose technical mitigations and implementation scope only in the post-Master Backlog Day-0 planning gate. Deferral of the *decision* does not waive release blockers, safety criteria, or economic authority. No source in this queue is accepted merely by being registered.
+
+| Domain / decision bundle | Source anchors | Post-Master decision or verification | Current evidence boundary |
+| --- | --- | --- | --- |
+| Product funding/signing UX | BB-2334; BB-2351 | Rail-specific funding destination/status; user-visible key/signature feedback | Trade.tsx does not reference multisigAddr; other rails and full UX flows not verified |
+| Pre-escrow abuse economics | BB-5285; BB-5337 | No-show, fake Offer/Intent/Trade/identity activity, initial dispute spam; choose mitigations only after threat review | Overlap is only Trade abandonment; no staking/penalty adopted |
+| Economic recovery/lifecycle | BB-5554; BB-5605; silent-arbiter sibling L5566–5591 | Missing co-signer, silent arbiter, typed funding/refund/recovery truth, extension/acknowledgement | Some paths inspected; exhaustive absence proof and adversarial tests pending |
+| Capability eligibility | BB-5676 | Align production eligibility guards with approved rail matrix | Existing doctrine/WDK guard reported; MULTISIG asymmetry remains to verify |
+| Historical authority corrections | BB-4373; BB-4610; BB-4744 | Verify supersession and merged fix; preserve separate appeal/crash risks | BACKLOG cites historical F1 closure and PR #210; no fresh CI executed |
+
+**Do not count the five bundles as five accepted tasks**: these are routing groups for multiple overlapping source entries, not a unique obligation denominator. The original 304 triaged source records and 7/8 continuity checklist remain unchanged.
 
 ## Adjudication guardrails
 
