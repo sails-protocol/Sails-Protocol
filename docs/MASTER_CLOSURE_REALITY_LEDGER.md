@@ -860,6 +860,15 @@ Direct GitHub checks queried against **the exact merge commits**, not the curren
 
 **Acceptance next steps:** obtain the **original PR head SHAs and their associated GitHub check runs** (or CI artifacts/logs), plus a fresh appropriately scoped run if required; evaluate TD §57 systemic reliability separately from its bounded Swagger-UI fix. Neither #105 Gate A nor the Partner Beta may be closed from these two GitBook statuses.
 
+
+### Parallel evidence sweep — original PR CI and cold-sweep privacy supersession (2026-10-25)
+
+**CI: verified original PR HEAD SHAs, not merge SHAs.** GitHub PR metadata confirms #115 head `150969036a13656ff8ed23ae7df6c8ce04da76ea` and #117 head `e41e83ef08dd357228c79d1096571f4b4cf9b7e5`, both merged. For **each** original head, GitHub's commit-associated workflow-run query returned **three completed/successful workflows**: `CI Tests`, `CI`, `CodeQL`. This corrects the earlier evidence gap from looking up merge SHAs. It verifies reported **workflow conclusions** for those exact original heads, **not** fresh re-execution, individual Jest test logs, production parity, or independent acceptance. GitBook success on merge commits was unrelated to these technical checks.
+
+**Cold-sweep supersession:** `docs/DAY0_COMPLETENESS_COLD_SWEEP.md` **§13.1 L700–723** states, as of **2026-09-09**, that public single-offer read exposes raw `paymentDetails` and is a Partner Beta blocker. This is a **historical observation superseded for that narrow code defect** by merged PR #117, current `getOffer()` explicit `select`/public mapper, and successful original-head CI. Do **not** present §13.1's 'CURRENT IMPLEMENTATION PRIVACY DEFECT' label as current on 2026-10-25 without rechecking code. Its **normative requirements** §13.2–13.4 L725–769 remain valid; specifically #21 public projection, #22 unauthenticated nondisclosure, #24 trade-party availability have direct regression test coverage in `tests/publicOfferDetailDisclosure.test.ts`. **#23 gossip-envelope private-field exclusion is a separate multi-node obligation and was NOT demonstrated by this HTTP-focused test suite.**
+
+**Gate decision:** TD §61 HTTP defect = implemented and original-head CI green; privacy multi-node envelope = unproven; TD §57 Swagger-UI slice = merged and original-head CI green; systemic contention = still OPEN. **No Partner Beta or #105 gate blanket closure, no formal reviewer approval inferred.**
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
