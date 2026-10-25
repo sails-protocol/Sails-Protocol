@@ -10,11 +10,22 @@ async function main() {
   publisher = new Redis(url, { maxRetriesPerRequest: 1, retryStrategy: () => null })
   subscriber = new Redis(url, { maxRetriesPerRequest: 1, retryStrategy: () => null })
   const provider = new WebSocketRelayTransportProvider()
-  provider.registerSocket('bob', {
+  const firstSocket = {
     readyState: 1,
     send: payload => process.send({ type: 'received', payload }),
     close: () => {},
-  }, lease)
+  }
+  provider.registerSocket('bob', firstSocket, lease)
+  process.on('message', msg => {
+    if (msg && msg.type === 'replace-owner' && typeof msg.lease === 'string') {
+      provider.registerSocket('bob', {
+        readyState: 1,
+        send: payload => process.send({ type: 'received', payload }),
+        close: () => {},
+      }, msg.lease)
+      process.send({ type: 'owner-replaced' })
+    }
+  })
   transport = new RedisRelayDeliveryTransport(publisher, subscriber, channel, provider)
   await transport.start()
   process.send({ type: 'ready' })
