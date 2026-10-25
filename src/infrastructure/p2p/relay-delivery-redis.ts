@@ -92,12 +92,8 @@ export class RedisRelayDeliveryTransport {
       await this.subscriber.subscribe(this.localChannel)
       if (this.closing) {
         this.subscriber.off('message', this.onMessage)
-        try {
-          await this.subscriber.unsubscribe(this.localChannel)
-        } catch {
-          // The transport is already closed. Do not claim successful cleanup;
-          // callers must treat this instance as unusable.
-        }
+        // close() owns the unsubscribe and must surface failures to its caller.
+        // Do not attempt it here as well: duplicate unsubscribe calls can race.
         return
       }
       this.started = true
