@@ -106,6 +106,13 @@ integration('two-process Redis relay candidate', () => {
         destinationParticipantId: 'bob', destinationLeaseToken: newLease,
         deadlineMs: Date.now() + 2500, payload: 'new-owner-after-reconnect',
       })).toBe(true)
+      // Verify missing-subscriber rejection while origin transport is still live.
+      // After disconnect, a false result would only prove that origin is closed.
+      expect(await origin.deliver('sails:relay:delivery:absent_' + suffix, {
+        destinationParticipantId: 'bob', destinationLeaseToken: lease,
+        deadlineMs: Date.now() + 2500, payload: 'absent',
+      })).toBe(false)
+      expect(received).not.toContain('absent')
       // Publisher disconnect is a permanent fail-closed state for this
       // isolated transport. Redis publication must never masquerade as ACK.
       publisher.disconnect()
@@ -123,10 +130,6 @@ integration('two-process Redis relay candidate', () => {
         deadlineMs: Date.now() + 2500, payload: 'after-publisher-reconnect',
       })).toBe(false)
       expect(received).not.toContain('after-publisher-reconnect')
-      expect(await origin.deliver('sails:relay:delivery:absent_' + suffix, {
-        destinationParticipantId: 'bob', destinationLeaseToken: lease,
-        deadlineMs: Date.now() + 2500, payload: 'absent',
-      })).toBe(false)
     } finally {
       await Promise.allSettled([origin.close()])
       publisher.disconnect()
