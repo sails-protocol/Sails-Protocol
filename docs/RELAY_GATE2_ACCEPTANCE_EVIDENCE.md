@@ -1,3 +1,12 @@
+## Distributed false-positive regression — verified CI evidence (2026-10-25)
+
+- Exact SHA `6a46c833afd4c0f9c8c88dda3941ea18faabb8f1` corrects the missing-destination test so that the destination is checked **while the origin remains connected**, rather than only after publisher shutdown. This closes a vacuous assertion in the test scenario, not an authenticated-routing security gap.
+- GitHub Actions runs for that SHA: CI `40162580507` **success**; CI Tests `40162580538` **success**; CodeQL `40162580479` **success**.
+- This is an exact-SHA automated validation, **not independent Gate 2 sign-off**. It does not add a new distributed scenario to the 2/5 tally; the test was repaired rather than introducing a new acceptance category.
+- The standard Jest worker force-exit warning remains an unresolved diagnostic item unless a complete standard CI log proves its absence. Workflow success alone cannot settle that warning.
+- Later ACK parser/security characterization commits and documentation have their own CI runs; do not transfer the green verdict above to those SHAs.
+- **Gate 2 remains NO-GO**, with no merge, deployment or production wiring authorized.
+
 # Gate 2 — WebSocket Relay: evidence and acceptance boundary
 
 Status: **NOT HOMOLOGATED / BLOCKED**. This document records evidence, not authorization to merge or deploy.
