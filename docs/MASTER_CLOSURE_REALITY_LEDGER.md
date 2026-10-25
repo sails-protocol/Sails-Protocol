@@ -437,3 +437,21 @@ Issue #165 is OPEN and owns **scenario-level integration and reality-validation 
 - **PR #531:** draft; this branch is a proposed canonical update, not current main.
 
 **No automatic promotion:** A future CTO may not change any of these to PASS solely because this ledger is detailed, the document grows, or the CI passes. Require independent gate evidence and explicit authority.
+
+## Incoming CTO safe-start decision card — 2026-10-25
+
+**Current snapshot, not a standing authorization.** On each new session, refetch repository state before acting.
+
+| Question | Answer supported by this record | What is forbidden to infer |
+| --- | --- | --- |
+| What is the project's phase? | Protocol architecture freeze historically done; Day-0 implementation/hardening and evidence gates open | RC/Beta or production-ready |
+| Where do I begin? | BACKLOG current-truth warning → this ledger → accepted ADRs → #99/#221 → #105/#165/#125 → live PRs and CI | A chat summary is the new source of authority |
+| Is the Master 100% complete? | NO. Normative obligation-level denominator and accepted numerator NOT MEASURED | 56 historical table rows or 53 issue search hits represent total work |
+| Are P3/P4 changes in main? | The cited PR snapshot says DRAFT and unmerged; recheck live state | Green CI equals merged or deployed |
+| Who may decide? | CTO/Gatekeeper with bounded independent evidence and explicit authority | Claude, Codex or automated review independently grants merge/freeze |
+| Can I start the next phase? | Only the independently accepted gate permits its dependent stage | Documentation progress unblocks production |
+| What if two sources disagree? | Preserve dated claims, cite current normative owner, mark unresolved and escalate | Prefer newest chat or old DONE uncritically |
+
+**Gatekeeper stop condition:** if the task depends on an unknown SHA, unknown accepted scope, disputed economic authority, unclear migration environment, or stale issue state, stop that bounded action and gather evidence. Continue unrelated safe documentation/research work without inventing clearance.
+
+**Documentation closure decision:** Check 8 remains PENDING. The record is usable as a provisional navigation guide now; it cannot honestly reach 8/8 until the full obligation-by-obligation audit and independent CTO sign-off. The #125 external documentation gate and merge to main are separate approvals. No automatic merge, deploy, DB migration or production promotion.
