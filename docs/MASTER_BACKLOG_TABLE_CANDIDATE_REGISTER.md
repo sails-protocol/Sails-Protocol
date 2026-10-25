@@ -227,3 +227,23 @@ Inspected `src/modules/open-p2p/trade.routes.ts`, `src/modules/open-p2p/trade.se
 - **Remaining:** check UI/SDK always supplies key when retries are possible; audit evidence HTTP route and other economic side effects. No API-contract change and no accepted exactly-once claim.
 
 **Workflow evidence (different SHA):** at `b4e124ff49fac733f94a225e7acc0b2efaee634f`, CodeQL run `40206859996` succeeded; CI run `40206860004` and CI Tests run `40206860012` were in progress at inspection. Do not transfer prior green checks to this or later commits.
+
+
+## Exact-SHA CI log attestation — executed suites, not merely test definitions (2026-10-25)
+
+**Provenance:** PR #531 commit `3b3b970877a3b89eea8e46a360d7df9e53b37fad`; workflow **CI Tests** run `40207090926`, job `121210246592`; **CI** run `40207090922`, job `121210246533`; CodeQL run `40207090967`. All three workflows reported `completed/success`. Full CI Tests job logs were read directly, not inferred from status badges.
+
+| Evidence | Exact log outcome |
+| --- | --- |
+| General Jest suites | `Test Suites: 180 passed, 180 total`; `Tests: 2489 passed, 2489 total` |
+| PostgreSQL integration suites | `Test Suites: 33 passed, 33 total`; `Tests: 260 passed, 260 total` |
+| Replay/idempotency | `PASS tests/idempotency.test.ts` |
+| QVAC prompt injection | `PASS tests/qvac-prompt-injection.test.ts` |
+| MULTISIG signing intent | `PASS tests/multisigSigningIntentUi.test.ts` |
+| Expiry authority | `PASS tests/expiryAuthority.test.ts` |
+| Offer/Intent durable recovery | `PASS tests/integration/offerIntentIdempotencyUniqueness.test.ts` |
+| Escrow expiry integration | `PASS tests/integration/escrowTimelockExpiryAuthority.test.ts` |
+
+**Scope change:** previous blocker 'named tests only defined; execution unknown' is now **RESOLVED FOR THIS EXACT SHA**. CI Tests job also successfully initialized containers, generated Prisma client, applied migrations and uploaded logs. The 33 integration suites executed as an actual passing integration phase; no skipped tests are indicated in its `260 passed, 260 total` summary. Do not confuse intentional expected database-error logs during negative-path tests with failing suites.
+
+**Still not accepted:** latest branch SHA after this attestation differs; CI must be rechecked on that SHA. Green CI does not prove multi-worker production crash recovery, client-wide key generation, every signing entrypoint, real on-chain SPLIT, live escrow sweep enablement, or independent Gatekeeper approval. This document records bounded CI evidence, not Day-0/Beta GO.
