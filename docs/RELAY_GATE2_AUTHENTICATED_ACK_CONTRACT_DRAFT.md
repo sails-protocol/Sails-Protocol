@@ -50,6 +50,12 @@ The canonical serialization, cryptographic primitive, key distribution/rotation,
 
 **Current-state warning:** A1–A5 and A8–A10 are **not** established security properties of the existing Redis candidate. Some request-correlation/replay/timeout cases have transport-neutral tests, but do not imply authenticated provenance. These are future acceptance tests, not passing claims.
 
+## Isolated parser-hardening evidence (pending CI)
+
+- Commit `be68359bb48cbb0e39a6518ff195db69197b79b4` adds a registry-level regression test for malformed, ambiguous, unknown-field and mismatched-request ACKs. It asserts the pending request remains unresolved until an explicit valid negative ACK arrives.
+- This is **parser and correlation hardening only**. It does not establish cryptographic provenance, authenticated destination identity, Redis channel ACLs, or any of the A1–A10 authenticated-ACK acceptance guarantees. Do not count it toward Gate 2 acceptance before CI and independent review.
+- Existing characterization explicitly demonstrates that a syntactically valid positive ACK with a known pending request ID is accepted by the current unauthenticated registry. Production wiring remains prohibited.
+
 ## Decision and evidence gates
 
 - Architecture/security reviewers must choose the identity, canonical encoding, authenticator, key lifecycle and authoritative lease directory before implementation.
