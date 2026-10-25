@@ -38,7 +38,8 @@ describe('Redis relay delivery transport with independent provider instances', (
       await new Promise<void>(resolve => { finishSubscription = resolve })
       return originalSubscribe(channel)
     })
-    jest.spyOn(subscriber, 'unsubscribe').mockRejectedValue(new Error('Redis unavailable'))
+    const unsubscribe = jest.spyOn(subscriber, 'unsubscribe')
+      .mockRejectedValue(new Error('Redis unavailable'))
     const transport = new RedisRelayDeliveryTransport(
       new MockRedis(bus) as never, subscriber as never,
       'sails:relay:delivery:unsubscribe_failure', new WebSocketRelayTransportProvider(),
@@ -48,6 +49,7 @@ describe('Redis relay delivery transport with independent provider instances', (
     finishSubscription()
     await starting
     await expect(closing).rejects.toThrow('Redis unavailable')
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
     await expect(transport.start()).rejects.toThrow('relay transport is closed')
     expect(subscriber.listenerCount('message')).toBe(0)
   })
