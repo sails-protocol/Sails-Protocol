@@ -597,6 +597,23 @@ The ADR contains **29 numbered top-level heading occurrences** because section 7
 
 **Bounded progress:** 54/54 #105 source entries assigned to a gate-level ADR review family; **0/54 independently validated at item-level by this crosswalk** (not a claim that none were implemented or accepted elsewhere). BACKLOG line-level joins, item-specific normative deduplication, and evidence ownership are still OPEN. **No global Master percentage.**
 
+
+### BACKLOG line-anchored cross-check — sampled semantic joins (2026-10-25)
+
+This is a **seven-family source-presence sample**, not exhaustive 54-item or 5,906-line coverage. Lines refer to `docs/BACKLOG.md` as read at PR #531 head on this date. A text match proves the topic is present, **not** that its requirements are current, implemented, accepted, or identical to the #105 item. Every candidate still requires full paragraph reading, temporal supersession analysis and independent proof.
+
+| #105 gate family | BACKLOG line | Source excerpt (topic only) | Status |
+| --- | --- | --- | --- |
+| D | L1549 | 1. **Gossip catch-up / anti-entropy / partition healing — Day-0.** | CANDIDATE MATCH / NOT ACCEPTED |
+| C | L1445 | 4. **Persistent Node Identity (ADR-001 §7) — corrected, 2026-09-09, CTO | CANDIDATE MATCH / NOT ACCEPTED |
+| E | L1716 | 13. **Trade-open exact revision/terms commitment + replay safety — | CANDIDATE MATCH / NOT ACCEPTED |
+| G | L1462 | **Updated again, 2026-09-09 (CTO Gate, Fase 2-5/9) — Node Contribution | CANDIDATE MATCH / NOT ACCEPTED |
+| H | L1679 | Partner Beta Readiness, stranger developer, stranger node, partner | CANDIDATE MATCH / NOT ACCEPTED |
+| I | L828 | ## Partner Beta / Integration Reality (2026-09-08) | CANDIDATE MATCH / NOT ACCEPTED |
+| F | L1655 | - Tombstone Resurrection Test | CANDIDATE MATCH / NOT ACCEPTED |
+
+**Sample coverage:** 7/7 selected topic families have a BACKLOG anchor; **47 other #105 entries are not thereby mapped** and the seven selected families are not an exhaustive partition. **Cross-document obligation denominator and independent acceptance remain NOT MEASURED.**
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
