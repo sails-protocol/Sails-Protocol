@@ -1424,6 +1424,24 @@ jobs:
           set -e
           rm -f load-tests/utils/.sails-nacl-resolution-probe.js
           echo "Independent Intent tweetnacl importer-local resolution probe exit: $nacl_probe_exit"
+          # Repeat a failed inspect once strictly for diagnosis; never convert
+          # an initial failure into a pass or skip the original gate.
+          if [ "$nacl_probe_exit" -ne 0 ]; then
+            # Recreate exactly the same probe at the same importer-relative path.
+            cat > load-tests/utils/.sails-nacl-resolution-probe.js <<'K6PROBE'
+          globalThis.self = globalThis
+          const nacl = require('../../node_modules/tweetnacl/nacl-fast.js')
+          export const options = { vus: 1, iterations: 1 }
+          export default function () { if (!nacl.sign) throw new Error('nacl unavailable') }
+          K6PROBE
+            set +e
+            k6 inspect load-tests/utils/.sails-nacl-resolution-probe.js > /tmp/sails-nacl-resolution-probe-repeat.log 2>&1
+            nacl_probe_repeat_exit=$?
+            set -e
+            rm -f load-tests/utils/.sails-nacl-resolution-probe.js
+            echo "Independent Intent tweetnacl repeated probe exit (diagnostic only): $nacl_probe_repeat_exit"
+          fi
+
           node <<'NODE'
           const fs = require('node:fs')
           const log = fs.readFileSync('/tmp/sails-nacl-resolution-probe.log', 'utf8')
