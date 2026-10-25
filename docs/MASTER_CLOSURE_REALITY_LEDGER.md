@@ -757,6 +757,22 @@ Unlike the earlier literal-search tables, the entries below were classified from
 
 **Decision boundary:** Product requirement **≠** protocol representation **≠** settlement-provider maturity **≠** beta eligibility. These are three additional passage-level authority checks, **not** three accepted implementations. Gate B cannot be marked complete without the canonical matrix, approved architecture and independently checked evidence.
 
+
+### Gates C–E source-authority adjudication — identity, convergence, trade commitments (2026-10-25)
+
+Read directly against BACKLOG source passages, **not** derived from keyword counts. These are authoritative requirement classifications only, **not** implementation or CI verification.
+
+| #105 family | BACKLOG source | Authority / deduplication decision | Evidence state |
+| --- | --- | --- | --- |
+| C — participant transport identity B vs operational node identity C | L1445–1457 | A previous node-identity interpretation is struck through and corrected to **participant-scoped B**; B must **not** be accepted as operator/deployment C. | UNKNOWN |
+| C — economic recipient D | L1590–1596 | Operational node C and recipient D are distinct; number of C nodes does not imply economic entitlement cardinality. Do not invent D from C. | UNKNOWN |
+| D — anti-entropy / partition healing | L1549–1553 | Late join and partition convergence are normative; flood-only gossip does not close the requirement. | UNKNOWN |
+| D — tombstone/revision retention | L1554–1558 | Monotonic stale-resurrection rejection remains normative even after state compaction. | UNKNOWN |
+| E — exact trade-open economic commitment | L1716–1724 | Must bind one accepted offer revision and economic terms with replay/idempotency protection, not only logicalOfferId + tradeId. | UNKNOWN |
+| E — private fiat destination commitment | L1752–1761 | Fiat amount/currency/method/destination identity must be committed; private raw instructions cannot be inferred as public gossip payload. Authenticated amendments required. | UNKNOWN |
+
+**Counting:** These six rows are **cross-source adjudications**, not six new Master obligations, not six completed gates. Identity B/C/D and network/trade properties need distinct item-level code/owner/SHA/CI/independent-review proof. No acceptance is implied by source presence.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
