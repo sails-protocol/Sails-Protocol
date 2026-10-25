@@ -1409,6 +1409,31 @@ jobs:
             echo 'Independent Intent prerequisite absent; fail closed'
             exit 1
           }
+          # Isolate whether k6 resolves the dependency from the importer or
+          # the entrypoint. Probe only module loading, never issue HTTP.
+          # All stderr remains local; expose exit codes and fixed booleans only.
+          cat > load-tests/utils/.sails-nacl-resolution-probe.js <<'K6PROBE'
+          globalThis.self = globalThis
+          const nacl = require('../../node_modules/tweetnacl/nacl-fast.js')
+          export const options = { vus: 1, iterations: 1 }
+          export default function () { if (!nacl.sign) throw new Error('nacl unavailable') }
+          K6PROBE
+          set +e
+          k6 inspect load-tests/utils/.sails-nacl-resolution-probe.js > /tmp/sails-nacl-resolution-probe.log 2>&1
+          nacl_probe_exit=$?
+          set -e
+          rm -f load-tests/utils/.sails-nacl-resolution-probe.js
+          echo "Independent Intent tweetnacl importer-local resolution probe exit: $nacl_probe_exit"
+          node <<'NODE'
+          const fs = require('node:fs')
+          const log = fs.readFileSync('/tmp/sails-nacl-resolution-probe.log', 'utf8')
+          console.log('Independent Intent tweetnacl probe sanitized diagnostics:', JSON.stringify({
+            missingFile: /no such file or directory/i.test(log),
+            tweetnaclPath: log.includes('tweetnacl/nacl-fast.js'),
+            moduleResolution: /could not resolve|unknown module|module not found/i.test(log),
+            javascript: /GoError|TypeError|ReferenceError|SyntaxError/i.test(log),
+          }))
+          NODE
           # Preflight parses and initializes the script without issuing HTTP requests.
           # Only the exit status is emitted; stderr can contain sensitive config.
           set +e
