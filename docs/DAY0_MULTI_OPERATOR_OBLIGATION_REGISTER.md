@@ -6,14 +6,14 @@
 
 | Local key | Gate | Source clause | Short requirement | Authority / routing | Lifecycle (provisional) | Independent proof | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| MO-001 | A | #105 item 1 | Merge/freeze PR #106 institutional memory after CTO Gate + green CI. | #105 (completion gate); audit §57/§61 for items 2/3 | EVIDENCE PENDING | NOT VERIFIED | NOT ACCEPTED |
-| MO-002 | A | #105 item 2 | Resume and close Technical Debt #57 (`buildApp()` parallel contention) so the harness does not produce false evidence during the Day-0 implementation program. | #105 (completion gate); audit §57/§61 for items 2/3 | EVIDENCE PENDING | NOT VERIFIED | NOT ACCEPTED |
-| MO-003 | A | #105 item 3 | Close #61 Public OfferDetail privacy defect before any partner receives the current endpoint. | #105 (completion gate); audit §57/§61 for items 2/3 | EVIDENCE PENDING | NOT VERIFIED | NOT ACCEPTED |
+| MO-001 | A | #105 item 1 | Merge/freeze PR #106 institutional memory after CTO Gate + green CI. | #105 (completion gate); audit §57/§61 for items 2/3 | IMPLEMENTED / GATE REVIEW PENDING | PR #106 MERGED; original head 658c4cc: CI Tests, CI, CodeQL SUCCESS. CTO freeze/independent gate sign-off not verified | NOT ACCEPTED |
+| MO-002 | A | #105 item 2 | Resume and close Technical Debt #57 (`buildApp()` parallel contention) so the harness does not produce false evidence during the Day-0 implementation program. | #105 (completion gate); audit §57/§61 for items 2/3 | PARTIAL IMPLEMENTATION / SYSTEMIC OPEN | PR #115 MERGED; original head 1509690: CI Tests, CI, CodeQL SUCCESS; Swagger UI test isolation only; TD-AUDIT §57 broader contention remains OPEN | NOT ACCEPTED |
+| MO-003 | A | #105 item 3 | Close #61 Public OfferDetail privacy defect before any partner receives the current endpoint. | #105 (completion gate); audit §57/§61 for items 2/3 | REMEDIATION MERGED / ACCEPTANCE PENDING | PR #117 MERGED; original head e41e83e: CI Tests, CI, CodeQL SUCCESS; public mapper and adversarial HTTP regression test; independent Gate A acceptance not verified | NOT ACCEPTED |
 | MO-004 | B | #105 item 4 | Publish the Partner Beta Asset × Network/Rail × Wallet Adapter × Settlement Capability × Maturity matrix. | #105 (scope gate); ADR-002 architecture-only | EVIDENCE PENDING | NOT VERIFIED | NOT ACCEPTED |
 | MO-005 | B | #105 item 5 | Decide whether first beta is BTC-only, bounded BTC+USDT, or includes DePix. | #105 (scope gate); ADR-002 architecture-only | EVIDENCE PENDING | NOT VERIFIED | NOT ACCEPTED |
 | MO-006 | B | #105 item 6 | If DePix is in scope, make DePix representable end-to-end and do not claim support before its real settlement path is eligible. | #105 (scope gate); ADR-002 architecture-only | EVIDENCE PENDING | NOT VERIFIED | NOT ACCEPTED |
 | MO-007 | B | #105 item 7 | Freeze the fiat quote-currency scope for the beta. | #105 (scope gate); ADR-002 architecture-only | EVIDENCE PENDING | NOT VERIFIED | NOT ACCEPTED |
-| MO-008 | C | #105 item 8 | Implement canonical signed OfferEnvelope, including exact asset + network/rail + quote-currency semantics needed by the beta. | ADR-001 (architecture); #105 (acceptance) | EVIDENCE PENDING | NOT VERIFIED | NOT ACCEPTED |
+| MO-008 | C | #105 item 8 | Implement canonical signed OfferEnvelope, including exact asset + network/rail + quote-currency semantics needed by the beta. | ADR-001 (architecture); #105 (acceptance) | PARTIAL IMPLEMENTATION / GATE OPEN | offer-envelope.ts signed schema and offerEnvelope.test.ts exist; exact asset+network/rail+fiat beta semantics and gossip wiring NOT VERIFIED | NOT ACCEPTED |
 | MO-009 | C | #105 item 9 | Implement stale-resurrection-safe revision/tombstone persistence. | ADR-001 (architecture); #105 (acceptance) | EVIDENCE PENDING | NOT VERIFIED | NOT ACCEPTED |
 | MO-10a | C | #105 item 10a | Implement **Participant Transport Identity (B) persistence** — a | ADR-001 (architecture); #105 (acceptance) | EVIDENCE PENDING | NOT VERIFIED | NOT ACCEPTED |
 | MO-10b | C | #105 item 10b | Design and implement **Operational Sails Node Identity (C)** — an | ADR-001 (architecture); #105 (acceptance) | EVIDENCE PENDING | NOT VERIFIED | NOT ACCEPTED |
@@ -60,6 +60,11 @@
 | MO-051 | J | #105 item 51 | External security audit/remediation. | #105 (release gate) | EVIDENCE PENDING | NOT VERIFIED | NOT ACCEPTED |
 | MO-052 | J | #105 item 52 | RC1 + bounded real-value validation. | #105 (release gate) | EVIDENCE PENDING | NOT VERIFIED | NOT ACCEPTED |
 | MO-053 | J | #105 item 53 | Public production activation only after claim/evidence alignment. | #105 (release gate) | EVIDENCE PENDING | NOT VERIFIED | NOT ACCEPTED |
+
+
+## First evidence join — Gate A and signed-offer partial implementation (2026-10-25)
+
+Live GitHub PR metadata confirms **#106, #115 and #117 MERGED**. Their **original PR head** commits `658c4cc625df5bd01b089376ce938bf172ec632e`, `150969036a13656ff8ed23ae7df6c8ce04da76ea`, and `e41e83ef08dd357228c79d1096571f4b4cf9b7e5` respectively each had **CI Tests / CI / CodeQL completed success** when queried. These are original-head CI observations, **not** merge-SHA checks, fresh execution, or independent acceptance. #106 merge and CI do not independently establish the required CTO freeze; #115 only addresses Swagger UI registration as one §57 contention factor; #117 addresses the narrow public HTTP OfferDetail projection and tests, not wire-gossip privacy. #105 Gate A acceptance is still unverified. Item 8 has signed-envelope primitives but the full beta network/rail/fiat binding and cross-node transport have not been independently verified. See the detailed evidence and caveats in the Master Closure Reality Ledger.
 
 ## Reviewer join procedure
 
