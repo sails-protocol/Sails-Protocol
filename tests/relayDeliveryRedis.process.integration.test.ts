@@ -114,6 +114,15 @@ integration('two-process Redis relay candidate', () => {
         deadlineMs: Date.now() + 2500, payload: 'after-publisher-disconnect',
       })).toBe(false)
       expect(received).not.toContain('after-publisher-disconnect')
+      // A disconnected publisher must not resurrect the transport when a
+      // new TCP connection is established. Recovery requires a new instance
+      // and an explicit ownership/routing decision.
+      await publisher.connect()
+      expect(await origin.deliver(destinationChannel, {
+        destinationParticipantId: 'bob', destinationLeaseToken: newLease,
+        deadlineMs: Date.now() + 2500, payload: 'after-publisher-reconnect',
+      })).toBe(false)
+      expect(received).not.toContain('after-publisher-reconnect')
       expect(await origin.deliver('sails:relay:delivery:absent_' + suffix, {
         destinationParticipantId: 'bob', destinationLeaseToken: lease,
         deadlineMs: Date.now() + 2500, payload: 'absent',
