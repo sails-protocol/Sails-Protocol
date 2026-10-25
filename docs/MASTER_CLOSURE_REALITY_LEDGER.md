@@ -641,6 +641,23 @@ Search performed against the **5,906-line BACKLOG at the PR branch snapshot**, w
 
 **Search coverage:** 17/17 chosen phrases located; **54-item #105 line-by-line join:** PENDING; **temporal authority adjudication:** PENDING; **independent evidence:** PENDING; **Master denominator:** NOT MEASURED.
 
+
+### Temporal and deduplication adjudication — seven directly read BACKLOG cases (2026-10-25)
+
+Unlike the earlier literal-search tables, the entries below were classified from the cited BACKLOG passage (some passages wrap across subsequent lines). **Classification concerns source authority and counting only; no row asserts live code, passing CI, independent acceptance or production eligibility.** These cases are not seven completed gates.
+
+| Case | BACKLOG anchor | Source-authority classification | Decision / residual verification |
+| --- | --- | --- | --- |
+| FeeDistribution legacy | L63 | SUPERSEDED HISTORICAL IMPLEMENTATION | Same BACKLOG row explicitly supersedes FeeDistribution/chargeProtocolFee with FeeCollectionEvidence → FeeObligation → frozen DistributionPolicyVersion → EntitlementLedgerEntry. Do not carry historical DONE forward. |
+| Node identity taxonomy | L1445 | CORRECTED / SPLIT | Participant transport identity B and operational node identity C must be separate; reference transport persistence cannot close operational identity C. |
+| Contribution accounting | L1462 | EXPLICIT SUB-OBLIGATION / NOT NEW TOP-LEVEL | BACKLOG says accounting and incentive compatibility belong inside the already-counted implementation sequence, not extra top-level Master obligations. |
+| Anti-entropy | L1549 | CURRENT REQUIREMENT / EVIDENCE UNKNOWN | Late-join and partition-heal convergence requires more than new-event flood gossip; no implementation acceptance inferred. |
+| Trade-open exact commitment | L1716 | CURRENT REQUIREMENT / EVIDENCE UNKNOWN | Exact accepted revision and economic terms plus replay safety required; document presence is not proof. |
+| Fiat/payment destination | L1752 | CURRENT REQUIREMENT / EVIDENCE UNKNOWN | Exact fiat terms and private payment-destination commitment required; no public gossip of raw instructions. |
+| Stranger developer | L4294 | EXPLICITLY ALREADY COUNTED | BACKLOG labels the independent developer test canonical/current and already present in #105; no duplicate obligation registration. |
+
+**Adjudicated sample:** 7/7 selected source passages classified for temporal/deduplication meaning; **54-item item-level evidence adjudication:** PENDING; **Master global numerator/denominator:** NOT MEASURED. Do not add these seven to the 17-topic search or 54 source entries as distinct obligations.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
