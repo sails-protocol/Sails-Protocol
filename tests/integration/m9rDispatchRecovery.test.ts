@@ -20,6 +20,8 @@ import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from '@bitcoinerlab/secp256k1'
 import { createHash } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { databaseClock } from './lostPendingCandidates'
+import { removeUndecodableSignedCopies } from './undecodableSignedCopies'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
@@ -40,6 +42,7 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
   const pg = createPostgresIntegrationHarness()
   let dbAvailable = false
   let prisma: PrismaClient
+  let suiteStartedAt: Date
   let escrowService: import('../../src/modules/open-settlement/escrow.service').EscrowService
   let identityService: typeof import('../../src/modules/open-identity/identity.service').identityService
   let liquidityRouter: typeof import('../../src/modules/open-liquidity/liquidity.service').liquidityRouter
@@ -81,6 +84,7 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
     if (!dbAvailable) return
 
     ;({ prisma } = require('../../src/common/database'))
+    suiteStartedAt = await databaseClock(prisma)
     ;({ escrowService } = require('../../src/modules/open-settlement/escrow.service'))
     ;({ identityService } = require('../../src/modules/open-identity/identity.service'))
     ;({ liquidityRouter } = require('../../src/modules/open-liquidity/liquidity.service'))
@@ -107,6 +111,9 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
 
   afterAll(async () => {
     if (dbAvailable) {
+      // 'st1-r2-c4-signed-race' is a placeholder signed copy, not base64; left in the shared lane it makes the strict AUD1X
+      // inventory (aud1xBearerCapability I1) fail. Remove only this suite's own.
+      await removeUndecodableSignedCopies(prisma, suiteStartedAt)
       await prisma.$disconnect()
       await closeTestRedis()
     }

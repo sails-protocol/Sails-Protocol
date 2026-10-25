@@ -24,6 +24,7 @@ import nacl from 'tweetnacl'
 import { ECPairFactory } from 'ecpair'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { databaseClock, removeLostPendingCandidates } from './lostPendingCandidates'
+import { removeUndecodableSignedCopies } from './undecodableSignedCopies'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import { boundOfferInput, sellerPixAccount } from './economicFixtures'
@@ -123,6 +124,9 @@ describe('ST-1 stale ruling-round cleanup - temporal authority and lock order (r
       // authorization and no pending operation); in the shared lane it would be recovered by a later suite's global
       // reconciliation. Remove only the ones this suite created.
       await removeLostPendingCandidates(prisma, suiteStartedAt)
+      // The placeholder signed copies ('st1-e2-race-proof', ...) are not base64; left in the shared lane they make the strict
+      // AUD1X inventory (aud1xBearerCapability I1) fail. Remove only this suite's own.
+      await removeUndecodableSignedCopies(prisma, suiteStartedAt)
       // Restore the exact arbiter commitment removed by the legacy appeal fixture.
       // Do not let a synthetic P3 violation escape into the shared PG lane.
       for (const [escrowId, original] of displacedArbiterKeys) {
