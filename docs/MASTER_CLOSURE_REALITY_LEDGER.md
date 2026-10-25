@@ -576,3 +576,35 @@ The 8th handoff check cannot be marked PASS merely by adding more indexes. It re
 **Check 8 is NOT PASS.** Documentation handoff score stays **7/8 (87.5%)**, a bounded checklist only. The full Master closure percentage remains **NOT MEASURED**. To close check 8, an independent reviewer must freeze the normalized denominator, resolve every duplicate/superseded item with canonical owner, link exact evidence and record an explicit decision. A reviewer may approve the handoff documentation as an accurate *open-work map* without claiming technical Master completion, but must record that narrower acceptance explicitly.
 
 No merge, shared database migration, VPS staging, production deploy, or release authorization follows from this packet.
+
+## Closure contract for check 8 — 2026-10-25 (bounded decision)
+
+**Current check 8:** BLOCKED, not failed. The missing artifact is a normalized *obligation-level* join, not another summary or a new percentage estimate. A reviewer can close the documentation handoff separately from the technical Master only by accepting this open-work map with explicit limitations.
+
+### Required evidence fields for each normalized obligation
+
+| Field | Required value |
+| --- | --- |
+| obligation_id | Stable ID and source line/ADR paragraph/issue clause |
+| normative_owner | One accepted spec/ADR/issue gate; supporting sources are links only |
+| time_basis | Decision date and supersession/correction chain |
+| scope | Day-0 blocker / Beta evidence / post-Master discovery / historical only |
+| lifecycle | OPEN / IMPLEMENTING / EVIDENCE PENDING / ACCEPTED / BLOCKED / DEFERRED with owner |
+| implementation | PR, commit SHA, code path, migration and environment |
+| proof | CI run, targeted test, independent reviewer, scenario result and limitations |
+| closure | Explicit CTO decision and date; otherwise NOT ACCEPTED |
+
+### Review gates and precise stop conditions
+
+1. **Coverage:** every candidate from the 56 historical table rows and prose sections plus ADR-001/#105 and open issues is assigned to a normalized obligation or marked non-normative with a reason.
+2. **Temporal correctness:** every contradictory DONE, superseded fee model, provider authorization claim and old phase label has a named current authority and traceable correction.
+3. **Audit mapping:** P2/P3/P4, CI, security, P2P, beta and network audits have named owner, last SHA and evidence gap; open PR does not imply accepted.
+4. **Independent verification:** reviewer who did not author the inventory signs off on coverage and classification; unresolved items remain explicit blockers, not hidden.
+5. **Publication:** only after review, authorize merge of #531 independently. #125 GitBook/Mintlify synchronization is its own later gate and cannot be inferred from repository merge.
+
+### Stop / go decision
+
+- **GO for continued engineering:** yes, existing bounded missions can continue with their own gatekeepers; no need to wait for technical Master 100% to fix a documentation index.
+- **NO-GO for claiming documentation reconciliation 100%:** check 8 pending independent coverage acceptance.
+- **NO-GO for technical Master 100%, Beta, production or deploy:** no global denominator, independent release acceptance or live economic rehearsal.
+- **Escalation:** if an incoming CTO encounters an unresolved historical conflict, record a contradiction and ask the canonical owner rather than inventing an answer or reimplementing an already superseded path.
