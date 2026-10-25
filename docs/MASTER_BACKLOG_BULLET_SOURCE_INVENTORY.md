@@ -150,7 +150,7 @@
 | BB-5425 | L5425 | COLD | **`IdempotencyKeyStatus.UNKNOWN` has no automated reconciliation | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-5498 | L5498 | COLD | **Settlement-rail constraints can make an otherwise-supported | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-5537 | L5537 | COLD | **A participant who disappears after funds are already locked, at | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
-| BB-5554 | L5554 | COLD | **A required co-signer who never signs — `DAY0_DECISION_REQUIRED`, | COLD SWEEP EXPLICIT OPEN DECISION / REVIEW | BACKLOG Cold Sweep open decision; verify owner, gate, and supersession | NOT ACCEPTED |
+| BB-5554 | L5554 | COLD | **A required co-signer who never signs — `DAY0_DECISION_REQUIRED`, | CURRENT CODE GAP CONFIRMED / MISSING CO-SIGNER RECOVERY | BACKLOG L5554–5565; prisma EscrowPendingTransaction has no expiry/TTL, dispute-pending-reconciliation.ts L79–92 only MULTISIG RESOLVED and skips any signatures; missing co-signer remains without general recovery in inspected paths; tests not executed | NOT ACCEPTED |
 | BB-5566 | L5566 | COLD | **An assigned arbiter who never rules has no forced-reassignment | COLD SWEEP CLAUSE / NORMATIVE REVIEW | BACKLOG Cold Sweep clause; check MO/BP/BL crosswalk and temporal authority | NOT ACCEPTED |
 | BB-5605 | L5605 | COLD | **Recovery-truth representation completeness — `DAY0_DECISION_REQUIRED` | COLD SWEEP EXPLICIT OPEN DECISION / REVIEW | BACKLOG Cold Sweep open decision; verify owner, gate, and supersession | NOT ACCEPTED |
 | BB-5676 | L5676 | COLD | **Unsafe capability exposure — `ALREADY_COVERED IN PRINCIPLE`, | COLD SWEEP OVERLAP OR SCOPE ASSERTION / VERIFY | BACKLOG Cold Sweep scope claim; check referenced authority before deduplication | NOT ACCEPTED |
@@ -176,6 +176,14 @@ H5/H8 historical OPEN at L120 is superseded by later CLOSED claims at L124–125
 ## OpenProof implementation inspection — 6/6 source clauses (2026-10-25)
 
 Inspected `src/modules/open-proof/timestamp-anchor.ts` (98 lines) and the `proof.service.ts` import at the current reconciliation branch. The implementation constructs one `OpenTimestampsAnchor` with a **single** `calendarUrl`, sends **one** `fetch` in `anchor()`, and throws on failed response. It returns one opaque proof blob and `upgrade()` throws an explicit unimplemented error. Therefore the multi-calendar redundancy, partial-proof preservation, N-1 tolerance and complete Day-0 adversarial matrix in BACKLOG L5889–5893 are **not demonstrated by the current anchor implementation**. This is a direct code-read finding, **not** a newly run test or a claim about all other providers. Timestamp failure's non-interference with economic state still requires isolated service tests. No implementation change is authorized by this inventory.
+
+## Economic recovery code-read — missing co-signer and silent arbiter (2026-10-25)
+
+**BB-5554 (source-backed code gap):** `prisma/schema.prisma` model `EscrowPendingTransaction` (L2189 onward) has no TTL/expiry, while `src/modules/open-settlement/dispute-pending-reconciliation.ts` L79–92 limits candidates to MULTISIG with a RESOLVED dispute and **skips any pending transaction already carrying a signature**. That reconciliation does not recover the one-signature/absent-co-signer case. Full repository-wide absence and executable adversarial proof are still pending.
+
+**Separate unnumbered sibling at BACKLOG L5566–5591 (high severity):** `prisma/schema.prisma` `DisputeStatus` L1355–1362 has no STALLED/REASSIGNED status. `dispute.service.ts` `appeal()` L969–975 rejects any status other than RESOLVED, so it cannot recover a silent arbiter from OPENED/EVIDENCE_SUBMITTED. Additionally L988–998 explicitly rejects reassignment for script-committed arbiters; this is a cryptographic compatibility constraint, not an authorization to reassign. Source claims no alternative forced path; comprehensive call-site verification and red-team scenario remain pending. **Do not implement a shortcut that violates attributed authority or existing escrow scripts.**
+
+These are two distinct recovery subjects, not two accepted Day-0 closures. Neither code-read is a CI run or production change.
 
 ## Adjudication guardrails
 
