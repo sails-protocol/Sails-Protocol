@@ -81,24 +81,38 @@ export async function recordTransitionProjected(tx: ProjectionTx, transitionId: 
  * claimed row moves behind every row whose key is older, and keys only grow, so each queued
  * transition is reached within ceil(older rows / limit) runs: a transition that can never be
  * projected cannot hold a slot, a backlog cannot starve new work, and new work cannot starve a
- * backlog. SKIP LOCKED gives overlapping claims disjoint batches. A crash after the claim only moves
- * the row back one lap; nothing is owned, so nothing needs releasing. The literal key matches the
- * partial index predicate (migration 20260930120000), so the claim never walks projected history.
+ * backlog. A crash after the claim only moves the row back one lap; nothing is owned, so nothing
+ * needs releasing. The literal key matches the partial index predicate (migration 20260930120000), so
+ * the claim never walks projected history.
+ *
+ * Disjoint batches: SKIP LOCKED alone does NOT give them. A statement takes its snapshot when it
+ * starts; a row another claim updated and COMMITTED after that snapshot is no longer locked, so this
+ * statement locks it, re-checks only the WHERE predicate (still queued) - not the ORDER BY the other
+ * claim's stamp just changed - and returns it again. Measured: two concurrent claims of 8 over 16 rows
+ * overlapped in 8% of trials on PostgreSQL 16 (tests/integration/projectionRecoveryClaimRace.test.ts).
+ * The claim therefore runs in a transaction that first takes a transaction-level advisory lock, so
+ * concurrent claims are serialized and the second one's statement (a new snapshot, taken after the
+ * lock) sees the first one's committed stamps. The lock covers one short statement, no external call,
+ * and nothing else takes it, so it cannot deadlock; handlers that update claim rows are never waited on
+ * (SKIP LOCKED stays for rows locked by them).
  */
 export async function claimTransitionRecoveryBatch(limit: number, claimedBefore: Date): Promise<ClaimedTransition[]> {
   const stampedAt = new Date()
-  return prisma.$queryRaw<ClaimedTransition[]>`
-    WITH picked AS (
-      SELECT c.id FROM event_projection_claims c
-      WHERE c."projectionKey" = 'transition.claimed' AND c."transitionProjectedAt" IS NULL
-        AND c."appliedAt" < ${claimedBefore}
-      ORDER BY COALESCE(c."projectionRecoveryAttemptedAt", c."appliedAt"), c.id
-      LIMIT ${limit}
-      FOR UPDATE SKIP LOCKED
-    )
-    UPDATE event_projection_claims c SET "projectionRecoveryAttemptedAt" = ${stampedAt}
-    FROM picked WHERE c.id = picked.id
-    RETURNING c.id, c."eventId", c."subjectId"`
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('transition-recovery-claim')::bigint)`
+    return tx.$queryRaw<ClaimedTransition[]>`
+      WITH picked AS (
+        SELECT c.id FROM event_projection_claims c
+        WHERE c."projectionKey" = 'transition.claimed' AND c."transitionProjectedAt" IS NULL
+          AND c."appliedAt" < ${claimedBefore}
+        ORDER BY COALESCE(c."projectionRecoveryAttemptedAt", c."appliedAt"), c.id
+        LIMIT ${limit}
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE event_projection_claims c SET "projectionRecoveryAttemptedAt" = ${stampedAt}
+      FROM picked WHERE c.id = picked.id
+      RETURNING c.id, c."eventId", c."subjectId"`
+  })
 }
 
 /**
