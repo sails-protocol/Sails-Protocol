@@ -368,3 +368,57 @@ All 29 specifically queued economic/security issue numbers below were individual
 ### Handoff instruction while check 8 is open
 
 Incoming CTOs may use this ledger as a **provisional navigation and conflict-resolution index**, but must not treat it as a frozen exhaustive Master truth or use its 87.5% score for production readiness. Recheck live states before work; never re-run a supposedly completed mission solely because an older paragraph says NOT STARTED.
+
+## Normative network obligation extraction — ADR-001 and #105 (2026-10-25)
+
+**Extraction scope:** canonical ADR-001 top-level numbered obligations and issue #105 named gates, not every sub-bullet, correction, or full Master prose. These are **traceability anchors** rather than individual ACCEPTED requirements; detailed obligation splitting and independent verification remain pending. The ADR and issue contain later cold-sweep corrections; always read the whole current section before implementing.
+
+### ADR-001 numbered anchor map (28)
+
+| ADR anchor | Current section | Current acceptance |
+| --- | --- | --- |
+| §1 | 1. Shared Market Invariant (frozen) | NOT VERIFIED |
+| §2 | 2. Object authority | NOT VERIFIED |
+| §3 | 3. Signed Offer envelope (Protocol Envelope) | NOT VERIFIED |
+| §4 | 4. Propagation model | NOT VERIFIED |
+| §5 | 5. Convergence / conflict | NOT VERIFIED |
+| §6 | 6. Bootstrap and membership | NOT VERIFIED |
+| §7 | 7. Node identity and Sybil | NOT VERIFIED |
+| §8 | 8. Trade ownership / handoff | NOT VERIFIED |
+| §9 | 9. Offline / restart / resume | NOT VERIFIED |
+| §10 | 10. Reputation portability | NOT VERIFIED |
+| §11 | 11. Settlement / evidence portability | NOT VERIFIED |
+| §12 | 12. Privacy | NOT VERIFIED |
+| §13 | 13. Professional liquidity provider | NOT VERIFIED |
+| §14 | 14. Liquidity discovery scaling | NOT VERIFIED |
+| §15 | 15. Capability / rail discovery | NOT VERIFIED |
+| §16 | 16. Node economics | NOT VERIFIED |
+| §17 | 17. Incentive compatibility / no-cannibalization property | NOT VERIFIED |
+| §18 | 18. Stranger-node test (future evidence gate) | NOT VERIFIED |
+| §19 | 19. Stranger-developer test (future evidence gate) | NOT VERIFIED |
+| §20 | 20. Partner-wallet evidence gate | NOT VERIFIED |
+| §21 | 21. Implementation Sequence (obligatory order, not a "future" list) | NOT VERIFIED |
+| §22 | 22. Complexity tests (applied to this ADR's own new artifacts) | NOT VERIFIED |
+| §23 | 23. Claims not yet demonstrated (discipline, restated) | NOT VERIFIED |
+| §24 | 24. Migration from current single-node topology | NOT VERIFIED |
+| §25 | 25. BACKLOG DELTA | NOT VERIFIED |
+| §26 | 26. Day-0 Completeness Cold Sweep — implementation consequence (2026-09-09) | NOT VERIFIED |
+| §27 | 27. Exact economic binding correction (2026-09-09) | NOT VERIFIED |
+| §28 | 28. Real-money agreement and dispute-authority correction (2026-09-09) | NOT VERIFIED |
+
+### Issue #105 gate map (10)
+
+| Gate | Canonical title | Current acceptance |
+| --- | --- | --- |
+| Gate A | Gate A — evidence infrastructure first | NOT VERIFIED |
+| Gate B | Gate B — freeze actual first-beta scope | NOT VERIFIED |
+| Gate C | Gate C — portable market objects + participant/node identity | NOT VERIFIED |
+| Gate D | Gate D — one shared market across time/failure | NOT VERIFIED |
+| Gate E | Gate E — exact economic commitment | NOT VERIFIED |
+| Gate F | Gate F — real-world concurrency + recovery | NOT VERIFIED |
+| Gate G | Gate G — node economics without liquidity enclosure | NOT VERIFIED |
+| Gate H | Gate H — independent operation / developer reality | NOT VERIFIED |
+| Gate I | Gate I — independent partner beta | NOT VERIFIED |
+| Gate J | Gate J — Production Readiness | NOT VERIFIED |
+
+**Deduplication rule:** ADR sections define the normative architecture, #105 gates own completion evidence, and BACKLOG rows track work/debt. One obligation can reference all three without becoming three independent requirements. No percentage may use these 28+10 anchors as an additive denominator. Every gate needs independent proof; if absent record EVIDENCE PENDING, not PASS.
