@@ -45,3 +45,26 @@ Read → compare current truth → issue bounded Claude mission → reproduce/re
 **Remaining 4 of 10:** (7) extract/deduplicate all normative prose obligations; (8) cross-check issue comments, PR diffs, code and independent evidence for each obligation; (9) independently reconcile public/developer docs under #125; (10) obtain CTO review and merge #531 to main. These are not equally sized work items; no ETA is supported. No other CTO should convert this into a time-to-completion estimate.
 
 **Suggested gate:** remain YELLOW until 7–9 have inspectable evidence and a reviewer signs off; move to GREEN for *institutional continuity documentation only* after 10 is approved and the merged main content is verified. Production, Beta, P3/P4 and Day-0 retain their own independent gates.
+
+## Continuity reconciliation progress — 2026-10-25
+
+**Bounded documentation-control checklist (not Master completion):**
+
+| Control | State | Evidence |
+| --- | --- | --- |
+| 1. Single entrypoint for new CTOs | DONE IN DRAFT | This file |
+| 2. Historical BACKLOG phase-table warning | DONE IN DRAFT | BACKLOG.md link to ledger |
+| 3. Source/authority hierarchy and contradiction rule | DONE IN DRAFT | MASTER_CLOSURE_REALITY_LEDGER.md |
+| 4. Open Day-0 lexical issue candidate index | DONE IN DRAFT | 53 candidates; NOT normative denominator |
+| 5. Historical Master table candidate inventory | DONE IN DRAFT | 56 rows; NOT normative denominator |
+| 6. Live P3/P4 PR snapshot | DONE IN DRAFT | Exact branch/base/HEAD at last check |
+| 7. Economic/security issue state check | DONE IN DRAFT | 29/29 fetched OPEN; 0/29 independently accepted |
+| 8. Review/tool authority correction | DONE IN DRAFT | #221 later comments |
+| 9. Full prose-obligation extraction/deduplication | OPEN | Historical Master spans thousands of lines |
+| 10. Per-obligation code/comment/PR/CI/acceptance reconciliation | OPEN | Not demonstrated |
+| 11. Cross-surface docs gate | OPEN | #125, GitBook/Mintlify not accepted |
+| 12. CTO review + main merge | OPEN | #531 draft; explicit approval required |
+
+**Bounded progress: 8/12 controls recorded in draft = 66.7% of this 12-control checklist, NOT 66.7% of the Master and NOT 66.7% of release readiness.** 'Done in draft' means documentation exists in PR #531, not that main or a reviewer accepted it. The prior informal 75% estimate is superseded by this measurable denominator.
+
+**Immediate next action:** complete 9 and 10 with explicit conflict ledger and evidence; then obtain #125 cross-surface review and CTO authorization for #531 merge. No production gate changes follow automatically.
