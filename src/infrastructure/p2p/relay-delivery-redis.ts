@@ -105,8 +105,11 @@ export class RedisRelayDeliveryTransport {
       this.subscriber.off('close', this.onSubscriberClose)
       this.publisher.off('close', this.onPublisherClose)
       // A rejected subscribe may have partially succeeded server-side.
-      // Best-effort cleanup is required before returning the original error.
-      try { await this.subscriber.unsubscribe(this.localChannel) } catch { /* retain original failure */ }
+      // If close() is already running, it owns unsubscribe. Otherwise attempt
+      // best-effort cleanup here while preserving the original subscribe error.
+      if (!this.closePromise) {
+        try { await this.subscriber.unsubscribe(this.localChannel) } catch { /* retain original failure */ }
+      }
       throw error
     }
   }
