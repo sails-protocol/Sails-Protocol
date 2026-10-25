@@ -551,3 +551,28 @@ The 8th handoff check cannot be marked PASS merely by adding more indexes. It re
 **Scope of that verification:** 29/29 individually fetched issue *states*, **zero claims of independent acceptance**. It is a registry consistency check, not an implementation, security or production clearance. The handoff checklist remains **7/8 = 87.5%**; check 8 remains pending substantive evidence and independent CTO approval. No branch merge, database migration, staging, or release is authorized.
 
 **Safe continuation:** re-fetch live #531 HEAD and file blob before editing; inspect exact section content instead of relying on heading-string matching; compare against the current default-branch Master and issue comments; append contradiction resolution with time and owner. This correction supersedes earlier chat claims that the 29-item register was absent.
+
+## Independent CTO review packet — 2026-10-25 (check 8 still gated)
+
+### Revalidated source snapshot
+
+- GitHub PR #531 remains **OPEN / DRAFT / NOT MERGED** at HEAD `a3a95add20233109af99953914f207cdee7ddde5` when this review started. Re-fetch HEAD before any future edit.
+- The 29 issue-state records **are present** in `Direct issue-state verification — 2026-10-25`; the earlier missing-section alert was an incorrect heading match.
+- This file already has a network obligation extraction (ADR-001 and #105), a #165 Beta evidence boundary and a Master prose coverage map. Do not recreate these as parallel ledgers.
+
+### Remaining check-8 acceptance matrix
+
+| Requirement | Current evidence | Disposition |
+| --- | --- | --- |
+| Canonical entrypoint + temporal source hierarchy | In this ledger and docs/BACKLOG.md warning | Documented; requires CTO review |
+| Known historical contradictions | Contradiction register, #221 review-tool correction, #275/#125 distinction | Documented; requires CTO review |
+| Issue and PR state inventory | 53 lexical issue candidates, 29 individually inspected, draft PR topology | Partial coverage; live states are not implementation acceptance |
+| Master normative obligation denominator | 56 historical table candidates plus prose and ADR/#105 extraction | **NOT FROZEN**; overlaps, duplicates and supersessions not individually dispositioned |
+| Per-obligation evidence and independent gate | No complete joined owner→code→SHA→test→independent-acceptance table | **BLOCKED** for global completion claim |
+| Documentation publication | PR #531 draft; #125 cross-surface gate open | **NOT PUBLISHED / NOT ACCEPTED** |
+
+### Gatekeeper instruction
+
+**Check 8 is NOT PASS.** Documentation handoff score stays **7/8 (87.5%)**, a bounded checklist only. The full Master closure percentage remains **NOT MEASURED**. To close check 8, an independent reviewer must freeze the normalized denominator, resolve every duplicate/superseded item with canonical owner, link exact evidence and record an explicit decision. A reviewer may approve the handoff documentation as an accurate *open-work map* without claiming technical Master completion, but must record that narrower acceptance explicitly.
+
+No merge, shared database migration, VPS staging, production deploy, or release authorization follows from this packet.
