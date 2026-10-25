@@ -129,3 +129,26 @@ This is a **search-derived index of 53 open issues matching the phrase Day-0**, 
 ### CTO handoff rule — prevent discussion drift
 
 Each future CTO starts by reading the Master, this ledger, #221/#99, accepted ADRs, current open owners, stacked PR topology and exact-SHA CI. For contradictory claims, record both sources and resolution with timestamp and reviewer. Keep historical claims dated; do not silently rewrite them. A discussion or executor report is evidence to assess, not automatically normative truth. Update the canonical owner and this index together when a gate changes.
+
+## Live PR topology and CTO review-tool corrections — verified 2026-10-24
+
+| PR | GitHub state checked | Gate meaning |
+| --- | --- | --- |
+| #512 | OPEN, draft, base main | Node runtime; no merge assumed |
+| #515 | OPEN, draft, base main | Docker image optimization; no merge assumed |
+| #516 | OPEN, draft, base main | Prisma migration job; no shared-DB authorization |
+| #519 | OPEN, draft, base main | Self-host integration; staging != production |
+| #521 | OPEN, draft, base main | Image security advisory remediation; not a full vulnerability closure claim |
+| #523 | OPEN, draft, stacked on p4/gate3-claim-revert-convergence | P4 UNKNOWN policy evidence; parent branch chain requires verification |
+| #525 | OPEN, draft, stacked on #523 branch | P4 Gate 3 guard; exact SHA 728ab00e83653b4f37b88facb9bdceb5bed4de65 |
+| #531 | OPEN, draft, base main | Documentation-only Master reconciliation; no acceptance yet |
+
+**Important:** PR titles mentioning 'stacked' do not prove their GitHub base points to another PR. The actual base refs above were checked. Never merge these as an assumed linear chain without comparing ancestry and independent gate evidence.
+
+### Institutional review toolchain (#221 comments)
+
+Later comments in #221 supersede earlier discussion: **Open CodeReview + Claude Code** is primary multi-agent code review; **Codex** is complementary independent verification; **Cloudflare security-audit-skill + Claude** is structured security audit; **Strix + Claude** is offensive/dynamic pentesting only on authorized Sails targets. **CTO/Gatekeeper** alone determines classification, acceptance, merge, freeze and release. Review ≠ verification ≠ audit ≠ pentest ≠ gate authority. Tool findings are not automatically proven defects.
+
+### Outstanding work before closure percentage
+
+The 53-row lexical issue index and live PR topology above are **not a complete obligation-level reconciliation**. The next pass must extract and normalize every numbered Master requirement, then check current issue body **and comments**, PR diff, current code, exact-SHA CI and independent acceptance for each. Record contradictions explicitly instead of choosing the most recent conversational claim. Until then the global percentage remains **not measurable**.
