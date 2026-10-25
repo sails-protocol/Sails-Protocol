@@ -58,6 +58,8 @@ Master Backlog closure → Reality Validation → SDK/Adapter Conformance → As
 
 ## Reconciliation sweep — 2026-10-24: indexed Day-0 issue candidates
 
+> **Independent integrity finding (2026-10-25):** All 53 issue-number cells in the lexical index below currently render `#undefined`. Titles were captured but the numeric IDs were not persisted correctly. **Do not use this table for issue-ID joins until every number has been independently rehydrated from GitHub and verified against its title.** This is an index data-quality defect, not evidence that 53 normative obligations are missing. The separate 29-issue state verification further below is intact.
+
 This is a **search-derived index of 53 open issues matching the phrase Day-0**, not a count of all Master obligations or proof each is a Day-0 release blocker. GitHub issue search is lexical and includes discovery, future and institutional-memory issues. **Issue OPEN ≠ implementation absent; PR merged ≠ independently accepted.** Classify each entry against normative Master/ADR, latest comments, linked PR and exact-SHA tests before assigning its gate.
 
 | Issue | Title | Verified issue state / evidence status |
@@ -608,3 +610,13 @@ No merge, shared database migration, VPS staging, production deploy, or release 
 - **NO-GO for claiming documentation reconciliation 100%:** check 8 pending independent coverage acceptance.
 - **NO-GO for technical Master 100%, Beta, production or deploy:** no global denominator, independent release acceptance or live economic rehearsal.
 - **Escalation:** if an incoming CTO encounters an unresolved historical conflict, record a contradiction and ask the canonical owner rather than inventing an answer or reimplementing an already superseded path.
+
+## Independent reviewer addendum — 2026-10-25
+
+- PR #531 inspected at `93149a707bbe505c19325b5c19fe170654a51ab4` before this review's documentation corrections: OPEN / DRAFT / UNMERGED; 3 changed documentation files; zero registered PR reviews. Check HEAD again before next action.
+- **Current bounded score: 7/8 = 87.5% recorded controls, not accepted release obligations.** The 6/10 and 8/12 checklists in CTO_START_HERE.md are historical, superseded authoring measurements. Check 8 remains pending.
+- Defect confirmed: 53 lexical Day-0 index issue numbers are `#undefined`; treat its titles as *unlinked candidates* until verified IDs are populated. Do not duplicate the separately present 29-issue OPEN-state verification.
+- Rechecked P2/P3/P4 PRs #512, #515, #516, #519, #521, #523 and #525: all OPEN / DRAFT / NOT MERGED at this review; base branches of #523 and #525 are stacked, not `main`.
+- Rechecked core issues #99, #105, #125, #165, #221, #293, #420, #500: OPEN; issue state is not an independent acceptance.
+- **Reviewer decision: YELLOW for check 8.** The branch is usable as a provisional operational handoff map with disclosed imperfections, but is not independently signed off as a complete, normalized Master obligation-to-evidence ledger. Separate gates govern #125 public docs, #531 merge, Master technical closure and release.
+- **Next bounded steps:** (1) correct issue IDs by title-to-live-GitHub validation; (2) normalize and deduplicate normative obligations across the entire prose Master, ADR-001, #105 and current owners; (3) map each to code/PR/SHA/CI/independent acceptance or explicit UNKNOWN; (4) log unresolved contradictions; (5) obtain independent reviewer and designated CTO gate sign-off for the accurately bounded documentary scope. Never infer production clearance.
