@@ -807,6 +807,17 @@ Direct source verification of `docs/TECHNICAL_DEBT_AUDIT.md` resolves the previo
 
 **Required traceability syntax:** `TD-AUDIT §57 (docs/TECHNICAL_DEBT_AUDIT.md#57)` and `TD-AUDIT §61 (docs/TECHNICAL_DEBT_AUDIT.md#61)` (file headings/line anchors), never bare `GitHub #57/#61`. **Evidence status: AUDIT DOCUMENT VERIFIED; current code SHA/CI/remediation acceptance UNKNOWN.** No historical OPEN label is by itself a live re-test.
 
+
+### TD-AUDIT §61 live code recheck — static remediation observed (2026-10-25)
+
+**Default-branch code-search snapshot** was at commit `456d3e5267e98ba0d9bac2927faa57f1de4e0d6c` (search result URL); the following **live default-branch files** were fetched directly (blob SHAs, not claimed commit SHAs):
+
+- `src/modules/open-liquidity/liquidity.routes.ts`, blob `9699a07c712fbde203d60d580f49b18fe0b392d5`, **L122–127**: unauthenticated `GET /v1/liquidity/offers/:id` calls `liquidityRouter.getOffer(id)`.
+- `src/modules/open-liquidity/liquidity.service.ts`, **L597–647**: source explicitly documents bounded TD #61 remediation; `getOffer()` now queries Prisma with an **explicit field `select`** omitting `paymentDetails`, then returns `mapOfferToPublicDetail(offer)`. This materially differs from the raw-row exposure described in the historical audit at L2689–2728.
+- The service comment at **L627–631** claims payment instructions remain accessible through an authenticated, ownership-checked trade path. **That separate path and runtime authorization were not independently checked in this pass.**
+
+**Classification:** `TD #61 — STATIC FIX OBSERVED IN CURRENT DEFAULT-BRANCH CODE; NOT FORMALLY ACCEPTED`. The audit's historical OPEN finding is **not** a valid claim that the original raw-row leak still exists today. **Tests, CI status, exact introducing commit, full mapper field-by-field review, ownership-gated pairwise delivery and independent acceptance remain UNKNOWN.** Do not close the Partner Beta gate on this inspection alone.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
