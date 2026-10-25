@@ -2,6 +2,14 @@
 
 Status: **NOT HOMOLOGATED / BLOCKED**. This document records evidence, not authorization to merge or deploy.
 
+## Two-process real-Redis CI evidence (2026-10-25 UTC)
+
+- Commit `44d394049458fdff3a51b60200fb911c6df7a777`: CI run `40158113367`, CI Tests `40158113358`, CodeQL `40158113357` all completed successfully.
+- CI build log explicitly reports `PASS tests/relayDeliveryRedis.process.integration.test.ts` and the Jest unit-lane summary `197 passed suites / 2633 passed tests`.
+- The new test forks a distinct Node.js child process, starts a destination provider there, and uses the CI's real Redis service to deliver from the origin process. It checks positive local-send acceptance, stale-owner rejection, and absent destination rejection. This is test-only isolated candidate evidence, not deployed application instances or production routing.
+- **Distributed gate progress: 1/5** test scenarios evidenced, with the other four still unverified. **Remaining acceptance criteria: 1/14** confirmed under the plan below. Authenticated ACK provenance, channel authorization, authoritative instance discovery, Redis outage/restart and operational recovery remain blocked. Gate 2 remains **NO-GO**.
+- The earlier 0/14 and 0/5 in the plan below are the baseline at the time it was written; this section records the subsequent verified progress without rewriting historical evidence.
+
 ## Execution plan and measurable gates (2026-10-25 UTC)
 
 **Scope:** isolated Redis Pub/Sub candidate on `security/307-relay-bounded-frames-candidate`. Percentages below count verified acceptance criteria, not subjective readiness. No merge, production wiring, deployment or Gate 2 approval is authorized.
