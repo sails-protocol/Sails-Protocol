@@ -455,3 +455,41 @@ Issue #165 is OPEN and owns **scenario-level integration and reality-validation 
 **Gatekeeper stop condition:** if the task depends on an unknown SHA, unknown accepted scope, disputed economic authority, unclear migration environment, or stale issue state, stop that bounded action and gather evidence. Continue unrelated safe documentation/research work without inventing clearance.
 
 **Documentation closure decision:** Check 8 remains PENDING. The record is usable as a provisional navigation guide now; it cannot honestly reach 8/8 until the full obligation-by-obligation audit and independent CTO sign-off. The #125 external documentation gate and merge to main are separate approvals. No automatic merge, deploy, DB migration or production promotion.
+
+## Master prose coverage map — 2026-10-25 (structure, not accepted obligations)
+
+The canonical BACKLOG snapshot contains **5906 lines**. Its narrative sections carry obligations and correction notes not represented by the 56 mechanical table candidates. The following is a navigation inventory of all level-2 sections, not an exhaustive atomic obligation census. A new CTO must not assume that table extraction captures every Day-0 requirement.
+
+| BACKLOG line | Narrative section | Audit disposition |
+| ---: | --- | --- |
+| 12 | Phase Verification — where the project actually stands | PROSE REVIEW REQUIRED |
+| 51 | P0 — Core Primitives (block everything else) | PROSE REVIEW REQUIRED |
+| 84 | P1 — First Proven Module + SDK Core | PROSE REVIEW REQUIRED |
+| 93 | Known Debt — MULTISIG production-hardening (Missão 09 final freeze, 2026-08-18) | PROSE REVIEW REQUIRED |
+| 245 | P2 — Cross-Module Services | PROSE REVIEW REQUIRED |
+| 264 | P3 — Advanced / Aspirational Modules | PROSE REVIEW REQUIRED |
+| 275 | Developer Experience / Tooling (out-of-band — doesn't gate any module) | PROSE REVIEW REQUIRED |
+| 284 | Why the Order Differs From Pure Priority | PROSE REVIEW REQUIRED |
+| 297 | Traceability Rule (per `GOVERNANCE.md` §6B, now in effect) | PROSE REVIEW REQUIRED |
+| 306 | Update — Multi-Wallet-Kit + Multi-Rail Network-Effect Strategy (2026-09-07) | PROSE REVIEW REQUIRED |
+| 376 | Identity Root & Multi-Protocol Identity UX (registered 2026-09-08) | PROSE REVIEW REQUIRED |
+| 559 | `docs/CRYPTOGRAPHIC_MODEL.md` §1 documentation drift (found 2026-09-08, Identity Architecture Discovery) — CLOSED (corrected 2026-09-08, Institutional Cold Sweep) | PROSE REVIEW REQUIRED |
+| 610 | Institutional Cold Sweep / Production Readiness (2026-09-08) | PROSE REVIEW REQUIRED |
+| 828 | Partner Beta / Integration Reality (2026-09-08) | PROSE REVIEW REQUIRED |
+| 959 | Day-0 Multi-Operator Sails Network / Node Independence (2026-09-08) | PROSE REVIEW REQUIRED |
+| 1376 | ADR-001 Day-0 Multi-Operator Sails Network — decision registered (2026-09-09) | PROSE REVIEW REQUIRED |
+| 1524 | Day-0 Completeness Cold Sweep — network continuity beyond the happy path (2026-09-09) | PROSE REVIEW REQUIRED |
+| 5880 | OpenProof Day-0 Timestamp Anchoring — Multi-Calendar Availability Invariant (2026-09-20) | PROSE REVIEW REQUIRED |
+
+### Remaining closure boundaries, explicitly owned
+
+- **Obligation normalization:** each normative 'MUST/shall/required' statement in prose and correction notes requires a stable ID, source section, exact implementation/evidence and accepted scope. Owner: CTO/Gatekeeper, coordinated via #221 and canonical BACKLOG. **OPEN**.
+- **Independent code/evidence verification:** especially #105 network, #165 Beta, #293 P2P, #125 documentation, P3/P4 economic safety. Owner: respective gate issues. **OPEN**.
+- **External docs:** GitBook/Mintlify comparison is #125, not implicitly completed by PR #531. **OPEN**.
+- **Documentation acceptance and merge:** #531 remains draft; review must verify that no historical claims were silently rewritten. **PENDING CTO decision**.
+
+### Do not confuse three percentages
+
+1. **87.5% = 7/8 handoff documentation checklist**, a process-readiness metric.
+2. **Master completion = NOT MEASURED**, because normative obligation denominator and accepted numerator are incomplete.
+3. **Day-0 / Beta / production readiness = NO-GO**, separately gated; no percentage inferred from documentation.
