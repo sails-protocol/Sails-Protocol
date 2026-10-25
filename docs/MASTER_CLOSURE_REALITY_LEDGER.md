@@ -522,3 +522,24 @@ The canonical BACKLOG snapshot contains **5906 lines**. Its narrative sections c
 **Unresolved before check 8:** exhaustive prose extraction and deduplication; comment-level temporal correction review; per-obligation code/PR/SHA/CI/independent acceptance; GitBook/Mintlify #125 gate; CTO sign-off and main merge. None are bypassed by a green workflow or an executor's self-report.
 
 **Continuation protocol:** future CTO must first re-fetch this file's blob SHA and #531 HEAD, review the open contradictions, and record the next verification loop. No merge/deploy/migration/production approval from this entry.
+
+## Verification loop — 2026-10-25: temporal contradiction register
+
+The following are **explicit resolution rules**, not implementation acceptance:
+
+| Conflicting statements | Correct time-qualified reading | Source of decision / still needed |
+| --- | --- | --- |
+| Historical six-stage phase table says Implementation Review still lacks OpenProof / real settlement providers; later correction says implementations exist | Earlier snapshot superseded for *existence*, but real providers remain production-ineligible absent separate authorization | BACKLOG.md 2026-09-06 correction; release gate still open |
+| Old FeeDistribution row marked DONE; later economy migration write-froze it | Do not use historical FeeDistribution write path; later frozen policy/evidence chain is current economic authority | BACKLOG.md P0 row with 2026-08-23 supersession; code/DB gate still independently checked |
+| #275 closed, #125 open | Historical reconciliation program closure does not close live public/developer docs alignment | #275 closed; #125 open |
+| #361 Sails Market fleet, #105 independent multioperator | Fleet is bootstrap/operations, not proof of independent operator diversity | #105 and ADR-001; external network evidence pending |
+| #420 corpus and #500 continuous gap discovery | Different gates: incident-precedent corpus in Beta sequence vs ongoing production-gap audit | Both open; no substitution |
+| #525 CI success and draft status | CI green at exact SHA, but review, DB migration and production approval remain separate | PR #525, run 40145591634; independent acceptance pending |
+| #531 handoff score 7/8 and Master completion | 87.5% refers only to bounded documentation checklist, not Master technical or release readiness | This ledger; global Master denominator not accepted |
+| #221 early Codex-primary wording and later comments | Open CodeReview + Claude Code primary review; Codex complementary verifier | #221 later correction comments; CTO retains gate |
+
+**Temporal safety rule:** any new CTO must attach a date and authoritative owner to each status claim. When two sources differ, keep both in the contradiction register and explicitly identify supersession; never choose by conversation order alone.
+
+### Independent review boundary
+
+The 8th handoff check cannot be marked PASS merely by adding more indexes. It requires a reviewed obligation denominator, duplicate/superseded disposition, individual evidence links and CTO sign-off. This loop improves clarity but leaves the score **7/8 = 87.5%**. Main merge and GitBook/Mintlify #125 remain unapproved.
