@@ -215,3 +215,15 @@ Inspected `src/modules/open-p2p/trade.routes.ts`, `src/modules/open-p2p/trade.se
 - Trade creation and dispute evidence submission both have helper-level idempotency integration; **optional keys** mean callers may operate without replay deduplication. Do not extrapolate this to an end-to-end exactly-once guarantee or classify it as a new defect without an explicit client retry contract.
 - Four hypothesized Offer/Evidence file paths were not found; **no absence-of-feature inference** is warranted. Locate the actual offer routes/service and evidence endpoint before extending the caller matrix.
 - Next verification: exact Jest test names in CI output, offer creation caller path, evidence route propagation, crash-window event delivery and independent Gatekeeper decision. No change to production runtime or economic authority.
+
+
+## Offer idempotency exact-path audit — four-file cross-check (2026-10-25)
+
+**Actual path located (earlier guessed `open-p2p/offer.*` paths were incorrect):** `src/modules/open-liquidity/liquidity.routes.ts` → `src/modules/open-liquidity/liquidity.service.ts` → `src/common/idempotency.ts`, with `tests/integration/offerIntentIdempotencyUniqueness.test.ts`. Source inspected on PR #531 at `b4e124ff49fac733f94a225e7acc0b2efaee634f`.
+
+- HTTP create-offer schema accepts optional `idempotencyKey` (routes line 63) and forwards the parsed body to `liquidityRouter.createOffer()` (line 104). Service `createOffer()` uses `withIdempotency()` (service lines 424–429). **Route-to-service propagation is evidenced.**
+- The service documents two independently durable Offer/Intent writes and a post-persist event emission; helper integration alone cannot certify a single atomic transaction or reliable event delivery across a crash.
+- The Postgres integration suite **defines** a unique Offer.intentId constraint test, an ack-lost retry recovery test, a COMPLETED exact-retry test, and a genuine pre-commit INSERT failure/retry test. These are stronger than purely mocked helper tests, but execution of this exact integration suite on the latest SHA **has not been observed**. The suite calls `requirePostgres()`, so verify CI environment and any skip behavior before counting its tests.
+- **Remaining:** check UI/SDK always supplies key when retries are possible; audit evidence HTTP route and other economic side effects. No API-contract change and no accepted exactly-once claim.
+
+**Workflow evidence (different SHA):** at `b4e124ff49fac733f94a225e7acc0b2efaee634f`, CodeQL run `40206859996` succeeded; CI run `40206860004` and CI Tests run `40206860012` were in progress at inspection. Do not transfer prior green checks to this or later commits.
