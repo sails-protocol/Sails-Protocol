@@ -913,6 +913,15 @@ A distinct local Jest haste-map/worktree-collision incident is documented in `do
 
 **Operational routing:** CTO reconciles evidence and gates; executor/maintainer is **not assigned by this ledger**. An assignee/implementation PR is required for a concrete delivery, and independent reviewers must evaluate the proof before closing #105/#165 or other gates. This crosswalk does not approve new architecture, implementation, merge or deployment.
 
+
+### PR #531 live CI and independent review checkpoint (2026-10-25)
+
+GitHub PR metadata: **OPEN / DRAFT / UNMERGED**, head `9d368145d58781f3fe58f0bf2a6ffb00c1066efb` at inspection. Patch inspection shows **three changed documentation files only**: `docs/BACKLOG.md`, `docs/CTO_START_HERE.md`, and this ledger. No implementation code changes in this PR diff.
+
+On that exact head SHA, the available PR-triggered workflow query returned **`CI Tests`, `CI`, `CodeQL` all `queued`, with no conclusion**. Commit combined-status query returned zero status contexts; this is **not** proof of a green run or a failure. Workflow status is time-sensitive and must be re-queried before merge/acceptance. The GitHub PR metadata had **no requested reviewers** at this checkpoint; one PR conversation comment exists, which is **not** a formal review/approval. The separate independent reviewer addendum remains **YELLOW**, not acceptance.
+
+**Operational rule:** a green workflow (if later observed) is necessary evidence for its bounded CI scope, **not** sufficient for check 8 institutional obligation-to-evidence normalization, reviewer sign-off, Gate #105, Beta, or release. Do not merge draft #531 or claim 100% without an independent bounded approval.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
