@@ -422,3 +422,18 @@ Incoming CTOs may use this ledger as a **provisional navigation and conflict-res
 | Gate J | Gate J — Production Readiness | NOT VERIFIED |
 
 **Deduplication rule:** ADR sections define the normative architecture, #105 gates own completion evidence, and BACKLOG rows track work/debt. One obligation can reference all three without becoming three independent requirements. No percentage may use these 28+10 anchors as an additive denominator. Every gate needs independent proof; if absent record EVIDENCE PENDING, not PASS.
+
+## Beta evidence registry boundary — #165 independently inspected 2026-10-25
+
+Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
+
+### Closure boundary to avoid false 100%
+
+- **Handoff documentation 7/8:** accurately inventoried and time-qualified, but final exhaustive evidence reconciliation and independent CTO sign-off remain incomplete.
+- **Master backlog:** global obligation denominator and accepted numerator are not established; **NOT MEASURED**.
+- **Day-0 network #105:** normative obligations/gates enumerated, but gate evidence **NOT VERIFIED**.
+- **Beta #165:** scenario evidence **NOT VERIFIED** by this pass.
+- **Public documentation #125:** separate external reconciliation **NOT VERIFIED**.
+- **PR #531:** draft; this branch is a proposed canonical update, not current main.
+
+**No automatic promotion:** A future CTO may not change any of these to PASS solely because this ledger is detailed, the document grows, or the CI passes. Require independent gate evidence and explicit authority.
