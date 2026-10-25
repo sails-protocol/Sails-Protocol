@@ -846,6 +846,20 @@ GitHub commit `2ffb67153819429363784bcc9dd86005b3ae73ea` is the merge commit of 
 
 **Outstanding independent evidence:** fresh CI run/test execution under relevant concurrency and infrastructure conditions, exact failure-rate acceptance criterion, owner, and independent signoff. Do not equate PR #115 merged with TD §57 resolved or #105 Gate A fully closed.
 
+
+### CI provenance check — merge SHAs for TD §57 / §61 (2026-10-25)
+
+Direct GitHub checks queried against **the exact merge commits**, not the current documentation PR:
+
+| Technical debt | Merge commit | Combined-status entries observed | PR-triggered workflow runs returned | Interpretation |
+| --- | --- | --- | --- | --- |
+| TD §57 bounded fix / PR #115 | `8e12ffa3f05c667deb2cd5875b2fff9aa6c2da29` | `GitBook: success`; `GitBook - satsails.gitbook.io/satsails-docs/: success` | **0** | Documentation publishing status only; **no Jest/CI verification from these endpoints** |
+| TD §61 privacy fix / PR #117 | `2ffb67153819429363784bcc9dd86005b3ae73ea` | `GitBook: success`; `GitBook - satsails.gitbook.io/satsails-docs/: success` | **0** | Documentation publishing status only; **no Jest/CI verification from these endpoints** |
+
+**Tool boundary:** The workflow-run query returns only PR-triggered runs and its first page. A merge commit may not be the head SHA of a PR-triggered run. A status-context listing is not the full GitHub Checks API. **Zero returned Actions runs is not evidence that no tests ran; GitBook green is not test green.** Historical test outcomes in the audit remain historically reported, not independently reproduced here.
+
+**Acceptance next steps:** obtain the **original PR head SHAs and their associated GitHub check runs** (or CI artifacts/logs), plus a fresh appropriately scoped run if required; evaluate TD §57 systemic reliability separately from its bounded Swagger-UI fix. Neither #105 Gate A nor the Partner Beta may be closed from these two GitBook statuses.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
