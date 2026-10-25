@@ -35,6 +35,26 @@ Status: **Prepared, not executed or accepted.** This document defines isolated t
 5. Record per-test SHA, command, logs, expected vs actual outcome, owner/reviewer and CI links; mark each independently accepted or rejected.
 6. After evidence, resolve the Jest open-handle warning and obtain WSS/privacy/HyperDHT parity and rollout/rollback review before Gate 2 GREEN.
 
+## Isolated evidence collection template (prepared, not executed)
+
+Use one record **per test and exact SHA**. Do not copy a green status from another SHA, infer missing output, or mark a planned test accepted.
+
+```text
+Test ID:
+Repository / branch / exact commit SHA:
+Runner image / Node / Jest / Redis versions:
+Isolated environment and process identities:
+Command and environment variables (secrets redacted):
+Fault or adversarial input and timestamp:
+Expected rejection/behavior:
+Observed behavior and raw log link:
+Open handles / warnings / cleanup status:
+Reviewer and independent approval reference:
+Verdict: NOT RUN | PASS | FAIL | BLOCKED
+```
+
+**Evidence quality rules:** For Redis outage/restart capture both server shutdown and restart events and the origin/destination state before and after; client `disconnect()` alone is insufficient. For forged ACK capture the identity verification decision, not only the request-ID match. For ACL denial record the authenticated Redis principal and denial without exposing credentials. For Jest diagnostics preserve the forced-exit warning until a standard CI run confirms its disappearance.
+
 ## Acceptance ledger (not yet approved)
 
 | Category | Planned | Accepted in this matrix |
