@@ -13,6 +13,19 @@ describe('bounded cross-instance delivery pending registry', () => {
     registry.close()
   })
 
+  it('documents that a syntactically valid forged ACK is currently accepted without provenance', async () => {
+    // Security characterization only: this is an intentionally failing
+    // production-security property, not an authenticated-ACK acceptance test.
+    // A caller able to inject an ACK with the outstanding request ID can
+    // settle it; the pending registry has no identity or signature context.
+    const registry = new RelayDeliveryPendingRegistry()
+    const pending = registry.register()!
+    expect(registry.acknowledge({ requestId: pending.requestId, accepted: true })).toBe(true)
+    expect(await pending.result).toBe(true)
+    expect(registry.size).toBe(0)
+    registry.close()
+  })
+
   it('settles a valid negative ACK immediately and rejects its replay', async () => {
     const registry = new RelayDeliveryPendingRegistry()
     const pending = registry.register()!
