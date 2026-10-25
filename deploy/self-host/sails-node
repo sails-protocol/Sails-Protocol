@@ -12,6 +12,9 @@
 #   sails-node restore FILE         restore a backup into an EMPTY database, then verify the migrations
 #   sails-node backup-evidence      cold snapshot of the bundled evidence store (objects stay encrypted; the key is NOT inside)
 #   sails-node restore-evidence FILE   restore that snapshot into a fresh store (needs the same secrets/seaweedfs.env)
+#   sails-node verify-backup FILE [--deep]   check a backup: sha256 sidecar, structure, and (--deep, dumps) a scratch restore
+#   sails-node verify-evidence      read back EVERY stored evidence object and check it against the hash in its name
+#   sails-node rotate-evidence-key  re-encrypt all evidence under a new key (copy, verify, swap; rolls back on failure)
 #   sails-node resolve-rolled-back NAME   after a failed migration: mark it rolled back (docs/DEPLOYMENT.md 6.1)
 #   sails-node status               containers and server readiness
 #
@@ -108,6 +111,7 @@ EVIDENCE_S3_SECRET_ACCESS_KEY=$s3_secret
 EOF
   chmod 600 "$SAILS_NODE_HOME"/secrets/*
   say "created $SAILS_NODE_HOME (secrets 0600). Edit $SAILS_NODE_HOME/secrets/server.env, then run: sails-node update"
+  say "IMPORTANT: copy $SAILS_NODE_HOME/secrets somewhere OFF this host now (offline, access-controlled). It holds the evidence encryption key: lose it and stored evidence is unreadable. No 'sails-node backup' includes it."
 }
 
 cmd_build() {
@@ -227,25 +231,86 @@ cmd_rollback() {
   state_set current "$previous"
 }
 
+# ---- Backup integrity -------------------------------------------------------------------------
+# Every backup gets FILE.sha256. It detects ACCIDENTAL damage (truncation, bit rot, a half-copied file). It is
+# NOT tamper-evidence: whoever can change the archive can change the sidecar. For that, keep a copy of the
+# sidecar (or a signature of it) somewhere the host cannot write. The database dump is not encrypted either:
+# protect it like the database itself (the file is 0600).
+sha256_of() { sha256sum "$1" | cut -d' ' -f1; }
+sidecar_write() { # FILE
+  (umask 077; printf '%s  %s\n' "$(sha256_of "$1")" "$(basename "$1")" >"$1.sha256")
+}
+# Fails unless FILE.sha256 exists and matches. SAILS_RESTORE_UNVERIFIED=1 skips ONLY a missing sidecar (a backup
+# taken by an older version); a mismatch is never skipped.
+sidecar_verify() { # FILE
+  local file="$1"
+  if [ ! -f "$file.sha256" ]; then
+    [ "${SAILS_RESTORE_UNVERIFIED:-0}" = 1 ] && { say "WARNING: $(basename "$file") has no .sha256 sidecar; continuing UNVERIFIED because SAILS_RESTORE_UNVERIFIED=1"; return 0; }
+    die "$(basename "$file").sha256 is missing: this backup cannot be verified (SAILS_RESTORE_UNVERIFIED=1 restores it anyway, at your risk)"
+  fi
+  local want have; want="$(cut -d' ' -f1 <"$file.sha256")"; have="$(sha256_of "$file")"
+  [ "$want" = "$have" ] || die "$(basename "$file") does NOT match its sha256 sidecar (expected ${want:0:16}..., got ${have:0:16}...): corrupt, truncated or replaced; refusing to use it"
+}
+# Structural check without touching any real data: a dump must be readable by pg_restore, an evidence archive by gzip+tar.
+# NOTE: `pg_restore --list` reads only the table of contents and ACCEPTS a truncated dump; the sidecar and the
+# scratch restore of `verify-backup --deep` are what catch that.
+backup_structure_check() { # FILE
+  case "$1" in
+    *.dump) docker run --rm -i --entrypoint pg_restore postgres:16-alpine --list <"$1" >/dev/null 2>&1 || die "$(basename "$1") is not a readable PostgreSQL custom-format dump" ;;
+    *.tar.gz) { gzip -t "$1" && tar -tzf "$1" >/dev/null; } 2>/dev/null || die "$(basename "$1") is not a complete, readable archive (truncated or corrupt)" ;;
+    *) die "unknown backup type: $1 (expected .dump or .tar.gz)" ;;
+  esac
+}
+
+cmd_verify_backup() { # FILE [--deep]
+  need_init
+  local file="${1:?usage: sails-node verify-backup FILE [--deep]}" deep="${2:-}"
+  [ -s "$file" ] || die "no such backup: $file"
+  sidecar_verify "$file"
+  backup_structure_check "$file"
+  if [ "$deep" = "--deep" ]; then
+    case "$file" in
+      *.dump)
+        # Restore into a scratch database of the running PostgreSQL, atomically, then drop it: proves the dump is restorable.
+        local tag db="verify_$(date +%s)_$$" rc=0 n; tag="$(state_get current)"; [ -n "$tag" ] || tag="$(default_tag)"
+        with_images "$tag"; compose up -d --wait postgres
+        compose exec -T postgres psql -h 127.0.0.1 -U sails -d postgres -qc "create database $db" >/dev/null
+        compose exec -T postgres pg_restore -h 127.0.0.1 -U sails -d "$db" --no-owner --single-transaction --exit-on-error <"$file" >/dev/null 2>&1 || rc=$?
+        n="$(compose exec -T postgres psql -h 127.0.0.1 -U sails -d "$db" -Atc "select count(*) from information_schema.tables where table_schema='public'" 2>/dev/null || echo 0)"
+        compose exec -T postgres psql -h 127.0.0.1 -U sails -d postgres -qc "drop database $db" >/dev/null 2>&1 || true
+        [ "$rc" -eq 0 ] && [ "${n:-0}" -gt 0 ] || die "the scratch restore of $(basename "$file") FAILED (exit $rc, ${n:-0} tables): the backup is not restorable"
+        ;;
+      *) say "--deep applies to database dumps; the archive already passed a full gzip+tar read" ;;
+    esac
+  fi
+  say "backup verified: $(basename "$file") (sha256 sidecar matches, structure readable${deep:+, scratch restore ok})"
+}
+
 cmd_backup() {
   need_init
   local file="$SAILS_NODE_HOME/backups/sails-$(date -u +%Y%m%dT%H%M%SZ).dump"
   (umask 077; compose exec -T postgres pg_dump -h 127.0.0.1 -U sails -d sails -Fc >"$file")
   [ -s "$file" ] || { rm -f "$file"; die "backup produced an empty file"; }
-  say "backup written: $file ($(wc -c <"$file") bytes)"
+  sidecar_write "$file"
+  say "backup written: $file ($(wc -c <"$file") bytes), sha256 sidecar written"
+  say "NOT in this backup: $SAILS_NODE_HOME/secrets (database password, S3 credentials, the evidence encryption key). Back it up separately and offline; without the key, evidence is unreadable."
 }
 
 cmd_restore() {
   need_init
   local file="${1:?usage: sails-node restore FILE}"
   [ -s "$file" ] || die "no such backup: $file"
+  sidecar_verify "$file"; backup_structure_check "$file"
   local tag; tag="$(state_get current)"; [ -n "$tag" ] || tag="$(default_tag)"
   with_images "$tag"
   compose up -d --wait postgres
   local tables; tables="$(compose exec -T postgres psql -h 127.0.0.1 -U sails -d sails -Atc "select count(*) from information_schema.tables where table_schema='public'")"
   [ "$tables" = "0" ] || die "the target database is not empty ($tables tables): restore only into a fresh database (docs/SELF_HOSTING.md)"
-  say "restoring $file"
-  compose exec -T postgres pg_restore -h 127.0.0.1 -U sails -d sails --no-owner <"$file" >/dev/null
+  say "restoring $file (one transaction: a failed restore leaves the database empty)"
+  # --single-transaction --exit-on-error: everything is restored or nothing is. Without them a failed restore
+  # leaves a partial database that then blocks every retry as "not empty".
+  compose exec -T postgres pg_restore -h 127.0.0.1 -U sails -d sails --no-owner --single-transaction --exit-on-error <"$file" >/dev/null \
+    || die "pg_restore FAILED; it ran in one transaction, so the database is still empty and you can retry with a good backup"
   say "verifying the migrations against the restored database"
   run_migration_job || die "the restored database did not verify: do not start the server"
   say "restore verified"
@@ -276,7 +341,10 @@ cmd_backup_evidence() {
   evidence_pack "$SAILS_NODE_HOME/backups" "$name" || rc=$?
   compose up -d seaweedfs
   [ "$rc" -eq 0 ] && [ -s "$SAILS_NODE_HOME/backups/$name" ] || die "evidence backup failed (exit $rc); the store was restarted"
-  say "evidence backup written: $SAILS_NODE_HOME/backups/$name ($(wc -c <"$SAILS_NODE_HOME/backups/$name") bytes), encrypted; the key in secrets/seaweedfs.env is NOT inside it"
+  # The archive must be readable end to end before it is called a backup.
+  backup_structure_check "$SAILS_NODE_HOME/backups/$name"
+  sidecar_write "$SAILS_NODE_HOME/backups/$name"
+  say "evidence backup written: $SAILS_NODE_HOME/backups/$name ($(wc -c <"$SAILS_NODE_HOME/backups/$name") bytes), sha256 sidecar written; objects are encrypted and the key in secrets/seaweedfs.env is NOT inside it (back up secrets/ separately and offline)"
 }
 
 cmd_restore_evidence() {
@@ -284,15 +352,143 @@ cmd_restore_evidence() {
   local file="${1:?usage: sails-node restore-evidence FILE}"
   [ -s "$file" ] || die "no such backup: $file"
   file="$(cd "$(dirname "$file")" && pwd)/$(basename "$file")"
+  # Verify BEFORE touching the volume: a bad archive must not leave a half-restored store that starts and looks healthy.
+  sidecar_verify "$file"; backup_structure_check "$file"
+  local expected; expected="$(tar -tvzf "$file" 2>/dev/null | grep -c '^-' || true)"
   compose up --no-start seaweedfs
   compose stop seaweedfs
   # A fresh volume is not literally empty (the image ships an empty filerldb2/): it must hold no FILE.
   local files; files="$(docker run --rm -v "$EVIDENCE_VOLUME:/data" --entrypoint sh postgres:16-alpine -c 'find /data -type f | wc -l')"
   [ "$files" = "0" ] || die "the evidence volume already holds data ($files files): restore only into a fresh store (docs/SELF_HOSTING.md)"
   say "restoring $file"
-  evidence_unpack "$(dirname "$file")" "$(basename "$file")"
+  evidence_unpack "$(dirname "$file")" "$(basename "$file")" || die "extraction failed; the store was NOT started. Remove the volume ${EVIDENCE_VOLUME} and retry with a good backup"
+  files="$(docker run --rm -v "$EVIDENCE_VOLUME:/data" --entrypoint sh postgres:16-alpine -c 'find /data -type f | wc -l')"
+  [ "$files" = "$expected" ] || die "restored $files files but the archive holds $expected; the store was NOT started. Remove the volume ${EVIDENCE_VOLUME} and retry"
   compose up -d seaweedfs
-  say "evidence restored; the store reads it only with the SSE key that was in secrets/seaweedfs.env when the objects were written (allow it up to ~30 s to start answering)"
+  say "evidence restored ($files files); the store reads it only with the SSE key that was in secrets/seaweedfs.env when the objects were written (allow it up to ~30 s to start answering). Run: sails-node verify-evidence"
+}
+
+# Reads EVERY object of the bucket and checks that its content hashes to the sha256 in its key (the server names
+# evidence objects <sha256><ext>). Catches a store that starts healthy but serves nothing, damaged objects, and a wrong
+# key. Exit 0 only if every object is readable and matches; an empty bucket is reported, not hidden.
+evidence_verify_all() { # <image tag>
+  docker run --rm --network "${PROJECT}_default" --env-file "$(host_path "$SAILS_NODE_HOME/secrets/server.env")" \
+    -e "VERIFY_TIMEOUT_S=$READY_TIMEOUT" --entrypoint node "sails-server:$1" -e '
+      const { S3Client, ListObjectsV2Command, GetObjectCommand } = require("@aws-sdk/client-s3")
+      const { createHash } = require("crypto")
+      const c = new S3Client({ endpoint: process.env.EVIDENCE_S3_ENDPOINT, region: process.env.EVIDENCE_S3_REGION || "us-east-1", forcePathStyle: true, maxAttempts: 1,
+        credentials: { accessKeyId: process.env.EVIDENCE_S3_ACCESS_KEY_ID, secretAccessKey: process.env.EVIDENCE_S3_SECRET_ACCESS_KEY } })
+      const Bucket = process.env.EVIDENCE_S3_BUCKET
+      const deadline = Date.now() + Number(process.env.VERIFY_TIMEOUT_S) * 1000
+      const sleep = ms => new Promise(r => setTimeout(r, ms))
+      ;(async () => {
+        let keys
+        for (;;) { // the store may still be starting
+          try { keys = []; let t; do { const r = await c.send(new ListObjectsV2Command({ Bucket, ContinuationToken: t })); (r.Contents || []).forEach(o => keys.push(o.Key)); t = r.NextContinuationToken } while (t); break }
+          catch (e) { if (Date.now() >= deadline) { console.error("verify-evidence: cannot list the bucket: " + e.name); process.exit(1) } await sleep(2000) }
+        }
+        let ok = 0, bad = []
+        for (const Key of keys) {
+          // A store that was just (re)started lists its objects before its volume server has re-registered: a read can fail
+          // for a few seconds. Retry read ERRORS until the deadline; a content-hash mismatch is never retried.
+          for (;;) {
+            try {
+              const r = await c.send(new GetObjectCommand({ Bucket, Key }))
+              const h = createHash("sha256").update(Buffer.from(await r.Body.transformToByteArray())).digest("hex")
+              const m = /^([0-9a-f]{64})/.exec(Key)
+              if (m && m[1] !== h) bad.push(Key + " (content hash differs from its name)"); else ok++
+              break
+            } catch (e) {
+              if (Date.now() >= deadline) { bad.push(Key + " (" + e.name + ")"); break }
+              await sleep(2000)
+            }
+          }
+        }
+        console.log("verify-evidence: " + keys.length + " objects, " + ok + " verified" + (bad.length ? ", " + bad.length + " BAD" : ""))
+        bad.forEach(b => console.error("  BAD " + b))
+        process.exit(bad.length ? 1 : 0)
+      })()'
+}
+cmd_verify_evidence() {
+  need_init; need_evidence_store
+  local tag; tag="$(state_get current)"; [ -n "$tag" ] || die "nothing deployed yet"
+  compose up -d seaweedfs
+  evidence_verify_all "$tag" || die "evidence verification FAILED"
+}
+
+# Controlled rotation of the evidence encryption key. SeaweedFS cannot re-key in place, so this COPIES every object into
+# a second store that uses the NEW key (objects are encrypted at rest on both sides; the copy is verified by the content
+# hash in each key), and only then swaps. Every step before the swap leaves the running store untouched; after the swap a
+# failed verification restores the pre-rotation snapshot and the old key. The old key is kept in
+# secrets/seaweedfs.env.prev-<timestamp>: destroy it only after a retention period in which you may still need the old backups.
+cmd_rotate_evidence_key() {
+  need_init; need_evidence_store
+  local tag; tag="$(state_get current)"; [ -n "$tag" ] || die "nothing deployed yet"
+  local env="$SAILS_NODE_HOME/secrets/seaweedfs.env" next="$SAILS_NODE_HOME/secrets/seaweedfs.next.env" ts; ts="$(date -u +%Y%m%dT%H%M%SZ)"
+  [ ! -e "$next" ] || die "$next exists: a previous rotation did not finish. Inspect it, remove it and the volume ${PROJECT}_seaweedfs-next-data, then retry"
+  compose up -d seaweedfs
+  evidence_verify_all "$tag" || die "the current store does not verify: refusing to rotate (fix or restore it first)"
+  cmd_backup_evidence
+  local safety; safety="$(ls -t "$SAILS_NODE_HOME"/backups/evidence-*.tar.gz | head -n1)"
+  # The backup restarted the running store: wait until it answers again (bounded) before copying from it.
+  evidence_verify_all "$tag" || die "the store did not come back readable after the safety backup; nothing was rotated"
+  local newkey; newkey="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  (umask 077; sed "s/^WEED_S3_SSE_KEK=.*/WEED_S3_SSE_KEK=$newkey/" "$env" >"$next")
+  say "starting the second store with the NEW key"
+  COMPOSE_PROFILES="${COMPOSE_PROFILES},evidence-rotate" compose up -d seaweedfs-next || { rm -f "$next"; die "cannot start the second store"; }
+  local rc=0
+  docker run --rm --network "${PROJECT}_default" --env-file "$(host_path "$SAILS_NODE_HOME/secrets/server.env")" \
+    -e "NEW_ENDPOINT=http://seaweedfs-next:8333" -e "COPY_TIMEOUT_S=$READY_TIMEOUT" --entrypoint node "sails-server:$tag" -e '
+      const { S3Client, ListObjectsV2Command, GetObjectCommand, PutObjectCommand, CreateBucketCommand, HeadBucketCommand } = require("@aws-sdk/client-s3")
+      const { createHash } = require("crypto")
+      const cred = { accessKeyId: process.env.EVIDENCE_S3_ACCESS_KEY_ID, secretAccessKey: process.env.EVIDENCE_S3_SECRET_ACCESS_KEY }
+      const mk = endpoint => new S3Client({ endpoint, region: process.env.EVIDENCE_S3_REGION || "us-east-1", forcePathStyle: true, maxAttempts: 1, credentials: cred })
+      const oldC = mk(process.env.EVIDENCE_S3_ENDPOINT), newC = mk(process.env.NEW_ENDPOINT), Bucket = process.env.EVIDENCE_S3_BUCKET
+      const sleep = ms => new Promise(r => setTimeout(r, ms)), deadline = Date.now() + Number(process.env.COPY_TIMEOUT_S) * 1000
+      const sha = b => createHash("sha256").update(b).digest("hex")
+      const read = async (c, Key) => Buffer.from(await (await c.send(new GetObjectCommand({ Bucket, Key }))).Body.transformToByteArray())
+      ;(async () => {
+        for (;;) { try { await newC.send(new HeadBucketCommand({ Bucket })).catch(() => newC.send(new CreateBucketCommand({ Bucket }))); break } catch (e) { if (Date.now() >= deadline) { console.error("rotate: the second store never answered: " + e.name); process.exit(1) } await sleep(2000) } }
+        const keys = []; let t; do { const r = await oldC.send(new ListObjectsV2Command({ Bucket, ContinuationToken: t })); (r.Contents || []).forEach(o => keys.push(o.Key)); t = r.NextContinuationToken } while (t)
+        let n = 0
+        for (const Key of keys) {
+          const body = await read(oldC, Key)
+          const m = /^([0-9a-f]{64})/.exec(Key); if (m && m[1] !== sha(body)) { console.error("rotate: " + Key + " does not match its own hash in the OLD store; aborting"); process.exit(1) }
+          // The second store was just started: its first writes/reads may fail for a few seconds. Retry errors until the
+          // deadline; a byte difference after the copy is never retried.
+          for (;;) {
+            try {
+              await newC.send(new PutObjectCommand({ Bucket, Key, Body: body, ServerSideEncryption: "AES256" }))
+              if (sha(await read(newC, Key)) !== sha(body)) { console.error("rotate: " + Key + " differs after the copy; aborting"); process.exit(1) }
+              break
+            } catch (e) { if (Date.now() >= deadline) { console.error("rotate: " + Key + ": " + e.name); process.exit(1) } await sleep(2000) }
+          }
+          n++
+        }
+        console.log("rotate: copied and verified " + n + " of " + keys.length + " objects under the new key"); process.exit(n === keys.length ? 0 : 1)
+      })().catch(e => { console.error("rotate: " + e.name + " " + e.message); process.exit(1) })' || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    COMPOSE_PROFILES="${COMPOSE_PROFILES},evidence-rotate" compose rm -sf seaweedfs-next >/dev/null 2>&1 || true
+    docker volume rm "${PROJECT}_seaweedfs-next-data" >/dev/null 2>&1 || true; rm -f "$next"
+    die "rotation ABORTED before the swap (exit $rc): the running store, its key and its data are untouched"
+  fi
+  say "copy verified; swapping the stores"
+  COMPOSE_PROFILES="${COMPOSE_PROFILES},evidence-rotate" compose stop seaweedfs seaweedfs-next
+  docker run --rm -v "$EVIDENCE_VOLUME:/old" -v "${PROJECT}_seaweedfs-next-data:/new:ro" --entrypoint sh postgres:16-alpine \
+    -c 'find /old -mindepth 1 -delete && cp -a /new/. /old/' || die "the swap failed halfway: restore with 'sails-node restore-evidence $safety' into a fresh volume and put back secrets/seaweedfs.env"
+  (umask 077; cp "$env" "$env.prev-$ts"); (umask 077; cp "$next" "$env"); rm -f "$next"
+  COMPOSE_PROFILES="${COMPOSE_PROFILES},evidence-rotate" compose rm -sf seaweedfs-next >/dev/null 2>&1 || true
+  docker volume rm "${PROJECT}_seaweedfs-next-data" >/dev/null 2>&1 || true
+  compose up -d --force-recreate seaweedfs
+  if ! evidence_verify_all "$tag"; then
+    say "the rotated store does NOT verify: restoring the pre-rotation snapshot and the old key"
+    compose stop seaweedfs
+    docker run --rm -v "$EVIDENCE_VOLUME:/data" --entrypoint sh postgres:16-alpine -c 'find /data -mindepth 1 -delete'
+    cp "$env.prev-$ts" "$env"
+    evidence_unpack "$(dirname "$safety")" "$(basename "$safety")" && compose up -d seaweedfs
+    die "rotation FAILED and was rolled back (old key and snapshot restored from $(basename "$safety"))"
+  fi
+  say "evidence key rotated: every object re-encrypted under the new key and verified. The OLD key is in $env.prev-$ts: keep it while old evidence backups may still be restored, then destroy it. Back up the new secrets/ now."
 }
 
 # Recovery after a FAILED migration (docs/DEPLOYMENT.md 6.1). Prisma refuses every further
@@ -326,7 +522,10 @@ case "${1:-}" in
   restore) shift; cmd_restore "$@" ;;
   backup-evidence) shift; cmd_backup_evidence "$@" ;;
   restore-evidence) shift; cmd_restore_evidence "$@" ;;
+  verify-backup) shift; cmd_verify_backup "$@" ;;
+  verify-evidence) shift; cmd_verify_evidence "$@" ;;
+  rotate-evidence-key) shift; cmd_rotate_evidence_key "$@" ;;
   resolve-rolled-back) shift; cmd_resolve_rolled_back "$@" ;;
   status) shift; cmd_status "$@" ;;
-  *) sed -n '2,24p' "${BASH_SOURCE[0]}"; exit 2 ;;
+  *) sed -n '2,27p' "${BASH_SOURCE[0]}"; exit 2 ;;
 esac

@@ -105,6 +105,18 @@ jobs:
           DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
         run: npm run db:migrate
 
+      # Migration controls (docs/MIGRATIONS.md): no applied migration was edited, every new non-additive one
+      # carries a reasoned contract annotation, and the previous server version stays compatible with the
+      # schema the new migrations produce (the probe creates and drops its OWN database on the CI service).
+      - name: Migration lint and old-version compatibility probe
+        env:
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/postgres
+          COMPAT_PROBE_DATABASE_URL: postgresql://postgres:password@localhost:5432/postgres
+        run: |
+          node scripts/migration-lint.js
+          node scripts/migration-compat-probe.js
+          npx jest tests/migrationControls.test.ts --no-coverage
+
       - name: Run unit tests
         # Vars scoped to this step only (Missão 11 Fase 6.3B.1) —
         # SAILS_INTEGRATION_TEST_DB_CONFIRMED is the explicit, deliberate
@@ -168,6 +180,22 @@ jobs:
           docker run --rm -i --entrypoint node sails-migrate-audit:local - < scripts/image-package-inventory.js > migrate-inventory.tsv
           node scripts/production-image-audit.js npm-audit.json migrate-inventory.tsv scripts/production-image-audit.exceptions.json
 
+      # Trivy over both images (OS packages AND Node packages, wherever they sit in the image, the
+      # base image's bundled npm included). Scanner pinned by digest in security/trivy-scanner.json;
+      # policy in security/trivy-gate.json (observe: reports exactly what WOULD fail, exit 0; enforce:
+      # CRITICAL/HIGH without a formal, expiring exception in security/trivy-exceptions.json fail the
+      # step). The report is uploaded even when the step fails.
+      - name: Trivy scan of the server and migration images
+        run: bash ./scripts/trivy-scan-image.sh sails-runtime-ci:local sails-migrate-audit:local trivy-report
+
+      - name: Upload the Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report/
+          if-no-files-found: warn
+
       # The migration job a release runs BEFORE starting the new server version
       # (docs/DEPLOYMENT.md 6.0), against a throwaway PostgreSQL started by the
       # script itself: applies every migration to an empty database, is
@@ -185,3 +213,8 @@ jobs:
       # No cloud, no registry, no real database.
       - name: Self-hosting kit (install, update, failed update, rollback, restore)
         run: bash ./scripts/self-host-test.sh
+
+      # Adversarial backup/recovery of the same kit: sha256 sidecars, truncated/forged/tampered backups,
+      # atomic restore, evidence verification, key rotation, hardened migrate service. Throwaway project.
+      - name: Self-hosting kit (backup integrity, atomic restore, evidence key rotation)
+        run: bash ./scripts/self-host-backup-test.sh

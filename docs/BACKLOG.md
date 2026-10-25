@@ -5901,3 +5901,39 @@ Canonical invariants:
 A future Sails-operated OpenTimestamps-compatible aggregator/calendar is OPTIONAL / FUTURE only. If operated later, it is one additional ecosystem participant, never a mandatory calendar, central timestamp authority, interoperability gate, or Day-0 dependency.
 
 **Implementation/evidence remains open.** This entry freezes the required property; it does not claim the current implementation already satisfies multi-calendar redundancy.
+
+---
+
+## P3 self-hosting: image security, integration and migration governance (2026-10-24, P3-R3)
+
+**Status: OPEN - draft PR, nothing merged, nothing deployed, self-hosting NOT approved for production.** Record of decisions,
+rejections and pending items; completion is claimed for nothing below beyond what the named evidence shows.
+Decision record: `docs/adr/ADR-006-self-host-image-security-and-migration-governance.md`. Criteria and per-line state:
+`docs/SELF_HOST_ACCEPTANCE.md`. Migration controls: `docs/MIGRATIONS.md`. Planned tests: `docs/P3_NEXT_PHASE_TEST_PLAN.md`.
+
+Recorded here so they are not lost or re-proposed unseen:
+
+- **Rejected:** `npm ci --omit=optional` (removes `bare-runtime-linux-x64`, the QVAC worker runtime); relying on Prisma alone to
+  detect an edited applied migration (it does not re-check checksums); treating `npm audit` as the image verdict (time-dependent,
+  not image-aligned).
+- **MinIO replacement:** SeaweedFS is the evidence store; MinIO is archived and not to be reintroduced without a security or
+  licence event.
+- **Fastify/dependency findings:** fixed in #521 (fastify 5.12.7, zod 4.6.7, brace-expansion 5.0.12, source-map-js 1.2.2).
+  Dependabot #518 (fastify 5.12.6) is below that and superseded; #492 equals it.
+- **Limits of the earlier audits:** P3-A (`d82d805b`) GREEN for scoped technical criteria only; P3-R1 (`b6f79bcd`) YELLOW;
+  one fast-uri CI discrepancy never explained mechanically; evidence from one Windows/WSL machine plus GitHub runners.
+
+Open items:
+
+| Item | State | Owner |
+|---|---|---|
+| Trivy gate in `enforce` mode | Observe mode only; 125 blocking findings on `b6f79bcd`; **no exceptions registered** | CTO decides dispositions and the switch |
+| Debian base-image findings (will_not_fix / affected) | No disposition | CTO |
+| P3-R2: remove `npm`/`corepack` from the runtime image | Peer session; not in this branch | Peer |
+| Integrate the P3 chain: merge #521 as a merge commit, close #516 as superseded, close #518 | Verified by simulation 2026-10-24; **not performed**; re-run `node scripts/verify-pr-chain.js` before merging | CTO |
+| SSE key custody and restore drill; evidence-store backup | Not tested | Operator/dev |
+| Install/recovery on a real VPS | Not run | Partner dev |
+| P3-B interoperability | Not started | CTO |
+| cosign + SBOM; digest pinning of external images; `sails-node update` concurrency; QVAC offline; volume cleanup | Not done; planned | Dev |
+| `sails-node rollback` aware of contract migrations (it only warns today) | Gap | Dev |
+| Mutation harness (K-series) lives outside the repository | Not reproducible by a third party | Dev |
