@@ -732,6 +732,20 @@ Unlike the earlier literal-search tables, the entries below were classified from
 
 **Combined first-pass lookup:** 16 literal-probe items + 38 heuristic items = **54/54 #105 source entries triaged for BACKLOG navigation**. **Semantically validated joins: NOT MEASURED; evidence accepted by this pass: NONE; normative Master denominator: NOT MEASURED.** The next required action is human-quality passage-level adjudication of each candidate and owner/SHA/CI evidence retrieval, not more raw search counts.
 
+
+### Gate B authority conflict — #105 canonical order versus later BACKLOG product freeze (2026-10-25)
+
+**Verified directly from source:** #105 canonical execution order v2 item **5** still instructs choosing among BTC-only, bounded BTC+USDT, or DePix-inclusive beta; item **6** makes DePix conditional on beta scope. The BACKLOG at **L1865–1881** explicitly marks that conditional choice **SUPERSEDED** by the **2026-09-10 Product Direction Freeze**. At **L1871–1876**, the current Day-0 target is the full Reference Wallet capability matrix, with DePix required on **both Liquid and Spark**. **L1894–1897** also explicitly says the product freeze does not authorize provider/schema/wire implementation without separate gates.
+
+| #105 canonical entry | Authority adjudication | Action required |
+| --- | --- | --- |
+| 4 — publish beta asset/rail/adapter/settlement/maturity matrix | **REMAINS NORMATIVE**, with scope determined by later frozen full Reference Wallet target (BACKLOG L1849–1857, L1879–1881, L1899+) | Link to the later canonical matrix and validate each capability against implementation/eligibility evidence; do not infer support from a product target. |
+| 5 — choose BTC-only vs bounded BTC+USDT vs DePix | **SUPERSEDED AS A CHOICE** by 2026-09-10 Product Direction Freeze (BACKLOG L1865–1878) | Do not re-open or count an undecided beta-scope choice. #105 wording needs an explicit supersession annotation in its owning issue; preserve audit history. |
+| 6 — DePix if included | **CONDITIONAL WORDING SUPERSEDED**: DePix is Day-0-required on Liquid and Spark (BACKLOG L1873–1881) | Retain the substantive representability/settlement evidence requirement; remove the obsolete if-in-scope interpretation in any current closure decision. |
+| 7 — freeze fiat quote-currency scope | **NOT RESOLVED BY THIS PRODUCT-ASSET FREEZE** | Check separately; asset/rail freeze does not prove quote-currency decision or implementation. |
+
+**Institutional risk:** A 54/54 *navigation* lookup does not reconcile this cross-source conflict. This is a confirmed **source-authority mismatch**, not proof of code defect or proof of delivery. #105 remains the sequence owner; the newer BACKLOG freeze controls product scope. No issue edit, implementation, merge or release is authorized by this note.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
