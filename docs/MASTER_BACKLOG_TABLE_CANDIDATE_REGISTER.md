@@ -170,3 +170,16 @@ Read-only source inspection on PR #531 HEAD before this documentation update; **
 | BL-0260 MULTISIG UI signing | `packages/sails-ui/src/hooks/useEscrowKey.ts` L211–212 constructs expected intent and calls `verifyAndSignEscrowPsbt`; `tests/multisigSigningIntentUi.test.ts` exercises valid and negative cases and SPLIT rejection | **Real UI hook and dedicated source-level test suite present**; blanket “UI signs blind” is no longer supported by this inspected path | Tests not executed in this pass; prove every signing entrypoint, participant verification, key isolation and rail-specific SPLIT behavior |
 
 **Risk interpretation:** implementation exists for all three *keyed* creation paths and for the scheduler/signing hook. This does not establish unconditional idempotency, production-safe expiry, independent PSBT signer authority or completed gate. No rows accepted or policy choices made.
+
+
+## QVAC adversarial boundary evidence — source-specific follow-up (2026-10-25)
+
+**Source inspected at PR #531 HEAD `63fa0b5153578c51c182a32316e18b684edc0261`:** `src/modules/open-agents/agent.routes.ts`, `src/modules/open-agents/qvac-agent.provider.ts`, `tests/qvac-prompt-injection.test.ts`, and `src/modules/open-p2p/trade.routes.ts`. This is source/test-definition inspection, **not** an independently observed run of the named test file or a proof of complete agent authorization.
+
+| Candidate | Verified source boundary | Residual independent gate |
+| --- | --- | --- |
+| BL-0268 OpenAgents | `agent.routes.ts` exposes authenticated, shared-rate-limited QVAC generation and risk endpoints; `assessIntentRiskSchema` uses strict enums for `asset`, `side`, `currency`, `fiatMethod` | Confirm all tool entrypoints, cost/DoS controls and authorization scope; generation is not authority to create a Trade or move funds |
+| BL-0269 social-engineering / adversarial agent surface | `qvac-agent.provider.ts` uses JSON-schema-constrained output; `tests/qvac-prompt-injection.test.ts` defines adversarial enum, prompt-untrusted-data delimiting and JSON-shape tests | Verify executed suite at exact SHA, free-text goal injection, downstream consumer validation, output-to-tool authority and regression against alternate routes |
+| QVAC ↔ BL-0059 capability enforcement | `trade.routes.ts` uses `requireAuth` for trade creation; RFC-023 bounds proposal/discovery, ADR-004 requires independent capability checks for covered economic operations | Authentication is not economic authorization; review real Trade/escrow capability and human-signing gates at execution boundary, including asynchronous revocation |
+
+**Disposition:** evidence-backed historical classification improved; **no guardrail bypass**, no claim that every QVAC route is safe, no production flag change, no accepted security gate. This does not turn RFC-023's bounded negotiation into autonomous settlement.
