@@ -1153,3 +1153,8 @@ No merge, shared database migration, VPS staging, production deploy, or release 
 
 
 **Issue-index reconciliation checkpoint (2026-10-25):** 53/53 lexical index rows have exact title-to-GitHub issue-number matches; zero unmatched/ambiguous. Master normative denominator remains NOT MEASURED; check 8 remains PENDING.
+
+
+### Numbered prose source anchors (2026-10-25)
+
+Added [`MASTER_BACKLOG_NUMBERED_PROSE_REGISTER.md`](MASTER_BACKLOG_NUMBERED_PROSE_REGISTER.md) with **40** numbered bold-heading prose candidates from the 5,906-line BACKLOG snapshot (ADR-001 discussion and Cold Sweep primary items 12–47). It is a bounded extraction, **not** complete prose enumeration, and cannot be added to 54 MO or 54 BL as a global denominator. Next evidence pass: nested clauses, unnumbered gates, temporal authority and exact semantic MO/BL crosswalk; independent reviewer sign-off remains missing.
