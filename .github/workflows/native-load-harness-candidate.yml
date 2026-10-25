@@ -1483,7 +1483,7 @@ jobs:
           const file = 'load-tests/utils/.sails-nacl-absolute-probe.js'
           const absolute = path.resolve('node_modules/tweetnacl/nacl-fast.js')
           const source = fs.readFileSync(file, 'utf8')
-          fs.writeFileSync(file, source.replace(/require\\('[^']+'\\)/, 'require(' + JSON.stringify(absolute) + ')'))
+          fs.writeFileSync(file, source.split('\n').map(line => line.trim().startsWith('const nacl = require(') ? 'const nacl = require(' + JSON.stringify(absolute) + ')' : line).join('\n'))
           NODE
           set +e
           k6 inspect load-tests/utils/.sails-nacl-absolute-probe.js > /tmp/sails-nacl-absolute-probe.log 2>&1
