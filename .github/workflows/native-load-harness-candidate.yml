@@ -1441,7 +1441,14 @@ jobs:
             missingDependency:/node_modules|open .*: no such file/i.test(log),
             filesystemPath:/stat |open |lstat /i.test(log),
             executable:/no such file|permission denied|exec format/i.test(log),
-            missingBaseUrl:/loopback HTTP target/i.test(log)
+            missingBaseUrl:/loopback HTTP target/i.test(log),
+            // Literal error-shape fingerprints only; never print raw stderr.
+            tweetnaclPath:log.includes('tweetnacl/nacl-fast.js'),
+            tweetnaclResolution:log.includes('tweetnacl/nacl-fast.js')&&/no such file|couldn.t be found|cannot find/i.test(log),
+            k6ModulePath:log.includes('k6/metrics')||log.includes('k6/execution'),
+            sourceImportPath:log.includes('data-generator.js')||log.includes('intent-creation.js'),
+            pathOpenFailure:/open [^\\r\\n]+: no such file or directory/i.test(log),
+            pathStatFailure:/stat [^\\r\\n]+: no such file or directory/i.test(log)
           };
           console.log('Independent Intent inspect sanitized diagnostics:',JSON.stringify(categories));
           NODE
