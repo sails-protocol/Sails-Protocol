@@ -796,6 +796,17 @@ Read directly against BACKLOG source passages, **not** derived from keyword coun
 
 **Required remediation:** Disambiguate the #105 references explicitly as audit-local IDs where supported by the technical debt source; attach exact file/heading links and actual implementation PR/commit/test evidence. Do not silently renumber or rewrite historical evidence. This is a confirmed **identifier namespace collision**, not a newly discovered code vulnerability.
 
+
+### Audit-local namespace confirmed — TD #57 and TD #61 (2026-10-25)
+
+Direct source verification of `docs/TECHNICAL_DEBT_AUDIT.md` resolves the previous identifier hypothesis:
+
+- **TD #57** = audit heading **`### 57. Falhas de buildApp() sob carga paralela do Jest`** at **L2015–2025**. The audit explicitly states at **L2419–2422** that the broader parallel-contention phenomenon **remains OPEN / partially understood**; a narrower Swagger-UI test registration remediation does **not** close it.
+- **TD #61** = audit heading **`### 61. Public OfferDetail returns raw paymentDetails + broad participant row — OPEN`** at **L2689–2728**. The audit describes the unauthenticated `GET /v1/liquidity/offers/:id` raw-row exposure and the requirement to preserve a separate authorized pairwise payment path. **This is a historical code finding; current live implementation was not checked in this pass.**
+- GitHub issues **#57** and **#61** are unrelated, closed issue objects; **do not link them as TD owners**. #105 item 2 and item 3 refer to **document-local technical debt IDs**, not GitHub issue numbers. The previous namespace-collision warning remains valid but its hypothesis is now resolved.
+
+**Required traceability syntax:** `TD-AUDIT §57 (docs/TECHNICAL_DEBT_AUDIT.md#57)` and `TD-AUDIT §61 (docs/TECHNICAL_DEBT_AUDIT.md#61)` (file headings/line anchors), never bare `GitHub #57/#61`. **Evidence status: AUDIT DOCUMENT VERIFIED; current code SHA/CI/remediation acceptance UNKNOWN.** No historical OPEN label is by itself a live re-test.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
