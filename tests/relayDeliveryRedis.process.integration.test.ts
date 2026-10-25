@@ -83,6 +83,29 @@ integration('two-process Redis relay candidate', () => {
         deadlineMs: Date.now() + 2500, payload: 'stale',
       })).toBe(false)
       expect(received).not.toContain('stale')
+      const newLease = randomUUID()
+      const replaced = new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => { child.off('message', listener); reject(new Error('owner replacement timeout')) }, 2000)
+        const listener = (msg: unknown) => {
+          if ((msg as { type?: string })?.type === 'owner-replaced') {
+            clearTimeout(timer)
+            child.off('message', listener)
+            resolve()
+          }
+        }
+        child.on('message', listener)
+      })
+      child.send({ type: 'replace-owner', lease: newLease })
+      await replaced
+      expect(await origin.deliver(destinationChannel, {
+        destinationParticipantId: 'bob', destinationLeaseToken: lease,
+        deadlineMs: Date.now() + 2500, payload: 'old-owner-after-reconnect',
+      })).toBe(false)
+      expect(received).not.toContain('old-owner-after-reconnect')
+      expect(await origin.deliver(destinationChannel, {
+        destinationParticipantId: 'bob', destinationLeaseToken: newLease,
+        deadlineMs: Date.now() + 2500, payload: 'new-owner-after-reconnect',
+      })).toBe(true)
       expect(await origin.deliver('sails:relay:delivery:absent_' + suffix, {
         destinationParticipantId: 'bob', destinationLeaseToken: lease,
         deadlineMs: Date.now() + 2500, payload: 'absent',
