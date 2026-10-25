@@ -217,3 +217,70 @@ This inventory parses rows from the current default-branch BACKLOG.md. It is a *
 | 811 | Institutional Cold Sweep / Production Readiness (2026-09-08) | **#86** | PARTIAL | UNVERIFIED |
 
 **Next audit:** normalize these candidates together with prose obligations and issue-only deltas; determine canonical ID, duplicate/superseded status, Day-0 scope, linked PR and independent evidence. Do not use row count as project percentage.
+
+## CTO CURRENT-TRUTH OPERATING CONTRACT — mandatory handoff protocol
+
+### A. Authority hierarchy (never resolve conflicts by chat recency)
+
+1. **Economic/architectural semantics:** accepted ADR/RFC and current normative repository documentation, checked against implementation. An issue cannot silently change a frozen invariant.
+2. **Implementation reality:** current code on a named commit, migrations and tests; code can expose drift but does not automatically authorize a semantic change.
+3. **Gate acceptance:** designated gate issue with independent review, reproducible exact-SHA evidence and explicit CTO decision. Green CI alone is insufficient.
+4. **Execution coordination:** open bounded issues and draft PRs. These show work in progress, not acceptance or release.
+5. **Historical discussion:** old docs, issue comments, Claude reports and chats. Keep as provenance, but do not elevate into current truth without reconciliation.
+
+When sources disagree: capture **claim A / claim B / timestamps / normative owner / exact evidence / resolution / unresolved decision**. An unresolved conflict is YELLOW or RED, never implicitly GREEN. A later comment may correct a historical comment without changing an accepted ADR.
+
+### B. Explicit issue-role registry
+
+| Source | Institutional role | Do NOT infer |
+| --- | --- | --- |
+| docs/BACKLOG.md | Institutional technical backlog and dated debt/truth history | Every old DONE means current production acceptance |
+| #99 | CTO continuity on Day-0 network architecture and sequencing | Independent acceptance of multi-operator network |
+| #221 | CTO/Claude operating model, toolchain and handoff | Authority to merge or deploy from a comment |
+| #105 + ADR-001 | Multi-operator Day-0 completion gate + architecture | Sails Market fleet alone proves independent operators |
+| #125 | Cross-surface documentation truth gate | #275 closure means documentation is aligned |
+| #165 | Scenario-level integration and Beta reality gate | Passing unit/DB tests proves live economic flows |
+| #293 | P2P trade lifecycle and safety audit | Future UX enhancement / deferrable after Day-0 |
+| #420 | Incident corpus and staged Beta evidence | Incident review is interchangeable with code review |
+| #500 | Continuous discovery of production gaps | Every finding is already a validated defect |
+| #275 | CLOSED historical reconciliation program | Current #125 gate is CLOSED |
+| #525 | DRAFT P4 economic recovery change, exact-SHA CI | Merge, migration or production permission |
+| #531 | DRAFT documentation reconciliation | Master accepted or canonical main updated |
+
+### C. Time-qualified statements: known traps
+
+- **Protocol freeze v1.0** is an architectural historical event, not code complete, Beta or production authorization.
+- **BACKLOG phase table** includes older descriptions and later self-corrections; read the latest relevant correction, not just its top row.
+- **Proof service / settlement providers:** historical 'not implemented' language was corrected in BACKLOG. Real implementation existence is distinct from production-authorized rail status.
+- **FeeDistribution** historical implementation was superseded by the later FeeCollectionEvidence → FeeObligation → frozen DistributionPolicyVersion → EntitlementLedgerEntry authority. Do not resurrect frozen legacy writes based on an old DONE row.
+- **Private Market ≠ Private Infrastructure** (#147): membership/market authority does not follow node hosting.
+- **Sails Market bootstrap fleet** (#361): may help availability; does not substitute third-party independent operators in #105.
+- **UNKNOWN ≠ FAILED** and transaction-public evidence ≠ economic authorization. Do not infer recovery success from a test-only explorer stub.
+- **CI #40145591634** was successful for #525 SHA 728ab00e83653b4f37b88facb9bdceb5bed4de65; independent isolation review and migration approval remain separate.
+- **P3/P4 PRs** remain draft as checked in this sweep; never treat a stack description as proof of ancestry or merge.
+
+### D. Mandatory first-hour checklist for an incoming CTO
+
+1. Read docs/BACKLOG.md **including later correction notes**, this ledger, accepted ADR-001, #99 and #221.
+2. Fetch live issue states and last material comments for #105, #125, #165, #293, #420 and #500; recheck #275 closed-state versus body text.
+3. Fetch exact PR HEAD, base, draft/merge state and CI for each active PR. Verify stacked ancestry rather than trusting titles.
+4. Separate **normative obligations**, **implementation tasks**, **test evidence**, **acceptance decisions**, **operational deployments** and **research**.
+5. Keep a contradiction log with owner and timestamp. Never silently overwrite or discard historical evidence.
+6. Maintain the RED/YELLOW/GREEN gate and **measured percentage only for a named bounded denominator**; use NOT MEASURED for global Master until normalized.
+7. Issue bounded missions to Claude. CTO retains final decision; independent verifier cannot be the same executor's unreviewed assertion.
+8. Before any migration, merge, VPS staging, production or policy change: obtain its own explicit approval and environmental evidence.
+
+### E. Acceptance definition for this *documentation* work
+
+- [x] Explicit role/authority hierarchy and contradiction rule.
+- [x] Open Day-0 lexical issue index with no fabricated closure claims.
+- [x] Historical table candidate inventory with source line references.
+- [x] Current P3/P4 draft PR topology snapshot.
+- [x] Review/audit/pentest/gatekeeper responsibility separation.
+- [x] Incoming CTO first-hour checklist and known temporal traps.
+- [ ] All prose obligations individually extracted and deduplicated (large historical Master, not yet exhaustive).
+- [ ] All issue comments, PR diffs, current code and independent acceptance checked obligation-by-obligation.
+- [ ] GitBook/Mintlify cross-surface alignment independently accepted (#125).
+- [ ] CTO-reviewed and merged to main (PR #531 remains draft).
+
+**Interpretation:** the continuity contract is documented; the entire Master and release gates are NOT 100% accepted. This distinction is non-negotiable.
