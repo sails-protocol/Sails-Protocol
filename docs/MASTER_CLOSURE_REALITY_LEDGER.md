@@ -658,6 +658,32 @@ Unlike the earlier literal-search tables, the entries below were classified from
 
 **Adjudicated sample:** 7/7 selected source passages classified for temporal/deduplication meaning; **54-item item-level evidence adjudication:** PENDING; **Master global numerator/denominator:** NOT MEASURED. Do not add these seven to the 17-topic search or 54 source entries as distinct obligations.
 
+
+### Item-level BACKLOG evidence triage — 16 priority #105 entries (2026-10-25)
+
+**Method:** For the 16 listed canonical #105 items, the table records a deterministic literal search in the 5,906-line BACKLOG and the first matching line, if any. The search phrase is a navigation probe, **not** a proof of semantic equivalence or unique obligation; a missing literal is not proof of missing coverage. Historical passages, negations, supersession and duplicate obligations remain possible. **No code, CI or independent reviewer evidence was verified for these items in this pass.**
+
+| #105 item | Gate | Search phrase | BACKLOG location | Adjudication |
+| --- | --- | --- | --- | --- |
+| 8 | C | signed Offer | L1408 (4 literal hits) | SOURCE CANDIDATE ONLY / EVIDENCE UNKNOWN |
+| 9 | C | tombstone | L1551 (4 literal hits) | SOURCE CANDIDATE ONLY / EVIDENCE UNKNOWN |
+| 10a | C | transport identity | L176 (11 literal hits) | SOURCE CANDIDATE ONLY / EVIDENCE UNKNOWN |
+| 10b | C | Operational Sails Node Identity | L1410 (3 literal hits) | SOURCE CANDIDATE ONLY / EVIDENCE UNKNOWN |
+| 11 | C | Economic Identity | L479 (10 literal hits) | SOURCE CANDIDATE ONLY / EVIDENCE UNKNOWN |
+| 13 | C | Node Descriptor | L1561 (4 literal hits) | SOURCE CANDIDATE ONLY / EVIDENCE UNKNOWN |
+| 16 | D | anti-entropy | L1549 (2 literal hits) | SOURCE CANDIDATE ONLY / EVIDENCE UNKNOWN |
+| 20 | D | clock-health | L1623 (2 literal hits) | SOURCE CANDIDATE ONLY / EVIDENCE UNKNOWN |
+| 21 | E | trade-open | L1487 (6 literal hits) | SOURCE CANDIDATE ONLY / EVIDENCE UNKNOWN |
+| 22 | E | payment-destination | L1752 (4 literal hits) | SOURCE CANDIDATE ONLY / EVIDENCE UNKNOWN |
+| 26 | E | arbitration authority | L1787 (3 literal hits) | SOURCE CANDIDATE ONLY / EVIDENCE UNKNOWN |
+| 34 | G | Node Contribution Accounting | L1415 (3 literal hits) | SOURCE CANDIDATE ONLY / EVIDENCE UNKNOWN |
+| 35 | G | No-Cannibalization | L1416 (2 literal hits) | SOURCE CANDIDATE ONLY / EVIDENCE UNKNOWN |
+| 38 | H | Stranger Node | L1679 (2 literal hits) | SOURCE CANDIDATE ONLY / EVIDENCE UNKNOWN |
+| 39 | H | Independent Node Operator | L1634 (3 literal hits) | SOURCE CANDIDATE ONLY / EVIDENCE UNKNOWN |
+| 40 | H | Stranger Developer | L831 (5 literal hits) | SOURCE CANDIDATE ONLY / EVIDENCE UNKNOWN |
+
+**Bounded sample:** 16/54 canonical entries received a literal BACKLOG lookup; 38 remain outside this item-level triage. All 16 have **evidence status UNKNOWN**, not FAIL. Do not combine these with earlier topic-search totals. This does not satisfy check 8 or set a Master denominator.
+
 ## Beta evidence registry boundary — #165 independently inspected 2026-10-25
 
 Issue #165 is OPEN and owns **scenario-level integration and reality-validation evidence**; it is not interchangeable with #105 (multi-node), #125 (documentation), #420 (incident corpus), or this documentation-only PR. Its issue body was read directly during this pass. This ledger does **not** claim scenario PASS counts without a per-scenario evidence check, and it does not collapse issue-level OPEN into individual scenario FAIL. Incoming CTOs must follow #165's exact scenario statuses and latest comments rather than treating a completed implementation or green CI as Beta acceptance.
