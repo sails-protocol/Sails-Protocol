@@ -1452,6 +1452,21 @@ jobs:
             javascript: /GoError|TypeError|ReferenceError|SyntaxError/i.test(log),
           }))
           NODE
+          # Compare k6's relative import resolution with an absolute file URL
+          # only as a diagnostic; the candidate gate remains unchanged.
+          node <<'NODE'
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const importer = path.resolve('load-tests/utils/.sails-nacl-resolution-probe.js')
+          const resolved = path.resolve(path.dirname(importer), '../../node_modules/tweetnacl/nacl-fast.js')
+          const target = path.resolve('node_modules/tweetnacl/nacl-fast.js')
+          console.log('Independent Intent Node path resolution diagnostics:', JSON.stringify({
+            importerParentExists: fs.existsSync(path.dirname(importer)),
+            resolvedExists: fs.existsSync(resolved),
+            resolvedMatchesDependency: resolved === target,
+            resolvedIsFile: fs.existsSync(resolved) && fs.statSync(resolved).isFile(),
+          }))
+          NODE
           # Preflight parses and initializes the script without issuing HTTP requests.
           # Only the exit status is emitted; stderr can contain sensitive config.
           set +e
