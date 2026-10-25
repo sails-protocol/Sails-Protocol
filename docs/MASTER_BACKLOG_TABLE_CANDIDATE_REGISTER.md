@@ -206,3 +206,12 @@ Inspected `src/modules/open-p2p/trade.routes.ts`, `src/modules/open-p2p/trade.se
 - The helper distinguishes `COMPLETED`, `UNKNOWN`, `FAILED`, `IN_PROGRESS` and documents post-persist side effects. `tests/idempotency.test.ts` defines tests for exact retries, concurrent races, payload mismatch, failure/retry, cross-participant scope, and recovery when completion bookkeeping fails.
 - **Safety gap in scope, not newly proven defect:** missing client key permits separate logical creations; `tests/idempotency.test.ts` explicitly tests that two no-key calls remain allowed. Do not call this universally idempotent. Reconcile UI/SDK key generation and retry contract separately, without silently changing API semantics.
 - **Still open:** verify executed tests at exact SHA; inspect offer/evidence/dispute callers, persistent-store crash windows and post-persist event/outbox guarantees. No claim of complete distributed exactly-once effects or accepted release gate.
+
+
+## Dispute evidence idempotency and CI provenance batch (2026-10-25)
+
+- At branch HEAD `fc5ec854c03a59c8c2db964c1889297842caf7d3`, the **CI Tests** workflow run `40205965386` and **CodeQL** run `40205965338` were observed `completed/success`; main **CI** run `40205965536` remained `in_progress` when checked. These workflow outcomes do **not** independently prove which named Jest suites executed.
+- `src/modules/open-settlement/dispute.service.ts` inspected: `submitEvidence()` (around lines 1106–1116) accepts an optional `idempotencyKey` and passes it into `withIdempotency()`. The `raiseDispute()` and `resolveDispute()` methods were located, but no claim is made that their full transaction/side-effect behavior was audited in this batch.
+- Trade creation and dispute evidence submission both have helper-level idempotency integration; **optional keys** mean callers may operate without replay deduplication. Do not extrapolate this to an end-to-end exactly-once guarantee or classify it as a new defect without an explicit client retry contract.
+- Four hypothesized Offer/Evidence file paths were not found; **no absence-of-feature inference** is warranted. Locate the actual offer routes/service and evidence endpoint before extending the caller matrix.
+- Next verification: exact Jest test names in CI output, offer creation caller path, evidence route propagation, crash-window event delivery and independent Gatekeeper decision. No change to production runtime or economic authority.
