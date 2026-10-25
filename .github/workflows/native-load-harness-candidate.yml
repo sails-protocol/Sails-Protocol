@@ -1467,6 +1467,30 @@ jobs:
             resolvedIsFile: fs.existsSync(resolved) && fs.statSync(resolved).isFile(),
           }))
           NODE
+          # Test a second module-loading strategy independently: package-relative
+          # require versus an absolute filesystem path. This is diagnostic only.
+          cat > load-tests/utils/.sails-nacl-absolute-probe.js <<'K6PROBE'
+          globalThis.self = globalThis
+          const nacl = require('/home/runner/work/Sails-Protocol/Sails-Protocol/node_modules/tweetnacl/nacl-fast.js')
+          export const options = { vus: 1, iterations: 1 }
+          export default function () { if (!nacl.sign) throw new Error('nacl unavailable') }
+          K6PROBE
+          # Avoid assumptions about runner workspace: replace the literal path
+          # with a safely JSON-escaped canonical path before inspecting.
+          node <<'NODE'
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const file = 'load-tests/utils/.sails-nacl-absolute-probe.js'
+          const absolute = path.resolve('node_modules/tweetnacl/nacl-fast.js')
+          const source = fs.readFileSync(file, 'utf8')
+          fs.writeFileSync(file, source.replace(/require\\('[^']+'\\)/, 'require(' + JSON.stringify(absolute) + ')'))
+          NODE
+          set +e
+          k6 inspect load-tests/utils/.sails-nacl-absolute-probe.js > /tmp/sails-nacl-absolute-probe.log 2>&1
+          nacl_absolute_exit=$?
+          set -e
+          rm -f load-tests/utils/.sails-nacl-absolute-probe.js
+          echo "Independent Intent tweetnacl absolute resolution probe exit (diagnostic only): $nacl_absolute_exit"
           # Preflight parses and initializes the script without issuing HTTP requests.
           # Only the exit status is emitted; stderr can contain sensitive config.
           set +e
