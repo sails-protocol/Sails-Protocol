@@ -2,6 +2,13 @@
 
 Status: **NOT HOMOLOGATED / BLOCKED**. This document records evidence, not authorization to merge or deploy.
 
+## Publisher disconnect evidence and reconnect regression pending (2026-10-25 UTC)
+
+- Commit `104de8a63c160dae1e6c736d4de72bb9d35c472b`: CI `40160251407`, CI Tests `40160251504`, CodeQL `40160251409` all success. CI build log explicitly reports `PASS tests/relayDeliveryRedis.process.integration.test.ts`; Jest: 197/197 suites and 2633/2633 tests.
+- This confirms the *publisher-client disconnect* fail-closed assertion added in `e63b90f` inside the two-process Redis test. It is **not** a full Redis server outage/restart or supervised recovery test, so the distributed acceptance tally stays **2/5**, and the remaining acceptance tally **2/14**.
+- Commit `cbad64a19e2d4dde73478ebf136d4a90023254f3` adds a regression check that a reconnected publisher TCP socket cannot revive a permanently closed transport. This addition is **pending CI evidence**.
+- The Jest force-exited worker/open-handles warning persists in CI `40160251407`; root cause and cleanup remain unverified.
+
 ## Reconnection/fencing evidence and outage test pending (2026-10-25 UTC)
 
 - Commit `f7e4c93634278cd0c7fc4ff8db74a0b20c1ee27b`: CI `40159137086`, CI Tests `40159137026`, CodeQL `40159137058` all success. The CI build log explicitly shows `PASS tests/relayDeliveryRedis.process.integration.test.ts`, `197/197` suites and `2633/2633` tests.
