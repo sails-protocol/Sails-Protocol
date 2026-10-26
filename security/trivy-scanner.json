@@ -1,0 +1,6 @@
+{
+  "image": "aquasec/trivy",
+  "version": "0.76.1",
+  "digest": "sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c",
+  "note": "The scanner is pinned by digest so a result can be traced to an exact binary. The vulnerability DATABASE is downloaded at scan time and is not pinned: its version and UpdatedAt are recorded next to every report (trivy-version-<image>.txt). Bump this file in a reviewed commit, never implicitly."
+}
