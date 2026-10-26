@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process'
 const here = import.meta.dirname
 const orch = path.join(here, 'orchestrate.mjs')
 const S03 = 'homeserver/test/03-pear-directory-revocation.test.mjs'
+const S05 = 'homeserver/test/05-hostile-homeserver.test.mjs'
 
 const MUTANTS = [
   ['H1 identity not pinned', 'policy.mjs', "if (v.identity !== identity) return deny('wrong-identity')", '', 'p03'],
@@ -22,6 +23,11 @@ const MUTANTS = [
   ['H9 revocation probe blind (always active)', 'policy.mjs', "if (/revoked/i.test(text)) return 'revoked'", '', 'p03'],
   ['H10 grant+PoP signatures not verified', 'policy.mjs', 'try { v = verifyCustomGrantPop(record.cp, { clockSkewSeconds: 30 }) }', 'try { v = unsafeDecode(record.cp) }', 'p03'],
   ['H11 challenge reusable', 'role-verifier.mjs', 'if (!seenChallenges.delete(nonce))', 'if (!seenChallenges.has(nonce))', 'p03'],
+  ['H13 provenance not required (stats optional)', 'policy.mjs', "if (!stats || !Number.isFinite(stats.lastModifiedMs)) return deny('freshness-unavailable')", '', 'p05'],
+  ['H14 signed statement age ignored', 'policy.mjs', "if (now - r.iat > maxAgeSec) return deny('statement-stale')", '', 'p05'],
+  ['H15 homeserver timestamp ignored', 'policy.mjs', "if (now * 1000 - stats.lastModifiedMs > maxAgeSec * 1000) return deny('directory-stale')", '', 'p05'],
+  ['H16 anti-rollback ignored', 'policy.mjs', "if (guard && !guard.accept(`${r.identity}:${r.pear}`, r.seq)) return deny('rollback-or-replay')", '', 'p05'],
+  ['H17 future-dated statements accepted', 'policy.mjs', "if (r.iat > now + 30) return deny('statement-from-the-future')", '', 'p05'],
   ['H12 revocation fails OPEN when the homeserver is unreachable', 'role-verifier.mjs', "if (status === 'unavailable') return { ok: false, reason: 'revocation-status-unavailable' } // fail closed", '', 'p04']
 ]
 
@@ -53,6 +59,7 @@ for (const [name, file, from, to, suite] of MUTANTS) {
   fs.writeFileSync(target, text.replace(from, () => to) + (to.includes('unsafeDecode') ? UNSAFE : ''))
   let r
   if (suite === 'p03') r = run(tmp, [S03])
+  else if (suite === 'p05') r = run(tmp, [S05])
   else {
     // outage mutant: prepare state, freeze the homeserver, run the outage suite on the mutant, unfreeze
     run(path.join(here), ['homeserver/test/04a-outage-prepare.test.mjs'])

@@ -4,6 +4,19 @@ Status: **experiment. Prototype results, not a Day 0 GO.** Nothing here touches 
 Decision applied (CTO comment on PR #543): model **B**, native Pubky recovery + fresh Pear key + re-authorization.
 No Sails-owned seed, no Pear key derived from the Pubky secret.
 
+## Mission 03 additions (2026-10-26) - see `../SECURITY-CLOSURE.md`
+
+Suites 05 (hostile / stale homeserver, stolen devices, reuse, reinstall + re-authorization: 14 tests) and 06 (a 25 s grant from a lab signer) were added;
+the full lab is now 37 tests plus 17 RED/GREEN mutants. Rows of the matrix below that changed:
+
+| # | Item | Was | Now |
+|---|---|---|---|
+| 8 | Grant lifetime chosen by the signer | FAIL | **FAIL in the official signer/SDK; PASS at protocol level** (suite 06: homeserver and verifier honour a signed short `exp`) |
+| 10 | Directory integrity against a hostile or stale homeserver | UNKNOWN | **PASS for authenticity and bounded staleness; FAIL for a homeserver that ignores revocation** (S1-S8, S11-S12) |
+| 16 | Grant expiry enforced by the homeserver | UNKNOWN | **PASS** (writes and new bearers refused after a 25 s grant expired) |
+| 19 | Third-party revocation status | "PASS, undocumented" | **diagnostic only** (CTO); the auditable alternative is the bounded-freshness policy |
+| 6 | External signer | PASS (process level) | unchanged; **real Ring app: UNKNOWN (not runnable here)** |
+
 ## Reproduce
 
 ```
@@ -14,8 +27,8 @@ docker build --build-arg BUILD_TARGET=testnet -t ppr-pubky-testnet:v0.16.2 pubky
 # 2. runner + whole experiment
 docker build -f homeserver/Dockerfile.runner -t ppr-runner:dev .
 node homeserver/orchestrate.mjs up       # internal network, PostgreSQL 18, testnet; waits for the PKARR publish
-node homeserver/orchestrate.mjs all      # suites 01..04 (04 freezes and thaws the homeserver)
-node homeserver/red-green.mjs            # 12 policy mutants against the real homeserver
+node homeserver/orchestrate.mjs all      # suites 01..06 (04 freezes and thaws the homeserver)
+node homeserver/red-green.mjs            # 17 policy mutants against the real homeserver
 node homeserver/orchestrate.mjs down
 ```
 

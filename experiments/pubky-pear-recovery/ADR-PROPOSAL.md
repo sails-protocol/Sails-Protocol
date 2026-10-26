@@ -31,6 +31,18 @@ coordination (PR #542). Funds authority, economic identity and transport identit
 6. **Receipts.** The lab receipt format is not a contract. Mapping to OpenProof/OpenReputation requires the identity-binding and
    canonicalization decisions listed in `RECEIPTS-VS-CONTRACTS.md`.
 
+## Revision 3 addendum (Mission 03, after CTO review of #545)
+
+* The undocumented error-ordering probe is **diagnostic only** and is not an authorization oracle.
+* Third-party authorization requiring **immediate** revocation is **BLOCKED** until upstream documents a status endpoint or signed revocation feed.
+* An auditable bounded alternative exists and is tested (`SECURITY-CLOSURE.md` section 4): provenance from the identity's directory, signed statement age < N,
+  homeserver modification time < N, sequence guard, fail closed when unavailable; N is a parameter (5-15 min to be chosen after a threat model). It trusts the user's
+  homeserver for freshness and revocation (a homeserver that ignores revocation defeats it) and needs a live integrator re-publishing before N.
+* Two-year grants accepted as an upstream constraint for the experiment only; protocol-level short `exp` works (suite 06) but the official signer API cannot request it.
+* Records must be signed, versioned (`seq`), anti-replay and anti-rollback, with bounded freshness; the directory is never trusted as authority.
+* Pear remains the Day 0 transport candidate (viability: `PEAR-VIABILITY.md`); Pubky Noise not implemented.
+* Receipts: minimal decisions and acceptance criteria in `CONTRACT-RECONCILIATION.md`, to be approved by the CTO before any implementation.
+
 ## Consequences and costs
 
 * Depends on an **undocumented** homeserver behaviour for third-party revocation status (observation 19). Ask Pubky for a documented

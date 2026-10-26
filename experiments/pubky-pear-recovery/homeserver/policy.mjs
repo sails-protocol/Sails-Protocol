@@ -57,7 +57,39 @@ export function verifyPearAuthorization (record, { identity, audience, now, allo
   if (now >= claims.exp) return deny('grant-expired')
   const ok = sodium.crypto_sign_verify_detached(b4a.from(record.pearSig ?? '', 'hex'), signingInput({ grantJti: claims.jti, nonce: v.nonce, pear: d.pear }), b4a.from(d.pear, 'hex'))
   if (!ok) return deny('pear-binding-invalid')
-  return { ok: true, identity: v.identity, grantId: claims.jti, clientId: claims.client_id, pear: d.pear, scope: d.scope, nonce: v.nonce, expires: Math.min(d.exp, claims.exp) }
+  return { ok: true, identity: v.identity, grantId: claims.jti, clientId: claims.client_id, pear: d.pear, scope: d.scope, nonce: v.nonce, expires: Math.min(d.exp, claims.exp), iat: d.iat, seq: d.seq }
+}
+
+// ---- Freshness, provenance and anti-rollback (CTO decision 5: do not trust an unsigned mutable directory) ----
+
+// Remembers the highest statement sequence seen per (identity, Pear key). A lower number is a rollback.
+export class RollbackGuard {
+  #seen = new Map()
+  accept (key, seq) {
+    const last = this.#seen.get(key) ?? -1
+    if (seq < last) return false
+    this.#seen.set(key, seq)
+    return true
+  }
+}
+
+export const DEFAULT_MAX_AGE_SEC = 900
+
+// A record only authorizes something NEW if (1) the signed chain verifies, (2) it was fetched from the identity's
+// directory (the caller passes the homeserver's stats; a record handed over out of band has none), (3) the SIGNED
+// statement is younger than maxAgeSec, (4) the homeserver's own last-modified is too, and (5) it is not older than
+// one already seen. The homeserver is trusted for revocation and freshness, NOT for authenticity: it cannot forge
+// (3) or (5) but it can lie about (4) and about whether a grant was revoked.
+export function verifyFreshRecord (record, opts, { stats, now, maxAgeSec = DEFAULT_MAX_AGE_SEC, guard }) {
+  const r = verifyPearAuthorization(record, opts)
+  if (!r.ok) return r
+  if (!Number.isSafeInteger(r.seq)) return deny('seq-missing')
+  if (!stats || !Number.isFinite(stats.lastModifiedMs)) return deny('freshness-unavailable')
+  if (r.iat > now + 30) return deny('statement-from-the-future')
+  if (now - r.iat > maxAgeSec) return deny('statement-stale')
+  if (now * 1000 - stats.lastModifiedMs > maxAgeSec * 1000) return deny('directory-stale')
+  if (guard && !guard.accept(`${r.identity}:${r.pear}`, r.seq)) return deny('rollback-or-replay')
+  return r
 }
 
 // Live proof that the Pear key is held right now: verifier-chosen challenge, audience-bound.

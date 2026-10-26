@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "description": "EXPERIMENT (not part of the Sails build): one P2P recovery root -> Pubky identity + Pear device keys, with a signed Pubky->Pear session authorization.",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "test": "node --test --test-timeout=120000 \"test/*.test.mjs\"",
     "vectors:generate": "node scripts/generate-vectors.mjs",
@@ -18,9 +20,9 @@
     "@scure/bip39": "2.4.0",
     "@synonymdev/pubky": "0.16.2",
     "b4a": "1.9.0",
+    "hypercore": "11.39.3",
     "hyperdht": "6.34.1",
     "hyperswarm": "4.17.2",
     "sodium-universal": "5.0.1"
   }
 }
-

@@ -37,12 +37,17 @@ export function serve (handlers) {
   })
 }
 
+const live = new Set()
+export const closeAll = () => { for (const c of live) c.kill(); live.clear() }
+
 export function spawnRole (script, env = {}) {
   const child = spawn(process.execPath, [path.resolve(import.meta.dirname, script)], {
     // Minimal environment on purpose: a role only gets what its job needs.
     env: { PATH: process.env.PATH, PUBKY_TESTNET_HOST: HOST, ...env },
     stdio: ['pipe', 'pipe', 'inherit']
   })
+  live.add(child)
+  child.on('exit', () => live.delete(child))
   const pending = new Map()
   let seq = 0
   readline.createInterface({ input: child.stdout }).on('line', (line) => {

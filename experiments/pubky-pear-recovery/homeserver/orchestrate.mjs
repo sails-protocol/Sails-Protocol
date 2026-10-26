@@ -51,7 +51,7 @@ function run (files) {
   const r = spawnSync('docker', ['run', '--rm', '--network', `container:${TESTNET}`, '-v', `${STATE}:/state`,
     '-v', `${process.env.PPR_HS_DIR ?? path.resolve(import.meta.dirname, '..', 'homeserver')}:/w/homeserver:ro`,
     '-v', `${path.resolve(import.meta.dirname, '..', 'src')}:/w/src:ro`, '-e', 'PUBKY_TESTNET_HOST=localhost',
-    RUNNER_IMAGE, 'node', '--test', '--test-timeout=180000', ...files], { stdio: 'inherit' })
+    RUNNER_IMAGE, 'node', '--test', '--test-force-exit', '--test-timeout=180000', ...files], { stdio: 'inherit' })
   process.exit(r.status ?? 1)
 }
 
@@ -62,6 +62,8 @@ function all () {
     ['01', [`${T}/01-identity-recovery.test.mjs`]],
     ['02', [`${T}/02-grants-external-signer.test.mjs`]],
     ['03', [`${T}/03-pear-directory-revocation.test.mjs`]],
+    ['05', [`${T}/05-hostile-homeserver.test.mjs`]],
+    ['06', [`${T}/06-configurable-validity.test.mjs`]],
     ['04a', [`${T}/04a-outage-prepare.test.mjs`]],
     ['pause'],
     ['04b', [`${T}/04b-outage-frozen.test.mjs`]],

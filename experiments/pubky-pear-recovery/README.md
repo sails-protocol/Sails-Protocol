@@ -9,7 +9,7 @@ It is not part of any npm workspace. Mission: CTO "Pubky + Pear Unified P2P Reco
 > `homeserver/` (a REAL Pubky homeserver built from the signed `v0.16.2` tag, isolated; identity recovery, external-signer
 > grants, Pear key directory, revocation, outage; PASS/FAIL/UNKNOWN matrix in `homeserver/README.md`),
 > `TRANSPORT-COMPARISON.md` (Pubky Noise vs Pear), `RECEIPTS-VS-CONTRACTS.md` (gaps against OpenProof/OpenReputation) and
-> `ADR-PROPOSAL.md` revision 2. The statements below about "not tested: homeserver round trip" are superseded by `homeserver/README.md`.
+> `ADR-PROPOSAL.md` (revision 3 after Mission 03: `SECURITY-CLOSURE.md`, `PEAR-VIABILITY.md`, `CONTRACT-RECONCILIATION.md`, `UPSTREAM-INQUIRY.md` draft). The statements below about "not tested: homeserver round trip" are superseded by `homeserver/README.md`.
 
 ## Question and answer in one paragraph
 

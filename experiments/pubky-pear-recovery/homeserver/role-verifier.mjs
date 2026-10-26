@@ -3,9 +3,10 @@
 // directory on the homeserver and verifies them with policy.mjs.
 import b4a from 'b4a'
 import { HOMESERVER_HTTP, PEAR_DIR, serve, testnet, within } from './lib.mjs'
-import { challengeInput, grantStatus, verifyChallenge, verifyPearAuthorization } from './policy.mjs'
+import { RollbackGuard, challengeInput, grantStatus, verifyChallenge, verifyFreshRecord, verifyPearAuthorization } from './policy.mjs'
 
 const pubky = testnet()
+const guard = new RollbackGuard()
 const seenChallenges = new Set()
 
 const addr = (identity, path) => `pubky${identity}${path}`
@@ -29,6 +30,27 @@ serve({
     return r
   },
   async status ({ record }) { return grantStatus(HOMESERVER_HTTP, record.cp.grant) },
+  // Raw read of a directory record from ANY base URL (the real homeserver or a hostile proxy), with the
+  // homeserver-reported modification time. A missing record is reported, never invented.
+  async readRecord ({ base, identity, pear }) {
+    const path = `${PEAR_DIR}/devices/${pear}.json`
+    const opts = { headers: { 'pubky-host': identity }, signal: AbortSignal.timeout(8000) }
+    const get = await fetch(base + path, opts).catch(() => null)
+    if (!get || get.status !== 200) return { found: false, status: get?.status ?? 0 }
+    const head = await fetch(base + path, { ...opts, method: 'HEAD' }).catch(() => null)
+    const lm = head?.headers.get('last-modified')
+    return { found: true, record: await get.json(), stats: { lastModifiedMs: lm ? Date.parse(lm) : NaN } }
+  },
+  // Strict policy for authorizing something NEW: provenance + freshness + anti-rollback + optional online status.
+  async verifyStrict ({ read, identity, audience, now, maxAgeSec, online }) {
+    if (!read.found) return { ok: false, reason: 'record-unavailable' }
+    const r = verifyFreshRecord(read.record, { identity, audience, now, requiredPath: `${PEAR_DIR}/devices/` }, { stats: read.stats, now, maxAgeSec, guard })
+    if (!r.ok || !online) return r
+    const status = await grantStatus(HOMESERVER_HTTP, read.record.cp.grant)
+    if (status === 'revoked') return { ok: false, reason: 'grant-revoked' }
+    if (status === 'unavailable') return { ok: false, reason: 'revocation-status-unavailable' }
+    return r
+  },
   async challenge ({ audience, pear }) {
     const nonce = b4a.toString(b4a.from(globalThis.crypto.getRandomValues(new Uint8Array(16))), 'hex')
     seenChallenges.add(nonce)
