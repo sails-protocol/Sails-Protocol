@@ -30,7 +30,7 @@ import { fetchTransactionExistence, multisigProvider } from './multisig.provider
 const log = childLogger('disputed-recreation-guard')
 
 export type RecreationRefusalCause =
-  | 'WINDOW' | 'TXID_PUBLIC' | 'OUTPOINT_SPENT' | 'CHAIN_UNREADABLE' | 'LEGACY_EDA' | 'INTENT_MISMATCH' | 'CONCURRENT_CHANGE'
+  | 'WINDOW' | 'TXID_PUBLIC' | 'OUTPOINT_SPENT' | 'CHAIN_UNREADABLE' | 'LEGACY_EDA' | 'INTENT_MISMATCH' | 'CONCURRENT_CHANGE' | 'SPLIT_UNSUPPORTED'
 
 export function recreationRefusal(cause: RecreationRefusalCause, detail: string): EscrowError {
   return new EscrowError(`DISPUTED_RECREATION_REFUSED[${cause}]: ${detail}`)
@@ -62,6 +62,13 @@ export async function assessDisputedRecreation(input: {
   const lost = await lostLiveAuthorizations(prisma, escrowId, g)
   if (lost.length === 0) return null // no authorization lost its pending: the pre-existing rules apply unchanged
   const eda = lost[0]
+
+  // Option B1 of docs/p4-gate3-unknown-outcome-contract.md 6.11: automatic re-creation covers RELEASE and REFUND only. A SPLIT has
+  // no end-to-end evidence yet (re-creation, PASS 0b convergence, fee obligation, both outputs against the ruling), so it is refused
+  // and handled manually. Placed before every external read: nothing is asked of the network for a round that is refused anyway.
+  if (input.kind === 'split') {
+    throw recreationRefusal('SPLIT_UNSUPPORTED', `authorization ${eda.id} of escrow ${escrowId} is for a SPLIT: a lost SPLIT round is not re-created automatically (manual handling)`)
+  }
 
   // A row that cannot name its transaction or its intent cannot be proven: refused, never inferred.
   if (!eda.unsignedTxid || !eda.intentDigest) {
