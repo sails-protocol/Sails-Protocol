@@ -489,6 +489,15 @@ export class PostgresEventStore implements EventStore {
   }
 }
 
+// XACK only while the entry is pending under THIS consumer (Redis Gate 2: Redis itself accepts an ACK from any client, and from a
+// consumer that lost the entry to an XCLAIM). KEYS[1]=stream, ARGV = group, entry id, consumer name. Returns 1 if acknowledged, else 0.
+// One script, so the ownership check and the ACK are atomic. This closes the stale-owner case between OUR consumers; a client that
+// holds Redis credentials and is not one of them can still XACK directly: that is closed with Redis ACLs, not here.
+const ACK_IF_OWNER_LUA = `
+local owned = redis.call('XPENDING', KEYS[1], ARGV[1], ARGV[2], ARGV[2], 1, ARGV[3])
+if #owned == 1 then return redis.call('XACK', KEYS[1], ARGV[1], ARGV[2]) end
+return 0`
+
 // ─── Redis Streams — real, closed 2026-08-04 (verified against a live
 // Redis, not just written and hoped to be correct — same discipline
 // CODE_STYLE.md §7 states plainly for this whole codebase).
@@ -659,7 +668,8 @@ export class RedisStreamsEventStore implements EventStore {
         // idleClaimMs from ANY consumer in this group (including a
         // now-dead one from a crashed process) onto this consumer, so a
         // handler that never got to XACK isn't stuck forever.
-        await this.reclaimStalePending(stream, eventName)
+        // The entries it claims are delivered to the handlers below, exactly like new ones.
+        for (const message of await this.reclaimStalePending(stream)) await this.deliver(stream, eventName, message)
 
         const result = await this.client.xreadgroup(
           'GROUP', this.consumerGroup, this.consumerName,
@@ -669,22 +679,7 @@ export class RedisStreamsEventStore implements EventStore {
         if (!result) continue // BLOCK timeout, no new messages — loop back to the reclaim check
 
         const [, messages] = result[0] as [string, Array<[string, string[]]>]
-        for (const message of messages) {
-          const [messageId] = message
-          const event = this.parseEntry(message)
-          const handlers = this.loopHandlers.get(eventName) ?? []
-          try {
-            await Promise.all(handlers.map((h) => h(event)))
-            await this.client.xack(stream, this.consumerGroup, messageId)
-          } catch (err) {
-            // Left un-acked on purpose — reclaimStalePending() above will
-            // redeliver it (to this or another consumer) once idleClaimMs
-            // passes, same "don't silently drop a failed real event"
-            // principle InMemoryEventStore's own subscribe() comment
-            // already states for its in-process equivalent.
-            log.error({ msg: 'Handler error', eventName, messageId, correlationId: event.correlationId, eventId: event.eventId, err: err instanceof Error ? err.message : err })
-          }
-        }
+        for (const message of messages) await this.deliver(stream, eventName, message)
       } catch (err) {
         log.error({ msg: 'Poll loop error', eventName, err: err instanceof Error ? err.message : err })
         await new Promise((resolve) => setTimeout(resolve, 1000)) // brief backoff before retrying the loop
@@ -692,11 +687,38 @@ export class RedisStreamsEventStore implements EventStore {
     }
   }
 
-  private async reclaimStalePending(stream: string, eventName: SailsEventName): Promise<void> {
+  /** Runs the handlers for one entry and acknowledges it only if every handler succeeded AND this consumer still owns it. */
+  private async deliver(stream: string, eventName: SailsEventName, message: [string, string[]]): Promise<void> {
+    const [messageId] = message
+    const event = this.parseEntry(message)
+    const handlers = this.loopHandlers.get(eventName) ?? []
+    try {
+      await Promise.all(handlers.map((h) => h(event)))
+      // Redis would accept an XACK from anybody. If another consumer claimed this entry while our handlers ran (we were slow, so it
+      // was treated as crashed), our late ACK must not remove the entry the NEW owner is still processing: ACK only while the
+      // entry is pending under OUR consumer name, checked and acknowledged atomically.
+      const acked = await this.client.eval(ACK_IF_OWNER_LUA, 1, stream, this.consumerGroup, messageId, this.consumerName)
+      if (Number(acked) !== 1) {
+        log.warn({ msg: 'ACK refused: the entry is no longer pending under this consumer (claimed by another, or already acknowledged)', eventName, messageId, consumer: this.consumerName })
+      }
+    } catch (err) {
+      // Left un-acked on purpose — reclaimStalePending() will
+      // redeliver it (to this or another consumer) once idleClaimMs
+      // passes, same "don't silently drop a failed real event"
+      // principle InMemoryEventStore's own subscribe() comment
+      // already states for its in-process equivalent.
+      log.error({ msg: 'Handler error', eventName, messageId, correlationId: event.correlationId, eventId: event.eventId, err: err instanceof Error ? err.message : err })
+    }
+  }
+
+  /** Claims the entries idle past idleClaimMs (from any consumer of the group, including a dead one) onto this consumer and returns them. */
+  private async reclaimStalePending(stream: string): Promise<Array<[string, string[]]>> {
     const pending = await this.client.xpending(stream, this.consumerGroup, 'IDLE', this.idleClaimMs, '-', '+', 10)
-    if (!Array.isArray(pending) || pending.length === 0) return
+    if (!Array.isArray(pending) || pending.length === 0) return []
     const staleIds = (pending as Array<[string, string, number, number]>).map((p) => p[0])
-    await this.client.xclaim(stream, this.consumerGroup, this.consumerName, this.idleClaimMs, ...staleIds)
+    const claimed = await this.client.xclaim(stream, this.consumerGroup, this.consumerName, this.idleClaimMs, ...staleIds)
+    // XCLAIM returns the claimed entries ([id, fields]); an entry deleted meanwhile comes back as [id, null].
+    return (claimed as Array<[string, string[] | null]>).filter((e): e is [string, string[]] => Array.isArray(e[1]))
   }
 
   async getEvents(correlationId: string): Promise<DurableEvent[]> {
