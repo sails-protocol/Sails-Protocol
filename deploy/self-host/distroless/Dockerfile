@@ -38,10 +38,22 @@ RUN set -eu; arch="${TARGETARCH:-amd64}"; \
 # that is installed (its name depends on the architecture): the COPY of node_modules below keeps the mode.
 RUN set -eu; bare="$(ls /app/node_modules/bare-runtime-linux-*/bin/bare)"; [ "$(printf '%s\n' "$bare" | wc -l)" -eq 1 ] || { echo "expected exactly one bare-runtime platform package, found: $bare" >&2; exit 1; }; chmod 755 "$bare"
 
+# ---- Shared libraries the QVAC native engines need and the distroless base does not ship ----
+# Found by loading a REAL model (a 1.2 MB GGUF) in this image, not by importing the SDK: the worker aborts (SIGABRT) at its first addon with
+# `libatomic.so.1: cannot open shared object file`, then (whisper addon) `libvulkan.so.1`. Both are loader-level dependencies; no GPU is needed.
+# They come from the same Debian 13 the base is built on (digest-pinned, bump in a reviewed commit), installed here and copied as plain files:
+# the final image still has no shell and no package manager.
+FROM debian@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS qvac-libs
+RUN set -eu; export DEBIAN_FRONTEND=noninteractive; apt-get update -qq; \
+    apt-get install -y -qq --no-install-recommends libatomic1 libvulkan1; \
+    ma=$(basename "$(dirname "$(ls /usr/lib/*-linux-gnu/libatomic.so.1)")"); mkdir -p "/out/usr/lib/$ma"; \
+    cp -L "/usr/lib/$ma/libatomic.so.1" "/usr/lib/$ma/libvulkan.so.1" "/out/usr/lib/$ma/"
+
 # ---- Server: Distroless Debian 13, Node 24.x (the base's own Node, matched to the project pin by the image checks) ----
 FROM ${DISTROLESS} AS server
 ENV NODE_ENV=production
 WORKDIR /app
+COPY --from=qvac-libs /out/ /
 COPY --from=slim --chown=65532:65532 /app/node_modules ./node_modules
 COPY --from=pruned --chown=65532:65532 /app/dist ./dist
 COPY --from=pruned --chown=65532:65532 /app/prisma ./prisma

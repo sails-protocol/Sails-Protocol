@@ -202,6 +202,13 @@ The kit does not encrypt backup archives.
 node (build, update, rollback, backup, ...): it also selects `/nodejs/bin/node` for the kit's own helper containers and adds
 `compose.distroless.yml` (read-only root filesystem, private `/tmp`) to every Compose call. The default flavor is unchanged.
 
+QVAC runtime libraries (found 2026-10-26 by loading a real model, which importing the SDK does not exercise): the QVAC native engines need
+`libatomic.so.1` and `libvulkan.so.1`, which the distroless base does not ship. The `qvac-libs` stage copies both from the digest-pinned Debian 13
+image (plain files; still no shell or package manager in the final image). Evidence: with a 1.2 MB GGUF (`stories260K.gguf`) the real model loads and
+unloads (exit 0) as uid 65532, read-only rootfs, no network, all capabilities dropped; before the stage, the worker aborted with SIGABRT. The
+completion step could not be confirmed with that model (its 128-token context overflows on the chat template); use a model with a normal context to
+verify completions. The Debian bookworm images show the same `libatomic.so.1` abort: the production Dockerfile needs the same libraries (separate change).
+
 What changes for the operator: there is **no shell and no package manager** in either image (an ephemeral debug container
 replaces `docker exec ... sh`); the server runs as uid 65532; `node` is not on `PATH`, so `docker exec <container> node` must
 use `/nodejs/bin/node`; the migration job is a Node entrypoint with the same contract as `scripts/migrate-deploy.sh`.
