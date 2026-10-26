@@ -35,6 +35,10 @@ export SAILS_PORT="${SAILS_PORT:-3000}"
 MIGRATE_TIMEOUT="${SAILS_MIGRATE_TIMEOUT:-600}"
 READY_TIMEOUT="${SAILS_READY_TIMEOUT:-120}"
 STATE="$SAILS_NODE_HOME/state"
+# Image flavor: "debian" (default, the production Dockerfile targets) or "distroless" (CANDIDATE, deploy/self-host/distroless:
+# no shell, uid 65532, absolute node path). Only the way images are built and where `node` lives differ; the kit is the same.
+IMAGE_FLAVOR="${SAILS_IMAGE_FLAVOR:-debian}"
+case "$IMAGE_FLAVOR" in debian) NODE_BIN="${SAILS_NODE_BIN:-node}" ;; distroless) NODE_BIN="${SAILS_NODE_BIN:-/nodejs/bin/node}" ;; *) echo "sails-node: SAILS_IMAGE_FLAVOR must be debian or distroless" >&2; exit 2 ;; esac
 # A Windows docker client (Docker Desktop reached from WSL) needs Windows-style paths; on a Linux
 # host this is the identity.
 host_path() {
@@ -55,7 +59,10 @@ export SAILS_SERVER_IMAGE="${SAILS_SERVER_IMAGE:-sails-server:unset}" SAILS_MIGR
 
 die() { echo "sails-node: $*" >&2; exit 1; }
 say() { echo "sails-node: $*"; }
-compose() { docker compose -f "$COMPOSE_FILE_HOST" "$@"; }
+COMPOSE_ARGS=(-f "$COMPOSE_FILE_HOST")
+# The distroless images have no shell and no writable rootfs requirement: run them with a read-only root filesystem.
+[ "$IMAGE_FLAVOR" != distroless ] || COMPOSE_ARGS+=(-f "$(host_path "$HERE/compose.distroless.yml")")
+compose() { docker compose "${COMPOSE_ARGS[@]}" "$@"; }
 state_get() { [ -f "$STATE" ] && sed -n "s/^$1=//p" "$STATE" | tail -n1 || true; }
 state_set() { # key value
   touch "$STATE"; chmod 600 "$STATE"
@@ -73,7 +80,7 @@ default_tag() {
 }
 
 server_ready() { # is the running server answering /health/ready with 200?
-  compose exec -T server node -e "require('http').get('http://127.0.0.1:3000/health/ready',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))" >/dev/null 2>&1
+  compose exec -T server "$NODE_BIN" -e "require('http').get('http://127.0.0.1:3000/health/ready',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))" >/dev/null 2>&1
 }
 
 wait_ready() {
@@ -116,16 +123,28 @@ EOF
 
 cmd_build() {
   local tag="${1:-$(default_tag)}"
-  say "building sails-server:$tag and sails-migrate:$tag from $REPO"
-  docker build --target runtime -t "sails-server:$tag" "$REPO_HOST"
-  docker build --target migrate -t "sails-migrate:$tag" "$REPO_HOST"
+  say "building sails-server:$tag and sails-migrate:$tag from $REPO ($IMAGE_FLAVOR)"
+  if [ "$IMAGE_FLAVOR" = distroless ]; then
+    # The application tree is built once by the production Dockerfile (stages pruned, migrate-deps); the distroless final
+    # stages only add the runtime layer on top (deploy/self-host/distroless/Dockerfile).
+    docker build --target pruned -t "sails-build-pruned:$tag" "$REPO_HOST"
+    docker build --target migrate-deps -t "sails-build-migdeps:$tag" "$REPO_HOST"
+    local df; df="$(host_path "$HERE/distroless/Dockerfile")"
+    docker build -f "$df" --build-context "pruned=docker-image://sails-build-pruned:$tag" --build-context "migdeps=docker-image://sails-build-migdeps:$tag" \
+      --target server -t "sails-server:$tag" "$REPO_HOST"
+    docker build -f "$df" --build-context "pruned=docker-image://sails-build-pruned:$tag" --build-context "migdeps=docker-image://sails-build-migdeps:$tag" \
+      --target migrate -t "sails-migrate:$tag" "$REPO_HOST"
+  else
+    docker build --target runtime -t "sails-server:$tag" "$REPO_HOST"
+    docker build --target migrate -t "sails-migrate:$tag" "$REPO_HOST"
+  fi
 }
 
 # The gate. Returns 0 only when the migration job of this version exited 0.
 run_migration_job() {
   local rc=0
   docker rm -f "$JOB_NAME" >/dev/null 2>&1 || true
-  timeout "$MIGRATE_TIMEOUT" docker compose -f "$COMPOSE_FILE_HOST" run --rm --name "$JOB_NAME" migrate || rc=$?
+  timeout "$MIGRATE_TIMEOUT" docker compose "${COMPOSE_ARGS[@]}" run --rm --name "$JOB_NAME" migrate || rc=$?
   if [ "$rc" -ne 0 ]; then
     docker rm -f "$JOB_NAME" >/dev/null 2>&1 || true # a timed-out job must not keep running
     if [ "$rc" -eq 124 ]; then
@@ -144,7 +163,7 @@ run_migration_job() {
 # fails with the last error; it never loops forever and never reports success it did not see.
 ensure_evidence_bucket() {
   docker run --rm --network "${PROJECT}_default" --env-file "$(host_path "$SAILS_NODE_HOME/secrets/server.env")" \
-    -e "BUCKET_TIMEOUT_S=$READY_TIMEOUT" --entrypoint node "sails-server:$1" -e '
+    -e "BUCKET_TIMEOUT_S=$READY_TIMEOUT" --entrypoint "$NODE_BIN" "sails-server:$1" -e '
       const { S3Client, HeadBucketCommand, CreateBucketCommand } = require("@aws-sdk/client-s3")
       const c = new S3Client({ endpoint: process.env.EVIDENCE_S3_ENDPOINT, region: process.env.EVIDENCE_S3_REGION || "us-east-1", forcePathStyle: true, maxAttempts: 1,
         credentials: { accessKeyId: process.env.EVIDENCE_S3_ACCESS_KEY_ID, secretAccessKey: process.env.EVIDENCE_S3_SECRET_ACCESS_KEY } })
@@ -373,7 +392,7 @@ cmd_restore_evidence() {
 # key. Exit 0 only if every object is readable and matches; an empty bucket is reported, not hidden.
 evidence_verify_all() { # <image tag>
   docker run --rm --network "${PROJECT}_default" --env-file "$(host_path "$SAILS_NODE_HOME/secrets/server.env")" \
-    -e "VERIFY_TIMEOUT_S=$READY_TIMEOUT" --entrypoint node "sails-server:$1" -e '
+    -e "VERIFY_TIMEOUT_S=$READY_TIMEOUT" --entrypoint "$NODE_BIN" "sails-server:$1" -e '
       const { S3Client, ListObjectsV2Command, GetObjectCommand } = require("@aws-sdk/client-s3")
       const { createHash } = require("crypto")
       const c = new S3Client({ endpoint: process.env.EVIDENCE_S3_ENDPOINT, region: process.env.EVIDENCE_S3_REGION || "us-east-1", forcePathStyle: true, maxAttempts: 1,
@@ -438,7 +457,7 @@ cmd_rotate_evidence_key() {
   COMPOSE_PROFILES="${COMPOSE_PROFILES},evidence-rotate" compose up -d seaweedfs-next || { rm -f "$next"; die "cannot start the second store"; }
   local rc=0
   docker run --rm --network "${PROJECT}_default" --env-file "$(host_path "$SAILS_NODE_HOME/secrets/server.env")" \
-    -e "NEW_ENDPOINT=http://seaweedfs-next:8333" -e "COPY_TIMEOUT_S=$READY_TIMEOUT" --entrypoint node "sails-server:$tag" -e '
+    -e "NEW_ENDPOINT=http://seaweedfs-next:8333" -e "COPY_TIMEOUT_S=$READY_TIMEOUT" --entrypoint "$NODE_BIN" "sails-server:$tag" -e '
       const { S3Client, ListObjectsV2Command, GetObjectCommand, PutObjectCommand, CreateBucketCommand, HeadBucketCommand } = require("@aws-sdk/client-s3")
       const { createHash } = require("crypto")
       const cred = { accessKeyId: process.env.EVIDENCE_S3_ACCESS_KEY_ID, secretAccessKey: process.env.EVIDENCE_S3_SECRET_ACCESS_KEY }
@@ -500,7 +519,7 @@ cmd_resolve_rolled_back() {
   [ -n "$tag" ] || die "nothing deployed yet"
   with_images "$tag"
   say "marking $name as rolled back: do this only after verifying the schema (docs/DEPLOYMENT.md 6.1)"
-  compose run --rm --entrypoint node migrate node_modules/prisma/build/index.js migrate resolve --rolled-back "$name"
+  compose run --rm --entrypoint "$NODE_BIN" migrate node_modules/prisma/build/index.js migrate resolve --rolled-back "$name"
 }
 
 cmd_status() {

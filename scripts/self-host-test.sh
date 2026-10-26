@@ -32,6 +32,9 @@ export COMPOSE_PROFILES=evidence-store
 WORK="$(mktemp -d "$PWD/.self-host-test.XXXXXX")"
 export SAILS_NODE_HOME="$WORK/home"
 NODE_CMD="deploy/self-host/sails-node"
+# SAILS_IMAGE_FLAVOR=distroless runs the same test against the CANDIDATE distroless images (no shell, uid 65532, /nodejs/bin/node).
+export SAILS_IMAGE_FLAVOR="${SAILS_IMAGE_FLAVOR:-debian}"
+if [ "$SAILS_IMAGE_FLAVOR" = distroless ]; then NODE=/nodejs/bin/node; OWNER=65532:65532; else NODE=node; OWNER=node:node; fi
 LOGS="$WORK/logs"; mkdir -p "$LOGS"
 PG="${RUN}-postgres-1"
 SERVER="${RUN}-server-1"
@@ -49,6 +52,7 @@ cleanup() {
   docker rm -f "${RUN}-migrate-job" >/dev/null 2>&1 || true
   docker compose -p "$RUN" down -v --remove-orphans >/dev/null 2>&1 || true
   for t in t1 t2 t3 t4; do docker rmi -f "sails-server:$RUN-$t" "sails-migrate:$RUN-$t" >/dev/null 2>&1 || true; done
+  docker rmi -f "sails-build-pruned:$RUN-t1" "sails-build-migdeps:$RUN-t1" >/dev/null 2>&1 || true
   rm -rf "$WORK"
   exit "$status"
 }
@@ -60,7 +64,7 @@ pass() { echo "PASS  $*"; }
 rel() { echo "${1#"$PWD"/}"; }
 sql() { docker exec "$PG" psql -h 127.0.0.1 -U sails -d sails -Atc "$1"; }
 running_image() { docker inspect -f '{{.Config.Image}}' "$SERVER" 2>/dev/null || echo none; }
-server_ready() { docker exec "$SERVER" node -e "require('http').get('http://127.0.0.1:3000/health/ready',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))" >/dev/null 2>&1; }
+server_ready() { docker exec "$SERVER" "$NODE" -e "require('http').get('http://127.0.0.1:3000/health/ready',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))" >/dev/null 2>&1; }
 host_path() { if command -v wslpath >/dev/null 2>&1 && [ "$(docker version -f '{{.Client.Os}}' 2>/dev/null)" = windows ]; then wslpath -m "$1"; else echo "$1"; fi; }
 
 # node_cmd <name> <expect: 0|nonzero> args...   -> $LOGS/<n>-<name>.log, sets STATUS
@@ -77,8 +81,8 @@ derived_images() { # <tag> <from-tag> <migrations-dir or ""> <migrate-entrypoint
   local tag="$1" from="$2" mig="$3" entry="$4" ctx="$WORK/ctx-$1"
   mkdir -p "$ctx/migrations"
   [ -z "$mig" ] || cp -r "$mig"/. "$ctx/migrations/"
-  printf 'FROM sails-server:%s-%s\nCOPY --chown=node:node migrations/ /app/prisma/migrations/\n' "$RUN" "$from" >"$ctx/Dockerfile.server"
-  printf 'FROM sails-migrate:%s-%s\nCOPY --chown=node:node migrations/ /app/prisma/migrations/\n%s\n' "$RUN" "$from" "$entry" >"$ctx/Dockerfile.migrate"
+  printf 'FROM sails-server:%s-%s\nCOPY --chown=%s migrations/ /app/prisma/migrations/\n' "$RUN" "$from" "$OWNER" >"$ctx/Dockerfile.server"
+  printf 'FROM sails-migrate:%s-%s\nCOPY --chown=%s migrations/ /app/prisma/migrations/\n%s\n' "$RUN" "$from" "$OWNER" "$entry" >"$ctx/Dockerfile.migrate"
   docker build -q -t "sails-server:$RUN-$tag" -f "$(rel "$ctx")/Dockerfile.server" "$(rel "$ctx")" >/dev/null
   docker build -q -t "sails-migrate:$RUN-$tag" -f "$(rel "$ctx")/Dockerfile.migrate" "$(rel "$ctx")" >/dev/null
 }
@@ -93,7 +97,8 @@ echo 'CREATE TABLE selfhost_v2_marker (id integer PRIMARY KEY);' >"$WORK/m2/9999
 echo 'SELECT * FROM a_table_that_does_not_exist;' >"$WORK/m3/99990101000002_selfhost_broken/migration.sql"
 derived_images t2 t1 "$WORK/m2" ""
 derived_images t3 t2 "$WORK/m3" ""
-derived_images t4 t2 "" 'ENTRYPOINT ["sleep", "3600"]'
+if [ "$SAILS_IMAGE_FLAVOR" = distroless ]; then SLEEPER='ENTRYPOINT ["/nodejs/bin/node", "-e", "setTimeout(function () {}, 3600000)"]'; else SLEEPER='ENTRYPOINT ["sleep", "3600"]'; fi
+derived_images t4 t2 "" "$SLEEPER"
 pass "t2, t3, t4 derived from t1"
 
 step "init: data directory and secrets"
@@ -122,7 +127,7 @@ pass "t1 installed from nothing: migrated, server ready, sentinel written"
 
 step "The server's own evidence provider works against the bundled store (store, retrieve, delete)"
 grep -q "evidence bucket ready" "$LOGS/$N-update-t1.log" || fail "update did not report the evidence bucket"
-docker exec "$SERVER" node -e "
+docker exec "$SERVER" "$NODE" -e "
   const { S3EvidenceProvider } = require('/app/dist/src/modules/open-proof/s3-evidence-provider.js')
   const p = new S3EvidenceProvider({ endpoint: process.env.EVIDENCE_S3_ENDPOINT, region: process.env.EVIDENCE_S3_REGION, bucket: process.env.EVIDENCE_S3_BUCKET,
     accessKeyId: process.env.EVIDENCE_S3_ACCESS_KEY_ID, secretAccessKey: process.env.EVIDENCE_S3_SECRET_ACCESS_KEY, forcePathStyle: process.env.EVIDENCE_S3_FORCE_PATH_STYLE === 'true' })
@@ -175,7 +180,12 @@ step "A migration edited AFTER it was applied makes the server refuse to boot (c
 # t5 = the t2 server whose first migration.sql differs from what the database applied. Prisma itself does not
 # notice (neither migrate status nor migrate deploy re-checks checksums), so the server gate is the only line.
 mkdir -p "$WORK/ctx-t5"
-printf 'FROM sails-server:%s-t2\nUSER root\nRUN first=$(ls /app/prisma/migrations | grep -v migration_lock | head -n 1) && echo "-- edited after apply" >> "/app/prisma/migrations/$first/migration.sql"\nUSER node\n' "$RUN" >"$WORK/ctx-t5/Dockerfile"
+# Shell-free (works on both flavors): copy the migrations out of t2, append a line to the first one, copy it back over.
+T5C="${RUN}-t5-src"; docker create --name "$T5C" "sails-server:$RUN-t2" >/dev/null
+docker cp "$T5C:/app/prisma/migrations" "$(rel "$WORK")/ctx-t5/mig" >/dev/null; docker rm -f "$T5C" >/dev/null
+FIRST="$(ls "$WORK/ctx-t5/mig" | grep -v migration_lock | head -n 1)"
+echo "-- edited after apply" >>"$WORK/ctx-t5/mig/$FIRST/migration.sql"
+printf 'FROM sails-server:%s-t2\nCOPY --chown=%s mig/%s/migration.sql /app/prisma/migrations/%s/migration.sql\n' "$RUN" "$OWNER" "$FIRST" "$FIRST" >"$WORK/ctx-t5/Dockerfile"
 docker build -q -t "sails-server:$RUN-t5" -f "$(rel "$WORK")/ctx-t5/Dockerfile" "$(rel "$WORK")/ctx-t5" >/dev/null
 OUT5="$LOGS/edited-migration-boot.log"; S5=0
 timeout 60 docker run --rm --name "${RUN}-edited-boot" --network "${RUN}_default" --env-file "$(host_path "$SAILS_NODE_HOME/secrets/db.env")" --env-file "$(host_path "$SAILS_NODE_HOME/secrets/server.env")" -e HOST=0.0.0.0 "sails-server:$RUN-t5" >"$OUT5" 2>&1 || S5=$?
@@ -224,10 +234,12 @@ server_ready || fail "the server is not ready after the restore"
 kit_compose() { # docker compose against the kit file, with the variables sails-node would set
   ( export SAILS_SERVER_IMAGE="sails-server:$RUN-t2" SAILS_MIGRATE_IMAGE="sails-migrate:$RUN-t2" SAILS_HOME_HOST="$(host_path "$SAILS_NODE_HOME")"
     export WSLENV="${WSLENV:+$WSLENV:}SAILS_SERVER_IMAGE:SAILS_MIGRATE_IMAGE:SAILS_HOME_HOST:COMPOSE_PROFILES:COMPOSE_PROJECT_NAME:SAILS_PORT"
-    docker compose -f "$(host_path "$PWD/deploy/self-host/compose.yml")" "$@" )
+    local files=(-f "$(host_path "$PWD/deploy/self-host/compose.yml")")
+    [ "$SAILS_IMAGE_FLAVOR" != distroless ] || files+=(-f "$(host_path "$PWD/deploy/self-host/compose.distroless.yml")")
+    docker compose "${files[@]}" "$@" )
 }
 evidence_js() { # store | retrieve <uri>  ->  "<uri> <sha256>"  |  "<sha256>"   (the production S3EvidenceProvider)
-  docker exec -e MODE="$1" -e URI="${2:-}" "$SERVER" node -e '
+  docker exec -e MODE="$1" -e URI="${2:-}" "$SERVER" "$NODE" -e '
     const { createHash } = require("crypto")
     const { S3EvidenceProvider } = require("/app/dist/src/modules/open-proof/s3-evidence-provider.js")
     const p = new S3EvidenceProvider({ endpoint: process.env.EVIDENCE_S3_ENDPOINT, region: process.env.EVIDENCE_S3_REGION, bucket: process.env.EVIDENCE_S3_BUCKET,
@@ -282,13 +294,13 @@ echo "$PUBLISHED" | grep -q '127.0.0.1' || fail "the server port is not bound to
 echo "$PUBLISHED" | grep -qE '0\.0\.0\.0|:::' && fail "the server port is exposed beyond loopback: $PUBLISHED"
 for c in postgres redis seaweedfs; do [ -z "$(docker port "${RUN}-$c-1")" ] || fail "$c publishes a port"; done
 pass "only 127.0.0.1:${SAILS_PORT} is published; postgres, redis and seaweedfs publish nothing"
-[ "$(docker exec "$SERVER" id -u)" != "0" ] || fail "the server runs as root"
+[ "$(docker exec "$SERVER" "$NODE" -p "process.getuid()")" != "0" ] || fail "the server runs as root"
 pass "the server runs as non-root"
 ! docker image inspect "sails-server:$RUN-t2" "sails-migrate:$RUN-t2" --format '{{json .Config.Env}}{{json .Config.Cmd}}' | grep -qF -e "$PGPASS" -e "$S3PASS" || fail "a secret is baked into an image"
 pass "no secret is baked into the images"
 step "The kit's compose file keeps the structural migration gate"
 kit_compose config --format json >"$WORK/compose.json" 2>/dev/null || fail "cannot render the kit compose file"
-docker run --rm -i --entrypoint node "sails-server:$RUN-t2" -e '
+docker run --rm -i --entrypoint "$NODE" "sails-server:$RUN-t2" -e '
   const c = JSON.parse(require("fs").readFileSync(0, "utf8")).services
   const gate = c.server.depends_on && c.server.depends_on.migrate && c.server.depends_on.migrate.condition
   if (gate !== "service_completed_successfully") { console.error("server.depends_on.migrate.condition =", gate); process.exit(1) }
@@ -301,6 +313,23 @@ pass "server waits for service_completed_successfully of migrate; migrate never 
   export WSLENV="${WSLENV:+$WSLENV:}COMPOSE_PROFILES:SAILS_DOMAIN:SAILS_SERVER_IMAGE:SAILS_MIGRATE_IMAGE:SAILS_HOME_HOST"
   docker compose -f "$(host_path "$PWD/deploy/self-host/compose.yml")" config -q ) >/dev/null 2>&1 || fail "the tls profile does not render"
 pass "the optional tls profile renders (syntax only: a real certificate needs public DNS and is NOT exercised here)"
+
+step "Process contract of the running server: HEALTHCHECK, user, root filesystem, clean SIGTERM"
+H=""; for _ in $(seq 1 40); do H="$(docker inspect -f '{{.State.Health.Status}}' "$SERVER")"; [ "$H" = healthy ] && break; sleep 3; done
+[ "$H" = healthy ] || fail "the server's HEALTHCHECK is '$H', not healthy"
+if [ "$SAILS_IMAGE_FLAVOR" = distroless ]; then
+  [ "$(docker exec "$SERVER" "$NODE" -p "process.getuid()")" = "65532" ] || fail "the distroless server does not run as uid 65532"
+  [ "$(docker inspect -f '{{.HostConfig.ReadonlyRootfs}}' "$SERVER")" = "true" ] || fail "the distroless server does not run with a read-only root filesystem"
+  if docker run --rm --entrypoint sh "sails-server:$RUN-t2" -c true >/dev/null 2>&1; then fail "the distroless server image contains a shell"; fi
+  pass "healthy; uid 65532; read-only root filesystem (and the server became ready on it); no shell in the image"
+else
+  pass "healthy (the Debian image runs on a writable root filesystem; read-only is asserted only for the distroless candidate)"
+fi
+T0="$(date +%s)"; docker stop -t 20 "$SERVER" >/dev/null; T1="$(date +%s)"
+CODE="$(docker inspect -f '{{.State.ExitCode}}' "$SERVER")"
+[ "$CODE" = "0" ] || fail "SIGTERM did not end the server cleanly (exit code $CODE)"
+[ $((T1 - T0)) -lt 15 ] || fail "SIGTERM took $((T1 - T0))s: the server was killed after the grace period, not stopped by it"
+pass "docker stop (SIGTERM): exit code 0 in $((T1 - T0))s"
 
 echo
 echo "PASS: clean install, update, failed update, unknown result, rollback, backup/restore and the security properties of the self-hosting kit."

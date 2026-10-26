@@ -19,6 +19,12 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **Image hardening, P3-R2 (2026-10-24).** `npm` and `corepack` (shipped by the Node base image, with HIGH
+  advisories in their vendored `brace-expansion`, `undici` and `http-cache-semantics`) are removed from the final
+  `runtime` and `migrate` stages; `scripts/runtime-image-checks.js` no longer needs `npm ls` (it walks the
+  manifests from `/app`, fails on a missing or out-of-range dependency, and asserts npm/corepack are gone).
+  `fast-uri` 3.1.8 -> 3.1.9 (two copies) and 4.1.5 -> 4.2.3 (four moderate/low advisories). Debian OS findings
+  are not remediated by this change; see `docs/SELF_HOSTING.md`.
 - **Continuous image security and migration controls (2026-10-24, P3-R3, draft).** Trivy now scans the server and migration
   images in CI (scanner pinned by digest, OS and Node packages, report uploaded as an artifact, plus a weekly independent
   re-scan). The gate starts in **observe** mode: it reports exactly what would fail (125 blocking findings on the #521 images)

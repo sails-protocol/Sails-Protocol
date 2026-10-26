@@ -31,6 +31,14 @@ scan() { # <name> <image>
     --format json --output "/out/trivy-$name.json" "$image"
   docker run --rm -v "$cache:/root/.cache/trivy" "$scanner" version > "$out/trivy-version-$name.txt"
   test -s "$out/trivy-$name.json" || { echo "Trivy produced no report for $name" >&2; exit 2; }
+  # Software bill of materials (CycloneDX) of what the image actually contains, from the same scanner and image. It lists
+  # components; it says nothing about their safety (that is the report above) and it is not signed (no cosign yet).
+  docker run --rm \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "$cache:/root/.cache/trivy" \
+    -v "$out:/out" \
+    "$scanner" image --quiet --format cyclonedx --output "/out/sbom-$name.cdx.json" "$image"
+  test -s "$out/sbom-$name.cdx.json" || { echo "Trivy produced no SBOM for $name" >&2; exit 2; }
 }
 
 scan server "$server_image"

@@ -182,6 +182,24 @@ for (const name of ['@prisma/client', '@prisma/adapter-pg', 'pg', 'bare-runtime'
   }
 }
 
+// 9: the QVAC worker's executable can actually START. npm leaves bare-runtime-linux-x64/bin/bare at mode 644 and the package's
+// wrapper repairs it with a chmod at the first spawn: that write fails on a read-only root filesystem (EROFS). The Debian
+// production image still has this defect (reported, not failed: it works on a writable rootfs). The distroless candidate sets
+// the mode at build time and is checked with REQUIRE_BARE_EXECUTABLE=1, where a binary that cannot start FAILS the image.
+{
+  const bare = path.join(root, 'node_modules', 'bare-runtime-linux-x64', 'bin', 'bare')
+  const required = process.env.REQUIRE_BARE_EXECUTABLE === '1'
+  try {
+    const run = require('child_process').spawnSync(bare, ['--version'], { encoding: 'utf8', timeout: 15000 })
+    if (!run.error && run.status === 0) pass('the Bare runtime starts', `${(run.stdout || '').trim().slice(0, 40)}`)
+    else if (required) fail('the Bare runtime starts', run.error ? run.error.code || run.error.message : `exit ${run.status} ${(run.stderr || '').slice(0, 80)}`)
+    else console.log(`NOTE  the Bare runtime does not start as shipped (${run.error ? run.error.code : `exit ${run.status}`}): mode ${(fs.statSync(bare).mode & 0o777).toString(8)}; the package repairs it at first spawn on a writable rootfs only. Set REQUIRE_BARE_EXECUTABLE=1 to make this a failure.`)
+  } catch (error) {
+    if (required) fail('the Bare runtime starts', String(error.message).split('\n')[0])
+    else console.log(`NOTE  the Bare runtime check could not run: ${String(error.message).split('\n')[0]}`)
+  }
+}
+
 if (failures.length > 0) {
   console.log(`\n${failures.length} runtime image check(s) FAILED: ${failures.join('; ')}`)
   process.exit(1)
