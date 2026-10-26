@@ -189,6 +189,13 @@ WORKDIR /app
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 
+# Shared libraries the QVAC native engines load and node:bookworm-slim does not ship (found 2026-10-26 by loading a real GGUF model;
+# importing @qvac/sdk does not touch them): the worker aborts (SIGABRT) with `libatomic.so.1: cannot open shared object file`, then with
+# `libvulkan.so.1` (the whisper addon). Loader-level dependencies only: no GPU is needed. Unpinned on purpose, like libssl3 above, so Debian
+# security fixes keep arriving; libvulkan1 pulls its own small dependency set (listed in the PR).
+RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 libvulkan1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Only what src/main.js actually needs at runtime: the pruned
 # node_modules tree, the compiled server, the Prisma schema (the
 # generated client's query engine reads it), and package.json (Node's
