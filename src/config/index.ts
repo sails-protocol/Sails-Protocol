@@ -187,6 +187,21 @@ function parseArbitrationPolicyOverrides(raw: string | undefined): Record<string
   return result
 }
 
+// CSC-E02 / #165 — PROTOCOL_FEE_RATE used to be parsed with parseFloat into a
+// config value that no code path reads any more (the fee comes from
+// FeePolicyVersion). Setting it to a non-zero value would therefore look like
+// "a fee is configured" while nothing is charged — an economic no-op that must
+// not be silent. Empty/unset/zero stay valid (the old default).
+export function assertLegacyProtocolFeeRateRetired(raw: string | undefined = process.env.PROTOCOL_FEE_RATE): void {
+  if (raw === undefined || raw.trim() === '') return
+  if (/^0+(\.0*)?$/.test(raw.trim())) return
+  throw new Error(
+    `Environment variable PROTOCOL_FEE_RATE is retired and no longer read (got: ${raw}). ` +
+    'The protocol fee is defined by FeePolicyVersion (docs/PROTOCOL_ECONOMY.md); unset PROTOCOL_FEE_RATE or set it to 0.',
+  )
+}
+assertLegacyProtocolFeeRateRetired()
+
 export const config = {
   env: resolvedNodeEnv,
   isProduction: isProductionEnv,
@@ -546,15 +561,11 @@ export const config = {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
-    // RFC-021 Phase 0 — real Protocol Fee rate (PROTOCOL_ECONOMY.md §3/§6.2:
-    // "Protocol Fee is OFF (0%)" is the documented bootstrap-phase default,
-    // activating later "at a default of 0.40%" (revised 2026-08-11 from
-    // the original 0.05%-0.15% planning range — see PROTOCOL_ECONOMY.md
-    // §3/§6.2 for the competitive reasoning). Default 0 here matches the
-    // bootstrap phase exactly — a deployment opts in by setting a real
-    // rate, e.g. PROTOCOL_FEE_RATE=0.004 for 0.40%. escrow.service.ts's
-    // releaseFunds() is the only place this is read.
-    protocolFeeRate: parseFloat(process.env.PROTOCOL_FEE_RATE ?? '0'),
+    // CSC-E02 / #165 — the legacy float `protocolFeeRate` (PROTOCOL_FEE_RATE) is
+    // retired. Nothing reads it: the real fee comes from FeePolicyVersion
+    // (exact Decimal) and is mandatory at 0.40% for production settlement
+    // lines. A non-zero PROTOCOL_FEE_RATE is refused at load (see
+    // assertLegacyProtocolFeeRateRetired above) instead of being silently ignored.
     // Missão 11 Fase 4 — a plain destination address for the NEW,
     // policy-versioned Protocol Fee collection mechanism (FeePolicyVersion/
     // FeeObligation) — completely unrelated to protocolFeeRate above (the

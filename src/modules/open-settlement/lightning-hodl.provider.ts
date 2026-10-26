@@ -88,6 +88,7 @@ import { createHash } from 'crypto'
 import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
+import { btcDecimalToSats } from './btc-amount'
 
 type ArkParties = { buyerPubkey: Uint8Array; sellerPubkey: Uint8Array; arbiterId: string }
 
@@ -289,7 +290,9 @@ export class LightningHodlProvider implements SettlementProvider {
   }
 
   private expectedSats(lockedAmount: string): number {
-    return Math.round(parseFloat(lockedAmount) * 1e8)
+    // CSC-E01 / #165 — exact decimal arithmetic, fails closed on a fractional
+    // satoshi; the old Math.round(parseFloat(x) * 1e8) was a binary-float multiply.
+    return btcDecimalToSats(lockedAmount)
   }
 
   async lockFunds(escrow: ArkEscrowInput): Promise<{ txId: string; address: string }> {
