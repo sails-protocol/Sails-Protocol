@@ -276,3 +276,35 @@ Workflow `CI Tests`, event `pull_request`, branch `p4/gate3-iii-a-guard`, SHA `d
 | 13 | Independent review | request below | - | - | - | NOT VERIFIED (requested, not obtained) |
 
 **Request to the Gatekeeper (independent review), to be sent by the CTO or the user; no acceptance is declared here.** Review PR #525 (draft) at the head that carries section 6.10, and in particular: (a) the guard's refusal causes and their order (`disputed-recreation-guard.ts`), the phase-1/phase-2 placement relative to the D -> E locks, and supersession in the same transaction; (b) PASS 0b (`reconcileLostPendingPublicTransactions`): predicate, bound of 20, re-judgement under D -> E, the recorded absence of fee-output evidence; (c) the additive migration and its abort-on-duplicate pre-flight; (d) that the test-hygiene helpers (`lostPendingCandidates.ts`, `undecodableSignedCopies.ts`) delete only rows matching the stated predicate of escrows created by the calling suite and mask nothing - re-run the censuses in 6.4 and 6.8; (e) that no production file changed in the commits after `728ab00e` (`git diff --stat 728ab00e..HEAD -- src prisma`); (f) the open decisions: window value, SPLIT scope, legacy authorizations, `9143bbcc`, and whether the I1 inventory should also be made independent of unrelated rows (not done: it would change a security inventory).
+
+### 6.11 Decision matrix for the two open decisions: SPLIT scope and the settle window (2026-10-26; recommendations only, nothing decided, guard not activated)
+This section adds no code and changes no behaviour. It states, from the tree at `22c4f6eb`, what each choice assumes, risks and must prove. Production stays NO-GO and the guard stays off (`DISPUTED_RECREATION_SETTLE_WINDOW_MS` unset = fail closed).
+
+**Invariants any choice must keep.** I1: at most one round of an escrow confirms (consensus: every round spends the same canonical outpoint, 5.2). I2: the recorded `txReleaseId` is the transaction that confirmed. I3: no new round is created while a lost round may still be broadcast. I4: a refusal is machine-readable and leaves state unchanged. I5: a SPLIT never pays an amount the ruling did not authorize (intent digest: kind + buyerBps).
+
+**A. Settle window `W` (the time after an authorization is committed during which a lost round is assumed possibly in flight).**
+| Fact | Source | Value / state |
+|---|---|---|
+| Worst case of one broadcast attempt | `multisig.provider.ts` (`EXPLORER_READ_RETRY`: 3 attempts, 250 ms backoff; 2 reads + 1 broadcast) | 57.5 s at the default `MULTISIG_EXPLORER_TIMEOUT_MS` = 8000 |
+| Reference value proposed by the CTO | 6.1 | 900000 ms (15 min) = about 15.7 times the worst case |
+| Explorer propagation delay, p99, on the target network | not measured | **NOT VERIFIED** |
+| Mempool eviction / expiry of the explorer's node, and re-broadcast by a holder of a signed copy (participants hold signed PSBT copies) | not measured | **NOT VERIFIED**: a lost round can become public later, after `W`; the guard's chain read is a point in time (G4 refuses a public txid, PASS 0b converges to it afterwards) |
+| Clock used for the age | `authorizedAt` (application clock) vs `Date.now()` of the instance that assesses | skew between instances is not bounded by this code |
+| Cost of a larger `W` | liveness | automatic recovery of a lost disputed round is delayed by `W` |
+
+| `W` | Effect | Risk |
+|---|---|---|
+| unset (today) | a lost disputed round is never re-created automatically | none for safety; manual handling |
+| too small (below broadcast worst case + propagation) | I3 can be violated | a second round is built while the first may still confirm; I1 still holds, I2 can record the wrong txid until PASS 0b converges |
+| 900000 | recommended reference | adequate only if the two NOT VERIFIED rows above hold for the network in use |
+| very large (hours) | recovery delayed | operational: stuck disputes, manual escalation |
+
+Acceptance criteria to set a value in any environment: (1) measured p99 explorer propagation and the node's mempool expiry for the network, recorded with date; (2) `W` >= worst-case broadcast x safety factor chosen by the CTO + that p99; (3) a statement of who may re-broadcast a signed copy and the guard's residual window in that case; (4) application/DB clock skew bound; (5) R13-R15 re-run with the chosen value in a disposable database.
+
+**B. SPLIT.** The guard takes the round `kind` generically and binds `kind` and `buyerBps` into the intent digest, so a SPLIT re-creation with a different `buyerBps` is refused (`INTENT_MISMATCH`); but no test covers a SPLIT re-creation or SPLIT through PASS 0b, and PASS 0b records a SPLIT with no `buyerBps` without its fee obligation (flagged for manual review).
+| Option | What it means | Needed evidence |
+|---|---|---|
+| B1: refuse SPLIT explicitly | a SPLIT round whose pending was lost is never re-created automatically (new cause, e.g. `SPLIT_UNSUPPORTED`); manual handling | one test per refusal; no change to PASS 0b |
+| B2: support SPLIT | guard and PASS 0b cover SPLIT end to end | tests: re-creation with the same and with a changed `buyerBps`; PASS 0b converging a public SPLIT with and without recorded `buyerBps`; fee obligation recorded exactly once; both outputs checked against the ruling (I5); mutants for each |
+| B3: status quo | SPLIT passes through the generic path untested | not acceptable as evidence: I5 NOT VERIFIED |
+Recommendation (not a decision): B1 until B2's evidence exists, and keep `W` unset until A's criteria are met. Both are changes to behaviour: they need the CTO's decision and the Gatekeeper's independent review before any code.
