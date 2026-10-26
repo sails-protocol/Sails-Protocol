@@ -33,6 +33,10 @@ RUN set -eu; arch="${TARGETARCH:-amd64}"; \
     done; \
     after=$(du -sk /app/node_modules | cut -f1); \
     echo "prebuilds kept: $keep; node_modules $((before/1024)) MB -> $((after/1024)) MB"
+# The QVAC SDK starts its worker with bare-runtime-linux-<x64|arm64>/bin/bare. npm installs it mode 644; the package's wrapper chmods it at
+# first spawn, which fails on a read-only root filesystem (EROFS). Set the mode here, in the stage that has a shell, for the one platform package
+# that is installed (its name depends on the architecture): the COPY of node_modules below keeps the mode.
+RUN set -eu; bare="$(ls /app/node_modules/bare-runtime-linux-*/bin/bare)"; [ "$(printf '%s\n' "$bare" | wc -l)" -eq 1 ] || { echo "expected exactly one bare-runtime platform package, found: $bare" >&2; exit 1; }; chmod 755 "$bare"
 
 # ---- Shared libraries the QVAC native engines need and the distroless base does not ship ----
 # Found by loading a REAL model (a 1.2 MB GGUF) in this image, not by importing the SDK: the worker aborts (SIGABRT) at its first addon with
@@ -61,9 +65,6 @@ COPY --from=pruned --chown=65532:65532 /app/packages/sails-sdk/package.json ./pa
 COPY --from=slim --chown=65532:65532 /app/packages/sails-sdk/node_modules ./packages/sails-sdk/node_modules
 COPY --from=pruned --chown=65532:65532 /app/packages/sails-core/dist ./packages/sails-core/dist
 COPY --from=pruned --chown=65532:65532 /app/packages/sails-core/package.json ./packages/sails-core/package.json
-# The QVAC SDK starts its worker with bare-runtime-linux-x64/bin/bare. npm installs it mode 644; the package's wrapper
-# chmods it at first spawn, which fails on a read-only root filesystem (EROFS). Set the mode at build time instead.
-COPY --from=slim --chown=65532:65532 --chmod=755 /app/node_modules/bare-runtime-linux-x64/bin/bare /app/node_modules/bare-runtime-linux-x64/bin/bare
 USER 65532:65532
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=3s --start-period=30s --retries=3 \
