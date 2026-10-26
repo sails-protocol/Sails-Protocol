@@ -1270,8 +1270,18 @@ export class DisputeService {
       throw new ValidationError(`Dispute ${disputeId}'s contest window has already closed`)
     }
 
-    const updated = await prisma.dispute.update({
-      where: { id: disputeId },
+    // CSC-F02 / #308 — the checks above are only a fail-fast read; the
+    // transition itself is one conditional UPDATE (status + deadline are
+    // re-asserted in the WHERE), so a concurrent sweepExpiredAutoResolutions()
+    // or a second contest cannot also apply it. Postgres re-evaluates the
+    // WHERE after the first writer commits, which gives exactly one winner
+    // and exactly one `dispute.auto_resolution_contested` event.
+    const claim = await prisma.dispute.updateMany({
+      where: {
+        id: disputeId,
+        status: 'AUTO_PROPOSED',
+        OR: [{ autoResolutionDeadline: null }, { autoResolutionDeadline: { gte: new Date() } }],
+      },
       data: {
         status: 'EVIDENCE_SUBMITTED',
         autoResolutionRecommendation: null,
@@ -1280,6 +1290,16 @@ export class DisputeService {
         autoResolutionDeadline: null,
       },
     })
+    if (claim.count === 0) {
+      // Lost the race (or the window closed between the read and the write).
+      const current = await prisma.dispute.findUnique({ where: { id: disputeId } })
+      if (current && current.status === 'AUTO_PROPOSED') {
+        throw new ValidationError(`Dispute ${disputeId}'s contest window has already closed`)
+      }
+      throw new ValidationError(`Dispute ${disputeId} has no pending automated resolution to contest (status: ${current?.status ?? 'unknown'})`)
+    }
+
+    const updated = await prisma.dispute.findUnique({ where: { id: disputeId } })
 
     await eventBus.emit('dispute.auto_resolution_contested', {
       disputeId,
@@ -1335,10 +1355,15 @@ export class DisputeService {
     const failed: Array<{ disputeId: string; error: string }> = []
     for (const dispute of expired) {
       try {
-        await prisma.dispute.update({
-          where: { id: dispute.id },
+        // CSC-F02 / #308 — same single conditional claim as
+        // contestAutoResolution(): if a manual contest (or another sweep)
+        // already moved this dispute, count is 0 and this sweep neither
+        // rewrites the row nor emits a second contested event.
+        const claim = await prisma.dispute.updateMany({
+          where: { id: dispute.id, status: 'AUTO_PROPOSED', autoResolutionDeadline: { lt: new Date() } },
           data: { status: 'EVIDENCE_SUBMITTED', autoResolutionDeadline: null },
         })
+        if (claim.count === 0) continue
         await eventBus.emit('dispute.auto_resolution_contested', {
           disputeId: dispute.id,
           settlementId: dispute.escrowId,
