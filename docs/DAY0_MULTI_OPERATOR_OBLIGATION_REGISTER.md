@@ -194,3 +194,53 @@ States: COVERED / GATE (implemented, awaiting homologation) / GAP (DAY0-GAP) / P
 | R104 | PROTOCOL_ECONOMY §4.4 | Política de remuneração do árbitro (tesouraria) | POST | reserva de 10% é receita da tesouraria, não pagamento automático | – | – |
 
 Count at this date: CONFLICT 3 · COVERED 27 · GAP 51 · GATE 10 · POST 13 = 104.
+
+## MO ↔ R crosswalk and Master Backlog denominator — provisional, 2026-10-27
+
+**Status: PROVISIONAL / NOT INDEPENDENTLY ACCEPTED.** Links marked *explicit* are written in the Owner/Fonte columns of the R01–R104 matrix above; links marked *inferred* are the author's reading and need reviewer confirmation. No row here declares an implementation, test or homologation without evidence.
+
+| MO rows | R rows | Owner issue(s) | Project #3 card | Link |
+| --- | --- | --- | --- | --- |
+| MO-001..003 | – | #105 | #105 | n/a |
+| MO-004..007 | R36, R59 | #105 Gate B, #165 | #105, #165 | explicit |
+| MO-008..009 | R41 | #105 | #105 | inferred |
+| MO-10a, MO-011 | R43, R44, R01 | #105 items 10a, 11 | #105 | explicit |
+| MO-10b, MO-012 | R48 | #105 items 10b, 12 | #105 | explicit |
+| MO-013 | R47 | #105 item 13 | #105 | explicit |
+| MO-014..015 | R45 | #105 items 14–15 | #105 | explicit |
+| MO-016..017 | R46 | #105 items 16–17 | #105 | explicit |
+| MO-018..020 | R49 | #105 items 18–20 | #105 | explicit |
+| MO-021 | R50 | #105 item 21 | #105 | explicit |
+| MO-022..023 | R51 | #105 items 22–23 | #105 | explicit |
+| MO-024..026 | R52, R81 | #105 items 24–26 | #105 | explicit |
+| MO-027..028 | R53 | #105 items 27–28 | #105 | explicit |
+| MO-029..033 | R54, R29 | #105 items 29–33; #247, #250 | #105, #247, #250 | explicit |
+| MO-034..037 | R55, R79, R101 | #105 items 34–37 | #105 | explicit |
+| MO-038 | R58 | #105, #165 | #105, #165 | explicit |
+| MO-039 | R56 | #105 item 39 | #105 | explicit |
+| MO-040..041, MO-043..047 | R58 | #105, #165 | #105, #165 | explicit (R58) |
+| MO-042 | R57 | #105 item 42 | #105 | explicit |
+| MO-048 | R72, R73, R75 | #306; #461, #444; #220, #474 | same Issues | explicit (R72/73/75), inferred (MO↔R) |
+| MO-049 | R20, R59, R82 | #105 Gate B, #165 | #105, #165 | explicit |
+| MO-050..052 | R77 | #165, #420, #77, #473 | same Issues | explicit (R77), inferred (MO↔R) |
+| MO-053 | – | #105 | #105 | n/a |
+
+Issues #121, #155 and #158 (POST-DAY0 or provisional owners) and PR #436 are intentionally not Project cards.
+
+### Master Backlog denominator (BACKLOG.md items 1–47), deduplicated — 117 units
+
+Verified at main SHA 456d3e52 by file/symbol presence only; tests were not run in this pass; nothing is ACCEPTED.
+
+| Block | Units | Code-verified |
+| --- | --- | --- |
+| 54 MO obligations | 54 | 2 (MO-001 merged doc; MO-003) |
+| Item 20 (20.1, 20.4, 20.5, 20.6) | 4 | 1 (20.1) |
+| Item 32 (F-01, F-06, F-07, F-09, F-11, F-12) | 6 | 2 |
+| Item 34 | 7 | 5 |
+| Item 36 (CSC findings, 25 obligations, H01/H02 merged into R91) | 24 | 6 (B01, B02, C01, D01, F02, G01) |
+| Items 22–31 | 14 | 3 (items 25, 26, 27) |
+| Items 41, 47 | 2 | 2 |
+| R89, R90, R92–R95 | 6 | 0 |
+| **Total** | **117** | **21** |
+
+Three separate indicators: Project organization 103/103 items with Frente, Workstream, Priority and Risk (Evidence Status filled only where verified: 27/103); verified implementation 21/117 (18%); independent Day-0 homologation 0/25 settlement lines and 0/54 obligations accepted. Not counted as implemented: MO-002 (partial), P3-F08.1/F08.2, the R90 residual.
