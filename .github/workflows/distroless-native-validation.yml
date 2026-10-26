@@ -1,0 +1,91 @@
+name: Distroless native validation (amd64 + arm64)
+
+# VALIDATION ONLY, added by the integration-validation branch (not part of the distroless chain's own diff). It judges the opt-in distroless images
+# (SAILS_IMAGE_FLAVOR=distroless) on NATIVE runners of both architectures: no QEMU, no emulation. arm64 on a native runner is the only arm64
+# evidence this repository accepts; if the runner label is unavailable to the organisation the job does not start and arm64 stays NOT homologated.
+# Nothing here publishes an image or touches an environment. The model file is downloaded from its official repository at a pinned commit, its
+# size and SHA-256 are checked BEFORE use, and it is mounted read-only into a container: it is never part of an image.
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/distroless-native-validation.yml'
+      - 'scripts/qvac-model-completion-check.mjs'
+      - 'scripts/image-fs-scan.js'
+
+permissions:
+  contents: read
+
+env:
+  SAILS_IMAGE_FLAVOR: distroless
+  # SmolLM2-360M-Instruct, official HuggingFaceTB repository, pinned commit, Apache-2.0.
+  MODEL_URL: https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/593b5a2e04c8f3e4ee880263f93e0bd2901ad47f/smollm2-360m-instruct-q8_0.gguf
+  MODEL_BYTES: '386404992'
+  MODEL_SHA256: 48ab3034d0dd401fbc721eb1df3217902fee7dab9078992d66431f09b7750201
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Runner architecture (must be native)
+        run: |
+          uname -m
+          docker version --format '{{.Server.Arch}}'
+          want=$([ "${{ matrix.arch }}" = arm64 ] && echo aarch64 || echo x86_64)
+          [ "$(uname -m)" = "$want" ] || { echo "runner is not native ${{ matrix.arch }}"; exit 1; }
+
+      - name: Install age (test dependency of the encrypted-backup section)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq age && age --version
+
+      - name: Build the distroless server and migration images (sails-node build)
+        run: bash ./deploy/self-host/sails-node build ci
+
+      - name: Image architecture and kept prebuilds
+        run: |
+          arch="$(docker image inspect sails-server:ci --format '{{.Architecture}}')"; echo "image architecture: $arch"
+          [ "$arch" = "${{ matrix.arch }}" ] || { echo "image is $arch, expected ${{ matrix.arch }}"; exit 1; }
+          want=$([ "${{ matrix.arch }}" = arm64 ] && echo linux-arm64 || echo linux-x64)
+          docker run --rm --entrypoint /nodejs/bin/node sails-server:ci -e "
+            const fs=require('fs'),path=require('path');const kept=new Set();let n=0
+            const walk=d=>{for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);if(e.isDirectory()){if(e.name==='prebuilds'){n++;for(const s of fs.readdirSync(p,{withFileTypes:true}))if(s.isDirectory())kept.add(s.name)}else walk(p)}}}
+            walk('/app/node_modules');console.log('prebuilds dirs:',n,'platforms kept:',[...kept].join(','));process.exit(kept.size===1&&kept.has('$want')?0:1)"
+
+      - name: Image checks inside the server image (Node pin, non-root, requires, native modules, Bare starts)
+        run: |
+          EXPECTED_NODE="$(sed -n 's/^FROM node:\([0-9][0-9.]*\)-bookworm-slim.*/\1/p' Dockerfile | sort -u)"
+          [ "$(echo "$EXPECTED_NODE" | wc -l)" -eq 1 ] || { echo "Dockerfile pins more than one Node version: $EXPECTED_NODE"; exit 1; }
+          docker run --rm -i -e "EXPECTED_NODE=${EXPECTED_NODE}" -e REQUIRE_BARE_EXECUTABLE=1 --entrypoint /nodejs/bin/node sails-server:ci - < scripts/runtime-image-checks.js
+
+      - name: No setuid/setgid files, no shell, no package manager in the server image
+        run: |
+          out="$(docker run --rm --entrypoint /nodejs/bin/node -i sails-server:ci - < scripts/image-fs-scan.js)"; echo "$out"
+          echo "$out" | grep -q '^setuid/setgid files: none$' && echo "$out" | grep -q '^shells: none$' && echo "$out" | grep -q '^package managers / npm: none$'
+
+      - name: Download the pinned model and verify its size and SHA-256 BEFORE use
+        run: |
+          mkdir -p "$RUNNER_TEMP/model"; f="$RUNNER_TEMP/model/smollm2-360m-instruct-q8_0.gguf"
+          curl -fsSL "$MODEL_URL" -o "$f"
+          [ "$(stat -c %s "$f")" = "$MODEL_BYTES" ] || { echo "size mismatch"; rm -f "$f"; exit 1; }
+          echo "$MODEL_SHA256  $f" | sha256sum -c - || { rm -f "$f"; exit 1; }
+
+      - name: Real QVAC model load + chat completion + unload in the image (read-only rootfs, no network, caps dropped)
+        run: |
+          docker run --rm --user 65532:65532 --read-only --tmpfs /tmp --network none --cap-drop ALL --security-opt no-new-privileges -e HOME=/tmp \
+            -v "$RUNNER_TEMP/model:/models:ro" -v "$PWD/scripts/qvac-model-completion-check.mjs:/app/qvac-model-completion-check.mjs:ro" \
+            sails-server:ci qvac-model-completion-check.mjs /models/smollm2-360m-instruct-q8_0.gguf
+
+      - name: Self-hosting kit on the distroless images (install, update, failed update, rollback, restore, process contract, POSIX secret modes)
+        if: matrix.arch == 'arm64'
+        run: bash ./scripts/self-host-test.sh
