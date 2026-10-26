@@ -76,6 +76,16 @@ silently as a side effect of tagging a release candidate.
 
 ## [Unreleased]
 
+### Added
+
+- `peers.connectRelay(options?)`: opens the server's blind WebSocket relay with a
+  single-use ticket and resolves only after the server's `{"type":"READY"}` frame
+  (ticket consumed, socket registered), so the caller can send at once. READY is
+  consumed by the SDK. Rejects with `SailsTransportError`, closing the socket, on an
+  `ERROR` or any other first frame, on close or error before READY, after
+  `timeoutMs` (default 10 s), or when `signal` aborts (#307). Not in any published
+  version before this one.
+
 ## [0.2.0] - 2026-09-17
 
 ### Added
