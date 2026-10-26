@@ -1,0 +1,11 @@
+# Added by `sails-node` when SAILS_IMAGE_FLAVOR=distroless (CANDIDATE images, deploy/self-host/distroless).
+# The distroless images need no writable root filesystem (the Bare runtime is made executable at build time), so both
+# application containers run with a read-only rootfs and a private /tmp. Not applied to the Debian images: their
+# `bare` binary is mode 644 and chmods itself at first spawn, which fails on a read-only rootfs.
+services:
+  server:
+    read_only: true
+    tmpfs: ["/tmp"]
+  migrate:
+    read_only: true
+    tmpfs: ["/tmp"]
