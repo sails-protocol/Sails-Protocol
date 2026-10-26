@@ -5,6 +5,7 @@ import type { Prisma } from '@prisma/client'
 import type { SailsEventName, SailsEventMap } from './event-bus'
 import { childLogger } from '../logger'
 import { prisma } from '../database'
+import { parseKeyring, envelopeRequired, signEnvelope, verifyEnvelope, ReplayCache, type EnvelopeKeyring } from './envelope-auth'
 
 const log = childLogger('event-store')
 
@@ -240,6 +241,11 @@ export class PostgresEventStore implements EventStore {
   private readonly instanceId = uuidv4()
   private crossInstancePublisher: Redis | null = null
   private crossInstanceSubscriber: Redis | null = null
+  // Redis Gate 2: authenticated origin envelope (envelope-auth.ts). null = the channel is UNAUTHENTICATED (the historical behaviour).
+  private envelopeKeyring: EnvelopeKeyring | null = null
+  private readonly replayCache = new ReplayCache()
+  /** Cross-instance messages dropped by the envelope check, by reason (observability and tests). */
+  readonly rejectedEnvelopes: Record<string, number> = {}
 
   constructor(private readonly client: Pick<typeof prisma, 'durableEventRecord' | '$transaction'> = prisma) {
     this.emitter.setMaxListeners(50)
@@ -260,11 +266,15 @@ export class PostgresEventStore implements EventStore {
   // itself re-issues SUBSCRIBE automatically after a reconnect for a
   // connection that was already in subscriber mode, so no manual
   // re-subscribe logic is needed here.
-  enableCrossInstanceFanout(publisher: Redis): void {
+  enableCrossInstanceFanout(publisher: Redis, opts: { keyring?: EnvelopeKeyring | null; subscriberClient?: Redis } = {}): void {
     if (this.crossInstanceSubscriber) return // idempotent — a second call is a no-op, not an error
+    this.envelopeKeyring = opts.keyring !== undefined ? opts.keyring : parseKeyring() // a malformed EVENT_ENVELOPE_KEYS throws: never run unauthenticated by accident
+    if (!this.envelopeKeyring && envelopeRequired()) throw new Error('EVENT_ENVELOPE_REQUIRED=1 but no EVENT_ENVELOPE_KEYS: refusing to enable the cross-instance channel unauthenticated')
+    if (!this.envelopeKeyring) log.warn({ msg: 'Cross-instance event channel is UNAUTHENTICATED (no EVENT_ENVELOPE_KEYS): any client able to PUBLISH can forge an event or an origin instance id' })
     this.crossInstancePublisher = publisher
 
-    const subscriber = publisher.duplicate()
+    // With least-privilege ACLs (deploy/redis/sails-acl.conf) the subscriber is a separate consumer-role connection; by default it is a duplicate of the publisher's.
+    const subscriber = opts.subscriberClient ?? publisher.duplicate()
     this.crossInstanceSubscriber = subscriber
 
     subscriber.on('error', (err) => {
@@ -281,19 +291,30 @@ export class PostgresEventStore implements EventStore {
 
     subscriber.on('message', (channel: string, message: string) => {
       if (channel !== CROSS_INSTANCE_CHANNEL) return
-      let parsed: DurableEvent & { __originInstanceId?: string }
+      let parsed: DurableEvent & { __originInstanceId?: string; __env?: unknown }
       try {
         parsed = JSON.parse(message)
       } catch {
         log.error({ msg: 'Received malformed cross-instance event message, dropping' })
         return
       }
+      if (this.envelopeKeyring) {
+        // Authenticate BEFORE anything else (including the self-echo test, which would otherwise let a forged origin id steer the handler).
+        const { __originInstanceId: origin, __env: env, ...signed } = parsed
+        const verdict = verifyEnvelope(this.envelopeKeyring, 'xinstance', String(origin ?? ''), signed, env)
+        const reason = !verdict.ok ? verdict.reason : this.replayCache.isReplay(verdict.nonce!) ? 'REPLAY' : null
+        if (reason) {
+          this.rejectedEnvelopes[reason] = (this.rejectedEnvelopes[reason] ?? 0) + 1
+          log.warn({ msg: 'Cross-instance event rejected by the origin envelope check, dropping', reason })
+          return
+        }
+      }
       // Echo of this same process's own publish() below — already
       // dispatched synchronously there; dispatching again here would be
       // exactly the double-processing Missão 08B's own acceptance
       // criteria forbids.
       if (parsed.__originInstanceId === this.instanceId) return
-      const { __originInstanceId, ...event } = parsed
+      const { __originInstanceId, __env, ...event } = parsed
       this.emitter.emit(event.eventName, event)
     })
   }
@@ -451,7 +472,7 @@ export class PostgresEventStore implements EventStore {
     // Pub/Sub is a signal, never durability, and its failure must never
     // retroactively affect the transaction that already committed.
     if (this.crossInstancePublisher) {
-      const message = JSON.stringify({ ...event, __originInstanceId: this.instanceId })
+      const message = JSON.stringify({ ...event, __originInstanceId: this.instanceId, ...(this.envelopeKeyring ? { __env: signEnvelope(this.envelopeKeyring, 'xinstance', this.instanceId, event) } : {}) })
       this.crossInstancePublisher.publish(CROSS_INSTANCE_CHANNEL, message).catch((err) => {
         log.error({ msg: 'Cross-instance event publish failed (durable write already committed, unaffected)', eventName, eventId, err: err instanceof Error ? err.message : String(err) })
       })
@@ -546,6 +567,14 @@ export class RedisStreamsEventStore implements EventStore {
   // real cross-file contamination, not that file's own bug).
   private readonly loopPromises: Promise<void>[] = []
   private stopped = false
+  // Redis Gate 2. `producer` is the connection used to WRITE (XADD, XREVRANGE): with Redis ACLs it is a different user from `client`, which
+  // consumes (XREADGROUP, XACK, XCLAIM, XPENDING). Without options both are the same connection (the historical behaviour).
+  private readonly producer: import('ioredis').Redis
+  private readonly keyring: EnvelopeKeyring | null
+  private readonly producerId = uuidv4()
+  private readonly nonceTtlSeconds = 24 * 3600
+  /** Entries dropped by the envelope check, by reason (observability and tests). */
+  readonly rejectedEntries: Record<string, number> = {}
 
   constructor(
     private readonly client: import('ioredis').Redis,
@@ -563,9 +592,13 @@ export class RedisStreamsEventStore implements EventStore {
     // resolve. 1s: frequent enough that stop() (tests, graceful shutdown)
     // returns promptly; the reclaim/re-block cost of polling this often
     // is negligible against Redis.
-    private readonly blockMs = 1_000
+    private readonly blockMs = 1_000,
+    options: { keyring?: EnvelopeKeyring | null; producerClient?: import('ioredis').Redis } = {}
   ) {
     this.consumerName = `${consumerGroup}-${process.pid}-${uuidv4().slice(0, 8)}`
+    this.producer = options.producerClient ?? client
+    this.keyring = options.keyring !== undefined ? options.keyring : parseKeyring() // a malformed EVENT_ENVELOPE_KEYS throws
+    if (!this.keyring && envelopeRequired()) throw new Error('EVENT_ENVELOPE_REQUIRED=1 but no EVENT_ENVELOPE_KEYS: refusing to run the Redis Streams store unauthenticated')
   }
 
   private streamKey(eventName: SailsEventName): string {
@@ -586,7 +619,7 @@ export class RedisStreamsEventStore implements EventStore {
 
     // Real prevHash: the correlation stream's own last entry, not a
     // separately-maintained counter that could drift from it.
-    const lastEntries = await this.client.xrevrange(correlationKey, '+', '-', 'COUNT', 1)
+    const lastEntries = await this.producer.xrevrange(correlationKey, '+', '-', 'COUNT', 1)
     const prevHash = lastEntries.length > 0 ? this.parseEntry(lastEntries[0]).entryHash : GENESIS_HASH
     const entryHash = computeEntryHash(eventName, publishedAt, payload, prevHash)
 
@@ -605,8 +638,11 @@ export class RedisStreamsEventStore implements EventStore {
     // Not wrapped in a MULTI: a partial failure here (correlation stream
     // written, eventName stream not, or vice versa) is a real, disclosed
     // gap, not a silent one — see this class's own header comment.
-    await this.client.xadd(this.streamKey(eventName), '*', 'data', data)
-    await this.client.xadd(correlationKey, '*', 'data', data)
+    // With a keyring the entry also carries who wrote it and a MAC over that and the whole event (envelope-auth.ts).
+    const fields: string[] = ['data', data]
+    if (this.keyring) fields.push('origin', this.producerId, 'env', JSON.stringify(signEnvelope(this.keyring, 'stream', this.producerId, event)))
+    await this.producer.xadd(this.streamKey(eventName), '*', ...fields)
+    await this.producer.xadd(correlationKey, '*', ...fields)
   }
 
   private parseEntry(entry: [id: string, fields: string[]]): DurableEvent {
@@ -690,7 +726,17 @@ export class RedisStreamsEventStore implements EventStore {
   /** Runs the handlers for one entry and acknowledges it only if every handler succeeded AND this consumer still owns it. */
   private async deliver(stream: string, eventName: SailsEventName, message: [string, string[]]): Promise<void> {
     const [messageId] = message
-    const event = this.parseEntry(message)
+    let event: DurableEvent
+    try {
+      event = this.parseEntry(message)
+    } catch {
+      if (this.keyring) { await this.rejectEntry(stream, messageId, 'MALFORMED'); return } // never let an unparseable entry block an authenticated store's queue
+      throw new Error(`unparseable stream entry ${messageId}`)
+    }
+    if (this.keyring) {
+      const reason = await this.authenticationFailure(message, event)
+      if (reason) { await this.rejectEntry(stream, messageId, reason); return }
+    }
     const handlers = this.loopHandlers.get(eventName) ?? []
     try {
       await Promise.all(handlers.map((h) => h(event)))
@@ -711,6 +757,32 @@ export class RedisStreamsEventStore implements EventStore {
     }
   }
 
+  /**
+   * Why this entry must not be trusted, or null. Form, key id, MAC and clock first, then replay: the SAME entry id may legitimately be
+   * redelivered (a crash, a reclaim); a DIFFERENT entry carrying a nonce already used is a replayed copy. The nonce is remembered in
+   * Redis (SET NX), so the memory survives a restart and is shared by every consumer instance.
+   */
+  private async authenticationFailure(message: [string, string[]], event: DurableEvent): Promise<string | null> {
+    const [entryId, fields] = message
+    const field = (name: string): string | undefined => { const i = fields.indexOf(name); return i >= 0 ? fields[i + 1] : undefined }
+    let env: unknown
+    try { env = field('env') ? JSON.parse(field('env')!) : undefined } catch { return 'MALFORMED' }
+    // Streams are consumed long after they were signed (a backlog, a crash): no age limit, but never from the future.
+    const verdict = verifyEnvelope(this.keyring!, 'stream', field('origin') ?? '', event, env, { maxAgeMs: null })
+    if (!verdict.ok) return verdict.reason
+    const nonceKey = `sails:envelope:nonce:${verdict.nonce}`
+    const first = await this.client.set(nonceKey, entryId, 'EX', this.nonceTtlSeconds, 'NX')
+    if (first === 'OK') return null
+    return (await this.client.get(nonceKey)) === entryId ? null : 'REPLAY'
+  }
+
+  /** Drops an untrusted entry: counted, logged, and acknowledged (only by its owner) so it runs no handler and does not sit in the pending list forever. */
+  private async rejectEntry(stream: string, messageId: string, reason: string): Promise<void> {
+    this.rejectedEntries[reason] = (this.rejectedEntries[reason] ?? 0) + 1
+    log.warn({ msg: 'Stream entry rejected by the origin envelope check, dropping', stream, messageId, reason })
+    await this.client.eval(ACK_IF_OWNER_LUA, 1, stream, this.consumerGroup, messageId, this.consumerName)
+  }
+
   /** Claims the entries idle past idleClaimMs (from any consumer of the group, including a dead one) onto this consumer and returns them. */
   private async reclaimStalePending(stream: string): Promise<Array<[string, string[]]>> {
     const pending = await this.client.xpending(stream, this.consumerGroup, 'IDLE', this.idleClaimMs, '-', '+', 10)
@@ -723,7 +795,20 @@ export class RedisStreamsEventStore implements EventStore {
 
   async getEvents(correlationId: string): Promise<DurableEvent[]> {
     const entries = await this.client.xrange(this.correlationStreamKey(correlationId), '-', '+')
-    return entries.map((entry) => this.parseEntry(entry as [string, string[]]))
+    const events = entries.map((entry) => ({ entry: entry as [string, string[]], event: this.parseEntry(entry as [string, string[]]) }))
+    if (!this.keyring) return events.map((e) => e.event)
+    // Authenticated store: an entry that does not verify is excluded from the history (and counted), never returned as if it were genuine.
+    const kept: DurableEvent[] = []
+    for (const { entry, event } of events) {
+      const fields = entry[1]
+      const at = (name: string): string | undefined => { const i = fields.indexOf(name); return i >= 0 ? fields[i + 1] : undefined }
+      let env: unknown
+      try { env = at('env') ? JSON.parse(at('env')!) : undefined } catch { env = undefined }
+      const verdict = verifyEnvelope(this.keyring, 'stream', at('origin') ?? '', event, env, { maxAgeMs: null })
+      if (verdict.ok) kept.push(event)
+      else { this.rejectedEntries[verdict.reason] = (this.rejectedEntries[verdict.reason] ?? 0) + 1; log.error({ msg: 'History entry failed the origin envelope check, excluded', correlationId, reason: verdict.reason }) }
+    }
+    return kept
   }
 
   // Not part of the EventStore interface — for graceful shutdown /
