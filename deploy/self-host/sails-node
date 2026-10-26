@@ -14,6 +14,8 @@
 #   sails-node restore-evidence FILE   restore that snapshot into a fresh store (needs the same secrets/seaweedfs.env)
 #   sails-node verify-backup FILE [--deep]   check a backup: sha256 sidecar, structure, and (--deep, dumps) a scratch restore
 #   sails-node backup-key init|show   create / show the Ed25519 key that signs backup sidecars (then keep the PUBLIC key off this host)
+#   sails-node backup-key export|import FILE   age-encrypt the signing key for recovery / restore it on a new host (needs age)
+#   sails-node rekey-backup FILE.dump.age       re-encrypt an encrypted dump to the current recipients (key rotation)
 #   sails-node verify-evidence      read back EVERY stored evidence object and check it against the hash in its name
 #   sails-node rotate-evidence-key  re-encrypt all evidence under a new key (copy, verify, swap; rolls back on failure)
 #   sails-node resolve-rolled-back NAME   after a failed migration: mark it rolled back (docs/DEPLOYMENT.md 6.1)
@@ -256,8 +258,8 @@ cmd_rollback() {
 # ---- Backup integrity -------------------------------------------------------------------------
 # Every backup gets FILE.sha256. It detects ACCIDENTAL damage (truncation, bit rot, a half-copied file). It is
 # NOT tamper-evidence: whoever can change the archive can change the sidecar. For that, keep a copy of the
-# sidecar (or a signature of it) somewhere the host cannot write. The database dump is not encrypted either:
-# protect it like the database itself (the file is 0600).
+# sidecar (or a signature of it) somewhere the host cannot write. The database dump is not encrypted unless
+# SAILS_BACKUP_AGE_RECIPIENTS is set (see "Encrypted dumps"): then protect the PLAIN dump like the database itself (the file is 0600).
 sha256_of() { sha256sum "$1" | cut -d' ' -f1; }
 
 # ---- Signed sidecar (tamper-evidence) -----------------------------------------------------------
@@ -277,6 +279,26 @@ backup_signing_key() { echo "${SAILS_BACKUP_SIGNING_KEY:-$SAILS_NODE_HOME/secret
 backup_verify_pub() { if [ -n "${SAILS_BACKUP_VERIFY_KEY:-}" ]; then echo "$SAILS_BACKUP_VERIFY_KEY"; elif [ -f "$SAILS_NODE_HOME/secrets/backup-signing.pub" ]; then echo "$SAILS_NODE_HOME/secrets/backup-signing.pub"; fi; }
 need_ssh_keygen() { command -v ssh-keygen >/dev/null 2>&1 || die "ssh-keygen (OpenSSH 8.0+) is required for signed backups"; }
 
+# ---- Encrypted dumps (age) ------------------------------------------------------------------------
+# SAILS_BACKUP_AGE_RECIPIENTS = a file of age PUBLIC keys (one per line; several lines = several readers or a rotation). When set, `backup` writes
+# sails-<time>.dump.age: pg_dump is piped straight into `age -R`, so the plaintext dump never touches this host's disk. age is authenticated
+# encryption (ChaCha20-Poly1305): a modified file fails to decrypt, it is not silently read. The sidecar and its signature are made over the
+# CIPHERTEXT, so they are checked before anything is decrypted. Decrypting (restore, verify-backup) needs SAILS_BACKUP_AGE_IDENTITY = the age PRIVATE
+# key file, which belongs OFF this host: the public key on this host can encrypt new backups but cannot read old ones, so a stolen backup or a
+# compromised host does not expose the database through the backups. What this does NOT do: protect the live database on this host, hide the
+# backup's size or time, or recover a backup whose identity file is lost (a lost identity is a lost backup: keep two, offline).
+# The evidence archive (.tar.gz) is not age-encrypted here: its content is already encrypted by the evidence key (see "NOT in this backup").
+need_age() { command -v age >/dev/null 2>&1 || die "age is required for encrypted backups (Ubuntu/Debian: apt install age)"; }
+age_recipients() { [ -n "${SAILS_BACKUP_AGE_RECIPIENTS:-}" ] || return 0; [ -s "$SAILS_BACKUP_AGE_RECIPIENTS" ] || die "SAILS_BACKUP_AGE_RECIPIENTS=$SAILS_BACKUP_AGE_RECIPIENTS is not a readable, non-empty recipients file"; echo "$SAILS_BACKUP_AGE_RECIPIENTS"; }
+age_identity() { [ -n "${SAILS_BACKUP_AGE_IDENTITY:-}" ] && [ -s "$SAILS_BACKUP_AGE_IDENTITY" ] || die "this backup is encrypted: set SAILS_BACKUP_AGE_IDENTITY to the age private key file (kept off this host)"; echo "$SAILS_BACKUP_AGE_IDENTITY"; }
+# The plaintext of a backup on stdout: decrypted when the name ends in .age, read as is otherwise. A decryption failure is a non-zero exit (pipefail).
+backup_plain() { # FILE
+  case "$1" in
+    *.age) need_age; local id; id="$(age_identity)"; age -d -i "$id" "$1" ;;
+    *) cat "$1" ;;
+  esac
+}
+
 cmd_backup_key() { # init | show
   local key; key="$(backup_signing_key)"
   case "${1:-}" in
@@ -289,7 +311,20 @@ cmd_backup_key() { # init | show
       say "NOW: copy $key.pub and this fingerprint OFF this host (a password manager, a printed page, another machine) and restore with SAILS_BACKUP_VERIFY_KEY pointing at that copy. If this host is lost or compromised, a key kept only here proves nothing."
       [ -n "${SAILS_BACKUP_KEY_PASSPHRASE:-}" ] || say "WARNING: the private key has no passphrase: anyone who can read $key can sign backups. Prefer a passphrase and ssh-agent, or keep the private key off this host (SAILS_BACKUP_SIGNING_KEY)." ;;
     show) [ -f "$key.pub" ] || die "no backup signing key at $key"; cat "$key.pub"; ssh-keygen -l -f "$key.pub" ;;
-    *) die "usage: sails-node backup-key init|show" ;;
+    # Recovery of the signing identity: the private key, encrypted to the age recipients, can be stored anywhere (it is useless without the
+    # age identity); `import` restores it on a new host. A lost signing key does not make old backups unreadable (the .pub anchor still verifies
+    # them) but nothing new can be signed with that identity: without export, rotate by `init` + appending the new .pub to SAILS_BACKUP_VERIFY_KEY.
+    export) need_age; [ -f "$key" ] || die "no backup signing key at $key"; local rcpt out="${2:?usage: sails-node backup-key export FILE}"
+      rcpt="$(age_recipients)"; [ -n "$rcpt" ] || die "set SAILS_BACKUP_AGE_RECIPIENTS: the exported key is encrypted to those age public keys"
+      [ ! -e "$out" ] || die "$out already exists"
+      (umask 077; age -R "$rcpt" -o "$out" "$key") && say "signing key exported (age-encrypted) to $out; keep it with the age identity's offline copy" ;;
+    import) need_age; need_ssh_keygen; local inp="${2:?usage: sails-node backup-key import FILE}" id
+      [ -s "$inp" ] || die "no such file: $inp"; [ ! -e "$key" ] && [ ! -e "$key.pub" ] || die "$key already exists; refusing to overwrite a signing key"
+      id="$(age_identity)"; mkdir -p "$(dirname "$key")"
+      (umask 077; age -d -i "$id" -o "$key" "$inp") || { rm -f "$key"; die "could not decrypt $inp with the age identity"; }
+      chmod 600 "$key"; ssh-keygen -y -f "$key" >"$key.pub" 2>/dev/null || { rm -f "$key" "$key.pub"; die "$inp did not contain a usable OpenSSH private key (or it needs its passphrase: ssh-keygen -y -f)"; }
+      say "signing key restored: fingerprint $(ssh-keygen -l -f "$key.pub" | cut -d' ' -f1-2)" ;;
+    *) die "usage: sails-node backup-key init|show|export FILE|import FILE" ;;
   esac
 }
 
@@ -341,7 +376,7 @@ sidecar_verify() { # FILE
 # scratch restore of `verify-backup --deep` are what catch that.
 backup_structure_check() { # FILE
   case "$1" in
-    *.dump) docker run --rm -i --entrypoint pg_restore "$TOOLS_IMAGE" --list <"$1" >/dev/null 2>&1 || die "$(basename "$1") is not a readable PostgreSQL custom-format dump" ;;
+    *.dump|*.dump.age) backup_plain "$1" | docker run --rm -i --entrypoint pg_restore "$TOOLS_IMAGE" --list >/dev/null 2>&1 || die "$(basename "$1") is not a readable PostgreSQL custom-format dump (or it could not be decrypted: wrong or missing SAILS_BACKUP_AGE_IDENTITY, or a modified file)" ;;
     *.tar.gz) { gzip -t "$1" && tar -tzf "$1" >/dev/null; } 2>/dev/null || die "$(basename "$1") is not a complete, readable archive (truncated or corrupt)" ;;
     *) die "unknown backup type: $1 (expected .dump or .tar.gz)" ;;
   esac
@@ -355,12 +390,12 @@ cmd_verify_backup() { # FILE [--deep]
   backup_structure_check "$file"
   if [ "$deep" = "--deep" ]; then
     case "$file" in
-      *.dump)
+      *.dump|*.dump.age)
         # Restore into a scratch database of the running PostgreSQL, atomically, then drop it: proves the dump is restorable.
         local tag db="verify_$(date +%s)_$$" rc=0 n; tag="$(state_get current)"; [ -n "$tag" ] || tag="$(default_tag)"
         with_images "$tag"; compose up -d --wait postgres
         compose exec -T postgres psql -h 127.0.0.1 -U sails -d postgres -qc "create database $db" >/dev/null
-        compose exec -T postgres pg_restore -h 127.0.0.1 -U sails -d "$db" --no-owner --single-transaction --exit-on-error <"$file" >/dev/null 2>&1 || rc=$?
+        backup_plain "$file" | compose exec -T postgres pg_restore -h 127.0.0.1 -U sails -d "$db" --no-owner --single-transaction --exit-on-error >/dev/null 2>&1 || rc=$?
         n="$(compose exec -T postgres psql -h 127.0.0.1 -U sails -d "$db" -Atc "select count(*) from information_schema.tables where table_schema='public'" 2>/dev/null || echo 0)"
         compose exec -T postgres psql -h 127.0.0.1 -U sails -d postgres -qc "drop database $db" >/dev/null 2>&1 || true
         [ "$rc" -eq 0 ] && [ "${n:-0}" -gt 0 ] || die "the scratch restore of $(basename "$file") FAILED (exit $rc, ${n:-0} tables): the backup is not restorable"
@@ -373,11 +408,18 @@ cmd_verify_backup() { # FILE [--deep]
 
 cmd_backup() {
   need_init
-  local file="$SAILS_NODE_HOME/backups/sails-$(date -u +%Y%m%dT%H%M%SZ).dump"
-  (umask 077; compose exec -T postgres pg_dump -h 127.0.0.1 -U sails -d sails -Fc >"$file")
+  local file="$SAILS_NODE_HOME/backups/sails-$(date -u +%Y%m%dT%H%M%SZ).dump" rcpt; rcpt="$(age_recipients)"
+  if [ -n "$rcpt" ]; then
+    need_age; file="$file.age"
+    # pg_dump -> age, no plaintext on disk; pipefail makes a failed dump a failed backup.
+    (umask 077; compose exec -T postgres pg_dump -h 127.0.0.1 -U sails -d sails -Fc | age -R "$rcpt" >"$file") || { rm -f "$file"; die "the encrypted backup FAILED (pg_dump or age); nothing was kept"; }
+  else
+    (umask 077; compose exec -T postgres pg_dump -h 127.0.0.1 -U sails -d sails -Fc >"$file")
+  fi
   [ -s "$file" ] || { rm -f "$file"; die "backup produced an empty file"; }
   sidecar_write "$file"
-  say "backup written: $file ($(wc -c <"$file") bytes), sha256 sidecar written"
+  say "backup written: $file ($(wc -c <"$file") bytes${rcpt:+, age-encrypted}), sha256 sidecar written"
+  [ -n "$rcpt" ] || say "WARNING: this backup is NOT encrypted (set SAILS_BACKUP_AGE_RECIPIENTS to a file of age public keys to encrypt it; docs/SELF_HOSTING.md)"
   say "NOT in this backup: $SAILS_NODE_HOME/secrets (database password, S3 credentials, the evidence encryption key). Back it up separately and offline; without the key, evidence is unreadable."
 }
 
@@ -394,11 +436,25 @@ cmd_restore() {
   say "restoring $file (one transaction: a failed restore leaves the database empty)"
   # --single-transaction --exit-on-error: everything is restored or nothing is. Without them a failed restore
   # leaves a partial database that then blocks every retry as "not empty".
-  compose exec -T postgres pg_restore -h 127.0.0.1 -U sails -d sails --no-owner --single-transaction --exit-on-error <"$file" >/dev/null \
+  backup_plain "$file" | compose exec -T postgres pg_restore -h 127.0.0.1 -U sails -d sails --no-owner --single-transaction --exit-on-error >/dev/null \
     || die "pg_restore FAILED; it ran in one transaction, so the database is still empty and you can retry with a good backup"
   say "verifying the migrations against the restored database"
   run_migration_job || die "the restored database did not verify: do not start the server"
   say "restore verified"
+}
+
+# Key rotation for encrypted dumps: read FILE with the OLD identity (SAILS_BACKUP_AGE_IDENTITY), write a new file encrypted to the CURRENT
+# recipients (SAILS_BACKUP_AGE_RECIPIENTS), with its own sidecar and signature. The old file is left alone: delete it yourself once the new one verifies.
+cmd_rekey_backup() { # FILE
+  local file="${1:?usage: sails-node rekey-backup FILE.dump.age}" rcpt out
+  case "$file" in *.dump.age) ;; *) die "rekey-backup applies to an encrypted dump (*.dump.age)" ;; esac
+  [ -s "$file" ] || die "no such backup: $file"
+  need_age; rcpt="$(age_recipients)"; [ -n "$rcpt" ] || die "set SAILS_BACKUP_AGE_RECIPIENTS to the NEW recipients file"
+  sidecar_verify "$file"
+  out="${file%.dump.age}-rekeyed.dump.age"; [ ! -e "$out" ] || die "$out already exists"
+  (umask 077; backup_plain "$file" | age -R "$rcpt" >"$out") || { rm -f "$out"; die "could not re-encrypt $(basename "$file") (wrong identity or a modified file); nothing was kept"; }
+  sidecar_write "$out"
+  say "re-encrypted to the current recipients: $out (new sidecar written); the old file is untouched"
 }
 
 EVIDENCE_VOLUME="${PROJECT}_seaweedfs-data"
@@ -609,6 +665,7 @@ case "${1:-}" in
   restore-evidence) shift; cmd_restore_evidence "$@" ;;
   verify-backup) shift; cmd_verify_backup "$@" ;;
   backup-key) shift; cmd_backup_key "$@" ;;
+  rekey-backup) shift; cmd_rekey_backup "$@" ;;
   verify-evidence) shift; cmd_verify_evidence "$@" ;;
   rotate-evidence-key) shift; cmd_rotate_evidence_key "$@" ;;
   resolve-rolled-back) shift; cmd_resolve_rolled_back "$@" ;;

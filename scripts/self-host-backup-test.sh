@@ -296,6 +296,83 @@ SAILS_BACKUP_VERIFY_KEY="$ANCHOR" node_cmd evidence-forged nonzero restore-evide
 pass "the evidence archive is signed and verified; a truncated archive with a recomputed sidecar is refused before the store is touched"
 unset SAILS_BACKUP_SIGNING_KEY
 
+step "Encrypted dumps (age): confidentiality, authenticated decryption, wrong or lost identity, rotation, signing-identity recovery"
+command -v age >/dev/null 2>&1 && command -v age-keygen >/dev/null 2>&1 || fail "age is required for this section (Ubuntu/Debian: apt install age)"
+AGEDIR="$(mktemp -d)"; chmod 700 "$AGEDIR"
+age-keygen -o "$AGEDIR/idA.txt" >/dev/null 2>&1; age-keygen -o "$AGEDIR/idB.txt" >/dev/null 2>&1
+age-keygen -y "$AGEDIR/idA.txt" >"$AGEDIR/rcptA.txt"; age-keygen -y "$AGEDIR/idB.txt" >"$AGEDIR/rcptB.txt"
+node_cmd update-before-enc 0 update "$TAG"      # the signed-sidecar section left the database empty: migrate it so a restore verifies against real migrations
+sql "create table enc_sentinel(secret text); insert into enc_sentinel values ('ENCRYPTED-SENTINEL-4242')" >/dev/null
+export SAILS_BACKUP_SIGNING_KEY="$KEYDIR/sign"
+BEFORE="$(ls "$SAILS_NODE_HOME"/backups/ | wc -l | tr -d ' ')"
+SAILS_BACKUP_AGE_RECIPIENTS="$AGEDIR/rcptA.txt" node_cmd backup-age 0 backup; expect_in_log "age-encrypted"
+ED="$(ls -t "$SAILS_NODE_HOME"/backups/sails-*.dump.age | head -n1)"
+[ -s "$ED" ] && [ -s "$ED.sha256" ] && [ -s "$ED.sha256.sig" ] || fail "the encrypted backup, its sidecar or its signature is missing"
+[ "$(ls "$SAILS_NODE_HOME"/backups/ | wc -l | tr -d ' ')" = "$((BEFORE + 3))" ] || fail "an extra (plaintext?) file was left in backups/"
+[ "$(head -c 5 "$ED")" != "PGDMP" ] && ! grep -aq "ENCRYPTED-SENTINEL-4242" "$ED" || fail "the encrypted backup contains plaintext"
+head -n1 "$ED" | grep -aq "age-encryption.org" || fail "the file is not an age file"
+node_cmd backup-plain-warns 0 backup; expect_in_log "NOT encrypted"      # without recipients the backup is plain, and says so
+pass "an encrypted backup is written with no plaintext (no PGDMP header, sentinel absent, no stray file), signed over the ciphertext; an unencrypted backup warns"
+
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" node_cmd age-verify-no-identity nonzero verify-backup "$ED"; expect_in_log "SAILS_BACKUP_AGE_IDENTITY"
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idB.txt" node_cmd age-verify-wrong-identity nonzero verify-backup "$ED"
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idA.txt" node_cmd age-verify 0 verify-backup "$ED"
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idA.txt" node_cmd age-verify-deep 0 verify-backup "$ED" --deep
+pass "no identity and the wrong identity are refused; the right identity verifies the dump, also with a scratch restore"
+
+# age authenticates its ciphertext: a modified file fails to decrypt even when the sidecar is recomputed (no signature involved here).
+ESIZE="$(wc -c <"$ED")"
+cp "$ED" "$WORK/flip.dump.age"; printf '\377\377\377\377' | dd of="$WORK/flip.dump.age" bs=1 seek=$((ESIZE / 2)) conv=notrunc 2>/dev/null
+printf '%s  %s\n' "$(sha "$WORK/flip.dump.age")" flip.dump.age >"$WORK/flip.dump.age.sha256"
+SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idA.txt" node_cmd age-flip-forged-sidecar nonzero verify-backup "$WORK/flip.dump.age"
+head -c $((ESIZE * 6 / 10)) "$ED" >"$WORK/cut.dump.age"; printf '%s  %s\n' "$(sha "$WORK/cut.dump.age")" cut.dump.age >"$WORK/cut.dump.age.sha256"
+SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idA.txt" node_cmd age-cut-forged-sidecar nonzero verify-backup "$WORK/cut.dump.age"
+docker rm -f "$SERVER" >/dev/null 2>&1 || true; sql "drop schema public cascade; create schema public" >/dev/null
+SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idA.txt" node_cmd age-restore-flipped nonzero restore "$WORK/flip.dump.age"
+[ "$(tables)" = "0" ] || fail "a modified encrypted backup touched the database"
+pass "a flipped byte or a truncation is refused even with a recomputed sidecar (authenticated encryption), and the database stays empty"
+
+# The limit of encryption alone: the public key is on the host, so anyone can encrypt THEIR data to it. Only the signature anchored off the host stops that.
+sql "create table forged_sentinel(x int)" >/dev/null
+SAILS_BACKUP_SIGNING_KEY="$KEYDIR/attacker" SAILS_BACKUP_AGE_RECIPIENTS="$AGEDIR/rcptA.txt" node_cmd age-forged-origin 0 backup
+FD="$(ls -t "$SAILS_NODE_HOME"/backups/sails-*.dump.age | head -n1)"      # encrypted to the real public key, sidecar signed by the ATTACKER's key
+sql "drop schema public cascade; create schema public" >/dev/null
+cp "$KEYDIR/attacker.pub" "$SAILS_NODE_HOME/secrets/backup-signing.pub"      # the attacker also controls the host: the host-side anchor is theirs
+( unset SAILS_BACKUP_VERIFY_KEY; SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idA.txt" node_cmd age-forged-origin-host-anchor 0 verify-backup "$FD" )
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idA.txt" node_cmd age-forged-origin-anchored nonzero verify-backup "$FD"; expect_in_log "NOT valid"
+rm -f "$SAILS_NODE_HOME/secrets/backup-signing.pub"
+pass "DEMONSTRATED LIMIT: an attacker who can encrypt to the public key and controls the host passes verification against the host-side anchor; with the anchor kept off the host the same file is refused. Encryption gives confidentiality, the signature (anchored off-host) gives origin"
+
+# Restore, key loss and rotation.
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" node_cmd age-restore-no-identity nonzero restore "$ED"; expect_in_log "SAILS_BACKUP_AGE_IDENTITY"
+[ "$(tables)" = "0" ] || fail "a restore without the identity touched the database"
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idA.txt" node_cmd age-restore 0 restore "$ED"
+[ "$(sql "select secret from enc_sentinel")" = "ENCRYPTED-SENTINEL-4242" ] || fail "the encrypted backup did not restore the sentinel"
+pass "without the identity the restore is refused and the database untouched (a LOST identity is a lost backup); with it the sentinel is restored"
+
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idA.txt" SAILS_BACKUP_AGE_RECIPIENTS="$AGEDIR/rcptB.txt" node_cmd age-rekey 0 rekey-backup "$ED"
+RK="${ED%.dump.age}-rekeyed.dump.age"; [ -s "$RK" ] && [ -s "$RK.sha256.sig" ] || fail "the re-keyed backup or its signature is missing"
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idB.txt" node_cmd age-rekey-new-identity 0 verify-backup "$RK" --deep
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idA.txt" node_cmd age-rekey-old-identity nonzero verify-backup "$RK"
+SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idA.txt" SAILS_BACKUP_AGE_RECIPIENTS="$AGEDIR/rcptB.txt" node_cmd age-rekey-modified nonzero rekey-backup "$WORK/flip.dump.age"
+[ ! -e "$WORK/flip-rekeyed.dump.age" ] || fail "a failed re-encryption left a file behind"
+pass "rekey-backup moves a dump to the new recipients (new sidecar and signature): the new identity reads it, the old one no longer does; a modified file is refused"
+
+# Signing-identity recovery.
+SAILS_BACKUP_AGE_RECIPIENTS="$AGEDIR/rcptA.txt" node_cmd key-export 0 backup-key export "$AGEDIR/signing.age"
+! grep -aq "OPENSSH PRIVATE KEY" "$AGEDIR/signing.age" || fail "the exported signing key is not encrypted"
+FP="$(ssh-keygen -l -f "$KEYDIR/sign.pub" | cut -d' ' -f2)"
+SAILS_BACKUP_SIGNING_KEY="$AGEDIR/restored-sign" SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idB.txt" node_cmd key-import-wrong nonzero backup-key import "$AGEDIR/signing.age"
+[ ! -e "$AGEDIR/restored-sign" ] || fail "a failed import left a key behind"
+SAILS_BACKUP_SIGNING_KEY="$AGEDIR/restored-sign" SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idA.txt" node_cmd key-import 0 backup-key import "$AGEDIR/signing.age"
+[ "$(ssh-keygen -l -f "$AGEDIR/restored-sign.pub" | cut -d' ' -f2)" = "$FP" ] || fail "the restored signing key has another fingerprint"
+SAILS_BACKUP_SIGNING_KEY="$AGEDIR/restored-sign" SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idA.txt" node_cmd key-import-again nonzero backup-key import "$AGEDIR/signing.age"; expect_in_log "refusing to overwrite"
+SAILS_BACKUP_SIGNING_KEY="$AGEDIR/restored-sign" SAILS_BACKUP_AGE_RECIPIENTS="$AGEDIR/rcptA.txt" node_cmd backup-with-restored-key 0 backup
+RS="$(ls -t "$SAILS_NODE_HOME"/backups/sails-*.dump.age | head -n1)"
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" SAILS_BACKUP_AGE_IDENTITY="$AGEDIR/idA.txt" node_cmd verify-restored-key-backup 0 verify-backup "$RS"
+pass "the signing key is exported age-encrypted (no plaintext key in the file); a wrong identity restores nothing; the right one restores the SAME fingerprint, refuses to overwrite, and backups it signs verify against the original off-host anchor"
+unset SAILS_BACKUP_SIGNING_KEY; rm -rf "$AGEDIR"
+
 step "Security: no key or password reaches any log"
 for v in "$KEK_OLD" "$KEK_NEW" "$PGPASS" "$S3PASS"; do
   if grep -rqF -e "$v" "$LOGS"/*.log; then fail "a secret appears in a log: $(grep -rlF -e "$v" "$LOGS"/*.log | xargs -n1 basename | tr '\n' ' ')"; fi

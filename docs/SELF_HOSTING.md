@@ -154,10 +154,31 @@ signed then stop verifying, so re-verify what you trust by other means (a scratc
 This is the backup-signing identity only. **The kit generates no node signing identity, so recovering one is NOT VERIFIED here**
 (the operator restores whatever keys they configured, unchanged).
 
-**Dumps are not encrypted.** `sails-node backup` writes the database in clear (file mode 0600) and the evidence archive holds
-objects that are encrypted only by the store's key. A dump contains every row, including anything personal: encrypt it yourself
-(for example with `age` or `gpg`) before it leaves the host, and keep that key apart from the backups. The signature proves who made a
-backup and that it is unchanged; it does not make it confidential.
+**Encrypted dumps (age).** Without configuration `sails-node backup` writes the database in clear (file mode 0600) and says so. A dump
+contains every row, including anything personal. Set `SAILS_BACKUP_AGE_RECIPIENTS` to a file of age **public** keys (one per line) and
+the dump is written as `sails-<time>.dump.age`: `pg_dump` is piped straight into `age`, so the plaintext never touches this host's disk.
+age is authenticated encryption: a modified or truncated file fails to decrypt, even if its sidecar is recomputed. The sidecar and the
+signature are made over the ciphertext, so they are checked before anything is decrypted.
+
+```bash
+age-keygen -o age-identity.txt              # keep this file OFF the host (two offline copies); `age-keygen -y` prints the public key
+age-keygen -y age-identity.txt > recipients.txt
+SAILS_BACKUP_AGE_RECIPIENTS=recipients.txt sails-node backup
+SAILS_BACKUP_AGE_IDENTITY=age-identity.txt SAILS_BACKUP_VERIFY_KEY=anchor.pub sails-node verify-backup FILE.dump.age --deep
+SAILS_BACKUP_AGE_IDENTITY=age-identity.txt SAILS_BACKUP_VERIFY_KEY=anchor.pub sails-node restore FILE.dump.age
+```
+
+The public key on the host can encrypt new backups but cannot read old ones, so a stolen backup or a compromised host does not expose
+the database through the backups. A **lost identity is a lost backup**: there is no recovery. *Rotation:* put the new public key in a new
+recipients file and run `SAILS_BACKUP_AGE_IDENTITY=<old identity> SAILS_BACKUP_AGE_RECIPIENTS=<new recipients> sails-node rekey-backup
+FILE.dump.age`; it writes `...-rekeyed.dump.age` with its own sidecar and signature and leaves the old file for you to delete.
+*Signing-identity recovery:* `sails-node backup-key export FILE` writes the private signing key age-encrypted to the recipients (store
+it anywhere); `backup-key import FILE` (with the identity) restores it on a new host with the same fingerprint, and refuses to overwrite
+an existing key. What this does not do: encryption alone does not prove who made a backup (anyone with the public key can encrypt their
+own data to it; only a signature anchored off the host does, and the test shows both), it does not protect the live database, and it
+hides neither the size nor the time of a backup. The evidence archive (`.tar.gz`) is not age-encrypted here: its objects are already
+encrypted by the store's key. Tested by `scripts/self-host-backup-test.sh` (wrong identity, no identity, flipped byte, truncation, forged
+origin, rotation, key export/import); `age` is a test dependency installed in CI from the Ubuntu package.
 
 **Evidence checks.** `sails-node verify-evidence` reads back every stored object and compares its content with the
 SHA-256 in its name; it fails if the store runs with the wrong key, if an object is damaged, or if the store
