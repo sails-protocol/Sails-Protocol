@@ -39,7 +39,10 @@ jobs:
       - name: Self-hosting kit on the distroless images (install, update, failed update, rollback, restore, process contract)
         run: bash ./scripts/self-host-test.sh
 
-      - name: Self-hosting kit on the distroless images (backup integrity, atomic restore, key rotation)
+      - name: Install age (test dependency of the encrypted backups)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq age && age --version
+
+      - name: Self-hosting kit on the distroless images (backup integrity, atomic restore, key rotation, encrypted dumps)
         run: SAILS_BACKUP_TEST_TAG=ci bash ./scripts/self-host-backup-test.sh
 
       - name: Trivy scan and SBOM of the distroless images

@@ -216,5 +216,9 @@ jobs:
 
       # Adversarial backup/recovery of the same kit: sha256 sidecars, truncated/forged/tampered backups,
       # atomic restore, evidence verification, key rotation, hardened migrate service. Throwaway project.
-      - name: Self-hosting kit (backup integrity, atomic restore, evidence key rotation)
+      # age (Ubuntu's own package, installed by the runner's apt) is a TEST dependency of the encrypted-backup section; the kit uses the host's age.
+      - name: Install age (test dependency of the encrypted backups)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq age && age --version
+
+      - name: Self-hosting kit (backup integrity, atomic restore, evidence key rotation, encrypted dumps)
         run: bash ./scripts/self-host-backup-test.sh
