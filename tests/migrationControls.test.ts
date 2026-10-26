@@ -85,6 +85,60 @@ describe('migration lint: directory checks', () => {
   })
 })
 
+describe('migration lint: adversarial cases (evasion attempts must not pass as additive)', () => {
+  const kind = (sql: string) => classify(sql).klass
+  it('an anonymous DO block is never additive, however innocent it looks', () => {
+    expect(kind('DO $$ BEGIN EXECUTE \'DROP TABLE "a"\'; END $$;')).toBe('potentially-destructive')
+    expect(kind('do language plpgsql $body$ begin perform 1; end $body$;')).toBe('potentially-destructive')
+    expect(kind('-- DO $$ not code $$\nCREATE TABLE "a" ("id" TEXT NOT NULL);')).toBe('additive')
+  })
+  it('is case-, whitespace- and quoting-insensitive for the statements it knows', () => {
+    expect(kind('drop\n  table   "a";')).toBe('destructive')
+    expect(kind('alter table only "a"\n  drop column "x";')).toBe('destructive')
+    expect(kind('ALTER TABLE "a" ADD COLUMN "d" NUMERIC(10,2) NOT NULL;')).toBe('potentially-destructive')
+  })
+  it('a destructive statement hidden after a harmless one in the same file is still found', () => {
+    expect(kind('CREATE TABLE "n" ("id" TEXT NOT NULL);\nCREATE INDEX "i" ON "n"("id");\nDROP TABLE "old";')).toBe('destructive')
+  })
+  it('the contract annotation only counts in the leading comment block', () => {
+    const reason = 'x unused since 1.4, expand step shipped in 1.3'
+    const dir = mkdtempSync(join(tmpdir(), 'mig-adv-'))
+    try {
+      const baselineFile = join(dir, 'b.json')
+      mkdirSync(join(dir, 'm', '20260101000000_init'), { recursive: true })
+      writeFileSync(join(dir, 'm', '20260101000000_init', 'migration.sql'), 'CREATE TABLE "a" ("id" TEXT NOT NULL, "x" TEXT);')
+      lintMain(['--dir', join(dir, 'm'), '--baseline', baselineFile, '--write-baseline'], { log: () => undefined, error: () => undefined })
+      const run = (sql: string) => {
+        mkdirSync(join(dir, 'm', '20260102000000_drop'), { recursive: true })
+        writeFileSync(join(dir, 'm', '20260102000000_drop', 'migration.sql'), sql)
+        return lintMain(['--dir', join(dir, 'm'), '--baseline', baselineFile], { log: () => undefined, error: () => undefined })
+      }
+      const drop = 'ALTER TABLE "a" DROP COLUMN "x";'
+      expect(run(`-- migration-class: contract: ${reason}\n${drop}`)).toBe(0)
+      expect(run(`${drop}\n-- migration-class: contract: ${reason}`)).toBe(1) // after the statement
+      expect(run(`/*\n-- migration-class: contract: ${reason}\n*/\n${drop}`)).toBe(1) // inside a block comment
+      expect(run(`DO $$ BEGIN -- migration-class: contract: ${reason}\nEND $$;\n${drop}`)).toBe(1) // inside code
+      expect(run(`-- migration-class: contract: ${reason}\r\n${drop}`)).toBe(0) // CRLF header is fine
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+  it('whitespace-only or line-ending-only edits to a frozen migration are caught (the bytes are the contract)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mig-adv-'))
+    try {
+      const baselineFile = join(dir, 'b.json')
+      const file = join(dir, 'm', '20260101000000_init', 'migration.sql')
+      mkdirSync(join(dir, 'm', '20260101000000_init'), { recursive: true })
+      writeFileSync(file, 'CREATE TABLE "a" ("id" TEXT NOT NULL);\n')
+      lintMain(['--dir', join(dir, 'm'), '--baseline', baselineFile, '--write-baseline'], { log: () => undefined, error: () => undefined })
+      const lint = () => lintMain(['--dir', join(dir, 'm'), '--baseline', baselineFile], { log: () => undefined, error: () => undefined })
+      expect(lint()).toBe(0)
+      writeFileSync(file, 'CREATE TABLE "a" ("id" TEXT NOT NULL);\r\n')
+      expect(lint()).toBe(1)
+      writeFileSync(file, 'CREATE TABLE "a" ("id" TEXT NOT NULL); \n')
+      expect(lint()).toBe(1)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+})
+
 describe('migration lint: the repository itself', () => {
   it('the committed migrations match their frozen baseline', () => {
     const out = { log: () => undefined, error: jest.fn() }
@@ -94,11 +148,22 @@ describe('migration lint: the repository itself', () => {
 })
 
 describe('compat probe: rules', () => {
-  const col = (type: string, notNull: boolean, hasDefault = false) => ({ type, notNull, hasDefault })
-  const snap = (columns: Record<string, ReturnType<typeof col>>, enums: string[] = []) => ({ columns, enums: new Set(enums) })
+  type Col = { type: string; notNull: boolean; hasDefault: boolean; len?: number; prec?: number; scale?: number }
+  const col = (type: string, notNull: boolean, hasDefault = false): Col => ({ type, notNull, hasDefault })
+  const snap = (columns: Record<string, Col>, enums: string[] = []) => ({ columns, enums: new Set(enums) })
   const base = snap({ 'a.id': col('text', true), 'a.x': col('text', false) }, ['S:OPEN'])
   it('accepts expansion: new table, new nullable or defaulted column, new enum value', () => {
     expect(probeLib.diff(base, snap({ 'a.id': col('text', true), 'a.x': col('text', false), 'a.y': col('text', false), 'a.z': col('int4', true, true), 'b.id': col('text', true) }, ['S:OPEN', 'S:NEW']))).toEqual([])
+  })
+  it('rejects narrowing of a varchar/numeric and removal of a DEFAULT that old INSERTs relied on', () => {
+    const before = snap({ 'a.s': { type: 'varchar', notNull: false, hasDefault: false, len: 255 }, 'a.n': { type: 'numeric', notNull: false, hasDefault: false, prec: 10, scale: 2 }, 'a.d': col('int4', true, true) })
+    const after = snap({ 'a.s': { type: 'varchar', notNull: false, hasDefault: false, len: 50 }, 'a.n': { type: 'numeric', notNull: false, hasDefault: false, prec: 8, scale: 2 }, 'a.d': col('int4', true, false) })
+    const text = probeLib.diff(before, after).join('\n')
+    expect(text).toMatch(/a\.s: length 255 -> 50/)
+    expect(text).toMatch(/a\.n: precision\/scale/)
+    expect(text).toMatch(/a\.d: DEFAULT removed/)
+    // widening is compatible
+    expect(probeLib.diff(before, snap({ 'a.s': { type: 'varchar', notNull: false, hasDefault: false, len: 500 }, 'a.n': { type: 'numeric', notNull: false, hasDefault: false, prec: 12, scale: 4 }, 'a.d': col('int4', true, true) }))).toEqual([])
   })
   it('rejects removed column, type change, new NOT NULL, new required column and removed enum value', () => {
     const problems = probeLib.diff(base, snap({ 'a.id': col('int4', true), 'a.x': col('text', true), 'a.req': col('text', true) }, []))
@@ -138,6 +203,14 @@ const url = process.env.COMPAT_PROBE_DATABASE_URL
   it('rejects a new required column without DEFAULT on an existing table', async () => {
     migration('20260102000000_req', 'ALTER TABLE "a" ADD COLUMN "must" TEXT NOT NULL DEFAULT \'\';\nALTER TABLE "a" ALTER COLUMN "must" DROP DEFAULT;')
     expect((await run(['20260101000000_init'])).code).toBe(1)
+  })
+  it('rejects, on a real database, a varchar narrowing and a dropped default on a NOT NULL column', async () => {
+    migration('20260101000000_init', 'CREATE TABLE "a" ("id" TEXT NOT NULL, "s" VARCHAR(255), "d" INTEGER NOT NULL DEFAULT 0);')
+    migration('20260102000000_narrow', 'ALTER TABLE "a" ALTER COLUMN "s" TYPE VARCHAR(50);\nALTER TABLE "a" ALTER COLUMN "d" DROP DEFAULT;')
+    const r = await run(['20260101000000_init'])
+    expect(r.code).toBe(1)
+    expect(r.errors.join('\n')).toMatch(/a\.s: length 255 -> 50/)
+    expect(r.errors.join('\n')).toMatch(/a\.d: DEFAULT removed/)
   })
   it('exits 2 when the baseline file is missing', async () => {
     const errors: string[] = []
