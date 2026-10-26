@@ -21,7 +21,7 @@ describe('RedisStreamsEventStore (RFC-010, real Redis)', () => {
   let redisAvailable = false
 
   beforeAll(async () => {
-    client = new Redis(REDIS_URL, { maxRetriesPerRequest: 1, retryStrategy: () => null, lazyConnect: true })
+    client = new Redis(REDIS_URL, { maxRetriesPerRequest: 1, retryStrategy: () => null, lazyConnect: true, disconnectTimeout: 10 })
     try {
       await client.connect()
       await client.ping()
