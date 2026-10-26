@@ -18,7 +18,7 @@ name: ${COMPOSE_PROJECT_NAME:-sails-node}
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36
     environment:
       POSTGRES_USER: sails
       POSTGRES_DB: sails
@@ -34,7 +34,7 @@ services:
     # No published ports: only this stack's network can reach the database.
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:57e4255cc971b1c8d6f8a6ca283ac01bc3ecdd914273ef6bfaede87aaecd6541
     command: ["redis-server", "--appendonly", "yes"]
     volumes: [redis-data:/data]
     healthcheck:
@@ -51,7 +51,7 @@ services:
   # (MinIO is NOT used: its community edition was archived and its images discontinued.)
   seaweedfs:
     profiles: [evidence-store]
-    image: chrislusf/seaweedfs:4.48
+    image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
     command: ["server", "-dir=/data", "-s3"]
     # The S3 credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) and the SSE-S3 key (WEED_S3_SSE_KEK: the server
     # asks for AES256 on every upload, which SeaweedFS only accepts with a 32-byte key) come from an env_file, not
@@ -70,7 +70,7 @@ services:
   # verified copy of every object and then swapped in. Never part of a normal start.
   seaweedfs-next:
     profiles: [evidence-rotate]
-    image: chrislusf/seaweedfs:4.48
+    image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
     command: ["server", "-dir=/data", "-s3"]
     env_file: ${SAILS_HOME_HOST:?}/secrets/seaweedfs.next.env
     volumes: [seaweedfs-next-data:/data]
@@ -111,7 +111,7 @@ services:
   # proxy works the same way: proxy to 127.0.0.1:${SAILS_PORT}.
   caddy:
     profiles: [tls]
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
     environment:
       SAILS_DOMAIN: ${SAILS_DOMAIN:-localhost}
     command: ["caddy", "reverse-proxy", "--from", "${SAILS_DOMAIN:-localhost}", "--to", "server:3000"]

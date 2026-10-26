@@ -39,7 +39,7 @@ cleanup() {
   docker rm -f "${RUN}-migrate-job" >/dev/null 2>&1 || true
   COMPOSE_PROFILES=evidence-store,evidence-rotate docker compose -p "$RUN" down -v --remove-orphans >/dev/null 2>&1 || true
   [ "$BUILT_HERE" -eq 0 ] || docker rmi -f "sails-server:$TAG" "sails-migrate:$TAG" >/dev/null 2>&1 || true
-  rm -rf "$WORK"
+  rm -rf "$WORK" "${KEYDIR:-}"
   exit "$status"
 }
 trap cleanup EXIT
@@ -233,6 +233,68 @@ cp "$WORK/seaweedfs.env.new" "$SAILS_NODE_HOME/secrets/seaweedfs.env"
 kit_compose up -d --force-recreate seaweedfs >/dev/null 2>&1
 node_cmd new-key-again 0 verify-evidence; expect_in_log "3 objects, 3 verified"
 pass "the old key cannot read the rotated store; the new key can (so the old key must be kept only for old archives)"
+
+step "Signed sidecar: backup-key, signed backups, fail-closed verification, and where the verification key is anchored"
+# Keys live on the test machine's own filesystem (ssh-keygen refuses a private key whose mode it cannot read as 0600, which a Windows-backed
+# checkout cannot show), never inside the project directory.
+KEYDIR="$(mktemp -d)"; chmod 700 "$KEYDIR"
+export SAILS_BACKUP_SIGNING_KEY="$KEYDIR/sign"
+node_cmd key-init 0 backup-key init; expect_in_log "OFF this host"; expect_in_log "no passphrase"
+[ -s "$KEYDIR/sign" ] && [ -s "$KEYDIR/sign.pub" ] || fail "the key pair was not created"
+node_cmd key-init-again nonzero backup-key init; expect_in_log "refusing to overwrite"
+ANCHOR="$KEYDIR/anchor.pub"; cp "$KEYDIR/sign.pub" "$ANCHOR"   # the copy an operator keeps OFF the host
+node_cmd backup-signed 0 backup
+SD="$(ls -t "$SAILS_NODE_HOME"/backups/sails-*.dump | head -n1)"
+[ -s "$SD.sha256.sig" ] || fail "the backup was not signed"
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" node_cmd verify-signed 0 verify-backup "$SD"
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" node_cmd verify-signed-deep 0 verify-backup "$SD" --deep
+pass "backup-key init refuses to overwrite and warns about the off-host copy; a backup is signed and verifies against the off-host anchor (also --deep)"
+
+# The attack a bare sha256 sidecar cannot stop: replace the archive AND recompute the sidecar.
+cp "$WORK/data.dump" "$WORK/forged.dump"   # damaged data, readable table of contents (built in the first G1 section): passes every check except the signature
+printf '%s  %s\n' "$(sha "$WORK/forged.dump")" forged.dump >"$WORK/forged.dump.sha256"; cp "$SD.sha256.sig" "$WORK/forged.dump.sha256.sig"
+node_cmd forged-unsigned-sha nonzero verify-backup "$WORK/forged.dump"; [ "$STATUS" -ne 0 ]   # no anchor given: signature present but no key to verify
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" node_cmd forged-old-sig nonzero verify-backup "$WORK/forged.dump"; expect_in_log "signature of forged.dump.sha256 is NOT valid"
+docker rm -f "$SERVER" >/dev/null 2>&1 || true; sql "drop schema public cascade; create schema public" >/dev/null
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" node_cmd restore-forged nonzero restore "$WORK/forged.dump"; expect_in_log "NOT valid"
+[ "$(tables)" = "0" ] || fail "a forged backup touched the database"
+# The attacker signs the forged sidecar with THEIR key.
+ssh-keygen -q -t ed25519 -N "" -C attacker -f "$KEYDIR/attacker" >/dev/null
+rm -f "$WORK/forged.dump.sha256.sig"; ssh-keygen -Y sign -q -f "$KEYDIR/attacker" -n sails-backup "$WORK/forged.dump.sha256"
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" node_cmd forged-attacker-sig nonzero verify-backup "$WORK/forged.dump"; expect_in_log "NOT valid"
+pass "a forged archive with a recomputed sidecar is refused (stale signature, or the attacker's own signature) and a refused restore leaves the database empty"
+
+# Where the verification key lives decides what the signature proves.
+cp "$KEYDIR/attacker.pub" "$SAILS_NODE_HOME/secrets/backup-signing.pub"      # attacker who can write the host replaces the host-side anchor
+( unset SAILS_BACKUP_VERIFY_KEY; node_cmd host-anchor-compromised 0 verify-backup "$WORK/forged.dump" )
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" node_cmd off-host-anchor-holds nonzero verify-backup "$WORK/forged.dump"; expect_in_log "NOT valid"
+rm -f "$SAILS_NODE_HOME/secrets/backup-signing.pub"
+pass "DEMONSTRATED LIMIT: with the anchor on the host, an attacker who controls the host passes verification with their own key; with the anchor kept off the host the same forged backup is refused"
+
+# Unsigned and rotated cases.
+cp "$SD" "$WORK/old.dump"; printf '%s  %s\n' "$(sha "$WORK/old.dump")" old.dump >"$WORK/old.dump.sha256"      # a backup from before signing: sidecar, no signature
+node_cmd unsigned-default 0 verify-backup "$WORK/old.dump"
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" node_cmd unsigned-anchored nonzero verify-backup "$WORK/old.dump"; expect_in_log "signature is required"
+SAILS_BACKUP_REQUIRE_SIGNATURE=1 node_cmd unsigned-required nonzero verify-backup "$WORK/old.dump"; expect_in_log "signature is required"
+SAILS_RESTORE_UNVERIFIED=1 SAILS_BACKUP_VERIFY_KEY="$ANCHOR" node_cmd unverified-cannot-override nonzero verify-backup "$WORK/old.dump"
+ssh-keygen -q -t ed25519 -N "" -C next -f "$KEYDIR/next" >/dev/null
+SAILS_BACKUP_SIGNING_KEY="$KEYDIR/next" node_cmd backup-rotated 0 backup
+RD="$(ls -t "$SAILS_NODE_HOME"/backups/sails-*.dump | head -n1)"
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" node_cmd rotated-old-anchor-only nonzero verify-backup "$RD"
+cat "$ANCHOR" "$KEYDIR/next.pub" >"$KEYDIR/rotation.pub"
+SAILS_BACKUP_VERIFY_KEY="$KEYDIR/rotation.pub" node_cmd rotated-both-keys 0 verify-backup "$RD"
+SAILS_BACKUP_VERIFY_KEY="$KEYDIR/rotation.pub" node_cmd rotated-old-backup-still 0 verify-backup "$SD"
+pass "an unsigned old backup passes only while no signature is required, and nothing overrides a required signature; a rotation file holding both keys verifies old and new backups, the old key alone refuses the new one"
+
+# Evidence archives are signed the same way.
+SAILS_BACKUP_SIGNING_KEY="$KEYDIR/sign" node_cmd backup-evidence-signed 0 backup-evidence
+EV2="$(ls -t "$SAILS_NODE_HOME"/backups/evidence-*.tar.gz | head -n1)"; [ -s "$EV2.sha256.sig" ] || fail "the evidence archive was not signed"
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" node_cmd evidence-signed-ok 0 verify-backup "$EV2"
+cp "$EV2" "$WORK/ev-forged.tar.gz"; head -c $(( $(wc -c <"$EV2") - 40 )) "$EV2" >"$WORK/ev-forged.tar.gz"
+printf '%s  %s\n' "$(sha "$WORK/ev-forged.tar.gz")" ev-forged.tar.gz >"$WORK/ev-forged.tar.gz.sha256"; cp "$EV2.sha256.sig" "$WORK/ev-forged.tar.gz.sha256.sig"
+SAILS_BACKUP_VERIFY_KEY="$ANCHOR" node_cmd evidence-forged nonzero restore-evidence "$WORK/ev-forged.tar.gz"; expect_in_log "NOT valid"
+pass "the evidence archive is signed and verified; a truncated archive with a recomputed sidecar is refused before the store is touched"
+unset SAILS_BACKUP_SIGNING_KEY
 
 step "Security: no key or password reaches any log"
 for v in "$KEK_OLD" "$KEK_NEW" "$PGPASS" "$S3PASS"; do

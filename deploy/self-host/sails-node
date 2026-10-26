@@ -13,6 +13,7 @@
 #   sails-node backup-evidence      cold snapshot of the bundled evidence store (objects stay encrypted; the key is NOT inside)
 #   sails-node restore-evidence FILE   restore that snapshot into a fresh store (needs the same secrets/seaweedfs.env)
 #   sails-node verify-backup FILE [--deep]   check a backup: sha256 sidecar, structure, and (--deep, dumps) a scratch restore
+#   sails-node backup-key init|show   create / show the Ed25519 key that signs backup sidecars (then keep the PUBLIC key off this host)
 #   sails-node verify-evidence      read back EVERY stored evidence object and check it against the hash in its name
 #   sails-node rotate-evidence-key  re-encrypt all evidence under a new key (copy, verify, swap; rolls back on failure)
 #   sails-node resolve-rolled-back NAME   after a failed migration: mark it rolled back (docs/DEPLOYMENT.md 6.1)
@@ -35,6 +36,8 @@ export SAILS_PORT="${SAILS_PORT:-3000}"
 MIGRATE_TIMEOUT="${SAILS_MIGRATE_TIMEOUT:-600}"
 READY_TIMEOUT="${SAILS_READY_TIMEOUT:-120}"
 STATE="$SAILS_NODE_HOME/state"
+# One-shot helper containers (tar, find, pg_restore --list) use the same PostgreSQL image the stack runs, pinned by digest.
+TOOLS_IMAGE="postgres:16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36"
 # Image flavor: "debian" (default, the production Dockerfile targets) or "distroless" (CANDIDATE, deploy/self-host/distroless:
 # no shell, uid 65532, absolute node path). Only the way images are built and where `node` lives differ; the kit is the same.
 IMAGE_FLAVOR="${SAILS_IMAGE_FLAVOR:-debian}"
@@ -256,26 +259,89 @@ cmd_rollback() {
 # sidecar (or a signature of it) somewhere the host cannot write. The database dump is not encrypted either:
 # protect it like the database itself (the file is 0600).
 sha256_of() { sha256sum "$1" | cut -d' ' -f1; }
+
+# ---- Signed sidecar (tamper-evidence) -----------------------------------------------------------
+# If a signing key exists, FILE.sha256 is signed (OpenSSH Ed25519 signature, namespace "sails-backup") into FILE.sha256.sig, and
+# restore / restore-evidence / verify-backup then REFUSE any backup whose sidecar does not verify: a truncated or substituted archive
+# with a recomputed sidecar no longer passes. What this proves depends on WHERE the keys live, which is the operator's decision:
+#   - signing key on this host (default secrets/backup-signing): protects copies of backups that leave the host (an object store, a
+#     removable disk, a transfer) against modification, as long as the VERIFICATION key is kept somewhere the attacker of those copies
+#     cannot write. It proves nothing against someone who controls this host: they can sign what they like.
+#   - signing key off this host (SAILS_BACKUP_SIGNING_KEY pointing to removable media or a key on a hardware token): also resists a
+#     compromised host. A key without a passphrase is only as safe as its file permissions; use a passphrase and ssh-agent for that.
+# Verification key anchor, in order: SAILS_BACKUP_VERIFY_KEY (a public key file kept OFF this host: the recommended anchor; setting it also
+# makes a signature MANDATORY), else secrets/backup-signing.pub (same trust domain as the backups it checks: it detects a modified
+# copy, not a modified host). SAILS_BACKUP_REQUIRE_SIGNATURE=1 makes a signature mandatory with the default anchor too.
+SIGN_NS="sails-backup"
+backup_signing_key() { echo "${SAILS_BACKUP_SIGNING_KEY:-$SAILS_NODE_HOME/secrets/backup-signing}"; }
+backup_verify_pub() { if [ -n "${SAILS_BACKUP_VERIFY_KEY:-}" ]; then echo "$SAILS_BACKUP_VERIFY_KEY"; elif [ -f "$SAILS_NODE_HOME/secrets/backup-signing.pub" ]; then echo "$SAILS_NODE_HOME/secrets/backup-signing.pub"; fi; }
+need_ssh_keygen() { command -v ssh-keygen >/dev/null 2>&1 || die "ssh-keygen (OpenSSH 8.0+) is required for signed backups"; }
+
+cmd_backup_key() { # init | show
+  local key; key="$(backup_signing_key)"
+  case "${1:-}" in
+    init)
+      need_ssh_keygen; [ ! -e "$key" ] && [ ! -e "$key.pub" ] || die "$key already exists; refusing to overwrite a signing key"
+      mkdir -p "$(dirname "$key")"
+      (umask 077; ssh-keygen -q -t ed25519 -N "${SAILS_BACKUP_KEY_PASSPHRASE:-}" -C "sails-backup" -f "$key")
+      say "created the backup signing key pair: $key (private, 0600) and $key.pub"
+      say "fingerprint: $(ssh-keygen -l -f "$key.pub" | cut -d' ' -f1-2)"
+      say "NOW: copy $key.pub and this fingerprint OFF this host (a password manager, a printed page, another machine) and restore with SAILS_BACKUP_VERIFY_KEY pointing at that copy. If this host is lost or compromised, a key kept only here proves nothing."
+      [ -n "${SAILS_BACKUP_KEY_PASSPHRASE:-}" ] || say "WARNING: the private key has no passphrase: anyone who can read $key can sign backups. Prefer a passphrase and ssh-agent, or keep the private key off this host (SAILS_BACKUP_SIGNING_KEY)." ;;
+    show) [ -f "$key.pub" ] || die "no backup signing key at $key"; cat "$key.pub"; ssh-keygen -l -f "$key.pub" ;;
+    *) die "usage: sails-node backup-key init|show" ;;
+  esac
+}
+
 sidecar_write() { # FILE
   (umask 077; printf '%s  %s\n' "$(sha256_of "$1")" "$(basename "$1")" >"$1.sha256")
+  local key; key="$(backup_signing_key)"
+  if [ -f "$key" ]; then
+    need_ssh_keygen
+    rm -f "$1.sha256.sig"
+    (umask 077; ssh-keygen -Y sign -q -f "$key" -n "$SIGN_NS" "$1.sha256") || die "could not sign $(basename "$1").sha256 with $key: the backup is NOT signed (fix the key or unset SAILS_BACKUP_SIGNING_KEY)"
+    [ -s "$1.sha256.sig" ] || die "signing produced no signature for $(basename "$1")"
+  fi
 }
-# Fails unless FILE.sha256 exists and matches. SAILS_RESTORE_UNVERIFIED=1 skips ONLY a missing sidecar (a backup
-# taken by an older version); a mismatch is never skipped.
+# Verifies FILE.sha256.sig against the anchored public key(s); every failure is fatal (fail-closed).
+signature_verify() { # FILE
+  local file="$1" sig="$1.sha256.sig" pub required=0; pub="$(backup_verify_pub)"
+  { [ -n "${SAILS_BACKUP_VERIFY_KEY:-}" ] || [ "${SAILS_BACKUP_REQUIRE_SIGNATURE:-0}" = 1 ]; } && required=1
+  if [ ! -f "$sig" ]; then
+    [ "$required" -eq 0 ] && return 0
+    die "$(basename "$file").sha256.sig is missing and a signature is required (SAILS_BACKUP_VERIFY_KEY or SAILS_BACKUP_REQUIRE_SIGNATURE is set): refusing an unsigned backup"
+  fi
+  [ -n "$pub" ] && [ -f "$pub" ] || die "$(basename "$file") is signed but there is no public key to verify it: set SAILS_BACKUP_VERIFY_KEY to the key you kept off this host"
+  need_ssh_keygen
+  local allowed; allowed="$(mktemp)"
+  # one identity, every key of the file (several lines = a key rotation)
+  sed -e '/^[[:space:]]*$/d' -e 's/^/sails-backup /' "$pub" >"$allowed"
+  if ! ssh-keygen -Y verify -f "$allowed" -I sails-backup -n "$SIGN_NS" -s "$sig" <"$file.sha256" >/dev/null 2>&1; then
+    rm -f "$allowed"
+    die "the signature of $(basename "$file").sha256 is NOT valid for the key $(basename "$pub"): the backup or its sidecar was changed or signed by another key; refusing to use it"
+  fi
+  rm -f "$allowed"
+}
+
+# Fails unless FILE.sha256 exists and matches (and its signature verifies when one is present or required).
+# SAILS_RESTORE_UNVERIFIED=1 skips ONLY a missing sidecar (a backup taken by an older version) and only when no
+# signature is required; a mismatch is never skipped.
 sidecar_verify() { # FILE
   local file="$1"
   if [ ! -f "$file.sha256" ]; then
-    [ "${SAILS_RESTORE_UNVERIFIED:-0}" = 1 ] && { say "WARNING: $(basename "$file") has no .sha256 sidecar; continuing UNVERIFIED because SAILS_RESTORE_UNVERIFIED=1"; return 0; }
-    die "$(basename "$file").sha256 is missing: this backup cannot be verified (SAILS_RESTORE_UNVERIFIED=1 restores it anyway, at your risk)"
+    [ "${SAILS_RESTORE_UNVERIFIED:-0}" = 1 ] && [ -z "${SAILS_BACKUP_VERIFY_KEY:-}" ] && [ "${SAILS_BACKUP_REQUIRE_SIGNATURE:-0}" != 1 ] && { say "WARNING: $(basename "$file") has no .sha256 sidecar; continuing UNVERIFIED because SAILS_RESTORE_UNVERIFIED=1"; return 0; }
+    die "$(basename "$file").sha256 is missing: this backup cannot be verified (SAILS_RESTORE_UNVERIFIED=1 restores it anyway, at your risk, unless a signature is required)"
   fi
   local want have; want="$(cut -d' ' -f1 <"$file.sha256")"; have="$(sha256_of "$file")"
   [ "$want" = "$have" ] || die "$(basename "$file") does NOT match its sha256 sidecar (expected ${want:0:16}..., got ${have:0:16}...): corrupt, truncated or replaced; refusing to use it"
+  signature_verify "$file"
 }
 # Structural check without touching any real data: a dump must be readable by pg_restore, an evidence archive by gzip+tar.
 # NOTE: `pg_restore --list` reads only the table of contents and ACCEPTS a truncated dump; the sidecar and the
 # scratch restore of `verify-backup --deep` are what catch that.
 backup_structure_check() { # FILE
   case "$1" in
-    *.dump) docker run --rm -i --entrypoint pg_restore postgres:16-alpine --list <"$1" >/dev/null 2>&1 || die "$(basename "$1") is not a readable PostgreSQL custom-format dump" ;;
+    *.dump) docker run --rm -i --entrypoint pg_restore "$TOOLS_IMAGE" --list <"$1" >/dev/null 2>&1 || die "$(basename "$1") is not a readable PostgreSQL custom-format dump" ;;
     *.tar.gz) { gzip -t "$1" && tar -tzf "$1" >/dev/null; } 2>/dev/null || die "$(basename "$1") is not a complete, readable archive (truncated or corrupt)" ;;
     *) die "unknown backup type: $1 (expected .dump or .tar.gz)" ;;
   esac
@@ -341,11 +407,11 @@ need_evidence_store() {
 }
 # One-shot containers with tar (the PostgreSQL alpine image the stack already uses).
 evidence_pack() { # <backup dir> <archive name>
-  docker run --rm -v "$EVIDENCE_VOLUME:/data:ro" -v "$(host_path "$1"):/backup" --entrypoint sh postgres:16-alpine \
+  docker run --rm -v "$EVIDENCE_VOLUME:/data:ro" -v "$(host_path "$1"):/backup" --entrypoint sh "$TOOLS_IMAGE" \
     -c 'tar czf "/backup/$0" -C /data . && chown "$1:$2" "/backup/$0" && chmod 600 "/backup/$0"' "$2" "$(id -u)" "$(id -g)"
 }
 evidence_unpack() { # <backup dir> <archive name>
-  docker run --rm -v "$EVIDENCE_VOLUME:/data" -v "$(host_path "$1"):/backup:ro" --entrypoint sh postgres:16-alpine \
+  docker run --rm -v "$EVIDENCE_VOLUME:/data" -v "$(host_path "$1"):/backup:ro" --entrypoint sh "$TOOLS_IMAGE" \
     -c 'tar xzf "/backup/$0" -C /data' "$2"
 }
 # Evidence objects live in the store, not in the PostgreSQL dump. This is a COLD snapshot of the
@@ -377,11 +443,11 @@ cmd_restore_evidence() {
   compose up --no-start seaweedfs
   compose stop seaweedfs
   # A fresh volume is not literally empty (the image ships an empty filerldb2/): it must hold no FILE.
-  local files; files="$(docker run --rm -v "$EVIDENCE_VOLUME:/data" --entrypoint sh postgres:16-alpine -c 'find /data -type f | wc -l')"
+  local files; files="$(docker run --rm -v "$EVIDENCE_VOLUME:/data" --entrypoint sh "$TOOLS_IMAGE" -c 'find /data -type f | wc -l')"
   [ "$files" = "0" ] || die "the evidence volume already holds data ($files files): restore only into a fresh store (docs/SELF_HOSTING.md)"
   say "restoring $file"
   evidence_unpack "$(dirname "$file")" "$(basename "$file")" || die "extraction failed; the store was NOT started. Remove the volume ${EVIDENCE_VOLUME} and retry with a good backup"
-  files="$(docker run --rm -v "$EVIDENCE_VOLUME:/data" --entrypoint sh postgres:16-alpine -c 'find /data -type f | wc -l')"
+  files="$(docker run --rm -v "$EVIDENCE_VOLUME:/data" --entrypoint sh "$TOOLS_IMAGE" -c 'find /data -type f | wc -l')"
   [ "$files" = "$expected" ] || die "restored $files files but the archive holds $expected; the store was NOT started. Remove the volume ${EVIDENCE_VOLUME} and retry"
   compose up -d seaweedfs
   say "evidence restored ($files files); the store reads it only with the SSE key that was in secrets/seaweedfs.env when the objects were written (allow it up to ~30 s to start answering). Run: sails-node verify-evidence"
@@ -493,7 +559,7 @@ cmd_rotate_evidence_key() {
   fi
   say "copy verified; swapping the stores"
   COMPOSE_PROFILES="${COMPOSE_PROFILES},evidence-rotate" compose stop seaweedfs seaweedfs-next
-  docker run --rm -v "$EVIDENCE_VOLUME:/old" -v "${PROJECT}_seaweedfs-next-data:/new:ro" --entrypoint sh postgres:16-alpine \
+  docker run --rm -v "$EVIDENCE_VOLUME:/old" -v "${PROJECT}_seaweedfs-next-data:/new:ro" --entrypoint sh "$TOOLS_IMAGE" \
     -c 'find /old -mindepth 1 -delete && cp -a /new/. /old/' || die "the swap failed halfway: restore with 'sails-node restore-evidence $safety' into a fresh volume and put back secrets/seaweedfs.env"
   (umask 077; cp "$env" "$env.prev-$ts"); (umask 077; cp "$next" "$env"); rm -f "$next"
   COMPOSE_PROFILES="${COMPOSE_PROFILES},evidence-rotate" compose rm -sf seaweedfs-next >/dev/null 2>&1 || true
@@ -502,7 +568,7 @@ cmd_rotate_evidence_key() {
   if ! evidence_verify_all "$tag"; then
     say "the rotated store does NOT verify: restoring the pre-rotation snapshot and the old key"
     compose stop seaweedfs
-    docker run --rm -v "$EVIDENCE_VOLUME:/data" --entrypoint sh postgres:16-alpine -c 'find /data -mindepth 1 -delete'
+    docker run --rm -v "$EVIDENCE_VOLUME:/data" --entrypoint sh "$TOOLS_IMAGE" -c 'find /data -mindepth 1 -delete'
     cp "$env.prev-$ts" "$env"
     evidence_unpack "$(dirname "$safety")" "$(basename "$safety")" && compose up -d seaweedfs
     die "rotation FAILED and was rolled back (old key and snapshot restored from $(basename "$safety"))"
@@ -542,9 +608,10 @@ case "${1:-}" in
   backup-evidence) shift; cmd_backup_evidence "$@" ;;
   restore-evidence) shift; cmd_restore_evidence "$@" ;;
   verify-backup) shift; cmd_verify_backup "$@" ;;
+  backup-key) shift; cmd_backup_key "$@" ;;
   verify-evidence) shift; cmd_verify_evidence "$@" ;;
   rotate-evidence-key) shift; cmd_rotate_evidence_key "$@" ;;
   resolve-rolled-back) shift; cmd_resolve_rolled_back "$@" ;;
   status) shift; cmd_status "$@" ;;
-  *) sed -n '2,27p' "${BASH_SOURCE[0]}"; exit 2 ;;
+  *) sed -n '2,/^$/p' "${BASH_SOURCE[0]}"; exit 2 ;;
 esac

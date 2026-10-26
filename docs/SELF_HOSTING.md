@@ -134,6 +134,31 @@ restores a dump into a scratch database and drops it. **The sidecar detects acci
 can change the archive can change the sidecar. Keep a copy of the sidecar (or a signature of it) where the host
 cannot write. `pg_restore --list` alone is not an integrity check (it can accept a damaged dump).
 
+**Signed backups (tamper-evidence).** `sails-node backup-key init` creates an Ed25519 key (OpenSSH, needs `ssh-keygen` 8.0+). While
+that key exists, every backup sidecar is signed (`FILE.sha256.sig`), and `restore`, `restore-evidence` and `verify-backup` **refuse**
+any backup whose sidecar does not verify: replacing an archive and recomputing its sidecar no longer works. Fail-closed rules: a
+signature that does not verify, or that cannot be checked because no public key is available, is never accepted; with
+`SAILS_BACKUP_VERIFY_KEY` set (or `SAILS_BACKUP_REQUIRE_SIGNATURE=1`) an unsigned backup is refused too, and `SAILS_RESTORE_UNVERIFIED=1`
+cannot override that.
+
+*Where the verification key is anchored decides what the signature proves.* Keep a copy of the **public** key and its fingerprint **off
+this host** and restore with `SAILS_BACKUP_VERIFY_KEY=<that copy>` (a file with several public keys is a rotation: old and new backups
+verify). With the anchor only on the host (`secrets/backup-signing.pub`), a copy of a backup that was modified while stored elsewhere is
+caught, but someone who controls the host can replace both the key and the backup: the test shows exactly that case passing. The same
+holds for the private key: on the host it protects stored copies, not against a compromised host; for that, keep it off the host
+(`SAILS_BACKUP_SIGNING_KEY` on removable media or behind a passphrase and `ssh-agent`).
+
+*Key loss and compromise.* If the private key is lost, new backups cannot be signed with it, old ones still verify with the public key;
+create a new key and add its public half to the off-host file. If it is compromised, remove its public key from that file: backups it
+signed then stop verifying, so re-verify what you trust by other means (a scratch restore with `verify-backup --deep`) and re-sign.
+This is the backup-signing identity only. **The kit generates no node signing identity, so recovering one is NOT VERIFIED here**
+(the operator restores whatever keys they configured, unchanged).
+
+**Dumps are not encrypted.** `sails-node backup` writes the database in clear (file mode 0600) and the evidence archive holds
+objects that are encrypted only by the store's key. A dump contains every row, including anything personal: encrypt it yourself
+(for example with `age` or `gpg`) before it leaves the host, and keep that key apart from the backups. The signature proves who made a
+backup and that it is unchanged; it does not make it confidential.
+
 **Evidence checks.** `sails-node verify-evidence` reads back every stored object and compares its content with the
 SHA-256 in its name; it fails if the store runs with the wrong key, if an object is damaged, or if the store
 cannot list or read.
