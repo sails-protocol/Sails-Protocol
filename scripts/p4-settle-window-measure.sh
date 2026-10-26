@@ -14,25 +14,29 @@
 # It runs against a bitcoind image given by BITCOIND_IMAGE, which MUST be pinned by digest (name@sha256:...): a tag is refused.
 #
 # Usage:  BITCOIND_IMAGE='bitcoin/bitcoin@sha256:<digest>' bash scripts/p4-settle-window-measure.sh [runs]
-# Image origin is the operator's/CTO's decision: docker.io/bitcoin/bitcoin is an UNOFFICIAL image (its own README says so; built by
-# github.com/willcl-ark/bitcoin-core-docker CI, Debian images from bitcoincore.org binaries with signatures checked in that CI). It is fine for
-# a disposable regtest measurement and for nothing else. This script has NOT been run in this repository's history: see the PR that added it.
+# Image origin (CTO decision 2026-10-26): NOT docker.io/bitcoin/bitcoin (it calls itself unofficial). Build deploy/regtest/bitcoind, which takes
+# Bitcoin Core from bitcoincore.org and refuses the build unless the SHA256SUMS signatures (>= 5 distinct guix.sigs builder keys) and the hash verify:
+#   docker build -t sails-bitcoind-regtest:31.1 deploy/regtest/bitcoind
+#   BITCOIND_IMAGE="$(docker image inspect -f '{{.Id}}' sails-bitcoind-regtest:31.1)" bash scripts/p4-settle-window-measure.sh
 set -euo pipefail
 
 RUNS="${1:-30}"
 IMAGE="${BITCOIND_IMAGE:-}"
-case "$IMAGE" in *@sha256:????????????????????????????????????????????????????????????????) ;; *) echo "BITCOIND_IMAGE must be pinned by digest (name@sha256:<64 hex>), got '${IMAGE}'" >&2; exit 2 ;; esac
+case "$IMAGE" in
+  *@sha256:????????????????????????????????????????????????????????????????|sha256:????????????????????????????????????????????????????????????????) ;;
+  *) echo "BITCOIND_IMAGE must be pinned by digest (name@sha256:<64 hex>) or be a local image ID (sha256:<64 hex>), got '${IMAGE}'" >&2; exit 2 ;;
+esac
 
 NET="p4win-$$"; A="p4win-a-$$"; B="p4win-b-$$"
 cleanup() { docker rm -f "$A" "$B" >/dev/null 2>&1 || true; docker network rm "$NET" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
-now_ms() { date +%s%3N; }
+now_ms() { echo $(( $(date +%s%N) / 1000000 )); }   # not %3N: some date implementations (uutils) ignore the width
 cli() { local n="$1"; shift; docker exec "$n" bitcoin-cli -regtest -rpcuser=t -rpcpassword=t "$@"; }
 
 docker network create --internal "$NET" >/dev/null
 for n in "$A" "$B"; do
-  docker run -d --name "$n" --network "$NET" --cap-drop ALL --read-only --tmpfs /tmp --tmpfs /home/bitcoin/.bitcoin --entrypoint bitcoind "$IMAGE" \
-    -regtest -server=1 -rpcuser=t -rpcpassword=t -rpcallowip=0.0.0.0/0 -rpcbind=0.0.0.0 -listen=1 -fallbackfee=0.0001 -mempoolexpiry=1 -acceptnonstdtxn=0 >/dev/null
+  docker run -d --name "$n" --network "$NET" --cap-drop ALL --read-only --tmpfs /tmp --tmpfs /data:uid=10001,gid=10001 --entrypoint bitcoind "$IMAGE" \
+    -datadir=/data -regtest -server=1 -rpcuser=t -rpcpassword=t -rpcallowip=0.0.0.0/0 -rpcbind=0.0.0.0 -listen=1 -fallbackfee=0.0001 -mempoolexpiry=1 -acceptnonstdtxn=0 >/dev/null
 done
 for n in "$A" "$B"; do for i in $(seq 1 60); do cli "$n" getblockcount >/dev/null 2>&1 && break; sleep 1; done; done
 cli "$A" addnode "$B" onetry >/dev/null
@@ -67,5 +71,5 @@ cli "$A" setmocktime 0 >/dev/null
 if cli "$A" sendrawtransaction "$RAW" >/dev/null 2>&1; then echo "MEASURE rebroadcast_ok yes (the same raw transaction was accepted again)"; else echo "MEASURE rebroadcast_ok no ($(cli "$A" testmempoolaccept "[\"$RAW\"]" | tr -d '\n ' | cut -c1-120))"; fi
 
 # clock skew between the host and a container (the guard compares authorizedAt (writer's clock) with Date.now() of ANOTHER instance)
-h="$(date +%s%3N)"; c="$(docker exec "$A" date +%s%3N 2>/dev/null || echo "$h")"; skew=$(( h > c ? h - c : c - h ))
+h="$(now_ms)"; c="$(docker exec "$A" date +%s%N 2>/dev/null | tr -d '\r' | sed 's/.\{6\}$//')"; [ -n "$c" ] || c="$h"; skew=$(( h > c ? h - c : c - h ))
 echo "MEASURE clock_skew_ms $skew ms (host vs container; two real instances can differ by much more: set the bound from NTP policy, not from this)"
