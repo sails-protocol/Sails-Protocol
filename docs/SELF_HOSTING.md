@@ -169,17 +169,19 @@ What a node needs besides its own containers. None is operated by Satsails; all 
 
 The server source contains no endpoint of Satsails, AWS or any specific hosting provider.
 
-## Dependency audit of the image
+## Dependency audit of the images
 
-CI audits what the production image really contains (`scripts/production-image-audit.js`): `npm audit` over the
-lockfile, failing on high/critical advisories whose range matches a package copy installed in the image. The
-Prisma CLI chain (it lives in the migration image) and the front-end workspaces are not part of the verdict;
-the native runtime QVAC needs is. (PR #451's `--omit=optional` was rejected because it also removes that
-runtime.) Known findings are **formal exceptions with an expiry date** in
-`scripts/production-image-audit.exceptions.json`, printed on every run, and the step fails once one expires.
-As of this writing `main` ships `fastify 5.12.1`, which has high advisories including an authentication bypass;
-they are fixed by the draft PR #449 and are excepted only so CI stays informative. **A node built from `main`
-today carries them.**
+CI audits what the two shipped images really contain (`scripts/production-image-audit.js`): `npm audit` over the
+lockfile, failing on high/critical advisories whose range matches a package copy installed in the image. It
+runs against the **server** image and against the **migration** image (which carries the Prisma CLI chain);
+the front-end workspaces are in neither. The native runtime QVAC needs stays in the server image. (PR #451's
+`--omit=optional` was rejected because it also removes that runtime.) A finding that cannot be fixed yet is a
+formal exception with an expiry date in `scripts/production-image-audit.exceptions.json`, printed on every run;
+the step fails once one expires. That list is currently **empty**: no advisory is excepted.
+
+A clean audit says "no advisory known on the day CI ran", not "no vulnerability": advisory databases change, so
+the same commit can fail a later re-run. Treat a red audit on an unchanged commit as a real finding, not as a
+flaky test.
 ## What this does not prove
 
 - **Not multi-operator interoperability.** Running your own node proves you can host one. It does not
