@@ -237,10 +237,12 @@ Verified at main SHA 456d3e52 by file/symbol presence only; tests were not run i
 | Item 20 (20.1, 20.4, 20.5, 20.6) | 4 | 1 (20.1) |
 | Item 32 (F-01, F-06, F-07, F-09, F-11, F-12) | 6 | 2 |
 | Item 34 | 7 | 5 |
-| Item 36 (CSC findings, 25 obligations, H01/H02 merged into R91) | 24 | 6 (B01, B02, C01, D01, F02, G01) |
+| Item 36 (CSC findings, 25 obligations, H01/H02 merged into R91) | 24 | 5 (B01, B02, C01, D01, G01) |
 | Items 22–31 | 14 | 3 (items 25, 26, 27) |
 | Items 41, 47 | 2 | 2 |
 | R89, R90, R92–R95 | 6 | 0 |
-| **Total** | **117** | **21** |
+| **Total** | **117** | **20** |
 
-Three separate indicators: Project organization 103/103 items with Frente, Workstream, Priority and Risk (Evidence Status filled only where verified: 27/103); verified implementation 21/117 (18%); independent Day-0 homologation 0/25 settlement lines and 0/54 obligations accepted. Not counted as implemented: MO-002 (partial), P3-F08.1/F08.2, the R90 residual.
+Three separate indicators: Project organization 103/103 items with Frente, Workstream, Priority and Risk (Evidence Status filled only where verified: 27/103); verified implementation 20/117 (17%); independent Day-0 homologation 0/25 settlement lines and 0/54 obligations accepted. Not counted as implemented: MO-002 (partial), P3-F08.1/F08.2, the R90 residual.
+
+**Correction 2026-10-27:** CSC-F02 (contest vs. expiry sweep race) was first counted as delivered. Re-checked: contestAutoResolution() still performs a plain prisma.dispute.update() without a conditional claim, and Issue #308 is open; the updateMany found earlier belongs to the appeal path. CSC-F02 is therefore OPEN and the verified count is 20/117, not 21/117.
