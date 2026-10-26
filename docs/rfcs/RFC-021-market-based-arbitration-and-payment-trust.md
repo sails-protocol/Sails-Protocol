@@ -890,3 +890,7 @@ settles its outcome (FORFEITED/REFUNDED). Still tracked separately
 (`docs/BACKLOG.md`, `docs/DATABASE.md`'s own §2 note):
 `docs/DATABASE.md` does not yet document
 `ArbiterProfile`/`PaymentAccount`/`DisputeAppealFee`/`Vouch`.
+
+## Status note — 2026-10-26 (dated; text above preserved)
+
+The phases above are implemented and tested, but the `market` arbitration mode is production-ineligible: the startup guard accepts `market` only for rails declared `DYNAMIC_REASSIGNABLE` (today only `MOCK`; ADR-003). Day 0 uses the trusted-list arbitration, which has no appeal. The appeal-fee multiplier (D6) and any arbitration fee are not Day-0 charges: no charge exists beyond the 0.40% Protocol Fee. The 10% arbitration reserve of the fee distribution is protocol-treasury revenue earmarked to finance arbitration, not a user balance and not an automatic payment to an arbiter; effective arbiter remuneration is a later (POST-DAY0) policy that must not depend on the direction of a ruling. The self-declared collateral accepted by the always-mounted registration route is not economically backed (Issue #255) and must not be presented as such. Formal acceptance remains pending under the CTO decision recorded in `docs/BACKLOG.md` item 43 (B2): add `Implementation Impact`, run the Core RFC Review Checklist, disclose uncapped appeal rounds in Known Risks.
