@@ -39,8 +39,12 @@ export function btcDecimalToSats(amount: string | Prisma.Decimal): number {
   if (!decimal.isFinite() || decimal.isNegative()) {
     throw new EscrowError(`Invalid BTC amount ${decimal.toString()}: must be a finite, non-negative decimal`)
   }
+  // Checked on the operand itself, not only on the product: Decimal arithmetic
+  // rounds to 20 significant digits, so "0.12345678000000000000001" x 1e8
+  // would come out as an exact integer and silently drop the sub-satoshi tail.
+  // decimalPlaces() ignores trailing zeros, so "0.1000000000" stays accepted.
   const sats = decimal.times(SATS_PER_BTC)
-  if (!sats.isInteger()) {
+  if (decimal.decimalPlaces() > 8 || !sats.isInteger()) {
     throw new EscrowError(`Invalid BTC amount ${decimal.toString()}: has a fractional satoshi (more than 8 decimal places)`)
   }
   if (sats.greaterThan(MAX_SAFE_SATS)) {

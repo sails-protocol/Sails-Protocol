@@ -73,6 +73,15 @@ describe('btcDecimalToSats — exact, fail-closed (CSC-E01)', () => {
       expect(() => btcDecimalToSats(input)).toThrow(EscrowError)
     })
 
+    it('refuses a sub-satoshi tail that 20-digit Decimal arithmetic would otherwise swallow', () => {
+      // 0.12345678000000000000001 x 1e8 evaluates to the integer 12345678 at
+      // Decimal's default 20-significant-digit precision.
+      expect(new Prisma.Decimal('0.12345678000000000000001').times(100_000_000).isInteger()).toBe(true)
+      expect(() => btcDecimalToSats('0.12345678000000000000001')).toThrow(/fractional satoshi/)
+      expect(() => btcDecimalToSats('0.00000000000000000000001')).toThrow(/fractional satoshi/)
+      expect(btcDecimalToSats('0.12345678000000000000000')).toBe(12_345_678) // trailing zeros only: same amount
+    })
+
     it('never rounds: 0.000000005 BTC is half a satoshi and is refused, not rounded to 1', () => {
       expect(() => btcDecimalToSats('0.000000005')).toThrow(/fractional satoshi/)
     })
