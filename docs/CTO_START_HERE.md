@@ -37,6 +37,27 @@
 5. GitHub [#165](https://github.com/sails-protocol/Sails-Protocol/issues/165) for Beta integration reality, [#125](https://github.com/sails-protocol/Sails-Protocol/issues/125) for cross-surface docs alignment, [#293](https://github.com/sails-protocol/Sails-Protocol/issues/293) for P2P lifecycle, [#500](https://github.com/sails-protocol/Sails-Protocol/issues/500) for continuing gap discovery.
 6. Read live PR status and exact-SHA CI before acting. P4 #525 and P3 #519 were draft on 2026-10-24; never assume their state remains unchanged.
 
+## Active engineering PR topology — self-host images (P3) and settlement (P4), snapshot 2026-10-26
+
+All are **draft**; none is merged, deployed or accepted. Verify live before acting. Detail lives in the PRs and in `docs/security/` (P3) / `docs/p4-gate3-unknown-outcome-contract.md` (P4); this block is only the map.
+
+| PR | Head | What it is | Depends on |
+|---|---|---|---|
+| #519 → #521 | `d82d805b` → `b6f79bcd` | P3 self-host kit; advisory fixes | main |
+| #530 | `5ef5e22d` | P3-R2: npm/corepack removed from final images | #521 |
+| #529 | `7763c3f8` | P3-R3: Trivy gate (observe), migration controls, ADR-006 | #521 |
+| #532 | `2ac896a2` | P3-R4: Trivy triage (18 distinct CVEs), image alternatives, backup/key report | #529 |
+| #533 | `2e8ab2a3` | P3-R2.1: distroless experiment (not production) | #530 |
+| #534 | `3c0dda08` | backup integrity, atomic restore, evidence verify/rotate, `migrate` hardening (G1–G6) | #529 |
+| #536 | `d156ad07` | integration of #530/#533/#529/#534 + distroless **candidate** behind `SAILS_IMAGE_FLAVOR` | those |
+| #525 | `22c4f6eb` | P4 Gate 3 (iii-a) guard; **its SHA is the evidence reference, do not move it** | #523 |
+| #535 | `51c09f34` | PASS 3 claim race fix (pre-existing flake, not caused by #525) | #523 |
+| #537 | `8fb437d3` | review kits: P4 census / reversed run, Redis Gate 2 probes | main |
+
+**Integration (simulated, nothing merged):** `#516`, `#518`, `#492` are redundant or superseded by #521/#529; #529, #530, #532, #533 conflict pairwise **only in `CHANGELOG.md`**; #531 merges cleanly with all. Re-run `node scripts/verify-pr-chain.js` (in #529) right before any merge.
+
+**Gates that stay open:** P3/self-host: images have 1 CRITICAL + 17 HIGH in the Debian build (no exception exists, Trivy gate is observe); distroless candidate has 0 CRITICAL/HIGH but is a different runtime contract (uid 65532, no shell) awaiting a CTO decision; signing-identity recovery NOT VERIFIED; no VPS run; no cosign. P4: SPLIT scope and the operating window (`DISPUTED_RECREATION_SETTLE_WINDOW_MS`, unset = fail closed) are open decisions; the guard is not activated. **Redis Gate 2: NO-GO**: ACK authenticity, instance identity and fencing are undecided (probes in #537).
+
 ## Do not collapse different clocks
 
 - **Architectural freeze** is not implementation acceptance.
