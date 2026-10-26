@@ -52,10 +52,29 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
   // Called by app.ts's `/ws/relay` route once the client's WebSocket
   // upgrade completes — this is the real "connection", not start() below.
   registerSocket(participantId: string, socket: RelaySocket): void {
+    const previous = this.sockets.get(participantId)
+    if (previous === socket) return
+    // Transfer ownership before closing: a stale close callback must not
+    // unregister the replacement socket.
     this.sockets.set(participantId, socket)
+    if (previous && previous.readyState === OPEN) {
+      try {
+        previous.close()
+      } catch {
+        // A broken old transport must not abort registration of the new
+        // authenticated socket. Ownership has already been transferred.
+      }
+    }
   }
 
-  unregisterSocket(participantId: string): void {
+  ownsSocket(participantId: string, socket: RelaySocket): boolean {
+    return this.sockets.get(participantId) === socket
+  }
+
+  unregisterSocket(participantId: string, socket?: RelaySocket): void {
+    // A stale close event must not remove a newer socket registered for
+    // the same participant (reconnect/overlapping connections).
+    if (socket && this.sockets.get(participantId) !== socket) return
     this.sockets.delete(participantId)
   }
 
@@ -68,9 +87,17 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
 
   async stop(participantId: string): Promise<void> {
     const socket = this.sockets.get(participantId)
-    if (socket && socket.readyState === OPEN) socket.close()
+    // Revoke ownership before invoking close(): a synchronous close callback
+    // must not remove a replacement registered during shutdown.
     this.sockets.delete(participantId)
     this.messageHandlers.delete(participantId)
+    if (socket && socket.readyState === OPEN) {
+      try {
+        socket.close()
+      } catch {
+        // A broken socket is already unregistered; shutdown remains idempotent.
+      }
+    }
   }
 
   // No topic concept over a point-to-point relay — a no-op, not an error,
@@ -94,10 +121,17 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
   async sendToPeer(_participantId: string, targetParticipantId: string, payload: unknown): Promise<boolean> {
     const socket = this.sockets.get(targetParticipantId)
     if (!socket || socket.readyState !== OPEN) return false
-    // Blind forward — payload is whatever the caller already encrypted
-    // above this layer. Never parsed, never logged.
-    socket.send(typeof payload === 'string' ? payload : JSON.stringify(payload))
-    return true
+    // Blind forward: payload confidentiality depends on the caller. Intent
+    // payloads have application-layer encryption, but chat/negotiation may
+    // still be plaintext (see module security note). Never parse or log.
+    try {
+      socket.send(typeof payload === 'string' ? payload : JSON.stringify(payload))
+      return true
+    } catch {
+      // A socket can fail after readyState was checked; report failed delivery.
+      // Do not evict here: a concurrent reconnect may already own the slot.
+      return false
+    }
   }
 
   onMessage(participantId: string, handler: (peerId: string, payload: unknown) => void): void {
