@@ -124,6 +124,23 @@ RUN npm uninstall prisma --no-save --ignore-scripts --omit=dev \
       --workspace=packages/sails-p2p-schemas \
       --workspace=packages/sails-sdk \
       --include-workspace-root
+# Optional, OFF by default: drop the native prebuilds of the OTHER platforms from the server's node_modules. Every @qvac engine ships
+# prebuilds for nine platforms (android, darwin, ios, linux x64/arm64, win32); a linux image loads only the one for its own architecture.
+# `docker build --build-arg PRUNE_FOREIGN_PREBUILDS=1 --target runtime .` keeps `prebuilds/linux-<arch>` and deletes its siblings; the
+# files directly inside `prebuilds/` and every package stay. Only this stage changes: `builder` and `migrate-deps` (and so every developer
+# or CI build that does not pass the argument) keep all platforms. Measured on the distroless variant: node_modules 6102 -> 1861 MB, the
+# 57 linux-x64 prebuild directories byte-identical. TARGETARCH comes from BuildKit; an architecture other than amd64/arm64 fails the build.
+ARG PRUNE_FOREIGN_PREBUILDS=0
+ARG TARGETARCH
+RUN set -eu; [ "$PRUNE_FOREIGN_PREBUILDS" = "1" ] || exit 0; \
+    arch="${TARGETARCH:-amd64}"; \
+    case "$arch" in amd64) keep=linux-x64 ;; arm64) keep=linux-arm64 ;; *) echo "unsupported TARGETARCH $arch" >&2; exit 1 ;; esac; \
+    before=$(du -sk /app/node_modules | cut -f1); \
+    find /app/node_modules -type d -name prebuilds -prune | while read -r p; do \
+      for d in "$p"/*/; do if [ -d "$d" ] && [ "$(basename "$d")" != "$keep" ]; then rm -rf "$d"; fi; done; \
+    done; \
+    after=$(du -sk /app/node_modules | cut -f1); \
+    echo "prebuilds kept: $keep; node_modules $((before/1024)) MB -> $((after/1024)) MB"
 
 # ---- Database migrations: a separate image, never the server ----
 # `docker build --target migrate`. The Prisma CLI is a devDependency, so the `runtime`
