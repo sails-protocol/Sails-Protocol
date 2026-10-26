@@ -5,6 +5,24 @@
 > **Autoridade:** `docs/BACKLOG.md`, `docs/ROADMAP.md`, ADRs e Issues canônicas continuam governando o escopo. O GitHub Project e os HEADs atuais devem ser reconsultados no momento de execução.  
 > **Princípio:** terminar o Master Backlog **antes de promover novas frentes futuras**; distinguir gates de Beta de expansões. Não fechar Issues por mera documentação.
 
+## CTO — reconciliação Day 0 Pubky-first e Paykit (2026-10-26)
+
+**Pós-Master Backlog não significa pós-Day 0.** Obrigações desta fila podem continuar após o fechamento do Master Backlog, mas devem estar homologadas **antes do GO Day 0** quando classificadas como Day 0. Não iniciar trabalho paralelo antes dos gates atuais; não confundir CI com homologação. Owner arquitetural existente: #276. Sincronizar com `docs/BACKLOG.md`, `docs/ROADMAP.md`, PR #531 e Project #3 na etapa de execução; esta nota não altera a sequência canônica nem autoriza merge/deploy.
+
+**Escopo Day 0 (decisão de produto, não evidência de implementação):**
+
+1. **OpenIdentity:** Pubky como único provider inicial, via interface neutra; prova de posse, grants, revogação e recuperação. Pubky Ring para gestão de chaves; Passport e Google Login são **opções de UX**, não obrigações. **Nostr não é requisito Day 0** e permanece provider futuro possível.
+2. **PortableData:** Pubky Homeserver como provider inicial substituível de armazenamento/descoberta; dados publicados não são automaticamente provas válidas; proteger privacidade, portabilidade e recuperação.
+3. **Pear:** comunicação privada na experiência de referência, chaves de transporte separadas, autorização de sessão revogável pela persona. Sem vinculação automática a seeds financeiras e sem dependência constitucional no Sails Core.
+4. **OpenProof/OpenReputation:** provas econômicas assinadas e verificáveis independentemente, anti-replay/deduplicação, correção/revogação e mitigação de reputação fabricada; reputação derivada de fatos, não score central. E2E entre **Satsails Wallet · Sails Market · Outros integradores**, sem depender da API ou banco exclusivo da Satsails.
+5. **Paykit/OpenSettlement:** incluir no Day 0 **um incremento mínimo de integração** para descoberta de métodos de pagamento e payment requests/autorização, sujeito a validação de API, compatibilidade multi-rail, segurança e conformance. Integração pública de referência não substitui homologação Sails; registrar avisos upstream de WIP. Paykit não é autoridade sobre fundos ou settlement.
+
+**Roadmap futuro (fora do caminho crítico):** Nostr como provider adicional, Pubky Nexus como indexador opcional, Blocktank como provider LN opcional, Atomicity, Pubky Noise e extras avançados não essenciais; não apagar obrigações anteriores sem reconciliação.
+
+**Pubky × Nostr:** comparar censura, interoperabilidade, rails, requests/assinaturas/permissões, ferramentas e maturidade com fontes e testes. Não afirmar que Nostr carece absolutamente de abertura, interoperabilidade ou resistência à censura; a preferência Pubky-first decorre da adequação de identidade, grants e portable data e da redução de complexidade inicial. Não registrar tamanho de equipe sem prova.
+
+**Status:** decisão registrada; implementação, evidências, Gatekeeper e GO pendentes. Gate 2 Redis e Gate 3 P4 seguem NO-GO. Não criar issues duplicadas nem declarar 100% sem denominador auditado.
+
 ## Como usar a fila
 
 1. Reconciliar `main`, Master Backlog, Issues e GitHub Project no exato momento de reentrada.
