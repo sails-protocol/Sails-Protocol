@@ -4,6 +4,7 @@
 // Chain: Pubky root key --signs--> grant (caps, client_id, exp, cnf = integrator PoP key)
 //        integrator PoP key --signs--> statement {kind, pear key, scope, aud, exp}   (createCustomPop)
 //        Pear key --signs--> binding over (grant id, nonce, pear key)               (pearSign)
+import fs from 'node:fs'
 import b4a from 'b4a'
 import sodium from 'sodium-universal'
 import { createRequire } from 'node:module'
@@ -73,6 +74,25 @@ export class RollbackGuard {
   }
 }
 
+// Same contract, but survives a verifier restart (an in-memory guard forgets everything on restart, which re-opens
+// rollback inside the freshness window). One JSON file, replaced atomically.
+export class PersistentRollbackGuard {
+  #file
+  constructor (file) { this.#file = file }
+  accept (key, seq) {
+    let seen = {}
+    try { seen = JSON.parse(fs.readFileSync(this.#file, 'utf8')) } catch { /* first run */ }
+    const last = seen[key] ?? -1
+    if (seq < last) return false
+    seen[key] = seq
+    fs.writeFileSync(`${this.#file}.tmp`, JSON.stringify(seen))
+    fs.renameSync(`${this.#file}.tmp`, this.#file)
+    return true
+  }
+}
+
+// Experimental freshness window requested by the CTO for adversarial tests (NOT a Day 0 policy).
+export const LAB_WINDOW_SEC = 300
 export const DEFAULT_MAX_AGE_SEC = 900
 
 // A record only authorizes something NEW if (1) the signed chain verifies, (2) it was fetched from the identity's

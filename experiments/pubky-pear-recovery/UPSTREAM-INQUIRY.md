@@ -1,4 +1,7 @@
-# DRAFT upstream inquiry to Pubky (not posted; needs the CTO's or Alan's approval before anything is sent)
+# Upstream inquiry to Pubky: POSTED 2026-10-26 as https://github.com/pubky/pubky-homeserver/issues/743
+
+Approved by the CTO (comment 6416050673 on #545, point 1). Responses are tracked in `SECURITY-CLOSURE.md`; none had been received when this was written.
+The text below is the draft that was sent (the issue adds a header with the tested versions and a link to #545).
 
 Target: https://github.com/pubky/pubky-homeserver (issues) or the Pubky core team channel. No Sails secrets or data are included.
 Evidence behind it: `homeserver/README.md`, upstream files cited below at tag `v0.16.2` (commit `f60e502f`) and `main` (`fd24bf0c`).

@@ -106,7 +106,7 @@ test('S4 forged freshness headers cannot extend an old record: the signed statem
   try {
     await proxy.ok('mode', { name: 'pass' })
     const p = await publish(a, { dev: 's4' })
-    await new Promise((r) => setTimeout(r, 3500))
+    await new Promise((r) => setTimeout(r, 4600)) // whole-second clocks: wait clearly past maxAgeSec (3 s)
     await proxy.ok('mode', { name: 'fresh-headers' })
     assert.equal((await check(HOSTILE, p.pear, { maxAgeSec: 3, v: spawnRole('role-verifier.mjs') })).reason, 'statement-stale')
   } finally { a.app.close(); await proxy.ok('mode', { name: 'pass' }) }

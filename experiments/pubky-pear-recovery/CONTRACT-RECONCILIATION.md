@@ -21,6 +21,25 @@ Existing mechanisms reused: `Participant` + `IdentityProof` (spec 1.1); `Claim` 
 | 7 Dual-party attestation | Treat the counterparty's co-signature as a `Verification` (or a second `Proof`) by the counterparty, not as a new object | RFC-006 | (a) a fact without counterparty confirmation is labelled one-sided; (b) a self confirmation is refused; (c) disagreement between parties is representable and not hidden | automatic positive reputation from a single side |
 | 8 Privacy / selective disclosure | Default portable record carries commitments and the minimum fields; amounts, addresses and counterparty are disclosed per verifier. Benchmark signatures, credentials, commitments and Merkle proofs BEFORE any ZK, as #276 already says | #276; RFC-007 evidence principle | (a) the default record exposes no amount, address or counterparty (grep test on fixtures); (b) a verifier given a disclosure opening can confirm one field without the others; (c) two records of the same user under different personas are not linkable by the public fields; (d) private messages never appear in any portable record | publishing conversations, a universal identifier, ZK |
 
+## Mission 04 status of gaps 1, 3 and 4 (lab only, CTO direction on #545: no production contract, schema or SDK type changed)
+
+Implemented as a lab format with three agreeing implementations: `portable/SPEC.md`, `portable/src/issue.mjs` (libsodium), `portable/src/verify.mjs` (node:crypto only, imports nothing else),
+`portable/verifier-py/verify.py` (Python standard library only, Ed25519 from the RFC 8032 algorithm), vectors `portable/vectors/portable-v1.json` (35 cases with hand-written expectations).
+
+| Gap | What the lab shows | Evidence |
+|---|---|---|
+| 1 Pubky-to-Participant binding | Formalized authority model: the root key signs ONLY the grant; the grant's client key (cnf) signs the delegate PoP; the Participant key signs its own statement. A binding is accepted as **root-consented** only when the grant names the Participant key in an approved capability (`.../bindings/<participant>/:rw`); otherwise it is **delegated-only** and refused as a binding. Real SDK grants and custom PoPs are accepted by the independent verifier at the root-consented level | cases `binding/*`; lab `08-portable-recovery` X1, X6 (real homeserver, real SDK artifacts) |
+| 3 Canonical form | CF1 (sorted ASCII keys, integers only, explicit escapes), versioned (`v:1`) and domain-separated (`SAILS-PORTABLE/1/<purpose>`); issuer encoder and verifier encoder agree on 300 fuzzed values and on the published bytes; the Python implementation reproduces every case | `test/portable.test.mjs`, `verify.py` 35/35 |
+| 4 Signatures | every portable object is signed by its author under a purpose prefix; head signed under another purpose is refused (domain separation); forged, stripped or cross-purpose signatures are refused | cases and RED/GREEN mutants P1-P23 (23/23 detected after four cases were added) |
+
+What the lab also demonstrates against the CTO's reputation requirements:
+* **No selective receipts**: a fact removed from the middle, a tail removed, an edited outcome, a link re-signed with a wrong previous hash, and a repeated or forged dispute claim are refused; a corrected outcome replaces the earlier one for the same trade; a trade counts for reputation only with a counterparty confirmation whose key matches an opening of the commitment.
+* **Known, written limits** (not hidden): (a) Sybil: five colluding keys each confirming one trade are accepted and counted as five distinct counterparties; (b) tail truncation with a head re-signed by the participant is accepted unless the verifier pinned an earlier head; (c) a user who abandons a chain/key and starts another can hide the old history unless counterparties' dispute claims or witnesses pin heads; (d) the user's own storage cannot prove completeness; (e) wash trading is only capped (3 per counterparty).
+* **Recovery is not availability**: after recovering the Pubky identity in a second app, the public chain still verifies (existence, order, signer), but reputation computed without the private openings and confirmations is `-3` instead of `+1`; those private items are not recovered by the Pubky identity and need replication (lab X3).
+* **Privacy**: the public record contains no counterparty key, trade reference, amount or conversation (test); openings are given to one verifier for one trade.
+
+Still open for these gaps (needs CTO decisions, nothing implemented in production): who the witnesses are and how heads are pinned; retention of openings; dispute adjudication beyond a counterparty claim; how `Participant` registration would reference the Pubky id.
+
 ## Cross-cutting acceptance test (the Day 0 claim)
 
 An independent app, with no access to Satsails, Sails Market or PixGo databases, starting from the user's recovered Pubky identity:

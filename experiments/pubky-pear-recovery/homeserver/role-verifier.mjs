@@ -3,10 +3,10 @@
 // directory on the homeserver and verifies them with policy.mjs.
 import b4a from 'b4a'
 import { HOMESERVER_HTTP, PEAR_DIR, serve, testnet, within } from './lib.mjs'
-import { RollbackGuard, challengeInput, grantStatus, verifyChallenge, verifyFreshRecord, verifyPearAuthorization } from './policy.mjs'
+import { PersistentRollbackGuard, RollbackGuard, challengeInput, grantStatus, verifyChallenge, verifyFreshRecord, verifyPearAuthorization } from './policy.mjs'
 
 const pubky = testnet()
-const guard = new RollbackGuard()
+const guard = process.env.PPR_GUARD_FILE ? new PersistentRollbackGuard(process.env.PPR_GUARD_FILE) : new RollbackGuard()
 const seenChallenges = new Set()
 
 const addr = (identity, path) => `pubky${identity}${path}`

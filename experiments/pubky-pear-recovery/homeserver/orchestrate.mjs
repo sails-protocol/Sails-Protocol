@@ -1,4 +1,4 @@
-// Disposable Pubky testnet (DHT + pkarr relay + http relay + REAL homeserver, built from the
+﻿// Disposable Pubky testnet (DHT + pkarr relay + http relay + REAL homeserver, built from the
 // signed upstream tag) on an --internal docker network, plus a Node runner that shares the
 // testnet's network namespace so `localhost` reaches it. No egress, no published ports.
 //
@@ -50,8 +50,10 @@ function up () {
 function run (files) {
   const r = spawnSync('docker', ['run', '--rm', '--network', `container:${TESTNET}`, '-v', `${STATE}:/state`,
     '-v', `${process.env.PPR_HS_DIR ?? path.resolve(import.meta.dirname, '..', 'homeserver')}:/w/homeserver:ro`,
-    '-v', `${path.resolve(import.meta.dirname, '..', 'src')}:/w/src:ro`, '-e', 'PUBKY_TESTNET_HOST=localhost',
-    RUNNER_IMAGE, 'node', '--test', '--test-force-exit', '--test-timeout=180000', ...files], { stdio: 'inherit' })
+    '-v', `${path.resolve(import.meta.dirname, '..', 'src')}:/w/src:ro`,
+    '-v', `${path.resolve(import.meta.dirname, '..', 'portable')}:/w/portable:ro`,
+    '-v', `${path.resolve(import.meta.dirname, '..', 'field')}:/w/field:ro`, '-e', 'PUBKY_TESTNET_HOST=localhost',
+    RUNNER_IMAGE, 'node', '--test', '--test-force-exit', '--test-timeout=180000', ...(process.env.PPR_TEST_NAME ? [`--test-name-pattern=${process.env.PPR_TEST_NAME}`] : []), ...files], { stdio: 'inherit' })
   process.exit(r.status ?? 1)
 }
 
@@ -64,6 +66,9 @@ function all () {
     ['03', [`${T}/03-pear-directory-revocation.test.mjs`]],
     ['05', [`${T}/05-hostile-homeserver.test.mjs`]],
     ['06', [`${T}/06-configurable-validity.test.mjs`]],
+    ['07', [`${T}/07-window-n300.test.mjs`]],
+    ['08', [`${T}/08-portable-recovery.test.mjs`]],
+    ['09', [`${T}/09-field-kit-selftest.test.mjs`]],
     ['04a', [`${T}/04a-outage-prepare.test.mjs`]],
     ['pause'],
     ['04b', [`${T}/04b-outage-frozen.test.mjs`]],

@@ -8,13 +8,17 @@
     "node": ">=24"
   },
   "scripts": {
-    "test": "node --test --test-timeout=120000 \"test/*.test.mjs\"",
+    "test": "node --test --test-concurrency=1 --test-timeout=240000 \"test/*.test.mjs\"",
     "vectors:generate": "node scripts/generate-vectors.mjs",
     "red-green": "node scripts/red-green.mjs",
     "homeserver:up": "node homeserver/orchestrate.mjs up",
     "homeserver:all": "node homeserver/orchestrate.mjs all",
     "homeserver:red-green": "node homeserver/red-green.mjs",
-    "homeserver:down": "node homeserver/orchestrate.mjs down"
+    "homeserver:down": "node homeserver/orchestrate.mjs down",
+    "red-green:portable": "node scripts/red-green-portable.mjs",
+    "portable:vectors": "node portable/scripts/gen-vectors.mjs",
+    "portable:verify-py": "python -I portable/verifier-py/verify.py portable/vectors/portable-v1.json",
+    "natlab:matrix": "node natlab/run.mjs matrix"
   },
   "dependencies": {
     "@scure/bip39": "2.4.0",

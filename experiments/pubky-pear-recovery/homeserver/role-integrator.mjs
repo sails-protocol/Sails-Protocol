@@ -7,9 +7,13 @@ import DHT from 'hyperdht'
 import { RELAY, sdk, serve, testnet } from './lib.mjs'
 import { signingInput } from './policy.mjs'
 
+import { Chain, bindingRevocation, commitParty, commitTrade, input as sailsInput, keyFromSeed } from '../portable/src/issue.mjs'
+
 const pubky = testnet()
 let flow
 let session
+let participant
+let chain
 const pear = new Map()
 
 serve({
@@ -45,5 +49,27 @@ serve({
     return { sig: b4a.toString(sig, 'hex') }
   },
   async restore ({ secret }) { session = await pubky.restoreSession(secret); return { ok: true } },
+  // ---- portable identity lab (portable/SPEC.md): the Participant key lives HERE, the Pubky secret never does ----
+  async portableInit () {
+    participant = keyFromSeed(new Uint8Array(globalThis.crypto.getRandomValues(new Uint8Array(32))))
+    chain = new Chain(participant)
+    return { participant: participant.pk }
+  },
+  // Pubky side = the SDK's own grant session + custom PoP (real JWS). Sails side = the participant signature.
+  async portableBinding ({ audience, iat, ttl }) {
+    const info = await session.grant.sessionInfo()
+    const statement = { v: 1, kind: 'binding', pubky: session.info.publicKey.z32(), participant: participant.pk, audience, nonce: b4a.toString(b4a.from(globalThis.crypto.getRandomValues(new Uint8Array(16))), 'hex'), iat, exp: iat + ttl }
+    const pop = await session.grant.createCustomPop(statement)
+    return { statement, participantSig: participant.sign(sailsInput('binding-participant', statement)), grant: pop.grant, delegatePop: pop.pop, grantId: info.grantId }
+  },
+  async portableTrade ({ tradeRef, counterparty, outcome, iat }) {
+    const tradeSalt = b4a.toString(b4a.from(globalThis.crypto.getRandomValues(new Uint8Array(32))), 'hex')
+    const partySalt = b4a.toString(b4a.from(globalThis.crypto.getRandomValues(new Uint8Array(32))), 'hex')
+    const tradeCommit = commitTrade(tradeSalt, tradeRef)
+    const fact = chain.append({ tradeCommit, counterpartyCommit: commitParty(partySalt, counterparty), outcome, iat })
+    return { fact, opening: { tradeRef, tradeSalt, counterparty, partySalt }, tradeCommit }
+  },
+  async portableHead ({ iat }) { return chain.head(iat) },
+  async portableRevoke ({ pubky, iat }) { return bindingRevocation(participant, pubky, iat) },
   async hasEnvSecret () { return Object.keys(process.env).filter((k) => /PASS|SECRET|SEED|KEY/i.test(k)) }
 })

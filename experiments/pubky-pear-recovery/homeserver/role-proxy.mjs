@@ -18,6 +18,7 @@ const server = http.createServer(async (req, res) => {
   const send = (status, headers, body) => { res.writeHead(status, headers); res.end(body) }
 
   if (mode === 'withhold' && path.startsWith('/pub/sails.market/pear/')) return send(404, {}, '')
+  if (mode === 'drop') return req.socket.destroy() // connectivity loss: the connection is cut with no answer
   if (mode === 'inject' && cfg.inject?.[path]) {
     const now = new Date().toUTCString()
     return send(200, { 'content-type': 'application/json', 'last-modified': now, etag: '"injected"' }, req.method === 'HEAD' ? '' : JSON.stringify(cfg.inject[path]))

@@ -10,6 +10,7 @@ const here = import.meta.dirname
 const orch = path.join(here, 'orchestrate.mjs')
 const S03 = 'homeserver/test/03-pear-directory-revocation.test.mjs'
 const S05 = 'homeserver/test/05-hostile-homeserver.test.mjs'
+const S07 = 'homeserver/test/07-window-n300.test.mjs'
 
 const MUTANTS = [
   ['H1 identity not pinned', 'policy.mjs', "if (v.identity !== identity) return deny('wrong-identity')", '', 'p03'],
@@ -28,6 +29,7 @@ const MUTANTS = [
   ['H15 homeserver timestamp ignored', 'policy.mjs', "if (now * 1000 - stats.lastModifiedMs > maxAgeSec * 1000) return deny('directory-stale')", '', 'p05'],
   ['H16 anti-rollback ignored', 'policy.mjs', "if (guard && !guard.accept(`${r.identity}:${r.pear}`, r.seq)) return deny('rollback-or-replay')", '', 'p05'],
   ['H17 future-dated statements accepted', 'policy.mjs', "if (r.iat > now + 30) return deny('statement-from-the-future')", '', 'p05'],
+  ['H18 persisted rollback guard does not persist', 'policy.mjs', 'fs.renameSync(`${this.#file}.tmp`, this.#file)', '', 'p07'],
   ['H12 revocation fails OPEN when the homeserver is unreachable', 'role-verifier.mjs', "if (status === 'unavailable') return { ok: false, reason: 'revocation-status-unavailable' } // fail closed", '', 'p04']
 ]
 
@@ -60,6 +62,7 @@ for (const [name, file, from, to, suite] of MUTANTS) {
   let r
   if (suite === 'p03') r = run(tmp, [S03])
   else if (suite === 'p05') r = run(tmp, [S05])
+  else if (suite === 'p07') r = run(tmp, [S07], { PPR_TEST_NAME: 'W3' })
   else {
     // outage mutant: prepare state, freeze the homeserver, run the outage suite on the mutant, unfreeze
     run(path.join(here), ['homeserver/test/04a-outage-prepare.test.mjs'])

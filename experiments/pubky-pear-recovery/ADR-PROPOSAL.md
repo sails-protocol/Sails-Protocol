@@ -43,6 +43,17 @@ coordination (PR #542). Funds authority, economic identity and transport identit
 * Pear remains the Day 0 transport candidate (viability: `PEAR-VIABILITY.md`); Pubky Noise not implemented.
 * Receipts: minimal decisions and acceptance criteria in `CONTRACT-RECONCILIATION.md`, to be approved by the CTO before any implementation.
 
+## Revision 4 addendum (Mission 04, after CTO review of Mission 03)
+
+* **Upstream asked, publicly:** https://github.com/pubky/pubky-homeserver/issues/743 (status endpoint / signed revocation feed, signer-side lifetime, service-specific consent, SDK deadlines). No answer yet when this was written; nothing here depends on one.
+* **Revocation vocabulary (use these words):** *immediate revocation* = a verifier refuses within seconds of the user's action; available only with a cooperating signer that deletes the record AND an honest homeserver (measured: next poll). *Revocation with limited exposure* = a verifier refuses after the freshness window N; measured with N = 300 s: a revoked grant's record was still accepted for 291 s / 300 s in two runs and first refused at 301 s / 310 s with a 10 s poll (suite 07, W1). *Not revocable by a third party* = anything that relies on a homeserver that ignores revocation (S8) or on a verifier whose clock or guard state is wrong (W3, W6).
+* **N = 300 s is an experimental parameter, not a Day 0 policy.** False-accept windows measured: honest homeserver + revoked integrator, up to N; hostile homeserver replay, up to N (forged `Last-Modified` adds nothing); verifier clock running L seconds behind, up to N + L; verifier restart with an in-memory guard, rollback inside N; hostile homeserver that ignores revocation, unbounded.
+* **Binding authority model** (`portable/SPEC.md`): the root signs only the grant; a grant client's PoP is NOT a root signature; a Pubky-to-Participant binding counts as *root-consented* only if the grant names the Participant key in an approved capability; otherwise it is *delegated-only* and refused. Participant-signed revocation is verifiable by anyone.
+* **Recovery vs availability** (criterion of the mission): the Pubky identity is the single recovery point for *identity* (same key in a second app, verified with real SDK artifacts). It does not recover the Participant key, private openings and confirmations, chat history or messages; those need replication. The public chain verifies without them but yields no confirmed reputation.
+* **Pear integration:** minimal proposal `PEAR-TRANSPORT-PROPOSAL.md` (two optional methods, one accessor, `HumanChatChannel` takes a provider); nothing implemented.
+* **Real devices:** `REAL-DEVICE-TESTS.md` and the `field/` kit are ready; Ring and phone rows are UNKNOWN until the infrastructure partner runs them.
+* **Supply chain:** `HYPERCORE-PROVENANCE.md`: content equals the signed upstream commit; the attestation record for 11.39.3 is missing at the registry; neither compromised nor attested.
+
 ## Consequences and costs
 
 * Depends on an **undocumented** homeserver behaviour for third-party revocation status (observation 19). Ask Pubky for a documented
