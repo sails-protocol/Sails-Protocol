@@ -103,6 +103,10 @@ PINNED=$(grep -E '^FROM node:' Dockerfile | sed -E 's/^FROM node:([0-9]+\.[0-9]+
 pass "Node $PINNED (pinned in the Dockerfile)"
 docker run --rm --entrypoint sh "$IMAGE" -c 'test ! -e /app/dist && test ! -e /app/packages' || fail "server code is present in the migration image"
 pass "no server code (dist/, packages/) in the image"
+# The job only runs `prisma migrate deploy` through node_modules/.bin; the Node base image's npm and
+# corepack are removed in the `migrate` stage (Dockerfile). The whole battery below runs without them.
+docker run --rm --entrypoint sh "$IMAGE" -c 'test ! -e /usr/local/bin/npm && test ! -e /usr/local/bin/npx && test ! -e /usr/local/bin/corepack && test ! -e /usr/local/lib/node_modules/npm && test ! -e /usr/local/lib/node_modules/corepack' || fail "npm or corepack is still in the migration image"
+pass "no npm / corepack in the image"
 # libssl3 is installed unpinned on purpose (Dockerfile, `migrate` stage): the base image is
 # digest-pinned, the library takes Debian security updates. Recorded here so every run says
 # which one it tested; the --internal network below fails the run if Prisma cannot use it.

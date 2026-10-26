@@ -96,18 +96,63 @@ try {
   fail('generated Prisma client exports PrismaClient', String(error.message).split('\n')[0])
 }
 
-// 6: the installed production tree is consistent with its manifests. `npm ls` also
-// lists "extraneous" copies (present but not required by the server); those are not a
-// functional fault and are reported, but a MISSING or INVALID dependency fails the check.
-const ls = require('child_process').spawnSync('npm', ['ls', '--omit=dev', '--all', '--json'], { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
-try {
-  const problems = JSON.parse(ls.stdout).problems || []
-  const broken = problems.filter(p => !p.startsWith('extraneous:'))
-  if (broken.length === 0) pass('production dependency tree has no missing/invalid packages', `${problems.length} extraneous`)
-  else for (const p of broken) fail('dependency tree', p.slice(0, 200))
-} catch (error) {
-  fail('dependency tree', `npm ls output not parseable: ${String(error.message).split('\n')[0]}`)
+// 6: the installed production tree is consistent with its manifests: starting from the root
+// package, every non-optional dependency of every reachable package must resolve (Node's own
+// node_modules lookup) to a copy whose version satisfies the declared range. This is what
+// `npm ls --omit=dev --all` reported (missing / invalid), without needing npm in the image:
+// the final stages ship without npm and corepack. Copies nothing reaches ("extraneous") are
+// not visited, exactly as `npm ls` treated them. Optional dependencies may be absent (native
+// builds for other platforms); peer dependencies are not checked.
+const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'))
+const lookup = (fromDir, name) => {
+  for (let dir = fromDir; ; dir = path.dirname(dir)) {
+    const candidate = path.join(dir, 'node_modules', name)
+    if (fs.existsSync(path.join(candidate, 'package.json'))) return fs.realpathSync(candidate)
+    if (path.dirname(dir) === dir) return null
+  }
 }
+let semver = null
+try { semver = rootRequire('semver') } catch { /* reported below */ }
+if (!semver) {
+  fail('dependency tree', 'semver is not resolvable from /app, so declared ranges cannot be verified')
+} else {
+  const problems = []
+  const seen = new Set()
+  const visit = (dir, manifest, chain) => {
+    if (seen.has(dir)) return
+    seen.add(dir)
+    for (const [name, range] of Object.entries(manifest.dependencies || {})) {
+      const found = lookup(dir, name)
+      if (!found) { problems.push(`missing: ${name}@${range}, required by ${chain}`); continue }
+      const child = readJson(path.join(found, 'package.json'))
+      // npm: / file: / git specs and workspace links carry no semver range to compare
+      if (semver.validRange(range) && !semver.satisfies(child.version, range, { includePrerelease: true })) {
+        problems.push(`invalid: ${name}@${child.version} does not satisfy ${range}, required by ${chain}`)
+      }
+      visit(found, child, `${name}@${child.version}`)
+    }
+    for (const name of Object.keys(manifest.optionalDependencies || {})) {
+      const found = lookup(dir, name)
+      if (found) visit(found, readJson(path.join(found, 'package.json')), `${name} (optional)`)
+    }
+  }
+  try {
+    visit(root, readJson(path.join(root, 'package.json')), 'the root package')
+    if (problems.length === 0) pass('production dependency tree has no missing/invalid packages', `${seen.size} packages reachable from the root`)
+    else for (const p of problems) fail('dependency tree', p.slice(0, 200))
+  } catch (error) {
+    fail('dependency tree', `could not walk the tree: ${String(error.message).split('\n')[0]}`)
+  }
+}
+
+// 6b: the Node base image's package managers are gone from the final image (see the Dockerfile).
+for (const tool of ['npm', 'npx', 'corepack']) {
+  const present = ['/usr/local/bin', '/usr/bin', '/bin'].some(dir => fs.existsSync(path.join(dir, tool)))
+  if (!present) pass(`${tool} is not in the image`)
+  else fail(`${tool} is not in the image`, 'still present')
+}
+if (!fs.existsSync('/usr/local/lib/node_modules/npm') && !fs.existsSync('/usr/local/lib/node_modules/corepack')) pass('npm and corepack module trees are not in the image')
+else fail('npm and corepack module trees are not in the image', '/usr/local/lib/node_modules still has them')
 
 // 7: packages of the other workspaces (front-end / examples) must not ride along into the
 // server image: the `pruned` stage installs only the server's closure. (react and

@@ -150,6 +150,13 @@ ENV NODE_ENV=production PRISMA_HIDE_UPDATE_MESSAGE=1 CHECKPOINT_DISABLE=1
 # the installed version on every run.
 RUN apt-get update && apt-get install -y --no-install-recommends libssl3 \
     && rm -rf /var/lib/apt/lists/*
+# The Node base image bundles npm and corepack (a package-manager toolchain with its own vendored
+# dependency tree, which has carried HIGH advisories of its own: brace-expansion, undici,
+# http-cache-semantics). This job runs `sh scripts/migrate-deploy.sh` -> node_modules/.bin/prisma;
+# it never installs a package, so neither is needed here (docker-migrate-test.sh and
+# scripts/runtime-image-checks.js guard that the job still works without them).
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 WORKDIR /app
 COPY --from=migrate-deps --chown=node:node /migrate/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/prisma ./prisma
@@ -173,6 +180,14 @@ LABEL org.opencontainers.image.title="sails-p2p-protocol" \
 
 ENV NODE_ENV=production
 WORKDIR /app
+
+# npm and corepack come with the Node base image, but the server is started with `node` alone
+# (CMD and HEALTHCHECK below) and nothing installs packages at run time; their vendored dependency
+# tree is attack surface and scanner noise (brace-expansion, undici, http-cache-semantics HIGH).
+# Removed here, in the final stage only: the builder stages keep npm. yarn (/opt/yarn-v1.22.22) is
+# left in place on purpose - it is outside this change and is reported as a residual.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 
 # Only what src/main.js actually needs at runtime: the pruned
 # node_modules tree, the compiled server, the Prisma schema (the

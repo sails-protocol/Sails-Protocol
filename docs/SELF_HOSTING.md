@@ -180,8 +180,17 @@ formal exception with an expiry date in `scripts/production-image-audit.exceptio
 the step fails once one expires. That list is currently **empty**: no advisory is excepted.
 
 A clean audit says "no advisory known on the day CI ran", not "no vulnerability": advisory databases change, so
-the same commit can fail a later re-run. Treat a red audit on an unchanged commit as a real finding, not as a
-flaky test.
+the same commit can fail a later re-run (the npm advisory feed also lags GitHub's by hours: the same commit
+printed no `fast-uri` finding at one time and a moderate one a few hours later). Treat a red audit on an unchanged
+commit as a real finding, not as a flaky test.
+
+**What this audit does not cover.** It inventories the application tree (`/app/node_modules`). It does not see the
+Debian packages of the base image or any other file outside `/app`. The Node base image's own `npm` and `corepack`
+(a vendored dependency tree of their own) are removed from the final `runtime` and `migrate` stages, because nothing
+in them runs a package manager. Debian OS findings, including ones the distribution marks `will_not_fix`, are
+outside the gate: scan the built images with a container scanner (Trivy, Grype) before a deployment decision and
+record the scanner and database version with the result.
+
 ## What this does not prove
 
 - **Not multi-operator interoperability.** Running your own node proves you can host one. It does not
