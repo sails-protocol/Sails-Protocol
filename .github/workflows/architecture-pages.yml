@@ -46,7 +46,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '20'
+          node-version: '24.22.1'
 
       - name: Clone Archify (pinned commit)
         # Pinned to the exact commit Archify Pass 1 was validated
