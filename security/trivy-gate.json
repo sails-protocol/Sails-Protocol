@@ -1,0 +1,5 @@
+{
+  "mode": "observe",
+  "severities": ["CRITICAL", "HIGH"],
+  "note": "mode=observe: the gate reports exactly what it WOULD fail and exits 0. mode=enforce: any CRITICAL/HIGH finding without a valid exception fails the CI step. Switching to enforce is a reviewed one-line change to this file. A scan that could not run fails the step in enforce mode and is reported loudly (exit 0) in observe mode."
+}
