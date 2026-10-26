@@ -11,6 +11,7 @@ import type { Prisma } from '@prisma/client'
 import { config } from '../../config'
 import { qvacDetectionInvocationsTotal, qvacDetectionFailuresTotal } from '../../common/metrics'
 import { withIdempotency, isUniqueConstraintError } from '../../common/idempotency'
+import { multiplyDecimals } from '../../common/decimal-math'
 
 const log = childLogger('liquidity')
 
@@ -351,8 +352,8 @@ function buildTradeIntentPayload(input: CreateOfferInput): TradeIntentPayload {
   return {
     asset: input.asset,
     side: input.side,
-    maxValue: (Number(input.priceUsd) * Number(input.maxAmount)).toFixed(8),
-    minValue: (Number(input.priceUsd) * Number(input.minAmount)).toFixed(8),
+    maxValue: multiplyDecimals(input.priceUsd, input.maxAmount),
+    minValue: multiplyDecimals(input.priceUsd, input.minAmount),
     fiatMethod: input.paymentMethod,
     network: input.network,
   }

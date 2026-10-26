@@ -15,6 +15,8 @@ import { tradeRepository, type TradeRepository } from './trade-repository'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { TradeStatus } from '../../common/types'
 import { withIdempotency } from '../../common/idempotency'
+import { Prisma } from '@prisma/client'
+import { multiplyDecimals } from '../../common/decimal-math'
 
 export interface CreateTradeInput {
   offerId: string
@@ -110,15 +112,18 @@ export class TradeService {
     // any amount, including one wildly outside what the seller actually
     // offered, and a real Trade would be created for it — an accepted
     // "trade" the counterparty never agreed to, not just a UX gap.
-    // `Number()` here is the same "bounds check, not exact arithmetic"
-    // precedent RFC-009 already established (policy-engine.ts's
-    // validateFinancialSanity(), liquidity.service.ts's sort comparator)
-    // — the decimal string itself is still what's persisted below.
-    const amountNum = Number(input.amount)
-    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+    // #165 — compared as exact decimals (Prisma.Decimal), not JS numbers, so
+    // the limit check at the boundary can never be decided by float rounding.
+    let amountDecimal: Prisma.Decimal
+    try {
+      amountDecimal = new Prisma.Decimal(input.amount)
+    } catch {
       throw new ValidationError(`amount must be a positive decimal string, got "${input.amount}"`)
     }
-    if (amountNum < Number(offer.minAmount) || amountNum > Number(offer.maxAmount)) {
+    if (!amountDecimal.isFinite() || amountDecimal.lte(0)) {
+      throw new ValidationError(`amount must be a positive decimal string, got "${input.amount}"`)
+    }
+    if (amountDecimal.lt(offer.minAmount) || amountDecimal.gt(offer.maxAmount)) {
       throw new ValidationError(
         `amount ${input.amount} is outside Offer ${offer.id}'s limits (${offer.minAmount}-${offer.maxAmount})`
       )
@@ -131,7 +136,7 @@ export class TradeService {
       offer.side === 'SELL' ? [input.counterpartyId, offer.userId] : [offer.userId, input.counterpartyId]
 
     const priceUsd = offer.priceUsd
-    const totalUsd = (Number(priceUsd) * Number(input.amount)).toFixed(8)
+    const totalUsd = multiplyDecimals(priceUsd, input.amount)
 
     const trade = await this.repo.create({
       offerId: offer.id,
