@@ -1,0 +1,8 @@
+# Runner for the Pubky homeserver experiment. Dependencies are installed at build time
+# (network needed); the container is then run on an --internal docker network.
+FROM node:24.22.1-trixie-slim
+WORKDIR /w
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund --ignore-scripts
+COPY . .
+ENV NODE_ENV=test

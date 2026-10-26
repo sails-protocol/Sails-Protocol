@@ -4,6 +4,13 @@ Status: **prototype approved against its own tests; NOT a homologated Day 0 impl
 Nothing here is referenced by the Sails build, CI, Core, schemas, contracts or any financial mechanism.
 It is not part of any npm workspace. Mission: CTO "Pubky + Pear Unified P2P Recovery" (2026-10-26).
 
+> **Mission 02 update (2026-10-26).** After the CTO decision on PR #543 (model **B**: native Pubky recovery + fresh Pear key +
+> re-authorization; A and C are lab comparisons only), this directory also contains:
+> `homeserver/` (a REAL Pubky homeserver built from the signed `v0.16.2` tag, isolated; identity recovery, external-signer
+> grants, Pear key directory, revocation, outage; PASS/FAIL/UNKNOWN matrix in `homeserver/README.md`),
+> `TRANSPORT-COMPARISON.md` (Pubky Noise vs Pear), `RECEIPTS-VS-CONTRACTS.md` (gaps against OpenProof/OpenReputation) and
+> `ADR-PROPOSAL.md` revision 2. The statements below about "not tested: homeserver round trip" are superseded by `homeserver/README.md`.
+
 ## Question and answer in one paragraph
 
 Can one recovery root restore the Pubky identity **and** authorize Pear sessions, with an HD-like UX, without
