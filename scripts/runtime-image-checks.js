@@ -173,7 +173,9 @@ const cliChain = ['prisma', '@prisma/config', '@prisma/engines', '@prisma/studio
 if (cliChain.length === 0) pass('Prisma CLI chain absent from the serving image')
 else fail('Prisma CLI chain in the serving image', cliChain.join(', '))
 // `npm prune --omit=optional` would also drop bare-runtime-linux-x64: the QVAC SDK spawns its worker with it.
-for (const name of ['@prisma/client', '@prisma/adapter-pg', 'pg', 'bare-runtime', 'bare-runtime-linux-x64']) {
+// The platform package is named after the architecture the image runs on (linux-x64 or linux-arm64): npm installs only the matching one.
+const BARE_PLATFORM_PKG = `bare-runtime-linux-${process.arch}`
+for (const name of ['@prisma/client', '@prisma/adapter-pg', 'pg', 'bare-runtime', BARE_PLATFORM_PKG]) {
   try {
     rootRequire.resolve(name)
     pass(`present: ${name}`)
@@ -187,7 +189,7 @@ for (const name of ['@prisma/client', '@prisma/adapter-pg', 'pg', 'bare-runtime'
 // production image still has this defect (reported, not failed: it works on a writable rootfs). The distroless candidate sets
 // the mode at build time and is checked with REQUIRE_BARE_EXECUTABLE=1, where a binary that cannot start FAILS the image.
 {
-  const bare = path.join(root, 'node_modules', 'bare-runtime-linux-x64', 'bin', 'bare')
+  const bare = path.join(root, 'node_modules', BARE_PLATFORM_PKG, 'bin', 'bare')
   const required = process.env.REQUIRE_BARE_EXECUTABLE === '1'
   try {
     const run = require('child_process').spawnSync(bare, ['--version'], { encoding: 'utf8', timeout: 15000 })
