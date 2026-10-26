@@ -5,6 +5,43 @@
 > **Autoridade:** `docs/BACKLOG.md`, `docs/ROADMAP.md`, ADRs e Issues canônicas continuam governando o escopo. O GitHub Project e os HEADs atuais devem ser reconsultados no momento de execução.  
 > **Princípio:** terminar o Master Backlog **antes de promover novas frentes futuras**; distinguir gates de Beta de expansões. Não fechar Issues por mera documentação.
 
+## CTO — reconciliação Day 0 Pubky-first e Paykit (2026-10-26)
+
+**Pós-Master Backlog não significa pós-Day 0.** Obrigações desta fila podem continuar após o fechamento do Master Backlog, mas devem estar homologadas **antes do GO Day 0** quando classificadas como Day 0. Não iniciar trabalho paralelo antes dos gates atuais; não confundir CI com homologação. Owner arquitetural existente: #276. Sincronizar com `docs/BACKLOG.md`, `docs/ROADMAP.md`, PR #531 e Project #3 na etapa de execução; esta nota não altera a sequência canônica nem autoriza merge/deploy.
+
+**Escopo Day 0 (decisão de produto, não evidência de implementação):**
+
+1. **OpenIdentity:** Pubky como único provider inicial, via interface neutra; prova de posse, grants, revogação e recuperação. Pubky Ring para gestão de chaves; Passport e Google Login são **opções de UX**, não obrigações. **Nostr não é requisito Day 0** e permanece provider futuro possível.
+2. **PortableData:** Pubky Homeserver como provider inicial substituível de armazenamento/descoberta; dados publicados não são automaticamente provas válidas; proteger privacidade, portabilidade e recuperação.
+3. **Pear:** comunicação privada na experiência de referência, chaves de transporte separadas, autorização de sessão revogável pela persona. Sem vinculação automática a seeds financeiras e sem dependência constitucional no Sails Core.
+4. **OpenProof/OpenReputation:** provas econômicas assinadas e verificáveis independentemente, anti-replay/deduplicação, correção/revogação e mitigação de reputação fabricada; reputação derivada de fatos, não score central. E2E entre **Satsails Wallet · Sails Market · Outros integradores**, sem depender da API ou banco exclusivo da Satsails.
+5. **Paykit/OpenSettlement:** incluir no Day 0 **um incremento mínimo de integração** para descoberta de métodos de pagamento e payment requests/autorização, sujeito a validação de API, compatibilidade multi-rail, segurança e conformance. Integração pública de referência não substitui homologação Sails; registrar avisos upstream de WIP. Paykit não é autoridade sobre fundos ou settlement.
+
+### CTO spike obrigatório — raiz de recuperação P2P determinística (sem bloquear Gate 2/3)
+
+**Problema:** um único backup/acesso P2P pode restaurar a identidade Pubky e autorizar novas sessões Pear, como UX análoga a uma HD wallet, mas sem misturar a raiz financeira WDK. O estado atual do Sails gera `HyperDHT.keyPair()` sem seed no `PearNode.start()` e **não** prova recuperação determinística nem vínculo Pubky↔Pear. Ver `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` e `docs/CRYPTOGRAPHIC_MODEL.md`.
+
+**Decisão de direção:** estudar raiz P2P independente, com derivação *domain-separated* e versionada. **Não fixar agora BIP-39, KDF, caminhos, import/export ou esquema de assinatura.** Não reutilizar diretamente a chave privada Pubky como chave de transporte; não usar seed financeira como fonte silenciosa. Pubky = identidade econômica estável; Pear = chaves de dispositivo/sessão autorizadas, rotacionáveis e revogáveis. Recuperação de identidade ≠ recuperação de conteúdo de chats. Alternativa admissível se a derivação Pubky não for suportada: recuperar a chave Pubky pelo mecanismo nativo e criar/reautorizar chaves Pear independentes, com UX unificada, sem falsa promessa de uma única seed.
+
+**Evidência upstream inicial:** HyperDHT documenta `DHT.keyPair([seed])` e Hyperswarm documenta seed determinística de 32 bytes; Pubky SDK documenta autenticação por chave pública e grants, mas ainda **não há prova de interoperabilidade determinística conjunta** nem formato de recuperação cruzada homologado. Ver https://docs.pears.com/p2p/reference/building-blocks/hyperdht/ , https://github.com/holepunchto/hyperswarm , https://github.com/pubky/pubky-core . Conferir versões/pins exatos no spike.
+
+**Protocolo de prova, sem produção:**
+
+1. Reproduzir geração/restauração de identidade Pubky com vetor fixo e versão de SDK pinada, sem expor segredos em logs; verificar assinaturas e endereço/ID resultante.
+2. Gerar chaves Pear distintas com vetor determinístico ou efêmero autorizado, demonstrar que a mesma raiz não produz a mesma chave entre domínios e que chaves financeiras não participam.
+3. Definir binding assinado Pubky→chave Pear com audience/app, purpose, nonce, expiry, versão, device e revogação; verificar assinatura e rejeitar replay, expiração, spoof e downgrade.
+4. Simular apagar app/reinstalar/outro dispositivo: restaurar persona, autorizar nova sessão Pear e acessar provas econômicas portáteis entre **Satsails Wallet · Sails Market · Outros integradores** sem API exclusiva.
+5. Negativos: seed errada, dispositivo revogado, sessão Pear comprometida, homeserver indisponível, dados não replicados, perda de backup, correlation/privacy, múltiplos dispositivos simultâneos e migração de versão.
+6. Separar resultados **identidade recuperada / provas recuperadas / chats recuperados**; chats só passam se houver persistência e recuperação E2EE comprovadas. Nunca prometer restauração de chats por derivação de chaves.
+
+**Critério de saída:** ADR de decisão após spike com vetores, compatibilidade SDK e matriz RED/GREEN; Gatekeeper revisa isolamento de segredos e autorização. Até então **DESIGN/SPIKE ONLY, NO-GO para afirmar seed única homologada**, sem implementação produtiva ou alteração de Core/schema. Não criar issue duplicada; registrar evidência no owner existente e reconciliar execução após gates atuais.
+
+**Roadmap futuro (fora do caminho crítico):** Nostr como provider adicional, Pubky Nexus como indexador opcional, Blocktank como provider LN opcional, Atomicity, Pubky Noise e extras avançados não essenciais; não apagar obrigações anteriores sem reconciliação.
+
+**Pubky × Nostr:** comparar censura, interoperabilidade, rails, requests/assinaturas/permissões, ferramentas e maturidade com fontes e testes. Não afirmar que Nostr carece absolutamente de abertura, interoperabilidade ou resistência à censura; a preferência Pubky-first decorre da adequação de identidade, grants e portable data e da redução de complexidade inicial. Não registrar tamanho de equipe sem prova.
+
+**Status:** decisão registrada; implementação, evidências, Gatekeeper e GO pendentes. Gate 2 Redis e Gate 3 P4 seguem NO-GO. Não criar issues duplicadas nem declarar 100% sem denominador auditado.
+
 ## Como usar a fila
 
 1. Reconciliar `main`, Master Backlog, Issues e GitHub Project no exato momento de reentrada.
