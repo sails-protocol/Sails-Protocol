@@ -147,6 +147,7 @@ async function applyDownstreamCompletionEffects(
   const feeOutcome = targetStatus === 'COMPLETED' ? 'RELEASE' as const : targetStatus === 'REFUNDED' ? 'FULL_REFUND' as const : 'SPLIT' as const
 
   let obligationSkipped = false
+  let feeRecorded = true // false only when a due fee recording failed: the pending row is then kept (Issue #245, Phase 2)
   if (targetStatus === 'SPLIT' && !pending) {
     obligationSkipped = true
     log.error({
@@ -165,21 +166,7 @@ async function applyDownstreamCompletionEffects(
     // undo a settlement whose funds already moved (real, before this
     // module ever ran, in every case this function is called for).
     if (pending && pending.kind !== 'refund' && actualCollection && !actualCollection.waived) {
-      try {
-        const obligation = await feeObligationService.findByEscrowId(escrowId)
-        if (obligation && escrowRow.snapshotFeeCollectionAddress) {
-          const network = networkFor(config.multisig.network)
-          const evidence = identifyFeeOutput(pending.unsignedPsbtBase64, escrowRow.snapshotFeeCollectionAddress, actualCollection.feeSats, network)
-          await feeCollectionRecognitionService.recordBroadcastAndAdvance(obligation.id, {
-            txid: txId, vout: evidence.vout, scriptPubKey: evidence.scriptPubKeyHex, amountSats: evidence.amountSats,
-          })
-        }
-      } catch (err) {
-        log.error({
-          msg: 'Reconciliation: broadcast-evidence recording failed after a successful settlement — nothing was written by this call; the FeeObligation was not advanced by it (current state not asserted)',
-          escrowId, err: err instanceof Error ? err.message : err,
-        })
-      }
+      feeRecorded = await recordFeeBroadcast(escrowRow, pending.unsignedPsbtBase64, actualCollection.feeSats, txId)
     }
   }
 
@@ -211,11 +198,38 @@ async function applyDownstreamCompletionEffects(
   // remaining source of the signed PSBT.
   await recordLiveCorrespondenceIfApplicable(escrowId, tradeId, escrowRow.type, rawTxHex)
 
-  if (pending) {
+  if (pending && feeRecorded) {
     await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
   }
 
   return { obligationSkipped, emitted }
+}
+
+// Issue #245 (Phase 2) — the ONE place the reconciler records a settlement's fee BROADCAST evidence, always through
+// recordBroadcastAndAdvance() (the single recognition rule; it is idempotent and conflict-detecting). Returns true when
+// the recording is durable or there is nothing to record, false when it failed (logged; never thrown — the settlement's
+// funds already moved), in which case the caller keeps the pending row, the only durable source of the PSBT.
+async function recordFeeBroadcast(
+  escrowRow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>,
+  unsignedPsbtBase64: string, feeSats: number, txId: string
+): Promise<boolean> {
+  try {
+    const obligation = await feeObligationService.findByEscrowId(escrowRow.id)
+    if (obligation && escrowRow.snapshotFeeCollectionAddress) {
+      const network = networkFor(config.multisig.network)
+      const evidence = identifyFeeOutput(unsignedPsbtBase64, escrowRow.snapshotFeeCollectionAddress, feeSats, network)
+      await feeCollectionRecognitionService.recordBroadcastAndAdvance(obligation.id, {
+        txid: txId, vout: evidence.vout, scriptPubKey: evidence.scriptPubKeyHex, amountSats: evidence.amountSats,
+      })
+    }
+    return true
+  } catch (err) {
+    log.error({
+      msg: 'Reconciliation: broadcast-evidence recording failed after a successful settlement — nothing was written by this call; the FeeObligation was not advanced by it (current state not asserted); the pending row is kept for the next pass',
+      escrowId: escrowRow.id, err: err instanceof Error ? err.message : err,
+    })
+    return false
+  }
 }
 
 const NON_TERMINAL_QUERY_STATUSES = ['COMPLETED', 'REFUNDED', 'SPLIT'] as const
@@ -480,9 +494,10 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
   if (escrow.type === 'MULTISIG' && escrow.txReleaseId) {
     const pendingForCorrespondence = await prisma.escrowPendingTransaction.findUnique({
       where: { escrowId: escrow.id },
-      select: { unsignedPsbtBase64: true, requiredSigners: true, signatures: true },
+      select: { id: true, kind: true, feeCollectionSats: true, feeCollectionWaived: true, unsignedPsbtBase64: true, requiredSigners: true, signatures: true },
     })
     let rawTxHex: string | undefined
+    let reconstructionFailed = false
     if (pendingForCorrespondence) {
       const signedList = pendingForCorrespondence.requiredSigners.map(
         (id: string) => pendingForCorrespondence.signatures.find((s: { participantId: string; signedPsbtBase64: string }) => s.participantId === id)?.signedPsbtBase64
@@ -505,6 +520,7 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
             if (reconciled.outcome !== 'ANOMALY') rawTxHex = reconciled.rawTxHex
           }
         } catch (err) {
+          reconstructionFailed = true
           log.error({ msg: 'M9: exact reconstruction for correspondence catch-up failed — proceeding without it', escrowId: escrow.id, err: err instanceof Error ? err.message : String(err) })
         }
       }
@@ -518,6 +534,22 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
     // result and safely no-ops (MULTISIG+RESOLVED-dispute check) for
     // every escrow this mission does not migrate.
     await recordLiveCorrespondenceIfApplicable(escrow.id, escrow.tradeId, escrow.type, rawTxHex)
+
+    // Issue #245 (Phase 2) — fee recovery, INDEPENDENT of the `alreadyEmitted` gate (like the correspondence catch-up
+    // above): when the live path emitted the completion event but its fee recording failed, it kept the pending row.
+    // Retry through recordBroadcastAndAdvance() (idempotent; never re-emits the event, never writes a second row), and
+    // delete the row only once the recording is durable — and not while the correspondence reconstruction above still
+    // needed it. The not-yet-emitted case is handled by applyDownstreamCompletionEffects() below.
+    if (
+      alreadyEmitted && pendingForCorrespondence && pendingForCorrespondence.kind !== 'refund' && escrow.status !== 'REFUNDED' &&
+      pendingForCorrespondence.feeCollectionSats !== null && pendingForCorrespondence.feeCollectionSats !== undefined &&
+      !pendingForCorrespondence.feeCollectionWaived
+    ) {
+      const recorded = await recordFeeBroadcast(escrow, pendingForCorrespondence.unsignedPsbtBase64, pendingForCorrespondence.feeCollectionSats, escrow.txReleaseId)
+      if (recorded && !reconstructionFailed) {
+        await prisma.escrowPendingTransaction.delete({ where: { id: pendingForCorrespondence.id } }).catch(() => {})
+      }
+    }
   }
 
   if (alreadyEmitted) return // nothing missing for the completion-effects concern — the overwhelmingly common case
