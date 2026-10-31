@@ -7,7 +7,7 @@
 //   A. disputeCount (User.disputeCount, both sides) - previously incremented from a SEPARATE, non-durable
 //      `eventBus.on('openp2p.trade.disputed', ...)` consumer with no claim of its own. Moved inline to the
 //      settlement.escrow.disputed onDurable() handler (handlers.ts) under an applyEventProjectionOnce()
-//      claim keyed on (eventId, 'dispute.count', tradeId) - now covered by the SAME PASS 3
+//      claim keyed on (source transition, 'dispute.count', tradeId) - now covered by the SAME PASS 3
 //      (reconcileIncompleteProjections()) recovery every other projection of that transition already uses.
 //
 //   B. Arbiter ruling finalization (ArbiterProfile.rulingsTotal/rulingsOverturned/monetaryCollateral/
@@ -130,15 +130,15 @@ describe('Issue #253 - durable downstream projection completion (real PostgreSQL
   it('A1: settlement.escrow.disputed increments disputeCount for both sides exactly once', async () => {
     requirePostgres('A1 single disputed event')
     const ctx = await makeFundsLockedEscrow()
-    const { eventId } = await emitDisputed(ctx)
+    const { transitionId } = await emitDisputed(ctx)
     await expectDisputeCountAppliedOnce(ctx)
-    expect(await prisma.eventProjectionClaim.count({ where: { eventId, projectionKey: 'dispute.count' } })).toBe(1)
+    expect(await prisma.eventProjectionClaim.count({ where: { eventId: transitionId, projectionKey: 'dispute.count' } })).toBe(1)
   })
 
   it('A2: the SAME disputed event redelivered 10 times concurrently -> disputeCount incremented once, not 10 times', async () => {
     requirePostgres('A2 concurrent redelivery')
     const ctx = await makeFundsLockedEscrow()
-    const { eventId } = await emitDisputed(ctx)
+    const { eventId, transitionId } = await emitDisputed(ctx)
     await expectDisputeCountAppliedOnce(ctx)
 
     const results = await Promise.all(Array.from({ length: 10 }, () => eventBus.redeliver(eventId)))
@@ -146,7 +146,7 @@ describe('Issue #253 - durable downstream projection completion (real PostgreSQL
     await sleep(800)
 
     await expectDisputeCountAppliedOnce(ctx) // still exactly 1, not 11
-    expect(await prisma.eventProjectionClaim.count({ where: { eventId, projectionKey: 'dispute.count' } })).toBe(1)
+    expect(await prisma.eventProjectionClaim.count({ where: { eventId: transitionId, projectionKey: 'dispute.count' } })).toBe(1)
   })
 
   it('A3: CRASH RECOVERY - a claimed-but-unprojected disputed transition is re-driven by PASS 3 and disputeCount converges exactly once', async () => {
@@ -187,7 +187,7 @@ describe('Issue #253 - durable downstream projection completion (real PostgreSQL
     requirePostgres('A4 multi-instance dispute.count')
     expect(instanceB).toBeDefined()
     const ctx = await makeFundsLockedEscrow()
-    const { eventId } = await emitDisputed(ctx)
+    const { eventId, transitionId } = await emitDisputed(ctx)
 
     await Promise.all([
       ...Array.from({ length: 5 }, () => eventBus.redeliver(eventId)),
@@ -196,7 +196,7 @@ describe('Issue #253 - durable downstream projection completion (real PostgreSQL
     await sleep(1000)
 
     await expectDisputeCountAppliedOnce(ctx)
-    expect(await prisma.eventProjectionClaim.count({ where: { eventId, projectionKey: 'dispute.count' } })).toBe(1)
+    expect(await prisma.eventProjectionClaim.count({ where: { eventId: transitionId, projectionKey: 'dispute.count' } })).toBe(1)
   })
 
   // ─── Section B fixtures — arbiter ruling finalization ───────────────────────────────────────────

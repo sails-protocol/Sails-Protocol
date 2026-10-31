@@ -98,24 +98,24 @@ export class VouchService {
    * misplaced) — each burn independently penalizes its own voucher.
    */
   /**
-   * Issue #298 - burnVouchesFor() applied at most ONCE per (durable eventId,
+   * Issue #298 - burnVouchesFor() applied at most ONCE per (source transition,
    * vouchee): every vouch burn (CAS on burnedAt IS NULL) and its voucher score
    * penalty commit with a per-vouch projection claim in one transaction, and
    * each notification is published inside its own claim transaction (see
    * recordOutcomeOnce()): a failed publish rolls its unit back, so the
    * redelivery redoes exactly that unit instead of losing or repeating it.
    */
-  async burnVouchesForOnce(eventId: string, voucheeId: string): Promise<boolean> {
-    // One identity PER VOUCH (eventId, key, vouchId), each unit publishing at most ONE event inside its own claim
+  async burnVouchesForOnce(effectId: string, voucheeId: string): Promise<boolean> {
+    // One identity PER VOUCH (effectId, key, vouchId), each unit publishing at most ONE event inside its own claim
     // transaction. A unit that fails publishing rolls back with its claim and is redone by the redelivery; a unit
     // that committed is never repeated. With two events in one transaction a crash between them would republish
     // the first one.
     let burnedAny = false
     for (const vouch of await prisma.vouch.findMany({ where: { voucheeId } })) {
-      if (vouch.burnedAt === null && await this.burnOneVouchOnce(eventId, vouch)) burnedAny = true
+      if (vouch.burnedAt === null && await this.burnOneVouchOnce(effectId, vouch)) burnedAny = true
       // Only for a vouch THIS event burned (its burn claim exists): one already burned by an earlier event has none.
-      if (await prisma.eventProjectionClaim.count({ where: { eventId, projectionKey: VOUCH_BURN_KEY, subjectId: vouch.id } }) > 0) {
-        await applyEventProjectionOnce(eventId, VOUCH_BURNED_NOTICE_KEY, vouch.id, async () => {
+      if (await prisma.eventProjectionClaim.count({ where: { eventId: effectId, projectionKey: VOUCH_BURN_KEY, subjectId: vouch.id } }) > 0) {
+        await applyEventProjectionOnce(effectId, VOUCH_BURNED_NOTICE_KEY, vouch.id, async () => {
           await eventBus.emit('reputation.vouch.burned', { voucherId: vouch.voucherId, voucheeId, vouchId: vouch.id }, voucheeId)
         })
       }
@@ -124,9 +124,9 @@ export class VouchService {
   }
 
   /** CAS burn + voucher penalty + score notification in one claim transaction; false if already burned elsewhere. */
-  private async burnOneVouchOnce(eventId: string, vouch: { id: string; voucherId: string }): Promise<boolean> {
+  private async burnOneVouchOnce(effectId: string, vouch: { id: string; voucherId: string }): Promise<boolean> {
     try {
-      return await applyEventProjectionOnce(eventId, VOUCH_BURN_KEY, vouch.id, async (tx) => {
+      return await applyEventProjectionOnce(effectId, VOUCH_BURN_KEY, vouch.id, async (tx) => {
         const cas = await tx.vouch.updateMany({ where: { id: vouch.id, burnedAt: null }, data: { burnedAt: new Date() } })
         // Burned by someone else between our read and now: roll the claim back too - this event burned nothing.
         if (cas.count === 0) throw new VouchAlreadyBurned()
