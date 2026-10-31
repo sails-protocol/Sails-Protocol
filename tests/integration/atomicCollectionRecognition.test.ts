@@ -488,6 +488,17 @@ describe('recordBroadcastAndAdvance() atomicity and retry semantics (Issue #245,
     expect(after.rows.map((r) => r.id)).toEqual(before.rows.map((r) => r.id))
   })
 
+  it('E1b a txid that was REPLACED but whose replacement is not recorded yet is still not an idempotent retry (the REPLACED row alone makes it a conflict)', async () => {
+    pg.requirePostgres('E1b')
+    const { obligationId, txid } = await pendingObligation()
+    await feeCollectionRecognitionService.recordBroadcastAndAdvance(obligationId, { txid, ...BROADCAST })
+    await feeCollectionRecognitionService.recordReplacement(obligationId, txid, txidFor(obligationId, 'rbf-pending'))
+    await expect(feeCollectionRecognitionService.recordBroadcastAndAdvance(obligationId, { txid, ...BROADCAST })).rejects.toBeInstanceOf(FeeBroadcastEvidenceConflictError)
+    const s = await state(obligationId)
+    evidenceLine('E1b replay of a replaced txid, replacement not yet recorded', { broadcastRows: s.broadcast, replacedRows: s.replaced, status: s.status })
+    expect(s).toMatchObject({ status: 'IN_PROGRESS', broadcast: 1, replaced: 1 })
+  })
+
   it('E2 a pre-fix orphan (BROADCAST row on a PENDING_COLLECTION obligation): the matching call advances the obligation on it WITHOUT a second row; a differing call is a conflict and the claim rolls back', async () => {
     pg.requirePostgres('E2')
     const matching = await pendingObligation()
