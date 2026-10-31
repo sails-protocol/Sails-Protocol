@@ -77,7 +77,7 @@ const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowUpdate = jest.fn()
 const mockTradeFindUnique = jest.fn()
 const mockDisputeFindFirst = jest.fn()
-const mockEscrowEventCreate = jest.fn().mockResolvedValue({})
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockParticipantKeyFindMany = jest.fn().mockResolvedValue([])
 const mockEscrowFundingEvidenceFindMany = jest.fn().mockResolvedValue([])
@@ -144,7 +144,11 @@ jest.mock('../src/common/database', () => ({
     },
     $transaction: (callback: (tx: unknown) => Promise<unknown>) =>
       callback({
+        // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+        eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
         $executeRaw: jest.fn().mockResolvedValue(0),
+        // Issue #291 - persistSettlementResult() reads then writes the escrow inside its own locked transaction.
+        escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args), update: (...args: unknown[]) => mockEscrowUpdate(...args) },
         escrowEvent: {
           findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
           create: (...args: unknown[]) => mockEscrowEventCreate(...args),
@@ -152,6 +156,7 @@ jest.mock('../src/common/database', () => ({
         escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
         escrowPendingTransaction: {
           create: (arg: { data: Record<string, unknown> }) => mockPendingTxCreate(arg),
+          findFirst: (arg: unknown) => mockPendingTxFindUnique(arg), // Issue #291 - operation-bound result write
         },
         // ADR-005 / #218 — authorizeDisputedPendingExecution()'s own
         // $transaction callback needs these two, reused from the

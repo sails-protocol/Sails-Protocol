@@ -57,7 +57,7 @@ const mockTradeCreate = jest.fn()
 const mockTradeUpdate = jest.fn()
 const mockEscrowFindUnique = jest.fn()
 const mockEscrowCreate = jest.fn()
-const mockEscrowEventCreate = jest.fn()
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockMessageFindMany = jest.fn()
 const mockMessageCount = jest.fn().mockResolvedValue(0)
@@ -82,6 +82,14 @@ const mockCapabilityGrantTransaction = jest.fn(async (fn: (tx: unknown) => Promi
       update: (...args: unknown[]) => mockCapabilityGrantUpdate(...args),
       findMany: async (...args: unknown[]) => (await mockCapabilityGrantFindMany(...args)) ?? [],
       create: (...args: unknown[]) => mockCapabilityGrantCreate(...args),
+    },
+    // Issue #294 - TradeRepository.transitionManually() runs in one transaction: it checks the
+    // trade's escrow (none by default here), CAS-updates the Trade status, then re-reads the row
+    // (real Prisma's updateMany returns no row) - which is what mockTradeUpdate models below.
+    escrow: { findUnique: async () => null },
+    trade: {
+      updateMany: async () => ({ count: 1 }),
+      findUnique: (...args: unknown[]) => mockTradeUpdate(...args),
     },
   })
 )

@@ -2516,3 +2516,20 @@ model IdempotencyKey {
   @@unique([scope, participantId, key])
   @@map("idempotency_keys")
 }
+
+// Issue #298 - durable delivery/replay identity for event-derived projections
+// (see migration 20260921121000_event_projection_claims for the full reasoning;
+// eventId intentionally has no FK to durable_events). Written only through
+// applyEventProjectionOnce() (src/common/events/event-projection.ts), in the
+// same transaction as the mutation it guards.
+model EventProjectionClaim {
+  id            String   @id @default(uuid())
+  eventId       String
+  projectionKey String
+  subjectId     String
+  appliedAt     DateTime @default(now())
+
+  @@unique([eventId, projectionKey, subjectId], map: "event_projection_claim_identity_key")
+  @@index([projectionKey, subjectId])
+  @@map("event_projection_claims")
+}

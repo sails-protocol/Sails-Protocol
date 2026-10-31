@@ -472,6 +472,24 @@ export class PostgresEventStore implements EventStore {
     })
   }
 
+  // Issue #298 - see SailsEventBus.redeliver(). Local dispatch only: the event was already published
+  // (durable row + cross-instance signal) when it was first emitted.
+  async redeliver(eventId: string): Promise<boolean> {
+    const row = await this.client.durableEventRecord.findUnique({ where: { id: eventId } })
+    if (!row) return false
+    const event: DurableEvent = {
+      eventId: row.id,
+      eventName: row.eventName as SailsEventName,
+      correlationId: row.correlationId,
+      payload: row.payload as unknown as SailsEventMap[SailsEventName],
+      publishedAt: row.publishedAt,
+      entryHash: row.entryHash,
+      prevHash: row.prevHash,
+    }
+    this.emitter.emit(row.eventName, event)
+    return true
+  }
+
   async getEvents(correlationId: string): Promise<DurableEvent[]> {
     const rows = await this.client.durableEventRecord.findMany({
       where: { correlationId },

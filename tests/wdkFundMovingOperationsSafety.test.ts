@@ -49,7 +49,7 @@ jest.mock('../src/modules/open-settlement/wdk-settlement.provider', () => ({
 const mockEscrowFindUnique = jest.fn()
 const mockEscrowUpdate = jest.fn()
 const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
-const mockEscrowEventCreate = jest.fn()
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockTradeFindUnique = jest.fn()
 const mockDurableEventCreate = jest.fn()
@@ -64,11 +64,15 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     },
     escrow: {
       updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args),
+      findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args),
+      update: (...args: unknown[]) => mockEscrowUpdate(...args),
     },
     escrowEvent: {
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
       create: (...args: unknown[]) => mockEscrowEventCreate(...args),
     },
+    // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+    eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
     $executeRaw: jest.fn().mockResolvedValue(0),
   })
 )

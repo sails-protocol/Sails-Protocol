@@ -1,7 +1,9 @@
 import { prisma } from '../../common/database'
 import { config } from '../../config'
-import { EscrowError } from '../../common/errors'
-import { withEscrowFundingLock, loadParticipantPubkeys, emitEscrowTransition, claimEscrowTransition } from './escrow-lifecycle'
+import { EscrowError, SettlementResultConflictError } from '../../common/errors'
+import { withEscrowFundingLock, loadParticipantPubkeys, emitEscrowTransition, claimEscrowTransition, EVENT_NAME_BY_TARGET_STATUS } from './escrow-lifecycle'
+import { eventBus } from '../../common/events/event-bus'
+import { TRANSITION_CLAIMED_KEY, TRANSITION_PROJECTED_KEY } from '../../common/events/event-projection'
 import { escrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
@@ -77,6 +79,8 @@ export interface ReconciliationReport {
   // "the transition already happened, only txReleaseId was missing."
   resumedUnclaimed: Array<{ escrowId: string; txId: string; outcome: 'ALREADY_BROADCAST' | 'NEWLY_BROADCAST' }>
   alreadyClaimedConcurrently: string[]
+  // Issue #298 - PASS 3: claimed-but-not-fully-projected transitions that were re-driven.
+  projectionsRecovered: Array<{ escrowId: string; transitionId: string; action: 'REPUBLISHED' | 'REDELIVERED' }>
 }
 
 // The audit-trail "from" state for the reconciliation-driven
@@ -329,7 +333,18 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
       }
 
       const updateData = targetStatus === 'REFUNDED' ? { txReleaseId: result.txId } : { txReleaseId: result.txId, releasedAt: new Date() }
-      await escrowRepository.updateSignatureCollectionResult(escrow.id, updateData)
+      try {
+        // Issue #291 - same write-once primitive as every live writer, bound to the
+        // immutable pending operation. Never overwrites a converged result.
+        await escrowRepository.updateSignatureCollectionResult(escrow.id, updateData, { operation: { pendingOperationId: pending.id } })
+      } catch (writeErr) {
+        if (writeErr instanceof SettlementResultConflictError) {
+          log.error({ msg: 'C8 recovery: settlement result integrity conflict - persisted evidence NOT overwritten', escrowId: escrow.id, err: writeErr.message })
+          report.requiresManualReview.push({ escrowId: escrow.id, reason: writeErr.message })
+          continue
+        }
+        throw writeErr
+      }
 
       log.info({ msg: 'C8 recovery: claimed a previously-unclaimed, fully-signed pending transaction after asking the chain first', escrowId: escrow.id, outcome: result.outcome, txId: result.txId })
       await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, targetStatus, pending.triggeredBy, result.txId, escrow, pending, result.rawTxHex)
@@ -351,9 +366,21 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
     // mission's scope (see this file's own header comment) — fail
     // closed rather than guess. A real operator response requires a
     // human to inspect this escrow's actual provider-side state.
+    // Issue #291 hardening - the reconciler never re-runs the provider and never writes a result it cannot
+    // prove, so this state is an EXPLICIT uncertain one; surface any durable WDK attempt evidence so the
+    // operator (and the write-once primitive, once a human confirms) can act on facts rather than guess.
+    let evidence = ''
+    if (escrow.type === 'WDK_USDT_EVM') {
+      const attempts = await prisma.wdkTransferAttempt.findMany({
+        where: { escrowId: escrow.id, operationType: { in: ['RELEASE', 'REFUND', 'SPLIT_BUYER', 'SPLIT_SELLER'] } },
+        select: { operationType: true, status: true, txHash: true },
+        orderBy: { createdAt: 'asc' },
+      })
+      evidence = attempts.length ? ` Durable WDK attempts: ${attempts.map((a) => `${a.operationType}=${a.status}${a.txHash ? `(${a.txHash})` : ''}`).join(', ')}.` : ' No durable WDK attempt exists.'
+    }
     report.requiresManualReview.push({
       escrowId: escrow.id,
-      reason: `Escrow type '${escrow.type}' has no automated crash-recovery reconciliation primitive in this mission's scope — status is '${escrow.status}' with no txReleaseId. Manual review required.`,
+      reason: `Escrow type '${escrow.type}' has no automated crash-recovery reconciliation primitive in this mission's scope — status is '${escrow.status}' with no txReleaseId. Manual review required.${evidence}`,
     })
     return
   }
@@ -434,13 +461,26 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
   // anyway, a live request) may have already converged this exact
   // escrow between this module's unlocked chain-truth determination
   // above and this write.
-  const wroteTxReleaseId = await withEscrowFundingLock(escrow.id, async (tx) => {
-    const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
-    if (!fresh || fresh.txReleaseId !== null) return false
-    const updateData = targetStatus === 'REFUNDED' ? { txReleaseId: result.txId } : { txReleaseId: result.txId, releasedAt: new Date() }
-    await tx.escrow.update({ where: { id: escrow.id }, data: updateData })
-    return true
-  })
+  // Issue #291 - PASS 1 uses the SAME write-once primitive as every other
+  // writer: empty -> write, same -> idempotent, DIFFERENT -> integrity
+  // conflict (previously this branch silently ignored a differing value).
+  let wroteTxReleaseId = false
+  try {
+    wroteTxReleaseId = await withEscrowFundingLock(escrow.id, async (tx) => {
+      const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
+      if (!fresh) return false
+      const updateData = targetStatus === 'REFUNDED' ? { txReleaseId: result.txId } : { txReleaseId: result.txId, releasedAt: new Date() }
+      await escrowRepository.updateSignatureCollectionResult(escrow.id, updateData, { tx, operation: { pendingOperationId: pending.id } })
+      return fresh.txReleaseId === null
+    })
+  } catch (writeErr) {
+    if (writeErr instanceof SettlementResultConflictError) {
+      log.error({ msg: 'PASS 1: settlement result integrity conflict - persisted evidence NOT overwritten, downstream effects NOT run', escrowId: escrow.id, err: writeErr.message })
+      report.requiresManualReview.push({ escrowId: escrow.id, reason: writeErr.message })
+      return
+    }
+    throw writeErr
+  }
 
   log.info({ msg: 'Reconciliation: convergence path determined', escrowId: escrow.id, outcome: result.outcome, txId: result.txId, detail: result.detail, wroteTxReleaseId })
   // Downstream effects still run even if wroteTxReleaseId is false (a
@@ -451,6 +491,9 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
   report.recovered.push({ escrowId: escrow.id, txId: result.txId, outcome: result.outcome })
 }
 
+// NOTE (Issue #298): the EscrowEvent existence peek below decides ONLY whether the (idempotent)
+// completion effects still need to run. It is NOT proof that the durable event was published or that
+// its projections completed - PASS 3 (reconcileIncompleteProjections) owns that distinction.
 // PASS 2 (Fase 9.7) — every rail. txReleaseId is already confirmed set
 // (the fund movement itself is a settled fact); the only open question
 // is whether the downstream completion chain ran. Cheap, unlocked peek
@@ -555,6 +598,107 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
   report.completionEffectsRecovered.push({ escrowId: escrow.id, obligationSkipped })
 }
 
+// ─── PASS 3 (Issue #298) - incomplete PROJECTIONS of a claimed escrow transition ──────────────
+//
+// Three distinct facts must never be conflated:
+//   1. the transition was CLAIMED        (EscrowEvent + a 'transition.claimed' marker, one transaction)
+//   2. the durable event was PUBLISHED   (a durable_events row carrying the same transitionId)
+//   3. its projections were APPLIED      (a 'transition.projected' marker, written by the handlers
+//                                         only after every projection of that event succeeded)
+// PASS 2 above treats "EscrowEvent exists" as proof of 2 and 3; it is neither. This pass finds
+// transitions that are claimed but not projected (older than a grace period, so a live in-flight
+// handler is not raced) and RE-DRIVES the canonical event:
+//   - no durable event yet (crash between claim and publish) -> re-publish it;
+//   - durable event exists (crash/loss during projection)     -> redeliver it to the handlers.
+// Neither path writes to foreign modules: the handlers own their projections, and every projection
+// is idempotent per (eventId, projectionKey, subject), so redelivery completes what is missing and
+// never repeats what already committed. Publish is serialized per transition so two workers cannot
+// mint two durable events (two delivery identities) for one transition.
+const PROJECTION_RECOVERY_GRACE_MS = 5 * 60 * 1000
+const PROJECTION_RECOVERY_BATCH = 200
+const PROJECTION_RECOVERY_MAX_PAGES = 50
+
+// Bound per invocation: BATCH x MAX_PAGES = 10,000 INCOMPLETE transitions. Only incomplete ones (claimed and NOT yet
+// projected) are paged - completed history never consumes the budget. Because a permanently stuck transition stays
+// incomplete forever, every invocation resumes AFTER where the previous one stopped (a per-process rotating cursor)
+// and wraps to the oldest only after a short page, so a backlog larger than the bound is worked through across ticks
+// instead of the same first 10,000 stuck rows being revisited forever. The cursor is a pure optimization: correctness
+// of each re-drive comes from the per-transition advisory lock and the projection-claim identity, not from it.
+let projectionRecoveryCursor: { appliedAt: Date; id: string } | null = null
+
+export async function reconcileIncompleteProjections(report: ReconciliationReport, graceMs: number, opts: { maxPages?: number } = {}): Promise<void> {
+  const cutoff = new Date(Date.now() - graceMs)
+  const maxPages = opts.maxPages ?? PROJECTION_RECOVERY_MAX_PAGES
+  for (let page = 0; page < maxPages; page++) {
+    const after = projectionRecoveryCursor
+    const claimed = await prisma.$queryRaw<Array<{ id: string; eventId: string; subjectId: string; appliedAt: Date }>>`
+      SELECT c.id, c."eventId", c."subjectId", c."appliedAt"
+      FROM event_projection_claims c
+      WHERE c."projectionKey" = ${TRANSITION_CLAIMED_KEY}
+        AND c."appliedAt" < ${cutoff}
+        AND (${after === null} OR (c."appliedAt", c.id) > (${after?.appliedAt ?? new Date(0)}, ${after?.id ?? ''}))
+        AND NOT EXISTS (
+          SELECT 1 FROM event_projection_claims p
+          WHERE p."projectionKey" = ${TRANSITION_PROJECTED_KEY} AND p."subjectId" = c."eventId")
+      ORDER BY c."appliedAt" ASC, c.id ASC
+      LIMIT ${PROJECTION_RECOVERY_BATCH}`
+    if (claimed.length === 0) { projectionRecoveryCursor = null; return }
+    const last = claimed[claimed.length - 1]
+    projectionRecoveryCursor = { appliedAt: last.appliedAt, id: last.id }
+    await redriveClaimedPage(claimed, report)
+    if (claimed.length < PROJECTION_RECOVERY_BATCH) { projectionRecoveryCursor = null; return }
+  }
+  // Bound reached: keep the cursor so the next invocation continues from here.
+}
+
+async function redriveClaimedPage(claimed: Array<{ id: string; eventId: string; subjectId: string }>, report: ReconciliationReport): Promise<void> {
+
+  const projected = await prisma.eventProjectionClaim.findMany({
+    where: { projectionKey: TRANSITION_PROJECTED_KEY, subjectId: { in: claimed.map((c) => c.eventId) } },
+    select: { subjectId: true },
+  })
+  const done = new Set(projected.map((p) => p.subjectId))
+
+  for (const claim of claimed) {
+    const transitionId = claim.eventId // for transition markers eventId holds the EscrowEvent (transition) id
+    if (done.has(transitionId)) continue
+    try {
+      const transition = await prisma.escrowEvent.findUnique({ where: { id: transitionId } })
+      if (!transition) continue
+      const eventName = EVENT_NAME_BY_TARGET_STATUS[transition.toStatus as string]
+      const escrow = await prisma.escrow.findUnique({ where: { id: transition.escrowId } })
+      if (!eventName || !escrow) continue
+
+      const action = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'transition-publish:' + transitionId})::bigint)`
+        const existing = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM durable_events
+          WHERE "correlationId" = ${escrow.tradeId} AND "eventName" = ${eventName} AND payload->>'transitionId' = ${transitionId}
+          ORDER BY "publishedAt" ASC LIMIT 1`
+        if (existing.length === 0) {
+          await eventBus.emit(eventName as any, {
+            escrowId: escrow.id,
+            tradeId: escrow.tradeId,
+            from: transition.fromStatus,
+            to: transition.toStatus,
+            triggeredBy: transition.triggeredBy,
+            ...(escrow.txReleaseId ? { txId: escrow.txReleaseId } : {}),
+            transitionId,
+          } as any, escrow.tradeId)
+          return 'REPUBLISHED' as const
+        }
+        await eventBus.redeliver(existing[0].id)
+        return 'REDELIVERED' as const
+      }, { timeout: 30_000 })
+
+      log.info({ msg: 'PASS 3: re-drove an incompletely projected escrow transition', escrowId: escrow.id, transitionId, action })
+      report.projectionsRecovered.push({ escrowId: escrow.id, transitionId, action })
+    } catch (err) {
+      report.failed.push({ escrowId: claim.subjectId, error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+}
+
 /**
  * The main entry point — call periodically (same operational shape as
  * sweepExpiredEscrows()/sweepMultisigFundingReorgs(): a plain async
@@ -565,10 +709,10 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
  * actual double-fire protection is emitEscrowTransition()'s own atomic
  * per-transition claim, not this function's own peek.
  */
-export async function reconcilePendingSettlements(): Promise<ReconciliationReport> {
+export async function reconcilePendingSettlements(options: { projectionGraceMs?: number } = {}): Promise<ReconciliationReport> {
   const report: ReconciliationReport = {
     recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [],
-    resumedUnclaimed: [], alreadyClaimedConcurrently: [],
+    resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [],
   }
 
   await reconcileUnclaimedFullySignedPending(report)
@@ -590,6 +734,8 @@ export async function reconcilePendingSettlements(): Promise<ReconciliationRepor
       report.failed.push({ escrowId: escrow.id, error: err instanceof Error ? err.message : String(err) })
     }
   }
+
+  await reconcileIncompleteProjections(report, options.projectionGraceMs ?? PROJECTION_RECOVERY_GRACE_MS)
 
   return report
 }

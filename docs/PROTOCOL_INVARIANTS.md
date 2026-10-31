@@ -821,8 +821,10 @@ the same overreach INV-02 forbids in a coordinator generally).
 
 ### INV-OP-5. Reputation Score Changes Through Exactly One Entrypoint
 
-`User.reputationScore` is mutated only by `recordOutcome()`
-(`open-reputation/reputation.service.ts`), itself triggered only by
+`User.reputationScore` is mutated only by `recordOutcome()` /
+`recordOutcomeOnce()` (`open-reputation/reputation.service.ts`; the latter is
+the event-driven form, applied at most once per durable event and
+participant — INV-OP-12), itself triggered only by
 `settlement.escrow.released`/`refunded` events. A chat message, an
 Agent action, a QVAC risk signal, or `rate()` (informational only, by
 its own header comment) can never move the score. RFC-007 D8.
@@ -1229,6 +1231,67 @@ extension closes.
 ledgers as part of "exact economic conservation," not narrowly as
 "Bitcoin sats only"), no new one introduced. No genuine counterexample
 was found that INV-07/INV-06 together fail to represent.
+
+### INV-OP-12. Three Identities Stay Separate: Current Authority ≠ Replay Identity ≠ Provider Evidence
+
+*(Issues #291 / #294 / #298 — added 2026-09-21.)*
+
+Once an economic operation has crossed its authoritative commit
+boundary, every retry, recovery and projection must reproduce that same
+result, and neither a stale authority nor a duplicate delivery may
+manufacture a different economic truth. Three independent proofs, none
+of which substitutes for another:
+
+- **Current Authority** — is this actor/action authorized to perform the
+  operation *now*? (Capability Authority / ADR-004, Economic Disposition
+  Authority / ADR-005, Destination Authority, signatures, ruling
+  generation.)
+- **Replay Identity** — is this retry the exact same immutable Sails
+  operation that already crossed the commit boundary? (The durable
+  pending operation id / operation digest / execution attempt.)
+- **Provider Evidence** — what did the external network actually do?
+  (`Escrow.txReleaseId`: Bitcoin txid, `arkTxid`, Safe `userOpHash`, WDK
+  `txHash`.) Evidence, never the Sails operation identity.
+
+What the implementation guarantees:
+
+1. **Settlement result is write-once** (`persistSettlementResult()`,
+   `escrow-repository.ts`). `null → A` writes; `A → A` is an idempotent
+   no-op that preserves the original `releasedAt`; `A → B` is a
+   `SettlementResultConflictError` — never overwritten, never silently
+   ignored — for every writer (direct release/refund/split,
+   signature-collection, C8, PASS 1). The database backstops it
+   (`escrows_settlement_result_write_once_guard`): a direct `UPDATE`
+   cannot change a populated `txReleaseId` or `releasedAt`.
+2. **External success is never reverted as a local failure.** Only a
+   failing provider call reverts the claimed status; once the provider
+   has returned, a failing local step leaves the escrow in its claimed
+   state and reconciliation converges it from durable facts.
+3. **Escrow is authoritative; Trade is a projection.** The Trade status
+   is derived from the *persisted* Escrow state under the escrow lock,
+   monotonically (a stale/reordered event cannot regress it), with
+   `completedAt`/`cancelledAt` write-once. A manual Trade transition is
+   CAS-guarded and refused once the Escrow governs the outcome.
+4. **Event delivery is idempotent per projection.** Each downstream
+   effect (Trade projection, trade counters, reputation outcome, vouch
+   burn, notifications) is applied at most once per
+   `(durable eventId, projectionKey, subjectId)` — claim and mutation in
+   one transaction (`event_projection_claims`) — so N deliveries by N
+   instances produce one effect.
+5. **Claim ≠ publish ≠ projection.** The escrow transition claim, the
+   durable event and the completed projections are three separate facts
+   (`transition.claimed` / `durable_events` / `transition.projected`).
+   Reconciliation PASS 3 finds a claimed-but-unprojected transition and
+   re-publishes (no durable event yet) or redelivers (event exists) the
+   canonical event; idempotent projections make that harmless.
+
+**Not claimed:** LIGHTNING_HODL / SAFE_GUARD_EVM provider-specific
+UNKNOWN-outcome and restart semantics (tracked separately); no unique
+`(escrowId, toStatus)` constraint (repeated legitimate transitions under
+appeal/reopening are not ruled out).
+
+**Derives from:** `INV-07` (Explicit Failure & Recovery), `INV-05`
+(Historical Meaning Is Immutable), `INV-OP-11`.
 
 ---
 
