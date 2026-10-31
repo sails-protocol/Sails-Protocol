@@ -116,6 +116,13 @@ jest.mock('../src/modules/open-settlement/dispute-correspondence', () => ({
   recordLiveCorrespondenceIfApplicable: (...args: unknown[]) => mockRecordLiveCorrespondenceIfApplicable(...args),
 }))
 
+// Issue #253 - PASS 4 (arbiter ruling finalization recovery) lives in dispute.service.ts and is proven against
+// real PostgreSQL in tests/integration/projectionCrashMatrix.test.ts; here only the orchestration is observed.
+const mockRecoverMissingRulingFinalization = jest.fn().mockResolvedValue({ recovered: [], failed: [] })
+jest.mock('../src/modules/open-settlement/dispute.service', () => ({
+  getDisputeService: () => ({ recoverMissingRulingFinalization: (...args: unknown[]) => mockRecoverMissingRulingFinalization(...args) }),
+}))
+
 const mockAuthorizePendingExecution = jest.fn().mockResolvedValue({ id: 'cap-auth-1' })
 jest.mock('../src/modules/open-settlement/capability-execution-authorization', () => ({
   authorizePendingExecution: (...args: unknown[]) => mockAuthorizePendingExecution(...args),
@@ -367,7 +374,20 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
   it('no candidates — a clean, empty report', async () => {
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
     const report = await reconcilePendingSettlements()
-    expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [] })
+    expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], rulingFinalizationsRecovered: [] })
+  })
+
+  it('Issue #253 PASS 4: re-drives ruling finalization every tick; recovered disputes are reported, failures land in `failed` without stopping the tick', async () => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockRecoverMissingRulingFinalization.mockResolvedValueOnce({ recovered: ['dispute-1'], failed: [{ disputeId: 'dispute-2', error: 'provider unavailable' }] })
+    const report = await reconcilePendingSettlements()
+    expect(mockRecoverMissingRulingFinalization).toHaveBeenCalledTimes(1)
+    expect(report.rulingFinalizationsRecovered).toEqual(['dispute-1'])
+    expect(report.failed).toEqual([{ escrowId: 'dispute:dispute-2', error: 'provider unavailable' }])
+
+    mockRecoverMissingRulingFinalization.mockRejectedValueOnce(new Error('db down'))
+    const again = await reconcilePendingSettlements()
+    expect(again.failed).toEqual([{ escrowId: 'dispute:*', error: 'db down' }])
   })
 
   it('a rail with no automated recovery primitive at all (e.g. a legacy/unregistered type) fails closed, flagged for manual review, no chain calls attempted', async () => {
