@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **Issue #253 — projection recovery gaps found by a crash-at-every-boundary matrix (real PostgreSQL).** Derived reputation/arbiter notifications (`reputation.score.updated`, `reputation.vouch.burned`, `arbiter.slashed`) were published after their claim committed, so a crash in between lost them for good and `transition.projected` then masked the loss; they are now published inside their claim transaction (one event per claim unit, vouch burn keyed per `vouchId`). `recoverMissingRulingFinalization()` had no caller; the settlement reconciler tick now runs it. `Trade.escrowId`, written only by the non-durable `settlement.escrow.created` consumer, is converged from the authoritative Escrow row by the durable Trade projection. New suite `tests/integration/projectionCrashMatrix.test.ts`. Not changed: Intent claim/IntentEvent/emit atomicity (needs a CTO scope decision).
 - **Issues #291 / #294 / #298 — settlement result integrity, authoritative projection, replay
   safety.** `Escrow.txReleaseId`/`releasedAt` are now write-once (one `persistSettlementResult()`
   primitive for every writer + a database trigger); a provider-success/local-failure no longer

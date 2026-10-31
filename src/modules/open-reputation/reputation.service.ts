@@ -80,16 +80,16 @@ export class ReputationService {
    * Issue #298 - the same outcome as recordOutcome(), applied at most ONCE per
    * (durable eventId, participant): the score increment and its projection
    * claim commit in one transaction, so redelivery / multi-instance fanout /
-   * a crash-and-replay can never double-apply it. The notification event is
-   * emitted only by the call that actually applied the increment.
+   * a crash-and-replay can never double-apply it. The notification is published INSIDE the claim
+   * transaction (same shape as handlers.ts's emitOnce()): if the publish fails the claim and the
+   * increment roll back together and the redelivery applies and publishes again, instead of the
+   * claim surviving a crash between commit and publish and the notification being lost for good
+   * (at-least-once, never at-most-once).
    */
   async recordOutcomeOnce(eventId: string, tradeId: string, participantId: string, outcome: ReputationOutcome): Promise<boolean> {
     const delta = outcome === 'POSITIVE' ? this.POSITIVE_DELTA : outcome === 'NEGATIVE' ? this.NEGATIVE_DELTA : 0
-    let user: { reputationScore: number; totalTrades: number } | undefined
-    const applied = await applyEventProjectionOnce(eventId, 'reputation.outcome', participantId, async (tx) => {
-      user = await tx.user.update({ where: { id: participantId }, data: { reputationScore: { increment: delta } } })
-    })
-    if (applied && user) {
+    return applyEventProjectionOnce(eventId, 'reputation.outcome', participantId, async (tx) => {
+      const user = await tx.user.update({ where: { id: participantId }, data: { reputationScore: { increment: delta } } })
       await eventBus.emit('reputation.score.updated', {
         userId: participantId,
         newScore: user.reputationScore,
@@ -97,8 +97,7 @@ export class ReputationService {
         tradeId,
         ratingGiven: 0,
       }, tradeId)
-    }
-    return applied
+    })
   }
 
   // RFC-021 D7 — this class's own header comment has the full "second

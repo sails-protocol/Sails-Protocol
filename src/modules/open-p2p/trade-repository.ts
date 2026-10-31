@@ -234,6 +234,13 @@ class PrismaTradeRepository implements TradeRepository {
       if (!trade) return { applied: false, reason: 'TRADE_MISMATCH' } as const
       const current = trade.status as TradeStatus
 
+      // Trade.escrowId is otherwise written only by the non-durable 'settlement.escrow.created' consumer; a crash
+      // between the Escrow insert and that consumer would leave it null for good. The Escrow row (escrow.tradeId,
+      // verified above) is the authoritative link, so every durable projection of this escrow converges it.
+      if (trade.escrowId == null) {
+        await tx.trade.update({ where: { id: tradeId }, data: { escrowId } })
+      }
+
       const targetIsTerminal = TRADE_RANK[target] === 3
       const converges =
         TRADE_RANK[target] > TRADE_RANK[current] ||
