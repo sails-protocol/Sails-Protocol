@@ -91,6 +91,15 @@ const mockCapabilityGrantTransaction = jest.fn(async (fn: (tx: unknown) => Promi
       updateMany: async () => ({ count: 1 }),
       findUnique: (...args: unknown[]) => mockTradeUpdate(...args),
     },
+    // Issue #253 - an Intent transition commits the status CAS and its IntentEvent in one transaction.
+    intent: {
+      updateMany: (...args: unknown[]) => mockIntentUpdateMany(...args),
+      findUniqueOrThrow: (...args: unknown[]) => mockIntentFindUnique(...args),
+    },
+    intentEvent: {
+      create: async (...args: unknown[]) => (await mockIntentEventCreate(...args)) ?? { id: 'intent-event-1' },
+      findFirst: (...args: unknown[]) => mockIntentEventFindFirst(...args),
+    },
   })
 )
 const mockIntentCreate = jest.fn()
@@ -140,8 +149,9 @@ jest.mock('../src/common/database', () => ({
       updateMany: (...args: unknown[]) => mockIntentUpdateMany(...args),
     },
     intentEvent: {
-      create: (...args: unknown[]) => mockIntentEventCreate(...args),
+      create: async (...args: unknown[]) => (await mockIntentEventCreate(...args)) ?? { id: 'intent-event-1' },
       findFirst: (...args: unknown[]) => mockIntentEventFindFirst(...args),
+      updateMany: async () => ({ count: 1 }), // markEventPublished()
     },
     user: {
       findUnique: (...args: unknown[]) => mockUserFindUnique(...args),

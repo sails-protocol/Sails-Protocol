@@ -76,6 +76,12 @@ function makeTable(idPrefix: string, defaults: Record<string, unknown> = {}) {
         .filter((r) => Object.entries(where).every(([k, v]) => r[k] === v))
         .map((r) => ({ ...r }))
     }),
+    // Issue #253: intent-repository.ts applyTransition() re-reads the row inside its transaction.
+    findUniqueOrThrow: jest.fn(async ({ where }: any) => {
+      const row = rows.get(where.id)
+      if (!row) throw new Error(`${idPrefix}: row ${where.id} not found`)
+      return { ...row }
+    }),
     // Robustness-audit fix (2026-07-20): escrow.service.ts/intent-engine.ts
     // now claim state transitions via a conditional updateMany() (WHERE
     // id AND status match) before touching anything side-effecting — see
@@ -191,6 +197,12 @@ const intentEvents = {
     const matches = intentEventRows.filter((r) => r.intentId === where.intentId)
     return matches.length ? matches[matches.length - 1] : null
   }),
+  // Issue #253: markEventPublished() after the event was published.
+  updateMany: jest.fn(async ({ where, data }: any) => {
+    const matches = intentEventRows.filter((r) => r.id === where.id && (where.publishedAt === null ? !r.publishedAt : true))
+    for (const r of matches) Object.assign(r, data)
+    return { count: matches.length }
+  }),
 }
 
 // eventBus's default store is PostgresEventStore as of Missão 05.7 — the
@@ -283,6 +295,9 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     user: users,
     trade: trades,
     vouch: vouches,
+    // Issue #253 - an Intent transition commits the status CAS and its IntentEvent in one transaction.
+    intent: intents,
+    intentEvent: intentEvents,
     $executeRaw: jest.fn().mockResolvedValue(0),
   })
 )

@@ -1995,6 +1995,15 @@ model IntentEvent {
   // separate sort step for that. Composite index lets it be satisfied
   // directly.
   @@index([intentId, createdAt])
+
+  // Issue #253 (Intent atomicity) - transactional outbox. The status change, this row and the owed
+  // publication commit together; `publishedAt` is set only after the domain event was published.
+  // NULL eventName = a row written before these columns existed (nothing owed, never backfilled).
+  eventName    String?
+  eventPayload Json?
+  publishedAt  DateTime?
+
+  @@index([publishedAt, createdAt])
   @@map("intent_events")
 }
 

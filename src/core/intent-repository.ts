@@ -59,6 +59,19 @@ export interface CreateIntentEventInput {
   entryHash: string
 }
 
+export interface ApplyTransitionInput {
+  intentId: string
+  fromStatus: string
+  toStatus: string
+  triggeredBy: string
+  note?: string
+  /** The domain event this transition owes (published after the commit; recovered from this record if that never happens). */
+  eventName: string
+  eventPayload: object
+}
+
+export type OwedPublicationOutcome = 'PUBLISHED' | 'ALREADY_PUBLISHED' | 'SKIPPED'
+
 export interface IntentRepository {
   create(input: CreateIntentInput): Promise<IntentRow>
   findById(intentId: string): Promise<IntentRow | null>
@@ -67,10 +80,24 @@ export interface IntentRepository {
   // this depends on (set atomically as part of the SAME `create()` call
   // above, never a separate write).
   findByIdempotencyClaimId(claimId: string): Promise<IntentRow | null>
-  /** Atomic conditional update — returns the affected-row count (0 means a concurrent caller already transitioned this Intent). */
-  claimTransition(intentId: string, fromStatus: string, toStatus: string): Promise<number>
   findLastEvent(intentId: string): Promise<IntentEventRow | null>
   createEvent(input: CreateIntentEventInput): Promise<void>
+  /**
+   * Issue #253 - the status CAS and its hash-chained IntentEvent (with the owed publication) in ONE database
+   * transaction. Returns null when the CAS lost (a concurrent caller already transitioned this Intent): nothing
+   * was written. `entryHashFor` receives the previous entryHash read INSIDE the transaction.
+   */
+  applyTransition(input: ApplyTransitionInput, entryHashFor: (prevHash: string) => string): Promise<{ intent: IntentRow; intentEventId: string } | null>
+  /** Marks the publication owed by an IntentEvent as done (idempotent). */
+  markEventPublished(intentEventId: string): Promise<void>
+  /** IntentEvents whose owed publication is older than `olderThan` and still not marked published (oldest first). */
+  findUnpublishedEvents(olderThan: Date, limit: number): Promise<IntentEventRow[]>
+  /**
+   * Publishes ONE owed event under a per-event advisory lock: re-reads it, skips it if already published, marks it
+   * published without re-emitting when a durable event for this transition already exists (a publisher that died
+   * between publish and mark), otherwise calls `publish`. Two workers can never mint two durable events for it.
+   */
+  publishOwedEvent(intentEventId: string, publish: (row: IntentEventRow) => Promise<void>): Promise<OwedPublicationOutcome>
 }
 
 class PrismaIntentRepository implements IntentRepository {
@@ -97,19 +124,67 @@ class PrismaIntentRepository implements IntentRepository {
     return prisma.intent.findUnique({ where: { idempotencyClaimId: claimId } })
   }
 
-  async claimTransition(intentId: string, fromStatus: string, toStatus: string): Promise<number> {
-    const claim = await prisma.intent.updateMany({
-      where: { id: intentId, status: fromStatus as any },
-      data: { status: toStatus as any },
-    })
-    return claim.count
-  }
-
   async findLastEvent(intentId: string): Promise<IntentEventRow | null> {
     return prisma.intentEvent.findFirst({
       where: { intentId },
       orderBy: { createdAt: 'desc' },
     })
+  }
+
+  async applyTransition(input: ApplyTransitionInput, entryHashFor: (prevHash: string) => string) {
+    return prisma.$transaction(async (tx) => {
+      // The CAS takes the row lock until commit, so a concurrent transition of the same Intent blocks here and then
+      // sees the new status (count 0); the hash-chain read below therefore always has exactly one predecessor.
+      const claim = await tx.intent.updateMany({
+        where: { id: input.intentId, status: input.fromStatus as any },
+        data: { status: input.toStatus as any },
+      })
+      if (claim.count === 0) return null
+      const intent = await tx.intent.findUniqueOrThrow({ where: { id: input.intentId } })
+      const last = await tx.intentEvent.findFirst({ where: { intentId: input.intentId }, orderBy: { createdAt: 'desc' } })
+      const prevHash = last?.entryHash ?? 'genesis'
+      const event = await tx.intentEvent.create({
+        data: {
+          intentId: input.intentId,
+          fromStatus: input.fromStatus,
+          toStatus: input.toStatus,
+          triggeredBy: input.triggeredBy,
+          note: input.note,
+          prevHash,
+          entryHash: entryHashFor(prevHash),
+          eventName: input.eventName,
+          eventPayload: input.eventPayload,
+        },
+      })
+      return { intent, intentEventId: event.id }
+    })
+  }
+
+  async markEventPublished(intentEventId: string): Promise<void> {
+    await prisma.intentEvent.updateMany({ where: { id: intentEventId, publishedAt: null }, data: { publishedAt: new Date() } })
+  }
+
+  async findUnpublishedEvents(olderThan: Date, limit: number): Promise<IntentEventRow[]> {
+    return prisma.intentEvent.findMany({
+      where: { eventName: { not: null }, publishedAt: null, createdAt: { lt: olderThan } },
+      orderBy: { createdAt: 'asc' },
+      take: limit,
+    })
+  }
+
+  async publishOwedEvent(intentEventId: string, publish: (row: IntentEventRow) => Promise<void>): Promise<OwedPublicationOutcome> {
+    return prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'intent-publish:' + intentEventId})::bigint)`
+      const row = await tx.intentEvent.findUnique({ where: { id: intentEventId } })
+      if (!row || row.eventName === null || row.publishedAt !== null) return 'SKIPPED' as const
+      const existing = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM durable_events
+        WHERE "correlationId" = ${row.intentId} AND "eventName" = ${row.eventName} AND payload->>'transitionId' = ${row.id}
+        LIMIT 1`
+      if (existing.length === 0) await publish(row)
+      await tx.intentEvent.update({ where: { id: row.id }, data: { publishedAt: new Date() } })
+      return existing.length === 0 ? ('PUBLISHED' as const) : ('ALREADY_PUBLISHED' as const)
+    }, { timeout: 30_000 })
   }
 
   async createEvent(input: CreateIntentEventInput): Promise<void> {
