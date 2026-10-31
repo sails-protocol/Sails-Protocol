@@ -460,6 +460,30 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
     expect(mockRecordLiveCorrespondenceIfApplicable).toHaveBeenCalledWith('escrow-1', 'trade-1', 'MULTISIG', undefined)
   })
 
+  // Issue #245 — CHARACTERIZATION of a proven residual recovery gap (documents TODAY's behaviour; it is NOT a fix and NOT an
+  // approval). When the live settlement path emitted its completion event but recordBroadcastAndAdvance() then failed, the
+  // fee BROADCAST is never retried by PASS 2: its `alreadyEmitted` gate returns before any fee step, and the live path has
+  // already deleted the pending row (escrow-pending-tx.ts), the only durable source of the PSBT identifyFeeOutput() needs.
+  // Flip these expectations if the CTO approves keeping the pending row and adding an independent fee-retry check (PR #336's idea).
+  it('CHARACTERIZATION #245: completion event already emitted + no surviving pending row => PASS 2 never calls recordBroadcastAndAdvance (a failed live fee recording is not repaired)', async () => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid-245', status: 'COMPLETED' })])
+    mockEscrowEventFindFirst.mockResolvedValue({ id: 'evt-1', escrowId: 'escrow-1', toStatus: 'COMPLETED' })
+    mockPendingTxFindUnique.mockResolvedValue(null)
+    await reconcilePendingSettlements()
+    expect(mockRecordBroadcastAndAdvance).not.toHaveBeenCalled()
+  })
+
+  it('CHARACTERIZATION #245: completion event already emitted + the pending row (with the PSBT) STILL survives => PASS 2 still does not retry the fee BROADCAST (the alreadyEmitted gate skips the fee step)', async () => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid-245', status: 'COMPLETED' })])
+    mockEscrowEventFindFirst.mockResolvedValue({ id: 'evt-1', escrowId: 'escrow-1', toStatus: 'COMPLETED' })
+    mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture())
+    mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'confirmed-txid-245', detail: 'already known', rawTxHex: 'recovered-raw-hex' })
+    await reconcilePendingSettlements()
+    expect(mockRecordBroadcastAndAdvance).not.toHaveBeenCalled()
+  })
+
   // Sails Core Implementation Program M9 (Recovery, Execution Uncertainty
   // & Semantic Reconciliation) — closes the crash window PASS 2 did NOT
   // cover before this mission: the completion event (settlement.escrow.*)
