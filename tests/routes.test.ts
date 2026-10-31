@@ -958,7 +958,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       const token = await authedSession('buyer-1')
       mockOfferFindUnique.mockResolvedValueOnce({
         id: 'offer-1', userId: 'seller-1', status: 'ACTIVE', side: 'SELL',
-        asset: 'BTC', priceUsd: '65000', network: null,
+        asset: 'BTC', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', network: null,
       })
       mockTradeCreate.mockResolvedValueOnce({
         id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', status: 'PENDING',
@@ -983,7 +983,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       const token = await authedSession('buyer-1')
       mockOfferFindUnique.mockResolvedValueOnce({
         id: 'offer-1', userId: 'seller-1', status: 'ACTIVE', side: 'SELL',
-        asset: 'BTC', priceUsd: '65000', network: null, intentId: 'intent-1',
+        asset: 'BTC', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', network: null, intentId: 'intent-1',
       })
       mockTradeCreate.mockResolvedValueOnce({
         id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', status: 'PENDING',

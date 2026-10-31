@@ -42,6 +42,7 @@ import {
 import { Prisma } from '@prisma/client'
 import { commitAuthoritativeDisputeRuling, revertDisputeRulingRecord } from './dispute-outcome'
 import { economicDispositionLockKey } from './economic-disposition-authority'
+import { multiplyDecimals } from '../../common/decimal-math'
 import { assertDisputeDispatchEligible } from './dispute-dispatch'
 import { assertTranslationMatchesOutcome } from './dispatch-translation-guard'
 import { networkFor } from './multisig.provider'
@@ -1021,8 +1022,8 @@ export class DisputeService {
       dispute.arbiterId ?? undefined
     )
 
-    const baseFee = escrow.feeCharged ? Number(escrow.feeCharged) : 0
-    const appealFeeRequired = (baseFee * APPEAL_FEE_MULTIPLIER).toFixed(8)
+    // #165 — exact decimal multiply (was Number(feeCharged) * 2 .toFixed(8)).
+    const appealFeeRequired = multiplyDecimals(escrow.feeCharged ?? 0, APPEAL_FEE_MULTIPLIER)
 
     // ADR-005 §3/§10 — the actual authority-moving write. Locked and
     // re-checked against the SAME `economic-disposition:<disputeId>` scope
