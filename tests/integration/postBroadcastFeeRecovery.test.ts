@@ -51,7 +51,7 @@ describe('post-broadcast fee recovery (Issue #245 Phase 2, real Postgres)', () =
   const evidenceLine = (label: string, data: unknown) => process.stdout.write(`EVIDENCE[#245-P2] ${label}: ${JSON.stringify(data)}\n`)
 
   /** The state the live path leaves after a broadcast whose fee recording failed. */
-  async function afterBroadcastWithFailedAccounting(opts: { emitted?: boolean } = {}) {
+  async function afterBroadcastWithFailedAccounting(opts: { emitted?: boolean; noObligation?: boolean; noFeeAddress?: boolean } = {}) {
     const s = suffix()
     const txid = require('crypto').createHash('sha256').update(s).digest('hex')
     const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-245p2-${s}` } })
@@ -62,11 +62,10 @@ describe('post-broadcast fee recovery (Issue #245 Phase 2, real Postgres)', () =
       data: { label: `fp-245p2-${s}`, railScope: `FIXTURE_RAIL_245P2-${s}`, status: 'PUBLISHED', publishedAt: new Date(), protocolFeeRate: '0.004', payerModel: 'SELLER_PAYS', economicBasis: 'SELLER_DELIVERED_VALUE', requiredConfirmations: 1, createdBy: 'issue-245-p2-test' },
     })
     const escrow = await prisma.escrow.create({
-      data: { tradeId: trade.id, type: 'MULTISIG', status: 'COMPLETED', asset: 'BTC', lockedAmount: '0.001', txReleaseId: txid, snapshotFeeCollectionAddress: 'tb1qfeeaddress245p2' },
+      data: { tradeId: trade.id, type: 'MULTISIG', status: 'COMPLETED', asset: 'BTC', lockedAmount: '0.001', txReleaseId: txid, snapshotFeeCollectionAddress: opts.noFeeAddress ? null : 'tb1qfeeaddress245p2' },
     })
-    const obligation = await prisma.feeObligation.create({
-      data: { escrowId: escrow.id, feePolicyVersionId: feePolicy.id, economicDetermination: 'OWED', collectionStatus: 'PENDING_COLLECTION', basisAmount: '0.001', computedFee: '0.00000500', asset: 'BTC' },
-    })
+    const obligationData = { escrowId: escrow.id, feePolicyVersionId: feePolicy.id, economicDetermination: 'OWED' as const, collectionStatus: 'PENDING_COLLECTION' as const, basisAmount: '0.001', computedFee: '0.00000500', asset: 'BTC' as const }
+    const obligation = opts.noObligation ? { id: 'none' } : await prisma.feeObligation.create({ data: obligationData })
     if (opts.emitted !== false) {
       await prisma.escrowEvent.create({ data: { escrowId: escrow.id, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: seller.id } })
     }
@@ -78,7 +77,7 @@ describe('post-broadcast fee recovery (Issue #245 Phase 2, real Postgres)', () =
     })
     await prisma.escrowTransactionSignature.create({ data: { pendingTxId: pending.id, participantId: buyer.id, signedPsbtBase64: 'signed' } })
     multisigProvider.reconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: txid, detail: 'known', rawTxHex: 'raw' })
-    return { escrowId: escrow.id, obligationId: obligation.id, txid }
+    return { escrowId: escrow.id, obligationId: obligation.id, txid, obligationData, feePolicyId: feePolicy.id }
   }
 
   async function snapshot(escrowId: string, obligationId: string) {
@@ -176,6 +175,33 @@ describe('post-broadcast fee recovery (Issue #245 Phase 2, real Postgres)', () =
     expect(rows[0].vout).toBe(7) // the recorded evidence stands
     expect(after.pendingRow).toBe(true) // unresolved conflict => the PSBT is NOT discarded
     expect(after).toMatchObject({ status: 'IN_PROGRESS', broadcast: 1, events: 1 })
+  })
+
+  it('9 FAIL-CLOSED: a due fee whose FeeObligation is missing keeps the pending row (no row recorded, no throw); once the obligation exists the next pass records and cleans up', async () => {
+    pg.requirePostgres('9')
+    const { escrowId, obligationData } = await afterBroadcastWithFailedAccounting({ noObligation: true })
+    const report = await reconcilePendingSettlements()
+    const pendingAfter = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
+    evidenceLine('9 missing FeeObligation', { pendingKept: !!pendingAfter, failed: report.failed.filter((f) => f.escrowId === escrowId) })
+    expect(pendingAfter).not.toBeNull()
+    expect(report.failed.filter((f) => f.escrowId === escrowId)).toEqual([])
+    const created = await prisma.feeObligation.create({ data: obligationData })
+    await reconcilePendingSettlements()
+    const s = await snapshot(escrowId, created.id)
+    evidenceLine('9 after the obligation appeared', s)
+    expect(s).toMatchObject({ status: 'IN_PROGRESS', broadcast: 1, events: 1, pendingRow: false })
+  })
+
+  it('10 FAIL-CLOSED: a due fee whose snapshotFeeCollectionAddress is missing keeps the pending row and records nothing; once the address is present the next pass recovers', async () => {
+    pg.requirePostgres('10')
+    const { escrowId, obligationId } = await afterBroadcastWithFailedAccounting({ noFeeAddress: true })
+    await reconcilePendingSettlements()
+    const kept = await snapshot(escrowId, obligationId)
+    evidenceLine('10 missing fee address', kept)
+    expect(kept).toMatchObject({ status: 'PENDING_COLLECTION', broadcast: 0, events: 1, pendingRow: true, signatures: 1 })
+    await prisma.escrow.update({ where: { id: escrowId }, data: { snapshotFeeCollectionAddress: 'tb1qfeeaddress245p2' } })
+    await reconcilePendingSettlements()
+    expect(await snapshot(escrowId, obligationId)).toMatchObject({ status: 'IN_PROGRESS', broadcast: 1, events: 1, pendingRow: false })
   })
 
   it('8 not yet emitted (a crash before the completion event): the completion effects run once, the fee is recorded once, and the row is cleaned up', async () => {

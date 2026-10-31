@@ -214,14 +214,22 @@ async function recordFeeBroadcast(
   unsignedPsbtBase64: string, feeSats: number, txId: string
 ): Promise<boolean> {
   try {
+    // Every caller has already established that a BROADCAST IS due (not a refund, fee not waived, feeSats recorded), so a
+    // missing precondition here is a broken invariant, never "nothing to record": fail closed (false => the caller keeps the
+    // pending row, the only durable source of the PSBT) with a diagnostic, and let a later pass retry.
     const obligation = await feeObligationService.findByEscrowId(escrowRow.id)
-    if (obligation && escrowRow.snapshotFeeCollectionAddress) {
-      const network = networkFor(config.multisig.network)
-      const evidence = identifyFeeOutput(unsignedPsbtBase64, escrowRow.snapshotFeeCollectionAddress, feeSats, network)
-      await feeCollectionRecognitionService.recordBroadcastAndAdvance(obligation.id, {
-        txid: txId, vout: evidence.vout, scriptPubKey: evidence.scriptPubKeyHex, amountSats: evidence.amountSats,
+    if (!obligation || !escrowRow.snapshotFeeCollectionAddress) {
+      log.error({
+        msg: 'FEE_BROADCAST_PRECONDITION_MISSING — a fee BROADCAST is due but its preconditions are absent; nothing was recorded and the pending row is kept for a later retry',
+        escrowId: escrowRow.id, txId, missing: [!obligation && 'FeeObligation', !escrowRow.snapshotFeeCollectionAddress && 'snapshotFeeCollectionAddress'].filter(Boolean),
       })
+      return false
     }
+    const network = networkFor(config.multisig.network)
+    const evidence = identifyFeeOutput(unsignedPsbtBase64, escrowRow.snapshotFeeCollectionAddress, feeSats, network)
+    await feeCollectionRecognitionService.recordBroadcastAndAdvance(obligation.id, {
+      txid: txId, vout: evidence.vout, scriptPubKey: evidence.scriptPubKeyHex, amountSats: evidence.amountSats,
+    })
     return true
   } catch (err) {
     log.error({

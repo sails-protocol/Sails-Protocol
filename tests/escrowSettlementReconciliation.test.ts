@@ -538,6 +538,40 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
       expect(mockPendingTxDelete).not.toHaveBeenCalled()
     })
 
+    // Gatekeeper finding on 3a55ee2e: a DUE fee whose preconditions are missing is a broken invariant, not "nothing to record".
+    it.each([
+      ['FeeObligation is missing', () => mockFindObligationByEscrowId.mockResolvedValue(null), () => mockFindTerminalWithTxReleaseId.mockResolvedValue([feeEscrow()])],
+      ['snapshotFeeCollectionAddress is missing', () => undefined, () => mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid-245', status: 'COMPLETED', snapshotFeeCollectionAddress: null })])],
+    ])('FAIL-CLOSED when a due fee precondition is absent (%s): alreadyEmitted => nothing recorded, the pending row is KEPT, a diagnostic is logged, the pass does not throw', async (_name, arrange, escrows) => {
+      arrange(); escrows()
+      mockPendingTxFindUnique.mockResolvedValue(feePending())
+      const report = await reconcilePendingSettlements()
+      expect(mockRecordBroadcastAndAdvance).not.toHaveBeenCalled()
+      expect(mockPendingTxDelete).not.toHaveBeenCalled()
+      expect(report.failed).toEqual([])
+    })
+
+    it('FAIL-CLOSED also when NOT yet emitted: the completion event is emitted but the pending row is KEPT while the precondition is missing', async () => {
+      mockEscrowEventFindFirst.mockResolvedValue(null)
+      mockFindObligationByEscrowId.mockResolvedValue(null)
+      mockPendingTxFindUnique.mockResolvedValue(feePending())
+      const report = await reconcilePendingSettlements()
+      expect(report.completionEffectsRecovered).toHaveLength(1)
+      expect(mockRecordBroadcastAndAdvance).not.toHaveBeenCalled()
+      expect(mockPendingTxDelete).not.toHaveBeenCalled()
+    })
+
+    it('the missing precondition appears later => the next pass records the fee and only then deletes the row (safe retry)', async () => {
+      mockPendingTxFindUnique.mockResolvedValue(feePending())
+      mockRecordBroadcastAndAdvance.mockResolvedValue('RECORDED')
+      mockFindObligationByEscrowId.mockResolvedValueOnce(null).mockResolvedValue({ id: 'obl-1' })
+      await reconcilePendingSettlements()
+      expect(mockPendingTxDelete).not.toHaveBeenCalled()
+      await reconcilePendingSettlements()
+      expect(mockRecordBroadcastAndAdvance).toHaveBeenCalledTimes(1)
+      expect(mockPendingTxDelete).toHaveBeenCalledTimes(1)
+    })
+
     it('NOT yet emitted + the fee recording succeeds => the row is deleted by the existing cleanup', async () => {
       mockEscrowEventFindFirst.mockResolvedValue(null)
       mockPendingTxFindUnique.mockResolvedValue(feePending())
