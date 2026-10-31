@@ -176,7 +176,7 @@ async function applyDownstreamCompletionEffects(
         }
       } catch (err) {
         log.error({
-          msg: 'Reconciliation: broadcast-evidence recording failed after a successful settlement — FeeObligation remains PENDING_COLLECTION, not silently advanced',
+          msg: 'Reconciliation: broadcast-evidence recording failed after a successful settlement — nothing was written by this call; the FeeObligation was not advanced by it (current state not asserted)',
           escrowId, err: err instanceof Error ? err.message : err,
         })
       }

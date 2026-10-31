@@ -455,11 +455,14 @@ export async function submitTransactionSignature(escrowId: string, participantId
         // successfully by this point — collection-evidence recording is
         // strictly secondary accounting, never allowed to un-do or fail a
         // settlement whose funds already moved. Logged loudly, never
-        // thrown; the obligation simply remains PENDING_COLLECTION,
-        // exactly the safe/honest state when evidence couldn't be recorded
-        // (detectable later via reconciliation, never silently masked).
+        // thrown. Issue #245: recordBroadcastAndAdvance() is atomic, so a
+        // failure leaves the obligation and its evidence exactly as they were
+        // BEFORE this call — which is not necessarily PENDING_COLLECTION (a
+        // retry or a concurrent writer may already have recorded this very
+        // broadcast), so the state is deliberately not asserted here; a
+        // FEE_BROADCAST_EVIDENCE_CONFLICT is logged by the service itself.
         log.error({
-          msg: 'Broadcast-evidence recording failed after a successful settlement — FeeObligation remains PENDING_COLLECTION, not silently advanced',
+          msg: 'Broadcast-evidence recording failed after a successful settlement — nothing was written by this call; the FeeObligation was not advanced by it (current state not asserted)',
           escrowId, err: err instanceof Error ? err.message : err,
         })
       }
