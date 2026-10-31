@@ -78,7 +78,7 @@ export class ReputationService {
 
   /**
    * Issue #298 - the same outcome as recordOutcome(), applied at most ONCE per
-   * (durable eventId, participant): the score increment and its projection
+   * (source transition, participant - see effectIdentity()): the score increment and its projection
    * claim commit in one transaction, so redelivery / multi-instance fanout /
    * a crash-and-replay can never double-apply it. The notification is published INSIDE the claim
    * transaction (same shape as handlers.ts's emitOnce()): if the publish fails the claim and the
@@ -86,9 +86,9 @@ export class ReputationService {
    * claim surviving a crash between commit and publish and the notification being lost for good
    * (at-least-once, never at-most-once).
    */
-  async recordOutcomeOnce(eventId: string, tradeId: string, participantId: string, outcome: ReputationOutcome): Promise<boolean> {
+  async recordOutcomeOnce(effectId: string, tradeId: string, participantId: string, outcome: ReputationOutcome): Promise<boolean> {
     const delta = outcome === 'POSITIVE' ? this.POSITIVE_DELTA : outcome === 'NEGATIVE' ? this.NEGATIVE_DELTA : 0
-    return applyEventProjectionOnce(eventId, 'reputation.outcome', participantId, async (tx) => {
+    return applyEventProjectionOnce(effectId, 'reputation.outcome', participantId, async (tx) => {
       const user = await tx.user.update({ where: { id: participantId }, data: { reputationScore: { increment: delta } } })
       await eventBus.emit('reputation.score.updated', {
         userId: participantId,
