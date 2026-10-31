@@ -932,7 +932,7 @@ export class DisputeService {
     const shouldSlash = !!(dispute.previousRuling && dispute.previousRuling !== ruling && dispute.previousArbiterId && provider.slash)
     let slashOutcome: { participantId: string; forfeitedCollateral: string; newCollateral: string; newReputation: number } | undefined
 
-    const applied = await applyEventProjectionOnce(dispute.id, 'dispute.ruling-finalized', String(dispute.appealRound), async (tx) => {
+    await applyEventProjectionOnce(dispute.id, 'dispute.ruling-finalized', String(dispute.appealRound), async (tx) => {
       // RFC-021 D6/D4 — feeds the arbiter's track record on every real
       // resolution, correct or not (optional: only market mode has an
       // ArbiterProfile to update; trusted-list mode silently skips this).
@@ -979,15 +979,15 @@ export class DisputeService {
           data: { outcome, settledAt: new Date() },
         })
       }
-    })
 
-    // Emitted only by the call that actually applied the claim (same "write inside the transaction, emit
-    // after commit, only on the winning call" shape reputation.service.ts's recordOutcomeOnce() and
-    // vouch.service.ts's burnVouchesForOnce() already use) — a redelivery/redrive that finds the claim
-    // already applied never re-emits.
-    if (applied && slashOutcome) {
-      await eventBus.emit('arbiter.slashed', slashOutcome, slashOutcome.participantId)
-    }
+      // Published inside the claim transaction (same shape as reputation.service.ts's recordOutcomeOnce()): a
+      // failed publish rolls the slash and the claim back together, so the redrive redoes both instead of the
+      // claim surviving a crash between commit and publish with the notification lost for good. A redelivery
+      // that finds the claim already applied never reaches this point, so it never re-emits.
+      if (slashOutcome) {
+        await eventBus.emit('arbiter.slashed', slashOutcome, slashOutcome.participantId)
+      }
+    })
   }
 
   /**
