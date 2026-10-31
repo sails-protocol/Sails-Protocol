@@ -281,6 +281,23 @@ describe('#308 transition durability and ABA safety (real Postgres, real process
     expect((await outboxFor(dispute.id))[0].publishedAt).not.toBeNull()
   })
 
+  it('D4 a publication failure keeps the outbox row pending and writes no event; the next run publishes it once', async () => {
+    pg.requirePostgres('D4')
+    const { dispute, buyer, trade, service } = await makeAutoProposed('publish-fails', 3_600_000)
+    await (service as any).claimAutoProposedTransition(dispute, 'CONTESTED', buyer.id)
+    const { eventBus } = require('../../src/common/events/event-bus')
+    const spy = jest.spyOn(eventBus, 'emit').mockRejectedValueOnce(new Error('INJECTED publish failure'))
+    const failed = await publishPendingDisputeTransitions()
+    spy.mockRestore()
+    const mid = { outboxPublished: (await outboxFor(dispute.id)).map((o) => !!o.publishedAt), events: (await eventsFor(trade.id)).length }
+    evidence('D4 after the failed publication', { failed, ...mid })
+    expect(failed.failed).toBe(1)
+    expect(mid).toEqual({ outboxPublished: [false], events: 0 })
+    const retried = await publishPendingDisputeTransitions()
+    expect(retried.published).toBeGreaterThanOrEqual(1)
+    expect(await eventsFor(trade.id, keyOf(dispute.id, 1, 'CONTESTED'))).toHaveLength(1)
+  })
+
   it('D3 three publishers racing on one pending row publish it once (row lock + causal-key check), and re-execution is a no-op', async () => {
     pg.requirePostgres('D3')
     const { dispute, buyer, trade, service } = await makeAutoProposed('publishers', 3_600_000)
