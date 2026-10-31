@@ -31,6 +31,7 @@ import { agentRoutes } from './modules/open-agents/agent.routes'
 import { proofRoutes } from './modules/open-proof/proof.routes'
 import { escrowService } from './modules/open-settlement/escrow.service'
 import { reconcilePendingSettlements } from './modules/open-settlement/escrow-settlement-reconciliation.service'
+import { recoverUnpublishedIntentEvents } from './core/intent-publication-recovery'
 import { assertArbitrationModeCompatibleWithAvailableRails } from './modules/open-settlement/escrow-providers'
 import { getDisputeService } from './modules/open-settlement/dispute.service'
 import { sweepMultisigFeeConfirmations } from './modules/open-settlement/multisig-fee-confirmation-job'
@@ -501,7 +502,10 @@ export async function startServer() {
     const reconcileInterval = setInterval(() => {
       if (reconciling) return
       reconciling = true
-      reconcilePendingSettlements()
+      // Issue #253: also pay the publication owed by any Intent transition that committed but never published.
+      recoverUnpublishedIntentEvents()
+        .catch((err) => app.log.error({ msg: 'Intent publication recovery failed', module: 'settlement-reconciler', err: err instanceof Error ? err.message : err }))
+        .then(() => reconcilePendingSettlements())
         .then((report) => {
           if (report.failed.length || report.requiresManualReview.length || report.projectionsRecovered) {
             app.log.warn({ msg: 'Settlement reconciliation completed with findings', module: 'settlement-reconciler', failed: report.failed.length, requiresManualReview: report.requiresManualReview.length, projectionsRecovered: report.projectionsRecovered })
