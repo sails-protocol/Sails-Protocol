@@ -77,6 +77,7 @@ import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
 import { validateOutput, dustThresholdSats } from './bitcoin-dust-policy'
 import { computeMaxProtocolFee, computeProtocolFee } from './fee-reserve-math'
+import { btcDecimalToSats } from './btc-amount'
 import { estimatedVBytesForOutputCount, maxExecutionCostSats } from './execution-cost-policy'
 import type { FeeCollectionResult } from './escrow-providers'
 import { childLogger } from '../../common/logger'
@@ -683,7 +684,9 @@ export class MultisigProvider implements SettlementProvider {
   }
 
   private expectedSats(lockedAmount: string): number {
-    return Math.round(parseFloat(lockedAmount) * 1e8)
+    // CSC-E01 / #165 — exact decimal arithmetic, fails closed on a fractional
+    // satoshi; the old Math.round(parseFloat(x) * 1e8) was a binary-float multiply.
+    return btcDecimalToSats(lockedAmount)
   }
 
   // Missão 11 Fase 3.2-3.4 — the seller-funded Protocol Fee reserve. Every
@@ -699,7 +702,7 @@ export class MultisigProvider implements SettlementProvider {
   // already-integer-at-the-satoshi-level Decimal is an exact conversion,
   // not a second independent rounding step.
   private decimalBtcToSats(amount: Prisma.Decimal): number {
-    return Number(amount.times(1e8).toFixed(0))
+    return btcDecimalToSats(amount)
   }
 
   // Fmax — sized against the worst case (a full release, basis = the
