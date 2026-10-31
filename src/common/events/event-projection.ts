@@ -2,9 +2,12 @@
  * Issue #298 - durable delivery/replay identity for event-derived projections.
  *
  * `applyEventProjectionOnce(eventId, projectionKey, subjectId, apply)` applies
- * ONE projection effect for ONE subject because of ONE durable event, at most
- * once, no matter how many times or from how many processes that event is
- * delivered:
+ * ONE projection effect for ONE subject because of ONE source, at most once, no
+ * matter how many times, from how many processes or under how many durable events
+ * it is delivered. Despite its name, `eventId` (parameter and column) holds the
+ * effect identity, which is not always a durable event id: for an escrow transition
+ * it is the source transition id, see effectIdentity().
+ *
  *
  *   - the claim row (event_projection_claims, UNIQUE(eventId, projectionKey,
  *     subjectId)) and the mutation `apply` performs commit in the SAME
@@ -16,9 +19,8 @@
  *     so N concurrent deliveries produce exactly one effect;
  *   - nothing here is process-local and nothing depends on Redis.
  *
- * The identity is normally NOT the durable eventId: see effectIdentity().
- *
- * This is DELIVERY idempotency (same event delivered N times). It is not the
+ * This is DELIVERY idempotency (one source delivered N times, under one or several
+ * durable eventIds). It is not the
  * economic operation's replay identity (pendingOperationId / digest) and it is
  * not provider evidence (txReleaseId) - three different identities.
  */
