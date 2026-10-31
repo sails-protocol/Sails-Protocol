@@ -1019,6 +1019,8 @@ recognition themselves become real, testable, Day-0 obligations per the
 Product Direction above — capability, accounting, and entitlement
 recognition are no longer treated as "later," only payout execution is.
 
+> **Dated note, 2026-10-26 — superseded for fee distribution (Founder/CTO decision).** For the 0.40% Protocol Fee, distribution is automatic at settlement; the statement above that real payout activation remains gated and may stay disabled through the beta no longer applies to the fee distribution of any line that charges the fee. Approved target: 35% wallet/integrator, 30% node operators, 25% treasury (development), 10% arbitration reserve (treasury-administered, separate accounting). Node and wallet attribution must be verifiable (signed trade-open anchor, node descriptor and identity, wallet/integrator credential) and frozen in the economic snapshot before the escrow opens; without it the operation fails before opening. The contribution class verifiable today remains the node that served the trade. A single operator is allowed in the Partner Beta, with no decentralization claim. Nothing here is activated or homologated.
+
 ## 17. Incentive compatibility / no-cannibalization property
 
 **Narrowed, 2026-09-09 (CTO Gate) — the prior claim depended entirely
@@ -1263,6 +1265,8 @@ node-economic **payout activation** (§16 — capability/accounting/
 entitlement recognition are Day-0 sequence items (j)/(k), payout
 execution is not); formal Sybil-resistance mechanism (§7); Model
 D/hybrid propagation (Alternatives section).
+
+> **Dated note, 2026-10-26.** Item "any real node-economic payout activation" in the deferral list above is superseded for the fee distribution as described in the note at the end of §16. Partial fill and outbound webhook delivery remain deferred as stated.
 
 ## 22. Complexity tests (applied to this ADR's own new artifacts)
 
