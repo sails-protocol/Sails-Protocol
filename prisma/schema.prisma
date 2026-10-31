@@ -1407,7 +1407,12 @@ model Dispute {
   autoResolutionConfidence     Float?
   autoResolutionReasoning      String?
   autoResolutionDeadline       DateTime?
+  // #308 / D-308 — immutable-per-proposal identity: incremented (never reset, never reused) by each
+  // proposeAutoResolution() claim, and re-asserted by the contest/expiry compare-and-set, so a request or
+  // sweeper that observed proposal A can never apply its transition to a later proposal B (ABA).
+  autoProposalGeneration       Int                @default(0)
   autoResolved                 Boolean            @default(false)
+  transitionOutbox             DisputeTransitionOutbox[]
 
   // Missão 13 Fase 2 — INV-12 (Attributed Authority Integrity) closure.
   // Additive/nullable: existing rows (every dispute resolved before this
@@ -1456,6 +1461,27 @@ model Dispute {
   @@index([status])
   @@index([arbiterId, status]) // P2: performance for arbiter case list queries
   @@map("disputes")
+}
+
+// #308 / D-308 — transactional outbox for the AUTO_PROPOSED -> EVIDENCE_SUBMITTED transition event. The row is
+// inserted in the SAME transaction as the compare-and-set that won the transition, so a crash after the commit
+// cannot lose the event: dispute-transition-outbox.ts publishes pending rows through the EXISTING
+// PostgresEventStore (hash chain untouched) and de-duplicates by the causal key carried in the event payload.
+// (disputeId, generation, kind) is unique: one proposal generation has at most one transition.
+model DisputeTransitionOutbox {
+  id          String    @id @default(uuid())
+  disputeId   String
+  dispute     Dispute   @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  generation  Int
+  kind        String // 'CONTESTED' | 'EXPIRED'
+  tradeId     String // the event's correlationId
+  payload     Json
+  createdAt   DateTime  @default(now())
+  publishedAt DateTime?
+
+  @@unique([disputeId, generation, kind])
+  @@index([publishedAt, createdAt])
+  @@map("dispute_transition_outbox")
 }
 
 // RFC-021 D6 — real appeal-fee collection (BACKLOG.md P0, closed

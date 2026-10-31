@@ -45,6 +45,7 @@ import { economicDispositionLockKey } from './economic-disposition-authority'
 import { assertDisputeDispatchEligible } from './dispute-dispatch'
 import { assertTranslationMatchesOutcome } from './dispatch-translation-guard'
 import { networkFor } from './multisig.provider'
+import { publishPendingDisputeTransitions, transitionKeyFor, type DisputeTransitionKind } from './dispute-transition-outbox'
 
 // RFC-021 D6 — appeal fee, PROTOCOL_ECONOMY.md §4.4's own arbitration-fee
 // baseline (1-2% of the disputed amount, charged as Escrow.feeCharged by
@@ -1228,6 +1229,9 @@ export class DisputeService {
         autoResolutionConfidence: confidence,
         autoResolutionReasoning: reasoning,
         autoResolutionDeadline: deadline,
+        // #308 / D-308 — a new, strictly greater proposal identity (never reused), so a contest/expiry that observed an
+        // earlier proposal cannot be applied to this one (ABA).
+        autoProposalGeneration: { increment: 1 },
       },
     })
     if (claim.count === 0) return null // lost the race to a real human decision — not an error
@@ -1266,50 +1270,70 @@ export class DisputeService {
     if (dispute.status !== 'AUTO_PROPOSED') {
       throw new ValidationError(`Dispute ${disputeId} has no pending automated resolution to contest (status: ${dispute.status})`)
     }
-    if (dispute.autoResolutionDeadline && dispute.autoResolutionDeadline.getTime() < Date.now()) {
-      throw new ValidationError(`Dispute ${disputeId}'s contest window has already closed`)
-    }
 
-    // CSC-F02 / #308 — the checks above are only a fail-fast read; the
-    // transition itself is one conditional UPDATE (status + deadline are
-    // re-asserted in the WHERE), so a concurrent sweepExpiredAutoResolutions()
-    // or a second contest cannot also apply it. Postgres re-evaluates the
-    // WHERE after the first writer commits, which gives exactly one winner
-    // and exactly one `dispute.auto_resolution_contested` event.
-    const claim = await prisma.dispute.updateMany({
-      where: {
-        id: disputeId,
-        status: 'AUTO_PROPOSED',
-        OR: [{ autoResolutionDeadline: null }, { autoResolutionDeadline: { gte: new Date() } }],
-      },
-      data: {
-        status: 'EVIDENCE_SUBMITTED',
-        autoResolutionRecommendation: null,
-        autoResolutionConfidence: null,
-        autoResolutionReasoning: null,
-        autoResolutionDeadline: null,
-      },
-    })
-    if (claim.count === 0) {
-      // Lost the race (or the window closed between the read and the write).
+    // CSC-F02 / #308 / D-308 — the checks above are only a fail-fast read, and the deadline is deliberately NOT
+    // compared here with the application clock: the one authoritative comparison is inside the claim, with the
+    // database clock, at the instant of the write. The transition is a single conditional UPDATE (status, ruling,
+    // the observed proposal generation and the deadline are re-asserted in the WHERE) written together with its
+    // outbox row, so a concurrent sweep, a second contest, a human decision or a newer proposal cannot also apply
+    // it, and only the winner has an event to publish.
+    const outboxId = await this.claimAutoProposedTransition(dispute, 'CONTESTED', contestedBy)
+    if (!outboxId) {
       const current = await prisma.dispute.findUnique({ where: { id: disputeId } })
-      if (current && current.status === 'AUTO_PROPOSED') {
+      if (current && current.status === 'AUTO_PROPOSED' && current.autoProposalGeneration === dispute.autoProposalGeneration) {
         throw new ValidationError(`Dispute ${disputeId}'s contest window has already closed`)
       }
       throw new ValidationError(`Dispute ${disputeId} has no pending automated resolution to contest (status: ${current?.status ?? 'unknown'})`)
     }
 
-    const updated = await prisma.dispute.findUnique({ where: { id: disputeId } })
+    // Never throws: if publishing fails here the outbox row stays pending and publishPendingDisputeTransitions()
+    // (run by the sweeper tick) delivers it.
+    await publishPendingDisputeTransitions({ onlyId: outboxId })
 
-    await eventBus.emit('dispute.auto_resolution_contested', {
-      disputeId,
-      settlementId: dispute.escrowId,
-      tradeId: dispute.tradeId,
-      contestedBy,
-      triggeredBy: contestedBy,
-    }, dispute.tradeId)
+    return prisma.dispute.findUnique({ where: { id: disputeId } })
+  }
 
-    return updated
+  /**
+   * #308 / D-308 — the ONE claim of the AUTO_PROPOSED -> EVIDENCE_SUBMITTED transition, shared by the human contest
+   * and the advisory expiry sweep. One transaction: a compare-and-set UPDATE against the proposal generation the
+   * caller observed, with the deadline decided by the DATABASE clock (`now()` converted to UTC, because the column is
+   * a timestamp without time zone), plus the outbox row that makes the event recoverable. Equality at the deadline
+   * belongs to the human: contest is valid while `deadline >= now`, the sweep only when `deadline < now`.
+   * Contest clears the QVAC recommendation; the advisory expiry keeps it as context for the human arbiter (the
+   * metadata semantics are unchanged). Returns the outbox row id of the winner, or null when the claim lost.
+   */
+  private async claimAutoProposedTransition(
+    dispute: { id: string; escrowId: string; tradeId: string; autoProposalGeneration: number },
+    kind: DisputeTransitionKind,
+    actor: string,
+    // Joins the caller's transaction instead of opening one (a seam for tests that must pin `now()` at the deadline).
+    client?: Prisma.TransactionClient
+  ): Promise<string | null> {
+    const generation = dispute.autoProposalGeneration
+    const run = <T>(fn: (tx: Prisma.TransactionClient) => Promise<T>) => (client ? fn(client) : prisma.$transaction(fn))
+    return run(async (tx) => {
+      const affected = kind === 'CONTESTED'
+        ? await tx.$executeRaw`
+            UPDATE "disputes" SET "status" = 'EVIDENCE_SUBMITTED', "autoResolutionRecommendation" = NULL, "autoResolutionConfidence" = NULL,
+              "autoResolutionReasoning" = NULL, "autoResolutionDeadline" = NULL, "updatedAt" = (now() AT TIME ZONE 'UTC')
+            WHERE "id" = ${dispute.id} AND "status" = 'AUTO_PROPOSED' AND "ruling" IS NULL AND "autoProposalGeneration" = ${generation}
+              AND ("autoResolutionDeadline" IS NULL OR "autoResolutionDeadline" >= (now() AT TIME ZONE 'UTC'))`
+        : await tx.$executeRaw`
+            UPDATE "disputes" SET "status" = 'EVIDENCE_SUBMITTED', "autoResolutionDeadline" = NULL, "updatedAt" = (now() AT TIME ZONE 'UTC')
+            WHERE "id" = ${dispute.id} AND "status" = 'AUTO_PROPOSED' AND "ruling" IS NULL AND "autoProposalGeneration" = ${generation}
+              AND "autoResolutionDeadline" < (now() AT TIME ZONE 'UTC')`
+      if (affected === 0) return null
+      const row = await tx.disputeTransitionOutbox.create({
+        data: {
+          disputeId: dispute.id, generation, kind, tradeId: dispute.tradeId,
+          payload: {
+            disputeId: dispute.id, settlementId: dispute.escrowId, tradeId: dispute.tradeId,
+            contestedBy: actor, triggeredBy: actor, transitionKey: transitionKeyFor(dispute.id, generation, kind),
+          },
+        },
+      })
+      return row.id
+    })
   }
 
   /**
@@ -1355,27 +1379,19 @@ export class DisputeService {
     const failed: Array<{ disputeId: string; error: string }> = []
     for (const dispute of expired) {
       try {
-        // CSC-F02 / #308 — same single conditional claim as
-        // contestAutoResolution(): if a manual contest (or another sweep)
-        // already moved this dispute, count is 0 and this sweep neither
-        // rewrites the row nor emits a second contested event.
-        const claim = await prisma.dispute.updateMany({
-          where: { id: dispute.id, status: 'AUTO_PROPOSED', autoResolutionDeadline: { lt: new Date() } },
-          data: { status: 'EVIDENCE_SUBMITTED', autoResolutionDeadline: null },
-        })
-        if (claim.count === 0) continue
-        await eventBus.emit('dispute.auto_resolution_contested', {
-          disputeId: dispute.id,
-          settlementId: dispute.escrowId,
-          tradeId: dispute.tradeId,
-          contestedBy: 'window-expired-advisory-only',
-          triggeredBy: 'window-expired-advisory-only',
-        }, dispute.tradeId)
+        // CSC-F02 / #308 / D-308 — the same single claim as contestAutoResolution(), against the proposal generation
+        // THIS sweep selected: if a contest, another sweep, a human decision or a newer proposal got there first the
+        // claim is a no-op (nothing rewritten, no event), never a stale overwrite. The expiry is decided by the
+        // database clock inside the claim; the application-clock query above only selects candidates.
+        const outboxId = await this.claimAutoProposedTransition(dispute, 'EXPIRED', 'window-expired-advisory-only')
+        if (!outboxId) continue
         revertedToHuman.push(dispute.id)
       } catch (err) {
         failed.push({ disputeId: dispute.id, error: err instanceof Error ? err.message : String(err) })
       }
     }
+    // Deliver the events of this sweep's winners AND any pending from an earlier crash (any instance); never throws.
+    await publishPendingDisputeTransitions()
     return { revertedToHuman, failed }
   }
 }
