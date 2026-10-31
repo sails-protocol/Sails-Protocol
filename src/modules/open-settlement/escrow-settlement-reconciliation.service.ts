@@ -949,7 +949,7 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
 //   - no durable event yet (crash between claim and publish) -> re-publish it;
 //   - durable event exists (crash/loss during projection)     -> redeliver it to the handlers.
 // Neither path writes to foreign modules: the handlers own their projections, and every projection
-// is idempotent per (eventId, projectionKey, subject), so redelivery completes what is missing and
+// is idempotent per (source transition, projectionKey, subject), so redelivery completes what is missing and
 // never repeats what already committed. Publish is serialized per transition so two workers cannot
 // mint two durable events (two delivery identities) for one transition.
 const PROJECTION_RECOVERY_GRACE_MS = 5 * 60 * 1000

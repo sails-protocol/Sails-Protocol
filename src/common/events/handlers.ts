@@ -139,7 +139,7 @@ async function recordTradeCompletion(tx: ProjectionTx, buyerId: string, sellerId
   })
 }
 
-/** Issue #253 - increments disputeCount for both sides, exactly once per (durable eventId, tradeId) — the
+/** Issue #253 - increments disputeCount for both sides, exactly once per (source transition, tradeId) — the
  *  same atomic claim+effect shape as recordTradeCompletion() above. Previously this ran from a SEPARATE,
  *  non-durable `eventBus.on('openp2p.trade.disputed', ...)` handler with no idempotency claim of its own:
  *  a crash between the two increments (or any failure after the notification event was durably published)
