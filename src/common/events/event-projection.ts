@@ -16,6 +16,8 @@
  *     so N concurrent deliveries produce exactly one effect;
  *   - nothing here is process-local and nothing depends on Redis.
  *
+ * The identity is normally NOT the durable eventId: see effectIdentity().
+ *
  * This is DELIVERY idempotency (same event delivered N times). It is not the
  * economic operation's replay identity (pendingOperationId / digest) and it is
  * not provider evidence (txReleaseId) - three different identities.
@@ -42,6 +44,16 @@ export async function applyEventProjectionOnce(
     await apply(tx)
     return true
   })
+}
+
+/**
+ * Issue #253 (CTO decision 2026-10-31) - the identity an economic effect is claimed under: the SOURCE TRANSITION
+ * (EscrowEvent id), not the durable eventId. PASS 3 can republish while a live publish is still in flight, so one
+ * transition can have two durable events with two eventIds; keyed on eventId each would apply every effect again.
+ * Both durable events stay in the stream for traceability. Falls back to eventId for an event with no transition.
+ */
+export function effectIdentity(event: { eventId: string; payload: { transitionId?: string } }): string {
+  return event.payload.transitionId ?? event.eventId
 }
 
 // Markers for "a projection is owed for this escrow transition" and "all of its projections
