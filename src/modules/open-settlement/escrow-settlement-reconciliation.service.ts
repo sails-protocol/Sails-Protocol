@@ -87,6 +87,8 @@ export interface ReconciliationReport {
   alreadyClaimedConcurrently: string[]
   // Issue #298 - PASS 3: claimed-but-not-fully-projected transitions that were re-driven.
   projectionsRecovered: Array<{ escrowId: string; transitionId: string; action: 'REPUBLISHED' | 'REDELIVERED' }>
+  // Issue #253 - disputes whose arbiter ruling finalization was re-driven (dispute.service.ts's recoverMissingRulingFinalization()).
+  rulingFinalizationsRecovered: string[]
 }
 
 // The audit-trail "from" state for the reconciliation-driven
@@ -961,7 +963,7 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
 //   - no durable event yet (crash between claim and publish) -> re-publish it;
 //   - durable event exists (crash/loss during projection)     -> redeliver it to the handlers.
 // Neither path writes to foreign modules: the handlers own their projections, and every projection
-// is idempotent per (eventId, projectionKey, subject), so redelivery completes what is missing and
+// is idempotent per (source transition, projectionKey, subject), so redelivery completes what is missing and
 // never repeats what already committed. Publish is serialized per transition so two workers cannot
 // mint two durable events (two delivery identities) for one transition.
 const PROJECTION_RECOVERY_GRACE_MS = 5 * 60 * 1000
@@ -1062,7 +1064,7 @@ async function redriveClaimedPage(claimed: Array<{ id: string; eventId: string; 
 export async function reconcilePendingSettlements(options: { projectionGraceMs?: number } = {}): Promise<ReconciliationReport> {
   const report: ReconciliationReport = {
     recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [],
-    resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [],
+    resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], rulingFinalizationsRecovered: [],
   }
 
   await reconcileUnclaimedFullySignedPending(report)
@@ -1086,6 +1088,18 @@ export async function reconcilePendingSettlements(options: { projectionGraceMs?:
   }
 
   await reconcileIncompleteProjections(report, options.projectionGraceMs ?? PROJECTION_RECOVERY_GRACE_MS)
+
+  // Issue #253 - arbiter ruling finalization has its own claim (dispute.service.ts) and nothing else retries it
+  // once the dispute is RESOLVED, so this tick is what re-drives a finalization that never committed.
+  // Required lazily: dispute.service.ts depends on this module's escrow machinery.
+  try {
+    const { getDisputeService } = require('./dispute.service') // eslint-disable-line @typescript-eslint/no-var-requires
+    const { recovered, failed } = await getDisputeService().recoverMissingRulingFinalization()
+    report.rulingFinalizationsRecovered.push(...recovered)
+    for (const f of failed) report.failed.push({ escrowId: `dispute:${f.disputeId}`, error: f.error })
+  } catch (err) {
+    report.failed.push({ escrowId: 'dispute:*', error: err instanceof Error ? err.message : String(err) })
+  }
 
   return report
 }

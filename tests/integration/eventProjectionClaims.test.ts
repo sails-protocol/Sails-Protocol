@@ -133,10 +133,10 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     await sleep(800)
 
     await expectEffectsAppliedOnce(ctx) // unchanged after 10 more deliveries
-    expect(await claimCount(eventId, 'trade.status')).toBe(1)
-    expect(await claimCount(eventId, 'trade.completion-counters')).toBe(1)
-    expect(await prisma.eventProjectionClaim.count({ where: { eventId, projectionKey: 'reputation.outcome' } })).toBe(2) // one per participant
-    expect(await claimCount(eventId, 'transition.projected')).toBe(1)
+    expect(await claimCount(transitionId, 'trade.status')).toBe(1)
+    expect(await claimCount(transitionId, 'trade.completion-counters')).toBe(1)
+    expect(await prisma.eventProjectionClaim.count({ where: { eventId: transitionId, projectionKey: 'reputation.outcome' } })).toBe(2) // one per participant
+    expect(await claimCount(transitionId, 'transition.projected')).toBe(1)
     void transitionId
   })
 
@@ -155,7 +155,7 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     requirePostgres('multi-instance')
     expect(instanceB).toBeDefined()
     const ctx = await makeCompletedEscrow()
-    const { eventId } = await emitReleased(ctx)
+    const { eventId, transitionId } = await emitReleased(ctx)
 
     await Promise.all([
       ...Array.from({ length: 5 }, () => eventBus.redeliver(eventId)),
@@ -164,7 +164,7 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     await sleep(1000)
 
     await expectEffectsAppliedOnce(ctx)
-    expect(await claimCount(eventId, 'trade.completion-counters')).toBe(1)
+    expect(await claimCount(transitionId, 'trade.completion-counters')).toBe(1)
   })
 
   it('PARTIAL projection crash: Trade projection committed, crash before counters/reputation -> redelivery completes ONLY what is missing, never redoes the Trade', async () => {
@@ -318,8 +318,8 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
       await eventBus.redeliver(eventId).catch(() => {})
       await sleep(400)
     }
-    expect(await claimCount(eventId, 'trade.status')).toBe(0)
-    expect(await prisma.eventProjectionClaim.count({ where: { eventId } })).toBe(0)
+    expect(await claimCount(transition.id, 'trade.status')).toBe(0)
+    expect(await prisma.eventProjectionClaim.count({ where: { eventId: { in: [eventId, transition.id] }, projectionKey: { not: 'transition.claimed' } } })).toBe(0)
     expect(await prisma.eventProjectionClaim.count({ where: { projectionKey: 'transition.projected', subjectId: transition.id } })).toBe(0)
     expect((await userOf(other.buyerId))!.totalTrades).toBe(0)
     expect((await tradeOf(other.tradeId))!.status).toBe('ACTIVE')
@@ -421,7 +421,7 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
       await sleep(300)
       await expectEffectsAppliedOnce(f.ctx)
       expect(await prisma.durableEventRecord.count({ where: { correlationId: f.ctx.tradeId, eventName: 'settlement.escrow.released' } })).toBe(1)
-      expect(await claimCount(f.eventId, 'trade.status')).toBe(1)
+      expect(await claimCount(f.transition.id, 'trade.status')).toBe(1)
     } finally {
       await f.cleanup()
     }

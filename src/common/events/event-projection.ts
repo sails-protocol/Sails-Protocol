@@ -2,9 +2,12 @@
  * Issue #298 - durable delivery/replay identity for event-derived projections.
  *
  * `applyEventProjectionOnce(eventId, projectionKey, subjectId, apply)` applies
- * ONE projection effect for ONE subject because of ONE durable event, at most
- * once, no matter how many times or from how many processes that event is
- * delivered:
+ * ONE projection effect for ONE subject because of ONE source, at most once, no
+ * matter how many times, from how many processes or under how many durable events
+ * it is delivered. Despite its name, `eventId` (parameter and column) holds the
+ * effect identity, which is not always a durable event id: for an escrow transition
+ * it is the source transition id, see effectIdentity().
+ *
  *
  *   - the claim row (event_projection_claims, UNIQUE(eventId, projectionKey,
  *     subjectId)) and the mutation `apply` performs commit in the SAME
@@ -16,7 +19,8 @@
  *     so N concurrent deliveries produce exactly one effect;
  *   - nothing here is process-local and nothing depends on Redis.
  *
- * This is DELIVERY idempotency (same event delivered N times). It is not the
+ * This is DELIVERY idempotency (one source delivered N times, under one or several
+ * durable eventIds). It is not the
  * economic operation's replay identity (pendingOperationId / digest) and it is
  * not provider evidence (txReleaseId) - three different identities.
  */
@@ -42,6 +46,16 @@ export async function applyEventProjectionOnce(
     await apply(tx)
     return true
   })
+}
+
+/**
+ * Issue #253 (CTO decision 2026-10-31) - the identity an economic effect is claimed under: the SOURCE TRANSITION
+ * (EscrowEvent id), not the durable eventId. PASS 3 can republish while a live publish is still in flight, so one
+ * transition can have two durable events with two eventIds; keyed on eventId each would apply every effect again.
+ * Both durable events stay in the stream for traceability. Falls back to eventId for an event with no transition.
+ */
+export function effectIdentity(event: { eventId: string; payload: { transitionId?: string } }): string {
+  return event.payload.transitionId ?? event.eventId
 }
 
 // Markers for "a projection is owed for this escrow transition" and "all of its projections

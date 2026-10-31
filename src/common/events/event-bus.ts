@@ -520,7 +520,7 @@ export class SailsEventBus {
   // Issue #298 - re-drive an ALREADY-persisted durable event to this instance's local handlers
   // (recovery of an incomplete projection). Not part of the generic EventStore interface for the
   // same reason enableCrossInstanceFanout() is not: only PostgresEventStore can reload a row by id.
-  // Safe because every economically relevant projection is idempotent per (eventId, projectionKey,
+  // Safe because every economically relevant projection is idempotent per (source transition, projectionKey,
   // subjectId) - redelivery cannot duplicate an effect. Returns false if the event does not exist.
   async redeliver(eventId: string): Promise<boolean> {
     if ('redeliver' in this.store) {
