@@ -225,6 +225,23 @@ describe('#308 transition durability and ABA safety (real Postgres, real process
     return { ...exit, stdout, stderr, killOn: opts.killOn }
   }
 
+  /**
+   * Recovery after a REAL process kill: the dead worker's open transaction keeps its `FOR UPDATE` row lock until the
+   * database notices the broken connection, and the publisher (SKIP LOCKED) correctly skips a locked row. So recovery
+   * is retried, as the sweeper tick would, until the row is delivered or acknowledged.
+   */
+  async function recoverUntilDelivered(disputeId: string, maxMs = 60_000) {
+    const total = { published: 0, alreadyInLog: 0, failed: 0 }
+    const deadline = Date.now() + maxMs
+    for (;;) {
+      const r = await publishPendingDisputeTransitions()
+      total.published += r.published; total.alreadyInLog += r.alreadyInLog; total.failed += r.failed
+      if ((await outboxFor(disputeId)).every((o) => o.publishedAt)) return total
+      if (Date.now() > deadline) throw new Error('outbox row was never delivered: ' + JSON.stringify(total))
+      await new Promise((res) => setTimeout(res, 500))
+    }
+  }
+
   it('D1 REAL kill after the claim committed and BEFORE the event was published: the transition stands, the outbox row is pending, and recovery publishes exactly one event with an intact hash chain', async () => {
     pg.requirePostgres('D1')
     const { dispute, buyer, trade } = await makeAutoProposed('crash-before-publish', 3_600_000)
@@ -241,12 +258,12 @@ describe('#308 transition durability and ABA safety (real Postgres, real process
     expect(afterCrash).toMatchObject({ status: 'EVIDENCE_SUBMITTED', events: 0 })
     expect(afterCrash.outbox).toEqual([{ kind: 'CONTESTED', published: false }])
 
-    const recovered = await publishPendingDisputeTransitions()
+    const recovered = await recoverUntilDelivered(dispute.id)
     const rerun = await publishPendingDisputeTransitions()
     const events = await eventsFor(trade.id, key)
     const chain = await getTimeline(trade.id).verifyChain()
     evidence('D1 recovery', { recovered, rerun, events: events.length, chainValid: chain.valid })
-    expect(recovered.published).toBeGreaterThanOrEqual(1)
+    expect(recovered.published).toBe(1)
     expect(rerun.published).toBe(0)
     expect(events).toHaveLength(1)
     expect(chain.valid).toBe(true)
@@ -271,11 +288,12 @@ describe('#308 transition durability and ABA safety (real Postgres, real process
     expect(pending).toEqual([false])
     expect(eventsBefore).toBe(1)
 
-    const recovered = await publishPendingDisputeTransitions()
+    const recovered = await recoverUntilDelivered(dispute.id)
     const events = await eventsFor(trade.id, key)
     const chain = await getTimeline(trade.id).verifyChain()
     evidence('D2 recovery', { recovered, events: events.length, chainValid: chain.valid })
-    expect(recovered.alreadyInLog).toBeGreaterThanOrEqual(1)
+    expect(recovered.alreadyInLog).toBe(1)
+    expect(recovered.published).toBe(0)
     expect(events).toHaveLength(1)
     expect(chain.valid).toBe(true)
     expect((await outboxFor(dispute.id))[0].publishedAt).not.toBeNull()
@@ -330,7 +348,7 @@ describe('#308 transition durability and ABA safety (real Postgres, real process
     // it is legitimate for NO process to win this round. The next sweeper tick then converges the state; either way there is at most one claim.
     const afterRace = (await outboxFor(dispute.id)).length
     await new DisputeService(noProvider).sweepExpiredAutoResolutions()
-    await publishPendingDisputeTransitions() // any winner whose own publication was interrupted
+    await recoverUntilDelivered(dispute.id) // any winner whose own publication was interrupted
     const outbox = await outboxFor(dispute.id)
     const events = await eventsFor(trade.id)
     const row = await prisma.dispute.findUnique({ where: { id: dispute.id } })
