@@ -173,6 +173,15 @@ export class RateLimitUnavailableError extends AppError {
   }
 }
 
+// #307 B.3 — Redis did not answer within its bound (or refused to serve).
+// Same 503 "temporarily unavailable, retry" convention as above. It does not
+// say the operation failed: a timed-out write may still have been applied.
+export class DependencyUnavailableError extends AppError {
+  constructor() {
+    super('A required service is temporarily unavailable; the outcome of this request is unknown — retry later', 503, 'DEPENDENCY_UNAVAILABLE')
+  }
+}
+
 // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 37, 2026-09-13) —
 // src/common/idempotency.ts's withIdempotency() throws this when a
 // concurrent, not-yet-resolved call already claimed the same
