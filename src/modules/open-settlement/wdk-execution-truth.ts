@@ -93,7 +93,10 @@ function normalizeDecimalString(value: string): string {
   return fraction ? `${whole}.${fraction}` : whole
 }
 
-function decimalAmountsEqual(a: string, b: string): boolean {
+// Exported (Issue #251) - the terminal-restart reconciler needs the exact same exact-decimal-string
+// comparison to verify a durable WdkTransferAttempt's amount against Escrow.lockedAmount, rather than
+// re-implementing a second, possibly-diverging comparison.
+export function decimalAmountsEqual(a: string, b: string): boolean {
   return normalizeDecimalString(a) === normalizeDecimalString(b)
 }
 

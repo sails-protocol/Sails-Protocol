@@ -31,7 +31,9 @@ function fakeRepo(overrides: Record<string, unknown> = {}) {
     findManyByParticipant: jest.fn(),
     countByParticipant: jest.fn(),
     findActiveTradeIdsBetween: jest.fn(),
-    updateStatus: (...args: unknown[]) => mockUpdateStatus(...args),
+    updateStatus: jest.fn(),
+    // Issue #294 - manual transitions are CAS-guarded and refused once the Escrow governs the outcome.
+    transitionManually: (...args: unknown[]) => mockUpdateStatus(...args),
     ...overrides,
   }
 }
@@ -44,7 +46,7 @@ describe('TradeService.updateStatus() — manual-transition guard (Missão 04)',
   beforeEach(() => {
     mockFindById.mockReset()
     mockUpdateStatus.mockReset()
-    mockUpdateStatus.mockResolvedValue({ id: 'trade-1', status: 'CANCELLED' })
+    mockUpdateStatus.mockResolvedValue({ ok: true, trade: { id: 'trade-1', status: 'CANCELLED' } })
   })
 
   it('allows PENDING -> CANCELLED', async () => {
@@ -56,7 +58,7 @@ describe('TradeService.updateStatus() — manual-transition guard (Missão 04)',
 
   it('allows PENDING -> ACTIVE', async () => {
     mockFindById.mockResolvedValue(trade('PENDING'))
-    mockUpdateStatus.mockResolvedValue({ id: 'trade-1', status: 'ACTIVE' })
+    mockUpdateStatus.mockResolvedValue({ ok: true, trade: { id: 'trade-1', status: 'ACTIVE' } })
     const service = new TradeService(fakeRepo())
     await service.updateStatus('trade-1', 'ACTIVE', 'buyer-1')
     expect(mockUpdateStatus).toHaveBeenCalled()
@@ -67,6 +69,22 @@ describe('TradeService.updateStatus() — manual-transition guard (Missão 04)',
     const service = new TradeService(fakeRepo())
     await service.updateStatus('trade-1', 'CANCELLED', 'buyer-1')
     expect(mockUpdateStatus).toHaveBeenCalled()
+  })
+
+  it('Issue #294: a manual cancel is refused once the Escrow already governs the outcome (ESCROW_GOVERNED)', async () => {
+    mockFindById.mockResolvedValue(trade('ACTIVE'))
+    mockUpdateStatus.mockResolvedValue({ ok: false, reason: 'ESCROW_GOVERNED', escrowStatus: 'DISPUTED' })
+    const service = new TradeService(fakeRepo())
+    await expect(service.updateStatus('trade-1', 'CANCELLED', 'buyer-1')).rejects.toThrow(/its escrow is DISPUTED and governs the outcome/)
+    expect(mockEmit).not.toHaveBeenCalled()
+  })
+
+  it('Issue #294: a manual transition whose validated status changed concurrently is refused (STALE_STATUS), not applied', async () => {
+    mockFindById.mockResolvedValue(trade('PENDING'))
+    mockUpdateStatus.mockResolvedValue({ ok: false, reason: 'STALE_STATUS' })
+    const service = new TradeService(fakeRepo())
+    await expect(service.updateStatus('trade-1', 'CANCELLED', 'buyer-1')).rejects.toThrow(/changed concurrently/)
+    expect(mockEmit).not.toHaveBeenCalled()
   })
 
   it('rejects COMPLETED -> CANCELLED — settlement already happened, the record cannot be rewritten', async () => {

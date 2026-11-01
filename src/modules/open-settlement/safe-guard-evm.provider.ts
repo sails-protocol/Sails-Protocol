@@ -121,6 +121,7 @@ import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
 import { boundedFetch, withBoundedRetry } from './bounded-rpc'
+import { ensureFinalizationAttempt, recordFinalizationOutcome } from './signature-collection-finalization-truth'
 
 // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded, safe retry for
 // read-only RPC queries only (getNonce/getStorage/getBalance below).
@@ -201,6 +202,9 @@ export function predictGuardAddress(safeAddress: string, releaseTo: string, refu
 }
 
 export type SafeGuardEvmEscrowInput = {
+  // Issue #240 - optional/additive, same reasoning as ArkEscrowInput's own comment: needed to bind
+  // this provider's durable finalization-attempt evidence to the exact escrow.
+  id?: string
   tradeId: string
   lockedAmount: string
   buyerPubkey?: string   // hex, 33-byte compressed secp256k1 — from EscrowParticipantKey, same as MULTISIG
@@ -547,7 +551,15 @@ export class SafeGuardEvmProvider implements SettlementProvider {
   // (65 bytes per signer, no padding/separators). What happens after —
   // actually submitting this to a bundler — needs live infrastructure
   // this environment doesn't have.
-  private async finalizeBundle(escrow: SafeGuardEvmEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
+  private async finalizeBundle(escrow: SafeGuardEvmEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[], pendingTxId: string | undefined, kind: 'release' | 'refund'): Promise<{ txId: string }> {
+    // Issue #240 - durable pre-submission evidence, written in the SAME call as the decision to
+    // proceed (no `await` gap before it) — see signature-collection-finalization-truth.ts's own
+    // header comment. escrow.id/pendingTxId are always present on the real call path.
+    if (escrow.id && pendingTxId) {
+      const ensured = await ensureFinalizationAttempt(escrow.id, pendingTxId, kind)
+      if (ensured.action === 'RESUME_CONFIRMED') return { txId: ensured.txHash }
+    }
+
     let bundle: SafeGuardBundle
     try {
       bundle = JSON.parse(unsignedPsbtBase64)
@@ -570,7 +582,14 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     const combined = '0x' + signatures.map((s) => (s.signatureHex.startsWith('0x') ? s.signatureHex.slice(2) : s.signatureHex)).join('')
 
     const userOp = deserializeUserOp(bundle.userOp)
-    return this.broadcast(userOp, combined)
+    const result = await this.broadcast(userOp, combined)
+    // eth_sendUserOperation returns the bundler-ACCEPTED userOpHash, not on-chain finality (this
+    // method's own broadcast() comment) - recorded SUBMITTED, not CONFIRMED (see
+    // signature-collection-finalization-truth.ts's own header comment on why this differs from
+    // LIGHTNING_HODL). A thrown error above/in broadcast() leaves the durable row at
+    // SUBMISSION_UNKNOWN, exactly the corrected lesson wdk-execution-truth.ts's header documents.
+    if (escrow.id) await recordFinalizationOutcome(escrow.id, 'SUBMITTED', result.txId)
+    return result
   }
 
   // Real eth_sendUserOperation submission — the standard ERC-4337 bundler
@@ -628,12 +647,12 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     return { txId: body.result }
   }
 
-  async finalizeRelease(escrow: SafeGuardEvmEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
-    return this.finalizeBundle(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+  async finalizeRelease(escrow: SafeGuardEvmEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[], pendingTxId?: string): Promise<{ txId: string }> {
+    return this.finalizeBundle(escrow, unsignedPsbtBase64, signedPsbtBase64List, pendingTxId, 'release')
   }
 
-  async finalizeRefund(escrow: SafeGuardEvmEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
-    return this.finalizeBundle(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+  async finalizeRefund(escrow: SafeGuardEvmEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[], pendingTxId?: string): Promise<{ txId: string }> {
+    return this.finalizeBundle(escrow, unsignedPsbtBase64, signedPsbtBase64List, pendingTxId, 'refund')
   }
 
   // Non-custodial, same shape MULTISIG's own lockFunds() already uses:

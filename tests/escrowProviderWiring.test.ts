@@ -115,7 +115,7 @@ const mockEscrowFindUnique = jest.fn()
 const mockEscrowUpdate = jest.fn()
 const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowCreate = jest.fn()
-const mockEscrowEventCreate = jest.fn()
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockTradeFindUnique = jest.fn()
 const mockDisputeFindFirst = jest.fn().mockResolvedValue(null)
@@ -161,9 +161,13 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     },
     escrow: {
       updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args),
+      findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args),
+      update: (...args: unknown[]) => mockEscrowUpdate(...args),
     },
     escrowPendingTransaction: {
       create: (...args: unknown[]) => mockPendingTxCreate(...args),
+      // Issue #291 - persistSettlementResult() verifies the live pending operation inside its transaction.
+      findFirst: (...args: unknown[]) => (mockPendingTxFindUnique as any)(...args),
     },
     escrowFundingEvidence: {
       findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args),
@@ -175,6 +179,8 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
       create: (...args: unknown[]) => mockEscrowEventCreate(...args),
     },
+    // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+    eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
     $executeRaw: jest.fn().mockResolvedValue(0),
   })
 )
@@ -1426,7 +1432,8 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
     expect(mockFinalizeRelease).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'escrow-1' }),
       'unsigned-psbt',
-      ['buyer-signed', 'seller-signed']
+      ['buyer-signed', 'seller-signed'],
+      'ptx-1'
     )
     expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'PAYMENT_PENDING' }, data: { status: 'COMPLETED' } })
     expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-release-txid', releasedAt: expect.any(Date) } })
@@ -1446,7 +1453,7 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
 
     const result = await escrowService.submitTransactionSignature('escrow-1', 'seller-1', 'seller-signed')
 
-    expect(mockFinalizeRefund).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'unsigned-refund-psbt', ['seller-signed'])
+    expect(mockFinalizeRefund).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'unsigned-refund-psbt', ['seller-signed'], 'ptx-2')
     expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'REFUNDED' } })
     expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-refund-txid' } })
     expect(result.complete).toBe(true)

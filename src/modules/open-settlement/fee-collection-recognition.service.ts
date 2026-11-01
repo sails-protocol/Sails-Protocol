@@ -26,7 +26,7 @@ import { EscrowError } from '../../common/errors'
 import { childLogger } from '../../common/logger'
 import { feeObligationRepository, type FeeObligationRepository } from './fee-obligation-repository'
 import { feeCollectionEvidenceRepository, type FeeCollectionEvidenceRepository } from './fee-collection-evidence-repository'
-import { feeObligationService, FeeObligationService } from './fee-obligation.service'
+import { feeObligationService, FeeObligationService, CollectionStatusClaimLostError } from './fee-obligation.service'
 import { distributionPolicyService as defaultDistributionPolicyService, DistributionPolicyService } from './distribution-policy.service'
 
 const log = childLogger('fee-collection-recognition')
@@ -36,6 +36,39 @@ export interface BroadcastEvidenceInput {
   vout: number
   scriptPubKey: string
   amountSats: number
+}
+
+/**
+ * 'RECORDED': this call wrote the evidence and advanced the obligation. 'ALREADY_RECORDED': an exact retry of a
+ * committed broadcast; nothing written. 'ADVANCED_EXISTING_EVIDENCE': this call advanced the obligation on matching
+ * BROADCAST evidence that pre-existed (a pre-fix orphan); no second row written.
+ */
+export type BroadcastRecordOutcome = 'RECORDED' | 'ALREADY_RECORDED' | 'ADVANCED_EXISTING_EVIDENCE'
+
+/**
+ * Issue #245 — a BROADCAST retry that cannot be proven identical to what is already recorded. Auditable:
+ * it carries the obligation id and the reason, and the service logs the incoming and recorded picture.
+ * It never means "a second evidence row was written": nothing is written when it is thrown.
+ */
+export class FeeBroadcastEvidenceConflictError extends EscrowError {
+  constructor(readonly feeObligationId: string, readonly conflictReason: string) {
+    super(`FEE_BROADCAST_EVIDENCE_CONFLICT for FeeObligation ${feeObligationId}: ${conflictReason}`)
+    this.name = 'FeeBroadcastEvidenceConflictError'
+  }
+}
+
+// txid and scriptPubKey are hex: compare case-insensitively; a null on the recorded side never matches.
+const sameHex = (a: string | null | undefined, b: string | null | undefined): boolean =>
+  a != null && b != null && a.toLowerCase() === b.toLowerCase()
+
+function broadcastMatches(
+  row: { txid: string | null; vout: number | null; scriptPubKey: string | null; amount: Prisma.Decimal | null },
+  incoming: BroadcastEvidenceInput, amount: Prisma.Decimal,
+): boolean {
+  return sameHex(row.txid, incoming.txid)
+    && row.vout === incoming.vout
+    && sameHex(row.scriptPubKey, incoming.scriptPubKey)
+    && row.amount != null && new Prisma.Decimal(row.amount).equals(amount)
 }
 
 // Missão 11 Fase 7.2.1 — injectable, same reason every repository/service
@@ -74,20 +107,112 @@ export class FeeCollectionRecognitionService {
    * Broadcast success != confirmed revenue — this method NEVER, under any
    * circumstance, transitions an obligation to COLLECTED. Callers must
    * never invoke this for a waived, refund, or legacy outcome (there is
-   * no fee output to have evidence for in any of those cases) — the one
-   * real call site (escrow-pending-tx.ts) only reaches this method when a
-   * real, non-waived Sails output was actually constructed.
+   * no fee output to have evidence for in any of those cases) — the two
+   * real call sites (escrow-pending-tx.ts's live path and
+   * escrow-settlement-reconciliation.service.ts's recovery path) only
+   * reach this method when a real, non-waived Sails output was actually
+   * constructed.
+   *
+   * Issue #245 (CTO decision D-245) — the status claim and the evidence insert are ONE
+   * transaction. The claim (the existing CAS, `UPDATE ... WHERE collectionStatus =
+   * 'PENDING_COLLECTION'`) runs FIRST: it takes the row lock, so of two concurrent callers
+   * exactly one proceeds to insert; the other blocks until the winner commits, re-evaluates its
+   * WHERE clause and affects 0 rows. An insert or any later failure rolls the claim back too, so a
+   * crash between the two can leave neither a BROADCAST row without its transition nor the reverse.
+   *
+   * A caller that LOST the claim does not get a blind success and does not get a blind failure: in
+   * the same transaction it reads what is now committed and decides —
+   *   - status IN_PROGRESS/COLLECTED/DISTRIBUTED, no REPLACED row for this txid, and EVERY BROADCAST
+   *     row of the obligation matches this call on txid + vout + scriptPubKey + amount
+   *       => idempotent retry, returns 'ALREADY_RECORDED', writes nothing;
+   *   - anything else (no BROADCAST row, a different output, several different broadcasts, a REPLACED
+   *     row for this txid, a status that cannot hold a broadcast) => FeeBroadcastEvidenceConflictError,
+   *     logged with the full picture, nothing written, nothing advanced. Ambiguity is a conflict, never
+   *     an assumed success; no ordering by `recordedAt` is relied on (it has no tie-break).
+   * Replacement/RBF is NOT handled here (recordReplacement() and a later BROADCAST for the new txid
+   * are a separate flow): a divergent txid is reported as a conflict, never absorbed as a retry.
+   *
+   * A caller that WON the claim first looks for BROADCAST rows already on the obligation: before this
+   * fix a crash between the two old writes left such an orphan next to a PENDING_COLLECTION
+   * obligation. Orphans are never deleted and never duplicated: if every existing row matches this
+   * call the obligation is advanced on that evidence ('ADVANCED_EXISTING_EVIDENCE', logged, no new
+   * row); if any differs it is a conflict and the claim is rolled back with the throw.
+   *
+   * The on-chain broadcast happened BEFORE this method and outside PostgreSQL; this transaction
+   * protects only the local accounting facts. A failure here never un-broadcasts anything.
    */
-  async recordBroadcastAndAdvance(feeObligationId: string, evidence: BroadcastEvidenceInput): Promise<void> {
-    await this.evidenceRepo.record({
-      feeObligationId,
-      kind: 'BROADCAST',
-      txid: evidence.txid,
-      vout: evidence.vout,
-      scriptPubKey: evidence.scriptPubKey,
-      amount: new Prisma.Decimal(evidence.amountSats).dividedBy(1e8),
+  async recordBroadcastAndAdvance(feeObligationId: string, evidence: BroadcastEvidenceInput): Promise<BroadcastRecordOutcome> {
+    const amount = new Prisma.Decimal(evidence.amountSats).dividedBy(1e8)
+    return this.runInTransaction(async (tx): Promise<BroadcastRecordOutcome> => {
+      try {
+        await this.obligationService.transitionCollectionStatus(feeObligationId, 'PENDING_COLLECTION', 'IN_PROGRESS', tx)
+      } catch (err) {
+        if (!(err instanceof CollectionStatusClaimLostError)) throw err
+        return this.verifyAlreadyRecorded(feeObligationId, evidence, amount, tx)
+      }
+      const existing = (await this.evidenceRepo.listForObligation(feeObligationId, tx)).filter((e) => e.kind === 'BROADCAST')
+      if (existing.length > 0) {
+        if (!existing.every((e) => broadcastMatches(e, evidence, amount))) {
+          return this.conflict(feeObligationId, evidence, 'BROADCAST evidence already exists on a PENDING_COLLECTION obligation and differs from this call; the claim is rolled back', 'PENDING_COLLECTION', existing.length)
+        }
+        log.warn({
+          msg: 'FEE_BROADCAST_ORPHAN_ADOPTED — matching BROADCAST evidence pre-existed on a PENDING_COLLECTION obligation (a pre-fix crash window); the obligation was advanced on it and no second row was written',
+          feeObligationId, txid: evidence.txid, broadcastRows: existing.length,
+        })
+        return 'ADVANCED_EXISTING_EVIDENCE'
+      }
+      await this.evidenceRepo.record({
+        feeObligationId,
+        kind: 'BROADCAST',
+        txid: evidence.txid,
+        vout: evidence.vout,
+        scriptPubKey: evidence.scriptPubKey,
+        amount,
+      }, tx)
+      return 'RECORDED'
     })
-    await this.obligationService.transitionCollectionStatus(feeObligationId, 'PENDING_COLLECTION', 'IN_PROGRESS')
+  }
+
+  /** Logs the full picture (auditable) and throws; nothing is written by the caller that reaches this. */
+  private conflict(feeObligationId: string, evidence: BroadcastEvidenceInput, reason: string, status: string | null, broadcasts: number): never {
+    log.error({
+      msg: 'FEE_BROADCAST_EVIDENCE_CONFLICT — a BROADCAST call could not be proven identical to the recorded evidence; nothing was written',
+      feeObligationId, reason, status, broadcastRows: broadcasts,
+      incoming: { txid: evidence.txid, vout: evidence.vout, scriptPubKey: evidence.scriptPubKey, amountSats: evidence.amountSats },
+    })
+    throw new FeeBroadcastEvidenceConflictError(feeObligationId, reason)
+  }
+
+  /**
+   * The claim was lost: decide, from committed state read inside the same transaction, whether this
+   * call is an exact retry of what is already recorded (no write) or a conflict (throw, no write).
+   */
+  private async verifyAlreadyRecorded(
+    feeObligationId: string, evidence: BroadcastEvidenceInput, amount: Prisma.Decimal, tx: Prisma.TransactionClient,
+  ): Promise<BroadcastRecordOutcome> {
+    const conflict = (reason: string, status: string | null, broadcasts: number): never =>
+      this.conflict(feeObligationId, evidence, reason, status, broadcasts)
+
+    const obligation = await this.obligationRepo.findById(feeObligationId, tx)
+    if (!obligation) {
+      throw new EscrowError(`recordBroadcastAndAdvance: FeeObligation ${feeObligationId} not found`)
+    }
+    const status = obligation.collectionStatus as string | null
+    if (status !== 'IN_PROGRESS' && status !== 'COLLECTED' && status !== 'DISTRIBUTED') {
+      return conflict(`the obligation is '${status}', a status that cannot hold a recorded broadcast`, status, 0)
+    }
+    const rows = await this.evidenceRepo.listForObligation(feeObligationId, tx)
+    const broadcasts = rows.filter((e) => e.kind === 'BROADCAST')
+    if (broadcasts.length === 0) {
+      return conflict('the obligation advanced but no BROADCAST evidence exists (historical orphan or another path); not repaired here', status, 0)
+    }
+    if (rows.some((e) => e.kind === 'REPLACED' && sameHex(e.txid, evidence.txid))) {
+      return conflict(`txid ${evidence.txid} was REPLACED; replaying it is not an idempotent retry`, status, broadcasts.length)
+    }
+    if (!broadcasts.every((e) => broadcastMatches(e, evidence, amount))) {
+      return conflict('recorded BROADCAST evidence differs from this call (txid, vout, scriptPubKey or amount) or there are several different broadcasts', status, broadcasts.length)
+    }
+    return 'ALREADY_RECORDED'
   }
 
   /**

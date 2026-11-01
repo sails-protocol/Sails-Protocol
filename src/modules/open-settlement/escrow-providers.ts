@@ -299,8 +299,16 @@ export interface SignatureCollectionProvider {
   // for live correspondence evaluation (dispute-correspondence.ts) —
   // LIGHTNING_HODL/SAFE_GUARD_EVM's existing return shapes stay valid
   // unchanged (they simply omit it).
-  finalizeRelease(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string; rawTxHex?: string }>
-  finalizeRefund(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string; rawTxHex?: string }>
+  // Issue #240 - pendingTxId is optional/additive, same precedent buildUnsignedRefund()'s own
+  // authorizedDestination already established just above: MULTISIG's implementation keeps its
+  // existing 3-parameter signature unchanged (structural typing allows a narrower implementation of
+  // a wider interface method) - Bitcoin broadcast needs no durable pre-submission attempt tracking
+  // (idempotent by construction). LIGHTNING_HODL/SAFE_GUARD_EVM's own implementations use it to bind
+  // their new signature-collection-finalization-truth.ts durable evidence to the exact live pending
+  // operation, the same operation-binding discipline persistSettlementResult() already established
+  // (Issue #291).
+  finalizeRelease(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[], pendingTxId?: string): Promise<{ txId: string; rawTxHex?: string }>
+  finalizeRefund(escrow: unknown, unsignedPsbtBase64: string, signedPsbtBase64List: string[], pendingTxId?: string): Promise<{ txId: string; rawTxHex?: string }>
   // RFC-021 D9 — optional, same reasoning as SettlementProvider.splitFunds
   // above. Unlike that direct-call version, this is a single PSBT with two
   // real outputs (one transaction, one txid) — a signature-collection
