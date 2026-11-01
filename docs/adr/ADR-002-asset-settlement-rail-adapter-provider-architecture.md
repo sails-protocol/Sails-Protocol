@@ -111,6 +111,10 @@ evidence, beta eligibility, or production eligibility** (§7).
 
 ## 5. Frozen Canonical Day-0 Scopes (25 rows)
 
+*(Historical as of 2026-11-01: superseded as the Day-0 **commitment** by
+§5A below. The table and the surrounding text are preserved verbatim —
+they record what was frozen on 2026-09-10/12 and why.)*
+
 Restates `docs/BACKLOG.md` item 20's own canonical Day-0 target,
 re-expressed as `{asset, rail}` rows — no scope change, a re-expression
 only:
@@ -138,7 +142,108 @@ No such registry is implemented — §12 item 1 is the first step that
 would create one. The sentence above corrects this to describe current
 code reality without implying the registry exists.)*
 
+## 5A. Successor Decision — Day-0 Commitment of 14 Native P2P Combinations (2026-11-01)
+
+**Status:** recorded from the Product Owner + CTO decision of 2026-11-01
+(relayed by the EPM). Documentation only: no code, registry, test, schema,
+SDK, PR, gate, acceptance criterion, deploy or homologation status
+changes with this section. Divergences D1–D4 found while reconciling were
+decided by the CTO the same day (Issue #105, issuecomment-6561714306);
+the decisions are recorded at the end of this section.
+
+**Successor to §5, not a deletion of it.** §5 remains the historical
+record of the 2026-09-10 Product Direction Freeze (`docs/BACKLOG.md`
+item 20). From 2026-11-01 the Day-0 **commitment** is the following
+set, as a whole — not an "initial wave" of the 25 rows in §5:
+
+| Asset | Rails | Count |
+|---|---|---|
+| **BTC** | `BITCOIN_L1`, `LIQUID` | 2 |
+| **USDT** | `ETHEREUM`, `POLYGON`, `BASE`, `ARBITRUM`, `TON`, `TRON`, `SOLANA` | 7 |
+| **USDC** | `ETHEREUM`, `POLYGON`, `BASE`, `ARBITRUM`, `SOLANA` | 5 |
+
+**14 total rows.**
+
+**Left the Day-0 commitment (12 rows of §5, kept here for traceability —
+not erased):** `{BTC, LIGHTNING}`, `{BTC, SPARK}`, `{BTC, ARKADE}`,
+`{DEPIX, LIQUID}`, `{DEPIX, SPARK}`, `{USDT, OPTIMISM}`,
+`{USDT, AVALANCHE}`, `{USDT, BNB_CHAIN}`, `{USDT, LIQUID}`,
+`{USDC, OPTIMISM}`, `{USDC, AVALANCHE}`, `{XAUT, ETHEREUM}`. All twelve
+are native P2P **roadmap, with no date commitment** (D4 below).
+
+**Added by this decision (1 row not in §5):** `{USDC, SOLANA}`,
+intentionally (D1 below). Arithmetic: 25 − 12 + 1 = 14, i.e. 13 retained
+rows plus 1 new row.
+
+**Binding directives carried by the decision:**
+
+1. Sails Protocol stays fully non-custodial and permissionless.
+2. Sails Market is the web reference implementation and has an
+   independent commercial layer for swaps, direct purchase, routing and
+   partner integrations.
+3. Commercial swaps and direct purchase are **not** native P2P
+   settlement providers.
+4. Adapters and infrastructure are shared where possible, especially
+   across the EVM networks, with **explicit network and provider
+   selection preserved** (§2, §4: shared implementation ≠ shared
+   maturity).
+5. The 14 rows are the complete Day-0 commitment.
+6. Cross-cutting requirements — security, recovery, external
+   integration, multi-operator operation and evidence — are **not**
+   reduced by this narrowing.
+7. Membership in this table homologates nothing. Product Scope,
+   Representability, Implementation, Evidence, Beta Eligibility and
+   Production Eligibility remain the separate facts of §7.
+
+**What does not change.** §4 (sparse, explicitly registered scopes) is
+untouched: leaving the commitment does not remove a row from the
+canonical `SettlementScope` registry. The registry in
+`src/common/settlement-scope-registry.ts` still holds the 25 rows of §5
+and `{USDC, SOLANA}` is not in it; aligning code and tests is a separate,
+separately-authorized implementation mission (D2 below). Implementation
+facts are unchanged:
+`MULTISIG` → `{BTC, BITCOIN_L1}` and `WDK_USDT_EVM` → `{USDT, ETHEREUM}`
+(testnet, server-custodial) are inside the commitment; `{USDT, TRON}`
+stays schema-only and inside it; `LIGHTNING_HODL` → `{BTC, ARKADE}` keeps
+its testnet evidence but its scope is outside the commitment. Mentions of
+"the 25 rows" in §§7 and 12 below read historically.
+
+**Decisions on the divergences found while reconciling (CTO, 2026-11-01,
+Issue #105 issuecomment-6561714306):**
+
+- **D1 — arithmetic.** The historical matrix has 25 rows; 12 leave the
+  Day-0 commitment and `{USDC, SOLANA}` is added intentionally: 25 − 12 +
+  1 = 14 (13 retained, 1 new). The earlier "11 withdrawn" wording is
+  corrected by this record.
+- **D2 — registry preserved.** The 12 entries stay in the registry and
+  the tests that verify the 25-row catalog are not touched. Four facts are
+  kept separate: the architectural catalog (25 rows), the Day-0
+  commitment (14), the registered provider, and beta/production
+  eligibility. `LIGHTNING_HODL` → `{BTC, ARKADE}` keeps its registration
+  and existing proofs without being mandatory for Day 0. An explicit
+  validation of the Day-0 commitment matrix will be created in a
+  separately authorized implementation mission; this section changes no
+  code or test.
+- **D3 — successor decision.** The 2026-09-10 clause against scope
+  reduction (`docs/BACKLOG.md` item 20) was valid for that freeze and is
+  preserved as history. The 2026-11-01 decision succeeds it and revises
+  its reach: **none of the 14 Day-0 combinations may be withdrawn silently
+  — withdrawing one requires a new Product Owner + CTO approval, with
+  justification and traceability.**
+- **D4 — destination of the 12.** Native roadmap with no date commitment
+  (all twelve rows listed above). Sails Market may offer routes, swaps and
+  direct purchase through commercial partners; that is not native P2P
+  support of the protocol. DePix may have commercial coverage through
+  Sails Market provided approved partners exist.
+
+**Effect on the Gate B decisions recorded on 2026-11-01 in Issue #105 and
+the Project README.** Items incompatible with this section — "the 25
+combinations are kept", `{BTC, ARKADE}` as a later wave, DePix as
+mandatory native P2P — are superseded and stay as history. No Gate B
+criterion is marked concluded, and nothing is homologated.
+
 ## 6. Capability, Property, and Eligibility — Four Layers, Never Collapsed
+
 
 > **Permission Capability ≠ Settlement Capability ≠ Security Property ≠
 > Production Eligibility**
