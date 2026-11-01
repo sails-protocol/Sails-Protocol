@@ -48,6 +48,14 @@ jest.mock('../src/common/redis', () => ({
       redisStore.delete(key)
       return Promise.resolve(1)
     }),
+    eval: jest.fn((_script: string, _keys: number, key: string, windowMs: number) => {
+      const next = (parseInt(redisStore.get(key) ?? '0', 10) || 0) + 1
+      redisStore.set(key, String(next))
+      // The mock models the atomic increment/expiry contract; no wall-clock
+      // expiry is required for this bounded same-window suite.
+      void windowMs
+      return Promise.resolve(next)
+    }),
     incr: jest.fn((key: string) => {
       const next = (parseInt(redisStore.get(key) ?? '0', 10) || 0) + 1
       redisStore.set(key, String(next))
@@ -147,6 +155,45 @@ describe('Rate limiting (@fastify/rate-limit, RATE_LIMIT_MAX=5, RATE_LIMIT_AUTH_
 
     const res3 = await app.inject({ method: 'POST', url: '/v1/identity/authenticate', payload: { publicKey: 'f'.repeat(64), signature: 'x' } })
     expect(res3.statusCode).toBe(429) // now its own 2-request budget is exhausted
+  })
+
+  it('uses a single atomic Redis EVAL per auth request instead of INCR followed by PEXPIRE', async () => {
+    const { redis } = require('../src/common/redis')
+    const evalSpy = redis.eval as jest.Mock
+    const incrSpy = redis.incr as jest.Mock
+    const expireSpy = redis.pexpire as jest.Mock
+    const before = evalSpy.mock.calls.length
+    await app.inject({ method: 'POST', url: '/v1/identity/challenge', payload: { publicKey: 'z'.repeat(64) } })
+    expect(evalSpy.mock.calls.length).toBe(before + 1)
+    const [script, numKeys, key, windowMs] = evalSpy.mock.calls[before]
+    expect(script).toContain("redis.call('INCR', KEYS[1])")
+    expect(script).toContain("redis.call('PEXPIRE', KEYS[1], ARGV[1])")
+    expect(numKeys).toBe(1)
+    expect(key).toContain('ratelimit:')
+    expect(windowMs).toBe(60000)
+    expect(incrSpy).not.toHaveBeenCalled()
+    expect(expireSpy).not.toHaveBeenCalled()
+  })
+
+  it('does not trust spoofed X-Forwarded-For as the auth limiter identity', async () => {
+    const { redis } = require('../src/common/redis')
+    const evalSpy = redis.eval as jest.Mock
+    const before = evalSpy.mock.calls.length
+    await app.inject({
+      method: 'POST', url: '/v1/identity/challenge',
+      headers: { 'x-forwarded-for': '203.0.113.11' },
+      payload: { publicKey: '1'.repeat(64) },
+    })
+    await app.inject({
+      method: 'POST', url: '/v1/identity/challenge',
+      headers: { 'x-forwarded-for': '198.51.100.22' },
+      payload: { publicKey: '2'.repeat(64) },
+    })
+    const keys = evalSpy.mock.calls.slice(before).map((call: unknown[]) => call[2])
+    expect(keys).toHaveLength(2)
+    expect(keys[0]).toBe(keys[1])
+    expect(String(keys[0])).not.toContain('203.0.113.11')
+    expect(String(keys[0])).not.toContain('198.51.100.22')
   })
 
   it('leaves a non-auth route on the more permissive global limit, unaffected by the auth tier being exhausted', async () => {

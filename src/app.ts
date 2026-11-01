@@ -130,28 +130,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       : false,
   })
 
-  // THREAT_MODEL.md's previously-unmitigated gap (config's own doc
-  // comment has the full reasoning). Global default here; the identity
-  // challenge/authenticate routes below layer a much tighter per-route
-  // override via `config: { rateLimit: {...} }` — those two are what a
-  // credential-stuffing attempt actually hits (RED_TEAM_REVIEW.md RT-002).
-  // Each overridden route tracks its own budget independently (verified
-  // in tests/rateLimit.test.ts) — /challenge and /authenticate do NOT
-  // share one pooled counter, a deliberate simplification for this pass
-  // rather than adding a custom shared keyGenerator/store; still a real
-  // improvement over no rate limiting at all. Keyed by request.ip by
-  // default — a deployment behind a reverse proxy needs Fastify's own
-  // `trustProxy` option set separately before that IP reflects the real
-  // client, not the proxy.
-  //
-  // package.json pins @fastify/rate-limit to exactly 11.1.0 (not a
-  // caret range) — 11.2.0's normalizeIP() throws
-  // `TypeError: Cannot read properties of undefined (reading 'toLowerCase')`
-  // whenever request.ip is undefined, which real WebSocket upgrades under
-  // Fastify's own test-injection harness (`app.injectWS()`) hit every
-  // time, turning the whole handshake into a 500 (confirmed via a real
-  // clean install + full suite run, 2026-08-10 — not assumed). Bump only
-  // after confirming upstream fixed it.
+  // Global per-process ceiling, deliberately NOT a distributed security boundary.
+  // Auth and critical routes additionally use the atomic Redis preHandler in
+  // common/middleware/redis-rate-limit.ts. In multi-instance deployments this
+  // global ceiling scales with instance count; enforce an aggregate edge limit
+  // separately before production. Fastify trustProxy is intentionally not
+  // enabled without an explicit trusted proxy topology: blindly trusting
+  // X-Forwarded-For lets callers spoof rate-limit identities. Behind a proxy,
+  // the current request.ip may represent the proxy, not the end client.
+  // @fastify/rate-limit remains pinned to 11.1.0 due to an observed
+  // WebSocket injection regression in 11.2.0; validate before upgrading.
   await app.register(rateLimit, {
     global: true,
     max: config.rateLimit.max,
