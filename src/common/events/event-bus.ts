@@ -58,6 +58,9 @@ export interface SettlementEscrowStatusChangedEvent {
   triggeredBy: string
   txId?: string
   note?: string
+  // Issue #298 - id of the EscrowEvent transition claim that produced this event: the stable
+  // identity recovery uses to tell 'claimed' from 'published' from 'projected'.
+  transitionId?: string
 }
 
 
@@ -238,6 +241,10 @@ export interface DisputeAutoResolutionProposedEvent extends DisputeEvent {
 export interface DisputeAutoResolutionContestedEvent extends DisputeEvent {
   tradeId: string
   contestedBy: string
+  // #308 — causal identity `<disputeId>:<proposal generation>:<CONTESTED|EXPIRED>`, set by the transactional
+  // outbox so a recovery after a crash can prove this transition was already published. Additive; consumers
+  // ignore it.
+  transitionKey?: string
 }
 
 // arbiter.slashed's real payload — RFC-021 D6, first real emitter is
@@ -512,6 +519,18 @@ export class SailsEventBus {
     listener: (event: import('./event-store').DurableEvent<K>) => void | Promise<void>
   ): void {
     this.store.subscribe(event, listener)
+  }
+
+  // Issue #298 - re-drive an ALREADY-persisted durable event to this instance's local handlers
+  // (recovery of an incomplete projection). Not part of the generic EventStore interface for the
+  // same reason enableCrossInstanceFanout() is not: only PostgresEventStore can reload a row by id.
+  // Safe because every economically relevant projection is idempotent per (source transition, projectionKey,
+  // subjectId) - redelivery cannot duplicate an effect. Returns false if the event does not exist.
+  async redeliver(eventId: string): Promise<boolean> {
+    if ('redeliver' in this.store) {
+      return (this.store as import('./event-store').PostgresEventStore).redeliver(eventId)
+    }
+    return false
   }
 
   // Missão 08B — thin passthrough, same shape as getEvents() above. Not
