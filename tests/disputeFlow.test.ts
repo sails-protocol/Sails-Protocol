@@ -892,17 +892,22 @@ describe('DisputeService — proposeAutoResolution() / contestAutoResolution() (
   })
 
   it('contestAutoResolution reverts to EVIDENCE_SUBMITTED and clears the auto-resolution fields', async () => {
+    const deadline = new Date(Date.now() + 3600_000)
     mockDisputeFindUnique.mockResolvedValue({
       id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED',
-      autoResolutionDeadline: new Date(Date.now() + 3600_000),
+      autoResolutionDeadline: deadline,
     })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
+    mockDisputeUpdateMany.mockResolvedValue({ count: 1 })
+    mockDisputeFindUnique.mockResolvedValueOnce({
+      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED',
+      autoResolutionDeadline: deadline,
+    }).mockResolvedValueOnce({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
 
     await service.contestAutoResolution('dispute-1', 'seller-1')
 
-    expect(mockDisputeUpdate).toHaveBeenCalledWith({
-      where: { id: 'dispute-1' },
+    expect(mockDisputeUpdateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({ id: 'dispute-1', status: 'AUTO_PROPOSED' }),
       data: {
         status: 'EVIDENCE_SUBMITTED',
         autoResolutionRecommendation: null,
@@ -963,7 +968,7 @@ describe('DisputeService — sweepExpiredAutoResolutions() (RFC-021 D8, advisory
     mockDisputeFindMany.mockResolvedValue([
       { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
     ])
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
+    mockDisputeUpdateMany.mockResolvedValue({ count: 1 })
 
     const result = await service.sweepExpiredAutoResolutions()
 
@@ -971,8 +976,8 @@ describe('DisputeService — sweepExpiredAutoResolutions() (RFC-021 D8, advisory
     expect(mockReleaseFunds).not.toHaveBeenCalled()
     expect(mockInitiateRefund).not.toHaveBeenCalled()
     expect(mockInitiateRelease).not.toHaveBeenCalled()
-    expect(mockDisputeUpdate).toHaveBeenCalledWith({
-      where: { id: 'dispute-1' },
+    expect(mockDisputeUpdateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({ id: 'dispute-1', status: 'AUTO_PROPOSED' }),
       data: { status: 'EVIDENCE_SUBMITTED', autoResolutionDeadline: null },
     })
     expect(mockEmit).toHaveBeenCalledWith(
@@ -993,7 +998,7 @@ describe('DisputeService — sweepExpiredAutoResolutions() (RFC-021 D8, advisory
     mockDisputeFindMany.mockResolvedValue([
       { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'RELEASE' },
     ])
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
+    mockDisputeUpdateMany.mockResolvedValue({ count: 1 })
 
     const result = await service.sweepExpiredAutoResolutions()
 
@@ -1007,15 +1012,28 @@ describe('DisputeService — sweepExpiredAutoResolutions() (RFC-021 D8, advisory
       { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
       { id: 'dispute-2', tradeId: 'trade-2', escrowId: 'escrow-2', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
     ])
-    mockDisputeUpdate
+    mockDisputeUpdateMany
       .mockRejectedValueOnce(new Error('row-1 update failed'))
-      .mockResolvedValueOnce({ id: 'dispute-2', status: 'EVIDENCE_SUBMITTED' })
+      .mockResolvedValueOnce({ count: 1 })
 
     const result = await service.sweepExpiredAutoResolutions()
 
     expect(result.failed).toEqual([{ disputeId: 'dispute-1', error: expect.stringContaining('row-1 update failed') }])
     expect(result.revertedToHuman).toEqual(['dispute-2'])
   })
+  it('#308 emits no event when a stale sweeper loses the AUTO_PROPOSED CAS claim', async () => {
+    const deadline = new Date(Date.now() - 1000)
+    mockDisputeFindMany.mockResolvedValue([
+      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', autoResolutionDeadline: deadline },
+    ])
+    mockDisputeUpdateMany.mockResolvedValue({ count: 0 })
+
+    const result = await service.sweepExpiredAutoResolutions()
+
+    expect(result).toEqual({ revertedToHuman: [], failed: [] })
+    expect(mockEmit).not.toHaveBeenCalled()
+  })
+
 })
 
 // UI-audit gap (2026-08-03, sails-ui SLC audit relayed via the parallel UI

@@ -1270,8 +1270,13 @@ export class DisputeService {
       throw new ValidationError(`Dispute ${disputeId}'s contest window has already closed`)
     }
 
-    const updated = await prisma.dispute.update({
-      where: { id: disputeId },
+    const expectedDeadline = dispute.autoResolutionDeadline
+    const claim = await prisma.dispute.updateMany({
+      where: {
+        id: disputeId,
+        status: 'AUTO_PROPOSED',
+        autoResolutionDeadline: expectedDeadline,
+      },
       data: {
         status: 'EVIDENCE_SUBMITTED',
         autoResolutionRecommendation: null,
@@ -1280,6 +1285,11 @@ export class DisputeService {
         autoResolutionDeadline: null,
       },
     })
+    if (claim.count === 0) {
+      throw new ValidationError(`Dispute ${disputeId} auto-resolution state changed before contest could commit`)
+    }
+    const updated = await prisma.dispute.findUnique({ where: { id: disputeId } })
+    if (!updated) throw new NotFoundError('Dispute', disputeId)
 
     await eventBus.emit('dispute.auto_resolution_contested', {
       disputeId,
@@ -1335,10 +1345,15 @@ export class DisputeService {
     const failed: Array<{ disputeId: string; error: string }> = []
     for (const dispute of expired) {
       try {
-        await prisma.dispute.update({
-          where: { id: dispute.id },
+        const claim = await prisma.dispute.updateMany({
+          where: {
+            id: dispute.id,
+            status: 'AUTO_PROPOSED',
+            autoResolutionDeadline: dispute.autoResolutionDeadline,
+          },
           data: { status: 'EVIDENCE_SUBMITTED', autoResolutionDeadline: null },
         })
+        if (claim.count === 0) continue
         await eventBus.emit('dispute.auto_resolution_contested', {
           disputeId: dispute.id,
           settlementId: dispute.escrowId,
