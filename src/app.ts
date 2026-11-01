@@ -319,10 +319,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         await fn()
         checks[label] = { ok: true, latencyMs: Date.now() - start }
       } catch (err) {
+        app.log.warn({ err, dependency: label }, 'Readiness dependency unavailable')
         checks[label] = {
           ok: false,
           latencyMs: Date.now() - start,
-          error: err instanceof Error ? err.message : String(err),
+          // Keep infrastructure exception details in internal logs, never readiness responses.
+          error: 'Dependency unavailable',
         }
       }
     }
