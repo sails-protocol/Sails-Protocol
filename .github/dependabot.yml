@@ -69,3 +69,16 @@ updates:
           - "autoprefixer"
           - "lucide-react"
           - "@radix-ui/*"
+
+  # Separate ecosystems: never mix CI action or Docker updates into npm groups.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
