@@ -1,0 +1,13 @@
+diff --git a/src/modules/open-reputation/reputation.service.ts b/src/modules/open-reputation/reputation.service.ts
+index 89ac7601..35073507 100644
+--- a/src/modules/open-reputation/reputation.service.ts
++++ b/src/modules/open-reputation/reputation.service.ts
+@@ -92,7 +92,7 @@ export class ReputationService {
+       const user = await tx.user.update({ where: { id: participantId }, data: { reputationScore: { increment: delta } } })
+       await eventBus.emit('reputation.score.updated', {
+         userId: participantId,
+-        newScore: user.reputationScore,
++        newScore: user.reputationScore - delta,
+         totalTrades: user.totalTrades,
+         tradeId,
+         ratingGiven: 0,
