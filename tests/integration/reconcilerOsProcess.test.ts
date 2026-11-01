@@ -19,7 +19,7 @@
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
-import { Fixtures, Sync, WorkerResult, blockedBy, expectCrossProcessAccounting, sleep, startWorker, waitUntil, AMOUNT_SATS } from './reconcilerProcessHarness'
+import { Fixtures, Sync, WorkerResult, blockedBy, expectCrossProcessAccounting, quiesced, sleep, startWorker, stopWorkers, waitUntil, AMOUNT_SATS } from './reconcilerProcessHarness'
 
 describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (real PostgreSQL)', () => {
   jest.setTimeout(420_000)
@@ -39,8 +39,14 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
     prisma = fx.prisma
   })
 
-  beforeEach(() => { sync = new Sync() })
-  afterEach(() => sync.cleanup())
+  beforeEach(async () => {
+    sync = new Sync()
+    if (dbAvailable) await fx.settleResidue()
+  })
+  afterEach(async () => {
+    await stopWorkers()
+    sync.cleanup()
+  })
 
   afterAll(async () => {
     if (dbAvailable) {
@@ -106,6 +112,7 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
       // The victim is inside the effect, transaction open. The survivor starts only now and must run into it.
       const [held] = await sync.allArrived('kill', ['v'])
       expect(await claimCount(held.eventId as string, held.key as string)).toBe(0)
+      await quiesced(prisma, 'v', 1)
       const via = await waitUntil(() => blockedBy(prisma, 's', 'v'), 'survivor blocked by the victim in pg_stat_activity')
       process.stdout.write(`[evidence] ${JSON.stringify({ label: `O2 contention before the kill (${victimAt})`, survivorWaitsOn: via, heldKey: held.key })}\n`)
 
@@ -123,6 +130,8 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
 
   // What is durable at the instant of death decides what recovery has to do: an effect killed `inside` leaves no
   // claim and no effect; one killed `after` leaves both and only loses its acknowledgement. Read before releasing the kill.
+  // The victim is frozen and drained first, so the transactions it holds at death are known: each published its one
+  // notification and rolls back, and the repeats must equal them exactly.
   for (const [key, phase] of [['reputation.outcome', 'inside'], ['reputation.vouch-burn', 'inside'], ['trade.completion-counters', 'after'], ['fee-floor', 'after'], ['transition.projected', 'before']] as const) {
     it(`O3 sole process SIGKILLed at ${key}/${phase}: the state at death is the expected one, and a fresh process recovers the exact economic state`, async () => {
       pg.requirePostgres(`O3 ${key}`)
@@ -131,17 +140,46 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
       const victim = startWorker({ label: 'v', escrowIds: ids(seeded), sync, killAt: `${key}:1:${phase}`, killGate: true })
       const [held] = await sync.allArrived('kill', ['v'])
       expect(held.key).toBe(key)
+      const openAtDeath = phase === 'inside' ? 1 : 0
+      await quiesced(prisma, 'v', openAtDeath)
       const atDeath = await claimCount(held.eventId as string, key)
-      process.stdout.write(`[evidence] ${JSON.stringify({ label: `O3 ${key}/${phase} state at death`, committedClaims: atDeath })}\n`)
+      process.stdout.write(`[evidence] ${JSON.stringify({ label: `O3 ${key}/${phase} state at death`, committedClaims: atDeath, openTransactions: openAtDeath })}\n`)
       expect(atDeath).toBe(phase === 'after' ? 1 : 0)
       sync.release('kill', 'v')
       died(await victim.done)
 
       const fresh = await startWorker({ label: 'r', escrowIds: ids(seeded), sync }).done
       exited(fresh)
-      await fx.verify(buyer.id, seeded, { label: `O3 ${key}/${phase}`, maxRepeatedNotifications: phase === 'inside' ? 1 : 0 })
+      const { repeatedNotifications } = await fx.verify(buyer.id, seeded, { label: `O3 ${key}/${phase}`, maxRepeatedNotifications: openAtDeath })
+      expect(repeatedNotifications).toBe(openAtDeath)
     })
   }
+
+  // The failure the frozen O3 cases exclude, produced on purpose: another transition of the same process is inside its
+  // claim transaction when the kill lands on a committed effect. Commit and rollback are read, not inferred.
+  it('O3 a transition in flight beside the one killed at fee-floor/after: its notification is durable, its claim is not, and it alone repeats', async () => {
+    pg.requirePostgres('O3 in flight')
+    const buyer = await fx.user()
+    const seeded = await fx.seed(buyer.id, 3)
+    const peer = seeded[2]
+    const victim = startWorker({ label: 'v', escrowIds: ids(seeded), sync, gates: [{ name: 'peer', at: `reputation.outcome:1:inside:${peer.transitionId}` }], killAt: 'fee-floor:1:after', killGate: true, killWith: 'peer' })
+    const [inFlight] = await sync.allArrived('peer', ['v'])
+    await sync.allArrived('kill', ['v'])
+    await quiesced(prisma, 'v', 1)
+
+    const peerNotices = async () => (await fx.scoreNotifications(inFlight.subject as string)).filter((n) => n.tradeId === peer.tradeId)
+    const atDeath = { claim: await claimCount(peer.transitionId, 'reputation.outcome'), notices: (await peerNotices()).length }
+    process.stdout.write(`[evidence] ${JSON.stringify({ label: 'O3 in flight, state at death', openTransactions: 1, ...atDeath })}\n`)
+    expect(atDeath).toEqual({ claim: 0, notices: 1 })
+    sync.release('kill', 'v')
+    died(await victim.done)
+
+    exited(await startWorker({ label: 'r', escrowIds: ids(seeded), sync }).done)
+    const { repeatedNotifications } = await fx.verify(buyer.id, seeded, { label: 'O3 in flight', maxRepeatedNotifications: 1 })
+    expect(repeatedNotifications).toBe(1)
+    // The score may differ: the repeat reads the user's score again, and other transitions may have moved it since.
+    expect(await peerNotices()).toHaveLength(2)
+  })
 
   // O4: one disputed release has three participants (buyer, seller, a voucher of the seller). A kill after a
   // notification was published but before its claim committed must repeat THAT notification and no other, and every
@@ -150,7 +188,9 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
     pg.requirePostgres('O4 baseline')
     const buyer = await fx.user()
     const seeded = await fx.seed(buyer.id, 1)
-    exited(await startWorker({ label: 'r', escrowIds: ids(seeded), sync }).done)
+    const worker = await startWorker({ label: 'r', escrowIds: ids(seeded), sync }).done
+    exited(worker)
+    expect(worker.stats!.effectFailures).toBe(0)
     await fx.verify(buyer.id, seeded, { label: 'O4 baseline', maxRepeatedNotifications: 0 })
   })
 
@@ -162,6 +202,7 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
       const s = seeded[0]
       const victim = startWorker({ label: 'v', escrowIds: ids(seeded), sync, killAt: point, killGate: true })
       await sync.allArrived('kill', ['v'])
+      await quiesced(prisma, 'v', 1)
 
       // The window itself: the notification is already durable while the claim and the effect it reports are not.
       const participant = { buyer: buyer.id, seller: s.sellerId, voucher: s.voucherId!, completion: buyer.id }[who]

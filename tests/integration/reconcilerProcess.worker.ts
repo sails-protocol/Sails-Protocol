@@ -19,7 +19,9 @@
 //   <key>:<nth>:after        the same effect, after its transaction committed
 //   publish:<nth>[:<id>]     before the nth settlement.escrow.* durable event this process publishes (of that transition, if given)
 // KILL_AT="<key>:<nth>:<phase>" terminates this process with SIGKILL there (KILL_GATE=1: only once the test releases
-// the `kill` gate, so the state at the moment of death can be inspected first).
+// the `kill` gate, so the state at the moment of death can be inspected first). From that point the process FREEZES:
+// nothing new starts, so a test can wait for what was already in flight to finish and know what the kill will roll back.
+// KILL_WITH=<gate>: the kill point first waits for this worker to stand at that gate (a transition held in flight).
 // WAIT_FOR=<file>[,<file>] holds the whole worker back until those files exist in SYNC_DIR.
 //
 // FANOUT=1 enables the production cross-instance fanout on the worker's Redis (REDIS_URL), exactly as app.ts does.
@@ -74,6 +76,9 @@ const pools: Array<{ options: { max: number }; totalCount: number; idleCount: nu
 // outcome - delivered or failed - is part of the reported statistics rather than lost to the exit.
 const pendingPublishes = new Set<Promise<unknown>>()
 
+let frozen = false
+const never = new Promise<never>(() => {})
+
 async function finish(code: number): Promise<never> {
   await Promise.race([Promise.allSettled([...pendingPublishes]), sleep(10_000)])
   stderr('WORKER_STATS ' + JSON.stringify(stats))
@@ -106,12 +111,18 @@ async function main(): Promise<void> {
   const realApply = eventProjection.applyEventProjectionOnce
   const act = async (p: Point, info: Record<string, unknown>) => {
     if (p.kill) {
+      if (process.env.KILL_WITH) {
+        const held = path.join(syncDir, `${label}.${process.env.KILL_WITH}.arrived`)
+        while (!existsSync(held)) await sleep(20)
+      }
+      frozen = true
       if (process.env.KILL_GATE) await gate('kill', info)
       die()
     }
     await gate(p.name, info)
   }
   eventProjection.applyEventProjectionOnce = async (id: string, key: string, subject: string, apply: (tx: unknown) => Promise<void>, client?: unknown) => {
+    if (frozen) await never
     const info = { eventId: id, key, subject }
     const mine = points.filter((p) => p.key === key && (!p.only || p.only === id))
     for (const p of mine) if (p.phase === 'before' && ++p.seen === p.nth) await act(p, info)
@@ -201,11 +212,13 @@ async function main(): Promise<void> {
   const deadline = Date.now() + Number(process.env.WORKER_DEADLINE_MS ?? 90_000)
   while (Date.now() < deadline) {
     await reconcilePendingSettlements({ projectionGraceMs: 0 })
+    if (frozen) await never
     // PASS 3 redelivers the first durable event only; a duplicate reaches a consumer through at-least-once delivery.
     const durable = await prisma.$queryRaw`
       SELECT d.id FROM durable_events d JOIN escrow_events e ON d.payload->>'transitionId' = e.id
       WHERE e."escrowId" = ANY(${escrowIds})`
     for (const { id } of durable as Array<{ id: string }>) await eventBus.redeliver(id)
+    if (frozen) await never
     const done = await prisma.$queryRaw<Array<{ n: bigint }>>`
       SELECT count(*) AS n FROM event_projection_claims p JOIN escrow_events e ON p."subjectId" = e.id
       WHERE p."projectionKey" = 'transition.projected' AND e."escrowId" = ANY(${escrowIds})`

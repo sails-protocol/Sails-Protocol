@@ -87,6 +87,8 @@ export interface WorkerOptions {
   killAt?: string
   /** The process dies only once the test releases the `kill` gate, so the state at the moment of death can be read first. */
   killGate?: boolean
+  /** The kill point first waits for this worker to stand at this gate. */
+  killWith?: string
   waitFor?: string[]
   livePublish?: Seeded['live'][]
   role?: 'publisher'
@@ -185,6 +187,7 @@ export function startWorker(o: WorkerOptions): WorkerHandle {
       ...(o.gates ? { GATES: JSON.stringify(o.gates) } : {}),
       ...(o.killAt ? { KILL_AT: o.killAt } : {}),
       ...(o.killGate ? { KILL_GATE: '1' } : {}),
+      ...(o.killWith ? { KILL_WITH: o.killWith } : {}),
       ...(o.waitFor ? { WAIT_FOR: o.waitFor.join(',') } : {}),
       ...(o.livePublish ? { LIVE_PUBLISH: JSON.stringify(o.livePublish) } : {}),
       ...(o.role ? { ROLE: o.role } : {}),
@@ -203,7 +206,31 @@ export function startWorker(o: WorkerOptions): WorkerHandle {
     const raw = /WORKER_STATS (\{.*\})/.exec(stderr)?.[1]
     resolve({ label: o.label, code, signal, stderr, stats: raw ? JSON.parse(raw) : null, txTimeouts, killed: stderr.includes('SIGKILL_MARKER') && code !== 0 })
   }))
+  const stop = async () => { child.kill('SIGKILL'); await done }
+  running.add(stop)
+  void done.then(() => running.delete(stop))
   return { label: o.label, pid: child.pid!, done }
+}
+
+const running = new Set<() => Promise<void>>()
+
+/** After each test: a worker left behind by a failed test must not run on into the next one. */
+export async function stopWorkers(): Promise<void> {
+  await Promise.all([...running].map((stop) => stop()))
+}
+
+/**
+ * Waits until worker `label` holds exactly `expected` open transactions. A transaction queued on a lock does not count:
+ * it holds no claim and has published nothing. With the worker frozen at a kill point the number can only fall, so this
+ * is what the kill will roll back, read from PostgreSQL rather than assumed.
+ */
+export async function quiesced(prisma: PrismaClient, label: string, expected: number): Promise<void> {
+  await waitUntil(async () => {
+    const rows = await prisma.$queryRaw<Array<{ n: bigint }>>`
+      SELECT count(*) AS n FROM pg_stat_activity
+      WHERE application_name = ${'osp-' + label} AND xact_start IS NOT NULL AND wait_event_type IS DISTINCT FROM 'Lock'`
+    return Number(rows[0].n) === expected
+  }, `worker ${label} holding exactly ${expected} open transaction(s)`)
 }
 
 /**
@@ -252,6 +279,16 @@ export class Fixtures {
     intentEngine.registerHandler(OpenP2PTradeIntentHandler)
     // Deliberately no registerEventHandlers(): the only consumers of these transitions live in the workers.
   }
+
+  /**
+   * PASS 3 is database-wide and other suites leave unprojected transitions in the same database, so a worker would
+   * project them too. Marks every transition of the past as projected: a test's workers see only its own seeds.
+   */
+  settleResidue = () => this.prisma.$executeRaw`
+    INSERT INTO event_projection_claims (id, "eventId", "projectionKey", "subjectId")
+    SELECT gen_random_uuid()::text, "eventId", 'transition.projected', "eventId" FROM event_projection_claims
+    WHERE "projectionKey" = 'transition.claimed'
+    ON CONFLICT DO NOTHING`
 
   user = (data: Record<string, unknown> = {}) => this.prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex'), ...data } })
 

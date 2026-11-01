@@ -15,7 +15,7 @@
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
-import { Fixtures, RedisProxy, Sync, WorkerResult, blockedBy, channelSubscribers, expectCrossProcessAccounting, startWorker, waitUntil } from './reconcilerProcessHarness'
+import { Fixtures, RedisProxy, Sync, WorkerResult, blockedBy, channelSubscribers, expectCrossProcessAccounting, quiesced, startWorker, stopWorkers, waitUntil } from './reconcilerProcessHarness'
 
 describe('Issue #253 - cross-instance fanout enabled and failing; live publication racing the reconciler (real PostgreSQL, real Redis)', () => {
   jest.setTimeout(300_000)
@@ -37,8 +37,14 @@ describe('Issue #253 - cross-instance fanout enabled and failing; live publicati
     await proxy.start()
   })
 
-  beforeEach(() => { sync = new Sync() })
-  afterEach(() => sync.cleanup())
+  beforeEach(async () => {
+    sync = new Sync()
+    if (dbAvailable) await fx.settleResidue()
+  })
+  afterEach(async () => {
+    await stopWorkers()
+    sync.cleanup()
+  })
 
   afterAll(async () => {
     if (dbAvailable) {
@@ -103,6 +109,7 @@ describe('Issue #253 - cross-instance fanout enabled and failing; live publicati
 
     // The victim is inside an effect with its transaction open (its notification already published) and the survivor is contending for it.
     await sync.allArrived('kill', ['v'])
+    await quiesced(prisma, 'v', 1)
     const via = await waitUntil(() => blockedBy(prisma, 's', 'v'), 'survivor blocked by the victim')
 
     // Redis goes away NOW: Redis itself must report no subscriber left before the victim is allowed to die.
