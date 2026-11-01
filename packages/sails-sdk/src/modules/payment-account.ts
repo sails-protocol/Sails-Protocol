@@ -17,6 +17,9 @@ export interface PaymentAccount {
   signed: boolean
   signedBy: string | null
   signedAt: string | null
+  /** #235 R7C — what made `signed` true: PEER (buyer of `attestedTradeId`), VOUCHER (RFC-021 D7) or LEGACY (signed before R7C). Null while unsigned. */
+  attestationSource?: 'PEER' | 'VOUCHER' | 'LEGACY' | null
+  attestedTradeId?: string | null
   completedTrades: number
   chargebacks: number
 }
@@ -71,8 +74,15 @@ export class SailsPaymentAccountModule {
    * Requires an active session. RFC-021 D1's narrow attestation framing:
    * the caller is attesting a specific completed trade, not vouching for
    * the account owner generally.
+   *
+   * #235 R7C — `tradeId` is required by the server: only the buyer of that
+   * trade may attest, only once it completed cleanly (no dispute), and only
+   * the payment account bound to it. `accountHash` is the hash of the
+   * account you actually paid into (`hashPaymentAccount()`); it must match
+   * the trade's bound account. Optional here only so existing call sites
+   * still compile; without it the server answers 400.
    */
-  async sign(accountHash: string): Promise<PaymentAccount> {
-    return this.transport.post<PaymentAccount>(`/v1/settlement/payment-accounts/${accountHash}/sign`, undefined, true)
+  async sign(accountHash: string, tradeId?: string): Promise<PaymentAccount> {
+    return this.transport.post<PaymentAccount>(`/v1/settlement/payment-accounts/${accountHash}/sign`, { tradeId }, true)
   }
 }

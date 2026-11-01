@@ -119,7 +119,7 @@ const mockDisputeFindFirst = jest.fn().mockResolvedValue({ id: 'dispute-1', trad
 // these same two mocks are reused on the `tx` object below so both the
 // top-level and transactional escrowEvent access route through one
 // shared, observable mock.
-const mockEscrowEventCreate = jest.fn().mockResolvedValue({})
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 
 jest.mock('../src/common/database', () => ({
@@ -150,7 +150,14 @@ jest.mock('../src/common/database', () => ({
     // tests/integration/escrowFundingConcurrency.test.ts).
     $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
       callback({
+        // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+        eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
         $executeRaw: jest.fn().mockResolvedValue(0),
+        // Issue #291 - persistSettlementResult() reads then writes the escrow inside its own locked transaction.
+        escrow: {
+          findUnique: jest.fn(async () => ({ ...fakeDb.escrow })),
+          update: jest.fn(async ({ data }: any) => { Object.assign(fakeDb.escrow, data); return { ...fakeDb.escrow } }),
+        },
         escrowEvent: { findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args), create: (...args: unknown[]) => mockEscrowEventCreate(...args) },
       })
     ),
@@ -202,6 +209,9 @@ describe('Race condition — concurrent releaseFunds() vs refundFunds() on the s
     // one specific interleaving rather than the guard itself.
     for (let i = 0; i < 20; i++) {
       fakeDb.escrow.status = 'DISPUTED'
+      // Each iteration models a FRESH escrow: a settlement result is write-once (Issue #291), so a
+      // result left over from the previous iteration would (correctly) make the next one a conflict.
+      fakeDb.escrow.txReleaseId = null
       const delayFirst = i % 2 === 0
       const release = (delayFirst ? Promise.resolve().then(() => null) : Promise.resolve()).then(() =>
         escrowService.releaseFunds('escrow-1', '0xbuyer', 'arbiter-1')

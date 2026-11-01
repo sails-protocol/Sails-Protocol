@@ -31,6 +31,7 @@ import type {
   EscrowPendingTransaction,
   EscrowType,
   PaginatedDisputes,
+  PaymentMethod,
 } from "../types";
 
 /**
@@ -296,8 +297,25 @@ export function recommendedEscrowType(
   return RECOMMENDED_ESCROW_TYPE[asset];
 }
 
+/**
+ * #235 R7H-E3B — the trade-limit policy in force (`GET /v1/settlement/economic-policy`): every governed rail with
+ * whether it is eligible now, and the payment methods the version allows. Informational — the server re-checks
+ * the binding when the escrow is created; this tells a client up front which offers can carry a protected escrow.
+ */
+export interface EconomicPolicy {
+  version: number | null;
+  label: string | null;
+  rails: Array<{ escrowType: EscrowType; asset: AssetType; eligible: boolean }>;
+  paymentMethods: Array<{ paymentMethod: PaymentMethod; eligible: boolean }>;
+}
+
 export class SailsSettlementModule {
   constructor(private readonly transport: SailsTransport) {}
+
+  /** Public, no session needed. See {@link EconomicPolicy}. */
+  async economicPolicy(): Promise<EconomicPolicy> {
+    return this.transport.get<EconomicPolicy>("/v1/settlement/economic-policy");
+  }
 
   /**
    * Requires an active session. If `type` is omitted, it's resolved via

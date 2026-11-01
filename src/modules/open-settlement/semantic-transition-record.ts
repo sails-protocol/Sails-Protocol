@@ -37,6 +37,8 @@ import { prisma } from '../../common/database'
 import type { Prisma } from '@prisma/client'
 import { TransitionRecord } from '@sails/core'
 import { escrowRepository } from './escrow-repository'
+import { claimEscrowTransitionRecord } from './escrow-transition-claim'
+import { EscrowError } from '../../common/errors'
 
 type SemanticTransitionRecordRow = NonNullable<Awaited<ReturnType<typeof prisma.semanticTransitionRecord.findUnique>>>
 
@@ -127,7 +129,7 @@ class PrismaSemanticTransitionRecordRepository implements SemanticTransitionReco
 export const semanticTransitionRecordRepository: SemanticTransitionRecordRepository = new PrismaSemanticTransitionRecordRepository()
 
 export type AuthoritativeCommitResult =
-  | { readonly committed: true; readonly record: SemanticTransitionRecordRow }
+  | { readonly committed: true; readonly record: SemanticTransitionRecordRow; readonly transitionId: string }
   | { readonly committed: false; readonly reason: 'STATE_TRANSITION_LOST_RACE' }
 
 /**
@@ -145,25 +147,39 @@ export type AuthoritativeCommitResult =
  * transaction, undoing the State claim too — a transition must never
  * exist without its required Record.
  *
- * This function does NOT call emitEscrowTransition() — event emission
- * remains a separate step after this atomic unit succeeds, unchanged
- * from how claimEscrowTransition()/emitEscrowTransition() already
- * compose today (mission §49's own target sketch).
+ * The escrow transition itself (its hash-chained EscrowEvent and the
+ * 'transition.claimed' marker, claimEscrowTransitionRecord()) is claimed in
+ * this same transaction: a durable EXPIRED always has the durable claim
+ * from which settlement reconciliation PASS 3 re-publishes its canonical
+ * event if the publish that follows this commit never happens (a crash, a
+ * failed publish). Publishing stays a separate step after this atomic unit
+ * succeeds (publishEscrowTransition(), escrow-lifecycle.ts), with the
+ * returned transitionId as the event's identity.
  */
 export async function commitAuthoritativeEscrowTimelockExpiry(
   escrowId: string,
   fromStatus: string,
   toStatus: string,
   record: TransitionRecord<EscrowTimelockExpiryPayload>,
+  transition: { triggeredBy: string; eventName: string; note?: string },
 ): Promise<AuthoritativeCommitResult> {
   const row = toSemanticTransitionRecordRow(record)
 
   return prisma.$transaction(async (tx) => {
+    // The escrow's advisory lock (withEscrowFundingLock()'s), taken before the state claim: it serializes
+    // the EscrowEvent hash chain with every other transition claim of this escrow.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
     const claimedCount = await escrowRepository.claimTransition(escrowId, fromStatus, toStatus, tx)
     if (claimedCount === 0) {
       return { committed: false, reason: 'STATE_TRANSITION_LOST_RACE' } as const
     }
     const created = await semanticTransitionRecordRepository.create(row, tx)
-    return { committed: true, record: created } as const
+    const transitionId = await claimEscrowTransitionRecord(tx, { escrowId, from: fromStatus, to: toStatus, ...transition })
+    if (!transitionId) {
+      // The escrow was still in fromStatus, so a transition to toStatus cannot already exist unless rows
+      // were written by hand. Fail closed: roll the state claim and the Record back with it.
+      throw new EscrowError(`Escrow ${escrowId} already has a ${toStatus} transition recorded while still ${fromStatus} - not committing a second one`)
+    }
+    return { committed: true, record: created, transitionId } as const
   })
 }

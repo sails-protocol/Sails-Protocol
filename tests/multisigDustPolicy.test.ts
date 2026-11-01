@@ -1,3 +1,4 @@
+import { withPersistedFundingAddress } from './helpers/persistedFundingAddress'
 /**
  * Missão 10, Fase 4 — dust/output policy at the release/refund/split
  * level (buildUnsignedRelease/buildUnsignedRefund/buildUnsignedSplit).
@@ -25,7 +26,7 @@ const SELLER_PUBKEY = '038e41e2cb09677fd4bde9f232871533925c4b628c25efdb9d5725462
 function loadProvider() {
   jest.resetModules()
   process.env = { ...ORIGINAL_ENV, MOCK_ESCROW: 'false', MULTISIG_SEED: 'seed-dust', TRUSTED_ARBITRATORS: 'arb-dust' }
-  return require('../src/modules/open-settlement/multisig.provider')
+  return withPersistedFundingAddress(require('../src/modules/open-settlement/multisig.provider'))
 }
 afterAll(() => { process.env = ORIGINAL_ENV })
 
@@ -60,7 +61,7 @@ function loadMainnetProvider() {
   // (the method that actually reads this value), so the number
   // itself is inert here — set for boot-time validity only.
   process.env = { ...ORIGINAL_ENV, MOCK_ESCROW: 'false', MULTISIG_SEED: 'seed-dust', TRUSTED_ARBITRATORS: 'arb-dust', MULTISIG_NETWORK: 'bitcoin', MULTISIG_EXPLORER_API_URL: 'https://mempool.space/api', MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS: '1' }
-  return require('../src/modules/open-settlement/multisig.provider')
+  return withPersistedFundingAddress(require('../src/modules/open-settlement/multisig.provider'))
 }
 
 const P2WPKH_ADDR = 'bc1q7mrvhs3xxzg9jyesd60nvda26ueukn9nc404xk' // real Missão 09 buyer payout address

@@ -55,6 +55,7 @@ function loadEscrowServiceWithSeed(seed: string): typeof import('../../src/modul
 
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferRow, boundTradeRow, sellerPixAccount } from './economicFixtures'
 import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from 'tiny-secp256k1'
 import { ECPairFactory } from 'ecpair'
@@ -96,11 +97,12 @@ describe('Escrow arbiter public-key commitment — real lifecycle + DB-native im
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-${suffix}` } })
     const seller = await prisma.user.create({ data: { publicKey: `pk-seller-${suffix}` } })
+    const acct = await sellerPixAccount(prisma, seller.id)
     const offer = await prisma.offer.create({
-      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '50000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' },
+      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '50000', minAmount: '0.001', maxAmount: '1', ...boundOfferRow(acct) },
     })
     const trade = await prisma.trade.create({
-      data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '50000', totalUsd: '50' },
+      data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '50000', totalUsd: '50' },
     })
     return { buyer, seller, trade }
   }
@@ -117,7 +119,7 @@ describe('Escrow arbiter public-key commitment — real lifecycle + DB-native im
     const buyerPubkeyHex = Buffer.from(buyerKey.publicKey).toString('hex')
     const sellerPubkeyHex = Buffer.from(sellerKey.publicKey).toString('hex')
 
-    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, buyer.id)
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, seller.id)
     expect(escrow.multisigAddr).toBeNull() // client-held-keys pass — no address until both pubkeys arrive
 
     // Missão 11 Fase 9.1.1 — fail-closed capability declaration required.
@@ -224,11 +226,12 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-${suffix}` } })
     const seller = await prisma.user.create({ data: { publicKey: `pk-seller-${suffix}` } })
+    const acct = await sellerPixAccount(prisma, seller.id)
     const offer = await prisma.offer.create({
-      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '50000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' },
+      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '50000', minAmount: '0.001', maxAmount: '1', ...boundOfferRow(acct) },
     })
     const trade = await prisma.trade.create({
-      data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '50000', totalUsd: '50' },
+      data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '50000', totalUsd: '50' },
     })
     return { buyer, seller, trade }
   }
@@ -255,7 +258,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     const buyerPubkeyHex = Buffer.from(buyerKey.publicKey).toString('hex')
     const sellerPubkeyHex = Buffer.from(sellerKey.publicKey).toString('hex')
 
-    const escrow = await svc.createEscrow({ tradeId: trade.id, type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, buyer.id)
+    const escrow = await svc.createEscrow({ tradeId: trade.id, type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, seller.id)
     // Missão 11 Fase 9.1.1 — fail-closed capability declaration required.
     await svc.submitParticipantKey(escrow.id, buyer.id, buyerPubkeyHex, MULTISIG_CAPABILITY_PROFILE_V1)
     await svc.submitParticipantKey(escrow.id, seller.id, sellerPubkeyHex, MULTISIG_CAPABILITY_PROFILE_V1)
@@ -362,7 +365,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     const buyerPubkeyHex = Buffer.from(buyerKey.publicKey).toString('hex')
     const sellerPubkeyHex = Buffer.from(sellerKey.publicKey).toString('hex')
 
-    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, buyer.id)
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG' as any, lockedAmount: '0.001', asset: 'BTC' as any }, seller.id)
     // Missão 11 Fase 9.1.1 — fail-closed capability declaration required.
     await escrowService.submitParticipantKey(escrow.id, buyer.id, buyerPubkeyHex, MULTISIG_CAPABILITY_PROFILE_V1)
     await escrowService.submitParticipantKey(escrow.id, seller.id, sellerPubkeyHex, MULTISIG_CAPABILITY_PROFILE_V1)

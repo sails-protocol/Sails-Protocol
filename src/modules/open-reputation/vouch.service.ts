@@ -30,8 +30,9 @@
  */
 import { prisma } from '../../common/database'
 import { NotFoundError, ValidationError } from '../../common/errors'
+import { applyEventProjectionOnce } from '../../common/events/event-projection'
 import { eventBus } from '../../common/events/event-bus'
-import { reputationService } from './reputation.service'
+import { reputationService, VOUCH_BURN_PENALTY } from './reputation.service'
 
 // A voucher needs real trade history before their attestation means
 // anything — otherwise a brand-new account could vouch for another
@@ -92,6 +93,32 @@ export class VouchService {
    * for them, the trust every one of them extended was equally
    * misplaced) — each burn independently penalizes its own voucher.
    */
+  /**
+   * Issue #298 - burnVouchesFor() applied at most ONCE per (durable eventId,
+   * vouchee): every vouch burn (CAS on burnedAt IS NULL) and its voucher score
+   * penalty commit with the projection claim in one transaction; notification
+   * events go out only after commit, only from the call that applied it.
+   */
+  async burnVouchesForOnce(eventId: string, voucheeId: string): Promise<boolean> {
+    const burned: Array<{ vouchId: string; voucherId: string; newScore: number; totalTrades: number }> = []
+    const applied = await applyEventProjectionOnce(eventId, 'reputation.vouch-burn', voucheeId, async (tx) => {
+      const vouches = await tx.vouch.findMany({ where: { voucheeId, burnedAt: null } })
+      for (const vouch of vouches) {
+        const cas = await tx.vouch.updateMany({ where: { id: vouch.id, burnedAt: null }, data: { burnedAt: new Date() } })
+        if (cas.count === 0) continue
+        const user = await tx.user.update({ where: { id: vouch.voucherId }, data: { reputationScore: { increment: VOUCH_BURN_PENALTY } } })
+        burned.push({ vouchId: vouch.id, voucherId: vouch.voucherId, newScore: user.reputationScore, totalTrades: user.totalTrades })
+      }
+    })
+    if (applied) {
+      for (const b of burned) {
+        await eventBus.emit('reputation.score.updated', { userId: b.voucherId, newScore: b.newScore, totalTrades: b.totalTrades, tradeId: null, ratingGiven: 0 }, b.voucherId)
+        await eventBus.emit('reputation.vouch.burned', { voucherId: b.voucherId, voucheeId, vouchId: b.vouchId }, voucheeId)
+      }
+    }
+    return applied
+  }
+
   async burnVouchesFor(voucheeId: string): Promise<void> {
     const vouches = await prisma.vouch.findMany({ where: { voucheeId, burnedAt: null } })
     for (const vouch of vouches) {

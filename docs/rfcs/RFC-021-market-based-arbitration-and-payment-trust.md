@@ -166,7 +166,25 @@ effectiveStake(candidate) = monetaryCollateral(candidate)
 ```
 
 - `monetaryCollateral` — BTC/USDT posted into escrow for this
-  arbitration role, refundable only if never slashed.
+  arbitration role, refundable only if never slashed. **Corrected
+  (Issue #255, 2026-09-22):** this line described the intended design,
+  not the shipped code. `MarketArbitrationProvider.register()` (called
+  from `POST /v1/settlement/arbitration/register`) accepts
+  `monetaryCollateral` as a bare, caller-declared decimal string —
+  there is no deposit txid, no on-chain lock, no escrow, and no funding
+  verification of any kind anywhere in this codebase. `slash()`
+  likewise only ever decrements this same internal `ArbiterProfile`
+  column; there is no external seizure/burn to perform. Real economic
+  consequences DO flow from the declared number regardless (the
+  eligibility/selection/appeal-panel weighting below is real code, not
+  aspirational) — which is exactly why Issue #255 classifies this
+  capability as **not economically backed** and refuses to boot with
+  `ARBITRATION_MODE=market` in production
+  (`arbitration-policy.ts`'s `assertMarketArbitrationCollateralProductionEligible()`)
+  until a real funding/custody adapter exists. Safe as a deliberate
+  dev/test/sandbox capability, same as `MOCK` escrow already is; never
+  safe as something a production deployment treats as real, verified
+  stake.
 - `reputationAtRisk` — a portion of the candidate's accumulated
   arbiter-reputation score, converted to an "at-risk" value. Reputation
   is not free to lose: a veteran arbiter with little capital but years
@@ -199,7 +217,10 @@ effectiveStake(candidate) = monetaryCollateral(candidate)
   `MarketArbitrationProvider.slash()`): forfeits
   `SLASH_COLLATERAL_FRACTION` (starting `0.5`) of posted collateral
   plus a fixed reputation penalty (`OVERTURNED_PENALTY`, starting
-  `-10`, floored at 0).
+  `-10`, floored at 0). **Corrected (Issue #255):** "posted collateral"
+  here means the same declared, not-economically-backed
+  `monetaryCollateral` column — see the D3 correction above; this is an
+  internal `ArbiterProfile` decrement, not an external seizure.
 
 ### D4 — Cost-to-fabricate floor (fee-based reputation lower bound)
 
@@ -302,6 +323,30 @@ this, not assumed:
   limits for that account start low and increase gradually with
   signed, uncontested history — mirroring Bisq's real 0.002 BTC
   starting cap that phases in fully over time.
+  **Implementado 2026-10-05 (#235 R7C, CTO decision):** the signer is
+  the **buyer** (fiat sender) of a specific trade, not the assigned
+  arbiter — a clean trade has no persistent arbiter on most rails. The
+  attested account is the **seller's** (fiat receiver's), bound to the
+  trade when it is created; only a clean COMPLETED trade (escrow released,
+  no dispute) authorizes the attestation, and the owner, unrelated
+  participants and other trades cannot. Provenance is recorded
+  (`PEER`/`VOUCHER`/`LEGACY`). Before this, any authenticated participant
+  could sign any account, including their own. Trade-limit enforcement
+  and ramp progression (`completedTrades`/`chargebacks`) are still not
+  wired (#235, R7/N2).
+  **Implementado 2026-10-05 (#235 R7D):** `completedTrades` now advances
+  exactly once per clean completion (escrow COMPLETED, no dispute ever) of
+  a trade bound to the account. **Chargebacks are fail-closed by CTO
+  policy (Day-0):** `chargebacks` is still read by the ramp (any value > 0
+  caps the account at `SIGNED_TRADE_LIMIT`), but no canonical fiat-reversal
+  authority exists to write it — escrow refund, cancellation, dispute,
+  ruling, SPLIT, MOOT and fee reversal are not chargebacks, so nothing is
+  inferred. Future chargeback support requires a separate canonical
+  fiat-reversal authority with provenance, immutable trade/account
+  binding (`tradeId` and its `sellerPaymentAccountId`), a defined
+  source/authority, authorization, idempotency, exactly-once semantics,
+  restart/replay safety and contestability where applicable; it is
+  outside #235 R7D and is not implemented.
 - **Implemented** (RFC-021 Phase 4): `PaymentAccount` model in
   `prisma/schema.prisma`, `payment-account.service.ts`'s
   `hashAccountIdentifier()` (server-side SHA-256, reference/test only)

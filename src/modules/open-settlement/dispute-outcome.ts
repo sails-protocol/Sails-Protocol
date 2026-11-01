@@ -52,7 +52,7 @@
  * caller-supplied or profile-mutation fallback.
  */
 import { prisma } from '../../common/database'
-import type { Prisma } from '@prisma/client'
+import type { DisputeStatus, Prisma } from '@prisma/client'
 import { EscrowError, ValidationError } from '../../common/errors'
 import type { AssetType } from '../../common/types'
 import {
@@ -80,7 +80,7 @@ import {
   buildOutcomeDestinationBinding,
   buildAttributedArbitrationTransitionRecord,
 } from './economic-outcome'
-import { economicDispositionLockKey } from './economic-disposition-authority'
+import { economicDispositionLockKey } from './economic-disposition-lock'
 
 type SemanticTransitionRecordRow = NonNullable<Awaited<ReturnType<typeof prisma.semanticTransitionRecord.findUnique>>>
 
@@ -230,7 +230,9 @@ function toDisputeRulingTransitionRecordRow(
 }
 
 export type DisputeRulingCommitResult =
-  | { readonly committed: true; readonly destinations: readonly BeneficiaryDestination[] }
+  // displacedStatus: the Dispute status this commit actually replaced with RESOLVED, read under the row
+  // lock — the only correct target if the caller later has to revert this ruling.
+  | { readonly committed: true; readonly destinations: readonly BeneficiaryDestination[]; readonly displacedStatus: DisputeStatus }
   | { readonly committed: false; readonly reason: 'NOT_ATTRIBUTED' }
   | { readonly committed: false; readonly reason: 'DISPUTE_STATE_LOST_RACE' }
 
@@ -278,8 +280,22 @@ export async function commitAuthoritativeDisputeRuling(
     // resolve-write and the Commit Gate's own re-validation.
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
 
+    // The state this ruling displaces is read HERE, under a row lock, never taken from the caller's earlier
+    // read (`dispute.status` is not used for provenance). The advisory lock above only serializes the
+    // economic-disposition writers (rulings, appeal()); contest, the expiry sweep, evidence submission and
+    // proposals change the status with plain conditional updates, so without FOR UPDATE the row could still
+    // move between this read and the claim. With it, those writers wait for this transaction and then see
+    // RESOLVED (their own conditions then fail), and anything they committed before is what is read here.
+    const [locked] = await tx.$queryRaw<Array<{ status: DisputeStatus; appealRound: number; arbiterId: string | null }>>`
+      SELECT status::text AS status, "appealRound", "arbiterId" FROM disputes WHERE id = ${dispute.id} FOR UPDATE`
+    if (!locked || locked.status === 'RESOLVED' || locked.status === 'MOOT' || locked.arbiterId !== payload.authorityId || locked.appealRound !== payload.appealRound) {
+      return { committed: false, reason: 'DISPUTE_STATE_LOST_RACE' } as const
+    }
+
     const claim = await tx.dispute.updateMany({
-      where: { id: dispute.id, status: { not: 'RESOLVED' }, arbiterId: payload.authorityId },
+      // The signed appeal round is part of the claim: a decision signed for round N never commits over a
+      // dispute that appeal() has since moved to another round.
+      where: { id: dispute.id, status: locked.status, appealRound: payload.appealRound, arbiterId: payload.authorityId },
       data: {
         status: 'RESOLVED',
         ruling: payload.outcome,
@@ -303,7 +319,7 @@ export async function commitAuthoritativeDisputeRuling(
 
     const interaction = createInteractionId(dispute.escrowId)
     const record = buildAttributedArbitrationTransitionRecord(dispute.escrowId, verdict.claim, verdict.attribution, outcome, DISPUTE_RULING_RULESET)
-    const row = toDisputeRulingTransitionRecordRow(record, dispute.appealRound, dispute.status)
+    const row = toDisputeRulingTransitionRecordRow(record, dispute.appealRound, locked.status)
 
     try {
       await tx.semanticTransitionRecord.create({ data: row })
@@ -319,7 +335,7 @@ export async function commitAuthoritativeDisputeRuling(
       throw err
     }
 
-    return { committed: true, destinations } as const
+    return { committed: true, destinations, displacedStatus: locked.status } as const
   })
 }
 
@@ -328,9 +344,16 @@ export async function commitAuthoritativeDisputeRuling(
  * record back from durable storage — never reuses the in-memory objects
  * built during commit. This is what lets the M8 dispatch gate prove it
  * is reading persistence, not transient request memory (mission §16).
+ *
+ * `client` lets a caller that already holds a transaction (ST-1's stale-round cleanup, which re-reads the Outcome
+ * under the dispute and escrow locks) read through it; the default is the shared client, as before.
  */
-export async function loadDisputeRulingRecord(escrowId: string, appealRound: number): Promise<SemanticTransitionRecordRow | null> {
-  return prisma.semanticTransitionRecord.findUnique({
+export async function loadDisputeRulingRecord(
+  escrowId: string,
+  appealRound: number,
+  client: Pick<Prisma.TransactionClient, 'semanticTransitionRecord'> = prisma,
+): Promise<SemanticTransitionRecordRow | null> {
+  return client.semanticTransitionRecord.findUnique({
     where: {
       interactionId_transitionType_appealRound: {
         interactionId: escrowId,
@@ -374,9 +397,36 @@ export function fromDisputeRulingRow(row: SemanticTransitionRecordRow): Transiti
   })
 }
 
-/** Deletes a committed record — used ONLY by `dispute.service.ts`'s existing revert-on-failure path, mirroring exactly how it already reverts the Dispute's own authority fields on a downstream settlement-action failure. Never called for any other reason. */
-export async function revertDisputeRulingRecord(escrowId: string, appealRound: number): Promise<void> {
-  await prisma.semanticTransitionRecord.deleteMany({
-    where: { interactionId: escrowId, transitionType: ESCROW_DISPUTE_RULING_TRANSITION_TYPE, appealRound },
+/**
+ * Deletes a committed record — used ONLY by `dispute.service.ts`'s existing revert-on-failure path, mirroring exactly how it already reverts the Dispute's own authority fields on a downstream settlement-action failure. Never called for any other reason.
+ *
+ * AUD1X-R4: (escrow, transition type, appeal round) names a SLOT, not an authority - another ruling of the same round
+ * (or a later one) occupies the same key. `authoritySignature` binds the deletion to the authority that committed the
+ * record: the record carries the raw Ed25519 signature it was attributed under (`attributionRawProof`, the very string
+ * `disputes.authoritySignature` holds), so only that authority's record matches.
+ *
+ * The signature is MANDATORY on every path (AUD1X-R4 final negative proof): required by the type, and refused at run time
+ * when empty or not a string (a caller that bypasses the type system, or passes a value read from a missing column, must
+ * not turn the deletion back into a delete-by-slot). There is no unbound form. Returns how many records were deleted (0 or 1).
+ */
+export async function revertDisputeRulingRecord(
+  escrowId: string,
+  appealRound: number,
+  authoritySignature: string,
+  // AUD1X-R2 - the revert may run inside the transaction that decides it (and reverts the dispute row), so the
+  // record can never outlive - or be deleted without - the ruling it records.
+  client: Pick<Prisma.TransactionClient, 'semanticTransitionRecord'> = prisma,
+): Promise<number> {
+  if (typeof authoritySignature !== 'string' || authoritySignature.length === 0) {
+    throw new TypeError('revertDisputeRulingRecord requires the signed authority whose record is deleted; refusing to delete by (escrow, round) alone')
+  }
+  const deleted = await client.semanticTransitionRecord.deleteMany({
+    where: {
+      interactionId: escrowId,
+      transitionType: ESCROW_DISPUTE_RULING_TRANSITION_TYPE,
+      appealRound,
+      attributionRawProof: authoritySignature,
+    },
   })
+  return deleted.count
 }

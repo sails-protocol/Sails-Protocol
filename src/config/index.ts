@@ -7,6 +7,7 @@ import 'dotenv/config'
 import { normalizeBitcoinNetwork, type BitcoinNetwork } from '@satsails/p2p-schemas'
 
 import { parseArbitrationMode, type ArbitrationMode } from '../modules/open-settlement/arbitration-policy'
+import { isValidTimelockHours } from '../modules/open-settlement/escrow-timelock-policy'
 function required(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback
   if (v === undefined) {
@@ -30,14 +31,69 @@ function requiredInt(name: string, fallback: number): number {
 // rather than merely unusual. Same validated-config discipline
 // resolveMultisigRequiredConfirmations() below already applies to
 // MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS.
+// Strict: plain decimal digits only. parseInt() alone would read '1e3' as 1
+// and '60000abc' as 60000, silently accepting a value nobody wrote.
 function requiredPositiveInt(name: string, fallback: number): number {
   const raw = process.env[name]
   if (raw === undefined) return fallback
-  const parsed = parseInt(raw, 10)
-  if (isNaN(parsed) || parsed < 1) {
+  const parsed = /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
     throw new Error(`Environment variable ${name} must be a positive integer, got: ${raw}`)
   }
   return parsed
+}
+
+// Same strict parsing, but with no fallback: an unset or empty variable (the .env.example convention) is
+// `undefined` (not configured), never a silently chosen value.
+function optionalPositiveInt(name: string): number | undefined {
+  return (process.env[name] ?? '').trim() === '' ? undefined : requiredPositiveInt(name, 1)
+}
+
+// An optional strictly positive integer too large for a JS number (wei amounts): unset or empty is undefined.
+function optionalPositiveBigInt(name: string): bigint | undefined {
+  const raw = (process.env[name] ?? '').trim()
+  if (raw === '') return undefined
+  if (!/^[1-9][0-9]{0,77}$/.test(raw)) throw new Error(`${name} must be a positive integer (got ${JSON.stringify(raw)})`)
+  return BigInt(raw)
+}
+
+// Node clamps any timer delay above 2^31-1 ms (about 24.8 days) to 1 ms with
+// only a warning, so a too-large scheduler interval would become a hot loop.
+const MAX_TIMER_DELAY_MS = 2_147_483_647
+
+// A background scheduler interval: a strict positive integer that setInterval()
+// honours as written.
+function distinctCredential(url: string | undefined): string | undefined {
+  if (url !== undefined && url === process.env.DATABASE_URL) {
+    throw new Error('QUOTE_COLLECTOR_DATABASE_URL must be a separate credential from DATABASE_URL (a sails_quote_collector member)')
+  }
+  return url || undefined
+}
+
+function requiredIntervalMs(name: string, fallback: number): number {
+  const value = requiredPositiveInt(name, fallback)
+  if (value > MAX_TIMER_DELAY_MS) {
+    throw new Error(`Environment variable ${name} must be at most ${MAX_TIMER_DELAY_MS} ms (Node's timer limit), got: ${process.env[name]}`)
+  }
+  return value
+}
+
+function requiredFiniteNumber(name: string, fallback: number, validate: (value: number) => boolean, expectation: string): number {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  const parsed = Number(raw)
+  if (raw.trim() === '' || !Number.isFinite(parsed) || !validate(parsed)) {
+    throw new Error(`Invalid ${name}: must be ${expectation}, got: ${raw}`)
+  }
+  return parsed
+}
+
+function parseStrictBoolean(name: string, fallback: boolean): boolean {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  if (raw === 'true') return true
+  if (raw === 'false') return false
+  throw new Error(`Environment variable ${name} must be exactly 'true' or 'false', got: ${raw}`)
 }
 
 // Missão 11 Fase 8.1 LB-03 — NODE_ENV used to be a bare `=== 'production'`
@@ -101,6 +157,28 @@ function resolveMultisigNetwork(): BitcoinNetwork {
 }
 
 const resolvedMultisigNetwork = resolveMultisigNetwork()
+
+// Master Backlog R5 — DEFAULT_TIMELOCK_HOURS is the only source of an
+// escrow's timelock (escrow-timelock-policy.ts). It used to be read with
+// the lenient requiredInt(), so 0 or a negative value booted and every
+// new escrow then expired the moment funds locked. A malformed value
+// throws in every environment; an unset one only throws in production,
+// where silently falling back to the dev default would hide a missing
+// policy (same required-in-prod/defaulted-in-dev shape as MULTISIG_NETWORK
+// above).
+function resolveDefaultTimelockHours(): number {
+  if (process.env.DEFAULT_TIMELOCK_HOURS === undefined && isProductionEnv) {
+    throw new Error(
+      'FATAL: NODE_ENV=production but DEFAULT_TIMELOCK_HOURS is not set. Refusing to boot — ' +
+      'see Master Backlog R5. Set DEFAULT_TIMELOCK_HOURS explicitly to the escrow timelock policy, in whole hours.'
+    )
+  }
+  const hours = requiredPositiveInt('DEFAULT_TIMELOCK_HOURS', 24)
+  if (!isValidTimelockHours(hours)) {
+    throw new Error(`Environment variable DEFAULT_TIMELOCK_HOURS is too large: an escrow deadline ${hours} hours ahead is not a representable date`)
+  }
+  return hours
+}
 
 // Missão 11 Fase 8.1 LB-02 — the confirmation-depth requirement for
 // recognizing an escrow's own FUNDING (the trade collateral itself) as
@@ -216,6 +294,16 @@ export const config = {
       : required('DATABASE_URL', 'postgresql://postgres:password@localhost:5432/sails_protocol'),
   },
 
+  // #235 R7H-E2 — the BTC/USD price collector (modules/open-valuation/quote-collector.ts). Off unless
+  // QUOTE_COLLECTOR_DATABASE_URL is set: a login that is only a member of the sails_quote_collector role, the one
+  // credential allowed to publish valuation quotes. It must differ from DATABASE_URL (the application's own
+  // credential can never publish economic evidence); in production the collector refuses an over-privileged one.
+  quoteCollector: {
+    databaseUrl: distinctCredential(process.env.QUOTE_COLLECTOR_DATABASE_URL),
+    intervalMs: requiredIntervalMs('QUOTE_COLLECTOR_INTERVAL_MS', 10000),
+    sourceTimeoutMs: requiredIntervalMs('QUOTE_SOURCE_TIMEOUT_MS', 3000),
+  },
+
   redis: {
     url: isProductionEnv
       ? required('REDIS_URL')
@@ -299,8 +387,12 @@ export const config = {
     // dependency added just for this) so Redis's PEXPIRE gets a plain
     // number directly — same default window (60s) as the tiers they
     // parallel and supersede.
-    authWindowMs: requiredInt('RATE_LIMIT_AUTH_WINDOW_MS', 60000),
-    criticalWindowMs: requiredInt('RATE_LIMIT_CRITICAL_WINDOW_MS', 60000),
+    // Master Backlog R6 — every window below is a strict positive integer:
+    // with a window <= 0 the counter restarts on every hit (Redis deletes a
+    // key given a non-positive PEXPIRE; FixedWindowCounter's window is
+    // already over when created), so the limit silently never applies.
+    authWindowMs: requiredPositiveInt('RATE_LIMIT_AUTH_WINDOW_MS', 60000),
+    criticalWindowMs: requiredPositiveInt('RATE_LIMIT_CRITICAL_WINDOW_MS', 60000),
     // 2026-08-15 security review: the two tiers above are @fastify/rate-limit,
     // which only fires on the HTTP request/response lifecycle — a WebSocket
     // upgrade is one HTTP request, then the connection stays open and every
@@ -312,7 +404,7 @@ export const config = {
     // deliberate-simplification precedent as the HTTP tiers above (no shared
     // Redis store yet); see ws-message-rate-limiter.ts.
     wsMessageMax: requiredInt('RATE_LIMIT_WS_MESSAGE_MAX', 20),
-    wsMessageWindowMs: requiredInt('RATE_LIMIT_WS_MESSAGE_WINDOW_MS', 10000),
+    wsMessageWindowMs: requiredPositiveInt('RATE_LIMIT_WS_MESSAGE_WINDOW_MS', 10000),
   },
 
   // 2026-08-15 security review — common/security/suspicious-activity.ts.
@@ -329,12 +421,21 @@ export const config = {
   // exactly that reason: tune them once real traffic exists, don't
   // treat the defaults as validated.
   suspiciousActivity: {
-    authFailureMax: requiredInt('SUSPICIOUS_AUTH_FAILURE_MAX', 8),
-    authFailureWindowMs: requiredInt('SUSPICIOUS_AUTH_FAILURE_WINDOW_MS', 5 * 60 * 1000),
-    notFoundClusterMax: requiredInt('SUSPICIOUS_NOT_FOUND_MAX', 15),
-    notFoundClusterWindowMs: requiredInt('SUSPICIOUS_NOT_FOUND_WINDOW_MS', 5 * 60 * 1000),
-    rateLimitedMax: requiredInt('SUSPICIOUS_RATE_LIMITED_MAX', 3),
-    rateLimitedWindowMs: requiredInt('SUSPICIOUS_RATE_LIMITED_WINDOW_MS', 5 * 60 * 1000),
+    // Master Backlog R6 — strict positive integers: a window <= 0 restarts
+    // the count on every event, and detection fires only when count === max
+    // (count starts at 1), so either <= 0 silently disables detection.
+    authFailureMax: requiredPositiveInt('SUSPICIOUS_AUTH_FAILURE_MAX', 8),
+    authFailureWindowMs: requiredPositiveInt('SUSPICIOUS_AUTH_FAILURE_WINDOW_MS', 5 * 60 * 1000),
+    notFoundClusterMax: requiredPositiveInt('SUSPICIOUS_NOT_FOUND_MAX', 15),
+    notFoundClusterWindowMs: requiredPositiveInt('SUSPICIOUS_NOT_FOUND_WINDOW_MS', 5 * 60 * 1000),
+    rateLimitedMax: requiredPositiveInt('SUSPICIOUS_RATE_LIMITED_MAX', 3),
+    rateLimitedWindowMs: requiredPositiveInt('SUSPICIOUS_RATE_LIMITED_WINDOW_MS', 5 * 60 * 1000),
+  },
+
+  observability: {
+    // Keep aggregate metrics available to local tooling while requiring an
+    // explicit production opt-in before exposing operational activity.
+    metricsEnabled: parseStrictBoolean('METRICS_ENABLED', !isProductionEnv),
   },
 
   // 2026-08-15 security review — escrow-circuit-breaker.ts. Deliberately
@@ -354,8 +455,11 @@ export const config = {
   // trip), not something measured against real traffic.
   escrowCircuitBreaker: {
     failureThreshold: requiredInt('ESCROW_BREAKER_FAILURE_THRESHOLD', 5),
-    windowMs: requiredInt('ESCROW_BREAKER_WINDOW_MS', 30 * 1000),
-    cooldownMs: requiredInt('ESCROW_BREAKER_COOLDOWN_MS', 2 * 60 * 1000),
+    // Master Backlog R6 — window/cooldown <= 0 left the breaker unable to
+    // open at all (each conflict started a fresh window, each trip expired
+    // at once); strict positive integers now.
+    windowMs: requiredPositiveInt('ESCROW_BREAKER_WINDOW_MS', 30 * 1000),
+    cooldownMs: requiredPositiveInt('ESCROW_BREAKER_COOLDOWN_MS', 2 * 60 * 1000),
   },
 
   features: {
@@ -422,6 +526,13 @@ export const config = {
     // abandoned trade now auto-refunds instead of staying stuck) that a
     // deployment should opt into deliberately, not inherit silently.
     escrowTimelockSweeper: process.env.ESCROW_TIMELOCK_SWEEPER === 'true',
+    // Issue #291/#298 hardening - crash recovery for settlement (terminal escrow without a
+    // persisted result, missing completion effects, incomplete projections). Unlike the sweepers
+    // above this is ON by default: it only COMPLETES work an already-authorised settlement left
+    // half-done (write-once result, idempotent projections, never a new disposition), and without
+    // a running reconciler a crash after provider success would never be repaired. Opt out with
+    // ESCROW_SETTLEMENT_RECONCILER=false.
+    escrowSettlementReconciler: process.env.ESCROW_SETTLEMENT_RECONCILER !== 'false',
     // RFC-021 D8 — off by default, same reasoning as escrowTimelockSweeper
     // above: a real background process applying real dispute rulings on a
     // timer is a real behavior change a deployment opts into deliberately.
@@ -462,25 +573,27 @@ export const config = {
   },
 
   trade: {
-    defaultTimelockHours: requiredInt('DEFAULT_TIMELOCK_HOURS', 24),
+    defaultTimelockHours: resolveDefaultTimelockHours(),
     // How often the sweeper above (when enabled) checks for expired
     // FUNDS_LOCKED escrows. 5 minutes by default — frequent enough that
     // a real abandoned trade doesn't sit stuck for hours, infrequent
     // enough that it's not a meaningful query load on its own.
-    timelockSweepIntervalMs: requiredInt('ESCROW_TIMELOCK_SWEEP_INTERVAL_MS', 300000),
+    timelockSweepIntervalMs: requiredIntervalMs('ESCROW_TIMELOCK_SWEEP_INTERVAL_MS', 300000),
+    // 0, a negative value or one above Node's timer limit would make Node fire the settlement/C4 tick every 1ms.
+    settlementReconcileIntervalMs: requiredIntervalMs('ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS', 60000),
     // How often the RFC-021 D8 sweeper (when enabled) checks for
     // AUTO_PROPOSED disputes past their contest deadline. Same 5-minute
     // default as the escrow sweeper above, same reasoning.
-    disputeAutoResolutionSweepIntervalMs: requiredInt('DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS', 300000),
+    disputeAutoResolutionSweepIntervalMs: requiredIntervalMs('DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS', 300000),
     // How often the Fase 5 confirmation sweeper (when enabled) checks
     // IN_PROGRESS MULTISIG fee obligations against the chain. Same
     // 5-minute default as the other two sweepers — confirmation depth
     // itself is a per-policy decision (FeePolicyVersion.requiredConfirmations),
     // this is only how often the job bothers to look.
-    multisigFeeConfirmationSweepIntervalMs: requiredInt('MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS', 300000),
+    multisigFeeConfirmationSweepIntervalMs: requiredIntervalMs('MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS', 300000),
     // How often the Fase 8.1 reorg sweeper (when enabled) re-checks
     // recently-collected MULTISIG fee obligations. Same 5-minute default.
-    multisigFeeReorgSweepIntervalMs: requiredInt('MULTISIG_FEE_REORG_SWEEP_INTERVAL_MS', 300000),
+    multisigFeeReorgSweepIntervalMs: requiredIntervalMs('MULTISIG_FEE_REORG_SWEEP_INTERVAL_MS', 300000),
     // Missão 11 Fase 8.1 LB-08 — once a COLLECTED/DISTRIBUTED obligation's
     // confirming block is this many blocks deep, the reorg sweeper stops
     // re-checking it — a reorg past this depth is not a real operational
@@ -488,15 +601,19 @@ export const config = {
     // Bitcoin Core's own coinbase-maturity constant — a widely-recognized,
     // independently-justified reference point for "practically
     // immutable" in the Bitcoin ecosystem, not an arbitrary pick.
-    multisigReorgSafetyWindowBlocks: requiredInt('MULTISIG_REORG_SAFETY_WINDOW_BLOCKS', 100),
+    // Strict positive integer: both reorg sweeps monitor heights >= tip -
+    // window + 1, so 0 or a negative window starts the range above the tip
+    // and silently disables reorg detection for every confirmed fee and
+    // release; '1.5' or '100abc' must not be read as something else either.
+    multisigReorgSafetyWindowBlocks: requiredPositiveInt('MULTISIG_REORG_SAFETY_WINDOW_BLOCKS', 100),
     // How often the Fase 8.1(A) funding-reorg sweeper (when enabled)
     // re-checks FUNDS_LOCKED MULTISIG escrows. Same 5-minute default.
-    multisigFundingReorgSweepIntervalMs: requiredInt('MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS', 300000),
+    multisigFundingReorgSweepIntervalMs: requiredIntervalMs('MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS', 300000),
     // Sails Core Implementation Program M9-F — how often the release-leg
     // reorg sweeper (when enabled) re-checks terminal MULTISIG escrows'
     // main payout. Same 5-minute default as every other sweeper here.
     // Reuses multisigReorgSafetyWindowBlocks above for its own depth cutoff.
-    multisigReleaseReorgSweepIntervalMs: requiredInt('MULTISIG_RELEASE_REORG_SWEEP_INTERVAL_MS', 300000),
+    multisigReleaseReorgSweepIntervalMs: requiredIntervalMs('MULTISIG_RELEASE_REORG_SWEEP_INTERVAL_MS', 300000),
   },
 
   // Sails OpenProof (proof.service.ts) — Fase 1 Task 3(c). Evidence
@@ -534,6 +651,12 @@ export const config = {
       accessKeyId: process.env.EVIDENCE_S3_ACCESS_KEY_ID ?? '',
       secretAccessKey: process.env.EVIDENCE_S3_SECRET_ACCESS_KEY ?? '',
       forcePathStyle: process.env.EVIDENCE_S3_FORCE_PATH_STYLE === 'true',
+      // No protocol-wide timeout is invented here. Operators must choose
+      // a bound appropriate to their S3-compatible backend; the provider
+      // treats expiry as local cancellation/UNKNOWN remote mutation outcome.
+      requestTimeoutMs: process.env.EVIDENCE_S3_REQUEST_TIMEOUT_MS
+        ? Number(process.env.EVIDENCE_S3_REQUEST_TIMEOUT_MS)
+        : undefined,
     },
   },
 
@@ -588,10 +711,20 @@ export const config = {
     // proposed — anything lower falls straight through to the human
     // arbiter, unchanged. Starting conservative (high bar), tunable per
     // deployment as real-world calibration data accumulates.
-    qvacAutoResolutionConfidenceThreshold: parseFloat(process.env.QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD ?? '0.85'),
-    // How long either trade party has to contest a proposed automated
-    // ruling before sweepExpiredAutoResolutions() applies it.
-    qvacAutoResolutionWindowHours: parseFloat(process.env.QVAC_AUTO_RESOLUTION_WINDOW_HOURS ?? '24'),
+    qvacAutoResolutionConfidenceThreshold: requiredFiniteNumber(
+      'QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD',
+      0.85,
+      (value) => value >= 0 && value <= 1,
+      'a finite number in the range [0, 1]'
+    ),
+    // How long either trade party has to contest a proposed advisory ruling
+    // before sweepExpiredAutoResolutions() returns it to human review.
+    qvacAutoResolutionWindowHours: requiredFiniteNumber(
+      'QVAC_AUTO_RESOLUTION_WINDOW_HOURS',
+      24,
+      (value) => value > 0,
+      'a finite number greater than 0'
+    ),
   },
 
   // WDK_USDT_EVM SettlementProvider (wdk-settlement.provider.ts) — real
@@ -616,6 +749,31 @@ export const config = {
     // for the explicit residual this leaves for future hardening.
     receiptPollAttempts: Number(process.env.WDK_RECEIPT_POLL_ATTEMPTS ?? 10),
     receiptPollIntervalMs: Number(process.env.WDK_RECEIPT_POLL_INTERVAL_MS ?? 3000),
+    // #235 R7G-F6B - WDK_CHAIN_ID_PINNING_V1: the chain every WDK transaction is signed for. No default:
+    // unset means WDK economic operations are refused, and the RPC must report exactly this chain.
+    chainId: optionalPositiveInt('WDK_CHAIN_ID'),
+    // #235 R7G-F6B - blocks (receipt block included) a LOCK receipt must have before it is final. No
+    // default and no production value frozen yet: unset means a LOCK receipt is never final, so no WDK
+    // escrow is ever projected FUNDS_LOCKED (it stays CREATED with its signed LOCK unresolved).
+    finalityConfirmations: optionalPositiveInt('WDK_FINALITY_CONFIRMATIONS'),
+    // #235 R7G-F6B-P1 - WDK_IRREVERSIBLE_RPC_CORROBORATION_V1: a second RPC endpoint whose independent
+    // agreement every irreversible WDK conclusion requires (final CONFIRMED / REVERTED,
+    // NONCE_CONSUMED_ELSEWHERE, a lane realignment). Unset (or equal to WDK_RPC_URL) means none of those
+    // conclusions can be reached. Distinct URLs do not prove independent infrastructure - an operational
+    // assumption. Labels identify each source in durable evidence and audit (never the URL: it may carry a key).
+    corroboratingRpcUrl: (process.env.WDK_CORROBORATING_RPC_URL ?? '').trim(),
+    rpcLabel: (process.env.WDK_RPC_LABEL ?? '').trim() || 'primary',
+    corroboratingRpcLabel: (process.env.WDK_CORROBORATING_RPC_LABEL ?? '').trim() || 'corroborator',
+    // #235 R7G-F6B-P1 - WDK_LOWEST_UNRESOLVED_NONCE_BACKPRESSURE_V1: blocks a treasury lane's lowest
+    // unresolved signed transaction may stay unresolved before the lane stops signing new ones (operator
+    // review; never a failure). No default: unset means no stuck classification.
+    laneStuckBlocks: optionalPositiveInt('WDK_LANE_STUCK_BLOCKS'),
+    // #235 R7G-F6C - WDK outbound gas policy (network policy; no defaults, no production value frozen): the
+    // largest gas limit an outbound leg (release / refund / split leg) may be signed with, and its highest
+    // maxFeePerGas in wei. Their product bounds the native value one gas funding may send to an escrow
+    // account. Either unset: WDK outbound settlement is refused before anything is claimed or signed.
+    outboundMaxGasLimit: optionalPositiveInt('WDK_OUTBOUND_MAX_GAS_LIMIT'),
+    outboundMaxFeePerGasWei: optionalPositiveBigInt('WDK_OUTBOUND_MAX_FEE_PER_GAS_WEI'),
   },
 
   // MULTISIG SettlementProvider (multisig.provider.ts) — real 2-of-3
