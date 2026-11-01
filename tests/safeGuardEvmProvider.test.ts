@@ -41,8 +41,18 @@ jest.mock('ethers', () => {
   }
 })
 
+// Issue #258 - observes what finalize durably records; only reached when an escrow id + pendingTxId
+// are passed (the #258 tests below), never by the other tests in this file.
+const mockEnsureFinalizationAttempt = jest.fn()
+const mockRecordFinalizationOutcome = jest.fn()
+jest.mock('../src/modules/open-settlement/signature-collection-finalization-truth', () => ({
+  ensureFinalizationAttempt: (...args: unknown[]) => mockEnsureFinalizationAttempt(...args),
+  recordFinalizationOutcome: (...args: unknown[]) => mockRecordFinalizationOutcome(...args),
+}))
+
 import {
   SafeGuardEvmProvider,
+  canonicalUserOpHash,
   weiFromDecimalString,
   ethereumAddressFromCompressedHex,
   recoverSignerAddress,
@@ -333,23 +343,22 @@ describe('SafeGuardEvmProvider.finalizeRelease — real signature combination + 
 
   it('with a bundler configured, submits a real eth_sendUserOperation JSON-RPC request and returns the bundler-accepted userOpHash', async () => {
     config.safeGuardEvm.bundlerUrl = 'https://bundler.example/rpc'
-    const mockFetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ jsonrpc: '2.0', id: 1, result: '0xacceptedhash' }),
-    })
-    global.fetch = mockFetch as unknown as typeof fetch
-
     const provider = new SafeGuardEvmProvider()
     const escrow = baseEscrow({ status: 'FUNDS_LOCKED' })
     const unsigned = await provider.buildUnsignedRelease(escrow, '0x' + '22'.repeat(20))
     const bundle = JSON.parse(unsigned.psbtBase64)
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ jsonrpc: '2.0', id: 1, result: '0x' + bundle.userOpHash }),
+    })
+    global.fetch = mockFetch as unknown as typeof fetch
     const digest = Buffer.from(bundle.userOpHash, 'hex')
     const buyerSig = signDigestHex(buyer.privateKey, digest)
     const sellerSig = signDigestHex(seller.privateKey, digest)
 
     const result = await provider.finalizeRelease(escrow, unsigned.psbtBase64, [buyerSig, sellerSig])
 
-    expect(result.txId).toBe('0xacceptedhash')
+    expect(result.txId).toBe('0x' + bundle.userOpHash)
     const [url, init] = mockFetch.mock.calls[0]
     expect(url).toBe('https://bundler.example/rpc')
     const body = JSON.parse(init.body)
@@ -360,6 +369,90 @@ describe('SafeGuardEvmProvider.finalizeRelease — real signature combination + 
     expect(body.params[0].signature.toLowerCase()).toContain(sellerSig.slice(2).toLowerCase())
     expect(body.params[1]).toBe('0x0000000071727De22E5E9d8BAf0edAc6f37da032')
     config.safeGuardEvm.bundlerUrl = ''
+  })
+
+  describe('#258 bundler userOpHash is never identity authority', () => {
+    const PENDING_TX_ID = 'pending-258'
+    let provider: SafeGuardEvmProvider
+    let escrow: SafeGuardEvmEscrowInput
+    let psbt: string
+    let localHash: string
+    let signatures: string[]
+
+    beforeEach(async () => {
+      config.safeGuardEvm.bundlerUrl = 'https://bundler.example/rpc'
+      mockEnsureFinalizationAttempt.mockReset().mockResolvedValue({ action: 'PROCEED' })
+      mockRecordFinalizationOutcome.mockReset().mockResolvedValue(undefined)
+      provider = new SafeGuardEvmProvider()
+      escrow = { ...baseEscrow({ status: 'FUNDS_LOCKED' }), id: 'escrow-258' } as SafeGuardEvmEscrowInput
+      psbt = (await provider.buildUnsignedRelease(escrow, '0x' + '22'.repeat(20))).psbtBase64
+      localHash = JSON.parse(psbt).userOpHash
+      const digest = Buffer.from(localHash, 'hex')
+      signatures = [signDigestHex(buyer.privateKey, digest), signDigestHex(seller.privateKey, digest)]
+    })
+
+    afterEach(() => { config.safeGuardEvm.bundlerUrl = '' })
+
+    const finalizeWithBundlerResult = (result: unknown) => {
+      global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ jsonrpc: '2.0', id: 1, result }) }) as unknown as typeof fetch
+      return provider.finalizeRelease(escrow, psbt, signatures, PENDING_TX_ID)
+    }
+
+    it('the locally stored hash is unprefixed lowercase, and the canonical form is 0x + 64 lowercase hex', () => {
+      expect(localHash).toMatch(/^[0-9a-f]{64}$/)
+      expect(canonicalUserOpHash(localHash)).toBe('0x' + localHash)
+      expect(canonicalUserOpHash('0x' + localHash.toUpperCase())).toBe('0x' + localHash)
+    })
+
+    it.each([
+      ['0x-prefixed lowercase (ERC-4337 bundler form)', (h: string) => '0x' + h],
+      ['unprefixed', (h: string) => h],
+      ['0x-prefixed uppercase', (h: string) => '0x' + h.toUpperCase()],
+      ['unprefixed mixed case', (h: string) => h.slice(0, 32).toUpperCase() + h.slice(32)],
+    ])('accepts the same hash spelled %s and durably records only the canonical form', async (_label, spell) => {
+      const result = await finalizeWithBundlerResult(spell(localHash))
+
+      expect(result).toEqual({ txId: '0x' + localHash })
+      expect(mockRecordFinalizationOutcome).toHaveBeenCalledTimes(1)
+      expect(mockRecordFinalizationOutcome).toHaveBeenCalledWith('escrow-258', 'SUBMITTED', '0x' + localHash)
+    })
+
+    it.each([
+      ['non-hex', () => '0x' + 'zz'.repeat(32)],
+      ['too short', (h: string) => '0x' + h.slice(2)],
+      ['too long', (h: string) => '0x' + h + '00'],
+      ['empty', () => ''],
+      ['a bare prefix', () => '0x'],
+      ['an uppercase 0X prefix', (h: string) => '0X' + h],
+      ['padded with whitespace', (h: string) => ' 0x' + h],
+    ])('a malformed userOpHash (%s) is "outcome unknown" and never becomes a durable txId', async (_label, spell) => {
+      await expect(finalizeWithBundlerResult(spell(localHash))).rejects.toThrow(/malformed userOpHash - submission outcome unknown/)
+      expect(mockRecordFinalizationOutcome).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['a number', () => 12345],
+      ['an object', (h: string) => ({ userOpHash: '0x' + h })],
+    ])('a non-string userOpHash (%s) is "outcome unknown" and never becomes a durable txId', async (_label, spell) => {
+      await expect(finalizeWithBundlerResult(spell(localHash))).rejects.toThrow(/without a userOpHash - submission outcome unknown/)
+      expect(mockRecordFinalizationOutcome).not.toHaveBeenCalled()
+    })
+
+    it('a different valid hash is "outcome unknown" and never becomes a durable txId', async () => {
+      const otherHash = '0x' + (localHash.startsWith('00') ? '11' : '00') + localHash.slice(2)
+
+      await expect(finalizeWithBundlerResult(otherHash)).rejects.toThrow(/but Sails signed 0x[0-9a-f]{64} - submission outcome unknown/)
+      expect(mockRecordFinalizationOutcome).not.toHaveBeenCalled()
+    })
+
+    it('a stored bundle whose hash is not a 32-byte hash is refused before anything is submitted', async () => {
+      const mockFetch = jest.fn()
+      global.fetch = mockFetch as unknown as typeof fetch
+      const userOp = { sender: SAFE_ADDRESS, nonce: 0n, initCode: '0x', callData: '0x', accountGasLimits: ZERO_BYTES32, preVerificationGas: 0n, gasFees: ZERO_BYTES32, paymasterAndData: '0x' }
+
+      await expect((provider as any).broadcast(userOp, '0x', localHash.slice(2))).rejects.toThrow(/not a 32-byte hex hash - refusing to submit/)
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
   })
 
   it('throws a clear error when the bundler rejects the UserOperation', async () => {

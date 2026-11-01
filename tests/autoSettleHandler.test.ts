@@ -82,15 +82,12 @@ describe('openp2p.trade.created -> executeSettlement (config-gated auto-settle)'
     expect(mockGetAccountAddress).not.toHaveBeenCalled()
   })
 
-  it('resolves the buyer receiving address and calls executeSettlement when autoSettleOnMatch is true', async () => {
+  it('calls executeSettlement with the trade only when autoSettleOnMatch is true — never derives a buyer account (#235 R7G NF-B1)', async () => {
     autoSettleOnMatch = true
     await handlers['openp2p.trade.created'](tradeCreatedPayload)
 
-    expect(mockGetAccountAddress).toHaveBeenCalledWith('index-for-buyer-1')
-    expect(mockExecuteSettlement).toHaveBeenCalledWith({
-      tradeId: 'trade-1',
-      buyerReceivingAddress: '0xresolved-buyer-address',
-    })
+    expect(mockGetAccountAddress).not.toHaveBeenCalled()
+    expect(mockExecuteSettlement).toHaveBeenCalledWith({ tradeId: 'trade-1' })
   })
 
   it('does not throw when executeSettlement fails — a settlement failure must not crash the event dispatcher', async () => {

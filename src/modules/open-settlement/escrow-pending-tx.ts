@@ -9,6 +9,7 @@ import {
   loadParticipantPubkeys,
   claimEscrowTransition,
   revertEscrowStatus,
+  settlementSucceededButLocalStepFailed,
   emitEscrowTransition,
   resolvePayoutAddress,
   checkFundMovementCapability,
@@ -16,6 +17,7 @@ import {
   withEscrowFundingLock,
 } from './escrow-lifecycle'
 import { hasDualApproval } from './escrow-dual-approval'
+import { blocksRulingDispatch, isSupersedableByRuling } from './pending-round-supersession'
 import { escrowRepository } from './escrow-repository'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import { tradeRepository } from '../open-p2p/trade-repository'
@@ -135,10 +137,12 @@ async function initiateSignatureCollectionCore(
     : 'settlement.escrow.split' as const
   await checkFundMovementCapability(triggeredBy, capabilityScope)
 
-  const existingPending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
-  if (existingPending) {
-    throw new EscrowError(`Escrow ${escrowId} already has a pending ${existingPending.kind} transaction awaiting signatures`)
-  }
+  // Issue #239 - only an arbitrated dispatch (a ruling's own operation, carrying its provenance) may
+  // supersede an existing round, and only a dead cooperative one (supersedeDeadCooperativeRound()). The
+  // decision is re-made under the escrow lock below; this is the cheap fail-fast.
+  const arbitratedDispatch = disputedRulingProvenance.disputeId !== undefined
+  const existingPending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId }, include: { signatures: { select: { participantId: true } } } })
+  if (existingPending) assertSupersedableByThisDispatch(existingPending, arbitratedDispatch, escrowId)
 
   const { buyerPubkey, sellerPubkey, arbiterPubkey } = await loadParticipantPubkeys(escrowId)
   // Missão 11 Fase 5.3 §A — restores context this function already HAD
@@ -177,6 +181,12 @@ async function initiateSignatureCollectionCore(
           )
         }
       }
+      const current = await tx.escrowPendingTransaction.findUnique({ where: { escrowId }, include: { signatures: { select: { participantId: true } } } })
+      if (current) {
+        assertSupersedableByThisDispatch(current, arbitratedDispatch, escrowId)
+        await tx.escrowPendingTransaction.delete({ where: { id: current.id } })
+        log.warn({ msg: 'Superseded a cooperative signing round that can no longer execute (escrow disputed, round not fully signed) with the ruling dispatch', escrowId, supersededRoundId: current.id, kind: current.kind, signaturesDiscarded: current.signatures.length })
+      }
       return tx.escrowPendingTransaction.create({
         data: {
           escrowId,
@@ -209,6 +219,43 @@ async function initiateSignatureCollectionCore(
       throw new EscrowError(`Escrow ${escrowId} already has a pending transaction awaiting signatures (concurrent initiate)`)
     }
     throw err
+  }
+}
+
+/**
+ * Issue #239 - decides the one way a pending signing round is replaced. The replacement (delete, then the
+ * ruling's round) runs inside the arbitrated dispatch's own escrow-locked transaction (withEscrowFundingLock(),
+ * the lock submitTransactionSignature() takes to accept a signature, #244); the same decision also runs as
+ * the fail-fast before it.
+ *
+ * A cooperative round (no ruling provenance) on an escrow that has a Dispute can never execute: the
+ * Economic Disposition Commit Gate refuses it before any claim or provider call (ADR-005,
+ * authorizeDisputedPendingExecution()). Yet, being the escrow's one pending round, it would block the
+ * ruling's dispatch forever - a non-cooperating signer's trap. So the ruling supersedes it, if and only if
+ * it is not fully signed: execution requires every required signature, so a round missing one has provably
+ * never been claimed or submitted. A fully signed round may already have been submitted (an UNKNOWN
+ * outcome); it is never superseded - settlement reconciliation (C8) decides it from the chain.
+ * Superseding deletes the round with its partial signatures: they were collected for that round's exact
+ * transaction only and are never combined into another round (signatures are per round, and a signer that
+ * read the old round is refused under the same lock, #244).
+ */
+function assertSupersedableByThisDispatch(
+  current: { id: string; kind: string; disputeId: string | null; requiredSigners: string[]; signatures: Array<{ participantId: string }>; signaturesConfidential: boolean },
+  arbitratedDispatch: boolean,
+  escrowId: string,
+): void {
+  if (!arbitratedDispatch || current.disputeId !== null) {
+    throw new EscrowError(`Escrow ${escrowId} already has a pending ${current.kind} transaction awaiting signatures`)
+  }
+  if (blocksRulingDispatch(current)) {
+    throw new EscrowError(
+      `Escrow ${escrowId}'s cooperative ${current.kind} round ${current.id} is fully signed — it may already have been submitted, so a ruling never supersedes it; settlement reconciliation (C8) decides it from the chain`
+    )
+  }
+  if (!isSupersedableByRuling(current)) {
+    throw new EscrowError(
+      `Escrow ${escrowId}'s cooperative ${current.kind} round ${current.id} predates signature confidentiality — its partial signatures may have been read and its transaction completed outside Sails, so a ruling never supersedes it; manual review required`
+    )
   }
 }
 
@@ -327,10 +374,58 @@ export async function submitTransactionSignature(escrowId: string, participantId
     )
   }
 
-  await prisma.escrowTransactionSignature.upsert({
-    where: { pendingTxId_participantId: { pendingTxId: pending.id, participantId } },
-    update: { signedPsbtBase64 },
-    create: { pendingTxId: pending.id, participantId, signedPsbtBase64 },
+  // Issue #244 - accept the signature only into the round read above, and only while it still exists:
+  // under the escrow-scoped advisory lock (withEscrowFundingLock(), the same key stale cleanup's
+  // conditional delete takes), re-read the escrow's current round and insert. Either this commits first
+  // (cleanup then sees a durable signature and keeps the round) or cleanup deleted it first (this fails
+  // closed - nothing is written into, or resurrects, a deleted round). The lock covers only this check +
+  // insert; every gate and provider/economic step below runs after it is released.
+  //
+  // #239D - the same lock is the authority boundary between cooperative completion and a dispute
+  // (#238 opens disputes under it): a cooperative round accepts no signature once a dispute exists for the
+  // escrow (H2), and the signature that completes a cooperative round while none exists durably marks the
+  // round's bilateral authority (H1, bilateralAuthorityAt) in the same transaction.
+  // #235 R7G-B2A — LOCAL_SIGNATURE_VALIDATION_V1: the signature is checked
+  // against the stored round and the signer's frozen participant key before it
+  // is persisted, counted toward the threshold, finalized or broadcast.
+  const collector = getSignatureCollectionProvider(escrow.type)
+  if (!collector?.validatePartialSignature) {
+    throw new EscrowError(`Escrow type '${escrow.type}' has no local signature validation — refusing to accept a signature`)
+  }
+  const signerTrade = await tradeRepository.findById(escrow.tradeId)
+  const signerRole = participantId === signerTrade?.buyerId ? 'buyer' : participantId === signerTrade?.sellerId ? 'seller' : null
+  const signerKey = signerRole
+    ? await prisma.escrowParticipantKey.findUnique({ where: { escrowId_role: { escrowId, role: signerRole } }, select: { pubkey: true } })
+    : null
+  if (!signerKey) {
+    throw new EscrowError(`${participantId} has no participant key on escrow ${escrowId} to verify a signature against`)
+  }
+  collector.validatePartialSignature(escrow, pending.unsignedPsbtBase64, signedPsbtBase64, signerKey.pubkey)
+
+  await withEscrowFundingLock(escrowId, async (tx) => {
+    const current = await tx.escrowPendingTransaction.findUnique({ where: { escrowId }, select: { id: true, disputeId: true } })
+    if (current?.id !== pending.id) {
+      throw new EscrowError(
+        `Escrow ${escrowId}'s pending ${pending.kind} ${pending.id} no longer exists (cleaned up or replaced) — signature not accepted; re-read the escrow's current pending transaction`
+      )
+    }
+    const cooperative = current.disputeId === null
+    if (cooperative && await tx.dispute.findFirst({ where: { escrowId }, select: { id: true } })) {
+      throw new EscrowError(
+        `Escrow ${escrowId} is under dispute: dispute authority took over before its cooperative ${pending.kind} round ${pending.id} was complete — no cooperative signature is accepted any more`
+      )
+    }
+    await tx.escrowTransactionSignature.upsert({
+      where: { pendingTxId_participantId: { pendingTxId: pending.id, participantId } },
+      update: { signedPsbtBase64 },
+      create: { pendingTxId: pending.id, participantId, signedPsbtBase64 },
+    })
+    if (cooperative) {
+      const signed = await tx.escrowTransactionSignature.findMany({ where: { pendingTxId: pending.id }, select: { participantId: true } })
+      if (pending.requiredSigners.every((id: string) => signed.some((s: { participantId: string }) => s.participantId === id))) {
+        await tx.escrowPendingTransaction.updateMany({ where: { id: pending.id, bilateralAuthorityAt: null }, data: { bilateralAuthorityAt: new Date() } })
+      }
+    }
   })
 
   const signatures = await prisma.escrowTransactionSignature.findMany({ where: { pendingTxId: pending.id } })
@@ -388,20 +483,36 @@ export async function submitTransactionSignature(escrowId: string, participantId
   // same idiom as releaseFunds()/refundFunds() (escrow.service.ts).
   await claimEscrowTransition(escrowId, escrow.status, targetStatus)
 
+  // Issue #291 - two distinct error boundaries. Only a failing PROVIDER
+  // finalize reverts the claim (the pending row and signatures stay for a
+  // retry). Once finalize has returned, external execution may already have
+  // happened: a later LOCAL failure must not revert the escrow as though it
+  // had not - the pending row is kept and reconciliation (C8 / PASS 1 / 2 / 3)
+  // converges from durable facts.
+  let result: Awaited<ReturnType<typeof provider.finalizeRelease>>
   try {
     const signedList = pending.requiredSigners.map(
       (id: string) => signatures.find((s: { participantId: string; signedPsbtBase64: string }) => s.participantId === id)!.signedPsbtBase64
     )
-    const result = pending.kind === 'release'
-      ? await provider.finalizeRelease(escrow, pending.unsignedPsbtBase64, signedList)
+    result = pending.kind === 'release'
+      ? await provider.finalizeRelease(escrow, pending.unsignedPsbtBase64, signedList, pending.id)
       : pending.kind === 'refund'
-      ? await provider.finalizeRefund(escrow, pending.unsignedPsbtBase64, signedList)
+      ? await provider.finalizeRefund(escrow, pending.unsignedPsbtBase64, signedList, pending.id)
       : await provider.finalizeSplit!(escrow, pending.unsignedPsbtBase64, signedList)
+  } catch (err) {
+    await revertEscrowStatus(escrowId, targetStatus, escrow.status)
+    throw err
+  }
 
+  try {
     const updateData = pending.kind === 'refund'
       ? { txReleaseId: result.txId }
       : { txReleaseId: result.txId, releasedAt: new Date() }
-    const updated = await escrowRepository.updateSignatureCollectionResult(escrowId, updateData)
+    // txReleaseId is provider EVIDENCE; the write is bound to the immutable,
+    // Sails-owned pending operation it belongs to (Issue #291).
+    const updated = await escrowRepository.updateSignatureCollectionResult(escrowId, updateData, {
+      operation: { pendingOperationId: pending.id },
+    })
 
     // Missão 11 Fase 3 §7 — the SAME centralized function
     // escrow.service.ts's direct-call releaseFunds()/refundFunds()/
@@ -435,6 +546,12 @@ export async function submitTransactionSignature(escrowId: string, participantId
     //     self-documenting guard against that ever changing silently).
     // Broadcast success != confirmed revenue — this never marks COLLECTED
     // itself (see fee-collection-recognition.service.ts's own contract).
+    //
+    // Issue #245 - feeRecordingFailed guards the pending-row deletion below so the PSBT (the only
+    // durable source identifyFeeOutput() needs) survives for reconcileMissingCompletionEffects()'s
+    // own independent retry — same fix, same reasoning, as applyDownstreamCompletionEffects()'s own
+    // header comment in escrow-settlement-reconciliation.service.ts.
+    let feeRecordingFailed = false
     if (pending.kind !== 'refund' && escrow.type === 'MULTISIG' && actualCollection && !actualCollection.waived) {
       try {
         const obligation = await feeObligationService.findByEscrowId(escrowId)
@@ -458,6 +575,7 @@ export async function submitTransactionSignature(escrowId: string, participantId
         // thrown; the obligation simply remains PENDING_COLLECTION,
         // exactly the safe/honest state when evidence couldn't be recorded
         // (detectable later via reconciliation, never silently masked).
+        feeRecordingFailed = true
         log.error({
           msg: 'Broadcast-evidence recording failed after a successful settlement — FeeObligation remains PENDING_COLLECTION, not silently advanced',
           escrowId, err: err instanceof Error ? err.message : err,
@@ -481,30 +599,49 @@ export async function submitTransactionSignature(escrowId: string, participantId
       : pending.kind === 'refund'
       ? 'settlement.escrow.refunded'
       : 'settlement.escrow.split'
+    // Issue #254B - pending.disputeId (ADR-005/#218's own write-time provenance, captured by
+    // initiateSignatureCollectionCore() at the moment this pending operation was created, immutable and
+    // never re-derived from current Dispute state) closes the #254 Day-0 blocker for every rail that
+    // finalizes through THIS function (MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM) - no schema change: the
+    // column already existed for the Economic Disposition Commit Gate, only threading it onto the
+    // settlement event itself was missing. common/events/handlers.ts's wasCausedByDisputeRuling() reads
+    // this exact field first, before any other provenance source.
     await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, targetStatus, pending.triggeredBy, eventName, {
       txId: result.txId,
+      ...(pending.disputeId ? { disputeId: pending.disputeId } : {}),
     })
 
     // Cascade-deletes its EscrowTransactionSignature rows (schema.prisma's
     // onDelete: Cascade) — a completed round leaves no pending row behind.
-    await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
+    // Issue #245 - kept alive when feeRecordingFailed above, so its PSBT survives for
+    // reconcileMissingCompletionEffects()'s own independent fee-recovery retry.
+    if (!feeRecordingFailed) {
+      await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
+    }
 
     return { escrow: updated, complete: true }
   } catch (err) {
-    // Revert the claim — see releaseFunds()'s identical comment. The
-    // pending row and its signatures are left in place on failure so the
-    // caller can retry submitTransactionSignature() (idempotent upsert)
-    // without needing to re-collect signatures already submitted.
-    await revertEscrowStatus(escrowId, targetStatus, escrow.status)
-    throw err
+    // Issue #291 - finalize already succeeded (above): never revert here.
+    // The pending row and its signatures are left in place for recovery.
+    throw settlementSucceededButLocalStepFailed(escrowId, pending.kind, result.txId, err)
   }
 }
 
-export async function getPendingTransaction(escrowId: string) {
+/**
+ * #239D X1 - the read contract for a pending round. Another participant's signature is never returned:
+ * while a cooperative set is incomplete it would hand the reader a one-sided bearer capability (with their
+ * own key, a 2-of-3 spend of the old transaction completable outside Sails), and once complete nothing
+ * needs it - combining, broadcast and recovery are server-side. Every entry still shows who has signed and
+ * when (progress); `signedPsbtBase64` is present only on the viewer's own entry.
+ */
+export async function getPendingTransaction(escrowId: string, viewerId: string) {
   const pending = await prisma.escrowPendingTransaction.findUnique({
     where: { escrowId },
     include: { signatures: true },
   })
   if (!pending) throw new NotFoundError('Pending transaction for this escrow', escrowId)
-  return pending
+  return {
+    ...pending,
+    signatures: pending.signatures.map(({ signedPsbtBase64, ...entry }) => (entry.participantId === viewerId ? { ...entry, signedPsbtBase64 } : entry)),
+  }
 }

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useNavigate, useLocation } from 'react-router'
 import { toast } from 'sonner'
-import type { Trade as SdkTrade, Escrow as SdkEscrow, WebSocketChannel, Dispute } from '@satsails/p2p-trading-sdk'
+import type { Trade as SdkTrade, Escrow as SdkEscrow, WebSocketChannel, Dispute, EconomicPolicy } from '@satsails/p2p-trading-sdk'
 import { encryptChatMessage } from '@satsails/p2p-trading-sdk'
 import type { EscrowStatus, Message, MessageType, User } from '../types'
 import { useAuth, WrongPassphraseError } from '../context/AuthContext'
 import { useEscrowKey } from '../hooks/useEscrowKey'
 import { classifySigningWatchError } from '../lib/escrowErrorClassification'
+import { escrowBindingRefusalMessage, protectedEscrowBlocker, protectedEscrowEligibility } from '../lib/paymentAccountBinding'
 import { sailsClient } from '../lib/sailsClient'
 import { toUiMessage, toUiMessageFromEvent } from '../lib/tradeMessages'
 import { TradeStatusBadge, EscrowStatusBadge } from '../components/ui/StatusBadges'
@@ -187,6 +188,16 @@ export function Trade() {
   const [payoutAddress, setPayoutAddress] = useState<{ address: string } | null | undefined>(undefined)
   const [payoutAddressInput, setPayoutAddressInput] = useState('')
   const [savingPayoutAddress, setSavingPayoutAddress] = useState(false)
+  // #235 R7H-E3B — lets the seller see up front that a protected escrow cannot be created for this trade (legacy
+  // unbound trade, ineligible method) instead of meeting the refusal. Advisory only: the server decides either way.
+  const [policy, setPolicy] = useState<EconomicPolicy | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    sailsClient.settlement.economicPolicy()
+      .then((p) => { if (!cancelled) setPolicy(p) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   // Real fetch — openp2p.getTrade() + identity.get() for both real
   // parties + settlement.get() for the real escrow (if one exists yet)
@@ -326,10 +337,19 @@ export function Trade() {
     }
   }
 
+  const escrowBlocker = policy && trade?.offer
+    ? protectedEscrowBlocker(protectedEscrowEligibility(policy, trade.asset, trade.offer.paymentMethod), trade.sellerPaymentAccountId)
+    : null
+
   const handleCreateEscrow = () => trade && withGuard(async () => {
-    const e = await sailsClient.settlement.create({ tradeId: trade.id, lockedAmount: trade.amount, asset: trade.asset })
-    setEscrow(e)
-    toast.success('Escrow criado')
+    try {
+      const e = await sailsClient.settlement.create({ tradeId: trade.id, lockedAmount: trade.amount, asset: trade.asset })
+      setEscrow(e)
+      toast.success('Escrow criado')
+    } catch (err) {
+      const refusal = escrowBindingRefusalMessage(err)
+      throw refusal ? new Error(refusal) : err
+    }
   })
 
   const handleLockFunds = () => escrow && withGuard(async () => {
@@ -597,7 +617,9 @@ export function Trade() {
             )}
 
             {!escrow ? (
-              isSeller ? (
+              isSeller && escrowBlocker ? (
+                <p role="alert" className="mt-4 bg-red-500/10 border border-red-500/25 rounded-lg p-3 text-xs text-red-500">{escrowBlocker}</p>
+              ) : isSeller ? (
                 <Button onClick={handleCreateEscrow} disabled={acting} className="w-full py-2.5 text-sm mt-4">
                   {acting ? (
                     'Criando...'

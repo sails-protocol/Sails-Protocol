@@ -12,7 +12,7 @@
  * example still omits `amount` and remains to be fixed.
  */
 import type { SailsTransport } from "../transport";
-import type { Message, PaginatedMessages, PaginatedTrades, Trade } from "../types";
+import type { PaginatedMessages, PaginatedTrades, Trade, TradeReconciliation } from "../types";
 import { SailsTransportError } from "../errors";
 
 export interface ChatFrame {
@@ -303,11 +303,15 @@ export class SailsOpenP2PModule {
    * returning the original Trade on a safe replay instead of a second
    * row. See `src/common/idempotency.ts`'s own header for the full
    * server-side contract.
+   *
+   * `paymentAccountHash` (#235 R7C) — only when taking a BUY offer, i.e.
+   * you are the seller: the hash of your own registered payment account the
+   * buyer will pay into, bound to this trade. Rejected on a SELL offer.
    */
-  async trade(offerId: string, amount: string, idempotencyKey?: string): Promise<Trade> {
+  async trade(offerId: string, amount: string, idempotencyKey?: string, paymentAccountHash?: string): Promise<Trade> {
     return this.transport.post<Trade>(
       "/v1/openp2p/trades",
-      { offerId, amount, idempotencyKey },
+      { offerId, amount, idempotencyKey, paymentAccountHash },
       true,
     );
   }
@@ -338,7 +342,19 @@ export class SailsOpenP2PModule {
     return this.transport.get<Trade>(`/v1/openp2p/trades/${tradeId}`, undefined, true);
   }
 
-  /** Requires an active session — same fix as getTrade() above. RFC-018's intentId link, exposed directly — the same lookup intent-facade.ts's dispute() uses internally to turn an intentId into the Trade/Escrow it produced. */
+  /**
+   * Requires an active session — same fix as getTrade() above. RFC-018's intentId link, exposed directly — the same
+   * lookup intent-facade.ts's dispute() uses internally to turn an intentId into the Trade/Escrow it produced.
+   *
+   * #235 R7H-NF-E3C-5 — the lookup is scoped to the CALLER's own trades and is deterministic:
+   * - a trade's own Intent (`trade.tradeIntentId`) resolves to that trade for its buyer and its seller;
+   * - an Offer Intent (`trade.intentId`, shared by every trade taken from that offer) resolves to the caller's trade
+   *   if they are a party to exactly one;
+   * - several (typically the maker of a popular offer) → `SailsError` with `code: 'AMBIGUOUS_INTENT'`, statusCode 409,
+   *   and `error.details.tradeIds` listing only the caller's own trade ids — resolve one by `tradeIntentId` or by id;
+   * - none, or an Intent the caller has no trade on → `SailsNotFoundError` (404): another participant's trades are
+   *   never revealed, not even their existence.
+   */
   async getTradeByIntent(intentId: string): Promise<Trade> {
     return this.transport.get<Trade>(
       `/v1/openp2p/trades/by-intent/${intentId}`,
@@ -369,15 +385,21 @@ export class SailsOpenP2PModule {
   }
 
   /**
-   * RFC-011 — client-side reconciliation. Returns missed messages
-   * since `sinceMessageCreatedAt` for this trade. Requires an
+   * RFC-011 — client-side reconciliation. Returns the trade's current
+   * trade/escrow status plus the messages created after
+   * `sinceMessageCreatedAt` (oldest first, at most 100). Requires an
    * active session. Useful after reconnects or app resume.
+   *
+   * The return type used to be declared `Message[]`, but the route has
+   * always returned reconciliation.service.ts's ReconciliationResult
+   * object — a caller iterating the "array" got nothing. Not in
+   * API_STABLE.md's frozen inventory, so correcting it is a bug fix.
    */
   async reconcileTrade(
     tradeId: string,
     sinceMessageCreatedAt: Date | null,
-  ): Promise<Message[]> {
-    return this.transport.post<Message[]>(
+  ): Promise<TradeReconciliation> {
+    return this.transport.post<TradeReconciliation>(
       `/v1/openp2p/trades/${tradeId}/reconcile`,
       { sinceMessageCreatedAt },
       true,

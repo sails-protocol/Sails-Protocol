@@ -37,6 +37,7 @@ import { ECPairFactory } from 'ecpair'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, closeTestRedis, preserveTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
+import { boundOfferInput, sellerPixAccount } from './economicFixtures'
 
 bitcoin.initEccLib(ecc)
 const ECPair = ECPairFactory(ecc)
@@ -138,7 +139,7 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
     const seller = await registerTestParticipant(identityService, 'Seller')
     const buyer = await registerTestParticipant(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({
-      userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER',
+      userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)),
     })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
@@ -411,6 +412,54 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
 
       const evidence = await escrowFundingEvidenceRepository.listForEscrow(escrowId)
       expect(evidence.map((e: any) => e.kind)).toEqual(['OBSERVED_CONFIRMED']) // no new row from either sweep run
+    })
+  })
+  describe('9. production sweeper hardening — the sweep as startServer() schedules it', () => {
+    it('two independent nodes ticking the real sweep through startGuardedInterval() for many intervals still write the shallow-depth REORGED_INVALIDATED exactly once', async () => {
+      requirePostgres('scheduled funding reorg sweep - two instances')
+      const { escrowId, txid } = await makeLockedMultisigEscrow('scheduled-two-nodes')
+      // Same external reality as test 4: confirmed at the tip, depth 1 < required 2.
+      process.env.MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS = '2'
+      global.fetch = jest.fn(async (url: string) => {
+        if (url.includes('/blocks/tip/height')) return { ok: true, text: async () => '100' } as any
+        if (url.includes(`/tx/${txid}/status`)) return { ok: true, json: async () => ({ confirmed: true, block_height: 100 }) } as any
+        return { ok: true, json: async () => [{ txid, vout: 0, value: 100_000, status: { confirmed: true } }] } as any
+      }) as any
+
+      // Each node: its own module graph, PrismaClient and Redis client, the exact startServer() scheduling.
+      const TICK = 150
+      const nodes = [0, 1].map(() => {
+        let node!: { stop: () => Promise<void>; errors: unknown[] }
+        jest.isolateModules(() => {
+          const { startGuardedInterval } = require('../../src/common/guarded-interval')
+          const { sweepMultisigFundingReorgs: nodeSweep } = require('../../src/modules/open-settlement/multisig-funding-reorg-sweep')
+          const db = require('../../src/common/database')
+          const redisModule = require('../../src/common/redis')
+          const errors: unknown[] = []
+          const guarded = startGuardedInterval(() => nodeSweep().then(() => undefined).catch((err: unknown) => { errors.push(err) }), TICK)
+          node = {
+            errors,
+            stop: async () => {
+              await guarded.stop()
+              await db.prisma.$disconnect()
+              await redisModule.redis?.quit?.().catch(() => undefined)
+            },
+          }
+        })
+        return node
+      })
+      try {
+        const deadline = Date.now() + 30_000
+        while (Date.now() < deadline && (await prisma.escrowFundingEvidence.count({ where: { escrowId, kind: 'REORGED_INVALIDATED' } })) === 0) await tick(50)
+        await tick(TICK * 8) // keep both nodes ticking well past the write: every later tick must be a no-op
+      } finally {
+        await Promise.all(nodes.map((n) => n.stop()))
+        process.env.MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS = '1'
+      }
+
+      const kinds = (await escrowFundingEvidenceRepository.listForEscrow(escrowId)).map((e: any) => e.kind)
+      expect(kinds).toEqual(['OBSERVED_CONFIRMED', 'REORGED_INVALIDATED'])
+      expect(nodes.flatMap((n) => n.errors)).toEqual([])
     })
   })
 })

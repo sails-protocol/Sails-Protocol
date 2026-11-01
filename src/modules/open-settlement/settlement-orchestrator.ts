@@ -45,7 +45,7 @@
  * pretend to have built that.
  */
 import { prisma } from '../../common/database'
-import { NotFoundError } from '../../common/errors'
+import { EscrowError, NotFoundError } from '../../common/errors'
 import type { AssetType } from '../../common/types'
 import type { EscrowType } from '../../common/types/trade'
 import { escrowService } from './escrow.service'
@@ -53,12 +53,9 @@ import { config } from '../../config'
 
 export interface ExecuteSettlementInput {
   tradeId: string
-  // Where the seller's signed WDK transfer sends the USDT — this
-  // reference implementation doesn't onboard per-user EVM addresses yet
-  // (wdk-settlement.provider.ts's own doc comment), so callers supply it
-  // explicitly rather than this function inventing a lookup that doesn't
-  // exist.
-  buyerReceivingAddress: string
+  // Optional release destination for the MOCK rail. Omitted, releaseFunds() resolves the buyer's own
+  // registered payout address (the same authority every value-moving release uses).
+  buyerReceivingAddress?: string
   // The agent acting on the seller's behalf, if any (WalletAgent.agentId,
   // modules/open-agents/wallet-agent.ts) — recorded as `triggeredBy` on
   // every escrow transition below, the same precedent RFC-012's
@@ -103,6 +100,19 @@ export async function executeSettlement(input: ExecuteSettlementInput): Promise<
   if (!trade) throw new NotFoundError('Trade', input.tradeId)
 
   const sellerTriggeredBy = input.sellerAgentId ?? trade.sellerId
+  const escrowType: EscrowType = input.escrowType ?? (config.features.mockEscrow ? 'MOCK' : 'WDK_USDT_EVM')
+
+  // #235 R7G NF-B1: this orchestrator acts as both parties - it locks as the seller, claims the fiat payment
+  // as the buyer (which also ends the seller's FUNDS_LOCKED expiry path) and releases on an emulated PIX
+  // confirmation. That is never authority over real value: every rail but MOCK is refused here, before any
+  // escrow, LOCK, claim or event exists.
+  if (escrowType !== 'MOCK') {
+    throw new EscrowError(
+      `executeSettlement() runs only on the MOCK rail: it emulates the seller's PIX confirmation and acts for both ` +
+      `parties, so it never moves value on ${escrowType} (trade ${trade.id}). Nothing was executed.`,
+      'UNAVAILABLE'
+    )
+  }
 
   // Seller locks USDT collateral — a real, signed WDK transfer
   // (WdkSettlementProvider.lockFunds -> WalletManagerEvm's treasury
@@ -127,7 +137,7 @@ export async function executeSettlement(input: ExecuteSettlementInput): Promise<
   // directly.
   const escrow = await escrowService.createEscrow({
     tradeId: trade.id,
-    type: input.escrowType ?? (config.features.mockEscrow ? 'MOCK' : 'WDK_USDT_EVM'),
+    type: escrowType,
     lockedAmount: trade.amount.toString(),
     asset: trade.asset as AssetType,
   }, trade.sellerId)

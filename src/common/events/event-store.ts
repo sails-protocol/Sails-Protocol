@@ -8,6 +8,15 @@ import { prisma } from '../database'
 
 const log = childLogger('event-store')
 
+/** The unique index allowing one durable event per escrow transition (migration 20260930130000). */
+const TRANSITION_EVENT_UNIQUE_INDEX = 'durable_events_transition_id_key'
+
+function isTransitionEventUniqueViolation(err: unknown): boolean {
+  const e = err as { code?: string; message?: string; meta?: unknown }
+  const text = `${e?.code ?? ''} ${e?.message ?? ''} ${JSON.stringify(e?.meta ?? {})}`
+  return text.includes(TRANSITION_EVENT_UNIQUE_INDEX)
+}
+
 // Missão 08B — cross-instance real-time fan-out. One shared channel for
 // every event type (simpler than one channel per eventName, and this
 // codebase has no need yet to subscribe to a subset) — the eventName
@@ -59,6 +68,16 @@ export interface DurableEvent<K extends SailsEventName = SailsEventName> {
   prevHash: string
 }
 
+/**
+ * What a durable publish did. `minted: false`: the event's escrow transition was already published
+ * (see PostgresEventStore.publish()), so nothing was written or dispatched and `eventId` is the existing
+ * canonical event. Non-durable stores return nothing.
+ */
+export interface PublishOutcome {
+  eventId: string
+  minted: boolean
+}
+
 export interface EventStore {
   readonly storeName: string
   // Explicit, not inferred from the class name — so a caller/operator can
@@ -68,7 +87,7 @@ export interface EventStore {
     eventName: K,
     payload: SailsEventMap[K],
     correlationId: string
-  ): Promise<void>
+  ): Promise<PublishOutcome | void>
   subscribe<K extends SailsEventName>(
     eventName: K,
     handler: (event: DurableEvent<K>) => void | Promise<void>
@@ -351,11 +370,22 @@ export class PostgresEventStore implements EventStore {
     eventName: K,
     payload: SailsEventMap[K],
     correlationId: string
-  ): Promise<void> {
+  ): Promise<PublishOutcome> {
     const eventId = uuidv4()
     let prevHash = GENESIS_HASH
     let entryHash = ''
     let publishedAt = ''
+    // One semantic escrow transition is published as ONE durable event (Issue #298's transitionId: the
+    // EscrowEvent claim id). Two publishers can reach this for the same transition: the live path
+    // (emitEscrowTransition(), after it wins the claim) and settlement reconciliation PASS 3 (a claimed
+    // transition whose projections never completed, after its grace period). Projections are idempotent
+    // per durable event id, so a second event would apply every downstream effect again. Both publish
+    // under the transition's tradeId, so the correlationId lock below serializes them and the check runs
+    // in the same transaction as the insert; a unique index on the transitionId (migration
+    // 20260930130000) is the backstop for any publisher that does not share that lock.
+    const transitionId = (payload as { transitionId?: unknown }).transitionId
+    const semanticId = typeof transitionId === 'string' ? transitionId : null
+    const alreadyPublished: { id: string | null } = { id: null }
 
     await this.client.$transaction(async (tx) => {
       // $executeRaw, not $queryRaw — Missão 06 (2026-08-16) real-Postgres
@@ -369,6 +399,12 @@ export class PostgresEventStore implements EventStore {
       // the correct tool for a call whose only purpose is the side
       // effect (the lock itself), with no row data ever needed back.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${correlationId})::bigint)`
+
+      if (semanticId) {
+        const [existing] = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM durable_events WHERE payload->>'transitionId' = ${semanticId} LIMIT 1`
+        if (existing) { alreadyPublished.id = existing.id; return }
+      }
 
       // Real prevHash: this correlationId's own last row, not a
       // separately maintained counter — same read-then-write shape
@@ -422,7 +458,20 @@ export class PostgresEventStore implements EventStore {
           prevHash,
         },
       })
+    }).catch(async (err: unknown) => {
+      if (!semanticId || !isTransitionEventUniqueViolation(err)) throw err
+      const [existing] = await this.client.$transaction((tx) => tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM durable_events WHERE payload->>'transitionId' = ${semanticId} LIMIT 1`)
+      if (!existing) throw err
+      alreadyPublished.id = existing.id
     })
+
+    // Nothing written, nothing dispatched: the transition's canonical event already exists (a caller that
+    // needs it delivered again redelivers that event, see SailsEventBus.redeliver()).
+    if (alreadyPublished.id) {
+      log.info({ msg: 'Transition already published - no second durable event minted', eventName, correlationId, transitionId: semanticId, eventId: alreadyPublished.id })
+      return { eventId: alreadyPublished.id, minted: false }
+    }
 
     // Same log-level reasoning InMemoryEventStore.publish() already
     // states — debug, not info, since this dumps full event payloads
@@ -456,6 +505,7 @@ export class PostgresEventStore implements EventStore {
         log.error({ msg: 'Cross-instance event publish failed (durable write already committed, unaffected)', eventName, eventId, err: err instanceof Error ? err.message : String(err) })
       })
     }
+    return { eventId, minted: true }
   }
 
   subscribe<K extends SailsEventName>(
@@ -470,6 +520,66 @@ export class PostgresEventStore implements EventStore {
         })
       }
     })
+  }
+
+  // Issue #298 - see SailsEventBus.redeliver(). Local dispatch only: the event was already published
+  // (durable row + cross-instance signal) when it was first emitted.
+  /**
+   * #235 R7H-NF-E3C-5 — appends one durable event INSIDE the caller's transaction (same per-correlation advisory lock
+   * and hash chain as publish(), which is deliberately left untouched). The row commits or rolls back with the
+   * caller's other writes; nothing is dispatched here. The returned `dispatch()` is called by the caller AFTER commit
+   * and is non-authoritative: the event is already durable, so a handler failure is logged and never thrown.
+   * Intended for transaction-owned, per-new-correlation events (a trade's creation), which carry no `transitionId`.
+   */
+  async publishInTransaction<K extends SailsEventName>(
+    tx: Prisma.TransactionClient,
+    eventName: K,
+    payload: SailsEventMap[K],
+    correlationId: string,
+  ): Promise<{ eventId: string; dispatch: () => void }> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${correlationId})::bigint)`
+    const last = await tx.durableEventRecord.findFirst({ where: { correlationId }, orderBy: { publishedAt: 'desc' } })
+    const prevHash = last?.entryHash ?? GENESIS_HASH
+    let publishedAt = new Date().toISOString()
+    if (last && publishedAt <= last.publishedAt) {
+      publishedAt = new Date(new Date(last.publishedAt).getTime() + 1).toISOString()
+    }
+    const entryHash = computeEntryHash(eventName, publishedAt, payload, prevHash)
+    const eventId = uuidv4()
+    await tx.durableEventRecord.create({
+      data: { id: eventId, eventName, correlationId, payload: payload as unknown as Prisma.InputJsonValue, publishedAt, entryHash, prevHash },
+    })
+    const event: DurableEvent<K> = { eventId, eventName, correlationId, payload, publishedAt, entryHash, prevHash }
+    const dispatch = () => {
+      try {
+        this.emitter.emit(eventName, event)
+      } catch (err) {
+        log.error({ msg: 'Post-commit event dispatch failed (the event is durable; not an operation failure)', eventName, eventId, correlationId, err: err instanceof Error ? err.message : String(err) })
+      }
+      if (this.crossInstancePublisher) {
+        const message = JSON.stringify({ ...event, __originInstanceId: this.instanceId })
+        this.crossInstancePublisher.publish(CROSS_INSTANCE_CHANNEL, message).catch((err) => {
+          log.error({ msg: 'Cross-instance event publish failed (durable write already committed, unaffected)', eventName, eventId, err: err instanceof Error ? err.message : String(err) })
+        })
+      }
+    }
+    return { eventId, dispatch }
+  }
+
+  async redeliver(eventId: string): Promise<boolean> {
+    const row = await this.client.durableEventRecord.findUnique({ where: { id: eventId } })
+    if (!row) return false
+    const event: DurableEvent = {
+      eventId: row.id,
+      eventName: row.eventName as SailsEventName,
+      correlationId: row.correlationId,
+      payload: row.payload as unknown as SailsEventMap[SailsEventName],
+      publishedAt: row.publishedAt,
+      entryHash: row.entryHash,
+      prevHash: row.prevHash,
+    }
+    this.emitter.emit(row.eventName, event)
+    return true
   }
 
   async getEvents(correlationId: string): Promise<DurableEvent[]> {

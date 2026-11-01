@@ -87,6 +87,8 @@ const paginationQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).optional(),
 })
 
+const MAX_QUEUED_MESSAGES_PER_SOCKET = 32
+
 export async function chatRoutes(app: FastifyInstance): Promise<void> {
   app.get('/v1/openp2p/chat', { websocket: true }, async (socket, request) => {
     const query = request.query as { ticket?: string }
@@ -112,22 +114,65 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     // then drain the queue in order once `participantId` is known.
     const pendingRaw: Buffer[] = []
     let handleMessage: ((raw: Buffer) => Promise<void>) | null = null
-    socket.on('message', (raw: Buffer) => {
-      if (handleMessage) {
-        void handleMessage(raw)
-      } else {
-        pendingRaw.push(raw)
+    let processing = false
+    let closed = false
+    let participantId: string | null = null
+    const joined = new Set<string>()
+
+    const cleanup = () => {
+      closed = true
+      pendingRaw.length = 0
+      for (const tradeId of joined) {
+        leaveRoom(tradeId, socket)
+        broadcastToTrade(tradeId, { type: 'USER_OFFLINE', payload: { tradeId, participantId } })
       }
+      joined.clear()
+    }
+    socket.on('close', cleanup)
+
+    const drain = async () => {
+      if (processing || closed || !handleMessage) return
+      processing = true
+      try {
+        while (pendingRaw.length > 0 && !closed) {
+          const raw = pendingRaw.shift()!
+          await handleMessage(raw)
+        }
+      } finally {
+        processing = false
+        if (pendingRaw.length > 0 && !closed) void drain()
+      }
+    }
+
+    socket.on('message', (raw: Buffer, isBinary: boolean) => {
+      if (closed) return
+      if (isBinary) {
+        socket.send(JSON.stringify({ type: 'ERROR', payload: { message: 'Binary messages are not supported' } }))
+        socket.close()
+        return
+      }
+      if (!handleMessage && pendingRaw.length >= 1) {
+        socket.send(JSON.stringify({ type: 'ERROR', payload: { message: 'Too many messages before authentication' } }))
+        socket.close()
+        return
+      }
+      if (pendingRaw.length >= MAX_QUEUED_MESSAGES_PER_SOCKET) {
+        socket.send(JSON.stringify({ type: 'ERROR', payload: { message: 'Too many messages in flight' } }))
+        socket.close()
+        return
+      }
+      pendingRaw.push(raw)
+      void drain()
     })
 
-    const participantId = await resolveParticipantFromTicket(query.ticket)
-    if (!participantId) {
+    const resolvedParticipantId = await resolveParticipantFromTicket(query.ticket)
+    if (!resolvedParticipantId) {
+      pendingRaw.length = 0
       socket.send(JSON.stringify({ type: 'ERROR', payload: { message: 'Missing, invalid, or already-used ticket query param — call POST /v1/identity/ws-ticket first' } }))
       socket.close()
       return
     }
-
-    const joined = new Set<string>()
+    participantId = resolvedParticipantId
 
     handleMessage = async (raw: Buffer) => {
       let msg: { type: string; payload?: unknown }
@@ -239,18 +284,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // Drain, in arrival order, whatever came in during the ticket-
-    // resolution await above — see the header comment on `pendingRaw`.
-    for (const raw of pendingRaw) {
-      await handleMessage(raw)
-    }
-
-    socket.on('close', () => {
-      for (const tradeId of joined) {
-        leaveRoom(tradeId, socket)
-        broadcastToTrade(tradeId, { type: 'USER_OFFLINE', payload: { tradeId, participantId } })
-      }
-    })
+    void drain()
   })
 
   // requireAuth + participant check — found while writing tests for this

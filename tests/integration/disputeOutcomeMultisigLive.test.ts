@@ -21,6 +21,7 @@ import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
+import { boundOfferInput, sellerPixAccount } from './economicFixtures'
 // NOTE: recordLiveCorrespondenceIfApplicable is NOT statically imported
 // here — a top-level ES import is evaluated when THIS FILE loads, before
 // beforeAll() ever runs, and dispute-correspondence.ts transitively
@@ -148,7 +149,7 @@ describe('Mission13 MULTISIG disputed settlement — live, Core-authoritative (M
     const seller = await registerTestParticipant(identityService, 'Seller')
     const buyer = await registerTestParticipant(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({
-      userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER',
+      userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', ...boundOfferInput(await sellerPixAccount(prisma, seller.id)),
     })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
@@ -543,6 +544,16 @@ describe('Mission13 MULTISIG disputed settlement — live, Core-authoritative (M
     // SemanticTransitionRecord insert and hits its own unique-constraint
     // guard, rather than failing earlier on the unrelated Dispute-state race check.
     await prisma.dispute.update({ where: { id: disputeId }, data: { status: 'APPEALED' } })
+    // Ruling prior-state atomicity: the claim now also pins the SIGNED appeal round, so a round-0 decision
+    // replayed against this round-1 row is refused at the claim itself, before any record insert.
+    const staleRound = await commitAuthoritativeDisputeRuling(
+      { id: disputeId, escrowId, status: 'APPEALED', appealRound: 0 },
+      round0Payload, round0Sig, arbiterPublicKeyHex, '100000', 'BTC', buyerId, sellerId,
+    )
+    expect(staleRound).toEqual({ committed: false, reason: 'DISPUTE_STATE_LOST_RACE' })
+    // To keep proving the RECORD-level guard as well (defense in depth), give the replay a row whose round
+    // matches its signature, so the claim passes and the attempt really reaches the record insert.
+    await prisma.dispute.update({ where: { id: disputeId }, data: { appealRound: 0 } })
     const replay = await commitAuthoritativeDisputeRuling(
       { id: disputeId, escrowId, status: 'APPEALED', appealRound: 0 },
       round0Payload, round0Sig, arbiterPublicKeyHex, '100000', 'BTC', buyerId, sellerId,

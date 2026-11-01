@@ -55,6 +55,7 @@
 import { createHash } from 'crypto'
 import { prisma } from '../../common/database'
 import { EscrowError } from '../../common/errors'
+import { isCompleteBilateralIntent } from './pending-round-supersession'
 
 type DisputedPendingFacts = {
   id: string
@@ -128,6 +129,15 @@ export async function authorizeDisputedPendingExecution(pending: DisputedPending
     // rather than being silently allowed through as if proven cooperative.
     const everDisputed = await prisma.dispute.findFirst({ where: { escrowId: pending.escrowId } })
     if (everDisputed) {
+      // #239D D1 - the one exception: a cooperative round whose complete bilateral signature set was
+      // accepted before any dispute existed (isCompleteBilateralIntent()). Its exact transaction is the
+      // frozen economic intent - completable by its signers regardless of Sails - so executing or
+      // recovering THAT transaction creates no conflicting disposition; the dispute became moot.
+      const round = await prisma.escrowPendingTransaction.findUnique({
+        where: { id: pending.id },
+        include: { signatures: { select: { participantId: true } } },
+      })
+      if (round && round.escrowId === pending.escrowId && isCompleteBilateralIntent(round)) return null
       throw new EscrowError(
         `Pending operation ${pending.id} on escrow ${pending.escrowId} carries no recorded Economic Disposition ` +
         'Authority provenance, but this escrow has a Dispute record — its cooperative origin cannot be proven ' +

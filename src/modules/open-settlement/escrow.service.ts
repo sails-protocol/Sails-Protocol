@@ -1,4 +1,6 @@
 import { prisma } from '../../common/database'
+import { lockWdkEscrow, assertWdkFundingProven, wdkLockMayHoldFunds } from './wdk-lock-authority'
+import { assertWdkOutboundPolicy, planWdkOutbound, settleWdkOutbound, wdkOutboundFailure } from './wdk-outbound-authority'
 import { NotFoundError, EscrowError, ForbiddenError, ValidationError } from '../../common/errors'
 import { EscrowType } from '../../common/types/trade'
 import type { AssetType } from '../../common/types'
@@ -25,8 +27,10 @@ import {
   loadParticipantPubkeys,
   claimEscrowTransition,
   revertEscrowStatus,
+  settlementSucceededButLocalStepFailed,
   assertEscrowTransition,
   emitEscrowTransition,
+  publishEscrowTransition,
   resolvePayoutAddress,
   checkFundMovementCapability,
   assertFundingNotUncertain,
@@ -53,10 +57,14 @@ import { evaluateExpiryAuthority } from './expiry-authority'
 // SemanticTransitionRecord, one Postgres transaction) — see
 // semantic-transition-record.ts's own header.
 import { commitAuthoritativeEscrowTimelockExpiry } from './semantic-transition-record'
+import { claimEscrowTransitionRecord } from './escrow-transition-claim'
+import { Prisma } from '@prisma/client'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
+import { assertFirstEscrowAllowed, lockTradeLifecycle } from '../open-p2p/trade-lifecycle-lock'
 import { feeObligationService } from './fee-obligation.service'
 import { escrowFeeSnapshotService } from './escrow-fee-snapshot.service'
+import { isValidTimelockHours } from './escrow-timelock-policy'
 import { escrowFundingEvidenceRepository } from './escrow-funding-evidence-repository'
 import { assertKnownCapabilityProfile, findCapabilityCommitBlocker } from './capability-profile'
 
@@ -293,6 +301,48 @@ export type { CreateEscrowInput }
 // invoked). Reusing this exact function rather than a second `type in
 // PROVIDERS` check means creation can never drift from the real
 // dispatch-time truth — they are now literally the same lookup.
+/**
+ * #235 R7F-B — TRADE_ESCROW_ECONOMIC_BINDING_V1. A trade-backed escrow
+ * commits exactly the trade's economic intent: its asset and its principal
+ * T (Escrow.lockedAmount = Trade.amount; the protocol fee reserve, R = T +
+ * Fmax, is separate and never folded in — fee-reserve-math.ts). The caller's
+ * `asset`/`lockedAmount` are assertions checked against the Trade, never
+ * authority: a mismatch is refused, never silently replaced. Amounts are
+ * compared as exact Decimals ("0.001" equals "0.0010"; one unit apart never
+ * collapses). A trade whose AssetType has no authorized settlement
+ * translation (ADR-002 §11: LN_BTC, USDT_LIGHTNING, SPARK, STACKS, RSK_BTC)
+ * cannot be escrowed at all — no caller-chosen rail, MOCK included, may
+ * decide what such a trade actually locks. Runs before anything is written.
+ * Returns the Trade's own values to persist.
+ */
+function bindEscrowToTrade(
+  trade: { id: string; asset: AssetType; amount: Prisma.Decimal | string },
+  input: Pick<CreateEscrowInput, 'asset' | 'lockedAmount'>,
+): { asset: AssetType; lockedAmount: string } {
+  if (input.asset !== trade.asset) {
+    throw new ValidationError(`Escrow asset ${input.asset} does not match trade ${trade.id}'s asset ${trade.asset}`)
+  }
+  const principal = new Prisma.Decimal(trade.amount.toString())
+  let requested: Prisma.Decimal
+  try {
+    requested = new Prisma.Decimal(input.lockedAmount)
+  } catch {
+    throw new ValidationError(`lockedAmount "${input.lockedAmount}" is not a decimal amount`)
+  }
+  if (!requested.equals(principal)) {
+    throw new ValidationError(
+      `lockedAmount ${input.lockedAmount} does not equal trade ${trade.id}'s amount ${principal.toString()}: an escrow locks exactly the trade's principal (the protocol fee reserve is separate)`
+    )
+  }
+  if (!translateLegacyAssetType(trade.asset)) {
+    throw new EscrowError(
+      `Trade ${trade.id} is in ${trade.asset}, which has no authorized settlement translation (ADR-002 §11) — no trade-backed escrow can be created for it`,
+      'UNAVAILABLE'
+    )
+  }
+  return { asset: trade.asset, lockedAmount: principal.toString() }
+}
+
 function resolveEscrowType(asset: AssetType, explicitType: EscrowType | undefined): EscrowType {
   const resolved = resolveEscrowTypeCandidate(asset, explicitType)
   getSettlementProvider(resolved)
@@ -319,6 +369,32 @@ function resolveEscrowTypeCandidate(asset: AssetType, explicitType: EscrowType |
 
   return explicitType ?? recommendedEscrowType(asset)
 }
+
+/**
+ * #235 R7G F8B - SIGNATURE_COLLECTION_DISPOSITION_AUTHORITY_V1. On a signature-collection rail (MULTISIG,
+ * LIGHTNING_HODL, SAFE_GUARD_EVM) the disposition authority is the persisted signing round
+ * (EscrowPendingTransaction), never cooperativeDisposition / arbitratedDisposition. Their providers refuse a
+ * direct release/refund/split anyway, but only after claimEscrowTransition() had frozen the caller's intent -
+ * a false, durable disposition the reverted status left behind. Refused here, before any claim or write.
+ */
+function assertDirectlyExecutable(escrow: { id: string; type: string }, operation: 'release' | 'refund' | 'split'): void {
+  if (!(escrow.type in SIGNATURE_COLLECTION_PROVIDERS)) return
+  throw new EscrowError(
+    `Escrow ${escrow.id} (${escrow.type}) settles only through signature collection: use POST /v1/settlement/escrow/${escrow.id}/initiate-${operation}, then submit-transaction-signature. Nothing was recorded.`
+  )
+}
+
+/**
+ * Expired FUNDS_LOCKED escrows one timelock sweep pass claims (claimExpiryCandidates()). The pass takes
+ * one claim and is never re-run inside the same tick, so this bounds every pass:
+ * - a Core candidate (MULTISIG, LIGHTNING_HODL, SAFE_GUARD_EVM) costs one trade read, one transaction
+ *   (state + record + claimed transition) and one publish, no external call: measured ~15 ms each against
+ *   local PostgreSQL (2,000 in 29.5 s), so a full batch is ~1.5 s of a 300 s default interval;
+ * - a refund-branch candidate (MOCK, WDK_USDT_EVM, LIQUID_COVENANT) runs refundFunds(), a provider call
+ *   whose own transport bounds its time; this caps how many of those one pass can start.
+ * 100 per pass is 1,200 per hour per instance at the default interval, and instances claim disjoint batches.
+ */
+export const EXPIRY_SWEEP_BATCH = 100
 
 export class EscrowService {
   constructor(private readonly repo: EscrowRepository = escrowRepository) {}
@@ -367,18 +443,44 @@ export class EscrowService {
   // required now — same "buyer or seller of the trade" bar every other
   // trade-mutating method in this file already enforces (see e.g.
   // submitParticipantKey()'s identical check a few lines below).
+  // #235 R7H-E3 — narrowed to the SELLER: the seller commits the escrowed funds and the payment account the fiat
+  // leg is paid into, so only the seller (participantId is always the authenticated caller, or a DB-derived
+  // trade.sellerId for internal callers) can create the escrow. The account / method / policy binding itself is
+  // decided in the repository transaction and by the database.
   async createEscrow(input: CreateEscrowInput, participantId: string) {
     // Reads Trade only to validate existence — this is a read, not a write,
     // so it does not violate the module boundary (OpenSettlement may read
     // cross-module state; it must never WRITE to another module's tables).
     const trade = await tradeRepository.findById(input.tradeId)
     if (!trade) throw new NotFoundError('Trade', input.tradeId)
-    if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
-      throw new ForbiddenError(`${participantId} is not a counterparty (buyer or seller) of trade ${trade.id}`)
+    if (participantId !== trade.sellerId) {
+      throw new ForbiddenError(participantId === trade.buyerId
+        ? `Only the seller of trade ${trade.id} can create its escrow: the seller commits the escrowed funds and the payment account`
+        : `${participantId} is not the seller of trade ${trade.id}`)
     }
     if (trade.escrowId) throw new EscrowError('Trade already has an escrow')
+    // #235 R7G-A — fail fast; this.repo.create() re-checks under the trade-lifecycle lock.
+    assertFirstEscrowAllowed(trade.id, trade.status)
 
-    const type = resolveEscrowType(input.asset, input.type)
+    const { asset, lockedAmount } = bindEscrowToTrade(trade, input)
+    const type = resolveEscrowType(asset, input.type)
+    // #235 R7F-B (D4) — SAFE_GUARD_EVM locks native ETH, which no AssetType
+    // represents, so it can never carry a trade's economic commitment.
+    // Unreachable through bindEscrowToTrade() + resolveEscrowType() today
+    // (every translated asset resolves to its own registered rail); kept as
+    // an explicit refusal so a future resolution change cannot reopen it.
+    if (type === 'SAFE_GUARD_EVM') {
+      throw new EscrowError(`Trade ${trade.id} cannot use SAFE_GUARD_EVM: it locks native ETH, which is not the trade's asset (${asset})`, 'UNAVAILABLE')
+    }
+
+    // Master Backlog R5 — the timelock is protocol policy, frozen on the
+    // escrow here; input.timelockHours (still accepted by the route for
+    // compatibility) is never read. Re-checked although boot already
+    // validated it, so no path can insert an escrow under an invalid value.
+    const timelockHours = config.trade.defaultTimelockHours
+    if (!isValidTimelockHours(timelockHours)) {
+      throw new Error(`DEFAULT_TIMELOCK_HOURS policy value ${timelockHours} is not a valid escrow timelock — refusing to create an escrow`)
+    }
 
     // Missão 11 Fase 4.1 §4 — computed BEFORE the escrow row exists and
     // folded into the SAME insert below, not a separate best-effort update
@@ -395,7 +497,7 @@ export class EscrowService {
     // — so this has zero effect on any real deployment right now; any
     // OTHER failure here (a real active policy, but the lookup itself
     // errors) must propagate and fail this call, per CTO decision.
-    const feeSnapshot = await escrowFeeSnapshotService.computeSnapshotFields(type, input.lockedAmount)
+    const feeSnapshot = await escrowFeeSnapshotService.computeSnapshotFields(type, lockedAmount)
 
     // MULTISIG/LIGHTNING_HODL's buyer/seller keys are now client-held
     // (each provider's own header comment) — the deposit address
@@ -405,10 +507,11 @@ export class EscrowService {
     const escrow = await this.repo.create({
       tradeId: input.tradeId,
       type,
-      lockedAmount: input.lockedAmount,
-      asset: input.asset,
+      lockedAmount,
+      asset,
       network: input.network,
-      timelockHours: input.timelockHours ?? config.trade.defaultTimelockHours,
+      timelockHours,
+      requireGovernedRail: config.isProduction,
       ...(feeSnapshot ? { feeSnapshot } : {}),
     })
 
@@ -459,63 +562,92 @@ export class EscrowService {
     // the backward-compatibility decision an omitted declaration gets).
     assertKnownCapabilityProfile(capabilityProfile)
 
-    await prisma.escrowParticipantKey.upsert({
-      where: { escrowId_role: { escrowId, role } },
-      update: { participantId, pubkey, capabilityProfile: capabilityProfile ?? null },
-      create: { escrowId, role, participantId, pubkey, capabilityProfile: capabilityProfile ?? null },
-    })
+    // #235 R7G-B1 — a key, and the deposit address the second key derives, are
+    // written under the trade-lifecycle lock a cancellation also takes, after
+    // re-reading the trade: a cancelled trade gets no new funding surface, and a
+    // cancellation that comes later sees the address (unilateral-revocation.ts).
+    return prisma.$transaction(async (tx) => {
+      await lockTradeLifecycle(tx, trade.id)
+      const current = await tx.trade.findUnique({ where: { id: trade.id }, select: { status: true } })
+      if (current?.status === 'CANCELLED') {
+        throw new EscrowError(`Trade ${trade.id} is CANCELLED: no participant key can be submitted for its escrow`)
+      }
+      const fresh = await tx.escrow.findUnique({ where: { id: escrowId } })
+      if (!fresh) throw new NotFoundError('Escrow', escrowId)
 
-    const keys = await prisma.escrowParticipantKey.findMany({ where: { escrowId } })
-    const buyerKey = keys.find((k: { role: string }) => k.role === 'buyer')
-    const sellerKey = keys.find((k: { role: string }) => k.role === 'seller')
+      // #235 R7G-B2A — SCRIPT_AUTHORITY_IMMUTABILITY_V1: once the funding
+      // address exists, the keys that derived it are its authority. The same
+      // key again is a no-op; any other key is refused (the database refuses it
+      // too: escrow_participant_keys_script_authority_guard).
+      if (fresh.multisigAddr) {
+        const committed = await tx.escrowParticipantKey.findUnique({ where: { escrowId_role: { escrowId, role } } })
+        const sameKey = committed && Buffer.from(committed.pubkey, 'hex').equals(Buffer.from(pubkey, 'hex'))
+          && (committed.capabilityProfile ?? null) === (capabilityProfile ?? null)
+        if (!sameKey) {
+          throw new EscrowError(`Escrow ${escrowId}'s funding address is already derived from its participant keys — the ${role} key can no longer change`)
+        }
+        const keys = await tx.escrowParticipantKey.findMany({ where: { escrowId } })
+        return { escrow: fresh, buyerKeySubmitted: keys.some((k) => k.role === 'buyer'), sellerKeySubmitted: keys.some((k) => k.role === 'seller') }
+      }
 
-    let updatedEscrow = escrow
-    if (buyerKey && sellerKey && !escrow.multisigAddr && !config.features.mockEscrow) {
-      // Missão 11 Fase 9.1 §4, fail-closed per Fase 9.1.1 CTO decision —
-      // "a trade must not commit to [this escrow type] unless every
-      // required participant has a compatible profile," checked right
-      // here, immediately before the deposit address (the actual commit
-      // point) is derived and persisted. An OMITTED declaration now
-      // blocks exactly like an incompatible one — "unknown capability =
-      // unsupported" applies to silence too, no exception for either
-      // role or for who `participantId` happens to be.
-      const blocker = findCapabilityCommitBlocker(
-        escrow.type as EscrowType, buyerKey.capabilityProfile, sellerKey.capabilityProfile
-      )
-      if (blocker) {
-        const detail = blocker.reason === 'missing'
-          ? 'declared no capability profile at all'
-          : `declared an incompatible capability profile ('${blocker.declared}')`
-        throw new EscrowError(
-          `Cannot commit escrow ${escrowId} to type '${escrow.type}': the ${blocker.role} ${detail} — ` +
-          `every participant must declare a compatible capability profile before this escrow type can commit.`,
-          'INELIGIBLE' // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — a real maturity/capability-profile mismatch, not a technical, policy, or config gap
+      await tx.escrowParticipantKey.upsert({
+        where: { escrowId_role: { escrowId, role } },
+        update: { participantId, pubkey, capabilityProfile: capabilityProfile ?? null },
+        create: { escrowId, role, participantId, pubkey, capabilityProfile: capabilityProfile ?? null },
+      })
+
+      const keys = await tx.escrowParticipantKey.findMany({ where: { escrowId } })
+      const buyerKey = keys.find((k: { role: string }) => k.role === 'buyer')
+      const sellerKey = keys.find((k: { role: string }) => k.role === 'seller')
+
+      let updatedEscrow = fresh
+      if (buyerKey && sellerKey && !fresh.multisigAddr && !config.features.mockEscrow) {
+        // Missão 11 Fase 9.1 §4, fail-closed per Fase 9.1.1 CTO decision —
+        // "a trade must not commit to [this escrow type] unless every
+        // required participant has a compatible profile," checked right
+        // here, immediately before the deposit address (the actual commit
+        // point) is derived and persisted. An OMITTED declaration now
+        // blocks exactly like an incompatible one — "unknown capability =
+        // unsupported" applies to silence too, no exception for either
+        // role or for who `participantId` happens to be.
+        const blocker = findCapabilityCommitBlocker(
+          escrow.type as EscrowType, buyerKey.capabilityProfile, sellerKey.capabilityProfile
         )
+        if (blocker) {
+          const detail = blocker.reason === 'missing'
+            ? 'declared no capability profile at all'
+            : `declared an incompatible capability profile ('${blocker.declared}')`
+          throw new EscrowError(
+            `Cannot commit escrow ${escrowId} to type '${escrow.type}': the ${blocker.role} ${detail} — ` +
+            `every participant must declare a compatible capability profile before this escrow type can commit.`,
+            'INELIGIBLE' // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39) — a real maturity/capability-profile mismatch, not a technical, policy, or config gap
+          )
+        }
+
+        const { address, arbiterPubkeyHex, arbiterId } = await provider.getDepositAddress(trade.id, buyerKey.pubkey, sellerKey.pubkey)
+        updatedEscrow = await tx.escrow.update({ where: { id: escrowId }, data: { multisigAddr: address } })
+
+        // Missão 11 Fase 5.2 §2/§3 — persist the escrow-specific, immutable
+        // arbiter public-key commitment, using the EXACT bytes
+        // getDepositAddress() just used to build the script (never a second,
+        // independent derivation). Only MULTISIG populates arbiterPubkeyHex/
+        // arbiterId today (LIGHTNING_HODL/SAFE_GUARD_EVM leave them
+        // undefined — a disclosed, out-of-scope analogous gap, not fixed
+        // this phase). create() (not upsert) — this row is meant to be
+        // write-once; the DB trigger (escrow_participant_keys_arbiter_
+        // immutability_guard) is the defense-in-depth backstop if this
+        // branch is ever reached twice for the same escrow, which the
+        // `!escrow.multisigAddr` guard above should already make impossible
+        // in the normal flow.
+        if (arbiterPubkeyHex && arbiterId) {
+          await tx.escrowParticipantKey.create({
+            data: { escrowId, role: 'arbiter', participantId: arbiterId, pubkey: arbiterPubkeyHex },
+          })
+        }
       }
 
-      const { address, arbiterPubkeyHex, arbiterId } = await provider.getDepositAddress(trade.id, buyerKey.pubkey, sellerKey.pubkey)
-      updatedEscrow = await this.repo.updateMultisigAddr(escrowId, address)
-
-      // Missão 11 Fase 5.2 §2/§3 — persist the escrow-specific, immutable
-      // arbiter public-key commitment, using the EXACT bytes
-      // getDepositAddress() just used to build the script (never a second,
-      // independent derivation). Only MULTISIG populates arbiterPubkeyHex/
-      // arbiterId today (LIGHTNING_HODL/SAFE_GUARD_EVM leave them
-      // undefined — a disclosed, out-of-scope analogous gap, not fixed
-      // this phase). create() (not upsert) — this row is meant to be
-      // write-once; the DB trigger (escrow_participant_keys_arbiter_
-      // immutability_guard) is the defense-in-depth backstop if this
-      // branch is ever reached twice for the same escrow, which the
-      // `!escrow.multisigAddr` guard above should already make impossible
-      // in the normal flow.
-      if (arbiterPubkeyHex && arbiterId) {
-        await prisma.escrowParticipantKey.create({
-          data: { escrowId, role: 'arbiter', participantId: arbiterId, pubkey: arbiterPubkeyHex },
-        })
-      }
-    }
-
-    return { escrow: updatedEscrow, buyerKeySubmitted: !!buyerKey, sellerKeySubmitted: !!sellerKey }
+      return { escrow: updatedEscrow, buyerKeySubmitted: !!buyerKey, sellerKeySubmitted: !!sellerKey }
+    })
   }
 
   async lockFunds(escrowId: string, triggeredBy: string) {
@@ -531,6 +663,10 @@ export class EscrowService {
       throw new ForbiddenError(`${triggeredBy} is not the seller of trade ${trade.id} — only the seller may lock escrow funds`)
     }
 
+    // #235 R7G-F6B — a WDK LOCK is a signed, persisted transaction; the escrow becomes FUNDS_LOCKED only
+    // when that transaction is final (WDK_TRANSFER_ATTEMPT_TRUTH_V1), never by an up-front claim.
+    if (escrow.type === 'WDK_USDT_EVM') return lockWdkEscrow(escrowId, triggeredBy)
+
     // ─── Robustness-audit fix (2026-07-20): claim the transition
     // atomically BEFORE calling the external provider, not after. The
     // old code read `escrow.status`, checked it in memory
@@ -544,7 +680,20 @@ export class EscrowService {
     // WHERE still matches the row's *current* status affects a row —
     // the loser gets `count: 0` and is rejected before ever touching the
     // provider, not after. ────────────────────────────────────────────
-    await claimEscrowTransition(escrowId, escrow.status, 'FUNDS_LOCKED')
+    //
+    // #235 R7G-B1 — the FUNDS_LOCKED claim is made under the trade-lifecycle lock
+    // a cancellation also takes, after re-reading the trade: a cancelled trade's
+    // escrow is never locked (no provider call), and a cancellation that comes
+    // later sees FUNDS_LOCKED and is refused. The provider call stays outside the
+    // lock.
+    await prisma.$transaction(async (tx) => {
+      await lockTradeLifecycle(tx, escrow.tradeId)
+      const current = await tx.trade.findUnique({ where: { id: escrow.tradeId }, select: { status: true } })
+      if (current?.status === 'CANCELLED') {
+        throw new EscrowError(`Trade ${escrow.tradeId} is CANCELLED: its escrow cannot be locked`)
+      }
+      await claimEscrowTransition(escrowId, escrow.status, 'FUNDS_LOCKED')
+    })
 
     try {
       const provider = getSettlementProvider(escrow.type)
@@ -556,9 +705,7 @@ export class EscrowService {
       const { buyerPubkey, sellerPubkey, arbiterPubkey } = NON_CUSTODIAL_PROVIDERS[escrow.type]
         ? await loadParticipantPubkeys(escrowId)
         : { buyerPubkey: undefined, sellerPubkey: undefined, arbiterPubkey: undefined }
-      const result = await provider.lockFunds({
-        ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey, arbiterPubkey,
-      } as unknown as EscrowRecord)
+      const result = await provider.lockFunds(providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey, arbiterPubkey }))
 
       const now = new Date()
       const expiresAt = new Date(now.getTime() + escrow.timelockHours * 3600 * 1000)
@@ -574,8 +721,14 @@ export class EscrowService {
       // policy-aware escrow (MULTISIG). Purely observational, per
       // Escrow.fundedAmount's own schema comment — never persisted for a
       // legacy escrow or a provider that doesn't report it.
+      // #235 R7G-B2A — a persisted funding address is never re-pointed: a lock
+      // that reports a different address fails closed (and the database
+      // refuses the write: escrows_multisig_addr_write_once_guard).
+      if (escrow.multisigAddr && result.address !== escrow.multisigAddr) {
+        throw new EscrowError(`Escrow ${escrowId} was locked at ${result.address}, not at its persisted funding address ${escrow.multisigAddr} — refusing to change it`)
+      }
       const updated = await this.repo.updateLockResult(escrowId, {
-        txLockId: result.txId, txLockVout: result.vout ?? null, multisigAddr: result.address, lockedAt: now, expiresAt,
+        txLockId: result.txId, txLockVout: result.vout ?? null, multisigAddr: escrow.multisigAddr ?? result.address, lockedAt: now, expiresAt,
         ...(result.fundedAmount !== undefined ? { fundedAmount: result.fundedAmount } : {}),
       })
 
@@ -624,6 +777,8 @@ export class EscrowService {
     // exists for: a buyer claiming they've sent real-world fiat based on
     // funding evidence a background reorg sweep has already invalidated.
     await assertFundingNotUncertain(escrowId, escrow.type)
+    // #235 R7G-F6B — PAYMENT_CLAIM_REQUIRES_PROVEN_FUNDING_V1 (early, cheap; re-checked under the lock below).
+    if (escrow.type === 'WDK_USDT_EVM') await assertWdkFundingProven(prisma, escrowId)
 
     // Claiming fiat was sent is the buyer's own claim — see isPartyOrAgent()'s doc comment.
     const trade = await tradeRepository.findById(escrow.tradeId)
@@ -651,6 +806,7 @@ export class EscrowService {
     // header comment on withEscrowFundingLock() for why this specific
     // mechanism closes the race.
     const claimedCount = await withEscrowFundingLock(escrowId, async (tx) => {
+      if (escrow.type === 'WDK_USDT_EVM') await assertWdkFundingProven(tx, escrowId)
       const uncertain = await escrowFundingEvidenceService.isFundingUncertain(escrowId, tx)
       if (uncertain) {
         throw new EscrowError(
@@ -685,9 +841,15 @@ export class EscrowService {
   // SAFE_GUARD_EVM/WDK_USDT_EVM/MOCK disputes, unmigrated) still passes
   // the arbiter's own releaseToAddress here — a disclosed residual gap,
   // not fixed by M8-R2 (out of that mission's bounded scope).
-  async releaseFunds(escrowId: string, toAddress: string | undefined, triggeredBy: string) {
+  // Issue #254 - disputeId (additive, optional) is set ONLY by dispute.service.ts's applyRuling() for a
+  // real RELEASE ruling - captured into the settlement.escrow.released event's own payload (below) so
+  // common/events/handlers.ts's reputation-outcome derivation never needs to re-query CURRENT (mutable,
+  // appeal()-reinterpretable) Dispute state. Absent for every cooperative, non-disputed release.
+  async releaseFunds(escrowId: string, toAddress: string | undefined, triggeredBy: string, disputeId?: string) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
+    assertDirectlyExecutable(escrow, 'release')
     assertEscrowTransition(escrow.status, 'COMPLETED')
+    assertWdkOutboundCaller(escrow, 'release', [toAddress])
     const resolvedToAddress = await resolvePayoutAddress(toAddress, trade.buyerId, escrow.asset)
 
     // RFC-014: the real capability check. Lives here, not in
@@ -742,14 +904,33 @@ export class EscrowService {
     // lockFunds() above now is: atomically claim COMPLETED via a
     // conditional `updateMany` *before* ever calling the provider, so a
     // concurrent loser is rejected before touching real funds, not after.
-    await claimEscrowTransition(escrowId, escrow.status, 'COMPLETED')
+    // #235 R7G-F6C - a WDK release is planned from durable authority (proven funding, the buyer's registered
+    // payout address, the full locked amount) before the claim, and executed by the signed outbound authority.
+    const wdkLegs = escrow.type === 'WDK_USDT_EVM' ? await planWdkOutbound(escrow, 'RELEASE', { buyer: resolvedToAddress }) : null
+    await claimEscrowTransition(escrowId, escrow.status, 'COMPLETED', { triggeredBy })
+
+    // Issue #291 - two distinct error boundaries. Only a failing PROVIDER call
+    // reverts the claim; once it has returned, external execution may already
+    // have happened and a later local failure must never pretend it did not.
+    // #235 R7G-F6C (DF1) - a WDK outbound failure reverts the claim only when nothing was signed.
+    let result: { txId: string }
+    try {
+      if (wdkLegs) {
+        result = { txId: (await settleWdkOutbound(escrowId, wdkLegs)).join(',') }
+      } else {
+        const provider = getSettlementProvider(escrow.type)
+        result = await provider.releaseFunds(
+          providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy }),
+          resolvedToAddress
+        )
+      }
+    } catch (err) {
+      if (wdkLegs) throw await wdkOutboundFailure(escrowId, 'COMPLETED', escrow.status, err)
+      await revertEscrowStatus(escrowId, 'COMPLETED', escrow.status)
+      throw err
+    }
 
     try {
-      const provider = getSettlementProvider(escrow.type)
-      const result = await provider.releaseFunds(
-        { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord,
-        resolvedToAddress
-      )
 
       // RFC-021 Phase 0's chargeProtocolFee() lived here until Missão 11
       // Fase 6.5.2's single-economic-authority cutover removed it —
@@ -779,21 +960,32 @@ export class EscrowService {
       // their respective modules, triggered by the event emitted below.
       await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'COMPLETED', triggeredBy, 'settlement.escrow.released', {
         txId: result.txId,
+        ...(disputeId ? { disputeId } : {}),
       })
 
       return updated
     } catch (err) {
-      // Revert the claim — see lockFunds()'s identical comment. Critical
-      // here specifically: without this, a failed release (provider
-      // threw, e.g. RPC error) would leave the escrow permanently stuck
-      // claiming COMPLETED with `txReleaseId: null` — funds neither
-      // released nor recoverable through this service again.
-      await revertEscrowStatus(escrowId, 'COMPLETED', escrow.status)
-      throw err
+      // Issue #291 - the provider already succeeded (see above): never revert
+      // here. Reconciliation converges the escrow from durable facts.
+      throw settlementSucceededButLocalStepFailed(escrowId, 'release', result.txId, err)
     }
   }
 
   async openDispute(escrowId: string, triggeredBy: string, reason: string) {
+    await this.openDisputeEstablishing(escrowId, triggeredBy, reason, async () => undefined)
+    return this.repo.findById(escrowId)
+  }
+
+  /**
+   * Issue #238 - the escrow freeze and the durable facts that make it a valid dispute are one commit.
+   * Same authorization and lifecycle checks as before; then, in ONE transaction under the escrow's
+   * advisory lock (withEscrowFundingLock(), which also serializes the EscrowEvent hash chain): the
+   * conditional DISPUTED claim, its transition record ('transition.claimed', recoverable by settlement
+   * reconciliation PASS 3) and `establish(tx)` - raiseDispute()'s Dispute row + assigned arbiter. Any
+   * failure rolls all of it back: no committed DISPUTED without its Dispute, and no Dispute without the
+   * freeze. Publishing the transition event happens after the commit (publishEscrowTransition()).
+   */
+  async openDisputeEstablishing<T>(escrowId: string, triggeredBy: string, reason: string, establish: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
     const escrow = await this.repo.findById(escrowId)
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
     assertEscrowTransition(escrow.status, 'DISPUTED')
@@ -814,26 +1006,45 @@ export class EscrowService {
     // already has its own @@unique([tradeId]) guard at the Dispute-row
     // level (2026-07-19 security round); this closes the same race one
     // layer down, at the Escrow row this method actually mutates.
-    await claimEscrowTransition(escrowId, escrow.status, 'DISPUTED')
-    const updated = await this.repo.findById(escrowId)
+    // Same pre-claim gates and lost-race handling as claimEscrowTransition(), with the claim inside
+    // the transaction below.
+    assertCircuitClosed(escrowId)
+    const committed = await withEscrowFundingLock(escrowId, async (tx) => {
+      if (await this.repo.claimTransition(escrowId, escrow.status, 'DISPUTED', tx) === 0) return null
+      const transitionId = await claimEscrowTransitionRecord(tx, {
+        escrowId, from: escrow.status, to: 'DISPUTED', triggeredBy, eventName: 'settlement.escrow.disputed', note: reason,
+      })
+      if (!transitionId) {
+        // Still in escrow.status a moment ago, so no DISPUTED transition can exist unless written by
+        // hand - fail closed, rolling the claim back (commitAuthoritativeEscrowTimelockExpiry()'s rule).
+        throw new EscrowError(`Escrow ${escrowId} already has a DISPUTED transition recorded while still ${escrow.status} - not committing a second one`)
+      }
+      return { transitionId, established: await establish(tx) }
+    })
+    if (!committed) {
+      recordEscrowConflict(escrowId)
+      throw new EscrowError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
+    }
 
-    await emitEscrowTransition(
-      escrowId,
-      escrow.tradeId,
-      escrow.status,
-      'DISPUTED',
-      triggeredBy,
-      'settlement.escrow.disputed',
-      {},
-      reason
-    )
-
-    return updated
+    await publishEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'DISPUTED', triggeredBy, 'settlement.escrow.disputed', {}, committed.transitionId)
+    return committed.established
   }
 
-  async refundFunds(escrowId: string, triggeredBy: string) {
+  // Issue #254 - disputeId, same additive/optional shape and reason as releaseFunds()'s own comment above.
+  async refundFunds(escrowId: string, triggeredBy: string, disputeId?: string) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
+    assertDirectlyExecutable(escrow, 'refund')
     assertEscrowTransition(escrow.status, 'REFUNDED')
+    // #235 R7G-F6B — DF2: a refund of a never-locked escrow must not become a second economic operation
+    // while a LOCK transaction may hold or move its funds. Checked before the outbound gate below so it
+    // stands on its own when outbound authority exists (F6C).
+    if (escrow.type === 'WDK_USDT_EVM' && escrow.status === 'CREATED' && await wdkLockMayHoldFunds(escrowId)) {
+      throw new EscrowError(`Escrow ${escrowId} is CREATED but has a WDK LOCK transaction that may hold or move funds — refusing a refund until that LOCK is resolved`)
+    }
+    assertWdkOutboundCaller(escrow, 'refund', [])
+    if (escrow.type === 'WDK_USDT_EVM' && escrow.status === 'CREATED') {
+      throw new EscrowError(`Escrow ${escrowId} is CREATED: its WDK funding was never proven, so there is nothing to refund on-chain — refusing a WDK refund`)
+    }
 
     // Missão 06.9 (RFC-014 wiring completion) — same check releaseFunds()
     // above already had; refund moves the exact same class of real,
@@ -841,15 +1052,29 @@ export class EscrowService {
     // capability check at all, a real gap, not a deliberate exemption.
     await checkFundMovementCapability(triggeredBy, 'settlement.escrow.refunded')
 
+    // #235 R7G-F6C - a WDK refund returns the full locked amount to the treasury that funded the LOCK.
+    const wdkLegs = escrow.type === 'WDK_USDT_EVM' ? await planWdkOutbound(escrow, 'REFUND', {}) : null
     // Same fix as releaseFunds() above, same reason: claim REFUNDED
     // atomically before ever calling the real, side-effecting provider.
-    await claimEscrowTransition(escrowId, escrow.status, 'REFUNDED')
+    await claimEscrowTransition(escrowId, escrow.status, 'REFUNDED', { triggeredBy })
+
+    let result: { txId: string }
+    try {
+      if (wdkLegs) {
+        result = { txId: (await settleWdkOutbound(escrowId, wdkLegs)).join(',') }
+      } else {
+        const provider = getSettlementProvider(escrow.type)
+        result = await provider.refundFunds(
+          providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy })
+        )
+      }
+    } catch (err) {
+      if (wdkLegs) throw await wdkOutboundFailure(escrowId, 'REFUNDED', escrow.status, err)
+      await revertEscrowStatus(escrowId, 'REFUNDED', escrow.status)
+      throw err
+    }
 
     try {
-      const provider = getSettlementProvider(escrow.type)
-      const result = await provider.refundFunds(
-        { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord
-      )
 
       const updated = await this.repo.updateRefundResult(escrowId, result.txId)
 
@@ -860,12 +1085,12 @@ export class EscrowService {
 
       await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'REFUNDED', triggeredBy, 'settlement.escrow.refunded', {
         txId: result.txId,
+        ...(disputeId ? { disputeId } : {}),
       })
 
       return updated
     } catch (err) {
-      await revertEscrowStatus(escrowId, 'REFUNDED', escrow.status)
-      throw err
+      throw settlementSucceededButLocalStepFailed(escrowId, 'refund', result.txId, err)
     }
   }
 
@@ -885,7 +1110,9 @@ export class EscrowService {
       throw new ValidationError('buyerBps must be strictly between 0 and 10000 for a real split — use release/refund for an all-or-nothing outcome')
     }
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
+    assertDirectlyExecutable(escrow, 'split')
     assertEscrowTransition(escrow.status, 'SPLIT')
+    assertWdkOutboundCaller(escrow, 'split', [buyerAddress, sellerAddress])
     await checkFundMovementCapability(triggeredBy, 'settlement.escrow.split')
     const resolvedBuyerAddress = await resolvePayoutAddress(buyerAddress, trade.buyerId, escrow.asset)
     const resolvedSellerAddress = await resolvePayoutAddress(sellerAddress, trade.sellerId, escrow.asset)
@@ -897,15 +1124,33 @@ export class EscrowService {
       )
     }
 
-    await claimEscrowTransition(escrowId, escrow.status, 'SPLIT')
+    // #247/#248 - the claim freezes the arbitrated intent (SPLIT at buyerBps) before any provider side
+    // effect; a failed provider call below reverts only the status, so a retry - by whoever is then the
+    // assigned arbiter (checked above) - must present this identical allocation.
+    // #235 R7G-F6C - a WDK split is two legs frozen here: floor(amount x buyerBps / 10000) to the buyer, the
+    // exact remainder to the seller, each to its registered payout address.
+    const wdkLegs = escrow.type === 'WDK_USDT_EVM'
+      ? await planWdkOutbound(escrow, 'SPLIT', { buyer: resolvedBuyerAddress, seller: resolvedSellerAddress }, buyerBps)
+      : null
+    await claimEscrowTransition(escrowId, escrow.status, 'SPLIT', { triggeredBy, splitBuyerBps: buyerBps })
+
+    let result: { txIds: string[] }
+    try {
+      result = wdkLegs
+        ? { txIds: await settleWdkOutbound(escrowId, wdkLegs) }
+        : await provider.splitFunds!(
+          providerEscrow(escrow, { buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy }),
+          resolvedBuyerAddress,
+          resolvedSellerAddress,
+          buyerBps
+        )
+    } catch (err) {
+      if (wdkLegs) throw await wdkOutboundFailure(escrowId, 'SPLIT', escrow.status, err)
+      await revertEscrowStatus(escrowId, 'SPLIT', escrow.status)
+      throw err
+    }
 
     try {
-      const result = await provider.splitFunds(
-        { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord,
-        resolvedBuyerAddress,
-        resolvedSellerAddress,
-        buyerBps
-      )
 
       const updated = await this.repo.updateSplitResult(escrowId, {
         txReleaseId: result.txIds.join(','), releasedAt: new Date(),
@@ -925,8 +1170,7 @@ export class EscrowService {
 
       return updated
     } catch (err) {
-      await revertEscrowStatus(escrowId, 'SPLIT', escrow.status)
-      throw err
+      throw settlementSucceededButLocalStepFailed(escrowId, 'split', result.txIds.join(','), err)
     }
   }
 
@@ -960,8 +1204,8 @@ export class EscrowService {
     return pendingTx.submitTransactionSignature(escrowId, participantId, signedPsbtBase64)
   }
 
-  async getPendingTransaction(escrowId: string) {
-    return pendingTx.getPendingTransaction(escrowId)
+  async getPendingTransaction(escrowId: string, viewerId: string) {
+    return pendingTx.getPendingTransaction(escrowId, viewerId)
   }
 
   // `disputes` — real gap found while closing the arbiter's own dispute-
@@ -1048,7 +1292,7 @@ export class EscrowService {
   // existing `agent:{label}:{participantId}` shape — deliberately never
   // matching isPartyOrAgent()'s own regex, since no participant
   // authorization check applies to observing a real timestamp having
-  // passed). Idempotent by construction: findExpiredFundsLocked() only
+  // passed). Idempotent by construction: claimExpiryCandidates() only
   // ever queries status='FUNDS_LOCKED', so an escrow already transitioned
   // to EXPIRED is structurally excluded from every later sweep tick —
   // the same idempotency mechanism (query-scoped, not a separate flag)
@@ -1074,7 +1318,12 @@ export class EscrowService {
     const requiresManualRecovery: string[] = []
     const failed: Array<{ escrowId: string; error: string }> = []
     const SYSTEM_SWEEPER_ID = 'system:expiry-sweeper'
-    const SIGNATURE_COLLECTION_TYPES = Object.keys(SIGNATURE_COLLECTION_PROVIDERS)
+
+    // One bounded claim per pass (claimExpiryCandidates(), escrow-repository.ts): at most
+    // EXPIRY_SWEEP_BATCH expired FUNDS_LOCKED escrows, in durable round-robin order, disjoint from what a
+    // concurrent pass on another instance claims. A larger backlog drains over the following passes.
+    // Both branches below take their candidates from it, each with its own predicate.
+    const candidates = await this.repo.claimExpiryCandidates(now, EXPIRY_SWEEP_BATCH)
 
     // ---- Target slice (Sails Core Implementation Program M4): --------
     // FUNDS_LOCKED -> EXPIRED, now exclusively Core-authoritative. This
@@ -1082,17 +1331,12 @@ export class EscrowService {
     // ever lets reach EXPIRED — the disjoint refund branch below can
     // never overlap with it. evaluateExpiryAuthority() (expiry-authority.ts)
     // is the sole decision-maker for whether each candidate is eligible;
-    // findFundsLockedExpiryCandidates()'s `<=` filter only ever WIDENS
-    // the candidate set relative to Core's own `>=` rule, so it can never
-    // silently decide a case Core doesn't get to rule on.
-    const expiryCandidates = await this.repo.findFundsLockedExpiryCandidates(now, SIGNATURE_COLLECTION_TYPES)
-    for (const escrow of expiryCandidates) {
-      // Defense in depth — the query already filters by type, but
-      // re-checking here (same discipline claimEscrowTransition() below
-      // already applies to its own caller-validated transition) means a
-      // typo or future refactor of SIGNATURE_COLLECTION_TYPES surfaces as
-      // a silent, harmless skip here, never as accidentally granting
-      // Core authority over the disjoint refund branch's escrow types.
+    // the claim's `<=` filter only ever WIDENS the candidate set relative
+    // to Core's own `>=` rule, so it can never silently decide a case Core
+    // doesn't get to rule on.
+    for (const escrow of candidates) {
+      // Only the signature-collection types: never granting Core authority
+      // over the disjoint refund branch's escrow types.
       if (!this.isSignatureCollectionType(escrow.type)) continue
       if (!escrow.expiresAt) {
         failed.push({ escrowId: escrow.id, error: 'FUNDS_LOCKED escrow has no expiresAt — cannot evaluate expiry eligibility' })
@@ -1141,7 +1385,12 @@ export class EscrowService {
         const trade = await tradeRepository.findById(escrow.tradeId)
         if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
 
-        const commitResult = await commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', verdict.record)
+        // State, Record and the claimed transition commit together; the publish after it is the live
+        // path's job, and PASS 3 re-publishes from the durable claim if it never happens.
+        const note = 'Timelock expired with no cooperative resolution — cooperative refund needs both signatures; only a dispute (arbiter co-signature) can unilaterally recover this rail.'
+        const commitResult = await commitAuthoritativeEscrowTimelockExpiry(escrow.id, 'FUNDS_LOCKED', 'EXPIRED', verdict.record, {
+          triggeredBy: SYSTEM_SWEEPER_ID, eventName: 'settlement.escrow.expired', note,
+        })
         if (!commitResult.committed) {
           // A concurrent caller already transitioned this escrow — same
           // circuit-breaker feed claimEscrowTransition() already gives
@@ -1152,11 +1401,11 @@ export class EscrowService {
           recordEscrowConflict(escrow.id)
           continue
         }
-        await emitEscrowTransition(
+        await publishEscrowTransition(
           escrow.id, escrow.tradeId, 'FUNDS_LOCKED', 'EXPIRED', SYSTEM_SWEEPER_ID,
           'settlement.escrow.expired',
           { type: escrow.type, sellerId: trade.sellerId },
-          'Timelock expired with no cooperative resolution — cooperative refund needs both signatures; only a dispute (arbiter co-signature) can unilaterally recover this rail.'
+          commitResult.transitionId
         )
         requiresManualRecovery.push(escrow.id)
       } catch (err) {
@@ -1170,9 +1419,11 @@ export class EscrowService {
     // Signature-collection types are explicitly skipped: they were
     // already fully handled above, and legacy no longer decides anything
     // for them.
-    const expired = await this.repo.findExpiredFundsLocked(now)
-    for (const escrow of expired) {
+    for (const escrow of candidates) {
       if (this.isSignatureCollectionType(escrow.type)) continue
+      // The claim is `<=`; this branch keeps its strict `<` (an escrow due exactly now is refunded on a
+      // later pass).
+      if (!escrow.expiresAt || !(escrow.expiresAt < now)) continue
       // M3 shadow observation continues here as pure diagnostic evidence
       // for this still-unmigrated transition — never gating it.
       if (escrow.expiresAt) observeExpiryShadow(escrow.id, escrow.expiresAt, now)
@@ -1191,3 +1442,39 @@ export class EscrowService {
 }
 
 export const escrowService = new EscrowService()
+
+/**
+ * #235 R7G-F6B — NF1: the record a SettlementProvider receives. lockedAmount is the exact decimal string of
+ * the Prisma Decimal (toFixed(): never exponent notation, never a JS number); every other field is the
+ * escrow's own, plus the caller's extra fields.
+ */
+function providerEscrow(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, extra: Record<string, unknown>): EscrowRecord {
+  return { ...escrow, lockedAmount: exactDecimalString(escrow.lockedAmount), ...extra } as EscrowRecord
+}
+
+function exactDecimalString(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value !== null && typeof value === 'object' && typeof (value as { toFixed?: unknown }).toFixed === 'function') {
+    return (value as { toFixed(): string }).toFixed()
+  }
+  // Never through a JS number (RFC-009). Absent stays absent, as the provider received it before.
+  if (value === undefined || value === null) return value as unknown as string
+  throw new EscrowError(`escrow lockedAmount must be an exact decimal, got ${typeof value}`)
+}
+
+/**
+ * #235 R7G-F6C — before any claim: WDK outbound needs its network policy (chain, finality, corroborating RPC,
+ * gas caps), and its recipients come only from durable authority (registered payout addresses, the treasury).
+ * A caller-supplied destination - the auto-settle buyer sub-account (NF-B1) or any explicit override - is
+ * refused for this rail rather than frozen into an irreversible obligation.
+ */
+function assertWdkOutboundCaller(escrow: { id: string; type: string }, operation: 'release' | 'refund' | 'split', explicitDestinations: Array<string | undefined>): void {
+  if (escrow.type !== 'WDK_USDT_EVM') return
+  assertWdkOutboundPolicy(escrow.id)
+  if (explicitDestinations.some((d) => d !== undefined)) {
+    throw new EscrowError(
+      `WDK_USDT_EVM ${operation} for escrow ${escrow.id} pays only registered payout addresses: a caller-supplied destination is refused (buyer payout custody, NF-B1). Nothing was executed.`,
+      'UNAVAILABLE'
+    )
+  }
+}

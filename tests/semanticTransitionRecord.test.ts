@@ -45,6 +45,8 @@ const REPO_ROOT = path.resolve(__dirname, '..')
 const mockSemanticTransitionRecordCreate = jest.fn(async ({ data }: any) => ({ id: 'record-1', createdAt: new Date(), ...data }))
 const mockSemanticTransitionRecordFindUnique = jest.fn(async () => null)
 const mockEscrowUpdateMany = jest.fn(async () => ({ count: 1 }))
+const mockTxEscrowEventCreate = jest.fn(async ({ data }: any) => ({ id: 'transition-1', ...data }))
+const mockTxClaimMarkerCreate = jest.fn(async () => ({}))
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -57,8 +59,11 @@ jest.mock('../src/common/database', () => ({
     },
     $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
       callback({
+        $executeRaw: jest.fn(async () => 0),
         semanticTransitionRecord: { create: (...args: unknown[]) => (mockSemanticTransitionRecordCreate as any)(...args) },
         escrow: { updateMany: (...args: unknown[]) => (mockEscrowUpdateMany as any)(...args) },
+        escrowEvent: { findFirst: jest.fn(async () => null), create: (...args: unknown[]) => (mockTxEscrowEventCreate as any)(...args) },
+        eventProjectionClaim: { create: (...args: unknown[]) => (mockTxClaimMarkerCreate as any)(...args) },
       }),
     ),
   },
@@ -263,19 +268,25 @@ describe('P/O. Input durability — no precision loss across the JS number -> Bi
   })
 })
 
-describe('Y/Z. Atomicity — the State claim and the Record insert share ONE transaction client', () => {
-  it('the happy path routes BOTH operations through the SAME tx object, never the raw top-level prisma client', async () => {
-    const result = await commitAuthoritativeEscrowTimelockExpiry('escrow-1', 'FUNDS_LOCKED', 'EXPIRED', buildValidRecord())
-    expect(result.committed).toBe(true)
+const EXPIRY_TRANSITION = { triggeredBy: 'system:expiry-sweeper', eventName: 'settlement.escrow.expired' }
+
+describe('Y/Z. Atomicity — the State claim, the Record insert and the transition claim share ONE transaction client', () => {
+  it('the happy path routes ALL of them through the SAME tx object, never the raw top-level prisma client', async () => {
+    const result = await commitAuthoritativeEscrowTimelockExpiry('escrow-1', 'FUNDS_LOCKED', 'EXPIRED', buildValidRecord(), EXPIRY_TRANSITION)
+    expect(result).toMatchObject({ committed: true, transitionId: 'transition-1' })
     expect(mockEscrowUpdateMany).toHaveBeenCalledTimes(1)
     expect(mockSemanticTransitionRecordCreate).toHaveBeenCalledTimes(1)
+    // the claimed transition (hash-chained EscrowEvent + its PASS 3 marker) commits with the state
+    expect(mockTxEscrowEventCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ escrowId: 'escrow-1', fromStatus: 'FUNDS_LOCKED', toStatus: 'EXPIRED', triggeredBy: 'system:expiry-sweeper' }) }))
+    expect(mockTxClaimMarkerCreate).toHaveBeenCalledWith({ data: { eventId: 'transition-1', projectionKey: 'transition.claimed', subjectId: 'escrow-1' } })
   })
 
-  it('P2/AA — a lost race (claimedCount === 0) means the Record is NEVER created: a Record must never claim a transition that did not happen', async () => {
+  it('P2/AA — a lost race (claimedCount === 0) means neither the Record nor a transition is EVER created: a Record must never claim a transition that did not happen', async () => {
     mockEscrowUpdateMany.mockResolvedValueOnce({ count: 0 })
-    const result = await commitAuthoritativeEscrowTimelockExpiry('escrow-1', 'FUNDS_LOCKED', 'EXPIRED', buildValidRecord())
+    const result = await commitAuthoritativeEscrowTimelockExpiry('escrow-1', 'FUNDS_LOCKED', 'EXPIRED', buildValidRecord(), EXPIRY_TRANSITION)
     expect(result).toEqual({ committed: false, reason: 'STATE_TRANSITION_LOST_RACE' })
     expect(mockSemanticTransitionRecordCreate).not.toHaveBeenCalled()
+    expect(mockTxEscrowEventCreate).not.toHaveBeenCalled()
   })
 })
 

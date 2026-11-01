@@ -24,6 +24,7 @@
 
 import { PrismaClient, Prisma } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { boundOfferRow, boundTradeRow, sellerPixAccount } from './economicFixtures'
 
 describe('recognizeConfirmation() atomicity (Missão 11 Fase 7.2.1, real Postgres)', () => {
   jest.setTimeout(60_000)
@@ -71,17 +72,18 @@ describe('recognizeConfirmation() atomicity (Missão 11 Fase 7.2.1, real Postgre
     return published.id
   }
 
-  async function fixtureObligation(): Promise<{ obligationId: string; txid: string }> {
+  async function fixtureObligation(escrowType: 'MOCK' | 'MULTISIG' = 'MOCK'): Promise<{ obligationId: string; txid: string }> {
     const s = suffix()
     const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-atomic-${s}` } })
     const seller = await prisma.user.create({ data: { publicKey: `pk-seller-atomic-${s}` } })
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
-    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const acct = await sellerPixAccount(prisma, seller.id)
+    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', ...boundOfferRow(acct) } })
+    const trade = await prisma.trade.create({ data: { ...boundTradeRow(acct), offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
     const railScope = `FIXTURE_RAIL_ATOMICITY-${s}`
     const feePolicy = await prisma.feePolicyVersion.create({
       data: { label: `atomic-feepolicy-${s}`, railScope, status: 'PUBLISHED', publishedAt: new Date(), protocolFeeRate: '0.004', payerModel: 'SELLER_PAYS', economicBasis: 'SELLER_DELIVERED_VALUE', requiredConfirmations: 1, createdBy: 'fase7-2-1-atomicity-test' },
     })
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MOCK', asset: 'BTC', lockedAmount: '0.001' } })
+    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: escrowType, asset: 'BTC', lockedAmount: '0.001' } })
     const obligation = await prisma.feeObligation.create({
       data: { escrowId: escrow.id, feePolicyVersionId: feePolicy.id, economicDetermination: 'OWED', collectionStatus: 'PENDING_COLLECTION', basisAmount: '0.001', computedFee: '0.00000500', asset: 'BTC' },
     })
@@ -172,5 +174,56 @@ describe('recognizeConfirmation() atomicity (Missão 11 Fase 7.2.1, real Postgre
     const { entitlementAllocationService } = require('../../src/modules/open-settlement/entitlement-allocation.service')
     const entries = await entitlementAllocationService.allocate(obligationId)
     expect(entries).toHaveLength(1)
+  })
+  // ─── Production sweeper hardening: sweepMultisigFeeConfirmations() as startServer() schedules it ───────────
+  it('two independent nodes ticking the real fee-confirmation sweep through startGuardedInterval() for many intervals recognize the confirmation exactly once: one CONFIRMED row, one COLLECTED transition', async () => {
+    requirePostgres('scheduled fee confirmation sweep - two instances')
+    await publish100PctPolicy()
+    const { obligationId, txid } = await fixtureObligation('MULTISIG')
+    // The explorer says: confirmed at the tip (1 of 1 required), and the broadcast output (vout 1, script
+    // deadbeef, 1 sat - what fixtureObligation() recorded) is exactly what the chain carries.
+    const realFetch = global.fetch
+    global.fetch = jest.fn(async (url: string) => {
+      if (url.includes('/blocks/tip/height')) return { ok: true, text: async () => '100' } as any
+      if (url.endsWith('/status')) return { ok: true, json: async () => ({ confirmed: true, block_height: 100 }) } as any
+      if (url.endsWith(`/tx/${txid}`)) return { ok: true, json: async () => ({ vout: [{ scriptpubkey: '00', value: 0 }, { scriptpubkey: 'deadbeef', value: 1 }] }) } as any
+      return { ok: true, json: async () => ({ vout: [] }) } as any
+    }) as any
+
+    const TICK = 150
+    const nodes = [0, 1].map(() => {
+      let node!: { stop: () => Promise<void>; errors: unknown[] }
+      jest.isolateModules(() => {
+        const { startGuardedInterval } = require('../../src/common/guarded-interval')
+        const { sweepMultisigFeeConfirmations } = require('../../src/modules/open-settlement/multisig-fee-confirmation-job')
+        const db = require('../../src/common/database')
+        const redisModule = require('../../src/common/redis')
+        const errors: unknown[] = []
+        const guarded = startGuardedInterval(() => sweepMultisigFeeConfirmations().then(() => undefined).catch((err: unknown) => { errors.push(err) }), TICK)
+        node = {
+          errors,
+          stop: async () => {
+            await guarded.stop()
+            await db.prisma.$disconnect()
+            await redisModule.redis?.quit?.().catch(() => undefined)
+          },
+        }
+      })
+      return node
+    })
+    try {
+      const deadline = Date.now() + 30_000
+      while (Date.now() < deadline && (await prisma.feeObligation.findUniqueOrThrow({ where: { id: obligationId } })).collectionStatus !== 'COLLECTED') {
+        await new Promise((r) => setTimeout(r, 50))
+      }
+      await new Promise((r) => setTimeout(r, TICK * 8)) // both nodes keep ticking: every later tick must be a no-op
+    } finally {
+      await Promise.all(nodes.map((n) => n.stop()))
+      global.fetch = realFetch
+    }
+
+    expect((await prisma.feeObligation.findUniqueOrThrow({ where: { id: obligationId } })).collectionStatus).toBe('COLLECTED')
+    expect(await prisma.feeCollectionEvidence.count({ where: { feeObligationId: obligationId, kind: 'CONFIRMED' } })).toBe(1)
+    expect(nodes.flatMap((n) => n.errors)).toEqual([])
   })
 })

@@ -1,0 +1,132 @@
+name: ST1-R2 PostgreSQL Diagnostics
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/st1-r2-preflight-snapshot.ts'
+      - '.github/workflows/st1-r2-postgres-diagnostics.yml'
+  workflow_dispatch:
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: sails_protocol
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+      SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
+      TRUSTED_ARBITRATORS: k6-test-arbiter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @sails/core -w @satsails/p2p-schemas -w @satsails/p2p-trading-sdk
+      - run: npm run db:generate
+      - run: npm run db:migrate
+      - name: Snapshot after migrations
+        run: |
+          mkdir -p st1-r2-evidence
+          npx ts-node --transpile-only scripts/st1-r2-preflight-snapshot.ts after-migrations > st1-r2-evidence/after-migrations.json
+      - name: Unit lane
+        run: |
+          set +e
+          npm run test:unit > st1-r2-evidence/unit-jest.log 2>&1
+          result=$?
+          echo "UNIT_TEST_EXIT=$result" >> "$GITHUB_ENV"
+          exit 0
+      - name: Snapshot after unit lane
+        if: always()
+        run: |
+          npx ts-node --transpile-only scripts/st1-r2-preflight-snapshot.ts after-unit > st1-r2-evidence/after-unit.json
+      - name: PostgreSQL integration lane, isolated checkpoints
+        if: always() && env.DATABASE_URL != ''
+        shell: bash
+        run: |
+          set +e
+          # Keep the canonical package.json file order. Run sequentially against
+          # the SAME disposable PG instance to identify when P3 rows appear.
+          mapfile -t suites < <(node -e 'const s=require("./package.json").scripts["test:integration:postgres"]; console.log(s.split(/\s+/).filter(x=>x.startsWith("tests/integration/") && x.endsWith(".test.ts")).join("\n"))')
+          if [ "${#suites[@]}" -ne 85 ] || [ "${suites[66]}" != "tests/integration/multisigScriptAuthority.test.ts" ]; then
+            echo "PG_TEST_EXIT=1" >> "$GITHUB_ENV"
+            echo "Unexpected suite ordering: fail closed" >&2
+            exit 1
+          fi
+          failed=0
+          run_group() {
+            local label="$1" start="$2" end="$3"
+            local count=$((end-start))
+            node --max-old-space-size=6144 node_modules/jest/bin/jest.js --runInBand --runTestsByPath "${suites[@]:start:count}" > "st1-r2-evidence/${label}-jest.log" 2>&1
+            local rc=$?
+            if [ "$rc" -ne 0 ]; then failed=1; fi
+            npx ts-node --transpile-only scripts/st1-r2-preflight-snapshot.ts "$label" > "st1-r2-evidence/${label}-snapshot.json"
+            local snapshot_rc=$?
+            # Snapshot exits 1 on P1-P8 by design. Preserve evidence and continue.
+            if [ "$snapshot_rc" -gt 1 ]; then failed=1; fi
+          }
+          # Bisect the first 63: candidate disputed MULTISIG suite is index 6.
+          run_group pg-first-6 0 6
+          run_group pg-dispute-outcome-only 6 7
+          # Bisect remaining 56 suites without changing preflight or test order.
+          run_group pg-07-to-20 7 21
+          run_group pg-21-to-34 21 35
+          run_group pg-35-to-48 35 49
+          # Narrow first P3 appearance to one of the final fourteen suites.
+          run_group pg-49-to-52 49 53
+          run_group pg-53-only 53 54
+          run_group pg-54-only 54 55
+          run_group pg-55-only 55 56
+          run_group pg-56-only 56 57
+          run_group pg-57-to-59 57 60
+          run_group pg-60-to-62 60 63
+          run_group pg-before-multisig 63 66
+          run_group pg-multisig-only 66 67
+          run_group pg-after-multisig 67 85
+          echo "PG_TEST_EXIT=$failed" >> "$GITHUB_ENV"
+          exit 0
+      - name: Snapshot after PostgreSQL lane
+        if: always()
+        run: |
+          npx ts-node --transpile-only scripts/st1-r2-preflight-snapshot.ts after-postgres > st1-r2-evidence/after-postgres.json
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: st1-r2-postgres-evidence
+          path: st1-r2-evidence/
+          if-no-files-found: warn
+      - name: Preserve unit and PostgreSQL failures
+        if: always()
+        run: |
+          if [ "${UNIT_TEST_EXIT:-0}" != "0" ]; then
+            echo "Unit lane failed; see evidence artifact."
+            exit 1
+          fi
+          if [ "${PG_TEST_EXIT:-0}" != "0" ]; then
+            echo "PostgreSQL integration lane failed; see evidence artifact."
+            exit 1
+          fi

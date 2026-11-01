@@ -90,5 +90,6 @@ export interface CreateEscrowInput {
   lockedAmount: string
   asset: AssetType
   network?: string
+  /** @deprecated Ignored by the server (Master Backlog R5): the timelock is protocol policy (DEFAULT_TIMELOCK_HOURS), frozen on the escrow at creation and returned as Escrow.timelockHours. Still accepted so existing clients are not rejected. */
   timelockHours?: number
 }

@@ -33,8 +33,8 @@ const criticalRateLimit = createSharedRateLimit({
 })
 
 const registerSchema = z.object({
-  capabilityName: z.string().min(1),
-  scope: z.array(z.string().min(1)).min(1),
+  capabilityName: z.string().min(1).max(100),
+  scope: z.array(z.string().min(1).max(100)).min(1).max(3),
   constraints: z.record(z.string(), z.unknown()).optional(), // Zod v4 requires an explicit key schema
 })
 
