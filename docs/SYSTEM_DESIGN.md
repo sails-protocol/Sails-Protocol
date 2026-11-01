@@ -557,7 +557,11 @@ Same recovery root ≠ same private key across protocols
 
 ### 14.1 Sails Participant / economic identity
 
-The Sails Participant represents the economic participant in Sails semantics. In the current TypeScript Reference Implementation this is backed by a client-controlled public key / participant record.
+The Sails Participant represents the economic participant in Sails semantics. In the
+current TypeScript Reference Implementation this is backed by a client-controlled public
+key / participant record. The abstraction remains the model for Sails participation;
+external identity integrations do not replace it (see
+[RFC-001](rfcs/RFC-001-participant-model.md)).
 
 A participant identity must not be confused with:
 - a Sails Node account;
@@ -568,9 +572,15 @@ A participant identity must not be confused with:
 
 ### 14.2 Pears / HyperDHT
 
-Pears is the current transport/communication implementation used by the Reference Implementation.
+Pears/HyperDHT is the selected transport/communication implementation for the Reference
+Implementation. This is an implementation choice, not a protocol dependency; the
+`TransportProvider` boundary and future adapters remain as defined in
+[RFC-002](rfcs/RFC-002-transport-provider.md).
 
-Current implementation truth is important: Pears transport identity is separate from the participant/economic identity and is currently generated as an ephemeral transport identity in the active implementation.
+Current implementation truth is important: Pears transport identity is separate from the
+participant/economic identity and is currently generated as an ephemeral transport identity
+in the active implementation. Transport keys also remain separate from wallet/funds-
+authority keys; this choice specifies no shared key, derivation or recovery scheme.
 
 Therefore:
 
@@ -582,9 +592,17 @@ Pears implementation ≠ protocol dependency
 
 ### 14.3 Nostr / Pubky and external identity ecosystems
 
-External identity ecosystems such as Nostr and Pubky are interoperability candidates, not mandatory Sails identity layers.
+Pubky is the prioritized external provider for identity, discovery and compatible
+authorizations in the Reference Implementation. This is an integration priority only: it
+does not replace the abstract Sails Participant, define or change authorization semantics,
+mandate Pubky for protocol-conformant implementations, or claim completed integration or
+homologation. Prototype and lab results are evidence only; they do not establish
+homologation.
 
-Sails may recognize, bind or coordinate external identity assertions where a future accepted design permits, but it must not silently convert an external identity into economic authority or require one external network to define Sails participation.
+Nostr is not a mandatory Day-0 dependency and remains optional as an interoperability
+ecosystem. External identity integrations remain replaceable edges, and Sails must not
+silently convert an external identity into economic authority or require one external
+network to define Sails participation. Future adapters remain possible.
 
 No universal replacement "Sails ID" is implied here. The protocol coordinates the participant's economic meaning while external identities remain optional, replaceable edges.
 
