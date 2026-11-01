@@ -376,4 +376,18 @@ describe('#308 transition durability and ABA safety (real Postgres, real process
     expect(outbox).toHaveLength(1)
     expect(events).toHaveLength(1)
   })
+
+  // ─── F. the owed event outlives any attempt to delete its dispute ─────────────────────
+  it('F1 deleting a dispute with a pending transition is refused by the database, and the owed event is still published', async () => {
+    pg.requirePostgres('F1')
+    const { dispute, trade, buyer, service } = await makeAutoProposed('fk-restrict', 3_600_000)
+    expect(await (service as any).claimAutoProposedTransition(dispute, 'CONTESTED', buyer.id)).toEqual(expect.any(String))
+    await expect(prisma.$executeRaw`DELETE FROM "disputes" WHERE "id" = ${dispute.id}`).rejects.toThrow(/foreign key|23503/i)
+    const pending = await outboxFor(dispute.id)
+    evidence('F1 delete refused', { disputeKept: !!(await prisma.dispute.findUnique({ where: { id: dispute.id } })), pending: pending.length })
+    expect(pending).toHaveLength(1)
+    expect(pending[0].publishedAt).toBeNull()
+    await publishPendingDisputeTransitions()
+    expect(await eventsFor(trade.id)).toHaveLength(1)
+  })
 })

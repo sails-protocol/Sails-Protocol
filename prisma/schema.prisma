@@ -1522,7 +1522,7 @@ model Dispute {
 model DisputeTransitionOutbox {
   id          String    @id @default(uuid())
   disputeId   String
-  dispute     Dispute   @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  dispute     Dispute   @relation(fields: [disputeId], references: [id], onDelete: Restrict)
   generation  Int
   kind        String // 'CONTESTED' | 'EXPIRED'
   tradeId     String // the event's correlationId
