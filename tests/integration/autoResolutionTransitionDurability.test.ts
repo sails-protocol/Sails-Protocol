@@ -76,75 +76,71 @@ describe('#308 transition durability and ABA safety (real Postgres, real process
     return prisma.disputeTransitionOutbox.findMany({ where: { disputeId }, orderBy: { createdAt: 'asc' } })
   }
 
-  // The deadline column is `timestamp(3)` (millisecond precision) while now() has microseconds, so an EXACT-equality
-  // case is only expressible at an instant where now() is millisecond-aligned. Retry throwaway transactions until the
-  // database hands us such an instant (about 1 in 1000), so the boundary test is deterministic instead of lucky.
-  class NotAligned extends Error {}
-  async function atMillisecondAlignedNow<T>(fn: (tx: any) => Promise<T>): Promise<T> {
-    for (let attempt = 0; attempt < 20_000; attempt++) {
-      try {
-        return await prisma.$transaction(async (tx) => {
-          const [{ ok }] = await tx.$queryRaw<Array<{ ok: boolean }>>`SELECT (extract(microseconds from now())::bigint % 1000 = 0) AS "ok"`
-          if (!ok) throw new NotAligned()
-          return fn(tx)
-        })
-      } catch (err) { if (!(err instanceof NotAligned)) throw err }
-    }
-    throw new Error('no millisecond-aligned now() obtained')
-  }
+  // The deadline column is `timestamp(3)` (millisecond precision) and the claim truncates its instant to the
+  // millisecond, so the boundary is exercised EXACTLY by pinning the decision instant through the claim's `decidedAt`
+  // seam (the production path reads the database clock; see F1-F4 in autoResolutionLockedDecision.test.ts for that).
+  const DEADLINE = '2031-03-04T05:06:07.123Z'
+  const plusMs = (iso: string, ms: number) => new Date(Date.parse(iso) + ms).toISOString()
+  const setDeadline = (id: string, iso: string) => prisma.$executeRaw`UPDATE "disputes" SET "autoResolutionDeadline" = (${iso}::timestamptz AT TIME ZONE 'UTC') WHERE "id" = ${id}`
 
-  // ─── A. the claim: database clock, exact boundary, time zone ────────────────────────────────────
-  it('A1 exact deadline instant: with now() pinned equal to the deadline inside one transaction, the CONTEST wins and the SWEEP does not', async () => {
+  // ─── A. the claim: exact boundary at millisecond resolution, time zone ──────────────────────────
+  it('A1 exact deadline instant: with the decision instant equal to the deadline the CONTEST wins and the SWEEP does not', async () => {
     pg.requirePostgres('A1')
     const a = await makeAutoProposed('boundary-contest', 3_600_000)
     const b = await makeAutoProposed('boundary-sweep', 3_600_000)
-    const results = await atMillisecondAlignedNow(async (tx) => {
-      // inside one transaction now() is constant: set both deadlines to that very instant, then claim
-      await tx.$executeRaw`UPDATE "disputes" SET "autoResolutionDeadline" = (now() AT TIME ZONE 'UTC') WHERE "id" IN (${a.dispute.id}, ${b.dispute.id})`
-      const contest = await (a.service as any).claimAutoProposedTransition(a.dispute, 'CONTESTED', a.buyer.id, tx)
-      const sweep = await (b.service as any).claimAutoProposedTransition(b.dispute, 'EXPIRED', 'window-expired-advisory-only', tx)
-      return { contest, sweep }
-    })
-    evidence('A1 equality at the deadline', { contestWon: !!results.contest, sweepWon: !!results.sweep })
-    expect(results.contest).toEqual(expect.any(String))
-    expect(results.sweep).toBeNull()
+    await setDeadline(a.dispute.id, DEADLINE); await setDeadline(b.dispute.id, DEADLINE)
+    const contest = await (a.service as any).claimAutoProposedTransition(a.dispute, 'CONTESTED', a.buyer.id, { decidedAt: DEADLINE })
+    const sweep = await (b.service as any).claimAutoProposedTransition(b.dispute, 'EXPIRED', 'window-expired-advisory-only', { decidedAt: DEADLINE })
+    evidence('A1 equality at the deadline', { contestWon: !!contest, sweepWon: !!sweep })
+    expect(contest).toEqual(expect.any(String))
+    expect(sweep).toBeNull()
     expect((await prisma.dispute.findUnique({ where: { id: a.dispute.id } }))!.status).toBe('EVIDENCE_SUBMITTED')
     expect((await prisma.dispute.findUnique({ where: { id: b.dispute.id } }))!.status).toBe('AUTO_PROPOSED')
   })
 
-  it('A2 two milliseconds past the deadline the SWEEP wins and the CONTEST is refused (same clock, opposite sides of the boundary)', async () => {
+  it('A2 one millisecond on each side of the deadline: before it only the CONTEST wins, after it only the SWEEP wins', async () => {
     pg.requirePostgres('A2')
-    const a = await makeAutoProposed('past-contest', 3_600_000)
-    const b = await makeAutoProposed('past-sweep', 3_600_000)
-    const results = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`UPDATE "disputes" SET "autoResolutionDeadline" = ((now() AT TIME ZONE 'UTC') - interval '2 milliseconds') WHERE "id" IN (${a.dispute.id}, ${b.dispute.id})`
-      return {
-        contest: await (a.service as any).claimAutoProposedTransition(a.dispute, 'CONTESTED', a.buyer.id, tx),
-        sweep: await (b.service as any).claimAutoProposedTransition(b.dispute, 'EXPIRED', 'window-expired-advisory-only', tx),
-      }
-    })
-    evidence('A2 two milliseconds past the deadline', { contestWon: !!results.contest, sweepWon: !!results.sweep })
-    expect(results.contest).toBeNull()
-    expect(results.sweep).toEqual(expect.any(String))
+    const early = { contest: await makeAutoProposed('ms-before-contest', 3_600_000), sweep: await makeAutoProposed('ms-before-sweep', 3_600_000) }
+    const late = { contest: await makeAutoProposed('ms-after-contest', 3_600_000), sweep: await makeAutoProposed('ms-after-sweep', 3_600_000) }
+    for (const f of [early.contest, early.sweep, late.contest, late.sweep]) await setDeadline(f.dispute.id, DEADLINE)
+    const claim = (f: typeof early.contest, kind: 'CONTESTED' | 'EXPIRED', decidedAt: string) =>
+      (f.service as any).claimAutoProposedTransition(f.dispute, kind, kind === 'CONTESTED' ? f.buyer.id : 'window-expired-advisory-only', { decidedAt })
+    const r = {
+      contestOneMsBefore: await claim(early.contest, 'CONTESTED', plusMs(DEADLINE, -1)),
+      sweepOneMsBefore: await claim(early.sweep, 'EXPIRED', plusMs(DEADLINE, -1)),
+      contestOneMsAfter: await claim(late.contest, 'CONTESTED', plusMs(DEADLINE, 1)),
+      sweepOneMsAfter: await claim(late.sweep, 'EXPIRED', plusMs(DEADLINE, 1)),
+    }
+    evidence('A2 one millisecond either side of the deadline', { contestOneMsBefore: !!r.contestOneMsBefore, sweepOneMsBefore: !!r.sweepOneMsBefore, contestOneMsAfter: !!r.contestOneMsAfter, sweepOneMsAfter: !!r.sweepOneMsAfter })
+    expect(r.contestOneMsBefore).toEqual(expect.any(String))
+    expect(r.sweepOneMsBefore).toBeNull()
+    expect(r.contestOneMsAfter).toBeNull()
+    expect(r.sweepOneMsAfter).toEqual(expect.any(String))
   })
 
-  it('A3 the decision does not depend on the session time zone (the column is a timestamp without time zone)', async () => {
+  it('A3 the decision does not depend on the session time zone (the column is a timestamp without time zone), neither with the database clock nor at the exact boundary', async () => {
     pg.requirePostgres('A3')
     for (const tz of ['UTC', 'America/Sao_Paulo', 'Pacific/Kiritimati']) {
       const open = await makeAutoProposed(`tz-open-${tz.length}`, 3_600_000) // one hour in the future
       const closed = await makeAutoProposed(`tz-closed-${tz.length}`, -3_600_000) // one hour in the past
+      const edge = await makeAutoProposed(`tz-edge-${tz.length}`, 3_600_000)
+      await setDeadline(edge.dispute.id, DEADLINE)
       const r = await prisma.$transaction(async (tx) => {
         await tx.$executeRawUnsafe(`SET LOCAL TIME ZONE '${tz}'`)
         return {
-          openContest: await (open.service as any).claimAutoProposedTransition(open.dispute, 'CONTESTED', open.buyer.id, tx),
-          closedContest: await (closed.service as any).claimAutoProposedTransition(closed.dispute, 'CONTESTED', closed.buyer.id, tx),
-          closedSweep: await (closed.service as any).claimAutoProposedTransition(closed.dispute, 'EXPIRED', 'window-expired-advisory-only', tx),
+          openContest: await (open.service as any).claimAutoProposedTransition(open.dispute, 'CONTESTED', open.buyer.id, { client: tx }),
+          closedContest: await (closed.service as any).claimAutoProposedTransition(closed.dispute, 'CONTESTED', closed.buyer.id, { client: tx }),
+          closedSweep: await (closed.service as any).claimAutoProposedTransition(closed.dispute, 'EXPIRED', 'window-expired-advisory-only', { client: tx }),
+          edgeSweepAtEquality: await (edge.service as any).claimAutoProposedTransition(edge.dispute, 'EXPIRED', 'window-expired-advisory-only', { client: tx, decidedAt: DEADLINE }),
+          edgeContestAtEquality: await (edge.service as any).claimAutoProposedTransition(edge.dispute, 'CONTESTED', edge.buyer.id, { client: tx, decidedAt: DEADLINE }),
         }
       })
-      evidence(`A3 session time zone ${tz}`, { openContestWon: !!r.openContest, closedContestWon: !!r.closedContest, closedSweepWon: !!r.closedSweep })
+      evidence(`A3 session time zone ${tz}`, { openContestWon: !!r.openContest, closedContestWon: !!r.closedContest, closedSweepWon: !!r.closedSweep, edgeSweepAtEquality: !!r.edgeSweepAtEquality, edgeContestAtEquality: !!r.edgeContestAtEquality })
       expect(r.openContest).toEqual(expect.any(String))
       expect(r.closedContest).toBeNull()
       expect(r.closedSweep).toEqual(expect.any(String))
+      expect(r.edgeSweepAtEquality).toBeNull()
+      expect(r.edgeContestAtEquality).toEqual(expect.any(String))
     }
   })
 

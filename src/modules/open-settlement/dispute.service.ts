@@ -1296,32 +1296,43 @@ export class DisputeService {
   /**
    * #308 / D-308 — the ONE claim of the AUTO_PROPOSED -> EVIDENCE_SUBMITTED transition, shared by the human contest
    * and the advisory expiry sweep. One transaction: a compare-and-set UPDATE against the proposal generation the
-   * caller observed, with the deadline decided by the DATABASE clock (`now()` converted to UTC, because the column is
-   * a timestamp without time zone), plus the outbox row that makes the event recoverable. Equality at the deadline
-   * belongs to the human: contest is valid while `deadline >= now`, the sweep only when `deadline < now`.
-   * Contest clears the QVAC recommendation; the advisory expiry keeps it as context for the human arbiter (the
-   * metadata semantics are unchanged). Returns the outbox row id of the winner, or null when the claim lost.
+   * caller observed, plus the outbox row that makes the event recoverable. Equality at the deadline belongs to the
+   * human: contest is valid while `deadline >= instant`, the sweep only when `deadline < instant`.
+   *
+   * The decision instant is the DATABASE clock read AFTER the dispute row lock is held. `now()` is the transaction
+   * start and a conditional UPDATE's snapshot is the statement start, both taken BEFORE a wait on a row lock, so a
+   * claim queued behind another writer while the deadline passed would be judged at a stale instant (a contest could
+   * win a window that had closed while it waited). So the row is locked first (`SELECT ... FOR UPDATE`) and the
+   * instant is read with `clock_timestamp()` in the next statement, in UTC and truncated to the millisecond of the
+   * `timestamp(3)` column. Contest clears the QVAC recommendation; the advisory expiry keeps it as context for the
+   * human arbiter (the metadata semantics are unchanged). Returns the outbox row id of the winner, or null when the
+   * claim lost.
    */
   private async claimAutoProposedTransition(
     dispute: { id: string; escrowId: string; tradeId: string; autoProposalGeneration: number },
     kind: DisputeTransitionKind,
     actor: string,
-    // Joins the caller's transaction instead of opening one (a seam for tests that must pin `now()` at the deadline).
-    client?: Prisma.TransactionClient
+    // Test seams only; production passes neither. `client` joins the caller's transaction instead of opening one;
+    // `decidedAt` (ISO-8601 UTC) replaces the database clock so the exact-equality boundary can be asserted.
+    seam: { client?: Prisma.TransactionClient; decidedAt?: string } = {}
   ): Promise<string | null> {
     const generation = dispute.autoProposalGeneration
-    const run = <T>(fn: (tx: Prisma.TransactionClient) => Promise<T>) => (client ? fn(client) : prisma.$transaction(fn))
+    const run = <T>(fn: (tx: Prisma.TransactionClient) => Promise<T>) => (seam.client ? fn(seam.client) : prisma.$transaction(fn))
     return run(async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM "disputes" WHERE "id" = ${dispute.id} FOR UPDATE`
+      const instant = seam.decidedAt
+        ? Prisma.sql`(${seam.decidedAt}::timestamptz AT TIME ZONE 'UTC')`
+        : Prisma.sql`(date_trunc('milliseconds', clock_timestamp()) AT TIME ZONE 'UTC')`
       const affected = kind === 'CONTESTED'
         ? await tx.$executeRaw`
             UPDATE "disputes" SET "status" = 'EVIDENCE_SUBMITTED', "autoResolutionRecommendation" = NULL, "autoResolutionConfidence" = NULL,
-              "autoResolutionReasoning" = NULL, "autoResolutionDeadline" = NULL, "updatedAt" = (now() AT TIME ZONE 'UTC')
+              "autoResolutionReasoning" = NULL, "autoResolutionDeadline" = NULL, "updatedAt" = ${instant}
             WHERE "id" = ${dispute.id} AND "status" = 'AUTO_PROPOSED' AND "ruling" IS NULL AND "autoProposalGeneration" = ${generation}
-              AND ("autoResolutionDeadline" IS NULL OR "autoResolutionDeadline" >= (now() AT TIME ZONE 'UTC'))`
+              AND ("autoResolutionDeadline" IS NULL OR "autoResolutionDeadline" >= ${instant})`
         : await tx.$executeRaw`
-            UPDATE "disputes" SET "status" = 'EVIDENCE_SUBMITTED', "autoResolutionDeadline" = NULL, "updatedAt" = (now() AT TIME ZONE 'UTC')
+            UPDATE "disputes" SET "status" = 'EVIDENCE_SUBMITTED', "autoResolutionDeadline" = NULL, "updatedAt" = ${instant}
             WHERE "id" = ${dispute.id} AND "status" = 'AUTO_PROPOSED' AND "ruling" IS NULL AND "autoProposalGeneration" = ${generation}
-              AND "autoResolutionDeadline" < (now() AT TIME ZONE 'UTC')`
+              AND "autoResolutionDeadline" < ${instant}`
       if (affected === 0) return null
       const row = await tx.disputeTransitionOutbox.create({
         data: {
