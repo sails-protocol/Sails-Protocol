@@ -58,7 +58,11 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
     // the one point this key ever transited the network, and it's gone.
     const { peerId } = await fallbackTransportProvider.start(participantId)
     const transport = fallbackTransportProvider.activeTransportName(participantId)
-    return reply.code(200).send({ success: true, data: { peerId, transport } })
+    // Explicitly expose degraded capabilities; relay readiness is not DHT discovery.
+    const capabilities = transport === 'websocket-relay'
+      ? { directRelay: true, topicDiscovery: false, topicBroadcast: false }
+      : { directRelay: false, topicDiscovery: true, topicBroadcast: true }
+    return reply.code(200).send({ success: true, data: { peerId, transport, capabilities } })
   })
 
   app.post('/v1/peers/stop', {
