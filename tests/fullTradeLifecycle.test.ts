@@ -199,6 +199,37 @@ const intentEvents = {
 // last-match-by-correlationId shape as intentEvents above, for the same
 // reason (publish() needs the most recent prior row for a correlationId
 // to chain prevHash, not just any match).
+// Issue #298 - event_projection_claims with the REAL semantics the property depends on: a unique
+// (eventId, projectionKey, subjectId) identity; createMany({skipDuplicates}) reports how many rows were
+// actually inserted (0 for an already-claimed identity), exactly like INSERT ... ON CONFLICT DO NOTHING.
+const projectionClaimKeys = new Set<string>()
+const projectionClaimRows: any[] = []
+const eventProjectionClaims = {
+  rows: { clear: () => { projectionClaimKeys.clear(); projectionClaimRows.length = 0 } },
+  create: jest.fn(async ({ data }: any) => {
+    const key = `${data.eventId}|${data.projectionKey}|${data.subjectId}`
+    if (projectionClaimKeys.has(key)) throw new Error(`Unique constraint failed on ${key}`)
+    projectionClaimKeys.add(key)
+    const row = { id: `claim-${projectionClaimRows.length + 1}`, appliedAt: new Date(), ...data }
+    projectionClaimRows.push(row)
+    return { ...row }
+  }),
+  createMany: jest.fn(async ({ data }: any) => {
+    let count = 0
+    for (const d of data) {
+      const key = `${d.eventId}|${d.projectionKey}|${d.subjectId}`
+      if (projectionClaimKeys.has(key)) continue
+      projectionClaimKeys.add(key)
+      projectionClaimRows.push({ id: `claim-${projectionClaimRows.length + 1}`, appliedAt: new Date(), ...d })
+      count++
+    }
+    return { count }
+  }),
+  findMany: jest.fn(async ({ where = {} }: any = {}) =>
+    projectionClaimRows.filter((r) => Object.entries(where).every(([k, v]) => (v && typeof v === 'object') ? true : r[k] === v)).map((r) => ({ ...r }))
+  ),
+}
+
 const durableEventRows: any[] = []
 let durableEventSeq = 0
 const durableEventRecords = {
@@ -214,6 +245,8 @@ const durableEventRecords = {
   findMany: jest.fn(async ({ where }: any) => {
     return durableEventRows.filter((r) => r.correlationId === where.correlationId)
   }),
+  // Issue #298 - PostgresEventStore.redeliver() reloads a durable event by id.
+  findUnique: jest.fn(async ({ where }: any) => durableEventRows.find((r) => r.id === where.id) ?? null),
 }
 
 // PostgresEventStore.publish() (Missão 05.8) wraps its write in a real
@@ -244,6 +277,12 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     // visible to a later unlocked read exactly like a real Prisma
     // transaction would be — same discipline as escrow/escrowEvent above.
     dispute: disputes,
+    // Issue #298 - the claim marker and every projection claim go through the real unique-identity table above;
+    // projections mutate the same in-memory tables the rest of the flow reads.
+    eventProjectionClaim: eventProjectionClaims,
+    user: users,
+    trade: trades,
+    vouch: vouches,
     $executeRaw: jest.fn().mockResolvedValue(0),
   })
 )
@@ -264,6 +303,7 @@ jest.mock('../src/common/database', () => ({
     intentEvent: intentEvents,
     vouch: vouches,
     durableEventRecord: durableEventRecords,
+    eventProjectionClaim: eventProjectionClaims,
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
   },
 }))
@@ -400,7 +440,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   jest.clearAllMocks()
-  ;[users, offers, trades, escrows, escrowEvents, escrowParticipantKeys, disputes, intents].forEach((t) => t.rows.clear())
+  ;[users, offers, trades, escrows, escrowEvents, escrowParticipantKeys, disputes, intents, eventProjectionClaims].forEach((t) => t.rows.clear())
   intentEventRows.length = 0
   seedUsers()
 })
@@ -600,7 +640,7 @@ describe('Full trade lifecycle — Intent born -> Offer -> discovery -> Trade ->
 // queues commonly redeliver on at-least-once semantics — these tests put
 // that future requirement under pressure now, before it's built, rather
 // than discovering it live.
-describe('Event replay / idempotency stress test — not reachable today, a real requirement before any durable EventStore ships', () => {
+describe('Event replay / idempotency — durable-event redelivery must never duplicate an effect (Issue #298)', () => {
   // registerEventHandlers() already ran once in this file's top-level
   // beforeAll (above) — eventBus is a module-level singleton shared by
   // every describe block in this file, so calling it again here would
@@ -611,7 +651,7 @@ describe('Event replay / idempotency stress test — not reachable today, a real
 
   beforeEach(() => {
     jest.clearAllMocks()
-    ;[users, offers, trades, escrows, escrowEvents, escrowParticipantKeys, disputes, intents].forEach((t) => t.rows.clear())
+    ;[users, offers, trades, escrows, escrowEvents, escrowParticipantKeys, disputes, intents, eventProjectionClaims].forEach((t) => t.rows.clear())
     intentEventRows.length = 0
     seedUsers()
   })
@@ -642,31 +682,33 @@ describe('Event replay / idempotency stress test — not reachable today, a real
     expect(intents.rows.get(offer.intentId)?.status).toBe('COMMITTED')
   })
 
-  it('BAD (known, tracked gap — not fixed here): a duplicate settlement.escrow.released double-counts reputation', async () => {
+  it('INVARIANT (Issue #298, was the "BAD known gap"): the SAME durable settlement.escrow.released event redelivered N times - including concurrently and by a second consumer - applies each additive effect exactly once', async () => {
     const offer = await liquidityRouter.createOffer({
       userId: 'seller-1', asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1.00', minAmount: '10', maxAmount: '100', paymentMethod: 'PIX',
     })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: 'buyer-1', amount: '20' })
-    const result = await executeSettlement({ tradeId: trade.id, buyerReceivingAddress: '0xBuyerTestnetAddress' })
+    await executeSettlement({ tradeId: trade.id, buyerReceivingAddress: '0xBuyerTestnetAddress' })
     await flush()
     expect(users.rows.get('buyer-1')?.reputationScore).toBe(2)
     expect(users.rows.get('seller-1')?.reputationScore).toBe(2)
+    const totalTradesBefore = users.rows.get('buyer-1')?.totalTrades
+    const volumeBefore = users.rows.get('buyer-1')?.totalVolumeBtc
+    expect(totalTradesBefore).toBe(1)
 
-    // Redeliver settlement.escrow.released — unlike the Intent side above,
-    // nothing here checks "have I already recorded this outcome."
-    // reputation.service.ts's recordOutcome() is a bare increment with no
-    // idempotency key (no eventId tracked, no "already applied" guard).
-    await eventBus.emit('settlement.escrow.released', {
-      escrowId: result.escrowId, tradeId: trade.id, from: 'PAYMENT_PENDING', to: 'COMPLETED', triggeredBy: 'seller-1',
-    }, trade.id)
+    // Redeliver the exact same durable event (a durable queue's at-least-once retry, a lost ack, or another
+    // instance receiving it over the cross-instance fanout): same eventId, so the projection claims collide.
+    const released = durableEventRows.find((r) => r.eventName === 'settlement.escrow.released')
+    expect(released).toBeDefined()
+    const results = await Promise.all(Array.from({ length: 5 }, () => eventBus.redeliver(released.id)))
+    expect(results.every(Boolean)).toBe(true)
+    await flush()
     await flush()
 
-    // This IS the bug the "replay de evento" scenario predicted — asserted
-    // here deliberately, as documentation of a real, currently-unreachable
-    // risk (docs/BACKLOG.md), not as an accepted outcome. Before any
-    // durable, redelivering EventStore ships, recordOutcome()'s callers
-    // need an idempotency key (eventId) check first.
-    expect(users.rows.get('buyer-1')?.reputationScore).toBe(4)
-    expect(users.rows.get('seller-1')?.reputationScore).toBe(4)
+    // Previously this DID double-count (asserted as 4/4 as a documented gap). Now it cannot.
+    expect(users.rows.get('buyer-1')?.reputationScore).toBe(2)
+    expect(users.rows.get('seller-1')?.reputationScore).toBe(2)
+    expect(users.rows.get('buyer-1')?.totalTrades).toBe(totalTradesBefore)
+    expect(users.rows.get('buyer-1')?.totalVolumeBtc).toBe(volumeBefore)
+    expect(trades.rows.get(trade.id)?.status).toBe('COMPLETED')
   })
 })

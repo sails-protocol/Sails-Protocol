@@ -19,6 +19,14 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **Issues #291 / #294 / #298 — settlement result integrity, authoritative projection, replay
+  safety.** `Escrow.txReleaseId`/`releasedAt` are now write-once (one `persistSettlementResult()`
+  primitive for every writer + a database trigger); a provider-success/local-failure no longer
+  reverts the escrow; Trade status is projected monotonically from the persisted Escrow (manual
+  transitions are CAS-guarded); downstream event effects are idempotent per
+  `(eventId, projectionKey, subjectId)` (`event_projection_claims`), with recovery of claimed-but-
+  unprojected transitions (PASS 3). Two migrations. See `PROTOCOL_INVARIANTS.md` INV-OP-12.
+
 - **Issue #303 - Capability Authority is a production-eligibility invariant.** A
   `NODE_ENV=production` process now refuses to boot unless
   `ENFORCE_CAPABILITIES=true` exactly (dev/test/reference unchanged). Only canonical

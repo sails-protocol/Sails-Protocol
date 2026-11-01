@@ -1,12 +1,17 @@
 import { prisma } from '../../common/database'
+import { Prisma } from '@prisma/client'
 import { config } from '../../config'
-import { EscrowError } from '../../common/errors'
-import { withEscrowFundingLock, loadParticipantPubkeys, emitEscrowTransition, claimEscrowTransition } from './escrow-lifecycle'
+import { EscrowError, SettlementResultConflictError } from '../../common/errors'
+import { withEscrowFundingLock, loadParticipantPubkeys, emitEscrowTransition, claimEscrowTransition, EVENT_NAME_BY_TARGET_STATUS, resolvePayoutAddress } from './escrow-lifecycle'
+import { eventBus } from '../../common/events/event-bus'
+import { TRANSITION_CLAIMED_KEY, TRANSITION_PROJECTED_KEY } from '../../common/events/event-projection'
 import { escrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
 import { feeCollectionRecognitionService } from './fee-collection-recognition.service'
 import { multisigProvider, identifyFeeOutput, networkFor, type MultisigEscrowInput } from './multisig.provider'
+import { wdkSettlementProvider } from './wdk-settlement.provider'
+import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { childLogger } from '../../common/logger'
 import { authorizePendingExecution } from './capability-execution-authorization'
@@ -64,7 +69,10 @@ const log = childLogger('escrow-settlement-reconciliation')
  */
 
 export interface ReconciliationReport {
-  recovered: Array<{ escrowId: string; txId: string; outcome: 'ALREADY_BROADCAST' | 'NEWLY_BROADCAST' }>
+  // Issue #251 - 'ALREADY_CONFIRMED' is WDK_USDT_EVM RELEASE/REFUND's own outcome label: unlike
+  // MULTISIG (which may itself broadcast a fully-signed PSBT during reconciliation), this reconciler
+  // never submits anything - it only ever finds and consumes an already-confirmed provider fact.
+  recovered: Array<{ escrowId: string; txId: string; outcome: 'ALREADY_BROADCAST' | 'NEWLY_BROADCAST' | 'ALREADY_CONFIRMED' }>
   completionEffectsRecovered: Array<{ escrowId: string; obligationSkipped: boolean }>
   requiresManualReview: Array<{ escrowId: string; reason: string }>
   failed: Array<{ escrowId: string; error: string }>
@@ -77,6 +85,8 @@ export interface ReconciliationReport {
   // "the transition already happened, only txReleaseId was missing."
   resumedUnclaimed: Array<{ escrowId: string; txId: string; outcome: 'ALREADY_BROADCAST' | 'NEWLY_BROADCAST' }>
   alreadyClaimedConcurrently: string[]
+  // Issue #298 - PASS 3: claimed-but-not-fully-projected transitions that were re-driven.
+  projectionsRecovered: Array<{ escrowId: string; transitionId: string; action: 'REPUBLISHED' | 'REDELIVERED' }>
 }
 
 // The audit-trail "from" state for the reconciliation-driven
@@ -329,7 +339,18 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
       }
 
       const updateData = targetStatus === 'REFUNDED' ? { txReleaseId: result.txId } : { txReleaseId: result.txId, releasedAt: new Date() }
-      await escrowRepository.updateSignatureCollectionResult(escrow.id, updateData)
+      try {
+        // Issue #291 - same write-once primitive as every live writer, bound to the
+        // immutable pending operation. Never overwrites a converged result.
+        await escrowRepository.updateSignatureCollectionResult(escrow.id, updateData, { operation: { pendingOperationId: pending.id } })
+      } catch (writeErr) {
+        if (writeErr instanceof SettlementResultConflictError) {
+          log.error({ msg: 'C8 recovery: settlement result integrity conflict - persisted evidence NOT overwritten', escrowId: escrow.id, err: writeErr.message })
+          report.requiresManualReview.push({ escrowId: escrow.id, reason: writeErr.message })
+          continue
+        }
+        throw writeErr
+      }
 
       log.info({ msg: 'C8 recovery: claimed a previously-unclaimed, fully-signed pending transaction after asking the chain first', escrowId: escrow.id, outcome: result.outcome, txId: result.txId })
       await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, targetStatus, pending.triggeredBy, result.txId, escrow, pending, result.rawTxHex)
@@ -346,11 +367,23 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
 // on-chain-truth procedure) and, once known, runs the shared downstream
 // completion effects above.
 async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, report: ReconciliationReport): Promise<void> {
+  if (escrow.type === 'WDK_USDT_EVM') {
+    await reconcileWdkTerminalTransfer(escrow, report)
+    return
+  }
+
+  if (escrow.type === 'LIGHTNING_HODL' || escrow.type === 'SAFE_GUARD_EVM') {
+    await reconcileSignatureCollectionTerminalTransfer(escrow, report)
+    return
+  }
+
   if (escrow.type !== 'MULTISIG') {
-    // No authoritative-truth primitive exists for this rail in this
-    // mission's scope (see this file's own header comment) — fail
-    // closed rather than guess. A real operator response requires a
-    // human to inspect this escrow's actual provider-side state.
+    // No authoritative-truth primitive exists for this rail in this mission's scope (LIGHTNING_HODL/
+    // SAFE_GUARD_EVM are handled above by reconcileSignatureCollectionTerminalTransfer();
+    // WDK_USDT_EVM RELEASE/REFUND is handled above by reconcileWdkTerminalTransfer() - neither branch
+    // is ever reached for those types) — fail closed
+    // rather than guess. A real operator response requires a human to inspect this escrow's actual
+    // provider-side state.
     report.requiresManualReview.push({
       escrowId: escrow.id,
       reason: `Escrow type '${escrow.type}' has no automated crash-recovery reconciliation primitive in this mission's scope — status is '${escrow.status}' with no txReleaseId. Manual review required.`,
@@ -434,13 +467,26 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
   // anyway, a live request) may have already converged this exact
   // escrow between this module's unlocked chain-truth determination
   // above and this write.
-  const wroteTxReleaseId = await withEscrowFundingLock(escrow.id, async (tx) => {
-    const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
-    if (!fresh || fresh.txReleaseId !== null) return false
-    const updateData = targetStatus === 'REFUNDED' ? { txReleaseId: result.txId } : { txReleaseId: result.txId, releasedAt: new Date() }
-    await tx.escrow.update({ where: { id: escrow.id }, data: updateData })
-    return true
-  })
+  // Issue #291 - PASS 1 uses the SAME write-once primitive as every other
+  // writer: empty -> write, same -> idempotent, DIFFERENT -> integrity
+  // conflict (previously this branch silently ignored a differing value).
+  let wroteTxReleaseId = false
+  try {
+    wroteTxReleaseId = await withEscrowFundingLock(escrow.id, async (tx) => {
+      const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
+      if (!fresh) return false
+      const updateData = targetStatus === 'REFUNDED' ? { txReleaseId: result.txId } : { txReleaseId: result.txId, releasedAt: new Date() }
+      await escrowRepository.updateSignatureCollectionResult(escrow.id, updateData, { tx, operation: { pendingOperationId: pending.id } })
+      return fresh.txReleaseId === null
+    })
+  } catch (writeErr) {
+    if (writeErr instanceof SettlementResultConflictError) {
+      log.error({ msg: 'PASS 1: settlement result integrity conflict - persisted evidence NOT overwritten, downstream effects NOT run', escrowId: escrow.id, err: writeErr.message })
+      report.requiresManualReview.push({ escrowId: escrow.id, reason: writeErr.message })
+      return
+    }
+    throw writeErr
+  }
 
   log.info({ msg: 'Reconciliation: convergence path determined', escrowId: escrow.id, outcome: result.outcome, txId: result.txId, detail: result.detail, wroteTxReleaseId })
   // Downstream effects still run even if wroteTxReleaseId is false (a
@@ -451,6 +497,299 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
   report.recovered.push({ escrowId: escrow.id, txId: result.txId, outcome: result.outcome })
 }
 
+// Issue #251 - WDK_USDT_EVM RELEASE/REFUND restart convergence. Direct-call rails (unlike MULTISIG)
+// have no EscrowPendingTransaction/signed-PSBT trail to reconstruct from - the durable evidence is
+// WdkTransferAttempt instead, consumed here through wdkSettlementProvider's own READ-ONLY
+// reconcileTerminalTransfer() (see that method's own header comment for why it never writes to
+// WdkTransferAttempt or calls transfer()). SPLIT is explicitly out of this mission's scope (Issue
+// #250 owns it) and falls through to the generic manual-review path below unchanged.
+async function reconcileWdkTerminalTransfer(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, report: ReconciliationReport): Promise<void> {
+  if (escrow.status === 'SPLIT') {
+    await reconcileWdkSplitTransfer(escrow, report)
+    return
+  }
+  if (escrow.status !== 'COMPLETED' && escrow.status !== 'REFUNDED') {
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `WDK_USDT_EVM escrow ${escrow.id} is terminal ('${escrow.status}') with no txReleaseId, but automated restart convergence in this mission is scoped to RELEASE/REFUND/SPLIT only. Manual review required.`,
+    })
+    return
+  }
+  const operationType: 'RELEASE' | 'REFUND' = escrow.status === 'COMPLETED' ? 'RELEASE' : 'REFUND'
+
+  const trade = await tradeRepository.findById(escrow.tradeId)
+  if (!trade) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `Trade ${escrow.tradeId} not found (WDK terminal recovery).` })
+    return
+  }
+
+  // The expected destination is independently re-derived, never trusted blindly from the attempt row
+  // itself (Case D) - REFUND always pays the treasury account (index 0), fully deterministic. RELEASE
+  // pays the buyer's own registered PayoutAddress in the ordinary cooperative case; an arbitrated
+  // release may instead carry an arbiter-supplied explicit destination that this reconciler has no
+  // durable way to re-derive (a disclosed, pre-existing residual - see escrow-lifecycle.ts's own
+  // resolvePayoutAddress() "AUTHORITY BOUNDARY" comment) - such a mismatch is surfaced as manual
+  // review rather than either silently trusted or treated as proven corruption.
+  let expectedDestination: string
+  try {
+    expectedDestination = operationType === 'REFUND'
+      ? await wdkSettlementProvider.getAccountAddress(0)
+      : await resolvePayoutAddress(undefined, trade.buyerId, escrow.asset)
+  } catch (err) {
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `WDK ${operationType} terminal recovery for escrow ${escrow.id}: could not independently derive the expected destination (${err instanceof Error ? err.message : String(err)}) — cannot corroborate the durable attempt; manual review required.`,
+    })
+    return
+  }
+
+  const result = await wdkSettlementProvider.reconcileTerminalTransfer(
+    { id: escrow.id, tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString() },
+    operationType,
+    expectedDestination,
+    escrow.lockedAmount.toString() // RELEASE/REFUND always transfer the full locked amount
+  )
+
+  if (result.outcome !== 'CONFIRMED') {
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `WDK ${operationType} terminal recovery for escrow ${escrow.id}: ${result.reason} (outcome=${result.outcome}).`,
+    })
+    return
+  }
+
+  // Same write-once primitive + same idempotent completion-effects path PASS 1 already uses for
+  // MULTISIG above - no parallel authority system, no second write path for Escrow.txReleaseId.
+  let wroteTxReleaseId = false
+  try {
+    wroteTxReleaseId = await withEscrowFundingLock(escrow.id, async (tx) => {
+      const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
+      if (!fresh) return false
+      if (operationType === 'RELEASE') {
+        await escrowRepository.updateReleaseResult(escrow.id, { txReleaseId: result.txHash, releasedAt: new Date(), feeCharged: null }, { tx })
+      } else {
+        await escrowRepository.updateRefundResult(escrow.id, result.txHash, { tx })
+      }
+      return fresh.txReleaseId === null
+    })
+  } catch (writeErr) {
+    if (writeErr instanceof SettlementResultConflictError) {
+      log.error({ msg: 'WDK terminal recovery: settlement result integrity conflict - persisted evidence NOT overwritten, downstream effects NOT run', escrowId: escrow.id, err: writeErr.message })
+      report.requiresManualReview.push({ escrowId: escrow.id, reason: writeErr.message })
+      return
+    }
+    throw writeErr
+  }
+
+  log.info({ msg: 'WDK terminal recovery: convergence path determined', escrowId: escrow.id, operationType, txHash: result.txHash, wroteTxReleaseId })
+  // Downstream effects still run even if wroteTxReleaseId is false (a concurrent writer - live or
+  // another reconciler pass - already claimed it): emitEscrowTransition()'s own (escrowId, toStatus)
+  // idempotency claim is what actually prevents a double-fire, exactly as the MULTISIG path above.
+  await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, escrow.status as 'COMPLETED' | 'REFUNDED', trade.sellerId, result.txHash, escrow, null, undefined)
+  report.recovered.push({ escrowId: escrow.id, txId: result.txHash, outcome: 'ALREADY_CONFIRMED' })
+}
+
+// Issue #250 - WDK_USDT_EVM SPLIT restart convergence. A SPLIT is two INDEPENDENT external transfers
+// (SPLIT_BUYER, SPLIT_SELLER - distinct WdkTransferAttempt operationType, distinct activeKey, distinct
+// durable identity: see wdk-transfer-attempt-repository.ts's own schema comment). The live path
+// (wdk-settlement.provider.ts's splitFunds()) never attempts the seller leg until the buyer leg is
+// durably CONFIRMED, so "buyer CONFIRMED, seller not started/pending/unknown" is a real, expected crash
+// window, not a corruption. The FINAL settlement result is a SINGLE joined string
+// (`${buyerTxHash},${sellerTxHash}` - escrow.service.ts's own splitFunds() `result.txIds.join(',')`,
+// unchanged here, see persistSettlementResult()'s own write-once comparison of it) and becomes
+// authoritative ONLY once BOTH legs independently classify as CONFIRMED - an externally confirmed
+// PARTIAL effect (one leg) never by itself authorizes declaring the split complete, nor resubmitting
+// the other leg.
+async function reconcileWdkSplitTransfer(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, report: ReconciliationReport): Promise<void> {
+  const trade = await tradeRepository.findById(escrow.tradeId)
+  if (!trade) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `Trade ${escrow.tradeId} not found (WDK SPLIT terminal recovery).` })
+    return
+  }
+
+  let buyerDestination: string
+  let sellerDestination: string
+  try {
+    // Same "explicit trusted-internal-caller only" resolution the live splitFunds() call itself uses
+    // for the cooperative (non-arbitrated) case - see reconcileWdkTerminalTransfer()'s own comment on
+    // this same disclosed, pre-existing residual for an arbitrated destination override.
+    buyerDestination = await resolvePayoutAddress(undefined, trade.buyerId, escrow.asset)
+    sellerDestination = await resolvePayoutAddress(undefined, trade.sellerId, escrow.asset)
+  } catch (err) {
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `WDK SPLIT terminal recovery for escrow ${escrow.id}: could not independently derive the expected buyer/seller destinations (${err instanceof Error ? err.message : String(err)}) — cannot corroborate the durable attempts; manual review required.`,
+    })
+    return
+  }
+
+  // No amount check inside reconcileTerminalTransfer() for either leg (see that method's own comment
+  // on why buyerBps is not durably recoverable here) - classify both legs first, then apply the one
+  // amount invariant that IS independently true regardless of bps, below.
+  const [buyerResult, sellerResult] = await Promise.all([
+    wdkSettlementProvider.reconcileTerminalTransfer({ id: escrow.id, tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString() }, 'SPLIT_BUYER', buyerDestination),
+    wdkSettlementProvider.reconcileTerminalTransfer({ id: escrow.id, tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString() }, 'SPLIT_SELLER', sellerDestination),
+  ])
+
+  if (buyerResult.outcome !== 'CONFIRMED' || sellerResult.outcome !== 'CONFIRMED') {
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `WDK SPLIT terminal recovery for escrow ${escrow.id}: buyer leg ${buyerResult.outcome === 'CONFIRMED' ? `CONFIRMED (${buyerResult.txHash})` : `${buyerResult.outcome} - ${buyerResult.reason}`}; seller leg ${sellerResult.outcome === 'CONFIRMED' ? `CONFIRMED (${sellerResult.txHash})` : `${sellerResult.outcome} - ${sellerResult.reason}`}. The split is not yet fully proven — no result written, neither leg resubmitted.`,
+    })
+    return
+  }
+
+  // Case D - the one amount invariant independently true regardless of buyerBps: both legs' own
+  // durably-recorded amounts must sum to the escrow's full locked amount. Re-reads each attempt's
+  // recorded amount fresh (not trusted from the classification result above, which deliberately
+  // carries no amount) so this check is against the same durable row reconcileTerminalTransfer() itself
+  // just validated the destination/status of.
+  const [buyerAttempt, sellerAttempt] = await Promise.all([
+    wdkTransferAttemptRepository.findLatest(escrow.id, 'SPLIT_BUYER'),
+    wdkTransferAttemptRepository.findLatest(escrow.id, 'SPLIT_SELLER'),
+  ])
+  if (!buyerAttempt || !sellerAttempt) {
+    // Structurally shouldn't happen immediately after both legs classified CONFIRMED above - fail
+    // closed rather than assume.
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `WDK SPLIT terminal recovery for escrow ${escrow.id}: a leg attempt disappeared between classification and amount verification. Manual review required.` })
+    return
+  }
+  const sum = new Prisma.Decimal(buyerAttempt.amount.toString()).plus(sellerAttempt.amount.toString())
+  if (!sum.equals(new Prisma.Decimal(escrow.lockedAmount.toString()))) {
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `WDK SPLIT terminal recovery for escrow ${escrow.id}: buyer leg amount ${buyerAttempt.amount.toString()} + seller leg amount ${sellerAttempt.amount.toString()} = ${sum.toString()}, which does not equal escrow.lockedAmount ${escrow.lockedAmount.toString()} — refusing to treat these attempts as authoritative evidence.`,
+    })
+    return
+  }
+
+  // Buyer leg first, then seller — the exact order escrow.service.ts's own splitFunds() joins
+  // result.txIds.join(',') in, so this recovered value compares byte-for-byte equal to what the live
+  // path would have written, under the same write-once primitive.
+  const joinedTxHash = `${buyerResult.txHash},${sellerResult.txHash}`
+
+  let wroteTxReleaseId = false
+  try {
+    wroteTxReleaseId = await withEscrowFundingLock(escrow.id, async (tx) => {
+      const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
+      if (!fresh) return false
+      await escrowRepository.updateSplitResult(escrow.id, { txReleaseId: joinedTxHash, releasedAt: new Date() }, { tx })
+      return fresh.txReleaseId === null
+    })
+  } catch (writeErr) {
+    if (writeErr instanceof SettlementResultConflictError) {
+      log.error({ msg: 'WDK SPLIT terminal recovery: settlement result integrity conflict - persisted evidence NOT overwritten, downstream effects NOT run', escrowId: escrow.id, err: writeErr.message })
+      report.requiresManualReview.push({ escrowId: escrow.id, reason: writeErr.message })
+      return
+    }
+    throw writeErr
+  }
+
+  log.info({ msg: 'WDK SPLIT terminal recovery: convergence path determined', escrowId: escrow.id, buyerTxHash: buyerResult.txHash, sellerTxHash: sellerResult.txHash, wroteTxReleaseId })
+  await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, 'SPLIT', trade.sellerId, joinedTxHash, escrow, null, undefined)
+  report.recovered.push({ escrowId: escrow.id, txId: joinedTxHash, outcome: 'ALREADY_CONFIRMED' })
+}
+
+// Issue #240 - LIGHTNING_HODL/SAFE_GUARD_EVM RELEASE/REFUND restart convergence. Unlike WDK_USDT_EVM
+// (a self-initiated direct-call transfer with a real receipt-query primitive) or MULTISIG (Bitcoin
+// broadcast is idempotent by construction and has a real explorer-based reconciliation primitive),
+// neither Ark's submission protocol nor an ERC-4337 bundler's resubmission behavior is proven
+// idempotent anywhere in this codebase, and neither provider exposes a verified, live-tested external
+// query. This function therefore consumes ONLY the durable pre/post-submission evidence
+// signature-collection-finalization-truth.ts's own ensureFinalizationAttempt()/recordFinalizationOutcome()
+// already write (see that file's own header comment) - it never queries anything external itself, and
+// it NEVER converges a SUBMITTED (SAFE_GUARD_EVM's bundler-accepted-but-not-chain-confirmed case) or
+// SUBMISSION_UNKNOWN attempt automatically: that is this mission's own disclosed, honest limitation
+// ("IMPLEMENTED but NOT PRODUCTION-ELIGIBLE for automated convergence" - Issue #240), not a gap this
+// function silently papers over.
+async function reconcileSignatureCollectionTerminalTransfer(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, report: ReconciliationReport): Promise<void> {
+  if (escrow.status !== 'COMPLETED' && escrow.status !== 'REFUNDED') {
+    // Neither provider implements SPLIT (both throw UNSUPPORTED - buildUnsignedSplit()'s own comment
+    // in each provider file) - structurally unreachable, but fail closed rather than assume.
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `${escrow.type} escrow ${escrow.id} is terminal ('${escrow.status}') with no txReleaseId, but automated restart convergence for this rail is scoped to RELEASE/REFUND only. Manual review required.`,
+    })
+    return
+  }
+
+  const [pending, attempt] = await Promise.all([
+    prisma.escrowPendingTransaction.findUnique({ where: { escrowId: escrow.id } }),
+    prisma.signatureCollectionFinalizationAttempt.findUnique({ where: { escrowId: escrow.id } }),
+  ])
+
+  if (!attempt) {
+    // The finalize call was never reached - a crash strictly between claimEscrowTransition() and
+    // ensureFinalizationAttempt() ever running (or before claimEscrowTransition() itself, though
+    // that leaves the escrow non-terminal and never reaches this reconciler at all). No external
+    // effect could possibly have happened yet, but this function has no authority to un-claim the
+    // escrow's terminal status either (the same disclosed, out-of-scope residual #251/#250 already
+    // carry for their own NOT_STARTED case) - surfaced for manual review.
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `${escrow.type} escrow ${escrow.id} is terminal ('${escrow.status}') with no txReleaseId and no durable finalization attempt exists — the finalize call was never reached. Manual review required.`,
+    })
+    return
+  }
+
+  if (!pending || attempt.pendingTxId !== pending.id) {
+    // Case D - fail closed on any mismatch. A missing pending row here (unlike MULTISIG's own PASS 1,
+    // which reconstructs from it) means this function has nothing left to bind the durable attempt to.
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `${escrow.type} escrow ${escrow.id}: SignatureCollectionFinalizationAttempt ${attempt.id} is bound to pending operation ${attempt.pendingTxId}, which is not the escrow's current pending transaction (${pending?.id ?? 'none'}) — refusing to treat it as authoritative evidence. Manual review required.`,
+    })
+    return
+  }
+
+  if (attempt.status !== 'CONFIRMED') {
+    report.requiresManualReview.push({
+      escrowId: escrow.id,
+      reason: `${escrow.type} ${attempt.kind} finalization attempt (${attempt.id}) is ${attempt.status} — no automated external reconciliation exists for this provider (Issue #240)${attempt.txHash ? `; durable evidence so far: ${attempt.txHash}` : ''}. Manual review required.`,
+    })
+    return
+  }
+  if (!attempt.txHash) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `${escrow.type} finalization attempt ${attempt.id} is CONFIRMED but has no persisted txHash — data integrity violation, refusing to resume. Manual review required.` })
+    return
+  }
+
+  const trade = await tradeRepository.findById(escrow.tradeId)
+  if (!trade) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `Trade ${escrow.tradeId} not found (${escrow.type} terminal recovery).` })
+    return
+  }
+
+  // Same write-once wrapper the LIVE submitTransactionSignature() path itself uses for every
+  // signature-collection rail (updateSignatureCollectionResult -> persistSettlementResult, bound to
+  // the exact live pending operation, Issue #291), and the same idempotent completion-effects path
+  // PASS 1's MULTISIG branch and reconcileWdkTerminalTransfer() above already use.
+  let wroteTxReleaseId = false
+  try {
+    wroteTxReleaseId = await withEscrowFundingLock(escrow.id, async (tx) => {
+      const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
+      if (!fresh) return false
+      const updateData = attempt.kind === 'refund' ? { txReleaseId: attempt.txHash! } : { txReleaseId: attempt.txHash!, releasedAt: new Date() }
+      await escrowRepository.updateSignatureCollectionResult(escrow.id, updateData, { tx, operation: { pendingOperationId: pending.id } })
+      return fresh.txReleaseId === null
+    })
+  } catch (writeErr) {
+    if (writeErr instanceof SettlementResultConflictError) {
+      log.error({ msg: `${escrow.type} terminal recovery: settlement result integrity conflict - persisted evidence NOT overwritten, downstream effects NOT run`, escrowId: escrow.id, err: writeErr.message })
+      report.requiresManualReview.push({ escrowId: escrow.id, reason: writeErr.message })
+      return
+    }
+    throw writeErr
+  }
+
+  log.info({ msg: `${escrow.type} terminal recovery: convergence path determined`, escrowId: escrow.id, kind: attempt.kind, txHash: attempt.txHash, wroteTxReleaseId })
+  await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, escrow.status as 'COMPLETED' | 'REFUNDED', pending.triggeredBy, attempt.txHash, escrow, pending, undefined)
+  report.recovered.push({ escrowId: escrow.id, txId: attempt.txHash, outcome: 'ALREADY_CONFIRMED' })
+}
+
+// NOTE (Issue #298): the EscrowEvent existence peek below decides ONLY whether the (idempotent)
+// completion effects still need to run. It is NOT proof that the durable event was published or that
+// its projections completed - PASS 3 (reconcileIncompleteProjections) owns that distinction.
 // PASS 2 (Fase 9.7) — every rail. txReleaseId is already confirmed set
 // (the fund movement itself is a settled fact); the only open question
 // is whether the downstream completion chain ran. Cheap, unlocked peek
@@ -555,6 +894,107 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
   report.completionEffectsRecovered.push({ escrowId: escrow.id, obligationSkipped })
 }
 
+// ─── PASS 3 (Issue #298) - incomplete PROJECTIONS of a claimed escrow transition ──────────────
+//
+// Three distinct facts must never be conflated:
+//   1. the transition was CLAIMED        (EscrowEvent + a 'transition.claimed' marker, one transaction)
+//   2. the durable event was PUBLISHED   (a durable_events row carrying the same transitionId)
+//   3. its projections were APPLIED      (a 'transition.projected' marker, written by the handlers
+//                                         only after every projection of that event succeeded)
+// PASS 2 above treats "EscrowEvent exists" as proof of 2 and 3; it is neither. This pass finds
+// transitions that are claimed but not projected (older than a grace period, so a live in-flight
+// handler is not raced) and RE-DRIVES the canonical event:
+//   - no durable event yet (crash between claim and publish) -> re-publish it;
+//   - durable event exists (crash/loss during projection)     -> redeliver it to the handlers.
+// Neither path writes to foreign modules: the handlers own their projections, and every projection
+// is idempotent per (eventId, projectionKey, subject), so redelivery completes what is missing and
+// never repeats what already committed. Publish is serialized per transition so two workers cannot
+// mint two durable events (two delivery identities) for one transition.
+const PROJECTION_RECOVERY_GRACE_MS = 5 * 60 * 1000
+const PROJECTION_RECOVERY_BATCH = 200
+const PROJECTION_RECOVERY_MAX_PAGES = 50
+
+// Bound per invocation: BATCH x MAX_PAGES = 10,000 INCOMPLETE transitions. Only incomplete ones (claimed and NOT yet
+// projected) are paged - completed history never consumes the budget. Because a permanently stuck transition stays
+// incomplete forever, every invocation resumes AFTER where the previous one stopped (a per-process rotating cursor)
+// and wraps to the oldest only after a short page, so a backlog larger than the bound is worked through across ticks
+// instead of the same first 10,000 stuck rows being revisited forever. The cursor is a pure optimization: correctness
+// of each re-drive comes from the per-transition advisory lock and the projection-claim identity, not from it.
+let projectionRecoveryCursor: { appliedAt: Date; id: string } | null = null
+
+export async function reconcileIncompleteProjections(report: ReconciliationReport, graceMs: number, opts: { maxPages?: number } = {}): Promise<void> {
+  const cutoff = new Date(Date.now() - graceMs)
+  const maxPages = opts.maxPages ?? PROJECTION_RECOVERY_MAX_PAGES
+  for (let page = 0; page < maxPages; page++) {
+    const after = projectionRecoveryCursor
+    const claimed = await prisma.$queryRaw<Array<{ id: string; eventId: string; subjectId: string; appliedAt: Date }>>`
+      SELECT c.id, c."eventId", c."subjectId", c."appliedAt"
+      FROM event_projection_claims c
+      WHERE c."projectionKey" = ${TRANSITION_CLAIMED_KEY}
+        AND c."appliedAt" < ${cutoff}
+        AND (${after === null} OR (c."appliedAt", c.id) > (${after?.appliedAt ?? new Date(0)}, ${after?.id ?? ''}))
+        AND NOT EXISTS (
+          SELECT 1 FROM event_projection_claims p
+          WHERE p."projectionKey" = ${TRANSITION_PROJECTED_KEY} AND p."subjectId" = c."eventId")
+      ORDER BY c."appliedAt" ASC, c.id ASC
+      LIMIT ${PROJECTION_RECOVERY_BATCH}`
+    if (claimed.length === 0) { projectionRecoveryCursor = null; return }
+    const last = claimed[claimed.length - 1]
+    projectionRecoveryCursor = { appliedAt: last.appliedAt, id: last.id }
+    await redriveClaimedPage(claimed, report)
+    if (claimed.length < PROJECTION_RECOVERY_BATCH) { projectionRecoveryCursor = null; return }
+  }
+  // Bound reached: keep the cursor so the next invocation continues from here.
+}
+
+async function redriveClaimedPage(claimed: Array<{ id: string; eventId: string; subjectId: string }>, report: ReconciliationReport): Promise<void> {
+
+  const projected = await prisma.eventProjectionClaim.findMany({
+    where: { projectionKey: TRANSITION_PROJECTED_KEY, subjectId: { in: claimed.map((c) => c.eventId) } },
+    select: { subjectId: true },
+  })
+  const done = new Set(projected.map((p) => p.subjectId))
+
+  for (const claim of claimed) {
+    const transitionId = claim.eventId // for transition markers eventId holds the EscrowEvent (transition) id
+    if (done.has(transitionId)) continue
+    try {
+      const transition = await prisma.escrowEvent.findUnique({ where: { id: transitionId } })
+      if (!transition) continue
+      const eventName = EVENT_NAME_BY_TARGET_STATUS[transition.toStatus as string]
+      const escrow = await prisma.escrow.findUnique({ where: { id: transition.escrowId } })
+      if (!eventName || !escrow) continue
+
+      const action = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'transition-publish:' + transitionId})::bigint)`
+        const existing = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM durable_events
+          WHERE "correlationId" = ${escrow.tradeId} AND "eventName" = ${eventName} AND payload->>'transitionId' = ${transitionId}
+          ORDER BY "publishedAt" ASC LIMIT 1`
+        if (existing.length === 0) {
+          await eventBus.emit(eventName as any, {
+            escrowId: escrow.id,
+            tradeId: escrow.tradeId,
+            from: transition.fromStatus,
+            to: transition.toStatus,
+            triggeredBy: transition.triggeredBy,
+            ...(escrow.txReleaseId ? { txId: escrow.txReleaseId } : {}),
+            transitionId,
+          } as any, escrow.tradeId)
+          return 'REPUBLISHED' as const
+        }
+        await eventBus.redeliver(existing[0].id)
+        return 'REDELIVERED' as const
+      }, { timeout: 30_000 })
+
+      log.info({ msg: 'PASS 3: re-drove an incompletely projected escrow transition', escrowId: escrow.id, transitionId, action })
+      report.projectionsRecovered.push({ escrowId: escrow.id, transitionId, action })
+    } catch (err) {
+      report.failed.push({ escrowId: claim.subjectId, error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+}
+
 /**
  * The main entry point — call periodically (same operational shape as
  * sweepExpiredEscrows()/sweepMultisigFundingReorgs(): a plain async
@@ -565,10 +1005,10 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
  * actual double-fire protection is emitEscrowTransition()'s own atomic
  * per-transition claim, not this function's own peek.
  */
-export async function reconcilePendingSettlements(): Promise<ReconciliationReport> {
+export async function reconcilePendingSettlements(options: { projectionGraceMs?: number } = {}): Promise<ReconciliationReport> {
   const report: ReconciliationReport = {
     recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [],
-    resumedUnclaimed: [], alreadyClaimedConcurrently: [],
+    resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [],
   }
 
   await reconcileUnclaimedFullySignedPending(report)
@@ -590,6 +1030,8 @@ export async function reconcilePendingSettlements(): Promise<ReconciliationRepor
       report.failed.push({ escrowId: escrow.id, error: err instanceof Error ? err.message : String(err) })
     }
   }
+
+  await reconcileIncompleteProjections(report, options.projectionGraceMs ?? PROJECTION_RECOVERY_GRACE_MS)
 
   return report
 }

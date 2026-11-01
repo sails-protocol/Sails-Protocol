@@ -66,6 +66,8 @@ jest.mock('../src/common/database', () => ({
     // something a mocked transaction can provide.
     $transaction: (callback: (tx: unknown) => Promise<unknown>) =>
       callback({
+        // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+        eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
         $executeRaw: jest.fn().mockResolvedValue(0),
         escrowEvent: {
           create: (...args: unknown[]) => mockCreate(...(args as [any])),
