@@ -165,7 +165,7 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
   it('O2 one process is SIGKILLed mid-backlog with an effect transaction open while another keeps running; a restart changes nothing', async () => {
     pg.requirePostgres('O2')
     const { results } = await scenario('O2', 12, async (ids) => {
-      const [victim, survivor] = await Promise.all([worker(ids, { KILL_AT: 'trade.completion-counters:1:inside' }), worker(ids)])
+      const [victim, survivor] = await Promise.all([worker(ids, { KILL_AT: 'trade.completion-counters:1:inside', KILL_HOLD_MS: '3000' }), worker(ids, { WORKER_START_DELAY_MS: '1500' })])
       return [victim, survivor, await worker(ids)]
     })
     expect(wasKilled(results[0])).toBe(true)

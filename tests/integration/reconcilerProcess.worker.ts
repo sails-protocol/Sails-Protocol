@@ -38,7 +38,11 @@ async function main(): Promise<void> {
     const applied = await realApply(id, key, subject, async (tx: unknown) => {
       await apply(tx)
       armed = killPhase !== 'before' && ++seen === Number(killNth)
-      if (armed && killPhase === 'inside') die()
+      if (armed && killPhase === 'inside') {
+        // The transaction stays open so a sibling can block on this claim before the owner dies.
+        await new Promise((r) => setTimeout(r, Number(process.env.KILL_HOLD_MS ?? 0)))
+        die()
+      }
     }, client)
     if (armed && killPhase === 'after') die()
     return applied
@@ -53,6 +57,7 @@ async function main(): Promise<void> {
   const { reconcilePendingSettlements } = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service')
 
   process.stdout.write(`READY ${randomUUID()}\n`)
+  await new Promise((r) => setTimeout(r, Number(process.env.WORKER_START_DELAY_MS ?? 0)))
   const transitionIds: string[] = JSON.parse(process.env.TRANSITION_IDS ?? '[]')
   const deadline = Date.now() + Number(process.env.WORKER_DEADLINE_MS ?? 90_000)
   while (Date.now() < deadline) {
