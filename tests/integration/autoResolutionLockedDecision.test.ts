@@ -1,22 +1,22 @@
 // tests/integration/autoResolutionLockedDecision.test.ts
 //
-// #308 / CSC-F02 (Gatekeeper NO-GO corrections) — two properties that only a real PostgreSQL with REAL lock waits can
+// #308 / D-308 (Gatekeeper NO-GO corrections) — two properties that only a real PostgreSQL with REAL lock waits can
 // show, both deterministic (every ordering is built by holding a row lock and confirming, in pg_stat_activity, that
 // each operation is really blocked before the next one starts; nothing here depends on sleeping and hoping):
 //
 //   F. DEADLINE UNDER LOCK. A contest that is queued on the dispute row BEFORE the deadline and is granted the row
 //      AFTER the deadline must be judged at the instant it is actually granted, not at the instant it started waiting.
-//      The application clock, `now()` (transaction start) and a statement snapshot are all taken before the wait, so
-//      deciding with any of them lets a contest win a window that closed while it waited. F1/F2 cross the deadline
-//      during the wait (the lock holder commits an unrelated change / rolls back), F3 is the control that must still
-//      contest in time.
+//      `now()` is the transaction start and a statement snapshot is taken before the wait, so a decision made with
+//      either lets a contest win a window that closed while it waited. F1/F2 cross the deadline during the wait (the
+//      lock holder commits an unrelated change / rolls back), F3 is the control that must still contest in time,
+//      F4 is the ABA case through a lock wait.
 //
 //   G. HUMAN RESOLUTION RACING THE TRANSITION. `resolveDispute()` (a real Ed25519-signed human decision, real
 //      `applyRuling()`, MOCK escrow refund) is queued together with a contest and/or the advisory sweep in every
 //      relevant arrival order, including the order where the deadline passes while the contest is still waiting.
 //      Order-independent invariants: the dispute ends RESOLVED with the human's ruling and signature, the escrow is
-//      settled exactly once, a transition emits at most one `dispute.auto_resolution_contested` event, and a
-//      transition that loses to the human leaves nothing behind.
+//      settled exactly once, there is at most one transition (outbox row) and exactly one event for it, and a transition
+//      that loses to the human leaves nothing behind.
 //
 // Lines starting with "EVIDENCE[#308]" are printed on purpose: they are the reproducible record.
 
@@ -37,21 +37,22 @@ describe('#308 deadline decided under lock + human resolution racing the transit
   const pg = createPostgresIntegrationHarness()
   let dbAvailable = false
   let prisma: PrismaClient
-  let eventBus: typeof import('../../src/common/events/event-bus').eventBus
   let DisputeService: typeof import('../../src/modules/open-settlement/dispute.service').DisputeService
+  let publishPendingDisputeTransitions: typeof import('../../src/modules/open-settlement/dispute-transition-outbox').publishPendingDisputeTransitions
   let signAuthorityDecision: typeof import('../../src/modules/open-settlement/arbitration-authority').signAuthorityDecision
+  let getTimeline: typeof import('../../src/core/timeline').getTimeline
 
   beforeAll(async () => {
     await pg.probe()
     dbAvailable = pg.isAvailable()
     if (!dbAvailable) return
     ;({ prisma } = require('../../src/common/database'))
-    ;({ eventBus } = require('../../src/common/events/event-bus'))
     ;({ DisputeService } = require('../../src/modules/open-settlement/dispute.service'))
+    ;({ publishPendingDisputeTransitions } = require('../../src/modules/open-settlement/dispute-transition-outbox'))
     ;({ signAuthorityDecision } = require('../../src/modules/open-settlement/arbitration-authority'))
+    ;({ getTimeline } = require('../../src/core/timeline'))
   })
   afterAll(async () => { if (dbAvailable) await prisma.$disconnect() })
-  afterEach(() => jest.restoreAllMocks())
 
   const evidence = (label: string, data: unknown) => process.stdout.write(`EVIDENCE[#308] ${label}: ${JSON.stringify(data)}\n`)
   const noProvider = {
@@ -79,7 +80,7 @@ describe('#308 deadline decided under lock + human resolution racing the transit
       data: {
         id: `dispute-${uniq}`, tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: '#308 locked decision', arbiterId: arbiter.id,
         status: 'AUTO_PROPOSED', appealRound: 0, autoResolutionRecommendation: 'RELEASE', autoResolutionConfidence: 0.9,
-        autoResolutionReasoning: 'fixture', autoResolutionDeadline: new Date(),
+        autoResolutionReasoning: 'fixture', autoResolutionDeadline: new Date(), autoProposalGeneration: 1,
       },
     })
     const issuedAt = new Date().toISOString()
@@ -161,15 +162,14 @@ describe('#308 deadline decided under lock + human resolution racing the transit
     return out
   }
 
-  // The contested event is emitted straight onto the bus in this PR: count it with a spy installed before the race.
-  const spyEvents = () => jest.spyOn(eventBus, 'emit')
-  const contestedEvents = (spy: jest.SpyInstance, disputeId: string) =>
-    spy.mock.calls.filter((c) => c[0] === 'dispute.auto_resolution_contested' && (c[1] as { disputeId: string }).disputeId === disputeId).length
-
-  async function finalState(f: Fixture, spy: jest.SpyInstance) {
+  async function finalState(f: Fixture) {
+    await publishPendingDisputeTransitions() // events of every winner, including any whose own publication was skipped
     const row = (await prisma.dispute.findUnique({ where: { id: f.id } }))!
     const escrow = (await prisma.escrow.findUnique({ where: { id: f.escrowId } }))!
-    return { row, escrow, events: contestedEvents(spy, f.id) }
+    const outbox = await prisma.disputeTransitionOutbox.findMany({ where: { disputeId: f.id }, orderBy: { createdAt: 'asc' } })
+    const events = await prisma.durableEventRecord.findMany({ where: { correlationId: f.tradeId, eventName: 'dispute.auto_resolution_contested' } })
+    const chain = await getTimeline(f.tradeId).verifyChain()
+    return { row, escrow, outbox: outbox.map((o) => `${o.generation}:${o.kind}`), published: outbox.every((o) => o.publishedAt), events: events.length, chainValid: chain.valid }
   }
   const message = (o: Outcome | undefined) => (o && !o.ok ? o.error.message : '')
 
@@ -177,7 +177,6 @@ describe('#308 deadline decided under lock + human resolution racing the transit
   it('F1 a contest queued BEFORE the deadline and granted the row AFTER it is refused, when the lock holder COMMITS an unrelated change; the sweep then claims it once', async () => {
     pg.requirePostgres('F1')
     const f = await makeDispute('lock-commit', 4_000)
-    const spy = spyEvents()
     const holder = await holdRowLock(f.id, async (tx) => { await tx.$executeRaw`UPDATE "disputes" SET "reason" = "reason" || ' (annotated)' WHERE "id" = ${f.id}` })
     const contest = start(f, 'contest')
     await waitBlocked(1, 'the contest')
@@ -186,25 +185,27 @@ describe('#308 deadline decided under lock + human resolution racing the transit
     await waitUntilDeadlinePassed(f.id)
     holder.release(); await holder.done
     const c = await contest
-    const mid = await finalState(f, spy)
-    evidence('F1 contest queued before the deadline, granted after it (holder committed)', { marginBeforeMs: Math.round(marginBefore), contestOk: c.ok, contestError: message(c), status: mid.row.status, events: mid.events })
+    const mid = await finalState(f)
+    evidence('F1 contest queued before the deadline, granted after it (holder committed)', { marginBeforeMs: Math.round(marginBefore), contestOk: c.ok, contestError: message(c), status: mid.row.status, outbox: mid.outbox, events: mid.events })
     expect(c.ok).toBe(false)
     expect(message(c)).toMatch(/contest window has already closed/)
     expect(mid.row.status).toBe('AUTO_PROPOSED') // nothing was rewritten
+    expect(mid.outbox).toEqual([])
     expect(mid.events).toBe(0)
 
     const swept = await f.service.sweepExpiredAutoResolutions()
-    const end = await finalState(f, spy)
-    evidence('F1 the sweep takes it', { swept: swept.revertedToHuman.includes(f.id), status: end.row.status, events: end.events })
+    const end = await finalState(f)
+    evidence('F1 the sweep takes it', { swept: swept.revertedToHuman.includes(f.id), status: end.row.status, outbox: end.outbox, events: end.events })
     expect(swept.revertedToHuman).toContain(f.id)
     expect(end.row.status).toBe('EVIDENCE_SUBMITTED')
+    expect(end.outbox).toEqual(['1:EXPIRED'])
     expect(end.events).toBe(1)
+    expect(end.chainValid).toBe(true)
   })
 
   it('F2 same crossing, but the lock holder ROLLS BACK (no row change: the database never re-evaluates the old statement), the contest is still refused', async () => {
     pg.requirePostgres('F2')
     const f = await makeDispute('lock-rollback', 4_000)
-    const spy = spyEvents()
     const holder = await holdRowLock(f.id, rollbackOnRelease)
     const contest = start(f, 'contest')
     await waitBlocked(1, 'the contest')
@@ -213,28 +214,49 @@ describe('#308 deadline decided under lock + human resolution racing the transit
     await waitUntilDeadlinePassed(f.id)
     holder.release(); await holder.done
     const c = await contest
-    const mid = await finalState(f, spy)
-    evidence('F2 contest queued before the deadline, granted after it (holder rolled back)', { marginBeforeMs: Math.round(marginBefore), contestOk: c.ok, contestError: message(c), status: mid.row.status, events: mid.events })
+    const mid = await finalState(f)
+    evidence('F2 contest queued before the deadline, granted after it (holder rolled back)', { marginBeforeMs: Math.round(marginBefore), contestOk: c.ok, contestError: message(c), status: mid.row.status, outbox: mid.outbox, events: mid.events })
     expect(c.ok).toBe(false)
     expect(message(c)).toMatch(/contest window has already closed/)
     expect(mid.row.status).toBe('AUTO_PROPOSED')
+    expect(mid.outbox).toEqual([])
     expect(mid.events).toBe(0)
   })
 
   it('F3 control: a contest that waits on the lock but is granted the row BEFORE the deadline still wins (the fix does not shorten the window)', async () => {
     pg.requirePostgres('F3')
     const f = await makeDispute('lock-in-time', 60_000)
-    const spy = spyEvents()
     const holder = await holdRowLock(f.id, rollbackOnRelease)
     const contest = start(f, 'contest')
     await waitBlocked(1, 'the contest')
     holder.release(); await holder.done
     const c = await contest
-    const end = await finalState(f, spy)
-    evidence('F3 contest granted inside the window after a lock wait', { contestOk: c.ok, status: end.row.status, events: end.events })
+    const end = await finalState(f)
+    evidence('F3 contest granted inside the window after a lock wait', { contestOk: c.ok, status: end.row.status, outbox: end.outbox, events: end.events })
     expect(c.ok).toBe(true)
     expect(end.row.status).toBe('EVIDENCE_SUBMITTED')
+    expect(end.outbox).toEqual(['1:CONTESTED'])
     expect(end.events).toBe(1)
+    expect(end.chainValid).toBe(true)
+  })
+
+  it('F4 ABA through a lock wait: a sweep queued on proposal 1 is granted the row after proposal 2 was committed; it cannot apply its transition to proposal 2', async () => {
+    pg.requirePostgres('F4')
+    const f = await makeDispute('lock-aba', -60_000) // proposal 1 is already expired, the sweep selects it
+    const holder = await holdRowLock(f.id, async (tx) => {
+      // while the sweep waits, a new proposal replaces it: generation 2, deadline an hour away
+      await tx.$executeRaw`UPDATE "disputes" SET "autoProposalGeneration" = 2, "autoResolutionDeadline" = ((now() AT TIME ZONE 'UTC') + interval '1 hour') WHERE "id" = ${f.id}`
+    })
+    const sweep = start(f, 'sweep')
+    await waitBlocked(1, 'the sweep')
+    holder.release(); await holder.done
+    const s = await sweep
+    const end = await finalState(f)
+    const swept = s.ok ? (s.value as { revertedToHuman: string[] }).revertedToHuman.includes(f.id) : null
+    evidence('F4 stale sweep granted the row after the next proposal committed', { sweptThisDispute: swept, status: end.row.status, generation: end.row.autoProposalGeneration, outbox: end.outbox })
+    expect(swept).toBe(false)
+    expect(end.row).toMatchObject({ status: 'AUTO_PROPOSED', autoProposalGeneration: 2 })
+    expect(end.outbox).toEqual([])
   })
 
   // ─── G. a real signed human resolution racing the transition ───
@@ -242,89 +264,90 @@ describe('#308 deadline decided under lock + human resolution racing the transit
     expect(outcomes.resolve?.ok).toBe(true) // the human decision is never the loser
     expect(end.row).toMatchObject({ status: 'RESOLVED', ruling: 'REFUND', arbiterId: f.arbiterId, authoritySignature: f.signature })
     expect(end.escrow.status).toBe('REFUNDED') // settled exactly once (a second settlement would have thrown from the status guard)
-    expect(end.events).toBeLessThanOrEqual(1) // contest xor sweep, never both
+    expect(end.outbox.length).toBeLessThanOrEqual(1) // contest xor sweep, never both
+    expect(end.events).toBe(end.outbox.length) // one event per transition, none for a transition that did not happen
+    expect(end.published).toBe(true)
+    expect(end.chainValid).toBe(true)
   }
 
   it('G1 contest queued first, human decision second (deadline far away): the transition happens, then the human resolves from EVIDENCE_SUBMITTED', async () => {
     pg.requirePostgres('G1')
     const f = await makeDispute('g1', 3_600_000)
-    const spy = spyEvents()
     const out = await raceBehindLock(f, ['contest', 'resolve'], rollbackOnRelease)
-    const end = await finalState(f, spy)
-    evidence('G1 [contest, resolve]', { contest: out.contest?.ok, resolve: out.resolve?.ok, status: end.row.status, ruling: end.row.ruling, events: end.events, escrow: end.escrow.status })
+    const end = await finalState(f)
+    evidence('G1 [contest, resolve]', { contest: out.contest?.ok, resolve: out.resolve?.ok, status: end.row.status, ruling: end.row.ruling, outbox: end.outbox, events: end.events, escrow: end.escrow.status })
     expectHumanAuthority(f, end, out)
     expect(out.contest?.ok).toBe(true)
-    expect(end.events).toBe(1)
+    expect(end.outbox).toEqual(['1:CONTESTED'])
   })
 
-  it('G2 human decision queued first, contest second: the human prevails, the contest is refused, no event is emitted for it', async () => {
+  it('G2 human decision queued first, contest second: the human prevails, the contest is refused, nothing is written for it (no outbox row, no event)', async () => {
     pg.requirePostgres('G2')
     const f = await makeDispute('g2', 3_600_000)
-    const spy = spyEvents()
     const out = await raceBehindLock(f, ['resolve', 'contest'], rollbackOnRelease)
-    const end = await finalState(f, spy)
-    evidence('G2 [resolve, contest]', { contest: out.contest?.ok, contestError: message(out.contest), resolve: out.resolve?.ok, status: end.row.status, ruling: end.row.ruling, events: end.events, escrow: end.escrow.status })
+    const end = await finalState(f)
+    evidence('G2 [resolve, contest]', { contest: out.contest?.ok, contestError: message(out.contest), resolve: out.resolve?.ok, status: end.row.status, ruling: end.row.ruling, outbox: end.outbox, events: end.events, escrow: end.escrow.status })
     expectHumanAuthority(f, end, out)
     expect(out.contest?.ok).toBe(false)
     expect(message(out.contest)).toMatch(/no pending automated resolution to contest \(status: RESOLVED\)/)
+    expect(end.outbox).toEqual([])
     expect(end.events).toBe(0)
   })
 
   it('G3 expired proposal, human decision queued first, advisory sweep second: the human prevails, the sweep is a no-op', async () => {
     pg.requirePostgres('G3')
     const f = await makeDispute('g3', -60_000)
-    const spy = spyEvents()
     const out = await raceBehindLock(f, ['resolve', 'sweep'], rollbackOnRelease)
-    const end = await finalState(f, spy)
+    const end = await finalState(f)
     const swept = out.sweep?.ok ? (out.sweep.value as { revertedToHuman: string[] }).revertedToHuman.includes(f.id) : null
-    evidence('G3 [resolve, sweep]', { sweptThisDispute: swept, resolve: out.resolve?.ok, status: end.row.status, events: end.events, escrow: end.escrow.status })
+    evidence('G3 [resolve, sweep]', { sweptThisDispute: swept, resolve: out.resolve?.ok, status: end.row.status, outbox: end.outbox, events: end.events, escrow: end.escrow.status })
     expectHumanAuthority(f, end, out)
     expect(swept).toBe(false)
+    expect(end.outbox).toEqual([])
     expect(end.events).toBe(0)
   })
 
   it('G4 expired proposal, advisory sweep queued first, human decision second: the sweep transitions, then the human resolves', async () => {
     pg.requirePostgres('G4')
     const f = await makeDispute('g4', -60_000)
-    const spy = spyEvents()
     const out = await raceBehindLock(f, ['sweep', 'resolve'], rollbackOnRelease)
-    const end = await finalState(f, spy)
+    const end = await finalState(f)
     const swept = out.sweep?.ok ? (out.sweep.value as { revertedToHuman: string[] }).revertedToHuman.includes(f.id) : null
-    evidence('G4 [sweep, resolve]', { sweptThisDispute: swept, resolve: out.resolve?.ok, status: end.row.status, events: end.events, escrow: end.escrow.status })
+    evidence('G4 [sweep, resolve]', { sweptThisDispute: swept, resolve: out.resolve?.ok, status: end.row.status, outbox: end.outbox, events: end.events, escrow: end.escrow.status })
     expectHumanAuthority(f, end, out)
     expect(swept).toBe(true)
-    expect(end.events).toBe(1)
+    expect(end.outbox).toEqual(['1:EXPIRED'])
   })
 
   it('G5 all three, the deadline passing while the contest waits, human decision queued before the sweep: the human prevails, contest refused, sweep a no-op', async () => {
     pg.requirePostgres('G5')
     const f = await makeDispute('g5', 4_000)
-    const spy = spyEvents()
     const out = await raceBehindLock(f, ['contest', 'resolve', 'deadline-passes', 'sweep'], rollbackOnRelease)
-    const end = await finalState(f, spy)
+    const end = await finalState(f)
     const swept = out.sweep?.ok ? (out.sweep.value as { revertedToHuman: string[] }).revertedToHuman.includes(f.id) : null
-    evidence('G5 [contest, resolve, deadline passes, sweep]', { contest: out.contest?.ok, contestError: message(out.contest), sweptThisDispute: swept, resolve: out.resolve?.ok, status: end.row.status, events: end.events, escrow: end.escrow.status })
+    evidence('G5 [contest, resolve, deadline passes, sweep]', { contest: out.contest?.ok, contestError: message(out.contest), sweptThisDispute: swept, resolve: out.resolve?.ok, status: end.row.status, outbox: end.outbox, events: end.events, escrow: end.escrow.status })
     expectHumanAuthority(f, end, out)
     // The contest was first in the queue: it is granted the row first, and by then the deadline has passed.
     expect(out.contest?.ok).toBe(false)
     expect(message(out.contest)).toMatch(/contest window has already closed/)
     // The human decision is next in the queue, then the sweep finds RESOLVED.
     expect(swept).toBe(false)
+    expect(end.outbox).toEqual([])
     expect(end.events).toBe(0)
   })
 
   it('G6 all three, the deadline passing while the contest waits, sweep queued before the human decision: contest refused, the sweep transitions once, then the human resolves', async () => {
     pg.requirePostgres('G6')
     const f = await makeDispute('g6', 4_000)
-    const spy = spyEvents()
     const out = await raceBehindLock(f, ['contest', 'deadline-passes', 'sweep', 'resolve'], rollbackOnRelease)
-    const end = await finalState(f, spy)
+    const end = await finalState(f)
     const swept = out.sweep?.ok ? (out.sweep.value as { revertedToHuman: string[] }).revertedToHuman.includes(f.id) : null
-    evidence('G6 [contest, deadline passes, sweep, resolve]', { contest: out.contest?.ok, contestError: message(out.contest), sweptThisDispute: swept, resolve: out.resolve?.ok, status: end.row.status, events: end.events, escrow: end.escrow.status })
+    evidence('G6 [contest, deadline passes, sweep, resolve]', { contest: out.contest?.ok, contestError: message(out.contest), sweptThisDispute: swept, resolve: out.resolve?.ok, status: end.row.status, outbox: end.outbox, events: end.events, escrow: end.escrow.status })
     expectHumanAuthority(f, end, out)
     expect(out.contest?.ok).toBe(false)
     expect(message(out.contest)).toMatch(/contest window has already closed/)
     expect(swept).toBe(true)
+    expect(end.outbox).toEqual(['1:EXPIRED'])
     expect(end.events).toBe(1)
   })
 })

@@ -238,6 +238,10 @@ export interface DisputeAutoResolutionProposedEvent extends DisputeEvent {
 export interface DisputeAutoResolutionContestedEvent extends DisputeEvent {
   tradeId: string
   contestedBy: string
+  // #308 — causal identity `<disputeId>:<proposal generation>:<CONTESTED|EXPIRED>`, set by the transactional
+  // outbox so a recovery after a crash can prove this transition was already published. Additive; consumers
+  // ignore it.
+  transitionKey?: string
 }
 
 // arbiter.slashed's real payload — RFC-021 D6, first real emitter is

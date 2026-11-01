@@ -83,10 +83,17 @@ const mockEscrowParticipantKeyFindUnique = jest.fn().mockResolvedValue(null)
 // mockDisputeUpdateMany/mockDisputeFindUnique continues to observe the
 // same calls, now made via `tx` instead of the top-level `prisma` object.
 const mockExecuteRaw = jest.fn().mockResolvedValue(0)
-// #308 — the transition claim takes the dispute row lock (SELECT ... FOR UPDATE) before it reads the clock.
+// #308 / D-308 — the transition claim takes the dispute row lock (SELECT ... FOR UPDATE) before it reads the clock.
 const mockQueryRaw = jest.fn().mockResolvedValue([{ '?column?': 1 }])
 // The text of a Prisma.sql fragment passed as a tagged-template value (the claim's decision instant).
 const sqlText = (fragment: unknown) => (fragment as { strings: string[] }).strings.join('')
+const mockOutboxCreate = jest.fn().mockResolvedValue({ id: 'outbox-1' })
+// The publisher is covered against real Postgres (tests/integration/autoResolutionContestSweepRace.test.ts); here it is a spy.
+const mockPublishPending = jest.fn().mockResolvedValue({ published: 0, alreadyInLog: 0, failed: 0 })
+jest.mock('../src/modules/open-settlement/dispute-transition-outbox', () => ({
+  publishPendingDisputeTransitions: (...args: unknown[]) => mockPublishPending(...args),
+  transitionKeyFor: (d: string, g: number, k: string) => `${d}:${g}:${k}`,
+}))
 const mockTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
   fn({
     $executeRaw: (...args: unknown[]) => mockExecuteRaw(...args),
@@ -97,6 +104,10 @@ const mockTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
     dispute: {
       findUnique: (...args: unknown[]) => mockDisputeFindUnique(...args),
       updateMany: (...args: unknown[]) => mockDisputeUpdateMany(...args),
+    },
+    // #308 / D-308 — the transition claim writes its outbox row in the same transaction.
+    disputeTransitionOutbox: {
+      create: (...args: unknown[]) => mockOutboxCreate(...args),
     },
   })
 )
@@ -900,7 +911,7 @@ describe('DisputeService — proposeAutoResolution() / contestAutoResolution() (
     mockDisputeFindUnique
       .mockResolvedValueOnce({
         id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED',
-        autoResolutionDeadline: new Date(Date.now() + 3600_000),
+        autoResolutionDeadline: new Date(Date.now() + 3600_000), autoProposalGeneration: 3,
       })
       .mockResolvedValueOnce({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
@@ -908,26 +919,29 @@ describe('DisputeService — proposeAutoResolution() / contestAutoResolution() (
 
     const result = await service.contestAutoResolution('dispute-1', 'seller-1')
 
-    // CSC-F02 / #308: the row lock first, then one conditional claim that re-asserts status + deadline, with the
-    // decision instant read from the database clock AFTER the lock (never now(), never the application clock).
+    // CSC-F02 / #308 / D-308: the row lock first, then one conditional claim (DB clock read after the lock, observed
+    // generation) + its outbox row, one transaction.
     expect(mockQueryRaw).toHaveBeenCalledTimes(1)
     expect((mockQueryRaw.mock.calls[0][0] as string[]).join('?')).toContain('FOR UPDATE')
-    expect(mockExecuteRaw).toHaveBeenCalledTimes(1)
     expect(mockQueryRaw.mock.invocationCallOrder[0]).toBeLessThan(mockExecuteRaw.mock.invocationCallOrder[0])
+    expect(mockExecuteRaw).toHaveBeenCalledTimes(1)
     const sql = (mockExecuteRaw.mock.calls[0][0] as string[]).join('?')
     expect(sql).toContain(`"status" = 'AUTO_PROPOSED'`)
+    expect(sql).toContain('"autoProposalGeneration" =')
     expect(sql).toContain('"autoResolutionDeadline" >= ')
-    expect(sql).toContain('"autoResolutionRecommendation" = NULL') // contest clears the QVAC recommendation
-    expect(mockExecuteRaw.mock.calls[0].slice(1)).toEqual([expect.anything(), 'dispute-1', expect.anything()])
-    expect(sqlText(mockExecuteRaw.mock.calls[0][1])).toContain('clock_timestamp()')
+    expect(mockExecuteRaw.mock.calls[0].slice(1)).toEqual([expect.anything(), 'dispute-1', 3, expect.anything()])
+    expect(sqlText(mockExecuteRaw.mock.calls[0][1])).toContain('clock_timestamp()') // the decision instant, never the transaction-start now()
     expect(sqlText(mockExecuteRaw.mock.calls[0][1])).not.toContain('now()')
-    expect(mockDisputeUpdateMany).not.toHaveBeenCalled()
     expect(mockDisputeUpdate).not.toHaveBeenCalled()
-    expect(mockEmit).toHaveBeenCalledWith(
-      'dispute.auto_resolution_contested',
-      expect.objectContaining({ disputeId: 'dispute-1', contestedBy: 'seller-1' }),
-      'trade-1'
-    )
+    expect(mockOutboxCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        disputeId: 'dispute-1', generation: 3, kind: 'CONTESTED', tradeId: 'trade-1',
+        payload: expect.objectContaining({ contestedBy: 'seller-1', transitionKey: 'dispute-1:3:CONTESTED' }),
+      }),
+    })
+    // The event itself is published by the outbox publisher (covered against real Postgres), only for this winner's row.
+    expect(mockPublishPending).toHaveBeenCalledWith({ onlyId: 'outbox-1' })
+    expect(mockEmit).not.toHaveBeenCalled()
     expect(result).toEqual({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
   })
 
@@ -935,13 +949,27 @@ describe('DisputeService — proposeAutoResolution() / contestAutoResolution() (
     mockDisputeFindUnique
       .mockResolvedValueOnce({
         id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED',
-        autoResolutionDeadline: new Date(Date.now() + 3600_000),
+        autoResolutionDeadline: new Date(Date.now() + 3600_000), autoProposalGeneration: 3,
       })
-      .mockResolvedValueOnce({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
+      .mockResolvedValueOnce({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED', autoProposalGeneration: 3 })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
     mockExecuteRaw.mockResolvedValueOnce(0) // the claim lost
 
     await expect(service.contestAutoResolution('dispute-1', 'buyer-1')).rejects.toThrow('no pending automated resolution')
+    expect(mockEmit).not.toHaveBeenCalled()
+    expect(mockOutboxCreate).not.toHaveBeenCalled()
+    expect(mockPublishPending).not.toHaveBeenCalled()
+  })
+
+  it('a NEWER proposal (generation moved on) is not contestable from the stale observation: no outbox row, no event, "no pending" error (ABA)', async () => {
+    mockDisputeFindUnique
+      .mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', autoResolutionDeadline: new Date(Date.now() + 3600_000), autoProposalGeneration: 3 })
+      .mockResolvedValueOnce({ id: 'dispute-1', status: 'AUTO_PROPOSED', autoProposalGeneration: 4 })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockExecuteRaw.mockResolvedValueOnce(0)
+
+    await expect(service.contestAutoResolution('dispute-1', 'buyer-1')).rejects.toThrow('no pending automated resolution')
+    expect(mockOutboxCreate).not.toHaveBeenCalled()
     expect(mockEmit).not.toHaveBeenCalled()
   })
 
@@ -949,11 +977,11 @@ describe('DisputeService — proposeAutoResolution() / contestAutoResolution() (
     mockDisputeFindUnique
       .mockResolvedValueOnce({
         id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED',
-        autoResolutionDeadline: new Date(Date.now() + 3600_000),
+        autoResolutionDeadline: new Date(Date.now() + 3600_000), autoProposalGeneration: 3,
       })
-      .mockResolvedValueOnce({ id: 'dispute-1', status: 'AUTO_PROPOSED' })
+      .mockResolvedValueOnce({ id: 'dispute-1', status: 'AUTO_PROPOSED', autoProposalGeneration: 3 })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-    mockExecuteRaw.mockResolvedValueOnce(0) // the database clock says the deadline has passed
+    mockExecuteRaw.mockResolvedValueOnce(0) // the DB clock says the deadline has passed
 
     await expect(service.contestAutoResolution('dispute-1', 'buyer-1')).rejects.toThrow('contest window has already closed')
     expect(mockEmit).not.toHaveBeenCalled()
@@ -967,10 +995,9 @@ describe('DisputeService — proposeAutoResolution() / contestAutoResolution() (
   })
 
   it('with the deadline already passed at the claim (DB clock), a contest is refused as window-closed; the app clock is not consulted', async () => {
-    mockDisputeFindUnique.mockResolvedValue({
-      id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED',
-      autoResolutionDeadline: new Date(Date.now() - 1000),
-    })
+    mockDisputeFindUnique
+      .mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', autoResolutionDeadline: new Date(Date.now() - 1000), autoProposalGeneration: 3 })
+      .mockResolvedValueOnce({ id: 'dispute-1', status: 'AUTO_PROPOSED', autoProposalGeneration: 3 })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
     mockExecuteRaw.mockResolvedValueOnce(0)
 
@@ -1002,10 +1029,11 @@ describe('DisputeService — sweepExpiredAutoResolutions() (RFC-021 D8, advisory
 
   beforeEach(() => jest.clearAllMocks())
 
+  const expiredRow = (id: string, extra: Record<string, unknown> = {}) =>
+    ({ id, tradeId: id.replace('dispute', 'trade'), escrowId: id.replace('dispute', 'escrow'), status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND', autoProposalGeneration: 5, ...extra })
+
   it('reverts an expired, uncontested AUTO_PROPOSED dispute to EVIDENCE_SUBMITTED without calling any settlement function', async () => {
-    mockDisputeFindMany.mockResolvedValue([
-      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
-    ])
+    mockDisputeFindMany.mockResolvedValue([expiredRow('dispute-1')])
     mockExecuteRaw.mockResolvedValueOnce(1)
 
     const result = await service.sweepExpiredAutoResolutions()
@@ -1014,35 +1042,29 @@ describe('DisputeService — sweepExpiredAutoResolutions() (RFC-021 D8, advisory
     expect(mockReleaseFunds).not.toHaveBeenCalled()
     expect(mockInitiateRefund).not.toHaveBeenCalled()
     expect(mockInitiateRelease).not.toHaveBeenCalled()
-    // CSC-F02 / #308: the row lock first, then a conditional claim decided by the database clock, not a blind update by id.
+    // CSC-F02 / #308 / D-308: the row lock first, then one conditional claim (DB clock read after the lock, the generation
+    // THIS sweep selected) + its outbox row.
     expect(mockDisputeUpdate).not.toHaveBeenCalled()
-    expect(mockDisputeUpdateMany).not.toHaveBeenCalled()
     expect((mockQueryRaw.mock.calls[0][0] as string[]).join('?')).toContain('FOR UPDATE')
     expect(mockExecuteRaw).toHaveBeenCalledTimes(1)
     const sql = (mockExecuteRaw.mock.calls[0][0] as string[]).join('?')
-    expect(sql).toContain(`"status" = 'AUTO_PROPOSED'`)
     expect(sql).toContain('"autoResolutionDeadline" < ')
     expect(sql).not.toContain('"autoResolutionRecommendation" = NULL') // advisory expiry keeps the recommendation for the human arbiter
-    expect(mockExecuteRaw.mock.calls[0].slice(1)).toEqual([expect.anything(), 'dispute-1', expect.anything()])
+    expect(mockExecuteRaw.mock.calls[0].slice(1)).toEqual([expect.anything(), 'dispute-1', 5, expect.anything()])
     expect(sqlText(mockExecuteRaw.mock.calls[0][1])).toContain('clock_timestamp()')
-    expect(mockEmit).toHaveBeenCalledWith(
-      'dispute.auto_resolution_contested',
-      expect.objectContaining({
-        disputeId: 'dispute-1',
-        tradeId: 'trade-1',
-        contestedBy: 'window-expired-advisory-only',
-        triggeredBy: 'window-expired-advisory-only',
+    expect(mockOutboxCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        disputeId: 'dispute-1', generation: 5, kind: 'EXPIRED', tradeId: 'trade-1',
+        payload: expect.objectContaining({ contestedBy: 'window-expired-advisory-only', triggeredBy: 'window-expired-advisory-only', transitionKey: 'dispute-1:5:EXPIRED' }),
       }),
-      'trade-1'
-    )
+    })
+    expect(mockPublishPending).toHaveBeenCalledTimes(1) // drains this sweep's winners and any earlier pending rows
     expect(result.revertedToHuman).toEqual(['dispute-1'])
     expect(result.failed).toEqual([])
   })
 
   it('reverts a RELEASE recommendation identically — the ruling itself is irrelevant once execution is advisory-only, not automated', async () => {
-    mockDisputeFindMany.mockResolvedValue([
-      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'RELEASE' },
-    ])
+    mockDisputeFindMany.mockResolvedValue([expiredRow('dispute-1', { autoResolutionRecommendation: 'RELEASE' })])
     mockExecuteRaw.mockResolvedValueOnce(1)
 
     const result = await service.sweepExpiredAutoResolutions()
@@ -1052,26 +1074,20 @@ describe('DisputeService — sweepExpiredAutoResolutions() (RFC-021 D8, advisory
     expect(result.failed).toEqual([])
   })
 
-  it('skips a dispute a concurrent manual contest already moved: no event, not reported as reverted, not a failure', async () => {
-    mockDisputeFindMany.mockResolvedValue([
-      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
-      { id: 'dispute-2', tradeId: 'trade-2', escrowId: 'escrow-2', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
-    ])
+  it('skips a dispute a concurrent contest (or a newer proposal) already moved: no outbox row, not reported as reverted, not a failure', async () => {
+    mockDisputeFindMany.mockResolvedValue([expiredRow('dispute-1'), expiredRow('dispute-2')])
     mockExecuteRaw.mockResolvedValueOnce(0).mockResolvedValueOnce(1)
 
     const result = await service.sweepExpiredAutoResolutions()
 
-    expect(mockEmit).toHaveBeenCalledTimes(1)
-    expect(mockEmit).toHaveBeenCalledWith('dispute.auto_resolution_contested', expect.objectContaining({ disputeId: 'dispute-2' }), 'trade-2')
+    expect(mockOutboxCreate).toHaveBeenCalledTimes(1)
+    expect(mockOutboxCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ disputeId: 'dispute-2', kind: 'EXPIRED' }) })
     expect(result.revertedToHuman).toEqual(['dispute-2'])
     expect(result.failed).toEqual([])
   })
 
   it('collects failures per-dispute without letting one bad row\'s revert failure stop the rest of the sweep', async () => {
-    mockDisputeFindMany.mockResolvedValue([
-      { id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
-      { id: 'dispute-2', tradeId: 'trade-2', escrowId: 'escrow-2', status: 'AUTO_PROPOSED', arbiterId: 'arbiter-1', autoResolutionRecommendation: 'REFUND' },
-    ])
+    mockDisputeFindMany.mockResolvedValue([expiredRow('dispute-1'), expiredRow('dispute-2')])
     mockExecuteRaw.mockRejectedValueOnce(new Error('row-1 update failed')).mockResolvedValueOnce(1)
 
     const result = await service.sweepExpiredAutoResolutions()
