@@ -131,12 +131,16 @@ async function main(): Promise<void> {
     for (const p of mine) if (p.phase === 'before' && ++p.seen === p.nth) await act(p, info)
     let applied = false
     try {
+      // Prisma rolls an interactive transaction back after 5 s, so a transaction held at a gate needs the gate's own limit.
+      const holding = !client && points.some((p) => p.phase === 'inside')
+        ? { $transaction: (fn: unknown) => prisma.$transaction(fn, { timeout: gateTimeoutMs }) }
+        : client
       const result = await realApply(id, key, subject, async (tx: unknown) => {
         await apply(tx)
         applied = true
         // Counted only for an effect THIS process applies: a sibling that won the claim must not consume the point.
         for (const p of mine) if (p.phase === 'inside' && ++p.seen === p.nth) await act(p, info)
-      }, client)
+      }, holding)
       if (applied) {
         if (!countIds || countIds.has(id)) stats.applied[key] = (stats.applied[key] ?? 0) + 1
         for (const p of mine) if (p.phase === 'after' && ++p.seen === p.nth) await act(p, info)
