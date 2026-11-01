@@ -52,24 +52,15 @@ services:
   # then exits. `app` below waits for this to succeed before starting -
   # a fresh `docker compose up` on an empty volume always has a real
   # schema in place before the server's first request, no separate manual
-  # step. Builds from the `builder` stage (has the real `prisma` CLI,
-  # pruned from the slim `runtime` stage the Dockerfile itself uses for
-  # an actual deployment - see that file's own header comment for why
-  # this repo never runs a migration implicitly on a production
-  # container's own start).
+  # step. Builds the Dockerfile's `migrate` target: the same small image and
+  # entrypoint (scripts/migrate-deploy.sh: migrate deploy + migrate status,
+  # non-zero on any failure) that a production rollout runs before starting
+  # the new server version. This repo never runs a migration implicitly on a
+  # server container's own start.
   migrate:
     build:
       context: .
-      target: builder
-    # scripts/migrate-deploy-safe.sh (2026-08-09) wraps `prisma migrate
-    # deploy` -- see its own header comment for the real, reproduced bug
-    # this works around (a fresh `docker compose up` from an empty
-    # database used to fail applying 20260807_init immediately followed
-    # by any later migration). Behaves identically to a bare `prisma
-    # migrate deploy` for every database that already has some
-    # migration history -- verified directly against this project's own
-    # dev database before landing.
-    command: sh scripts/migrate-deploy-safe.sh
+      target: migrate
     environment:
       DATABASE_URL: postgresql://postgres:password@postgres:5432/sails_protocol
     depends_on:
