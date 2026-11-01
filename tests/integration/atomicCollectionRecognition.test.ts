@@ -90,6 +90,53 @@ describe('recognizeConfirmation() atomicity (Missão 11 Fase 7.2.1, real Postgre
     return { obligationId: obligation.id, txid }
   }
 
+  it('#245 BROADCAST evidence + PENDING_COLLECTION -> IN_PROGRESS are atomic under a simulated crash', async () => {
+    requirePostgres('#245 broadcast crash atomicity')
+    const s = suffix()
+    const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-broadcast-${s}` } })
+    const seller = await prisma.user.create({ data: { publicKey: `pk-seller-broadcast-${s}` } })
+    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
+    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const feePolicy = await prisma.feePolicyVersion.create({ data: { label: `broadcast-policy-${s}`, railScope: `BROADCAST-${s}`, status: 'PUBLISHED', publishedAt: new Date(), protocolFeeRate: '0.004', payerModel: 'SELLER_PAYS', economicBasis: 'SELLER_DELIVERED_VALUE', requiredConfirmations: 1, createdBy: '#245-test' } })
+    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MOCK', asset: 'BTC', lockedAmount: '0.001' } })
+    const obligation = await prisma.feeObligation.create({ data: { escrowId: escrow.id, feePolicyVersionId: feePolicy.id, economicDetermination: 'OWED', collectionStatus: 'PENDING_COLLECTION', basisAmount: '0.001', computedFee: '0.00000500', asset: 'BTC' } })
+    const txid = require('crypto').createHash('sha256').update(obligation.id + s).digest('hex')
+
+    await expect(prisma.$transaction(async (tx) => {
+      await feeCollectionEvidenceRepository.record({ feeObligationId: obligation.id, kind: 'BROADCAST', txid, vout: 1, scriptPubKey: 'deadbeef', amount: '0.00000001' }, tx)
+      const claimed = await tx.feeObligation.updateMany({ where: { id: obligation.id, collectionStatus: 'PENDING_COLLECTION' }, data: { collectionStatus: 'IN_PROGRESS' } })
+      expect(claimed.count).toBe(1)
+      throw new Error('SIMULATED BROADCAST CRASH')
+    })).rejects.toThrow('SIMULATED BROADCAST CRASH')
+
+    expect(await prisma.feeCollectionEvidence.count({ where: { feeObligationId: obligation.id, kind: 'BROADCAST' } })).toBe(0)
+    expect((await prisma.feeObligation.findUniqueOrThrow({ where: { id: obligation.id } })).collectionStatus).toBe('PENDING_COLLECTION')
+
+    await feeCollectionRecognitionService.recordBroadcastAndAdvance(obligation.id, { txid, vout: 1, scriptPubKey: 'deadbeef', amountSats: 1 })
+    expect(await prisma.feeCollectionEvidence.count({ where: { feeObligationId: obligation.id, kind: 'BROADCAST' } })).toBe(1)
+    expect((await prisma.feeObligation.findUniqueOrThrow({ where: { id: obligation.id } })).collectionStatus).toBe('IN_PROGRESS')
+  })
+
+  it('#245 concurrent duplicate BROADCAST recognition leaves one canonical evidence row and one lifecycle winner', async () => {
+    requirePostgres('#245 broadcast concurrency')
+    const { obligationId } = await fixtureObligation()
+    // fixtureObligation already advanced this obligation; create a fresh PENDING clone
+    const original = await prisma.feeObligation.findUniqueOrThrow({ where: { id: obligationId } })
+    const escrow = await prisma.escrow.create({ data: { tradeId: (await prisma.escrow.findUniqueOrThrow({ where: { id: original.escrowId } })).tradeId, type: 'MOCK', asset: 'BTC', lockedAmount: '0.001' } })
+    const fresh = await prisma.feeObligation.create({ data: { escrowId: escrow.id, feePolicyVersionId: original.feePolicyVersionId, economicDetermination: 'OWED', collectionStatus: 'PENDING_COLLECTION', basisAmount: '0.001', computedFee: '0.00000500', asset: 'BTC' } })
+    const txid = require('crypto').createHash('sha256').update(fresh.id).digest('hex')
+    const input = { txid, vout: 1, scriptPubKey: 'deadbeef', amountSats: 1 }
+
+    const results = await Promise.allSettled([
+      feeCollectionRecognitionService.recordBroadcastAndAdvance(fresh.id, input),
+      feeCollectionRecognitionService.recordBroadcastAndAdvance(fresh.id, input),
+    ])
+    expect(results.filter((x) => x.status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter((x) => x.status === 'rejected')).toHaveLength(1)
+    expect(await prisma.feeCollectionEvidence.count({ where: { feeObligationId: fresh.id, kind: 'BROADCAST' } })).toBe(1)
+    expect((await prisma.feeObligation.findUniqueOrThrow({ where: { id: fresh.id } })).collectionStatus).toBe('IN_PROGRESS')
+  })
+
   // ─── Items 2/3/6: simulated crash inside the transaction rolls back  ────
   // ─── BOTH writes; a subsequent retry is genuinely fresh and reflects ────
   // ─── whatever policy is live AT RETRY TIME — never a resurrected P1. ────
