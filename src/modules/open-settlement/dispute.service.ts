@@ -21,6 +21,7 @@
 import { prisma } from '../../common/database'
 import { NotFoundError, ValidationError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
+import { applyEventProjectionOnce } from '../../common/events/event-projection'
 import { escrowService } from './escrow.service'
 import { config } from '../../config'
 import { TrustedArbitratorProvider, type ArbitrationProvider } from './arbitration-provider'
@@ -45,6 +46,7 @@ import { economicDispositionLockKey } from './economic-disposition-authority'
 import { assertDisputeDispatchEligible } from './dispute-dispatch'
 import { assertTranslationMatchesOutcome } from './dispatch-translation-guard'
 import { networkFor } from './multisig.provider'
+import { publishPendingDisputeTransitions, transitionKeyFor, type DisputeTransitionKind } from './dispute-transition-outbox'
 
 // RFC-021 D6 — appeal fee, PROTOCOL_ECONOMY.md §4.4's own arbitration-fee
 // baseline (1-2% of the disputed amount, charged as Escrow.feeCharged by
@@ -893,9 +895,24 @@ export class DisputeService {
   /**
    * The post-settlement bookkeeping shared by BOTH the Core-authoritative
    * (MULTISIG) and legacy (`applyRuling()`) paths — arbiter track record,
-   * appeal-slashing, and appeal-fee settlement. Extracted unchanged
-   * (mission M8-R) so neither path duplicates it and both stay
-   * byte-for-byte identical in behavior to before this migration.
+   * appeal-slashing, and appeal-fee settlement.
+   *
+   * Issue #253 - previously this ran as a plain sequence of independent, non-idempotent writes with no
+   * durable identity of its own: a crash strictly after resolveDispute()'s own RESOLVED write committed
+   * but before this method finished left rulingsTotal/rulingsOverturned/collateral/reputation/appeal-fee
+   * bookkeeping silently, permanently missing - and, unlike every other completion path in this codebase,
+   * nothing could ever retry it (resolveDispute()'s own top-of-method guard rejects a dispute that is
+   * already RESOLVED, so a caller retry never reaches this method again). Now wrapped in ONE atomic
+   * claim+effect transaction, reusing the SAME event_projection_claims identity applyEventProjectionOnce()
+   * already provides for durable-event-sourced projections (handlers.ts) - keyed here on
+   * (disputeId, 'dispute.ruling-finalized', String(appealRound)) instead of a durable eventId, since this
+   * bookkeeping is driven directly by a synchronous service call, not an event handler. (disputeId,
+   * appealRound) is a real, immutable "one ruling occurred for this dispute at this generation" identity -
+   * a later appeal() moves to a NEW appealRound, never reusing this one. recoverMissingRulingFinalization()
+   * below is the discovery/recovery mechanism: it finds RESOLVED disputes with no claim for their current
+   * (id, appealRound) and re-drives this exact method, the same "claimed but not yet applied" pattern PASS 3
+   * (escrow-settlement-reconciliation.service.ts's reconcileIncompleteProjections()) already established for
+   * escrow-transition projections.
    */
   private async finalizeResolveDispute(
     dispute: { id: string; escrowId: string; appealRound: number; previousRuling: DisputeRuling | null; previousArbiterId: string | null },
@@ -903,22 +920,6 @@ export class DisputeService {
     ruling: DisputeRuling,
   ): Promise<void> {
     const { provider, escrow: providerEscrow } = await this.providerForEscrow(dispute.escrowId)
-    // RFC-021 D6/D4 — feeds the arbiter's track record on every real
-    // resolution, correct or not (optional: only market mode has an
-    // ArbiterProfile to update; trusted-list mode silently skips this).
-    // feeObserved reads the escrow fresh — a RELEASE ruling's
-    // escrowService.releaseFunds() call above has already computed and
-    // persisted Escrow.feeCharged (Phase 0) by this point; REFUND never
-    // charges a fee, so this is correctly undefined for those.
-    if (provider.recordRuling) {
-      // Runtime resolution already loaded the escrow to choose the effective
-      // rail policy. Direct provider injection keeps the old best-effort
-      // accounting read instead of making repository availability a new
-      // prerequisite for every test/caller.
-      const resolvedEscrow = providerEscrow ?? await this.repo.findById(dispute.escrowId)
-      const feeObserved = resolvedEscrow?.feeCharged ? String(resolvedEscrow.feeCharged) : undefined
-      await provider.recordRuling(arbiterId, feeObserved)
-    }
 
     // RFC-021 D6 — an appeal round reversing the ruling being appealed is
     // real evidence the original arbiter got it wrong; slash them.
@@ -929,34 +930,106 @@ export class DisputeService {
     // appeal is denied and nothing is slashed (the requester's already-
     // computed appealFeeRequired was the real cost of a frivolous
     // appeal).
-    if (
-      dispute.previousRuling &&
-      dispute.previousRuling !== ruling &&
-      dispute.previousArbiterId &&
-      provider.slash
-    ) {
-      await provider.slash(dispute.previousArbiterId)
-    }
+    const shouldSlash = !!(dispute.previousRuling && dispute.previousRuling !== ruling && dispute.previousArbiterId && provider.slash)
+    let slashOutcome: { participantId: string; forfeitedCollateral: string; newCollateral: string; newReputation: number } | undefined
 
-    // RFC-021 D6 — real appeal-fee settlement, closing the "computed and
-    // returned but never collected" gap (appeal()'s own doc comment,
-    // BACKLOG.md). Only appealed disputes (appealRound > 0) have a fee
-    // row to settle at all. Same comparison the slashing check above
-    // already makes: the appeal panel reaching the SAME ruling means the
-    // appeal was denied (frivolous) — FORFEITED, the real cost this fee
-    // exists to impose; a different ruling means the appellant was right
-    // to appeal — REFUNDED. Real bookkeeping, not a simulated one — same
-    // "computed and persisted, not actually routed on-chain" precedent
-    // the Protocol Fee accounting foundation already established: no
-    // SettlementProvider here has a real configured treasury/arbitrator-
-    // reserve address to move anything to.
-    if (dispute.appealRound > 0) {
-      const outcome = dispute.previousRuling && dispute.previousRuling !== ruling ? 'REFUNDED' : 'FORFEITED'
-      await prisma.disputeAppealFee.updateMany({
-        where: { disputeId: dispute.id, appealRound: dispute.appealRound, outcome: null },
-        data: { outcome, settledAt: new Date() },
-      })
+    await applyEventProjectionOnce(dispute.id, 'dispute.ruling-finalized', String(dispute.appealRound), async (tx) => {
+      // RFC-021 D6/D4 — feeds the arbiter's track record on every real
+      // resolution, correct or not (optional: only market mode has an
+      // ArbiterProfile to update; trusted-list mode silently skips this).
+      // feeObserved reads the escrow fresh — a RELEASE ruling's
+      // escrowService.releaseFunds() call above has already computed and
+      // persisted Escrow.feeCharged (Phase 0) by this point; REFUND never
+      // charges a fee, so this is correctly undefined for those.
+      if (provider.recordRuling) {
+        // Runtime resolution already loaded the escrow to choose the effective
+        // rail policy. Direct provider injection keeps the old best-effort
+        // accounting read instead of making repository availability a new
+        // prerequisite for every test/caller.
+        const resolvedEscrow = providerEscrow ?? await this.repo.findById(dispute.escrowId)
+        const feeObserved = resolvedEscrow?.feeCharged ? String(resolvedEscrow.feeCharged) : undefined
+        await provider.recordRuling(arbiterId, feeObserved, tx)
+      }
+
+      if (shouldSlash) {
+        const result = await provider.slash!(dispute.previousArbiterId!, tx) as { monetaryCollateral: string; arbiterReputation: number; forfeitedCollateral: string }
+        slashOutcome = {
+          participantId: dispute.previousArbiterId!,
+          forfeitedCollateral: result.forfeitedCollateral,
+          newCollateral: result.monetaryCollateral,
+          newReputation: result.arbiterReputation,
+        }
+      }
+
+      // RFC-021 D6 — real appeal-fee settlement, closing the "computed and
+      // returned but never collected" gap (appeal()'s own doc comment,
+      // BACKLOG.md). Only appealed disputes (appealRound > 0) have a fee
+      // row to settle at all. Same comparison the slashing check above
+      // already makes: the appeal panel reaching the SAME ruling means the
+      // appeal was denied (frivolous) — FORFEITED, the real cost this fee
+      // exists to impose; a different ruling means the appellant was right
+      // to appeal — REFUNDED. Real bookkeeping, not a simulated one — same
+      // "computed and persisted, not actually routed on-chain" precedent
+      // the Protocol Fee accounting foundation already established: no
+      // SettlementProvider here has a real configured treasury/arbitrator-
+      // reserve address to move anything to.
+      if (dispute.appealRound > 0) {
+        const outcome = dispute.previousRuling && dispute.previousRuling !== ruling ? 'REFUNDED' : 'FORFEITED'
+        await tx.disputeAppealFee.updateMany({
+          where: { disputeId: dispute.id, appealRound: dispute.appealRound, outcome: null },
+          data: { outcome, settledAt: new Date() },
+        })
+      }
+
+      // Published inside the claim transaction (same shape as reputation.service.ts's recordOutcomeOnce()): a
+      // failed publish rolls the slash and the claim back together, so the redrive redoes both instead of the
+      // claim surviving a crash between commit and publish with the notification lost for good. A redelivery
+      // that finds the claim already applied never reaches this point, so it never re-emits.
+      if (slashOutcome) {
+        await eventBus.emit('arbiter.slashed', slashOutcome, slashOutcome.participantId)
+      }
+    })
+  }
+
+  /**
+   * Issue #253 - discovery/recovery for finalizeResolveDispute()'s durable claim: finds every currently
+   * RESOLVED dispute whose (id, current appealRound) has no 'dispute.ruling-finalized' claim yet, and
+   * re-drives the exact same bookkeeping. Bounded and safe to call repeatedly/concurrently/periodically -
+   * a dispute already finalized is excluded by the WHERE NOT EXISTS below (cheap, indexed on
+   * (projectionKey, subjectId)), and a genuine race between two concurrent callers for the same dispute is
+   * resolved by applyEventProjectionOnce()'s own unique-constraint claim, not by anything here.
+   *
+   * Disclosed, bounded residual (FOLLOW-UP, not BLOCKER — see Issue #253's own delivery report): this only
+   * ever inspects a dispute's CURRENT (id, appealRound). If a crash leaves round N's finalize missing AND a
+   * human calls appeal() again (bumping to round N+1) BEFORE this ever runs once, round N's own
+   * previousRuling/previousArbiterId snapshot is overwritten by round N+1's own appeal() call before this
+   * function ever gets a chance to see it - an operationally narrow window (requires a human appeal
+   * action to land before any reconciliation tick), not a crash/replay/concurrency case, and out of this
+   * mission's scope to close (would require a full ruling-history table, a genuine schema change).
+   */
+  async recoverMissingRulingFinalization(limit = 200): Promise<{ recovered: string[]; failed: Array<{ disputeId: string; error: string }> }> {
+    const candidates = await prisma.$queryRaw<Array<{ id: string; escrowId: string; appealRound: number; previousRuling: DisputeRuling | null; previousArbiterId: string | null; arbiterId: string | null; ruling: DisputeRuling | null }>>`
+      SELECT d.id, d."escrowId", d."appealRound", d."previousRuling", d."previousArbiterId", d."arbiterId", d.ruling
+      FROM disputes d
+      WHERE d.status = 'RESOLVED'
+        AND NOT EXISTS (
+          SELECT 1 FROM event_projection_claims c
+          WHERE c."eventId" = d.id AND c."projectionKey" = 'dispute.ruling-finalized' AND c."subjectId" = d."appealRound"::text)
+      ORDER BY d."resolvedAt" ASC NULLS LAST
+      LIMIT ${limit}`
+
+    const recovered: string[] = []
+    const failed: Array<{ disputeId: string; error: string }> = []
+    for (const candidate of candidates) {
+      if (!candidate.arbiterId || !candidate.ruling) continue // structurally shouldn't happen for a RESOLVED dispute - skip rather than guess
+      try {
+        await this.finalizeResolveDispute(candidate, candidate.arbiterId, candidate.ruling)
+        recovered.push(candidate.id)
+      } catch (err) {
+        failed.push({ disputeId: candidate.id, error: err instanceof Error ? err.message : String(err) })
+      }
     }
+    return { recovered, failed }
   }
 
   /**
@@ -1228,6 +1301,9 @@ export class DisputeService {
         autoResolutionConfidence: confidence,
         autoResolutionReasoning: reasoning,
         autoResolutionDeadline: deadline,
+        // #308 / D-308 — a new, strictly greater proposal identity (never reused), so a contest/expiry that observed an
+        // earlier proposal cannot be applied to this one (ABA).
+        autoProposalGeneration: { increment: 1 },
       },
     })
     if (claim.count === 0) return null // lost the race to a real human decision — not an error
@@ -1266,30 +1342,81 @@ export class DisputeService {
     if (dispute.status !== 'AUTO_PROPOSED') {
       throw new ValidationError(`Dispute ${disputeId} has no pending automated resolution to contest (status: ${dispute.status})`)
     }
-    if (dispute.autoResolutionDeadline && dispute.autoResolutionDeadline.getTime() < Date.now()) {
-      throw new ValidationError(`Dispute ${disputeId}'s contest window has already closed`)
+
+    // CSC-F02 / #308 / D-308 — the checks above are only a fail-fast read, and the deadline is deliberately NOT
+    // compared here with the application clock: the one authoritative comparison is inside the claim, with the
+    // database clock, at the instant of the write. The transition is a single conditional UPDATE (status, ruling,
+    // the observed proposal generation and the deadline are re-asserted in the WHERE) written together with its
+    // outbox row, so a concurrent sweep, a second contest, a human decision or a newer proposal cannot also apply
+    // it, and only the winner has an event to publish.
+    const outboxId = await this.claimAutoProposedTransition(dispute, 'CONTESTED', contestedBy)
+    if (!outboxId) {
+      const current = await prisma.dispute.findUnique({ where: { id: disputeId } })
+      if (current && current.status === 'AUTO_PROPOSED' && current.autoProposalGeneration === dispute.autoProposalGeneration) {
+        throw new ValidationError(`Dispute ${disputeId}'s contest window has already closed`)
+      }
+      throw new ValidationError(`Dispute ${disputeId} has no pending automated resolution to contest (status: ${current?.status ?? 'unknown'})`)
     }
 
-    const updated = await prisma.dispute.update({
-      where: { id: disputeId },
-      data: {
-        status: 'EVIDENCE_SUBMITTED',
-        autoResolutionRecommendation: null,
-        autoResolutionConfidence: null,
-        autoResolutionReasoning: null,
-        autoResolutionDeadline: null,
-      },
+    // Never throws: if publishing fails here the outbox row stays pending and publishPendingDisputeTransitions()
+    // (run by the sweeper tick) delivers it.
+    await publishPendingDisputeTransitions({ onlyId: outboxId })
+
+    return prisma.dispute.findUnique({ where: { id: disputeId } })
+  }
+
+  /**
+   * #308 / D-308 — the ONE claim of the AUTO_PROPOSED -> EVIDENCE_SUBMITTED transition, shared by the human contest
+   * and the advisory expiry sweep. One transaction: a compare-and-set UPDATE against the proposal generation the
+   * caller observed, plus the outbox row that makes the event recoverable. Equality at the deadline belongs to the
+   * human: contest is valid while `deadline >= instant`, the sweep only when `deadline < instant`.
+   *
+   * The decision instant is the DATABASE clock read AFTER the dispute row lock is held. `now()` is the transaction
+   * start and a conditional UPDATE's snapshot is the statement start, both taken BEFORE a wait on a row lock, so a
+   * claim queued behind another writer while the deadline passed would be judged at a stale instant (a contest could
+   * win a window that had closed while it waited). So the row is locked first (`SELECT ... FOR UPDATE`) and the
+   * instant is read with `clock_timestamp()` in the next statement, in UTC and truncated to the millisecond of the
+   * `timestamp(3)` column. Contest clears the QVAC recommendation; the advisory expiry keeps it as context for the
+   * human arbiter (the metadata semantics are unchanged). Returns the outbox row id of the winner, or null when the
+   * claim lost.
+   */
+  private async claimAutoProposedTransition(
+    dispute: { id: string; escrowId: string; tradeId: string; autoProposalGeneration: number },
+    kind: DisputeTransitionKind,
+    actor: string,
+    // Test seams only; production passes neither. `client` joins the caller's transaction instead of opening one;
+    // `decidedAt` (ISO-8601 UTC) replaces the database clock so the exact-equality boundary can be asserted.
+    seam: { client?: Prisma.TransactionClient; decidedAt?: string } = {}
+  ): Promise<string | null> {
+    const generation = dispute.autoProposalGeneration
+    const run = <T>(fn: (tx: Prisma.TransactionClient) => Promise<T>) => (seam.client ? fn(seam.client) : prisma.$transaction(fn))
+    return run(async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM "disputes" WHERE "id" = ${dispute.id} FOR UPDATE`
+      const instant = seam.decidedAt
+        ? Prisma.sql`(${seam.decidedAt}::timestamptz AT TIME ZONE 'UTC')`
+        : Prisma.sql`(date_trunc('milliseconds', clock_timestamp()) AT TIME ZONE 'UTC')`
+      const affected = kind === 'CONTESTED'
+        ? await tx.$executeRaw`
+            UPDATE "disputes" SET "status" = 'EVIDENCE_SUBMITTED', "autoResolutionRecommendation" = NULL, "autoResolutionConfidence" = NULL,
+              "autoResolutionReasoning" = NULL, "autoResolutionDeadline" = NULL, "updatedAt" = ${instant}
+            WHERE "id" = ${dispute.id} AND "status" = 'AUTO_PROPOSED' AND "ruling" IS NULL AND "autoProposalGeneration" = ${generation}
+              AND ("autoResolutionDeadline" IS NULL OR "autoResolutionDeadline" >= ${instant})`
+        : await tx.$executeRaw`
+            UPDATE "disputes" SET "status" = 'EVIDENCE_SUBMITTED', "autoResolutionDeadline" = NULL, "updatedAt" = ${instant}
+            WHERE "id" = ${dispute.id} AND "status" = 'AUTO_PROPOSED' AND "ruling" IS NULL AND "autoProposalGeneration" = ${generation}
+              AND "autoResolutionDeadline" < ${instant}`
+      if (affected === 0) return null
+      const row = await tx.disputeTransitionOutbox.create({
+        data: {
+          disputeId: dispute.id, generation, kind, tradeId: dispute.tradeId,
+          payload: {
+            disputeId: dispute.id, settlementId: dispute.escrowId, tradeId: dispute.tradeId,
+            contestedBy: actor, triggeredBy: actor, transitionKey: transitionKeyFor(dispute.id, generation, kind),
+          },
+        },
+      })
+      return row.id
     })
-
-    await eventBus.emit('dispute.auto_resolution_contested', {
-      disputeId,
-      settlementId: dispute.escrowId,
-      tradeId: dispute.tradeId,
-      contestedBy,
-      triggeredBy: contestedBy,
-    }, dispute.tradeId)
-
-    return updated
   }
 
   /**
@@ -1335,22 +1462,19 @@ export class DisputeService {
     const failed: Array<{ disputeId: string; error: string }> = []
     for (const dispute of expired) {
       try {
-        await prisma.dispute.update({
-          where: { id: dispute.id },
-          data: { status: 'EVIDENCE_SUBMITTED', autoResolutionDeadline: null },
-        })
-        await eventBus.emit('dispute.auto_resolution_contested', {
-          disputeId: dispute.id,
-          settlementId: dispute.escrowId,
-          tradeId: dispute.tradeId,
-          contestedBy: 'window-expired-advisory-only',
-          triggeredBy: 'window-expired-advisory-only',
-        }, dispute.tradeId)
+        // CSC-F02 / #308 / D-308 — the same single claim as contestAutoResolution(), against the proposal generation
+        // THIS sweep selected: if a contest, another sweep, a human decision or a newer proposal got there first the
+        // claim is a no-op (nothing rewritten, no event), never a stale overwrite. The expiry is decided by the
+        // database clock inside the claim; the application-clock query above only selects candidates.
+        const outboxId = await this.claimAutoProposedTransition(dispute, 'EXPIRED', 'window-expired-advisory-only')
+        if (!outboxId) continue
         revertedToHuman.push(dispute.id)
       } catch (err) {
         failed.push({ disputeId: dispute.id, error: err instanceof Error ? err.message : String(err) })
       }
     }
+    // Deliver the events of this sweep's winners AND any pending from an earlier crash (any instance); never throws.
+    await publishPendingDisputeTransitions()
     return { revertedToHuman, failed }
   }
 }

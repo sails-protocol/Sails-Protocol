@@ -9,6 +9,7 @@ import {
   loadParticipantPubkeys,
   claimEscrowTransition,
   revertEscrowStatus,
+  settlementSucceededButLocalStepFailed,
   emitEscrowTransition,
   resolvePayoutAddress,
   checkFundMovementCapability,
@@ -388,20 +389,36 @@ export async function submitTransactionSignature(escrowId: string, participantId
   // same idiom as releaseFunds()/refundFunds() (escrow.service.ts).
   await claimEscrowTransition(escrowId, escrow.status, targetStatus)
 
+  // Issue #291 - two distinct error boundaries. Only a failing PROVIDER
+  // finalize reverts the claim (the pending row and signatures stay for a
+  // retry). Once finalize has returned, external execution may already have
+  // happened: a later LOCAL failure must not revert the escrow as though it
+  // had not - the pending row is kept and reconciliation (C8 / PASS 1 / 2 / 3)
+  // converges from durable facts.
+  let result: Awaited<ReturnType<typeof provider.finalizeRelease>>
   try {
     const signedList = pending.requiredSigners.map(
       (id: string) => signatures.find((s: { participantId: string; signedPsbtBase64: string }) => s.participantId === id)!.signedPsbtBase64
     )
-    const result = pending.kind === 'release'
-      ? await provider.finalizeRelease(escrow, pending.unsignedPsbtBase64, signedList)
+    result = pending.kind === 'release'
+      ? await provider.finalizeRelease(escrow, pending.unsignedPsbtBase64, signedList, pending.id)
       : pending.kind === 'refund'
-      ? await provider.finalizeRefund(escrow, pending.unsignedPsbtBase64, signedList)
+      ? await provider.finalizeRefund(escrow, pending.unsignedPsbtBase64, signedList, pending.id)
       : await provider.finalizeSplit!(escrow, pending.unsignedPsbtBase64, signedList)
+  } catch (err) {
+    await revertEscrowStatus(escrowId, targetStatus, escrow.status)
+    throw err
+  }
 
+  try {
     const updateData = pending.kind === 'refund'
       ? { txReleaseId: result.txId }
       : { txReleaseId: result.txId, releasedAt: new Date() }
-    const updated = await escrowRepository.updateSignatureCollectionResult(escrowId, updateData)
+    // txReleaseId is provider EVIDENCE; the write is bound to the immutable,
+    // Sails-owned pending operation it belongs to (Issue #291).
+    const updated = await escrowRepository.updateSignatureCollectionResult(escrowId, updateData, {
+      operation: { pendingOperationId: pending.id },
+    })
 
     // Missão 11 Fase 3 §7 — the SAME centralized function
     // escrow.service.ts's direct-call releaseFunds()/refundFunds()/
@@ -435,6 +452,9 @@ export async function submitTransactionSignature(escrowId: string, participantId
     //     self-documenting guard against that ever changing silently).
     // Broadcast success != confirmed revenue — this never marks COLLECTED
     // itself (see fee-collection-recognition.service.ts's own contract).
+    // Issue #245 (Phase 2): when the recording fails, the pending row — the only durable source of the
+    // PSBT identifyFeeOutput() decodes — is KEPT (cleanup below) so the settlement reconciler can retry.
+    let keepPendingRow = false
     if (pending.kind !== 'refund' && escrow.type === 'MULTISIG' && actualCollection && !actualCollection.waived) {
       try {
         const obligation = await feeObligationService.findByEscrowId(escrowId)
@@ -455,11 +475,15 @@ export async function submitTransactionSignature(escrowId: string, participantId
         // successfully by this point — collection-evidence recording is
         // strictly secondary accounting, never allowed to un-do or fail a
         // settlement whose funds already moved. Logged loudly, never
-        // thrown; the obligation simply remains PENDING_COLLECTION,
-        // exactly the safe/honest state when evidence couldn't be recorded
-        // (detectable later via reconciliation, never silently masked).
+        // thrown. Issue #245: recordBroadcastAndAdvance() is atomic, so a
+        // failure leaves the obligation and its evidence exactly as they were
+        // BEFORE this call — which is not necessarily PENDING_COLLECTION (a
+        // retry or a concurrent writer may already have recorded this very
+        // broadcast), so the state is deliberately not asserted here; a
+        // FEE_BROADCAST_EVIDENCE_CONFLICT is logged by the service itself.
+        keepPendingRow = true
         log.error({
-          msg: 'Broadcast-evidence recording failed after a successful settlement — FeeObligation remains PENDING_COLLECTION, not silently advanced',
+          msg: 'Broadcast-evidence recording failed after a successful settlement — nothing was written by this call; the FeeObligation was not advanced by it (current state not asserted); the pending row is kept so the settlement reconciler can retry the recording',
           escrowId, err: err instanceof Error ? err.message : err,
         })
       }
@@ -486,17 +510,15 @@ export async function submitTransactionSignature(escrowId: string, participantId
     })
 
     // Cascade-deletes its EscrowTransactionSignature rows (schema.prisma's
-    // onDelete: Cascade) — a completed round leaves no pending row behind.
-    await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
+    // onDelete: Cascade) — a completed round leaves no pending row behind, except when the fee
+    // recording above failed (the reconciler deletes it once that recording is proven).
+    if (!keepPendingRow) await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
 
     return { escrow: updated, complete: true }
   } catch (err) {
-    // Revert the claim — see releaseFunds()'s identical comment. The
-    // pending row and its signatures are left in place on failure so the
-    // caller can retry submitTransactionSignature() (idempotent upsert)
-    // without needing to re-collect signatures already submitted.
-    await revertEscrowStatus(escrowId, targetStatus, escrow.status)
-    throw err
+    // Issue #291 - finalize already succeeded (above): never revert here.
+    // The pending row and its signatures are left in place for recovery.
+    throw settlementSucceededButLocalStepFailed(escrowId, pending.kind, result.txId, err)
   }
 }
 
