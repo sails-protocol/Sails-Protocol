@@ -1266,20 +1266,26 @@ export class DisputeService {
     if (dispute.status !== 'AUTO_PROPOSED') {
       throw new ValidationError(`Dispute ${disputeId} has no pending automated resolution to contest (status: ${dispute.status})`)
     }
-    if (dispute.autoResolutionDeadline && dispute.autoResolutionDeadline.getTime() < Date.now()) {
-      throw new ValidationError(`Dispute ${disputeId}'s contest window has already closed`)
+
+    // CSC-F02 / #308 — the checks above are only a fail-fast read, and the
+    // deadline is deliberately NOT compared here with the application clock:
+    // the one authoritative comparison is inside the claim, with the database
+    // clock, at the instant the row is granted. The transition is a single
+    // conditional UPDATE (status + deadline are re-asserted in the WHERE), so
+    // a concurrent sweepExpiredAutoResolutions() or a second contest cannot
+    // also apply it: exactly one winner and exactly one
+    // `dispute.auto_resolution_contested` event.
+    const won = await this.claimAutoProposedTransition(disputeId, 'CONTESTED')
+    if (!won) {
+      // Lost the race (or the window closed between the read and the write).
+      const current = await prisma.dispute.findUnique({ where: { id: disputeId } })
+      if (current && current.status === 'AUTO_PROPOSED') {
+        throw new ValidationError(`Dispute ${disputeId}'s contest window has already closed`)
+      }
+      throw new ValidationError(`Dispute ${disputeId} has no pending automated resolution to contest (status: ${current?.status ?? 'unknown'})`)
     }
 
-    const updated = await prisma.dispute.update({
-      where: { id: disputeId },
-      data: {
-        status: 'EVIDENCE_SUBMITTED',
-        autoResolutionRecommendation: null,
-        autoResolutionConfidence: null,
-        autoResolutionReasoning: null,
-        autoResolutionDeadline: null,
-      },
-    })
+    const updated = await prisma.dispute.findUnique({ where: { id: disputeId } })
 
     await eventBus.emit('dispute.auto_resolution_contested', {
       disputeId,
@@ -1290,6 +1296,46 @@ export class DisputeService {
     }, dispute.tradeId)
 
     return updated
+  }
+
+  /**
+   * #308 — the ONE claim of the AUTO_PROPOSED -> EVIDENCE_SUBMITTED transition, shared by the human contest and the
+   * advisory expiry sweep. Equality at the deadline belongs to the human: contest is valid while `deadline >= instant`,
+   * the sweep only when `deadline < instant`.
+   *
+   * The decision instant is the DATABASE clock read AFTER the dispute row lock is held. Neither the application clock
+   * nor `now()` (the transaction start) nor a statement snapshot can be used: all are taken BEFORE a wait on a row
+   * lock, so a claim queued behind another writer while the deadline passed would be judged at a stale instant (a
+   * contest could win a window that had closed while it waited, and Postgres does not re-evaluate the WHERE when the
+   * lock holder rolled back). So the row is locked first (`SELECT ... FOR UPDATE`) and the instant is read with
+   * `clock_timestamp()` in the next statement, in UTC and truncated to the millisecond of the `timestamp(3)` column.
+   * Contest clears the QVAC recommendation; the advisory expiry keeps it as context for the human arbiter.
+   * Returns true when this call won the claim.
+   */
+  private async claimAutoProposedTransition(
+    disputeId: string,
+    kind: 'CONTESTED' | 'EXPIRED',
+    // Test seams only; production passes neither. `client` joins the caller's transaction instead of opening one;
+    // `decidedAt` (ISO-8601 UTC) replaces the database clock so the exact-equality boundary can be asserted.
+    seam: { client?: Prisma.TransactionClient; decidedAt?: string } = {}
+  ): Promise<boolean> {
+    const run = <T>(fn: (tx: Prisma.TransactionClient) => Promise<T>) => (seam.client ? fn(seam.client) : prisma.$transaction(fn))
+    return run(async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM "disputes" WHERE "id" = ${disputeId} FOR UPDATE`
+      const instant = seam.decidedAt
+        ? Prisma.sql`(${seam.decidedAt}::timestamptz AT TIME ZONE 'UTC')`
+        : Prisma.sql`(date_trunc('milliseconds', clock_timestamp()) AT TIME ZONE 'UTC')`
+      const affected = kind === 'CONTESTED'
+        ? await tx.$executeRaw`
+            UPDATE "disputes" SET "status" = 'EVIDENCE_SUBMITTED', "autoResolutionRecommendation" = NULL, "autoResolutionConfidence" = NULL,
+              "autoResolutionReasoning" = NULL, "autoResolutionDeadline" = NULL, "updatedAt" = ${instant}
+            WHERE "id" = ${disputeId} AND "status" = 'AUTO_PROPOSED'
+              AND ("autoResolutionDeadline" IS NULL OR "autoResolutionDeadline" >= ${instant})`
+        : await tx.$executeRaw`
+            UPDATE "disputes" SET "status" = 'EVIDENCE_SUBMITTED', "autoResolutionDeadline" = NULL, "updatedAt" = ${instant}
+            WHERE "id" = ${disputeId} AND "status" = 'AUTO_PROPOSED' AND "autoResolutionDeadline" < ${instant}`
+      return affected > 0
+    })
   }
 
   /**
@@ -1335,10 +1381,13 @@ export class DisputeService {
     const failed: Array<{ disputeId: string; error: string }> = []
     for (const dispute of expired) {
       try {
-        await prisma.dispute.update({
-          where: { id: dispute.id },
-          data: { status: 'EVIDENCE_SUBMITTED', autoResolutionDeadline: null },
-        })
+        // CSC-F02 / #308 — same single conditional claim as
+        // contestAutoResolution(): if a manual contest (or another sweep)
+        // already moved this dispute, the claim is a no-op and this sweep
+        // neither rewrites the row nor emits a second contested event. The
+        // expiry is decided by the database clock inside the claim; the
+        // application-clock query above only selects candidates.
+        if (!(await this.claimAutoProposedTransition(dispute.id, 'EXPIRED'))) continue
         await eventBus.emit('dispute.auto_resolution_contested', {
           disputeId: dispute.id,
           settlementId: dispute.escrowId,
