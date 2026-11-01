@@ -1,0 +1,144 @@
+// scripts/runtime-image-checks.js
+//
+// Runs INSIDE the production image (stage `runtime`), fed on stdin by
+// scripts/docker-runtime-test.sh:  docker run --rm -i --entrypoint node IMAGE - < this-file
+// Exit 0 only when every check passes; every failure is listed, none is
+// swallowed. Checks what the image must satisfy before it ever serves a
+// request:
+//   1. the Node version is the one the Dockerfile pins (EXPECTED_NODE);
+//   2. the process is not root;
+//   3. NODE_ENV defaults to production;
+//   4. every package the compiled server `require()`s resolves from where
+//      the file lives — this is the class of bug that kept the image from
+//      booting ("Cannot find module '@sails/core'": a workspace package linked
+//      in node_modules whose target the runtime stage never copied);
+//   5. the native / generated modules actually LOAD, not merely resolve.
+// It does not need a database, Redis or any configuration.
+
+const fs = require('fs')
+const path = require('path')
+const { builtinModules, createRequire } = require('module')
+
+const failures = []
+const pass = (name, detail) => console.log(`PASS  ${name}${detail ? ` (${detail})` : ''}`)
+const fail = (name, detail) => {
+  failures.push(name)
+  console.log(`FAIL  ${name}${detail ? ` — ${detail}` : ''}`)
+}
+
+// 1–3: runtime facts
+const expected = process.env.EXPECTED_NODE
+if (!expected) fail('EXPECTED_NODE provided', 'the harness must say which Node the Dockerfile pins')
+else if (process.version === `v${expected}`) pass('node version', process.version)
+else fail('node version', `expected v${expected}, got ${process.version}`)
+
+const uid = process.getuid()
+const user = require('os').userInfo().username
+if (uid !== 0) pass('runs as a non-root user', `${user} uid=${uid}`)
+else fail('runs as a non-root user', 'uid 0')
+
+if (process.env.NODE_ENV === 'production') pass('NODE_ENV defaults to production')
+else fail('NODE_ENV defaults to production', `got ${JSON.stringify(process.env.NODE_ENV)}`)
+
+// 4: every bare specifier in the compiled server resolves from its own file
+const root = '/app'
+const distDir = path.join(root, 'dist')
+const builtins = new Set([...builtinModules, ...builtinModules.map(m => `node:${m}`)])
+const requireRe = /\brequire\(\s*(['"])([^'"\n]+)\1\s*\)/g
+const files = []
+const walk = dir => {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) walk(full)
+    else if (entry.name.endsWith('.js')) files.push(full)
+  }
+}
+if (!fs.existsSync(distDir)) {
+  fail('compiled server present', `${distDir} missing`)
+} else {
+  walk(distDir)
+  const unresolved = new Map() // specifier -> first file that needs it
+  const specifiers = new Set()
+  for (const file of files) {
+    const text = fs.readFileSync(file, 'utf8')
+    for (const match of text.matchAll(requireRe)) {
+      const spec = match[2]
+      if (spec.startsWith('.') || spec.startsWith('/') || builtins.has(spec)) continue
+      specifiers.add(spec)
+      const from = createRequire(file)
+      try {
+        from.resolve(spec)
+      } catch (error) {
+        if (!unresolved.has(spec)) unresolved.set(spec, `${path.relative(root, file)}: ${String(error.message).split('\n')[0]}`)
+      }
+    }
+  }
+  if (files.length === 0) fail('compiled server present', 'no .js files under dist')
+  else if (unresolved.size === 0) pass('every package required by dist/ resolves', `${specifiers.size} specifiers, ${files.length} files`)
+  else for (const [spec, where] of unresolved) fail(`resolve ${spec}`, where)
+}
+
+// 5: modules that must load (native addons, generated client, workspace packages)
+const rootRequire = createRequire(path.join(root, 'package.json'))
+for (const name of ['@sails/core', '@prisma/client', 'sodium-native', 'tiny-secp256k1']) {
+  try {
+    rootRequire(name)
+    pass(`load ${name}`)
+  } catch (error) {
+    fail(`load ${name}`, String(error.message).split('\n')[0])
+  }
+}
+try {
+  const { PrismaClient } = rootRequire('@prisma/client')
+  if (typeof PrismaClient === 'function') pass('generated Prisma client exports PrismaClient')
+  else fail('generated Prisma client exports PrismaClient', typeof PrismaClient)
+} catch (error) {
+  fail('generated Prisma client exports PrismaClient', String(error.message).split('\n')[0])
+}
+
+// 6: the installed production tree is consistent with its manifests. `npm ls` also
+// lists "extraneous" copies (present but not required by the server); those are not a
+// functional fault and are reported, but a MISSING or INVALID dependency fails the check.
+const ls = require('child_process').spawnSync('npm', ['ls', '--omit=dev', '--all', '--json'], { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+try {
+  const problems = JSON.parse(ls.stdout).problems || []
+  const broken = problems.filter(p => !p.startsWith('extraneous:'))
+  if (broken.length === 0) pass('production dependency tree has no missing/invalid packages', `${problems.length} extraneous`)
+  else for (const p of broken) fail('dependency tree', p.slice(0, 200))
+} catch (error) {
+  fail('dependency tree', `npm ls output not parseable: ${String(error.message).split('\n')[0]}`)
+}
+
+// 7: packages of the other workspaces (front-end / examples) must not ride along into the
+// server image: the `pruned` stage installs only the server's closure. (react and
+// typescript are NOT sentinels: other packages in that closure may legitimately need them.)
+const leaked = ['next', 'tailwindcss', 'lucide-react'].filter(name => fs.existsSync(path.join(root, 'node_modules', name)))
+if (leaked.length === 0) pass('no other-workspace packages in node_modules')
+else fail('other-workspace packages in node_modules', leaked.join(', '))
+
+// ... and neither may the root's devDependencies (test runners, load-test and local test
+// infrastructure): a prune that skips the root package ships them to production.
+const devOnly = ['artillery', 'jest', 'ts-jest', 'embedded-postgres', 'redis-memory-server', 'pino-pretty'].filter(name => fs.existsSync(path.join(root, 'node_modules', name)))
+if (devOnly.length === 0) pass('no devDependencies in node_modules')
+else fail('devDependencies in node_modules', devOnly.join(', '))
+
+// 8: the Prisma CLI chain is NOT in the serving image (it lives in the `migrate` image), while
+// the Prisma runtime pieces and the optional native runtime QVAC needs ARE.
+const cliChain = ['prisma', '@prisma/config', '@prisma/engines', '@prisma/studio-core', 'mysql2', 'deepmerge-ts', 'c12', 'effect'].filter(name => fs.existsSync(path.join(root, 'node_modules', name)))
+if (cliChain.length === 0) pass('Prisma CLI chain absent from the serving image')
+else fail('Prisma CLI chain in the serving image', cliChain.join(', '))
+// `npm prune --omit=optional` would also drop bare-runtime-linux-x64: the QVAC SDK spawns its worker with it.
+for (const name of ['@prisma/client', '@prisma/adapter-pg', 'pg', 'bare-runtime', 'bare-runtime-linux-x64']) {
+  try {
+    rootRequire.resolve(name)
+    pass(`present: ${name}`)
+  } catch {
+    fail(`present: ${name}`, 'not resolvable from /app')
+  }
+}
+
+if (failures.length > 0) {
+  console.log(`\n${failures.length} runtime image check(s) FAILED: ${failures.join('; ')}`)
+  process.exit(1)
+}
+console.log('\nall runtime image checks passed')
