@@ -452,6 +452,9 @@ export async function submitTransactionSignature(escrowId: string, participantId
     //     self-documenting guard against that ever changing silently).
     // Broadcast success != confirmed revenue — this never marks COLLECTED
     // itself (see fee-collection-recognition.service.ts's own contract).
+    // Issue #245 (Phase 2): when the recording fails, the pending row — the only durable source of the
+    // PSBT identifyFeeOutput() decodes — is KEPT (cleanup below) so the settlement reconciler can retry.
+    let keepPendingRow = false
     if (pending.kind !== 'refund' && escrow.type === 'MULTISIG' && actualCollection && !actualCollection.waived) {
       try {
         const obligation = await feeObligationService.findByEscrowId(escrowId)
@@ -472,11 +475,15 @@ export async function submitTransactionSignature(escrowId: string, participantId
         // successfully by this point — collection-evidence recording is
         // strictly secondary accounting, never allowed to un-do or fail a
         // settlement whose funds already moved. Logged loudly, never
-        // thrown; the obligation simply remains PENDING_COLLECTION,
-        // exactly the safe/honest state when evidence couldn't be recorded
-        // (detectable later via reconciliation, never silently masked).
+        // thrown. Issue #245: recordBroadcastAndAdvance() is atomic, so a
+        // failure leaves the obligation and its evidence exactly as they were
+        // BEFORE this call — which is not necessarily PENDING_COLLECTION (a
+        // retry or a concurrent writer may already have recorded this very
+        // broadcast), so the state is deliberately not asserted here; a
+        // FEE_BROADCAST_EVIDENCE_CONFLICT is logged by the service itself.
+        keepPendingRow = true
         log.error({
-          msg: 'Broadcast-evidence recording failed after a successful settlement — FeeObligation remains PENDING_COLLECTION, not silently advanced',
+          msg: 'Broadcast-evidence recording failed after a successful settlement — nothing was written by this call; the FeeObligation was not advanced by it (current state not asserted); the pending row is kept so the settlement reconciler can retry the recording',
           escrowId, err: err instanceof Error ? err.message : err,
         })
       }
@@ -503,8 +510,9 @@ export async function submitTransactionSignature(escrowId: string, participantId
     })
 
     // Cascade-deletes its EscrowTransactionSignature rows (schema.prisma's
-    // onDelete: Cascade) — a completed round leaves no pending row behind.
-    await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
+    // onDelete: Cascade) — a completed round leaves no pending row behind, except when the fee
+    // recording above failed (the reconciler deletes it once that recording is proven).
+    if (!keepPendingRow) await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
 
     return { escrow: updated, complete: true }
   } catch (err) {
