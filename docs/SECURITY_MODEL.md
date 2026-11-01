@@ -12,6 +12,53 @@
 
 ---
 
+## 0. Coordination, Custody, and Evaluation Boundaries
+
+Security reviews MUST distinguish the protocol's coordination role from the
+custody/signing authority of a concrete wallet or settlement rail.
+
+- **Sails coordinates economic actions; it does not make every integrated
+  wallet or provider custodially equivalent.** Wallet/adapters bridge Sails
+  semantics to a wallet stack or settlement provider. In non-custodial rails,
+  user signing authority remains with the participant's wallet/key material;
+  the adapter coordinates construction, verification, authorization,
+  evidence, and submission without turning Sails into the user's custodian.
+- **SDK cryptographic code is not, by itself, evidence of server custody.**
+  Client-side key generation, transaction verification, and signing helpers
+  belong in a consumer-facing SDK when the participant is expected to sign
+  locally. A security finding must identify which principal actually controls
+  the signing key and which signatures/authorities can move funds.
+- **Reference/test implementations do not define the normative custody
+  model.** Evaluate each rail independently and preserve its explicit
+  production-eligibility classification. In particular,
+  `WDK_USDT_EVM` is a server-custodial reference implementation and
+  production-ineligible under RFC-019; that fact MUST NOT be generalized to
+  non-custodial rails such as participant-key multisig or to the protocol
+  architecture as a whole.
+- **Test fixtures are not production credentials.** Seeds, private keys, and
+  deterministic material intentionally used by tests, demos, local
+  rehearsals, or published vectors must be classified as such before being
+  reported as credential exposure. Conversely, anything that was ever a real
+  operational credential MUST be treated as compromised if committed to
+  public history, regardless of whether it was later removed from HEAD.
+- **Production eligibility requires evidence.** Implemented, registered,
+  executable, reference-only/test-only, and production-eligible are distinct
+  states. No rail inherits production eligibility merely because its adapter,
+  SDK primitives, or provider implementation exists.
+
+For audits, the minimum classification question is therefore:
+
+> **Who holds the signing authority, which rail/provider is being evaluated,
+> is the material test-only or operational, and is that exact implementation
+> production-eligible?**
+
+This boundary does not reduce supply-chain risk. Client signing code and
+dependencies remain part of the adversarial surface and must be evaluated
+under the security audit; the point is to assess the authority they can
+actually exercise rather than infer custody from code location alone.
+
+---
+
 ## 1. Trust Without a Trusted Third Party
 
 The central question any evaluator will ask: **why would a participant
