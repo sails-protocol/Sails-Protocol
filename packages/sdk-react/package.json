@@ -71,7 +71,7 @@
     "react-dom": "^19.2.7",
     "storybook": "^8.6.14",
     "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   }
 }
