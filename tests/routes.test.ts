@@ -364,7 +364,7 @@ jest.mock('@qvac/sdk', () => ({
 // Imported after the mocks above so every route file picks up the mocked
 // dependencies, not the real Prisma/Redis/eventBus/pearNodeRegistry.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { buildApp } = require('../src/app')
+const { buildApp, HTTP_BODY_LIMIT_BYTES } = require('../src/app')
 // Issue #302 — real, unmocked module (only redis.ts above is mocked, not
 // auth.ts itself): reused as the single source of truth for the
 // registration signed-message construction, so these tests sign exactly
@@ -569,6 +569,43 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(body.data.challenge).toEqual(expect.any(String))
     })
 
+    it('rejects a JSON body above the global Fastify limit before the handler runs', async () => {
+      const redisSet = redis.set as jest.Mock
+      const baseBody = JSON.stringify({ publicKey: TEST_PUBLIC_KEY, padding: '' })
+      const bodyAtLimit = JSON.stringify({ publicKey: TEST_PUBLIC_KEY, padding: 'x'.repeat(HTTP_BODY_LIMIT_BYTES - baseBody.length) })
+      const accepted = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/challenge',
+        headers: { 'content-type': 'application/json' },
+        payload: bodyAtLimit,
+      })
+      expect(accepted.statusCode).toBe(200)
+      expect(redisSet).toHaveBeenCalled()
+
+      redisSet.mockClear()
+      const rejected = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/challenge',
+        headers: { 'content-type': 'application/json' },
+        payload: `${bodyAtLimit} `,
+      })
+
+      expect(rejected.statusCode).toBe(413)
+      expect(redisSet).not.toHaveBeenCalled()
+    })
+
+    it('rejects malformed JSON with a controlled client error', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/challenge',
+        headers: { 'content-type': 'application/json' },
+        payload: '{"publicKey":',
+      })
+
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).success).toBe(false)
+    })
+
     it('rejects authenticate with no challenge previously issued', async () => {
       const res = await app.inject({
         method: 'POST',
@@ -597,6 +634,31 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       expect(res.statusCode).toBe(200)
       expect(JSON.parse(res.body).data.id).toBe('user-1')
+    })
+
+    it('rejects an empty session record instead of treating malformed state as authenticated', async () => {
+      redisStore.set('auth:session:malformed', '')
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/identity/me',
+        headers: { authorization: 'Bearer malformed' },
+      })
+
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('fails closed when the session store errors', async () => {
+      const redisGet = redis.get as jest.Mock
+      redisGet.mockRejectedValueOnce(new Error('redis.internal socket failure'))
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/identity/me',
+        headers: { authorization: 'Bearer unavailable-store' },
+      })
+
+      expect(res.statusCode).toBe(500)
+      expect(JSON.parse(res.body).success).toBe(false)
     })
 
     // Missão 11 Fase 9.3.5 — INV-OP-10: GET /v1/identity/participants/:id
@@ -1290,6 +1352,92 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       const secondWs = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
       await new Promise((resolve) => setTimeout(resolve, 50))
       expect(secondWs.readyState).toBe(secondWs.CLOSED)
+    })
+
+    it('revokes the HTTP session and invalidates new and pre-issued WS authority', async () => {
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+
+      const beforeLogout = await app.inject({
+        method: 'GET',
+        url: '/v1/identity/me',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(beforeLogout.statusCode).toBe(200)
+
+      const logout = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/logout',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(logout.statusCode).toBe(204)
+
+      const afterLogout = await app.inject({
+        method: 'GET',
+        url: '/v1/identity/me',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(afterLogout.statusCode).toBe(401)
+
+      const newTicket = await app.inject({
+        method: 'POST',
+        url: '/v1/identity/ws-ticket',
+        headers: { authorization: `Bearer ${token}` },
+      })
+      expect(newTicket.statusCode).toBe(401)
+
+      const oldTicketSocket = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      await new Promise<void>((resolve) => oldTicketSocket.once('close', () => resolve()))
+      expect(oldTicketSocket.readyState).toBe(oldTicketSocket.CLOSED)
+    })
+
+    it('rejects malformed JSON and unsupported message types without closing a valid socket', async () => {
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+      const ws = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      const frames: Array<{ type: string; payload?: { message?: string } }> = []
+      ws.on('message', (data: Buffer) => frames.push(JSON.parse(data.toString())))
+
+      ws.send('{')
+      ws.send(JSON.stringify({ type: 'NOT_SUPPORTED', payload: {} }))
+      await new Promise<void>((resolve) => {
+        const check = () => frames.length === 2 ? resolve() : setImmediate(check)
+        check()
+      })
+
+      expect(frames.map((frame) => frame.payload?.message)).toEqual(['Malformed JSON', 'Unknown message type: NOT_SUPPORTED'])
+      expect(ws.readyState).toBe(ws.OPEN)
+      ws.terminate()
+    })
+
+    it('rejects binary frames and closes the socket deterministically', async () => {
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+      const ws = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      const closed = new Promise<void>((resolve) => ws.once('close', () => resolve()))
+
+      ws.send(Buffer.from('{"type":"PING"}'))
+      await closed
+
+      expect(ws.readyState).toBe(ws.CLOSED)
+    })
+
+    it('closes when queued work exceeds the per-socket bound', async () => {
+      const token = await authedSession('buyer-1')
+      const ticket = await wsTicketFor(app, token)
+      let releaseTradeLookup!: () => void
+      const tradeLookupBlocked = new Promise<void>((resolve) => { releaseTradeLookup = resolve })
+      mockTradeFindUnique.mockImplementation(() => tradeLookupBlocked)
+
+      const ws = await app.injectWS(`/v1/openp2p/chat?ticket=${ticket}`)
+      const closed = new Promise<void>((resolve) => ws.once('close', () => resolve()))
+      const joinFrame = JSON.stringify({ type: 'JOIN_TRADE', payload: { tradeId: 'trade-1' } })
+      for (let i = 0; i < 34; i++) ws.send(joinFrame)
+
+      await closed
+      releaseTradeLookup()
+      mockTradeFindUnique.mockReset()
+      expect(ws.readyState).toBe(ws.CLOSED)
     })
 
     // Security review, 2026-08-15 (P1) — closes the gap the Codex threat
@@ -2199,6 +2347,40 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         expect(JSON.parse(res.body).error).toBe('VALIDATION_ERROR')
       }
       expect(mockCapabilityGrantCreate).not.toHaveBeenCalled()
+    })
+
+    it('rejects an oversized scope collection before capability persistence', async () => {
+      const token = await authedSession('buyer-1')
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/capabilities/register',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { capabilityName: 'trade-coordination', scope: ['intent.created', 'intent.discovering', 'intent.extra', 'intent.too_many'] },
+      })
+
+      expect(res.statusCode).toBe(400)
+      expect(mockCapabilityGrantCreate).not.toHaveBeenCalled()
+    })
+
+    it('accepts the canonical settlement grant with its three scopes', async () => {
+      const token = await authedSession('buyer-1')
+      mockCapabilityGrantCreate.mockResolvedValueOnce({
+        id: 'grant-settlement-1',
+        grantedTo: 'buyer-1',
+        capabilityName: 'settlement',
+        scope: ['settlement.escrow.released', 'settlement.escrow.refunded', 'settlement.escrow.split'],
+        constraints: null,
+        issuedBy: 'buyer-1',
+      })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/capabilities/register',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { capabilityName: 'settlement', scope: ['settlement.escrow.released', 'settlement.escrow.refunded', 'settlement.escrow.split'] },
+      })
+
+      expect(res.statusCode).toBe(201)
     })
 
     it('lists active grants for a participant, no auth required', async () => {
