@@ -333,23 +333,22 @@ describe('SafeGuardEvmProvider.finalizeRelease — real signature combination + 
 
   it('with a bundler configured, submits a real eth_sendUserOperation JSON-RPC request and returns the bundler-accepted userOpHash', async () => {
     config.safeGuardEvm.bundlerUrl = 'https://bundler.example/rpc'
-    const mockFetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ jsonrpc: '2.0', id: 1, result: '0xacceptedhash' }),
-    })
-    global.fetch = mockFetch as unknown as typeof fetch
-
     const provider = new SafeGuardEvmProvider()
     const escrow = baseEscrow({ status: 'FUNDS_LOCKED' })
     const unsigned = await provider.buildUnsignedRelease(escrow, '0x' + '22'.repeat(20))
     const bundle = JSON.parse(unsigned.psbtBase64)
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ jsonrpc: '2.0', id: 1, result: bundle.userOpHash }),
+    })
+    global.fetch = mockFetch as unknown as typeof fetch
     const digest = Buffer.from(bundle.userOpHash, 'hex')
     const buyerSig = signDigestHex(buyer.privateKey, digest)
     const sellerSig = signDigestHex(seller.privateKey, digest)
 
     const result = await provider.finalizeRelease(escrow, unsigned.psbtBase64, [buyerSig, sellerSig])
 
-    expect(result.txId).toBe('0xacceptedhash')
+    expect(result.txId).toBe(bundle.userOpHash)
     const [url, init] = mockFetch.mock.calls[0]
     expect(url).toBe('https://bundler.example/rpc')
     const body = JSON.parse(init.body)
@@ -359,6 +358,47 @@ describe('SafeGuardEvmProvider.finalizeRelease — real signature combination + 
     expect(body.params[0].signature.toLowerCase()).toContain(buyerSig.slice(2).toLowerCase())
     expect(body.params[0].signature.toLowerCase()).toContain(sellerSig.slice(2).toLowerCase())
     expect(body.params[1]).toBe('0x0000000071727De22E5E9d8BAf0edAc6f37da032')
+    config.safeGuardEvm.bundlerUrl = ''
+  })
+
+  it('#258 rejects a bundler hash that differs from the exact UserOperation Sails signed', async () => {
+    config.safeGuardEvm.bundlerUrl = 'https://bundler.example/rpc'
+    const provider = new SafeGuardEvmProvider()
+    const escrow = baseEscrow({ status: 'FUNDS_LOCKED' })
+    const unsigned = await provider.buildUnsignedRelease(escrow, '0x' + '22'.repeat(20))
+    const bundle = JSON.parse(unsigned.psbtBase64)
+    const digest = Buffer.from(bundle.userOpHash, 'hex')
+    const buyerSig = signDigestHex(buyer.privateKey, digest)
+    const sellerSig = signDigestHex(seller.privateKey, digest)
+    const wrongHash = '0x' + (bundle.userOpHash.slice(2).startsWith('00') ? '11' : '00') + bundle.userOpHash.slice(4)
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ jsonrpc: '2.0', id: 1, result: wrongHash }),
+    }) as unknown as typeof fetch
+
+    await expect(provider.finalizeRelease(escrow, unsigned.psbtBase64, [buyerSig, sellerSig]))
+      .rejects.toThrow(/refusing to let provider response redefine execution identity/)
+    config.safeGuardEvm.bundlerUrl = ''
+  })
+
+  it('#258 rejects missing or malformed bundler result before local settlement identity can be persisted', async () => {
+    config.safeGuardEvm.bundlerUrl = 'https://bundler.example/rpc'
+    const provider = new SafeGuardEvmProvider()
+    const escrow = baseEscrow({ status: 'FUNDS_LOCKED' })
+    const unsigned = await provider.buildUnsignedRelease(escrow, '0x' + '22'.repeat(20))
+    const bundle = JSON.parse(unsigned.psbtBase64)
+    const digest = Buffer.from(bundle.userOpHash, 'hex')
+    const buyerSig = signDigestHex(buyer.privateKey, digest)
+    const sellerSig = signDigestHex(seller.privateKey, digest)
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ jsonrpc: '2.0', id: 1, result: '0xnot-a-hash' }),
+    }) as unknown as typeof fetch
+
+    await expect(provider.finalizeRelease(escrow, unsigned.psbtBase64, [buyerSig, sellerSig]))
+      .rejects.toThrow(/missing or malformed UserOperation hash/)
     config.safeGuardEvm.bundlerUrl = ''
   })
 
