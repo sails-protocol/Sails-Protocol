@@ -507,6 +507,19 @@ export const config = {
   proof: {
     submissionWindowHours: requiredInt('PROOF_SUBMISSION_WINDOW_HOURS', 72),
     verificationNonceTtlSeconds: requiredInt('PROOF_VERIFICATION_NONCE_TTL', 300),
+    // Issue #267 — CTO-frozen OpenProof Resource/Quota Policy V1.
+    // These are deployment-configurable policy values, but never permissive
+    // fallbacks: every value is a positive integer and production therefore
+    // fails closed on malformed/zero/negative configuration.
+    evidenceMaxDecodedBytes: requiredPositiveInt('PROOF_EVIDENCE_MAX_DECODED_BYTES', 10 * 1024 * 1024),
+    evidenceMaxBase64Chars: requiredPositiveInt('PROOF_EVIDENCE_MAX_BASE64_CHARS', 14 * 1024 * 1024),
+    evidenceMaxPerProofCount: requiredPositiveInt('PROOF_EVIDENCE_MAX_PER_PROOF_COUNT', 50),
+    evidenceMaxPerProofBytes: requiredPositiveInt('PROOF_EVIDENCE_MAX_PER_PROOF_BYTES', 100 * 1024 * 1024),
+    evidenceMaxPerUploaderProofCount: requiredPositiveInt('PROOF_EVIDENCE_MAX_PER_UPLOADER_PROOF_COUNT', 25),
+    evidenceMaxPerUploaderProofBytes: requiredPositiveInt('PROOF_EVIDENCE_MAX_PER_UPLOADER_PROOF_BYTES', 50 * 1024 * 1024),
+    evidenceRateUploaderMax: requiredPositiveInt('PROOF_EVIDENCE_RATE_UPLOADER_MAX', 10),
+    evidenceRateUploaderProofMax: requiredPositiveInt('PROOF_EVIDENCE_RATE_UPLOADER_PROOF_MAX', 5),
+    evidenceRateWindowMs: requiredPositiveInt('PROOF_EVIDENCE_RATE_WINDOW_MS', 10 * 60 * 1000),
     // RFC-007 D2 — LocalFilesystemEvidenceProvider's storage root
     // (evidence-provider.ts). A real, working default for a single-server
     // reference deployment; not multi-instance safe, not durable across

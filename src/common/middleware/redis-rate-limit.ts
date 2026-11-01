@@ -88,3 +88,58 @@ export function createSharedRateLimit(opts: SharedRateLimitOptions) {
     }
   }
 }
+
+
+/**
+ * Atomically consumes several shared budgets for one authenticated
+ * operation. All keys are incremented in one Lua execution so concurrent
+ * app instances cannot split an attempt across the uploader+Proof and
+ * uploader-transversal budgets.
+ *
+ * An attempt counts against every supplied budget even when one of them
+ * crosses its limit. This matches #267 Policy V1's "attempts" semantics:
+ * rejected abuse must not become free traffic on the other dimension.
+ */
+export async function consumeSharedRateLimitKeys(
+  req: FastifyRequest,
+  budgets: Array<{ key: string; max: number; windowMs: number }>
+): Promise<void> {
+  if (budgets.length === 0) return
+
+  const script = `
+    local exceeded = 0
+    local retry_after = 0
+    for i = 1, #KEYS do
+      local count = redis.call('INCR', KEYS[i])
+      if count == 1 then
+        redis.call('PEXPIRE', KEYS[i], ARGV[(i - 1) * 2 + 2])
+      end
+      local max = tonumber(ARGV[(i - 1) * 2 + 1])
+      if count > max then
+        exceeded = 1
+        local ttl = redis.call('PTTL', KEYS[i])
+        if ttl > retry_after then retry_after = ttl end
+      end
+    end
+    return { exceeded, retry_after }
+  `
+
+  let result: unknown
+  try {
+    const keys = budgets.map((b) => b.key)
+    const args = budgets.flatMap((b) => [String(b.max), String(b.windowMs)])
+    result = await redis.eval(script, keys.length, ...keys, ...args)
+  } catch (err) {
+    req.log.error({
+      msg: 'Shared Redis multi-budget rate limiter unreachable — failing closed',
+      err: err instanceof Error ? err.message : String(err),
+    })
+    throw new RateLimitUnavailableError()
+  }
+
+  const tuple = result as [number, number]
+  if (Number(tuple[0]) === 1) {
+    const retryAfterSeconds = Math.max(1, Math.ceil(Number(tuple[1]) / 1000))
+    throw new RateLimitExceededError(retryAfterSeconds)
+  }
+}

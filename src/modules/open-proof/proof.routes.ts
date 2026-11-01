@@ -11,6 +11,8 @@ import { proofService } from './proof.service'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { docsOnlySchema } from '../../common/openapi'
+import { config } from '../../config'
+import { consumeSharedRateLimitKeys } from '../../common/middleware/redis-rate-limit'
 
 const assertClaimSchema = z.object({
   claimType: z.string().min(1),
@@ -24,9 +26,10 @@ const assertClaimSchema = z.object({
 // verified server-side against the caller's own registered public key
 // (proof.service.ts's attachEvidence()) — never trusted as-is.
 const attachEvidenceSchema = z.object({
-  mediaBase64: z.string().min(1),
+  mediaBase64: z.string().min(1).max(config.proof.evidenceMaxBase64Chars),
   mimeType: z.enum(['image', 'video', 'document', 'ocr', 'external_reference']),
   signatureHex: z.string().min(1),
+  idempotencyKey: z.string().min(1).max(200),
 })
 
 const submitProofSchema = z.object({
@@ -114,14 +117,30 @@ export async function proofRoutes(app: FastifyInstance): Promise<void> {
   // check ties the signature to the AUTHENTICATED caller's public key,
   // not to a client-supplied participantId).
   app.post('/v1/proof/proofs/:id/evidence', {
+    // #267 CTO Policy V1: reject oversized JSON before Fastify parses it.
+    // mediaBase64 itself is capped at 14 MiB; the extra 64 KiB is only
+    // structural JSON/signature/idempotency overhead, not extra media budget.
+    bodyLimit: config.proof.evidenceMaxBase64Chars + 64 * 1024,
     preHandler: requireAuth,
     ...docsOnlySchema({ tags: ['open-proof'], params: idParamsSchema, body: attachEvidenceSchema }),
   }, async (request, reply) => {
     const { id } = idParamsSchema.parse(request.params)
     const body = attachEvidenceSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
+    await consumeSharedRateLimitKeys(request, [
+      {
+        key: `ratelimit:openproof-evidence:uploader-proof:${participantId}:${id}`,
+        max: config.proof.evidenceRateUploaderProofMax,
+        windowMs: config.proof.evidenceRateWindowMs,
+      },
+      {
+        key: `ratelimit:openproof-evidence:uploader:${participantId}`,
+        max: config.proof.evidenceRateUploaderMax,
+        windowMs: config.proof.evidenceRateWindowMs,
+      },
+    ])
     const media = Buffer.from(body.mediaBase64, 'base64')
-    const reference = await proofService.attachEvidence(id, media, body.mimeType, participantId, body.signatureHex)
+    const reference = await proofService.attachEvidence(id, media, body.mimeType, participantId, body.signatureHex, body.idempotencyKey)
     return reply.code(201).send({ success: true, data: reference })
   })
 
