@@ -19,6 +19,23 @@ All notable changes to this project will be documented in this file.
 
 
 ### Security
+- **Image hardening, P3-R2 (2026-10-24).** `npm` and `corepack` (shipped by the Node base image, with HIGH
+  advisories in their vendored `brace-expansion`, `undici` and `http-cache-semantics`) are removed from the final
+  `runtime` and `migrate` stages; `scripts/runtime-image-checks.js` no longer needs `npm ls` (it walks the
+  manifests from `/app`, fails on a missing or out-of-range dependency, and asserts npm/corepack are gone).
+  `fast-uri` 3.1.8 -> 3.1.9 (two copies) and 4.1.5 -> 4.2.3 (four moderate/low advisories). Debian OS findings
+  are not remediated by this change; see `docs/SELF_HOSTING.md`.
+
+- **Known HIGH/critical advisories removed from the shipped images (2026-10-23).** The server
+  image carried `fastify 5.12.1` (authentication bypass via malformed URLs and three validation
+  bypasses), `zod 4.4.3` (memory exhaustion on oversized constrained collections),
+  `brace-expansion 5.0.9` and `source-map-js 1.2.1`; the migration image carried the Prisma CLI chain
+  (`prisma`/`@prisma/config` 7.10.0, `mysql2 3.15.3`, `deepmerge-ts 7.1.5`). Now `fastify 5.12.7`,
+  `zod 4.6.7`, `brace-expansion 5.0.12`, `source-map-js 1.2.2`, Prisma 7.10.1 (`mysql2 3.24.4`,
+  `deepmerge-ts 8.0.2`); the example starter moves to `next 16.4.3`/`sharp 0.35.5`.
+  `npm audit --omit=dev`: 10 findings -> 0. The CI image audit now also covers the migration image and
+  `scripts/production-image-audit.exceptions.json` is empty (no advisory is excepted).
+
 - **Issue #303 - Capability Authority is a production-eligibility invariant.** A
   `NODE_ENV=production` process now refuses to boot unless
   `ENFORCE_CAPABILITIES=true` exactly (dev/test/reference unchanged). Only canonical

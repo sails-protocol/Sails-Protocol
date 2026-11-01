@@ -54,10 +54,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Syntax only, no execution: bash runs a script incrementally, so a syntax error late in a long test
+      # script (an unbalanced quote at line 282 cost a 17-minute run) only shows when it gets there.
+      - name: Shell syntax check (scripts and self-hosting kit)
+        run: |
+          for f in scripts/*.sh deploy/self-host/sails-node; do
+            bash -n "$f" || { echo "syntax error in $f"; exit 1; }
+          done
+
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '20'
+          node-version: '24.22.1'
           cache: 'npm'
 
       - name: Install dependencies
@@ -127,3 +135,53 @@ jobs:
 
       - name: Run Docker integration test
         run: bash ./scripts/docker-test.sh
+
+      # The step above brings up docker-compose, whose `app` service builds the
+      # `builder` stage; the image that is actually deployed (`--target
+      # runtime`) was never built or run by CI, so a missing COPY in that stage
+      # (`Cannot find module '@sails/core'`) kept it from booting unnoticed.
+      # This step builds and runs THAT image: pinned Node, non-root, every
+      # require resolves, production configuration gates refuse unsafe
+      # settings, and /health, /health/live, /health/ready answer in
+      # NODE_ENV=production. Any failure fails the job; nothing is published.
+      - name: Build and boot the production (runtime) Docker image
+        run: bash ./scripts/docker-runtime-test.sh
+
+      # Vulnerability audit of what the production image REALLY contains (the image the step
+      # above just built): `npm audit` over the lockfile, failing only on high/critical advisories
+      # whose range matches a package copy installed in the image. This keeps the Prisma CLI chain
+      # (it lives in the migrate image) and the front-end workspaces out of the verdict without
+      # `--omit=optional`, which would also drop the native runtime the QVAC SDK needs. Known,
+      # tracked findings are formal exceptions with an expiry date, printed on every run
+      # (scripts/production-image-audit.exceptions.json). An audit that cannot run fails the step.
+      - name: Audit the packages shipped in the production image
+        run: |
+          docker run --rm -i --entrypoint node sails-runtime-ci:local - < scripts/image-package-inventory.js > image-inventory.tsv
+          npm audit --omit=dev --json > npm-audit.json || true
+          node scripts/production-image-audit.js npm-audit.json image-inventory.tsv scripts/production-image-audit.exceptions.json
+
+      # The migration image is shipped too and carries the Prisma CLI chain the server image does not
+      # (mysql2, deepmerge-ts, ...). Same audit, same exceptions file, against the image's own inventory.
+      - name: Audit the packages shipped in the migration image
+        run: |
+          docker build --target migrate -t sails-migrate-audit:local .
+          docker run --rm -i --entrypoint node sails-migrate-audit:local - < scripts/image-package-inventory.js > migrate-inventory.tsv
+          node scripts/production-image-audit.js npm-audit.json migrate-inventory.tsv scripts/production-image-audit.exceptions.json
+
+      # The migration job a release runs BEFORE starting the new server version
+      # (docs/DEPLOYMENT.md 6.0), against a throwaway PostgreSQL started by the
+      # script itself: applies every migration to an empty database, is
+      # idempotent on re-run, fails closed (no DATABASE_URL, unreachable
+      # database, wrong password, broken migration), leaks no secret into its
+      # logs, and a failing migration keeps the server container from starting.
+      # Never touches any real database.
+      - name: Migration job against a throwaway PostgreSQL
+        run: bash ./scripts/docker-migrate-test.sh
+
+      # The provider-agnostic self-hosting kit (deploy/self-host, docs/SELF_HOSTING.md) on a
+      # throwaway Compose project: clean install, update, a failing migration and one with an
+      # unknown result (the previous server keeps serving), a server started by hand on an
+      # unmigrated database (refuses to boot), rollback, backup/restore, no secret in the logs.
+      # No cloud, no registry, no real database.
+      - name: Self-hosting kit (install, update, failed update, rollback, restore)
+        run: bash ./scripts/self-host-test.sh

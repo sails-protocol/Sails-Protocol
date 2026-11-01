@@ -1,0 +1,118 @@
+# Sails Node — self-hosting stack (Docker Compose, provider-agnostic).
+#
+# Runs on any Linux host with Docker Engine + the Compose plugin: a VPS, a dedicated server,
+# your own hardware. No cloud account, no registry account and no credential from Satsails is
+# needed: images are built from this repository (deploy/self-host/sails-node build).
+#
+# Always driven through deploy/self-host/sails-node, which sets the variables below. The one
+# rule it enforces: a new server version starts ONLY after the migration job for that same
+# version exited 0 (docs/SELF_HOSTING.md). Compose repeats that rule structurally —
+# `server` depends on `migrate: service_completed_successfully` — and the server itself
+# refuses to boot on a database that is not fully migrated (migration gate).
+#
+#   SAILS_HOME_HOST   the operator data directory (secrets/, backups/, state) as the Docker client\n#                     sees it — set by sails-node from SAILS_NODE_HOME; never part of an image
+#   SAILS_SERVER_IMAGE / SAILS_MIGRATE_IMAGE   images for the version being started
+#   SAILS_PORT        loopback port the server is published on (default 3000)
+
+name: ${COMPOSE_PROJECT_NAME:-sails-node}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sails
+      POSTGRES_DB: sails
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U sails -d sails"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    # No published ports: only this stack's network can reach the database.
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # Production refuses local-fs evidence storage and requires an S3-COMPATIBLE bucket
+  # (EVIDENCE_PROVIDER=s3). This self-hosted SeaweedFS (Apache-2.0, actively maintained)
+  # satisfies that without any cloud account; enable it with COMPOSE_PROFILES=evidence-store,
+  # or point EVIDENCE_S3_ENDPOINT at your own S3-compatible store and leave the profile off.
+  # (MinIO is NOT used: its community edition was archived and its images discontinued.)
+  seaweedfs:
+    profiles: [evidence-store]
+    image: chrislusf/seaweedfs:4.48
+    command: ["server", "-dir=/data", "-s3"]
+    # The S3 credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) and the SSE-S3 key (WEED_S3_SSE_KEK: the server
+    # asks for AES256 on every upload, which SeaweedFS only accepts with a 32-byte key) come from an env_file, not
+    # from a mounted secret file: a 0600 file of the operator is unreadable by the store's unprivileged user.
+    env_file: ${SAILS_HOME_HOST:?}/secrets/seaweedfs.env
+    volumes: [seaweedfs-data:/data]
+    healthcheck:
+      # Informational: the master answers. Readiness for the SERVER is not decided by this check but by the
+      # bounded wait on the real S3 endpoint with the real credentials (sails-node: ensure_evidence_bucket).
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:9333/cluster/status || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+  # One-shot: applies the committed migrations of THIS version and proves the result.
+  # restart "no": a failed migration is a failure to read, never something to retry silently.
+  migrate:
+    image: ${SAILS_MIGRATE_IMAGE:?}
+    env_file: ${SAILS_HOME_HOST:?}/secrets/db.env
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  server:
+    image: ${SAILS_SERVER_IMAGE:?}
+    env_file:
+      - ${SAILS_HOME_HOST:?}/secrets/db.env
+      - ${SAILS_HOME_HOST:?}/secrets/server.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    ports:
+      - "127.0.0.1:${SAILS_PORT:-3000}:3000"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  # Optional TLS termination with automatic certificates (COMPOSE_PROFILES=tls and
+  # SAILS_DOMAIN=node.example.org with public DNS pointing at this host). Any other reverse
+  # proxy works the same way: proxy to 127.0.0.1:${SAILS_PORT}.
+  caddy:
+    profiles: [tls]
+    image: caddy:2-alpine
+    environment:
+      SAILS_DOMAIN: ${SAILS_DOMAIN:-localhost}
+    command: ["caddy", "reverse-proxy", "--from", "${SAILS_DOMAIN:-localhost}", "--to", "server:3000"]
+    ports: ["80:80", "443:443"]
+    volumes: [caddy-data:/data]
+    depends_on: [server]
+    restart: unless-stopped
+
+secrets:
+  postgres_password:
+    file: ${SAILS_HOME_HOST:?}/secrets/postgres_password
+
+volumes:
+  postgres-data:
+  redis-data:
+  seaweedfs-data:
+  caddy-data:
