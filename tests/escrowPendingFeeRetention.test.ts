@@ -52,7 +52,7 @@ const mockEscrowFindUnique = jest.fn()
 const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowUpdate = jest.fn()
 const mockTradeFindUnique = jest.fn()
-const mockEscrowEventCreate = jest.fn().mockResolvedValue({})
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockPendingTxDelete = jest.fn().mockResolvedValue({})
 let pendingTxStore: Record<string, unknown> | null = null
@@ -89,6 +89,14 @@ jest.mock('../src/common/database', () => ({
     $transaction: (cb: (tx: unknown) => Promise<unknown>) =>
       cb({
         $executeRaw: jest.fn().mockResolvedValue(0),
+        // Issue #291 - persistSettlementResult() reads and writes the escrow, and checks the live pending operation, inside its transaction.
+        escrow: {
+          findUnique: (...a: unknown[]) => mockEscrowFindUnique(...a),
+          update: (...a: unknown[]) => mockEscrowUpdate(...a),
+        },
+        escrowPendingTransaction: { findFirst: () => Promise.resolve(pendingTxStore) },
+        // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+        eventProjectionClaim: { create: jest.fn().mockResolvedValue({}) },
         escrowEvent: {
           findFirst: (...a: unknown[]) => mockEscrowEventFindFirst(...a),
           create: (...a: unknown[]) => mockEscrowEventCreate(...a),
