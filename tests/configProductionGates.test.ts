@@ -468,4 +468,44 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
       expect(cfg.redis.url).toBe('redis://real-host:6379')
     })
   })
+
+  describe('QVAC runtime configuration fails closed', () => {
+    it.each(['NaN', 'Infinity', '-Infinity', ''])('rejects a non-finite confidence threshold %p', (value) => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD: value })
+      expect(load).toThrow(/QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD/)
+    })
+
+    it.each(['-0.01', '1.01'])('rejects a confidence threshold outside [0, 1]: %p', (value) => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD: value })
+      expect(load).toThrow(/range \[0, 1\]/)
+    })
+
+    it.each(['0', '1'])('accepts the confidence threshold boundary %p', (value) => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD: value })
+      expect(load().settlement.qvacAutoResolutionConfidenceThreshold).toBe(Number(value))
+    })
+
+    it('accepts a finite positive auto-resolution window', () => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, QVAC_AUTO_RESOLUTION_WINDOW_HOURS: '12.5' })
+      expect(load().settlement.qvacAutoResolutionWindowHours).toBe(12.5)
+    })
+
+    it.each(['NaN', 'Infinity', '0', '-1', ''])('rejects an invalid auto-resolution window %p', (value) => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, QVAC_AUTO_RESOLUTION_WINDOW_HOURS: value })
+      expect(load).toThrow(/QVAC_AUTO_RESOLUTION_WINDOW_HOURS/)
+    })
+
+    it.each(['NaN', '0', '-1', '1.5', '300000ms'])('rejects an invalid QVAC sweep interval %p', (value) => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS: value })
+      expect(load).toThrow(/DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS/)
+    })
+
+    it('preserves the current valid defaults', () => {
+      const load = loadConfig(REQUIRED_PROD_ENV)
+      const cfg = load()
+      expect(cfg.settlement.qvacAutoResolutionConfidenceThreshold).toBe(0.85)
+      expect(cfg.settlement.qvacAutoResolutionWindowHours).toBe(24)
+      expect(cfg.trade.disputeAutoResolutionSweepIntervalMs).toBe(300000)
+    })
+  })
 })

@@ -284,6 +284,35 @@ export interface DisputeEvidenceAssessment {
   reasoning: string
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+export function validateDisputeEvidenceAssessment(value: unknown): DisputeEvidenceAssessment {
+  if (!isRecord(value)) {
+    throw new Error('Invalid QVAC dispute evidence assessment: expected an object')
+  }
+
+  const recommendation = value.recommendation
+  if (recommendation !== 'RELEASE' && recommendation !== 'REFUND' && recommendation !== 'INCONCLUSIVE') {
+    throw new Error('Invalid QVAC dispute evidence assessment recommendation')
+  }
+  const confidence = value.confidence
+  if (typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+    throw new Error('Invalid QVAC dispute evidence assessment confidence')
+  }
+  const reasoning = value.reasoning
+  if (typeof reasoning !== 'string') {
+    throw new Error('Invalid QVAC dispute evidence assessment reasoning')
+  }
+
+  return {
+    recommendation,
+    confidence,
+    reasoning,
+  }
+}
+
 const DISPUTE_EVIDENCE_SCHEMA = {
   type: 'object',
   properties: {
@@ -512,13 +541,14 @@ end dispute data.
 
 Respond with your assessment as JSON matching the requested schema.`
 
-    return this.structuredCompletion<DisputeEvidenceAssessment>(
+    const assessment = await this.structuredCompletion<unknown>(
       DISPUTE_EVIDENCE_SYSTEM_PROMPT,
       prompt,
       'dispute_evidence_assessment',
       DISPUTE_EVIDENCE_SCHEMA,
       onProgress
     )
+    return validateDisputeEvidenceAssessment(assessment)
   }
 
   // Frees the model's memory (GPU/CPU) — call when done with a batch of
