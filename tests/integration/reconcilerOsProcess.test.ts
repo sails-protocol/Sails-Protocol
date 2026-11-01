@@ -70,8 +70,9 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
     // The first transition: PASS 3 serves them oldest first, so both processes reach it first.
     const row = seeded[0].transitionId
     const gates = [{ name: 'start', at: 'start' }, { name: 'rv', at: `trade.status:1:before:${row}` }, { name: 'hold', at: `trade.status:1:inside:${row}` }]
-    const a = startWorker({ label: 'a', escrowIds: ids(seeded), sync, gates })
-    const b = startWorker({ label: 'b', escrowIds: ids(seeded), sync, gates })
+    const countIds = seeded.map((s) => s.transitionId)
+    const a = startWorker({ label: 'a', escrowIds: ids(seeded), sync, gates, countIds })
+    const b = startWorker({ label: 'b', escrowIds: ids(seeded), sync, gates, countIds })
 
     // Both processes are loaded and alive at the starting line; only then does either begin.
     const [sa, sb] = await sync.allArrived('start', ['a', 'b'])
@@ -106,7 +107,7 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
       pg.requirePostgres(`O2 ${victimAt}`)
       const buyer = await fx.user()
       const seeded = await fx.seed(buyer.id, 12)
-      const victim = startWorker({ label: 'v', escrowIds: ids(seeded), sync, killAt: victimAt, killGate: true })
+      const victim = startWorker({ label: 'v', escrowIds: ids(seeded), sync, killAt: `${victimAt}:${seeded[0].transitionId}`, killGate: true })
       const survivor = startWorker({ label: 's', escrowIds: ids(seeded), sync, waitFor: ['v.kill.arrived'] })
 
       // The victim is inside the effect, transaction open. The survivor starts only now and must run into it.
@@ -137,7 +138,7 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
       pg.requirePostgres(`O3 ${key}`)
       const buyer = await fx.user()
       const seeded = await fx.seed(buyer.id, 3)
-      const victim = startWorker({ label: 'v', escrowIds: ids(seeded), sync, killAt: `${key}:1:${phase}`, killGate: true })
+      const victim = startWorker({ label: 'v', escrowIds: ids(seeded), sync, killAt: `${key}:1:${phase}:${seeded[0].transitionId}`, killGate: true })
       const [held] = await sync.allArrived('kill', ['v'])
       expect(held.key).toBe(key)
       const openAtDeath = phase === 'inside' ? 1 : 0
@@ -162,7 +163,7 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
     const buyer = await fx.user()
     const seeded = await fx.seed(buyer.id, 3)
     const peer = seeded[2]
-    const victim = startWorker({ label: 'v', escrowIds: ids(seeded), sync, gates: [{ name: 'peer', at: `reputation.outcome:1:inside:${peer.transitionId}` }], killAt: 'fee-floor:1:after', killGate: true, killWith: 'peer' })
+    const victim = startWorker({ label: 'v', escrowIds: ids(seeded), sync, gates: [{ name: 'peer', at: `reputation.outcome:1:inside:${peer.transitionId}` }], killAt: `fee-floor:1:after:${seeded[0].transitionId}`, killGate: true, killWith: 'peer' })
     const [inFlight] = await sync.allArrived('peer', ['v'])
     await sync.allArrived('kill', ['v'])
     await quiesced(prisma, 'v', 1)
@@ -190,7 +191,8 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
     const seeded = await fx.seed(buyer.id, 1)
     const worker = await startWorker({ label: 'r', escrowIds: ids(seeded), sync }).done
     exited(worker)
-    expect(worker.stats!.effectFailures).toBe(0)
+    // Checked first and printed whole: a repeat here with no failed effect would be a repeat with no rollback behind it.
+    expect(worker.stderr.match(/EFFECT_FAILED.*/g) ?? []).toEqual([])
     await fx.verify(buyer.id, seeded, { label: 'O4 baseline', maxRepeatedNotifications: 0 })
   })
 
@@ -200,7 +202,7 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
       const buyer = await fx.user()
       const seeded = await fx.seed(buyer.id, 1)
       const s = seeded[0]
-      const victim = startWorker({ label: 'v', escrowIds: ids(seeded), sync, killAt: point, killGate: true })
+      const victim = startWorker({ label: 'v', escrowIds: ids(seeded), sync, killAt: `${point}:${s.transitionId}`, killGate: true })
       await sync.allArrived('kill', ['v'])
       await quiesced(prisma, 'v', 1)
 

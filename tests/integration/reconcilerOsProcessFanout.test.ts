@@ -66,7 +66,7 @@ describe('Issue #253 - cross-instance fanout enabled and failing; live publicati
     const seeded = await fx.seed(buyer.id, 12)
     const row = seeded[0].transitionId
     const gates = [{ name: 'start', at: 'start' }, { name: 'rv', at: `trade.status:1:before:${row}` }]
-    const opts = { escrowIds: ids(seeded), sync, gates, fanout: true, redisUrl: proxy.url }
+    const opts = { escrowIds: ids(seeded), sync, gates, fanout: true, redisUrl: proxy.url, countIds: seeded.map((s) => s.transitionId) }
     const publishedBefore = proxy.stats.publish
     const baseline = await channelSubscribers()
     const a = startWorker({ label: 'a', ...opts })
@@ -99,7 +99,7 @@ describe('Issue #253 - cross-instance fanout enabled and failing; live publicati
     const buyer = await fx.user()
     const seeded = await fx.seed(buyer.id, 12)
     const common = { escrowIds: ids(seeded), sync, fanout: true, redisUrl: proxy.url }
-    const victim = startWorker({ label: 'v', ...common, gates: [{ name: 'start', at: 'start' }], killAt: 'reputation.outcome:1:inside', killGate: true })
+    const victim = startWorker({ label: 'v', ...common, gates: [{ name: 'start', at: 'start' }], killAt: `reputation.outcome:1:inside:${seeded[0].transitionId}`, killGate: true })
     const survivor = startWorker({ label: 's', ...common, waitFor: ['v.kill.arrived'] })
 
     const baseline = await channelSubscribers()

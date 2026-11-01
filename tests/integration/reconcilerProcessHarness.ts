@@ -89,6 +89,8 @@ export interface WorkerOptions {
   killGate?: boolean
   /** The kill point first waits for this worker to stand at this gate. */
   killWith?: string
+  /** stats.applied counts only these effect identities. */
+  countIds?: string[]
   waitFor?: string[]
   livePublish?: Seeded['live'][]
   role?: 'publisher'
@@ -188,6 +190,7 @@ export function startWorker(o: WorkerOptions): WorkerHandle {
       ...(o.killAt ? { KILL_AT: o.killAt } : {}),
       ...(o.killGate ? { KILL_GATE: '1' } : {}),
       ...(o.killWith ? { KILL_WITH: o.killWith } : {}),
+      ...(o.countIds ? { COUNT_IDS: JSON.stringify(o.countIds) } : {}),
       ...(o.waitFor ? { WAIT_FOR: o.waitFor.join(',') } : {}),
       ...(o.livePublish ? { LIVE_PUBLISH: JSON.stringify(o.livePublish) } : {}),
       ...(o.role ? { ROLE: o.role } : {}),
@@ -282,7 +285,8 @@ export class Fixtures {
 
   /**
    * PASS 3 is database-wide and other suites leave unprojected transitions in the same database, so a worker would
-   * project them too. Marks every transition of the past as projected: a test's workers see only its own seeds.
+   * project them too. Marks every claimed transition of the past as projected. Leftovers with no claim can still be
+   * driven by the other passes, so kill points and stats.applied name the seeded transitions as well.
    */
   settleResidue = () => this.prisma.$executeRaw`
     INSERT INTO event_projection_claims (id, "eventId", "projectionKey", "subjectId")

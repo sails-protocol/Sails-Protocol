@@ -18,7 +18,7 @@
 //   <key>:<nth>:inside       the nth effect THIS process applies, its claim transaction still open
 //   <key>:<nth>:after        the same effect, after its transaction committed
 //   publish:<nth>[:<id>]     before the nth settlement.escrow.* durable event this process publishes (of that transition, if given)
-// KILL_AT="<key>:<nth>:<phase>" terminates this process with SIGKILL there (KILL_GATE=1: only once the test releases
+// KILL_AT="<key>:<nth>:<phase>[:<id>]" terminates this process with SIGKILL there (KILL_GATE=1: only once the test releases
 // the `kill` gate, so the state at the moment of death can be inspected first). From that point the process FREEZES:
 // nothing new starts, so a test can wait for what was already in flight to finish and know what the kill will roll back.
 // KILL_WITH=<gate>: the kill point first waits for this worker to stand at that gate (a transition held in flight).
@@ -51,8 +51,8 @@ for (const g of gateAt) {
   if (phase) points.push({ name: g.name, key, nth: Number(nth), phase: phase as Point['phase'], kill: false, seen: 0, only })
 }
 if (process.env.KILL_AT) {
-  const [key, nth, phase] = process.env.KILL_AT.split(':')
-  points.push({ name: 'kill', key, nth: Number(nth), phase: phase as Point['phase'], kill: true, seen: 0 })
+  const [key, nth, phase, only] = process.env.KILL_AT.split(':')
+  points.push({ name: 'kill', key, nth: Number(nth), phase: phase as Point['phase'], kill: true, seen: 0, only })
 }
 const publishGates = gateAt.filter((g) => g.at.startsWith('publish:'))
 const publishSeenBy: Record<string, number> = {}
@@ -75,6 +75,9 @@ const pools: Array<{ options: { max: number }; totalCount: number; idleCount: nu
 // Cross-instance signals still in flight when the worker is done: each is allowed to settle (bounded) so that its
 // outcome - delivered or failed - is part of the reported statistics rather than lost to the exit.
 const pendingPublishes = new Set<Promise<unknown>>()
+
+// The reconciler passes are database-wide: COUNT_IDS limits stats.applied to the transitions a test seeded.
+const countIds: Set<string> | null = process.env.COUNT_IDS ? new Set(JSON.parse(process.env.COUNT_IDS)) : null
 
 let frozen = false
 const never = new Promise<never>(() => {})
@@ -135,7 +138,7 @@ async function main(): Promise<void> {
         for (const p of mine) if (p.phase === 'inside' && ++p.seen === p.nth) await act(p, info)
       }, client)
       if (applied) {
-        stats.applied[key] = (stats.applied[key] ?? 0) + 1
+        if (!countIds || countIds.has(id)) stats.applied[key] = (stats.applied[key] ?? 0) + 1
         for (const p of mine) if (p.phase === 'after' && ++p.seen === p.nth) await act(p, info)
       }
       return result
