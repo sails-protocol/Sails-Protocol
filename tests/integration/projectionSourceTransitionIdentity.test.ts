@@ -211,7 +211,9 @@ describe('Issue #253 - economic effects keyed on the source transition (real Pos
 
         hold.release()
         await live
-        await sleep(500)
+        // Wait on the fact, not a fixed delay: both handlers still have to reach the Intent steps.
+        await waitFor(projected((await transitionOf(s)).id))
+        await sleep(100)
 
         expect(await durableOf(s)).toHaveLength(2)
         expect(await snapshot(s)).toEqual(clean.snap)
