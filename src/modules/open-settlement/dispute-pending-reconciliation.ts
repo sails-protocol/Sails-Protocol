@@ -164,7 +164,8 @@ export async function deletePendingRoundIfStillUnsigned(
         FROM disputes WHERE id = ${generation.disputeId} FOR UPDATE`
     if (!dispute || dispute.escrowId !== escrowId ||
         dispute.status !== 'RESOLVED' ||
-        dispute.appealRound !== generation.rulingAppealRound ||
+        // GATE-5 MUTANT ONLY: intentionally removed exact appealRound guard.
+
         dispute.arbiterId !== generation.rulingArbiterId ||
         dispute.ruling !== generation.rulingOutcome ||
         dispute.authoritySignature !== generation.rulingAuthoritySignature ||
