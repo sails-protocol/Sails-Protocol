@@ -1,0 +1,54 @@
+name: Distroless candidate
+
+# Evidence for the OPT-IN distroless images (SAILS_IMAGE_FLAVOR=distroless, deploy/self-host/distroless). Separate from the
+# default CI on purpose: it is slow (it builds the application twice) and it judges a candidate, not what the kit ships by
+# default. Nothing here publishes an image or touches an environment. It runs on demand and on changes to the candidate.
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'deploy/self-host/**'
+      - 'scripts/self-host-test.sh'
+      - 'scripts/self-host-backup-test.sh'
+      - 'scripts/runtime-image-checks.js'
+      - 'scripts/trivy-scan-image.sh'
+      - '.github/workflows/distroless-candidate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  distroless:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SAILS_IMAGE_FLAVOR: distroless
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the distroless server and migration images (sails-node build)
+        run: bash ./deploy/self-host/sails-node build ci
+
+      - name: Image checks inside the server image (Node pin, non-root, requires, native modules, Bare starts)
+        run: |
+          EXPECTED_NODE="$(sed -n 's/^FROM node:\([0-9][0-9.]*\)-bookworm-slim.*/\1/p' Dockerfile | sort -u)"
+          [ "$(echo "$EXPECTED_NODE" | wc -l)" -eq 1 ] || { echo "Dockerfile pins more than one Node version: $EXPECTED_NODE"; exit 1; }
+          docker run --rm -i -e "EXPECTED_NODE=${EXPECTED_NODE}" -e REQUIRE_BARE_EXECUTABLE=1 --entrypoint /nodejs/bin/node sails-server:ci - < scripts/runtime-image-checks.js
+
+      - name: Self-hosting kit on the distroless images (install, update, failed update, rollback, restore, process contract)
+        run: bash ./scripts/self-host-test.sh
+
+      - name: Self-hosting kit on the distroless images (backup integrity, atomic restore, key rotation)
+        run: SAILS_BACKUP_TEST_TAG=ci bash ./scripts/self-host-backup-test.sh
+
+      - name: Trivy scan and SBOM of the distroless images
+        run: bash ./scripts/trivy-scan-image.sh sails-server:ci sails-migrate:ci trivy-report-distroless
+
+      - name: Upload the Trivy report and the SBOMs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report-distroless
+          path: trivy-report-distroless/
+          if-no-files-found: warn
