@@ -249,7 +249,7 @@ describe('Codex findings on PR #570 (real PostgreSQL)', () => {
       await applyBaseline()
 
       const claims = await prisma.eventProjectionClaim.findMany({ where: { projectionKey: 'dispute.ruling-finalization-held' }, select: { eventId: true } })
-      const expected = claims.map((c) => c.eventId).sort()
+      const expected = [...new Set(claims.map((c) => c.eventId))].sort()
       expect(expected.length).toBeGreaterThan(200)
       expect(expected).toEqual(expect.arrayContaining(ids))
 
