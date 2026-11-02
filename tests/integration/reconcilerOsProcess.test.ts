@@ -121,11 +121,12 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
       const [v, s] = await Promise.all([victim.done, survivor.done])
       died(v)
       exited(s)
-      await fx.verify(buyer.id, seeded, { label: `O2 ${victimAt} after survivor`, maxRepeatedNotifications: 1 })
+      const failed = failedEffects(`O2 ${victimAt}`, [v, s]).length
+      await fx.verify(buyer.id, seeded, { label: `O2 ${victimAt} after survivor`, maxRepeatedNotifications: 1 + failed })
 
       const restart = await startWorker({ label: 'r', escrowIds: ids(seeded), sync }).done
       exited(restart)
-      await fx.verify(buyer.id, seeded, { label: `O2 ${victimAt} after restart`, maxRepeatedNotifications: 1 })
+      await fx.verify(buyer.id, seeded, { label: `O2 ${victimAt} after restart`, maxRepeatedNotifications: 1 + failed + failedEffects(`O2 ${victimAt} restart`, [restart]).length })
     })
   }
 

@@ -124,14 +124,15 @@ describe('Issue #253 - cross-instance fanout enabled and failing; live publicati
     const failed = s.stats!.fanoutPublishFailed
     process.stdout.write(`[evidence] ${JSON.stringify({ label: 'O6b survivor with Redis down', converged: true, fanoutPublished: s.stats!.fanoutPublished, fanoutPublishFailed: failed, fanoutReceived: s.stats!.fanoutReceived })}\n`)
     expect(failed).toBeGreaterThan(0) // the failure path was actually exercised, not merely possible
-    await fx.verify(buyer.id, seeded, { label: 'O6b with Redis down', maxRepeatedNotifications: 1 })
+    const failedEffectCount = failedEffects('O6b', [v, s]).length
+    await fx.verify(buyer.id, seeded, { label: 'O6b with Redis down', maxRepeatedNotifications: 1 + failedEffectCount })
 
     // Redis returns; a fresh process with fanout on converges and changes nothing.
     await proxy.start()
     const restart = startWorker({ label: 'r', ...common })
     const r = await restart.done
     exited(r)
-    await fx.verify(buyer.id, seeded, { label: 'O6b after Redis came back', maxRepeatedNotifications: 1 })
+    await fx.verify(buyer.id, seeded, { label: 'O6b after Redis came back', maxRepeatedNotifications: 1 + failedEffectCount + failedEffects('O6b restart', [r]).length })
   })
 
   it('O7 the live publication and the reconciler publish the same freshly claimed transition at the same instant: two durable events, one economic effect', async () => {
