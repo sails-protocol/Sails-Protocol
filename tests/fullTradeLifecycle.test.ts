@@ -154,6 +154,7 @@ const vouches = makeTable('vouch', { burnedAt: null })
 // semantic_transition_records row ever exists), same "table round-trips for real, empty is a real
 // answer too" convention this file already uses for feePolicyVersion/vouch/escrowParticipantKey above.
 const semanticTransitionRecords = makeTable('semanticTransitionRecord')
+const economicDispositionAuthorizations = makeTable('economicDispositionAuthorization')
 // Missão 11 Fase 9.3 — markPaymentSent()/initiateRelease()/initiateSplit()
 // now re-check funding uncertainty (empty here is correct: no test in
 // this file ever records reorg-sweep evidence, same "table round-trips
@@ -321,6 +322,7 @@ jest.mock('../src/common/database', () => ({
     payoutAddress: payoutAddresses,
     dispute: disputes,
     semanticTransitionRecord: semanticTransitionRecords,
+    economicDispositionAuthorization: economicDispositionAuthorizations,
     intent: intents,
     intentEvent: intentEvents,
     vouch: vouches,

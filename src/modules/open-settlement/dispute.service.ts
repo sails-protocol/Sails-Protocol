@@ -501,10 +501,8 @@ export class DisputeService {
       // This ruling decided WHO is entitled and HOW MUCH — never WHERE.
       if (ruling === 'RELEASE') {
         if (needsSignatureCollection) {
-          // Issue #254 - disputeId is NOT threaded through the signature-collection path
-          // (initiateRelease -> EscrowPendingTransaction -> submitTransactionSignature()'s own,
-          // separate, later emitEscrowTransition() call) - a disclosed residual (LIGHTNING_HODL/
-          // SAFE_GUARD_EVM) reported in Issue #254's own delivery, not silently left unexplained.
+          // Issue #254B - the pending operation freezes the disputeId itself (see
+          // initiateSignatureCollectionCore()), so nothing is threaded through this call.
           await escrowService.initiateRelease(dispute.escrowId, undefined, triggeredBy)
         } else {
           // Issue #254 - dispute.id is real, immutable, generation-scoped provenance: it travels with
@@ -1042,18 +1040,21 @@ export class DisputeService {
       LIMIT ${limit}`
 
     // The one bounded "appealed before recovery" case proven above: the dispute is now APPEALED, but
-    // round (appealRound - 1) — always round 0, structurally — never had its own finalize claim recorded.
-    // previousRuling/previousArbiterId ARE round 0's own real ruling/arbiter (appeal()'s own durable
-    // capture); round 0's own previousRuling/previousArbiterId are always null (see this method's own
-    // header comment) - never re-derived from anything else.
+    // round 0 never had its own finalize claim recorded. previousRuling/previousArbiterId ARE round 0's
+    // own real ruling/arbiter (appeal()'s own durable capture); round 0's own previousRuling/
+    // previousArbiterId are always null (see this method's own header comment) - never re-derived from
+    // anything else. The escrow must have settled as that ruling: appeal() can win the lock while the
+    // provider call is in flight, and when that call then fails the ruling never happened.
     const appealedCandidates = await prisma.$queryRaw<Candidate[]>`
       SELECT d.id, d."escrowId", (d."appealRound" - 1) AS "appealRound", NULL::text AS "previousRuling", NULL::text AS "previousArbiterId",
              d."previousArbiterId" AS "arbiterId", d."previousRuling" AS ruling
       FROM disputes d
-      WHERE d.status = 'APPEALED' AND d."appealRound" >= 1 AND d."previousRuling" IS NOT NULL AND d."previousArbiterId" IS NOT NULL
+      JOIN escrows e ON e.id = d."escrowId"
+        AND e.status::text = CASE d."previousRuling"::text WHEN 'RELEASE' THEN 'COMPLETED' WHEN 'REFUND' THEN 'REFUNDED' WHEN 'SPLIT' THEN 'SPLIT' END
+      WHERE d.status = 'APPEALED' AND d."appealRound" = 1 AND d."previousRuling" IS NOT NULL AND d."previousArbiterId" IS NOT NULL
         AND NOT EXISTS (
           SELECT 1 FROM event_projection_claims c
-          WHERE c."eventId" = d.id AND c."projectionKey" = 'dispute.ruling-finalized' AND c."subjectId" = (d."appealRound" - 1)::text)
+          WHERE c."eventId" = d.id AND c."projectionKey" IN ('dispute.ruling-finalized', ${RULING_FINALIZATION_HELD_KEY}) AND c."subjectId" = '0')
       ORDER BY d."resolvedAt" ASC NULLS LAST
       LIMIT ${limit}`
 

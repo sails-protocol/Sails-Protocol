@@ -273,7 +273,8 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
     expect(buyerRow!.reputationScore).toBe(2) // POSITIVE - still correctly disputed
     expect(sellerRow!.reputationScore).toBe(-5) // NEGATIVE - never both-positive despite the appeal
     expect(voucherRow!.reputationScore).toBe(15) // vouch burn still fired
-    expect(await prisma.eventProjectionClaim.count({ where: { eventId: publishedEventId, projectionKey: 'reputation.outcome' } })).toBe(2) // one per participant, not doubled by the 3 total deliveries
+    const transition = (await prisma.escrowEvent.findFirst({ where: { escrowId: escrow.id, toStatus: 'COMPLETED' } }))!
+    expect(await prisma.eventProjectionClaim.count({ where: { eventId: transition.id, projectionKey: 'reputation.outcome' } })).toBe(2) // one per participant, not doubled by the 3 total deliveries
   })
 
   it('SAFE_GUARD_EVM: a delayed disputed REFUND event, processed AFTER appeal() reopened the dispute, still awards the correct disputed outcome', async () => {

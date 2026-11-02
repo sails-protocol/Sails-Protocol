@@ -209,8 +209,8 @@ async function accrueFeeFloor(tx: ProjectionTx, buyerId: string, sellerId: strin
  * APPEALED, clearing ruling) at any time, including while THIS event's own projection is still delayed
  * (crash/PASS-3 redelivery, or simply a slower handler) - a query against the row's CURRENT state would
  * then silently misclassify a real disputed release/refund as an ordinary cooperative one (or vice versa),
- * producing an exactly-once but WRONG reputation outcome. Three layered, priority-ordered immutable
- * sources, checked in order of how strong the guarantee is:
+ * producing an exactly-once but WRONG reputation outcome. Layered, priority-ordered immutable sources,
+ * checked in order of how strong the guarantee is:
  *
  *   1. eventDisputeId - the settlement event's OWN payload.disputeId (escrow.service.ts's
  *      releaseFunds()/refundFunds(), MOCK/WDK_USDT_EVM only). Set by dispute.service.ts's applyRuling() at
@@ -221,7 +221,12 @@ async function accrueFeeFloor(tx: ProjectionTx, buyerId: string, sellerId: strin
  *      own "STRICTLY PRECEDES... calling any settlement action" ordering) and append-only/immutable from
  *      that point on (a reverted ruling deletes its own row via revertDisputeRulingRecord(), never mutates
  *      it) - reused as-is, no schema change.
- *   3. Legacy/defense-in-depth fallback: the SAME mutable-Dispute query this codebase used before Issue
+ *   3. economic_disposition_authorizations (ADR-005's Commit Gate) - committed before the provider side
+ *      effect and kept after the pending row is deleted. A recovered publication has no payload.disputeId
+ *      to copy (the reconciler re-emits from the transition), so this is what keeps a crashed disputed
+ *      settlement disputed. The same gate refuses a cooperative operation on a disputed escrow, so the
+ *      row can only belong to a disputed settlement.
+ *   4. Legacy/defense-in-depth fallback: the SAME mutable-Dispute query this codebase used before Issue
  *      #254. **Corrected/Implemented (Issue #254B, 2026-09-22):** this section previously disclosed
  *      LIGHTNING_HODL/SAFE_GUARD_EVM as an unfixed BLOCKER, reasoning that closing them would require a
  *      new EscrowPendingTransaction.disputeId schema column. Discovery proved that column (and
@@ -242,6 +247,12 @@ async function wasCausedByDisputeRuling(escrowId: string, tradeId: string, event
     select: { id: true },
   })
   if (coreRecord) return true
+
+  const authorization = await prisma.economicDispositionAuthorization.findFirst({
+    where: { escrowId },
+    select: { id: true },
+  })
+  if (authorization) return true
 
   const legacy = await prisma.dispute.findFirst({
     where: { tradeId, status: 'RESOLVED', ruling: legacyRuling },

@@ -62,6 +62,7 @@ jest.mock('../src/common/database', () => ({
     },
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
     semanticTransitionRecord: { findFirst: (...args: unknown[]) => mockSemanticTransitionRecordFindFirst(...args) },
+    economicDispositionAuthorization: { findFirst: jest.fn().mockResolvedValue(null) },
     user: { update: (...args: unknown[]) => mockUserUpdate(...args) },
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
     // burnVouchesForOnce() reads the vouchee's vouches outside any claim transaction, and asks the claim store
