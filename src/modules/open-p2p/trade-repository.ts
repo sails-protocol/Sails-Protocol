@@ -123,7 +123,7 @@ export interface TradeRepository {
 
 export type TradeProjectionResult =
   | { applied: true; from: TradeStatus; to: TradeStatus }
-  | { applied: false; reason: 'ESCROW_NOT_FOUND' | 'TRADE_MISMATCH' | 'NO_PROJECTION' | 'ALREADY_PROJECTED' | 'STALE_OR_WEAKER'; tradeStatus?: TradeStatus }
+  | { applied: false; reason: 'ESCROW_NOT_FOUND' | 'TRADE_MISMATCH' | 'NO_PROJECTION' | 'ALREADY_PROJECTED' | 'STALE_OR_WEAKER' | 'SETTLEMENT_RESULT_PENDING'; tradeStatus?: TradeStatus }
 
 export type ManualTradeTransitionResult =
   | { ok: true; trade: NonNullable<Awaited<ReturnType<typeof prisma.trade.findUnique>>> }
@@ -242,6 +242,10 @@ class PrismaTradeRepository implements TradeRepository {
       }
 
       const targetIsTerminal = TRADE_RANK[target] === 3
+      // A terminal status is committed before the provider call and reverted if it fails: only the
+      // persisted result proves the settlement, and a terminal Trade could never move back.
+      if (targetIsTerminal && escrow.txReleaseId == null) return { applied: false, reason: 'SETTLEMENT_RESULT_PENDING' } as const
+
       const converges =
         TRADE_RANK[target] > TRADE_RANK[current] ||
         // Authoritative terminal Escrow state outranks a different Trade terminal.

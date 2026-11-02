@@ -54,14 +54,22 @@ export type EnsureFinalizationResult =
  * exact pending operation can be retried).
  */
 export async function ensureFinalizationAttempt(escrowId: string, pendingTxId: string, kind: string): Promise<EnsureFinalizationResult> {
-  const existing = await prisma.signatureCollectionFinalizationAttempt.findUnique({ where: { escrowId } })
+  const prior = await priorFinalizationAttempt(escrowId, pendingTxId, kind)
+  if (prior) return prior
+  await prisma.signatureCollectionFinalizationAttempt.create({
+    data: { escrowId, pendingTxId, kind, status: 'SUBMISSION_UNKNOWN' },
+  })
+  return { action: 'PROCEED' }
+}
 
-  if (!existing) {
-    await prisma.signatureCollectionFinalizationAttempt.create({
-      data: { escrowId, pendingTxId, kind, status: 'SUBMISSION_UNKNOWN' },
-    })
-    return { action: 'PROCEED' }
-  }
+/**
+ * What an existing row says about this finalize, writing nothing: null when there is none. Runs before
+ * deterministic local validation, so a rejected signature leaves no attempt behind (nothing was submitted)
+ * while a resume or a block still never depends on the signatures offered this time.
+ */
+export async function priorFinalizationAttempt(escrowId: string, pendingTxId: string, kind: string): Promise<EnsureFinalizationResult | null> {
+  const existing = await prisma.signatureCollectionFinalizationAttempt.findUnique({ where: { escrowId } })
+  if (!existing) return null
 
   // Integrity guard, not a strict idempotency key — EscrowPendingTransaction.escrowId is itself
   // @unique (at most one live signature-collection round per escrow) and this table's own escrowId

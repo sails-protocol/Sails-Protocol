@@ -1080,8 +1080,9 @@ export async function reconcilePendingSettlements(options: { projectionGraceMs?:
   // Required lazily: dispute.service.ts depends on this module's escrow machinery.
   try {
     const { getDisputeService } = require('./dispute.service') // eslint-disable-line @typescript-eslint/no-var-requires
-    const { recovered, failed } = await getDisputeService().recoverMissingRulingFinalization()
+    const { recovered, failed, held } = await getDisputeService().recoverMissingRulingFinalization()
     report.rulingFinalizationsRecovered.push(...recovered)
+    for (const id of held) report.requiresManualReview.push({ escrowId: `dispute:${id}`, reason: 'Ruling resolved before finalization was recorded, with no proof its bookkeeping ran: held from automatic recovery.' })
     for (const f of failed) report.failed.push({ escrowId: `dispute:${f.disputeId}`, error: f.error })
   } catch (err) {
     report.failed.push({ escrowId: 'dispute:*', error: err instanceof Error ? err.message : String(err) })

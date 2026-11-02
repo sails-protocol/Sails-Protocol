@@ -27,6 +27,9 @@ import { randomBytes, randomUUID } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
 
+// A terminal Escrow status is projected only once its settlement result exists.
+const settlementResult = (status: string) => (['COMPLETED', 'SPLIT', 'REFUNDED'].includes(status) ? { txReleaseId: randomUUID() } : {})
+
 describe('Issue #294 - authoritative Escrow -> Trade projection (real PostgreSQL)', () => {
   jest.setTimeout(60_000)
 
@@ -66,12 +69,12 @@ describe('Issue #294 - authoritative Escrow -> Trade projection (real PostgreSQL
     const buyer = await prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex') } })
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MOCK', status: escrowStatus as any, lockedAmount: '0.001', asset: 'BTC' } })
+    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MOCK', status: escrowStatus as any, lockedAmount: '0.001', asset: 'BTC', ...settlementResult(escrowStatus) } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
     return { tradeId: trade.id, escrowId: escrow.id, sellerId: seller.id, buyerId: buyer.id }
   }
 
-  const setEscrow = (escrowId: string, status: string) => prisma.escrow.update({ where: { id: escrowId }, data: { status: status as any } })
+  const setEscrow = (escrowId: string, status: string) => prisma.escrow.update({ where: { id: escrowId }, data: { status: status as any, ...settlementResult(status) } })
   const tradeOf = (tradeId: string) => prisma.trade.findUnique({ where: { id: tradeId } })
 
   it('projects each persisted Escrow state onto the Trade: FUNDS_LOCKED->ACTIVE, DISPUTED->DISPUTED, COMPLETED/SPLIT->COMPLETED, REFUNDED->CANCELLED', async () => {
@@ -254,7 +257,7 @@ describe('Issue #236 - delayed/duplicated/reordered settlement events never regr
   }
   type Ctx = Awaited<ReturnType<typeof makeActiveTrade>>
   const tradeOf = (tradeId: string) => prisma.trade.findUnique({ where: { id: tradeId } })
-  const setEscrow = (escrowId: string, status: string) => prisma.escrow.update({ where: { id: escrowId }, data: { status: status as any } })
+  const setEscrow = (escrowId: string, status: string) => prisma.escrow.update({ where: { id: escrowId }, data: { status: status as any, ...settlementResult(status) } })
 
   async function waitFor(cond: () => Promise<boolean>, ms = 30_000): Promise<void> {
     const end = Date.now() + ms

@@ -255,7 +255,7 @@ async function projectTrade(event: DeliveredTransition, tradeId: string, escrowI
     const r = await tradeRepository.projectEscrowStatus(tradeId, escrowId, { tx })
     // An unresolvable (trade, escrow) pair is not "nothing to project": throwing rolls the claim back so the
     // event is neither consumed nor marked projected while its projection was never applied.
-    if (!r.applied && (r.reason === 'ESCROW_NOT_FOUND' || r.reason === 'TRADE_MISMATCH')) {
+    if (!r.applied && (r.reason === 'ESCROW_NOT_FOUND' || r.reason === 'TRADE_MISMATCH' || r.reason === 'SETTLEMENT_RESULT_PENDING')) {
       throw new Error(`Trade projection impossible (${r.reason}) for trade ${tradeId} / escrow ${escrowId}`)
     }
   })

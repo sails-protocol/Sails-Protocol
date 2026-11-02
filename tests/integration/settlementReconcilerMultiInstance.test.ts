@@ -118,11 +118,13 @@ describe('Final closure - reconcilePendingSettlements() is convergent under mult
 
     // PASS 3a: claimed, durable event never published
     const unpublished = await makeEscrow('MOCK')
+    await prisma.escrow.update({ where: { id: unpublished.escrowId }, data: { txReleaseId: randomUUID() } })
     const tUnpub = await prisma.escrowEvent.create({ data: { escrowId: unpublished.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: unpublished.sellerId, entryHash: 'h' + randomUUID(), prevHash: 'genesis' } })
     await prisma.eventProjectionClaim.create({ data: { eventId: tUnpub.id, projectionKey: 'transition.claimed', subjectId: unpublished.escrowId, appliedAt: new Date(Date.now() - 600_000) } })
 
     // PASS 3b: durable event published, projection never applied
     const published = await makeEscrow('MOCK')
+    await prisma.escrow.update({ where: { id: published.escrowId }, data: { txReleaseId: randomUUID() } })
     const tPub = await prisma.escrowEvent.create({ data: { escrowId: published.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: published.sellerId, entryHash: 'h' + randomUUID(), prevHash: 'genesis' } })
     await prisma.eventProjectionClaim.create({ data: { eventId: tPub.id, projectionKey: 'transition.claimed', subjectId: published.escrowId, appliedAt: new Date(Date.now() - 600_000) } })
     await prisma.durableEventRecord.create({
