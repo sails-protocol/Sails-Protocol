@@ -10,7 +10,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { identityService } from './identity.service'
-import { issueChallenge, verifySignedChallenge, requireAuth, issueWsTicket, issueRegistrationChallenge } from '../../common/middleware/auth'
+import { issueChallenge, verifySignedChallenge, requireAuth, issueWsTicket, issueRegistrationChallenge, revokeSession } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { createSharedRateLimit } from '../../common/middleware/redis-rate-limit'
 import { config } from '../../config'
@@ -155,7 +155,16 @@ export async function identityRoutes(app: FastifyInstance): Promise<void> {
     preHandler: requireAuth,
     schema: { tags: ['open-identity'] },
   }, async (request, reply) => {
-    const result = await issueWsTicket((request as AuthenticatedRequest).participantId)
+    const authenticated = request as AuthenticatedRequest
+    const result = await issueWsTicket(authenticated.participantId, authenticated.sessionToken)
     return reply.code(200).send({ success: true, data: result })
+  })
+
+  app.post('/v1/identity/logout', {
+    preHandler: requireAuth,
+    schema: { tags: ['open-identity'] },
+  }, async (request, reply) => {
+    await revokeSession((request as AuthenticatedRequest).sessionToken)
+    return reply.code(204).send()
   })
 }

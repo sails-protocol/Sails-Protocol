@@ -13,13 +13,12 @@
  *     silently swallowing one bad escrow and blocking the rest — would
  *     only surface in a real production incident.
  *   - dispute.service.ts's sweepExpiredAutoResolutions() — same shape:
- *     a real QVAC-assisted automation (RFC-021 D8) that walks every
- *     AUTO_PROPOSED dispute past its contest deadline and applies the
- *     already-assigned arbiter's slot, distinct from a real human
- *     resolveDispute() call. recordRuling() / slash() / appeal-fee
- *     settlement are deliberately NOT in this sweeper's path —
- *     documented in the sweeper's own comment — and only verifiable end
- *     to end here.
+ *     a real QVAC-assisted advisory path (RFC-021 D8) that walks every
+ *     AUTO_PROPOSED dispute past its contest deadline and returns it to
+ *     human review, distinct from a real human resolveDispute() call.
+ *     recordRuling() / slash() / appeal-fee settlement are deliberately
+ *     NOT in this sweeper's path — documented in the sweeper's own
+ *     comment — and only verifiable end to end here.
  *
  * Mocking pattern matches tests/race-condition.test.ts's existing real-
  * shared-mutable-state style: prisma is mocked but the shared fakeDb's
