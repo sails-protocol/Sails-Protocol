@@ -15,7 +15,7 @@
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
-import { Fixtures, RedisProxy, Sync, WorkerResult, blockedBy, channelSubscribers, expectCrossProcessAccounting, failedEffects, quiesced, startWorker, stopWorkers, waitUntil } from './reconcilerProcessHarness'
+import { Fixtures, RedisProxy, Sync, WorkerResult, blockedBy, channelSubscribers, expectCrossProcessAccounting, quiesced, startWorker, stopWorkers, waitUntil } from './reconcilerProcessHarness'
 
 describe('Issue #253 - cross-instance fanout enabled and failing; live publication racing the reconciler (real PostgreSQL, real Redis)', () => {
   jest.setTimeout(300_000)
@@ -84,7 +84,7 @@ describe('Issue #253 - cross-instance fanout enabled and failing; live publicati
 
     const results = await Promise.all([a.done, b.done])
     for (const r of results) exited(r)
-    await fx.verify(buyer.id, seeded, { label: 'O6a', maxRepeatedNotifications: failedEffects('O6a', results).length })
+    await fx.verify(buyer.id, seeded, { label: 'O6a', excused: sync.rolledBackNotices('O6a', ['a', 'b']) })
     await expectCrossProcessAccounting(prisma, results, await fx.transitionIds(seeded))
 
     const evidence = { subscribers, publishedToRedis: sum(results, (r) => r.stats!.fanoutPublished), receivedFromRedis: sum(results, (r) => r.stats!.fanoutReceived), publishCommandsThroughRelay: proxy.stats.publish - publishedBefore, subscribeCommandsThroughRelay: proxy.stats.subscribe }
@@ -124,15 +124,14 @@ describe('Issue #253 - cross-instance fanout enabled and failing; live publicati
     const failed = s.stats!.fanoutPublishFailed
     process.stdout.write(`[evidence] ${JSON.stringify({ label: 'O6b survivor with Redis down', converged: true, fanoutPublished: s.stats!.fanoutPublished, fanoutPublishFailed: failed, fanoutReceived: s.stats!.fanoutReceived })}\n`)
     expect(failed).toBeGreaterThan(0) // the failure path was actually exercised, not merely possible
-    const failedEffectCount = failedEffects('O6b', [v, s]).length
-    await fx.verify(buyer.id, seeded, { label: 'O6b with Redis down', maxRepeatedNotifications: 1 + failedEffectCount })
+    await fx.verify(buyer.id, seeded, { label: 'O6b with Redis down', excused: sync.rolledBackNotices('O6b', ['v', 's']) })
 
     // Redis returns; a fresh process with fanout on converges and changes nothing.
     await proxy.start()
     const restart = startWorker({ label: 'r', ...common })
     const r = await restart.done
     exited(r)
-    await fx.verify(buyer.id, seeded, { label: 'O6b after Redis came back', maxRepeatedNotifications: 1 + failedEffectCount + failedEffects('O6b restart', [r]).length })
+    await fx.verify(buyer.id, seeded, { label: 'O6b after Redis came back', excused: sync.rolledBackNotices('O6b restart', ['v', 's', 'r']) })
   })
 
   it('O7 the live publication and the reconciler publish the same freshly claimed transition at the same instant: two durable events, one economic effect', async () => {

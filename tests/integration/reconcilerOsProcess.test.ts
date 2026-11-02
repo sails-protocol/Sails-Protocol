@@ -19,7 +19,7 @@
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
-import { Fixtures, Sync, WorkerResult, blockedBy, expectCrossProcessAccounting, failedEffects, quiesced, sleep, startWorker, stopWorkers, waitUntil, AMOUNT_SATS } from './reconcilerProcessHarness'
+import { Fixtures, Sync, WorkerResult, blockedBy, expectCrossProcessAccounting, quiesced, sleep, startWorker, stopWorkers, waitUntil, AMOUNT_SATS } from './reconcilerProcessHarness'
 
 describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (real PostgreSQL)', () => {
   jest.setTimeout(420_000)
@@ -96,7 +96,7 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
 
     const results = await Promise.all([a.done, b.done])
     for (const r of results) exited(r)
-    await fx.verify(buyer.id, seeded, { label: 'O1', maxRepeatedNotifications: failedEffects('O1', results).length })
+    await fx.verify(buyer.id, seeded, { label: 'O1', excused: sync.rolledBackNotices('O1', ['a', 'b']) })
     // Every effect was applied by exactly one of the two processes (their own counters add up to the claims in the database).
     const applied = await expectCrossProcessAccounting(prisma, results, await fx.transitionIds(seeded))
     process.stdout.write(`[evidence] ${JSON.stringify({ label: 'O1 applied by the two processes together', applied })}\n`)
@@ -121,12 +121,11 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
       const [v, s] = await Promise.all([victim.done, survivor.done])
       died(v)
       exited(s)
-      const failed = failedEffects(`O2 ${victimAt}`, [v, s]).length
-      await fx.verify(buyer.id, seeded, { label: `O2 ${victimAt} after survivor`, maxRepeatedNotifications: 1 + failed })
+      await fx.verify(buyer.id, seeded, { label: `O2 ${victimAt} after survivor`, excused: sync.rolledBackNotices(`O2 ${victimAt}`, ['v', 's']) })
 
       const restart = await startWorker({ label: 'r', escrowIds: ids(seeded), sync }).done
       exited(restart)
-      await fx.verify(buyer.id, seeded, { label: `O2 ${victimAt} after restart`, maxRepeatedNotifications: 1 + failed + failedEffects(`O2 ${victimAt} restart`, [restart]).length })
+      await fx.verify(buyer.id, seeded, { label: `O2 ${victimAt} after restart`, excused: sync.rolledBackNotices(`O2 ${victimAt} restart`, ['v', 's', 'r']) })
     })
   }
 
@@ -237,7 +236,8 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
   //              (sampled by the worker from pg.Pool's totalCount/idleCount/waitingCount);
   //   TIMED OUT  Prisma abandoned a transaction because it could not get a connection (P2028 'Unable to start a transaction' / 'Transaction API error');
   //   SAFE       at no sampled instant did an economic counter exceed what the seeds allow (watched from the test, in parallel);
-  //   RECOVERED  a healthy process then converges to the exact state.
+  //   RECOVERED  a healthy process then converges to the exact state, and each repeated notification matches a
+  //              publication whose claim transaction rolled back.
   // A pool of 1 is the smallest pool on which this path MUST starve: an effect transaction holds the only connection
   // and publishes its notification through a second one. It is a test parameter, not a statement about production sizing.
   async function monitorBounds(buyerId: string, seeded: Array<{ kind: string }>, until: Promise<unknown>) {
@@ -290,7 +290,7 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
       const healthy = await startWorker({ label: 'h', escrowIds: ids(seeded), sync }).done
       exited(healthy)
       process.stdout.write(`[evidence] ${JSON.stringify({ label: `O5 pool ${poolMax} recovery`, healthyProcessToConvergeMs: Date.now() - startedAt })}\n`)
-      await fx.verify(buyer.id, seeded, { label: `O5 pool ${poolMax} recovered`, maxRepeatedNotifications: results.reduce((n2, r) => n2 + (r.stats?.effectFailures ?? 0), 0) })
+      await fx.verify(buyer.id, seeded, { label: `O5 pool ${poolMax} recovered`, excused: sync.rolledBackNotices(`O5 pool ${poolMax}`, ['p0', 'p1', 'h']) })
     })
   }
 })

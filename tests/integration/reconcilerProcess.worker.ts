@@ -28,8 +28,9 @@
 // POOL_MAX=<n> caps every pg.Pool the process opens. PGAPPNAME names its sessions so the test can see them in
 // pg_stat_activity.
 
+import { AsyncLocalStorage } from 'async_hooks'
 import { randomUUID } from 'crypto'
-import { existsSync, renameSync, writeFileSync, writeSync } from 'fs'
+import { appendFileSync, existsSync, renameSync, writeFileSync, writeSync } from 'fs'
 import path from 'path'
 
 const label = process.env.WORKER_LABEL ?? 'w'
@@ -38,8 +39,21 @@ const gateTimeoutMs = Number(process.env.GATE_TIMEOUT_MS ?? 120_000)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const stderr = (line: string) => writeSync(2, line + '\n')
 
+// The notifications each claim transaction publishes. One that rolls back (failure, kill or exit) has published them
+// with no claim behind them, so a redelivery repeats them: <label>.rollbacks in SYNC_DIR names each one, by transition.
+interface Claim { id: string; key: string; notices: string[] }
+const claims = new AsyncLocalStorage<Claim>()
+const openClaims = new Set<Claim>()
+const journalRollback = (c: Claim) => {
+  for (const notice of c.notices) appendFileSync(path.join(syncDir, `${label}.rollbacks`), JSON.stringify({ notice, transition: c.id, key: c.key }) + '\n')
+}
+
 // Windows reports a self-SIGKILL as a plain exit code, so the kill is proven by this marker, written synchronously.
-const die = () => { stderr('SIGKILL_MARKER'); process.kill(process.pid, 'SIGKILL') }
+const die = () => {
+  openClaims.forEach(journalRollback)
+  stderr('SIGKILL_MARKER')
+  process.kill(process.pid, 'SIGKILL')
+}
 
 // `only`, when given, restricts the point to the claims of that one effect identity (a transition id): the other
 // handlers of the process keep running while it waits, so "the nth claim of the key" alone would not name one row.
@@ -84,6 +98,7 @@ const never = new Promise<never>(() => {})
 
 async function finish(code: number): Promise<never> {
   await Promise.race([Promise.allSettled([...pendingPublishes]), sleep(10_000)])
+  openClaims.forEach(journalRollback)
   stderr('WORKER_STATS ' + JSON.stringify(stats))
   process.exit(code)
 }
@@ -130,23 +145,27 @@ async function main(): Promise<void> {
     const mine = points.filter((p) => p.key === key && (!p.only || p.only === id))
     for (const p of mine) if (p.phase === 'before' && ++p.seen === p.nth) await act(p, info)
     let applied = false
+    const claim: Claim = { id, key, notices: [] }
+    openClaims.add(claim)
     try {
       // Prisma rolls an interactive transaction back after 5 s, so a transaction held at a gate needs the gate's own limit.
       const holding = !client && points.some((p) => p.phase === 'inside')
         ? { $transaction: (fn: unknown) => prisma.$transaction(fn, { timeout: gateTimeoutMs }) }
         : client
-      const result = await realApply(id, key, subject, async (tx: unknown) => {
+      const result = await claims.run(claim, () => realApply(id, key, subject, async (tx: unknown) => {
         await apply(tx)
         applied = true
         // Counted only for an effect THIS process applies: a sibling that won the claim must not consume the point.
         for (const p of mine) if (p.phase === 'inside' && ++p.seen === p.nth) await act(p, info)
-      }, holding)
+      }, holding))
+      openClaims.delete(claim)
       if (applied) {
         if (!countIds || countIds.has(id)) stats.applied[key] = (stats.applied[key] ?? 0) + 1
         for (const p of mine) if (p.phase === 'after' && ++p.seen === p.nth) await act(p, info)
       }
       return result
     } catch (err) {
+      if (openClaims.delete(claim)) journalRollback(claim)
       stats.effectFailures++
       stderr(`EFFECT_FAILED ${key} ${String((err as Error)?.message ?? err).split('\n').pop()}`)
       throw err
@@ -158,6 +177,16 @@ async function main(): Promise<void> {
   const { intentEngine } = require('../../src/core/intent-engine')
   const { OpenP2PTradeIntentHandler } = require('../../src/modules/open-p2p/intent-handler')
   intentEngine.registerHandler(OpenP2PTradeIntentHandler)
+
+  // Noted before publishing: an exit can land between the durable write and its return. The names match Fixtures.verify().
+  const realPublish = eventBus.emit.bind(eventBus)
+  eventBus.emit = (name: string, payload: { userId?: string }, correlationId: string) => {
+    const notice = name === 'reputation.score.updated' ? `score:${payload.userId}`
+      : name === 'openp2p.trade.completed' ? `completed:${correlationId}`
+        : name === 'reputation.vouch.burned' ? `burned:${correlationId}` : null
+    if (notice) claims.getStore()?.notices.push(notice)
+    return realPublish(name, payload, correlationId)
+  }
 
   // A publication gate: pauses the nth settlement.escrow.* event this process is about to publish, whichever code
   // path publishes it (the live path after its claim, or PASS 3 republishing).

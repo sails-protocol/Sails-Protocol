@@ -173,6 +173,18 @@ export class Sync {
     return waitUntil(() => { const a = labels.map((l) => this.arrival(name, l)); return a.every(Boolean) ? (a as Arrival[]) : false }, `${labels.join(' + ')} at gate "${name}"`, timeoutMs)
   }
   release(name: string, label?: string): void { writeFileSync(path.join(this.dir, label ? `${label}.${name}.go` : `${name}.go`), '') }
+  /**
+   * The notifications published by claim transactions of these workers that rolled back, as the workers journaled them.
+   * This is the only excuse Fixtures.verify() takes for a repeat: a failure, or a kill, that published nothing excuses nothing.
+   */
+  rolledBackNotices(evidenceLabel: string, labels: string[]): string[] {
+    const entries = labels.flatMap((l) => {
+      const file = path.join(this.dir, `${l}.rollbacks`)
+      return existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { notice: string; transition: string; key: string }) : []
+    })
+    process.stdout.write(`[evidence] ${JSON.stringify({ label: `${evidenceLabel} rolled-back publications`, count: entries.length, entries })}\n`)
+    return entries.map((e) => e.notice)
+  }
   cleanup(): void { rmSync(this.dir, { recursive: true, force: true }) }
 }
 
@@ -249,15 +261,6 @@ export async function blockedBy(prisma: PrismaClient, blocked: string, blocker: 
   return rows.find((r) => r.app === `osp-${blocked}` && (r.blockers ?? []).includes(`osp-${blocker}`))?.locktype ?? null
 }
 
-/**
- * The effects whose transaction failed, as each worker reported them. Each one rolled back and published at most one
- * notification, so this list is what can excuse a repeat where no process was killed. It is printed as evidence.
- */
-export function failedEffects(label: string, results: WorkerResult[]): string[] {
-  const failed = results.flatMap((r) => (r.stderr.match(/EFFECT_FAILED.*/g) ?? []).map((line) => `${r.label}: ${line}`))
-  process.stdout.write(`[evidence] ${JSON.stringify({ label: `${label} failed effects`, count: failed.length, failed })}\n`)
-  return failed
-}
 
 /** Sum, over the workers that exited normally, of the effects each applied: every effect must have been applied by exactly one process. */
 export async function expectCrossProcessAccounting(prisma: PrismaClient, results: WorkerResult[], transitionIds: string[]): Promise<Record<string, number>> {
@@ -402,7 +405,7 @@ export class Fixtures {
    * IN TOTAL - the number of transactions the test knows were rolled back after publishing (a kill inside the claim
    * transaction, or an effect failure a worker reported) - and may never fall short.
    */
-  async verify(buyerId: string, seeded: Seeded[], o: { label: string; maxRepeatedNotifications?: number }): Promise<{ repeatedNotifications: number; durableByName: Record<string, number> }> {
+  async verify(buyerId: string, seeded: Seeded[], o: { label: string; maxRepeatedNotifications?: number; excused?: string[] }): Promise<{ repeatedNotifications: number; durableByName: Record<string, number> }> {
     const sats = (d: Prisma.Decimal | null | undefined) => (d == null ? null : BigInt(new Prisma.Decimal(d).mul(1e8).toFixed(0)))
     const ledger = this.expectedLedger(buyerId, seeded)
     const baseline = (id: string) => (seeded.some((s) => s.voucherId === id) ? 10 : 0)
@@ -434,28 +437,31 @@ export class Fixtures {
 
     // 3. Notifications: never fewer than owed, repeats only as many as known rolled-back publications allow.
     let repeated = 0
-    const surplus = (what: string, actual: number, owed: number) => {
+    const surplus = (what: string, notice: string, actual: number, owed: number) => {
       expect({ what, atLeastOwed: actual >= owed }).toEqual({ what, atLeastOwed: true })
       repeated += actual - owed
+      // With `excused`, each repeat must match a rolled-back publication of that same notification.
+      if (o.excused) expect({ what, repeats: actual - owed, unexplained: Math.max(0, actual - owed - o.excused.filter((n) => n === notice).length) }).toEqual({ what, repeats: actual - owed, unexplained: 0 })
     }
     for (const [userId, owed] of this.expectedScoreNotifications(buyerId, seeded)) {
       const list = await this.scoreNotifications(userId)
-      surplus(`score notifications of ${userId}`, list.length, owed)
+      surplus(`score notifications of ${userId}`, `score:${userId}`, list.length, owed)
       const persisted = (await this.prisma.user.findUnique({ where: { id: userId } }))!.reputationScore
       // The newest one reports the score the database holds; every one lies between the starting score and it.
       expect(list[list.length - 1].newScore).toBe(persisted)
       for (const n of list) expect(n.newScore >= Math.min(baseline(userId), persisted) && n.newScore <= Math.max(baseline(userId), persisted)).toBe(true)
     }
     const completed = await this.countEvents('openp2p.trade.completed', seeded.map((s) => s.tradeId))
-    for (const s of seeded) surplus(`completed notification of ${s.tradeId}`, completed.get(s.tradeId) ?? 0, s.kind === 'REFUND_CLEAN' ? 0 : 1)
+    for (const s of seeded) surplus(`completed notification of ${s.tradeId}`, `completed:${s.tradeId}`, completed.get(s.tradeId) ?? 0, s.kind === 'REFUND_CLEAN' ? 0 : 1)
     const burned = await this.countEvents('reputation.vouch.burned', seeded.map((s) => s.sellerId))
-    for (const s of seeded) surplus(`vouch.burned notification of ${s.sellerId}`, burned.get(s.sellerId) ?? 0, s.kind === 'RELEASE_RULED' ? 1 : 0)
-    expect(repeated).toBeLessThanOrEqual(o.maxRepeatedNotifications ?? 0)
+    for (const s of seeded) surplus(`vouch.burned notification of ${s.sellerId}`, `burned:${s.sellerId}`, burned.get(s.sellerId) ?? 0, s.kind === 'RELEASE_RULED' ? 1 : 0)
+    const allowedRepeats = o.excused?.length ?? o.maxRepeatedNotifications ?? 0
+    expect(repeated).toBeLessThanOrEqual(allowedRepeats)
 
     const durable = await this.prisma.durableEventRecord.groupBy({ by: ['eventName'], where: { correlationId: { in: [...seeded.map((s) => s.tradeId), ...seeded.map((s) => s.sellerId), ...seeded.flatMap((s) => (s.voucherId ? [s.voucherId] : []))] } }, _count: { _all: true } })
     const durableByName = Object.fromEntries(durable.map((d) => [d.eventName, d._count._all]))
     const buyer = (await this.prisma.user.findUnique({ where: { id: buyerId } }))!
-    process.stdout.write(`[evidence] ${JSON.stringify({ label: o.label, transitions: seeded.length, buyer: { trades: buyer.totalTrades, volumeSats: String(sats(buyer.totalVolumeBtc)), feesSats: String(sats(buyer.cumulativeFeesObserved)), rep: buyer.reputationScore }, repeatedNotifications: repeated, allowedRepeats: o.maxRepeatedNotifications ?? 0, durable: durableByName })}\n`)
+    process.stdout.write(`[evidence] ${JSON.stringify({ label: o.label, transitions: seeded.length, buyer: { trades: buyer.totalTrades, volumeSats: String(sats(buyer.totalVolumeBtc)), feesSats: String(sats(buyer.cumulativeFeesObserved)), rep: buyer.reputationScore }, repeatedNotifications: repeated, allowedRepeats, durable: durableByName })}\n`)
     return { repeatedNotifications: repeated, durableByName }
   }
 }
