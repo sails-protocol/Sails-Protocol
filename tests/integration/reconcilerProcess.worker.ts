@@ -180,9 +180,9 @@ async function main(): Promise<void> {
 
   // Noted only once the event is durable: a publication that never landed cannot be repeated. The names match Fixtures.verify().
   const realPublish = eventBus.emit.bind(eventBus)
-  eventBus.emit = async (name: string, payload: { userId?: string }, correlationId: string) => {
+  eventBus.emit = async (name: string, payload: { userId?: string; tradeId?: string | null }, correlationId: string) => {
     const published = await realPublish(name, payload, correlationId)
-    const notice = name === 'reputation.score.updated' ? `score:${payload.userId}`
+    const notice = name === 'reputation.score.updated' ? `score:${payload.userId}:${payload.tradeId}`
       : name === 'openp2p.trade.completed' ? `completed:${correlationId}`
         : name === 'reputation.vouch.burned' ? `burned:${correlationId}` : null
     if (notice) claims.getStore()?.notices.push(notice)

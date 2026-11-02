@@ -183,7 +183,7 @@ export class Sync {
       return existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { notice: string; transition: string; key: string }) : []
     })
     process.stdout.write(`[evidence] ${JSON.stringify({ label: `${evidenceLabel} rolled-back publications`, count: entries.length, entries })}\n`)
-    return entries.map((e) => e.notice)
+    return entries.map((e) => `${e.transition}:${e.notice}`)
   }
   cleanup(): void { rmSync(this.dir, { recursive: true, force: true }) }
 }
@@ -378,12 +378,25 @@ export class Fixtures {
     return m
   }
 
-  /** Score notifications each user is owed, with no crash: one per outcome effect they took part in (neutral ones too). */
-  expectedScoreNotifications(buyerId: string, seeded: Seeded[]): Map<string, number> {
-    const m = new Map<string, number>()
-    const add = (id: string) => m.set(id, (m.get(id) ?? 0) + 1)
-    for (const s of seeded) { add(buyerId); add(s.sellerId); if (s.voucherId) add(s.voucherId) }
+  /**
+   * Score notifications each user is owed, with no crash: one per outcome effect they took part in (neutral ones too),
+   * by the transition that owes it. A burned vouch names no trade, so the voucher's carries tradeId null.
+   */
+  expectedScoreNotifications(buyerId: string, seeded: Seeded[]): Map<string, Array<{ transitionId: string; tradeId: string | null }>> {
+    const m = new Map<string, Array<{ transitionId: string; tradeId: string | null }>>()
+    const add = (id: string, transitionId: string, tradeId: string | null) => m.set(id, [...(m.get(id) ?? []), { transitionId, tradeId }])
+    for (const s of seeded) {
+      add(buyerId, s.transitionId, s.tradeId)
+      add(s.sellerId, s.transitionId, s.tradeId)
+      if (s.voucherId) add(s.voucherId, s.transitionId, null)
+    }
     return m
+  }
+
+  /** Plants a repeat of a score notification, as a redelivery with no rollback behind it would. */
+  async repeatScoreNotification(userId: string, tradeId: string): Promise<void> {
+    const user = (await this.prisma.user.findUnique({ where: { id: userId } }))!
+    await this.eventBus.emit('reputation.score.updated', { userId, newScore: user.reputationScore, totalTrades: user.totalTrades, tradeId, ratingGiven: 0 }, tradeId)
   }
 
   async scoreNotifications(userId: string) {
@@ -445,16 +458,17 @@ export class Fixtures {
     }
     for (const [userId, owed] of this.expectedScoreNotifications(buyerId, seeded)) {
       const list = await this.scoreNotifications(userId)
-      surplus(`score notifications of ${userId}`, `score:${userId}`, list.length, owed)
+      for (const { transitionId, tradeId } of owed) surplus(`score notifications of ${userId} for trade ${tradeId}`, `${transitionId}:score:${userId}:${tradeId}`, list.filter((n) => n.tradeId === tradeId).length, 1)
+      expect({ userId, strays: list.filter((n) => !owed.some((x) => x.tradeId === n.tradeId)).map((n) => n.tradeId) }).toEqual({ userId, strays: [] })
       const persisted = (await this.prisma.user.findUnique({ where: { id: userId } }))!.reputationScore
       // The newest one reports the score the database holds; every one lies between the starting score and it.
       expect(list[list.length - 1].newScore).toBe(persisted)
       for (const n of list) expect(n.newScore >= Math.min(baseline(userId), persisted) && n.newScore <= Math.max(baseline(userId), persisted)).toBe(true)
     }
     const completed = await this.countEvents('openp2p.trade.completed', seeded.map((s) => s.tradeId))
-    for (const s of seeded) surplus(`completed notification of ${s.tradeId}`, `completed:${s.tradeId}`, completed.get(s.tradeId) ?? 0, s.kind === 'REFUND_CLEAN' ? 0 : 1)
+    for (const s of seeded) surplus(`completed notification of ${s.tradeId}`, `${s.transitionId}:completed:${s.tradeId}`, completed.get(s.tradeId) ?? 0, s.kind === 'REFUND_CLEAN' ? 0 : 1)
     const burned = await this.countEvents('reputation.vouch.burned', seeded.map((s) => s.sellerId))
-    for (const s of seeded) surplus(`vouch.burned notification of ${s.sellerId}`, `burned:${s.sellerId}`, burned.get(s.sellerId) ?? 0, s.kind === 'RELEASE_RULED' ? 1 : 0)
+    for (const s of seeded) surplus(`vouch.burned notification of ${s.sellerId}`, `${s.transitionId}:burned:${s.sellerId}`, burned.get(s.sellerId) ?? 0, s.kind === 'RELEASE_RULED' ? 1 : 0)
     const allowedRepeats = o.excused?.length ?? o.maxRepeatedNotifications ?? 0
     expect(repeated).toBeLessThanOrEqual(allowedRepeats)
 

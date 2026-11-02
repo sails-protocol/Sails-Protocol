@@ -182,6 +182,32 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
     expect(await peerNotices()).toHaveLength(2)
   })
 
+  // A rolled-back publication excuses a repeat of that transition's notification only. Two transitions of one buyer:
+  // the real kill repeats A, then a repeat of B is planted while the excuses still cover the total, so that only the
+  // identity of the transition can refuse it.
+  it('O3 two transitions of the same user: the rolled-back publication of one does not excuse a repeat of the other', async () => {
+    pg.requirePostgres('O3 same user')
+    const buyer = await fx.user()
+    const seeded = await fx.seed(buyer.id, 2)
+    const [a, b] = seeded
+    const victim = startWorker({ label: 'v', escrowIds: ids(seeded), sync, killAt: `reputation.outcome:1:inside:${a.transitionId}`, killGate: true })
+    const [held] = await sync.allArrived('kill', ['v'])
+    expect(held.subject).toBe(buyer.id)
+    await quiesced(prisma, 'v', 1)
+    sync.release('kill', 'v')
+    died(await victim.done)
+    exited(await startWorker({ label: 'r', escrowIds: ids(seeded), sync }).done)
+
+    const noticeOf = (s: typeof a) => `${s.transitionId}:score:${buyer.id}:${s.tradeId}`
+    const excused = sync.rolledBackNotices('O3 same user', ['v', 'r'])
+    expect(excused).toEqual([noticeOf(a)])
+    await fx.verify(buyer.id, seeded, { label: 'O3 same user, A repeated', excused })
+
+    await fx.repeatScoreNotification(buyer.id, b.tradeId)
+    await expect(fx.verify(buyer.id, seeded, { label: 'O3 same user, B unexplained', excused: [noticeOf(a), noticeOf(a)] })).rejects.toThrow('unexplained')
+    await fx.verify(buyer.id, seeded, { label: 'O3 same user, B excused', excused: [noticeOf(a), noticeOf(b)] })
+  })
+
   // O4: one disputed release has three participants (buyer, seller, a voucher of the seller). A kill after a
   // notification was published but before its claim committed must repeat THAT notification and no other, and every
   // notification must carry the score the database holds.
