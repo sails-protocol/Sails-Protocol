@@ -97,7 +97,14 @@ jest.mock('../src/core/timeline', () => ({
 }))
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { ProofService, updateEvidenceReferenceProvenanceGuarded } = require('../src/modules/open-proof/proof.service')
+const {
+  ProofService,
+  updateEvidenceReferenceProvenanceGuarded,
+  assertInlineEvidenceResourceBounds,
+  INLINE_EVIDENCE_MAX_UTF8_BYTES,
+  INLINE_EVIDENCE_MAX_DEPTH,
+  INLINE_EVIDENCE_MAX_NODES,
+} = require('../src/modules/open-proof/proof.service')
 
 describe('ProofService.attachEvidence() — RFC-007 D2, real Ed25519 verification', () => {
   beforeEach(() => jest.clearAllMocks())
@@ -441,6 +448,76 @@ describe('ProofService.getEvidenceBundleForTrade() — RFC-007 D6, real per-trad
       'is not a party to trade'
     )
     expect(mockClaimFindMany).not.toHaveBeenCalled()
+  })
+})
+
+describe('Issue #300 — inline OpenProof resource bounds', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it('accepts the exact 256 KiB UTF-8 boundary and rejects +1 byte', () => {
+    const overhead = Buffer.byteLength(JSON.stringify({ x: '' }), 'utf8')
+    const exact = { x: 'a'.repeat(INLINE_EVIDENCE_MAX_UTF8_BYTES - overhead) }
+    expect(Buffer.byteLength(JSON.stringify(exact), 'utf8')).toBe(INLINE_EVIDENCE_MAX_UTF8_BYTES)
+    expect(() => assertInlineEvidenceResourceBounds(exact)).not.toThrow()
+    expect(() => assertInlineEvidenceResourceBounds({ x: exact.x + 'a' })).toThrow(/256 KiB/)
+  })
+
+  it('counts the 256 KiB policy in UTF-8 bytes for multibyte Unicode', () => {
+    const overhead = Buffer.byteLength(JSON.stringify({ x: '' }), 'utf8')
+    const glyph = 'é'
+    const glyphBytes = Buffer.byteLength(glyph, 'utf8')
+    const count = Math.floor((INLINE_EVIDENCE_MAX_UTF8_BYTES - overhead) / glyphBytes)
+    const within = { x: glyph.repeat(count) }
+    expect(Buffer.byteLength(JSON.stringify(within), 'utf8')).toBeLessThanOrEqual(INLINE_EVIDENCE_MAX_UTF8_BYTES)
+    expect(() => assertInlineEvidenceResourceBounds(within)).not.toThrow()
+    expect(() => assertInlineEvidenceResourceBounds({ x: within.x + glyph })).toThrow(/256 KiB/)
+  })
+
+  it('rejects adversarial depth structurally before JSON serialization', () => {
+    const originalStringify = JSON.stringify
+    const stringifySpy = jest.spyOn(JSON, 'stringify')
+    const tooDeep: unknown[] = []
+    let cursor = tooDeep
+    for (let i = 1; i < INLINE_EVIDENCE_MAX_DEPTH + 1; i += 1) {
+      const next: unknown[] = []
+      cursor.push(next)
+      cursor = next
+    }
+    expect(() => assertInlineEvidenceResourceBounds(tooDeep)).toThrow(/depth-32/)
+    expect(stringifySpy).not.toHaveBeenCalled()
+    stringifySpy.mockImplementation(originalStringify)
+    stringifySpy.mockRestore()
+  })
+
+  it('accepts depth 32 and rejects depth 33', () => {
+    const nested = (depth: number) => {
+      let value: unknown = 'leaf'
+      for (let i = 1; i < depth; i += 1) value = [value]
+      return value
+    }
+    expect(() => assertInlineEvidenceResourceBounds(nested(INLINE_EVIDENCE_MAX_DEPTH))).not.toThrow()
+    expect(() => assertInlineEvidenceResourceBounds(nested(INLINE_EVIDENCE_MAX_DEPTH + 1))).toThrow(/depth-32/)
+  })
+
+  it('accepts exactly 10,000 nodes and rejects 10,001', () => {
+    expect(() => assertInlineEvidenceResourceBounds(Array(INLINE_EVIDENCE_MAX_NODES - 1).fill(null))).not.toThrow()
+    expect(() => assertInlineEvidenceResourceBounds(Array(INLINE_EVIDENCE_MAX_NODES).fill(null))).toThrow(/10,000-node/)
+  })
+
+  it('rejects before any DB, persistence, registry or event side effect', async () => {
+    const service = new ProofService()
+    const tooDeep: unknown[] = []
+    let cursor = tooDeep
+    for (let i = 1; i < INLINE_EVIDENCE_MAX_DEPTH + 1; i += 1) {
+      const next: unknown[] = []
+      cursor.push(next)
+      cursor = next
+    }
+    await expect(service.submitProof({ claimId: 'claim-1', evidence: tooDeep, submittedBy: 'user-1' })).rejects.toThrow(/depth-32/)
+    expect(mockClaimFindUnique).not.toHaveBeenCalled()
+    expect(mockProofCreate).not.toHaveBeenCalled()
+    expect(mockFindDuplicates).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalled()
   })
 })
 
