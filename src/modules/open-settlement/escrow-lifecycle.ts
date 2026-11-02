@@ -3,7 +3,7 @@ import { childLogger } from '../../common/logger'
 import { Prisma } from '@prisma/client'
 import { createHash } from 'crypto'
 import { prisma } from '../../common/database'
-import { NotFoundError, EscrowError, ForbiddenError, SettlementResultConflictError } from '../../common/errors'
+import { NotFoundError, EscrowError, ForbiddenError, SettlementExecutedError, SettlementResultConflictError } from '../../common/errors'
 import { AssetType } from '../../common/types'
 import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
@@ -369,7 +369,7 @@ export function settlementSucceededButLocalStepFailed(escrowId: string, operatio
     msg: 'Provider execution succeeded but a local completion step failed - escrow NOT reverted, reconciliation owns convergence',
     escrowId, operation, resultRef, err: reason,
   })
-  return new EscrowError(
+  return new SettlementExecutedError(
     `${operation} for escrow ${escrowId} executed externally (result ${resultRef ?? 'unknown'}) but a local completion step failed (${reason}). ` +
     'The escrow status was NOT reverted; reconciliation will converge it from durable facts.'
   )

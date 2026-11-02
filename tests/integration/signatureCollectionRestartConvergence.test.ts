@@ -216,33 +216,24 @@ describe('Issue #240 - signature-collection provider (LIGHTNING_HODL/SAFE_GUARD_
   // ── Layer 1b: the REAL provider entrypoint - proves the external boundary is never reached twice ──
 
   describe('real provider entrypoint: the external submission boundary is never reached for an ambiguous attempt', () => {
-    it('LIGHTNING_HODL.finalizeRelease(): first call reaches bundle parsing (fails there, harmlessly); second call is BLOCKED before ever reaching it', async () => {
+    // Local validation failing records nothing (tests/integration/codex570Findings.test.ts); an attempt that did
+    // reach the submission boundary stays blocked. 'not-a-real-bundle' would fail with a DIFFERENT, distinguishable
+    // error if parsing were reached, so the block proves everything beyond it, the network calls included, never was.
+    it('LIGHTNING_HODL.finalizeRelease(): an unresolved attempt is BLOCKED before bundle parsing is ever reached', async () => {
       pg.requirePostgres('LN entrypoint blocks second call')
       const c = await makeEscrow('LIGHTNING_HODL', 'COMPLETED')
       const escrowInput = { id: c.escrowId, tradeId: c.tradeId, lockedAmount: '0.001' }
+      await ensureFinalizationAttempt(c.escrowId, 'pending-1', 'release')
 
-      // First call: ensureFinalizationAttempt PROCEEDs (creates the row), THEN deserializeBundle('not-a-real-bundle')
-      // throws - a DIFFERENT, distinguishable error than the blocking one below.
-      await expect(lightningHodlProvider.finalizeRelease(escrowInput, 'not-a-real-bundle', [], 'pending-1'))
-        .rejects.toThrow(/failed to combine\/finalize signatures/)
-      const afterFirst = await prisma.signatureCollectionFinalizationAttempt.findUnique({ where: { escrowId: c.escrowId } })
-      expect(afterFirst!.status).toBe('SUBMISSION_UNKNOWN') // left ambiguous, exactly the corrected WDK lesson
-
-      // Second call: blocked by ensureFinalizationAttempt itself - proves bundle parsing (and everything
-      // beyond it, including the real Ark submitTx()/finalizeTx() network calls) is NEVER reached.
       await expect(lightningHodlProvider.finalizeRelease(escrowInput, 'not-a-real-bundle', [], 'pending-1'))
         .rejects.toThrow(/unresolved outcome \(SUBMISSION_UNKNOWN\)/)
     })
 
-    it('SAFE_GUARD_EVM.finalizeRelease(): first call reaches bundle parsing (fails there, harmlessly); second call is BLOCKED before ever reaching it', async () => {
+    it('SAFE_GUARD_EVM.finalizeRelease(): an unresolved attempt is BLOCKED before bundle parsing is ever reached', async () => {
       pg.requirePostgres('SAFE entrypoint blocks second call')
       const c = await makeEscrow('SAFE_GUARD_EVM', 'COMPLETED')
       const escrowInput = { id: c.escrowId, tradeId: c.tradeId, lockedAmount: '0.001' }
-
-      await expect(safeGuardEvmProvider.finalizeRelease(escrowInput, 'not-valid-json', [], 'pending-1'))
-        .rejects.toThrow(/failed to parse the stored bundle/)
-      const afterFirst = await prisma.signatureCollectionFinalizationAttempt.findUnique({ where: { escrowId: c.escrowId } })
-      expect(afterFirst!.status).toBe('SUBMISSION_UNKNOWN')
+      await ensureFinalizationAttempt(c.escrowId, 'pending-1', 'release')
 
       await expect(safeGuardEvmProvider.finalizeRelease(escrowInput, 'not-valid-json', [], 'pending-1'))
         .rejects.toThrow(/unresolved outcome \(SUBMISSION_UNKNOWN\)/)

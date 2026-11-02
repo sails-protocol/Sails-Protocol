@@ -9,7 +9,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { randomBytes } from 'crypto'
-import { existsSync, readFileSync } from 'fs'
+import { readFileSync } from 'fs'
 import path from 'path'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
@@ -145,11 +145,8 @@ describe('Codex findings on PR #570 (real PostgreSQL)', () => {
       return { arbiterId: arbiter.id, dispute }
     }
     const profileOf = (id: string) => prisma.arbiterProfile.findUnique({ where: { participantId: id } })
-    // The upgrade step for rows that exist when the code that introduced the claim arrives.
-    const applyBaseline = async () => {
-      if (!existsSync(BASELINE_MIGRATION)) return
-      await prisma.$executeRawUnsafe(readFileSync(BASELINE_MIGRATION, 'utf8'))
-    }
+    // migrate deploy already ran on this database, before these rows existed; this replays that migration over them.
+    const applyBaseline = () => prisma.$executeRawUnsafe(readFileSync(BASELINE_MIGRATION, 'utf8'))
 
     it('after the upgrade step, a ruling already finalized is not counted or slashed again', async () => {
       pg.requirePostgres('F2 baseline')
@@ -203,10 +200,36 @@ describe('Codex findings on PR #570 (real PostgreSQL)', () => {
       pg.requirePostgres('F3 safe')
       const c = await makePending('SAFE_GUARD_EVM')
       const escrow = { id: c.escrowId, tradeId: c.tradeId } as never
-      const bundle = JSON.stringify({ userOpHash: '0x' + '11'.repeat(32), userOp: {} })
+      const bundle = JSON.stringify({ userOpHash: '11'.repeat(32), userOp: {} })
       await expect(safeGuardEvmProvider.finalizeRelease(escrow, bundle, ['0xdead'], c.pendingId)).rejects.toThrow()
       expect(await attemptOf(c.escrowId)).toBeNull()
       await expect(safeGuardEvmProvider.finalizeRelease(escrow, bundle, ['0xdead'], c.pendingId)).rejects.not.toThrow(/Manual review required/)
+    })
+
+    it('LIGHTNING_HODL: a failure at the submission itself stays SUBMISSION_UNKNOWN and blocks the retry', async () => {
+      pg.requirePostgres('F3 lightning boundary')
+      const c = await makePending('LIGHTNING_HODL')
+      const escrow = { id: c.escrowId, tradeId: c.tradeId } as never
+      const provider = lightningHodlProvider as any
+      jest.spyOn(provider, 'combineAndVerify').mockReturnValue({ arkTxHex: 'aa', signedCheckpoints: [] })
+      jest.spyOn(provider, 'getArkProvider').mockReturnValue({ submitTx: async () => { throw new Error('asp timeout') } })
+      await expect(lightningHodlProvider.finalizeRelease(escrow, 'bundle', ['signed'], c.pendingId)).rejects.toThrow(/asp timeout/)
+      expect((await attemptOf(c.escrowId))!.status).toBe('SUBMISSION_UNKNOWN')
+      await expect(lightningHodlProvider.finalizeRelease(escrow, 'bundle', ['signed'], c.pendingId)).rejects.toThrow(/unresolved outcome \(SUBMISSION_UNKNOWN\)/)
+    })
+
+    it('SAFE_GUARD_EVM: a failure at the broadcast itself stays SUBMISSION_UNKNOWN and blocks the retry', async () => {
+      pg.requirePostgres('F3 safe boundary')
+      const { ethers } = require('ethers')
+      const c = await makePending('SAFE_GUARD_EVM')
+      const escrow = { id: c.escrowId, tradeId: c.tradeId } as never
+      const digest = '0x' + '11'.repeat(32)
+      const signature = new ethers.Wallet('0x' + '22'.repeat(32)).signingKey.sign(digest).serialized
+      const bundle = JSON.stringify({ userOpHash: digest.slice(2), userOp: { nonce: '0', preVerificationGas: '0' } })
+      jest.spyOn(safeGuardEvmProvider as any, 'broadcast').mockRejectedValue(new Error('bundler timeout'))
+      await expect(safeGuardEvmProvider.finalizeRelease(escrow, bundle, [signature], c.pendingId)).rejects.toThrow(/bundler timeout/)
+      expect((await attemptOf(c.escrowId))!.status).toBe('SUBMISSION_UNKNOWN')
+      await expect(safeGuardEvmProvider.finalizeRelease(escrow, bundle, [signature], c.pendingId)).rejects.toThrow(/unresolved outcome \(SUBMISSION_UNKNOWN\)/)
     })
   })
 

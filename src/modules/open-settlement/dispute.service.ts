@@ -19,7 +19,7 @@
  * (RFC-010's EventStore, already real).
  */
 import { prisma } from '../../common/database'
-import { NotFoundError, ValidationError, ForbiddenError } from '../../common/errors'
+import { NotFoundError, ValidationError, ForbiddenError, SettlementExecutedError, SettlementResultConflictError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { applyEventProjectionOnce } from '../../common/events/event-projection'
 import { escrowService } from './escrow.service'
@@ -556,6 +556,11 @@ export class DisputeService {
       // serialized first — this revert does nothing at all: the newer
       // generation's own state stands, and this call's own (now
       // irrelevant) provider failure is still reported to the caller.
+      //
+      // Once the provider has executed there is nothing to revert: the ruling
+      // authorized a real settlement and its outcome handlers read it, and
+      // recoverMissingRulingFinalization() owns the finalization skipped by this throw.
+      if (err instanceof SettlementExecutedError || err instanceof SettlementResultConflictError) throw err
       await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
 

@@ -121,7 +121,7 @@ import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
 import { boundedFetch, withBoundedRetry } from './bounded-rpc'
-import { ensureFinalizationAttempt, recordFinalizationOutcome } from './signature-collection-finalization-truth'
+import { ensureFinalizationAttempt, priorFinalizationAttempt, recordFinalizationOutcome} from './signature-collection-finalization-truth'
 
 // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded, safe retry for
 // read-only RPC queries only (getNonce/getStorage/getBalance below).
@@ -556,10 +556,11 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     // proceed (no `await` gap before it) — see signature-collection-finalization-truth.ts's own
     // header comment. escrow.id/pendingTxId are always present on the real call path.
     if (escrow.id && pendingTxId) {
-      const ensured = await ensureFinalizationAttempt(escrow.id, pendingTxId, kind)
-      if (ensured.action === 'RESUME_CONFIRMED') return { txId: ensured.txHash }
+      const prior = await priorFinalizationAttempt(escrow.id, pendingTxId, kind)
+      if (prior?.action === 'RESUME_CONFIRMED') return { txId: prior.txHash }
     }
 
+    // Local and deterministic up to broadcast(): a failure here proves nothing was submitted, so it records no attempt.
     let bundle: SafeGuardBundle
     try {
       bundle = JSON.parse(unsignedPsbtBase64)
@@ -582,6 +583,7 @@ export class SafeGuardEvmProvider implements SettlementProvider {
     const combined = '0x' + signatures.map((s) => (s.signatureHex.startsWith('0x') ? s.signatureHex.slice(2) : s.signatureHex)).join('')
 
     const userOp = deserializeUserOp(bundle.userOp)
+    if (escrow.id && pendingTxId) await ensureFinalizationAttempt(escrow.id, pendingTxId, kind)
     const result = await this.broadcast(userOp, combined)
     // eth_sendUserOperation returns the bundler-ACCEPTED userOpHash, not on-chain finality (this
     // method's own broadcast() comment) - recorded SUBMITTED, not CONFIRMED (see
