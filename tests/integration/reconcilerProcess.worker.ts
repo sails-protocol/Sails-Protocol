@@ -178,14 +178,15 @@ async function main(): Promise<void> {
   const { OpenP2PTradeIntentHandler } = require('../../src/modules/open-p2p/intent-handler')
   intentEngine.registerHandler(OpenP2PTradeIntentHandler)
 
-  // Noted before publishing: an exit can land between the durable write and its return. The names match Fixtures.verify().
+  // Noted only once the event is durable: a publication that never landed cannot be repeated. The names match Fixtures.verify().
   const realPublish = eventBus.emit.bind(eventBus)
-  eventBus.emit = (name: string, payload: { userId?: string }, correlationId: string) => {
+  eventBus.emit = async (name: string, payload: { userId?: string }, correlationId: string) => {
+    const published = await realPublish(name, payload, correlationId)
     const notice = name === 'reputation.score.updated' ? `score:${payload.userId}`
       : name === 'openp2p.trade.completed' ? `completed:${correlationId}`
         : name === 'reputation.vouch.burned' ? `burned:${correlationId}` : null
     if (notice) claims.getStore()?.notices.push(notice)
-    return realPublish(name, payload, correlationId)
+    return published
   }
 
   // A publication gate: pauses the nth settlement.escrow.* event this process is about to publish, whichever code
