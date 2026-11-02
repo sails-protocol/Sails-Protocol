@@ -76,6 +76,13 @@ silently as a side effect of tagging a release candidate.
 
 ## [Unreleased]
 
+### Fixed
+- `openp2p.reconcileTrade()` was typed as returning `Message[]`, but the
+  route returns an object: `{ tradeId, currentTradeStatus,
+  currentEscrowStatus, missedMessages }`. It is now typed as the new
+  exported `TradeReconciliation`. No runtime change; code that treated the
+  result as an array never received one.
+
 ## [0.2.0] - 2026-09-17
 
 ### Added

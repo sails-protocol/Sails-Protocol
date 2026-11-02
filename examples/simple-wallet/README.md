@@ -8,12 +8,19 @@ It runs the real golden path against a real local Sails node:
 ```
 register (seller) → register (buyer) → publish offer → discover offer
   → open trade → chat → create + lock escrow → mark payment sent
-  → release escrow
+  → buyer registers payout address → release escrow → rate the trade
 ```
 
+Release always pays the buyer's own registered payout address for the
+asset (`settlement.setPayoutAddress()`); the node ignores any address the
+releasing seller passes and refuses to release until one is registered.
+The escrow is created as `type: 'MOCK'` so the example runs against a
+plain local node; without it, `create()` picks the asset's real settlement
+rail, which needs a funded testnet wallet on the node.
+
 The question this answers: **can a developer integrate the SDK in under
-15 minutes?** Read `src/index.ts` top to bottom — it's ~140 lines
-including comments, uses 12 SDK methods, and needs nothing beyond what
+15 minutes?** Read `src/index.ts` top to bottom — it's ~170 lines
+including comments, uses 13 SDK methods, and needs nothing beyond what
 `@satsails/p2p-trading-sdk`'s own types export.
 
 This example proves the **SDK path**. It does not implement a real
@@ -33,7 +40,7 @@ that separate proof, continue to
    npm run start -w @sails/example-simple-wallet
    ```
 
-You should see all 9 steps print and finish with:
+You should see all 11 steps print and finish with:
 ```
 Done — full golden path completed using only @satsails/p2p-trading-sdk's public API.
 ```

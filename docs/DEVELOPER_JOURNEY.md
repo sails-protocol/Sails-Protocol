@@ -105,8 +105,12 @@ const escrow = await sails.settlement.create({
   asset: 'BTC',
 })
 await sails.settlement.lock(escrow.id)
-// buyer sends fiat directly to seller, shares proof via chat
-await sails.settlement.release(escrow.id, buyerPayoutAddress)
+// buyer sends fiat directly to seller, shares proof via chat.
+// Release pays the buyer's own registered payout address: before this,
+// the buyer's client calls
+//   settlement.setPayoutAddress({ asset: 'BTC', address })
+// The node ignores any address the seller passes to release().
+await sails.settlement.release(escrow.id)
 ```
 
 This is the step that turns a negotiation into money actually moving -
