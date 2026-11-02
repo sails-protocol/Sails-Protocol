@@ -146,32 +146,97 @@ describe('Codex findings on PR #570 (real PostgreSQL)', () => {
     }
     const profileOf = (id: string) => prisma.arbiterProfile.findUnique({ where: { participantId: id } })
     // migrate deploy already ran on this database, before these rows existed; this replays that migration over them.
-    const applyBaseline = () => prisma.$executeRawUnsafe(readFileSync(BASELINE_MIGRATION, 'utf8'))
+    const applyBaseline = async () => {
+      const sql = readFileSync(BASELINE_MIGRATION, 'utf8').replace(/^--.*$/gm, '')
+      for (const statement of sql.split(';').filter((s) => s.trim())) await prisma.$executeRawUnsafe(statement)
+    }
+    const recover = () => (new DisputeService(marketArbitrationProvider) as InstanceType<typeof DisputeService>).recoverMissingRulingFinalization(100_000)
+    const claimsOf = (disputeId: string) => prisma.eventProjectionClaim.findMany({ where: { eventId: disputeId } }).then((rows) => rows.map((r) => `${r.projectionKey}:${r.subjectId}`).sort())
+    const appealFee = (disputeId: string, buyerId: string, data: Record<string, unknown>) =>
+      prisma.disputeAppealFee.create({ data: { disputeId, appealRound: 1, requestedBy: buyerId, amount: '2', asset: 'BTC', ...data } })
 
-    it('after the upgrade step, a ruling already finalized is not counted or slashed again', async () => {
-      pg.requirePostgres('F2 baseline')
+    async function makeAppealed() {
       const original = await user()
       await prisma.arbiterProfile.create({ data: { participantId: original.id, monetaryCollateral: '10', collateralAsset: 'BTC', arbiterReputation: 50, rulingsOverturned: 1 } })
-      const plain = await makeHistoricalDispute('RELEASE')
       const appealed = await makeHistoricalDispute('REFUND', { previousRuling: 'RELEASE', previousArbiterId: original.id })
-      const before = (await profileOf(original.id))!
+      return { ...appealed, originalId: original.id, before: (await profileOf(original.id))! }
+    }
+    async function expectNothingReplayed(a: Awaited<ReturnType<typeof makeAppealed>>) {
+      expect((await profileOf(a.arbiterId))!.rulingsTotal).toBe(1)
+      const after = (await profileOf(a.originalId))!
+      expect({ overturned: after.rulingsOverturned, collateral: String(after.monetaryCollateral) }).toEqual({ overturned: a.before.rulingsOverturned, collateral: String(a.before.monetaryCollateral) })
+    }
 
+    it('PROVEN: a settled appeal fee that agrees with the ruling marks it finalized, and nothing is replayed', async () => {
+      pg.requirePostgres('F2 proven')
+      const a = await makeAppealed()
+      await appealFee(a.dispute.id, a.dispute.openedBy, { outcome: 'REFUNDED', settledAt: new Date() })
       await applyBaseline()
-      const service = new DisputeService(marketArbitrationProvider) as InstanceType<typeof DisputeService>
-      await service.recoverMissingRulingFinalization(100_000)
-
-      expect((await profileOf(plain.arbiterId))!.rulingsTotal).toBe(1)
-      expect((await profileOf(appealed.arbiterId))!.rulingsTotal).toBe(1)
-      const after = (await profileOf(original.id))!
-      expect({ overturned: after.rulingsOverturned, collateral: String(after.monetaryCollateral) }).toEqual({ overturned: before.rulingsOverturned, collateral: String(before.monetaryCollateral) })
+      const { recovered, held } = await recover()
+      expect(await claimsOf(a.dispute.id)).toEqual(['dispute.ruling-finalized:1'])
+      expect(recovered).not.toContain(a.dispute.id)
+      expect(held).not.toContain(a.dispute.id)
+      await expectNothingReplayed(a)
     })
 
-    it('a ruling resolved after the upgrade step is still recovered', async () => {
+    it('AMBIGUOUS, no appeal: RESOLVED alone proves nothing, so it is held, reported and never replayed', async () => {
+      pg.requirePostgres('F2 ambiguous round 0')
+      const plain = await makeHistoricalDispute('RELEASE')
+      await applyBaseline()
+      const { recovered, held } = await recover()
+      expect(await claimsOf(plain.dispute.id)).toEqual(['dispute.ruling-finalization-held:0'])
+      expect(recovered).not.toContain(plain.dispute.id)
+      expect(held).toContain(plain.dispute.id)
+      expect((await profileOf(plain.arbiterId))!.rulingsTotal).toBe(1)
+    })
+
+    it.each([
+      ['an unsettled fee', { outcome: null, settledAt: null }],
+      ['a fee that contradicts the ruling', { outcome: 'FORFEITED', settledAt: new Date() }],
+      ['an outcome with no settlement date', { outcome: 'REFUNDED', settledAt: null }],
+    ])('AMBIGUOUS, appealed with %s: held, with no repeated count or slash', async (_name, fee) => {
+      pg.requirePostgres('F2 ambiguous appeal')
+      const a = await makeAppealed()
+      await appealFee(a.dispute.id, a.dispute.openedBy, fee)
+      await applyBaseline()
+      const { held } = await recover()
+      expect(await claimsOf(a.dispute.id)).toEqual(['dispute.ruling-finalization-held:1'])
+      expect(held).toContain(a.dispute.id)
+      await expectNothingReplayed(a)
+    })
+
+    it('AMBIGUOUS, appealed with no fee row at all: held', async () => {
+      pg.requirePostgres('F2 ambiguous no fee')
+      const a = await makeAppealed()
+      await applyBaseline()
+      await recover()
+      expect(await claimsOf(a.dispute.id)).toEqual(['dispute.ruling-finalization-held:1'])
+      await expectNothingReplayed(a)
+    })
+
+    it('a ruling already claimed finalized is left alone, and running the migration again changes nothing', async () => {
+      pg.requirePostgres('F2 repeated')
+      const proven = await makeAppealed()
+      await appealFee(proven.dispute.id, proven.dispute.openedBy, { outcome: 'REFUNDED', settledAt: new Date() })
+      const ambiguous = await makeHistoricalDispute('RELEASE')
+      const live = await makeHistoricalDispute('REFUND')
+      await prisma.eventProjectionClaim.create({ data: { eventId: live.dispute.id, projectionKey: 'dispute.ruling-finalized', subjectId: '0' } })
+
+      await applyBaseline()
+      await applyBaseline()
+      await recover()
+
+      expect(await claimsOf(proven.dispute.id)).toEqual(['dispute.ruling-finalized:1'])
+      expect(await claimsOf(ambiguous.dispute.id)).toEqual(['dispute.ruling-finalization-held:0'])
+      expect(await claimsOf(live.dispute.id)).toEqual(['dispute.ruling-finalized:0'])
+      await expectNothingReplayed(proven)
+    })
+
+    it('a ruling resolved after the migration is still recovered', async () => {
       pg.requirePostgres('F2 recovery preserved')
       await applyBaseline()
       const fresh = await makeHistoricalDispute('RELEASE')
-      const service = new DisputeService(marketArbitrationProvider) as InstanceType<typeof DisputeService>
-      const { recovered } = await service.recoverMissingRulingFinalization(100_000)
+      const { recovered } = await recover()
       expect(recovered).toContain(fresh.dispute.id)
       expect((await profileOf(fresh.arbiterId))!.rulingsTotal).toBe(2)
     })

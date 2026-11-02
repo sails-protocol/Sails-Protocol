@@ -62,3 +62,7 @@ export function effectIdentity(event: { eventId: string; payload: { transitionId
 // completed". Keyed on the escrow transition (EscrowEvent) id - see emitEscrowTransition().
 export const TRANSITION_CLAIMED_KEY = 'transition.claimed'
 export const TRANSITION_PROJECTED_KEY = 'transition.projected'
+
+// A ruling from before 'dispute.ruling-finalized' existed with no proof its bookkeeping ran: automatic
+// recovery skips it, since replaying could repeat counters and slashes, and it stays reported for a human.
+export const RULING_FINALIZATION_HELD_KEY = 'dispute.ruling-finalization-held'

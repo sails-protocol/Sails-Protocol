@@ -21,7 +21,7 @@
 import { prisma } from '../../common/database'
 import { NotFoundError, ValidationError, ForbiddenError, SettlementExecutedError, SettlementResultConflictError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
-import { applyEventProjectionOnce } from '../../common/events/event-projection'
+import { applyEventProjectionOnce, RULING_FINALIZATION_HELD_KEY } from '../../common/events/event-projection'
 import { escrowService } from './escrow.service'
 import { config } from '../../config'
 import { TrustedArbitratorProvider, type ArbitrationProvider } from './arbitration-provider'
@@ -1012,14 +1012,14 @@ export class DisputeService {
    * action to land before any reconciliation tick), not a crash/replay/concurrency case, and out of this
    * mission's scope to close (would require a full ruling-history table, a genuine schema change).
    */
-  async recoverMissingRulingFinalization(limit = 200): Promise<{ recovered: string[]; failed: Array<{ disputeId: string; error: string }> }> {
+  async recoverMissingRulingFinalization(limit = 200): Promise<{ recovered: string[]; failed: Array<{ disputeId: string; error: string }>; held: string[] }> {
     const candidates = await prisma.$queryRaw<Array<{ id: string; escrowId: string; appealRound: number; previousRuling: DisputeRuling | null; previousArbiterId: string | null; arbiterId: string | null; ruling: DisputeRuling | null }>>`
       SELECT d.id, d."escrowId", d."appealRound", d."previousRuling", d."previousArbiterId", d."arbiterId", d.ruling
       FROM disputes d
       WHERE d.status = 'RESOLVED'
         AND NOT EXISTS (
           SELECT 1 FROM event_projection_claims c
-          WHERE c."eventId" = d.id AND c."projectionKey" = 'dispute.ruling-finalized' AND c."subjectId" = d."appealRound"::text)
+          WHERE c."eventId" = d.id AND c."projectionKey" IN ('dispute.ruling-finalized', ${RULING_FINALIZATION_HELD_KEY}) AND c."subjectId" = d."appealRound"::text)
       ORDER BY d."resolvedAt" ASC NULLS LAST
       LIMIT ${limit}`
 
@@ -1034,7 +1034,8 @@ export class DisputeService {
         failed.push({ disputeId: candidate.id, error: err instanceof Error ? err.message : String(err) })
       }
     }
-    return { recovered, failed }
+    const heldClaims = await prisma.eventProjectionClaim.findMany({ where: { projectionKey: RULING_FINALIZATION_HELD_KEY }, select: { eventId: true }, take: limit })
+    return { recovered, failed, held: heldClaims.map((c) => c.eventId) }
   }
 
   /**
