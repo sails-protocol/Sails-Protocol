@@ -130,7 +130,7 @@ describe('Issue #253 - economic effects keyed on the source transition (real Pos
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await prisma.escrow.create({
-      data: { tradeId: trade.id, type: 'MOCK', status: spec.escrowStatus as never, lockedAmount: '0.001', asset: 'BTC', ...(kind === 'RELEASE_CLEAN' || kind === 'RELEASE_RULED' ? { feeCharged: '0.00001' } : {}) },
+      data: { tradeId: trade.id, type: 'MOCK', status: spec.escrowStatus as never, lockedAmount: '0.001', asset: 'BTC', txReleaseId: randomBytes(32).toString('hex'), ...(kind === 'RELEASE_CLEAN' || kind === 'RELEASE_RULED' ? { feeCharged: '0.00001' } : {}) },
     })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id, status: 'ACTIVE' } })
     if (spec.ruling) {
@@ -298,7 +298,7 @@ describe('Issue #253 - economic effects keyed on the source transition (real Pos
     // a second, separate trade between the same two users
     const offer = await liquidityRouter.createOffer({ userId: s.sellerId, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
     const trade2 = await tradeService.createTrade({ offerId: offer.id, counterpartyId: s.buyerId, amount: '0.001' })
-    const escrow2 = await prisma.escrow.create({ data: { tradeId: trade2.id, type: 'MOCK', status: 'COMPLETED', lockedAmount: '0.001', asset: 'BTC' } })
+    const escrow2 = await prisma.escrow.create({ data: { tradeId: trade2.id, type: 'MOCK', status: 'COMPLETED', lockedAmount: '0.001', asset: 'BTC', txReleaseId: randomBytes(32).toString('hex') } })
     await prisma.trade.update({ where: { id: trade2.id }, data: { escrowId: escrow2.id, status: 'ACTIVE' } })
     await emitEscrowTransition(escrow2.id, trade2.id, 'PAYMENT_PENDING', 'COMPLETED', s.sellerId, 'settlement.escrow.released', {})
     await waitFor(projected((await prisma.escrowEvent.findFirst({ where: { escrowId: escrow2.id, toStatus: 'COMPLETED' } }))!.id))
