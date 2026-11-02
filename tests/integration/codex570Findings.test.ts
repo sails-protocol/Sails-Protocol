@@ -30,6 +30,7 @@ describe('Codex findings on PR #570 (real PostgreSQL)', () => {
   let tradeService: typeof import('../../src/modules/open-p2p/trade.service').tradeService
   let payoutAddressService: typeof import('../../src/modules/open-settlement/payout-address.service').payoutAddressService
   let reconcileIncompleteProjections: typeof import('../../src/modules/open-settlement/escrow-settlement-reconciliation.service').reconcileIncompleteProjections
+  let reconcilePendingSettlements: typeof import('../../src/modules/open-settlement/escrow-settlement-reconciliation.service').reconcilePendingSettlements
   let DisputeService: typeof import('../../src/modules/open-settlement/dispute.service').DisputeService
   let marketArbitrationProvider: typeof import('../../src/modules/open-settlement/market-arbitration.provider').marketArbitrationProvider
   let lightningHodlProvider: typeof import('../../src/modules/open-settlement/lightning-hodl.provider').lightningHodlProvider
@@ -47,7 +48,7 @@ describe('Codex findings on PR #570 (real PostgreSQL)', () => {
     ;({ liquidityRouter } = require('../../src/modules/open-liquidity/liquidity.service'))
     ;({ tradeService } = require('../../src/modules/open-p2p/trade.service'))
     ;({ payoutAddressService } = require('../../src/modules/open-settlement/payout-address.service'))
-    ;({ reconcileIncompleteProjections } = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service'))
+    ;({ reconcileIncompleteProjections, reconcilePendingSettlements } = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service'))
     ;({ DisputeService } = require('../../src/modules/open-settlement/dispute.service'))
     ;({ marketArbitrationProvider } = require('../../src/modules/open-settlement/market-arbitration.provider'))
     ;({ lightningHodlProvider } = require('../../src/modules/open-settlement/lightning-hodl.provider'))
@@ -240,6 +241,37 @@ describe('Codex findings on PR #570 (real PostgreSQL)', () => {
       expect(recovered).toContain(fresh.dispute.id)
       expect((await profileOf(fresh.arbiterId))!.rulingsTotal).toBe(2)
     })
+
+    it('every held ruling is enumerated exactly once, past 200 and under any limit, and none is replayed', async () => {
+      pg.requirePostgres('F2 exhaustive enumeration')
+      const ids: string[] = []
+      for (let i = 0; i < 230; i++) ids.push((await makeHistoricalDispute('RELEASE')).dispute.id)
+      await applyBaseline()
+
+      const claims = await prisma.eventProjectionClaim.findMany({ where: { projectionKey: 'dispute.ruling-finalization-held' }, select: { eventId: true } })
+      const expected = claims.map((c) => c.eventId).sort()
+      expect(expected.length).toBeGreaterThan(200)
+      expect(expected).toEqual(expect.arrayContaining(ids))
+
+      const service = new DisputeService(marketArbitrationProvider) as InstanceType<typeof DisputeService>
+      for (const limit of [1, 50, 200, 100_000]) {
+        const { held, recovered } = await service.recoverMissingRulingFinalization(limit)
+        expect({ limit, held: [...held].sort() }).toEqual({ limit, held: expected })
+        expect(recovered.filter((id) => ids.includes(id))).toEqual([])
+      }
+      const { held: byDefault } = await service.recoverMissingRulingFinalization()
+      expect([...byDefault].sort()).toEqual(expected)
+
+      // One statement, one snapshot: two concurrent readers see the same complete set.
+      const [a, b] = await Promise.all([service.recoverMissingRulingFinalization(), service.recoverMissingRulingFinalization()])
+      expect([...a.held].sort()).toEqual(expected)
+      expect(b.held).toEqual(a.held)
+
+      const report = await reconcilePendingSettlements()
+      const reported = report.requiresManualReview.map((r) => r.escrowId).filter((id) => id.startsWith('dispute:')).map((id) => id.slice('dispute:'.length))
+      expect(reported.sort()).toEqual(expected)
+      expect(await prisma.eventProjectionClaim.count({ where: { eventId: { in: ids }, projectionKey: 'dispute.ruling-finalized' } })).toBe(0)
+    }, 300_000)
   })
 
   describe('F3: a local signature failure is not an unknown submission', () => {
