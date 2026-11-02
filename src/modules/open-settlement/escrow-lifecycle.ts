@@ -1,7 +1,9 @@
+import { TRANSITION_CLAIMED_KEY } from '../../common/events/event-projection'
+import { childLogger } from '../../common/logger'
 import { Prisma } from '@prisma/client'
 import { createHash } from 'crypto'
 import { prisma } from '../../common/database'
-import { NotFoundError, EscrowError, ForbiddenError } from '../../common/errors'
+import { NotFoundError, EscrowError, ForbiddenError, SettlementResultConflictError } from '../../common/errors'
 import { AssetType } from '../../common/types'
 import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
@@ -348,6 +350,31 @@ export async function claimEscrowTransition(escrowId: string, fromStatus: string
   }
 }
 
+const lifecycleLog = childLogger('escrow-lifecycle')
+
+/**
+ * Issue #291 - error boundary AFTER external economic execution succeeded.
+ *
+ * Once the provider call has returned successfully the economic operation may
+ * already have happened externally. A later LOCAL step failing (persisting the
+ * result, fee accounting, publishing the event) must NOT revert the escrow
+ * status as though nothing happened: the escrow stays in its claimed terminal
+ * state and reconciliation (PASS 0/1/2/3) owns convergence from durable facts.
+ * A settlement-result integrity conflict is surfaced unchanged.
+ */
+export function settlementSucceededButLocalStepFailed(escrowId: string, operation: string, resultRef: string | undefined, err: unknown): Error {
+  if (err instanceof SettlementResultConflictError) return err
+  const reason = err instanceof Error ? err.message : String(err)
+  lifecycleLog.error({
+    msg: 'Provider execution succeeded but a local completion step failed - escrow NOT reverted, reconciliation owns convergence',
+    escrowId, operation, resultRef, err: reason,
+  })
+  return new EscrowError(
+    `${operation} for escrow ${escrowId} executed externally (result ${resultRef ?? 'unknown'}) but a local completion step failed (${reason}). ` +
+    'The escrow status was NOT reverted; reconciliation will converge it from durable facts.'
+  )
+}
+
 /** Revert-on-failure boilerplate — every provider call in this class wraps
  *  the same try/catch so a partial transition can never leave an escrow
  *  "claiming COMPLETED with no funds behind it." The .catch(() => {}) on
@@ -410,6 +437,24 @@ export function computeEscrowEventHash(fromStatus: string, toStatus: string, tri
 // already had). No existing caller inspects the return value — this is
 // purely additive; every existing `await emitEscrowTransition(...)`
 // site is unaffected.
+// Issue #298 - escrow transitions whose downstream (Trade/Intent/counters/reputation) projections
+// must converge, keyed to the event name each publishes. Other transitions are untouched.
+export const RECOVERABLE_TRANSITION_EVENTS: ReadonlySet<string> = new Set([
+  'settlement.escrow.locked',
+  'settlement.escrow.disputed',
+  'settlement.escrow.released',
+  'settlement.escrow.refunded',
+  'settlement.escrow.split',
+])
+// EscrowEvent.toStatus -> the event name emitEscrowTransition() publishes for it.
+export const EVENT_NAME_BY_TARGET_STATUS: Record<string, string> = {
+  FUNDS_LOCKED: 'settlement.escrow.locked',
+  DISPUTED: 'settlement.escrow.disputed',
+  COMPLETED: 'settlement.escrow.released',
+  REFUNDED: 'settlement.escrow.refunded',
+  SPLIT: 'settlement.escrow.split',
+}
+
 export async function emitEscrowTransition(
   escrowId: string,
   tradeId: string,
@@ -423,7 +468,7 @@ export async function emitEscrowTransition(
   // entryHash/prevHash are never accepted from a caller — this function's
   // own signature has no such parameters, so they can only ever be what
   // the server itself derives here.
-  const claimed = await withEscrowFundingLock(escrowId, async (tx) => {
+  const claimed = await withEscrowFundingLock<string | false>(escrowId, async (tx) => {
     const alreadyEmitted = await tx.escrowEvent.findFirst({ where: { escrowId, toStatus: to as any } })
     if (alreadyEmitted) return false
 
@@ -431,13 +476,22 @@ export async function emitEscrowTransition(
     const prevHash = last?.entryHash ?? 'genesis'
     const entryHash = computeEscrowEventHash(from, to, triggeredBy, prevHash)
 
-    await tx.escrowEvent.create({
+    const transition = await tx.escrowEvent.create({
       data: { escrowId, fromStatus: from as any, toStatus: to as any, triggeredBy, note, entryHash, prevHash },
     })
-    return true
+    // Issue #298 - claim != publish != projection. For the transitions whose downstream projections
+    // must converge, record atomically WITH the claim that a projection is now owed. Its completion
+    // ('transition.projected', written by the handler) is a separate fact, so recovery can tell
+    // "claimed but never published" and "published but not fully projected" apart from "done".
+    // eventId here holds the transition (EscrowEvent) id - no durable event exists yet.
+    if (RECOVERABLE_TRANSITION_EVENTS.has(eventName as string)) {
+      await tx.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: TRANSITION_CLAIMED_KEY, subjectId: escrowId } })
+    }
+    return transition.id as string
   })
 
   if (!claimed) return false
+  const transitionId = claimed
 
   // correlationId = tradeId (RFC-010) — stand-in for intentId until Intent
   // persistence exists; Trade already IS the concrete TradeIntent (§2.3).
@@ -453,6 +507,7 @@ export async function emitEscrowTransition(
     to,
     triggeredBy,
     ...eventExtra,
+    transitionId,
   }, tradeId)
   return true
 }

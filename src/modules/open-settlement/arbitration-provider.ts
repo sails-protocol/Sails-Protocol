@@ -22,6 +22,7 @@
  * `resolveDispute()` is the real entry point for an arbiter's decision,
  * taking `ruling` as a parameter rather than deriving it.
  */
+import type { Prisma } from '@prisma/client'
 
 export interface ArbitrationProvider {
   name: string
@@ -37,8 +38,15 @@ export interface ArbitrationProvider {
   // Only MarketArbitrationProvider implements all three.
   /** Reopens a resolved dispute for a new arbiter, drawn from a reputation-weighted panel that grows with `round`. */
   assignAppealPanel?(disputeId: string, tradeId: string, round: number, excludeParticipantId?: string): Promise<string>
-  /** Penalizes an arbiter whose ruling was overturned on appeal. */
-  slash?(participantId: string): Promise<unknown>
+  /**
+   * Penalizes an arbiter whose ruling was overturned on appeal.
+   *
+   * Issue #253 - `tx` (additive, optional) lets dispute.service.ts's finalizeResolveDispute() run this
+   * inside the SAME durable claim+effect transaction as recordRuling()/appeal-fee settlement — see that
+   * method's own comment. Omitting it preserves the original standalone-call behavior (including the
+   * `arbiter.slashed` emit) for every existing caller/test.
+   */
+  slash?(participantId: string, tx?: Prisma.TransactionClient): Promise<unknown>
   /**
    * Records that an arbiter issued a ruling, correct or not — feeds the
    * rulingsTotal/rulingsOverturned track record. `feeObserved` (RFC-021
@@ -47,8 +55,10 @@ export interface ArbitrationProvider {
    * cumulativeFeesObserved, the same cost-to-fabricate floor D4 tracks
    * per-trader, applied to an arbiter's real track record of disputed
    * value handled.
+   *
+   * Issue #253 - `tx`, same additive/optional shape and reason as slash()'s own comment above.
    */
-  recordRuling?(participantId: string, feeObserved?: string): Promise<void>
+  recordRuling?(participantId: string, feeObserved?: string, tx?: Prisma.TransactionClient): Promise<void>
 }
 
 /**

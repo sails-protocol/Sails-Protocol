@@ -88,10 +88,16 @@ import { createHash } from 'crypto'
 import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
+import { ensureFinalizationAttempt, recordFinalizationOutcome } from './signature-collection-finalization-truth'
 
 type ArkParties = { buyerPubkey: Uint8Array; sellerPubkey: Uint8Array; arbiterId: string }
 
 export type ArkEscrowInput = {
+  // Issue #240 - optional/additive: the real Escrow row escrow-pending-tx.ts's submitTransactionSignature()
+  // passes always carries it; only this type's own declaration was narrower. Needed to bind this
+  // provider's durable finalization-attempt evidence (signature-collection-finalization-truth.ts) to
+  // the exact escrow.
+  id?: string
   tradeId: string
   lockedAmount: string
   buyerPubkey?: string   // hex, 33-byte compressed — from EscrowParticipantKey
@@ -463,7 +469,17 @@ export class LightningHodlProvider implements SettlementProvider {
   // partial signature (embedded by buildUnsignedRelease/Refund above), so
   // combining it with the single client-submitted copy still yields both
   // required signatures.
-  private async finalizeArk(escrow: ArkEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
+  private async finalizeArk(escrow: ArkEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[], pendingTxId: string | undefined, kind: 'release' | 'refund'): Promise<{ txId: string }> {
+    // Issue #240 - durable pre-submission evidence, written in the SAME call as the decision to
+    // proceed (no `await` gap before it) — see signature-collection-finalization-truth.ts's own
+    // header comment. escrow.id/pendingTxId are always present on the real call path
+    // (escrow-pending-tx.ts's submitTransactionSignature()); only a direct unit-test call without
+    // them skips this (harmless — the same "not directly callable outside this flow" contract
+    // releaseFunds()/refundFunds() below already document).
+    if (escrow.id && pendingTxId) {
+      const ensured = await ensureFinalizationAttempt(escrow.id, pendingTxId, kind)
+      if (ensured.action === 'RESUME_CONFIRMED') return { txId: ensured.txHash }
+    }
     try {
       const base = this.deserializeBundle(unsignedPsbtBase64)
       const signedBundles = signedPsbtBase64List.map((s) => this.deserializeBundle(s))
@@ -482,20 +498,28 @@ export class LightningHodlProvider implements SettlementProvider {
 
       const submitted = await this.getArkProvider().submitTx(finalArkTx.hex, signedCheckpoints)
       await this.getArkProvider().finalizeTx(submitted.arkTxid, submitted.signedCheckpointTxs)
+      // finalizeTx() has no further async confirmation step in this codebase - a successful return
+      // is recorded CONFIRMED directly (signature-collection-finalization-truth.ts's own header
+      // comment explains why this differs from SAFE_GUARD_EVM's SUBMITTED).
+      if (escrow.id) await recordFinalizationOutcome(escrow.id, 'CONFIRMED', submitted.arkTxid)
       return { txId: submitted.arkTxid }
     } catch (err) {
+      // The durable attempt row (if one was created above) is deliberately left at
+      // SUBMISSION_UNKNOWN — see wdk-execution-truth.ts's own corrected-lesson comment this file's
+      // header points to: a thrown error here cannot distinguish "never reached the ASP" from
+      // "reached it and the response was lost," so nothing further needs writing.
       throw new EscrowError(
         `LIGHTNING_HODL (Arkade) provider: failed to combine/finalize signatures for trade ${escrow.tradeId}: ${err instanceof Error ? err.message : String(err)}`
       )
     }
   }
 
-  async finalizeRelease(escrow: ArkEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
-    return this.finalizeArk(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+  async finalizeRelease(escrow: ArkEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[], pendingTxId?: string): Promise<{ txId: string }> {
+    return this.finalizeArk(escrow, unsignedPsbtBase64, signedPsbtBase64List, pendingTxId, 'release')
   }
 
-  async finalizeRefund(escrow: ArkEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string }> {
-    return this.finalizeArk(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+  async finalizeRefund(escrow: ArkEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[], pendingTxId?: string): Promise<{ txId: string }> {
+    return this.finalizeArk(escrow, unsignedPsbtBase64, signedPsbtBase64List, pendingTxId, 'refund')
   }
 
   // Not directly callable — the SettlementProvider interface still
