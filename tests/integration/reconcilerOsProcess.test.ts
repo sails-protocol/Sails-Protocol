@@ -19,7 +19,7 @@
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
-import { Fixtures, Sync, WorkerResult, blockedBy, expectCrossProcessAccounting, quiesced, sleep, startWorker, stopWorkers, waitUntil, AMOUNT_SATS } from './reconcilerProcessHarness'
+import { Fixtures, Sync, WorkerResult, blockedBy, expectCrossProcessAccounting, failedEffects, quiesced, sleep, startWorker, stopWorkers, waitUntil, AMOUNT_SATS } from './reconcilerProcessHarness'
 
 describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (real PostgreSQL)', () => {
   jest.setTimeout(420_000)
@@ -96,7 +96,7 @@ describe('Issue #253 - independent OS-process reconcilers, Redis off, SIGKILL (r
 
     const results = await Promise.all([a.done, b.done])
     for (const r of results) exited(r)
-    await fx.verify(buyer.id, seeded, { label: 'O1' })
+    await fx.verify(buyer.id, seeded, { label: 'O1', maxRepeatedNotifications: failedEffects('O1', results).length })
     // Every effect was applied by exactly one of the two processes (their own counters add up to the claims in the database).
     const applied = await expectCrossProcessAccounting(prisma, results, await fx.transitionIds(seeded))
     process.stdout.write(`[evidence] ${JSON.stringify({ label: 'O1 applied by the two processes together', applied })}\n`)

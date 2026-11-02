@@ -15,7 +15,7 @@
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
-import { Fixtures, RedisProxy, Sync, WorkerResult, blockedBy, channelSubscribers, expectCrossProcessAccounting, quiesced, startWorker, stopWorkers, waitUntil } from './reconcilerProcessHarness'
+import { Fixtures, RedisProxy, Sync, WorkerResult, blockedBy, channelSubscribers, expectCrossProcessAccounting, failedEffects, quiesced, startWorker, stopWorkers, waitUntil } from './reconcilerProcessHarness'
 
 describe('Issue #253 - cross-instance fanout enabled and failing; live publication racing the reconciler (real PostgreSQL, real Redis)', () => {
   jest.setTimeout(300_000)
@@ -84,7 +84,7 @@ describe('Issue #253 - cross-instance fanout enabled and failing; live publicati
 
     const results = await Promise.all([a.done, b.done])
     for (const r of results) exited(r)
-    await fx.verify(buyer.id, seeded, { label: 'O6a' })
+    await fx.verify(buyer.id, seeded, { label: 'O6a', maxRepeatedNotifications: failedEffects('O6a', results).length })
     await expectCrossProcessAccounting(prisma, results, await fx.transitionIds(seeded))
 
     const evidence = { subscribers, publishedToRedis: sum(results, (r) => r.stats!.fanoutPublished), receivedFromRedis: sum(results, (r) => r.stats!.fanoutReceived), publishCommandsThroughRelay: proxy.stats.publish - publishedBefore, subscribeCommandsThroughRelay: proxy.stats.subscribe }

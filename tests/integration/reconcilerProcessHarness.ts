@@ -249,6 +249,16 @@ export async function blockedBy(prisma: PrismaClient, blocked: string, blocker: 
   return rows.find((r) => r.app === `osp-${blocked}` && (r.blockers ?? []).includes(`osp-${blocker}`))?.locktype ?? null
 }
 
+/**
+ * The effects whose transaction failed, as each worker reported them. Each one rolled back and published at most one
+ * notification, so this list is what can excuse a repeat where no process was killed. It is printed as evidence.
+ */
+export function failedEffects(label: string, results: WorkerResult[]): string[] {
+  const failed = results.flatMap((r) => (r.stderr.match(/EFFECT_FAILED.*/g) ?? []).map((line) => `${r.label}: ${line}`))
+  process.stdout.write(`[evidence] ${JSON.stringify({ label: `${label} failed effects`, count: failed.length, failed })}\n`)
+  return failed
+}
+
 /** Sum, over the workers that exited normally, of the effects each applied: every effect must have been applied by exactly one process. */
 export async function expectCrossProcessAccounting(prisma: PrismaClient, results: WorkerResult[], transitionIds: string[]): Promise<Record<string, number>> {
   const claims = await prisma.eventProjectionClaim.groupBy({ by: ['projectionKey'], where: { eventId: { in: transitionIds } }, _count: { _all: true } })
