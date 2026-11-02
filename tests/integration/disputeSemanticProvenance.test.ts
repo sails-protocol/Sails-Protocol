@@ -17,6 +17,8 @@
 
 import { PrismaClient } from '@prisma/client'
 import { randomBytes, randomUUID } from 'crypto'
+import { readFileSync } from 'fs'
+import path from 'path'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
 
@@ -252,10 +254,11 @@ describe('Issue #254 - dispute reputation outcomes bind to the correct immutable
   it('C: recoverMissingRulingFinalization() discovers and correctly finalizes a round-0 ruling whose bookkeeping crashed BEFORE an appeal reopened the dispute — no slash (first-instance never overturns anything), recordRuling attributed to the REAL round-0 arbiter', async () => {
     requirePostgres('C recoverMissingRulingFinalization after appeal (#253 residual)')
     const originalArbiter = await makeArbiter()
-    const { dispute } = await makeResolvedMockDispute('RELEASE', originalArbiter)
+    const { dispute, escrow } = await makeResolvedMockDispute('RELEASE', originalArbiter)
     // Simulates: applyRuling()'s own resolve-write + fund movement already committed for real (the
     // Dispute row IS 'RESOLVED' — makeResolvedMockDispute's own fixture), but finalizeResolveDispute()
     // (the arbiter-bookkeeping step) never ran — no claim exists yet.
+    await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'COMPLETED' } })
     expect(await prisma.eventProjectionClaim.count({ where: { eventId: dispute.id, projectionKey: 'dispute.ruling-finalized' } })).toBe(0)
 
     const disputeService = new DisputeService(marketArbitrationProvider) as InstanceType<typeof DisputeService>
@@ -283,5 +286,69 @@ describe('Issue #254 - dispute reputation outcomes bind to the correct immutable
     expect(again.recovered).not.toContain(dispute.id)
     const profileAgain = await prisma.arbiterProfile.findUnique({ where: { participantId: originalArbiter } })
     expect(profileAgain!.rulingsTotal).toBe(1)
+  })
+
+  // ─── D: the APPEALED branch must not reopen what the F2 baseline deliberately held ─────────────────
+
+  const recoverAll = () => (new DisputeService(marketArbitrationProvider) as InstanceType<typeof DisputeService>).recoverMissingRulingFinalization(5000)
+  const rulingsOf = async (arbiterId: string) => (await prisma.arbiterProfile.findUnique({ where: { participantId: arbiterId } }))!.rulingsTotal
+
+  async function makeAppealedDispute(escrowStatus: 'COMPLETED' | 'DISPUTED', appealRound = 1) {
+    const originalArbiter = await makeArbiter()
+    const fixture = await makeResolvedMockDispute('RELEASE', originalArbiter)
+    await prisma.escrow.update({ where: { id: fixture.escrow.id }, data: { status: escrowStatus } })
+    await prisma.dispute.update({
+      where: { id: fixture.dispute.id },
+      data: { status: 'APPEALED', appealRound, previousRuling: 'RELEASE', previousArbiterId: originalArbiter, arbiterId: await makeArbiter(), ruling: null, resolvedAt: null },
+    })
+    return { ...fixture, originalArbiter }
+  }
+
+  it('D1: a held round-0 ruling stays held after an appeal: bookkeeping that may already have run is never replayed', async () => {
+    requirePostgres('D1 held ruling survives an appeal')
+    const originalArbiter = await makeArbiter()
+    const { dispute, escrow, buyer } = await makeResolvedMockDispute('RELEASE', originalArbiter)
+    await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'COMPLETED' } })
+    await prisma.eventProjectionClaim.create({ data: { eventId: dispute.id, projectionKey: 'dispute.ruling-finalization-held', subjectId: '0' } })
+    await (new DisputeService(marketArbitrationProvider) as InstanceType<typeof DisputeService>).appeal(dispute.id, buyer.id)
+
+    const { recovered, held } = await recoverAll()
+
+    expect(recovered).not.toContain(dispute.id)
+    expect(held).toContain(dispute.id)
+    expect(await rulingsOf(originalArbiter)).toBe(0)
+  })
+
+  it('D2: the baseline holds a historic APPEALED ruling with no finalized claim, never one already finalized', async () => {
+    requirePostgres('D2 baseline for historic APPEALED rulings')
+    const { dispute, originalArbiter } = await makeAppealedDispute('COMPLETED')
+    const finalized = await makeAppealedDispute('COMPLETED')
+    await prisma.eventProjectionClaim.create({ data: { eventId: finalized.dispute.id, projectionKey: 'dispute.ruling-finalized', subjectId: '0' } })
+
+    const sql = readFileSync(path.resolve(__dirname, '../../prisma/migrations/20261103120000_dispute_ruling_finalization_held_appealed/migration.sql'), 'utf8').replace(/^--.*$/gm, '')
+    for (const statement of sql.split(';').filter((s) => s.trim())) await prisma.$executeRawUnsafe(statement)
+    const { recovered, held } = await recoverAll()
+
+    expect(recovered).not.toContain(dispute.id)
+    expect(held).toContain(dispute.id)
+    expect(held).not.toContain(finalized.dispute.id)
+    expect(await rulingsOf(originalArbiter)).toBe(0)
+  })
+
+  it('D3: a round-0 ruling whose settlement never happened is not finalized (the provider failed after appeal() won the lock)', async () => {
+    requirePostgres('D3 unsettled round-0 ruling')
+    const { dispute, originalArbiter } = await makeAppealedDispute('DISPUTED')
+
+    expect((await recoverAll()).recovered).not.toContain(dispute.id)
+    expect(await rulingsOf(originalArbiter)).toBe(0)
+  })
+
+  it('D4: only round 0 can be rebuilt from previousRuling: a later round is left alone', async () => {
+    requirePostgres('D4 appealed past round 1')
+    const { dispute, originalArbiter } = await makeAppealedDispute('COMPLETED', 2)
+
+    expect((await recoverAll()).recovered).not.toContain(dispute.id)
+    expect(await rulingsOf(originalArbiter)).toBe(0)
+    expect(await prisma.eventProjectionClaim.count({ where: { eventId: dispute.id, projectionKey: 'dispute.ruling-finalized' } })).toBe(0)
   })
 })

@@ -41,6 +41,8 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
   let marketArbitrationProvider: typeof import('../../src/modules/open-settlement/market-arbitration.provider').marketArbitrationProvider
   let lightningHodlProvider: typeof import('../../src/modules/open-settlement/lightning-hodl.provider').lightningHodlProvider
   let safeGuardEvmProvider: typeof import('../../src/modules/open-settlement/safe-guard-evm.provider').safeGuardEvmProvider
+  let feeObligationService: typeof import('../../src/modules/open-settlement/fee-obligation.service').feeObligationService
+  let reconcilePendingSettlements: typeof import('../../src/modules/open-settlement/escrow-settlement-reconciliation.service').reconcilePendingSettlements
 
   beforeAll(async () => {
     process.env.MOCK_ESCROW = 'true'
@@ -56,6 +58,8 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
     ;({ marketArbitrationProvider } = require('../../src/modules/open-settlement/market-arbitration.provider'))
     ;({ lightningHodlProvider } = require('../../src/modules/open-settlement/lightning-hodl.provider'))
     ;({ safeGuardEvmProvider } = require('../../src/modules/open-settlement/safe-guard-evm.provider'))
+    ;({ feeObligationService } = require('../../src/modules/open-settlement/fee-obligation.service'))
+    ;({ reconcilePendingSettlements } = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service'))
     const { intentEngine } = require('../../src/core/intent-engine')
     const { OpenP2PTradeIntentHandler } = require('../../src/modules/open-p2p/intent-handler')
     intentEngine.registerHandler(OpenP2PTradeIntentHandler)
@@ -110,6 +114,7 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
       await prisma.escrowPendingTransaction.deleteMany({ where: { escrowId: { in: createdEscrowIds } } })
       const disputeIds = (await prisma.dispute.findMany({ where: { escrowId: { in: createdEscrowIds } }, select: { id: true } })).map((d) => d.id)
       if (disputeIds.length) await prisma.disputeAppealFee.deleteMany({ where: { disputeId: { in: disputeIds } } })
+      await prisma.economicDispositionAuthorization.deleteMany({ where: { escrowId: { in: createdEscrowIds } } })
       await prisma.dispute.deleteMany({ where: { escrowId: { in: createdEscrowIds } } })
       const transitions = await prisma.escrowEvent.findMany({ where: { escrowId: { in: createdEscrowIds } }, select: { id: true } })
       if (transitions.length) await prisma.eventProjectionClaim.deleteMany({ where: { subjectId: { in: transitions.map((t) => t.id) } } })
@@ -216,6 +221,7 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
   it('LIGHTNING_HODL: a delayed disputed RELEASE event, processed AFTER appeal() reopened the dispute, still awards the correct disputed outcome (never a plain-positive misread of the now-mutated Dispute row)', async () => {
     requirePostgres('LIGHTNING_HODL delayed after appeal')
     const arbiterId = await makeArbiter()
+    await makeArbiter() // the appeal panel needs a second eligible arbiter
     const { trade, escrow, buyer, seller } = await makeTradeEscrow('LIGHTNING_HODL')
     const dispute = await prisma.dispute.create({
       data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'test', arbiterId, status: 'RESOLVED', ruling: 'RELEASE', resolvedAt: new Date() },
@@ -273,6 +279,7 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
   it('SAFE_GUARD_EVM: a delayed disputed REFUND event, processed AFTER appeal() reopened the dispute, still awards the correct disputed outcome', async () => {
     requirePostgres('SAFE_GUARD_EVM delayed after appeal')
     const arbiterId = await makeArbiter()
+    await makeArbiter() // the appeal panel needs a second eligible arbiter
     const { trade, escrow, buyer, seller } = await makeTradeEscrow('SAFE_GUARD_EVM')
     const dispute = await prisma.dispute.create({
       data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'test', arbiterId, status: 'RESOLVED', ruling: 'REFUND', resolvedAt: new Date() },
@@ -311,6 +318,85 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
     const [buyerRow, sellerRow] = await Promise.all([userOf(buyer.id), userOf(seller.id)])
     expect(sellerRow!.reputationScore).toBe(2) // seller won REFUND - POSITIVE
     expect(buyerRow!.reputationScore).toBe(-5) // buyer lost - NEGATIVE, never NEUTRAL/NEUTRAL
+  })
+
+  // ─── #341 evidence 3/5: the reconciler, not the live path, publishes the settlement ────────────────
+
+  const crashCases = [
+    ['LIGHTNING_HODL', 'release', 'RELEASE'] as const,
+    ['LIGHTNING_HODL', 'refund', 'REFUND'] as const,
+    ['SAFE_GUARD_EVM', 'release', 'RELEASE'] as const,
+    ['SAFE_GUARD_EVM', 'refund', 'REFUND'] as const,
+  ]
+
+  async function expectDisputedOutcome(ruling: 'RELEASE' | 'REFUND', buyerId: string, sellerId: string, escrowId: string) {
+    const transition = (await prisma.escrowEvent.findFirst({ where: { escrowId, toStatus: ruling === 'RELEASE' ? 'COMPLETED' : 'REFUNDED' } }))!
+    await waitFor(projectedFor(transition.id))
+    const [buyerRow, sellerRow] = await Promise.all([userOf(buyerId), userOf(sellerId)])
+    expect(buyerRow!.reputationScore).toBe(ruling === 'RELEASE' ? 2 : -5)
+    expect(sellerRow!.reputationScore).toBe(ruling === 'RELEASE' ? -5 : 2)
+    expect(await prisma.eventProjectionClaim.count({ where: { eventId: transition.id, projectionKey: 'reputation.outcome' } })).toBe(2)
+  }
+
+  async function makeAppealableCrashFixture(type: 'LIGHTNING_HODL' | 'SAFE_GUARD_EVM', kind: 'release' | 'refund', ruling: 'RELEASE' | 'REFUND') {
+    const arbiterId = await makeArbiter()
+    await makeArbiter() // the appeal panel needs a second eligible arbiter
+    const fixture = await makeTradeEscrow(type)
+    const dispute = await prisma.dispute.create({
+      data: { tradeId: fixture.trade.id, escrowId: fixture.escrow.id, openedBy: fixture.buyer.id, reason: 'test', arbiterId, status: 'RESOLVED', ruling, resolvedAt: new Date() },
+    })
+    await makeDisputedPending(fixture.escrow.id, kind, dispute.id, arbiterId, ruling)
+    await spyFinalize(type === 'LIGHTNING_HODL' ? lightningHodlProvider : safeGuardEvmProvider, kind, `0x${randomUUID().replace(/-/g, '')}`)
+    return { ...fixture, dispute }
+  }
+
+  it.each(crashCases)('%s %s: a crash before the transition claim, then an appeal: PASS 2 still projects the frozen disputed outcome', async (type, kind, ruling) => {
+    requirePostgres(`${type} ${kind} PASS 2 after appeal`)
+    const { escrow, buyer, seller, dispute } = await makeAppealableCrashFixture(type, kind, ruling)
+    jest.spyOn(feeObligationService, 'recordObligationForEscrowSettlement').mockRejectedValueOnce(new Error('crash after the provider executed'))
+
+    await expect(escrowService.submitTransactionSignature(escrow.id, 'buyer-signer', 'signed-bundle')).rejects.toThrow()
+    expect(await prisma.escrowEvent.count({ where: { escrowId: escrow.id } })).toBe(0)
+    await new DisputeService(marketArbitrationProvider).appeal(dispute.id, buyer.id)
+
+    await reconcilePendingSettlements({ projectionGraceMs: 0 })
+    await expectDisputedOutcome(ruling, buyer.id, seller.id, escrow.id)
+  })
+
+  it.each(crashCases)('%s %s: a crash after the transition claim, then an appeal: concurrent PASS 3 republishes the frozen disputed outcome once', async (type, kind, ruling) => {
+    requirePostgres(`${type} ${kind} PASS 3 after appeal`)
+    const { escrow, buyer, seller, dispute } = await makeAppealableCrashFixture(type, kind, ruling)
+    const eventName = kind === 'release' ? 'settlement.escrow.released' : 'settlement.escrow.refunded'
+    const realEmit = eventBus.emit.bind(eventBus) as (...args: unknown[]) => Promise<void>
+    let crashed = false
+    jest.spyOn(eventBus, 'emit').mockImplementation((async (...args: unknown[]) => {
+      if (args[0] !== eventName || crashed) return realEmit(...args)
+      crashed = true
+      throw new Error('crash between the transition claim and its publication')
+    }) as never)
+
+    await expect(escrowService.submitTransactionSignature(escrow.id, 'buyer-signer', 'signed-bundle')).rejects.toThrow()
+    expect(await prisma.durableEventRecord.count({ where: { correlationId: escrow.tradeId, eventName } })).toBe(0)
+    await new DisputeService(marketArbitrationProvider).appeal(dispute.id, buyer.id)
+
+    await Promise.all([reconcilePendingSettlements({ projectionGraceMs: 0 }), reconcilePendingSettlements({ projectionGraceMs: 0 })])
+    await expectDisputedOutcome(ruling, buyer.id, seller.id, escrow.id)
+  })
+
+  it.each(crashCases)('%s %s: a pending operation with no frozen provenance on a disputed escrow never reaches the provider', async (type, kind, ruling) => {
+    requirePostgres(`${type} ${kind} legacy pending`)
+    const arbiterId = await makeArbiter()
+    const { trade, escrow, buyer } = await makeTradeEscrow(type)
+    await prisma.dispute.create({ data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'test', arbiterId, status: 'RESOLVED', ruling, resolvedAt: new Date() } })
+    await prisma.escrowPendingTransaction.create({
+      data: { escrowId: escrow.id, kind, toAddress: 'dest-address', requiredSigners: ['buyer-signer'], triggeredBy: arbiterId, unsignedPsbtBase64: 'unsigned-bundle-b64' },
+    })
+    const provider = type === 'LIGHTNING_HODL' ? lightningHodlProvider : safeGuardEvmProvider
+    const finalize = jest.spyOn(provider as any, kind === 'release' ? 'finalizeRelease' : 'finalizeRefund')
+
+    await expect(escrowService.submitTransactionSignature(escrow.id, 'buyer-signer', 'signed-bundle')).rejects.toThrow(/ambiguous-origin/)
+    expect(finalize).not.toHaveBeenCalled()
+    expect((await prisma.escrow.findUnique({ where: { id: escrow.id } }))!.status).toBe('DISPUTED')
   })
 
   // ─── 12: non-disputed flow remains unaffected ──────────────────────────────────────────────────────
