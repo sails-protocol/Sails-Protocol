@@ -271,6 +271,11 @@ describe('Codex findings on PR #570 (real PostgreSQL)', () => {
       const reported = report.requiresManualReview.map((r) => r.escrowId).filter((id) => id.startsWith('dispute:')).map((id) => id.slice('dispute:'.length))
       expect(reported.sort()).toEqual(expected)
       expect(await prisma.eventProjectionClaim.count({ where: { eventId: { in: ids }, projectionKey: 'dispute.ruling-finalized' } })).toBe(0)
+
+      // Held in two rounds, still one ruling to review.
+      await prisma.eventProjectionClaim.create({ data: { eventId: ids[0], projectionKey: 'dispute.ruling-finalization-held', subjectId: '1' } })
+      const { held: again } = await service.recoverMissingRulingFinalization()
+      expect(again.filter((id) => id === ids[0])).toHaveLength(1)
     }, 300_000)
   })
 

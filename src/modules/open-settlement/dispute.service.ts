@@ -1034,7 +1034,13 @@ export class DisputeService {
         failed.push({ disputeId: candidate.id, error: err instanceof Error ? err.message : String(err) })
       }
     }
-    const heldClaims = await prisma.eventProjectionClaim.findMany({ where: { projectionKey: RULING_FINALIZATION_HELD_KEY }, select: { eventId: true }, take: limit })
+    // Not bounded by `limit`, which paces replays: a held ruling left out here would drop out of review.
+    const heldClaims = await prisma.eventProjectionClaim.findMany({
+      where: { projectionKey: RULING_FINALIZATION_HELD_KEY },
+      select: { eventId: true },
+      distinct: ['eventId'],
+      orderBy: { eventId: 'asc' },
+    })
     return { recovered, failed, held: heldClaims.map((c) => c.eventId) }
   }
 
