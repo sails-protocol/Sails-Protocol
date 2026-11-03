@@ -3,9 +3,9 @@ import { applyEventProjectionOnce, effectIdentity, TRANSITION_PROJECTED_KEY, typ
 import { tradeRepository } from '../../modules/open-p2p/trade-repository'
 import type { Prisma } from '@prisma/client'
 import { eventBus } from './event-bus'
+import { projectSettlementOutcomes } from './settlement-provenance'
 import { reconciliationService } from '../../modules/open-p2p/reconciliation.service'
 import { reputationService } from '../../modules/open-reputation/reputation.service'
-import { vouchService } from '../../modules/open-reputation/vouch.service'
 import { broadcastToTrade } from '../../modules/open-p2p/chat-room-registry'
 import { executeSettlement } from '../../modules/open-settlement/settlement-orchestrator'
 import { wdkSettlementProvider, buyerIndexFor } from '../../modules/open-settlement/wdk-settlement.provider'
@@ -13,9 +13,6 @@ import { intentEngine } from '../../core/intent-engine'
 import { config } from '../../config'
 import { escrowsCreatedTotal, escrowsReleasedTotal, escrowsRefundedTotal, disputesOpenedTotal, qvacDetectionFailuresTotal } from '../metrics'
 import { childLogger } from '../logger'
-// Issue #254 - a plain, lightweight, CJS-compatible workspace package already statically imported by
-// dispute.service.ts (via dispute-outcome.ts) today, not a new heavy/ESM dependency for this file.
-import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from '../../modules/open-settlement/discretionary-authority'
 
 const log = childLogger('handlers')
 
@@ -202,104 +199,6 @@ async function accrueFeeFloor(tx: ProjectionTx, buyerId: string, sellerId: strin
   })
 }
 
-/**
- * Issue #254 - immutable, generation-correct provenance for "was this settlement.escrow.released/refunded
- * event actually caused by a real dispute ruling?" NEVER derived from CURRENT mutable Dispute state
- * (Dispute.status/ruling/arbiterId): appeal() can legitimately reopen a RESOLVED dispute (moving status to
- * APPEALED, clearing ruling) at any time, including while THIS event's own projection is still delayed
- * (crash/PASS-3 redelivery, or simply a slower handler) - a query against the row's CURRENT state would
- * then silently misclassify a real disputed release/refund as an ordinary cooperative one (or vice versa),
- * producing an exactly-once but WRONG reputation outcome. Layered, priority-ordered immutable sources,
- * checked in order of how strong the guarantee is:
- *
- *   1. eventDisputeId - the settlement event's OWN payload.disputeId (escrow.service.ts's
- *      releaseFunds()/refundFunds(), MOCK/WDK_USDT_EVM only). Set by dispute.service.ts's applyRuling() at
- *      the exact moment fund movement is triggered - event-carried and race-free by construction, since it
- *      travels with the durable event itself rather than being looked up later.
- *   2. semantic_transition_records (MULTISIG's existing Core-authoritative provenance,
- *      dispute-outcome.ts/M8-R) - committed BEFORE the settlement action is ever dispatched (that file's
- *      own "STRICTLY PRECEDES... calling any settlement action" ordering) and append-only/immutable from
- *      that point on (a reverted ruling deletes its own row via revertDisputeRulingRecord(), never mutates
- *      it) - reused as-is, no schema change.
- *   3. economic_disposition_authorizations (ADR-005's Commit Gate) - committed before the provider side
- *      effect and kept after the pending row is deleted. A recovered publication has no payload.disputeId
- *      to copy (the reconciler re-emits from the transition), so this is what keeps a crashed disputed
- *      settlement disputed. The same gate refuses a cooperative operation on a disputed escrow, so the
- *      row can only belong to a disputed settlement.
- *   4. Legacy/defense-in-depth fallback: the SAME mutable-Dispute query this codebase used before Issue
- *      #254. **Corrected/Implemented (Issue #254B, 2026-09-22):** this section previously disclosed
- *      LIGHTNING_HODL/SAFE_GUARD_EVM as an unfixed BLOCKER, reasoning that closing them would require a
- *      new EscrowPendingTransaction.disputeId schema column. Discovery proved that column (and
- *      rulingAppealRound/rulingArbiterId/rulingOutcome/rulingAuthoritySignature/rulingAuthorityIssuedAt)
- *      already existed - ADR-005/#218's own write-time provenance for the Economic Disposition Commit
- *      Gate, captured by initiateSignatureCollectionCore() the moment a disputed pending operation is
- *      created, immutable thereafter. escrow-pending-tx.ts's submitTransactionSignature() now threads
- *      pending.disputeId onto the settlement event exactly like source #1 above - MULTISIG/LIGHTNING_HODL/
- *      SAFE_GUARD_EVM (every rail that finalizes through that function) all reach source #1 now; only a
- *      row from before this fix shipped, or an as-yet-untraced code path, would ever still need this
- *      fallback.
- */
-async function wasCausedByDisputeRuling(escrowId: string, tradeId: string, eventDisputeId: string | undefined, legacyRuling: 'RELEASE' | 'REFUND'): Promise<boolean> {
-  if (eventDisputeId) return true
-
-  const coreRecord = await prisma.semanticTransitionRecord.findFirst({
-    where: { interactionId: escrowId, transitionType: ESCROW_DISPUTE_RULING_TRANSITION_TYPE },
-    select: { id: true },
-  })
-  if (coreRecord) return true
-
-  const authorization = await prisma.economicDispositionAuthorization.findFirst({
-    where: { escrowId },
-    select: { id: true },
-  })
-  if (authorization) return true
-
-  const legacy = await prisma.dispute.findFirst({
-    where: { tradeId, status: 'RESOLVED', ruling: legacyRuling },
-    select: { id: true },
-  })
-  return !!legacy
-}
-
-/** Outcome Engine for the released path (RFC-007 D8): a RELEASE ruling means
- *  the buyer won and the seller lost; a plain release (no dispute) means
- *  both parties completed cleanly. RFC-021 D7 — the losing seller's active
- *  vouches (if any) get burned via vouchService, applying the same
- *  "skin-in-the-game" reasoning D3 uses for arbiters to peer vouches. */
-async function applyReleaseOutcomes(effectId: string, tradeId: string, buyerId: string, sellerId: string, escrowId: string, eventDisputeId: string | undefined): Promise<void> {
-  const disputed = await wasCausedByDisputeRuling(escrowId, tradeId, eventDisputeId, 'RELEASE')
-  if (disputed) {
-    await reputationService.recordOutcomeOnce(effectId, tradeId, buyerId, 'POSITIVE')
-    await reputationService.recordOutcomeOnce(effectId, tradeId, sellerId, 'NEGATIVE')
-    await vouchService.burnVouchesForOnce(effectId, sellerId)
-  } else {
-    await reputationService.recordOutcomeOnce(effectId, tradeId, buyerId, 'POSITIVE')
-    await reputationService.recordOutcomeOnce(effectId, tradeId, sellerId, 'POSITIVE')
-  }
-}
-
-/** Outcome Engine for the refunded path (RFC-007 D9): a REFUND ruling means
- *  the seller won and the buyer lost; a plain refund with no dispute ever
- *  raised is a mutual cancellation — always Neutral, never Negative, for
- *  either party. RFC-021 D7 — same vouch-burn reasoning as released, for
- *  the buyer instead of the seller.
- *
- *  Returns whether this was a disputed refund so the caller can branch on
- *  "did this come from a dispute ruling?" for the Intent FAILED transition's
- *  `reason` field — same as the original inline implementation did. */
-async function applyRefundOutcomes(effectId: string, tradeId: string, buyerId: string, sellerId: string, escrowId: string, eventDisputeId: string | undefined): Promise<boolean> {
-  const disputed = await wasCausedByDisputeRuling(escrowId, tradeId, eventDisputeId, 'REFUND')
-  if (disputed) {
-    await reputationService.recordOutcomeOnce(effectId, tradeId, sellerId, 'POSITIVE')
-    await reputationService.recordOutcomeOnce(effectId, tradeId, buyerId, 'NEGATIVE')
-    await vouchService.burnVouchesForOnce(effectId, buyerId)
-  } else {
-    await reputationService.recordOutcomeOnce(effectId, tradeId, buyerId, 'NEUTRAL')
-    await reputationService.recordOutcomeOnce(effectId, tradeId, sellerId, 'NEUTRAL')
-  }
-  return disputed
-}
-
 // ─── Issue #294/#298 - projection identity helpers ───────────────────────────────────────────
 // Escrow is authoritative; Trade is a projection. Every downstream effect below is applied at most
 // once per (source transition, projectionKey, subject) via applyEventProjectionOnce(), and a stale or
@@ -419,7 +318,7 @@ export function registerEventHandlers(): void {
       }, payload.tradeId)   // correlationId (RFC-010)
     )
 
-    await applyReleaseOutcomes(effectId, payload.tradeId, trade.buyerId, trade.sellerId, payload.escrowId, payload.disputeId)
+    await projectSettlementOutcomes(effectId, 'RELEASE', payload.tradeId, trade.buyerId, trade.sellerId, payload.escrowId, payload.disputeId)
 
     if (trade.intentId) {
       await fulfillIntent(trade.intentId, payload.escrowId, 'RELEASED')
@@ -458,7 +357,7 @@ export function registerEventHandlers(): void {
     const trade = await prisma.trade.findUnique({ where: { id: payload.tradeId } })
     if (!trade) return
 
-    const resolvedRefund = await applyRefundOutcomes(effectIdentity(event), payload.tradeId, trade.buyerId, trade.sellerId, payload.escrowId, payload.disputeId)
+    const resolvedRefund = await projectSettlementOutcomes(effectIdentity(event), 'REFUND', payload.tradeId, trade.buyerId, trade.sellerId, payload.escrowId, payload.disputeId)
 
     if (trade.intentId) {
       await ensureIntentCommitted(trade.intentId, payload.escrowId)

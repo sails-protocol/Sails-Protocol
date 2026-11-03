@@ -5,7 +5,9 @@
 // production rail, and a legacy event may carry none of the three immutable sources.
 
 import { PrismaClient } from '@prisma/client'
+import { spawnSync } from 'child_process'
 import { randomBytes, randomUUID } from 'crypto'
+import path from 'path'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
 
@@ -119,6 +121,120 @@ describe('settlement provenance fails closed on an event with no immutable evide
     expect((await userOf(fixture.seller.id)).reputationScore).toBe(0)
     expect(await outcomeClaims(transitionId)).toBe(0)
     expect(await prisma.eventProjectionClaim.count({ where: { eventId: transitionId, projectionKey: HELD_KEY } })).toBe(1)
+  })
+
+  describe('a held case stays visible and has one way out', () => {
+    let resolve: typeof import('../../src/common/events/settlement-provenance').resolveHeldSettlementProvenance
+    let reconcilePendingSettlements: typeof import('../../src/modules/open-settlement/escrow-settlement-reconciliation.service').reconcilePendingSettlements
+    let reputationService: typeof import('../../src/modules/open-reputation/reputation.service').reputationService
+
+    beforeAll(() => {
+      if (!dbAvailable) return
+      ;({ resolveHeldSettlementProvenance: resolve } = require('../../src/common/events/settlement-provenance'))
+      ;({ reconcilePendingSettlements } = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service'))
+      ;({ reputationService } = require('../../src/modules/open-reputation/reputation.service'))
+    })
+
+    const decision = (effectId: string, value: 'DISPUTED' | 'COOPERATIVE') => ({ effectId, decision: value, decidedBy: 'operator', evidence: 'ticket-1' })
+    const reviewed = async (escrowId: string) => (await reconcilePendingSettlements({ projectionGraceMs: 60_000 })).requiresManualReview.filter((r) => r.escrowId === escrowId)
+
+    it('the reconciler reports it on every tick until it is decided, and the decision is durable', async () => {
+      pg.requirePostgres('held visibility')
+      const fixture = await makeLegacyMultisig('RELEASE', 'RESOLVED')
+      const effectId = await deliver(fixture, 'RELEASE')
+
+      expect(await reviewed(fixture.escrow.id)).toHaveLength(1)
+      expect(await reviewed(fixture.escrow.id)).toHaveLength(1)
+
+      await resolve(decision(effectId, 'DISPUTED'))
+
+      expect(await reviewed(fixture.escrow.id)).toHaveLength(0)
+      expect((await userOf(fixture.buyer.id)).reputationScore).toBe(2)
+      expect((await userOf(fixture.seller.id)).reputationScore).toBe(-5)
+      const audit = (await prisma.durableEventRecord.findFirst({ where: { correlationId: fixture.trade.id, eventName: 'settlement.provenance.resolved' } }))!
+      expect(audit.payload).toMatchObject({ transitionId: effectId, decision: 'DISPUTED', decidedBy: 'operator', evidence: 'ticket-1' })
+    })
+
+    it.each([['RELEASE', 2, 2], ['REFUND', 0, 0]] as const)('a COOPERATIVE decision on a %s applies the cooperative outcome once, also on replay', async (kind, buyer, seller) => {
+      pg.requirePostgres(`cooperative decision ${kind}`)
+      const fixture = await makeLegacyMultisig(kind, 'APPEALED')
+      const effectId = await deliver(fixture, kind)
+      const durable = (await prisma.durableEventRecord.findFirst({ where: { correlationId: fixture.trade.id, eventName: eventOf(kind) } }))!
+
+      await resolve(decision(effectId, 'COOPERATIVE'))
+      await resolve(decision(effectId, 'COOPERATIVE'))
+      await eventBus.redeliver(durable.id)
+      await sleep(300)
+
+      expect((await userOf(fixture.buyer.id)).reputationScore).toBe(buyer)
+      expect((await userOf(fixture.seller.id)).reputationScore).toBe(seller)
+      expect(await outcomeClaims(effectId)).toBe(2)
+    })
+
+    it('two concurrent, conflicting decisions: one wins, and only its outcome is applied', async () => {
+      pg.requirePostgres('conflicting decisions')
+      const fixture = await makeLegacyMultisig('RELEASE', 'RESOLVED')
+      const effectId = await deliver(fixture, 'RELEASE')
+
+      const results = await Promise.allSettled([resolve(decision(effectId, 'DISPUTED')), resolve(decision(effectId, 'COOPERATIVE'))])
+
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+      const won = (await prisma.eventProjectionClaim.findFirstOrThrow({ where: { eventId: effectId, projectionKey: 'settlement.provenance-decision' } })).subjectId
+      expect((await userOf(fixture.seller.id)).reputationScore).toBe(won === 'DISPUTED' ? -5 : 2)
+      expect(await outcomeClaims(effectId)).toBe(2)
+    })
+
+    it('a crash after the decision: the case stays listed, the same decision finishes, a different one is refused', async () => {
+      pg.requirePostgres('crash after decision')
+      const fixture = await makeLegacyMultisig('RELEASE', 'RESOLVED')
+      const effectId = await deliver(fixture, 'RELEASE')
+      jest.spyOn(reputationService, 'recordOutcomeOnce').mockRejectedValueOnce(new Error('crash'))
+
+      await expect(resolve(decision(effectId, 'DISPUTED'))).rejects.toThrow('crash')
+      expect(await reviewed(fixture.escrow.id)).toHaveLength(1)
+
+      await expect(resolve(decision(effectId, 'COOPERATIVE'))).rejects.toThrow(/already decided/)
+      await resolve(decision(effectId, 'DISPUTED'))
+
+      expect((await userOf(fixture.seller.id)).reputationScore).toBe(-5)
+      expect(await reviewed(fixture.escrow.id)).toHaveLength(0)
+    })
+
+    it('a decision cannot contradict durable evidence, needs a stated reason, and only applies to a held case', async () => {
+      pg.requirePostgres('decision guards')
+      const fixture = await makeLegacyMultisig('RELEASE', 'RESOLVED')
+      const effectId = await deliver(fixture, 'RELEASE')
+      const dispute = (await prisma.dispute.findFirst({ where: { escrowId: fixture.escrow.id } }))!
+      await prisma.economicDispositionAuthorization.create({
+        data: { pendingOperationId: randomUUID(), escrowId: fixture.escrow.id, disputeId: dispute.id, appealRound: 0, arbiterId: dispute.arbiterId!, ruling: 'RELEASE', operationDigest: 'digest' },
+      })
+
+      await expect(resolve(decision(effectId, 'COOPERATIVE'))).rejects.toThrow(/contradicts durable evidence/)
+      await expect(resolve({ ...decision(effectId, 'DISPUTED'), evidence: ' ' })).rejects.toThrow(/requires decidedBy and evidence/)
+      await expect(resolve(decision(randomUUID(), 'DISPUTED'))).rejects.toThrow()
+      expect(await outcomeClaims(effectId)).toBe(0)
+    })
+
+    it('the operator CLI only lists without arguments and writes nothing without --apply', async () => {
+      pg.requirePostgres('operator CLI')
+      const fixture = await makeLegacyMultisig('RELEASE', 'RESOLVED')
+      const effectId = await deliver(fixture, 'RELEASE')
+      const cli = (...args: string[]) => spawnSync('npx', ['ts-node', '--transpile-only', 'scripts/resolve-held-settlement-provenance.ts', ...args], {
+        cwd: path.resolve(__dirname, '../..'), shell: true, encoding: 'utf8', maxBuffer: 1 << 26,
+      })
+
+      const listed = cli()
+      expect(listed.status).toBe(0)
+      expect(listed.stdout).toContain(effectId)
+
+      const dry = cli('--effect', effectId, '--decision', 'DISPUTED', '--decided-by', 'operator', '--evidence', 'ticket-1')
+      expect(dry.stdout).toContain('Dry run')
+      expect(await prisma.eventProjectionClaim.count({ where: { eventId: effectId, projectionKey: 'settlement.provenance-decision' } })).toBe(0)
+
+      const applied = cli('--effect', effectId, '--decision', 'DISPUTED', '--decided-by', 'operator', '--evidence', 'ticket-1', '--apply')
+      expect(applied.status).toBe(0)
+      expect((await userOf(fixture.seller.id)).reputationScore).toBe(-5)
+    })
   })
 
   it('an escrow that was never disputed stays cooperative and is not held', async () => {

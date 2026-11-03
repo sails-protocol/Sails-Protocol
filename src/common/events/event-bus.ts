@@ -192,6 +192,16 @@ export interface DisputeOpenedEvent extends DisputeEvent {
 // dispute.resolved's real payload — was sharing the generic DisputeEvent
 // shape, which had no ruling field; a resolution notification with no
 // ruling in it isn't useful to anyone listening.
+// A human decision on a settlement held for missing provenance (settlement-provenance.ts): the durable
+// record of who decided, what, and on what evidence.
+export interface SettlementProvenanceResolvedEvent {
+  escrowId: string
+  transitionId: string
+  decision: 'DISPUTED' | 'COOPERATIVE'
+  decidedBy: string
+  evidence: string
+}
+
 export interface DisputeResolvedEvent extends DisputeEvent {
   tradeId: string
   ruling: 'RELEASE' | 'REFUND' | 'SPLIT'
@@ -403,6 +413,7 @@ export interface SailsEventMap {
   'settlement.escrow.released': SettlementEscrowStatusChangedEvent
   'settlement.escrow.disputed': SettlementEscrowStatusChangedEvent
   'settlement.escrow.refunded': SettlementEscrowStatusChangedEvent
+  'settlement.provenance.resolved': SettlementProvenanceResolvedEvent
   'settlement.escrow.split': SettlementEscrowStatusChangedEvent // RFC-021 D9
   // Fase 7.3.1 §C, made a real status transition by Fase 7.3.3 §B —
   // FUNDS_LOCKED -> EXPIRED, a real, durable, observed-not-acted-upon

@@ -19,9 +19,8 @@ const mockTradeUpdate = jest.fn()
 const mockTradeFindUnique = jest.fn()
 const mockProjectEscrowStatus = jest.fn().mockResolvedValue({ applied: true })
 const mockDisputeFindFirst = jest.fn()
-// Issue #254 - checked BEFORE the legacy mockDisputeFindFirst fallback; null by default so every existing
-// test in this file (which asserts against the legacy Dispute-based query) is unaffected unless a test
-// explicitly wants to exercise the new MULTISIG semantic_transition_records provenance path instead.
+// Issue #254 - immutable provenance, read before the Dispute existence check; null by default, so a test
+// reaches the disputed outcome through the event's own disputeId, the shape a real ruling publishes.
 const mockSemanticTransitionRecordFindFirst = jest.fn().mockResolvedValue(null)
 const mockUserUpdate = jest.fn()
 const mockEscrowFindUnique = jest.fn()
@@ -179,9 +178,8 @@ describe('RFC-007 D8/D9 Outcome Engine (dispute-aware, via settlement.escrow.rel
   })
 
   it('completion via a RELEASE dispute ruling: buyer POSITIVE, seller NEGATIVE — not both Positive', async () => {
-    mockDisputeFindFirst.mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', status: 'RESOLVED', ruling: 'RELEASE' })
 
-    await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'COMPLETED' })
+    await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', disputeId: 'dispute-1', from: 'DISPUTED', to: 'COMPLETED' })
 
     const scoreUpdates = mockUserUpdate.mock.calls.filter((c) => c[0]?.data?.reputationScore)
     expect(scoreUpdates.find((c) => c[0].where.id === 'buyer-1')?.[0].data.reputationScore).toEqual({ increment: 2 })
@@ -199,9 +197,8 @@ describe('RFC-007 D8/D9 Outcome Engine (dispute-aware, via settlement.escrow.rel
   })
 
   it('refund via a REFUND dispute ruling: seller POSITIVE, buyer NEGATIVE — not both Neutral', async () => {
-    mockDisputeFindFirst.mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', status: 'RESOLVED', ruling: 'REFUND' })
 
-    await handlers['settlement.escrow.refunded']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'REFUNDED' })
+    await handlers['settlement.escrow.refunded']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', disputeId: 'dispute-1', from: 'DISPUTED', to: 'REFUNDED' })
 
     const scoreUpdates = mockUserUpdate.mock.calls.filter((c) => c[0]?.data?.reputationScore)
     expect(scoreUpdates.find((c) => c[0].where.id === 'buyer-1')?.[0].data.reputationScore).toEqual({ increment: -5 })
@@ -230,7 +227,7 @@ describe('settlement.escrow.split (RFC-021 D9) — NEUTRAL for both, no vouch bu
   })
 
   it('scores both parties NEUTRAL and never touches vouches', async () => {
-    await handlers['settlement.escrow.split']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'SPLIT' })
+    await handlers['settlement.escrow.split']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', disputeId: 'dispute-1', from: 'DISPUTED', to: 'SPLIT' })
 
     // Issue #294 - the Trade status is projected from the persisted Escrow (never from the event payload).
     expect(mockProjectEscrowStatus).toHaveBeenCalledWith('trade-1', 'escrow-1', { tx: expect.anything() })
@@ -244,7 +241,7 @@ describe('settlement.escrow.split (RFC-021 D9) — NEUTRAL for both, no vouch bu
   })
 
   it('increments totalTrades/totalVolumeBtc for both parties, same as a real settlement action', async () => {
-    await handlers['settlement.escrow.split']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'SPLIT' })
+    await handlers['settlement.escrow.split']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', disputeId: 'dispute-1', from: 'DISPUTED', to: 'SPLIT' })
 
     const volumeUpdates = mockUserUpdate.mock.calls.filter((c) => c[0]?.data?.totalTrades)
     expect(volumeUpdates.find((c) => c[0].where.id === 'buyer-1')?.[0].data).toMatchObject({ totalTrades: { increment: 1 }, totalVolumeBtc: { increment: '0.01' } })
@@ -252,7 +249,7 @@ describe('settlement.escrow.split (RFC-021 D9) — NEUTRAL for both, no vouch bu
   })
 
   it('walks the Intent through SETTLING then FULFILLED, in order', async () => {
-    await handlers['settlement.escrow.split']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'SPLIT' })
+    await handlers['settlement.escrow.split']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', disputeId: 'dispute-1', from: 'DISPUTED', to: 'SPLIT' })
 
     expect(mockIntentTransition).toHaveBeenNthCalledWith(2, 'intent-1', 'SETTLING', 'system:trade-lifecycle', 'intent.settling', expect.objectContaining({ intentId: 'intent-1' }))
     // Issue #291 hardening: a settled escrow proves the funds were locked, so the Intent is first caught up to COMMITTED
@@ -411,10 +408,9 @@ describe('RFC-021 D7 — vouch burned on the losing party of a resolved dispute'
   })
 
   it('burns the seller\'s active vouch on a RELEASE ruling (seller lost)', async () => {
-    mockDisputeFindFirst.mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', status: 'RESOLVED', ruling: 'RELEASE' })
     mockVouchFindMany.mockResolvedValueOnce([{ id: 'vouch-1', voucherId: 'voucher-1', voucheeId: 'seller-1', burnedAt: null }])
 
-    await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'COMPLETED' })
+    await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', disputeId: 'dispute-1', from: 'DISPUTED', to: 'COMPLETED' })
 
     expect(mockVouchFindMany).toHaveBeenCalledWith({ where: { voucheeId: 'seller-1' } })
     expect(mockVouchUpdate).toHaveBeenCalledWith({ where: { id: 'vouch-1', burnedAt: null }, data: { burnedAt: expect.any(Date) } })
@@ -423,10 +419,9 @@ describe('RFC-021 D7 — vouch burned on the losing party of a resolved dispute'
   })
 
   it('burns the buyer\'s active vouch on a REFUND ruling (buyer lost)', async () => {
-    mockDisputeFindFirst.mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', status: 'RESOLVED', ruling: 'REFUND' })
     mockVouchFindMany.mockResolvedValueOnce([{ id: 'vouch-1', voucherId: 'voucher-1', voucheeId: 'buyer-1', burnedAt: null }])
 
-    await handlers['settlement.escrow.refunded']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'REFUNDED' })
+    await handlers['settlement.escrow.refunded']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', disputeId: 'dispute-1', from: 'DISPUTED', to: 'REFUNDED' })
 
     expect(mockVouchFindMany).toHaveBeenCalledWith({ where: { voucheeId: 'buyer-1' } })
     const voucherPenalty = mockUserUpdate.mock.calls.find((c) => c[0].where.id === 'voucher-1')
@@ -434,10 +429,9 @@ describe('RFC-021 D7 — vouch burned on the losing party of a resolved dispute'
   })
 
   it('does nothing when the losing party has no active vouch', async () => {
-    mockDisputeFindFirst.mockResolvedValueOnce({ id: 'dispute-1', tradeId: 'trade-1', status: 'RESOLVED', ruling: 'RELEASE' })
     mockVouchFindMany.mockResolvedValueOnce([])
 
-    await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', from: 'DISPUTED', to: 'COMPLETED' })
+    await handlers['settlement.escrow.released']({ tradeId: 'trade-1', escrowId: 'escrow-1', triggeredBy: 'arbiter-1', disputeId: 'dispute-1', from: 'DISPUTED', to: 'COMPLETED' })
 
     expect(mockVouchUpdate).not.toHaveBeenCalled()
   })
