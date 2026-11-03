@@ -70,6 +70,9 @@ export const RULING_FINALIZATION_HELD_KEY = 'dispute.ruling-finalization-held'
 // A settlement with a Dispute and no immutable provenance: its reputation outcomes wait for a human decision.
 // See common/events/settlement-provenance.ts. Keyed on the effect identity; held and resolved use the escrow id
 // as subject, the decision uses the decided value.
+// The dispute a settlement transition was claimed for, written atomically with the claim by emitEscrowTransition()
+// when the caller carries a disputeId. Keyed on the transition id, so it survives a republication without payload.
+export const TRANSITION_DISPUTE_PROVENANCE_KEY = 'transition.dispute-provenance'
 export const SETTLEMENT_PROVENANCE_HELD_KEY = 'settlement.provenance-held'
 export const SETTLEMENT_PROVENANCE_DECISION_KEY = 'settlement.provenance-decision'
 export const SETTLEMENT_PROVENANCE_RESOLVED_KEY = 'settlement.provenance-resolved'

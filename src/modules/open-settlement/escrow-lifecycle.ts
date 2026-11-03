@@ -1,4 +1,4 @@
-import { TRANSITION_CLAIMED_KEY } from '../../common/events/event-projection'
+import { TRANSITION_CLAIMED_KEY, TRANSITION_DISPUTE_PROVENANCE_KEY } from '../../common/events/event-projection'
 import { childLogger } from '../../common/logger'
 import { Prisma } from '@prisma/client'
 import { createHash } from 'crypto'
@@ -486,6 +486,10 @@ export async function emitEscrowTransition(
     // eventId here holds the transition (EscrowEvent) id - no durable event exists yet.
     if (RECOVERABLE_TRANSITION_EVENTS.has(eventName as string)) {
       await tx.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: TRANSITION_CLAIMED_KEY, subjectId: escrowId } })
+    }
+    // Issue #341 - the payload's disputeId is lost when recovery republishes from the transition; this row is not.
+    if (typeof eventExtra.disputeId === 'string') {
+      await tx.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: TRANSITION_DISPUTE_PROVENANCE_KEY, subjectId: eventExtra.disputeId } })
     }
     return transition.id as string
   })
