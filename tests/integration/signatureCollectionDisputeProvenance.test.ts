@@ -400,6 +400,24 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
     expect((await prisma.escrow.findUnique({ where: { id: escrow.id } }))!.status).toBe('DISPUTED')
   })
 
+  // #341 evidence 5 - a retry cannot rewrite the identity the first attempt was authorized under.
+  it.each(crashCases)('%s %s: a pending operation whose disputeId changed after authorization is refused on retry, before the provider', async (type, kind, ruling) => {
+    requirePostgres(`${type} ${kind} frozen identity`)
+    const { escrow, dispute } = await makeAppealableCrashFixture(type, kind, ruling)
+    const provider = type === 'LIGHTNING_HODL' ? lightningHodlProvider : safeGuardEvmProvider
+    const finalize = jest.spyOn(provider as any, kind === 'release' ? 'finalizeRelease' : 'finalizeRefund').mockRejectedValueOnce(new Error('provider unavailable'))
+    await expect(escrowService.submitTransactionSignature(escrow.id, 'buyer-signer', 'signed-bundle')).rejects.toThrow('provider unavailable')
+    const unrelated = await makeTradeEscrow(type)
+    const other = await prisma.dispute.create({ data: { tradeId: unrelated.trade.id, escrowId: unrelated.escrow.id, openedBy: unrelated.buyer.id, reason: 'other' } })
+    finalize.mockClear()
+
+    await prisma.escrowPendingTransaction.update({ where: { escrowId: escrow.id }, data: { disputeId: other.id } })
+
+    await expect(escrowService.submitTransactionSignature(escrow.id, 'buyer-signer', 'signed-bundle')).rejects.toThrow(/no longer matches/)
+    expect(finalize).not.toHaveBeenCalled()
+    expect((await prisma.economicDispositionAuthorization.findFirstOrThrow({ where: { escrowId: escrow.id } })).disputeId).toBe(dispute.id)
+  })
+
   // ─── 12: non-disputed flow remains unaffected ──────────────────────────────────────────────────────
 
   it('a COOPERATIVE (non-disputed) LIGHTNING_HODL release — no disputeId on the pending row — still awards both-POSITIVE, unaffected by this change', async () => {
