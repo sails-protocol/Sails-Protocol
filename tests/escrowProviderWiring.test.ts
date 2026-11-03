@@ -153,8 +153,12 @@ const mockDurableEventFindFirst = jest.fn().mockResolvedValue(null)
 // mockEscrowUpdateMany/mockPendingTxCreate/mockEscrowFundingEvidenceFindMany
 // sees the call whether it went through the mocked prisma singleton or
 // through this tx passthrough, exactly like a real Prisma transaction).
+// ADR-005 - the live dispute a recorded ruling generation is compared against, inside the gate's transaction.
+const mockLiveDisputeFindUnique = jest.fn()
 const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) =>
   callback({
+    dispute: { findUnique: (...args: unknown[]) => mockLiveDisputeFindUnique(...args) },
+    economicDispositionAuthorization: { findUnique: async () => null, create: async ({ data }: any) => ({ id: 'eda-1', ...data }) },
     durableEventRecord: {
       create: (...args: unknown[]) => mockDurableEventCreate(...args),
       findFirst: (...args: unknown[]) => mockDurableEventFindFirst(...args),
@@ -1467,7 +1471,10 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
     mockPendingTxFindUnique.mockResolvedValue({
       id: 'ptx-3', escrowId: 'escrow-1', kind: 'split', requiredSigners: ['buyer-1'],
       unsignedPsbtBase64: 'unsigned-split-psbt', triggeredBy: 'arbiter-1',
+      // What initiateSplit() records on a DISPUTED escrow: the ruling generation that authorized it.
+      disputeId: 'dispute-1', rulingAppealRound: 0, rulingArbiterId: 'arbiter-1', rulingOutcome: 'SPLIT', rulingAuthoritySignature: null,
     })
+    mockLiveDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', appealRound: 0, arbiterId: 'arbiter-1', ruling: 'SPLIT', authoritySignature: null })
     mockTxSignatureFindMany.mockResolvedValue([
       { participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' },
     ])

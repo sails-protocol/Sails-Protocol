@@ -280,6 +280,14 @@ const NON_TERMINAL_QUERY_STATUSES = ['COMPLETED', 'REFUNDED', 'SPLIT'] as const
 // gated primitive every live signer call already uses) and run the same
 // shared downstream effects PASS 1 and PASS 2 both already use. No new
 // finalize/retry primitive was invented.
+// Only the SPECIFIC "lost the atomic claim" error (claimedCount === 0 — see claimEscrowTransition()'s own message) is
+// a benign concurrent-claim outcome: someone else (a live signer's own retry, a concurrent recovery worker, or an
+// openDispute() that won) already moved this escrow, and their call path owns what follows. Any OTHER error (an
+// invalid transition, the circuit breaker open, a genuine DB failure) is a real anomaly, never reclassified.
+function isLostEscrowClaim(err: unknown): boolean {
+  return err instanceof EscrowError && /already transitioned by a concurrent request/.test(err.message)
+}
+
 async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport): Promise<void> {
   const candidates = await prisma.escrowPendingTransaction.findMany({
     where: { escrow: { type: 'MULTISIG', status: { notIn: [...NON_TERMINAL_QUERY_STATUSES] } } },
@@ -324,15 +332,33 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
       // recoverable even if authority changed after the original broadcast
       // (UNKNOWN != FAILED). A genuinely new economic side effect, however,
       // must pass the same ADR-005 + ADR-004 commit gates as the live path.
-      const result = await multisigProvider.reconcilePendingSettlement(
-        input,
-        pending.unsignedPsbtBase64,
-        signedList as string[],
-        async () => {
-          await authorizeDisputedPendingExecution(pending)
-          await authorizePendingExecution(pending)
+      //
+      // The escrow claim is taken before the first broadcast, not after it. It is the same conditional status claim
+      // openDispute() contends on, so it serializes the two: a dispute opened first makes this claim fail and nothing
+      // is broadcast; once this claim wins, the escrow is no longer disputable and a later openDispute() is refused.
+      // The claim is never reverted: a failed broadcast may still have reached the network (UNKNOWN), and PASS 1
+      // converges a claimed escrow without txReleaseId from chain truth.
+      let claimedBeforeBroadcast = false
+      let result: Awaited<ReturnType<typeof multisigProvider.reconcilePendingSettlement>>
+      try {
+        result = await multisigProvider.reconcilePendingSettlement(
+          input,
+          pending.unsignedPsbtBase64,
+          signedList as string[],
+          async () => {
+            await authorizeDisputedPendingExecution(pending)
+            await authorizePendingExecution(pending)
+            await claimEscrowTransition(escrow.id, escrow.status, targetStatus)
+            claimedBeforeBroadcast = true
+          }
+        )
+      } catch (err) {
+        if (isLostEscrowClaim(err)) {
+          report.alreadyClaimedConcurrently.push(escrow.id)
+          continue
         }
-      )
+        throw err
+      }
       if (result.outcome === 'ANOMALY') {
         // FULLY_SIGNED_NOT_FINALIZED, surfaced explicitly rather than
         // left invisible — see this file's own C8 header comment. Fails
@@ -342,24 +368,16 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
         continue
       }
 
-      try {
-        await claimEscrowTransition(escrow.id, escrow.status, targetStatus)
-      } catch (err) {
-        // Only the SPECIFIC "lost the atomic claim" error (claimedCount
-        // === 0 — see claimEscrowTransition()'s own message) is treated
-        // as a benign concurrent-claim outcome: someone else (a live
-        // signer's own retry — submitTransactionSignature() resubmitting
-        // an already-recorded signature re-triggers its own allSubmitted
-        // branch — or a concurrent recovery worker) already won this
-        // exact claim, and their call path owns the rest of the
-        // downstream effects. Any OTHER error (an invalid transition, the
-        // circuit breaker open, a genuine DB failure) is a real anomaly,
-        // never silently reclassified as "someone else handled it."
-        if (err instanceof EscrowError && /already transitioned by a concurrent request/.test(err.message)) {
-          report.alreadyClaimedConcurrently.push(escrow.id)
-          continue
+      if (!claimedBeforeBroadcast) {
+        try {
+          await claimEscrowTransition(escrow.id, escrow.status, targetStatus)
+        } catch (err) {
+          if (isLostEscrowClaim(err)) {
+            report.alreadyClaimedConcurrently.push(escrow.id)
+            continue
+          }
+          throw err
         }
-        throw err
       }
 
       const updateData = targetStatus === 'REFUNDED' ? { txReleaseId: result.txId } : { txReleaseId: result.txId, releasedAt: new Date() }
