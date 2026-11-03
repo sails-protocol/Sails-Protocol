@@ -134,6 +134,20 @@ export async function authorizeDisputedPendingExecution(pending: DisputedPending
         'from durable current/historical facts. Refusing to execute an ambiguous-origin pending operation (ADR-005).'
       )
     }
+    // A missing Dispute row alone proves nothing: openDispute() makes the escrow DISPUTED before raiseDispute()
+    // writes the row, and a row can be deleted. The escrow's own status and its recorded transitions decide.
+    const escrow = await prisma.escrow.findUnique({ where: { id: pending.escrowId }, select: { status: true } })
+    const disputedTransition = await prisma.escrowEvent.findFirst({
+      where: { escrowId: pending.escrowId, OR: [{ toStatus: 'DISPUTED' }, { fromStatus: 'DISPUTED' }] },
+      select: { id: true },
+    })
+    if (!escrow || escrow.status === 'DISPUTED' || disputedTransition) {
+      throw new EscrowError(
+        `Pending operation ${pending.id} on escrow ${pending.escrowId} carries no recorded Economic Disposition ` +
+        'Authority provenance, and this escrow is or was DISPUTED — refusing to execute it as a cooperative ' +
+        'operation (ADR-005).'
+      )
+    }
     return null
   }
 
