@@ -510,7 +510,7 @@ export async function submitTransactionSignature(escrowId: string, participantId
     // never re-derived from current Dispute state) closes the #254 Day-0 blocker for every rail that
     // finalizes through THIS function (MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM) - no schema change: the
     // column already existed for the Economic Disposition Commit Gate, only threading it onto the
-    // settlement event itself was missing. common/events/handlers.ts's wasCausedByDisputeRuling() reads
+    // settlement event itself was missing. common/events/settlement-provenance.ts's classifySettlementProvenance() reads
     // this exact field first, before any other provenance source.
     await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, targetStatus, pending.triggeredBy, eventName, {
       txId: result.txId,

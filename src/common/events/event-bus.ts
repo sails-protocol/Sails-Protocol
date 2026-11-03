@@ -65,10 +65,10 @@ export interface SettlementEscrowStatusChangedEvent {
   // applyRuling(), or the pending operation frozen for it - Issue #254B), never a cooperative seller
   // action - captured at the exact moment fund movement is triggered, immutable and event-carried from
   // that point forward. A later appeal() mutating Dispute.status/ruling can never retroactively change
-  // what THIS event means: common/events/handlers.ts's reputation-outcome derivation reads this field
+  // what THIS event means: common/events/settlement-provenance.ts reads this field
   // instead of re-querying current (mutable) Dispute state. Absent for a plain, non-disputed
-  // release/refund and for a publication recovered by the reconciler: handlers.ts then reads the durable
-  // records it lists.
+  // release/refund and for a publication recovered by the reconciler: settlement-provenance.ts then reads
+  // the durable records it lists.
   disputeId?: string
 }
 
