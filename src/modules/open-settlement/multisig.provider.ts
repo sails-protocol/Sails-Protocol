@@ -65,6 +65,17 @@
  *
  * Testnet only. MULTISIG_SEED empty by default — same "surface a clear
  * config error, don't refuse to boot" pattern as WDK_SEED_PHRASE.
+ *
+ * **Corrected (Issue #220, 2026-09-27):** "Testnet only" described the
+ * Phase-1 state and is stale. The code supports MULTISIG_NETWORK=mainnet
+ * (networkFor() below, normalized at config load) behind a mainnet-specific
+ * boot guard (config/index.ts LB-01), and #220 deliberately leaves MULTISIG
+ * out of escrow-providers.ts's PRODUCTION_INELIGIBLE_TYPES — it is the only
+ * production-selectable settlement rail. Evidence: a disclosed small-value
+ * mainnet rehearsal (docs/MAINNET_MULTISIG_PROOF.md). This states what the
+ * code allows and what was rehearsed, not an audit attestation: no
+ * independent security audit of mainnet operation is recorded in this
+ * repository.
  */
 import * as ecc from 'tiny-secp256k1'
 import { BIP32Factory, type BIP32Interface } from 'bip32'

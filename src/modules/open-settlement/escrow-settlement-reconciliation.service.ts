@@ -4,7 +4,7 @@ import { config } from '../../config'
 import { EscrowError, SettlementResultConflictError } from '../../common/errors'
 import { withEscrowFundingLock, loadParticipantPubkeys, emitEscrowTransition, claimEscrowTransition, EVENT_NAME_BY_TARGET_STATUS, resolvePayoutAddress } from './escrow-lifecycle'
 import { eventBus } from '../../common/events/event-bus'
-import { TRANSITION_CLAIMED_KEY, TRANSITION_PROJECTED_KEY } from '../../common/events/event-projection'
+import { listHeldSettlementProvenance, TRANSITION_CLAIMED_KEY, TRANSITION_PROJECTED_KEY } from '../../common/events/event-projection'
 import { escrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
@@ -1104,6 +1104,14 @@ export async function reconcilePendingSettlements(options: { projectionGraceMs?:
     for (const f of failed) report.failed.push({ escrowId: `dispute:${f.disputeId}`, error: f.error })
   } catch (err) {
     report.failed.push({ escrowId: 'dispute:*', error: err instanceof Error ? err.message : String(err) })
+  }
+
+  try {
+    for (const { effectId, escrowId } of await listHeldSettlementProvenance()) {
+      report.requiresManualReview.push({ escrowId, reason: `Settlement ${effectId} has a Dispute but no immutable provenance: reputation outcomes held for a human decision.` })
+    }
+  } catch (err) {
+    report.failed.push({ escrowId: 'settlement-provenance:*', error: err instanceof Error ? err.message : String(err) })
   }
 
   return report

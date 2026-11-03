@@ -132,6 +132,13 @@ offers.findMany = jest.fn(async (args: any) => {
 const trades = makeTable('trade', { status: 'PENDING', escrowId: null })
 const escrows = makeTable('escrow', { status: 'CREATED' })
 const escrowEvents = makeTable('escrowEvent')
+// emitEscrowTransition() chains each row to the latest one (orderBy createdAt desc); the generic findFirst returns
+// the first match, which would branch the chain settlement provenance walks.
+escrowEvents.findFirst = jest.fn(async ({ where = {}, orderBy }: any = {}) => {
+  const matches = [...escrowEvents.rows.values()].filter((r) => Object.entries(where).every(([k, v]) => r[k] === v))
+  const row = orderBy?.createdAt === 'desc' ? matches[matches.length - 1] : matches[0]
+  return row ? { ...row } : null
+})
 // Missão 11 Fase 4.1 — createEscrow() now unguardedly calls
 // escrowFeeSnapshotService.computeSnapshotFields() (fail-closed) before
 // creating the escrow row. No test in this file publishes a fee policy,
@@ -148,6 +155,13 @@ const intents = makeTable('intent', { expiresAt: null })
 // here), matching this file's own "every table round-trips for real"
 // discipline rather than a separately-mocked no-op.
 const vouches = makeTable('vouch', { burnedAt: null })
+// Issue #254 - checked by handlers.ts's wasCausedByDisputeRuling() before the legacy Dispute-based
+// fallback query. Empty here (this file's escrows are all MOCK-typed, per createEscrow()'s own
+// mockEscrow-aware default — no MULTISIG dispute-ruling Core-authoritative path ever runs, so no
+// semantic_transition_records row ever exists), same "table round-trips for real, empty is a real
+// answer too" convention this file already uses for feePolicyVersion/vouch/escrowParticipantKey above.
+const semanticTransitionRecords = makeTable('semanticTransitionRecord')
+const economicDispositionAuthorizations = makeTable('economicDispositionAuthorization')
 // Missão 11 Fase 9.3 — markPaymentSent()/initiateRelease()/initiateSplit()
 // now re-check funding uncertainty (empty here is correct: no test in
 // this file ever records reorg-sweep evidence, same "table round-trips
@@ -237,6 +251,9 @@ const eventProjectionClaims = {
     }
     return { count }
   }),
+  findFirst: jest.fn(async ({ where = {} }: any = {}) =>
+    projectionClaimRows.find((r) => Object.entries(where).every(([k, v]) => r[k] === v)) ?? null
+  ),
   findMany: jest.fn(async ({ where = {} }: any = {}) =>
     projectionClaimRows.filter((r) => Object.entries(where).every(([k, v]) => (v && typeof v === 'object') ? true : r[k] === v)).map((r) => ({ ...r }))
   ),
@@ -314,6 +331,8 @@ jest.mock('../src/common/database', () => ({
     feePolicyVersion: feePolicyVersions,
     payoutAddress: payoutAddresses,
     dispute: disputes,
+    semanticTransitionRecord: semanticTransitionRecords,
+    economicDispositionAuthorization: economicDispositionAuthorizations,
     intent: intents,
     intentEvent: intentEvents,
     vouch: vouches,

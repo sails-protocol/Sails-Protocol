@@ -331,7 +331,9 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
     // below (docs/DESTINATION_AUTHORITY_ARCHITECTURE.md).
     await service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', 'bc1qbuyeraddress', undefined, undefined, sig1, issuedAt1)
 
-    expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1')
+    // Issue #254 - dispute.id is now threaded through as real, immutable, generation-scoped provenance
+    // (see escrow.service.ts's releaseFunds() and handlers.ts's wasCausedByDisputeRuling()).
+    expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1', 'dispute-1')
     expect(mockEmit).toHaveBeenCalledWith(
       'dispute.resolved',
       expect.objectContaining({ ruling: 'RELEASE', tradeId: 'trade-1' }),
@@ -345,7 +347,7 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
 
     const [sig2, issuedAt2] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'REFUND')
     await service.resolveDispute('dispute-1', 'arbiter-1', 'REFUND', undefined, undefined, undefined, sig2, issuedAt2)
-    expect(mockRefundFunds).toHaveBeenCalledWith('escrow-1', 'arbiter-1')
+    expect(mockRefundFunds).toHaveBeenCalledWith('escrow-1', 'arbiter-1', 'dispute-1')
   })
 
   // ADR-005 §10 — the old-arbiter in-flight race applyRuling()'s
@@ -431,7 +433,7 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
     mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE' })
     const [sig3, issuedAt3] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'RELEASE')
     await service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', undefined, undefined, undefined, sig3, issuedAt3)
-    expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1')
+    expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1', 'dispute-1')
   })
 
   // RFC-021 D9 (2026-08-02) — the third §1.9 dispute-ruling option finally

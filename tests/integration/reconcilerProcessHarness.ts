@@ -18,8 +18,11 @@ import { spawn } from 'child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
-import { randomBytes } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import { Prisma, PrismaClient } from '@prisma/client'
+// The first link of a real escrow transition chain (escrow-lifecycle.ts's computeEscrowEventHash()). Settlement
+// provenance proves a cooperative settlement from this chain, so a fixture's hash must be one the writer would compute.
+const genesisEscrowHash = (from: string, to: string, by: string) => createHash('sha256').update(`${from}|${to}|${by}|genesis`).digest('hex')
 
 export const ROOT = path.resolve(__dirname, '..', '..')
 export const WORKER = path.join(__dirname, 'reconcilerProcess.worker.ts')
@@ -40,8 +43,10 @@ export const SPEC = {
 } as const
 
 /** The projections a transition of each kind must have produced once converged: the specification the claims are checked against. */
-export const EXPECTED_CLAIMS: Record<Kind, string[]> = {
-  RELEASE_RULED: ['fee-floor', 'reputation.outcome', 'reputation.outcome', 'reputation.vouch-burn', 'reputation.vouch-burned-notification', 'trade.completed-notification', 'trade.completion-counters', 'trade.status', 'transition.claimed', 'transition.projected'],
+export const EXPECTED_CLAIMS: Record<Kind | 'RELEASE_HELD', string[]> = {
+  RELEASE_RULED: ['fee-floor', 'reputation.outcome', 'reputation.outcome', 'reputation.vouch-burn', 'reputation.vouch-burned-notification', 'trade.completed-notification', 'trade.completion-counters', 'trade.status', 'transition.claimed', 'transition.dispute-provenance', 'transition.projected'],
+  // A ruled settlement the reconciler claimed before the live writer: no durable provenance, outcomes held (fail closed).
+  RELEASE_HELD: ['fee-floor', 'settlement.provenance-held', 'trade.completed-notification', 'trade.completion-counters', 'trade.status', 'transition.claimed', 'transition.projected'],
   REFUND_CLEAN: ['reputation.outcome', 'reputation.outcome', 'trade.status', 'transition.claimed', 'transition.projected'],
   SPLIT: ['reputation.outcome', 'reputation.outcome', 'trade.completed-notification', 'trade.completion-counters', 'trade.status', 'transition.claimed', 'transition.projected'],
 }
@@ -55,7 +60,7 @@ export interface Seeded {
   /** '' while the transition is still unclaimed (mode 'unclaimed': a live-path worker claims it). */
   transitionId: string
   mode: SeedMode
-  live: { escrowId: string; tradeId: string; from: string; to: string; triggeredBy: string; eventName: string }
+  live: { escrowId: string; tradeId: string; from: string; to: string; triggeredBy: string; eventName: string; disputeId?: string }
 }
 export type SeedMode = 'claimed' | 'published-twice' | 'unclaimed'
 
@@ -268,7 +273,7 @@ export async function expectCrossProcessAccounting(prisma: PrismaClient, results
   const inDb = Object.fromEntries(claims.map((c) => [c.projectionKey, c._count._all]))
   const applied: Record<string, number> = {}
   for (const r of results) for (const [k, v] of Object.entries(r.stats?.applied ?? {})) applied[k] = (applied[k] ?? 0) + v
-  for (const key of Object.keys(inDb)) if (key !== 'transition.claimed') expect({ key, applied: applied[key] ?? 0 }).toEqual({ key, applied: inDb[key] })
+  for (const key of Object.keys(inDb)) if (key !== 'transition.claimed' && key !== 'transition.dispute-provenance') expect({ key, applied: applied[key] ?? 0 }).toEqual({ key, applied: inDb[key] })
   return applied
 }
 
@@ -329,25 +334,28 @@ export class Fixtures {
       })
       await this.prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id, status: 'ACTIVE' } })
       let voucherId: string | null = null
+      let disputeId: string | undefined
       if (kind === 'RELEASE_RULED') {
         const voucher = await this.user({ reputationScore: 10, totalTrades: 5 })
         voucherId = voucher.id
-        await this.prisma.dispute.create({ data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyerId, reason: 'os-process', status: 'RESOLVED', ruling: 'RELEASE', arbiterId: 'k6-test-arbiter', resolvedAt: new Date() } })
+        disputeId = (await this.prisma.dispute.create({ data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyerId, reason: 'os-process', status: 'RESOLVED', ruling: 'RELEASE', arbiterId: 'k6-test-arbiter', resolvedAt: new Date() } })).id
         await this.prisma.vouch.create({ data: { voucherId: voucher.id, voucheeId: seller.id } })
       }
       let transitionId = ''
       if (mode !== 'unclaimed') {
         const transition = await this.prisma.escrowEvent.create({
-          data: { escrowId: escrow.id, fromStatus: spec.from as never, toStatus: spec.to as never, triggeredBy: seller.id, entryHash: randomBytes(16).toString('hex'), prevHash: 'genesis' },
+          data: { escrowId: escrow.id, fromStatus: spec.from as never, toStatus: spec.to as never, triggeredBy: seller.id, entryHash: genesisEscrowHash(spec.from, spec.to, seller.id), prevHash: 'genesis' },
         })
         transitionId = transition.id
         await this.prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: escrow.id, appliedAt: new Date(Date.now() - 600_000) } })
+        // What emitEscrowTransition() records for a ruled settlement, so recovery can prove it was disputed.
+        if (disputeId) await this.prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.dispute-provenance', subjectId: disputeId } })
         if (mode === 'published-twice') {
           // Twice: a live publish overlapping PASS 3 leaves two durable eventIds for one source transition.
-          for (let copy = 0; copy < 2; copy++) await this.eventBus.emit(spec.eventName, { escrowId: escrow.id, tradeId: trade.id, from: spec.from, to: spec.to, triggeredBy: seller.id, transitionId: transition.id }, trade.id)
+          for (let copy = 0; copy < 2; copy++) await this.eventBus.emit(spec.eventName, { escrowId: escrow.id, tradeId: trade.id, from: spec.from, to: spec.to, triggeredBy: seller.id, transitionId: transition.id, ...(disputeId ? { disputeId } : {}) }, trade.id)
         }
       }
-      seeded.push({ kind, tradeId: trade.id, escrowId: escrow.id, sellerId: seller.id, voucherId, transitionId, mode, live: { escrowId: escrow.id, tradeId: trade.id, from: spec.from, to: spec.to, triggeredBy: seller.id, eventName: spec.eventName } })
+      seeded.push({ kind, tradeId: trade.id, escrowId: escrow.id, sellerId: seller.id, voucherId, transitionId, mode, live: { escrowId: escrow.id, tradeId: trade.id, from: spec.from, to: spec.to, triggeredBy: seller.id, eventName: spec.eventName, ...(disputeId ? { disputeId } : {}) } })
     }
     return seeded
   }
@@ -359,7 +367,7 @@ export class Fixtures {
   }
 
   /** What each user must hold once every seeded transition was projected exactly once - derived from the seeds, not from the code. */
-  expectedLedger(buyerId: string, seeded: Seeded[]): Map<string, { trades: number; volume: bigint; fees: bigint; rep: number }> {
+  expectedLedger(buyerId: string, seeded: Seeded[], held: ReadonlySet<string> = new Set()): Map<string, { trades: number; volume: bigint; fees: bigint; rep: number }> {
     const m = new Map<string, { trades: number; volume: bigint; fees: bigint; rep: number }>()
     const get = (id: string, rep = 0, trades = 0) => { if (!m.has(id)) m.set(id, { trades, volume: 0n, fees: 0n, rep }); return m.get(id)! }
     get(buyerId)
@@ -370,6 +378,7 @@ export class Fixtures {
       for (const u of [get(buyerId), seller]) { u.trades += 1; u.volume += AMOUNT_SATS }
       if (s.kind === 'RELEASE_RULED') {
         for (const u of [get(buyerId), seller]) u.fees += FEE_SATS
+        if (held.has(s.escrowId)) continue
         get(buyerId).rep += 2
         seller.rep -= 5
         get(s.voucherId!).rep -= 5
@@ -382,10 +391,11 @@ export class Fixtures {
    * Score notifications each user is owed, with no crash: one per outcome effect they took part in (neutral ones too),
    * by the transition that owes it. A burned vouch names no trade, so the voucher's carries tradeId null.
    */
-  expectedScoreNotifications(buyerId: string, seeded: Seeded[]): Map<string, Array<{ transitionId: string; tradeId: string | null }>> {
+  expectedScoreNotifications(buyerId: string, seeded: Seeded[], held: ReadonlySet<string> = new Set()): Map<string, Array<{ transitionId: string; tradeId: string | null }>> {
     const m = new Map<string, Array<{ transitionId: string; tradeId: string | null }>>()
     const add = (id: string, transitionId: string, tradeId: string | null) => m.set(id, [...(m.get(id) ?? []), { transitionId, tradeId }])
     for (const s of seeded) {
+      if (held.has(s.escrowId)) continue
       add(buyerId, s.transitionId, s.tradeId)
       add(s.sellerId, s.transitionId, s.tradeId)
       if (s.voucherId) add(s.voucherId, s.transitionId, null)
@@ -420,7 +430,12 @@ export class Fixtures {
    */
   async verify(buyerId: string, seeded: Seeded[], o: { label: string; maxRepeatedNotifications?: number; excused?: string[] }): Promise<{ repeatedNotifications: number; durableByName: Record<string, number> }> {
     const sats = (d: Prisma.Decimal | null | undefined) => (d == null ? null : BigInt(new Prisma.Decimal(d).mul(1e8).toFixed(0)))
-    const ledger = this.expectedLedger(buyerId, seeded)
+    // Only a seed no writer claimed can end up claimed by the reconciler, the one publisher with no disputeId to record.
+    const transitionOf = new Map((await this.prisma.escrowEvent.findMany({ where: { escrowId: { in: seeded.map((s) => s.escrowId) } } })).map((t) => [t.escrowId, t.id]))
+    const proven = new Set((await this.prisma.eventProjectionClaim.findMany({ where: { projectionKey: 'transition.dispute-provenance', eventId: { in: [...transitionOf.values()] } } })).map((c) => c.eventId))
+    const held = new Set(seeded.filter((s) => s.kind === 'RELEASE_RULED' && !proven.has(transitionOf.get(s.escrowId) ?? '')).map((s) => s.escrowId))
+    for (const s of seeded) if (held.has(s.escrowId)) expect({ escrowId: s.escrowId, mode: s.mode }).toEqual({ escrowId: s.escrowId, mode: 'unclaimed' })
+    const ledger = this.expectedLedger(buyerId, seeded, held)
     const baseline = (id: string) => (seeded.some((s) => s.voucherId === id) ? 10 : 0)
 
     // 1. Every participant's counters, volume and fees: buyer, every seller, every voucher.
@@ -441,10 +456,10 @@ export class Fixtures {
       const transitions = await this.prisma.escrowEvent.findMany({ where: { escrowId: s.escrowId } })
       expect(transitions).toHaveLength(1)
       const claims = await this.prisma.eventProjectionClaim.findMany({ where: { eventId: transitions[0].id } })
-      expect(claims.map((c) => c.projectionKey).sort()).toEqual([...EXPECTED_CLAIMS[s.kind]].sort())
+      expect(claims.map((c) => c.projectionKey).sort()).toEqual([...EXPECTED_CLAIMS[held.has(s.escrowId) ? 'RELEASE_HELD' : s.kind]].sort())
       if (s.voucherId) {
         const vouches = await this.prisma.vouch.findMany({ where: { voucherId: s.voucherId } })
-        expect(vouches.length > 0 && vouches.every((v) => v.burnedAt !== null)).toBe(true)
+        expect(vouches.length > 0 && vouches.every((v) => (v.burnedAt !== null) === !held.has(s.escrowId))).toBe(true)
       }
     }
 
@@ -456,7 +471,7 @@ export class Fixtures {
       // With `excused`, each repeat must match a rolled-back publication of that same notification.
       if (o.excused) expect({ what, repeats: actual - owed, unexplained: Math.max(0, actual - owed - o.excused.filter((n) => n === notice).length) }).toEqual({ what, repeats: actual - owed, unexplained: 0 })
     }
-    for (const [userId, owed] of this.expectedScoreNotifications(buyerId, seeded)) {
+    for (const [userId, owed] of this.expectedScoreNotifications(buyerId, seeded, held)) {
       const list = await this.scoreNotifications(userId)
       for (const { transitionId, tradeId } of owed) surplus(`score notifications of ${userId} for trade ${tradeId}`, `${transitionId}:score:${userId}:${tradeId}`, list.filter((n) => n.tradeId === tradeId).length, 1)
       expect({ userId, strays: list.filter((n) => !owed.some((x) => x.tradeId === n.tradeId)).map((n) => n.tradeId) }).toEqual({ userId, strays: [] })
@@ -468,7 +483,7 @@ export class Fixtures {
     const completed = await this.countEvents('openp2p.trade.completed', seeded.map((s) => s.tradeId))
     for (const s of seeded) surplus(`completed notification of ${s.tradeId}`, `${s.transitionId}:completed:${s.tradeId}`, completed.get(s.tradeId) ?? 0, s.kind === 'REFUND_CLEAN' ? 0 : 1)
     const burned = await this.countEvents('reputation.vouch.burned', seeded.map((s) => s.sellerId))
-    for (const s of seeded) surplus(`vouch.burned notification of ${s.sellerId}`, `${s.transitionId}:burned:${s.sellerId}`, burned.get(s.sellerId) ?? 0, s.kind === 'RELEASE_RULED' ? 1 : 0)
+    for (const s of seeded) surplus(`vouch.burned notification of ${s.sellerId}`, `${s.transitionId}:burned:${s.sellerId}`, burned.get(s.sellerId) ?? 0, s.kind === 'RELEASE_RULED' && !held.has(s.escrowId) ? 1 : 0)
     const allowedRepeats = o.excused?.length ?? o.maxRepeatedNotifications ?? 0
     expect(repeated).toBeLessThanOrEqual(allowedRepeats)
 

@@ -14,9 +14,12 @@
 //     identities for one transition.
 
 import { PrismaClient } from '@prisma/client'
-import { randomBytes, randomUUID } from 'crypto'
+import { createHash, randomBytes, randomUUID } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
+// The first link of a real escrow transition chain (escrow-lifecycle.ts's computeEscrowEventHash()). Settlement
+// provenance proves a cooperative settlement from this chain, so a fixture's hash must be one the writer would compute.
+const genesisEscrowHash = (from: string, to: string, by: string) => createHash('sha256').update(`${from}|${to}|${by}|genesis`).digest('hex')
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -173,7 +176,7 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     // The durable event exists (published) and a projection is owed, but only the Trade projection ran.
     const eventId = randomUUID()
     const transition = await prisma.escrowEvent.create({
-      data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: 'h', prevHash: 'genesis' },
+      data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: genesisEscrowHash('PAYMENT_PENDING', 'COMPLETED', ctx.sellerId), prevHash: 'genesis' },
     })
     await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
     await prisma.durableEventRecord.create({
@@ -212,7 +215,7 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     requirePostgres('claim without publish')
     const ctx = await makeCompletedEscrow()
     const transition = await prisma.escrowEvent.create({
-      data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: 'h', prevHash: 'genesis' },
+      data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: genesisEscrowHash('PAYMENT_PENDING', 'COMPLETED', ctx.sellerId), prevHash: 'genesis' },
     })
     await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
     expect(await prisma.durableEventRecord.count({ where: { correlationId: ctx.tradeId, eventName: 'settlement.escrow.released' } })).toBe(0)
@@ -236,7 +239,7 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     requirePostgres('event without projection')
     const ctx = await makeCompletedEscrow()
     const transition = await prisma.escrowEvent.create({
-      data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: 'h', prevHash: 'genesis' },
+      data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: genesisEscrowHash('PAYMENT_PENDING', 'COMPLETED', ctx.sellerId), prevHash: 'genesis' },
     })
     await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
     const eventId = randomUUID()
@@ -260,7 +263,7 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     requirePostgres('concurrent recovery workers')
     const ctx = await makeCompletedEscrow()
     const transition = await prisma.escrowEvent.create({
-      data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: 'h', prevHash: 'genesis' },
+      data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: genesisEscrowHash('PAYMENT_PENDING', 'COMPLETED', ctx.sellerId), prevHash: 'genesis' },
     })
     await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
 
@@ -303,7 +306,7 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     const other = await makeCompletedEscrow('FUNDS_LOCKED') // a real trade that does NOT own ctx's escrow
     const eventId = randomUUID()
     const transition = await prisma.escrowEvent.create({
-      data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: 'h', prevHash: 'genesis' },
+      data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: genesisEscrowHash('PAYMENT_PENDING', 'COMPLETED', ctx.sellerId), prevHash: 'genesis' },
     })
     await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
     await prisma.durableEventRecord.create({
@@ -332,7 +335,7 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     const ctx = await makeCompletedEscrow() // persisted Escrow is already COMPLETED
     const mk = async (name: string, toStatus: string) => {
       const transition = await prisma.escrowEvent.create({
-        data: { escrowId: ctx.escrowId, fromStatus: 'CREATED', toStatus: toStatus as any, triggeredBy: ctx.sellerId, entryHash: 'h' + randomUUID(), prevHash: 'genesis' },
+        data: { escrowId: ctx.escrowId, fromStatus: 'CREATED', toStatus: toStatus as any, triggeredBy: ctx.sellerId, entryHash: genesisEscrowHash('CREATED', toStatus, ctx.sellerId), prevHash: 'genesis' },
       })
       await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
       const id = randomUUID()
@@ -377,7 +380,7 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
   async function stuckAheadOfRecoverable() {
     const ctx = await makeCompletedEscrow()
     const transition = await prisma.escrowEvent.create({
-      data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: 'h' + randomUUID(), prevHash: 'genesis' },
+      data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: genesisEscrowHash('PAYMENT_PENDING', 'COMPLETED', ctx.sellerId), prevHash: 'genesis' },
     })
     const now = Date.now()
     const stuckIds = Array.from({ length: 205 }, () => randomUUID())

@@ -3,9 +3,9 @@ import { applyEventProjectionOnce, effectIdentity, TRANSITION_PROJECTED_KEY, typ
 import { tradeRepository } from '../../modules/open-p2p/trade-repository'
 import type { Prisma } from '@prisma/client'
 import { eventBus } from './event-bus'
+import { projectSettlementOutcomes } from './settlement-provenance'
 import { reconciliationService } from '../../modules/open-p2p/reconciliation.service'
 import { reputationService } from '../../modules/open-reputation/reputation.service'
-import { vouchService } from '../../modules/open-reputation/vouch.service'
 import { broadcastToTrade } from '../../modules/open-p2p/chat-room-registry'
 import { executeSettlement } from '../../modules/open-settlement/settlement-orchestrator'
 import { wdkSettlementProvider, buyerIndexFor } from '../../modules/open-settlement/wdk-settlement.provider'
@@ -199,49 +199,6 @@ async function accrueFeeFloor(tx: ProjectionTx, buyerId: string, sellerId: strin
   })
 }
 
-/** Outcome Engine for the released path (RFC-007 D8): a RELEASE ruling means
- *  the buyer won and the seller lost; a plain release (no dispute) means
- *  both parties completed cleanly. RFC-021 D7 — the losing seller's active
- *  vouches (if any) get burned via vouchService, applying the same
- *  "skin-in-the-game" reasoning D3 uses for arbiters to peer vouches. */
-async function applyReleaseOutcomes(effectId: string, tradeId: string, buyerId: string, sellerId: string): Promise<void> {
-  const resolvedRelease = await prisma.dispute.findFirst({
-    where: { tradeId, status: 'RESOLVED', ruling: 'RELEASE' },
-  })
-  if (resolvedRelease) {
-    await reputationService.recordOutcomeOnce(effectId, tradeId, buyerId, 'POSITIVE')
-    await reputationService.recordOutcomeOnce(effectId, tradeId, sellerId, 'NEGATIVE')
-    await vouchService.burnVouchesForOnce(effectId, sellerId)
-  } else {
-    await reputationService.recordOutcomeOnce(effectId, tradeId, buyerId, 'POSITIVE')
-    await reputationService.recordOutcomeOnce(effectId, tradeId, sellerId, 'POSITIVE')
-  }
-}
-
-/** Outcome Engine for the refunded path (RFC-007 D9): a REFUND ruling means
- *  the seller won and the buyer lost; a plain refund with no dispute ever
- *  raised is a mutual cancellation — always Neutral, never Negative, for
- *  either party. RFC-021 D7 — same vouch-burn reasoning as released, for
- *  the buyer instead of the seller.
- *
- *  Returns the resolved Dispute row (or null) so the caller can branch on
- *  "did this come from a dispute ruling?" for the Intent FAILED transition's
- *  `reason` field — same as the original inline implementation did. */
-async function applyRefundOutcomes(effectId: string, tradeId: string, buyerId: string, sellerId: string): Promise<{ id: string } | null> {
-  const resolvedRefund = await prisma.dispute.findFirst({
-    where: { tradeId, status: 'RESOLVED', ruling: 'REFUND' },
-  })
-  if (resolvedRefund) {
-    await reputationService.recordOutcomeOnce(effectId, tradeId, sellerId, 'POSITIVE')
-    await reputationService.recordOutcomeOnce(effectId, tradeId, buyerId, 'NEGATIVE')
-    await vouchService.burnVouchesForOnce(effectId, buyerId)
-  } else {
-    await reputationService.recordOutcomeOnce(effectId, tradeId, buyerId, 'NEUTRAL')
-    await reputationService.recordOutcomeOnce(effectId, tradeId, sellerId, 'NEUTRAL')
-  }
-  return resolvedRefund
-}
-
 // ─── Issue #294/#298 - projection identity helpers ───────────────────────────────────────────
 // Escrow is authoritative; Trade is a projection. Every downstream effect below is applied at most
 // once per (source transition, projectionKey, subject) via applyEventProjectionOnce(), and a stale or
@@ -361,7 +318,7 @@ export function registerEventHandlers(): void {
       }, payload.tradeId)   // correlationId (RFC-010)
     )
 
-    await applyReleaseOutcomes(effectId, payload.tradeId, trade.buyerId, trade.sellerId)
+    await projectSettlementOutcomes(effectId, 'RELEASE', payload.tradeId, trade.buyerId, trade.sellerId, payload.escrowId, payload.disputeId)
 
     if (trade.intentId) {
       await fulfillIntent(trade.intentId, payload.escrowId, 'RELEASED')
@@ -400,7 +357,7 @@ export function registerEventHandlers(): void {
     const trade = await prisma.trade.findUnique({ where: { id: payload.tradeId } })
     if (!trade) return
 
-    const resolvedRefund = await applyRefundOutcomes(effectIdentity(event), payload.tradeId, trade.buyerId, trade.sellerId)
+    const resolvedRefund = await projectSettlementOutcomes(effectIdentity(event), 'REFUND', payload.tradeId, trade.buyerId, trade.sellerId, payload.escrowId, payload.disputeId)
 
     if (trade.intentId) {
       await ensureIntentCommitted(trade.intentId, payload.escrowId)

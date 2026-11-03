@@ -686,7 +686,11 @@ export class EscrowService {
   // SAFE_GUARD_EVM/WDK_USDT_EVM/MOCK disputes, unmigrated) still passes
   // the arbiter's own releaseToAddress here — a disclosed residual gap,
   // not fixed by M8-R2 (out of that mission's bounded scope).
-  async releaseFunds(escrowId: string, toAddress: string | undefined, triggeredBy: string) {
+  // Issue #254 - disputeId (additive, optional) is set ONLY by dispute.service.ts's applyRuling() for a
+  // real RELEASE ruling - captured into the settlement.escrow.released event's own payload (below) so
+  // common/events/handlers.ts's reputation-outcome derivation never needs to re-query CURRENT (mutable,
+  // appeal()-reinterpretable) Dispute state. Absent for every cooperative, non-disputed release.
+  async releaseFunds(escrowId: string, toAddress: string | undefined, triggeredBy: string, disputeId?: string) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
     assertEscrowTransition(escrow.status, 'COMPLETED')
     const resolvedToAddress = await resolvePayoutAddress(toAddress, trade.buyerId, escrow.asset)
@@ -790,6 +794,7 @@ export class EscrowService {
       // their respective modules, triggered by the event emitted below.
       await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'COMPLETED', triggeredBy, 'settlement.escrow.released', {
         txId: result.txId,
+        ...(disputeId ? { disputeId } : {}),
       })
 
       return updated
@@ -838,7 +843,8 @@ export class EscrowService {
     return updated
   }
 
-  async refundFunds(escrowId: string, triggeredBy: string) {
+  // Issue #254 - disputeId, same additive/optional shape and reason as releaseFunds()'s own comment above.
+  async refundFunds(escrowId: string, triggeredBy: string, disputeId?: string) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
     assertEscrowTransition(escrow.status, 'REFUNDED')
 
@@ -874,6 +880,7 @@ export class EscrowService {
 
       await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'REFUNDED', triggeredBy, 'settlement.escrow.refunded', {
         txId: result.txId,
+        ...(disputeId ? { disputeId } : {}),
       })
 
       return updated
