@@ -82,9 +82,9 @@ describe('settlement provenance fails closed on an event with no immutable evide
     return { buyer, seller, trade, escrow }
   }
 
-  async function deliver(fixture: Awaited<ReturnType<typeof makeLegacyMultisig>>, kind: Kind) {
+  async function deliver(fixture: Awaited<ReturnType<typeof makeLegacyMultisig>>, kind: Kind, from = 'DISPUTED') {
     const { escrow, trade, seller } = fixture
-    await emitEscrowTransition(escrow.id, trade.id, 'DISPUTED', terminal(kind), seller.id, eventOf(kind) as never, { txId: escrow.txReleaseId })
+    await emitEscrowTransition(escrow.id, trade.id, from, terminal(kind), seller.id, eventOf(kind) as never, { txId: escrow.txReleaseId })
     const transition = (await prisma.escrowEvent.findFirst({ where: { escrowId: escrow.id, toStatus: terminal(kind) } }))!
     await waitFor(async () => (await prisma.eventProjectionClaim.count({ where: { projectionKey: 'transition.projected', subjectId: transition.id } })) > 0)
     return transition.id
@@ -237,11 +237,78 @@ describe('settlement provenance fails closed on an event with no immutable evide
     })
   })
 
+  // Gatekeeper NO-GO on 85870e85: the absence of a Dispute row is not proof a settlement was cooperative.
+  const heldCount = (transitionId: string) => prisma.eventProjectionClaim.count({ where: { eventId: transitionId, projectionKey: HELD_KEY } })
+  async function openedDisputeThenDeleted(kind: Kind) {
+    const fixture = await makeLegacyMultisig(kind, 'RESOLVED')
+    await emitEscrowTransition(fixture.escrow.id, fixture.trade.id, 'FUNDS_LOCKED', 'DISPUTED', fixture.buyer.id, 'settlement.escrow.disputed' as never, {})
+    await prisma.dispute.deleteMany({ where: { escrowId: fixture.escrow.id } })
+    return fixture
+  }
+
+  it.each(['RELEASE', 'REFUND'] as const)('MULTISIG %s after its dispute row was deleted: held, also on replay, never cooperative', async (kind) => {
+    pg.requirePostgres(`deleted dispute ${kind}`)
+    const fixture = await openedDisputeThenDeleted(kind)
+
+    const transitionId = await deliver(fixture, kind)
+    const durable = (await prisma.durableEventRecord.findFirst({ where: { correlationId: fixture.trade.id, eventName: eventOf(kind) } }))!
+    await Promise.all([eventBus.redeliver(durable.id), eventBus.redeliver(durable.id)])
+    await sleep(300)
+
+    expect((await userOf(fixture.buyer.id)).reputationScore).toBe(0)
+    expect((await userOf(fixture.seller.id)).reputationScore).toBe(0)
+    expect(await outcomeClaims(transitionId)).toBe(0)
+    expect(await heldCount(transitionId)).toBe(1)
+  })
+
+  it('a deleted dispute whose DISPUTED transition was deleted too breaks the chain: held', async () => {
+    pg.requirePostgres('deleted dispute and transition')
+    const fixture = await openedDisputeThenDeleted('RELEASE')
+    const transitionId = await deliver(fixture, 'RELEASE')
+    await prisma.eventProjectionClaim.deleteMany({ where: { eventId: transitionId } })
+    await prisma.escrowEvent.deleteMany({ where: { escrowId: fixture.escrow.id, toStatus: 'DISPUTED' } })
+    const durable = (await prisma.durableEventRecord.findFirst({ where: { correlationId: fixture.trade.id, eventName: 'settlement.escrow.released' } }))!
+
+    await eventBus.redeliver(durable.id)
+    await waitFor(async () => (await prisma.eventProjectionClaim.count({ where: { projectionKey: 'transition.projected', subjectId: transitionId } })) > 0)
+
+    expect((await userOf(fixture.seller.id)).reputationScore).toBe(0)
+    expect(await heldCount(transitionId)).toBe(1)
+  })
+
+  it('a legacy history with an unhashed transition proves nothing: held', async () => {
+    pg.requirePostgres('legacy unhashed history')
+    const fixture = await makeLegacyMultisig('REFUND', null)
+    await prisma.escrowEvent.create({ data: { escrowId: fixture.escrow.id, fromStatus: 'CREATED', toStatus: 'FUNDS_LOCKED', triggeredBy: fixture.seller.id } })
+
+    const transitionId = await deliver(fixture, 'REFUND', 'FUNDS_LOCKED')
+
+    expect(await outcomeClaims(transitionId)).toBe(0)
+    expect(await heldCount(transitionId)).toBe(1)
+  })
+
+  it.each(['RELEASE', 'REFUND'] as const)('a %s whose hash chain proves it never entered DISPUTED stays cooperative, once, also on replay', async (kind) => {
+    pg.requirePostgres(`never disputed ${kind}`)
+    const fixture = await makeLegacyMultisig(kind, null)
+    await emitEscrowTransition(fixture.escrow.id, fixture.trade.id, 'CREATED', 'FUNDS_LOCKED', fixture.seller.id, 'settlement.escrow.locked' as never, {})
+
+    const transitionId = await deliver(fixture, kind, kind === 'RELEASE' ? 'PAYMENT_PENDING' : 'FUNDS_LOCKED')
+    const durable = (await prisma.durableEventRecord.findFirst({ where: { correlationId: fixture.trade.id, eventName: eventOf(kind) } }))!
+    await eventBus.redeliver(durable.id)
+    await sleep(300)
+
+    const expected = kind === 'RELEASE' ? 2 : 0
+    expect((await userOf(fixture.buyer.id)).reputationScore).toBe(expected)
+    expect((await userOf(fixture.seller.id)).reputationScore).toBe(expected)
+    expect(await outcomeClaims(transitionId)).toBe(2)
+    expect(await heldCount(transitionId)).toBe(0)
+  })
+
   it('an escrow that was never disputed stays cooperative and is not held', async () => {
     pg.requirePostgres('never disputed')
     const fixture = await makeLegacyMultisig('RELEASE', null)
 
-    const transitionId = await deliver(fixture, 'RELEASE')
+    const transitionId = await deliver(fixture, 'RELEASE', 'PAYMENT_PENDING')
 
     expect((await userOf(fixture.buyer.id)).reputationScore).toBe(2)
     expect((await userOf(fixture.seller.id)).reputationScore).toBe(2)
