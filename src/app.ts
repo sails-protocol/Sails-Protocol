@@ -13,6 +13,7 @@ import { connectDatabase } from './common/database'
 import { redis } from './common/redis'
 import { connectRedis } from './common/redis'
 import { AppError, ERROR_DOCS_URL } from './common/errors'
+import { serializeError } from './common/logger'
 import { registerEventHandlers } from './common/events/handlers'
 import { eventBus } from './common/events/event-bus'
 import { intentEngine } from './core/intent-engine'
@@ -97,6 +98,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         paths: ['req.headers.authorization', 'req.headers.cookie', 'token'],
         censor: '[REDACTED]',
       },
+      // The shared error serializer, so app.log scrubs a credential out of an error's message and stack too.
+      serializers: { err: serializeError },
       ...(logStream ? { stream: logStream } : {}),
     },
   })
