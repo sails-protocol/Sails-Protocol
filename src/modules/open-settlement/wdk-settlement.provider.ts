@@ -44,8 +44,15 @@ import { createHash } from 'crypto'
 import { EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import type { SettlementProvider } from './escrow.service'
-import { ensureAttempt, markSubmissionAttempted, waitForReceiptOutcome } from './wdk-execution-truth'
+import { ensureAttempt, markSubmissionAttempted, waitForReceiptOutcome, decimalAmountsEqual } from './wdk-execution-truth'
 import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
+
+// Issue #251 - Day-0 restart convergence for a terminal WDK_USDT_EVM RELEASE/REFUND whose settlement
+// result was never durably persisted. 'MISMATCH' covers every fail-closed corruption/contradiction case
+// (Case D): wrong amount, wrong destination, a CONFIRMED row with no txHash, or an unrecognized status.
+export type WdkTerminalReconciliationResult =
+  | { outcome: 'CONFIRMED'; txHash: string }
+  | { outcome: 'PENDING' | 'NO_ATTEMPT' | 'SUBMISSION_UNKNOWN' | 'NOT_STARTED' | 'REVERTED' | 'MISMATCH'; reason: string }
 
 // USDT's real, historically-fixed decimal precision on every EVM chain
 // it's deployed on — deliberately not read from the token contract at
@@ -151,6 +158,102 @@ export class WdkSettlementProvider implements SettlementProvider {
   async getAccountAddress(index: number): Promise<string> {
     const account = await this.getWallet().getAccount(index)
     return account.getAddress()
+  }
+
+  // Issue #251 - the reconciler's ONLY point of contact with this provider's wallet/chain access.
+  // Deliberately READ-ONLY against both the chain (never calls transfer()) and WdkTransferAttempt
+  // (never calls updateStatus()) - a live caller may be concurrently running ensureAttempt()'s own
+  // CAS-guarded status transitions for this exact attempt (escrow.service.ts's releaseFunds()/
+  // refundFunds() never blocks their own retry on a terminal-but-unrecorded escrow the way a
+  // still-PAYMENT_PENDING one would; see this method's own caller for why that race is real), and
+  // this method must never contend with that CAS nor with a second, independent classification of
+  // the same on-chain fact. It only tells the caller what the durable attempt ledger + a fresh
+  // on-chain receipt already prove; escrow-settlement-reconciliation.service.ts is the only thing
+  // that ever turns that into a written Escrow.txReleaseId, and only through the frozen write-once
+  // persistSettlementResult() path (Issue #291) - WdkTransferAttempt itself never becomes protocol
+  // authority.
+  async reconcileTerminalTransfer(
+    escrow: { id: string; tradeId: string; lockedAmount: string },
+    operationType: 'RELEASE' | 'REFUND' | 'SPLIT_BUYER' | 'SPLIT_SELLER',
+    expectedDestination: string,
+    // Issue #250 - RELEASE/REFUND always transfer the FULL escrow.lockedAmount, so callers always pass
+    // it here and get a real, independent anti-corruption check. A SPLIT leg transfers only its own
+    // bps-derived share, and buyerBps is not durably recoverable for this direct-call rail (no
+    // EscrowPendingTransaction row exists for it) - there is no independently-known expected amount
+    // for ONE leg alone to check against. Passing `undefined` skips this check HONESTLY rather than
+    // fabricating a value that would make it vacuously pass; reconcileWdkSplitTransfer() (the only
+    // SPLIT_BUYER/SPLIT_SELLER caller) instead verifies the one invariant that IS independently true
+    // regardless of bps - both legs' own recorded amounts sum to escrow.lockedAmount - before this
+    // method is ever called for either leg.
+    expectedAmount?: string
+  ): Promise<WdkTerminalReconciliationResult> {
+    const latest = await wdkTransferAttemptRepository.findLatest(escrow.id, operationType)
+    if (!latest) {
+      return { outcome: 'NO_ATTEMPT', reason: `No WdkTransferAttempt exists for escrow ${escrow.id}/${operationType} — nothing to converge from.` }
+    }
+    // Case D - fail closed on any mismatch rather than guessing which attempt/value is the real one.
+    // escrowId/operationType mismatches are already excluded by findLatest()'s own WHERE clause.
+    if (expectedAmount !== undefined && !decimalAmountsEqual(latest.amount.toString(), expectedAmount)) {
+      return {
+        outcome: 'MISMATCH',
+        reason: `WdkTransferAttempt ${latest.id} amount ${latest.amount.toString()} does not match the expected ${operationType} amount ${expectedAmount} for escrow ${escrow.id} — refusing to treat it as authoritative evidence.`,
+      }
+    }
+    if (latest.destination !== expectedDestination) {
+      return {
+        outcome: 'MISMATCH',
+        reason: `WdkTransferAttempt ${latest.id} destination ${latest.destination} does not match the independently-derived expected ${operationType} destination ${expectedDestination} — refusing to treat it as authoritative evidence.`,
+      }
+    }
+
+    switch (latest.status) {
+      case 'CONFIRMED':
+        if (!latest.txHash) {
+          return { outcome: 'MISMATCH', reason: `WdkTransferAttempt ${latest.id} is CONFIRMED but has no persisted txHash — data integrity violation, refusing to resume.` }
+        }
+        return { outcome: 'CONFIRMED', txHash: latest.txHash }
+
+      case 'SUBMITTED': {
+        if (!latest.txHash) {
+          return { outcome: 'MISMATCH', reason: `WdkTransferAttempt ${latest.id} is SUBMITTED but has no persisted txHash — data integrity violation.` }
+        }
+        // A genuine RPC/transport failure here throws and propagates to the caller as a technical
+        // failure - never silently downgraded to REVERTED/PENDING (Case B: never infer failure
+        // merely from a query failure).
+        const account = await this.escrowAccount(escrow.tradeId)
+        const receipt = await account.getTransactionReceipt(latest.txHash)
+        if (!receipt) {
+          return { outcome: 'PENDING', reason: `WdkTransferAttempt ${latest.id}'s transaction ${latest.txHash} is not yet confirmed on-chain — remains pending, no resubmission.` }
+        }
+        if (receipt.status === 1) return { outcome: 'CONFIRMED', txHash: latest.txHash }
+        return { outcome: 'REVERTED', reason: `WdkTransferAttempt ${latest.id}'s transaction ${latest.txHash} reverted on-chain — no funds were delivered by this attempt.` }
+      }
+
+      case 'SUBMISSION_UNKNOWN':
+        // Case C - never inferred as FAILED, never blindly retried. No txHash exists to query, so no
+        // automatic convergence is possible; this must remain an explicit, inspectable state.
+        return {
+          outcome: 'SUBMISSION_UNKNOWN',
+          reason: `WdkTransferAttempt ${latest.id} outcome is UNKNOWN — no transaction hash was ever obtained, so nothing can be queried; this cannot be automatically converged and must not be retried blindly.`,
+        }
+
+      case 'PREPARED':
+      case 'FAILED_BEFORE_SUBMISSION':
+      case 'REVERTED':
+        // Definitively no funds delivered BY THIS ATTEMPT — but this method has no authority to undo
+        // the escrow's own terminal claim (that would be a different, larger recovery than #251
+        // scopes: reverting an already-claimed terminal status with no txReleaseId). Surfaced for
+        // manual review, exactly like every other case this method cannot positively converge.
+        return {
+          outcome: 'NOT_STARTED',
+          reason: `WdkTransferAttempt ${latest.id} is ${latest.status} — no funds were ever delivered by this attempt; the escrow's terminal claim cannot be automatically corroborated from provider evidence.`,
+        }
+
+      default: {
+        const exhaustive: never = latest.status
+        return { outcome: 'MISMATCH', reason: `WdkTransferAttempt ${latest.id} has an unrecognized status: ${String(exhaustive)}` }
+      }
+    }
   }
 
   async lockFunds(escrow: { id: string; tradeId: string; lockedAmount: string }): Promise<{ txId: string; address: string }> {

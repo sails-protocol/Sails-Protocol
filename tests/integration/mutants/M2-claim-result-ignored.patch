@@ -1,0 +1,13 @@
+diff --git a/src/common/events/event-projection.ts b/src/common/events/event-projection.ts
+index 417a33dd..bce7b9e9 100644
+--- a/src/common/events/event-projection.ts
++++ b/src/common/events/event-projection.ts
+@@ -42,7 +42,7 @@ export async function applyEventProjectionOnce(
+       data: [{ eventId, projectionKey, subjectId }],
+       skipDuplicates: true,
+     })
+-    if (claimed.count === 0) return false
++    void claimed
+     await apply(tx)
+     return true
+   })

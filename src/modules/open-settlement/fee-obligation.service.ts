@@ -38,6 +38,19 @@ import { computeProtocolFee } from './fee-reserve-math'
 import { EscrowError } from '../../common/errors'
 import { Prisma } from '@prisma/client'
 import type { AssetType } from '../../common/types'
+
+/**
+ * Issue #245 — thrown when the conditional status claim affected zero rows (another writer moved the
+ * obligation first). Still an EscrowError with the exact same message as before, so every existing
+ * caller is unaffected; a distinct type only lets a caller that holds a transaction tell "lost the
+ * race" (then verify the current state) from every other failure (then roll back and rethrow).
+ */
+export class CollectionStatusClaimLostError extends EscrowError {
+  constructor(readonly feeObligationId: string, readonly fromStatus: FeeCollectionStatus) {
+    super(`FeeObligation ${feeObligationId} was not in status ${fromStatus} — a concurrent transition already moved it.`)
+    this.name = 'CollectionStatusClaimLostError'
+  }
+}
 import { childLogger } from '../../common/logger'
 
 const log = childLogger('fee-obligation')
@@ -157,7 +170,7 @@ export class FeeObligationService {
       ? await this.repo.claimCollectionStatusTransition(id, fromStatus, toStatus, tx)
       : await this.repo.claimCollectionStatusTransition(id, fromStatus, toStatus)
     if (affected === 0) {
-      throw new EscrowError(`FeeObligation ${id} was not in status ${fromStatus} — a concurrent transition already moved it.`)
+      throw new CollectionStatusClaimLostError(id, fromStatus)
     }
   }
 

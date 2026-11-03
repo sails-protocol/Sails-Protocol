@@ -522,6 +522,9 @@ model Escrow {
   // durable pre-submission execution-boundary truth (see that model's own
   // header comment). Empty for every non-WDK_USDT_EVM escrow.
   wdkTransferAttempts WdkTransferAttempt[]
+  // Issue #240 — LIGHTNING_HODL/SAFE_GUARD_EVM's own durable finalize-submission evidence (see that
+  // model's own header comment). At most one row (escrowId is @unique there), empty for every other type.
+  signatureCollectionFinalizationAttempt SignatureCollectionFinalizationAttempt?
 
   // Missão 10 — cross-escrow double-claim protection for a funding
   // outpoint. Deliberately a plain (non-partial) unique constraint: see
@@ -756,6 +759,54 @@ model WdkTransferAttempt {
   // createdAt.
   @@index([escrowId, operationType, createdAt])
   @@map("wdk_transfer_attempts")
+}
+
+// Issue #240 - durable pre/post-submission evidence for the LIGHTNING_HODL/SAFE_GUARD_EVM finalize
+// boundary (RestArkProvider.submitTx()+finalizeTx() / the ERC-4337 bundler's eth_sendUserOperation).
+// Unlike MULTISIG (Bitcoin broadcast is idempotent by construction - the same signed transaction
+// always produces the same txid, so a second broadcast of it is harmless or a no-op) and unlike
+// WDK_USDT_EVM (WdkTransferAttempt, a self-initiated direct-call transfer with its own receipt-query
+// primitive), neither Ark's submission protocol nor an ERC-4337 bundler's resubmission behavior is
+// proven idempotent anywhere in this codebase, and neither provider currently exposes a verified,
+// live-tested external query this codebase can safely call during recovery (see each provider's own
+// finalizeRelease()/finalizeRefund() header comment). This table therefore exists ONLY to answer one
+// question safely: "did Sails already attempt this exact finalize once?" - written SUBMISSION_UNKNOWN
+// immediately before the external call (same corrected lesson wdk-execution-truth.ts's own header
+// documents: a crash at ANY point from this write onward, including mid-call after a real submission
+// may have already gone out, must never look like "never attempted"), then advanced to SUBMITTED or
+// CONFIRMED only once the call itself returns - never earlier, never guessed.
+//
+// SUBMITTED vs CONFIRMED is a REAL distinction only for SAFE_GUARD_EVM: eth_sendUserOperation returns
+// the bundler-ACCEPTED userOpHash, not on-chain finality (safe-guard-evm.provider.ts's own broadcast()
+// comment) - recorded as SUBMITTED. LIGHTNING_HODL's finalizeTx() has no further async confirmation
+// step in this codebase, so a successful return is recorded as CONFIRMED directly - the same standard
+// this codebase already applies everywhere else (a SettlementProvider/SignatureCollectionProvider
+// finalize call returning without throwing is already treated as done the instant it returns; see
+// escrow-pending-tx.ts's own submitTransactionSignature() two-error-boundary comment).
+//
+// Exactly one row per (escrowId, pendingTxId) - EscrowPendingTransaction.escrowId is itself @unique
+// (at most one live signature-collection round per escrow), so this identity never needs WdkTransferAttempt's
+// own activeKey/generation-replacement machinery: a genuinely new pending row (a new initiateRelease()/
+// initiateRefund() call, only reachable once the prior one was deleted) gets a fresh pendingTxId and
+// therefore a fresh identity automatically.
+enum SignatureCollectionFinalizationStatus {
+  SUBMISSION_UNKNOWN
+  SUBMITTED
+  CONFIRMED
+}
+
+model SignatureCollectionFinalizationAttempt {
+  id          String                                 @id @default(uuid())
+  escrowId    String                                 @unique
+  escrow      Escrow                                 @relation(fields: [escrowId], references: [id])
+  pendingTxId String
+  kind        String // 'release' | 'refund' - mirrors EscrowPendingTransaction.kind (never 'split': neither provider supports it)
+  status      SignatureCollectionFinalizationStatus @default(SUBMISSION_UNKNOWN)
+  txHash      String?
+  createdAt   DateTime                               @default(now())
+  updatedAt   DateTime                                @updatedAt
+
+  @@map("signature_collection_finalization_attempts")
 }
 
 // One immutable-once-published policy per (railScope, label). Economic
@@ -1407,7 +1458,12 @@ model Dispute {
   autoResolutionConfidence     Float?
   autoResolutionReasoning      String?
   autoResolutionDeadline       DateTime?
+  // #308 / D-308 — immutable-per-proposal identity: incremented (never reset, never reused) by each
+  // proposeAutoResolution() claim, and re-asserted by the contest/expiry compare-and-set, so a request or
+  // sweeper that observed proposal A can never apply its transition to a later proposal B (ABA).
+  autoProposalGeneration       Int                @default(0)
   autoResolved                 Boolean            @default(false)
+  transitionOutbox             DisputeTransitionOutbox[]
 
   // Missão 13 Fase 2 — INV-12 (Attributed Authority Integrity) closure.
   // Additive/nullable: existing rows (every dispute resolved before this
@@ -1456,6 +1512,27 @@ model Dispute {
   @@index([status])
   @@index([arbiterId, status]) // P2: performance for arbiter case list queries
   @@map("disputes")
+}
+
+// #308 / D-308 — transactional outbox for the AUTO_PROPOSED -> EVIDENCE_SUBMITTED transition event. The row is
+// inserted in the SAME transaction as the compare-and-set that won the transition, so a crash after the commit
+// cannot lose the event: dispute-transition-outbox.ts publishes pending rows through the EXISTING
+// PostgresEventStore (hash chain untouched) and de-duplicates by the causal key carried in the event payload.
+// (disputeId, generation, kind) is unique: one proposal generation has at most one transition.
+model DisputeTransitionOutbox {
+  id          String    @id @default(uuid())
+  disputeId   String
+  dispute     Dispute   @relation(fields: [disputeId], references: [id], onDelete: Restrict)
+  generation  Int
+  kind        String // 'CONTESTED' | 'EXPIRED'
+  tradeId     String // the event's correlationId
+  payload     Json
+  createdAt   DateTime  @default(now())
+  publishedAt DateTime?
+
+  @@unique([disputeId, generation, kind])
+  @@index([publishedAt, createdAt])
+  @@map("dispute_transition_outbox")
 }
 
 // RFC-021 D6 — real appeal-fee collection (BACKLOG.md P0, closed
@@ -1944,6 +2021,15 @@ model IntentEvent {
   // separate sort step for that. Composite index lets it be satisfied
   // directly.
   @@index([intentId, createdAt])
+
+  // Issue #253 (Intent atomicity) - transactional outbox. The status change, this row and the owed
+  // publication commit together; `publishedAt` is set only after the domain event was published.
+  // NULL eventName = a row written before these columns existed (nothing owed, never backfilled).
+  eventName    String?
+  eventPayload Json?
+  publishedAt  DateTime?
+
+  @@index([publishedAt, createdAt])
   @@map("intent_events")
 }
 
@@ -2515,4 +2601,22 @@ model IdempotencyKey {
   // concurrent or retried caller is told "someone already claimed this."
   @@unique([scope, participantId, key])
   @@map("idempotency_keys")
+}
+
+// Issue #298 - durable delivery/replay identity for event-derived projections
+// (see migration 20260921121000_event_projection_claims for the full reasoning;
+// eventId intentionally has no FK to durable_events: it holds the source transition
+// id for escrow transitions, see effectIdentity()). Written only through
+// applyEventProjectionOnce() (src/common/events/event-projection.ts), in the
+// same transaction as the mutation it guards.
+model EventProjectionClaim {
+  id            String   @id @default(uuid())
+  eventId       String
+  projectionKey String
+  subjectId     String
+  appliedAt     DateTime @default(now())
+
+  @@unique([eventId, projectionKey, subjectId], map: "event_projection_claim_identity_key")
+  @@index([projectionKey, subjectId])
+  @@map("event_projection_claims")
 }

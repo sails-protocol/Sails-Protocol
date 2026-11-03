@@ -237,3 +237,14 @@ Day 0 uses OpenTimestamps behind the Sails-owned `TimestampAnchor` abstraction w
 If operational evidence later justifies it, Sails may operate an OpenTimestamps-compatible aggregator/calendar as one additional availability option within the same open ecosystem. Such infrastructure MUST NOT become the mandatory calendar, a central timestamp authority, an interoperability gate, or a prerequisite for OpenProof/Sails economic availability.
 
 This roadmap item does not replace the Day-0 multi-calendar requirement in `docs/BACKLOG.md`; it deliberately keeps Sails-operated timestamp infrastructure outside the Day-0 critical path.
+
+
+## Future interoperability research — Paykit / Pubky payment discovery (2026-10-24)
+
+**Status: proposed / research only; not a Day-0, P1, P3, P4 or production gate.**
+
+Evaluate an **optional** Synonym Paykit / Pubky adapter for discovery of public or private payment endpoints and supplemental encrypted receipts. Bitkit includes Paykit integration, while the upstream Paykit protocol still declares itself work-in-progress and not production-ready; release maturity must be independently re-evaluated before implementation.
+
+The adapter MUST NOT replace Sails Participant identity, require Pubky to use Sails, select or execute settlement, confer Destination Authority or Economic Disposition Authority, or change an authorized destination without Sails validation. Existing SettlementRail / SettlementProvider and escrow invariants remain authoritative. Prefer opt-in privacy, fail-safe degradation and explicit endpoint-to-trade binding.
+
+**Next step:** review and approve the research RFC `docs/rfcs/RFC-DRAFT-paykit-pubky-payment-discovery.md` through normal governance before any code, dependency, migration or deployment. No implementation date is committed.
