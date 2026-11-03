@@ -268,6 +268,34 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
     broadcast.mockRestore()
   })
 
+  it('cooperative C8: a broadcast that fails after the claim is UNKNOWN, not reverted, and recovery converges from chain truth', async () => {
+    requirePostgres('C8 broadcast UNKNOWN')
+    const { escrow, buyer } = await makeCooperativeC8('m9r-c8-unknown')
+    const { multisigProvider } = require('../../src/modules/open-settlement/multisig.provider')
+    let releaseTxid = ''
+    const broadcast = jest.spyOn(multisigProvider, 'broadcast').mockImplementation(async (hex: unknown) => {
+      releaseTxid = bitcoin.Transaction.fromHex(hex as string).getId()
+      throw new Error('explorer timed out after sending')
+    })
+
+    const first = await reconcilePendingSettlements()
+
+    expect(first.failed.find((f) => f.escrowId === escrow.id)).toBeDefined()
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })).status).toBe('COMPLETED')
+    await expect(escrowService.openDispute(escrow.id, buyer.id, 'after an unknown broadcast')).rejects.toThrow()
+
+    // The broadcast did reach the network: PASS 1 finds it and converges without broadcasting again.
+    const unknown = global.fetch
+    global.fetch = jest.fn(async (url: string, init?: unknown) =>
+      url.includes(`/tx/${releaseTxid}/status`) ? ({ ok: true, status: 200, json: async () => ({ confirmed: false }) } as any) : (unknown as any)(url, init)) as any
+    broadcast.mockClear()
+    await reconcilePendingSettlements()
+
+    expect(broadcast).not.toHaveBeenCalled()
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })).txReleaseId).toBe(releaseTxid)
+    broadcast.mockRestore()
+  })
+
   it('duplicate workers: two concurrent recovery runs against the SAME C8 escrow never both claim the transition', async () => {
     requirePostgres('C8 duplicate workers')
 
