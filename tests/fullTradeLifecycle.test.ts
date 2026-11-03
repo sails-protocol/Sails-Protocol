@@ -132,6 +132,13 @@ offers.findMany = jest.fn(async (args: any) => {
 const trades = makeTable('trade', { status: 'PENDING', escrowId: null })
 const escrows = makeTable('escrow', { status: 'CREATED' })
 const escrowEvents = makeTable('escrowEvent')
+// emitEscrowTransition() chains each row to the latest one (orderBy createdAt desc); the generic findFirst returns
+// the first match, which would branch the chain settlement provenance walks.
+escrowEvents.findFirst = jest.fn(async ({ where = {}, orderBy }: any = {}) => {
+  const matches = [...escrowEvents.rows.values()].filter((r) => Object.entries(where).every(([k, v]) => r[k] === v))
+  const row = orderBy?.createdAt === 'desc' ? matches[matches.length - 1] : matches[0]
+  return row ? { ...row } : null
+})
 // Missão 11 Fase 4.1 — createEscrow() now unguardedly calls
 // escrowFeeSnapshotService.computeSnapshotFields() (fail-closed) before
 // creating the escrow row. No test in this file publishes a fee policy,

@@ -241,6 +241,7 @@ describe('settlement provenance fails closed on an event with no immutable evide
   const heldCount = (transitionId: string) => prisma.eventProjectionClaim.count({ where: { eventId: transitionId, projectionKey: HELD_KEY } })
   async function openedDisputeThenDeleted(kind: Kind) {
     const fixture = await makeLegacyMultisig(kind, 'RESOLVED')
+    await emitEscrowTransition(fixture.escrow.id, fixture.trade.id, 'CREATED', 'FUNDS_LOCKED', fixture.seller.id, 'settlement.escrow.locked' as never, {})
     await emitEscrowTransition(fixture.escrow.id, fixture.trade.id, 'FUNDS_LOCKED', 'DISPUTED', fixture.buyer.id, 'settlement.escrow.disputed' as never, {})
     await prisma.dispute.deleteMany({ where: { escrowId: fixture.escrow.id } })
     return fixture
@@ -271,6 +272,17 @@ describe('settlement provenance fails closed on an event with no immutable evide
 
     await eventBus.redeliver(durable.id)
     await waitFor(async () => (await prisma.eventProjectionClaim.count({ where: { projectionKey: 'transition.projected', subjectId: transitionId } })) > 0)
+
+    expect((await userOf(fixture.seller.id)).reputationScore).toBe(0)
+    expect(await heldCount(transitionId)).toBe(1)
+  })
+
+  it('a DISPUTED transition rewritten in place to look undisputed no longer matches its hash: held', async () => {
+    pg.requirePostgres('rewritten transition')
+    const fixture = await openedDisputeThenDeleted('RELEASE')
+    await prisma.escrowEvent.updateMany({ where: { escrowId: fixture.escrow.id, toStatus: 'DISPUTED' }, data: { toStatus: 'PAYMENT_PENDING' } })
+
+    const transitionId = await deliver(fixture, 'RELEASE', 'PAYMENT_PENDING')
 
     expect((await userOf(fixture.seller.id)).reputationScore).toBe(0)
     expect(await heldCount(transitionId)).toBe(1)

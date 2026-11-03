@@ -12,6 +12,7 @@ import {
 import { reputationService } from '../../modules/open-reputation/reputation.service'
 import { vouchService } from '../../modules/open-reputation/vouch.service'
 import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from '../../modules/open-settlement/discretionary-authority'
+import { computeEscrowEventHash } from '../../modules/open-settlement/escrow-lifecycle'
 
 const log = childLogger('settlement-provenance')
 
@@ -28,9 +29,13 @@ export type SettlementProvenance = 'DISPUTED' | 'COOPERATIVE' | 'UNPROVEN'
  *                 provider side effect and kept after the pending row is deleted, so it survives a recovered
  *                 publication, which has no payload.disputeId). That same gate refuses a cooperative operation
  *                 on a disputed escrow, so the row can only belong to a disputed settlement.
- *   COOPERATIVE - the escrow never had a Dispute, the same proof the ADR-005 gate accepts.
- *   UNPROVEN    - a Dispute exists and nothing above binds this settlement to it. Fails closed: a legacy event
- *                 or a recovered direct-call settlement is not classified by assumption.
+ *   COOPERATIVE - positive proof, never the mere absence of a Dispute row (a row can be deleted): the escrow's
+ *                 hash-chained transitions link from genesis to this settlement and none enters or leaves
+ *                 DISPUTED. Opening a dispute writes that transition before any ruling can settle, and deleting
+ *                 it breaks the link of every later transition. No Dispute row may exist either.
+ *   UNPROVEN    - anything else: a Dispute nothing above binds to this settlement, a legacy unhashed or broken
+ *                 chain, a deleted dispute, or a recovered direct-call settlement. Fails closed: not classified
+ *                 by assumption.
  */
 export async function classifySettlementProvenance(effectId: string, escrowId: string, eventDisputeId: string | undefined): Promise<SettlementProvenance> {
   if (eventDisputeId) return 'DISPUTED'
@@ -54,7 +59,28 @@ export async function classifySettlementProvenance(effectId: string, escrowId: s
   if (authorization) return 'DISPUTED'
 
   const dispute = await prisma.dispute.findFirst({ where: { escrowId }, select: { id: true } })
-  return dispute ? 'UNPROVEN' : 'COOPERATIVE'
+  if (dispute) return 'UNPROVEN'
+  return (await provesUndisputedChain(effectId, escrowId)) ? 'COOPERATIVE' : 'UNPROVEN'
+}
+
+/** Walks the transition chain by its links, not by timestamps (two rows can share a createdAt), and requires every
+ *  row to be on it: an unhashed, mutated, branched or orphaned row makes the history unprovable. */
+async function provesUndisputedChain(effectId: string, escrowId: string): Promise<boolean> {
+  const rows = await prisma.escrowEvent.findMany({ where: { escrowId } })
+  const byPrev = new Map<string, typeof rows[number]>()
+  for (const r of rows) {
+    if (!r.entryHash || !r.prevHash || byPrev.has(r.prevHash)) return false
+    if (r.entryHash !== computeEscrowEventHash(r.fromStatus, r.toStatus, r.triggeredBy, r.prevHash)) return false
+    byPrev.set(r.prevHash, r)
+  }
+  let link = 'genesis', walked = 0, found = false
+  for (let r = byPrev.get(link); r; r = byPrev.get(link)) {
+    if (r.fromStatus === 'DISPUTED' || r.toStatus === 'DISPUTED') return false
+    if (r.id === effectId) found = true
+    link = r.entryHash!
+    walked++
+  }
+  return found && walked === rows.length
 }
 
 /** Outcome Engine (RFC-007 D8/D9): a ruling makes one party win and one lose, and RFC-021 D7 burns the loser's

@@ -18,8 +18,11 @@ import { spawn } from 'child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
-import { randomBytes } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import { Prisma, PrismaClient } from '@prisma/client'
+// The first link of a real escrow transition chain (escrow-lifecycle.ts's computeEscrowEventHash()). Settlement
+// provenance proves a cooperative settlement from this chain, so a fixture's hash must be one the writer would compute.
+const genesisEscrowHash = (from: string, to: string, by: string) => createHash('sha256').update(`${from}|${to}|${by}|genesis`).digest('hex')
 
 export const ROOT = path.resolve(__dirname, '..', '..')
 export const WORKER = path.join(__dirname, 'reconcilerProcess.worker.ts')
@@ -341,7 +344,7 @@ export class Fixtures {
       let transitionId = ''
       if (mode !== 'unclaimed') {
         const transition = await this.prisma.escrowEvent.create({
-          data: { escrowId: escrow.id, fromStatus: spec.from as never, toStatus: spec.to as never, triggeredBy: seller.id, entryHash: randomBytes(16).toString('hex'), prevHash: 'genesis' },
+          data: { escrowId: escrow.id, fromStatus: spec.from as never, toStatus: spec.to as never, triggeredBy: seller.id, entryHash: genesisEscrowHash(spec.from, spec.to, seller.id), prevHash: 'genesis' },
         })
         transitionId = transition.id
         await this.prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: escrow.id, appliedAt: new Date(Date.now() - 600_000) } })

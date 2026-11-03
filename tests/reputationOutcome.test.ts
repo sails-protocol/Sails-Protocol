@@ -22,6 +22,12 @@ const mockDisputeFindFirst = jest.fn()
 // Issue #254 - immutable provenance, read before the Dispute existence check; null by default, so a test
 // reaches the disputed outcome through the event's own disputeId, the shape a real ruling publishes.
 const mockSemanticTransitionRecordFindFirst = jest.fn().mockResolvedValue(null)
+// A cooperative settlement is proven by its escrow's hash chain, not by a missing Dispute row: by default the
+// settlement being delivered is the first and only link, and it never touched DISPUTED.
+const mockEscrowChain = (transitionId: string) => {
+  const entryHash = require('crypto').createHash('sha256').update('PAYMENT_PENDING|COMPLETED|seller-1|genesis').digest('hex')
+  return [{ id: transitionId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: 'seller-1', prevHash: 'genesis', entryHash }]
+}
 const mockUserUpdate = jest.fn()
 const mockEscrowFindUnique = jest.fn()
 // RFC-021 D7 — vouch.service.ts's burn is now applied from the same
@@ -62,6 +68,7 @@ jest.mock('../src/common/database', () => ({
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
     semanticTransitionRecord: { findFirst: (...args: unknown[]) => mockSemanticTransitionRecordFindFirst(...args) },
     economicDispositionAuthorization: { findFirst: jest.fn().mockResolvedValue(null) },
+    escrowEvent: { findMany: async () => mockEscrowChain(`evt-${eventSeq}`) },
     user: { update: (...args: unknown[]) => mockUserUpdate(...args) },
     escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
     // burnVouchesForOnce() reads the vouchee's vouches outside any claim transaction, and asks the claim store
