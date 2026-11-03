@@ -244,6 +244,9 @@ const eventProjectionClaims = {
     }
     return { count }
   }),
+  findFirst: jest.fn(async ({ where = {} }: any = {}) =>
+    projectionClaimRows.find((r) => Object.entries(where).every(([k, v]) => r[k] === v)) ?? null
+  ),
   findMany: jest.fn(async ({ where = {} }: any = {}) =>
     projectionClaimRows.filter((r) => Object.entries(where).every(([k, v]) => (v && typeof v === 'object') ? true : r[k] === v)).map((r) => ({ ...r }))
   ),

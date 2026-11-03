@@ -70,6 +70,8 @@ jest.mock('../src/common/database', () => ({
     eventProjectionClaim: {
       count: async ({ where }: { where: { eventId: string; projectionKey: string; subjectId: string } }) =>
         claimStore.has(`${where.eventId}|${where.projectionKey}|${where.subjectId}`) ? 1 : 0,
+      findFirst: async ({ where }: { where: { eventId: string; projectionKey: string } }) =>
+        [...claimStore].some((k) => k.startsWith(`${where.eventId}|${where.projectionKey}|`)) ? { id: 'claim' } : null,
     },
     $transaction: (cb: (tx: unknown) => Promise<unknown>) => cb(fakeTx),
   },
