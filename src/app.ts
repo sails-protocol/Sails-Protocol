@@ -64,10 +64,12 @@ export interface BuildAppOptions {
   // exactly today's behavior; no test's outcome changes unless it
   // explicitly opts out.
   registerSwaggerUi?: boolean
+  // Where the Fastify logger writes. Tests pass a stream to read the real log lines; the default is stdout.
+  logStream?: { write(line: string): void }
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
-  const { registerSwaggerUi = true } = options
+  const { registerSwaggerUi = true, logStream } = options
 
   // Missão 11 Fase 7.3.2 §1 (CTO-approved) — rail-capability validation,
   // evaluated once, unconditionally, before anything else boots. See
@@ -95,6 +97,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         paths: ['req.headers.authorization', 'req.headers.cookie', 'token'],
         censor: '[REDACTED]',
       },
+      ...(logStream ? { stream: logStream } : {}),
     },
   })
 
