@@ -69,7 +69,7 @@
     "jsdom": "^25.0.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "storybook": "^8.6.14",
+    "storybook": "^8.6.19",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11"
