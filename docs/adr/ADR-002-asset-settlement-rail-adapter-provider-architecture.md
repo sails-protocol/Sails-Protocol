@@ -242,6 +242,34 @@ combinations are kept", `{BTC, ARKADE}` as a later wave, DePix as
 mandatory native P2P — are superseded and stay as history. No Gate B
 criterion is marked concluded, and nothing is homologated.
 
+## 5B. Day-0 Matrix: Facts per Combination (2026-11-03)
+
+**Status:** a statement of facts as read from the repository on 2026-11-03 (`main` `5f5be8d`), requested by the CTO to complement §5A and to serve `docs/BACKLOG.md` item 20 and criterion B4 of Issue #105. It freezes no decision, adds no scope and homologates nothing. "Cataloged" means the row exists in the 25-row `SettlementScope` registry (§5); "provider registered" means a `SettlementProviderRegistration` exists (`src/common/settlement-provider-registry.ts`). Capabilities are the ones the registry declares, never self-declared properties (§6).
+
+| # | Asset | Rail | Adapter / provider today | Declared capabilities | Implementation | Evidence on record | Registry | Beta / production eligibility |
+|---|---|---|---|---|---|---|---|---|
+| 1 | BTC | `BITCOIN_L1` | `MULTISIG` (`multisig.provider.ts`) | release, refund, split, signatureCollection | Implemented | One mainnet release of 30,000 sats (`docs/MAINNET_MULTISIG_PROOF.md`): the 2-of-3 witness is verifiable on-chain. Limits stated by that document: one operator held both client keys, the arbiter key is derived server-side, refund and split were not exercised on mainnet, no third-party audit | Cataloged; provider registered | Not decided; not homologated |
+| 2 | BTC | `LIQUID` | None (`LIQUID_COVENANT` is an `EscrowType` with no provider) | n/a | Not implemented | None | Cataloged; no provider | None |
+| 3 | USDT | `ETHEREUM` | `WDK_USDT_EVM`, a **server-custodial reference** (single server-held seed) | release, refund, split | Implemented, testnet only | Testnet; unknown-outcome retry evidence is simulated (`docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md`) | Cataloged; provider registered | **Production-ineligible** (RFC-019; the boot refuses a configured seed in production). No non-custodial ERC-20 provider exists: `SAFE_GUARD_EVM` is a candidate that checks native-currency balance, is not registered and was never exercised against live infrastructure |
+| 4 | USDT | `POLYGON` | None | n/a | Not implemented | None | Cataloged; no provider | None |
+| 5 | USDT | `BASE` | None | n/a | Not implemented | None | Cataloged; no provider | None |
+| 6 | USDT | `ARBITRUM` | None | n/a | Not implemented | None | Cataloged; no provider | None |
+| 7 | USDT | `TON` | None | n/a | Not implemented | None | Cataloged; no provider | None |
+| 8 | USDT | `TRON` | None (legacy `USDT_TRC20` exists only as a schema value) | n/a | Schema representation only | None | Cataloged; no provider | None |
+| 9 | USDT | `SOLANA` | None | n/a | Not implemented | None | Cataloged; no provider | None |
+| 10 | USDC | `ETHEREUM` | None (`USDC` is not a legacy `AssetType`) | n/a | Not implemented | None | Cataloged; no provider | None |
+| 11 | USDC | `POLYGON` | None | n/a | Not implemented | None | Cataloged; no provider | None |
+| 12 | USDC | `BASE` | None | n/a | Not implemented | None | Cataloged; no provider | None |
+| 13 | USDC | `ARBITRUM` | None | n/a | Not implemented | None | Cataloged; no provider | None |
+| 14 | USDC | `SOLANA` | None | n/a | Not implemented | None | **Not cataloged**: added by the 2026-11-01 decision; registering it is the separate mission of D2 | None |
+
+**Reading notes.**
+
+- Of the 14 rows, **one** has a provider that is implemented, registered and not classified as custodial (row 1; its arbiter key is still derived on the server, as its proof document states). Eight rows are USDT or USDC on an EVM network (rows 3 to 6 and 10 to 13); for them the only implemented path is the custodial reference of row 3. Whether one generic EVM provider can serve several networks, each with its own maturity, remains a hypothesis (`docs/BACKLOG.md` item 20), not a decision.
+- Shared implementation does not mean shared maturity (§2, §7). No cell above is a homologation.
+
+**The 25-row table of §5 stays as the historical catalog.** The 12 rows that left the Day-0 commitment (§5A) are native-P2P roadmap, with no claim of implementation attached to them. One of them has a real implementation that is outside the commitment: `LIGHTNING_HODL` serves `{BTC, ARKADE}` (registered, testnet-evidenced on Mutinynet). The other eleven have no provider.
+
 ## 6. Capability, Property, and Eligibility — Four Layers, Never Collapsed
 
 

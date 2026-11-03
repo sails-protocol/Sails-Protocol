@@ -2333,6 +2333,13 @@ or hidden operational conventions.
     quote denomination, the market pair/currency must be explicit and
     never inferred from node, locale, payment method or geography.
 
+    **Quote-currency inventory, implemented versus planned (2026-11-03, EPM, requested by the CTO for criterion B7).** A statement of facts: B7 stays OPEN and this note freezes no scope.
+    - **Persisted today.** `Offer.priceUsd` (required) and `Offer.priceBrl` (optional). The same pair feeds the derived offer schema, which can name only `USD` or `BRL` as the quote currency (`packages/sails-p2p-schemas/src/offer.ts:63`). `OfferEnvelope` and `Trade` carry `priceUsd`.
+    - **Declared on intents.** `currency` is optional and validated against eight codes (`BRL`, `USD`, `EUR`, `GBP`, `ARS`, `MXN`, `NGN`, `INR`) in `src/core/intent.routes.ts` and `src/modules/open-agents/agent.routes.ts`. It is not stored as a quote on the Offer.
+    - **Aggregated discovery.** `GET /v1/liquidity/offers` does not return `priceBrl` (`packages/sails-sdk/src/modules/liquidity.ts`), so a client cannot read an offer's local-fiat quote from it.
+    - **Reference UI only.** `FIAT_CURRENCIES` lists thirteen codes; five of them (`VES`, `COP`, `PEN`, `BOB`, `EGP`) exist only in the UI. Amount presets are illustrative, and the UI defaults the display currency to BRL where a route returns no fiat choice.
+    - **Planned.** Nothing is decided: no frozen list of quote currencies, no live FX feed, no canonical market-pair field. These remain the open obligations of this item.
+
 Required evidence:
 Beta Asset/Rail Matrix Truth Test; Unsupported Asset Fail-Closed Test;
 DePix End-to-End Representability Test **(unconditional — DePix/Liquid
