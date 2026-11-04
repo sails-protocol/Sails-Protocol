@@ -219,6 +219,11 @@ The issue is distinct from per-rail policy: **which independent signing authorit
 7. **Rail-specific claims.** SAFE_GUARD_EVM's `SailsSignerService`/AWS KMS third signer requires its own security and independent-operator design. No security equivalence with MULTISIG is inferred. Market arbitration remains production-ineligible until separately evidenced, including externally backed collateral and #255 idempotency.
 8. **Fail closed.** Conflicting participant views, unavailable arbiter proof, missing signed consent or inconsistent commitments must refuse funding/authorization. Any timeout/refund escape hatch must be proven under the actual script or contract, not promised as a recovery mechanism.
 
+### Scope boundary and current limitation (added 2026-11-04, after Gatekeeper review GK-ADR003-580)
+
+- **Bitcoin Gen-2 is not decided here.** This proposal addresses the existing P2WSH 2-of-3 constraint only. It does not decide or freeze the Bitcoin Gen-2 Taproot/MuSig2 key or script tree, threshold (2-of-2, 2-of-3 or an alternative), arbiter rotation or recovery. Issue #121 remains open and must be reconciled before a final Gen-2 design.
+- **Current limitation.** Today an appeal cannot reassign a script-committed MULTISIG arbiter: `appeal()` in `dispute.service.ts` refuses it. No forced reassignment or timeout exit exists for a silent arbiter, so a disputed escrow may remain frozen until that arbiter acts (`docs/BACKLOG.md`, the silent-arbiter finding). The cross-node failover and recovery in this proposal are requirements, not implemented or demonstrated behavior.
+
 ### Alternatives evaluated
 
 - **A: keep operator-derived `MULTISIG_SEED` key:** compatible with the present bootstrap, but does not satisfy the independent third-party objective. May remain a separately and truthfully disclosed legacy/bootstrap mode.
@@ -231,6 +236,15 @@ The issue is distinct from per-rail policy: **which independent signing authorit
 - Define the exact signed consent object, authoritative durable owner, client-side verification, external arbiter key-possession proof, failure behavior and historical compatibility.
 - Adversarial tests: different nodes propose different arbiters; mismatched policy/script; forged or replayed consent; unauthorized destination/amount; arbiter key rotation/loss; operator compromise; cross-node dispute failover; stale appeals; external signer unavailability; real persistence/restart/concurrency as relevant.
 - Document what an appeal can and cannot do when an arbiter is script-fixed. Cross-reference ADR-001, ADR-005, RFC-020, Issue #105, #220, #255 and future-only #438.
+- Open implementation gates, none satisfied or implied by this proposal:
+  - the signed-consent payload, its domain separation and its freshness and replay rules;
+  - proof that the arbiter key is independently controlled;
+  - rail-specific destination, amount, fee and signing-intent checks (SDK verify-before-sign covers MULTISIG only; LIGHTNING_HODL and SAFE_GUARD_EVM still raw-sign in `packages/sails-ui/src/hooks/useEscrowKey.ts`);
+  - arbiter eligibility, admission and selection beyond bilateral acceptance;
+  - remuneration and bond economics;
+  - participant-facing UI.
+
+  No SAFE_GUARD_EVM security equivalence with MULTISIG follows from any of them. #255 and #438 keep their separate scopes.
 - Gatekeeper reviews the complete proposal and evidence independently. CTO issues a separate implementation authorization only after the Project #3 card/owner and Master Backlog sequencing are verified.
 
 ### Tracking caveat
