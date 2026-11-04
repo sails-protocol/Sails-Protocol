@@ -1,0 +1,20 @@
+[
+  {
+    "package": "fastify",
+    "appliesTo": "<=5.12.4",
+    "reviewBy": "2026-11-15",
+    "reason": "5.12.1 on main carries 4 HIGH advisories (authentication bypass via malformed URLs, request/header/boolean-schema validation bypass: GHSA-p68q-wchp-6fh7, GHSA-667r-xxjv-c9mm, GHSA-hwr6-493r-vm6h, GHSA-9q9j-q6p8-xq58). Fixed by PR #449 (fastify 5.12.5), still a draft. NOT a safe state to run in production: this exception only keeps CI informative until #449 lands; the CTO must decide whether to merge #449 first. Remove this entry when the lockfile has >=5.12.5."
+  },
+  {
+    "package": "brace-expansion",
+    "appliesTo": "<=5.0.11",
+    "reviewBy": "2026-11-15",
+    "reason": "5.0.9 via @fastify/swagger-ui > @fastify/static > glob > minimatch (DoS by recursion on crafted brace patterns; reachable only if untrusted input is globbed). Fixed by PR #449 (5.0.12). Remove when the lockfile has >=5.0.12."
+  },
+  {
+    "package": "source-map-js",
+    "appliesTo": "<=1.2.1",
+    "reviewBy": "2026-11-15",
+    "reason": "1.2.1 is an EXTRANEOUS copy (postcss/magicast leftovers of other workspaces, required by nothing the server loads; `npm ls` marks it extraneous). Fixed by PR #449 (1.2.2). Remove when the lockfile has >=1.2.2."
+  }
+]
