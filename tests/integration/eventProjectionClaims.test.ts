@@ -265,7 +265,9 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     const transition = await prisma.escrowEvent.create({
       data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: genesisEscrowHash('PAYMENT_PENDING', 'COMPLETED', ctx.sellerId), prevHash: 'genesis' },
     })
-    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
+    // PASS 3 takes claims strictly older than its cutoff (Date.now() - graceMs, here 0). Created in the same millisecond
+    // the workers start, the claim was invisible to all five and nothing recovered it (#105 RCA 6618681053).
+    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId, appliedAt: new Date(Date.now() - 1000) } })
 
     const reports = Array.from({ length: 5 }, () => ({ requiresManualReview: [], failed: [], projectionsRecovered: [] } as any))
     await Promise.all(reports.map((r) => reconcileIncompleteProjections(r, 0)))
