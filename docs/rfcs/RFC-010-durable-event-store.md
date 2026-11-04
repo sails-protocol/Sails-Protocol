@@ -270,3 +270,14 @@ succeeding), and one booting the full `buildApp()` with
    `correlationId`'s population rule changes from `tradeId` to `intentId`
    for every Intent-scoped event family — no interface change required,
    only the value each call site passes.
+
+## Amendment — 2026-10-26: processing guarantees (dated; text above preserved)
+
+This RFC requires durability and a mandatory `correlationId`. It does not by itself guarantee that a durable event is processed, processed once, or processed in order. The default store is `PostgresEventStore` (since Missão 05.7): it persists the event and then emits to in-process subscribers, with no consumer checkpoint and no redelivery, so a handler failure or a crash between persistence and handler leaves the event durable but its effects possibly missing. `InMemoryEventStore` is a non-durable option for tests and is not the default (the Specification and Backward Compatibility sections above describe it as the default for historical reasons). Every handler of an economically relevant event is therefore required to satisfy four properties:
+
+1. **Effect-level idempotency under a canonical economic identity.** The key of an economic effect is the canonical identity of the economic fact it records — for example the escrow, its terminal state or dispute/ruling generation, the projection name and the subject (participant) — not the `eventId`, because distinct events can represent the same economic conclusion. Persistence of the effect and of its key is transactional, and database uniqueness backs the key.
+2. **Independence from arrival order.** An older or delayed event must never overwrite a newer economic state; conditional, state-aware writes replace unconditional ones.
+3. **Crash convergence.** A persisted economic event must lead every required projection to converge exactly once or idempotently across crash and restart; a reconciler re-drives missing effects, and presence of the event record is not evidence that all downstream effects ran.
+4. **Replay safety.** A replay or redelivery has no additional effect.
+
+Owners: Issues #236 (audit of all handlers, ordering) and #253 (crash consistency and reconciliation), with #252, #245, #254 and #341 where they apply. The known-gap test that documents double counting of a duplicated `settlement.escrow.released` is to become a passing contract test once the property holds. Evidence required: duplication, reordering, replay and crash/restart tests against a real PostgreSQL. `RedisStreamsEventStore` remains off for production until these guarantees are closed and the Redis Gate 2 is independently homologated. This amendment states requirements; it does not state that any of them is implemented or homologated.

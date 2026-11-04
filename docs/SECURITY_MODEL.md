@@ -239,6 +239,8 @@ model itself, no closed-form solution — is disclosed in RFC-021's own
 "Known Risks — Mitigated, Not Solved" section, not implied fixed by this
 correction.
 
+> **Dated note, 2026-10-26 (Scenario C).** The Trusted Arbitrator model (trusted-list) is the Day-0 model; the permissionless `market` mode is production-ineligible and off. There is no appeal in Day 0. The operator-curated arbiter list and, for `MULTISIG`, the arbiter key derived on the server are not homologated for production: they require technical, security and legal review before real-value use. The arbitration reserve (10% of the 0.40% Protocol Fee) is protocol-treasury revenue, not user funds, and gives the treasury no power over user funds or over dispute resolution beyond powers previously consented to; the treasury key is never an escrow or arbiter signing key. Provisionally for the beta, the operator that designates an arbiter bears that arbiter's operational costs (Sails, in a Sails-operated beta); no additional charge is made to users.
+
 ### Resolution Principles
 
 - QVAC assists analysis locally and privately — no cloud dependency (future)
