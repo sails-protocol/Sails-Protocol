@@ -138,8 +138,8 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
     ['SAFE_GUARD_EVM', 'refund', 'REFUND'],
   ] as const
 
-  it.each(cases)('%s %s: the frozen ruling generation and its authorization are committed before finalize runs', async (type, kind, ruling) => {
-    pg.requirePostgres(`${type} ${kind} production-path provenance`)
+  // raiseDispute() -> signed resolveDispute() -> applyRuling() -> initiateRelease()/initiateRefund().
+  async function resolveThroughProductionPath(type: Rail, kind: 'release' | 'refund', ruling: 'RELEASE' | 'REFUND') {
     const f = await makeDisputedTrade(type)
     const provider: any = type === 'LIGHTNING_HODL' ? lightningHodlProvider : safeGuardEvmProvider
 
@@ -157,10 +157,15 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
     expect(pending).toMatchObject({ kind, unsignedPsbtBase64: bundle, disputeId: f.dispute.id, rulingAppealRound: 0, rulingArbiterId: f.arbiter.id, rulingOutcome: ruling, rulingAuthoritySignature: signature })
     expect(pending.rulingAuthorityIssuedAt!.toISOString()).toBe(issuedAt)
     expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: f.escrow.id } })).toBe(0)
+    return { f, provider, pending, signature, bundle, finalize: kind === 'release' ? 'finalizeRelease' : 'finalizeRefund' }
+  }
+
+  it.each(cases)('%s %s: the frozen ruling generation and its authorization are committed before finalize runs', async (type, kind, ruling) => {
+    pg.requirePostgres(`${type} ${kind} production-path provenance`)
+    const { f, provider, pending, signature, finalize } = await resolveThroughProductionPath(type, kind, ruling)
 
     // External effect. What a separate connection sees here is what was committed before the effect.
     const seen: any = {}
-    const finalize = kind === 'release' ? 'finalizeRelease' : 'finalizeRefund'
     const fakeTxId = `0x${randomUUID().replace(/-/g, '')}`
     const spy = jest.spyOn(provider, finalize).mockImplementation(async () => {
       seen.pending = (await observer.query('SELECT * FROM escrow_pending_transactions WHERE "escrowId" = $1', [f.escrow.id])).rows
@@ -189,5 +194,61 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
     // The authorization outlives the pending row it authorized.
     expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: f.escrow.id } })).toBe(0)
     expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: f.escrow.id, pendingOperationId: pending.id } })).toBe(1)
+  })
+
+  // #341 requirement 5: a raw UPDATE of the pending row, landing while the first authorization is being committed,
+  // never makes the authorized operation differ from the executed one, and a retry on the overwritten row is
+  // refused before the provider. Deterministic interleaving: this test holds the gate's own advisory lock, waits
+  // until submitTransactionSignature() is blocked on it (it has already loaded the pending row), overwrites the
+  // row, then releases the lock.
+  it.each(cases)('%s %s: a concurrent overwrite of the pending row during the first authorization neither changes what executes nor survives a retry', async (type, kind, ruling) => {
+    pg.requirePostgres(`${type} ${kind} concurrent overwrite`)
+    const { f, provider, pending, bundle, finalize } = await resolveThroughProductionPath(type, kind, ruling)
+    const original = economicDispositionOperationDigest(pending as any)
+    const lockKey = `economic-disposition:${f.dispute.id}`
+
+    const calls: string[] = []
+    const spy = jest.spyOn(provider, finalize).mockImplementation(async (_escrow: any, unsigned: any) => {
+      calls.push(unsigned)
+      throw new Error('provider unavailable') // keeps the pending row so the retry below runs against it
+    })
+
+    await observer.query('SELECT pg_advisory_lock(hashtext($1)::bigint)', [lockKey])
+    let submit: Promise<unknown>
+    try {
+      submit = escrowService.submitTransactionSignature(f.escrow.id, f.buyer.id, 'signed-bundle').catch((e: Error) => e)
+      const end = Date.now() + 15_000
+      while ((await observer.query(`SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted`)).rowCount === 0) {
+        if (Date.now() > end) throw new Error('submitTransactionSignature never reached the economic-disposition lock')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+      expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: f.escrow.id } })).toBe(0)
+      const overwritten = await observer.query(
+        `UPDATE escrow_pending_transactions SET "unsignedPsbtBase64" = $2, "toAddress" = $3, "rulingOutcome" = $4::"DisputeRuling" WHERE id = $1`,
+        [pending.id, `attacker-${bundle}`, 'attacker-destination', ruling === 'RELEASE' ? 'REFUND' : 'RELEASE'],
+      )
+      expect(overwritten.rowCount).toBe(1)
+    } finally {
+      await observer.query('SELECT pg_advisory_unlock(hashtext($1)::bigint)', [lockKey])
+    }
+    const first = await submit!
+    expect((first as Error).message).toBe('provider unavailable')
+
+    // What was authorized is what executed: the row as loaded before the overwrite.
+    expect(calls).toEqual([bundle])
+    const authorization = (await prisma.economicDispositionAuthorization.findUnique({ where: { pendingOperationId: pending.id } }))!
+    expect(authorization.operationDigest).toBe(original)
+    const live = (await prisma.escrowPendingTransaction.findUnique({ where: { id: pending.id } }))!
+    expect(live.unsignedPsbtBase64).toBe(`attacker-${bundle}`)
+    expect(economicDispositionOperationDigest(live as any)).not.toBe(original)
+    expect((await prisma.escrow.findUnique({ where: { id: f.escrow.id } }))!.status).toBe('DISPUTED')
+
+    // Retry on the overwritten row: refused by the committed digest, before the provider.
+    spy.mockClear()
+    await expect(escrowService.submitTransactionSignature(f.escrow.id, f.buyer.id, 'signed-bundle'))
+      .rejects.toThrow(`Pending operation ${pending.id} no longer matches its committed economic disposition authorization`)
+    expect(spy).not.toHaveBeenCalled()
+    expect((await prisma.escrow.findUnique({ where: { id: f.escrow.id } }))!.status).toBe('DISPUTED')
+    expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: f.escrow.id } })).toBe(1)
   })
 })
