@@ -14,6 +14,10 @@ import { PrismaClient } from '@prisma/client'
 import { Client } from 'pg'
 import nacl from 'tweetnacl'
 import { randomBytes, randomUUID } from 'crypto'
+import { spawn } from 'child_process'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
+import os from 'os'
+import path from 'path'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
 
@@ -35,6 +39,7 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
   let economicDispositionOperationDigest: typeof import('../../src/modules/open-settlement/economic-disposition-authority').economicDispositionOperationDigest
   let lightningHodlProvider: typeof import('../../src/modules/open-settlement/lightning-hodl.provider').lightningHodlProvider
   let safeGuardEvmProvider: typeof import('../../src/modules/open-settlement/safe-guard-evm.provider').safeGuardEvmProvider
+  let marketArbitrationProvider: typeof import('../../src/modules/open-settlement/market-arbitration.provider').marketArbitrationProvider
 
   beforeAll(async () => {
     process.env.MOCK_ESCROW = 'true'
@@ -51,6 +56,7 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
     ;({ economicDispositionOperationDigest } = require('../../src/modules/open-settlement/economic-disposition-authority'))
     ;({ lightningHodlProvider } = require('../../src/modules/open-settlement/lightning-hodl.provider'))
     ;({ safeGuardEvmProvider } = require('../../src/modules/open-settlement/safe-guard-evm.provider'))
+    ;({ marketArbitrationProvider } = require('../../src/modules/open-settlement/market-arbitration.provider'))
     const { intentEngine } = require('../../src/core/intent-engine')
     const { OpenP2PTradeIntentHandler } = require('../../src/modules/open-p2p/intent-handler')
     intentEngine.registerHandler(OpenP2PTradeIntentHandler)
@@ -103,6 +109,7 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
     if (createdTradeIds.length) await prisma.trade.deleteMany({ where: { id: { in: createdTradeIds } } })
     if (createdUserIds.length) {
       await prisma.payoutAddress.deleteMany({ where: { participantId: { in: createdUserIds } } })
+      await prisma.arbiterProfile.deleteMany({ where: { participantId: { in: createdUserIds } } })
       await prisma.offer.deleteMany({ where: { userId: { in: createdUserIds } } })
       await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } })
     }
@@ -250,5 +257,78 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
     expect(spy).not.toHaveBeenCalled()
     expect((await prisma.escrow.findUnique({ where: { id: f.escrow.id } }))!.status).toBe('DISPUTED')
     expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: f.escrow.id } })).toBe(1)
+  })
+
+  // #341 requirement 3: a real OS process finalizes and dies by SIGKILL at a deterministic point after the external
+  // effect; the dispute is then appealed (its live row no longer says RESOLVED/<ruling>); a FRESH process recovers
+  // through the production reconciler. The recovered settlement event and its projection keep the frozen provenance.
+  const WORKER = path.join(__dirname, 'signatureCollectionRestart.worker.ts')
+  function runWorker(env: Record<string, string>): Promise<{ code: number | null; stderr: string }> {
+    const child = spawn(process.execPath, ['-r', 'ts-node/register/transpile-only', WORKER], {
+      cwd: path.join(__dirname, '..', '..'),
+      env: { ...process.env, ...env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stderr = ''
+    child.stderr.on('data', (d: Buffer) => { stderr = (stderr + d.toString()).slice(-20_000) })
+    child.stdout.resume()
+    return new Promise((resolve) => child.on('exit', (code) => resolve({ code, stderr })))
+  }
+
+  const killPoints = ['after-effect', 'before-publish'] as const
+  const restartCases = cases.flatMap((c) => killPoints.map((k) => [...c, k] as const))
+
+  it.each(restartCases)('%s %s (%s), SIGKILL %s: a fresh process recovers the same frozen provenance after an appeal', async (type, kind, ruling, killAt) => {
+    pg.requirePostgres(`${type} ${kind} restart ${killAt}`)
+    const { f, pending, bundle } = await resolveThroughProductionPath(type, kind, ruling)
+    const panelist = await prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex') } })
+    createdUserIds.push(panelist.id)
+    await prisma.arbiterProfile.create({ data: { participantId: panelist.id, monetaryCollateral: '10', collateralAsset: 'BTC', arbiterReputation: 50 } })
+    const sync = mkdtempSync(path.join(os.tmpdir(), 'r341-'))
+    const toStatus = kind === 'release' ? 'COMPLETED' : 'REFUNDED'
+    const eventName = kind === 'release' ? 'settlement.escrow.released' : 'settlement.escrow.refunded'
+    const common = { SYNC_DIR: sync, ESCROW_ID: f.escrow.id, FAKE_TX_ID: `0x${randomUUID().replace(/-/g, '')}`, MOCK_ESCROW: 'true' }
+    const effects = () => existsSync(path.join(sync, 'effects.log')) ? readFileSync(path.join(sync, 'effects.log'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []
+    try {
+      const first = await runWorker({ ...common, ROLE: 'finalize', KILL_AT: killAt, SIGNER_ID: f.buyer.id })
+      expect(first.stderr).toContain('SIGKILL_MARKER')
+      expect(first.code).not.toBe(0)
+      expect(JSON.parse(readFileSync(path.join(sync, 'finalize.killed.json'), 'utf8')).point).toBe(killAt)
+
+      // State at the moment of death: the effect ran once and its authorization is committed; nothing is published.
+      expect(effects()).toEqual([expect.objectContaining({ role: 'finalize', unsigned: bundle })])
+      const authorization = (await prisma.economicDispositionAuthorization.findUnique({ where: { pendingOperationId: pending.id } }))!
+      expect(authorization).toMatchObject({ disputeId: f.dispute.id, appealRound: 0, arbiterId: f.arbiter.id, ruling, operationDigest: economicDispositionOperationDigest(pending as any) })
+      expect(await prisma.escrowEvent.count({ where: { escrowId: f.escrow.id, toStatus } })).toBe(killAt === 'after-effect' ? 0 : 1)
+      expect(await prisma.durableEventRecord.count({ where: { correlationId: f.trade.id, eventName } })).toBe(0)
+
+      // The live dispute moves on before recovery.
+      await new DisputeService(marketArbitrationProvider).appeal(f.dispute.id, ruling === 'RELEASE' ? f.seller.id : f.buyer.id)
+      expect((await prisma.dispute.findUnique({ where: { id: f.dispute.id } }))).toMatchObject({ status: 'APPEALED', ruling: null, appealRound: 1 })
+
+      const recovery = await runWorker({ ...common, ROLE: 'recover' })
+      expect(recovery.stderr).not.toContain('SIGKILL_MARKER')
+      expect(recovery.code).toBe(0)
+
+      // No second external effect; one settlement event carrying the frozen dispute; the disputed outcome projected once.
+      expect(effects()).toHaveLength(1)
+      const durable = await prisma.durableEventRecord.findMany({ where: { correlationId: f.trade.id, eventName } })
+      expect(durable).toHaveLength(1)
+      const transition = (await prisma.escrowEvent.findFirst({ where: { escrowId: f.escrow.id, toStatus } }))!
+      // A recovered publication carries no payload.disputeId (settlement-provenance.ts documents this). The frozen
+      // identity survives in durable rows instead: the transition's dispute-provenance row, written with the claim
+      // by the killed process (before-publish), and the ADR-005 authorization, in both cases. PASS 2 (after-effect)
+      // re-claims the transition without a disputeId, so there only the authorization carries it.
+      expect((durable[0].payload as any).disputeId).toBeUndefined()
+      const provenanceRows = await prisma.eventProjectionClaim.findMany({ where: { eventId: transition.id, projectionKey: 'transition.dispute-provenance' } })
+      expect(provenanceRows.map((r) => r.subjectId)).toEqual(killAt === 'before-publish' ? [f.dispute.id] : [])
+      expect(await prisma.eventProjectionClaim.count({ where: { eventId: transition.id, projectionKey: 'reputation.outcome' } })).toBe(2)
+      const [buyer, seller] = await Promise.all([prisma.user.findUnique({ where: { id: f.buyer.id } }), prisma.user.findUnique({ where: { id: f.seller.id } })])
+      expect(buyer!.reputationScore).toBe(ruling === 'RELEASE' ? 2 : -5)
+      expect(seller!.reputationScore).toBe(ruling === 'RELEASE' ? -5 : 2)
+      expect(await prisma.economicDispositionAuthorization.findMany({ where: { escrowId: f.escrow.id } })).toEqual([authorization])
+    } finally {
+      rmSync(sync, { recursive: true, force: true })
+    }
   })
 })
