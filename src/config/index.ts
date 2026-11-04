@@ -242,6 +242,20 @@ export const config = {
       .split(',')
       .map(s => s.trim())
       .filter(Boolean),
+    // ADR-001 §7.2, Persistent Participant Transport Identity (renamed
+    // 2026-09-09, CTO Gate B correction — this persists each
+    // participant's own Pears/HyperDHT transport identity, per
+    // `ownerUserId`; it is not a distinct Sails Node operator/runtime
+    // identity, which does not exist in this codebase today, see
+    // `participant-transport-identity.ts`'s own header comment). Same
+    // `./data/<name>` + env-var-override convention already established
+    // for `proof.evidenceStorageDir` (evidence-provider.ts) — a plain
+    // local directory, not a cloud KMS/secret-store dependency (none is
+    // required to solve local persistence). Holds one 32-byte Ed25519
+    // seed file per participant — see `participant-transport-identity.ts`
+    // for the read/write contract, corruption handling, and why this is
+    // never a cloud dependency by default.
+    participantTransportIdentityStorageDir: process.env.PARTICIPANT_TRANSPORT_IDENTITY_STORAGE_DIR ?? './data/participant-transport-identity',
   },
 
   // CTO_DUE_DILIGENCE_REPORT.md B-SEC-01, closed 2026-08-08 — `origin: true`
