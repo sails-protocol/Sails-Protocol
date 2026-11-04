@@ -20,6 +20,7 @@ describe('ADR-005 gate: a cooperative pending operation never executes on a disp
   let tradeService: typeof import('../../src/modules/open-p2p/trade.service').tradeService
   let escrowService: typeof import('../../src/modules/open-settlement/escrow.service').escrowService
   let lightningHodlProvider: typeof import('../../src/modules/open-settlement/lightning-hodl.provider').lightningHodlProvider
+  let safeGuardEvmProvider: typeof import('../../src/modules/open-settlement/safe-guard-evm.provider').safeGuardEvmProvider
   let emitEscrowTransition: typeof import('../../src/modules/open-settlement/escrow-lifecycle').emitEscrowTransition
 
   beforeAll(async () => {
@@ -32,6 +33,7 @@ describe('ADR-005 gate: a cooperative pending operation never executes on a disp
     ;({ tradeService } = require('../../src/modules/open-p2p/trade.service'))
     ;({ escrowService } = require('../../src/modules/open-settlement/escrow.service'))
     ;({ lightningHodlProvider } = require('../../src/modules/open-settlement/lightning-hodl.provider'))
+    ;({ safeGuardEvmProvider } = require('../../src/modules/open-settlement/safe-guard-evm.provider'))
     ;({ emitEscrowTransition } = require('../../src/modules/open-settlement/escrow-lifecycle'))
     const { intentEngine } = require('../../src/core/intent-engine')
     const { OpenP2PTradeIntentHandler } = require('../../src/modules/open-p2p/intent-handler')
@@ -48,17 +50,21 @@ describe('ADR-005 gate: a cooperative pending operation never executes on a disp
   })
 
   // A seller-initiated release, pending its buyer signature, on an escrow that was PAYMENT_PENDING when it began.
-  async function makeCooperativePending() {
+  // #341 requirement 6: every case runs on both signature-collection rails.
+  type Rail = 'LIGHTNING_HODL' | 'SAFE_GUARD_EVM'
+  const RAILS = ['LIGHTNING_HODL', 'SAFE_GUARD_EVM'] as const
+
+  async function makeCooperativePending(type: Rail) {
     const buyer = await prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex') } })
     const seller = await prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex') } })
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'LIGHTNING_HODL', status: 'PAYMENT_PENDING', lockedAmount: '0.001', asset: 'BTC' } })
+    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type, status: 'PAYMENT_PENDING', lockedAmount: '0.001', asset: 'BTC' } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id, status: 'ACTIVE' } })
     await prisma.escrowPendingTransaction.create({
       data: { escrowId: escrow.id, kind: 'release', toAddress: 'dest-address', requiredSigners: ['buyer-signer'], triggeredBy: seller.id, unsignedPsbtBase64: 'unsigned-bundle-b64' },
     })
-    const finalize = jest.spyOn(lightningHodlProvider as any, 'finalizeRelease').mockResolvedValue({ txId: `0x${randomUUID().replace(/-/g, '')}` })
+    const finalize = jest.spyOn((type === 'LIGHTNING_HODL' ? lightningHodlProvider : safeGuardEvmProvider) as any, 'finalizeRelease').mockResolvedValue({ txId: `0x${randomUUID().replace(/-/g, '')}` })
     return { buyer, seller, trade, escrow, finalize }
   }
 
@@ -75,17 +81,17 @@ describe('ADR-005 gate: a cooperative pending operation never executes on a disp
     expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: fixture.escrow.id } })).toBe(1)
   }
 
-  it('refuses when the escrow is DISPUTED but raiseDispute() has not written the Dispute row yet', async () => {
-    pg.requirePostgres('dispute opened, row not yet written')
-    const fixture = await makeCooperativePending()
+  it.each(RAILS)('%s: refuses when the escrow is DISPUTED but raiseDispute() has not written the Dispute row yet', async (type) => {
+    pg.requirePostgres(`${type} dispute opened, row not yet written`)
+    const fixture = await makeCooperativePending(type)
     await openDispute(fixture)
 
     await expectRefusedBeforeTheProvider(fixture)
   })
 
-  it('refuses when the Dispute row of a disputed escrow was deleted', async () => {
-    pg.requirePostgres('dispute row deleted')
-    const fixture = await makeCooperativePending()
+  it.each(RAILS)('%s: refuses when the Dispute row of a disputed escrow was deleted', async (type) => {
+    pg.requirePostgres(`${type} dispute row deleted`)
+    const fixture = await makeCooperativePending(type)
     await openDispute(fixture)
     await prisma.dispute.create({ data: { tradeId: fixture.trade.id, escrowId: fixture.escrow.id, openedBy: fixture.buyer.id, reason: 'payment not received' } })
     await prisma.dispute.deleteMany({ where: { escrowId: fixture.escrow.id } })
@@ -93,9 +99,9 @@ describe('ADR-005 gate: a cooperative pending operation never executes on a disp
     await expectRefusedBeforeTheProvider(fixture)
   })
 
-  it('still executes a cooperative release on an escrow that was never disputed', async () => {
-    pg.requirePostgres('cooperative release')
-    const fixture = await makeCooperativePending()
+  it.each(RAILS)('%s: still executes a cooperative release on an escrow that was never disputed', async (type) => {
+    pg.requirePostgres(`${type} cooperative release`)
+    const fixture = await makeCooperativePending(type)
 
     const result = await escrowService.submitTransactionSignature(fixture.escrow.id, 'buyer-signer', 'signed-bundle')
 
