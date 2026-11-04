@@ -22,9 +22,17 @@
 #     pruned.
 #   - Non-root user (`node`) added to the runtime stage so a future
 #     container-escape doesn't land as root inside the host namespace.
+#
+# Node 24 LTS (CTO decision, 2026-10-23): Node 20 reached end of life and
+# got no fix for the October 2026 security release (CVE-2026-111497 Brotli
+# RCE and nine others); 24.22.1 is that release's fixed LTS build. Both
+# stages pin the exact tag AND the image digest, so a rebuild cannot drift
+# to a different image; bump both together, deliberately. Also: dependencies
+# already declare Node >= 22 (e.g. @arkade-os/sdk ">=22.12.0 <27"), which
+# Node 20 never satisfied.
 
 # ---- syntax=docker/dockerfile:1.6 ----
-FROM node:20-bookworm-slim AS builder
+FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS builder
 
 # python3/make/g++: required to build this project's native addons
 # (sodium-native, tiny-secp256k1) from source when no matching prebuilt
@@ -83,11 +91,27 @@ RUN npm run build
 # crashed on the exact same missing-pino-pretty error the runtime image
 # has, defeating the entire reason to target `builder` in the first
 # place).
+# Production dependencies of the SERVER only: the root package plus the three
+# workspace packages it actually uses (@sails/core, @satsails/p2p-schemas,
+# @satsails/p2p-trading-sdk). A bare `npm prune --omit=dev` here keeps - and
+# even re-installs, because `COPY . .` above made every workspace directory
+# exist - the dependencies of the OTHER workspaces (packages/sails-ui,
+# packages/sdk-react, examples/*, contracts): next, lucide-react, radix, the
+# tailwind toolchain, sharp, etc., none of which the server can reach
+# (374 lock entries, ~380 MB; see docs and scripts/docker-image-size-report.sh).
+# Measured on a synthetic monorepo and on this one: with the workspace filter
+# npm installs exactly the server's closure. Nothing the server requires is
+# removed; scripts/docker-runtime-test.sh (resolution of every require in
+# dist/, dependency-integrity check, production boot) is the guard.
 FROM builder AS pruned
-RUN npm prune --omit=dev
+RUN npm prune --omit=dev \
+      --workspace=packages/sails-core \
+      --workspace=packages/sails-p2p-schemas \
+      --workspace=packages/sails-sdk \
+      --include-workspace-root
 
 # ---- syntax=docker/dockerfile:1.6
-FROM node:20-bookworm-slim AS runtime
+FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS runtime
 
 # OCI labels - indexable by `docker inspect` / registry searches, also
 # surface in Docker Desktop and any container-image scanner (trivy,
@@ -136,8 +160,16 @@ COPY --from=pruned --chown=node:node /app/packages/sails-p2p-schemas/package.jso
 COPY --from=pruned --chown=node:node /app/packages/sails-sdk/dist ./packages/sails-sdk/dist
 COPY --from=pruned --chown=node:node /app/packages/sails-sdk/package.json ./packages/sails-sdk/package.json
 COPY --from=pruned --chown=node:node /app/packages/sails-sdk/node_modules ./packages/sails-sdk/node_modules
+# @sails/core (packages/sails-core) - same symlink rule as above. It was
+# added to the workspace after this list was written and never copied, so
+# node_modules/@sails/core pointed at nothing and the server died at boot
+# with "Cannot find module '@sails/core'" (found 2026-10-23 by the first
+# real run of this runtime stage; CI's docker-compose test builds the
+# `builder` target, which has the full tree, so it never saw this).
+COPY --from=pruned --chown=node:node /app/packages/sails-core/dist ./packages/sails-core/dist
+COPY --from=pruned --chown=node:node /app/packages/sails-core/package.json ./packages/sails-core/package.json
 
-# node:20-bookworm-slim ships a non-root `node` user (uid 1000). Run as
+# node:24-bookworm-slim ships a non-root `node` user (uid 1000). Run as
 # `node` so the process doesn't hold root privileges inside the container
 # namespace - a future container-escape vulnerability lands as a normal
 # user, not root. `node` is the canonical image-level user; we don't
