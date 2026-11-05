@@ -193,11 +193,11 @@ async function applyDownstreamCompletionEffects(
   if (disposition && 'inconsistent' in disposition) {
     log.error({ msg: 'Reconciliation: disputed pending operation has no matching committed economic disposition authorization — recovered settlement recorded without provenance, its outcomes will be held for review', escrowId, pendingOperationId: pending!.id, inconsistent: disposition.inconsistent })
   }
-  const bound = disposition && 'authorizationId' in disposition ? disposition : null
+  const bound = disposition && 'authorization' in disposition ? disposition : null
   const emitted = await emitEscrowTransition(
     escrowId, tradeId, fromStatus, targetStatus, triggeredBy, eventName, { txId, ...(bound ? { disputeId: bound.disputeId } : {}) },
     'Recovered by settlement reconciliation after a process crash — see escrow-settlement-reconciliation.service.ts',
-    bound?.authorizationId
+    bound?.authorization
   )
 
   // Sails Core Implementation Program M9 (Recovery) — closes crash window

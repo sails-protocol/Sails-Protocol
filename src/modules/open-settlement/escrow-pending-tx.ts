@@ -25,7 +25,7 @@ import { feeCollectionRecognitionService } from './fee-collection-recognition.se
 import { identifyFeeOutput, networkFor } from './multisig.provider'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { authorizePendingExecution } from './capability-execution-authorization'
-import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
+import { authorizationMismatches, authorizeDisputedPendingExecution } from './economic-disposition-authority'
 import { childLogger } from '../../common/logger'
 
 const log = childLogger('escrow-pending-tx')
@@ -512,12 +512,18 @@ export async function submitTransactionSignature(escrowId: string, participantId
     // column already existed for the Economic Disposition Commit Gate, only threading it onto the
     // settlement event itself was missing. common/events/settlement-provenance.ts's classifySettlementProvenance() reads
     // this exact field first, before any other provenance source.
-    // Issue #341 (CTO 22 D1) - the gate above returned the exact authorization it verified or committed for this
-    // operation; the transition records it with the claim.
+    // Issue #341 (CTO 22 D1 and complementary authorization) - the gate above returned the authorization it verified
+    // or committed for this operation. Checked once more against the pending operation, field by field, before the
+    // transition binds it and commits to its content; a mismatch binds nothing and the outcome is held.
+    const mismatches = pending.disputeId && dispositionAuthorization ? authorizationMismatches(pending, dispositionAuthorization) : []
+    if (pending.disputeId && (!dispositionAuthorization || mismatches.length)) {
+      log.error({ msg: 'Disputed settlement executed without a matching economic disposition authorization — recorded without provenance, its outcomes will be held for review', escrowId, pendingOperationId: pending.id, inconsistent: dispositionAuthorization ? mismatches : ['no authorization returned'] })
+    }
+    const bound = pending.disputeId && dispositionAuthorization && !mismatches.length ? dispositionAuthorization : undefined
     await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, targetStatus, pending.triggeredBy, eventName, {
       txId: result.txId,
       ...(pending.disputeId ? { disputeId: pending.disputeId } : {}),
-    }, undefined, pending.disputeId ? dispositionAuthorization?.id : undefined)
+    }, undefined, bound)
 
     // Cascade-deletes its EscrowTransactionSignature rows (schema.prisma's
     // onDelete: Cascade) — a completed round leaves no pending row behind, except when the fee

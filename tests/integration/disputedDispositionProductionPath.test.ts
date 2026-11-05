@@ -37,6 +37,7 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
   let TrustedArbitratorProvider: typeof import('../../src/modules/open-settlement/arbitration-provider').TrustedArbitratorProvider
   let signAuthorityDecision: typeof import('../../src/modules/open-settlement/arbitration-authority').signAuthorityDecision
   let economicDispositionOperationDigest: typeof import('../../src/modules/open-settlement/economic-disposition-authority').economicDispositionOperationDigest
+  let dispositionCommitment: typeof import('../../src/modules/open-settlement/economic-disposition-authority').dispositionCommitment
   let lightningHodlProvider: typeof import('../../src/modules/open-settlement/lightning-hodl.provider').lightningHodlProvider
   let safeGuardEvmProvider: typeof import('../../src/modules/open-settlement/safe-guard-evm.provider').safeGuardEvmProvider
   let marketArbitrationProvider: typeof import('../../src/modules/open-settlement/market-arbitration.provider').marketArbitrationProvider
@@ -55,7 +56,7 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
     ;({ DisputeService } = require('../../src/modules/open-settlement/dispute.service'))
     ;({ TrustedArbitratorProvider } = require('../../src/modules/open-settlement/arbitration-provider'))
     ;({ signAuthorityDecision } = require('../../src/modules/open-settlement/arbitration-authority'))
-    ;({ economicDispositionOperationDigest } = require('../../src/modules/open-settlement/economic-disposition-authority'))
+    ;({ economicDispositionOperationDigest, dispositionCommitment } = require('../../src/modules/open-settlement/economic-disposition-authority'))
     ;({ lightningHodlProvider } = require('../../src/modules/open-settlement/lightning-hodl.provider'))
     ;({ safeGuardEvmProvider } = require('../../src/modules/open-settlement/safe-guard-evm.provider'))
     ;({ marketArbitrationProvider } = require('../../src/modules/open-settlement/market-arbitration.provider'))
@@ -185,6 +186,14 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
     }
   }
 
+  // The commitment written with that claim, and the one its authorization's CURRENT content would produce.
+  async function commitmentOf(escrowId: string, toStatus: 'COMPLETED' | 'REFUNDED', authorizationId: string) {
+    const transition = (await prisma.escrowEvent.findFirst({ where: { escrowId, toStatus } }))!
+    const written = (await prisma.eventProjectionClaim.findMany({ where: { eventId: transition.id, projectionKey: 'transition.disposition-commitment' } })).map((r) => r.subjectId)
+    const authorization = (await prisma.economicDispositionAuthorization.findUnique({ where: { id: authorizationId } }))!
+    return { written, expected: dispositionCommitment(authorization, transition) }
+  }
+
   it.each(cases)('%s %s: the frozen ruling generation and its authorization are committed before finalize runs', async (type, kind, ruling) => {
     pg.requirePostgres(`${type} ${kind} production-path provenance`)
     const { f, provider, pending, signature, finalize } = await resolveThroughProductionPath(type, kind, ruling)
@@ -223,6 +232,9 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
     // #341 PASS 2 provenance (CTO 22 D1): the settlement transition is bound to that exact authorization.
     const authorization = (await prisma.economicDispositionAuthorization.findUnique({ where: { pendingOperationId: pending.id } }))!
     expect(await transitionMarkers(f.escrow.id, kind === 'release' ? 'COMPLETED' : 'REFUNDED')).toEqual({ disputes: [f.dispute.id], authorizations: [authorization.id] })
+    const commitment = await commitmentOf(f.escrow.id, kind === 'release' ? 'COMPLETED' : 'REFUNDED', authorization.id)
+    expect(commitment.written).toEqual([commitment.expected])
+    expect(commitment.expected).toMatch(/^v1:[0-9a-f]{64}$/)
   })
 
   // #341 requirement 5: a raw UPDATE of the pending row, landing while the first authorization is being committed,
@@ -343,6 +355,10 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
       // disputeId, so the bound rows alone carry the provenance.
       expect((durable[0].payload as any).disputeId).toBe(killAt === 'after-effect' ? f.dispute.id : undefined)
       expect(await transitionMarkers(f.escrow.id, toStatus)).toEqual({ disputes: [f.dispute.id], authorizations: [authorization.id] })
+      // The appeal after the claim is legitimate: the commitment still matches and the settlement stays DISPUTED.
+      const commitment = await commitmentOf(f.escrow.id, toStatus, authorization.id)
+      expect(commitment.written).toEqual([commitment.expected])
+      expect(await provenance.classifySettlementProvenance(transition.id, f.escrow.id, undefined)).toBe('DISPUTED')
       expect(await prisma.eventProjectionClaim.count({ where: { eventId: transition.id, projectionKey: 'reputation.outcome' } })).toBe(2)
       const [buyer, seller] = await Promise.all([prisma.user.findUnique({ where: { id: f.buyer.id } }), prisma.user.findUnique({ where: { id: f.seller.id } })])
       expect(buyer!.reputationScore).toBe(ruling === 'RELEASE' ? 2 : -5)
@@ -502,6 +518,21 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
       expect(await s.classify()).toBe('DISPUTED')
       expect(await s.classify(s.f.dispute.id)).toBe('DISPUTED')
 
+      // The commitment: missing, doubled, or of an unknown version, each UNPROVEN; restored, DISPUTED again.
+      const [commitment] = (await prisma.eventProjectionClaim.findMany({ where: { eventId: s.transition.id, projectionKey: 'transition.disposition-commitment' } })).map((c) => c.subjectId)
+      expect(commitment).toMatch(/^v1:/)
+      await s.unmark('transition.disposition-commitment')
+      expect(await s.classify()).toBe('UNPROVEN')
+      await s.mark('transition.disposition-commitment', commitment)
+      await s.mark('transition.disposition-commitment', commitment.replace(/^v1:/, 'v1:0'))
+      expect(await s.classify()).toBe('UNPROVEN')
+      await s.unmark('transition.disposition-commitment')
+      await s.mark('transition.disposition-commitment', commitment.replace(/^v1:/, 'v2:'))
+      expect(await s.classify()).toBe('UNPROVEN')
+      await s.unmark('transition.disposition-commitment')
+      await s.mark('transition.disposition-commitment', commitment)
+      expect(await s.classify()).toBe('DISPUTED')
+
       // The event names another dispute than the bound authorization.
       expect(await s.classify(randomUUID())).toBe('UNPROVEN')
 
@@ -530,8 +561,10 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
       expect(await s.classify()).toBe('UNPROVEN')
       await s.unmark('transition.disposition-authorization')
 
-      // Marker missing, dispute-provenance kept: bound to the transition and consistent, still DISPUTED.
-      expect(await s.classify()).toBe('DISPUTED')
+      // Authorization marker missing, dispute-provenance kept: it names the dispute but not the operation or
+      // generation, and ADR-005 governs this escrow (GK NO-GO on #584): UNPROVEN, also with the event's disputeId.
+      expect(await s.classify()).toBe('UNPROVEN')
+      expect(await s.classify(s.f.dispute.id)).toBe('UNPROVEN')
       // Both markers missing: the escrow's authorization alone proves nothing (D2), and is not read as COOPERATIVE.
       await s.unmark('transition.dispute-provenance')
       expect(await s.classify()).toBe('UNPROVEN')
@@ -541,5 +574,161 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
     } finally {
       await prisma.economicDispositionAuthorization.deleteMany({ where: { escrowId: foreignEscrowId } })
     }
+  })
+
+  // ── Gatekeeper NO-GO on #584 (issuecomment-6658291755): adversarial groups 1-4 ─────────────────────────────────
+  //
+  // `held` checks the outcome side only: the settlement, its funds and its events are compared before and after.
+  async function settlementSnapshot(escrowId: string, tradeId: string) {
+    const escrow = (await prisma.escrow.findUnique({ where: { id: escrowId } }))!
+    return {
+      status: escrow.status, txReleaseId: escrow.txReleaseId,
+      transitions: await prisma.escrowEvent.count({ where: { escrowId } }),
+      durable: await prisma.durableEventRecord.count({ where: { correlationId: tradeId } }),
+    }
+  }
+
+  // Group 1: a dispute marker alone, with two authorizations of the same escrow and dispute from different appeal
+  // rounds and rulings: no generation is inferred.
+  it('GK group 1: a dispute-provenance marker alone, with two generations authorized on the escrow, is UNPROVEN and its outcomes are held', async () => {
+    pg.requirePostgres('GK group 1')
+    const s = await boundSettlement()
+    await prisma.economicDispositionAuthorization.create({
+      data: { pendingOperationId: randomUUID(), escrowId: s.f.escrow.id, disputeId: s.f.dispute.id, appealRound: 1, arbiterId: s.f.arbiter.id, ruling: 'REFUND', operationDigest: 'round-1' },
+    })
+    await s.unmark('transition.disposition-authorization')
+    expect(await transitionMarkers(s.f.escrow.id, 'COMPLETED')).toEqual({ disputes: [s.f.dispute.id], authorizations: [] })
+    expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: s.f.escrow.id } })).toBe(2)
+
+    expect(await s.classify()).toBe('UNPROVEN')
+    expect(await s.classify(s.f.dispute.id)).toBe('UNPROVEN')
+    const before = await settlementSnapshot(s.f.escrow.id, s.f.trade.id)
+    expect(await provenance.projectSettlementOutcomes(s.transition.id, 'RELEASE', s.f.trade.id, s.f.buyer.id, s.f.seller.id, s.f.escrow.id, s.f.dispute.id)).toBe(false)
+    expect(await prisma.eventProjectionClaim.count({ where: { eventId: s.transition.id, projectionKey: 'reputation.outcome' } })).toBe(0)
+    expect(await listHeldSettlementProvenance()).toEqual(expect.arrayContaining([{ effectId: s.transition.id, escrowId: s.f.escrow.id }]))
+    expect(await settlementSnapshot(s.f.escrow.id, s.f.trade.id)).toEqual(before)
+  })
+
+  // Group 2: the bound authorization is altered AFTER the claim; then appeal, pending removed, PASS 3 and redelivery.
+  const postClaim = [
+    ['its ruling now authorizes the other operation', (id: string) => prisma.economicDispositionAuthorization.update({ where: { id }, data: { ruling: 'REFUND' } })],
+    ['its appeal round is one the dispute never reached', (id: string) => prisma.economicDispositionAuthorization.update({ where: { id }, data: { appealRound: 7 } })],
+  ] as const
+
+  it.each(postClaim)('GK group 2: bound authorization altered after the claim (%s), then appeal, pending removed, PASS 3 and redelivery: UNPROVEN, nothing duplicated', async (_label, alter) => {
+    pg.requirePostgres(`GK group 2 ${_label}`)
+    const r = await killThenRecover('SAFE_GUARD_EVM', 'release', 'RELEASE', 'before-publish', async ({ authorization, pendingId }) => {
+      await alter(authorization.id)
+      expect((await prisma.escrowPendingTransaction.deleteMany({ where: { id: pendingId } })).count).toBe(1)
+    })
+    expect(await transitionMarkers(r.f.escrow.id, 'COMPLETED')).toEqual({ disputes: [r.f.dispute.id], authorizations: [r.authorization.id] })
+    expect(await provenance.classifySettlementProvenance(r.transition.id, r.f.escrow.id, undefined)).toBe('UNPROVEN')
+    expect(await r.outcomes()).toBe(0)
+    expect(await listHeldSettlementProvenance()).toEqual(expect.arrayContaining([{ effectId: r.transition.id, escrowId: r.f.escrow.id }]))
+    const settled = await settlementSnapshot(r.f.escrow.id, r.f.trade.id)
+    expect(settled).toMatchObject({ status: 'COMPLETED' })
+
+    // Redelivery: forget the completion marker, recover again.
+    await prisma.eventProjectionClaim.deleteMany({ where: { eventId: r.transition.id, projectionKey: 'transition.projected' } })
+    expect((await r.recover()).code).toBe(0)
+    expect(await r.outcomes()).toBe(0)
+    expect(r.effects()).toHaveLength(1)
+    expect((await r.durable())).toHaveLength(1)
+    expect(await settlementSnapshot(r.f.escrow.id, r.f.trade.id)).toEqual(settled)
+  })
+
+  // Group 2, pending still present: the full frozen provenance and digest are checked, so any post-claim change of
+  // the authorization or of the operation it authorized (here its digest, and the pending row's destination) is caught.
+  const postClaimWithPending = [
+    ['the authorization digest is altered', (ctx: RecoverContext) => prisma.economicDispositionAuthorization.update({ where: { id: ctx.authorization.id }, data: { operationDigest: 'altered-after-claim' } })],
+    ['the authorization arbiter is altered', (ctx: RecoverContext) => prisma.economicDispositionAuthorization.update({ where: { id: ctx.authorization.id }, data: { arbiterId: randomUUID() } })],
+    ['the pending destination is altered', (ctx: RecoverContext) => prisma.escrowPendingTransaction.update({ where: { id: ctx.pendingId }, data: { toAddress: 'altered-destination' } })],
+  ] as const
+
+  it.each(postClaimWithPending)('GK groups 2/3: with the pending operation still present, %s after the claim: UNPROVEN on PASS 3, funds untouched', async (_label, alter) => {
+    pg.requirePostgres(`GK group 2/3 ${_label}`)
+    const r = await killThenRecover('LIGHTNING_HODL', 'release', 'RELEASE', 'before-publish', async (ctx) => { await alter(ctx) })
+    expect(await prisma.escrowPendingTransaction.count({ where: { id: r.pending.id } })).toBe(1)
+    expect(await provenance.classifySettlementProvenance(r.transition.id, r.f.escrow.id, undefined)).toBe('UNPROVEN')
+    expect(await r.outcomes()).toBe(0)
+    expect(r.effects()).toHaveLength(1)
+    expect(await settlementSnapshot(r.f.escrow.id, r.f.trade.id)).toMatchObject({ status: 'COMPLETED' })
+  })
+
+  // Group 2 without the pending row (formerly it.todo, CTO 22 complementary authorization): once the pending row is
+  // gone, only the commitment written with the claim can tell that the authorization row changed. Each value below
+  // is plausible on its own: round 1 is a round the dispute really reached through the appeal.
+  const postClaimWithoutPending = [
+    ['its appeal round, set to the round the appeal really opened', (id: string) => prisma.economicDispositionAuthorization.update({ where: { id }, data: { appealRound: 1 } })],
+    ['its arbiter', (id: string) => prisma.economicDispositionAuthorization.update({ where: { id }, data: { arbiterId: randomUUID() } })],
+    ['its operation digest', (id: string) => prisma.economicDispositionAuthorization.update({ where: { id }, data: { operationDigest: 'altered-after-claim' } })],
+  ] as const
+
+  it.each(postClaimWithoutPending)('GK group 2: bound authorization altered after the claim (%s), then appeal, pending removed, PASS 3 and redelivery: UNPROVEN, nothing duplicated', async (_label, alter) => {
+    pg.requirePostgres(`GK group 2 without pending ${_label}`)
+    const r = await killThenRecover('LIGHTNING_HODL', 'refund', 'REFUND', 'before-publish', async ({ authorization, pendingId }) => {
+      await alter(authorization.id)
+      expect((await prisma.escrowPendingTransaction.deleteMany({ where: { id: pendingId } })).count).toBe(1)
+    })
+    expect((await prisma.dispute.findUnique({ where: { id: r.f.dispute.id } }))!.appealRound).toBe(1)
+    const commitment = await commitmentOf(r.f.escrow.id, 'REFUNDED', r.authorization.id)
+    expect(commitment.written).toHaveLength(1)
+    expect(commitment.written[0]).not.toBe(commitment.expected)
+    expect(await provenance.classifySettlementProvenance(r.transition.id, r.f.escrow.id, undefined)).toBe('UNPROVEN')
+    expect(await r.outcomes()).toBe(0)
+    expect(await r.scores()).toEqual([0, 0])
+    expect(await listHeldSettlementProvenance()).toEqual(expect.arrayContaining([{ effectId: r.transition.id, escrowId: r.f.escrow.id }]))
+    const settled = await settlementSnapshot(r.f.escrow.id, r.f.trade.id)
+    expect(settled).toMatchObject({ status: 'REFUNDED' })
+
+    await prisma.eventProjectionClaim.deleteMany({ where: { eventId: r.transition.id, projectionKey: 'transition.projected' } })
+    const again = await Promise.all([r.recover(), r.recover()])
+    expect(again.map((a) => a.code)).toEqual([0, 0])
+    expect(await r.outcomes()).toBe(0)
+    expect(r.effects()).toHaveLength(1)
+    expect(await r.durable()).toHaveLength(1)
+    expect(await settlementSnapshot(r.f.escrow.id, r.f.trade.id)).toEqual(settled)
+  })
+
+  // Group 3: cross-escrow dispute and operation conflicts behind a locally consistent authorization.
+  it('GK group 3: an authorization of this escrow naming a Dispute of another escrow, or another operation, is UNPROVEN; funds untouched', async () => {
+    pg.requirePostgres('GK group 3')
+    const s = await boundSettlement()
+    const elsewhere = await makeDisputedTrade('SAFE_GUARD_EVM')
+    expect(elsewhere.escrow.id).not.toBe(s.f.escrow.id)
+    const before = await settlementSnapshot(s.f.escrow.id, s.f.trade.id)
+
+    // authorization.escrowId stays local; its dispute, and the transition's dispute marker, are the other escrow's.
+    await prisma.economicDispositionAuthorization.update({ where: { id: s.authorization.id }, data: { disputeId: elsewhere.dispute.id } })
+    await s.unmark('transition.dispute-provenance')
+    await s.mark('transition.dispute-provenance', elsewhere.dispute.id)
+    expect(await s.classify()).toBe('UNPROVEN')
+    expect(await s.classify(elsewhere.dispute.id)).toBe('UNPROVEN')
+    // Also when the commitment is rewritten consistently with the altered row: the Dispute's own escrow decides.
+    const recommit = async () => {
+      await s.unmark('transition.disposition-commitment')
+      await s.mark('transition.disposition-commitment', dispositionCommitment((await prisma.economicDispositionAuthorization.findUnique({ where: { id: s.authorization.id } }))!, s.transition))
+    }
+    await recommit()
+    expect(await s.classify()).toBe('UNPROVEN')
+
+    // Back to its own dispute, but authorizing the other operation (REFUND) for this release.
+    await prisma.economicDispositionAuthorization.update({ where: { id: s.authorization.id }, data: { disputeId: s.f.dispute.id, ruling: 'REFUND' } })
+    await s.unmark('transition.dispute-provenance')
+    await s.mark('transition.dispute-provenance', s.f.dispute.id)
+    expect(await s.classify()).toBe('UNPROVEN')
+    // Also with a consistently rewritten commitment: the transition's own target decides.
+    await recommit()
+    expect(await s.classify()).toBe('UNPROVEN')
+
+    expect(await provenance.projectSettlementOutcomes(s.transition.id, 'RELEASE', s.f.trade.id, s.f.buyer.id, s.f.seller.id, s.f.escrow.id, undefined)).toBe(false)
+    expect(await prisma.eventProjectionClaim.count({ where: { eventId: s.transition.id, projectionKey: 'reputation.outcome' } })).toBe(0)
+    expect(await settlementSnapshot(s.f.escrow.id, s.f.trade.id)).toEqual(before)
+
+    // Restored to what the gate authorized: DISPUTED again (group 4, positive control on the same rows).
+    await prisma.economicDispositionAuthorization.update({ where: { id: s.authorization.id }, data: { ruling: 'RELEASE' } })
+    await recommit()
+    expect((await commitmentOf(s.f.escrow.id, 'COMPLETED', s.authorization.id)).written).toEqual([dispositionCommitment(s.authorization, s.transition)])
+    expect(await s.classify()).toBe('DISPUTED')
   })
 })
