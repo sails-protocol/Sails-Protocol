@@ -130,6 +130,9 @@ jest.mock('../src/modules/open-settlement/capability-execution-authorization', (
 const mockAuthorizeDisputedPendingExecution = jest.fn().mockResolvedValue({ id: 'eda-auth-1' })
 jest.mock('../src/modules/open-settlement/economic-disposition-authority', () => ({
   authorizeDisputedPendingExecution: (...args: unknown[]) => mockAuthorizeDisputedPendingExecution(...args),
+  committedDispositionFor: async () => null,
+  authorizationMismatches: () => [],
+  dispositionCommitment: () => 'v1:mock',
 }))
 
 const mockPendingTxFindUnique = jest.fn()
