@@ -306,7 +306,7 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
       await new DisputeService(marketArbitrationProvider).appeal(f.dispute.id, ruling === 'RELEASE' ? f.seller.id : f.buyer.id)
       expect((await prisma.dispute.findUnique({ where: { id: f.dispute.id } }))).toMatchObject({ status: 'APPEALED', ruling: null, appealRound: 1 })
 
-      const recovery = await runWorker({ ...common, ROLE: 'recover' })
+      const recovery = await runWorker({ ...common, ROLE: 'recover', TO_STATUS: toStatus })
       expect(recovery.stderr).not.toContain('SIGKILL_MARKER')
       expect(recovery.code).toBe(0)
 
