@@ -40,6 +40,8 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
   let lightningHodlProvider: typeof import('../../src/modules/open-settlement/lightning-hodl.provider').lightningHodlProvider
   let safeGuardEvmProvider: typeof import('../../src/modules/open-settlement/safe-guard-evm.provider').safeGuardEvmProvider
   let marketArbitrationProvider: typeof import('../../src/modules/open-settlement/market-arbitration.provider').marketArbitrationProvider
+  let provenance: typeof import('../../src/common/events/settlement-provenance')
+  let listHeldSettlementProvenance: typeof import('../../src/common/events/event-projection').listHeldSettlementProvenance
 
   beforeAll(async () => {
     process.env.MOCK_ESCROW = 'true'
@@ -57,6 +59,8 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
     ;({ lightningHodlProvider } = require('../../src/modules/open-settlement/lightning-hodl.provider'))
     ;({ safeGuardEvmProvider } = require('../../src/modules/open-settlement/safe-guard-evm.provider'))
     ;({ marketArbitrationProvider } = require('../../src/modules/open-settlement/market-arbitration.provider'))
+    provenance = require('../../src/common/events/settlement-provenance')
+    ;({ listHeldSettlementProvenance } = require('../../src/common/events/event-projection'))
     const { intentEngine } = require('../../src/core/intent-engine')
     const { OpenP2PTradeIntentHandler } = require('../../src/modules/open-p2p/intent-handler')
     intentEngine.registerHandler(OpenP2PTradeIntentHandler)
@@ -97,7 +101,11 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
       if (disputeIds.length) await prisma.disputeAppealFee.deleteMany({ where: { disputeId: { in: disputeIds } } })
       await prisma.dispute.deleteMany({ where: { escrowId: { in: createdEscrowIds } } })
       const transitions = await prisma.escrowEvent.findMany({ where: { escrowId: { in: createdEscrowIds } }, select: { id: true } })
-      if (transitions.length) await prisma.eventProjectionClaim.deleteMany({ where: { subjectId: { in: transitions.map((t) => t.id) } } })
+      if (transitions.length) {
+        await prisma.eventProjectionClaim.deleteMany({ where: { subjectId: { in: transitions.map((t) => t.id) } } })
+        await prisma.eventProjectionClaim.deleteMany({ where: { eventId: { in: transitions.map((t) => t.id) } } })
+      }
+      await prisma.eventProjectionClaim.deleteMany({ where: { subjectId: { in: createdEscrowIds } } })
       await prisma.escrowEvent.deleteMany({ where: { escrowId: { in: createdEscrowIds } } })
     }
     if (createdTradeIds.length) {
@@ -167,6 +175,16 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
     return { f, provider, pending, signature, bundle, finalize: kind === 'release' ? 'finalizeRelease' : 'finalizeRefund' }
   }
 
+  // The provenance markers written with the claim of the escrow's settlement transition (into toStatus).
+  async function transitionMarkers(escrowId: string, toStatus: 'COMPLETED' | 'REFUNDED') {
+    const transition = (await prisma.escrowEvent.findFirst({ where: { escrowId, toStatus } }))!
+    const rows = await prisma.eventProjectionClaim.findMany({ where: { eventId: transition.id, projectionKey: { in: ['transition.dispute-provenance', 'transition.disposition-authorization'] } } })
+    return {
+      disputes: rows.filter((r) => r.projectionKey === 'transition.dispute-provenance').map((r) => r.subjectId),
+      authorizations: rows.filter((r) => r.projectionKey === 'transition.disposition-authorization').map((r) => r.subjectId),
+    }
+  }
+
   it.each(cases)('%s %s: the frozen ruling generation and its authorization are committed before finalize runs', async (type, kind, ruling) => {
     pg.requirePostgres(`${type} ${kind} production-path provenance`)
     const { f, provider, pending, signature, finalize } = await resolveThroughProductionPath(type, kind, ruling)
@@ -201,6 +219,10 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
     // The authorization outlives the pending row it authorized.
     expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: f.escrow.id } })).toBe(0)
     expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: f.escrow.id, pendingOperationId: pending.id } })).toBe(1)
+
+    // #341 PASS 2 provenance (CTO 22 D1): the settlement transition is bound to that exact authorization.
+    const authorization = (await prisma.economicDispositionAuthorization.findUnique({ where: { pendingOperationId: pending.id } }))!
+    expect(await transitionMarkers(f.escrow.id, kind === 'release' ? 'COMPLETED' : 'REFUNDED')).toEqual({ disputes: [f.dispute.id], authorizations: [authorization.id] })
   })
 
   // #341 requirement 5: a raw UPDATE of the pending row, landing while the first authorization is being committed,
@@ -315,13 +337,12 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
       const durable = await prisma.durableEventRecord.findMany({ where: { correlationId: f.trade.id, eventName } })
       expect(durable).toHaveLength(1)
       const transition = (await prisma.escrowEvent.findFirst({ where: { escrowId: f.escrow.id, toStatus } }))!
-      // A recovered publication carries no payload.disputeId (settlement-provenance.ts documents this). The frozen
-      // identity survives in durable rows instead: the transition's dispute-provenance row, written with the claim
-      // by the killed process (before-publish), and the ADR-005 authorization, in both cases. PASS 2 (after-effect)
-      // re-claims the transition without a disputeId, so there only the authorization carries it.
-      expect((durable[0].payload as any).disputeId).toBeUndefined()
-      const provenanceRows = await prisma.eventProjectionClaim.findMany({ where: { eventId: transition.id, projectionKey: 'transition.dispute-provenance' } })
-      expect(provenanceRows.map((r) => r.subjectId)).toEqual(killAt === 'before-publish' ? [f.dispute.id] : [])
+      // #341 PASS 2 provenance (CTO 22 D1/D3): whichever process claims the transition binds it to the exact
+      // authorization of its pending operation, with the dispute. after-effect: PASS 2 claims it and publishes the
+      // disputeId too. before-publish: the killed process claimed it; PASS 3 republishes without a payload
+      // disputeId, so the bound rows alone carry the provenance.
+      expect((durable[0].payload as any).disputeId).toBe(killAt === 'after-effect' ? f.dispute.id : undefined)
+      expect(await transitionMarkers(f.escrow.id, toStatus)).toEqual({ disputes: [f.dispute.id], authorizations: [authorization.id] })
       expect(await prisma.eventProjectionClaim.count({ where: { eventId: transition.id, projectionKey: 'reputation.outcome' } })).toBe(2)
       const [buyer, seller] = await Promise.all([prisma.user.findUnique({ where: { id: f.buyer.id } }), prisma.user.findUnique({ where: { id: f.seller.id } })])
       expect(buyer!.reputationScore).toBe(ruling === 'RELEASE' ? 2 : -5)
@@ -329,6 +350,196 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
       expect(await prisma.economicDispositionAuthorization.findMany({ where: { escrowId: f.escrow.id } })).toEqual([authorization])
     } finally {
       rmSync(sync, { recursive: true, force: true })
+    }
+  })
+
+  // ── #341 PASS 2 provenance (CTO 22 D1-D4): the recovered settlement is bound to its exact authorization ──────────
+  //
+  // Same production path and OS processes as above. `beforeRecover` runs after the SIGKILL and the appeal, before
+  // the fresh process recovers: it is where a test damages or adds durable evidence.
+  const syncDirs: string[] = []
+  afterEach(() => { for (const d of syncDirs.splice(0)) rmSync(d, { recursive: true, force: true }) })
+
+  type RecoverContext = { escrowId: string; pendingId: string; authorization: { id: string; escrowId: string; disputeId: string; arbiterId: string } }
+  async function killThenRecover(type: Rail, kind: 'release' | 'refund', ruling: 'RELEASE' | 'REFUND', killAt: 'after-effect' | 'before-publish', beforeRecover?: (ctx: RecoverContext) => Promise<void>) {
+    const { f, pending } = await resolveThroughProductionPath(type, kind, ruling)
+    const panelist = await prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex') } })
+    createdUserIds.push(panelist.id)
+    await prisma.arbiterProfile.create({ data: { participantId: panelist.id, monetaryCollateral: '10', collateralAsset: 'BTC', arbiterReputation: 50 } })
+    const sync = mkdtempSync(path.join(os.tmpdir(), 'r341p2-'))
+    syncDirs.push(sync)
+    const toStatus = kind === 'release' ? 'COMPLETED' as const : 'REFUNDED' as const
+    const eventName = kind === 'release' ? 'settlement.escrow.released' : 'settlement.escrow.refunded'
+    const common = { SYNC_DIR: sync, ESCROW_ID: f.escrow.id, FAKE_TX_ID: `0x${randomUUID().replace(/-/g, '')}`, MOCK_ESCROW: 'true', TO_STATUS: toStatus }
+    const effects = () => existsSync(path.join(sync, 'effects.log')) ? readFileSync(path.join(sync, 'effects.log'), 'utf8').trim().split('\n') : []
+
+    const first = await runWorker({ ...common, ROLE: 'finalize', KILL_AT: killAt, SIGNER_ID: f.buyer.id })
+    expect(first.stderr).toContain('SIGKILL_MARKER')
+    const authorization = (await prisma.economicDispositionAuthorization.findUnique({ where: { pendingOperationId: pending.id } }))!
+    await new DisputeService(marketArbitrationProvider).appeal(f.dispute.id, ruling === 'RELEASE' ? f.seller.id : f.buyer.id)
+    await beforeRecover?.({ escrowId: f.escrow.id, pendingId: pending.id, authorization })
+    const recover = () => runWorker({ ...common, ROLE: 'recover' })
+    const recovery = await recover()
+    expect(recovery.code).toBe(0)
+    const transition = (await prisma.escrowEvent.findFirst({ where: { escrowId: f.escrow.id, toStatus } }))!
+    const outcomes = () => prisma.eventProjectionClaim.count({ where: { eventId: transition.id, projectionKey: 'reputation.outcome' } })
+    const scores = async () => (await Promise.all([f.buyer.id, f.seller.id].map((id) => prisma.user.findUnique({ where: { id } })))).map((u) => u!.reputationScore)
+    const durable = () => prisma.durableEventRecord.findMany({ where: { correlationId: f.trade.id, eventName } })
+    return { f, pending, authorization, toStatus, transition, effects, outcomes, scores, durable, recover }
+  }
+
+  it.each([
+    ['LIGHTNING_HODL', 'release', 'RELEASE'],
+    ['SAFE_GUARD_EVM', 'refund', 'REFUND'],
+  ] as const)('%s %s: with two authorizations of different generations on the escrow, the recovered settlement binds its own', async (type, kind, ruling) => {
+    pg.requirePostgres(`${type} ${kind} two generations`)
+    let other: { id: string } | undefined
+    const r = await killThenRecover(type, kind, ruling, 'after-effect', async ({ authorization: mine }) => {
+      // A second, later-generation authorization of the same dispute and escrow, for another pending operation
+      // (seeded row: it stands for an authorized attempt of round 1 that never settled).
+      other = await prisma.economicDispositionAuthorization.create({
+        data: { pendingOperationId: randomUUID(), escrowId: mine.escrowId, disputeId: mine.disputeId, appealRound: 1, arbiterId: mine.arbiterId, ruling: ruling === 'RELEASE' ? 'REFUND' : 'RELEASE', operationDigest: 'later-generation' },
+      })
+    })
+    const escrowId = r.f.escrow.id
+    expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId } })).toBe(2)
+    expect(await transitionMarkers(escrowId, r.toStatus)).toEqual({ disputes: [r.f.dispute.id], authorizations: [r.authorization.id] })
+    expect(r.authorization.id).not.toBe(other!.id)
+    expect(await provenance.classifySettlementProvenance(r.transition.id, escrowId, undefined)).toBe('DISPUTED')
+    expect(await r.outcomes()).toBe(2)
+  })
+
+  it.each(cases)('%s %s: PASS 3 with the pending row already gone recovers from the markers bound to the same transition', async (type, kind, ruling) => {
+    pg.requirePostgres(`${type} ${kind} PASS 3 without pending`)
+    let pendingDeleted = 0
+    const r = await killThenRecover(type, kind, ruling, 'before-publish', async ({ pendingId }) => {
+      pendingDeleted = (await prisma.escrowPendingTransaction.deleteMany({ where: { id: pendingId } })).count
+    })
+    expect(pendingDeleted).toBe(1)
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: r.f.escrow.id } })).toBe(0)
+    expect(r.effects()).toHaveLength(1)
+    expect((await r.durable()).map((e) => (e.payload as any).disputeId)).toEqual([undefined])
+    expect(await transitionMarkers(r.f.escrow.id, r.toStatus)).toEqual({ disputes: [r.f.dispute.id], authorizations: [r.authorization.id] })
+    expect(await r.outcomes()).toBe(2)
+    expect(await r.scores()).toEqual(ruling === 'RELEASE' ? [2, -5] : [-5, 2])
+  })
+
+  it.each([
+    ['LIGHTNING_HODL', 'refund', 'REFUND', 'after-effect'],
+    ['SAFE_GUARD_EVM', 'release', 'RELEASE', 'before-publish'],
+  ] as const)('%s %s (%s), SIGKILL %s: serial and concurrent redelivery after recovery change nothing', async (type, kind, ruling, killAt) => {
+    pg.requirePostgres(`${type} ${kind} redelivery`)
+    const r = await killThenRecover(type, kind, ruling, killAt)
+    const before = { outcomes: await r.outcomes(), scores: await r.scores(), markers: await transitionMarkers(r.f.escrow.id, r.toStatus), durable: (await r.durable()).length }
+    expect(before).toEqual({ outcomes: 2, scores: ruling === 'RELEASE' ? [2, -5] : [-5, 2], markers: { disputes: [r.f.dispute.id], authorizations: [r.authorization.id] }, durable: 1 })
+
+    // Forget the completion marker so PASS 3 redelivers the settlement: twice concurrently, then once more.
+    const forget = () => prisma.eventProjectionClaim.deleteMany({ where: { eventId: r.transition.id, projectionKey: 'transition.projected' } })
+    await forget()
+    const concurrent = await Promise.all([r.recover(), r.recover()])
+    expect(concurrent.map((c) => c.code)).toEqual([0, 0])
+    await forget()
+    expect((await r.recover()).code).toBe(0)
+
+    expect({ outcomes: await r.outcomes(), scores: await r.scores(), markers: await transitionMarkers(r.f.escrow.id, r.toStatus), durable: (await r.durable()).length }).toEqual(before)
+    expect(r.effects()).toHaveLength(1)
+    expect(await prisma.escrowEvent.count({ where: { escrowId: r.f.escrow.id, toStatus: r.toStatus } })).toBe(1)
+  })
+
+  // vetoed: an authorization still exists on the escrow, so a human COOPERATIVE decision must be refused (D2). With
+  // the authorization gone nothing durable vetoes it, and the existing human-review rule applies unchanged.
+  const divergences = [
+    ['the authorization is missing', false, (id: string) => prisma.economicDispositionAuthorization.deleteMany({ where: { pendingOperationId: id } })],
+    ['the authorization names another appeal round', true, (id: string) => prisma.economicDispositionAuthorization.update({ where: { pendingOperationId: id }, data: { appealRound: 7 } })],
+    ['the authorization digest differs from the operation', true, (id: string) => prisma.economicDispositionAuthorization.update({ where: { pendingOperationId: id }, data: { operationDigest: 'tampered' } })],
+  ] as const
+
+  it.each(divergences)('PASS 2 after an appeal when %s: the settlement is recorded, no provenance is invented and its outcomes are held (COOPERATIVE vetoed: %s)', async (label, vetoed, damage) => {
+    pg.requirePostgres(`PASS 2 divergence ${label}`)
+    const r = await killThenRecover('SAFE_GUARD_EVM', 'release', 'RELEASE', 'after-effect', async ({ pendingId }) => { await damage(pendingId) })
+
+    // Funds: the settlement already happened once and is recorded as such; nothing is reverted or re-sent.
+    expect(r.effects()).toHaveLength(1)
+    expect((await prisma.escrow.findUnique({ where: { id: r.f.escrow.id } }))!.status).toBe('COMPLETED')
+    expect(await prisma.escrowEvent.count({ where: { escrowId: r.f.escrow.id, toStatus: 'COMPLETED' } })).toBe(1)
+    // Provenance: none invented. Attribution: held, with no reward or penalty.
+    expect((await r.durable()).map((e) => (e.payload as any).disputeId)).toEqual([undefined])
+    expect(await transitionMarkers(r.f.escrow.id, 'COMPLETED')).toEqual({ disputes: [], authorizations: [] })
+    expect(await provenance.classifySettlementProvenance(r.transition.id, r.f.escrow.id, undefined)).toBe('UNPROVEN')
+    expect(await r.outcomes()).toBe(0)
+    expect(await r.scores()).toEqual([0, 0])
+    expect(await listHeldSettlementProvenance()).toEqual(expect.arrayContaining([{ effectId: r.transition.id, escrowId: r.f.escrow.id }]))
+
+    // Never reinterpreted as COOPERATIVE automatically; a human decision of DISPUTED applies the outcomes once.
+    const decision = (d: 'DISPUTED' | 'COOPERATIVE') => ({ effectId: r.transition.id, decision: d, decidedBy: 'reviewer-341', evidence: `ruling RELEASE on dispute ${r.f.dispute.id}` })
+    if (vetoed) {
+      await expect(provenance.resolveHeldSettlementProvenance(decision('COOPERATIVE'))).rejects.toThrow(/contradicts durable evidence/)
+      expect(await r.outcomes()).toBe(0)
+    }
+    await provenance.resolveHeldSettlementProvenance(decision('DISPUTED'))
+    expect(await r.outcomes()).toBe(2)
+    expect(await r.scores()).toEqual([2, -5])
+  })
+
+  // Contradictory, cross-escrow or unanchored evidence on a settlement the live path bound correctly.
+  async function boundSettlement() {
+    const { f, provider, pending, finalize } = await resolveThroughProductionPath('LIGHTNING_HODL', 'release', 'RELEASE')
+    jest.spyOn(provider, finalize).mockResolvedValue({ txId: `0x${randomUUID().replace(/-/g, '')}` })
+    await escrowService.submitTransactionSignature(f.escrow.id, f.buyer.id, 'signed-bundle')
+    const transition = (await prisma.escrowEvent.findFirst({ where: { escrowId: f.escrow.id, toStatus: 'COMPLETED' } }))!
+    const authorization = (await prisma.economicDispositionAuthorization.findUnique({ where: { pendingOperationId: pending.id } }))!
+    const classify = (eventDisputeId?: string) => provenance.classifySettlementProvenance(transition.id, f.escrow.id, eventDisputeId)
+    const mark = (projectionKey: string, subjectId: string) => prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey, subjectId } })
+    const unmark = (projectionKey: string) => prisma.eventProjectionClaim.deleteMany({ where: { eventId: transition.id, projectionKey } })
+    return { f, transition, authorization, classify, mark, unmark }
+  }
+
+  it('the bound evidence classifies DISPUTED; each contradiction, cross-escrow or unanchored variant classifies UNPROVEN', async () => {
+    pg.requirePostgres('contradictory evidence')
+    const s = await boundSettlement()
+    const foreignEscrowId = randomUUID()
+    try {
+      expect(await s.classify()).toBe('DISPUTED')
+      expect(await s.classify(s.f.dispute.id)).toBe('DISPUTED')
+
+      // The event names another dispute than the bound authorization.
+      expect(await s.classify(randomUUID())).toBe('UNPROVEN')
+
+      // A second dispute-provenance row on the transition.
+      await s.mark('transition.dispute-provenance', randomUUID())
+      expect(await s.classify()).toBe('UNPROVEN')
+      await s.unmark('transition.dispute-provenance')
+      await s.mark('transition.dispute-provenance', s.f.dispute.id)
+      expect(await s.classify()).toBe('DISPUTED')
+
+      // A second bound authorization.
+      await s.mark('transition.disposition-authorization', randomUUID())
+      expect(await s.classify()).toBe('UNPROVEN')
+      await s.unmark('transition.disposition-authorization')
+
+      // The bound authorization belongs to another escrow.
+      const foreign = await prisma.economicDispositionAuthorization.create({
+        data: { pendingOperationId: randomUUID(), escrowId: foreignEscrowId, disputeId: s.f.dispute.id, appealRound: 0, arbiterId: s.f.arbiter.id, ruling: 'RELEASE', operationDigest: 'foreign' },
+      })
+      await s.mark('transition.disposition-authorization', foreign.id)
+      expect(await s.classify()).toBe('UNPROVEN')
+      await s.unmark('transition.disposition-authorization')
+
+      // The bound authorization no longer exists.
+      await s.mark('transition.disposition-authorization', randomUUID())
+      expect(await s.classify()).toBe('UNPROVEN')
+      await s.unmark('transition.disposition-authorization')
+
+      // Marker missing, dispute-provenance kept: bound to the transition and consistent, still DISPUTED.
+      expect(await s.classify()).toBe('DISPUTED')
+      // Both markers missing: the escrow's authorization alone proves nothing (D2), and is not read as COOPERATIVE.
+      await s.unmark('transition.dispute-provenance')
+      expect(await s.classify()).toBe('UNPROVEN')
+      // A disputeId alone never outweighs an authorization of this escrow for another dispute.
+      await prisma.economicDispositionAuthorization.update({ where: { id: s.authorization.id }, data: { disputeId: randomUUID() } })
+      expect(await s.classify(s.f.dispute.id)).toBe('UNPROVEN')
+    } finally {
+      await prisma.economicDispositionAuthorization.deleteMany({ where: { escrowId: foreignEscrowId } })
     }
   })
 })

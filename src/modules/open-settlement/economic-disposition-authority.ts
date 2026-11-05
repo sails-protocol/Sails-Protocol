@@ -223,3 +223,43 @@ export async function authorizeDisputedPendingExecution(pending: DisputedPending
     })
   })
 }
+
+type CommittedAuthorization = { id: string; pendingOperationId: string; escrowId: string; disputeId: string; appealRound: number; arbiterId: string; ruling: string; operationDigest: string }
+
+/**
+ * Issue #341 (CTO 22 D1) - why a committed authorization does NOT belong to this exact pending operation and ruling
+ * generation; empty when it does. Compares only durable facts (the pending row's frozen provenance and its digest),
+ * never the live Dispute, which an appeal may since have moved.
+ */
+export function authorizationMismatches(pending: DisputedPendingFacts, authorization: CommittedAuthorization): string[] {
+  const checks: Array<[string, boolean]> = [
+    ['pendingOperationId', authorization.pendingOperationId === pending.id],
+    ['escrowId', authorization.escrowId === pending.escrowId],
+    ['disputeId', authorization.disputeId === pending.disputeId],
+    ['appealRound', authorization.appealRound === pending.rulingAppealRound],
+    ['arbiterId', authorization.arbiterId === pending.rulingArbiterId],
+    ['ruling', authorization.ruling === pending.rulingOutcome],
+    ['operationDigest', authorization.operationDigest === economicDispositionOperationDigest(pending)],
+  ]
+  return checks.filter(([, ok]) => !ok).map(([field]) => field)
+}
+
+/**
+ * Issue #341 (CTO 22 D1/D3) - the provenance a recovered settlement of `pendingOperationId` may carry: its own
+ * committed authorization, looked up by the operation's unique key (never by escrow) and verified field by field.
+ * `null` for an operation with no recorded ruling generation. Anything missing or divergent is reported, never
+ * repaired: the caller then records no provenance and the outcome is held for review.
+ */
+export async function committedDispositionFor(pendingOperationId: string): Promise<
+  | null
+  | { disputeId: string; authorizationId: string }
+  | { inconsistent: string[] }
+> {
+  const pending = await prisma.escrowPendingTransaction.findUnique({ where: { id: pendingOperationId } })
+  if (!pending) return { inconsistent: ['pending operation not found'] }
+  if (!pending.disputeId) return null
+  const authorization = await prisma.economicDispositionAuthorization.findUnique({ where: { pendingOperationId } })
+  if (!authorization) return { inconsistent: ['no committed authorization for a disputed pending operation'] }
+  const mismatches = authorizationMismatches(pending, authorization)
+  return mismatches.length ? { inconsistent: mismatches } : { disputeId: authorization.disputeId, authorizationId: authorization.id }
+}

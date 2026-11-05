@@ -15,7 +15,7 @@ import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { childLogger } from '../../common/logger'
 import { authorizePendingExecution } from './capability-execution-authorization'
-import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
+import { authorizeDisputedPendingExecution, committedDispositionFor } from './economic-disposition-authority'
 
 const log = childLogger('escrow-settlement-reconciliation')
 
@@ -186,9 +186,18 @@ async function applyDownstreamCompletionEffects(
     : targetStatus === 'REFUNDED' ? 'settlement.escrow.refunded' as const
     : 'settlement.escrow.split' as const
   const fromStatus = await lastKnownStatus(escrowId, targetStatus)
+  // Issue #341 (CTO 22 D1/D3) - a recovered disputed settlement carries the same provenance as the live path: its
+  // pending operation's own verified authorization. Missing or divergent: no provenance is invented (the outcome is
+  // held for review by settlement-provenance.ts); the settlement itself, already effective, is recorded as is.
+  const disposition = pending ? await committedDispositionFor(pending.id) : null
+  if (disposition && 'inconsistent' in disposition) {
+    log.error({ msg: 'Reconciliation: disputed pending operation has no matching committed economic disposition authorization — recovered settlement recorded without provenance, its outcomes will be held for review', escrowId, pendingOperationId: pending!.id, inconsistent: disposition.inconsistent })
+  }
+  const bound = disposition && 'authorizationId' in disposition ? disposition : null
   const emitted = await emitEscrowTransition(
-    escrowId, tradeId, fromStatus, targetStatus, triggeredBy, eventName, { txId },
-    'Recovered by settlement reconciliation after a process crash — see escrow-settlement-reconciliation.service.ts'
+    escrowId, tradeId, fromStatus, targetStatus, triggeredBy, eventName, { txId, ...(bound ? { disputeId: bound.disputeId } : {}) },
+    'Recovered by settlement reconciliation after a process crash — see escrow-settlement-reconciliation.service.ts',
+    bound?.authorizationId
   )
 
   // Sails Core Implementation Program M9 (Recovery) — closes crash window

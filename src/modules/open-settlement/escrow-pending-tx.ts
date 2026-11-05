@@ -377,7 +377,7 @@ export async function submitTransactionSignature(escrowId: string, participantId
   // ordering means a superseded ruling never gets to "pass" any gate). A
   // no-op for a pending operation with no recorded ruling generation
   // (ordinary cooperative release/refund/split).
-  await authorizeDisputedPendingExecution(pending)
+  const dispositionAuthorization = await authorizeDisputedPendingExecution(pending)
 
   // ADR-004 / #211 — Execution Commit Gate. This re-evaluates the
   // ORIGINAL initiator (pending.triggeredBy), not whichever signer happened
@@ -512,10 +512,12 @@ export async function submitTransactionSignature(escrowId: string, participantId
     // column already existed for the Economic Disposition Commit Gate, only threading it onto the
     // settlement event itself was missing. common/events/settlement-provenance.ts's classifySettlementProvenance() reads
     // this exact field first, before any other provenance source.
+    // Issue #341 (CTO 22 D1) - the gate above returned the exact authorization it verified or committed for this
+    // operation; the transition records it with the claim.
     await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, targetStatus, pending.triggeredBy, eventName, {
       txId: result.txId,
       ...(pending.disputeId ? { disputeId: pending.disputeId } : {}),
-    })
+    }, undefined, pending.disputeId ? dispositionAuthorization?.id : undefined)
 
     // Cascade-deletes its EscrowTransactionSignature rows (schema.prisma's
     // onDelete: Cascade) — a completed round leaves no pending row behind, except when the fee

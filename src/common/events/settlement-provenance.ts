@@ -7,6 +7,7 @@ import {
   SETTLEMENT_PROVENANCE_DECISION_KEY,
   SETTLEMENT_PROVENANCE_HELD_KEY,
   SETTLEMENT_PROVENANCE_RESOLVED_KEY,
+  TRANSITION_DISPOSITION_AUTHORIZATION_KEY,
   TRANSITION_DISPUTE_PROVENANCE_KEY,
 } from './event-projection'
 import { reputationService } from '../../modules/open-reputation/reputation.service'
@@ -24,27 +25,60 @@ export type SettlementProvenance = 'DISPUTED' | 'COOPERATIVE' | 'UNPROVEN'
  * appeal() can reopen a RESOLVED dispute at any time, including while this event's projection is delayed, and
  * the same event would then mean something else. Only durable facts count:
  *
- *   DISPUTED    - the event's own disputeId or the copy its transition claim recorded, MULTISIG's semantic_transition_records (committed before dispatch,
- *                 a reverted ruling deletes its row), or the ADR-005 authorization (committed before the
- *                 provider side effect and kept after the pending row is deleted, so it survives a recovered
- *                 publication, which has no payload.disputeId). That same gate refuses a cooperative operation
- *                 on a disputed escrow, so the row can only belong to a disputed settlement.
+ *   DISPUTED    - evidence bound to this transition and mutually consistent: the event's own disputeId, the
+ *                 copy its transition claim recorded, and the ADR-005 authorization the claim bound
+ *                 ('transition.disposition-authorization', verified by the producer against its pending
+ *                 operation); or MULTISIG's semantic_transition_records (committed before dispatch, a reverted
+ *                 ruling deletes its row). Corrected 2026-11-05 (Issue #341, CTO 22 D1-D4): an authorization was
+ *                 previously accepted by escrowId alone; that is now only a veto against COOPERATIVE, never a
+ *                 proof, and a recovered publication without payload.disputeId is proven by its bound markers.
  *   COOPERATIVE - positive proof, never the mere absence of a Dispute row (a row can be deleted): the escrow's
  *                 hash-chained transitions link from genesis to this settlement and none enters or leaves
  *                 DISPUTED. Opening a dispute writes that transition before any ruling can settle, and deleting
  *                 it breaks the link of every later transition. No Dispute row may exist either.
- *   UNPROVEN    - anything else: a Dispute nothing above binds to this settlement, a legacy unhashed or broken
- *                 chain, a deleted dispute, or a recovered direct-call settlement. Fails closed: not classified
- *                 by assumption.
+ *   UNPROVEN    - anything else: a Dispute nothing above binds to this settlement, contradictory or cross-escrow
+ *                 evidence, an authorization of this escrow not bound to the transition, a legacy unhashed or
+ *                 broken chain, a deleted dispute, or a recovered direct-call settlement. Fails closed: not
+ *                 classified by assumption. Only the reputation outcomes are held; the settlement and its
+ *                 funds are never touched by this classification.
  */
 export async function classifySettlementProvenance(effectId: string, escrowId: string, eventDisputeId: string | undefined): Promise<SettlementProvenance> {
-  if (eventDisputeId) return 'DISPUTED'
+  const unproven = (reason: string): SettlementProvenance => {
+    log.warn({ msg: 'Settlement provenance is contradictory or unanchored: classified UNPROVEN', escrowId, effectId, reason })
+    return 'UNPROVEN'
+  }
 
-  const claimed = await prisma.eventProjectionClaim.findFirst({
-    where: { eventId: effectId, projectionKey: TRANSITION_DISPUTE_PROVENANCE_KEY },
-    select: { id: true },
+  // Issue #341 (CTO 22 D1-D4) - evidence bound to THIS transition (effectId): the event's disputeId and the markers
+  // written with its claim. Each must agree with the others and with the durable rows it names.
+  const markers = await prisma.eventProjectionClaim.findMany({
+    where: { eventId: effectId, projectionKey: { in: [TRANSITION_DISPUTE_PROVENANCE_KEY, TRANSITION_DISPOSITION_AUTHORIZATION_KEY] } },
+    select: { projectionKey: true, subjectId: true },
   })
-  if (claimed) return 'DISPUTED'
+  const authorizationIds = markers.filter((m) => m.projectionKey === TRANSITION_DISPOSITION_AUTHORIZATION_KEY).map((m) => m.subjectId)
+  const disputeIds = new Set(markers.filter((m) => m.projectionKey === TRANSITION_DISPUTE_PROVENANCE_KEY).map((m) => m.subjectId))
+  if (eventDisputeId) disputeIds.add(eventDisputeId)
+
+  if (authorizationIds.length > 1) return unproven('more than one disposition authorization bound to the transition')
+  if (disputeIds.size > 1) return unproven('the transition names more than one dispute')
+  const [disputeId] = disputeIds
+
+  if (authorizationIds.length === 1) {
+    const authorization = await prisma.economicDispositionAuthorization.findUnique({ where: { id: authorizationIds[0] } })
+    if (!authorization) return unproven('bound disposition authorization not found')
+    if (authorization.escrowId !== escrowId) return unproven('bound disposition authorization belongs to another escrow')
+    if (!disputeId) return unproven('disposition authorization bound without its dispute')
+    if (authorization.disputeId !== disputeId) return unproven('bound disposition authorization names another dispute')
+    return 'DISPUTED'
+  }
+
+  if (disputeId) {
+    const dispute = await prisma.dispute.findUnique({ where: { id: disputeId }, select: { escrowId: true } })
+    if (dispute && dispute.escrowId !== escrowId) return unproven('the named dispute belongs to another escrow')
+    // A disputeId alone never outweighs a durable authorization of this escrow for a different dispute.
+    const other = await prisma.economicDispositionAuthorization.findFirst({ where: { escrowId, disputeId: { not: disputeId } }, select: { id: true } })
+    if (other) return unproven('an authorization of this escrow names another dispute')
+    return 'DISPUTED'
+  }
 
   const coreRecord = await prisma.semanticTransitionRecord.findFirst({
     where: { interactionId: escrowId, transitionType: ESCROW_DISPUTE_RULING_TRANSITION_TYPE },
@@ -52,15 +86,17 @@ export async function classifySettlementProvenance(effectId: string, escrowId: s
   })
   if (coreRecord) return 'DISPUTED'
 
-  const authorization = await prisma.economicDispositionAuthorization.findFirst({
-    where: { escrowId },
-    select: { id: true },
-  })
-  if (authorization) return 'DISPUTED'
+  // D2: an authorization of this escrow not bound to this transition proves nothing positive. It still vetoes
+  // COOPERATIVE: the escrow had a disputed operation, so absence of a marker is never read as cooperative.
+  if (await hasDispositionAuthorization(escrowId)) return 'UNPROVEN'
 
   const dispute = await prisma.dispute.findFirst({ where: { escrowId }, select: { id: true } })
   if (dispute) return 'UNPROVEN'
   return (await provesUndisputedChain(effectId, escrowId)) ? 'COOPERATIVE' : 'UNPROVEN'
+}
+
+async function hasDispositionAuthorization(escrowId: string): Promise<boolean> {
+  return (await prisma.economicDispositionAuthorization.findFirst({ where: { escrowId }, select: { id: true } })) !== null
 }
 
 /** Walks the transition chain by its links, not by timestamps (two rows can share a createdAt), and requires every
@@ -144,6 +180,11 @@ export async function resolveHeldSettlementProvenance({ effectId, decision, deci
   const proven = await classifySettlementProvenance(effectId, escrowId, undefined)
   if (proven !== 'UNPROVEN' && proven !== decision) {
     throw new ValidationError(`Settlement ${effectId} is proven ${proven}: the decision ${decision} contradicts durable evidence`)
+  }
+  // Issue #341 (CTO 22 D2) - a disposition authorization on this escrow is a veto, not a proof: it cannot classify
+  // the settlement DISPUTED by itself, but a human cannot declare it COOPERATIVE either.
+  if (decision === 'COOPERATIVE' && (await hasDispositionAuthorization(escrowId))) {
+    throw new ValidationError(`Settlement ${effectId}: the decision COOPERATIVE contradicts durable evidence (an economic disposition authorization exists for escrow ${escrowId})`)
   }
 
   await prisma.$transaction(async (tx) => {
