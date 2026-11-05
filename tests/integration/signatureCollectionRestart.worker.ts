@@ -8,7 +8,10 @@
 //                  after-effect    the provider's finalize*() returned (the external effect happened), before
 //                                  anything else is recorded: on entry to recordObligationForEscrowSettlement()
 //                  before-publish  on entry to the settlement.escrow.* publication
-// ROLE=recover   a fresh process: runs the production reconciler until the escrow's transition is projected.
+// ROLE=recover   a fresh process: runs the production reconciler until the escrow's settlement transition (the one
+//                into TO_STATUS) is projected. Only that one: the escrow's earlier DISPUTED transition is projected
+//                too, and much sooner, so waiting on "any transition" exited while the settlement's handlers were
+//                still running and left its outcomes unapplied.
 //
 // Test harness only, in this process only: the provider's finalize*() is the external boundary and returns
 // FAKE_TX_ID (no Ark/bundler here); every call is appended to SYNC_DIR/effects.log, so the test can count the
@@ -68,12 +71,14 @@ async function main(): Promise<void> {
   }
 
   if (role === 'recover') {
+    const toStatus = process.env.TO_STATUS
+    if (toStatus !== 'COMPLETED' && toStatus !== 'REFUNDED') throw new Error(`TO_STATUS must be COMPLETED or REFUNDED, got ${toStatus}`)
     const deadline = Date.now() + 60_000
     while (Date.now() < deadline) {
       await reconcilePendingSettlements({ projectionGraceMs: 0 })
       const projected = await prisma.$queryRaw<Array<{ n: bigint }>>`
         SELECT count(*) AS n FROM event_projection_claims p JOIN escrow_events e ON p."subjectId" = e.id
-        WHERE p."projectionKey" = 'transition.projected' AND e."escrowId" = ${escrowId}`
+        WHERE p."projectionKey" = 'transition.projected' AND e."escrowId" = ${escrowId} AND e."toStatus"::text = ${toStatus}`
       if (Number(projected[0].n) > 0) { process.stdout.write('CONVERGED\n'); process.exit(0) }
       await new Promise((r) => setTimeout(r, 200))
     }
