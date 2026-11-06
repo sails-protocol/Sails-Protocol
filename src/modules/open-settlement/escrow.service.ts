@@ -1,5 +1,5 @@
 import { prisma } from '../../common/database'
-import { NotFoundError, EscrowError, ForbiddenError, ValidationError } from '../../common/errors'
+import { NotFoundError, EscrowError, ForbiddenError, ValidationError, SettlementExecutedError } from '../../common/errors'
 import { EscrowType } from '../../common/types/trade'
 import type { AssetType } from '../../common/types'
 import type { CreateEscrowInput } from '@satsails/p2p-schemas'
@@ -34,6 +34,7 @@ import {
   withEscrowFundingLock,
   VALID_TRANSITIONS,
 } from './escrow-lifecycle'
+import { OUTBOUND_OPERATION_TYPES, wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 import { assertCircuitClosed, recordEscrowConflict } from './escrow-circuit-breaker'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import * as dualApproval from './escrow-dual-approval'
@@ -319,6 +320,31 @@ function resolveEscrowTypeCandidate(asset: AssetType, explicitType: EscrowType |
   }
 
   return explicitType ?? recommendedEscrowType(asset)
+}
+
+/**
+ * D7 (#341, Gatekeeper 6675288389) - the provider failed, but an error is never proof that nothing was sent. The
+ * claim is undone only when no outbound WDK transfer of this escrow may have reached the network: read under the
+ * escrow funding lock, in the same transaction that reverts. Otherwise, or when that cannot be established, the
+ * claim stays and SettlementExecutedError keeps the ruling that authorized it (dispute.service.ts applyRuling()),
+ * so the escrow is never reopened for another disposition; reconciliation converges it from the attempt ledger.
+ */
+async function revertClaimUnlessPotentiallySent(escrowId: string, claimedStatus: string, fromStatus: string, err: unknown): Promise<never> {
+  const reason = err instanceof Error ? err.message : String(err)
+  let sent: Awaited<ReturnType<typeof wdkTransferAttemptRepository.findPotentiallySent>>
+  try {
+    sent = await withEscrowFundingLock(escrowId, async (tx) => {
+      const attempt = await wdkTransferAttemptRepository.findPotentiallySent(escrowId, OUTBOUND_OPERATION_TYPES, tx)
+      if (!attempt) await tx.escrow.updateMany({ where: { id: escrowId, status: claimedStatus as any }, data: { status: fromStatus as any } })
+      return attempt
+    })
+  } catch (guardErr) {
+    throw new SettlementExecutedError(`Escrow ${escrowId}: the provider failed (${reason}) and non-submission could not be established (${guardErr instanceof Error ? guardErr.message : String(guardErr)}) - the ${claimedStatus} claim is kept`)
+  }
+  if (sent) {
+    throw new SettlementExecutedError(`Escrow ${escrowId}: the provider failed (${reason}), but WDK ${sent.operationType} attempt ${sent.id} is ${sent.status} - funds may have moved, so the ${claimedStatus} claim and its authorization are kept for reconciliation`)
+  }
+  throw err
 }
 
 export class EscrowService {
@@ -760,8 +786,7 @@ export class EscrowService {
         resolvedToAddress
       )
     } catch (err) {
-      await revertEscrowStatus(escrowId, 'COMPLETED', escrow.status)
-      throw err
+      return revertClaimUnlessPotentiallySent(escrowId, 'COMPLETED', escrow.status, err)
     }
 
     try {
@@ -865,8 +890,7 @@ export class EscrowService {
         { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord
       )
     } catch (err) {
-      await revertEscrowStatus(escrowId, 'REFUNDED', escrow.status)
-      throw err
+      return revertClaimUnlessPotentiallySent(escrowId, 'REFUNDED', escrow.status, err)
     }
 
     try {
@@ -928,8 +952,7 @@ export class EscrowService {
         buyerBps
       )
     } catch (err) {
-      await revertEscrowStatus(escrowId, 'SPLIT', escrow.status)
-      throw err
+      return revertClaimUnlessPotentiallySent(escrowId, 'SPLIT', escrow.status, err)
     }
 
     try {
