@@ -1,0 +1,25 @@
+{
+  "redisUrlHost": "127.0.0.1:56379",
+  "results": [
+    {
+      "id": "A1 ACK authenticity",
+      "observed": "pending 1 -> 0; XACK by a client that never read the entry returned 1",
+      "meaning": "any client able to reach Redis with the group name can mark another consumer's in-flight message as done; the handler may still be running or may fail afterwards, and the message is then lost to recovery (no pending entry left)"
+    },
+    {
+      "id": "A2 fencing after XCLAIM",
+      "observed": "B claimed 1 entry (owner consumer-B); the stale consumer A then ACKed it: returned 1; pending left 0",
+      "meaning": "XCLAIM moves ownership but gives the previous owner no fence: its late ACK still succeeds and drops B's in-flight entry. There is no fencing token, only a delivery counter, so \"exactly one live owner\" is not enforced by Redis"
+    },
+    {
+      "id": "A3 what Redis records",
+      "observed": "entry owner=consumer-B idleMs=1 deliveries=2",
+      "meaning": "the owner is the consumer NAME the client chose (`${group}-${pid}-${uuid8}` in event-store.ts), not an authenticated identity; deliveries is a counter, not a token a handler could present"
+    },
+    {
+      "id": "A4 instance identity",
+      "observed": "2 messages published by a third client carried __originInstanceId=\"victim-instance-uuid\" unchallenged",
+      "meaning": "event-store.ts drops any cross-instance message whose __originInstanceId equals its own random uuid (self-echo suppression); the id appears in every message, so a client with publish rights can copy it and make the victim instance ignore chosen events"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "head": "22c4f6ebb3fbe5ea710cbe8215def3c60bce0e6c",
+  "direction": "reversed",
+  "chunk": 8,
+  "jestExit": 1,
+  "suites": 88,
+  "suitesPassed": 87,
+  "tests": 1272,
+  "testsPassed": 1271,
+  "testsFailed": 1,
+  "testsSkipped": 0,
+  "failedSuites": [
+    {
+      "suite": "tests/integration/projectionRecoveryQueue.test.ts",
+      "failed": [
+        "Settlement reconciliation PASS 3 — durable, bounded, fair projection recovery (real PostgreSQL) P. duplicate invocation on one node: two overlapping runs claim disjoint batches; every transition is published once"
+      ],
+      "message": "  ● Settlement reconciliation PASS 3 — durable, bounded, fair projection recovery (real PostgreSQL) › P. duplicate invocation on one node: two overlapping runs claim disjoint batches; every transition is published once\n\n    expect(received).toEqual(expected) // deep equality\n\n    - Expected  - 1\n    + Received  + 7\n\n    - Array []\n    + Array [\n    +   \"1ee276ec-9e6b-457c-95f4-450962ed0d9f\",\n    +"
+    }
+  ]
+}
