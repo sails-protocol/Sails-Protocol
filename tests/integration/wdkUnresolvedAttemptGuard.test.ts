@@ -79,15 +79,22 @@ describe('D7 - an unreconciled WDK attempt blocks rollback and every other opera
 
     // The Decimal -> string harness adaptation described in the header.
     const { wdkSettlementProvider } = require('../../src/modules/open-settlement/wdk-settlement.provider')
+    // failBeforeAttempt: the provider fails after the claim and before any attempt exists (D8 case 6).
     for (const method of ['releaseFunds', 'refundFunds', 'splitFunds'] as const) {
       const real = wdkSettlementProvider[method].bind(wdkSettlementProvider)
-      wdkSettlementProvider[method] = (escrow: { lockedAmount: unknown }, ...rest: unknown[]) => real({ ...escrow, lockedAmount: String(escrow.lockedAmount) }, ...rest)
+      wdkSettlementProvider[method] = async (escrow: { lockedAmount: unknown }, ...rest: unknown[]) => {
+        if (failBeforeAttempt) throw new Error('wallet unavailable before any attempt was recorded')
+        return real({ ...escrow, lockedAmount: String(escrow.lockedAmount) }, ...rest)
+      }
     }
   })
 
+  let failBeforeAttempt = false
   beforeEach(() => {
     mockTransfer.mockReset()
     mockGetTransactionReceipt.mockReset()
+    failBeforeAttempt = false
+    jest.restoreAllMocks()
   })
 
   afterAll(async () => {
@@ -126,6 +133,19 @@ describe('D7 - an unreconciled WDK attempt blocks rollback and every other opera
     ])
     return { escrow: escrow!.status, dispute: dispute!.status, ruling: dispute!.ruling, attempts: attempts.map((a) => `${a.operationType}:${a.status}`) }
   }
+  // The settlement facts a disposition leaves behind, read apart from stateOf(): the recorded tx and the durable
+  // settlement/ruling events (the control test at the end proves this probe sees a real one).
+  const effectsOf = async (ctx: Ctx) => {
+    const escrow = await prisma.escrow.findUnique({ where: { id: ctx.escrowId } })
+    const events = await prisma.durableEventRecord.findMany({ where: { correlationId: ctx.tradeId }, orderBy: { publishedAt: 'asc' } })
+    return { txReleaseId: escrow!.txReleaseId, events: events.map((e) => e.eventName).filter((n) => n.startsWith('settlement.escrow.') || n === 'dispute.resolved') }
+  }
+  const NONE = { txReleaseId: null, events: [] }
+  const direct = (ctx: Ctx, op: 'RELEASE' | 'REFUND') =>
+    op === 'RELEASE' ? escrowService.releaseFunds(ctx.escrowId, undefined, ARBITER, ctx.dispute.id) : escrowService.refundFunds(ctx.escrowId, ARBITER, ctx.dispute.id)
+  // A potentially-sent attempt left by the old rollback defect (the escrow was reopened to DISPUTED around it).
+  const seedAttempt = (ctx: Ctx, op: 'RELEASE' | 'REFUND', status: 'SUBMISSION_UNKNOWN' | 'SUBMITTED' | 'FAILED_BEFORE_SUBMISSION', extra: { activeKey?: string | null; txHash?: string } = {}) =>
+    prisma.wdkTransferAttempt.create({ data: { escrowId: ctx.escrowId, operationType: op, destination: op === 'RELEASE' ? ctx.buyerPayout : 'treasury-fake-evm-address', amount: '5', status, activeKey: `${ctx.escrowId}:${op}`, ...extra } })
 
   // ─── Rollback after a possibly-sent transfer ─────────────────────────────────────────────────────────
 
@@ -165,25 +185,127 @@ describe('D7 - an unreconciled WDK attempt blocks rollback and every other opera
     await expect(rule(ctx, first)).rejects.toThrow()
     // Whatever the dispute became, the second disposition must not move funds: by the ruling path, then directly.
     await rule(ctx, second).catch(() => undefined)
-    await (second === 'RELEASE' ? escrowService.releaseFunds(ctx.escrowId, undefined, ARBITER, ctx.dispute.id) : escrowService.refundFunds(ctx.escrowId, ARBITER, ctx.dispute.id)).catch(() => undefined)
+    await expect(direct(ctx, second)).rejects.toThrow()
 
     expect(mockTransfer).toHaveBeenCalledTimes(1)
-    const state = await stateOf(ctx)
-    expect(state.attempts).toEqual([`${first}:SUBMISSION_UNKNOWN`])
-    expect(state.dispute).toBe('RESOLVED')
+    // State: the pending first disposition is still the one the escrow, the ruling and the ledger describe.
+    expect(await stateOf(ctx)).toEqual({ escrow: first === 'RELEASE' ? 'COMPLETED' : 'REFUNDED', dispute: 'RESOLVED', ruling: first, attempts: [`${first}:SUBMISSION_UNKNOWN`] })
+    expect(await effectsOf(ctx)).toEqual(NONE)
   })
 
-  it('an escrow already reopened by the old rollback (residue of the defect) still refuses a second disposition', async () => {
-    pg.requirePostgres('d7 residue')
+  // D8 (Gatekeeper 6685390103): the escrow was reopened around a potentially-sent attempt by the old rollback.
+  // A new incompatible decision must be refused without being recorded as its own settlement.
+  it.each([['RELEASE', 'REFUND'], ['REFUND', 'RELEASE']] as const)('residue: %s pending on a reopened escrow, a %s ruling is refused and nothing it touched changes', async (pending, ruling) => {
+    pg.requirePostgres(`d8 residue ${pending} ${ruling}`)
     const ctx = await makeDisputedWdkEscrow()
-    await prisma.wdkTransferAttempt.create({ data: { escrowId: ctx.escrowId, operationType: 'RELEASE', destination: ctx.buyerPayout, amount: '5', status: 'SUBMISSION_UNKNOWN', activeKey: `${ctx.escrowId}:RELEASE` } })
-    mockTransfer.mockImplementation(sentTransfer('0xrefund'))
+    await seedAttempt(ctx, pending, 'SUBMISSION_UNKNOWN')
+    mockTransfer.mockImplementation(sentTransfer('0xother'))
     mockGetTransactionReceipt.mockResolvedValue({ status: 1 })
+    const before = await stateOf(ctx)
+    expect(before).toEqual({ escrow: 'DISPUTED', dispute: 'OPENED', ruling: null, attempts: [`${pending}:SUBMISSION_UNKNOWN`] })
 
-    await expect(rule(ctx, 'REFUND')).rejects.toThrow()
+    await expect(rule(ctx, ruling)).rejects.toThrow(/may already have moved/)
+    await expect(direct(ctx, ruling)).rejects.toThrow(/may already have moved/)
 
     expect(mockTransfer).not.toHaveBeenCalled()
-    expect((await stateOf(ctx)).attempts).toEqual(['RELEASE:SUBMISSION_UNKNOWN'])
+    expect(await stateOf(ctx)).toEqual(before)
+    expect(await effectsOf(ctx)).toEqual(NONE)
+  })
+
+  it('residue after an appeal: a new-generation ruling cannot replace a historical attempt whose activeKey was released', async () => {
+    pg.requirePostgres('d8 generation')
+    const ctx = await makeDisputedWdkEscrow()
+    await seedAttempt(ctx, 'RELEASE', 'FAILED_BEFORE_SUBMISSION', { activeKey: null })
+    await seedAttempt(ctx, 'RELEASE', 'SUBMITTED', { activeKey: null, txHash: `0x${'ab'.repeat(32)}` })
+    ctx.dispute = await prisma.dispute.update({ where: { id: ctx.dispute.id }, data: { status: 'APPEALED', appealRound: 1, previousRuling: 'RELEASE', previousArbiterId: ARBITER } })
+    mockTransfer.mockImplementation(sentTransfer('0xrefund'))
+    mockGetTransactionReceipt.mockResolvedValue({ status: 1 })
+    const before = await stateOf(ctx)
+
+    await expect(rule(ctx, 'REFUND')).rejects.toThrow(/may already have moved/)
+    await expect(rule(ctx, 'SPLIT')).rejects.toThrow(/may already have moved/)
+
+    expect(mockTransfer).not.toHaveBeenCalled()
+    expect(await stateOf(ctx)).toEqual(before)
+    expect((await prisma.dispute.findUnique({ where: { id: ctx.dispute.id } }))!.appealRound).toBe(1)
+    expect(await effectsOf(ctx)).toEqual(NONE)
+  })
+
+  it('residue race: concurrent incompatible rulings, direct calls and the reconciler change nothing and send nothing', async () => {
+    pg.requirePostgres('d8 residue race')
+    const ctx = await makeDisputedWdkEscrow()
+    await seedAttempt(ctx, 'RELEASE', 'SUBMISSION_UNKNOWN')
+    mockTransfer.mockImplementation(sentTransfer('0xrefund'))
+    mockGetTransactionReceipt.mockResolvedValue({ status: 1 })
+    const before = await stateOf(ctx)
+
+    await Promise.all([
+      ...Array.from({ length: 4 }, () => rule(ctx, 'REFUND').catch(() => undefined)),
+      ...Array.from({ length: 4 }, () => direct(ctx, 'REFUND').catch(() => undefined)),
+      rule(ctx, 'SPLIT').catch(() => undefined),
+      reconcilePendingSettlements({ projectionGraceMs: 0 }).catch(() => undefined),
+      reconcilePendingSettlements({ projectionGraceMs: 0 }).catch(() => undefined),
+    ])
+
+    expect(mockTransfer).not.toHaveBeenCalled()
+    expect(await stateOf(ctx)).toEqual(before)
+    expect(await effectsOf(ctx)).toEqual(NONE)
+  })
+
+  // ─── Failures inside the catch itself ────────────────────────────────────────────────────────────────
+
+  it('the provider fails after the claim and before any attempt: the claim and the ruling roll back', async () => {
+    pg.requirePostgres('d8 catch no attempt')
+    const ctx = await makeDisputedWdkEscrow()
+    failBeforeAttempt = true
+
+    await expect(rule(ctx, 'RELEASE')).rejects.toThrow(/wallet unavailable/)
+
+    expect(await stateOf(ctx)).toEqual({ escrow: 'DISPUTED', dispute: 'OPENED', ruling: null, attempts: [] })
+    expect(await effectsOf(ctx)).toEqual(NONE)
+    expect(mockTransfer).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a lost transfer', 'RELEASE:SUBMISSION_UNKNOWN'],
+    ['no attempt at all', null],
+  ] as const)('the attempt ledger cannot be read in the catch (%s): fail closed, the claim and the ruling are kept', async (_label, attempt) => {
+    pg.requirePostgres(`d8 ledger read failure ${_label}`)
+    const ctx = await makeDisputedWdkEscrow()
+    const { wdkTransferAttemptRepository } = require('../../src/modules/open-settlement/wdk-transfer-attempt-repository')
+    const real = wdkTransferAttemptRepository.findPotentiallySent.bind(wdkTransferAttemptRepository)
+    // Only the catch's read, the one made inside the escrow lock's transaction, fails.
+    jest.spyOn(wdkTransferAttemptRepository, 'findPotentiallySent').mockImplementation((...args: unknown[]) => (args[2] ? Promise.reject(new Error('ledger unreachable')) : real(...args)))
+    if (attempt) mockTransfer.mockImplementationOnce(lostTransfer)
+    else failBeforeAttempt = true
+    const { SettlementExecutedError } = require('../../src/common/errors')
+
+    const err = await rule(ctx, 'RELEASE').catch((e: unknown) => e)
+
+    expect(err).toBeInstanceOf(SettlementExecutedError)
+    expect(String((err as Error).message)).toMatch(/non-submission could not be established/)
+    expect(await stateOf(ctx)).toEqual({ escrow: 'COMPLETED', dispute: 'RESOLVED', ruling: 'RELEASE', attempts: attempt ? [attempt] : [] })
+    expect(await effectsOf(ctx)).toEqual(NONE)
+    expect(mockTransfer).toHaveBeenCalledTimes(attempt ? 1 : 0)
+  })
+
+  // ─── Redelivery ──────────────────────────────────────────────────────────────────────────────────────
+
+  it('redelivering the same RELEASE (ruling, direct call, reconciler) after a lost transfer moves nothing again', async () => {
+    pg.requirePostgres('d8 redelivery')
+    const ctx = await makeDisputedWdkEscrow()
+    mockTransfer.mockImplementationOnce(lostTransfer).mockImplementation(sentTransfer('0xresent'))
+    mockGetTransactionReceipt.mockResolvedValue({ status: 1 })
+
+    await expect(rule(ctx, 'RELEASE')).rejects.toThrow()
+    await expect(rule(ctx, 'RELEASE')).rejects.toThrow()
+    await expect(direct(ctx, 'RELEASE')).rejects.toThrow()
+    const reports = [await reconcilePendingSettlements({ projectionGraceMs: 0 }), await reconcilePendingSettlements({ projectionGraceMs: 0 })]
+
+    expect(mockTransfer).toHaveBeenCalledTimes(1)
+    expect(reports.every((r) => r.requiresManualReview.some((m) => m.escrowId === ctx.escrowId))).toBe(true)
+    expect(await stateOf(ctx)).toEqual({ escrow: 'COMPLETED', dispute: 'RESOLVED', ruling: 'RELEASE', attempts: ['RELEASE:SUBMISSION_UNKNOWN'] })
+    expect(await effectsOf(ctx)).toEqual(NONE)
   })
 
   // ─── SPLIT: each leg keeps its own state ─────────────────────────────────────────────────────────────
@@ -203,7 +325,20 @@ describe('D7 - an unreconciled WDK attempt blocks rollback and every other opera
 
     expect(transfersTo()).toEqual([ctx.buyerPayout, ctx.sellerPayout])
     expect(report.requiresManualReview.some((r) => r.escrowId === ctx.escrowId)).toBe(true)
-    expect((await stateOf(ctx)).attempts).toEqual(['SPLIT_BUYER:CONFIRMED', 'SPLIT_SELLER:SUBMISSION_UNKNOWN'])
+    expect(await stateOf(ctx)).toEqual({ escrow: 'SPLIT', dispute: 'RESOLVED', ruling: 'SPLIT', attempts: ['SPLIT_BUYER:CONFIRMED', 'SPLIT_SELLER:SUBMISSION_UNKNOWN'] })
+    expect(await effectsOf(ctx)).toEqual(NONE)
+  })
+
+  it('SPLIT whose buyer leg is lost before the seller leg starts: the claim is kept on that leg alone', async () => {
+    pg.requirePostgres('d8 split first leg')
+    const ctx = await makeDisputedWdkEscrow()
+    mockTransfer.mockImplementationOnce(lostTransfer).mockImplementation(sentTransfer('0xother'))
+
+    await expect(rule(ctx, 'SPLIT')).rejects.toThrow()
+
+    expect(transfersTo()).toEqual([ctx.buyerPayout])
+    expect(await stateOf(ctx)).toEqual({ escrow: 'SPLIT', dispute: 'RESOLVED', ruling: 'SPLIT', attempts: ['SPLIT_BUYER:SUBMISSION_UNKNOWN'] })
+    expect(await effectsOf(ctx)).toEqual(NONE)
   })
 
   // ─── Concurrency: rollback, a new disposition and the reconciler ─────────────────────────────────────
@@ -237,6 +372,7 @@ describe('D7 - an unreconciled WDK attempt blocks rollback and every other opera
 
     expect(mockTransfer).toHaveBeenCalledTimes(1)
     expect(await stateOf(ctx)).toEqual({ escrow: 'COMPLETED', dispute: 'RESOLVED', ruling: 'RELEASE', attempts: ['RELEASE:SUBMISSION_UNKNOWN'] })
+    expect(await effectsOf(ctx)).toEqual(NONE)
   })
 
   // ─── SIGKILL at each critical boundary, then a fresh process ─────────────────────────────────────────
@@ -313,5 +449,15 @@ describe('D7 - an unreconciled WDK attempt blocks rollback and every other opera
     await rule(ctx, 'REFUND')
     expect((await stateOf(ctx)).escrow).toBe('REFUNDED')
     expect(mockTransfer).toHaveBeenCalledTimes(2)
+    // Positive control for effectsOf(): a real settlement is visible to it.
+    expect(await effectsOf(ctx)).toEqual({ txReleaseId: '0xrefund', events: ['settlement.escrow.refunded', 'dispute.resolved'] })
+    // The refund's event handlers run fire-and-forget; let them finish before the file tears down. On 7bd64f0a one
+    // still ran after teardown in CI, logged, and jest-runner set process.exitCode = 1 with every test passing.
+    const transition = (await prisma.escrowEvent.findFirst({ where: { escrowId: ctx.escrowId, toStatus: 'REFUNDED' } }))!
+    const end = Date.now() + 15_000
+    while ((await prisma.eventProjectionClaim.count({ where: { projectionKey: 'transition.projected', subjectId: transition.id } })) === 0) {
+      if (Date.now() > end) throw new Error('the REFUNDED transition was never projected')
+      await new Promise((r) => setTimeout(r, 50))
+    }
   })
 })

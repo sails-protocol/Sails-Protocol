@@ -34,7 +34,8 @@ import {
   withEscrowFundingLock,
   VALID_TRANSITIONS,
 } from './escrow-lifecycle'
-import { OUTBOUND_OPERATION_TYPES, wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
+import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
+import type { WdkTransferOperationType } from '@prisma/client'
 import { assertCircuitClosed, recordEscrowConflict } from './escrow-circuit-breaker'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import * as dualApproval from './escrow-dual-approval'
@@ -328,13 +329,19 @@ function resolveEscrowTypeCandidate(asset: AssetType, explicitType: EscrowType |
  * escrow funding lock, in the same transaction that reverts. Otherwise, or when that cannot be established, the
  * claim stays and SettlementExecutedError keeps the ruling that authorized it (dispute.service.ts applyRuling()),
  * so the escrow is never reopened for another disposition; reconciliation converges it from the attempt ledger.
+ *
+ * D8 (Gatekeeper 6685390103) - only an attempt of THIS disposition (`ownOperations`) keeps the claim. A potentially-sent
+ * attempt of another disposition predates this call (an escrow reopened by the old rollback): ensureAttempt() refused
+ * to start this one, so it sent nothing, and its claim and ruling are undone instead of being recorded as a settlement
+ * that never happened. Attempts are only created by the owner of the escrow's terminal claim (a single-owner CAS), so
+ * no other attempt can appear between ensureAttempt()'s check and this read.
  */
-async function revertClaimUnlessPotentiallySent(escrowId: string, claimedStatus: string, fromStatus: string, err: unknown): Promise<never> {
+async function revertClaimUnlessPotentiallySent(escrowId: string, claimedStatus: string, fromStatus: string, ownOperations: WdkTransferOperationType[], err: unknown): Promise<never> {
   const reason = err instanceof Error ? err.message : String(err)
   let sent: Awaited<ReturnType<typeof wdkTransferAttemptRepository.findPotentiallySent>>
   try {
     sent = await withEscrowFundingLock(escrowId, async (tx) => {
-      const attempt = await wdkTransferAttemptRepository.findPotentiallySent(escrowId, OUTBOUND_OPERATION_TYPES, tx)
+      const attempt = await wdkTransferAttemptRepository.findPotentiallySent(escrowId, ownOperations, tx)
       if (!attempt) await tx.escrow.updateMany({ where: { id: escrowId, status: claimedStatus as any }, data: { status: fromStatus as any } })
       return attempt
     })
@@ -786,7 +793,7 @@ export class EscrowService {
         resolvedToAddress
       )
     } catch (err) {
-      return revertClaimUnlessPotentiallySent(escrowId, 'COMPLETED', escrow.status, err)
+      return revertClaimUnlessPotentiallySent(escrowId, 'COMPLETED', escrow.status, ['RELEASE'], err)
     }
 
     try {
@@ -890,7 +897,7 @@ export class EscrowService {
         { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord
       )
     } catch (err) {
-      return revertClaimUnlessPotentiallySent(escrowId, 'REFUNDED', escrow.status, err)
+      return revertClaimUnlessPotentiallySent(escrowId, 'REFUNDED', escrow.status, ['REFUND'], err)
     }
 
     try {
@@ -952,7 +959,7 @@ export class EscrowService {
         buyerBps
       )
     } catch (err) {
-      return revertClaimUnlessPotentiallySent(escrowId, 'SPLIT', escrow.status, err)
+      return revertClaimUnlessPotentiallySent(escrowId, 'SPLIT', escrow.status, ['SPLIT_BUYER', 'SPLIT_SELLER'], err)
     }
 
     try {
