@@ -29,7 +29,7 @@ import { marketArbitrationProvider } from './market-arbitration.provider'
 import { createArbitrationProviderResolver } from './arbitration-provider-resolver'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
-import { isPartyOrAgent, asTrustedActor } from './escrow-lifecycle'
+import { isPartyOrAgent, asTrustedActor, VALID_TRANSITIONS } from './escrow-lifecycle'
 import { withIdempotency } from '../../common/idempotency'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { AssetType } from '../../common/types'
@@ -69,6 +69,23 @@ import { publishPendingDisputeTransitions, transitionKeyFor, type DisputeTransit
 export const APPEAL_FEE_MULTIPLIER = 2
 
 export type ArbitrationProviderResolver = (implementation: string) => ArbitrationProvider
+
+/** D10 P2 - the ruling cannot be finalized yet; nothing was applied and a later recovery pass retries it. */
+class RulingFinalizationDeferred extends Error {}
+
+const SETTLED_STATUS: Record<DisputeRuling, string> = { RELEASE: 'COMPLETED', REFUND: 'REFUNDED', SPLIT: 'SPLIT' }
+
+/**
+ * D10 P2 (#585) - whether a WDK_USDT_EVM ruling has left its rollback window: its escrow holds that ruling's own
+ * terminal status AND the settlement is recorded (txReleaseId, written only once the transfer is confirmed, by the
+ * live path or by reconciliation; for SPLIT, once both legs are). A pending attempt is not enough: until confirmed it
+ * may still be rolled back, or never resolve. Every other rail keeps its existing finalization semantics.
+ */
+async function wdkRulingSettled(tx: Prisma.TransactionClient, escrowId: string, ruling: DisputeRuling): Promise<boolean> {
+  const escrow = await tx.escrow.findUnique({ where: { id: escrowId }, select: { type: true, status: true, txReleaseId: true } })
+  if (escrow?.type !== 'WDK_USDT_EVM') return true
+  return escrow.status === SETTLED_STATUS[ruling] && !!escrow.txReleaseId
+}
 
 export class DisputeService {
   constructor(
@@ -485,6 +502,13 @@ export class DisputeService {
       const other = await wdkTransferAttemptRepository.findPotentiallySent(dispute.escrowId, OUTBOUND_OPERATION_TYPES.filter((o) => !own.includes(o)), tx)
       if (other) {
         throw new EscrowError(`Ruling ${ruling} for dispute ${dispute.id} refused: WDK ${other.operationType} attempt ${other.id} is ${other.status}, so this escrow's funds may already have moved. No other disposition may start until that attempt is reconciled.`)
+      }
+      // D10 P1 - a WDK ruling is recorded only while its escrow can still execute it: the claim it needs must be a
+      // valid transition from the escrow's current status (from DISPUTED, every disposition's is). An escrow already
+      // settled (e.g. by an earlier round) would make it fail after the commit and be reverted.
+      const escrowNow = await tx.escrow.findUnique({ where: { id: dispute.escrowId }, select: { type: true, status: true } })
+      if (escrowNow?.type === 'WDK_USDT_EVM' && !(VALID_TRANSITIONS[escrowNow.status] ?? []).includes(SETTLED_STATUS[ruling])) {
+        throw new EscrowError(`Ruling ${ruling} for dispute ${dispute.id} refused: WDK escrow ${dispute.escrowId} is ${escrowNow.status}, so this ruling cannot execute.`)
       }
       return row
     })
@@ -943,8 +967,28 @@ export class DisputeService {
     dispute: { id: string; escrowId: string; appealRound: number; previousRuling: DisputeRuling | null; previousArbiterId: string | null },
     arbiterId: string,
     ruling: DisputeRuling,
-  ): Promise<void> {
+    recovered = false, // recoverMissingRulingFinalization(): `dispute` is a snapshot it read earlier
+  ): Promise<boolean> { // false: deferred by D10 P2, nothing applied
     const { provider, escrow: providerEscrow } = await this.providerForEscrow(dispute.escrowId)
+
+    // D10 P2 (#585) - eligibility from current rows, under the economic-disposition lock that the ruling's write, its
+    // rollback (D9) and appeal() all take: the ruling has left its rollback window and, for a recovered candidate, its
+    // generation is still the current one. Checked once on its own, so an ineligible ruling is deferred without a claim
+    // ever being opened, then again inside the claim's own transaction, where it is authoritative (a concurrent
+    // rollback can land in between); there, a throw undoes the claim with the transaction and nothing is applied.
+    const finalizable = async (tx: Prisma.TransactionClient) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
+      if (recovered) {
+        const current = await tx.dispute.findUnique({ where: { id: dispute.id } })
+        const sameGeneration = !!current && (current.appealRound === dispute.appealRound
+          ? current.status === 'RESOLVED' && current.ruling === ruling && current.arbiterId === arbiterId
+          // the appealed case: round N's ruling, captured by appeal() into round N+1
+          : current.appealRound === dispute.appealRound + 1 && current.previousRuling === ruling && current.previousArbiterId === arbiterId)
+        if (!sameGeneration) return false
+      }
+      return wdkRulingSettled(tx, dispute.escrowId, ruling)
+    }
+    if (!(await prisma.$transaction(finalizable))) return false
 
     // RFC-021 D6 — an appeal round reversing the ruling being appealed is
     // real evidence the original arbiter got it wrong; slash them.
@@ -958,7 +1002,10 @@ export class DisputeService {
     const shouldSlash = !!(dispute.previousRuling && dispute.previousRuling !== ruling && dispute.previousArbiterId && provider.slash)
     let slashOutcome: { participantId: string; forfeitedCollateral: string; newCollateral: string; newReputation: number } | undefined
 
+    try {
     await applyEventProjectionOnce(dispute.id, 'dispute.ruling-finalized', String(dispute.appealRound), async (tx) => {
+      if (!(await finalizable(tx))) throw new RulingFinalizationDeferred() // D10 P2, authoritative (see above)
+
       // RFC-021 D6/D4 — feeds the arbiter's track record on every real
       // resolution, correct or not (optional: only market mode has an
       // ArbiterProfile to update; trusted-list mode silently skips this).
@@ -1014,6 +1061,11 @@ export class DisputeService {
         await eventBus.emit('arbiter.slashed', slashOutcome, slashOutcome.participantId)
       }
     })
+    } catch (err) {
+      if (err instanceof RulingFinalizationDeferred) return false
+      throw err
+    }
+    return true
   }
 
   /**
@@ -1041,7 +1093,7 @@ export class DisputeService {
    * never overwritten again since a second appeal is unreachable) is round 0's real, historical data -
    * reused as-is, no schema change, no new provenance field.
    */
-  async recoverMissingRulingFinalization(limit = 200): Promise<{ recovered: string[]; failed: Array<{ disputeId: string; error: string }>; held: string[] }> {
+  async recoverMissingRulingFinalization(limit = 200): Promise<{ recovered: string[]; deferred: string[]; failed: Array<{ disputeId: string; error: string }>; held: string[] }> {
     type Candidate = { id: string; escrowId: string; appealRound: number; previousRuling: DisputeRuling | null; previousArbiterId: string | null; arbiterId: string | null; ruling: DisputeRuling | null }
 
     const resolvedCandidates = await prisma.$queryRaw<Candidate[]>`
@@ -1074,12 +1126,13 @@ export class DisputeService {
       LIMIT ${limit}`
 
     const recovered: string[] = []
+    const deferred: string[] = []
     const failed: Array<{ disputeId: string; error: string }> = []
     for (const candidate of [...resolvedCandidates, ...appealedCandidates]) {
       if (!candidate.arbiterId || !candidate.ruling) continue // structurally shouldn't happen - skip rather than guess
       try {
-        await this.finalizeResolveDispute(candidate, candidate.arbiterId, candidate.ruling)
-        recovered.push(candidate.id)
+        if (await this.finalizeResolveDispute(candidate, candidate.arbiterId, candidate.ruling, true)) recovered.push(candidate.id)
+        else deferred.push(candidate.id)
       } catch (err) {
         failed.push({ disputeId: candidate.id, error: err instanceof Error ? err.message : String(err) })
       }
@@ -1091,7 +1144,7 @@ export class DisputeService {
       distinct: ['eventId'],
       orderBy: { eventId: 'asc' },
     })
-    return { recovered, failed, held: heldClaims.map((c) => c.eventId) }
+    return { recovered, deferred, failed, held: heldClaims.map((c) => c.eventId) }
   }
 
   /**

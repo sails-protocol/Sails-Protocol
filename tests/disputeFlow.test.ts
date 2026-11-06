@@ -120,6 +120,8 @@ const mockTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
     },
     // D9 - the resolve-write also reads the WDK attempt ledger for another disposition's unreconciled attempt.
     wdkTransferAttempt: { findFirst: async () => null },
+    // D10 - the resolve-write (P1) and the finalization claim (P2) read the escrow's current row.
+    escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
   })
 )
 

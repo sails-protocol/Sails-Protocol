@@ -341,9 +341,9 @@ describe('D7 - an unreconciled WDK attempt blocks rollback and every other opera
     expect(reports.every((r) => r.requiresManualReview.some((m) => m.escrowId === ctx.escrowId))).toBe(true)
     expect(await stateOf(ctx)).toEqual({ escrow: 'COMPLETED', dispute: 'RESOLVED', ruling: 'RELEASE', attempts: ['RELEASE:SUBMISSION_UNKNOWN'] })
     expect(await effectsOf(ctx)).toEqual(NONE)
-    // The kept ruling (funds may have moved) is finalized by recovery exactly once across the repeated passes;
-    // the parties' reputation is untouched (no settlement was recorded, so no outcome was projected).
-    expect(await reputationOf(ctx)).toEqual({ ...reputation, finalized: 1 })
+    // D10 P2: the kept ruling (funds may have moved, nothing confirmed) is not finalized: deferred until its settlement
+    // is recorded. The parties' reputation is untouched (no settlement was recorded, so no outcome was projected).
+    expect(await reputationOf(ctx)).toEqual(reputation)
   })
 
   // ─── SPLIT: each leg keeps its own state ─────────────────────────────────────────────────────────────
@@ -367,7 +367,7 @@ describe('D7 - an unreconciled WDK attempt blocks rollback and every other opera
     expect(report.requiresManualReview.some((r) => r.escrowId === ctx.escrowId)).toBe(true)
     expect(await stateOf(ctx)).toEqual({ escrow: 'SPLIT', dispute: 'RESOLVED', ruling: 'SPLIT', attempts: ['SPLIT_BUYER:CONFIRMED', 'SPLIT_SELLER:SUBMISSION_UNKNOWN'] })
     expect(await effectsOf(ctx)).toEqual(NONE)
-    expect(await reputationOf(ctx)).toEqual({ ...reputation, finalized: 1 }) // the kept ruling, finalized once
+    expect(await reputationOf(ctx)).toEqual(reputation) // D10 P2: one leg unconfirmed, so not finalized
   })
 
   it('SPLIT whose buyer leg is lost before the seller leg starts: the claim is kept on that leg alone', async () => {
@@ -524,9 +524,7 @@ describe('D7 - an unreconciled WDK attempt blocks rollback and every other opera
 
     expect(await stateOf(ctx)).toEqual(before.state)
     expect(await effectsOf(ctx)).toEqual(NONE)
-    expect((await reputationOf(ctx)).parties).toEqual(before.reputation.parties)
-    // Not asserted here: a reconciler pass DURING the provider call may finalize the still-RESOLVED ruling before it
-    // rolls back (finalization does not check the escrow). Pre-existing #253 behaviour, reported to the CTO (D9).
+    expect(await reputationOf(ctx)).toEqual(before.reputation) // D10 P2: never finalized while it could roll back
     expect(mockTransfer).not.toHaveBeenCalled()
   })
 

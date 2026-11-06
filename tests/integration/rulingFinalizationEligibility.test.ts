@@ -1,9 +1,8 @@
 // tests/integration/rulingFinalizationEligibility.test.ts
 //
-// D10 (#341, #585, Gatekeeper 6692048434) - RED reproductions for the ruling finalization contract. Not wired into
-// any CI lane (excluded from test:unit, absent from test:integration:postgres) until a GREEN is authorized: each
-// case below asserts the D10 contract and fails on a0349036. Run by hand against a disposable database:
-//   npx jest tests/integration/rulingFinalizationEligibility.test.ts --runInBand
+// D10 (#341, #585, Gatekeeper 6692048434) - the ruling finalization contract. Written first as RED reproductions
+// (bdab1b46: R1-R4 and R6 fail on a0349036, R5 passes), GREEN with D10 P1/P2 (dispute.service.ts). Runs in the serial
+// PostgreSQL lane (test:integration:postgres), like the other files that spawn OS processes.
 //
 // The contract under test: a RESOLVED ruling is an arbitral decision, not proof of economic execution. Its
 // finalization (finalizeResolveDispute(): rulingsTotal, cumulativeFeesObserved, the appeal fee, the slash and
@@ -46,7 +45,7 @@ import { closeTestRedis } from './identityTestHelpers'
 
 const ARBITER = 'k6-test-arbiter'
 
-describe('D10 - a ruling that can still be rolled back is never finalized (real PostgreSQL, RED on a0349036)', () => {
+describe('D10 - a ruling that can still be rolled back is never finalized (real PostgreSQL)', () => {
   jest.setTimeout(120_000)
 
   const pg = createPostgresIntegrationHarness()
@@ -95,14 +94,14 @@ describe('D10 - a ruling that can still be rolled back is never finalized (real 
   // Bounded far above any backlog of other suites' RESOLVED rows in a shared database (as #253 B2 does).
   const recover = () => ruler().recoverMissingRulingFinalization(5000)
 
-  async function makeDisputedWdkEscrow(dispute: Record<string, unknown> = {}) {
+  async function makeDisputedWdkEscrow(dispute: Record<string, unknown> = {}, type: 'WDK_USDT_EVM' | 'MOCK' = 'WDK_USDT_EVM') {
     const seller = await user()
     const buyer = await user()
     await prisma.payoutAddress.create({ data: { participantId: buyer.id, asset: 'USDT_ERC20', address: `buyer-payout-${buyer.id}` } })
     await prisma.payoutAddress.create({ data: { participantId: seller.id, asset: 'USDT_ERC20', address: `seller-payout-${seller.id}` } })
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1', minAmount: '5', maxAmount: '5', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '5' })
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'WDK_USDT_EVM', status: 'DISPUTED', lockedAmount: '5', asset: 'USDT_ERC20' } })
+    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type, status: 'DISPUTED', lockedAmount: '5', asset: 'USDT_ERC20' } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id, status: 'DISPUTED' } })
     const row = await prisma.dispute.create({ data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'd10', status: 'OPENED', arbiterId: ARBITER, ...dispute } })
     return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id, dispute: row }
@@ -137,14 +136,15 @@ describe('D10 - a ruling that can still be rolled back is never finalized (real 
 
   // The provider call of the ruling under test is held open, then fails with nothing sent (no attempt recorded):
   // exactly the case D9's rollback undoes.
-  function holdThenFail(method: 'releaseFunds' | 'refundFunds') {
+  function holdThenFail(method: 'releaseFunds' | 'refundFunds', provider: any = wdkSettlementProvider) {
     let fail!: () => void
     let entered!: () => void
     const released = new Promise<void>((r) => { fail = r })
     const inProvider = new Promise<void>((r) => { entered = r })
-    jest.spyOn(wdkSettlementProvider, method).mockImplementation(async () => { entered(); await released; throw new Error('wallet unavailable before any attempt was recorded') })
+    jest.spyOn(provider, method).mockImplementation(async () => { entered(); await released; throw new Error('wallet unavailable before any attempt was recorded') })
     return { inProvider, fail }
   }
+  const mockProvider = () => require('../../src/modules/open-settlement/escrow-providers').PROVIDERS.MOCK
 
   // ─── 1. A recoverer runs while the ruling's provider call is still in flight ─────────────────────────
 
@@ -276,14 +276,107 @@ describe('D10 - a ruling that can still be rolled back is never finalized (real 
     jest.spyOn(escrowService, 'refundFunds').mockImplementation(async (...args: unknown[]) => { entered(); await gate; return realRefund(...args) })
 
     const ruling = rule(ctx, 'REFUND').catch((e: Error) => e)
-    await inCall // RESOLVED/REFUND for round 1 is committed; it cannot execute
+    // a0349036: RESOLVED/REFUND for round 1 is committed and the call is held. D10 P1: refused before any write.
+    await Promise.race([inCall, ruling])
     await recover()
     go()
-    expect(String(await ruling)).toMatch(/Invalid escrow transition/)
+    expect(String(await ruling)).toMatch(/Invalid escrow transition|so this ruling cannot execute/)
 
     expect(await stateOf(ctx)).toEqual({ escrow: 'COMPLETED', dispute: 'APPEALED', ruling: null, round: 1 })
     expect(mockTransfer).not.toHaveBeenCalled()
     expect(await effectsOf(ctx, 1, previous.id)).toEqual(before) // RED on a0349036: slashed, fee REFUNDED, counted
+  })
+
+  // ─── P2 parts that the WDK settlement check alone would mask (each kills one D10 mutant) ──────────────
+
+  it('R7: a RESOLVED ruling left from before P1 on a WDK escrow settled as ANOTHER disposition is never finalized', async () => {
+    pg.requirePostgres('d10 r7')
+    const ctx = await makeDisputedWdkEscrow()
+    await prisma.escrow.update({ where: { id: ctx.escrowId }, data: { status: 'COMPLETED', txReleaseId: `0x${randomBytes(32).toString('hex')}` } })
+    await prisma.dispute.update({ where: { id: ctx.dispute.id }, data: { status: 'RESOLVED', ruling: 'REFUND', resolvedAt: new Date() } })
+    const before = await effectsOf(ctx, 0)
+
+    for (let i = 0; i < 2; i++) await recover()
+
+    expect(await effectsOf(ctx, 0)).toEqual(before) // the settlement recorded is a RELEASE, not this REFUND
+  })
+
+  it('R8: on a rail without the WDK settlement check (MOCK), a candidate rolled back after selection is not finalized', async () => {
+    pg.requirePostgres('d10 r8')
+    const ctx = await makeDisputedWdkEscrow({}, 'MOCK')
+    await recover()
+    const before = await effectsOf(ctx, 0)
+    const provider = holdThenFail('releaseFunds', mockProvider())
+    let openGate!: () => void
+    const gate = new Promise<void>((r) => { openGate = r })
+    let selected!: () => void
+    const wasSelected = new Promise<void>((r) => { selected = r })
+    const finalize = DisputeService.prototype as any
+    const realFinalize = finalize.finalizeResolveDispute
+    jest.spyOn(finalize, 'finalizeResolveDispute').mockImplementation(async function (this: unknown, ...args: any[]) {
+      if (args[0]?.id === ctx.dispute.id) { selected(); await gate }
+      return realFinalize.apply(this, args)
+    })
+
+    const ruling = rule(ctx, 'RELEASE').catch((e: Error) => e)
+    await provider.inProvider
+    const pass = recover()
+    await wasSelected
+    provider.fail()
+    expect(await ruling).toBeInstanceOf(Error)
+    openGate()
+    await pass
+
+    expect(await stateOf(ctx)).toEqual({ escrow: 'DISPUTED', dispute: 'OPENED', ruling: null, round: 0 })
+    expect(await effectsOf(ctx, 0)).toEqual(before) // only the generation revalidation stops this one
+  })
+
+  it('R9: a finalization racing a rollback transaction still open waits for it (economic-disposition lock), then defers', async () => {
+    pg.requirePostgres('d10 r9')
+    const ctx = await makeDisputedWdkEscrow({}, 'MOCK')
+    await recover()
+    const before = await effectsOf(ctx, 0)
+    jest.spyOn(mockProvider(), 'releaseFunds').mockRejectedValue(new Error('wallet unavailable before any attempt was recorded'))
+    // Hold the D9 rollback transaction open, after its locks are taken: its ledger read for this ruling's own operations.
+    const { wdkTransferAttemptRepository } = require('../../src/modules/open-settlement/wdk-transfer-attempt-repository')
+    const realRead = wdkTransferAttemptRepository.findPotentiallySent.bind(wdkTransferAttemptRepository)
+    let entered!: () => void
+    const inRollback = new Promise<void>((r) => { entered = r })
+    let go!: () => void
+    const gate = new Promise<void>((r) => { go = r })
+    jest.spyOn(wdkTransferAttemptRepository, 'findPotentiallySent').mockImplementation(async (...args: unknown[]) => {
+      if (args[2] && JSON.stringify(args[1]) === JSON.stringify(['RELEASE'])) { entered(); await gate }
+      return realRead(...args)
+    })
+
+    const ruling = rule(ctx, 'RELEASE').catch((e: Error) => e)
+    await inRollback // RESOLVED is committed; the rollback holds economic-disposition and has not committed yet
+    const pass = recover()
+    await new Promise((r) => setTimeout(r, 700)) // well inside Prisma's 5 s transaction timeout
+    go()
+    expect(await ruling).toBeInstanceOf(Error)
+    await pass
+
+    expect(await stateOf(ctx)).toEqual({ escrow: 'DISPUTED', dispute: 'OPENED', ruling: null, round: 0 })
+    expect(await effectsOf(ctx, 0)).toEqual(before)
+  })
+
+  // ─── P1: a WDK ruling its escrow can no longer execute is refused before anything is written ─────────
+
+  it.each([['COMPLETED', 'RELEASE'], ['COMPLETED', 'REFUND'], ['REFUNDED', 'RELEASE']] as const)('P1: escrow %s, a %s ruling is refused - nothing recorded, finalized or sent', async (escrowStatus, ruling) => {
+    pg.requirePostgres(`d10 p1 ${escrowStatus} ${ruling}`)
+    const ctx = await makeDisputedWdkEscrow()
+    await prisma.escrow.update({ where: { id: ctx.escrowId }, data: { status: escrowStatus, txReleaseId: `0x${randomBytes(32).toString('hex')}` } })
+    await recover()
+    const before = { state: await stateOf(ctx), effects: await effectsOf(ctx, 0) }
+
+    await expect(rule(ctx, ruling)).rejects.toThrow(/cannot execute/)
+    await expect(rule(ctx, ruling)).rejects.toThrow(/cannot execute/) // redelivered: same refusal
+    await recover()
+
+    expect(await stateOf(ctx)).toEqual(before.state)
+    expect(await effectsOf(ctx, 0)).toEqual(before.effects)
+    expect(mockTransfer).not.toHaveBeenCalled()
   })
 
   // ─── 5. Invariant that must survive any fix: a settled ruling is finalized exactly once ──────────────
