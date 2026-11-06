@@ -5332,6 +5332,19 @@ obligation" is defined anywhere in this repository.
       channels, not merely the absence of a formal mechanism) — it does
       not change the classification, only removes any possibility that
       an overlooked mitigation exists.
+      **Ownership update 2026-11-06 (CTO 23, traceability only; a status
+      note, not a new obligation; the text above is kept as the
+      2026-09-15 record).** "Genuinely unowned" no longer holds as to
+      ownership: Issue #293 ("[Day-0 P2P Reality Audit] Lifecycle
+      timers, no-show/griefing, payment-risk and basic trade-safety
+      gaps", created 2026-09-20, Project #3 card Backlog / P0) is the
+      existing audit owner for the no-show/griefing lifecycle questions
+      and, since 2026-11-01, the functional owner of the Safety Center
+      (README criterion CC15). The requirements above stay **pending
+      decision** (`DAY0_DECISION_REQUIRED`): ownership by #293 does not
+      decide whether reputation/lifecycle behavior is extended or the
+      risk is accepted Day-0, and no bond, penalty or implementation is
+      authorized.
     - **Economic spam / fake economic activity — `DAY0_DECISION_REQUIRED`
       for five of six activities checked; `PARTIALLY_COVERED` for the
       sixth (dispute spam); `LEGITIMATE_DEFERRAL` sub-component
