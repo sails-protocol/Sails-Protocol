@@ -19,7 +19,7 @@
  * (RFC-010's EventStore, already real).
  */
 import { prisma } from '../../common/database'
-import { NotFoundError, ValidationError, ForbiddenError, SettlementExecutedError, SettlementResultConflictError } from '../../common/errors'
+import { NotFoundError, ValidationError, ForbiddenError, EscrowError, SettlementExecutedError, SettlementResultConflictError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { applyEventProjectionOnce, RULING_FINALIZATION_HELD_KEY } from '../../common/events/event-projection'
 import { escrowService } from './escrow.service'
@@ -34,7 +34,7 @@ import { withIdempotency } from '../../common/idempotency'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { AssetType } from '../../common/types'
 import type { EvidenceDescriptor, DisputeRuling } from '@satsails/p2p-schemas'
-import type { DisputeStatus } from '@prisma/client'
+import type { DisputeStatus, WdkTransferOperationType } from '@prisma/client'
 import {
   verifyAuthorityDecisionSignature,
   assertExecutionMatchesAuthorization,
@@ -43,6 +43,7 @@ import {
 import { Prisma } from '@prisma/client'
 import { commitAuthoritativeDisputeRuling, revertDisputeRulingRecord } from './dispute-outcome'
 import { economicDispositionLockKey } from './economic-disposition-authority'
+import { OUTBOUND_OPERATION_TYPES, wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 import { assertDisputeDispatchEligible } from './dispute-dispatch'
 import { assertTranslationMatchesOutcome } from './dispatch-translation-guard'
 import { networkFor } from './multisig.provider'
@@ -476,8 +477,41 @@ export class DisputeService {
       }
       const row = await tx.dispute.findUnique({ where: { id: dispute.id } })
       if (!row) throw new NotFoundError('Dispute', dispute.id)
+      // D9 (Gatekeeper 6687229129) - refused before anything is written: a WDK transfer of ANOTHER disposition that may
+      // have moved this escrow's funds (an escrow reopened by the old rollback) makes this ruling unexecutable, so it
+      // is never committed and no crash can leave it RESOLVED for recoverMissingRulingFinalization() to count.
+      // While the escrow is DISPUTED nobody owns its claim, and only a claim owner creates attempts.
+      const own: WdkTransferOperationType[] = ruling === 'SPLIT' ? ['SPLIT_BUYER', 'SPLIT_SELLER'] : [ruling]
+      const other = await wdkTransferAttemptRepository.findPotentiallySent(dispute.escrowId, OUTBOUND_OPERATION_TYPES.filter((o) => !own.includes(o)), tx)
+      if (other) {
+        throw new EscrowError(`Ruling ${ruling} for dispute ${dispute.id} refused: WDK ${other.operationType} attempt ${other.id} is ${other.status}, so this escrow's funds may already have moved. No other disposition may start until that attempt is reconciled.`)
+      }
       return row
     })
+
+    // One implementation of the ruling's undo, used both inside the escrow claim's own revert transaction (D9) and
+    // below for a failure before any claim.
+    const revertRuling = (tx: Prisma.TransactionClient) => tx.dispute.updateMany({
+      where: {
+        id: dispute.id,
+        status: 'RESOLVED',
+        ruling,
+        arbiterId: triggeredBy,
+        appealRound: updated.appealRound,
+        ...(authority ? { authoritySignature: authority.authoritySignature } : {}),
+      },
+      data: {
+        status: dispute.status as DisputeStatus,
+        ruling: null,
+        resolvedAt: null,
+        // Missão 13 Fase 2 — a reverted ruling never leaves a verified
+        // authority decision attached to a dispute that in fact never
+        // settled; the arbiter must re-submit (their real decision may
+        // legitimately change once the underlying failure is understood).
+        ...(authority ? { authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null } : {}),
+      },
+    })
+    const rollback = { lockKey: economicDispositionLockKey(dispute.id), revert: revertRuling }
 
     try {
       // Second real bug found while building SPLIT (RFC-021 D9,
@@ -508,13 +542,13 @@ export class DisputeService {
           // Issue #254 - dispute.id is real, immutable, generation-scoped provenance: it travels with
           // the settlement.escrow.released event itself, so a later appeal() mutating Dispute can never
           // retroactively change what this specific release meant.
-          await escrowService.releaseFunds(dispute.escrowId, undefined, triggeredBy, dispute.id)
+          await escrowService.releaseFunds(dispute.escrowId, undefined, triggeredBy, dispute.id, rollback)
         }
       } else if (ruling === 'REFUND') {
         if (needsSignatureCollection) {
           await escrowService.initiateRefund(dispute.escrowId, triggeredBy, undefined)
         } else {
-          await escrowService.refundFunds(dispute.escrowId, triggeredBy, dispute.id)
+          await escrowService.refundFunds(dispute.escrowId, triggeredBy, dispute.id, rollback)
         }
       } else if (ruling === 'SPLIT') {
         // RFC-021 D9 — the third §1.9 option finally has a real settlement
@@ -534,7 +568,7 @@ export class DisputeService {
         if (needsSignatureCollection) {
           await escrowService.initiateSplit(dispute.escrowId, undefined, undefined, splitBuyerBps, triggeredBy)
         } else {
-          await escrowService.splitFunds(dispute.escrowId, undefined, undefined, splitBuyerBps, triggeredBy)
+          await escrowService.splitFunds(dispute.escrowId, undefined, undefined, splitBuyerBps, triggeredBy, rollback)
         }
       }
     } catch (err) {
@@ -566,29 +600,10 @@ export class DisputeService {
       // authorized a real settlement and its outcome handlers read it, and
       // recoverMissingRulingFinalization() owns the finalization skipped by this throw.
       if (err instanceof SettlementExecutedError || err instanceof SettlementResultConflictError) throw err
+      // After a claim this already ran atomically with the claim's revert (D9) and finds nothing left to undo.
       await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
-
-        await tx.dispute.updateMany({
-          where: {
-            id: dispute.id,
-            status: 'RESOLVED',
-            ruling,
-            arbiterId: triggeredBy,
-            appealRound: updated.appealRound,
-            ...(authority ? { authoritySignature: authority.authoritySignature } : {}),
-          },
-          data: {
-            status: dispute.status as DisputeStatus,
-            ruling: null,
-            resolvedAt: null,
-            // Missão 13 Fase 2 — a reverted ruling never leaves a verified
-            // authority decision attached to a dispute that in fact never
-            // settled; the arbiter must re-submit (their real decision may
-            // legitimately change once the underlying failure is understood).
-            ...(authority ? { authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null } : {}),
-          },
-        })
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${rollback.lockKey})::bigint)`
+        await revertRuling(tx)
         // A count of 0 here means a newer generation already won — never
         // logged as an error and never retried: the correct outcome IS
         // "do nothing," not a failure of the revert itself.

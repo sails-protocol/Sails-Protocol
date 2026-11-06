@@ -315,6 +315,8 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     // Issue #253 - an Intent transition commits the status CAS and its IntentEvent in one transaction.
     intent: intents,
     intentEvent: intentEvents,
+    // D9 - applyRuling()'s resolve-write reads the WDK attempt ledger (no WDK escrow in this flow: always empty).
+    wdkTransferAttempt: { findFirst: jest.fn().mockResolvedValue(null) },
     $executeRaw: jest.fn().mockResolvedValue(0),
   })
 )

@@ -219,6 +219,8 @@ jest.mock('../src/common/database', () => ({
         // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
         eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
         $executeRaw: jest.fn().mockResolvedValue(0),
+        // D9 - applyRuling()'s resolve-write reads the WDK attempt ledger for another disposition's unreconciled attempt.
+        wdkTransferAttempt: { findFirst: jest.fn().mockResolvedValue(null) },
         // Issue #291 - persistSettlementResult() reads then writes the escrow inside its own locked transaction.
         escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args), update: (...args: unknown[]) => mockEscrowUpdate(...args) },
         // ADR-005 - the gate commits its authorization in this same transaction mock.

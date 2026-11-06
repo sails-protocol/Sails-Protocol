@@ -6,10 +6,13 @@
 // ROLE=settle   DisputeService.applyRuling(RELEASE) on a disputed WDK_USDT_EVM escrow; dies by SIGKILL at KILL_AT:
 //                 in-transfer  inside the wallet's transfer(), i.e. after the attempt was pre-committed UNKNOWN
 //                 after-hash   on the first receipt query, i.e. after the attempt was recorded SUBMITTED with its hash
-//                 in-revert    transfer() fails, then the process dies inside the rollback decision (the second
-//                              findPotentiallySent() call; the first is ensureAttempt()'s own guard)
+//                 in-revert    transfer() fails, then the process dies inside the rollback decision (its
+//                              findPotentiallySent() read, made in a transaction for the ruling's own operations)
+//                 after-escrow-revert (D9) right after the transaction that reopened the escrow commits
+//               RULING picks the ruling (default RELEASE); FAIL_BEFORE_ATTEMPT makes the provider fail before any attempt.
 // ROLE=recover  a fresh process: runs the production reconciler, then tries the other disposition (REFUND) through
-//               the ruling path and directly. RECEIPT=confirmed makes the wallet report the hash mined.
+//               the ruling path and directly (RECOVER_ONLY skips that). RECEIPT=confirmed makes the wallet report the
+//               hash mined.
 //
 // Test harness only, in this process only: the wallet is a fake (every transfer() is appended to SYNC_DIR/effects.log,
 // so the test counts external effects across processes), and lockedAmount is handed to the provider as the decimal
@@ -69,21 +72,37 @@ async function main(): Promise<void> {
   const { wdkTransferAttemptRepository } = require('../../src/modules/open-settlement/wdk-transfer-attempt-repository')
   for (const method of ['releaseFunds', 'refundFunds', 'splitFunds']) {
     const real = wdkSettlementProvider[method].bind(wdkSettlementProvider)
-    wdkSettlementProvider[method] = (escrow: { lockedAmount: unknown }, ...rest: unknown[]) => real({ ...escrow, lockedAmount: String(escrow.lockedAmount) }, ...rest)
+    wdkSettlementProvider[method] = async (escrow: { lockedAmount: unknown }, ...rest: unknown[]) => {
+      if (process.env.FAIL_BEFORE_ATTEMPT && role === 'settle') throw new Error('wallet unavailable before any attempt was recorded')
+      return real({ ...escrow, lockedAmount: String(escrow.lockedAmount) }, ...rest)
+    }
   }
 
   const escrowId = process.env.ESCROW_ID!
+  if (killAt === 'after-escrow-revert') {
+    // D9: dies right after the transaction that reopened the escrow commits, before anything else runs.
+    const realTransaction = prisma.$transaction.bind(prisma)
+    const status = async () => (await prisma.escrow.findUnique({ where: { id: escrowId }, select: { status: true } }))?.status
+    prisma.$transaction = async (...args: unknown[]) => {
+      const before = await status()
+      const out = await realTransaction(...args)
+      if (before !== 'DISPUTED' && (await status()) === 'DISPUTED') die('after-escrow-revert')
+      return out
+    }
+  }
   const dispute = await prisma.dispute.findUnique({ where: { id: process.env.DISPUTE_ID! } })
   const arbiter = process.env.ARBITER!
   const service = new DisputeService(marketArbitrationProvider)
 
   if (role === 'settle') {
     if (killAt === 'in-revert') {
+      // The rollback decision's read: in a transaction, for this ruling's own operations.
       const real = wdkTransferAttemptRepository.findPotentiallySent.bind(wdkTransferAttemptRepository)
-      let calls = 0
-      wdkTransferAttemptRepository.findPotentiallySent = (...args: unknown[]) => (++calls === 2 ? die('in-revert') : real(...args))
+      const ruling = process.env.RULING ?? 'RELEASE'
+      const own = JSON.stringify(ruling === 'SPLIT' ? ['SPLIT_BUYER', 'SPLIT_SELLER'] : [ruling])
+      wdkTransferAttemptRepository.findPotentiallySent = (...args: unknown[]) => (args[2] && JSON.stringify(args[1]) === own ? die('in-revert') : real(...args))
     }
-    await service.applyRuling(dispute, 'RELEASE', arbiter).catch((err: unknown) => stderr(`applyRuling rejected: ${String(err)}`))
+    await service.applyRuling(dispute, process.env.RULING ?? 'RELEASE', arbiter).catch((err: unknown) => stderr(`applyRuling rejected: ${String(err)}`))
     stderr('KILL_POINT_NOT_REACHED')
     process.exit(2)
   }
@@ -91,6 +110,11 @@ async function main(): Promise<void> {
   if (role === 'recover') {
     const reports = []
     for (let i = 0; i < 3; i++) reports.push(await reconcilePendingSettlements({ projectionGraceMs: 0 }))
+    if (process.env.RECOVER_ONLY) {
+      process.stdout.write('D7_RESULT ' + JSON.stringify({ manualReview: reports.some((r) => r.requiresManualReview.some((m: { escrowId: string }) => m.escrowId === escrowId)) }) + '\n')
+      await prisma.$disconnect()
+      process.exit(0)
+    }
     const refundByRuling = await service.applyRuling(dispute, 'REFUND', arbiter).then(() => 'ACCEPTED', (e: Error) => `REFUSED: ${e.message}`)
     const refundDirect = await escrowService.refundFunds(escrowId, arbiter, dispute.id).then(() => 'ACCEPTED', (e: Error) => `REFUSED: ${e.message}`)
     const manualReview = reports.some((r) => r.requiresManualReview.some((m: { escrowId: string }) => m.escrowId === escrowId))
