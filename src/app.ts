@@ -1,4 +1,4 @@
-import Fastify, { FastifyInstance } from 'fastify'
+import Fastify, { FastifyBaseLogger, FastifyInstance } from 'fastify'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
@@ -396,6 +396,29 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   return app
 }
 
+/**
+ * One tick of the settlement reconciler, as startServer() runs it. Never throws: every failure is logged.
+ * D12 (#585) - ruling finalizations deferred because they can still be rolled back get their own warning, with each
+ * decision's identity and the state-derived reason. They are neither failures nor manual-review entries, and the
+ * next tick retries them.
+ */
+export async function runSettlementReconcilerTick(log: Pick<FastifyBaseLogger, 'warn' | 'error'>): Promise<void> {
+  // Issue #253: also pay the publication owed by any Intent transition that committed but never published.
+  await recoverUnpublishedIntentEvents()
+    .catch((err) => log.error({ msg: 'Intent publication recovery failed', module: 'settlement-reconciler', err: err instanceof Error ? err.message : err }))
+  try {
+    const report = await reconcilePendingSettlements()
+    if (report.failed.length || report.requiresManualReview.length || report.projectionsRecovered.length) {
+      log.warn({ msg: 'Settlement reconciliation completed with findings', module: 'settlement-reconciler', failed: report.failed.length, requiresManualReview: report.requiresManualReview.length, projectionsRecovered: report.projectionsRecovered })
+    }
+    if (report.rulingFinalizationsDeferred.length) {
+      log.warn({ msg: 'Ruling finalizations deferred: not finalized while they can still be rolled back, retried every tick', module: 'settlement-reconciler', rulingFinalizationsDeferred: report.rulingFinalizationsDeferred })
+    }
+  } catch (err) {
+    log.error({ msg: 'Settlement reconciliation failed', module: 'settlement-reconciler', err: err instanceof Error ? err.message : err })
+  }
+}
+
 export async function startServer() {
   const app = await buildApp()
 
@@ -508,17 +531,7 @@ export async function startServer() {
     const reconcileInterval = setInterval(() => {
       if (reconciling) return
       reconciling = true
-      // Issue #253: also pay the publication owed by any Intent transition that committed but never published.
-      recoverUnpublishedIntentEvents()
-        .catch((err) => app.log.error({ msg: 'Intent publication recovery failed', module: 'settlement-reconciler', err: err instanceof Error ? err.message : err }))
-        .then(() => reconcilePendingSettlements())
-        .then((report) => {
-          if (report.failed.length || report.requiresManualReview.length || report.projectionsRecovered) {
-            app.log.warn({ msg: 'Settlement reconciliation completed with findings', module: 'settlement-reconciler', failed: report.failed.length, requiresManualReview: report.requiresManualReview.length, projectionsRecovered: report.projectionsRecovered })
-          }
-        })
-        .catch((err) => app.log.error({ msg: 'Settlement reconciliation failed', module: 'settlement-reconciler', err: err instanceof Error ? err.message : err }))
-        .finally(() => { reconciling = false })
+      runSettlementReconcilerTick(app.log).finally(() => { reconciling = false })
     }, config.trade.settlementReconcileIntervalMs)
     reconcileInterval.unref()
   }

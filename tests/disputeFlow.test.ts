@@ -118,6 +118,11 @@ const mockTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
     disputeTransitionOutbox: {
       create: (...args: unknown[]) => mockOutboxCreate(...args),
     },
+    // D9 - the resolve-write also reads the WDK attempt ledger for another disposition's unreconciled attempt.
+    wdkTransferAttempt: { findFirst: async () => null },
+    // D10 - the resolve-write (P1) and the finalization claim (P2) read the escrow's current row.
+    // D11-R: these escrow fixtures carry no status; an escrow with an open dispute is DISPUTED unless a test says otherwise.
+    escrow: { findUnique: async (...args: unknown[]) => ({ status: 'DISPUTED', ...(await mockEscrowFindUnique(...args)) }) },
   })
 )
 
@@ -333,7 +338,7 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
 
     // Issue #254 - dispute.id is now threaded through as real, immutable, generation-scoped provenance
     // (see escrow.service.ts's releaseFunds() and handlers.ts's wasCausedByDisputeRuling()).
-    expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1', 'dispute-1')
+    expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1', 'dispute-1', expect.objectContaining({ lockKey: 'economic-disposition:dispute-1', revert: expect.any(Function) }))
     expect(mockEmit).toHaveBeenCalledWith(
       'dispute.resolved',
       expect.objectContaining({ ruling: 'RELEASE', tradeId: 'trade-1' }),
@@ -347,7 +352,7 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
 
     const [sig2, issuedAt2] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'REFUND')
     await service.resolveDispute('dispute-1', 'arbiter-1', 'REFUND', undefined, undefined, undefined, sig2, issuedAt2)
-    expect(mockRefundFunds).toHaveBeenCalledWith('escrow-1', 'arbiter-1', 'dispute-1')
+    expect(mockRefundFunds).toHaveBeenCalledWith('escrow-1', 'arbiter-1', 'dispute-1', expect.objectContaining({ lockKey: 'economic-disposition:dispute-1', revert: expect.any(Function) }))
   })
 
   // ADR-005 §10 — the old-arbiter in-flight race applyRuling()'s
@@ -433,7 +438,7 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
     mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', ruling: 'RELEASE' })
     const [sig3, issuedAt3] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'RELEASE')
     await service.resolveDispute('dispute-1', 'arbiter-1', 'RELEASE', undefined, undefined, undefined, sig3, issuedAt3)
-    expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1', 'dispute-1')
+    expect(mockReleaseFunds).toHaveBeenCalledWith('escrow-1', undefined, 'arbiter-1', 'dispute-1', expect.objectContaining({ lockKey: 'economic-disposition:dispute-1', revert: expect.any(Function) }))
   })
 
   // RFC-021 D9 (2026-08-02) — the third §1.9 dispute-ruling option finally
@@ -452,7 +457,7 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
       const [sig4, issuedAt4] = signResolution({ id: 'dispute-1', escrowId: 'escrow-1' }, 'arbiter-1', 'SPLIT', 6000)
       await service.resolveDispute('dispute-1', 'arbiter-1', 'SPLIT', 'bc1qbuyer', 'bc1qseller', 6000, sig4, issuedAt4)
 
-      expect(mockSplitFunds).toHaveBeenCalledWith('escrow-1', undefined, undefined, 6000, 'arbiter-1')
+      expect(mockSplitFunds).toHaveBeenCalledWith('escrow-1', undefined, undefined, 6000, 'arbiter-1', expect.objectContaining({ lockKey: 'economic-disposition:dispute-1', revert: expect.any(Function) }))
       expect(mockInitiateSplit).not.toHaveBeenCalled()
       expect(mockEmit).toHaveBeenCalledWith(
         'dispute.resolved',
