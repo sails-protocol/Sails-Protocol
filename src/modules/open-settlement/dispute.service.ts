@@ -29,7 +29,7 @@ import { marketArbitrationProvider } from './market-arbitration.provider'
 import { createArbitrationProviderResolver } from './arbitration-provider-resolver'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
-import { isPartyOrAgent, asTrustedActor } from './escrow-lifecycle'
+import { isPartyOrAgent, asTrustedActor, resolvePayoutAddress } from './escrow-lifecycle'
 import { withIdempotency } from '../../common/idempotency'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { AssetType } from '../../common/types'
@@ -43,7 +43,8 @@ import {
 import { Prisma } from '@prisma/client'
 import { commitAuthoritativeDisputeRuling, revertDisputeRulingRecord } from './dispute-outcome'
 import { economicDispositionLockKey } from './economic-disposition-authority'
-import { OUTBOUND_OPERATION_TYPES, wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
+import { OUTBOUND_OPERATION_TYPES, POTENTIALLY_SENT_STATUSES, wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
+import { splitLegAmounts } from './wdk-settlement.provider'
 import { assertDisputeDispatchEligible } from './dispute-dispatch'
 import { assertTranslationMatchesOutcome } from './dispatch-translation-guard'
 import { networkFor } from './multisig.provider'
@@ -523,6 +524,22 @@ export class DisputeService {
       if (other) {
         throw new EscrowError(`Ruling ${ruling} for dispute ${dispute.id} refused: WDK ${other.operationType} attempt ${other.id} is ${other.status}, so this escrow's funds may already have moved. No other disposition may start until that attempt is reconciled.`)
       }
+      // #585 P1-A - a potentially-sent SPLIT leg is kept as this ruling's execution (D8), so it must be this ruling's
+      // own leg: the amount splitFunds() computes for its buyerBps, to the party's payout address. A leg of another
+      // allocation (an escrow reopened by the old rollback) would settle, and finalize, a split nobody authorized.
+      if (ruling === 'SPLIT' && splitBuyerBps !== undefined && await wdkTransferAttemptRepository.findPotentiallySent(dispute.escrowId, own, tx)) {
+        const escrow = await tx.escrow.findUniqueOrThrow({ where: { id: dispute.escrowId }, select: { lockedAmount: true, asset: true } })
+        const trade = await tradeRepository.findById(dispute.tradeId)
+        if (!trade) throw new NotFoundError('Trade', dispute.tradeId)
+        const amounts = splitLegAmounts(escrow.lockedAmount.toString(), splitBuyerBps)
+        for (const [leg, participantId, amount] of [['SPLIT_BUYER', trade.buyerId, amounts.buyer], ['SPLIT_SELLER', trade.sellerId, amounts.seller]] as const) {
+          const destination = await resolvePayoutAddress(undefined, participantId, escrow.asset as AssetType)
+          const foreign = await tx.wdkTransferAttempt.findFirst({ where: { escrowId: dispute.escrowId, operationType: leg, status: { in: POTENTIALLY_SENT_STATUSES }, NOT: { destination, amount } } })
+          if (foreign) {
+            throw new EscrowError(`Ruling SPLIT for dispute ${dispute.id} refused: WDK ${leg} attempt ${foreign.id} is ${foreign.status} (${foreign.amount.toString()} to ${foreign.destination}) and is not this ruling's own ${leg} (${amount} to ${destination}), so this escrow's funds may already have moved under another allocation. No ruling may start until that attempt is reconciled.`)
+          }
+        }
+      }
       // D10 P1 / D11-R - a ruling is recorded only while its escrow is DISPUTED: raiseDispute() freezes it there before
       // the dispute exists and only a disposition moves it on. Any other status (settled by an earlier round, never
       // frozen) is refused here, before anything is written, rather than failing after the commit.
@@ -555,7 +572,10 @@ export class DisputeService {
         ...(authority ? { authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null } : {}),
       },
     })
-    const rollback = { lockKey: economicDispositionLockKey(dispute.id), revert: revertRuling }
+    // #585 P1-B - set once the escrow helper has reverted this ruling with its claim: the catch below must not revert
+    // it again, because by then a resubmission of the same decision may own the identical RESOLVED row.
+    let rolledBack = false
+    const rollback = { lockKey: economicDispositionLockKey(dispute.id), revert: async (tx: Prisma.TransactionClient) => { await revertRuling(tx); rolledBack = true } }
 
     try {
       // Second real bug found while building SPLIT (RFC-021 D9,
@@ -644,8 +664,8 @@ export class DisputeService {
       // authorized a real settlement and its outcome handlers read it, and
       // recoverMissingRulingFinalization() owns the finalization skipped by this throw.
       if (err instanceof SettlementExecutedError || err instanceof SettlementResultConflictError) throw err
-      // After a claim this already ran atomically with the claim's revert (D9) and finds nothing left to undo.
-      await prisma.$transaction(async (tx) => {
+      // After a claim this already ran atomically with the claim's revert (D9): only a failure before it reverts here.
+      if (!rolledBack) await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${rollback.lockKey})::bigint)`
         await revertRuling(tx)
         // A count of 0 here means a newer generation already won — never

@@ -86,6 +86,15 @@ export function fromBaseUnits(baseUnits: bigint, decimals: number): string {
   return `${negative ? '-' : ''}${whole}.${fractionDigits}`
 }
 
+// The allocation splitFunds() sends, in base units, and each leg's recorded decimal amount. #585 P1-A: applyRuling()
+// checks a reopened escrow's historical legs against this same rule before retaining them as a ruling's execution.
+export function splitLegAmounts(lockedAmount: string, buyerBps: number) {
+  const total = toBaseUnits(lockedAmount, USDT_DECIMALS)
+  const buyerAmount = (total * BigInt(buyerBps)) / 10000n
+  const sellerAmount = total - buyerAmount
+  return { buyerAmount, sellerAmount, buyer: fromBaseUnits(buyerAmount, USDT_DECIMALS), seller: fromBaseUnits(sellerAmount, USDT_DECIMALS) }
+}
+
 // Deterministic per-trade escrow account index — a BIP-44 non-hardened
 // index must fit in 31 bits (0..2^31-1). sha256(tradeId) gives a stable,
 // evenly-distributed source; same tradeId always re-derives the same
@@ -403,9 +412,7 @@ export class WdkSettlementProvider implements SettlementProvider {
   // is never touched again.
   async splitFunds(escrow: { id: string; tradeId: string; lockedAmount: string }, buyerAddress: string, sellerAddress: string, buyerBps: number): Promise<{ txIds: string[] }> {
     const escrowAcct = await this.escrowAccount(escrow.tradeId)
-    const total = toBaseUnits(escrow.lockedAmount, USDT_DECIMALS)
-    const buyerAmount = (total * BigInt(buyerBps)) / 10000n
-    const sellerAmount = total - buyerAmount
+    const { buyerAmount, sellerAmount } = splitLegAmounts(escrow.lockedAmount, buyerBps)
 
     const buyerTxId = await this.executeTransfer(escrow.id, 'SPLIT_BUYER', escrowAcct, buyerAddress, fromBaseUnits(buyerAmount, USDT_DECIMALS), buyerAmount)
     // The seller leg is only ever attempted once the buyer leg above has
