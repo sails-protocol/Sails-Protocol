@@ -512,4 +512,113 @@ describe('D10 - a ruling that can still be rolled back is never finalized (real 
     expect(await effectsOf(ctx, 0)).toEqual(once) // repeated recovery changes nothing further
     expect(mockTransfer).toHaveBeenCalledTimes(1)
   })
+
+  // ─── 6. D13 (#585): a backlog of permanently deferred candidates must not starve the ones after it ─────────────
+
+  describe('D13 - recovery sweeps past more than one page of permanently deferred candidates', () => {
+    const LIMIT = 200 // the production default of recoverMissingRulingFinalization()
+    type Queue = 'RESOLVED' | 'APPEALED'
+    // Ids sort ahead of (deferred) or behind (eligible) every uuid of other suites in this shared database, and the
+    // deferred rulings are the oldest, so the eligible ones come after them by resolvedAt and by id alike.
+    const head = () => `0000000000d13${randomBytes(4).toString('hex')}`
+    const tail = () => `zzzzzzzzzzd13${randomBytes(4).toString('hex')}`
+    const finalizations = (id: string, round: number) => prisma.eventProjectionClaim.count({ where: { eventId: id, projectionKey: 'dispute.ruling-finalized', subjectId: String(round) } })
+    // Both queues finalize round 0: the RESOLVED one its current round, the APPEALED one the round appeal() captured.
+    const asCandidate = (queue: Queue) => (queue === 'RESOLVED'
+      ? { status: 'RESOLVED' as const, ruling: 'RELEASE' as const, arbiterId: ARBITER, escrowStatus: 'DISPUTED' }
+      // round 0's RELEASE, captured by appeal(): the escrow must already be COMPLETED to be in this queue at all
+      : { status: 'APPEALED' as const, appealRound: 1, previousRuling: 'RELEASE' as const, previousArbiterId: ARBITER, arbiterId: 'd13-appeal-panel', escrowStatus: 'COMPLETED' })
+
+    // `count` candidates no pass can finalize: each its own trade and WDK escrow whose settlement is never recorded,
+    // so every pass defers them with SETTLEMENT_NOT_CONFIRMED. Bulk-inserted: the rows recovery reads, nothing more.
+    async function makeDeferred(queue: Queue, count: number) {
+      const host = await makeDisputedWdkEscrow()
+      const { offerId } = (await prisma.trade.findUnique({ where: { id: host.tradeId } }))!
+      const prefix = head()
+      const ids = Array.from({ length: count }, (_, i) => `${prefix}${String(i).padStart(4, '0')}`)
+      const { escrowStatus, ...dispute } = asCandidate(queue)
+      await prisma.trade.createMany({ data: ids.map((id) => ({ id: `t${id}`, offerId, buyerId: host.buyerId, sellerId: host.sellerId, asset: 'USDT_ERC20' as const, amount: '5', priceUsd: '1', totalUsd: '5', status: 'DISPUTED' as const })) })
+      await prisma.escrow.createMany({ data: ids.map((id) => ({ id: `e${id}`, tradeId: `t${id}`, type: 'WDK_USDT_EVM' as const, status: escrowStatus as any, lockedAmount: '5', asset: 'USDT_ERC20' as const })) })
+      await prisma.dispute.createMany({ data: ids.map((id) => ({ id, tradeId: `t${id}`, escrowId: `e${id}`, openedBy: host.buyerId, reason: 'd13', resolvedAt: new Date('2000-01-01T00:00:00Z'), ...dispute })) })
+      return ids
+    }
+    // A candidate the next pass that reaches it finalizes: a MOCK escrow (outside D10 P2's WDK gate).
+    async function makeEligible(queue: Queue) {
+      const { escrowStatus, ...dispute } = asCandidate(queue)
+      const ctx = await makeDisputedWdkEscrow({ id: tail(), resolvedAt: new Date(), ...dispute }, 'MOCK')
+      if (escrowStatus !== 'DISPUTED') await prisma.escrow.update({ where: { id: ctx.escrowId }, data: { status: escrowStatus as any } })
+      return ctx.dispute.id
+    }
+    // An upper bound on the queue: recovery's own candidates are a subset of these rows.
+    const queueBound = (queue: Queue) => prisma.dispute.count({ where: queue === 'RESOLVED' ? { status: 'RESOLVED' } : { status: 'APPEALED', appealRound: 1 } })
+
+    // Runs `passes` recovery calls, checks each stays within its work limit, and collects what they evaluated.
+    async function sweep(services: any[], passes: number, between?: (pass: number) => Promise<void>) {
+      const recovered: string[] = []
+      const deferred = new Map<string, unknown>()
+      for (let pass = 0; pass < passes; pass++) {
+        const reports = await Promise.all(services.map((s) => s.recoverMissingRulingFinalization(LIMIT)))
+        for (const r of reports) {
+          expect(r.recovered.length + r.deferred.length + r.failed.length).toBeLessThanOrEqual(2 * LIMIT) // LIMIT per queue
+          recovered.push(...r.recovered)
+          for (const d of r.deferred) deferred.set(d.disputeId, d.reason)
+        }
+        await between?.(pass)
+      }
+      return { recovered, deferred }
+    }
+
+    it.each(['RESOLVED', 'APPEALED'] as const)('%s queue: candidates after more than 200 permanently deferred ones are finalized within ceil(queue / limit) + 1 passes, exactly once, and the deferred stay visible every sweep', async (queue) => {
+      pg.requirePostgres(`d13 ${queue}`)
+      const deferredIds = await makeDeferred(queue, LIMIT + 5)
+      const eligible = [await makeEligible(queue), await makeEligible(queue)]
+      const passes = Math.ceil((await queueBound(queue)) / LIMIT) + 1
+      const service = ruler() // one instance, as the production singleton: its cursor carries over between passes
+
+      const first = await sweep([service], passes)
+      for (const id of eligible) {
+        expect(first.recovered.filter((r) => r === id)).toHaveLength(1)
+        expect(await finalizations(id, 0)).toBe(1)
+      }
+      for (const id of deferredIds) {
+        expect(first.deferred.get(id)).toEqual({ code: 'SETTLEMENT_NOT_CONFIRMED', escrowStatus: queue === 'RESOLVED' ? 'DISPUTED' : 'COMPLETED', settlementRecorded: false })
+      }
+
+      // The sweep starts over: the deferred are evaluated again (no permanent omission), nothing is finalized twice.
+      const second = await sweep([service], passes)
+      expect(deferredIds.filter((id) => !second.deferred.has(id))).toEqual([])
+      expect(second.recovered.filter((id) => eligible.includes(id))).toEqual([])
+      for (const id of eligible) expect(await finalizations(id, 0)).toBe(1)
+      expect(await prisma.eventProjectionClaim.count({ where: { eventId: { in: deferredIds } } })).toBe(0)
+    }, 300_000)
+
+    it('candidates that change state mid-sweep, under two concurrent reconcilers: finalized exactly once, none lost, no error', async () => {
+      pg.requirePostgres('d13 concurrent')
+      const deferredIds = await makeDeferred('RESOLVED', LIMIT + 5)
+      const eligible = [await makeEligible('RESOLVED'), await makeEligible('RESOLVED')]
+      const passes = Math.ceil((await queueBound('RESOLVED')) / LIMIT) + 1
+      // Two instances (two processes, each with its own cursor) and the second one called twice at once.
+      const a = ruler()
+      const b = ruler()
+      const [settledEarly, leaves, settledLate] = [deferredIds[10], deferredIds[202], deferredIds[203]]
+
+      const run = await sweep([a, b, b], 2 * passes, async (pass) => {
+        if (pass !== 0) return
+        // After the first page: one candidate already passed and one still ahead settle, one leaves the queue.
+        await prisma.escrow.updateMany({ where: { id: { in: [`e${settledEarly}`, `e${settledLate}`] } }, data: { status: 'COMPLETED', txReleaseId: `0x${randomBytes(32).toString('hex')}` } })
+        await prisma.dispute.update({ where: { id: leaves }, data: { status: 'APPEALED', appealRound: 1 } })
+      })
+
+      // Reached, and applied once: a caller that loses the claim race applies nothing but still lists the dispute as
+      // recovered (applyEventProjectionOnce()'s false is not surfaced, pre-existing #253 reporting), so the economic
+      // proof is the single claim every effect is gated on.
+      for (const id of [...eligible, settledEarly, settledLate]) {
+        expect(run.recovered).toContain(id)
+        expect(await finalizations(id, 0)).toBe(1)
+      }
+      const stillDeferred = deferredIds.filter((id) => ![settledEarly, settledLate, leaves].includes(id))
+      expect(stillDeferred.filter((id) => !run.deferred.has(id))).toEqual([])
+      expect(await prisma.eventProjectionClaim.count({ where: { eventId: { in: [...stillDeferred, leaves] } } })).toBe(0)
+    }, 300_000)
+  })
 })
