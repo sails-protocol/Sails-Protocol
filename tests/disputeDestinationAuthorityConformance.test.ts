@@ -283,7 +283,7 @@ describe('LIGHTNING_HODL — disputed RELEASE (signature-collection binding)', (
     pendingTxStore = null
     signatureStore = []
     mockTradeFindUnique.mockResolvedValue(TRADE_ROW)
-    mockEscrowFindUnique.mockResolvedValue(escrowRow())
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' })) // D11-R: an open dispute's escrow is DISPUTED
     mockDisputeFindUnique.mockResolvedValue({ id: DISPUTE_ID, tradeId: TRADE_ID, escrowId: ESCROW_ID, arbiterId: ARBITER_ID, status: 'OPENED', appealRound: 0 })
     mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE' })
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
@@ -385,7 +385,7 @@ describe('SAFE_GUARD_EVM — disputed RELEASE (signature-collection binding)', (
     pendingTxStore = null
     signatureStore = []
     mockTradeFindUnique.mockResolvedValue(TRADE_ROW)
-    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'SAFE_GUARD_EVM', asset: 'USDT_ERC20' }))
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'SAFE_GUARD_EVM', asset: 'USDT_ERC20', status: 'DISPUTED' }))
     mockDisputeFindUnique.mockResolvedValue({ id: DISPUTE_ID, tradeId: TRADE_ID, escrowId: ESCROW_ID, arbiterId: ARBITER_ID, status: 'OPENED', appealRound: 0 })
     mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE' })
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
@@ -457,7 +457,7 @@ describe('WDK_USDT_EVM — direct-call rail (resolution and execution in the sam
     pendingTxStore = null
     signatureStore = []
     mockTradeFindUnique.mockResolvedValue(TRADE_ROW)
-    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', status: 'PAYMENT_PENDING' }))
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', status: 'DISPUTED' }))
     mockDisputeFindUnique.mockResolvedValue({ id: DISPUTE_ID, tradeId: TRADE_ID, escrowId: ESCROW_ID, arbiterId: ARBITER_ID, status: 'OPENED', appealRound: 0 })
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
     mockUserFindUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({ id: where.id, publicKey: testPublicKeyHex }))
@@ -485,7 +485,7 @@ describe('WDK_USDT_EVM — direct-call rail (resolution and execution in the sam
   })
 
   it('REFUND: has no caller-facing destination concept at all — returns to the protocol\'s own treasury, PayoutAddress is never consulted', async () => {
-    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', status: 'FUNDS_LOCKED' }))
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', status: 'DISPUTED' }))
     mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'REFUND' })
     // wdk-settlement.provider.ts's own real refundFunds() takes no
     // destination parameter — it derives the treasury address internally
@@ -531,7 +531,7 @@ describe('MOCK — direct-call rail, real (unmocked) MockSettlementProvider', ()
     pendingTxStore = null
     signatureStore = []
     mockTradeFindUnique.mockResolvedValue(TRADE_ROW)
-    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'MOCK', status: 'PAYMENT_PENDING' }))
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'MOCK', status: 'DISPUTED' }))
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
     mockUserFindUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({ id: where.id, publicKey: testPublicKeyHex }))
   })
@@ -553,7 +553,7 @@ describe('MOCK — direct-call rail, real (unmocked) MockSettlementProvider', ()
   })
 
   it('REFUND: the real MockSettlementProvider has no destination concept at all — PayoutAddress is never consulted, the txId carries no address', async () => {
-    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'MOCK', status: 'FUNDS_LOCKED' }))
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'MOCK', status: 'DISPUTED' }))
     mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'REFUND' })
     mockEscrowUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: ESCROW_ID, ...data }))
     const [sig, issuedAt] = signResolution('REFUND')

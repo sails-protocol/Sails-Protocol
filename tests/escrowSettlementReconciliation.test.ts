@@ -118,7 +118,7 @@ jest.mock('../src/modules/open-settlement/dispute-correspondence', () => ({
 
 // Issue #253 - PASS 4 (arbiter ruling finalization recovery) lives in dispute.service.ts and is proven against
 // real PostgreSQL in tests/integration/projectionCrashMatrix.test.ts; here only the orchestration is observed.
-const mockRecoverMissingRulingFinalization = jest.fn().mockResolvedValue({ recovered: [], failed: [], held: [] })
+const mockRecoverMissingRulingFinalization = jest.fn().mockResolvedValue({ recovered: [], deferred: [], failed: [], held: [] })
 jest.mock('../src/modules/open-settlement/dispute.service', () => ({
   getDisputeService: () => ({ recoverMissingRulingFinalization: (...args: unknown[]) => mockRecoverMissingRulingFinalization(...args) }),
 }))
@@ -374,15 +374,18 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
   it('no candidates — a clean, empty report', async () => {
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
     const report = await reconcilePendingSettlements()
-    expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], rulingFinalizationsRecovered: [] })
+    expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], rulingFinalizationsRecovered: [], rulingFinalizationsDeferred: [] })
   })
 
   it('Issue #253 PASS 4: re-drives ruling finalization every tick; recovered disputes are reported, failures land in `failed` without stopping the tick', async () => {
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
-    mockRecoverMissingRulingFinalization.mockResolvedValueOnce({ recovered: ['dispute-1'], failed: [{ disputeId: 'dispute-2', error: 'provider unavailable' }], held: ['dispute-3'] })
+    const deferred = { disputeId: 'dispute-4', escrowId: 'escrow-4', appealRound: 1, ruling: 'REFUND', arbiterId: 'arbiter-4' }
+    mockRecoverMissingRulingFinalization.mockResolvedValueOnce({ recovered: ['dispute-1'], deferred: [deferred], failed: [{ disputeId: 'dispute-2', error: 'provider unavailable' }], held: ['dispute-3'] })
     const report = await reconcilePendingSettlements()
     expect(mockRecoverMissingRulingFinalization).toHaveBeenCalledTimes(1)
     expect(report.rulingFinalizationsRecovered).toEqual(['dispute-1'])
+    // D11-R: a deferred ruling is reported with its identity, and is neither a failure nor a manual-review entry.
+    expect(report.rulingFinalizationsDeferred).toEqual([deferred])
     expect(report.failed).toEqual([{ escrowId: 'dispute:dispute-2', error: 'provider unavailable' }])
     expect(report.requiresManualReview.map((r) => r.escrowId)).toEqual(['dispute:dispute-3'])
 

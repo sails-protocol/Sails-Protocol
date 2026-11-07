@@ -29,7 +29,7 @@ import { marketArbitrationProvider } from './market-arbitration.provider'
 import { createArbitrationProviderResolver } from './arbitration-provider-resolver'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
-import { isPartyOrAgent, asTrustedActor, VALID_TRANSITIONS } from './escrow-lifecycle'
+import { isPartyOrAgent, asTrustedActor } from './escrow-lifecycle'
 import { withIdempotency } from '../../common/idempotency'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { AssetType } from '../../common/types'
@@ -72,6 +72,9 @@ export type ArbitrationProviderResolver = (implementation: string) => Arbitratio
 
 /** D10 P2 - the ruling cannot be finalized yet; nothing was applied and a later recovery pass retries it. */
 class RulingFinalizationDeferred extends Error {}
+// A ruling generation recovery left unfinalized because it can still be rolled back (D10 P2): not a failure, retried
+// every pass, reported so an operator can see which decisions are still waiting.
+export interface DeferredRulingFinalization { disputeId: string; escrowId: string; appealRound: number; ruling: DisputeRuling; arbiterId: string }
 
 const SETTLED_STATUS: Record<DisputeRuling, string> = { RELEASE: 'COMPLETED', REFUND: 'REFUNDED', SPLIT: 'SPLIT' }
 
@@ -503,12 +506,12 @@ export class DisputeService {
       if (other) {
         throw new EscrowError(`Ruling ${ruling} for dispute ${dispute.id} refused: WDK ${other.operationType} attempt ${other.id} is ${other.status}, so this escrow's funds may already have moved. No other disposition may start until that attempt is reconciled.`)
       }
-      // D10 P1 - a WDK ruling is recorded only while its escrow can still execute it: the claim it needs must be a
-      // valid transition from the escrow's current status (from DISPUTED, every disposition's is). An escrow already
-      // settled (e.g. by an earlier round) would make it fail after the commit and be reverted.
-      const escrowNow = await tx.escrow.findUnique({ where: { id: dispute.escrowId }, select: { type: true, status: true } })
-      if (escrowNow?.type === 'WDK_USDT_EVM' && !(VALID_TRANSITIONS[escrowNow.status] ?? []).includes(SETTLED_STATUS[ruling])) {
-        throw new EscrowError(`Ruling ${ruling} for dispute ${dispute.id} refused: WDK escrow ${dispute.escrowId} is ${escrowNow.status}, so this ruling cannot execute.`)
+      // D10 P1 / D11-R - a ruling is recorded only while its escrow is DISPUTED: raiseDispute() freezes it there before
+      // the dispute exists and only a disposition moves it on. Any other status (settled by an earlier round, never
+      // frozen) is refused here, before anything is written, rather than failing after the commit.
+      const escrowNow = await tx.escrow.findUnique({ where: { id: dispute.escrowId }, select: { status: true } })
+      if (escrowNow && escrowNow.status !== 'DISPUTED') {
+        throw new EscrowError(`Ruling ${ruling} for dispute ${dispute.id} refused: escrow ${dispute.escrowId} is ${escrowNow.status}, not DISPUTED, so this ruling cannot execute.`)
       }
       return row
     })
@@ -1093,7 +1096,7 @@ export class DisputeService {
    * never overwritten again since a second appeal is unreachable) is round 0's real, historical data -
    * reused as-is, no schema change, no new provenance field.
    */
-  async recoverMissingRulingFinalization(limit = 200): Promise<{ recovered: string[]; deferred: string[]; failed: Array<{ disputeId: string; error: string }>; held: string[] }> {
+  async recoverMissingRulingFinalization(limit = 200): Promise<{ recovered: string[]; deferred: DeferredRulingFinalization[]; failed: Array<{ disputeId: string; error: string }>; held: string[] }> {
     type Candidate = { id: string; escrowId: string; appealRound: number; previousRuling: DisputeRuling | null; previousArbiterId: string | null; arbiterId: string | null; ruling: DisputeRuling | null }
 
     const resolvedCandidates = await prisma.$queryRaw<Candidate[]>`
@@ -1126,13 +1129,13 @@ export class DisputeService {
       LIMIT ${limit}`
 
     const recovered: string[] = []
-    const deferred: string[] = []
+    const deferred: DeferredRulingFinalization[] = []
     const failed: Array<{ disputeId: string; error: string }> = []
     for (const candidate of [...resolvedCandidates, ...appealedCandidates]) {
       if (!candidate.arbiterId || !candidate.ruling) continue // structurally shouldn't happen - skip rather than guess
       try {
         if (await this.finalizeResolveDispute(candidate, candidate.arbiterId, candidate.ruling, true)) recovered.push(candidate.id)
-        else deferred.push(candidate.id)
+        else deferred.push({ disputeId: candidate.id, escrowId: candidate.escrowId, appealRound: candidate.appealRound, ruling: candidate.ruling, arbiterId: candidate.arbiterId })
       } catch (err) {
         failed.push({ disputeId: candidate.id, error: err instanceof Error ? err.message : String(err) })
       }

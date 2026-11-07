@@ -121,7 +121,8 @@ const mockTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
     // D9 - the resolve-write also reads the WDK attempt ledger for another disposition's unreconciled attempt.
     wdkTransferAttempt: { findFirst: async () => null },
     // D10 - the resolve-write (P1) and the finalization claim (P2) read the escrow's current row.
-    escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
+    // D11-R: these escrow fixtures carry no status; an escrow with an open dispute is DISPUTED unless a test says otherwise.
+    escrow: { findUnique: async (...args: unknown[]) => ({ status: 'DISPUTED', ...(await mockEscrowFindUnique(...args)) }) },
   })
 )
 

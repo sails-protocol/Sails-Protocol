@@ -379,6 +379,59 @@ describe('D10 - a ruling that can still be rolled back is never finalized (real 
     expect(mockTransfer).not.toHaveBeenCalled()
   })
 
+  // ─── D11-R: only a DISPUTED escrow takes a ruling; deferred rulings stay visible ─────────────────────
+
+  it.each(['WDK_USDT_EVM', 'MOCK'] as const)('D11-R adversarial: an OPENED dispute on a %s escrow left PAYMENT_PENDING is refused - nothing recorded, settled, finalized or sent', async (type) => {
+    pg.requirePostgres(`d11r payment-pending ${type}`)
+    const ctx = await makeDisputedWdkEscrow({}, type)
+    await prisma.escrow.update({ where: { id: ctx.escrowId }, data: { status: 'PAYMENT_PENDING' } }) // PAYMENT_PENDING -> COMPLETED is a valid transition
+    const release = jest.spyOn(type === 'MOCK' ? mockProvider() : wdkSettlementProvider, 'releaseFunds')
+    await recover()
+    const before = { state: await stateOf(ctx), effects: await effectsOf(ctx, 0) }
+
+    await expect(rule(ctx, 'RELEASE')).rejects.toThrow(/is PAYMENT_PENDING, not DISPUTED, so this ruling cannot execute/)
+    await expect(rule(ctx, 'RELEASE')).rejects.toThrow(/not DISPUTED/) // redelivered: same refusal
+    await recover()
+
+    expect(await stateOf(ctx)).toEqual(before.state)
+    expect(before.state).toEqual({ escrow: 'PAYMENT_PENDING', dispute: 'OPENED', ruling: null, round: 0 })
+    expect(await effectsOf(ctx, 0)).toEqual(before.effects)
+    expect(release).not.toHaveBeenCalled()
+    expect(mockTransfer).not.toHaveBeenCalled()
+    expect(await prisma.escrowEvent.count({ where: { escrowId: ctx.escrowId } })).toBe(0)
+    expect(await prisma.wdkTransferAttempt.count({ where: { escrowId: ctx.escrowId } })).toBe(0)
+  })
+
+  it('D11-R: a deferred ruling is reported with its identity by recovery and by the reconciler, never as a failure, and stays deferred', async () => {
+    pg.requirePostgres('d11r deferred report')
+    // A WDK ruling recorded but not settled (as when its attempt is still unconfirmed): D10 P2 defers it.
+    const ctx = await makeDisputedWdkEscrow({ status: 'RESOLVED', ruling: 'RELEASE', resolvedAt: new Date() })
+    const identity = { disputeId: ctx.dispute.id, escrowId: ctx.escrowId, appealRound: 0, ruling: 'RELEASE', arbiterId: ARBITER }
+    const before = await effectsOf(ctx, 0)
+
+    const first = await recover()
+    expect(first.deferred).toContainEqual(identity)
+    expect(first.recovered).not.toContain(ctx.dispute.id)
+    expect(first.failed.map((f: { disputeId: string }) => f.disputeId)).not.toContain(ctx.dispute.id)
+
+    const { reconcilePendingSettlements } = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service')
+    for (let i = 0; i < 2; i++) { // repeated ticks: still reported, still not finalized
+      const report = await reconcilePendingSettlements()
+      expect(report.rulingFinalizationsDeferred).toContainEqual(identity)
+      expect(report.rulingFinalizationsRecovered).not.toContain(ctx.dispute.id)
+      expect(report.failed.map((f: { escrowId: string }) => f.escrowId)).not.toContain(`dispute:${ctx.dispute.id}`)
+    }
+    // Concurrent ticks (two reconciler instances): each reports it, neither finalizes it or reports a failure.
+    const concurrent = await Promise.all([reconcilePendingSettlements(), reconcilePendingSettlements(), recover()])
+    for (const report of concurrent.slice(0, 2)) {
+      expect(report.rulingFinalizationsDeferred).toContainEqual(identity)
+      expect(report.failed.map((f: { escrowId: string }) => f.escrowId)).not.toContain(`dispute:${ctx.dispute.id}`)
+    }
+    expect(concurrent[2].deferred).toContainEqual(identity)
+    expect(await effectsOf(ctx, 0)).toEqual(before)
+    expect(await stateOf(ctx)).toEqual({ escrow: 'DISPUTED', dispute: 'RESOLVED', ruling: 'RELEASE', round: 0 })
+  })
+
   // ─── 5. Invariant that must survive any fix: a settled ruling is finalized exactly once ──────────────
 
   it('R5 guard (green today, must stay green): a settled ruling is finalized exactly once across repeated recovery', async () => {
