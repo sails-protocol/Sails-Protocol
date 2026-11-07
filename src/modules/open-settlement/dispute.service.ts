@@ -85,6 +85,10 @@ export type RulingDeferralReason =
 // every pass, reported so an operator can see which decisions are still waiting.
 export interface DeferredRulingFinalization { disputeId: string; escrowId: string; appealRound: number; ruling: DisputeRuling; arbiterId: string; reason: RulingDeferralReason }
 
+// D13 - the order recovery has always swept in (oldest ruling first, no resolvedAt last), made total by the id.
+const SWEEP_KEY = Prisma.sql`COALESCE(d."resolvedAt", 'infinity'::timestamp)`
+const SWEEP_START = { at: '-infinity', id: '' }
+
 const SETTLED_STATUS: Record<DisputeRuling, string> = { RELEASE: 'COMPLETED', REFUND: 'REFUNDED', SPLIT: 'SPLIT' }
 
 /**
@@ -101,8 +105,8 @@ async function wdkRulingUnsettled(tx: Prisma.TransactionClient, escrowId: string
 }
 
 export class DisputeService {
-  // D13 - recoverMissingRulingFinalization()'s sweep position per queue ('' = start); in memory, so a restart starts over.
-  private readonly rulingRecoveryCursor = { resolved: '', appealed: '' }
+  // D13 - recoverMissingRulingFinalization()'s sweep position per queue, as (sort key, id); in memory, so a restart starts over.
+  private readonly rulingRecoveryCursor = { resolved: SWEEP_START, appealed: SWEEP_START }
 
   constructor(
     private readonly arbitrationProvider: ArbitrationProvider,
@@ -1112,27 +1116,29 @@ export class DisputeService {
    * reused as-is, no schema change, no new provenance field.
    */
   async recoverMissingRulingFinalization(limit = 200): Promise<{ recovered: string[]; deferred: DeferredRulingFinalization[]; failed: Array<{ disputeId: string; error: string }>; held: string[] }> {
-    type Candidate = { id: string; escrowId: string; appealRound: number; previousRuling: DisputeRuling | null; previousArbiterId: string | null; arbiterId: string | null; ruling: DisputeRuling | null }
+    type Candidate = { id: string; escrowId: string; appealRound: number; previousRuling: DisputeRuling | null; previousArbiterId: string | null; arbiterId: string | null; ruling: DisputeRuling | null; sortKey: string }
 
-    // D13 (#585) - each queue is swept with a keyset cursor on the primary key, so candidates that stay unfinalized
-    // (deferred, failed or skipped) cannot pin the first page: a call reads at most `limit` rows per queue, those
-    // after the cursor, and a short page means the sweep reached the end, so the next call starts over. A candidate
+    // D13 (#585) - each queue is swept with a keyset cursor over its existing order (oldest ruling first, rows with no
+    // resolvedAt last, id as tie-break), so candidates that stay unfinalized (deferred, failed or skipped) cannot pin
+    // the first page: a call reads at most `limit` rows per queue, those after the cursor, and a short page means the
+    // sweep reached the end, so the next call starts over from the same first page as before D13. A candidate
     // that stays in its queue is therefore evaluated at least once every ceil(queue size / limit) + 1 calls. The
     // cursor moves as soon as the page is read, so concurrent calls on this instance take successive pages.
-    const page = async (queue: 'resolved' | 'appealed', read: (after: string) => Promise<Candidate[]>) => {
+    const page = async (queue: 'resolved' | 'appealed', read: (after: typeof SWEEP_START) => Promise<Candidate[]>) => {
       const rows = await read(this.rulingRecoveryCursor[queue])
-      this.rulingRecoveryCursor[queue] = rows.length < limit ? '' : rows[rows.length - 1].id
+      const last = rows[rows.length - 1]
+      this.rulingRecoveryCursor[queue] = rows.length < limit ? SWEEP_START : { at: last.sortKey, id: last.id }
       return rows
     }
 
     const resolvedCandidates = await page('resolved', (after) => prisma.$queryRaw<Candidate[]>`
-      SELECT d.id, d."escrowId", d."appealRound", d."previousRuling", d."previousArbiterId", d."arbiterId", d.ruling
+      SELECT d.id, d."escrowId", d."appealRound", d."previousRuling", d."previousArbiterId", d."arbiterId", d.ruling, ${SWEEP_KEY}::text AS "sortKey"
       FROM disputes d
-      WHERE d.status = 'RESOLVED' AND d.id > ${after}
+      WHERE d.status = 'RESOLVED' AND (${SWEEP_KEY}, d.id) > (${after.at}::timestamp, ${after.id})
         AND NOT EXISTS (
           SELECT 1 FROM event_projection_claims c
           WHERE c."eventId" = d.id AND c."projectionKey" IN ('dispute.ruling-finalized', ${RULING_FINALIZATION_HELD_KEY}) AND c."subjectId" = d."appealRound"::text)
-      ORDER BY d.id
+      ORDER BY ${SWEEP_KEY}, d.id
       LIMIT ${limit}`)
 
     // The one bounded "appealed before recovery" case proven above: the dispute is now APPEALED, but
@@ -1143,16 +1149,16 @@ export class DisputeService {
     // provider call is in flight, and when that call then fails the ruling never happened.
     const appealedCandidates = await page('appealed', (after) => prisma.$queryRaw<Candidate[]>`
       SELECT d.id, d."escrowId", (d."appealRound" - 1) AS "appealRound", NULL::text AS "previousRuling", NULL::text AS "previousArbiterId",
-             d."previousArbiterId" AS "arbiterId", d."previousRuling" AS ruling
+             d."previousArbiterId" AS "arbiterId", d."previousRuling" AS ruling, ${SWEEP_KEY}::text AS "sortKey"
       FROM disputes d
       JOIN escrows e ON e.id = d."escrowId"
         AND e.status::text = CASE d."previousRuling"::text WHEN 'RELEASE' THEN 'COMPLETED' WHEN 'REFUND' THEN 'REFUNDED' WHEN 'SPLIT' THEN 'SPLIT' END
       WHERE d.status = 'APPEALED' AND d."appealRound" = 1 AND d."previousRuling" IS NOT NULL AND d."previousArbiterId" IS NOT NULL
-        AND d.id > ${after}
+        AND (${SWEEP_KEY}, d.id) > (${after.at}::timestamp, ${after.id})
         AND NOT EXISTS (
           SELECT 1 FROM event_projection_claims c
           WHERE c."eventId" = d.id AND c."projectionKey" IN ('dispute.ruling-finalized', ${RULING_FINALIZATION_HELD_KEY}) AND c."subjectId" = '0')
-      ORDER BY d.id
+      ORDER BY ${SWEEP_KEY}, d.id
       LIMIT ${limit}`)
 
     const recovered: string[] = []

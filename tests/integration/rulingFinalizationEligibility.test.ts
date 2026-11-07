@@ -529,6 +529,18 @@ describe('D10 - a ruling that can still be rolled back is never finalized (real 
       // round 0's RELEASE, captured by appeal(): the escrow must already be COMPLETED to be in this queue at all
       : { status: 'APPEALED' as const, appealRound: 1, previousRuling: 'RELEASE' as const, previousArbiterId: ARBITER, arbiterId: 'd13-appeal-panel', escrowStatus: 'COMPLETED' })
 
+    // The deferred rows are the oldest candidates of this shared database: left behind, they would sit ahead of every
+    // later file's ruling. Each test removes the ones still unfinalized (finalized ones have left the queue).
+    const created: string[] = []
+    afterEach(async () => {
+      if (!dbAvailable || !created.length) return
+      const finalized = await prisma.eventProjectionClaim.findMany({ where: { eventId: { in: created } }, select: { eventId: true } })
+      const ids = created.splice(0).filter((id) => !finalized.some((c) => c.eventId === id))
+      await prisma.dispute.deleteMany({ where: { id: { in: ids } } })
+      await prisma.escrow.deleteMany({ where: { id: { in: ids.map((id) => `e${id}`) } } })
+      await prisma.trade.deleteMany({ where: { id: { in: ids.map((id) => `t${id}`) } } })
+    })
+
     // `count` candidates no pass can finalize: each its own trade and WDK escrow whose settlement is never recorded,
     // so every pass defers them with SETTLEMENT_NOT_CONFIRMED. Bulk-inserted: the rows recovery reads, nothing more.
     async function makeDeferred(queue: Queue, count: number) {
@@ -536,6 +548,7 @@ describe('D10 - a ruling that can still be rolled back is never finalized (real 
       const { offerId } = (await prisma.trade.findUnique({ where: { id: host.tradeId } }))!
       const prefix = head()
       const ids = Array.from({ length: count }, (_, i) => `${prefix}${String(i).padStart(4, '0')}`)
+      created.push(...ids)
       const { escrowStatus, ...dispute } = asCandidate(queue)
       await prisma.trade.createMany({ data: ids.map((id) => ({ id: `t${id}`, offerId, buyerId: host.buyerId, sellerId: host.sellerId, asset: 'USDT_ERC20' as const, amount: '5', priceUsd: '1', totalUsd: '5', status: 'DISPUTED' as const })) })
       await prisma.escrow.createMany({ data: ids.map((id) => ({ id: `e${id}`, tradeId: `t${id}`, type: 'WDK_USDT_EVM' as const, status: escrowStatus as any, lockedAmount: '5', asset: 'USDT_ERC20' as const })) })
@@ -553,13 +566,16 @@ describe('D10 - a ruling that can still be rolled back is never finalized (real 
     const queueBound = (queue: Queue) => prisma.dispute.count({ where: queue === 'RESOLVED' ? { status: 'RESOLVED' } : { status: 'APPEALED', appealRound: 1 } })
 
     // Runs `passes` recovery calls, checks each stays within its work limit, and collects what they evaluated.
-    async function sweep(services: any[], passes: number, between?: (pass: number) => Promise<void>) {
+    // `queued`: candidates of a single queue, more than LIMIT of them - no call may evaluate more than LIMIT.
+    async function sweep(services: any[], passes: number, queued: string[], between?: (pass: number) => Promise<void>) {
       const recovered: string[] = []
       const deferred = new Map<string, unknown>()
       for (let pass = 0; pass < passes; pass++) {
         const reports = await Promise.all(services.map((s) => s.recoverMissingRulingFinalization(LIMIT)))
         for (const r of reports) {
           expect(r.recovered.length + r.deferred.length + r.failed.length).toBeLessThanOrEqual(2 * LIMIT) // LIMIT per queue
+          const evaluated = [...r.recovered, ...r.deferred.map((d: { disputeId: string }) => d.disputeId), ...r.failed.map((f: { disputeId: string }) => f.disputeId)]
+          expect(evaluated.filter((id) => queued.includes(id)).length).toBeLessThanOrEqual(LIMIT)
           recovered.push(...r.recovered)
           for (const d of r.deferred) deferred.set(d.disputeId, d.reason)
         }
@@ -575,7 +591,7 @@ describe('D10 - a ruling that can still be rolled back is never finalized (real 
       const passes = Math.ceil((await queueBound(queue)) / LIMIT) + 1
       const service = ruler() // one instance, as the production singleton: its cursor carries over between passes
 
-      const first = await sweep([service], passes)
+      const first = await sweep([service], passes, deferredIds)
       for (const id of eligible) {
         expect(first.recovered.filter((r) => r === id)).toHaveLength(1)
         expect(await finalizations(id, 0)).toBe(1)
@@ -585,7 +601,7 @@ describe('D10 - a ruling that can still be rolled back is never finalized (real 
       }
 
       // The sweep starts over: the deferred are evaluated again (no permanent omission), nothing is finalized twice.
-      const second = await sweep([service], passes)
+      const second = await sweep([service], passes, deferredIds)
       expect(deferredIds.filter((id) => !second.deferred.has(id))).toEqual([])
       expect(second.recovered.filter((id) => eligible.includes(id))).toEqual([])
       for (const id of eligible) expect(await finalizations(id, 0)).toBe(1)
@@ -602,7 +618,7 @@ describe('D10 - a ruling that can still be rolled back is never finalized (real 
       const b = ruler()
       const [settledEarly, leaves, settledLate] = [deferredIds[10], deferredIds[202], deferredIds[203]]
 
-      const run = await sweep([a, b, b], 2 * passes, async (pass) => {
+      const run = await sweep([a, b, b], 2 * passes, deferredIds, async (pass) => {
         if (pass !== 0) return
         // After the first page: one candidate already passed and one still ahead settle, one leaves the queue.
         await prisma.escrow.updateMany({ where: { id: { in: [`e${settledEarly}`, `e${settledLate}`] } }, data: { status: 'COMPLETED', txReleaseId: `0x${randomBytes(32).toString('hex')}` } })
