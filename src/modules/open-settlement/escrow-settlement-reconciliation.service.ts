@@ -16,6 +16,7 @@ import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { childLogger } from '../../common/logger'
 import { authorizePendingExecution } from './capability-execution-authorization'
 import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
+import type { DeferredRulingFinalization } from './dispute.service' // type only: the module itself is required lazily below
 
 const log = childLogger('escrow-settlement-reconciliation')
 
@@ -90,7 +91,7 @@ export interface ReconciliationReport {
   // Issue #253 - disputes whose arbiter ruling finalization was re-driven (dispute.service.ts's recoverMissingRulingFinalization()).
   rulingFinalizationsRecovered: string[]
   // D11-R - ruling generations recovery deferred because they can still be rolled back (not failures; retried each tick).
-  rulingFinalizationsDeferred: Array<{ disputeId: string; escrowId: string; appealRound: number; ruling: string; arbiterId: string }>
+  rulingFinalizationsDeferred: DeferredRulingFinalization[]
 }
 
 // The audit-trail "from" state for the reconciliation-driven

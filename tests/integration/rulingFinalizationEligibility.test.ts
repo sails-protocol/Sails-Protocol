@@ -406,7 +406,7 @@ describe('D10 - a ruling that can still be rolled back is never finalized (real 
     pg.requirePostgres('d11r deferred report')
     // A WDK ruling recorded but not settled (as when its attempt is still unconfirmed): D10 P2 defers it.
     const ctx = await makeDisputedWdkEscrow({ status: 'RESOLVED', ruling: 'RELEASE', resolvedAt: new Date() })
-    const identity = { disputeId: ctx.dispute.id, escrowId: ctx.escrowId, appealRound: 0, ruling: 'RELEASE', arbiterId: ARBITER }
+    const identity = { disputeId: ctx.dispute.id, escrowId: ctx.escrowId, appealRound: 0, ruling: 'RELEASE', arbiterId: ARBITER, reason: { code: 'SETTLEMENT_NOT_CONFIRMED', escrowStatus: 'DISPUTED', settlementRecorded: false } }
     const before = await effectsOf(ctx, 0)
 
     const first = await recover()
@@ -429,6 +429,51 @@ describe('D10 - a ruling that can still be rolled back is never finalized (real 
     }
     expect(concurrent[2].deferred).toContainEqual(identity)
     expect(await effectsOf(ctx, 0)).toEqual(before)
+    expect(await stateOf(ctx)).toEqual({ escrow: 'DISPUTED', dispute: 'RESOLVED', ruling: 'RELEASE', round: 0 })
+  })
+
+  it('D12: the production reconciler tick (app.ts, as startServer() runs it) warns the operator with each deferred ruling - identity and state-derived reason - apart from failures and manual review, on repeated and concurrent ticks', async () => {
+    pg.requirePostgres('d12 production consumer')
+    const ctx = await makeDisputedWdkEscrow({ status: 'RESOLVED', ruling: 'RELEASE', resolvedAt: new Date() })
+    // A superseded candidate: recovery selected round 0, then an appeal moved the dispute to round 1 (round 0's ruling
+    // captured, escrow never settled as it). Its reason is GENERATION_SUPERSEDED.
+    const appealed = await makeDisputedWdkEscrow({ status: 'RESOLVED', ruling: 'REFUND', resolvedAt: new Date() })
+    const expected = { disputeId: ctx.dispute.id, escrowId: ctx.escrowId, appealRound: 0, ruling: 'RELEASE', arbiterId: ARBITER, reason: { code: 'SETTLEMENT_NOT_CONFIRMED', escrowStatus: 'DISPUTED', settlementRecorded: false } }
+    const before = { a: await effectsOf(ctx, 0), b: await effectsOf(appealed, 0) }
+    const { runSettlementReconcilerTick } = require('../../src/app')
+    const tick = async () => {
+      const log = { warn: jest.fn(), error: jest.fn() }
+      await runSettlementReconcilerTick(log)
+      const deferredWarn = log.warn.mock.calls.map((c: any[]) => c[0]).find((e: any) => e.rulingFinalizationsDeferred)
+      const findings = log.warn.mock.calls.map((c: any[]) => c[0]).find((e: any) => e.msg === 'Settlement reconciliation completed with findings')
+      return { log, deferredWarn, findings }
+    }
+
+    // The superseded case, raced the way recovery meets it: snapshot taken, then the appeal lands before the claim.
+    const finalize = DisputeService.prototype as any
+    const realFinalize = finalize.finalizeResolveDispute
+    jest.spyOn(finalize, 'finalizeResolveDispute').mockImplementation(async function (this: unknown, ...args: any[]) {
+      if (args[0]?.id === appealed.dispute.id && args[3] === true) {
+        await prisma.dispute.update({ where: { id: appealed.dispute.id }, data: { status: 'APPEALED', appealRound: 1, previousRuling: 'REFUND', previousArbiterId: 'someone-else', ruling: null } })
+      }
+      return realFinalize.apply(this, args)
+    })
+    const first = await tick()
+    jest.restoreAllMocks()
+    expect(first.log.error).not.toHaveBeenCalled()
+    expect(first.deferredWarn).toMatchObject({ module: 'settlement-reconciler', msg: expect.stringMatching(/deferred/) })
+    expect(first.deferredWarn.rulingFinalizationsDeferred).toContainEqual(expected)
+    expect(first.deferredWarn.rulingFinalizationsDeferred).toContainEqual(expect.objectContaining({ disputeId: appealed.dispute.id, appealRound: 0, ruling: 'REFUND', reason: { code: 'GENERATION_SUPERSEDED' } }))
+    // A deferral is never reported as a failure or a manual-review entry (the findings warning carries counts only;
+    // the report itself is checked by the D11-R test above).
+    expect(JSON.stringify(first.findings ?? {})).not.toContain(ctx.dispute.id)
+
+    for (const run of [await tick(), ...(await Promise.all([tick(), tick()]))]) { // repeated, then two concurrent ticks
+      expect(run.log.error).not.toHaveBeenCalled()
+      expect(run.deferredWarn.rulingFinalizationsDeferred).toContainEqual(expected)
+    }
+    expect(await effectsOf(ctx, 0)).toEqual(before.a)
+    expect(await effectsOf(appealed, 0)).toEqual(before.b)
     expect(await stateOf(ctx)).toEqual({ escrow: 'DISPUTED', dispute: 'RESOLVED', ruling: 'RELEASE', round: 0 })
   })
 
