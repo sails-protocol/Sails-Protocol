@@ -764,6 +764,21 @@ cannot supply.
 
 ## 8. Branch / merge governance — APPLIED (M9.9 Completion Delta, 2026-09-01)
 
+> **2026-11-07 staffing update / proposed policy transition (PR #589):**
+> `alan-schramm` reports being the sole active human developer and removing
+> `renipinto` as collaborator. The owner explicitly approves a temporary
+> solo-maintainer model with separate technical Gatekeeper, CTO evidence gate,
+> and owner-only final merge authorization. See
+> `docs/governance/SOLO_MAINTAINER_TRANSITION_PROPOSAL.md`.
+> **This is not a live branch-protection snapshot or evidence of a changed
+> ruleset.** The integration could not read protection settings (403);
+> the historical `required_approving_review_count: 1`, strict status checks,
+> and `enforce_admins: true` baseline below remains the last documented
+> verified state. No merge is authorized until an authorized GitHub
+> operator reads the current effective protection/rulesets and reconciles
+> the approved temporary policy. Preserve the historical record below.
+
+
 **Applied, with explicit authorization from the repository owner**, after
 direct investigation found the original recommendation below needed to
 change — exactly the "do not blindly reproduce the plan" instruction
