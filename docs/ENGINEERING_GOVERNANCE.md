@@ -256,10 +256,28 @@ audit and decision preparation, but do not become human reviewers or
 acquire merge authority. The owner has explicitly approved a temporary
 solo-maintainer policy proposal in PR #589; the operational procedure,
 limits and sunset are recorded in
-`docs/governance/SOLO_MAINTAINER_TRANSITION_PROPOSAL.md`. **Until live
-branch protection is verified and reconciled, the existing human-review
-gate remains binding; no merge bypass is implied.** The historical
+`docs/governance/SOLO_MAINTAINER_TRANSITION_PROPOSAL.md`. The historical
 staffing and protection record remains in `docs/GITHUB_PROJECT.md` §8/§8.1.
+
+**Reconciled 2026-11-08:** this replaces the sentence "Until live branch
+protection is verified and reconciled, the existing human-review gate
+remains binding; no merge bypass is implied."
+
+- PR #589 was merged into `main` (`da3a2544`), and the owner's approval
+  of the temporary solo-maintainer policy is recorded in it.
+- Live protection on `main`, read back 2026-11-08 (see
+  `docs/GITHUB_PROJECT.md` §8.2):
+  - **zero** required human approvals;
+  - required checks `build`, `test` and `Analyze (javascript-typescript)`;
+  - the branch must be up to date (`strict`), applied to admins too
+    (`enforce_admins: true`);
+  - force pushes and deletions blocked.
+- The earlier one-approval requirement is historical. Who changed it to
+  zero, and when, is not established. No document authorizes reducing
+  any other protection.
+- Every merge still needs the solo-maintainer procedure: a Gatekeeper
+  verdict on the exact head, the CTO gate, and the owner's written,
+  SHA-specific authorization. Green CI is not permission.
 
 ---
 
