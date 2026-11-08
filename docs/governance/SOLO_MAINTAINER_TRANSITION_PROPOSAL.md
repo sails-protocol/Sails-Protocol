@@ -52,14 +52,14 @@ When this proposal was written (2026-11-07), the documented baseline was **one h
 ## PR #585 applicability
 
 *Corrected 2026-11-08.* The original sentence said the "Gatekeeper reported GO on two targeted P1 corrections at `17a70d56c10efc701b618bac894112f6fa767e80`".
-- **What was verified:** the CTO states that it **received** a report of an independent Gatekeeper GO for that SHA ([CTO verdict, comment 6716352771](https://github.com/sails-protocol/Sails-Protocol/pull/585#issuecomment-6716352771)).
-- **What is missing:** no Gatekeeper comment, review, or commit status for `17a70d56` exists on PR #585 or anywhere else on GitHub. The last Gatekeeper record on the PR is the D7–D13 consolidation for `8efc63b0`.
-- **Until it is attached:** the GO is CTO-relayed, not GitHub-verifiable, and must not be cited as a recorded Gatekeeper approval.
+- **History, preserved:** when this proposal was first written (head `6cf8e615`), the CTO stated that it **received** a report of an independent Gatekeeper GO for that SHA ([CTO verdict, comment 6716352771](https://github.com/sails-protocol/Sails-Protocol/pull/585#issuecomment-6716352771)), but no Gatekeeper comment, review, or commit status for `17a70d56` existed on PR #585 or anywhere else on GitHub. At that time the GO was CTO-relayed and not GitHub-verifiable, and could not be cited as a recorded Gatekeeper approval.
+- **Update 2026-11-08 (CTO 23 decision, [comment 6717104221](https://github.com/sails-protocol/Sails-Protocol/pull/590#issuecomment-6717104221)):** after that head, the Gatekeeper published its independent technical **GO** (`GATEKEEPER_PR585_FINAL_GO`) on PR #585: [comment 6716966370](https://github.com/sails-protocol/Sails-Protocol/pull/585#issuecomment-6716966370). The opinion is for head `2f20fd4fc040b36a2cf3bf6a1e1a684316431a67`. The code was originally audited at `17a70d56c10efc701b618bac894112f6fa767e80`, and the opinion demonstrates the equivalence between the two SHAs by comparing the full trees: only `docs/ENGINEERING_GOVERNANCE.md`, `docs/GITHUB_PROJECT.md` and `docs/governance/SOLO_MAINTAINER_TRANSITION_PROPOSAL.md` differ.
+- **Nature and limits of that record:** it is a **technical** opinion of the Gatekeeper session. It is not human review, not an approval, and not a merge authorization. It does not release WDK for production, close #254 or #341, or change Project #3. Authorization to merge PR #585 remains reserved to the owner, in writing and for a specific SHA.
 
 The current head of PR #585, `2f20fd4fc040b36a2cf3bf6a1e1a684316431a67`, is `17a70d56` merged with `main` at `da3a2544` (this PR's governance docs only). Its `src`, `tests`, `prisma` and `.github` trees, its `package.json` and its `package-lock.json` are byte-identical to `17a70d56` ([evidence, comment 6716331974](https://github.com/sails-protocol/Sails-Protocol/pull/585#issuecomment-6716331974)).
 
 PR #585 must not be merged until three conditions hold:
-- the Gatekeeper's verdict is attached to `17a70d56` and linked to the current head;
+- the Gatekeeper's verdict is attached to `17a70d56` and linked to the current head (met on 2026-11-08 by comment 6716966370, as a technical opinion only);
 - checks are green on that exact head;
 - the owner records a SHA-specific decision.
 
@@ -70,7 +70,7 @@ PR #585 must not be merged until three conditions hold:
 - [x] Owner explicitly approves this exception and its loss of second-human review (chat authorization, 2026-11-07).
 - [x] Existing governance documents updated in PR #589, preserving their historical record; merged into `main` as `da3a2544`.
 - [x] Current GitHub branch protection/rulesets read back (2026-11-08, table above). No protection change was proposed or made. The earlier 1→0 approval change is recorded as observed, with author and date unknown.
-- [ ] No unresolved required review/check or other STOP gate remains for the target PR. For PR #585, the Gatekeeper record for `17a70d56` is still missing on GitHub.
+- [ ] No unresolved required review/check or other STOP gate remains for the target PR. For PR #585, the Gatekeeper record was missing on GitHub when this item was first written; it is now published ([comment 6716966370](https://github.com/sails-protocol/Sails-Protocol/pull/585#issuecomment-6716966370), head `2f20fd4f`, code audited at `17a70d56`). It is a technical opinion, not human review or merge authorization, so this item stays open until the owner's SHA-specific authorization, green checks on the exact head, and the open `eventProjectionClaims` risk are resolved.
 - [ ] Owner records a SHA-specific merge authorization.
 
 **This proposal is not an authorization to weaken protections, merge, deploy, or change Project #3.**
