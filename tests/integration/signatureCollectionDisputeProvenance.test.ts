@@ -420,20 +420,23 @@ describe('Issue #254B - signature-collection (LIGHTNING_HODL/SAFE_GUARD_EVM) dis
 
   // ─── 12: non-disputed flow remains unaffected ──────────────────────────────────────────────────────
 
-  it('a COOPERATIVE (non-disputed) LIGHTNING_HODL release — no disputeId on the pending row — still awards both-POSITIVE, unaffected by this change', async () => {
-    requirePostgres('cooperative release unaffected')
-    const { trade, escrow, buyer, seller } = await makeTradeEscrow('LIGHTNING_HODL')
+  // #341 requirement 6: the cooperative path is proven on both signature-collection rails, not inferred across them.
+  it.each(['LIGHTNING_HODL', 'SAFE_GUARD_EVM'] as const)('a COOPERATIVE (non-disputed) %s release — no disputeId on the pending row — still awards both-POSITIVE, unaffected by this change', async (type) => {
+    requirePostgres(`${type} cooperative release unaffected`)
+    const { trade, escrow, buyer, seller } = await makeTradeEscrow(type)
     await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'PAYMENT_PENDING' } })
     // No disputeId/rulingOutcome — the exact shape a cooperative seller-triggered release produces.
     await prisma.escrowPendingTransaction.create({
       data: { escrowId: escrow.id, kind: 'release', toAddress: 'dest-address', requiredSigners: ['buyer-signer'], triggeredBy: seller.id, unsignedPsbtBase64: 'unsigned-bundle-b64' },
     })
     const fakeTxId = `0x${randomUUID().replace(/-/g, '')}`
-    await spyFinalize(lightningHodlProvider, 'release', fakeTxId)
+    await spyFinalize(type === 'LIGHTNING_HODL' ? lightningHodlProvider : safeGuardEvmProvider, 'release', fakeTxId)
 
     await escrowService.submitTransactionSignature(escrow.id, 'buyer-signer', 'signed-bundle')
     const durable = (await prisma.durableEventRecord.findFirst({ where: { correlationId: trade.id, eventName: 'settlement.escrow.released' } }))!
     expect((durable.payload as any).disputeId).toBeUndefined()
+    expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: escrow.id } })).toBe(0)
+    expect(await prisma.escrowEvent.count({ where: { escrowId: escrow.id, OR: [{ toStatus: 'DISPUTED' }, { fromStatus: 'DISPUTED' }] } })).toBe(0)
     const transition = (await prisma.escrowEvent.findFirst({ where: { escrowId: escrow.id, toStatus: 'COMPLETED' } }))!
     await waitFor(projectedFor(transition.id))
 
