@@ -115,7 +115,7 @@ const mockEscrowFindUnique = jest.fn()
 const mockEscrowUpdate = jest.fn()
 const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowCreate = jest.fn()
-const mockEscrowEventCreate = jest.fn()
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockTradeFindUnique = jest.fn()
 const mockDisputeFindFirst = jest.fn().mockResolvedValue(null)
@@ -153,17 +153,25 @@ const mockDurableEventFindFirst = jest.fn().mockResolvedValue(null)
 // mockEscrowUpdateMany/mockPendingTxCreate/mockEscrowFundingEvidenceFindMany
 // sees the call whether it went through the mocked prisma singleton or
 // through this tx passthrough, exactly like a real Prisma transaction).
+// ADR-005 - the live dispute a recorded ruling generation is compared against, inside the gate's transaction.
+const mockLiveDisputeFindUnique = jest.fn()
 const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) =>
   callback({
+    dispute: { findUnique: (...args: unknown[]) => mockLiveDisputeFindUnique(...args) },
+    economicDispositionAuthorization: { findUnique: async () => null, create: async ({ data }: any) => ({ id: 'eda-1', ...data }) },
     durableEventRecord: {
       create: (...args: unknown[]) => mockDurableEventCreate(...args),
       findFirst: (...args: unknown[]) => mockDurableEventFindFirst(...args),
     },
     escrow: {
       updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args),
+      findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args),
+      update: (...args: unknown[]) => mockEscrowUpdate(...args),
     },
     escrowPendingTransaction: {
       create: (...args: unknown[]) => mockPendingTxCreate(...args),
+      // Issue #291 - persistSettlementResult() verifies the live pending operation inside its transaction.
+      findFirst: (...args: unknown[]) => (mockPendingTxFindUnique as any)(...args),
     },
     escrowFundingEvidence: {
       findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args),
@@ -175,6 +183,8 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
       create: (...args: unknown[]) => mockEscrowEventCreate(...args),
     },
+    // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+    eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
     $executeRaw: jest.fn().mockResolvedValue(0),
   })
 )
@@ -598,6 +608,10 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
   // string MOCK" (both produce byte-identical outward behavior for every
   // input that exists today) — the mission explicitly forbids adding a
   // second real provider classification just to create that difference.
+  // **Corrected (Issue #220, 2026-09-27):** #220 classified three more real
+  // rails as production-ineligible on policy grounds (not to create a test
+  // difference), so the outcome-based test at the end of this block can now
+  // prove genericity directly as well.
   describe('eligibility check is generic — not a MOCK-only regression (Issue #229 R3)', () => {
     it('assertDeploymentEligible() itself is driven purely by set membership, not a hardcoded MOCK comparison', () => {
       isProductionFlag = true
@@ -660,6 +674,38 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
       isProductionFlag = true
       expect(() => getSettlementProvider('MULTISIG')).not.toThrow()
       expect(resolveEscrowType('BTC' as any, 'MULTISIG' as any)).toBe('MULTISIG')
+    })
+
+    // Issue #220 — the three reference-only/testnet-only rails, each refused
+    // in production with its OWN true reason (never the MOCK "fabricates
+    // settlement success" message, which would be false for them), at both
+    // provider registries (dispatch) — and allowed outside production.
+    it.each([
+      ['LIGHTNING_HODL', /testnet \(mutinynet\) only/],
+      ['SAFE_GUARD_EVM', /testnet-target only/],
+      ['WDK_USDT_EVM', /server-custodial reference implementation/],
+    ])('%s is refused in production at both registries with its own reason, and allowed outside production (Issue #220)', (type, reason) => {
+      isProductionFlag = true
+      expect(() => assertDeploymentEligible(type)).toThrow(/not economically eligible in production/)
+      expect(() => assertDeploymentEligible(type)).toThrow(reason)
+      expect(() => assertDeploymentEligible(type)).not.toThrow(/fabricates settlement success/)
+      expect(() => getSettlementProvider(type)).toThrow(reason)
+      expect(() => getSignatureCollectionProvider(type)).toThrow(reason)
+
+      isProductionFlag = false
+      expect(() => assertDeploymentEligible(type)).not.toThrow()
+      expect(() => getSettlementProvider(type)).not.toThrow()
+    })
+
+    // The concrete #220 finding: with no explicit type, production used to
+    // route LN_BTC to LIGHTNING_HODL (RECOMMENDED_ESCROW_TYPE) — a rail its own
+    // provider declares testnet-only. Creation now fails closed instead.
+    it('production creation with NO explicit type refuses LN_BTC (default-routed to LIGHTNING_HODL) instead of silently selecting a testnet-only rail (Issue #220)', () => {
+      mockEscrowFeatureFlag = false
+      isProductionFlag = true
+      expect(() => resolveEscrowType('LN_BTC' as any, undefined)).toThrow(/testnet \(mutinynet\) only/)
+      isProductionFlag = false
+      expect(resolveEscrowType('LN_BTC' as any, undefined)).toBe('LIGHTNING_HODL')
     })
   })
 })
@@ -1426,7 +1472,8 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
     expect(mockFinalizeRelease).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'escrow-1' }),
       'unsigned-psbt',
-      ['buyer-signed', 'seller-signed']
+      ['buyer-signed', 'seller-signed'],
+      'ptx-1'
     )
     expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'PAYMENT_PENDING' }, data: { status: 'COMPLETED' } })
     expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-release-txid', releasedAt: expect.any(Date) } })
@@ -1446,7 +1493,7 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
 
     const result = await escrowService.submitTransactionSignature('escrow-1', 'seller-1', 'seller-signed')
 
-    expect(mockFinalizeRefund).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'unsigned-refund-psbt', ['seller-signed'])
+    expect(mockFinalizeRefund).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'unsigned-refund-psbt', ['seller-signed'], 'ptx-2')
     expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'REFUNDED' } })
     expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-refund-txid' } })
     expect(result.complete).toBe(true)
@@ -1460,7 +1507,10 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
     mockPendingTxFindUnique.mockResolvedValue({
       id: 'ptx-3', escrowId: 'escrow-1', kind: 'split', requiredSigners: ['buyer-1'],
       unsignedPsbtBase64: 'unsigned-split-psbt', triggeredBy: 'arbiter-1',
+      // What initiateSplit() records on a DISPUTED escrow: the ruling generation that authorized it.
+      disputeId: 'dispute-1', rulingAppealRound: 0, rulingArbiterId: 'arbiter-1', rulingOutcome: 'SPLIT', rulingAuthoritySignature: null,
     })
+    mockLiveDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', appealRound: 0, arbiterId: 'arbiter-1', ruling: 'SPLIT', authoritySignature: null })
     mockTxSignatureFindMany.mockResolvedValue([
       { participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' },
     ])

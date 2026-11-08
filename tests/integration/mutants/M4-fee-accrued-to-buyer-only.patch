@@ -1,0 +1,15 @@
+diff --git a/src/common/events/handlers.ts b/src/common/events/handlers.ts
+index 2c9fe0f4..b6db95ca 100644
+--- a/src/common/events/handlers.ts
++++ b/src/common/events/handlers.ts
+@@ -193,10 +193,6 @@ async function accrueFeeFloor(tx: ProjectionTx, buyerId: string, sellerId: strin
+     where: { id: buyerId },
+     data: { cumulativeFeesObserved: { increment: feeCharged } },
+   })
+-  await tx.user.update({
+-    where: { id: sellerId },
+-    data: { cumulativeFeesObserved: { increment: feeCharged } },
+-  })
+ }
+ 
+ /** Outcome Engine for the released path (RFC-007 D8): a RELEASE ruling means

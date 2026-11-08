@@ -549,6 +549,15 @@ Deliberately **not** set for this deployment: `WDK_SEED_PHRASE`,
 providers inert, consistent with the decision to bring exactly one real
 custody path live at a time.
 
+**Updated (Issue #220, 2026-09-27):** this is no longer only a
+configuration convention. With `NODE_ENV=production`, the application
+itself refuses to create or settle `LIGHTNING_HODL`, `SAFE_GUARD_EVM`, and
+`WDK_USDT_EVM` escrows (`escrow-providers.ts`'s
+`PRODUCTION_INELIGIBLE_TYPES`), regardless of which secrets are set. In
+production, `LN_BTC` and `USDT_ERC20` escrow creation therefore fails with
+an explicit "not economically eligible in production" error; `BTC` via
+`MULTISIG` is the only production settlement rail.
+
 ## 9. Multi-Instance Deployment (Missão 08B, 2026-08-17)
 
 Section 8's deployment above runs a single App Runner instance. Running

@@ -134,7 +134,7 @@ const mockTradeFindUnique = jest.fn()
 const mockDisputeFindUnique = jest.fn()
 const mockDisputeUpdate = jest.fn()
 const mockEscrowParticipantKeyFindUnique = jest.fn().mockResolvedValue(null) // no committed arbiter — non-MULTISIG
-const mockEscrowEventCreate = jest.fn().mockResolvedValue({})
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockParticipantKeyFindMany = jest.fn().mockResolvedValue([])
 const mockEscrowFundingEvidenceFindMany = jest.fn().mockResolvedValue([])
@@ -155,6 +155,7 @@ const mockSignatureUpsert = jest.fn((args: { create: { pendingTxId: string; part
 })
 const mockSignatureFindMany = jest.fn((_arg?: unknown) => Promise.resolve(signatureStore))
 
+let mockLastWrittenDispute: unknown
 jest.mock('../src/common/database', () => ({
   prisma: {
     escrow: {
@@ -179,7 +180,7 @@ jest.mock('../src/common/database', () => ({
       // required, which ES-module import hoisting can trigger before
       // those later `const` declarations in this same file initialize.
       findFirst: jest.fn().mockImplementation(({ where }: { where: { tradeId: string; arbiterId: string } }) =>
-        Promise.resolve(where.tradeId === 'trade-1' && where.arbiterId === 'arbiter-1' ? { id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' } : null)
+        Promise.resolve(where.tradeId === 'trade-1' && where.arbiterId === 'arbiter-1' ? { id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1', appealRound: 0, ruling: 'RELEASE' } : null)
       ),
     },
     user: { findUnique: (...args: unknown[]) => mockUserFindUnique(...args) },
@@ -215,11 +216,19 @@ jest.mock('../src/common/database', () => ({
     $transaction: (callback: (tx: unknown) => Promise<unknown>) => {
       let writtenRow: unknown
       return callback({
+        // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+        eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
         $executeRaw: jest.fn().mockResolvedValue(0),
+        // Issue #291 - persistSettlementResult() reads then writes the escrow inside its own locked transaction.
+        escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args), update: (...args: unknown[]) => mockEscrowUpdate(...args) },
+        // ADR-005 - the gate commits its authorization in this same transaction mock.
+        economicDispositionAuthorization: { findUnique: async () => null, create: async ({ data }: { data: Record<string, unknown> }) => ({ id: 'eda-1', ...data }) },
         dispute: {
-          findUnique: async () => writtenRow,
+          // A later transaction (the ADR-005 gate) reads the row the last committed write left.
+          findUnique: async () => writtenRow ?? mockLastWrittenDispute,
           updateMany: async (...args: unknown[]) => {
             writtenRow = await mockDisputeUpdate(...args)
+            mockLastWrittenDispute = writtenRow
             return { count: 1 }
           },
         },
@@ -228,7 +237,7 @@ jest.mock('../src/common/database', () => ({
           create: (...args: unknown[]) => mockEscrowEventCreate(...args),
         },
         escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
-        escrowPendingTransaction: { create: (arg: { data: Record<string, unknown> }) => mockPendingTxCreate(arg) },
+        escrowPendingTransaction: { create: (arg: { data: Record<string, unknown> }) => mockPendingTxCreate(arg), findFirst: (arg: unknown) => mockPendingTxFindUnique(arg) /* Issue #291 - operation-bound result write */ },
       })
     },
   },
@@ -315,6 +324,9 @@ describe('LIGHTNING_HODL — disputed RELEASE (signature-collection binding)', (
 
   describe('4/5/6. rotation and retry — binding survives across the signature-collection round', () => {
     beforeEach(async () => {
+      // A ruling is applied to a DISPUTED escrow, so the pending operation records the generation that authorized it.
+      mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' }))
+      mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE', appealRound: 0, arbiterId: ARBITER_ID })
       mockPayoutAddressFindUnique.mockResolvedValue({ address: 'buyer-address-A', participantId: BUYER_ID, asset: 'BTC' })
       const [sig, issuedAt] = signResolution('RELEASE')
       await service.resolveDispute(DISPUTE_ID, ARBITER_ID, 'RELEASE', undefined, undefined, undefined, sig, issuedAt)
@@ -401,6 +413,8 @@ describe('SAFE_GUARD_EVM — disputed RELEASE (signature-collection binding)', (
   })
 
   it('rotation after binding and a retried signature submission never re-resolve PayoutAddress', async () => {
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'SAFE_GUARD_EVM', asset: 'USDT_ERC20', status: 'DISPUTED' }))
+    mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE', appealRound: 0, arbiterId: ARBITER_ID })
     mockPayoutAddressFindUnique.mockResolvedValue({ address: '0xBuyerRegistered', participantId: BUYER_ID, asset: 'USDT_ERC20' })
     const [sig, issuedAt] = signResolution('RELEASE')
     await service.resolveDispute(DISPUTE_ID, ARBITER_ID, 'RELEASE', undefined, undefined, undefined, sig, issuedAt)

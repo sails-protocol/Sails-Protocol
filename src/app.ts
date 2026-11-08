@@ -30,7 +30,10 @@ import { capabilityRoutes } from './modules/open-agents/capability.routes'
 import { agentRoutes } from './modules/open-agents/agent.routes'
 import { proofRoutes } from './modules/open-proof/proof.routes'
 import { escrowService } from './modules/open-settlement/escrow.service'
+import { reconcilePendingSettlements } from './modules/open-settlement/escrow-settlement-reconciliation.service'
+import { recoverUnpublishedIntentEvents } from './core/intent-publication-recovery'
 import { assertArbitrationModeCompatibleWithAvailableRails } from './modules/open-settlement/escrow-providers'
+import { assertMarketArbitrationCollateralProductionEligible } from './modules/open-settlement/arbitration-policy'
 import { getDisputeService } from './modules/open-settlement/dispute.service'
 import { sweepMultisigFeeConfirmations } from './modules/open-settlement/multisig-fee-confirmation-job'
 import { sweepMultisigFeeReorgs } from './modules/open-settlement/multisig-fee-reorg-sweep'
@@ -78,6 +81,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     config.settlement.arbitrationMode,
     config.settlement.arbitrationPolicyByEscrowType,
   )
+
+  // Issue #255 — same "loud startup validation failure" mandate as the check above, closing a
+  // different concern: market-mode collateral is caller-declared bookkeeping, not economically backed
+  // (see arbitration-policy.ts's own comment on this function for the full trace/evidence).
+  assertMarketArbitrationCollateralProductionEligible(config.settlement.arbitrationMode, config.isProduction)
 
   const app = Fastify({
     logger: {
@@ -490,6 +498,29 @@ export async function startServer() {
         .catch((err) => app.log.error({ msg: 'Escrow sweep failed', module: 'escrow-sweeper', err: err instanceof Error ? err.message : err }))
     }, config.trade.timelockSweepIntervalMs)
     sweepInterval.unref()
+  }
+
+  // Issue #291/#298 hardening - settlement crash recovery. On by default (see config comment). Each pass
+  // is idempotent and write-once-safe, and safe with several instances running it concurrently. A tick
+  // never overlaps the previous one in this process.
+  if (config.features.escrowSettlementReconciler) {
+    let reconciling = false
+    const reconcileInterval = setInterval(() => {
+      if (reconciling) return
+      reconciling = true
+      // Issue #253: also pay the publication owed by any Intent transition that committed but never published.
+      recoverUnpublishedIntentEvents()
+        .catch((err) => app.log.error({ msg: 'Intent publication recovery failed', module: 'settlement-reconciler', err: err instanceof Error ? err.message : err }))
+        .then(() => reconcilePendingSettlements())
+        .then((report) => {
+          if (report.failed.length || report.requiresManualReview.length || report.projectionsRecovered) {
+            app.log.warn({ msg: 'Settlement reconciliation completed with findings', module: 'settlement-reconciler', failed: report.failed.length, requiresManualReview: report.requiresManualReview.length, projectionsRecovered: report.projectionsRecovered })
+          }
+        })
+        .catch((err) => app.log.error({ msg: 'Settlement reconciliation failed', module: 'settlement-reconciler', err: err instanceof Error ? err.message : err }))
+        .finally(() => { reconciling = false })
+    }, config.trade.settlementReconcileIntervalMs)
+    reconcileInterval.unref()
   }
 
   // RFC-021 D8 — off by default, see config/index.ts's own comment.

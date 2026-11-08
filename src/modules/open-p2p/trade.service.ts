@@ -288,7 +288,18 @@ export class TradeService {
       )
     }
 
-    const updated = await this.repo.updateStatus(tradeId, status, status === 'CANCELLED' ? new Date() : undefined)
+    // Issue #294 - CAS on the status just validated, serialized under the escrow lock, and refused
+    // once the Escrow already governs the economic outcome. Escrow stays authoritative; a manual
+    // request can never race an Escrow-derived projection into a contradictory Trade state.
+    const transition = await this.repo.transitionManually(tradeId, trade.status as TradeStatus, status, status === 'CANCELLED' ? new Date() : undefined)
+    if (!transition.ok) {
+      throw new ValidationError(
+        transition.reason === 'ESCROW_GOVERNED'
+          ? `Trade ${tradeId} can no longer be changed manually: its escrow is ${transition.escrowStatus} and governs the outcome`
+          : `Trade ${tradeId} changed concurrently (it is no longer ${trade.status}) - reload and retry`
+      )
+    }
+    const updated = transition.trade
 
     await eventBus.emit('openp2p.trade.status_changed', {
       tradeId,

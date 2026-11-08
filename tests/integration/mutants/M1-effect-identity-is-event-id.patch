@@ -1,0 +1,13 @@
+diff --git a/src/common/events/event-projection.ts b/src/common/events/event-projection.ts
+index 417a33dd..cbb1335e 100644
+--- a/src/common/events/event-projection.ts
++++ b/src/common/events/event-projection.ts
+@@ -55,7 +55,7 @@ export async function applyEventProjectionOnce(
+  * Both durable events stay in the stream for traceability. Falls back to eventId for an event with no transition.
+  */
+ export function effectIdentity(event: { eventId: string; payload: { transitionId?: string } }): string {
+-  return event.payload.transitionId ?? event.eventId
++  return event.eventId
+ }
+ 
+ // Markers for "a projection is owed for this escrow transition" and "all of its projections

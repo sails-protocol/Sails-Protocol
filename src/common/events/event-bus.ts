@@ -58,6 +58,18 @@ export interface SettlementEscrowStatusChangedEvent {
   triggeredBy: string
   txId?: string
   note?: string
+  // Issue #298 - id of the EscrowEvent transition claim that produced this event: the stable
+  // identity recovery uses to tell 'claimed' from 'published' from 'projected'.
+  transitionId?: string
+  // Issue #254 - set by a settlement action driven by a real dispute ruling (dispute.service.ts's
+  // applyRuling(), or the pending operation frozen for it - Issue #254B), never a cooperative seller
+  // action - captured at the exact moment fund movement is triggered, immutable and event-carried from
+  // that point forward. A later appeal() mutating Dispute.status/ruling can never retroactively change
+  // what THIS event means: common/events/settlement-provenance.ts reads this field
+  // instead of re-querying current (mutable) Dispute state. Absent for a plain, non-disputed
+  // release/refund and for a publication recovered by the reconciler: settlement-provenance.ts then reads
+  // the durable records it lists.
+  disputeId?: string
 }
 
 
@@ -180,6 +192,16 @@ export interface DisputeOpenedEvent extends DisputeEvent {
 // dispute.resolved's real payload — was sharing the generic DisputeEvent
 // shape, which had no ruling field; a resolution notification with no
 // ruling in it isn't useful to anyone listening.
+// A human decision on a settlement held for missing provenance (settlement-provenance.ts): the durable
+// record of who decided, what, and on what evidence.
+export interface SettlementProvenanceResolvedEvent {
+  escrowId: string
+  transitionId: string
+  decision: 'DISPUTED' | 'COOPERATIVE'
+  decidedBy: string
+  evidence: string
+}
+
 export interface DisputeResolvedEvent extends DisputeEvent {
   tradeId: string
   ruling: 'RELEASE' | 'REFUND' | 'SPLIT'
@@ -238,6 +260,10 @@ export interface DisputeAutoResolutionProposedEvent extends DisputeEvent {
 export interface DisputeAutoResolutionContestedEvent extends DisputeEvent {
   tradeId: string
   contestedBy: string
+  // #308 — causal identity `<disputeId>:<proposal generation>:<CONTESTED|EXPIRED>`, set by the transactional
+  // outbox so a recovery after a crash can prove this transition was already published. Additive; consumers
+  // ignore it.
+  transitionKey?: string
 }
 
 // arbiter.slashed's real payload — RFC-021 D6, first real emitter is
@@ -387,6 +413,7 @@ export interface SailsEventMap {
   'settlement.escrow.released': SettlementEscrowStatusChangedEvent
   'settlement.escrow.disputed': SettlementEscrowStatusChangedEvent
   'settlement.escrow.refunded': SettlementEscrowStatusChangedEvent
+  'settlement.provenance.resolved': SettlementProvenanceResolvedEvent
   'settlement.escrow.split': SettlementEscrowStatusChangedEvent // RFC-021 D9
   // Fase 7.3.1 §C, made a real status transition by Fase 7.3.3 §B —
   // FUNDS_LOCKED -> EXPIRED, a real, durable, observed-not-acted-upon
@@ -512,6 +539,18 @@ export class SailsEventBus {
     listener: (event: import('./event-store').DurableEvent<K>) => void | Promise<void>
   ): void {
     this.store.subscribe(event, listener)
+  }
+
+  // Issue #298 - re-drive an ALREADY-persisted durable event to this instance's local handlers
+  // (recovery of an incomplete projection). Not part of the generic EventStore interface for the
+  // same reason enableCrossInstanceFanout() is not: only PostgresEventStore can reload a row by id.
+  // Safe because every economically relevant projection is idempotent per (source transition, projectionKey,
+  // subjectId) - redelivery cannot duplicate an effect. Returns false if the event does not exist.
+  async redeliver(eventId: string): Promise<boolean> {
+    if ('redeliver' in this.store) {
+      return (this.store as import('./event-store').PostgresEventStore).redeliver(eventId)
+    }
+    return false
   }
 
   // Missão 08B — thin passthrough, same shape as getEvents() above. Not

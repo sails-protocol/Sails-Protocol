@@ -1,0 +1,13 @@
+diff --git a/src/common/events/handlers.ts b/src/common/events/handlers.ts
+index 2c9fe0f4..bfc0dabc 100644
+--- a/src/common/events/handlers.ts
++++ b/src/common/events/handlers.ts
+@@ -135,7 +135,7 @@ async function recordTradeCompletion(tx: ProjectionTx, buyerId: string, sellerId
+   })
+   await tx.user.update({
+     where: { id: sellerId },
+-    data: { totalTrades: { increment: 1 }, totalVolumeBtc: { increment: amount } },
++    data: { totalTrades: { increment: 1 } },
+   })
+ }
+ 
