@@ -119,8 +119,13 @@ jest.mock('../src/modules/open-settlement/dispute-correspondence', () => ({
 // Issue #253 - PASS 4 (arbiter ruling finalization recovery) lives in dispute.service.ts and is proven against
 // real PostgreSQL in tests/integration/projectionCrashMatrix.test.ts; here only the orchestration is observed.
 const mockRecoverMissingRulingFinalization = jest.fn().mockResolvedValue({ recovered: [], deferred: [], failed: [], held: [] })
+// Issue #238 - unassigned-dispute recovery, proven against real PostgreSQL in tests/integration/atomicDisputeOpening.test.ts.
+const mockRecoverUnassignedDisputes = jest.fn().mockResolvedValue({ recovered: [], failed: [] })
 jest.mock('../src/modules/open-settlement/dispute.service', () => ({
-  getDisputeService: () => ({ recoverMissingRulingFinalization: (...args: unknown[]) => mockRecoverMissingRulingFinalization(...args) }),
+  getDisputeService: () => ({
+    recoverMissingRulingFinalization: (...args: unknown[]) => mockRecoverMissingRulingFinalization(...args),
+    recoverUnassignedDisputes: (...args: unknown[]) => mockRecoverUnassignedDisputes(...args),
+  }),
 }))
 
 const mockAuthorizePendingExecution = jest.fn().mockResolvedValue({ id: 'cap-auth-1' })
@@ -299,7 +304,7 @@ describe('reconcilePendingSettlements() — Sails M9-R, C8 unclaimed-fully-signe
     expect(mockAuthorizeDisputedPendingExecution).toHaveBeenCalledWith(expect.objectContaining({ id: 'pending-1' }))
     expect(mockAuthorizePendingExecution).toHaveBeenCalledWith(expect.objectContaining({ id: 'pending-1' }))
     expect(mockAuthorizeDisputedPendingExecution.mock.invocationCallOrder[0]).toBeLessThan(mockAuthorizePendingExecution.mock.invocationCallOrder[0])
-    expect(mockClaimTransition).toHaveBeenCalledWith('escrow-1', 'DISPUTED', 'COMPLETED')
+    expect(mockClaimTransition).toHaveBeenCalledWith('escrow-1', 'DISPUTED', 'COMPLETED', undefined) // no caller transaction on this path
     expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: 'c8-txid-1', releasedAt: expect.any(Date) }, { operation: { pendingOperationId: 'pending-1' } })
     expect(report.resumedUnclaimed).toEqual([{ escrowId: 'escrow-1', txId: 'c8-txid-1', outcome: 'NEWLY_BROADCAST' }])
     expect(mockRecordObligation).toHaveBeenCalledWith(expect.objectContaining({ id: 'escrow-1' }), 'RELEASE', undefined, undefined)
@@ -374,7 +379,20 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
   it('no candidates — a clean, empty report', async () => {
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
     const report = await reconcilePendingSettlements()
-    expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], rulingFinalizationsRecovered: [], rulingFinalizationsDeferred: [] })
+    expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], rulingFinalizationsRecovered: [], rulingFinalizationsDeferred: [], disputeArbitersRecovered: [] })
+  })
+
+  it('Issue #238: re-drives unassigned dispute openings every tick, independently of ruling recovery; failures land in `failed`', async () => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockRecoverMissingRulingFinalization.mockRejectedValueOnce(new Error('ruling recovery down'))
+    mockRecoverUnassignedDisputes.mockResolvedValueOnce({ recovered: ['dispute-7'], failed: [{ disputeId: 'dispute-8', error: 'no eligible arbiter' }] })
+    const report = await reconcilePendingSettlements()
+    expect(mockRecoverUnassignedDisputes).toHaveBeenCalledTimes(1)
+    expect(report.disputeArbitersRecovered).toEqual(['dispute-7'])
+    expect(report.failed).toEqual([
+      { escrowId: 'dispute:*', error: 'ruling recovery down' },
+      { escrowId: 'dispute:dispute-8', error: 'no eligible arbiter' },
+    ])
   })
 
   it('Issue #253 PASS 4: re-drives ruling finalization every tick; recovered disputes are reported, failures land in `failed` without stopping the tick', async () => {

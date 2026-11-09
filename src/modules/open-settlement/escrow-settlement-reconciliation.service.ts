@@ -92,6 +92,8 @@ export interface ReconciliationReport {
   rulingFinalizationsRecovered: string[]
   // D11-R - ruling generations recovery deferred because they can still be rolled back (not failures; retried each tick).
   rulingFinalizationsDeferred: DeferredRulingFinalization[]
+  // Issue #238 - opened disputes whose arbiter assignment was finished here (dispute.service.ts's recoverUnassignedDisputes()).
+  disputeArbitersRecovered: string[]
 }
 
 // The audit-trail "from" state for the reconciliation-driven
@@ -1071,7 +1073,7 @@ async function redriveClaimedPage(claimed: Array<{ id: string; eventId: string; 
 export async function reconcilePendingSettlements(options: { projectionGraceMs?: number } = {}): Promise<ReconciliationReport> {
   const report: ReconciliationReport = {
     recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [],
-    resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], rulingFinalizationsRecovered: [], rulingFinalizationsDeferred: [],
+    resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], rulingFinalizationsRecovered: [], rulingFinalizationsDeferred: [], disputeArbitersRecovered: [],
   }
 
   await reconcileUnclaimedFullySignedPending(report)
@@ -1105,6 +1107,16 @@ export async function reconcilePendingSettlements(options: { projectionGraceMs?:
     report.rulingFinalizationsRecovered.push(...recovered)
     report.rulingFinalizationsDeferred.push(...deferred)
     for (const id of held) report.requiresManualReview.push({ escrowId: `dispute:${id}`, reason: 'Ruling resolved before finalization was recorded, with no proof its bookkeeping ran: held from automatic recovery.' })
+    for (const f of failed) report.failed.push({ escrowId: `dispute:${f.disputeId}`, error: f.error })
+  } catch (err) {
+    report.failed.push({ escrowId: 'dispute:*', error: err instanceof Error ? err.message : String(err) })
+  }
+
+  // Issue #238 - an opened dispute whose process died before its arbiter was assigned. Fail-closed until then.
+  try {
+    const { getDisputeService } = require('./dispute.service') // eslint-disable-line @typescript-eslint/no-var-requires
+    const { recovered, failed } = await getDisputeService().recoverUnassignedDisputes()
+    report.disputeArbitersRecovered.push(...recovered)
     for (const f of failed) report.failed.push({ escrowId: `dispute:${f.disputeId}`, error: f.error })
   } catch (err) {
     report.failed.push({ escrowId: 'dispute:*', error: err instanceof Error ? err.message : String(err) })

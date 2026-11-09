@@ -28,6 +28,8 @@ import {
   settlementSucceededButLocalStepFailed,
   assertEscrowTransition,
   emitEscrowTransition,
+  recordEscrowTransition,
+  publishEscrowTransition,
   resolvePayoutAddress,
   checkFundMovementCapability,
   assertFundingNotUncertain,
@@ -849,7 +851,13 @@ export class EscrowService {
     }
   }
 
-  async openDispute(escrowId: string, triggeredBy: string, reason: string) {
+  /**
+   * Issue #238 - Escrow -> DISPUTED iff the canonical Dispute row exists. The status claim, the hash-chained
+   * transition with its pending-publication marker, and `recordDispute(tx)` (raiseDispute()'s Dispute insert)
+   * commit in ONE transaction under this escrow's funding lock, or none of them does. Publishing
+   * 'settlement.escrow.disputed' stays outside it; PASS 3 re-drives it from the marker after a crash.
+   */
+  async openDispute<T>(escrowId: string, triggeredBy: string, reason: string, recordDispute: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
     const escrow = await this.repo.findById(escrowId)
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
     assertEscrowTransition(escrow.status, 'DISPUTED')
@@ -865,26 +873,18 @@ export class EscrowService {
       throw new ForbiddenError(`${triggeredBy} is not a party to trade ${trade.id}`)
     }
 
-    // Atomic conditional update — see lockFunds()'s comment. No external
-    // provider call here, but dispute.service.ts's raiseDispute() itself
-    // already has its own @@unique([tradeId]) guard at the Dispute-row
-    // level (2026-07-19 security round); this closes the same race one
-    // layer down, at the Escrow row this method actually mutates.
-    await claimEscrowTransition(escrowId, escrow.status, 'DISPUTED')
-    const updated = await this.repo.findById(escrowId)
+    // Atomic conditional update — see lockFunds()'s comment: a concurrent opener claims 0 rows and its whole
+    // transaction rolls back. Dispute's @@unique([tradeId]) (2026-07-19 security round) still rejects a second row.
+    const { transitionId, record } = await withEscrowFundingLock(escrowId, async (tx) => {
+      await claimEscrowTransition(escrowId, escrow.status, 'DISPUTED', tx)
+      const transitionId = await recordEscrowTransition(tx, escrowId, escrow.status, 'DISPUTED', triggeredBy, 'settlement.escrow.disputed', {}, reason)
+      return { transitionId, record: await recordDispute(tx) }
+    })
 
-    await emitEscrowTransition(
-      escrowId,
-      escrow.tradeId,
-      escrow.status,
-      'DISPUTED',
-      triggeredBy,
-      'settlement.escrow.disputed',
-      {},
-      reason
-    )
-
-    return updated
+    if (transitionId) {
+      await publishEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'DISPUTED', triggeredBy, 'settlement.escrow.disputed', {}, transitionId)
+    }
+    return record
   }
 
   // Issue #254 - disputeId, same additive/optional shape and reason as releaseFunds()'s own comment above.

@@ -146,7 +146,8 @@ escrowEvents.findFirst = jest.fn(async ({ where = {}, orderBy }: any = {}) => {
 // round-trips for real, empty is a real answer too" convention this
 // file already uses for the vouch table below).
 const feePolicyVersions = makeTable('feePolicyVersion')
-const disputes = makeTable('dispute', { status: 'OPENED' })
+// appealRound: schema default, which raiseDispute()'s conditional arbiter assignment (Issue #238) matches on.
+const disputes = makeTable('dispute', { status: 'OPENED', appealRound: 0 })
 const intents = makeTable('intent', { expiresAt: null })
 // RFC-021 D7 — vouch.service.ts's burnVouchesFor() (called from
 // handlers.ts's settlement.escrow.released/refunded reactions) needs a
@@ -306,6 +307,8 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     // visible to a later unlocked read exactly like a real Prisma
     // transaction would be — same discipline as escrow/escrowEvent above.
     dispute: disputes,
+    // Issue #238 - openDispute() creates the Dispute row, with any script-committed arbiter, in this transaction.
+    escrowParticipantKey: escrowParticipantKeys,
     // Issue #298 - the claim marker and every projection claim go through the real unique-identity table above;
     // projections mutate the same in-memory tables the rest of the flow reads.
     eventProjectionClaim: eventProjectionClaims,
