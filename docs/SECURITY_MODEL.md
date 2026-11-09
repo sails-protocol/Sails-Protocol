@@ -142,10 +142,7 @@ history.
    (the only other implementation) and the protocol's own design
    (multisig 2-of-3, per §1.1 above) are unaffected — this is specific
    to `WDK_USDT_EVM`'s current implementation, not a design flaw.
-3. **Escrow Isolation** — escrow logic is architecturally separate from the
-   application layer (see the layer-violation fix documented in
-   `ARCHITECTURE.md`). Compromising reference-implementation infrastructure
-   does not expose escrowed funds.
+3. **Escrow Isolation** — Escrow logic is architecturally separated from the application layer (see `ARCHITECTURE.md`). This separation is a software-design boundary, not a universal cryptographic guarantee that compromise of reference-implementation infrastructure cannot expose escrowed funds. Actual protection depends on each settlement rail's implemented custody and signing model, effective key control, and independently verified evidence. In particular, the current `WDK_USDT_EVM` reference path derives escrow signing authority from a server-held seed; compromise of that seed or its controlling infrastructure can expose escrowed funds. Do not infer production eligibility from this principle.
 4. **Distributed transport does not imply distributed economic truth** — HyperDHT/Secretstream provide distributed/E2E transport properties, but current economic state is still materially node-local in the Reference Implementation. Day-0 multi-operator/shared-market resilience is an explicit open completion gate under ADR-001 / #105. Do not claim "no single server holds critical state" until that evidence exists.
 5. **AI-Assisted Fraud Detection (future)** — QVAC will monitor patterns
    locally: new accounts with high volume, repeated PIX keys across
