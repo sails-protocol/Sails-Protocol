@@ -73,6 +73,13 @@ export const RULING_FINALIZATION_HELD_KEY = 'dispute.ruling-finalization-held'
 // The dispute a settlement transition was claimed for, written atomically with the claim by emitEscrowTransition()
 // when the caller carries a disputeId. Keyed on the transition id, so it survives a republication without payload.
 export const TRANSITION_DISPUTE_PROVENANCE_KEY = 'transition.dispute-provenance'
+// Issue #341 (CTO 22 D1) - the exact EconomicDispositionAuthorization (subject = its id) a disputed settlement
+// transition executed under, written in the same transaction as the claim, after the producer verified it against
+// the pending operation (pendingOperationId, disputeId, appealRound, arbiter, ruling, operation digest).
+export const TRANSITION_DISPOSITION_AUTHORIZATION_KEY = 'transition.disposition-authorization'
+// Issue #341 (CTO 22, complementary authorization on #584) - the versioned commitment (subject = 'v1:<sha256>', see
+// dispositionCommitment()) to that authorization's full content, written in the same transaction.
+export const TRANSITION_DISPOSITION_COMMITMENT_KEY = 'transition.disposition-commitment'
 export const SETTLEMENT_PROVENANCE_HELD_KEY = 'settlement.provenance-held'
 export const SETTLEMENT_PROVENANCE_DECISION_KEY = 'settlement.provenance-decision'
 export const SETTLEMENT_PROVENANCE_RESOLVED_KEY = 'settlement.provenance-resolved'

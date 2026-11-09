@@ -1,4 +1,5 @@
-import { TRANSITION_CLAIMED_KEY, TRANSITION_DISPUTE_PROVENANCE_KEY } from '../../common/events/event-projection'
+import { TRANSITION_CLAIMED_KEY, TRANSITION_DISPOSITION_AUTHORIZATION_KEY, TRANSITION_DISPOSITION_COMMITMENT_KEY, TRANSITION_DISPUTE_PROVENANCE_KEY } from '../../common/events/event-projection'
+import { dispositionCommitment, type CommittedAuthorization } from './economic-disposition-authority'
 import { childLogger } from '../../common/logger'
 import { Prisma } from '@prisma/client'
 import { createHash } from 'crypto'
@@ -463,8 +464,15 @@ export async function emitEscrowTransition(
   triggeredBy: string,
   eventName: Parameters<typeof eventBus.emit>[0],
   eventExtra: Record<string, unknown> = {},
-  note?: string
+  note?: string,
+  // Issue #341 (CTO 22 D1) - the EconomicDispositionAuthorization this disputed settlement executed under, already
+  // verified by the caller against its pending operation. Only with the same eventExtra.disputeId: the markers are
+  // written together or not at all.
+  dispositionAuthorization?: CommittedAuthorization
 ): Promise<boolean> {
+  if (dispositionAuthorization && eventExtra.disputeId !== dispositionAuthorization.disputeId) {
+    throw new Error(`emitEscrowTransition(${escrowId}): a disposition authorization requires its own disputeId`)
+  }
   // entryHash/prevHash are never accepted from a caller — this function's
   // own signature has no such parameters, so they can only ever be what
   // the server itself derives here.
@@ -490,6 +498,12 @@ export async function emitEscrowTransition(
     // Issue #341 - the payload's disputeId is lost when recovery republishes from the transition; this row is not.
     if (typeof eventExtra.disputeId === 'string') {
       await tx.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: TRANSITION_DISPUTE_PROVENANCE_KEY, subjectId: eventExtra.disputeId } })
+    }
+    // Written only with a NEW transition row, under the escrow lock: a replay of an already-claimed (escrowId,
+    // toStatus) returns above and can neither attach this marker to another transition nor overwrite it.
+    if (dispositionAuthorization) {
+      await tx.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: TRANSITION_DISPOSITION_AUTHORIZATION_KEY, subjectId: dispositionAuthorization.id } })
+      await tx.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: TRANSITION_DISPOSITION_COMMITMENT_KEY, subjectId: dispositionCommitment(dispositionAuthorization, { id: transition.id, toStatus: to }) } })
     }
     return transition.id as string
   })

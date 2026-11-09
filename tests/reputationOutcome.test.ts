@@ -65,7 +65,9 @@ jest.mock('../src/common/database', () => ({
       update: (...args: unknown[]) => mockTradeUpdate(...args),
       findUnique: (...args: unknown[]) => mockTradeFindUnique(...args),
     },
-    dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
+    // findUnique: the cross-escrow check of a named dispute (settlement-provenance.ts); no row here, as in the
+    // handler tests' fixtures, which carry the disputeId on the event only.
+    dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args), findUnique: async () => null },
     semanticTransitionRecord: { findFirst: (...args: unknown[]) => mockSemanticTransitionRecordFindFirst(...args) },
     economicDispositionAuthorization: { findFirst: jest.fn().mockResolvedValue(null) },
     escrowEvent: { findMany: async () => mockEscrowChain(`evt-${eventSeq}`) },
@@ -79,6 +81,9 @@ jest.mock('../src/common/database', () => ({
         claimStore.has(`${where.eventId}|${where.projectionKey}|${where.subjectId}`) ? 1 : 0,
       findFirst: async ({ where }: { where: { eventId: string; projectionKey: string } }) =>
         [...claimStore].some((k) => k.startsWith(`${where.eventId}|${where.projectionKey}|`)) ? { id: 'claim' } : null,
+      findMany: async ({ where }: { where: { eventId: string; projectionKey: { in: string[] } } }) =>
+        [...claimStore].map((k) => k.split('|')).filter(([e, p]) => e === where.eventId && where.projectionKey.in.includes(p))
+          .map(([, projectionKey, subjectId]) => ({ projectionKey, subjectId })),
     },
     $transaction: (cb: (tx: unknown) => Promise<unknown>) => cb(fakeTx),
   },
