@@ -78,6 +78,18 @@ Spark. XAUT (Tether Gold) targets Ethereum. None of this authorizes an
 decision — see `docs/BACKLOG.md`'s canonical matrix for the full,
 authoritative, current version of this target.
 
+**Successor note (2026-11-01, Product Owner + CTO; paragraph above
+preserved as the 2026-09-10 record).** The Day-0 commitment is now 14
+native P2P combinations (BTC: `BITCOIN_L1`, `LIQUID`; USDT: Ethereum,
+Polygon, Base, Arbitrum, TON, Tron, Solana; USDC: Ethereum, Polygon,
+Base, Arbitrum, Solana) — see `docs/adr/ADR-002-asset-settlement-rail-adapter-provider-architecture.md`
+§5A. Spark, Lightning, Arkade, DePix, XAUT, Optimism, Avalanche, BNB
+Chain and USDT on Liquid left the Day-0 commitment: all twelve are
+native P2P roadmap with no date commitment. Sails Market may offer
+routes, swaps and direct purchase through commercial partners, which is
+not native P2P support. The statement "USDC targets the six EVM networks
+above only" is historical.
+
 ## Months 1-3 — Foundation (Commitment)
 
 - `@sails/protocol-spec` v0.1 published to npm (interfaces + event contracts only)
