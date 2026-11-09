@@ -228,13 +228,18 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
     return { escrow, buyer }
   }
 
+  // Issue #238 - opening a dispute freezes the escrow and creates its canonical Dispute row in one transaction.
+  const openDispute = (escrow: { id: string; tradeId: string }, buyer: { id: string }, reason: string) =>
+    escrowService.openDispute(escrow.id, buyer.id, reason, (tx) =>
+      tx.dispute.create({ data: { tradeId: escrow.tradeId, escrowId: escrow.id, openedBy: buyer.id, reason, status: 'OPENED' } }))
+
   it('cooperative C8: a dispute opened after the gates and before the broadcast cannot be opened, because the escrow is claimed first', async () => {
     requirePostgres('C8 dispute between gates and broadcast')
     const { escrow, buyer } = await makeCooperativeC8('m9r-c8-race-broadcast')
     const { multisigProvider } = require('../../src/modules/open-settlement/multisig.provider')
     let disputeAttempt: 'opened' | 'refused' | 'not attempted' = 'not attempted'
     const broadcast = jest.spyOn(multisigProvider, 'broadcast').mockImplementation(async () => {
-      disputeAttempt = await escrowService.openDispute(escrow.id, buyer.id, 'raced the broadcast').then(() => 'opened' as const, () => 'refused' as const)
+      disputeAttempt = await openDispute(escrow, buyer, 'raced the broadcast').then(() => 'opened' as const, () => 'refused' as const)
       return 'provider-txid'
     })
 
@@ -253,7 +258,7 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
     const capability = require('../../src/modules/open-settlement/capability-execution-authorization')
     const realAuthorize = capability.authorizePendingExecution
     const authorize = jest.spyOn(capability, 'authorizePendingExecution').mockImplementation(async (pending: unknown) => {
-      await escrowService.openDispute(escrow.id, buyer.id, 'won the race')
+      await openDispute(escrow, buyer, 'won the race')
       return realAuthorize(pending)
     })
     const broadcast = jest.spyOn(multisigProvider, 'broadcast')
@@ -282,7 +287,7 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
 
     expect(first.failed.find((f) => f.escrowId === escrow.id)).toBeDefined()
     expect((await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })).status).toBe('COMPLETED')
-    await expect(escrowService.openDispute(escrow.id, buyer.id, 'after an unknown broadcast')).rejects.toThrow()
+    await expect(openDispute(escrow, buyer, 'after an unknown broadcast')).rejects.toThrow()
 
     // The broadcast did reach the network: PASS 1 finds it and converges without broadcasting again.
     const unknown = global.fetch

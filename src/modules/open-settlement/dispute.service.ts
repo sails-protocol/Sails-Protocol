@@ -69,6 +69,11 @@ import { publishPendingDisputeTransitions, transitionKeyFor, type DisputeTransit
 // not attempted here.
 export const APPEAL_FEE_MULTIPLIER = 2
 
+// Issue #238 - recoverUnassignedDisputes(): an opening younger than this may still be finishing live.
+const UNASSIGNED_DISPUTE_GRACE_MS = 5 * 60 * 1000
+// shortcut: oldest-first with no cursor, so 200+ unstaffable disputes would starve newer ones; add a cursor if that occurs.
+const UNASSIGNED_DISPUTE_BATCH = 200
+
 export type ArbitrationProviderResolver = (implementation: string) => ArbitrationProvider
 
 /** D10 P2 - the ruling cannot be finalized yet; nothing was applied and a later recovery pass retries it. */
@@ -153,8 +158,8 @@ export class DisputeService {
   // same deferred-scope decision documented in escrow-repository.ts's own
   // header), so this reads it directly, matching how this file already
   // reads Dispute/DisputeAppealFee via `prisma` rather than a repository.
-  private async findCommittedArbiterId(escrowId: string): Promise<string | null> {
-    const key = await prisma.escrowParticipantKey.findUnique({
+  private async findCommittedArbiterId(escrowId: string, client: Prisma.TransactionClient = prisma): Promise<string | null> {
+    const key = await client.escrowParticipantKey.findUnique({
       where: { escrowId_role: { escrowId, role: 'arbiter' } },
     })
     return key?.participantId ?? null
@@ -272,32 +277,30 @@ export class DisputeService {
       evidence.map((entry) => this.resolveEvidenceDescriptor(entry, tradeId))
     )
 
-    // Freezes the trade — escrow.service.ts's real, existing state
-    // transition (Escrow -> DISPUTED), not new logic written here.
-    await escrowService.openDispute(trade.escrowId, raisedBy, reason)
+    const escrowId = trade.escrowId
+    const { provider } = await this.providerForEscrow(escrowId)
 
-    // Security-validation round (2026-07-19, "disputa dupla" scenario):
-    // this create() reads-then-writes across two calls (this one and
-    // openDispute() above) with no locking — buyer and seller calling
-    // raiseDispute() concurrently could both pass every check above
-    // before either write lands. The schema's new @@unique([tradeId])
-    // on Dispute (see that model's own comment) is the actual guard: the
-    // loser of the race hits a real P2002 here, caught and turned into a
-    // clean rejection instead of a second, corrupting Dispute row —
-    // same pattern reputation.service.ts's rate() already established
-    // for its own unique-constraint race.
+    // Freezes the trade. Issue #238: the Escrow -> DISPUTED claim, its transition and this Dispute row commit
+    // together (escrow.service.ts's openDispute()), so a crash can no longer leave a DISPUTED escrow with no
+    // Dispute. Fase 7.3.1 §B: a script-committed arbiter identity always wins over the provider's own pick and
+    // is written in that same transaction, so a committed rail never has an unassigned window.
+    // Security-validation round (2026-07-19, "disputa dupla"): @@unique([tradeId]) on Dispute stays the guard;
+    // a P2002 rolls the whole transaction back and is turned into a clean rejection.
     let dispute
     try {
-      dispute = await prisma.dispute.create({
-        data: {
-          tradeId,
-          escrowId: trade.escrowId,
-          openedBy: raisedBy,
-          reason,
-          evidence: resolvedEvidence as unknown as object,
-          status: 'OPENED',
-        },
-      })
+      dispute = await escrowService.openDispute(escrowId, raisedBy, reason, async (tx) =>
+        tx.dispute.create({
+          data: {
+            tradeId,
+            escrowId,
+            openedBy: raisedBy,
+            reason,
+            evidence: resolvedEvidence as unknown as object,
+            status: 'OPENED',
+            arbiterId: await this.findCommittedArbiterId(escrowId, tx),
+          },
+        })
+      )
     } catch (err: any) {
       if (err?.code === 'P2002') {
         throw new ValidationError(`A dispute has already been raised for trade ${tradeId}`)
@@ -305,23 +308,22 @@ export class DisputeService {
       throw err
     }
 
-    // Fase 7.3.1 §B — a script-committed arbiter identity always wins
-    // over the configured ArbitrationProvider's own independent pick;
-    // assign() is only ever consulted for an escrow type with no such
-    // commitment (see findCommittedArbiterId()'s own comment above).
-    const { provider } = await this.providerForEscrow(trade.escrowId)
-    const committedArbiterId = await this.findCommittedArbiterId(trade.escrowId)
-    const arbiterId = committedArbiterId ?? (await provider.assign(dispute.id, tradeId))
-    const updated = await prisma.dispute.update({
-      where: { id: dispute.id },
-      data: { arbiterId },
-    })
+    // assign() is only consulted with no committed arbiter, after the commit (it may read or call outside this
+    // database). If this process dies first, recoverUnassignedDisputes() finishes it; until then no ruling or
+    // escrow movement can name an arbiter, since both require dispute.arbiterId to equal the actor.
+    let arbiterId = dispute.arbiterId
+    let updated = dispute
+    if (!arbiterId) {
+      arbiterId = await this.assignArbiterOnce(dispute, await provider.assign(dispute.id, tradeId))
+      updated = (await prisma.dispute.findUnique({ where: { id: dispute.id } })) ?? dispute
+      if (!arbiterId) return updated // recoverUnassignedDisputes() assigned and announced it concurrently
+    }
 
     // Notification via pubsub (EventStore, RFC-010) — correlationId =
     // tradeId, the established convention for trade-lifecycle events.
     await eventBus.emit('dispute.opened', {
       disputeId: dispute.id,
-      settlementId: trade.escrowId,
+      settlementId: escrowId,
       tradeId,
       arbiterId,
       reason,
@@ -329,6 +331,63 @@ export class DisputeService {
     }, tradeId)
 
     return updated
+  }
+
+  /**
+   * Issue #238 - persists `arbiterId` only while the first-instance dispute is still unassigned. Returns it when
+   * this call won, or null when another writer (the live path or recoverUnassignedDisputes()) already assigned
+   * one: the persisted arbiter is never replaced, and only the winner announces 'dispute.opened'.
+   */
+  private async assignArbiterOnce(dispute: { id: string }, arbiterId: string): Promise<string | null> {
+    const claim = await prisma.dispute.updateMany({
+      where: { id: dispute.id, arbiterId: null, appealRound: 0 },
+      data: { arbiterId },
+    })
+    return claim.count === 1 ? arbiterId : null
+  }
+
+  /**
+   * Issue #238 - finishes raiseDispute() for a dispute whose opening committed but whose process died before the
+   * arbiter was assigned. Same choice as the live path: the script-committed arbiter, else the escrow's own
+   * provider; written by assignArbiterOnce(), so an arbiter already persisted (by the live path or an earlier
+   * tick) is never replaced. A dispute no provider can staff (no eligible arbiter) stays unassigned, which keeps
+   * every ruling and DISPUTED-escrow movement refused, and is reported in `failed` and retried next tick.
+   * `graceMs` leaves a live raiseDispute() time to finish first; appeals always carry their panel arbiter.
+   */
+  async recoverUnassignedDisputes(graceMs = UNASSIGNED_DISPUTE_GRACE_MS): Promise<{ recovered: string[]; failed: Array<{ disputeId: string; error: string }> }> {
+    const candidates = await prisma.dispute.findMany({
+      where: {
+        arbiterId: null,
+        appealRound: 0,
+        ruling: null,
+        status: { in: ['OPENED', 'EVIDENCE_SUBMITTED', 'AUTO_PROPOSED'] },
+        createdAt: { lt: new Date(Date.now() - graceMs) },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: UNASSIGNED_DISPUTE_BATCH,
+    })
+    const recovered: string[] = []
+    const failed: Array<{ disputeId: string; error: string }> = []
+    for (const dispute of candidates) {
+      try {
+        const { provider } = await this.providerForEscrow(dispute.escrowId)
+        const chosen = (await this.findCommittedArbiterId(dispute.escrowId)) ?? (await provider.assign(dispute.id, dispute.tradeId))
+        const arbiterId = await this.assignArbiterOnce(dispute, chosen)
+        if (!arbiterId) continue // assigned concurrently; that writer announces it
+        await eventBus.emit('dispute.opened', {
+          disputeId: dispute.id,
+          settlementId: dispute.escrowId,
+          tradeId: dispute.tradeId,
+          arbiterId,
+          reason: dispute.reason,
+          triggeredBy: dispute.openedBy,
+        }, dispute.tradeId)
+        recovered.push(dispute.id)
+      } catch (err) {
+        failed.push({ disputeId: dispute.id, error: err instanceof Error ? err.message : String(err) })
+      }
+    }
+    return { recovered, failed }
   }
 
   /**

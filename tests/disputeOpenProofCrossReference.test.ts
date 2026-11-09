@@ -21,7 +21,10 @@ const mockDisputeUpdate = jest.fn()
 const mockTradeFindUnique = jest.fn()
 const mockEscrowParticipantKeyFindUnique = jest.fn()
 const mockEmit = jest.fn().mockResolvedValue(undefined)
-const mockOpenDispute = jest.fn().mockResolvedValue({})
+// Issue #238 - openDispute() runs the Dispute insert inside its own transaction; the mocked prisma stands in for it.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const mockOpenDispute = jest.fn((...args: any[]) => args[3](require('../src/common/database').prisma))
+const mockDisputeUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockAssertEvidenceReferenceBelongsToTrade = jest.fn()
 
 jest.mock('../src/common/database', () => ({
@@ -30,6 +33,7 @@ jest.mock('../src/common/database', () => ({
       findUnique: (...args: unknown[]) => mockDisputeFindUnique(...args),
       create: (...args: unknown[]) => mockDisputeCreate(...args),
       update: (...args: unknown[]) => mockDisputeUpdate(...args),
+      updateMany: (...args: unknown[]) => mockDisputeUpdateMany(...args),
     },
     trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
     escrowParticipantKey: { findUnique: (...args: unknown[]) => mockEscrowParticipantKeyFindUnique(...args) },

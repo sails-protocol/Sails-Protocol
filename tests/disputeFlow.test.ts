@@ -161,7 +161,9 @@ jest.mock('../src/common/events/event-bus', () => ({
   eventBus: { emit: (...args: unknown[]) => mockEmit(...args) },
 }))
 
-const mockOpenDispute = jest.fn().mockResolvedValue({})
+// Issue #238 - openDispute() commits the Dispute row inside its own transaction; the mocked prisma stands in for it.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const mockOpenDispute = jest.fn((...args: any[]) => args[3](require('../src/common/database').prisma))
 const mockReleaseFunds = jest.fn().mockResolvedValue({})
 const mockRefundFunds = jest.fn().mockResolvedValue({})
 // RFC-021 D9 (2026-08-02)
@@ -283,13 +285,16 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
 
   it('raiseDispute freezes the escrow, persists, assigns an arbiter, and notifies via pubsub', async () => {
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: 'escrow-1' })
-    mockDisputeCreate.mockResolvedValue({ id: 'dispute-1' })
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', arbiterId: 'arbiter-1' })
+    mockDisputeCreate.mockResolvedValue({ id: 'dispute-1', arbiterId: null })
+    mockDisputeUpdateMany.mockResolvedValueOnce({ count: 1 })
+    mockDisputeFindUnique.mockResolvedValueOnce({ id: 'dispute-1', arbiterId: 'arbiter-1' })
 
     const dispute = await service.raiseDispute('trade-1', 'buyer-1', 'paguei e não recebi', [])
 
-    expect(mockOpenDispute).toHaveBeenCalledWith('escrow-1', 'buyer-1', 'paguei e não recebi') // freeze
+    expect(mockOpenDispute).toHaveBeenCalledWith('escrow-1', 'buyer-1', 'paguei e não recebi', expect.any(Function)) // freeze
     expect(dispute.arbiterId).toBe('arbiter-1') // assignment via ArbitrationProvider
+    // Issue #238 - assigned only while still unassigned, so a concurrent recovery's arbiter is never replaced.
+    expect(mockDisputeUpdateMany).toHaveBeenCalledWith({ where: { id: 'dispute-1', arbiterId: null, appealRound: 0 }, data: { arbiterId: 'arbiter-1' } })
     expect(mockEmit).toHaveBeenCalledWith(
       'dispute.opened',
       expect.objectContaining({ disputeId: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' }),
@@ -314,10 +319,10 @@ describe('DisputeService — Task 2 raiseDispute/resolveDispute', () => {
     await expect(service.raiseDispute('trade-1', 'seller-1', 'contraparte não confirma pagamento')).rejects.toThrow(
       /already been raised/
     )
-    // openDispute() still ran (the escrow-side race isn't what's being
-    // asserted here — the Dispute-row race is) — this test's own value is
-    // that the ValidationError surfaces cleanly, not a raw P2002.
+    // openDispute() still ran: the P2002 now surfaces from inside its transaction (Issue #238), which rolls
+    // the escrow claim back with it. This test's own value is the clean ValidationError, not a raw P2002.
     expect(mockOpenDispute).toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalledWith('dispute.opened', expect.anything(), expect.anything())
   })
 
   it('rejects a raiseDispute from someone who is not a party to the trade', async () => {
