@@ -111,6 +111,10 @@ evidence, beta eligibility, or production eligibility** (§7).
 
 ## 5. Frozen Canonical Day-0 Scopes (25 rows)
 
+*(Historical as of 2026-11-01: superseded as the Day-0 **commitment** by
+§5A below. The table and the surrounding text are preserved verbatim —
+they record what was frozen on 2026-09-10/12 and why.)*
+
 Restates `docs/BACKLOG.md` item 20's own canonical Day-0 target,
 re-expressed as `{asset, rail}` rows — no scope change, a re-expression
 only:
@@ -138,7 +142,136 @@ No such registry is implemented — §12 item 1 is the first step that
 would create one. The sentence above corrects this to describe current
 code reality without implying the registry exists.)*
 
+## 5A. Successor Decision — Day-0 Commitment of 14 Native P2P Combinations (2026-11-01)
+
+**Status:** recorded from the Product Owner + CTO decision of 2026-11-01
+(relayed by the EPM). Documentation only: no code, registry, test, schema,
+SDK, PR, gate, acceptance criterion, deploy or homologation status
+changes with this section. Divergences D1–D4 found while reconciling were
+decided by the CTO the same day (Issue #105, issuecomment-6561714306);
+the decisions are recorded at the end of this section.
+
+**Successor to §5, not a deletion of it.** §5 remains the historical
+record of the 2026-09-10 Product Direction Freeze (`docs/BACKLOG.md`
+item 20). From 2026-11-01 the Day-0 **commitment** is the following
+set, as a whole — not an "initial wave" of the 25 rows in §5:
+
+| Asset | Rails | Count |
+|---|---|---|
+| **BTC** | `BITCOIN_L1`, `LIQUID` | 2 |
+| **USDT** | `ETHEREUM`, `POLYGON`, `BASE`, `ARBITRUM`, `TON`, `TRON`, `SOLANA` | 7 |
+| **USDC** | `ETHEREUM`, `POLYGON`, `BASE`, `ARBITRUM`, `SOLANA` | 5 |
+
+**14 total rows.**
+
+**Left the Day-0 commitment (12 rows of §5, kept here for traceability —
+not erased):** `{BTC, LIGHTNING}`, `{BTC, SPARK}`, `{BTC, ARKADE}`,
+`{DEPIX, LIQUID}`, `{DEPIX, SPARK}`, `{USDT, OPTIMISM}`,
+`{USDT, AVALANCHE}`, `{USDT, BNB_CHAIN}`, `{USDT, LIQUID}`,
+`{USDC, OPTIMISM}`, `{USDC, AVALANCHE}`, `{XAUT, ETHEREUM}`. All twelve
+are native P2P **roadmap, with no date commitment** (D4 below).
+
+**Added by this decision (1 row not in §5):** `{USDC, SOLANA}`,
+intentionally (D1 below). Arithmetic: 25 − 12 + 1 = 14, i.e. 13 retained
+rows plus 1 new row.
+
+**Binding directives carried by the decision:**
+
+1. Sails Protocol stays fully non-custodial and permissionless.
+2. Sails Market is the web reference implementation and has an
+   independent commercial layer for swaps, direct purchase, routing and
+   partner integrations.
+3. Commercial swaps and direct purchase are **not** native P2P
+   settlement providers.
+4. Adapters and infrastructure are shared where possible, especially
+   across the EVM networks, with **explicit network and provider
+   selection preserved** (§2, §4: shared implementation ≠ shared
+   maturity).
+5. The 14 rows are the complete Day-0 commitment.
+6. Cross-cutting requirements — security, recovery, external
+   integration, multi-operator operation and evidence — are **not**
+   reduced by this narrowing.
+7. Membership in this table homologates nothing. Product Scope,
+   Representability, Implementation, Evidence, Beta Eligibility and
+   Production Eligibility remain the separate facts of §7.
+
+**What does not change.** §4 (sparse, explicitly registered scopes) is
+untouched: leaving the commitment does not remove a row from the
+canonical `SettlementScope` registry. The registry in
+`src/common/settlement-scope-registry.ts` still holds the 25 rows of §5
+and `{USDC, SOLANA}` is not in it; aligning code and tests is a separate,
+separately-authorized implementation mission (D2 below). Implementation
+facts are unchanged:
+`MULTISIG` → `{BTC, BITCOIN_L1}` and `WDK_USDT_EVM` → `{USDT, ETHEREUM}`
+(testnet, server-custodial) are inside the commitment; `{USDT, TRON}`
+stays schema-only and inside it; `LIGHTNING_HODL` → `{BTC, ARKADE}` keeps
+its testnet evidence but its scope is outside the commitment. Mentions of
+"the 25 rows" in §§7 and 12 below read historically.
+
+**Decisions on the divergences found while reconciling (CTO, 2026-11-01,
+Issue #105 issuecomment-6561714306):**
+
+- **D1 — arithmetic.** The historical matrix has 25 rows; 12 leave the
+  Day-0 commitment and `{USDC, SOLANA}` is added intentionally: 25 − 12 +
+  1 = 14 (13 retained, 1 new). The earlier "11 withdrawn" wording is
+  corrected by this record.
+- **D2 — registry preserved.** The 12 entries stay in the registry and
+  the tests that verify the 25-row catalog are not touched. Four facts are
+  kept separate: the architectural catalog (25 rows), the Day-0
+  commitment (14), the registered provider, and beta/production
+  eligibility. `LIGHTNING_HODL` → `{BTC, ARKADE}` keeps its registration
+  and existing proofs without being mandatory for Day 0. An explicit
+  validation of the Day-0 commitment matrix will be created in a
+  separately authorized implementation mission; this section changes no
+  code or test.
+- **D3 — successor decision.** The 2026-09-10 clause against scope
+  reduction (`docs/BACKLOG.md` item 20) was valid for that freeze and is
+  preserved as history. The 2026-11-01 decision succeeds it and revises
+  its reach: **none of the 14 Day-0 combinations may be withdrawn silently
+  — withdrawing one requires a new Product Owner + CTO approval, with
+  justification and traceability.**
+- **D4 — destination of the 12.** Native roadmap with no date commitment
+  (all twelve rows listed above). Sails Market may offer routes, swaps and
+  direct purchase through commercial partners; that is not native P2P
+  support of the protocol. DePix may have commercial coverage through
+  Sails Market provided approved partners exist.
+
+**Effect on the Gate B decisions recorded on 2026-11-01 in Issue #105 and
+the Project README.** Items incompatible with this section — "the 25
+combinations are kept", `{BTC, ARKADE}` as a later wave, DePix as
+mandatory native P2P — are superseded and stay as history. No Gate B
+criterion is marked concluded, and nothing is homologated.
+
+## 5B. Day-0 Matrix: Facts per Combination (2026-11-03)
+
+**Status:** a statement of facts as read from the repository on 2026-11-03 (`main` `5f5be8d`), requested by the CTO to complement §5A and to serve `docs/BACKLOG.md` item 20 and criterion B4 of Issue #105. It freezes no decision, adds no scope and homologates nothing. "Cataloged" means the row exists in the 25-row `SettlementScope` registry (§5); "provider registered" means a `SettlementProviderRegistration` exists (`src/common/settlement-provider-registry.ts`). Capabilities are the ones the registry declares, never self-declared properties (§6).
+
+| # | Asset | Rail | Adapter / provider today | Declared capabilities | Implementation | Evidence on record | Registry | Beta / production eligibility |
+|---|---|---|---|---|---|---|---|---|
+| 1 | BTC | `BITCOIN_L1` | `MULTISIG` (`multisig.provider.ts`) | release, refund, split, signatureCollection | Implemented | One mainnet release of 30,000 sats (`docs/MAINNET_MULTISIG_PROOF.md`): the 2-of-3 witness is verifiable on-chain. Limits stated by that document: one operator held both client keys, the arbiter key is derived server-side, refund and split were not exercised on mainnet, no third-party audit | Cataloged; provider registered | Not decided; not homologated |
+| 2 | BTC | `LIQUID` | None (`LIQUID_COVENANT` is an `EscrowType` with no provider) | n/a | Not implemented | None | Cataloged; no provider | None |
+| 3 | USDT | `ETHEREUM` | `WDK_USDT_EVM`, a **server-custodial reference** (single server-held seed) | release, refund, split | Implemented, testnet only | Testnet; unknown-outcome retry evidence is simulated (`docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md`) | Cataloged; provider registered | **Production-ineligible** (RFC-019; the boot refuses a configured seed in production). No non-custodial ERC-20 provider exists: `SAFE_GUARD_EVM` is a candidate that checks native-currency balance, is not registered and was never exercised against live infrastructure |
+| 4 | USDT | `POLYGON` | None | n/a | Not implemented | None | Cataloged; no provider | None |
+| 5 | USDT | `BASE` | None | n/a | Not implemented | None | Cataloged; no provider | None |
+| 6 | USDT | `ARBITRUM` | None | n/a | Not implemented | None | Cataloged; no provider | None |
+| 7 | USDT | `TON` | None | n/a | Not implemented | None | Cataloged; no provider | None |
+| 8 | USDT | `TRON` | None (legacy `USDT_TRC20` exists only as a schema value) | n/a | Schema representation only | None | Cataloged; no provider | None |
+| 9 | USDT | `SOLANA` | None | n/a | Not implemented | None | Cataloged; no provider | None |
+| 10 | USDC | `ETHEREUM` | None (`USDC` is not a legacy `AssetType`) | n/a | Not implemented | None | Cataloged; no provider | None |
+| 11 | USDC | `POLYGON` | None | n/a | Not implemented | None | Cataloged; no provider | None |
+| 12 | USDC | `BASE` | None | n/a | Not implemented | None | Cataloged; no provider | None |
+| 13 | USDC | `ARBITRUM` | None | n/a | Not implemented | None | Cataloged; no provider | None |
+| 14 | USDC | `SOLANA` | None | n/a | Not implemented | None | **Not cataloged**: added by the 2026-11-01 decision; registering it is the separate mission of D2 | None |
+
+**Reading notes.**
+
+- Of the 14 rows, **one** has a provider that is implemented, registered and not classified as custodial (row 1; its arbiter key is still derived on the server, as its proof document states). Eight rows are USDT or USDC on an EVM network (rows 3 to 6 and 10 to 13); for them the only implemented path is the custodial reference of row 3. Whether one generic EVM provider can serve several networks, each with its own maturity, remains a hypothesis (`docs/BACKLOG.md` item 20), not a decision.
+- Shared implementation does not mean shared maturity (§2, §7). No cell above is a homologation.
+
+**The 25-row table of §5 stays as the historical catalog.** The 12 rows that left the Day-0 commitment (§5A) are native-P2P roadmap, with no claim of implementation attached to them. One of them has a real implementation that is outside the commitment: `LIGHTNING_HODL` serves `{BTC, ARKADE}` (registered, testnet-evidenced on Mutinynet). The other eleven have no provider.
+
 ## 6. Capability, Property, and Eligibility — Four Layers, Never Collapsed
+
 
 > **Permission Capability ≠ Settlement Capability ≠ Security Property ≠
 > Production Eligibility**
