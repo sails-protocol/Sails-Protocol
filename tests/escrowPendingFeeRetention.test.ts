@@ -94,7 +94,9 @@ jest.mock('../src/common/database', () => ({
           findUnique: (...a: unknown[]) => mockEscrowFindUnique(...a),
           update: (...a: unknown[]) => mockEscrowUpdate(...a),
         },
-        escrowPendingTransaction: { findFirst: () => Promise.resolve(pendingTxStore) },
+        // Issue #244 - submitTransactionSignature() reads the round and signs it under the escrow lock (same stores).
+        escrowPendingTransaction: { findFirst: () => Promise.resolve(pendingTxStore), findUnique: () => Promise.resolve(pendingTxStore) },
+        escrowTransactionSignature: { upsert: (arg: unknown) => require('../src/common/database').prisma.escrowTransactionSignature.upsert(arg) },
         // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
         eventProjectionClaim: { create: jest.fn().mockResolvedValue({}) },
         escrowEvent: {

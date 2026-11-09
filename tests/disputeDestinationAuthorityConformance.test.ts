@@ -239,7 +239,12 @@ jest.mock('../src/common/database', () => ({
           create: (...args: unknown[]) => mockEscrowEventCreate(...args),
         },
         escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
-        escrowPendingTransaction: { create: (arg: { data: Record<string, unknown> }) => mockPendingTxCreate(arg), findFirst: (arg: unknown) => mockPendingTxFindUnique(arg) /* Issue #291 - operation-bound result write */ },
+        escrowPendingTransaction: {
+          create: (arg: { data: Record<string, unknown> }) => mockPendingTxCreate(arg),
+          findFirst: (arg: unknown) => mockPendingTxFindUnique(arg), // Issue #291 - operation-bound result write
+          findUnique: (arg: unknown) => mockPendingTxFindUnique(arg), // Issue #244 - the round is read and signed under the escrow lock
+        },
+        escrowTransactionSignature: { upsert: (arg: { create: { pendingTxId: string; participantId: string; signedPsbtBase64: string } }) => mockSignatureUpsert(arg) },
       })
     },
   },
