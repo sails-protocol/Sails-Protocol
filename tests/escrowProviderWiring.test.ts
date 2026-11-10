@@ -1,3 +1,10 @@
+// Issue #239 - this suite's PSBTs are placeholders: the real signature check (multisig-round-proofs.ts) is proven with
+// real Bitcoin PSBTs in tests/multisigRoundProofs.test.ts and tests/integration/pendingRoundLifecycle.test.ts.
+jest.mock('../src/modules/open-settlement/multisig-round-proofs', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/multisig-round-proofs'),
+  verifySignerPartialSignature: (_unsigned: string, signed: string) => signed,
+}))
+
 /**
  * escrow.service.ts's provider wiring — things found/fixed while building
  * the real MultisigProvider/LightningHodlProvider (multisig.provider.ts,
@@ -175,7 +182,9 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
       // Issue #244 - submitTransactionSignature() reads the round and signs it under the escrow lock.
       findUnique: (...args: unknown[]) => mockPendingTxFindUnique(...args),
     },
-    escrowTransactionSignature: { upsert: (...args: unknown[]) => mockTxSignatureUpsert(...args) },
+    escrowTransactionSignature: { upsert: (...args: unknown[]) => mockTxSignatureUpsert(...args), findMany: (arg: unknown) => require('../src/common/database').prisma.escrowTransactionSignature.findMany(arg) },
+      // Issue #239 - the signature set and the signer's registered key are read under the same escrow lock.
+      escrowParticipantKey: { findFirst: async () => ({ pubkey: 'test-signer-pubkey' }) },
     escrowFundingEvidence: {
       findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args),
     },

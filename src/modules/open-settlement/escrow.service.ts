@@ -1012,20 +1012,26 @@ export class EscrowService {
   }
 
   // ─── Client-signature-collection flow — thin delegates to escrow-pending-tx.ts ──
-  async initiateRelease(escrowId: string, toAddress: string | undefined, triggeredBy: string) {
-    return pendingTx.initiateRelease(escrowId, toAddress, triggeredBy)
+  // Issue #239 - rest-forwarded so the optional trailing ruling-supersession grant (passed only by the ruling
+  // dispatch path, never by a route) reaches escrow-pending-tx.ts unchanged.
+  async initiateRelease(...args: Parameters<typeof pendingTx.initiateRelease>) {
+    return pendingTx.initiateRelease(...args)
   }
 
-  async initiateRefund(escrowId: string, triggeredBy: string, toAddress?: string) {
-    return pendingTx.initiateRefund(escrowId, triggeredBy, toAddress)
+  async initiateRefund(...args: Parameters<typeof pendingTx.initiateRefund>) {
+    return pendingTx.initiateRefund(...args)
   }
 
-  async initiateSplit(escrowId: string, buyerAddress: string | undefined, sellerAddress: string | undefined, buyerBps: number, triggeredBy: string) {
-    return pendingTx.initiateSplit(escrowId, buyerAddress, sellerAddress, buyerBps, triggeredBy)
+  async initiateSplit(...args: Parameters<typeof pendingTx.initiateSplit>) {
+    return pendingTx.initiateSplit(...args)
   }
 
-  async submitTransactionSignature(escrowId: string, participantId: string, signedPsbtBase64: string) {
-    return pendingTx.submitTransactionSignature(escrowId, participantId, signedPsbtBase64)
+  async submitTransactionSignature(...args: Parameters<typeof pendingTx.submitTransactionSignature>) {
+    return pendingTx.submitTransactionSignature(...args)
+  }
+
+  async cancelPendingSignatureRound(...args: Parameters<typeof pendingTx.cancelPendingSignatureRound>) {
+    return pendingTx.cancelPendingSignatureRound(...args)
   }
 
   async getPendingTransaction(escrowId: string) {

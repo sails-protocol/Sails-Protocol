@@ -12,6 +12,13 @@ import { randomBytes } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
 
+// Issue #239 - this suite proves lock interleaving, not Bitcoin signatures: its rounds carry placeholder PSBTs, so the
+// PSBT check is stubbed here (it is proven with real PSBTs in tests/integration/pendingRoundLifecycle.test.ts).
+jest.mock('../../src/modules/open-settlement/multisig-round-proofs', () => ({
+  ...jest.requireActual('../../src/modules/open-settlement/multisig-round-proofs'),
+  verifySignerPartialSignature: (_unsigned: string, signed: string) => signed,
+}))
+
 describe('Issue #244 - stale dispute-pending cleanup vs a concurrent signature (real PostgreSQL)', () => {
   jest.setTimeout(60_000)
   const pg = createPostgresIntegrationHarness()
@@ -70,11 +77,18 @@ describe('Issue #244 - stale dispute-pending cleanup vs a concurrent signature (
     })
     const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001', status: 'DISPUTED' } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    await prisma.dispute.create({
+    const dispute = await prisma.dispute.create({
       data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: '#244', arbiterId: arbiter.id, status: 'RESOLVED', ruling: 'RELEASE', resolvedAt: new Date() },
     })
+    // Issue #239 - the signer's registered key is read under the escrow lock (the PSBT check itself is stubbed above).
+    await prisma.escrowParticipantKey.createMany({ data: [
+      { escrowId: escrow.id, role: 'buyer', participantId: buyer.id, pubkey: 'buyer-key' },
+      { escrowId: escrow.id, role: 'seller', participantId: seller.id, pubkey: 'seller-key' },
+    ] })
     const pending = await prisma.escrowPendingTransaction.create({
       data: {
+        // A ruling's round (disputeId): the stale cleanup's own subject; a cooperative round takes no signature once DISPUTED (#239).
+        disputeId: dispute.id,
         escrowId: escrow.id, kind: 'release', toAddress: 'bc1qtest', unsignedPsbtBase64: 'stub',
         requiredSigners: requiredSigners === 'both' ? [buyer.id, seller.id] : [buyer.id], triggeredBy: arbiter.id,
         createdAt: new Date(Date.now() - 10 * 60 * 1000),

@@ -45,7 +45,7 @@ import { commitAuthoritativeDisputeRuling, revertDisputeRulingRecord } from './d
 import { economicDispositionLockKey } from './economic-disposition-authority'
 import { OUTBOUND_OPERATION_TYPES, POTENTIALLY_SENT_STATUSES, wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 import { splitLegAmounts } from './wdk-settlement.provider'
-import { assertDisputeDispatchEligible } from './dispute-dispatch'
+import { assertDisputeDispatchEligible, issueRulingSupersessionGrant } from './dispute-dispatch'
 import { assertTranslationMatchesOutcome } from './dispatch-translation-guard'
 import { networkFor } from './multisig.provider'
 import { publishPendingDisputeTransitions, transitionKeyFor, type DisputeTransitionKind } from './dispute-transition-outbox'
@@ -805,9 +805,16 @@ export class DisputeService {
       const buyerDestination = commitResult.destinations.find((d) => d.beneficiary === buyerId)?.destination
       const sellerDestination = commitResult.destinations.find((d) => d.beneficiary === sellerId)?.destination
 
+      // Issue #239 (A-1) - this ruling's own supersession grant, built from exactly what the guarded update above
+      // committed (dispute-outcome.ts). It is the only way the dispatch may replace a cooperative round that is not
+      // fully signed; initiateSignatureCollectionCore() re-validates it against the database under the escrow lock.
+      const supersession = issueRulingSupersessionGrant({
+        id: dispute.id, appealRound: dispute.appealRound, arbiterId: payload.authorityId, ruling: payload.outcome,
+        authoritySignature, authorityIssuedAt: new Date(payload.issuedAt), status: 'RESOLVED',
+      })
       let pending: { unsignedPsbtBase64: string; minerFeeSats: number | null }
       if (payload.outcome === 'RELEASE') {
-        pending = await escrowService.initiateRelease(dispute.escrowId, buyerDestination, payload.authorityId)
+        pending = await escrowService.initiateRelease(dispute.escrowId, buyerDestination, payload.authorityId, supersession)
       } else if (payload.outcome === 'REFUND') {
         // M8-RF (Destination Consistency) — sellerDestination is the
         // seller's OWN historical DestinationBinding, already resolved
@@ -817,9 +824,9 @@ export class DisputeService {
         // the real Bitcoin translation match what the Outcome already
         // authorized — never re-derived from the seller's multisig
         // signing key, never re-read from current PayoutAddress state.
-        pending = await escrowService.initiateRefund(dispute.escrowId, payload.authorityId, sellerDestination)
+        pending = await escrowService.initiateRefund(dispute.escrowId, payload.authorityId, sellerDestination, supersession)
       } else {
-        pending = await escrowService.initiateSplit(dispute.escrowId, buyerDestination, sellerDestination, payload.buyerBps!, payload.authorityId)
+        pending = await escrowService.initiateSplit(dispute.escrowId, buyerDestination, sellerDestination, payload.buyerBps!, payload.authorityId, supersession)
       }
 
       try {

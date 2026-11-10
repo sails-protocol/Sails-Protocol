@@ -119,6 +119,41 @@ export function economicDispositionOperationDigest(pending: DisputedPendingFacts
   return createHash('sha256').update(canonical).digest('hex')
 }
 
+/** Issue #239 - the no-provenance refusal below, typed so callers classify it without matching message text. */
+export class CooperativeOriginNotProvable extends EscrowError {}
+
+/**
+ * The cooperative-origin rule for a pending operation with no recorded ruling generation: provable only when
+ * this escrow was never disputed. `client` lets a caller evaluate it inside its own escrow-locked transaction.
+ */
+export async function assertCooperativeOriginProvable(
+  pending: { id: string; escrowId: string },
+  client: Pick<typeof prisma, 'dispute' | 'escrow' | 'escrowEvent'> = prisma
+): Promise<void> {
+  const everDisputed = await client.dispute.findFirst({ where: { escrowId: pending.escrowId } })
+  if (everDisputed) {
+    throw new CooperativeOriginNotProvable(
+      `Pending operation ${pending.id} on escrow ${pending.escrowId} carries no recorded Economic Disposition ` +
+      'Authority provenance, but this escrow has a Dispute record — its cooperative origin cannot be proven ' +
+      'from durable current/historical facts. Refusing to execute an ambiguous-origin pending operation (ADR-005).'
+    )
+  }
+  // A missing Dispute row alone proves nothing: openDispute() makes the escrow DISPUTED before raiseDispute()
+  // writes the row, and a row can be deleted. The escrow's own status and its recorded transitions decide.
+  const escrow = await client.escrow.findUnique({ where: { id: pending.escrowId }, select: { status: true } })
+  const disputedTransition = await client.escrowEvent.findFirst({
+    where: { escrowId: pending.escrowId, OR: [{ toStatus: 'DISPUTED' }, { fromStatus: 'DISPUTED' }] },
+    select: { id: true },
+  })
+  if (!escrow || escrow.status === 'DISPUTED' || disputedTransition) {
+    throw new CooperativeOriginNotProvable(
+      `Pending operation ${pending.id} on escrow ${pending.escrowId} carries no recorded Economic Disposition ` +
+      'Authority provenance, and this escrow is or was DISPUTED — refusing to execute it as a cooperative ' +
+      'operation (ADR-005).'
+    )
+  }
+}
+
 export async function authorizeDisputedPendingExecution(pending: DisputedPendingFacts) {
   if (!pending.disputeId) {
     // No recorded generation. Fast-path to "cooperative, ADR-005 does not
@@ -126,28 +161,7 @@ export async function authorizeDisputedPendingExecution(pending: DisputedPending
     // disputed at all, ever (see header comment). Otherwise this is an
     // ambiguous legacy/undisputed-provenance row and must fail closed
     // rather than being silently allowed through as if proven cooperative.
-    const everDisputed = await prisma.dispute.findFirst({ where: { escrowId: pending.escrowId } })
-    if (everDisputed) {
-      throw new EscrowError(
-        `Pending operation ${pending.id} on escrow ${pending.escrowId} carries no recorded Economic Disposition ` +
-        'Authority provenance, but this escrow has a Dispute record — its cooperative origin cannot be proven ' +
-        'from durable current/historical facts. Refusing to execute an ambiguous-origin pending operation (ADR-005).'
-      )
-    }
-    // A missing Dispute row alone proves nothing: openDispute() makes the escrow DISPUTED before raiseDispute()
-    // writes the row, and a row can be deleted. The escrow's own status and its recorded transitions decide.
-    const escrow = await prisma.escrow.findUnique({ where: { id: pending.escrowId }, select: { status: true } })
-    const disputedTransition = await prisma.escrowEvent.findFirst({
-      where: { escrowId: pending.escrowId, OR: [{ toStatus: 'DISPUTED' }, { fromStatus: 'DISPUTED' }] },
-      select: { id: true },
-    })
-    if (!escrow || escrow.status === 'DISPUTED' || disputedTransition) {
-      throw new EscrowError(
-        `Pending operation ${pending.id} on escrow ${pending.escrowId} carries no recorded Economic Disposition ` +
-        'Authority provenance, and this escrow is or was DISPUTED — refusing to execute it as a cooperative ' +
-        'operation (ADR-005).'
-      )
-    }
+    await assertCooperativeOriginProvable(pending)
     return null
   }
 

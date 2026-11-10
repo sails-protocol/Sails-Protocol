@@ -135,6 +135,8 @@ jest.mock('../src/modules/open-settlement/capability-execution-authorization', (
 const mockAuthorizeDisputedPendingExecution = jest.fn().mockResolvedValue({ id: 'eda-auth-1' })
 jest.mock('../src/modules/open-settlement/economic-disposition-authority', () => ({
   authorizeDisputedPendingExecution: (...args: unknown[]) => mockAuthorizeDisputedPendingExecution(...args),
+  // Issue #239 - the typed no-provenance refusal PASS 0 classifies as held; real class shape, no behavior.
+  CooperativeOriginNotProvable: class CooperativeOriginNotProvable extends Error {},
 }))
 
 const mockPendingTxFindUnique = jest.fn()
@@ -177,6 +179,9 @@ jest.mock('../src/common/database', () => ({
     // PASS 3 now pages incomplete claimed transitions with one raw anti-join query; none by default.
     $queryRaw: jest.fn().mockResolvedValue([]),
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
+    // Issue #239 - the external funding-spend watch pages its candidates; none by default (proven against real
+    // Postgres in tests/integration/pendingRoundLifecycle.test.ts).
+    escrow: { findMany: jest.fn().mockResolvedValue([]) },
     escrowPendingTransaction: {
       findUnique: (...args: unknown[]) => mockPendingTxFindUnique(...args),
       findMany: (...args: unknown[]) => mockPendingTxFindMany(...args),
@@ -379,7 +384,11 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
   it('no candidates — a clean, empty report', async () => {
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
     const report = await reconcilePendingSettlements()
-    expect(report).toEqual({ recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], rulingFinalizationsRecovered: [], rulingFinalizationsDeferred: [], disputeArbitersRecovered: [] })
+    expect(report).toEqual({
+      recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [], resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], rulingFinalizationsRecovered: [], rulingFinalizationsDeferred: [], disputeArbitersRecovered: [],
+      // Issue #239
+      heldIncompatibleRounds: [], externallyCompleted: [], externalSpendUnreadable: [], externalSpendPendingConfirmation: [], externalSpendFundingUncertain: [],
+    })
   })
 
   it('Issue #238: re-drives unassigned dispute openings every tick, independently of ruling recovery; failures land in `failed`', async () => {

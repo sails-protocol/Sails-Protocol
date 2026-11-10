@@ -301,6 +301,19 @@ export async function fetchTransactionOutputs(txid: string): Promise<BroadcastTr
   return body.vout.map((o, vout) => ({ vout, scriptPubKeyHex: o.scriptpubkey, valueSats: o.value }))
 }
 
+// Issue #239 - the raw bytes of a transaction someone else broadcast (`GET /tx/{txid}/hex`, same REST family).
+// Read-only. The caller never trusts the txid it asked for: it re-hashes these bytes (multisig-round-proofs.ts).
+export async function fetchTransactionHex(txid: string): Promise<string> {
+  const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}/hex`, {}, {
+    timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    retry: EXPLORER_READ_RETRY,
+  })
+  if (!res.ok) {
+    throw new EscrowError(`MULTISIG provider: explorer API returned ${res.status} fetching raw transaction ${txid}`)
+  }
+  return (await res.text()).trim()
+}
+
 export interface OutpointSpendStatus {
   spent: boolean
   /** The txid that spent this outpoint, when spent=true. Never trusted

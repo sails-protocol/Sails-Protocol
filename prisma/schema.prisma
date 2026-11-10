@@ -522,6 +522,8 @@ model Escrow {
   // durable pre-submission execution-boundary truth (see that model's own
   // header comment). Empty for every non-WDK_USDT_EVM escrow.
   wdkTransferAttempts WdkTransferAttempt[]
+  // Issue #239 - retired cooperative MULTISIG signing rounds (append-only).
+  pendingRoundRetirements EscrowPendingRoundRetirement[]
   // Issue #240 — LIGHTNING_HODL/SAFE_GUARD_EVM's own durable finalize-submission evidence (see that
   // model's own header comment). At most one row (escrowId is @unique there), empty for every other type.
   signatureCollectionFinalizationAttempt SignatureCollectionFinalizationAttempt?
@@ -1464,6 +1466,8 @@ model Dispute {
   autoProposalGeneration       Int                @default(0)
   autoResolved                 Boolean            @default(false)
   transitionOutbox             DisputeTransitionOutbox[]
+  // Issue #239 - cooperative rounds this dispute's ruling superseded (append-only).
+  supersededRoundRetirements   EscrowPendingRoundRetirement[]
 
   // Missão 13 Fase 2 — INV-12 (Attributed Authority Integrity) closure.
   // Additive/nullable: existing rows (every dispute resolved before this
@@ -2356,6 +2360,40 @@ model EscrowPendingTransaction {
   signatures EscrowTransactionSignature[]
 
   @@map("escrow_pending_transactions")
+}
+
+// Issue #239 - append-only record of a cooperative MULTISIG signing round that Sails stopped collecting and
+// executing (seller cancellation, or supersession by a valid ruling). Retired, not revoked: signatures already
+// handed out stay valid for exactly this transaction until the funding outpoint is spent by another one. Not a
+// child of EscrowPendingTransaction, so deleting the live round cannot erase it. CHECKs, the per-escrow hash chain
+// and the UPDATE/DELETE/TRUNCATE guards live in the migration.
+model EscrowPendingRoundRetirement {
+  id                            String   @id @default(uuid())
+  pendingOperationId            String   @unique
+  escrowId                      String
+  escrow                        Escrow   @relation(fields: [escrowId], references: [id], onDelete: Restrict)
+  kind                          String
+  unsignedTxid                  String
+  fundingTxid                   String
+  fundingVout                   Int
+  outpointCheckedAt             DateTime
+  operationDigest               String
+  requiredSigners               String[]
+  signedBy                      String[]
+  signatureSetDigest            String
+  reason                        String
+  retiredBy                     String
+  disputeId                     String?
+  dispute                       Dispute? @relation(fields: [disputeId], references: [id], onDelete: Restrict)
+  appealRound                   Int?
+  supersedingPendingOperationId String?
+  prevRecordHash                String
+  recordHash                    String   @unique
+  retiredAt                     DateTime @default(now())
+
+  @@index([escrowId, retiredAt])
+  @@index([unsignedTxid])
+  @@map("escrow_pending_round_retirements")
 }
 
 // ADR-005 / #218 — durable authorization committed at the Economic
