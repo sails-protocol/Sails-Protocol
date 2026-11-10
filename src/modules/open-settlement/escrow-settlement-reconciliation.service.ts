@@ -20,6 +20,15 @@ import type { DeferredRulingFinalization } from './dispute.service' // type only
 
 const log = childLogger('escrow-settlement-reconciliation')
 
+// Issue #239 - external funding-spend watch dependencies (kept apart from the import block above).
+import { fetchOutpointSpendStatus, fetchTransactionConfirmationStatus, fetchTransactionHex } from './multisig.provider'
+import { roundUnsignedTxid, proveExternalCompletion } from './multisig-round-proofs'
+import { isFullySigned } from './pending-round-retirement'
+import { VALID_TRANSITIONS } from './escrow-lifecycle'
+import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
+import { capabilityOperationDigest } from './capability-execution-authorization'
+import { assertCooperativeOriginProvable, CooperativeOriginNotProvable } from './economic-disposition-authority'
+
 /**
  * Sails OpenSettlement — settlement crash-recovery reconciliation
  * (Missão 11 Fase 9.6, closes Kimi K3 R2's CONC-03, independently
@@ -94,6 +103,13 @@ export interface ReconciliationReport {
   rulingFinalizationsDeferred: DeferredRulingFinalization[]
   // Issue #238 - opened disputes whose arbiter assignment was finished here (dispute.service.ts's recoverUnassignedDisputes()).
   disputeArbitersRecovered: string[]
+  // Issue #239 - fully signed cooperative rounds ADR-005 refused (escrow is or was disputed): held, never failed.
+  heldIncompatibleRounds: Array<{ escrowId: string; pendingTransactionId: string }>
+  // Issue #239 - the external funding-spend watch (reconcileExternalFundingSpends()).
+  externallyCompleted: Array<{ escrowId: string; txId: string }>
+  externalSpendUnreadable: string[]
+  externalSpendPendingConfirmation: string[]
+  externalSpendFundingUncertain: string[]
 }
 
 // The audit-trail "from" state for the reconciliation-driven
@@ -159,7 +175,10 @@ async function applyDownstreamCompletionEffects(
   // already no-ops safely when this is undefined (M8.6's own established
   // contract), so a case where reconstruction genuinely is not possible
   // here is a safe, honest no-op, never a guess.
-  rawTxHex: string | undefined
+  rawTxHex: string | undefined,
+  // Issue #239 (B-1) - the transition's persisted note when the default ("after a process crash") is not true:
+  // only reconcileExternalFundingSpends() passes one. Same single emission, no new event.
+  note?: string
 ): Promise<{ obligationSkipped: boolean; emitted: boolean }> {
   const feeOutcome = targetStatus === 'COMPLETED' ? 'RELEASE' as const : targetStatus === 'REFUNDED' ? 'FULL_REFUND' as const : 'SPLIT' as const
 
@@ -193,7 +212,7 @@ async function applyDownstreamCompletionEffects(
   const fromStatus = await lastKnownStatus(escrowId, targetStatus)
   const emitted = await emitEscrowTransition(
     escrowId, tradeId, fromStatus, targetStatus, triggeredBy, eventName, { txId },
-    'Recovered by settlement reconciliation after a process crash — see escrow-settlement-reconciliation.service.ts'
+    note ?? 'Recovered by settlement reconciliation after a process crash — see escrow-settlement-reconciliation.service.ts'
   )
 
   // Sails Core Implementation Program M9 (Recovery) — closes crash window
@@ -360,6 +379,13 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
       } catch (err) {
         if (isLostEscrowClaim(err)) {
           report.alreadyClaimedConcurrently.push(escrow.id)
+          continue
+        }
+        // Issue #239 (R5) - a fully signed cooperative round on an escrow that is or was disputed: ADR-005 refused it
+        // before any broadcast. It is never superseded or deleted (it may still be broadcast by its signers); held,
+        // not failed, until the chain or a human decides (#418).
+        if (err instanceof CooperativeOriginNotProvable) {
+          report.heldIncompatibleRounds.push({ escrowId: escrow.id, pendingTransactionId: pending.id })
           continue
         }
         throw err
@@ -1070,10 +1096,196 @@ async function redriveClaimedPage(claimed: Array<{ id: string; eventId: string; 
  * actual double-fire protection is emitEscrowTransition()'s own atomic
  * per-transition claim, not this function's own peek.
  */
-export async function reconcilePendingSettlements(options: { projectionGraceMs?: number } = {}): Promise<ReconciliationReport> {
+// ─── Issue #239 - external funding-spend watch (MULTISIG) ─────────────────────
+// A signing round's signatures are handed to its signers, so a round Sails never finished (or retired) can still
+// be completed and broadcast outside Sails. This pass watches the funding outpoint of every non-terminal MULTISIG
+// escrow that has, or had, a round. It converges ONLY a live, cooperative, not-fully-signed round proven
+// byte-identical and signed by exactly its required signers, through the same primitives every other pass uses
+// (claim + write-once result in one locked transaction, then applyDownstreamCompletionEffects()). Everything else
+// is reported, never claimed and never classified FAILED. Fully signed rounds stay PASS 0's.
+const EXTERNAL_SPEND_BATCH = 50
+// The watch is explorer I/O (one to three reads per candidate, each up to the explorer timeout), so it never holds
+// up the recovery passes: it runs last, at most once per EXTERNAL_SPEND_MIN_INTERVAL_MS (the default reconcile
+// interval), and stops within EXTERNAL_SPEND_TICK_BUDGET_MS, the cursor resuming where it stopped.
+const EXTERNAL_SPEND_TICK_BUDGET_MS = 15_000
+const EXTERNAL_SPEND_MIN_INTERVAL_MS = 60_000
+let externalSpendCursor: string | null = null
+let lastExternalSpendRunAt = 0
+const TERMINAL_FOR_SPEND_WATCH = ['COMPLETED', 'REFUNDED', 'SPLIT']
+const TARGET_BY_KIND: Record<string, 'COMPLETED' | 'REFUNDED' | 'SPLIT'> = { release: 'COMPLETED', refund: 'REFUNDED', split: 'SPLIT' }
+
+/** Test-only: restart the bounded watch from the first escrow, as if it had never run. */
+export function resetExternalSpendCursor(): void {
+  externalSpendCursor = null
+  lastExternalSpendRunAt = 0
+}
+
+async function reconcileExternalFundingSpends(report: ReconciliationReport): Promise<void> {
+  const started = Date.now()
+  const page = await prisma.escrow.findMany({
+    where: {
+      type: 'MULTISIG',
+      status: { notIn: TERMINAL_FOR_SPEND_WATCH as any },
+      txLockId: { not: null },
+      txLockVout: { not: null },
+      OR: [{ pendingTransaction: { isNot: null } }, { pendingRoundRetirements: { some: {} } }],
+      ...(externalSpendCursor ? { id: { gt: externalSpendCursor } } : {}),
+    },
+    orderBy: { id: 'asc' },
+    take: EXTERNAL_SPEND_BATCH,
+    select: { id: true },
+  })
+  // Keyset cursor, a pure optimization (same shape as the projection recovery cursor): the next tick resumes after
+  // this page (or after the last escrow checked, when the time budget ran out), and an incomplete page starts over.
+  externalSpendCursor = page.length === EXTERNAL_SPEND_BATCH ? page[page.length - 1].id : null
+  let lastChecked: string | null = null
+  for (const { id } of page) {
+    if (Date.now() - started > EXTERNAL_SPEND_TICK_BUDGET_MS) {
+      externalSpendCursor = lastChecked
+      break
+    }
+    lastChecked = id
+    try {
+      await watchFundingSpend(id, report)
+    } catch (err) {
+      if (isLostEscrowClaim(err)) {
+        report.alreadyClaimedConcurrently.push(id)
+        continue
+      }
+      report.failed.push({ escrowId: id, error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+}
+
+async function watchFundingSpend(escrowId: string, report: ReconciliationReport): Promise<void> {
+  const escrow = await prisma.escrow.findUnique({ where: { id: escrowId } })
+  if (!escrow || escrow.txLockId === null || escrow.txLockVout === null) return
+  let spend: Awaited<ReturnType<typeof fetchOutpointSpendStatus>>
+  try {
+    spend = await fetchOutpointSpendStatus(escrow.txLockId, escrow.txLockVout)
+  } catch {
+    report.externalSpendUnreadable.push(escrowId)
+    return
+  }
+  if (!spend.spent) return
+  const txId = spend.spendingTxid
+  if (!txId) {
+    report.requiresManualReview.push({ escrowId, reason: `AMBIGUOUS: funding outpoint ${escrow.txLockId}:${escrow.txLockVout} is spent, but the explorer reported no spending txid.` })
+    return
+  }
+  // Mempool never authorizes a claim (CTO threshold: 1 confirmation). Once claimed, a later reorg is the release
+  // reorg sweep's (multisig-release-reorg-sweep.ts), which watches txReleaseId from its first confirmed observation.
+  let confirmation: Awaited<ReturnType<typeof fetchTransactionConfirmationStatus>>
+  try {
+    confirmation = await fetchTransactionConfirmationStatus(txId)
+  } catch {
+    report.externalSpendUnreadable.push(escrowId)
+    return
+  }
+  if (!confirmation.confirmed) {
+    report.externalSpendPendingConfirmation.push(escrowId)
+    return
+  }
+
+  const network = networkFor(config.multisig.network)
+  const live = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId }, include: { signatures: true } })
+  if (live && roundUnsignedTxid(live.unsignedPsbtBase64, network) === txId) {
+    if (isFullySigned(live)) return // PASS 0 converges it (ALREADY_BROADCAST)
+    if (live.disputeId) {
+      report.requiresManualReview.push({ escrowId, reason: `Disputed round ${live.id} was completed outside Sails by ${txId}; automatic convergence would drop its dispute provenance from the settlement event — manual review.` })
+      return
+    }
+    await convergeExternallyCompletedRound(escrow, live, txId, network, report)
+    return
+  }
+  const retired = await prisma.escrowPendingRoundRetirement.findFirst({ where: { escrowId, unsignedTxid: txId } })
+  if (retired) {
+    report.requiresManualReview.push({ escrowId, reason: `RETIRED_ROUND_EXECUTED_EXTERNALLY: retired round ${retired.pendingOperationId} (${retired.reason}, retirement ${retired.id}, digest ${retired.operationDigest}) spent the funding outpoint in confirmed transaction ${txId}.` })
+    return
+  }
+  report.requiresManualReview.push({ escrowId, reason: `AMBIGUOUS: funding outpoint ${escrow.txLockId}:${escrow.txLockVout} was spent by confirmed transaction ${txId}, which matches no round of this escrow.` })
+}
+
+async function convergeExternallyCompletedRound(
+  escrow: { id: string; tradeId: string; txLockId: string | null; txLockVout: number | null },
+  live: Prisma.EscrowPendingTransactionGetPayload<{ include: { signatures: true } }>,
+  txId: string,
+  network: ReturnType<typeof networkFor>,
+  report: ReconciliationReport
+): Promise<void> {
+  let hex: string
+  try {
+    hex = await fetchTransactionHex(txId)
+  } catch {
+    report.externalSpendUnreadable.push(escrow.id)
+    return
+  }
+  const keys = await prisma.escrowParticipantKey.findMany({ where: { escrowId: escrow.id } })
+  const scriptKeys = ['buyer', 'seller', 'arbiter'].map((role) => keys.find((k) => k.role === role)?.pubkey)
+  const requiredKeys = live.requiredSigners.map((id) => keys.find((k) => k.participantId === id && k.role !== 'arbiter')?.pubkey)
+  if (scriptKeys.some((k) => !k) || requiredKeys.some((k) => !k)) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `External spend ${txId} of round ${live.id}: participant keys are incomplete, nothing can be proven.` })
+    return
+  }
+  const proof = proveExternalCompletion({
+    spendingTxHex: hex, spendingTxid: txId, unsignedPsbtBase64: live.unsignedPsbtBase64,
+    fundingTxid: escrow.txLockId!, fundingVout: escrow.txLockVout!,
+    scriptPubkeysHex: scriptKeys as string[], requiredSignerPubkeysHex: requiredKeys as string[], network,
+  })
+  if (!proof.ok) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `External spend ${txId} of round ${live.id} is not proven to be this round: ${proof.reason}.` })
+    return
+  }
+
+  const targetStatus = TARGET_BY_KIND[live.kind]
+  const decision = await withEscrowFundingLock(escrow.id, async (tx) => {
+    const current = await tx.escrow.findUnique({ where: { id: escrow.id } })
+    if (!current || current.txReleaseId || TERMINAL_FOR_SPEND_WATCH.includes(current.status)) return { kind: 'skip' as const }
+    if (await escrowFundingEvidenceService.isFundingUncertain(escrow.id, tx)) return { kind: 'uncertain' as const }
+    const round = await tx.escrowPendingTransaction.findFirst({ where: { id: live.id, escrowId: escrow.id }, include: { signatures: true } })
+    if (!round || capabilityOperationDigest(round) !== capabilityOperationDigest(live)) {
+      return { kind: 'review' as const, reason: `round ${live.id} changed while its external spend ${txId} was being proven` }
+    }
+    if (isFullySigned(round)) return { kind: 'skip' as const }
+    try {
+      await assertCooperativeOriginProvable(round, tx)
+    } catch (err) {
+      if (err instanceof CooperativeOriginNotProvable) return { kind: 'review' as const, reason: err.message }
+      throw err
+    }
+    if (!(VALID_TRANSITIONS[current.status] ?? []).includes(targetStatus)) {
+      return { kind: 'review' as const, reason: `external spend ${txId} completed a ${round.kind} round, but ${current.status} → ${targetStatus} is not an allowed transition` }
+    }
+    // Claim and write-once result commit together: no window leaves the escrow terminal without txReleaseId,
+    // which PASS 1 could not rebuild from partial signatures.
+    await claimEscrowTransition(escrow.id, current.status, targetStatus, tx)
+    await escrowRepository.updateSignatureCollectionResult(
+      escrow.id,
+      targetStatus === 'REFUNDED' ? { txReleaseId: txId } : { txReleaseId: txId, releasedAt: new Date() },
+      { tx, operation: { pendingOperationId: round.id } }
+    )
+    return { kind: 'converged' as const, round }
+  })
+  if (decision.kind === 'skip') return
+  if (decision.kind === 'uncertain') {
+    report.externalSpendFundingUncertain.push(escrow.id)
+    return
+  }
+  if (decision.kind === 'review') {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: `External spend not converged: ${decision.reason}.` })
+    return
+  }
+  const settled = await escrowRepository.findById(escrow.id)
+  const note = `Completed externally: transaction ${txId} was broadcast outside Sails; byte identity and the signatures of [${live.requiredSigners.join(', ')}] were verified by settlement reconciliation (Issue #239).`
+  await applyDownstreamCompletionEffects(escrow.id, escrow.tradeId, targetStatus, decision.round.triggeredBy, txId, settled!, decision.round, hex, note)
+  report.externallyCompleted.push({ escrowId: escrow.id, txId })
+}
+
+export async function reconcilePendingSettlements(options: { projectionGraceMs?: number; externalSpendMinIntervalMs?: number } = {}): Promise<ReconciliationReport> {
   const report: ReconciliationReport = {
     recovered: [], completionEffectsRecovered: [], requiresManualReview: [], failed: [],
     resumedUnclaimed: [], alreadyClaimedConcurrently: [], projectionsRecovered: [], rulingFinalizationsRecovered: [], rulingFinalizationsDeferred: [], disputeArbitersRecovered: [],
+    heldIncompatibleRounds: [], externallyCompleted: [], externalSpendUnreadable: [], externalSpendPendingConfirmation: [], externalSpendFundingUncertain: [],
   }
 
   await reconcileUnclaimedFullySignedPending(report)
@@ -1128,6 +1340,17 @@ export async function reconcilePendingSettlements(options: { projectionGraceMs?:
     }
   } catch (err) {
     report.failed.push({ escrowId: 'settlement-provenance:*', error: err instanceof Error ? err.message : String(err) })
+  }
+
+  // Issue #239 - the external funding-spend watch runs last (PASS 0 above owns fully signed rounds), throttled and
+  // time-boxed so its explorer I/O never delays the recovery passes above.
+  if (Date.now() - lastExternalSpendRunAt >= (options.externalSpendMinIntervalMs ?? EXTERNAL_SPEND_MIN_INTERVAL_MS)) {
+    lastExternalSpendRunAt = Date.now()
+    try {
+      await reconcileExternalFundingSpends(report)
+    } catch (err) {
+      report.failed.push({ escrowId: 'external-spend:*', error: err instanceof Error ? err.message : String(err) })
+    }
   }
 
   return report

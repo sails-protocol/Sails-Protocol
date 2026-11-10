@@ -1,3 +1,10 @@
+// Issue #239 - this suite's PSBTs are placeholders: the real signature check (multisig-round-proofs.ts) is proven with
+// real Bitcoin PSBTs in tests/multisigRoundProofs.test.ts and tests/integration/pendingRoundLifecycle.test.ts.
+jest.mock('../src/modules/open-settlement/multisig-round-proofs', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/multisig-round-proofs'),
+  verifySignerPartialSignature: (_unsigned: string, signed: string) => signed,
+}))
+
 /**
  * Sails Core Implementation Program M8-R2 (Destination Authority
  * Conformance, remaining disputed rails, 2026-09-11, extended with the
@@ -244,7 +251,9 @@ jest.mock('../src/common/database', () => ({
           findFirst: (arg: unknown) => mockPendingTxFindUnique(arg), // Issue #291 - operation-bound result write
           findUnique: (arg: unknown) => mockPendingTxFindUnique(arg), // Issue #244 - the round is read and signed under the escrow lock
         },
-        escrowTransactionSignature: { upsert: (arg: { create: { pendingTxId: string; participantId: string; signedPsbtBase64: string } }) => mockSignatureUpsert(arg) },
+        escrowTransactionSignature: { upsert: (arg: { create: { pendingTxId: string; participantId: string; signedPsbtBase64: string } }) => mockSignatureUpsert(arg), findMany: (arg: unknown) => require('../src/common/database').prisma.escrowTransactionSignature.findMany(arg) },
+      // Issue #239 - the signature set and the signer's registered key are read under the same escrow lock.
+      escrowParticipantKey: { findFirst: async () => ({ pubkey: 'test-signer-pubkey' }) },
       })
     },
   },
