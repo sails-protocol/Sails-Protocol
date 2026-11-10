@@ -20,6 +20,12 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 
+- **Issue #299 — a MULTISIG broadcast that failed is told apart from one whose outcome is unknown (real PostgreSQL, real PSBTs).** Draft, pending Gatekeeper audit. MULTISIG only.
+  - **Definite failure:** only a proven failure releases the claim: the round could not be built (nothing was sent), or the node refused it and the chain confirms the round's txid is unknown and the funding outpoint unspent. PASS 0 used to keep its claim forever after such a refusal, so the escrow looked terminal with no transaction and a dispute was refused.
+  - **UNKNOWN:** any other error (no answer, a 5xx, a refusal the chain cannot confirm, an outpoint spent by something else) keeps the claim (no dispute, no new economic decision). PASS 1 converges from chain truth with the round's one deterministic transaction, or routes it to manual review. The live final signature used to release the claim on any error, including a lost answer after the network accepted.
+  - **A 400 for a transaction the network already has** converges in place.
+  - **Rollback × PASS 1:** the rollback runs under the escrow lock, only while no result is recorded, and PASS 1 records nothing on an escrow whose claim was released. Before, a lost answer could end as a non-terminal escrow with a recorded transaction.
+
 - **Issue #239 — a cooperative MULTISIG signing round can no longer lock an escrow forever (real PostgreSQL, real PSBTs).** Draft, pending Gatekeeper audit.
   - **Seller cancellation:** the seller can cancel a cooperative round that is not fully signed (`POST /v1/settlement/escrow/:id/cancel-pending-transaction`).
   - **Ruling supersession:** a valid ruling's own dispatch supersedes such a round. It holds an internal grant that no route can pass, re-validated under the escrow lock.

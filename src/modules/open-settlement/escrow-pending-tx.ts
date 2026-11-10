@@ -9,6 +9,7 @@ import {
   loadParticipantPubkeys,
   claimEscrowTransition,
   revertEscrowStatus,
+  revertUnsettledClaim,
   settlementSucceededButLocalStepFailed,
   emitEscrowTransition,
   resolvePayoutAddress,
@@ -21,6 +22,7 @@ import {
 import { randomUUID } from 'crypto'
 import { fetchOutpointSpendStatus } from './multisig.provider'
 import { verifySignerPartialSignature, RoundSignatureRejected } from './multisig-round-proofs'
+import { SubmissionDefinitelyFailed } from './broadcast-outcome'
 import { retireRound, RoundNotRetirable } from './pending-round-retirement'
 import { isSupersedableCooperativeRound, revalidateRulingSupersessionGrant, type RulingSupersessionGrant } from './dispute-dispatch'
 import { hasDualApproval } from './escrow-dual-approval'
@@ -461,7 +463,11 @@ export async function submitTransactionSignature(escrowId: string, participantId
       ? await provider.finalizeRefund(escrow, pending.unsignedPsbtBase64, signedList, pending.id)
       : await provider.finalizeSplit!(escrow, pending.unsignedPsbtBase64, signedList)
   } catch (err) {
-    await revertEscrowStatus(escrowId, targetStatus, escrowStatus)
+    // Issue #299 - UNKNOWN is not FAILED: a MULTISIG claim is released only on a proven failure (under the escrow lock,
+    // only while no result is recorded); any other error may mean the network has the transaction, so the claim stays
+    // and PASS 1 converges from chain truth.
+    if (escrow.type !== 'MULTISIG') await revertEscrowStatus(escrowId, targetStatus, escrowStatus)
+    else if (err instanceof SubmissionDefinitelyFailed) await revertUnsettledClaim(escrowId, targetStatus, escrowStatus).catch(() => 0)
     throw err
   }
 

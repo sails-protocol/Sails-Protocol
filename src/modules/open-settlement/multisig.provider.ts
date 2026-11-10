@@ -92,6 +92,7 @@ import { estimatedVBytesForOutputCount, maxExecutionCostSats } from './execution
 import type { FeeCollectionResult } from './escrow-providers'
 import { childLogger } from '../../common/logger'
 import { boundedFetch } from './bounded-rpc'
+import { SubmissionDefinitelyFailed } from './broadcast-outcome'
 
 // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded, safe retry for
 // read-only explorer queries only. Never applied to broadcast() (a
@@ -944,14 +945,38 @@ export class MultisigProvider implements SettlementProvider {
   // existing caller, which already treats a broadcast failure as
   // "did not confirm this attempt succeeded," never as "definitely
   // failed" — no escrow-state semantics are changed by this fix.
-  private async broadcast(txHex: string): Promise<string> {
-    const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx`, { method: 'POST', body: txHex }, {
-      timeoutMs: config.multisig.explorerRequestTimeoutMs,
-    })
-    if (!res.ok) {
-      throw new EscrowError(`MULTISIG provider: broadcast failed with ${res.status}: ${await res.text()}`)
+  //
+  // Issue #299 - the outcome is classified. Only a refusal the chain confirms (the txid is unknown to the network AND
+  // the funding outpoint is still unspent) is SubmissionDefinitelyFailed: the caller may release its claim. A 4xx
+  // alone proves nothing ("already known" is a 4xx too); no answer, a 5xx, or a chain that cannot be read stays an
+  // ordinary error, i.e. UNKNOWN: the claim is kept.
+  private async broadcast(txHex: string, fundingTxid: string | null | undefined, fundingVout: number | null | undefined): Promise<string> {
+    let res: Response
+    try {
+      res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx`, { method: 'POST', body: txHex }, {
+        timeoutMs: config.multisig.explorerRequestTimeoutMs,
+      })
+    } catch (err) {
+      throw new EscrowError(`MULTISIG provider: broadcast outcome unknown, no answer: ${err instanceof Error ? err.message : String(err)}`)
     }
-    return (await res.text()).trim()
+    if (res.ok) return (await res.text()).trim()
+    const answer = `${res.status}: ${await res.text()}`
+    if (res.status >= 500) throw new EscrowError(`MULTISIG provider: broadcast outcome unknown, the explorer answered ${answer}`)
+
+    const txid = bitcoin.Transaction.fromHex(txHex).getId()
+    let known: boolean
+    let unspent = false
+    try {
+      known = (await fetchTransactionExistence(txid)).exists
+      if (!known && fundingTxid && fundingVout !== null && fundingVout !== undefined) {
+        unspent = !(await fetchOutpointSpendStatus(fundingTxid, fundingVout)).spent
+      }
+    } catch (err) {
+      throw new EscrowError(`MULTISIG provider: broadcast refused with ${answer}, and the chain could not be read to confirm it: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    if (known) return txid
+    if (!unspent) throw new EscrowError(`MULTISIG provider: broadcast refused with ${answer}, but the funding outpoint is not proven unspent`)
+    throw new SubmissionDefinitelyFailed(`MULTISIG provider: broadcast refused with ${answer} - the transaction is not on the network and the funding outpoint is unspent`)
   }
 
   // Real fee estimation (2026-08-02) — closes this provider's own former
@@ -1353,7 +1378,8 @@ export class MultisigProvider implements SettlementProvider {
       merged.finalizeAllInputs()
       return merged.extractTransaction()
     } catch (err) {
-      throw new EscrowError(
+      // Nothing was sent: a round that cannot be built is a definite failure (Issue #299).
+      throw new SubmissionDefinitelyFailed(
         `MULTISIG provider: failed to combine/finalize signatures for trade ${tradeId}: ${err instanceof Error ? err.message : String(err)}`
       )
     }
@@ -1375,7 +1401,7 @@ export class MultisigProvider implements SettlementProvider {
     // explorer integration itself) but never allowed to override the
     // locally-derived value.
     const locallyDerivedTxId = tx.getId()
-    const providerReturnedTxId = await this.broadcast(rawTxHex)
+    const providerReturnedTxId = await this.broadcast(rawTxHex, escrow.txLockId, escrow.txLockVout)
     if (providerReturnedTxId !== locallyDerivedTxId) {
       log.error({
         msg: 'MULTISIG provider: broadcast response txid disagrees with the locally-derived txid of the exact transaction that was sent — ignoring the provider-reported value, persisting the locally-derived one',
@@ -1489,7 +1515,7 @@ export class MultisigProvider implements SettlementProvider {
       // was already independently derived from `tx` before this
       // broadcast; the provider's own response text is never persisted
       // as the txid, only compared against it as a diagnostic.
-      const providerReturnedTxId = await this.broadcast(tx.toHex())
+      const providerReturnedTxId = await this.broadcast(tx.toHex(), escrow.txLockId, escrow.txLockVout)
       if (providerReturnedTxId !== expectedTxId) {
         log.error({
           msg: 'MULTISIG provider: reconciliation broadcast response txid disagrees with the locally-derived txid of the exact transaction that was sent — ignoring the provider-reported value, persisting the locally-derived one',

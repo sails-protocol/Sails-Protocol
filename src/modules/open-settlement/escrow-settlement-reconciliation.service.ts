@@ -2,7 +2,8 @@ import { prisma } from '../../common/database'
 import { Prisma } from '@prisma/client'
 import { config } from '../../config'
 import { EscrowError, SettlementResultConflictError } from '../../common/errors'
-import { withEscrowFundingLock, loadParticipantPubkeys, emitEscrowTransition, claimEscrowTransition, EVENT_NAME_BY_TARGET_STATUS, resolvePayoutAddress } from './escrow-lifecycle'
+import { withEscrowFundingLock, loadParticipantPubkeys, emitEscrowTransition, claimEscrowTransition, revertUnsettledClaim, EVENT_NAME_BY_TARGET_STATUS, resolvePayoutAddress } from './escrow-lifecycle'
+import { SubmissionDefinitelyFailed } from './broadcast-outcome'
 import { eventBus } from '../../common/events/event-bus'
 import { listHeldSettlementProvenance, TRANSITION_CLAIMED_KEY, TRANSITION_PROJECTED_KEY } from '../../common/events/event-projection'
 import { escrowRepository } from './escrow-repository'
@@ -360,8 +361,9 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
       // The escrow claim is taken before the first broadcast, not after it. It is the same conditional status claim
       // openDispute() contends on, so it serializes the two: a dispute opened first makes this claim fail and nothing
       // is broadcast; once this claim wins, the escrow is no longer disputable and a later openDispute() is refused.
-      // The claim is never reverted: a failed broadcast may still have reached the network (UNKNOWN), and PASS 1
-      // converges a claimed escrow without txReleaseId from chain truth.
+      // Issue #299 - an UNKNOWN broadcast keeps the claim (it may have reached the network; PASS 1 converges a claimed
+      // escrow without txReleaseId from chain truth). Only a refusal the chain confirms releases it, so the escrow is
+      // never left terminal with no transaction behind a proven failure.
       let claimedBeforeBroadcast = false
       let result: Awaited<ReturnType<typeof multisigProvider.reconcilePendingSettlement>>
       try {
@@ -388,6 +390,7 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
           report.heldIncompatibleRounds.push({ escrowId: escrow.id, pendingTransactionId: pending.id })
           continue
         }
+        if (claimedBeforeBroadcast && err instanceof SubmissionDefinitelyFailed) await revertUnsettledClaim(escrow.id, targetStatus, escrow.status).catch(() => 0)
         throw err
       }
       if (result.outcome === 'ANOMALY') {
@@ -544,10 +547,14 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
   // writer: empty -> write, same -> idempotent, DIFFERENT -> integrity
   // conflict (previously this branch silently ignored a differing value).
   let wroteTxReleaseId = false
+  let claimReleased = false
   try {
     wroteTxReleaseId = await withEscrowFundingLock(escrow.id, async (tx) => {
       const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
       if (!fresh) return false
+      // Issue #299 - a proven failure released the claim since this pass read it (revertUnsettledClaim, same lock):
+      // record nothing on a non-terminal escrow. PASS 0 converges it from chain truth through the claim.
+      if (fresh.status !== targetStatus) { claimReleased = true; return false }
       const updateData = targetStatus === 'REFUNDED' ? { txReleaseId: result.txId } : { txReleaseId: result.txId, releasedAt: new Date() }
       await escrowRepository.updateSignatureCollectionResult(escrow.id, updateData, { tx, operation: { pendingOperationId: pending.id } })
       return fresh.txReleaseId === null
@@ -559,6 +566,10 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
       return
     }
     throw writeErr
+  }
+  if (claimReleased) {
+    log.warn({ msg: 'PASS 1: the claim was released after a proven broadcast failure - nothing recorded, PASS 0 converges', escrowId: escrow.id, txId: result.txId })
+    return
   }
 
   log.info({ msg: 'Reconciliation: convergence path determined', escrowId: escrow.id, outcome: result.outcome, txId: result.txId, detail: result.detail, wroteTxReleaseId })

@@ -387,6 +387,16 @@ export async function revertEscrowStatus(escrowId: string, claimedStatus: string
   await escrowRepository.revertStatus(escrowId, claimedStatus, fromStatus).catch(() => {})
 }
 
+/**
+ * Issue #299 - MULTISIG rollback after a PROVEN broadcast failure. Taken under the escrow lock PASS 1 records its
+ * result under, and only while no settlement result exists: if a concurrent PASS 1 already recorded the transaction,
+ * the claim stands. Returns the number of rows reverted.
+ */
+export async function revertUnsettledClaim(escrowId: string, claimedStatus: string, fromStatus: string): Promise<number> {
+  return withEscrowFundingLock(escrowId, async (tx) =>
+    (await tx.escrow.updateMany({ where: { id: escrowId, status: claimedStatus as any, txReleaseId: null }, data: { status: fromStatus as any } })).count)
+}
+
 export function assertEscrowTransition(current: string, next: string) {
   const allowed = VALID_TRANSITIONS[current] ?? []
   if (!allowed.includes(next)) {
