@@ -318,20 +318,24 @@ export async function submitTransactionSignature(escrowId: string, participantId
   const escrow = await escrowRepository.findById(escrowId)
   if (!escrow) throw new NotFoundError('Escrow', escrowId)
 
-  const pending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
-  if (!pending) {
-    throw new EscrowError(`Escrow ${escrowId} has no pending transaction awaiting signatures — call initiate-release/initiate-refund (or, for a dispute SPLIT ruling, resolveDispute()) first`)
-  }
-  if (!pending.requiredSigners.includes(participantId)) {
-    throw new ForbiddenError(
-      `${participantId} is not one of the required signers (${pending.requiredSigners.join(', ')}) for escrow ${escrowId}'s pending ${pending.kind}`
-    )
-  }
-
-  await prisma.escrowTransactionSignature.upsert({
-    where: { pendingTxId_participantId: { pendingTxId: pending.id, participantId } },
-    update: { signedPsbtBase64 },
-    create: { pendingTxId: pending.id, participantId, signedPsbtBase64 },
+  // Issue #244 - read and signed under the escrow lock stale cleanup deletes under
+  // (dispute-pending-reconciliation.ts): a signature lands on a round cleanup can no longer delete, or finds no round.
+  const pending = await withEscrowFundingLock(escrowId, async (tx) => {
+    const pending = await tx.escrowPendingTransaction.findUnique({ where: { escrowId } })
+    if (!pending) {
+      throw new EscrowError(`Escrow ${escrowId} has no pending transaction awaiting signatures — call initiate-release/initiate-refund (or, for a dispute SPLIT ruling, resolveDispute()) first`)
+    }
+    if (!pending.requiredSigners.includes(participantId)) {
+      throw new ForbiddenError(
+        `${participantId} is not one of the required signers (${pending.requiredSigners.join(', ')}) for escrow ${escrowId}'s pending ${pending.kind}`
+      )
+    }
+    await tx.escrowTransactionSignature.upsert({
+      where: { pendingTxId_participantId: { pendingTxId: pending.id, participantId } },
+      update: { signedPsbtBase64 },
+      create: { pendingTxId: pending.id, participantId, signedPsbtBase64 },
+    })
+    return pending
   })
 
   const signatures = await prisma.escrowTransactionSignature.findMany({ where: { pendingTxId: pending.id } })
