@@ -12,7 +12,7 @@
  * example still omits `amount` and remains to be fixed.
  */
 import type { SailsTransport } from "../transport";
-import type { Message, PaginatedMessages, PaginatedTrades, Trade } from "../types";
+import type { PaginatedMessages, PaginatedTrades, Trade, TradeReconciliation } from "../types";
 import { SailsTransportError } from "../errors";
 
 export interface ChatFrame {
@@ -369,15 +369,21 @@ export class SailsOpenP2PModule {
   }
 
   /**
-   * RFC-011 — client-side reconciliation. Returns missed messages
-   * since `sinceMessageCreatedAt` for this trade. Requires an
+   * RFC-011 — client-side reconciliation. Returns the trade's current
+   * trade/escrow status plus the messages created after
+   * `sinceMessageCreatedAt` (oldest first, at most 100). Requires an
    * active session. Useful after reconnects or app resume.
+   *
+   * The return type used to be declared `Message[]`, but the route has
+   * always returned reconciliation.service.ts's ReconciliationResult
+   * object — a caller iterating the "array" got nothing. Not in
+   * API_STABLE.md's frozen inventory, so correcting it is a bug fix.
    */
   async reconcileTrade(
     tradeId: string,
     sinceMessageCreatedAt: Date | null,
-  ): Promise<Message[]> {
-    return this.transport.post<Message[]>(
+  ): Promise<TradeReconciliation> {
+    return this.transport.post<TradeReconciliation>(
       `/v1/openp2p/trades/${tradeId}/reconcile`,
       { sinceMessageCreatedAt },
       true,

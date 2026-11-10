@@ -361,6 +361,22 @@ export interface Message {
   createdAt: string
 }
 
+// POST /v1/openp2p/trades/:id/reconcile's real response shape
+// (open-p2p/reconciliation.service.ts's ReconciliationResult). A missed
+// message carries no tradeId/readAt, unlike a persisted `Message` row.
+export interface TradeReconciliation {
+  tradeId: string
+  currentTradeStatus: TradeStatus
+  currentEscrowStatus: EscrowStatus | null
+  missedMessages: Array<{
+    id: string
+    senderId: string
+    content: string
+    msgType: string
+    createdAt: string
+  }>
+}
+
 // GET /v1/openp2p/chat/:tradeId/messages's real pagination shape
 // (chat.routes.ts) — same convention as PaginatedTrades/PaginatedDisputes/
 // LeaderboardResult above, plus nextOffset for the same reason
