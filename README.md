@@ -15,40 +15,9 @@ The adoption rule is simple: **keep your wallet stack; plug into Sails.** Sails 
 
 > **Repository identity:** this repository is the canonical public monorepo and reference implementation workspace for Sails Protocol. It includes the protocol implementation, Sails P2P Trading SDK, shared schemas, developer packages, examples, and reference application components. Being the canonical public monorepo does **not** make every file in it normative protocol truth.
 
-## What exists today
+## What exists today — and how it fits together
 
-The repository currently contains:
-
-- **Sails Protocol implementation** — the protocol/runtime implementation and its modules.
-- **Sails P2P Trading SDK** — `@satsails/p2p-trading-sdk`, the first concrete developer product.
-- **Sails Core** — `@sails/core`, the internal Pure Semantic Core package. Runtime, Modules, Providers and Adapters remain outside the Pure Core boundary.
-- **Shared schemas** — protocol-facing domain contracts in `@satsails/p2p-schemas`.
-- **Developer and reference packages** — including React/UI surfaces and integration examples.
-- **Reference applications and integrations** — including Sails Market and Satsails-oriented validation/integration work.
-- **Canonical protocol, architecture, governance, RFC, evidence, and explanatory documentation** under `docs/`.
-
-Sails is actively developed. Implementation existence, test coverage, real-path evidence, beta eligibility, and production eligibility are separate claims; they are not collapsed into one status. For current engineering reality, use [Backlog](docs/BACKLOG.md), live GitHub Issues/Project, the relevant RFCs, provider documentation, and evidence records rather than inferring maturity from names alone. [TODO](docs/TODO.md) is retained as a historical/category-oriented gap inventory, not the primary current execution queue.
-
-## How the pieces relate
-
-```text
-Sails Protocol
-Economic coordination protocol and shared semantics
-        │
-        ├── Sails P2P Trading SDK
-        │   First developer product / first protocol module exposed to integrators
-        │
-        ├── Sails Market
-        │   Protocol-native / reference web market surface
-        │
-        └── Integrations
-            └── Satsails Wallet
-                Major reference implementation / integrator / validation environment
-```
-
-**No interface or reference implementation owns protocol semantics.** Sails Market and Satsails validate, exercise, and expose protocol behavior; they do not redefine it.
-
-## Architecture at a glance
+Sails is actively developed. The repository contains real implementation, SDKs, reference surfaces, architecture, governance and evidence, but **existence is not the same claim as production eligibility**.
 
 ```text
 Applications / Integrators
@@ -76,7 +45,21 @@ Applications / Integrators
                      wallet, transport and settlement stacks
 ```
 
-This diagram is orientation, not specification. For the consolidated current system-level technical map, start with [System Design](docs/SYSTEM_DESIGN.md). Deeper architecture ownership remains with the governing architecture documents, and rendered architecture diagrams are available at [alan-schramm.github.io/Sails-Protocol](https://alan-schramm.github.io/Sails-Protocol/).
+The concrete repository surfaces behind that map are:
+
+- **Sails Protocol implementation** — protocol/runtime implementation and modules.
+- **Sails P2P Trading SDK** — `@satsails/p2p-trading-sdk`, the first concrete developer product.
+- **Sails Core** — `@sails/core`, the internal Pure Semantic Core package; Runtime, Modules, Providers and Adapters remain outside the Pure Core boundary.
+- **Shared schemas** — protocol-facing domain contracts in `@satsails/p2p-schemas`.
+- **Developer/reference packages** — React/UI surfaces and integration examples.
+- **Reference applications/integrations** — including Sails Market and Satsails-oriented validation work.
+- **Institutional documentation** — protocol, architecture, governance, RFC, evidence and explanatory records under `docs/`.
+
+**No interface or reference implementation owns protocol semantics.** Sails Market and Satsails exercise and expose protocol behavior; they do not redefine it.
+
+This diagram is orientation, not specification. [System Design](docs/SYSTEM_DESIGN.md) is the consolidated current system-level technical map. [Documentation Index](docs/00-INDEX.md) routes to the deeper normative owners.
+
+For current engineering reality, use [Backlog](docs/BACKLOG.md), live GitHub Issues/Project, the relevant RFCs, provider documentation and evidence records. [TODO](docs/TODO.md) is retained as a historical/category-oriented gap inventory, not the primary execution queue.
 
 ## Start here
 
@@ -126,29 +109,24 @@ console.log(balance);
 
 `MockWalletAdapter` is for local development. For a real wallet integration reference, see [`examples/wallet-integration`](examples/wallet-integration).
 
-## Choose your path
+## Documentation paths
 
-| If you want to... | Start here |
+Use the shortest path for the question you are trying to answer.
+
+| Goal | Canonical starting point |
 |---|---|
-| Understand what Sails is | [Project Context](docs/PROJECT_CONTEXT.md) |
-| Run Sails locally | [Getting Started](docs/GETTING_STARTED.md) |
-| Integrate the SDK | [SDK Guide](docs/SDK_GUIDE.md) |
-| Inspect the stable developer contract | [API Stable](docs/API_STABLE.md) |
-| See one complete trade flow | [Transaction Walkthrough](docs/TRANSACTION_WALKTHROUGH.md) |
-| Understand the protocol contract | [Protocol Specification](docs/PROTOCOL_SPECIFICATION.md) |
-| Understand the current system end to end | [System Design](docs/SYSTEM_DESIGN.md) |
-| Inspect broad/reference and historical system topology | [Architecture](docs/ARCHITECTURE.md) |
-| Understand the modern Pure Core architecture | [Core Architecture](docs/CORE_ARCHITECTURE.md) |
-| Understand implementation derivation | [Core Implementation Architecture](docs/CORE_IMPLEMENTATION_ARCHITECTURE.md) |
-| Understand protocol invariants | [Protocol Invariants](docs/PROTOCOL_INVARIANTS.md) |
-| Understand what must remain semantically true | [Semantic Kernel](docs/SEMANTIC_KERNEL.md) |
-| Review accepted protocol decisions | [RFC Index](docs/rfcs/00-INDEX.md) |
-| Inspect current unresolved engineering reality | [Backlog](docs/BACKLOG.md) + live GitHub Issues/Project |
-| Understand engineering governance | [Engineering Governance](docs/ENGINEERING_GOVERNANCE.md) |
-| Contribute | [Contributing](CONTRIBUTING.md) |
+| **1. Understand what Sails is** | [Project Context](docs/PROJECT_CONTEXT.md) |
+| **2. Run it locally** | [Getting Started](docs/GETTING_STARTED.md) |
+| **3. Integrate the SDK** | [SDK Guide](docs/SDK_GUIDE.md) · [API Reference](docs/API_REFERENCE.md) · [API Stable](docs/API_STABLE.md) |
+| **4. Understand the system and protocol** | [System Design](docs/SYSTEM_DESIGN.md) · [Protocol Specification](docs/PROTOCOL_SPECIFICATION.md) · [Protocol Invariants](docs/PROTOCOL_INVARIANTS.md) · [Semantic Kernel](docs/SEMANTIC_KERNEL.md) |
+| **5. Understand architecture and decisions** | [Core Architecture](docs/CORE_ARCHITECTURE.md) · [Core Implementation Architecture](docs/CORE_IMPLEMENTATION_ARCHITECTURE.md) · [RFC Index](docs/rfcs/00-INDEX.md) |
+| **6. Inspect current state and unresolved work** | [Backlog](docs/BACKLOG.md) · live GitHub Issues/Project |
+| **7. Understand governance or contribute** | [Engineering Governance](docs/ENGINEERING_GOVERNANCE.md) · [Contributing](CONTRIBUTING.md) |
+| Browse the complete documentation map | [Documentation Index](docs/00-INDEX.md) |
 | Report a vulnerability | [Security Policy](SECURITY.md) |
-| Read the public papers | [Whitepaper Set](docs/whitepapers/README.md) |
-| Browse all documentation | [Documentation Index](docs/00-INDEX.md) |
+| Read the public explanatory papers | [Whitepaper Set](docs/whitepapers/README.md) |
+
+For a complete trade flow, see [Transaction Walkthrough](docs/TRANSACTION_WALKTHROUGH.md). For broad/reference and historical topology, see [Architecture](docs/ARCHITECTURE.md).
 
 ## Where institutional truth lives
 
