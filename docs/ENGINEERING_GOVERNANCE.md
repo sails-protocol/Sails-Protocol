@@ -164,6 +164,66 @@ one for protocol-specification changes specifically; this section
 generalizes the same reasoning to engineering work that never touches
 the spec at all (a UI change, a test, an internal refactor).
 
+
+### 4.1 Economically Critical Production Readiness
+
+For behavior that can affect settlement, signing, balances or accounting,
+authorization, value release, recovery, fees, or any other economic authority,
+**green CI is necessary evidence, not production-readiness authority**. The same
+is true of a passing test suite, completed human review, or AI-assisted review.
+
+> **PATCH PASSES TESTS ≠ ECONOMIC SAFETY PROVEN.**
+
+Production readiness for economically critical behavior requires evidence
+proportionate to the consequence of failure. Where applicable, that evidence
+includes:
+
+- explicit economic and security invariants;
+- adversarial validation designed to *falsify* those invariants, not merely
+  confirm the intended happy path;
+- failure-path, concurrency, restart, and recovery evidence;
+- defense in depth and blast-radius containment, so failure of one control does
+  not automatically become catastrophic economic loss;
+- independent review or independent evidence appropriate to the consequence of
+  failure; and
+- an explicit STOP when the intended property cannot actually be demonstrated,
+  even when CI remains green.
+
+A fix to economically critical code is itself a new security-sensitive change.
+Closing vulnerability A does not establish that the patch did not introduce
+vulnerability B. The patched behavior therefore receives scrutiny proportional
+to its potential consequence, including adversarial testing of the patch's new
+assumptions and failure modes.
+
+**AI-specific boundary.** AI review is an engineering instrument, not a
+security or economic certification authority. Claude, GPT, or any other AI may
+investigate, implement, review, generate tests, and gather evidence; agreement
+among AI agents does not itself establish correctness. Authority remains with
+the architecture, explicit invariants, reproducible evidence, adversarial
+validation, and the established CTO/human merge gate. This specializes §7 for
+economically critical work; it does not create a parallel AI process.
+
+This section reinforces §6's existing rules — **Correct STOP > Artificial
+PASS** and **Do not optimize for passing the gate. Make the gate difficult to
+fool.** It also complements
+`docs/PROTOCOL_INVARIANTS.md` §"Conformance Is Not \"Tests Pass\"": that
+section owns protocol-conformance truth; this section owns the
+engineering/production-readiness gate. Neither substitutes for the other.
+
+**Institutional lesson, not imported architecture.** This clarification was
+motivated in part by Blockstream's September 23, 2026 *Liquid Network Security
+Incident Assessment*. The report describes a consensus-critical rangeproof
+verification-cache defect, a remediation for an earlier cache defect that
+introduced a distinct byte-boundary failure mode not caught by multiple review
+streams, and a downstream peg-out control path whose insufficient operational
+containment allowed accepted unbacked LBTC to become a much larger reserve
+loss. Sails adopts the general engineering lesson — critical patches need
+adversarial evidence and independent containment layers — not Liquid's
+architecture, consensus model, or incident-response design.
+
+Reference:
+https://blog.blockstream.com/liquid-network-security-incident-assessment/
+
 ---
 
 ## 5. Definition of Ready
