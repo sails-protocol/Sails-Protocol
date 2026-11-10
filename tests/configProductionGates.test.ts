@@ -134,6 +134,41 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
   })
 
+  describe('QVAC advisory safety configuration (#311)', () => {
+    it.each(['NaN', 'Infinity', '-0.01', '1.01'])('rejects invalid confidence threshold %p', (value) => {
+      const load = loadConfig({ NODE_ENV: 'test', QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD: value })
+      expect(load).toThrow(/QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD/)
+    })
+
+    it.each(['0', '1'])('accepts confidence threshold boundary %p', (value) => {
+      const load = loadConfig({ NODE_ENV: 'test', QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD: value })
+      expect(load).not.toThrow()
+      expect(load().settlement.qvacAutoResolutionConfidenceThreshold).toBe(Number(value))
+    })
+
+    it.each(['NaN', 'Infinity', '0', '-1'])('rejects invalid contest window %p', (value) => {
+      const load = loadConfig({ NODE_ENV: 'test', QVAC_AUTO_RESOLUTION_WINDOW_HOURS: value })
+      expect(load).toThrow(/QVAC_AUTO_RESOLUTION_WINDOW_HOURS/)
+    })
+
+    it.each(['0', '-1', 'NaN'])('rejects invalid dispute sweep interval %p', (value) => {
+      const load = loadConfig({ NODE_ENV: 'test', DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS: value })
+      expect(load).toThrow(/DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS/)
+    })
+
+    it('accepts valid finite QVAC safety values', () => {
+      const load = loadConfig({
+        NODE_ENV: 'test',
+        QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD: '0.85',
+        QVAC_AUTO_RESOLUTION_WINDOW_HOURS: '24',
+        DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS: '300000',
+      })
+      expect(load).not.toThrow()
+      expect(load().settlement.qvacAutoResolutionConfidenceThreshold).toBe(0.85)
+      expect(load().settlement.qvacAutoResolutionWindowHours).toBe(24)
+    })
+  })
+
   describe('DATABASE_URL gate (Missão 06.5)', () => {
     it('refuses to boot in production when DATABASE_URL is unset — no silent localhost fallback', () => {
       const load = loadConfig({ ...REQUIRED_PROD_ENV, DATABASE_URL: undefined })
