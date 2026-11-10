@@ -366,9 +366,12 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
       await expect(escrowService.cancelPendingSignatureRound(c.escrow.id, c.round.id, asTrustedActor(c.seller.id))).rejects.toThrow(/does not support cancelling/)
       expect(dispatch.isSupersedableCooperativeRound({ ...c.round, signatures: [] })).toBe(true) // the round itself would be...
       const grant = dispatch.issueRulingSupersessionGrant({ id: 'x', appealRound: 0, arbiterId: ARBITER_ID, ruling: 'RELEASE', authoritySignature: 's', authorityIssuedAt: new Date(), status: 'RESOLVED' })
-      // ...but the rail is not MULTISIG: the core refuses before any lock or chain read.
-      await expect(escrowService.initiateRelease(c.escrow.id, undefined, ARBITER_ID, grant)).rejects.toThrow()
-      expect(await liveRound(c.escrow.id)).not.toBeNull()
+      // ...but the rail is not MULTISIG: the core refuses before any lock or chain read, as main does without a grant.
+      // Called by the seller, an authorized initiator, so the refusal is the rail gate's and not an authorization one.
+      const outspendsBefore = chain.outspendCalls.length
+      await expect(escrowService.initiateRelease(c.escrow.id, undefined, c.seller.id, grant)).rejects.toThrow(/already has a pending release transaction awaiting signatures/)
+      expect(chain.outspendCalls.length).toBe(outspendsBefore)
+      expect((await liveRound(c.escrow.id))!.id).toBe(c.round.id)
       expect(await retirements(c.escrow.id)).toHaveLength(0)
     }
   })
@@ -391,9 +394,87 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     const full = await cooperative('t9-full')
     await persistAllSignatures(full)
     const dispute = await raiseDispute(full)
-    await expect(resolve(full, dispute.id, 'RELEASE')).rejects.toThrow()
+    // A fully signed round counts as the dispatch (it may already have executed): the ruling is refused, not dispatched.
+    await expect(resolve(full, dispute.id, 'RELEASE')).rejects.toThrow(/dispatch already occurred/)
     expect((await liveRound(full.escrow.id))!.id).toBe(full.round.id)
+    expect((await liveRound(full.escrow.id))!.signatures).toHaveLength(2)
     expect(await retirements(full.escrow.id)).toHaveLength(0)
+  })
+
+  it('T9 (B2): a ruling never supersedes while the funding evidence is uncertain; nothing is retired', async () => {
+    pg.requirePostgres('T9 B2')
+    for (const outcome of ['REFUND', 'RELEASE'] as const) {
+      const c = await cooperative(`t9-b2-${outcome}`)
+      await sign(c, c.buyer.id)
+      const dispute = await raiseDispute(c)
+      await prisma.escrowFundingEvidence.create({ data: { escrowId: c.escrow.id, kind: 'REORGED_INVALIDATED', txid: c.funding, vout: 0 } })
+      // REFUND is otherwise allowed under uncertain funding, so only the supersession's own check refuses it; RELEASE
+      // is refused earlier by the generic release check. Either way the cooperative round stays and nothing is retired.
+      const reason = outcome === 'REFUND' ? /funding evidence is uncertain .*refusing to supersede its cooperative round/ : /funding evidence is currently uncertain/
+      await expect(resolve(c, dispute.id, outcome)).rejects.toThrow(reason)
+      const live = (await liveRound(c.escrow.id))!
+      expect(live.id).toBe(c.round.id)
+      expect(live.signatures.map((s) => s.participantId)).toEqual([c.buyer.id])
+      expect(await retirements(c.escrow.id)).toHaveLength(0)
+      expect((await prisma.dispute.findUniqueOrThrow({ where: { id: dispute.id } })).ruling).toBeNull() // reverted
+    }
+  })
+
+  // CTO 24 item 6 (Claude F-1): the translation guard runs after the dispatch committed, and its failure path deletes
+  // the escrow's pending row (pre-existing `deleteMany({ escrowId })`, not changed here). Reproduced, not fixed.
+  it('F-1 evidence (live ruling): guard failure after supersession - the retirement stays, the superseding round is deleted, a later ruling dispatches a new id', async () => {
+    pg.requirePostgres('F-1 live')
+    const guard = require('../../src/modules/open-settlement/dispatch-translation-guard')
+    const c = await cooperative('f1-live')
+    await sign(c, c.buyer.id)
+    const dispute = await raiseDispute(c)
+    const statusBefore = (await prisma.dispute.findUniqueOrThrow({ where: { id: dispute.id } })).status
+    const spy = jest.spyOn(guard, 'assertTranslationMatchesOutcome').mockImplementationOnce(() => { throw new Error('i239 F-1: forced translation mismatch') })
+    await expect(resolve(c, dispute.id, 'RELEASE')).rejects.toThrow(/forced translation mismatch/)
+    expect(spy).toHaveBeenCalledTimes(1)
+    const [r] = await retirements(c.escrow.id)
+    expect(r).toMatchObject({ pendingOperationId: c.round.id, reason: 'SUPERSEDED_BY_RULING', disputeId: dispute.id, signedBy: [c.buyer.id] })
+    const superseding = r.supersedingPendingOperationId!
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { id: superseding } })).toBeNull()
+    expect(await liveRound(c.escrow.id)).toBeNull()
+    expect(await prisma.dispute.findUniqueOrThrow({ where: { id: dispute.id } })).toMatchObject({ status: statusBefore, ruling: null })
+    expect(await retirementModule.verifyRetirementChain(prisma, c.escrow.id)).toMatchObject({ ok: true })
+    // Funds did not move and the escrow is still DISPUTED; the next valid ruling dispatches normally, under a new id.
+    expect(await prisma.escrow.findUniqueOrThrow({ where: { id: c.escrow.id } })).toMatchObject({ status: 'DISPUTED', txReleaseId: null })
+    await resolve(c, dispute.id, 'RELEASE')
+    const next = (await liveRound(c.escrow.id))!
+    expect(next.disputeId).toBe(dispute.id)
+    expect(next.id).not.toBe(superseding)
+    expect(await retirements(c.escrow.id)).toHaveLength(1)
+    expect(chain.broadcasts).toEqual([])
+  })
+
+  it('F-1 evidence (C4): guard failure after supersession in recovery - guardFailed, superseding round deleted, the next C4 pass re-dispatches', async () => {
+    pg.requirePostgres('F-1 C4')
+    const guard = require('../../src/modules/open-settlement/dispatch-translation-guard')
+    const c = await cooperative('f1-c4')
+    await sign(c, c.buyer.id)
+    const dispute = await raiseDispute(c)
+    await payoutAddressService.setPayoutAddress(c.buyer.id, 'BTC', testnetAddress(`${c.escrow.id}-f1b`))
+    const r = ruling(dispute.id, c.escrow.id, 'RELEASE')
+    const row = await prisma.dispute.findUniqueOrThrow({ where: { id: dispute.id } })
+    expect((await commitAuthoritativeDisputeRuling(
+      { id: dispute.id, escrowId: c.escrow.id, status: row.status, appealRound: 0 }, r.payload, r.signature,
+      Buffer.from(arbiterKeypair.publicKey).toString('hex'), '100000', 'BTC', c.buyer.id, c.seller.id,
+    )).committed).toBe(true)
+    jest.spyOn(guard, 'assertTranslationMatchesOutcome').mockImplementationOnce(() => { throw new Error('i239 F-1: forced translation mismatch') })
+    const first = await reconcileMissingDispatch()
+    expect(first.guardFailed.find((x) => x.escrowId === c.escrow.id)).toBeDefined()
+    const [retired] = await retirements(c.escrow.id)
+    expect(retired).toMatchObject({ pendingOperationId: c.round.id, reason: 'SUPERSEDED_BY_RULING' })
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { id: retired.supersedingPendingOperationId! } })).toBeNull()
+    expect(await liveRound(c.escrow.id)).toBeNull()
+    const second = await reconcileMissingDispatch()
+    expect(second.resumed.find((x) => x.escrowId === c.escrow.id)).toBeDefined()
+    const next = (await liveRound(c.escrow.id))!
+    expect(next.id).not.toBe(retired.supersedingPendingOperationId)
+    expect(await retirements(c.escrow.id)).toHaveLength(1)
+    expect(await prisma.escrow.findUniqueOrThrow({ where: { id: c.escrow.id } })).toMatchObject({ status: 'DISPUTED', txReleaseId: null })
   })
 
   it('T9 (C4): recovery of a committed ruling whose dispatch never persisted supersedes the cooperative round', async () => {
@@ -459,6 +540,37 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     walk(dir)
     expect(routes.length).toBeGreaterThan(3)
     for (const file of routes) expect(fs.readFileSync(file, 'utf8')).not.toMatch(/issueRulingSupersessionGrant|RulingSupersessionGrant/)
+  })
+
+  it('T11 (GK B1): a hostile co-signer cannot lock the round with a high-S or malformed signature; the honest seller still cancels', async () => {
+    pg.requirePostgres('T11 B1')
+    const bitcoin = require('bitcoinjs-lib')
+    const { NETWORK } = require('./pendingRoundLifecycleHarness')
+    const N = BigInt('0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141')
+    const c = await cooperative('t11-b1', 'refund') // requires [seller, buyer]
+    await sign(c, c.seller.id)
+    const reshape = (edit: (der: Buffer) => Buffer) => {
+      const psbt = bitcoin.Psbt.fromBase64(signRound(c.round.unsignedPsbtBase64, buyerKey), { network: NETWORK })
+      psbt.data.inputs[0].partialSig[0].signature = edit(Buffer.from(psbt.data.inputs[0].partialSig[0].signature))
+      return psbt.toBase64()
+    }
+    const highS = reshape((der) => {
+      const { signature, hashType } = bitcoin.script.signature.decode(der)
+      const s = BigInt('0x' + Buffer.from(signature.subarray(32)).toString('hex'))
+      return bitcoin.script.signature.encode(Buffer.concat([Buffer.from(signature.subarray(0, 32)), Buffer.from((N - s).toString(16).padStart(64, '0'), 'hex')]), hashType)
+    })
+    const malformed = reshape((der) => { der[0] = 0x31; return der })
+    for (const [submitted, reason] of [[highS, /not low-S/], [malformed, /not a valid DER signature/]] as const) {
+      const err = await escrowService.submitTransactionSignature(c.escrow.id, c.buyer.id, submitted).then(() => null, (e: any) => e)
+      expect(err?.message).toMatch(reason)
+      expect(err?.statusCode).toBe(409) // a domain refusal (EscrowError), never a 500
+      const live = (await liveRound(c.escrow.id))!
+      expect(live.signatures.map((s) => s.participantId)).toEqual([c.seller.id]) // nothing written
+    }
+    expect(chain.broadcasts).toEqual([])
+    // The round is still cancellable: the honest seller is not locked in.
+    expect(await escrowService.cancelPendingSignatureRound(c.escrow.id, c.round.id, asTrustedActor(c.seller.id))).toMatchObject({ outcome: 'CANCELLED' })
+    expect(await retirements(c.escrow.id)).toHaveLength(1)
   })
 
   // ─── T11: submit refuses what does not belong to the live round (real PSBTs) ─────
@@ -700,7 +812,7 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     expect((await prisma.escrow.findUniqueOrThrow({ where: { id: c.escrow.id } })).txReleaseId).toBeNull()
   })
 
-  it('watch: bounded keyset pages - 60 candidates take two ticks, and an unreadable explorer claims nothing', async () => {
+  it('watch: one page of at most 50 per tick, and an unreadable explorer claims nothing', async () => {
     pg.requirePostgres('watch bounds')
     const findMany = jest.spyOn(prisma.escrow, 'findMany')
     const c = await cooperative('watch')
@@ -712,6 +824,43 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     expect((watchCalls[0][0] as any).take).toBe(50)
     expect(await prisma.escrow.findUniqueOrThrow({ where: { id: c.escrow.id } })).toMatchObject({ status: 'PAYMENT_PENDING', txReleaseId: null })
   })
+
+  it('F-2: the production tick logs manual review (id + reason code), explorer blindness and held rounds - no free text, no PSBT', async () => {
+    pg.requirePostgres('F-2 log')
+    const { runSettlementReconcilerTick } = require('../../src/app')
+    const logged = async () => {
+      const log = { warn: jest.fn(), error: jest.fn() }
+      await runSettlementReconcilerTick(log)
+      return log.warn.mock.calls.map((x: any[]) => x[0]).find((e: any) => e.msg === 'Settlement reconciliation: held rounds, manual review or external-spend watch findings')
+    }
+    const ambiguous = await cooperative('f2-ambiguous')
+    chain.spentBy.set(`${ambiguous.funding}:0`, 'ef'.repeat(32))
+    chain.confirmed.add('ef'.repeat(32))
+    const first = await logged()
+    expect(first.requiresManualReview).toContainEqual({ escrowId: ambiguous.escrow.id, code: 'AMBIGUOUS' })
+    chain.spentBy.clear()
+    reconcile.resetExternalSpendCursor()
+    chain.outspendUnreadable = true
+    const second = await logged()
+    expect(second.externalSpendUnreadable).toContain(ambiguous.escrow.id)
+    for (const entry of [first, second]) {
+      const text = JSON.stringify(entry)
+      expect(text).not.toContain(ambiguous.round.unsignedPsbtBase64.slice(0, 40))
+      expect(text).not.toMatch(/matches no round|was spent by/) // reasons are reduced to their code
+    }
+  })
+
+  it('watch: 55 candidates - the second tick continues after the first 50, the third starts over (GK F-3/C)', async () => {
+    pg.requirePostgres('watch pagination')
+    const ids: string[] = []
+    for (let i = 0; i < 55; i++) ids.push((await cooperative(`page-${i}`, 'refund')).escrow.id)
+    const fundingOf = new Map((await prisma.escrow.findMany({ where: { id: { in: ids } }, select: { id: true, txLockId: true } })).map((e) => [e.id, e.txLockId]))
+    const outpoints = [...ids].sort().map((id) => `${fundingOf.get(id)}:0`)
+    const ticked = async () => { chain.outspendCalls.length = 0; await tick(); return [...chain.outspendCalls] }
+    expect(await ticked()).toEqual(outpoints.slice(0, 50))
+    expect(await ticked()).toEqual(outpoints.slice(50)) // the five beyond the first page are reached
+    expect(await ticked()).toEqual(outpoints.slice(0, 50)) // an incomplete page restarts the scan
+  }, 600_000)
 
   it('watch: never holds up recovery - at most once per 60 s by default, and a slow explorer stops it within its 15 s budget, resuming where it stopped', async () => {
     pg.requirePostgres('watch budget')

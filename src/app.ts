@@ -414,6 +414,19 @@ export async function runSettlementReconcilerTick(log: Pick<FastifyBaseLogger, '
     if (report.rulingFinalizationsDeferred.length) {
       log.warn({ msg: 'Ruling finalizations deferred: not finalized while they can still be rolled back, retried every tick', module: 'settlement-reconciler', rulingFinalizationsDeferred: report.rulingFinalizationsDeferred })
     }
+    // Issue #239 (GK F-2) - what needs a human and what the external-spend watch could not see. Ids, public txids and
+    // reason codes only: a free-text reason may quote a provider or database error, so it is never logged here.
+    const attention = {
+      heldIncompatibleRounds: report.heldIncompatibleRounds,
+      requiresManualReview: report.requiresManualReview.map((r) => ({ escrowId: r.escrowId, code: /^[A-Z][A-Z0-9_]{2,}(?=:)/.exec(r.reason)?.[0] ?? 'UNCODED' })),
+      externalSpendUnreadable: report.externalSpendUnreadable,
+      externalSpendPendingConfirmation: report.externalSpendPendingConfirmation,
+      externalSpendFundingUncertain: report.externalSpendFundingUncertain,
+      externallyCompleted: report.externallyCompleted,
+    }
+    if (Object.values(attention).some((list) => list.length)) {
+      log.warn({ msg: 'Settlement reconciliation: held rounds, manual review or external-spend watch findings', module: 'settlement-reconciler', ...attention })
+    }
   } catch (err) {
     log.error({ msg: 'Settlement reconciliation failed', module: 'settlement-reconciler', err: err instanceof Error ? err.message : err })
   }

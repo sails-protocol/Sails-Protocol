@@ -18,6 +18,8 @@ type Network = (typeof bitcoin.networks)[keyof typeof bitcoin.networks]
 
 const toHex = (bytes: Uint8Array) => Buffer.from(bytes).toString('hex')
 const SIGHASH_ALL = bitcoin.Transaction.SIGHASH_ALL
+// n / 2 for secp256k1 (BIP 62 / BIP 146 LOW_S): a standard ECDSA signature has s <= this value.
+const SECP256K1_HALF_ORDER = Buffer.from('7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0', 'hex')
 
 /** A submitted signature that does not belong to the live round. Nothing is written when this is thrown. */
 export class RoundSignatureRejected extends EscrowError {}
@@ -63,8 +65,19 @@ export function verifySignerPartialSignature(
     if (added.length !== 1 || toHex(added[0].pubkey) !== signerPubkeyHex) {
       throw new RoundSignatureRejected(`Submitted PSBT input ${i} must add exactly one partial signature, by the signer's registered key`)
     }
-    if (bitcoin.script.signature.decode(added[0].signature).hashType !== SIGHASH_ALL) {
+    let decoded: { signature: Uint8Array; hashType: number }
+    try {
+      decoded = bitcoin.script.signature.decode(added[0].signature)
+    } catch {
+      throw new RoundSignatureRejected(`Submitted signature on input ${i} is not a valid DER signature`)
+    }
+    if (decoded.hashType !== SIGHASH_ALL) {
       throw new RoundSignatureRejected(`Submitted signature on input ${i} is not SIGHASH_ALL`)
+    }
+    // A high-S signature is consensus-valid but non-standard: nodes refuse to relay it, so accepting it would let a
+    // co-signer turn a cancellable round into a fully signed one that can never be broadcast. Refused, never normalized.
+    if (Buffer.compare(Buffer.from(decoded.signature.subarray(32, 64)), SECP256K1_HALF_ORDER) > 0) {
+      throw new RoundSignatureRejected(`Submitted signature on input ${i} is not low-S (non-standard, would never relay)`)
     }
     server.updateInput(i, { partialSig: [added[0]] })
     if (!server.validateSignaturesOfInput(i, (pubkey, hash, signature) => ecc.verify(hash, pubkey, signature), added[0].pubkey)) {

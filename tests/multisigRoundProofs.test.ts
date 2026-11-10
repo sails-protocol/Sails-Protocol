@@ -8,6 +8,7 @@
 //   - the premise of both: a P2WSH round's unsigned txid IS its final txid, with and without a fee output.
 import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from '@bitcoinerlab/secp256k1'
+import * as productionEcc from 'tiny-secp256k1' // the library the server verifies with
 import { ECPairFactory } from 'ecpair'
 import { createHash } from 'crypto'
 import { verifySignerPartialSignature, proveExternalCompletion, roundUnsignedTxid, RoundSignatureRejected } from '../src/modules/open-settlement/multisig-round-proofs'
@@ -73,43 +74,73 @@ describe('verifySignerPartialSignature() - T11, real PSBTs', () => {
     expect(() => verifySignerPartialSignature(withArbiter, sign(withArbiter, buyer).toBase64(), hex(buyer.publicKey), NETWORK)).not.toThrow()
   })
 
-  const refusals: Array<[string, () => string, string?]> = [
-    ['not a PSBT', () => 'not-base64-psbt'],
-    ['a signature of another transaction', () => sign(round({ payout: 89_000n }), buyer).toBase64()],
-    ['SIGHASH_NONE (field and signature)', () => sign(unsigned, buyer, SIGHASH_NONE).toBase64()],
-    ['SIGHASH_SINGLE', () => sign(unsigned, buyer, SIGHASH_SINGLE).toBase64()],
-    ['SIGHASH_ALL|ANYONECANPAY', () => sign(unsigned, buyer, SIGHASH_ALL | SIGHASH_ANYONECANPAY).toBase64()],
+  const withSignature = (psbt: bitcoin.Psbt, edit: (sig: Buffer) => Buffer) => {
+    psbt.data.inputs[0].partialSig![0].signature = edit(Buffer.from(psbt.data.inputs[0].partialSig![0].signature))
+    return psbt
+  }
+
+  const refusals: Array<[string, () => string, RegExp]> = [
+    ['not a PSBT', () => 'not-base64-psbt', /not a valid PSBT/],
+    ['a signature of another transaction', () => sign(round({ payout: 89_000n }), buyer).toBase64(), /does not sign this round/],
+    ['SIGHASH_NONE (field and signature)', () => sign(unsigned, buyer, SIGHASH_NONE).toBase64(), /sighash other than SIGHASH_ALL/],
+    ['SIGHASH_SINGLE', () => sign(unsigned, buyer, SIGHASH_SINGLE).toBase64(), /sighash other than SIGHASH_ALL/],
+    ['SIGHASH_ALL|ANYONECANPAY', () => sign(unsigned, buyer, SIGHASH_ALL | SIGHASH_ANYONECANPAY).toBase64(), /sighash other than SIGHASH_ALL/],
     ['a non-ALL signature with the sighash field stripped', () => {
       const psbt = sign(unsigned, buyer, SIGHASH_NONE)
       delete (psbt.data.inputs[0] as { sighashType?: number }).sighashType
       return psbt.toBase64()
-    }],
-    ['the wrong key (seller signs, submitted as the buyer)', () => sign(unsigned, seller).toBase64()],
-    ['two new partial signatures', () => sign(sign(unsigned, buyer).toBase64(), seller).toBase64()],
-    ['no new partial signature', () => unsigned],
+    }, /is not SIGHASH_ALL/],
+    ['the wrong key (seller signs, submitted as the buyer)', () => sign(unsigned, seller).toBase64(), /exactly one partial signature/],
+    ['two new partial signatures', () => sign(sign(unsigned, buyer).toBase64(), seller).toBase64(), /exactly one partial signature/],
+    ['no new partial signature', () => unsigned, /exactly one partial signature/],
     ['a finalized input', () => {
       const psbt = sign(sign(unsigned, buyer).toBase64(), seller)
       psbt.finalizeAllInputs()
       return psbt.toBase64()
-    }],
+    }, /already finalized/],
     ['a signature over a tampered witnessUtxo amount', () => {
       const tampered = bitcoin.Psbt.fromBase64(unsigned, { network: NETWORK })
       tampered.data.inputs[0].witnessUtxo!.value = 1n
       tampered.signInput(0, buyer)
       return tampered.toBase64()
-    }],
-    ['a signature with one bit flipped', () => {
-      const psbt = sign(unsigned, buyer)
-      const sig = Buffer.from(psbt.data.inputs[0].partialSig![0].signature)
-      sig[10] ^= 0x01
-      psbt.data.inputs[0].partialSig![0].signature = sig
-      return psbt.toBase64()
-    }],
+    }, /does not verify/],
+    ['a signature with one bit flipped', () => withSignature(sign(unsigned, buyer), (sig) => { sig[10] ^= 0x01; return sig }).toBase64(), /does not verify/],
+    // GK B1 / F-1: consensus-valid but non-standard; a node refuses to relay it.
+    ['a high-S signature (s replaced by n - s)', () => withSignature(sign(unsigned, buyer), highS).toBase64(), /not low-S/],
+    ['a malformed DER signature (bad sequence tag)', () => withSignature(sign(unsigned, buyer), (sig) => { sig[0] = 0x31; return sig }).toBase64(), /not a valid DER signature/],
+    ['a truncated DER signature', () => withSignature(sign(unsigned, buyer), (sig) => sig.subarray(0, 20)).toBase64(), /not a valid DER signature/],
   ]
-  it.each(refusals)('refuses %s', (_name, submitted) => {
+  it.each(refusals)('refuses %s, with its reason', (_name, submitted, reason) => {
     expect(() => verifySignerPartialSignature(unsigned, submitted(), hex(buyer.publicKey), NETWORK)).toThrow(RoundSignatureRejected)
+    expect(() => verifySignerPartialSignature(unsigned, submitted(), hex(buyer.publicKey), NETWORK)).toThrow(reason)
+  })
+
+  it('the high-S signature is otherwise valid: refused only for its S, not as a forgery', () => {
+    const psbt = withSignature(sign(unsigned, buyer), highS)
+    expect(psbt.validateSignaturesOfInput(0, (pubkey, hash, signature) => productionEcc.verify(hash, pubkey, signature))).toBe(true)
+    expect(psbt.validateSignaturesOfInput(0, (pubkey, hash, signature) => productionEcc.verify(hash, pubkey, signature, true))).toBe(false)
+  })
+
+  it('every ordinary signature is accepted, whatever its r (the check reads S only)', () => {
+    let highR = 0
+    for (let i = 0; i < 40; i++) {
+      const variant = round({ payout: 80_000n + BigInt(i) })
+      const psbt = sign(variant, buyer)
+      if (Buffer.from(psbt.data.inputs[0].partialSig![0].signature).readUInt8(3) === 33) highR++ // DER r padded: top bit set
+      expect(() => verifySignerPartialSignature(variant, psbt.toBase64(), hex(buyer.publicKey), NETWORK)).not.toThrow()
+    }
+    expect(highR).toBeGreaterThan(0)
   })
 })
+
+const SECP256K1_ORDER = BigInt('0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141')
+/** The same signature with s replaced by n - s: still valid for consensus, but high-S. */
+function highS(der: Buffer): Buffer {
+  const { signature, hashType } = bitcoin.script.signature.decode(der)
+  const s = BigInt('0x' + Buffer.from(signature.subarray(32)).toString('hex'))
+  const flipped = Buffer.from((SECP256K1_ORDER - s).toString(16).padStart(64, '0'), 'hex')
+  return Buffer.from(bitcoin.script.signature.encode(Buffer.concat([Buffer.from(signature.subarray(0, 32)), flipped]), hashType))
+}
 
 describe('proveExternalCompletion() - C-1, real transactions', () => {
   const unsigned = round()

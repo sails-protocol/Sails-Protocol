@@ -27,6 +27,9 @@ const genesisEscrowHash = (from: string, to: string, by: string) => createHash('
 export const ROOT = path.resolve(__dirname, '..', '..')
 export const WORKER = path.join(__dirname, 'reconcilerProcess.worker.ts')
 export const CLOSED_REDIS_URL = 'redis://127.0.0.1:1'
+// Issue #239 (O1): workers never reach a public explorer. Their own escrows never need one; other suites' MULTISIG
+// escrows in the shared database get a local, refused connection instead of a real testnet read.
+export const CLOSED_EXPLORER_URL = 'http://127.0.0.1:1'
 export const AMOUNT = '0.001'
 export const FEE = '0.00001'
 const SATS = (btc: string) => BigInt(new Prisma.Decimal(btc).mul(1e8).toFixed(0))
@@ -199,6 +202,7 @@ export function startWorker(o: WorkerOptions): WorkerHandle {
     env: {
       ...process.env,
       REDIS_URL: o.redisUrl ?? CLOSED_REDIS_URL,
+      MULTISIG_EXPLORER_API_URL: CLOSED_EXPLORER_URL,
       ESCROW_IDS: JSON.stringify(o.escrowIds),
       SYNC_DIR: o.sync.dir,
       WORKER_LABEL: o.label,
