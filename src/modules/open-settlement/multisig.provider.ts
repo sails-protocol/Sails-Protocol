@@ -92,6 +92,7 @@ import { estimatedVBytesForOutputCount, maxExecutionCostSats } from './execution
 import type { FeeCollectionResult } from './escrow-providers'
 import { childLogger } from '../../common/logger'
 import { boundedFetch } from './bounded-rpc'
+import { SubmissionDefinitelyFailed, BroadcastRejected } from './broadcast-outcome'
 
 // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded, safe retry for
 // read-only explorer queries only. Never applied to broadcast() (a
@@ -241,6 +242,8 @@ export interface TransactionExistence {
 // explorer call in this file already relies on): `GET /tx/{txid}/status`
 // 404s only when the txid is genuinely unknown; a known-but-unconfirmed
 // (mempool) tx 200s with `confirmed: false`.
+const BROADCAST_BODY_LIMIT = 500
+
 export async function fetchTransactionExistence(txid: string): Promise<TransactionExistence> {
   const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}/status`, {}, {
     timeoutMs: config.multisig.explorerRequestTimeoutMs,
@@ -944,14 +947,36 @@ export class MultisigProvider implements SettlementProvider {
   // existing caller, which already treats a broadcast failure as
   // "did not confirm this attempt succeeded," never as "definitely
   // failed" — no escrow-state semantics are changed by this fix.
+  //
+  // Issue #299 (CTO D1) - after the POST nothing proves the transaction never propagated: every error here is UNKNOWN
+  // and the caller keeps its claim. Two answers are told apart: a 400 for a transaction the explorer already has is
+  // success (positive evidence, locally-derived txid), and a 400 carrying an identifiable RPC rejection is
+  // BroadcastRejected, so PASS 1 can route it to manual review instead of retrying blindly.
   private async broadcast(txHex: string): Promise<string> {
-    const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx`, { method: 'POST', body: txHex }, {
-      timeoutMs: config.multisig.explorerRequestTimeoutMs,
-    })
-    if (!res.ok) {
-      throw new EscrowError(`MULTISIG provider: broadcast failed with ${res.status}: ${await res.text()}`)
+    let res: Response
+    try {
+      res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx`, { method: 'POST', body: txHex }, {
+        timeoutMs: config.multisig.explorerRequestTimeoutMs,
+      })
+    } catch (err) {
+      throw new EscrowError(`MULTISIG provider: broadcast outcome unknown, no answer: ${err instanceof Error ? err.message : String(err)}`)
     }
-    return (await res.text()).trim()
+    if (res.ok) return (await res.text()).trim()
+    // Bounded (GK S4): the remote body reaches error messages, manual-review reasons and logs.
+    const body = await res.text()
+    const answer = `${res.status}: ${body.length > BROADCAST_BODY_LIMIT ? `${body.slice(0, BROADCAST_BODY_LIMIT)}... [${body.length - BROADCAST_BODY_LIMIT} more chars]` : body}`
+    const txid = bitcoin.Transaction.fromHex(txHex).getId()
+    if (res.status !== 400 || !/sendrawtransaction RPC error/i.test(answer)) {
+      throw new EscrowError(`MULTISIG provider: broadcast outcome unknown, the explorer answered ${answer}`)
+    }
+    let known: boolean
+    try {
+      known = (await fetchTransactionExistence(txid)).exists
+    } catch (err) {
+      throw new EscrowError(`MULTISIG provider: broadcast of ${txid} rejected with ${answer}, and the explorer could not be read back - outcome unknown: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    if (known) return txid
+    throw new BroadcastRejected(`MULTISIG provider: broadcast of ${txid} rejected with ${answer} - not visible on this explorer, outcome unknown (another node may have it)`)
   }
 
   // Real fee estimation (2026-08-02) — closes this provider's own former
@@ -1353,7 +1378,8 @@ export class MultisigProvider implements SettlementProvider {
       merged.finalizeAllInputs()
       return merged.extractTransaction()
     } catch (err) {
-      throw new EscrowError(
+      // Nothing was sent: a round that cannot be built is a definite failure (Issue #299).
+      throw new SubmissionDefinitelyFailed(
         `MULTISIG provider: failed to combine/finalize signatures for trade ${tradeId}: ${err instanceof Error ? err.message : String(err)}`
       )
     }

@@ -409,7 +409,7 @@ export async function runSettlementReconcilerTick(log: Pick<FastifyBaseLogger, '
   try {
     const report = await reconcilePendingSettlements()
     if (report.failed.length || report.requiresManualReview.length || report.projectionsRecovered.length) {
-      log.warn({ msg: 'Settlement reconciliation completed with findings', module: 'settlement-reconciler', failed: report.failed.length, requiresManualReview: report.requiresManualReview.length, projectionsRecovered: report.projectionsRecovered })
+      log.warn({ msg: 'Settlement reconciliation completed with findings', module: 'settlement-reconciler', failed: report.failed.length, failedEscrowIds: [...new Set(report.failed.map((f) => f.escrowId))], requiresManualReview: report.requiresManualReview.length, projectionsRecovered: report.projectionsRecovered })
     }
     if (report.rulingFinalizationsDeferred.length) {
       log.warn({ msg: 'Ruling finalizations deferred: not finalized while they can still be rolled back, retried every tick', module: 'settlement-reconciler', rulingFinalizationsDeferred: report.rulingFinalizationsDeferred })

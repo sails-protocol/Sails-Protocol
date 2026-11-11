@@ -9,6 +9,7 @@ import {
   loadParticipantPubkeys,
   claimEscrowTransition,
   revertEscrowStatus,
+  revertUnsettledClaim,
   settlementSucceededButLocalStepFailed,
   emitEscrowTransition,
   resolvePayoutAddress,
@@ -21,6 +22,7 @@ import {
 import { randomUUID } from 'crypto'
 import { fetchOutpointSpendStatus } from './multisig.provider'
 import { verifySignerPartialSignature, RoundSignatureRejected } from './multisig-round-proofs'
+import { SubmissionDefinitelyFailed } from './broadcast-outcome'
 import { retireRound, RoundNotRetirable } from './pending-round-retirement'
 import { isSupersedableCooperativeRound, revalidateRulingSupersessionGrant, type RulingSupersessionGrant } from './dispute-dispatch'
 import { hasDualApproval } from './escrow-dual-approval'
@@ -461,7 +463,19 @@ export async function submitTransactionSignature(escrowId: string, participantId
       ? await provider.finalizeRefund(escrow, pending.unsignedPsbtBase64, signedList, pending.id)
       : await provider.finalizeSplit!(escrow, pending.unsignedPsbtBase64, signedList)
   } catch (err) {
-    await revertEscrowStatus(escrowId, targetStatus, escrowStatus)
+    // Issue #299 - UNKNOWN is not FAILED. A MULTISIG claim is released only when the round could not be built (nothing
+    // was sent); any other error may mean the network has the transaction, so the claim stays (no dispute, no new
+    // disposition) and PASS 1 converges from chain truth with the same transaction.
+    if (escrow.type !== 'MULTISIG') await revertEscrowStatus(escrowId, targetStatus, escrowStatus)
+    else if (err instanceof SubmissionDefinitelyFailed) {
+      try {
+        await revertUnsettledClaim(escrowId, targetStatus, escrowStatus)
+      } catch (revertErr) {
+        const reason = revertErr instanceof Error ? revertErr.message : String(revertErr)
+        log.error({ msg: 'MULTISIG: the round could not be built and its claim could not be released - escrow stays claimed, PASS 1 routes it to manual review', escrowId, pendingTransactionId: pending.id, stage: 'release-claim', cause: err.message, err: reason })
+        throw new EscrowError(`${err.message}; the claim could not be released (${reason}) - escrow ${escrowId} stays ${targetStatus} pending manual review`)
+      }
+    }
     throw err
   }
 

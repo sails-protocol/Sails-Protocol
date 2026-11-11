@@ -387,6 +387,19 @@ export async function revertEscrowStatus(escrowId: string, claimedStatus: string
   await escrowRepository.revertStatus(escrowId, claimedStatus, fromStatus).catch(() => {})
 }
 
+/**
+ * Issue #299 - MULTISIG rollback after a round that could not be built (nothing was sent): one conditional
+ * statement, only while the escrow still holds this claim and no settlement result exists. Never swallows a database
+ * error - the caller reports it and the claim stays. Returns the number of rows reverted.
+ * Under the escrow lock (GK S1): PASS 1 may have rebuilt and broadcast the round meanwhile (a signer re-submitted a
+ * usable signature); its locked write re-checks the status, so the two never interleave into a non-terminal escrow
+ * with a recorded transaction.
+ */
+export async function revertUnsettledClaim(escrowId: string, claimedStatus: string, fromStatus: string): Promise<number> {
+  return withEscrowFundingLock(escrowId, async (tx) =>
+    (await tx.escrow.updateMany({ where: { id: escrowId, status: claimedStatus as any, txReleaseId: null }, data: { status: fromStatus as any } })).count)
+}
+
 export function assertEscrowTransition(current: string, next: string) {
   const allowed = VALID_TRANSITIONS[current] ?? []
   if (!allowed.includes(next)) {
