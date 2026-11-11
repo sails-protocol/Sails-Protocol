@@ -21,6 +21,31 @@ const SIGHASH_ALL = bitcoin.Transaction.SIGHASH_ALL
 // n / 2 for secp256k1 (BIP 62 / BIP 146 LOW_S): a standard ECDSA signature has s <= this value.
 const SECP256K1_HALF_ORDER = Buffer.from('7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0', 'hex')
 
+/** `rs` is a decoded 64-byte r||s signature. */
+const isHighS = (rs: Uint8Array) => Buffer.compare(Buffer.from(rs.subarray(32, 64)), SECP256K1_HALF_ORDER) > 0
+
+/**
+ * D1 (GK-594) - partial signatures already stored in a PSBT that the live check below would now refuse: high-S, or
+ * not decodable at all (never assumed low-S). Read-only; used by scripts/scan-high-s-signatures.ts before a deploy,
+ * because signatures persisted before that check existed were never re-validated.
+ */
+export function findHighSPartialSignatures(psbtBase64: string, network: Network = networkFor(config.multisig.network)): Array<{ input: number; pubkey: string; reason: 'HIGH_S' | 'UNDECODABLE' }> {
+  const found: Array<{ input: number; pubkey: string; reason: 'HIGH_S' | 'UNDECODABLE' }> = []
+  bitcoin.Psbt.fromBase64(psbtBase64, { network }).data.inputs.forEach((input, i) => {
+    for (const p of input.partialSig ?? []) {
+      let rs: Uint8Array
+      try {
+        rs = bitcoin.script.signature.decode(p.signature).signature
+      } catch {
+        found.push({ input: i, pubkey: toHex(p.pubkey), reason: 'UNDECODABLE' })
+        continue
+      }
+      if (isHighS(rs)) found.push({ input: i, pubkey: toHex(p.pubkey), reason: 'HIGH_S' })
+    }
+  })
+  return found
+}
+
 /** A submitted signature that does not belong to the live round. Nothing is written when this is thrown. */
 export class RoundSignatureRejected extends EscrowError {}
 
@@ -76,7 +101,7 @@ export function verifySignerPartialSignature(
     }
     // A high-S signature is consensus-valid but non-standard: nodes refuse to relay it, so accepting it would let a
     // co-signer turn a cancellable round into a fully signed one that can never be broadcast. Refused, never normalized.
-    if (Buffer.compare(Buffer.from(decoded.signature.subarray(32, 64)), SECP256K1_HALF_ORDER) > 0) {
+    if (isHighS(decoded.signature)) {
       throw new RoundSignatureRejected(`Submitted signature on input ${i} is not low-S (non-standard, would never relay)`)
     }
     server.updateInput(i, { partialSig: [added[0]] })
