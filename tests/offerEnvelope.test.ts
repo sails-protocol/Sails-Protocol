@@ -238,7 +238,14 @@ describe('OfferEnvelope — signature verification (adversarial)', () => {
     expect(isOfferEnvelopeEconomicallyActive(envelope, new Date('2026-09-09T00:00:00.000Z'))).toBe(false)
   })
 
-  it('13. a byte-for-byte copy of a valid envelope (as any relay would forward it) verifies identically', () => {
+  it('8b. C9: an unexpired, validly-signed CANCELLED tombstone is never economically active (same expiry ACTIVE is)', () => {
+    const now = new Date('2026-09-09T00:00:00.000Z')
+    const expiresAt = '2099-01-01T00:00:00.000Z'
+    expect(isOfferEnvelopeEconomicallyActive({ status: 'ACTIVE', expiresAt }, now)).toBe(true)
+    expect(isOfferEnvelopeEconomicallyActive({ status: 'CANCELLED', expiresAt }, now)).toBe(false)
+  })
+
+  it('13.a byte-for-byte copy of a valid envelope (as any relay would forward it) verifies identically', () => {
     const { publicKeyHex, secretKeyHex } = makeKeypair()
     const envelope = signedEnvelope(baseContent({}, publicKeyHex), secretKeyHex)
     const relayed = JSON.parse(JSON.stringify(envelope)) // simulates serialization over any transport
