@@ -11,7 +11,7 @@ import * as ecc from '@bitcoinerlab/secp256k1'
 import * as productionEcc from 'tiny-secp256k1' // the library the server verifies with
 import { ECPairFactory } from 'ecpair'
 import { createHash } from 'crypto'
-import { verifySignerPartialSignature, proveExternalCompletion, roundUnsignedTxid, RoundSignatureRejected } from '../src/modules/open-settlement/multisig-round-proofs'
+import { verifySignerPartialSignature, proveExternalCompletion, roundUnsignedTxid, RoundSignatureRejected, findHighSPartialSignatures } from '../src/modules/open-settlement/multisig-round-proofs'
 
 bitcoin.initEccLib(ecc)
 const ECPair = ECPairFactory(ecc)
@@ -57,6 +57,11 @@ const finalize = (unsigned: string, signed: string[]) => {
   return merged.extractTransaction()
 }
 
+const withSignature = (psbt: bitcoin.Psbt, edit: (sig: Buffer) => Buffer) => {
+  psbt.data.inputs[0].partialSig![0].signature = edit(Buffer.from(psbt.data.inputs[0].partialSig![0].signature))
+  return psbt
+}
+
 describe('verifySignerPartialSignature() - T11, real PSBTs', () => {
   const unsigned = round()
 
@@ -73,11 +78,6 @@ describe('verifySignerPartialSignature() - T11, real PSBTs', () => {
     const withArbiter = sign(unsigned, arbiter).toBase64()
     expect(() => verifySignerPartialSignature(withArbiter, sign(withArbiter, buyer).toBase64(), hex(buyer.publicKey), NETWORK)).not.toThrow()
   })
-
-  const withSignature = (psbt: bitcoin.Psbt, edit: (sig: Buffer) => Buffer) => {
-    psbt.data.inputs[0].partialSig![0].signature = edit(Buffer.from(psbt.data.inputs[0].partialSig![0].signature))
-    return psbt
-  }
 
   const refusals: Array<[string, () => string, RegExp]> = [
     ['not a PSBT', () => 'not-base64-psbt', /not a valid PSBT/],
@@ -141,6 +141,31 @@ function highS(der: Buffer): Buffer {
   const flipped = Buffer.from((SECP256K1_ORDER - s).toString(16).padStart(64, '0'), 'hex')
   return Buffer.from(bitcoin.script.signature.encode(Buffer.concat([Buffer.from(signature.subarray(0, 32)), flipped]), hashType))
 }
+
+describe('findHighSPartialSignatures() - D1 pre-deploy sweep, real PSBTs', () => {
+  const unsigned = round()
+  const pubkey = hex(buyer.publicKey)
+
+  it('reports nothing for ordinary low-S signatures, or for a PSBT with none', () => {
+    expect(findHighSPartialSignatures(sign(sign(unsigned, buyer).toBase64(), seller).toBase64(), NETWORK)).toEqual([])
+    expect(findHighSPartialSignatures(unsigned, NETWORK)).toEqual([])
+  })
+
+  it('reports a stored high-S signature with its input and key, alongside a low-S one it leaves alone', () => {
+    const psbt = withSignature(sign(unsigned, buyer), highS)
+    psbt.signInput(0, seller)
+    expect(findHighSPartialSignatures(psbt.toBase64(), NETWORK)).toEqual([{ input: 0, pubkey, reason: 'HIGH_S' }])
+  })
+
+  it('reports an undecodable signature instead of assuming it is low-S', () => {
+    const psbt = withSignature(sign(unsigned, buyer), (sig) => { sig[0] = 0x31; return sig })
+    expect(findHighSPartialSignatures(psbt.toBase64(), NETWORK)).toEqual([{ input: 0, pubkey, reason: 'UNDECODABLE' }])
+  })
+
+  it('throws on a PSBT it cannot parse (the sweep counts it as a finding)', () => {
+    expect(() => findHighSPartialSignatures('not-a-psbt', NETWORK)).toThrow()
+  })
+})
 
 describe('proveExternalCompletion() - C-1, real transactions', () => {
   const unsigned = round()
