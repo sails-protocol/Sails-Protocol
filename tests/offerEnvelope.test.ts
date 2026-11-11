@@ -245,7 +245,7 @@ describe('OfferEnvelope — signature verification (adversarial)', () => {
     expect(isOfferEnvelopeEconomicallyActive({ status: 'CANCELLED', expiresAt }, now)).toBe(false)
   })
 
-  it('13.a byte-for-byte copy of a valid envelope (as any relay would forward it) verifies identically', () => {
+  it('13. a byte-for-byte copy of a valid envelope (as any relay would forward it) verifies identically', () => {
     const { publicKeyHex, secretKeyHex } = makeKeypair()
     const envelope = signedEnvelope(baseContent({}, publicKeyHex), secretKeyHex)
     const relayed = JSON.parse(JSON.stringify(envelope)) // simulates serialization over any transport
