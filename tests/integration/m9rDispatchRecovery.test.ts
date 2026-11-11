@@ -24,6 +24,7 @@ import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
 import nacl from 'tweetnacl'
+import * as H from './pendingRoundLifecycleHarness'
 
 bitcoin.initEccLib(ecc)
 
@@ -99,12 +100,8 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
     })
   })
 
-  afterAll(async () => {
-    if (dbAvailable) {
-      await prisma.$disconnect()
-      await closeTestRedis()
-    }
-  })
+  // The client and the Redis connection are closed once, by the file-level afterAll at the end of this file:
+  // the #343 keyset describe below shares them.
 
   function requirePostgres(name: string): void {
     pg.requirePostgres(name)
@@ -343,4 +340,400 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
     expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: real.escrowId } })).toBe(1)
     jest.restoreAllMocks()
   })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// Issue #343 - keyset pagination of the recovery, across more than one page. The suite above proves the bounded query
+// on ONE real C4 case among noise; this one proves the behaviour BETWEEN pages, which one case never reaches: more than
+// 100 eligible candidates, so the cursor (`d.id > afterId`, 100 per page) is crossed twice.
+//
+//   K1  every eligible candidate is resumed exactly once across the pages - none omitted, none loaded twice, the cursor
+//       strictly increasing, the number of page queries what the page sizes imply (including the empty last page);
+//   K2  the recovery is idempotent: a second run loads nothing and creates nothing;
+//   K3  history that is not recovery work is never loaded and never touched (settled, legacy, already dispatched, and
+//       a fully signed cooperative round);
+//   K4  #239: a cooperative round that is still missing a signature is superseded by the ruling, also across a page
+//       boundary; a fully signed one is not a candidate at all;
+//   K5  failures in the middle of a run (a throwing dispatch, a conflict, a guard failure, a crash right after the
+//       dispatch persisted) never lose the other candidates and never produce a second disposition: a later run
+//       finishes exactly the unresolved ones;
+//   K6  two reconcilers racing through the same pages resume each escrow once.
+//
+// "No economic double disposition": every candidate ends with exactly ONE pending round (the table is unique per
+// escrow), no transaction is ever broadcast, no escrow leaves its non-terminal state and none records a release txid.
+//
+// LIMITS: only the explorer is simulated (pendingRoundLifecycleHarness.ts); nothing here moves funds or signs for a
+// real counterparty. The page size (100) is the production constant of dispute-dispatch-recovery.ts, restated here;
+// the first assertion of K1 fails if it changes. The database may hold candidates of other suites: everything is
+// asserted about THIS describe's escrows, and the assertions about pages hold for any database.
+const PAGE = 100
+type Ruling = 'RELEASE' | 'REFUND' | 'SPLIT'
+const RULINGS: Ruling[] = ['RELEASE', 'REFUND', 'SPLIT']
+interface Case { escrowId: string; disputeId: string; ruling: Ruling; roundId?: string }
+
+describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreSQL, real PSBTs)', () => {
+  const pg = createPostgresIntegrationHarness()
+  let dbAvailable = false
+  let prisma: PrismaClient
+  let escrowService: any
+  let identityService: any
+  let liquidityRouter: any
+  let tradeService: any
+  let payoutAddressService: any
+  let getDisputeService: typeof import('../../src/modules/open-settlement/dispute.service').getDisputeService
+  let signAuthorityDecision: typeof import('../../src/modules/open-settlement/arbitration-authority').signAuthorityDecision
+  let commitAuthoritativeDisputeRuling: typeof import('../../src/modules/open-settlement/dispute-outcome').commitAuthoritativeDisputeRuling
+  let reconcileMissingDispatch: typeof import('../../src/modules/open-settlement/dispute-dispatch-recovery').reconcileMissingDispatch
+  let EscrowError: typeof import('../../src/common/errors').EscrowError
+
+  // The trusted-arbiter configuration is read once per process, by whichever describe of this file loads the services first:
+  // both use the same arbiter id, each with its own key (the first describe has finished when this one starts).
+  const ARBITER_ID = 'm9r-c4-test-arbiter'
+  const arbiterKeypair = nacl.sign.keyPair()
+  const arbiterPublicKeyHex = Buffer.from(arbiterKeypair.publicKey).toString('hex')
+  let chain: H.Chain
+  let realFetch: typeof fetch
+
+  beforeAll(async () => {
+    process.env.MOCK_ESCROW = 'false'
+    process.env.MULTISIG_SEED = process.env.MULTISIG_SEED || 'm9r-343-keyset-seed'
+    process.env.TRUSTED_ARBITRATORS = ARBITER_ID
+    await pg.probe()
+    dbAvailable = pg.isAvailable()
+    if (!dbAvailable) return
+    ;({ prisma } = require('../../src/common/database'))
+    ;({ escrowService } = require('../../src/modules/open-settlement/escrow.service'))
+    ;({ identityService } = require('../../src/modules/open-identity/identity.service'))
+    ;({ liquidityRouter } = require('../../src/modules/open-liquidity/liquidity.service'))
+    ;({ tradeService } = require('../../src/modules/open-p2p/trade.service'))
+    ;({ payoutAddressService } = require('../../src/modules/open-settlement/payout-address.service'))
+    ;({ getDisputeService } = require('../../src/modules/open-settlement/dispute.service'))
+    ;({ signAuthorityDecision } = require('../../src/modules/open-settlement/arbitration-authority'))
+    ;({ commitAuthoritativeDisputeRuling } = require('../../src/modules/open-settlement/dispute-outcome'))
+    ;({ reconcileMissingDispatch } = require('../../src/modules/open-settlement/dispute-dispatch-recovery'))
+    ;({ EscrowError } = require('../../src/common/errors'))
+    const { intentEngine } = require('../../src/core/intent-engine')
+    const { OpenP2PTradeIntentHandler } = require('../../src/modules/open-p2p/intent-handler')
+    intentEngine.registerHandler(OpenP2PTradeIntentHandler)
+    await prisma.user.upsert({ where: { id: ARBITER_ID }, update: { publicKey: arbiterPublicKeyHex }, create: { id: ARBITER_ID, publicKey: arbiterPublicKeyHex, displayName: 'M9-R #343 keyset arbiter' } })
+    chain = H.newChain()
+    realFetch = global.fetch
+    global.fetch = H.explorer(chain)
+  }, 120_000)
+
+  afterEach(() => { jest.restoreAllMocks() })
+
+  afterAll(() => { if (dbAvailable) global.fetch = realFetch })
+
+  // ─── fixtures: real participants, real MULTISIG escrow funded through the production services ───────────────
+  const deps = () => ({ prisma, escrowService, identityService, liquidityRouter, tradeService, payoutAddressService })
+
+  async function funded(label: string) {
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
+    await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, H.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, H.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const { createHash } = require('crypto')
+    const funding = createHash('sha256').update(`m9r-343-${label}-${Math.random()}-${Date.now()}`).digest('hex')
+    chain.fundings.add(funding)
+    chain.locking = funding
+    await escrowService.lockFunds(escrow.id, seller.id)
+    chain.locking = null
+    return { escrow, trade, buyer, seller }
+  }
+
+  /** Commits the Core ruling and STOPS: exactly crash window C4 (Outcome durable, dispatch never persisted). */
+  async function commitRuling(c: { escrow: { id: string }; buyer: { id: string }; seller: { id: string } }, disputeId: string, ruling: Ruling) {
+    const buyerBps = ruling === 'SPLIT' ? 6500 : null
+    const payload: AuthorityDecisionPayload = { disputeId, escrowId: c.escrow.id, appealRound: 0, authorityId: ARBITER_ID, outcome: ruling, buyerBps, issuedAt: new Date().toISOString() }
+    const signature = signAuthorityDecision(payload, arbiterKeypair.secretKey)
+    const row = await prisma.dispute.findUniqueOrThrow({ where: { id: disputeId } })
+    const result = await commitAuthoritativeDisputeRuling({ id: disputeId, escrowId: c.escrow.id, status: row.status, appealRound: 0 }, payload, signature, arbiterPublicKeyHex, '100000', 'BTC', c.buyer.id, c.seller.id)
+    expect(result.committed).toBe(true)
+  }
+
+  async function payoutsFor(c: { escrow: { id: string }; buyer: { id: string }; seller: { id: string } }, ruling: Ruling) {
+    if (ruling !== 'REFUND') await payoutAddressService.setPayoutAddress(c.buyer.id, 'BTC', H.testnetAddress(`${c.escrow.id}-b`))
+    if (ruling !== 'RELEASE') await payoutAddressService.setPayoutAddress(c.seller.id, 'BTC', H.testnetAddress(`${c.escrow.id}-s`))
+  }
+
+  /** An undispatched C4 case on an ordinary funded escrow. */
+  async function c4(label: string, ruling: Ruling): Promise<Case> {
+    const c = await funded(label)
+    const dispute = await getDisputeService().raiseDispute(c.trade.id, c.buyer.id, `#343 ${label}`)
+    expect(dispute.arbiterId).toBe(ARBITER_ID)
+    await payoutsFor(c, ruling)
+    await commitRuling(c, dispute.id, ruling)
+    return { escrowId: c.escrow.id, disputeId: dispute.id, ruling }
+  }
+
+  /** #239: a cooperative round with ONE of two signatures, then the dispute, then a committed ruling that never dispatched. */
+  async function c4OverCooperativeRound(label: string, signatures: 1 | 2): Promise<Case> {
+    const c = await H.buildCooperative(deps(), chain, label, 'release')
+    const round = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: c.escrow.id } })
+    if (signatures === 1) {
+      await escrowService.submitTransactionSignature(c.escrow.id, c.buyer.id, H.signRound(round.unsignedPsbtBase64, H.buyerKey))
+    } else {
+      const { sellerKey } = H
+      for (const [id, key] of [[c.buyer.id, H.buyerKey], [c.seller.id, H.sellerKey]] as const) {
+        await prisma.escrowTransactionSignature.create({ data: { pendingTxId: round.id, participantId: id, signedPsbtBase64: H.signRound(round.unsignedPsbtBase64, key) } })
+      }
+    }
+    const dispute = await getDisputeService().raiseDispute(c.trade.id, c.buyer.id, `#343 ${label}`)
+    await payoutsFor(c, 'RELEASE')
+    await commitRuling(c, dispute.id, 'RELEASE')
+    return { escrowId: c.escrow.id, disputeId: dispute.id, ruling: 'RELEASE', roundId: round.id }
+  }
+
+  // ─── observation of the pages ──────────────────────────────────────────────────────────────────────────────
+  /** Which dispute ids each page loaded, and which cursor each page query was given - read from the real calls. */
+  function observe() {
+    const pages: string[][] = []
+    const cursors: string[] = []
+    const findMany = prisma.dispute.findMany.bind(prisma.dispute)
+    jest.spyOn(prisma.dispute, 'findMany').mockImplementation(((args: any) =>
+      findMany(args).then((rows: any[]) => { if (args?.where?.id?.in) pages.push(rows.map((r) => r.id)); return rows })) as never)
+    const queryRaw = (prisma.$queryRaw as any).bind(prisma)
+    jest.spyOn(prisma, '$queryRaw').mockImplementation(((strings: TemplateStringsArray, ...values: unknown[]) => {
+      if (Array.isArray(strings) && strings.join('?').includes('FROM disputes d')) cursors.push(String(values[1]))
+      return queryRaw(strings, ...values)
+    }) as never)
+    return { pages, cursors }
+  }
+
+  const pendingRows = (escrowIds: string[]) => prisma.escrowPendingTransaction.findMany({ where: { escrowId: { in: escrowIds } }, orderBy: { escrowId: 'asc' } })
+  const sorted = (cases: Case[]) => [...cases].sort((a, b) => (a.disputeId < b.disputeId ? -1 : 1))
+  const ids = (cases: Case[]) => cases.map((c) => c.escrowId)
+
+  /** The invariants of every run: no broadcast, no escrow terminal, no release txid, one pending round per escrow. */
+  async function expectNoEconomicDisposition(cases: Case[]) {
+    expect(chain.broadcasts).toEqual([])
+    const escrows = await prisma.escrow.findMany({ where: { id: { in: ids(cases) } } })
+    expect(escrows.every((e) => !['COMPLETED', 'REFUNDED', 'SPLIT'].includes(e.status) && e.txReleaseId === null)).toBe(true)
+    const rows = await pendingRows(ids(cases))
+    expect(new Set(rows.map((r) => r.escrowId)).size).toBe(rows.length)
+  }
+
+  // ═════════════════════ K1-K5: one population, several runs ═════════════════════════════════════════════════
+  describe('K1-K5: 200 eligible candidates (195 plain + 5 over a cooperative round), 11 excluded histories', () => {
+    const PLAIN = 195
+    const COOP = 5
+    let plain: Case[] = []
+    let coop: Case[] = []
+    let fullySigned: Case
+    let excluded: { settled: Case[]; legacy: Case[]; dispatched: Case[] } = { settled: [], legacy: [], dispatched: [] }
+    let eligible: Case[] = []
+    let dispatchedBefore: Array<{ escrowId: string; id: string }> = []
+
+    beforeAll(async () => {
+      if (!dbAvailable) return
+      for (let i = 0; i < PLAIN; i++) plain.push(await c4(`p${i}`, RULINGS[i % 3]))
+      for (let i = 0; i < COOP; i++) coop.push(await c4OverCooperativeRound(`coop${i}`, 1))
+      eligible = [...plain, ...coop]
+
+      // Histories that are NOT recovery work, each of a different kind (K3).
+      for (let i = 0; i < 3; i++) { // settled: the escrow is terminal although a ruling record exists
+        const s = await c4(`settled${i}`, 'RELEASE')
+        await prisma.escrow.update({ where: { id: s.escrowId }, data: { status: 'COMPLETED' } })
+        excluded.settled.push(s)
+      }
+      for (let i = 0; i < 3; i++) { // legacy: RESOLVED with no Core record at all
+        const c = await funded(`legacy${i}`)
+        const dispute = await getDisputeService().raiseDispute(c.trade.id, c.buyer.id, `#343 legacy${i}`)
+        await prisma.dispute.update({ where: { id: dispute.id }, data: { status: 'RESOLVED', ruling: 'RELEASE', resolvedAt: new Date() } })
+        excluded.legacy.push({ escrowId: c.escrow.id, disputeId: dispute.id, ruling: 'RELEASE' })
+      }
+      for (let i = 0; i < 3; i++) { // already dispatched: the live ruling path persisted its round
+        const c = await funded(`live${i}`)
+        const dispute = await getDisputeService().raiseDispute(c.trade.id, c.buyer.id, `#343 live${i}`)
+        await payoutsFor(c, 'RELEASE')
+        const issuedAt = new Date().toISOString()
+        const payload: AuthorityDecisionPayload = { disputeId: dispute.id, escrowId: c.escrow.id, appealRound: 0, authorityId: ARBITER_ID, outcome: 'RELEASE', buyerBps: null, issuedAt }
+        await getDisputeService().resolveDispute(dispute.id, ARBITER_ID, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, arbiterKeypair.secretKey), issuedAt)
+        excluded.dispatched.push({ escrowId: c.escrow.id, disputeId: dispute.id, ruling: 'RELEASE' })
+      }
+      fullySigned = await c4OverCooperativeRound('fully-signed', 2) // #239: every signature present - never superseded
+      dispatchedBefore = (await pendingRows([...ids(excluded.dispatched), fullySigned.escrowId])).map((r) => ({ escrowId: r.escrowId, id: r.id }))
+      expect(dispatchedBefore).toHaveLength(4)
+    }, 3_600_000)
+
+    const allExcluded = () => [...excluded.settled, ...excluded.legacy, ...excluded.dispatched, fullySigned]
+    let firstRunResumed: string[] = []
+    const inject = { generic: new Set<string>(), conflict: new Set<string>(), crash: new Set<string>() }
+    let guardFailedEscrow: string | undefined
+
+    it('K5 + K1: failures in the middle of the first run (a throwing dispatch, a conflict, a guard failure, a crash after persisting) lose no other candidate, across both page boundaries', async () => {
+      pg.requirePostgres('K5/K1 first run')
+      const order = sorted(eligible)
+      // One failure of each kind, on both sides of a boundary: the last of page 1 / the first of page 2 / the last of page 2.
+      const generic = [order[3], order[PAGE]]
+      const conflict = order[PAGE + 1]
+      const crash = order[2 * PAGE - 1]
+      const guardTarget = order[PAGE + 50].escrowId // its translation guard is made to fail, right after its dispatch persisted
+      for (const x of generic) inject.generic.add(x.escrowId)
+      inject.conflict.add(conflict.escrowId)
+      inject.crash.add(crash.escrowId)
+
+      let guardArmed = false
+      const real = { initiateRelease: escrowService.initiateRelease.bind(escrowService), initiateRefund: escrowService.initiateRefund.bind(escrowService), initiateSplit: escrowService.initiateSplit.bind(escrowService) }
+      const wrap = (name: keyof typeof real) => jest.spyOn(escrowService, name).mockImplementation(((escrowId: string, ...rest: unknown[]) => {
+        if (inject.generic.has(escrowId)) return Promise.reject(new Error('m9r-343 injected dispatch failure'))
+        if (inject.conflict.has(escrowId)) return Promise.reject(new EscrowError(`Escrow ${escrowId} already has a pending transaction (concurrent initiate)`))
+        // The dispatch really persisted, then the process "died": the run reports a failure, the round exists.
+        if (inject.crash.has(escrowId)) return (real[name] as any)(escrowId, ...rest).then(() => { throw new Error('m9r-343 injected crash after the dispatch persisted') })
+        if (escrowId === guardTarget) return (real[name] as any)(escrowId, ...rest).then((r: unknown) => { guardArmed = true; return r })
+        return (real[name] as any)(escrowId, ...rest)
+      }) as never)
+      wrap('initiateRelease'); wrap('initiateRefund'); wrap('initiateSplit')
+      // A guard failure for one named candidate: the guard runs right after that candidate's dispatch, so it is armed by it.
+      const guard = require('../../src/modules/open-settlement/dispatch-translation-guard')
+      const realGuard = guard.assertTranslationMatchesOutcome
+      jest.spyOn(guard, 'assertTranslationMatchesOutcome').mockImplementation(((...args: unknown[]) => {
+        if (guardArmed) { guardArmed = false; throw new guard.TranslationGuardError(['m9r-343 injected translation mismatch']) }
+        return (realGuard as any)(...args)
+      }) as never)
+
+      const { pages, cursors } = observe()
+      const mine = new Set(ids(eligible))
+      const whole = await reconcileMissingDispatch()
+      const mineOf = <T extends { escrowId: string }>(xs: T[]) => xs.filter((x) => mine.has(x.escrowId))
+      const report = { ...whole, failed: mineOf(whole.failed), guardFailed: mineOf(whole.guardFailed), notEligible: mineOf(whole.notEligible), resumed: mineOf(whole.resumed), alreadyResumedConcurrently: whole.alreadyResumedConcurrently.filter((id) => mine.has(id)) }
+
+      // K1 - the pages themselves.
+      const loaded = pages.flat()
+      process.stdout.write(`[evidence] ${JSON.stringify({ label: 'K1 pages of the first run', pageSizes: pages.map((p) => p.length), cursorsAreIncreasing: cursors.every((c, i) => i === 0 || c > cursors[i - 1]), pageQueries: cursors.length })}\n`)
+      expect(pages[0]).toHaveLength(PAGE)
+      expect(pages.slice(0, -1).every((p) => p.length === PAGE)).toBe(true) // every page but the last is full
+      expect(pages[pages.length - 1].length).toBeLessThanOrEqual(PAGE)
+      expect(pages.length).toBeGreaterThanOrEqual(3) // 200 eligible: the cursor crossed two boundaries
+      const pageOf = (id: string) => pages.findIndex((p) => p.includes(eligible.find((c) => c.escrowId === id)!.disputeId))
+      const targets = [...generic.map((g) => g.escrowId), conflict.escrowId, crash.escrowId, guardTarget]
+      process.stdout.write(`[evidence] ${JSON.stringify({ label: 'K5 injected failures by page', pages: targets.map(pageOf), foreignCandidatesLoaded: loaded.length - eligible.length })}\n`)
+      expect(new Set(targets.map(pageOf)).size).toBeGreaterThanOrEqual(2) // the failures are not all on one page
+      expect(new Set(loaded).size).toBe(loaded.length) // no dispute loaded twice
+      for (const p of pages) expect([...p]).toEqual([...p].sort()) // each page in id order
+      expect(loaded).toEqual([...loaded].sort()) // and the pages in id order: nothing behind the cursor
+      expect(cursors[0]).toBe('')
+      for (let i = 1; i < cursors.length; i++) expect(cursors[i]).toBe(pages[i - 1][pages[i - 1].length - 1]) // each cursor is the last id of the page before
+      expect(cursors.length).toBe(pages.length + (pages[pages.length - 1].length === PAGE ? 1 : 0)) // one query per page, plus the empty one that ends a run whose last page was full
+      for (const c of eligible) expect(loaded).toContain(c.disputeId) // none omitted
+      // K3 - histories that are not recovery work are never loaded.
+      for (const e of allExcluded()) expect(loaded).not.toContain(e.disputeId)
+
+      // K5 - what each failure did.
+      expect(report.failed.map((f) => f.escrowId).sort()).toEqual([...generic.map((g) => g.escrowId), crash.escrowId].sort())
+      expect(report.alreadyResumedConcurrently).toEqual([conflict.escrowId])
+      expect(report.guardFailed).toHaveLength(1)
+      guardFailedEscrow = report.guardFailed[0].escrowId
+      expect(guardFailedEscrow).toBe(guardTarget)
+      expect(report.notEligible).toEqual([])
+      const resumed = report.resumed.map((r) => r.escrowId)
+      firstRunResumed = resumed
+      expect(new Set(resumed).size).toBe(resumed.length) // exactly once each
+      const unresolved = new Set([...generic.map((g) => g.escrowId), conflict.escrowId, guardFailedEscrow])
+      // Every other candidate - including those after the failures and on the later pages - was resumed in this same run.
+      for (const c of eligible) {
+        if (unresolved.has(c.escrowId) || c.escrowId === crash.escrowId) continue
+        expect(resumed).toContain(c.escrowId)
+      }
+      expect(resumed).not.toContain(crash.escrowId) // reported as failed, not as resumed ...
+      const rows = await pendingRows(ids(eligible))
+      expect(rows.some((r) => r.escrowId === crash.escrowId)).toBe(true) // ... but its round DID persist: that dispatch happened
+      for (const id of unresolved) expect(rows.some((r) => r.escrowId === id)).toBe(false) // the others have no round yet (guard failure deleted its own)
+      expect(rows).toHaveLength(eligible.length - unresolved.size)
+      await expectNoEconomicDisposition(eligible)
+    }, 1_800_000)
+
+    it('K5 + K2: the next run finishes exactly the unresolved candidates - not the one whose dispatch already persisted - and the one after it does nothing', async () => {
+      pg.requirePostgres('K5/K2 second and third run')
+      const crashed = [...inject.crash][0]
+      const expected = [...inject.generic, ...inject.conflict, guardFailedEscrow!].sort()
+      const second = observe()
+      const report = await reconcileMissingDispatch()
+      const mineResumed = report.resumed.map((r) => r.escrowId).filter((id) => ids(eligible).includes(id))
+      expect([...mineResumed].sort()).toEqual(expected)
+      expect(mineResumed).not.toContain(crashed) // a persisted dispatch is never repeated
+      expect(report.failed.filter((f) => ids(eligible).includes(f.escrowId))).toEqual([])
+      expect(second.pages.flat().filter((id) => eligible.some((c) => c.disputeId === id))).toHaveLength(expected.length) // only unresolved work is loaded
+      expect(new Set([...firstRunResumed, ...mineResumed]).size).toBe(firstRunResumed.length + mineResumed.length) // no escrow resumed in two runs
+      await expectNoEconomicDisposition(eligible)
+
+      // K2 - idempotent.
+      jest.restoreAllMocks()
+      const third = observe()
+      const again = await reconcileMissingDispatch()
+      expect(again.resumed.filter((r) => ids(eligible).includes(r.escrowId))).toEqual([])
+      expect(third.pages.flat().filter((id) => eligible.some((c) => c.disputeId === id))).toEqual([])
+      const rows = await pendingRows(ids(eligible))
+      expect(rows).toHaveLength(eligible.length)
+      expect(new Set(rows.map((r) => r.escrowId)).size).toBe(eligible.length)
+      // The survivor of the failures has ONE round, bound to its own dispute.
+      for (const c of eligible) expect(rows.find((r) => r.escrowId === c.escrowId)!.disputeId).toBe(c.disputeId)
+      process.stdout.write(`[evidence] ${JSON.stringify({ label: 'K2 idempotent', secondRunResumed: mineResumed.length, thirdRunResumed: 0, thirdRunPagesLoadingMine: 0, pendingRounds: rows.length })}\n`)
+    }, 1_800_000)
+
+    it('K4 (#239): each cooperative round with a signature missing was superseded by its ruling, once; the fully signed one was not touched', async () => {
+      pg.requirePostgres('K4')
+      for (const c of coop) {
+        const retirements = await prisma.escrowPendingRoundRetirement.findMany({ where: { escrowId: c.escrowId } })
+        expect(retirements).toHaveLength(1)
+        expect(retirements[0]).toMatchObject({ pendingOperationId: c.roundId, reason: 'SUPERSEDED_BY_RULING', disputeId: c.disputeId, appealRound: 0 })
+        const live = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: c.escrowId } })
+        expect(live.id).not.toBe(c.roundId) // a new round
+        expect(live.id).toBe(retirements[0].supersedingPendingOperationId)
+        expect(live.disputeId).toBe(c.disputeId)
+      }
+      const still = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: fullySigned.escrowId }, include: { signatures: true } })
+      expect(still.id).toBe(fullySigned.roundId)
+      expect(still.signatures).toHaveLength(2)
+      expect(await prisma.escrowPendingRoundRetirement.count({ where: { escrowId: fullySigned.escrowId } })).toBe(0)
+    }, 120_000)
+
+    it('K3: the settled, legacy and already dispatched histories were never touched by any of the runs', async () => {
+      pg.requirePostgres('K3')
+      for (const s of excluded.settled) {
+        expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: s.escrowId } })).toBe(0)
+        expect((await prisma.escrow.findUniqueOrThrow({ where: { id: s.escrowId } })).status).toBe('COMPLETED')
+      }
+      for (const l of excluded.legacy) expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: l.escrowId } })).toBe(0)
+      const after = (await pendingRows([...ids(excluded.dispatched), fullySigned.escrowId])).map((r) => ({ escrowId: r.escrowId, id: r.id }))
+      expect(after).toEqual(dispatchedBefore) // the very same rounds: not replaced, not deleted
+    })
+  })
+
+  // ═════════════════════ K6: two reconcilers through the same pages ═══════════════════════════════════════════
+  describe('K6: 101 eligible candidates, two reconcilers racing through the pages', () => {
+    const N = PAGE + 1
+    let cases: Case[] = []
+
+    beforeAll(async () => {
+      if (!dbAvailable) return
+      for (let i = 0; i < N; i++) cases.push(await c4(`race${i}`, RULINGS[i % 3]))
+    }, 1_800_000)
+
+    it('every candidate is resumed by exactly one of them, none by both, and each escrow ends with one round', async () => {
+      pg.requirePostgres('K6')
+      const [a, b] = await Promise.all([reconcileMissingDispatch(), reconcileMissingDispatch()])
+      const mine = new Set(ids(cases))
+      const resumed = [...a.resumed, ...b.resumed].map((r) => r.escrowId).filter((id) => mine.has(id))
+      process.stdout.write(`[evidence] ${JSON.stringify({ label: 'K6 two reconcilers', candidates: N, resumedByA: a.resumed.filter((r) => mine.has(r.escrowId)).length, resumedByB: b.resumed.filter((r) => mine.has(r.escrowId)).length, benignConflicts: [...a.alreadyResumedConcurrently, ...b.alreadyResumedConcurrently].filter((id) => mine.has(id)).length })}\n`)
+      expect(resumed).toHaveLength(N) // none lost
+      expect(new Set(resumed).size).toBe(N) // none twice
+      expect([...a.failed, ...b.failed].filter((f) => mine.has(f.escrowId))).toEqual([])
+      expect([...a.guardFailed, ...b.guardFailed].filter((f) => mine.has(f.escrowId))).toEqual([])
+      expect(await pendingRows(ids(cases))).toHaveLength(N)
+      await expectNoEconomicDisposition(cases)
+    }, 1_800_000)
+  })
+})
+
+// One teardown for the whole file: both describes share the database client and the Redis connection.
+afterAll(async () => {
+  const { prisma } = require('../../src/common/database')
+  await prisma.$disconnect()
+  await closeTestRedis()
 })
