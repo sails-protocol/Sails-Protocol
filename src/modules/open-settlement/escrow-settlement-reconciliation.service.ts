@@ -559,10 +559,14 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
   // writer: empty -> write, same -> idempotent, DIFFERENT -> integrity
   // conflict (previously this branch silently ignored a differing value).
   let wroteTxReleaseId = false
+  let movedTo = null as string | null
   try {
     wroteTxReleaseId = await withEscrowFundingLock(escrow.id, async (tx) => {
       const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
       if (!fresh) return false
+      // Issue #299 (GK S1, CTO C1) - a live rollback took the lock first: the claim is gone, so no result and no
+      // completion event here. The round is still fully signed, so PASS 0 re-claims and converges it from the chain.
+      if (fresh.status !== targetStatus) { movedTo = fresh.status; return false }
       const updateData = targetStatus === 'REFUNDED' ? { txReleaseId: result.txId } : { txReleaseId: result.txId, releasedAt: new Date() }
       await escrowRepository.updateSignatureCollectionResult(escrow.id, updateData, { tx, operation: { pendingOperationId: pending.id } })
       return fresh.txReleaseId === null
@@ -574,6 +578,11 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
       return
     }
     throw writeErr
+  }
+  if (movedTo) {
+    log.warn({ msg: 'PASS 1: escrow left its claimed status before the result was recorded - not recorded, PASS 0 converges it', escrowId: escrow.id, pendingTransactionId: pending.id, expected: targetStatus, status: movedTo, txId: result.txId })
+    report.failed.push({ escrowId: escrow.id, error: `PASS 1: escrow ${escrow.id} is ${movedTo}, no longer ${targetStatus}; result ${result.txId} not recorded, PASS 0 converges the fully signed round` })
+    return
   }
 
   log.info({ msg: 'Reconciliation: convergence path determined', escrowId: escrow.id, outcome: result.outcome, txId: result.txId, detail: result.detail, wroteTxReleaseId })

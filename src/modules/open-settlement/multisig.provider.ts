@@ -242,6 +242,8 @@ export interface TransactionExistence {
 // explorer call in this file already relies on): `GET /tx/{txid}/status`
 // 404s only when the txid is genuinely unknown; a known-but-unconfirmed
 // (mempool) tx 200s with `confirmed: false`.
+const BROADCAST_BODY_LIMIT = 500
+
 export async function fetchTransactionExistence(txid: string): Promise<TransactionExistence> {
   const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}/status`, {}, {
     timeoutMs: config.multisig.explorerRequestTimeoutMs,
@@ -960,7 +962,9 @@ export class MultisigProvider implements SettlementProvider {
       throw new EscrowError(`MULTISIG provider: broadcast outcome unknown, no answer: ${err instanceof Error ? err.message : String(err)}`)
     }
     if (res.ok) return (await res.text()).trim()
-    const answer = `${res.status}: ${await res.text()}`
+    // Bounded (GK S4): the remote body reaches error messages, manual-review reasons and logs.
+    const body = await res.text()
+    const answer = `${res.status}: ${body.length > BROADCAST_BODY_LIMIT ? `${body.slice(0, BROADCAST_BODY_LIMIT)}... [${body.length - BROADCAST_BODY_LIMIT} more chars]` : body}`
     const txid = bitcoin.Transaction.fromHex(txHex).getId()
     if (res.status !== 400 || !/sendrawtransaction RPC error/i.test(answer)) {
       throw new EscrowError(`MULTISIG provider: broadcast outcome unknown, the explorer answered ${answer}`)

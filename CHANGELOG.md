@@ -25,6 +25,8 @@ All notable changes to this project will be documented in this file.
   - **Manual review instead of a silent loop:** a rejection (400 + RPC error, not visible on the explorer) or a round that cannot be built is listed by PASS 1 as `BROADCAST_REJECTED` / `ROUND_UNBUILDABLE` with the escrow, round and txid. PASS 0's terminal claim after a rejection, which used to fail every tick with no trace, now surfaces there.
   - **A 400 for a transaction the explorer already has** converges in place.
   - **Definite failure:** only a round that cannot be built (nothing was sent) releases the claim, with one conditional statement; a database error during that release is logged and reported, and the claim stays.
+  - **Release and PASS 1 never interleave (Gatekeeper S1):** the release runs under the escrow lock, and PASS 1 re-checks the claimed status under that lock before recording a result. If a signer re-submitted a usable signature and PASS 1 already sent the rebuilt round, either the release wins (PASS 1 records nothing and emits nothing; PASS 0 converges the fully signed round from the chain) or PASS 1 wins (result recorded, the release reverts nothing). Never a non-terminal escrow with a recorded transaction.
+  - **Bounded and visible:** an explorer error body is cut at 500 characters in errors, manual-review reasons and logs; the reconciler's findings warning lists the failing escrow ids (`failedEscrowIds`).
 
 - **Issue #239 — a cooperative MULTISIG signing round can no longer lock an escrow forever (real PostgreSQL, real PSBTs).** Draft, pending Gatekeeper audit.
   - **Seller cancellation:** the seller can cancel a cooperative round that is not fully signed (`POST /v1/settlement/escrow/:id/cancel-pending-transaction`).

@@ -238,7 +238,7 @@ beforeEach(() => {
   mockParticipantKeyFindMany.mockResolvedValue([])
   mockEscrowEventFindFirst.mockResolvedValue(null)
   mockTradeFindById.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-  mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', txReleaseId: null })
+  mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', txReleaseId: null, status: 'COMPLETED' })
   mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1' })
   mockPendingTxDelete.mockResolvedValue({})
   mockClaimTransition.mockResolvedValue(1)
@@ -679,6 +679,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ status: 'REFUNDED' })])
     mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture({ kind: 'refund' }))
     mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'real-txid-3', detail: 'already known' })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', txReleaseId: null, status: 'REFUNDED' })
 
     await reconcilePendingSettlements()
 
@@ -693,7 +694,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     // A concurrent reconciliation run (or, structurally impossible but
     // defended anyway, a live request) already converged this escrow
     // between this test's own chain-truth determination and the lock.
-    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', txReleaseId: 'already-set-by-someone-else' })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', txReleaseId: 'already-set-by-someone-else', status: 'COMPLETED' })
 
     await reconcilePendingSettlements()
 
@@ -708,6 +709,21 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     // cascade fires — its own (escrowId, toStatus) claim, not this
     // txReleaseId write, is the real double-fire guard (see the
     // dedicated emitEscrowTransition() idempotency tests below).
+  })
+
+  it('Issue #299 (GK S1): the escrow left its claimed status before the lock (a live rollback won it) - nothing recorded, no downstream effects, reported as failed', async () => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture()])
+    mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture())
+    mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'NEWLY_BROADCAST', txId: 'real-txid-5', detail: 'broadcast' })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', txReleaseId: null, status: 'PAYMENT_PENDING' })
+
+    const report = await reconcilePendingSettlements()
+
+    expect(mockUpdateSignatureCollectionResult).not.toHaveBeenCalled()
+    expect(mockRecordObligation).not.toHaveBeenCalled()
+    expect(mockPendingTxDelete).not.toHaveBeenCalled()
+    expect(report.recovered).toEqual([])
+    expect(report.failed).toEqual([{ escrowId: 'escrow-1', error: expect.stringMatching(/is PAYMENT_PENDING, no longer COMPLETED; result real-txid-5 not recorded/) }])
   })
 
   // Issue #291 - PASS 1 and C8 use the same write-once semantics as every live writer: a DIFFERENT
