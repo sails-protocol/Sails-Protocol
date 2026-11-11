@@ -63,7 +63,7 @@ import { config } from '../../config'
 import { EscrowError } from '../../common/errors'
 import type { WalletAccountEvm } from '@tetherto/wdk-wallet-evm'
 import type { WdkTransferOperationType } from '@prisma/client'
-import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
+import { OUTBOUND_OPERATION_TYPES, wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 
 // The minimal WDK account surface this file needs — real, public API
 // (WalletAccountReadOnlyEvm.getTransactionReceipt(), inherited by
@@ -93,7 +93,10 @@ function normalizeDecimalString(value: string): string {
   return fraction ? `${whole}.${fraction}` : whole
 }
 
-function decimalAmountsEqual(a: string, b: string): boolean {
+// Exported (Issue #251) - the terminal-restart reconciler needs the exact same exact-decimal-string
+// comparison to verify a durable WdkTransferAttempt's amount against Escrow.lockedAmount, rather than
+// re-implementing a second, possibly-diverging comparison.
+export function decimalAmountsEqual(a: string, b: string): boolean {
   return normalizeDecimalString(a) === normalizeDecimalString(b)
 }
 
@@ -112,6 +115,21 @@ export async function ensureAttempt(
   amount: string,
   account: ReceiptCapableAccount
 ): Promise<EnsureAttemptResult> {
+  // D7 (#341, Gatekeeper 6675288389) - one escrow, one disposition: while another outbound operation of this escrow
+  // may have moved its funds (UNKNOWN, SUBMITTED) or did (CONFIRMED), this one must not start, whatever its
+  // generation or activeKey. The two SPLIT legs are one operation. Callers own the escrow's claim
+  // (claimEscrowTransition()), so no second operation of this escrow can run this check concurrently.
+  if (operationType !== 'LOCK') {
+    const family = operationType === 'SPLIT_BUYER' || operationType === 'SPLIT_SELLER' ? ['SPLIT_BUYER', 'SPLIT_SELLER'] : [operationType]
+    const other = await wdkTransferAttemptRepository.findPotentiallySent(escrowId, OUTBOUND_OPERATION_TYPES.filter((o) => !family.includes(o)))
+    if (other) {
+      throw new EscrowError(
+        `WDK_USDT_EVM ${operationType} for escrow ${escrowId} refused: ${other.operationType} attempt ${other.id} is ${other.status}, so this escrow's funds may already have moved. ` +
+        'No other disposition may start until that attempt is reconciled.'
+      )
+    }
+  }
+
   const latest = await wdkTransferAttemptRepository.findLatest(escrowId, operationType)
 
   if (!latest) {

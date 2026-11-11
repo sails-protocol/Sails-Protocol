@@ -33,7 +33,7 @@ import {
   verifyOfferEnvelope,
   type OfferEnvelopeContent,
 } from '../../src/modules/open-liquidity/offer-envelope'
-import { OfferEnvelopeRepository } from '../../src/modules/open-liquidity/offer-envelope-repository'
+import { OfferEnvelopeRepository, isOfferStateEconomicallyActive } from '../../src/modules/open-liquidity/offer-envelope-repository'
 
 function hex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('hex')
@@ -558,5 +558,222 @@ describe('OfferEnvelope — persistence round-trip against real Postgres (Proper
     if (latest.status === 'EQUIVOCATED') {
       expect(new Set(latest.rows.map((r) => r.priceUsd.toString()))).toEqual(new Set(['65000', '70000']))
     }
+  })
+})
+
+// C9 regression hardening (CTO 24, Issue #105 comment 6800551839; Gatekeeper
+// audit 6799838486). The block above proves storage fidelity and the
+// equivocation/idempotency races; nothing in it (nor in the mocked
+// tests/offerEnvelope.test.ts) asserts against real Postgres that a
+// tombstone is economically inactive, that it survives replays and every
+// arrival order, or that concurrent higher revisions keep reads monotonic.
+// That gap let mutant Q7 (`isOfferEnvelopeEconomicallyActive` ignoring
+// `status`) survive. Deterministic: fixed seed, fixed `now`.
+describe('OfferEnvelope — C9 tombstone / revision regression against real Postgres', () => {
+  jest.setTimeout(120_000)
+  const pg = createPostgresIntegrationHarness()
+  const PREFIX = 'offer-envelope-c9-test-'
+  // Before every fixture's expiresAt, so ACTIVE really is active and only
+  // `status` can make a row inactive.
+  const NOW = new Date('2026-09-09T12:00:00.000Z')
+  let prisma: PrismaClient
+  let repo: OfferEnvelopeRepository
+  let dbAvailable = false
+
+  beforeAll(async () => {
+    await pg.probe()
+    dbAvailable = pg.isAvailable()
+    if (dbAvailable) {
+      prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: pg.getUrl() }) })
+      repo = new OfferEnvelopeRepository()
+    }
+  })
+
+  afterAll(async () => {
+    if (!dbAvailable) return
+    await prisma.offerEnvelope.deleteMany({ where: { logicalOfferId: { startsWith: PREFIX } } })
+    await prisma.$disconnect()
+  })
+
+  type Fact = { revision: number; status: 'ACTIVE' | 'CANCELLED'; priceUsd: string }
+
+  function signFact(owner: { publicKeyHex: string; secretKeyHex: string }, logicalOfferId: string, fact: Fact) {
+    const content: OfferEnvelopeContent = {
+      logicalOfferId,
+      ownerPublicKey: owner.publicKeyHex,
+      asset: 'BTC',
+      side: 'SELL',
+      priceUsd: fact.priceUsd,
+      minAmount: '0.00100000',
+      maxAmount: '0.50000000',
+      paymentMethod: 'PIX',
+      revision: fact.revision,
+      createdAt: '2026-09-09T00:00:00.000Z',
+      revisedAt: '2026-09-09T00:00:00.000Z',
+      expiresAt: '2026-09-10T00:00:00.000Z',
+      status: fact.status,
+    }
+    return { ...content, signature: signOfferEnvelope(content, owner.secretKeyHex) }
+  }
+
+  function permutations<T>(items: T[]): T[][] {
+    if (items.length <= 1) return [items]
+    return items.flatMap((item, i) => permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [item, ...rest]))
+  }
+
+  // Deterministic Fisher-Yates (LCG) so a failure reproduces exactly.
+  function seededShuffle<T>(items: T[], seed: number): T[] {
+    const out = [...items]
+    let s = seed
+    for (let i = out.length - 1; i > 0; i--) {
+      s = (s * 1103515245 + 12345) % 2147483648
+      const j = s % (i + 1)
+      ;[out[i], out[j]] = [out[j], out[i]]
+    }
+    return out
+  }
+
+  async function currentState(owner: string, logicalOfferId: string) {
+    const state = await repo.getLatest(owner, logicalOfferId)
+    const stored = await prisma.offerEnvelope.findMany({ where: { ownerPublicKey: owner, logicalOfferId } })
+    return {
+      status: state.status,
+      revision: state.status === 'RESOLVED' ? state.row.revision : state.status === 'EQUIVOCATED' ? state.revision : null,
+      envelopeStatus: state.status === 'RESOLVED' ? state.row.status : null,
+      active: isOfferStateEconomicallyActive(state, NOW),
+      storedFacts: stored.length,
+    }
+  }
+
+  it('C9-1: a stored CANCELLED tombstone makes the offer economically inactive (kills mutant Q7)', async () => {
+    pg.requirePostgres('C9-1 tombstone => inactive')
+    const owner = makeKeypair()
+    const id = `${PREFIX}${Date.now()}-inactive`
+    expect((await repo.ingest(signFact(owner, id, { revision: 1, status: 'ACTIVE', priceUsd: '65000.00000000' }))).accepted).toBe(true)
+    expect((await currentState(owner.publicKeyHex, id)).active).toBe(true)
+
+    expect((await repo.ingest(signFact(owner, id, { revision: 2, status: 'CANCELLED', priceUsd: '65000.00000000' }))).accepted).toBe(true)
+    expect(await currentState(owner.publicKeyHex, id)).toEqual({
+      status: 'RESOLVED',
+      revision: 2,
+      envelopeStatus: 'CANCELLED',
+      active: false,
+      storedFacts: 2,
+    })
+  })
+
+  // Every arrival order of each fact set, then a full replay in reverse,
+  // must give one identical outcome and keep every distinct fact.
+  const scenarios: { name: string; facts: Fact[]; expected: Record<string, unknown> }[] = [
+    {
+      name: 'tombstone on top: older ACTIVE revisions arriving before or after never resurrect it',
+      facts: [
+        { revision: 1, status: 'ACTIVE', priceUsd: '65000.00000000' },
+        { revision: 2, status: 'ACTIVE', priceUsd: '66000.00000000' },
+        { revision: 3, status: 'CANCELLED', priceUsd: '66000.00000000' },
+      ],
+      expected: { status: 'RESOLVED', revision: 3, envelopeStatus: 'CANCELLED', active: false, storedFacts: 3 },
+    },
+    {
+      name: 'ACTIVE equivocation at the top revision is fail-closed',
+      facts: [
+        { revision: 1, status: 'ACTIVE', priceUsd: '65000.00000000' },
+        { revision: 2, status: 'ACTIVE', priceUsd: '66000.00000000' },
+        { revision: 2, status: 'ACTIVE', priceUsd: '70000.00000000' },
+      ],
+      expected: { status: 'EQUIVOCATED', revision: 2, envelopeStatus: null, active: false, storedFacts: 3 },
+    },
+    {
+      name: 'ACTIVE vs CANCELLED equivocation at the top revision is fail-closed',
+      facts: [
+        { revision: 1, status: 'ACTIVE', priceUsd: '65000.00000000' },
+        { revision: 2, status: 'ACTIVE', priceUsd: '66000.00000000' },
+        { revision: 2, status: 'CANCELLED', priceUsd: '66000.00000000' },
+      ],
+      expected: { status: 'EQUIVOCATED', revision: 2, envelopeStatus: null, active: false, storedFacts: 3 },
+    },
+  ]
+
+  it.each(scenarios)('C9-2 arrival-order independence + replay: $name', async ({ facts, expected }) => {
+    pg.requirePostgres('C9-2 arrival-order independence')
+    const owner = makeKeypair()
+    const orders = permutations(facts.map((_, i) => i))
+    for (const [k, order] of orders.entries()) {
+      const id = `${PREFIX}${Date.now()}-perm-${k}`
+      const signed = facts.map((fact) => signFact(owner, id, fact))
+      for (const i of [...order, ...[...order].reverse()]) {
+        expect((await repo.ingest(signed[i])).accepted).toBe(true)
+      }
+      expect({ order, ...(await currentState(owner.publicKeyHex, id)) }).toEqual({ order, ...expected })
+    }
+  })
+
+  it('C9-3: once a tombstone is stored, relabelled, revision-bumped or foreign-key envelopes cannot un-cancel it', async () => {
+    pg.requirePostgres('C9-3 signature binds status/revision/owner')
+    const owner = makeKeypair()
+    const forger = makeKeypair()
+    const id = `${PREFIX}${Date.now()}-forgery`
+    const active1 = signFact(owner, id, { revision: 1, status: 'ACTIVE', priceUsd: '65000.00000000' })
+    const cancel2 = signFact(owner, id, { revision: 2, status: 'CANCELLED', priceUsd: '65000.00000000' })
+    await repo.ingest(active1)
+    await repo.ingest(cancel2)
+
+    const attempts = [
+      { ...cancel2, status: 'ACTIVE' as const }, // relay flips the tombstone, keeps its signature
+      { ...active1, revision: 3 }, // old ACTIVE replayed above the tombstone with its old signature
+      { ...signFact(forger, id, { revision: 3, status: 'ACTIVE', priceUsd: '65000.00000000' }), ownerPublicKey: owner.publicKeyHex }, // signed by another key
+    ]
+    for (const attempt of attempts) {
+      expect(await repo.ingest(attempt)).toEqual(expect.objectContaining({ accepted: false }))
+    }
+    expect(await currentState(owner.publicKeyHex, id)).toEqual({
+      status: 'RESOLVED',
+      revision: 2,
+      envelopeStatus: 'CANCELLED',
+      active: false,
+      storedFacts: 2,
+    })
+  })
+
+  it('C9-4: concurrent ingestion of shuffled revisions with replays and tombstones keeps reads monotonic and ends on the top tombstone', async () => {
+    pg.requirePostgres('C9-4 concurrent ingestion with concurrent readers')
+    const owner = makeKeypair()
+    const id = `${PREFIX}${Date.now()}-concurrent`
+    // r0..r11 ACTIVE, interleaved tombstones at r4 and r8, top tombstone at r12.
+    const facts: Fact[] = Array.from({ length: 13 }, (_, r) => ({
+      revision: r,
+      status: r === 4 || r === 8 || r === 12 ? 'CANCELLED' : 'ACTIVE',
+      priceUsd: `${65000 + r}.00000000`,
+    }))
+    const signed = facts.map((fact) => signFact(owner, id, fact))
+    const sends = seededShuffle([...signed, ...signed, ...signed], 20261111)
+
+    let writing = true
+    const reader = async () => {
+      const seen: number[] = []
+      while (writing) {
+        const state = await repo.getLatest(owner.publicKeyHex, id)
+        seen.push(state.status === 'RESOLVED' ? state.row.revision : state.status === 'EQUIVOCATED' ? state.revision : -1)
+      }
+      return seen
+    }
+    const readers = [reader(), reader(), reader()]
+    const results = await Promise.allSettled(sends.map((envelope) => repo.ingest(envelope)))
+    writing = false
+    const reads = await Promise.all(readers)
+
+    expect(results.filter((r) => r.status === 'rejected')).toEqual([])
+    expect(results.filter((r) => r.status === 'fulfilled' && !r.value.accepted)).toEqual([])
+    for (const seen of reads) {
+      expect(seen.length).toBeGreaterThan(0)
+      expect(seen.every((rev, i) => i === 0 || rev >= seen[i - 1])).toBe(true)
+    }
+    expect(await currentState(owner.publicKeyHex, id)).toEqual({
+      status: 'RESOLVED',
+      revision: 12,
+      envelopeStatus: 'CANCELLED',
+      active: false,
+      storedFacts: 13,
+    })
   })
 })

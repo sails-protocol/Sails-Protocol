@@ -34,7 +34,21 @@ import { prisma } from '../../common/database'
 import type { Prisma } from '@prisma/client'
 import type { AssetType } from '../../common/types'
 import type { EscrowType } from '../../common/types/trade'
-import { EscrowError } from '../../common/errors'
+import { EscrowError, SettlementResultConflictError } from '../../common/errors'
+
+export interface SettlementResultInput {
+  txReleaseId: string
+  /** Proposed timestamp: used only if the slot is empty / releasedAt is still null; never replaces an existing one. */
+  releasedAt?: Date
+  feeCharged?: Prisma.Decimal | null
+}
+
+export interface SettlementResultWriteOptions {
+  /** Run inside an existing transaction (e.g. the reconciler's escrow lock). */
+  tx?: Prisma.TransactionClient
+  /** Sails-owned immutable operation identity this evidence belongs to. */
+  operation?: { pendingOperationId: string }
+}
 
 type EscrowRow = NonNullable<Awaited<ReturnType<typeof prisma.escrow.findUnique>>>
 // Missão 11 Fase 7.2 §L — the query this type describes already includes
@@ -158,17 +172,32 @@ export interface EscrowRepository {
    *  every other existing caller, unchanged behavior. */
   claimTransition(escrowId: string, fromStatus: string, toStatus: string, tx?: Prisma.TransactionClient): Promise<number>
 
+  /**
+   * Issue #291 - THE one settlement-result persistence primitive; the four
+   * updateXResult() methods below are thin wrappers over it, and the
+   * reconciliation writers (C8, PASS 1) use it too, so every writer has
+   * identical conflict semantics:
+   *   empty slot       -> write (and record releasedAt once)
+   *   same txReleaseId -> idempotent no-op (original releasedAt preserved)
+   *   different        -> SettlementResultConflictError, nothing overwritten
+   * txReleaseId is PROVIDER EVIDENCE (txid / arkTxid / userOpHash / hash), not
+   * Sails' operation identity. When `operation.pendingOperationId` is given
+   * the first write is additionally bound to that immutable, Sails-owned
+   * pending operation (it must still exist for this escrow).
+   */
+  persistSettlementResult(escrowId: string, result: SettlementResultInput, opts?: SettlementResultWriteOptions): Promise<EscrowRow>
+
   /** releaseFunds()'s own write. */
-  updateReleaseResult(escrowId: string, data: { txReleaseId: string; releasedAt: Date; feeCharged: Prisma.Decimal | null }): Promise<EscrowRow>
+  updateReleaseResult(escrowId: string, data: { txReleaseId: string; releasedAt: Date; feeCharged: Prisma.Decimal | null }, opts?: SettlementResultWriteOptions): Promise<EscrowRow>
 
-  /** refundFunds()'s own write — no releasedAt/feeCharged (PROTOCOL_ECONOMY.md §3: the Protocol Fee never attaches to a refund). */
-  updateRefundResult(escrowId: string, txReleaseId: string): Promise<EscrowRow>
+  /** refundFunds()'s own write - no releasedAt/feeCharged (PROTOCOL_ECONOMY.md s3: the Protocol Fee never attaches to a refund). */
+  updateRefundResult(escrowId: string, txReleaseId: string, opts?: SettlementResultWriteOptions): Promise<EscrowRow>
 
-  /** splitFunds()'s own write — txReleaseId is the joined multi-tx-id string. */
-  updateSplitResult(escrowId: string, data: { txReleaseId: string; releasedAt: Date }): Promise<EscrowRow>
+  /** splitFunds()'s own write - txReleaseId is the joined multi-tx-id string. */
+  updateSplitResult(escrowId: string, data: { txReleaseId: string; releasedAt: Date }, opts?: SettlementResultWriteOptions): Promise<EscrowRow>
 
-  /** submitTransactionSignature()'s own write (escrow-pending-tx.ts) — releasedAt present for release/split, absent for refund; the caller decides which, exactly as today. */
-  updateSignatureCollectionResult(escrowId: string, data: { txReleaseId: string; releasedAt?: Date }): Promise<EscrowRow>
+  /** submitTransactionSignature()'s own write (escrow-pending-tx.ts) - releasedAt present for release/split, absent for refund; the caller decides which, exactly as today. */
+  updateSignatureCollectionResult(escrowId: string, data: { txReleaseId: string; releasedAt?: Date }, opts?: SettlementResultWriteOptions): Promise<EscrowRow>
 
   /** Conditional rollback: restore fromStatus only while this invocation still owns claimedStatus. */
   revertStatus(escrowId: string, claimedStatus: string, fromStatus: string): Promise<number>
@@ -318,20 +347,71 @@ class PrismaEscrowRepository implements EscrowRepository {
     return claim.count
   }
 
-  async updateReleaseResult(escrowId: string, data: { txReleaseId: string; releasedAt: Date; feeCharged: Prisma.Decimal | null }) {
-    return prisma.escrow.update({ where: { id: escrowId }, data })
+  async persistSettlementResult(escrowId: string, result: SettlementResultInput, opts: SettlementResultWriteOptions = {}) {
+    const run = async (tx: Prisma.TransactionClient): Promise<EscrowRow> => {
+      // Same escrow-scoped advisory lock the reconciler (withEscrowFundingLock)
+      // and emitEscrowTransition() take, so a live writer and a recovery
+      // writer for one escrow are serialized. Re-entrant inside a caller's
+      // own transaction that already holds it.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)`
+      const current = await tx.escrow.findUnique({ where: { id: escrowId } })
+      if (!current) throw new EscrowError(`Escrow ${escrowId} not found while persisting settlement result`)
+
+      if (current.txReleaseId == null) {
+        if (opts.operation) {
+          const live = await tx.escrowPendingTransaction.findFirst({
+            where: { id: opts.operation.pendingOperationId, escrowId },
+            select: { id: true },
+          })
+          if (!live) {
+            throw new SettlementResultConflictError(
+              `Settlement result ${result.txReleaseId} for escrow ${escrowId} is bound to pending operation ` +
+              `${opts.operation.pendingOperationId}, which is no longer the escrow's live operation - refusing to record its evidence`
+            )
+          }
+        }
+        // Serialized by the advisory lock above against every other writer of this
+        // escrow's result; the database trigger (escrows_settlement_result_write_once_guard)
+        // is the final backstop for any writer that bypasses this primitive.
+        return tx.escrow.update({
+          where: { id: escrowId },
+          data: {
+            txReleaseId: result.txReleaseId,
+            ...(result.releasedAt && current.releasedAt == null ? { releasedAt: result.releasedAt } : {}),
+            ...(result.feeCharged !== undefined ? { feeCharged: result.feeCharged } : {}),
+          },
+        })
+      }
+
+      if (current.txReleaseId === result.txReleaseId) {
+        // Idempotent replay. releasedAt is write-once: fill only if it was never set; never refresh it.
+        if (result.releasedAt && current.releasedAt == null) {
+          return tx.escrow.update({ where: { id: escrowId }, data: { releasedAt: result.releasedAt } })
+        }
+        return current
+      }
+
+      throw new SettlementResultConflictError(
+        `Settlement result integrity conflict for escrow ${escrowId}: durable txReleaseId ${current.txReleaseId} cannot be replaced by ${result.txReleaseId}`
+      )
+    }
+    return opts.tx ? run(opts.tx) : prisma.$transaction(run)
   }
 
-  async updateRefundResult(escrowId: string, txReleaseId: string) {
-    return prisma.escrow.update({ where: { id: escrowId }, data: { txReleaseId } })
+  async updateReleaseResult(escrowId: string, data: { txReleaseId: string; releasedAt: Date; feeCharged: Prisma.Decimal | null }, opts?: SettlementResultWriteOptions) {
+    return this.persistSettlementResult(escrowId, data, opts)
   }
 
-  async updateSplitResult(escrowId: string, data: { txReleaseId: string; releasedAt: Date }) {
-    return prisma.escrow.update({ where: { id: escrowId }, data })
+  async updateRefundResult(escrowId: string, txReleaseId: string, opts?: SettlementResultWriteOptions) {
+    return this.persistSettlementResult(escrowId, { txReleaseId }, opts)
   }
 
-  async updateSignatureCollectionResult(escrowId: string, data: { txReleaseId: string; releasedAt?: Date }) {
-    return prisma.escrow.update({ where: { id: escrowId }, data })
+  async updateSplitResult(escrowId: string, data: { txReleaseId: string; releasedAt: Date }, opts?: SettlementResultWriteOptions) {
+    return this.persistSettlementResult(escrowId, data, opts)
+  }
+
+  async updateSignatureCollectionResult(escrowId: string, data: { txReleaseId: string; releasedAt?: Date }, opts?: SettlementResultWriteOptions) {
+    return this.persistSettlementResult(escrowId, data, opts)
   }
 
   async revertStatus(escrowId: string, claimedStatus: string, fromStatus: string) {

@@ -1993,6 +1993,43 @@ or hidden operational conventions.
       question resolved 2026-09-10, Product Direction — previously
       recorded as pending; superseded here.)
 
+    **SUCCESSOR DECISION (2026-11-01, Product Owner + CTO) — Day-0
+    commitment narrowed to 14 native P2P combinations.** The matrix
+    immediately above (25 `{asset, rail}` rows) is preserved verbatim as
+    the 2026-09-10 Product Direction Freeze; it is no longer the Day-0
+    commitment. The commitment is now the complete set: **BTC** on
+    `BITCOIN_L1`, `LIQUID`; **USDT** on `ETHEREUM`, `POLYGON`, `BASE`,
+    `ARBITRUM`, `TON`, `TRON`, `SOLANA`; **USDC** on `ETHEREUM`,
+    `POLYGON`, `BASE`, `ARBITRUM`, `SOLANA` — not an "initial wave" of
+    25. The 12 rows that left the commitment are native P2P roadmap with
+    no date commitment (BTC/LIGHTNING, BTC/SPARK, BTC/ARKADE;
+    DEPIX/LIQUID, DEPIX/SPARK; USDT/OPTIMISM, USDT/AVALANCHE,
+    USDT/BNB_CHAIN, USDT/LIQUID; USDC/OPTIMISM, USDC/AVALANCHE;
+    XAUT/ETHEREUM), without erasing the 2026-09-10 decision. `{USDC,
+    SOLANA}` is added intentionally (25 − 12 + 1 = 14, i.e. 13 retained
+    plus 1 new). Sails Market may offer routes, swaps and direct purchase
+    through commercial partners; that is not native P2P support of the
+    protocol, and DePix may have commercial coverage there provided
+    approved partners exist. Cross-cutting requirements (security,
+    recovery, external integration, multi-operator operation, evidence)
+    are not reduced, and no combination is homologated by appearing in
+    the list. The 25-row architectural registry and its tests are
+    unchanged: catalog (25), Day-0 commitment (14), registered provider
+    and beta/production eligibility are four separate facts, and an
+    explicit validation of the Day-0 matrix awaits a separately
+    authorized implementation mission. CTO decisions D1–D4 (Issue #105,
+    issuecomment-6561714306) and canonical text:
+    `docs/adr/ADR-002-asset-settlement-rail-adapter-provider-architecture.md`
+    §5A. The frozen product properties above ("may be immature but may
+    not disappear through scope reduction") are preserved verbatim as the
+    rule of the 2026-09-10 freeze; the successor decision revises its
+    reach: **none of the 14 combinations may be withdrawn silently —
+    withdrawal needs a new Product Owner + CTO approval, with
+    justification and traceability.** The unconditional DePix evidence in
+    the "Required evidence" paragraph below and the
+    DePix-on-Liquid-and-Spark requirement above are historical for the
+    Day-0 commitment.
+
     **Architecture obligation recorded, mechanism NOT frozen:** the
     current flat `AssetType` (10 string values, each conflating asset
     identity and network/rail identity in one token, e.g. `USDT_ERC20`)
@@ -2154,6 +2191,13 @@ or hidden operational conventions.
     matrix above. What remains open is architecture/integration
     sequencing (see the existing architecture obligation immediately
     above and 20.6 below), not whether these belong in scope.
+    *(2026-11-01 note: "already Day-0-required" is historical for the
+    assets and networks that left the Day-0 commitment — Spark, DePix,
+    Optimism, Avalanche, BNB Chain, Lightning, Arkade, USDT on Liquid,
+    XAUT — see the successor decision under item 20 and ADR-002 §5A. The
+    paragraph is preserved; the integration-coverage obligation of this
+    item now applies to the 14 combinations of the commitment, per the
+    CTO decisions D3/D4 in Issue #105, issuecomment-6561714306.)*
 
     20.3. **Institutional maturity/terminology reconciliation (one
     correction family).** Beyond the Lightning/Arkade correction this
@@ -2288,6 +2332,13 @@ or hidden operational conventions.
     optional `currency`. For any beta supporting more than one fiat
     quote denomination, the market pair/currency must be explicit and
     never inferred from node, locale, payment method or geography.
+
+    **Quote-currency inventory, implemented versus planned (2026-11-03, EPM, requested by the CTO for criterion B7).** A statement of facts: B7 stays OPEN and this note freezes no scope.
+    - **Persisted today.** `Offer.priceUsd` (required) and `Offer.priceBrl` (optional). The same pair feeds the derived offer schema, which can name only `USD` or `BRL` as the quote currency (`packages/sails-p2p-schemas/src/offer.ts:63`). `OfferEnvelope` and `Trade` carry `priceUsd`.
+    - **Declared on intents.** `currency` is optional and validated against eight codes (`BRL`, `USD`, `EUR`, `GBP`, `ARS`, `MXN`, `NGN`, `INR`) in `src/core/intent.routes.ts` and `src/modules/open-agents/agent.routes.ts`. It is not stored as a quote on the Offer.
+    - **Aggregated discovery.** `GET /v1/liquidity/offers` does not return `priceBrl` (`packages/sails-sdk/src/modules/liquidity.ts`), so a client cannot read an offer's local-fiat quote from it.
+    - **Reference UI only.** `FIAT_CURRENCIES` lists thirteen codes; five of them (`VES`, `COP`, `PEN`, `BOB`, `EGP`) exist only in the UI. Amount presets are illustrative, and the UI defaults the display currency to BRL where a route returns no fiat choice.
+    - **Planned.** Nothing is decided: no frozen list of quote currencies, no live FX feed, no canonical market-pair field. These remain the open obligations of this item.
 
 Required evidence:
 Beta Asset/Rail Matrix Truth Test; Unsupported Asset Fail-Closed Test;

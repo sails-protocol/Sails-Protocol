@@ -50,6 +50,10 @@ jest.mock('@tetherto/wdk-wallet-evm', () => ({
 }))
 
 const mockAttemptFindFirst = jest.fn()
+// D7 - ensureAttempt()'s per-escrow guard (findPotentiallySent(), the only findFirst filtering by status) has its own
+// mock: these single-operation scenarios have no other operation's attempt, and the queued findLatest() answers
+// above must not be consumed by it.
+const mockPotentiallySentFindFirst = jest.fn().mockResolvedValue(null)
 const mockAttemptCreate = jest.fn()
 const mockAttemptUpdate = jest.fn()
 const mockAttemptUpdateMany = jest.fn()
@@ -59,7 +63,7 @@ const mockTransaction = jest.fn()
 jest.mock('../src/common/database', () => ({
   prisma: {
     wdkTransferAttempt: {
-      findFirst: (...args: unknown[]) => mockAttemptFindFirst(...args),
+      findFirst: (args: { where?: { status?: unknown } }) => (args?.where?.status ? mockPotentiallySentFindFirst(args) : mockAttemptFindFirst(args)),
       create: (...args: unknown[]) => mockAttemptCreate(...args),
       update: (...args: unknown[]) => mockAttemptUpdate(...args),
       updateMany: (...args: unknown[]) => mockAttemptUpdateMany(...args),

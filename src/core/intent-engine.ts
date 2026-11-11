@@ -104,6 +104,11 @@ export function createIntentEngine(repo: IntentRepository = intentRepository): I
   // BACKLOG.md) — implemented here first since Intent persistence was
   // being built from scratch when this was written, not retrofitted onto
   // rows that already existed.
+  const entryHashOf = (fromStatus: string | null, toStatus: string, triggeredBy: string, prevHash: string): string =>
+    createHash('sha256')
+      .update(`${fromStatus ?? ''}|${toStatus}|${triggeredBy}|${prevHash}`)
+      .digest('hex')
+
   async function writeIntentEvent(
     intentId: string,
     fromStatus: string | null,
@@ -113,11 +118,7 @@ export function createIntentEngine(repo: IntentRepository = intentRepository): I
   ): Promise<void> {
     const last = await repo.findLastEvent(intentId)
     const prevHash = last?.entryHash ?? 'genesis'
-    const entryHash = createHash('sha256')
-      .update(`${fromStatus ?? ''}|${toStatus}|${triggeredBy}|${prevHash}`)
-      .digest('hex')
-
-    await repo.createEvent({ intentId, fromStatus, toStatus, triggeredBy, note, prevHash, entryHash })
+    await repo.createEvent({ intentId, fromStatus, toStatus, triggeredBy, note, prevHash, entryHash: entryHashOf(fromStatus, toStatus, triggeredBy, prevHash) })
   }
 
   async function transition<K extends SailsEventName>(
@@ -162,15 +163,25 @@ export function createIntentEngine(repo: IntentRepository = intentRepository): I
     // the request whose expected `currentStatus` still matches the row's
     // real current status affects a row, so only one concurrent caller
     // ever proceeds to writeIntentEvent()/emit(). ────────────────────────
-    const claimedCount = await repo.claimTransition(intentId, currentStatus, toStatus)
-    if (claimedCount === 0) {
+    //
+    // Issue #253 (Intent atomicity): the CAS and its IntentEvent now commit in ONE database transaction
+    // (repo.applyTransition) - before, a crash between the two left a status change with no history that no
+    // retry could repair (COMMITTED -> COMMITTED is an invalid transition). The IntentEvent also records the
+    // domain event this transition owes (eventName/eventPayload, NULL publishedAt): the event bus is not part of
+    // that transaction, so publication happens AFTER the commit and, if the process dies before it completes,
+    // recoverUnpublishedIntentEvents() (intent-publication-recovery.ts) publishes it from that durable record.
+    const applied = await repo.applyTransition(
+      { intentId, fromStatus: currentStatus, toStatus, triggeredBy, note, eventName, eventPayload: eventPayload as object },
+      (prevHash) => entryHashOf(currentStatus, toStatus, triggeredBy, prevHash)
+    )
+    if (!applied) {
       throw new ValidationError(`Intent ${intentId} was already transitioned by a concurrent request (expected status ${currentStatus})`)
     }
-    const updated = await repo.findById(intentId)
-    await writeIntentEvent(intentId, currentStatus, toStatus, triggeredBy, note)
-    await eventBus.emit(eventName, eventPayload, intentId) // correlationId = intentId (RFC-010)
+    // correlationId = intentId (RFC-010); transitionId (the IntentEvent id) lets recovery recognise this event.
+    await eventBus.emit(eventName, { ...eventPayload, transitionId: applied.intentEventId }, intentId)
+    await repo.markEventPublished(applied.intentEventId)
 
-    return updated as unknown as Intent
+    return applied.intent as unknown as Intent
   }
 
   return {

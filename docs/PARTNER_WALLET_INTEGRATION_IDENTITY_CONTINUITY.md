@@ -366,7 +366,8 @@ brief's `FundingInstruction`/`SigningRequest` do not exist under those
 names anywhere in this codebase. The real, shipped, frozen (`docs/API_STABLE.md`)
 equivalent is `EscrowPendingTransaction` (`packages/sails-sdk/src/types.ts:287-315`):
 `{ id, escrowId, kind: 'release'|'refund'|'split', toAddress, unsignedPsbtBase64,
-requiredSigners, signatures?, ... }`, produced by `initiateRelease()`/`initiateRefund()`,
+requiredSigners, signedBy?, ... }` (`signatures?` is deprecated and no longer returned since Issue #239 — the
+server never hands out another participant's signed PSBT), produced by `initiateRelease()`/`initiateRefund()`,
 consumed via `getPendingTransaction()`, and closed via
 `submitTransactionSignature()`. This document uses the mission's vocabulary
 where it clarifies intent, but the actual integration contract a partner
