@@ -20,6 +20,11 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 
+- **C9 — stored signed offers are append-only and re-verified on read (real PostgreSQL).** Draft, pending the Gatekeeper batch audit.
+  - **Write-once:** migration `20261111120000_offer_envelopes_write_once` refuses `UPDATE`, `DELETE` and `TRUNCATE` on `offer_envelopes`. `INSERT` and idempotent ingestion are unchanged. Before this, deleting a `CANCELLED` tombstone resurrected the `ACTIVE` revision under it.
+  - **Read-time re-verification:** `getLatest()` re-verifies the signature and recomputes the content digest of every row at the identity's highest revision. One altered or forged row throws `OfferEnvelopeIntegrityError`. It is never skipped, so the read never falls back to an older revision, and it is never reported as owner equivocation.
+  - **Limit:** a role that owns the table (or a superuser) can disable the trigger. Tampering by such a role is caught on read; deleting a row is not. That needs a non-owner runtime role (`SELECT`/`INSERT`), a deployment decision. `CANCELLED` semantics, ADR-001 and `LatestOfferState` are unchanged.
+
 - **Issue #299 — a MULTISIG broadcast is never treated as failed once it was sent (real PostgreSQL, real PSBTs).** Draft, pending Gatekeeper audit. MULTISIG only.
   - **UNKNOWN after the POST:** a single explorer cannot prove a transaction never propagated, so every broadcast error (no answer, 5xx, 429, 3xx, a 400 with or without an RPC rejection) keeps the claim: no dispute, no new economic decision. Recovery re-sends the same deterministic transaction or converges from the chain. The live final signature used to release the claim on any error, including a lost answer after the network accepted; with a rollback racing PASS 1 that could end as a non-terminal escrow with a recorded transaction.
   - **Manual review instead of a silent loop:** a rejection (400 + RPC error, not visible on the explorer) or a round that cannot be built is listed by PASS 1 as `BROADCAST_REJECTED` / `ROUND_UNBUILDABLE` with the escrow, round and txid. PASS 0's terminal claim after a rejection, which used to fail every tick with no trace, now surfaces there.
