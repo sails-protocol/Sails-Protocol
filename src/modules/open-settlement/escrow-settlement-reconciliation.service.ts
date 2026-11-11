@@ -2,8 +2,7 @@ import { prisma } from '../../common/database'
 import { Prisma } from '@prisma/client'
 import { config } from '../../config'
 import { EscrowError, SettlementResultConflictError } from '../../common/errors'
-import { withEscrowFundingLock, loadParticipantPubkeys, emitEscrowTransition, claimEscrowTransition, revertUnsettledClaim, EVENT_NAME_BY_TARGET_STATUS, resolvePayoutAddress } from './escrow-lifecycle'
-import { SubmissionDefinitelyFailed } from './broadcast-outcome'
+import { withEscrowFundingLock, loadParticipantPubkeys, emitEscrowTransition, claimEscrowTransition, EVENT_NAME_BY_TARGET_STATUS, resolvePayoutAddress } from './escrow-lifecycle'
 import { eventBus } from '../../common/events/event-bus'
 import { listHeldSettlementProvenance, TRANSITION_CLAIMED_KEY, TRANSITION_PROJECTED_KEY } from '../../common/events/event-projection'
 import { escrowRepository } from './escrow-repository'
@@ -11,6 +10,7 @@ import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
 import { feeCollectionRecognitionService } from './fee-collection-recognition.service'
 import { multisigProvider, identifyFeeOutput, networkFor, type MultisigEscrowInput } from './multisig.provider'
+import { BroadcastRejected, SubmissionDefinitelyFailed } from './broadcast-outcome'
 import { wdkSettlementProvider } from './wdk-settlement.provider'
 import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
@@ -361,9 +361,8 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
       // The escrow claim is taken before the first broadcast, not after it. It is the same conditional status claim
       // openDispute() contends on, so it serializes the two: a dispute opened first makes this claim fail and nothing
       // is broadcast; once this claim wins, the escrow is no longer disputable and a later openDispute() is refused.
-      // Issue #299 - an UNKNOWN broadcast keeps the claim (it may have reached the network; PASS 1 converges a claimed
-      // escrow without txReleaseId from chain truth). Only a refusal the chain confirms releases it, so the escrow is
-      // never left terminal with no transaction behind a proven failure.
+      // The claim is never reverted: a failed broadcast may still have reached the network (UNKNOWN), and PASS 1
+      // converges a claimed escrow without txReleaseId from chain truth.
       let claimedBeforeBroadcast = false
       let result: Awaited<ReturnType<typeof multisigProvider.reconcilePendingSettlement>>
       try {
@@ -390,7 +389,6 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
           report.heldIncompatibleRounds.push({ escrowId: escrow.id, pendingTransactionId: pending.id })
           continue
         }
-        if (claimedBeforeBroadcast && err instanceof SubmissionDefinitelyFailed) await revertUnsettledClaim(escrow.id, targetStatus, escrow.status).catch(() => 0)
         throw err
       }
       if (result.outcome === 'ANOMALY') {
@@ -529,7 +527,21 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
     status: escrow.status,
   }
 
-  const result = await multisigProvider.reconcilePendingSettlement(input, pending.unsignedPsbtBase64, signedList as string[])
+  let result: Awaited<ReturnType<typeof multisigProvider.reconcilePendingSettlement>>
+  try {
+    result = await multisigProvider.reconcilePendingSettlement(input, pending.unsignedPsbtBase64, signedList as string[])
+  } catch (err) {
+    // Issue #299 (CTO D3) - no automatic convergence from here: the node rejected the round's transaction (still
+    // UNKNOWN - another node may have it) or the round cannot be built. Structured manual review (code, txid, round),
+    // never a rollback or a new disposition; the claim stays and the same transaction is re-sent next tick.
+    if (err instanceof BroadcastRejected || err instanceof SubmissionDefinitelyFailed) {
+      const code = err instanceof BroadcastRejected ? 'BROADCAST_REJECTED' : 'ROUND_UNBUILDABLE'
+      log.error({ msg: 'PASS 1: claimed MULTISIG escrow cannot converge automatically - manual review', escrowId: escrow.id, pendingTransactionId: pending.id, code, err: err.message })
+      report.requiresManualReview.push({ escrowId: escrow.id, reason: `${code}: escrow is ${escrow.status} with no txReleaseId, round ${pending.id}. ${err.message}` })
+      return
+    }
+    throw err
+  }
 
   if (result.outcome === 'ANOMALY') {
     log.error({ msg: 'Reconciliation anomaly — no automated recovery attempted', escrowId: escrow.id, detail: result.detail })
@@ -547,14 +559,10 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
   // writer: empty -> write, same -> idempotent, DIFFERENT -> integrity
   // conflict (previously this branch silently ignored a differing value).
   let wroteTxReleaseId = false
-  let claimReleased = false
   try {
     wroteTxReleaseId = await withEscrowFundingLock(escrow.id, async (tx) => {
       const fresh = await tx.escrow.findUnique({ where: { id: escrow.id } })
       if (!fresh) return false
-      // Issue #299 - a proven failure released the claim since this pass read it (revertUnsettledClaim, same lock):
-      // record nothing on a non-terminal escrow. PASS 0 converges it from chain truth through the claim.
-      if (fresh.status !== targetStatus) { claimReleased = true; return false }
       const updateData = targetStatus === 'REFUNDED' ? { txReleaseId: result.txId } : { txReleaseId: result.txId, releasedAt: new Date() }
       await escrowRepository.updateSignatureCollectionResult(escrow.id, updateData, { tx, operation: { pendingOperationId: pending.id } })
       return fresh.txReleaseId === null
@@ -566,10 +574,6 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
       return
     }
     throw writeErr
-  }
-  if (claimReleased) {
-    log.warn({ msg: 'PASS 1: the claim was released after a proven broadcast failure - nothing recorded, PASS 0 converges', escrowId: escrow.id, txId: result.txId })
-    return
   }
 
   log.info({ msg: 'Reconciliation: convergence path determined', escrowId: escrow.id, outcome: result.outcome, txId: result.txId, detail: result.detail, wroteTxReleaseId })

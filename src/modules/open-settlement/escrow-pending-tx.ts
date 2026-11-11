@@ -463,11 +463,19 @@ export async function submitTransactionSignature(escrowId: string, participantId
       ? await provider.finalizeRefund(escrow, pending.unsignedPsbtBase64, signedList, pending.id)
       : await provider.finalizeSplit!(escrow, pending.unsignedPsbtBase64, signedList)
   } catch (err) {
-    // Issue #299 - UNKNOWN is not FAILED: a MULTISIG claim is released only on a proven failure (under the escrow lock,
-    // only while no result is recorded); any other error may mean the network has the transaction, so the claim stays
-    // and PASS 1 converges from chain truth.
+    // Issue #299 - UNKNOWN is not FAILED. A MULTISIG claim is released only when the round could not be built (nothing
+    // was sent); any other error may mean the network has the transaction, so the claim stays (no dispute, no new
+    // disposition) and PASS 1 converges from chain truth with the same transaction.
     if (escrow.type !== 'MULTISIG') await revertEscrowStatus(escrowId, targetStatus, escrowStatus)
-    else if (err instanceof SubmissionDefinitelyFailed) await revertUnsettledClaim(escrowId, targetStatus, escrowStatus).catch(() => 0)
+    else if (err instanceof SubmissionDefinitelyFailed) {
+      try {
+        await revertUnsettledClaim(escrowId, targetStatus, escrowStatus)
+      } catch (revertErr) {
+        const reason = revertErr instanceof Error ? revertErr.message : String(revertErr)
+        log.error({ msg: 'MULTISIG: the round could not be built and its claim could not be released - escrow stays claimed, PASS 1 routes it to manual review', escrowId, pendingTransactionId: pending.id, stage: 'release-claim', cause: err.message, err: reason })
+        throw new EscrowError(`${err.message}; the claim could not be released (${reason}) - escrow ${escrowId} stays ${targetStatus} pending manual review`)
+      }
+    }
     throw err
   }
 

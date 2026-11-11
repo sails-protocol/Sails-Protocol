@@ -238,8 +238,7 @@ beforeEach(() => {
   mockParticipantKeyFindMany.mockResolvedValue([])
   mockEscrowEventFindFirst.mockResolvedValue(null)
   mockTradeFindById.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-  // PASS 1's locked re-read: still claiming the status it read (Issue #299 re-check).
-  mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', status: 'COMPLETED', txReleaseId: null })
+  mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', txReleaseId: null })
   mockEscrowUpdate.mockResolvedValue({ id: 'escrow-1' })
   mockPendingTxDelete.mockResolvedValue({})
   mockClaimTransition.mockResolvedValue(1)
@@ -680,7 +679,6 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture({ status: 'REFUNDED' })])
     mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture({ kind: 'refund' }))
     mockReconcilePendingSettlement.mockResolvedValue({ outcome: 'ALREADY_BROADCAST', txId: 'real-txid-3', detail: 'already known' })
-    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', status: 'REFUNDED', txReleaseId: null })
 
     await reconcilePendingSettlements()
 
@@ -695,7 +693,7 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     // A concurrent reconciliation run (or, structurally impossible but
     // defended anyway, a live request) already converged this escrow
     // between this test's own chain-truth determination and the lock.
-    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', status: 'COMPLETED', txReleaseId: 'already-set-by-someone-else' })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', txReleaseId: 'already-set-by-someone-else' })
 
     await reconcilePendingSettlements()
 

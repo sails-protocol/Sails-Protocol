@@ -388,13 +388,12 @@ export async function revertEscrowStatus(escrowId: string, claimedStatus: string
 }
 
 /**
- * Issue #299 - MULTISIG rollback after a PROVEN broadcast failure. Taken under the escrow lock PASS 1 records its
- * result under, and only while no settlement result exists: if a concurrent PASS 1 already recorded the transaction,
- * the claim stands. Returns the number of rows reverted.
+ * Issue #299 - MULTISIG rollback after a round that could not be built (nothing was sent): one conditional
+ * statement, only while the escrow still holds this claim and no settlement result exists. Never swallows a database
+ * error - the caller reports it and the claim stays. Returns the number of rows reverted.
  */
 export async function revertUnsettledClaim(escrowId: string, claimedStatus: string, fromStatus: string): Promise<number> {
-  return withEscrowFundingLock(escrowId, async (tx) =>
-    (await tx.escrow.updateMany({ where: { id: escrowId, status: claimedStatus as any, txReleaseId: null }, data: { status: fromStatus as any } })).count)
+  return (await prisma.escrow.updateMany({ where: { id: escrowId, status: claimedStatus as any, txReleaseId: null }, data: { status: fromStatus as any } })).count
 }
 
 export function assertEscrowTransition(current: string, next: string) {

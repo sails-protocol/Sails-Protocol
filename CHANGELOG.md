@@ -20,11 +20,11 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 
-- **Issue #299 — a MULTISIG broadcast that failed is told apart from one whose outcome is unknown (real PostgreSQL, real PSBTs).** Draft, pending Gatekeeper audit. MULTISIG only.
-  - **Definite failure:** only a proven failure releases the claim: the round could not be built (nothing was sent), or the node refused it and the chain confirms the round's txid is unknown and the funding outpoint unspent. PASS 0 used to keep its claim forever after such a refusal, so the escrow looked terminal with no transaction and a dispute was refused.
-  - **UNKNOWN:** any other error (no answer, a 5xx, a refusal the chain cannot confirm, an outpoint spent by something else) keeps the claim (no dispute, no new economic decision). PASS 1 converges from chain truth with the round's one deterministic transaction, or routes it to manual review. The live final signature used to release the claim on any error, including a lost answer after the network accepted.
-  - **A 400 for a transaction the network already has** converges in place.
-  - **Rollback × PASS 1:** the rollback runs under the escrow lock, only while no result is recorded, and PASS 1 records nothing on an escrow whose claim was released. Before, a lost answer could end as a non-terminal escrow with a recorded transaction.
+- **Issue #299 — a MULTISIG broadcast is never treated as failed once it was sent (real PostgreSQL, real PSBTs).** Draft, pending Gatekeeper audit. MULTISIG only.
+  - **UNKNOWN after the POST:** a single explorer cannot prove a transaction never propagated, so every broadcast error (no answer, 5xx, 429, 3xx, a 400 with or without an RPC rejection) keeps the claim: no dispute, no new economic decision. Recovery re-sends the same deterministic transaction or converges from the chain. The live final signature used to release the claim on any error, including a lost answer after the network accepted; with a rollback racing PASS 1 that could end as a non-terminal escrow with a recorded transaction.
+  - **Manual review instead of a silent loop:** a rejection (400 + RPC error, not visible on the explorer) or a round that cannot be built is listed by PASS 1 as `BROADCAST_REJECTED` / `ROUND_UNBUILDABLE` with the escrow, round and txid. PASS 0's terminal claim after a rejection, which used to fail every tick with no trace, now surfaces there.
+  - **A 400 for a transaction the explorer already has** converges in place.
+  - **Definite failure:** only a round that cannot be built (nothing was sent) releases the claim, with one conditional statement; a database error during that release is logged and reported, and the claim stays.
 
 - **Issue #239 — a cooperative MULTISIG signing round can no longer lock an escrow forever (real PostgreSQL, real PSBTs).** Draft, pending Gatekeeper audit.
   - **Seller cancellation:** the seller can cancel a cooperative round that is not fully signed (`POST /v1/settlement/escrow/:id/cancel-pending-transaction`).

@@ -1,17 +1,18 @@
 // tests/integration/multisigBroadcastOutcome.test.ts
 //
-// Issue #299 (MULTISIG) - a broadcast that FAILED is told apart from a broadcast whose outcome is UNKNOWN, on both
-// paths that claim the escrow before broadcasting: the live final signature (submitTransactionSignature) and PASS 0
-// (reconcileUnclaimedFullySignedPending). Real PostgreSQL, real 2-of-3 P2WSH PSBTs; only the explorer is simulated:
-//   accept   the network takes the transaction (mempool, the funding outpoint is spent by it)
-//   refuse   the node answers 400 and keeps nothing (e.g. a non-standard signature)
-//   lost     the network takes it, the answer never arrives (connection reset after acceptance)
-//   timeout  no answer, nothing reached the network
-//   down     503, nothing reached the network
-// Properties: a refusal the chain confirms (txid unknown, outpoint unspent) releases the claim - the escrow is not left
-// terminal with no transaction; anything else keeps the claim (UNKNOWN), refuses a dispute, and converges from chain
-// truth with ONE distinct transaction. Interleavings use the real escrow advisory lock, observed in pg_locks.
-// Crash/restart across OS processes: multisigBroadcastOutcome.worker.ts.
+// Issue #299 (MULTISIG) - UNKNOWN is not FAILED on both paths that claim the escrow before broadcasting: the live final
+// signature (submitTransactionSignature) and PASS 0 (reconcileUnclaimedFullySignedPending). Real PostgreSQL, real
+// 2-of-3 P2WSH PSBTs; only the explorer (and, for "stale", a second node) is simulated:
+//   accept    the network takes the transaction (mempool, the funding outpoint is spent by it)
+//   refuse    400 + RPC rejection, nothing anywhere (e.g. a non-standard signature)
+//   stale     400 + RPC rejection from a lagging node, while ANOTHER node already has the transaction (invisible here)
+//   lost      the network takes it, the answer never arrives (connection reset after acceptance)
+//   timeout   no answer; down 503; throttled 429; moved 302; gateway 400 without an RPC body
+// Properties (CTO D1-D4): once a transaction is POSTed nothing proves it never propagated, so every error keeps the
+// claim (no dispute, no new disposition) and recovery re-sends the SAME transaction; a rejection PASS 1 cannot converge
+// goes to structured manual review (code, txid, round); only a round that cannot be built (nothing sent) releases the
+// claim, and a failed release is reported, never swallowed. Crash/restart across OS processes:
+// multisigBroadcastOutcome.worker.ts.
 import { spawn } from 'child_process'
 import fs from 'fs'
 import os from 'os'
@@ -24,10 +25,11 @@ import { closeTestRedis } from './identityTestHelpers'
 import { buyerKey, sellerKey, newChain, explorer, signRound, completeOutsideSails, buildCooperative, chainToJson, type Chain } from './pendingRoundLifecycleHarness'
 
 const WORKER = path.join(__dirname, 'multisigBroadcastOutcome.worker.ts')
-type Mode = 'accept' | 'refuse' | 'lost' | 'timeout' | 'down'
+type Mode = 'accept' | 'refuse' | 'stale' | 'lost' | 'timeout' | 'down' | 'throttled' | 'moved' | 'gateway'
+const RPC_REJECTION = 'sendrawtransaction RPC error: {"code":-26,"message":"non-mandatory-script-verify-flag (Non-canonical signature: S value is unnecessarily high)"}'
 
-/** What the network answers to POST /tx, plus every POST attempt (txid) whatever the answer. */
-interface Net { mode: Mode; posts: string[]; onLost: (() => Promise<void>) | null; outspendGate: { entered: () => void; release: Promise<void> } | null }
+/** What the network answers to POST /tx, every POST attempt (txid), and what a second node holds out of sight. */
+interface Net { mode: Mode; posts: string[]; onLost: (() => Promise<void>) | null; elsewhere: Map<string, string> }
 
 export function network(chain: Chain, net: Net): typeof fetch {
   const base = explorer(chain)
@@ -35,46 +37,49 @@ export function network(chain: Chain, net: Net): typeof fetch {
   return (async (input: unknown, init?: { method?: string; body?: string }) => {
     const url = String(input)
     if (init?.method === 'POST' && url.endsWith('/tx')) {
-      const tx = bitcoin.Transaction.fromHex(init.body as string)
-      const txid = tx.getId()
+      const hex = init.body as string
+      const txid = bitcoin.Transaction.fromHex(hex).getId()
       net.posts.push(txid)
-      const accept = () => {
-        chain.mempool.add(txid)
-        chain.hex.set(txid, init.body as string)
-        chain.broadcasts.push(txid)
-        chain.spentBy.set(`${Buffer.from(tx.ins[0].hash).reverse().toString('hex')}:${tx.ins[0].index}`, txid)
-      }
       if (net.mode === 'accept') {
         if (chain.mempool.has(txid)) return reply(400, 'sendrawtransaction RPC error: {"code":-27,"message":"Transaction already in block chain"}')
-        accept()
+        accept(chain, hex)
         return reply(200, txid)
       }
-      if (net.mode === 'refuse') return reply(400, 'sendrawtransaction RPC error: {"code":-26,"message":"non-mandatory-script-verify-flag (Non-canonical signature: S value is unnecessarily high)"}')
+      if (net.mode === 'refuse') return reply(400, RPC_REJECTION)
+      if (net.mode === 'stale') {
+        net.elsewhere.set(txid, hex)
+        return reply(400, 'sendrawtransaction RPC error: {"code":-25,"message":"bad-txns-inputs-missingorspent"}')
+      }
       if (net.mode === 'lost') {
-        accept()
+        accept(chain, hex)
         if (net.onLost) await net.onLost()
         throw new TypeError('fetch failed (socket hang up)')
       }
       if (net.mode === 'timeout') throw Object.assign(new Error('This operation was aborted'), { name: 'AbortError' })
+      if (net.mode === 'throttled') return reply(429, 'Too Many Requests')
+      if (net.mode === 'moved') return reply(302, '')
+      if (net.mode === 'gateway') return reply(400, '<html><body>400 Bad Request</body></html>')
       return reply(503, 'Service Unavailable')
     }
     if (url.includes('/utxo')) {
       const unspent = [...chain.fundings].filter((f) => !chain.spentBy.has(`${f}:0`))
       return reply(200, JSON.stringify((chain.locking ? [chain.locking] : unspent).map((txid) => ({ txid, vout: 0, value: 100_000, status: { confirmed: true } }))))
     }
-    if (net.outspendGate && /\/outspend\/\d+$/.test(url)) {
-      const gate = net.outspendGate
-      const answer = await base(input as string, init as RequestInit) // read now, answered later
-      net.outspendGate = null
-      gate.entered()
-      await gate.release
-      return answer
-    }
     return base(input as string, init as RequestInit)
   }) as typeof fetch
 }
 
-describe('Issue #299 - MULTISIG broadcast outcome: definite failure vs UNKNOWN (real PostgreSQL, real PSBTs)', () => {
+/** The network now holds this transaction: mempool, and the funding outpoint it spends. */
+function accept(chain: Chain, hex: string) {
+  const tx = bitcoin.Transaction.fromHex(hex)
+  const txid = tx.getId()
+  chain.mempool.add(txid)
+  chain.hex.set(txid, hex)
+  chain.broadcasts.push(txid)
+  chain.spentBy.set(`${Buffer.from(tx.ins[0].hash).reverse().toString('hex')}:${tx.ins[0].index}`, txid)
+}
+
+describe('Issue #299 - MULTISIG broadcast outcome: UNKNOWN is never FAILED (real PostgreSQL, real PSBTs)', () => {
   jest.setTimeout(180_000)
   const pg = createPostgresIntegrationHarness()
   let dbAvailable = false
@@ -82,6 +87,7 @@ describe('Issue #299 - MULTISIG broadcast outcome: definite failure vs UNKNOWN (
   let deps: Parameters<typeof buildCooperative>[0]
   let getDisputeService: typeof import('../../src/modules/open-settlement/dispute.service').getDisputeService
   let reconcile: typeof import('../../src/modules/open-settlement/escrow-settlement-reconciliation.service')
+  let revertUnsettledClaim: typeof import('../../src/modules/open-settlement/escrow-lifecycle').revertUnsettledClaim
 
   const ARBITER_ID = 'i299-test-arbiter'
   const arbiterKeypair = nacl.sign.keyPair()
@@ -89,8 +95,8 @@ describe('Issue #299 - MULTISIG broadcast outcome: definite failure vs UNKNOWN (
   let net: Net
   let realFetch: typeof fetch
   let mine: string[] = []
-  let held: Array<() => Promise<void>> = []
   let inflight: Array<Promise<unknown>> = []
+  let held: Array<() => Promise<void>> = []
   const track = <T>(p: Promise<T>): Promise<T> => { inflight.push(p.catch(() => undefined)); return p }
 
   beforeAll(async () => {
@@ -110,6 +116,7 @@ describe('Issue #299 - MULTISIG broadcast outcome: definite failure vs UNKNOWN (
       payoutAddressService: require('../../src/modules/open-settlement/payout-address.service').payoutAddressService,
     }
     ;({ getDisputeService } = require('../../src/modules/open-settlement/dispute.service'))
+    ;({ revertUnsettledClaim } = require('../../src/modules/open-settlement/escrow-lifecycle'))
     reconcile = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service')
     const { intentEngine } = require('../../src/core/intent-engine')
     intentEngine.registerHandler(require('../../src/modules/open-p2p/intent-handler').OpenP2PTradeIntentHandler)
@@ -119,7 +126,7 @@ describe('Issue #299 - MULTISIG broadcast outcome: definite failure vs UNKNOWN (
 
   beforeEach(() => {
     chain = newChain()
-    net = { mode: 'accept', posts: [], onLost: null, outspendGate: null }
+    net = { mode: 'accept', posts: [], onLost: null, elsewhere: new Map() }
     realFetch = global.fetch
     global.fetch = network(chain, net)
     mine = []
@@ -168,23 +175,22 @@ describe('Issue #299 - MULTISIG broadcast outcome: definite failure vs UNKNOWN (
   const roundOf = (c: Coop) => prisma.escrowPendingTransaction.findUnique({ where: { escrowId: c.escrow.id }, include: { signatures: true } })
   const tick = () => reconcile.reconcilePendingSettlements({ externalSpendMinIntervalMs: Number.POSITIVE_INFINITY })
   const raiseDispute = (c: Coop) => getDisputeService().raiseDispute(c.trade.id, c.buyer.id, 'i299')
+  const review = (r: Awaited<ReturnType<typeof tick>>, c: Coop) => r.requiresManualReview.find((x) => x.escrowId === c.escrow.id)?.reason
 
-  /** The state a claim leaves when nothing was proven: claimed terminal, no transaction recorded, round intact. */
+  /** UNKNOWN kept: claimed terminal, no transaction recorded, round intact, a dispute refused. */
   async function expectUnknownKept(c: Coop) {
     expect(await escrowOf(c)).toMatchObject({ status: 'REFUNDED', txReleaseId: null })
     expect((await roundOf(c))?.signatures).toHaveLength(2)
     await expect(raiseDispute(c)).rejects.toThrow(/REFUNDED/)
   }
-  /** The state a proven refusal leaves: the claim released, nothing recorded, the round and its signatures intact. */
-  async function expectReleased(c: Coop) {
-    expect(await escrowOf(c)).toMatchObject({ status: 'FUNDS_LOCKED', txReleaseId: null })
-    expect((await roundOf(c))?.signatures).toHaveLength(2)
-    expect(chain.broadcasts).toEqual([])
-  }
   async function expectConverged(c: Coop) {
     expect(await escrowOf(c)).toMatchObject({ status: 'REFUNDED', txReleaseId: roundTxid(c) })
     expect(new Set(net.posts)).toEqual(new Set([roundTxid(c)]))
     expect(chain.broadcasts).toEqual([roundTxid(c)])
+  }
+  /** The structured manual-review entry: code, state, round and txid. */
+  function expectRejectedReview(reason: string | undefined, c: Coop) {
+    expect(reason).toMatch(new RegExp(`^BROADCAST_REJECTED: escrow is REFUNDED with no txReleaseId, round ${c.round.id}\\. .*broadcast of ${roundTxid(c)} rejected with 400`))
   }
 
   // ─── lock interleaving helpers ──────────────────────────────────────────────
@@ -218,42 +224,25 @@ describe('Issue #299 - MULTISIG broadcast outcome: definite failure vs UNKNOWN (
   }
 
   // ─── PASS 0 (fully signed, never claimed) ───────────────────────────────────
-  it('P0-1 the reproduction: PASS 0 claims, the node refuses, nothing reaches the network - the claim is released, the round kept; once accepted, one broadcast converges', async () => {
+  it('P0-1 the reproduction: PASS 0 claims and the node rejects - the claim stays (UNKNOWN), a dispute is refused, PASS 1 routes it to structured manual review; once accepted, the same transaction converges', async () => {
     if (!dbAvailable) return
     const c = await refundRound('p0-refuse')
     await persistAllSignatures(c)
     net.mode = 'refuse'
     const first = await tick()
-    await expectReleased(c)
-    expect(net.posts).toEqual([roundTxid(c)])
-    expect(first.failed.find((x) => x.escrowId === c.escrow.id)?.error).toMatch(/refused.*Non-canonical signature/)
-    expect(first.resumedUnclaimed.some((x) => x.escrowId === c.escrow.id)).toBe(false)
+    await expectUnknownKept(c)
+    expectRejectedReview(review(first, c), c)
+    expect(first.failed.some((x) => x.escrowId === c.escrow.id)).toBe(true) // PASS 0's own attempt
+    expect(net.posts).toEqual([roundTxid(c), roundTxid(c)]) // PASS 0, then PASS 1 - the same transaction
 
     net.mode = 'accept'
     const second = await tick()
-    expect(second.resumedUnclaimed.find((x) => x.escrowId === c.escrow.id)).toMatchObject({ txId: roundTxid(c), outcome: 'NEWLY_BROADCAST' })
+    expect(second.recovered.find((x) => x.escrowId === c.escrow.id)).toMatchObject({ txId: roundTxid(c), outcome: 'NEWLY_BROADCAST' })
+    expect(review(second, c)).toBeUndefined()
     await expectConverged(c)
   })
 
-  it('P0-2 a dispute opened after a proven refusal is allowed, and the cooperative round is then held - never broadcast', async () => {
-    if (!dbAvailable) return
-    const c = await refundRound('p0-refuse-dispute')
-    await persistAllSignatures(c)
-    net.mode = 'refuse'
-    await tick()
-    await expectReleased(c)
-    await raiseDispute(c)
-    expect((await escrowOf(c)).status).toBe('DISPUTED')
-
-    net.mode = 'accept'
-    const after = await tick()
-    expect(after.heldIncompatibleRounds.find((x) => x.escrowId === c.escrow.id)).toBeTruthy()
-    expect(net.posts).toEqual([roundTxid(c)]) // only the refused attempt
-    expect(chain.broadcasts).toEqual([])
-    expect(await escrowOf(c)).toMatchObject({ status: 'DISPUTED', txReleaseId: null })
-  })
-
-  it('P0-3 the answer is lost after the network accepted: the claim is never released; PASS 1, in the same tick, finds the transaction and converges without sending again', async () => {
+  it('P0-2 the answer is lost after the network accepted: the claim is never released; PASS 1, in the same tick, finds the transaction and converges without sending again', async () => {
     if (!dbAvailable) return
     const c = await refundRound('p0-lost')
     await persistAllSignatures(c)
@@ -265,19 +254,38 @@ describe('Issue #299 - MULTISIG broadcast outcome: definite failure vs UNKNOWN (
     await expect(raiseDispute(c)).rejects.toThrow(/REFUNDED/)
   })
 
-  it.each([['timeout'], ['down']] as Array<[Mode]>)('P0-4 %s, nothing reached the network: UNKNOWN is kept (PASS 1 retries the same transaction in the same tick); the next tick sends it once more and converges', async (mode) => {
+  it.each([['timeout'], ['down'], ['throttled'], ['moved'], ['gateway']] as Array<[Mode]>)('P0-3 %s: UNKNOWN is kept and stays an ordinary failure (not manual review); the next tick re-sends the same transaction and converges', async (mode) => {
     if (!dbAvailable) return
     const c = await refundRound(`p0-${mode}`)
     await persistAllSignatures(c)
     net.mode = mode
-    await tick()
+    const first = await tick()
     await expectUnknownKept(c)
-    expect(net.posts).toEqual([roundTxid(c), roundTxid(c)]) // PASS 0's attempt, then PASS 1's - the same transaction
+    expect(review(first, c)).toBeUndefined()
+    expect(first.failed.filter((x) => x.escrowId === c.escrow.id).map((x) => x.error)).toEqual([
+      expect.stringMatching(/broadcast outcome unknown/), expect.stringMatching(/broadcast outcome unknown/),
+    ])
     net.mode = 'accept'
     const next = await tick()
     expect(next.recovered.find((x) => x.escrowId === c.escrow.id)).toMatchObject({ txId: roundTxid(c), outcome: 'NEWLY_BROADCAST' })
     await expectConverged(c)
     expect(net.posts).toEqual([roundTxid(c), roundTxid(c), roundTxid(c)])
+  })
+
+  it('P0-4 a lagging node rejects while ANOTHER node already has the transaction: no rollback, no dispute; when the explorer catches up PASS 1 converges with no new transaction', async () => {
+    if (!dbAvailable) return
+    const c = await refundRound('p0-stale')
+    await persistAllSignatures(c)
+    net.mode = 'stale'
+    const first = await tick()
+    await expectUnknownKept(c)
+    expectRejectedReview(review(first, c), c)
+    expect(chain.broadcasts).toEqual([])
+    accept(chain, net.elsewhere.get(roundTxid(c))!) // propagation reaches the explorer
+    const next = await tick()
+    expect(next.recovered.find((x) => x.escrowId === c.escrow.id)).toMatchObject({ txId: roundTxid(c), outcome: 'ALREADY_BROADCAST' })
+    await expectConverged(c)
+    expect(net.posts).toEqual([roundTxid(c), roundTxid(c)]) // nothing sent after the catch-up
   })
 
   // ─── live final signature ───────────────────────────────────────────────────
@@ -286,7 +294,7 @@ describe('Issue #299 - MULTISIG broadcast outcome: definite failure vs UNKNOWN (
     const c = await refundRound('live-lost')
     await sign(c, c.seller.id)
     net.mode = 'lost'
-    await expect(sign(c, c.buyer.id)).rejects.toThrow()
+    await expect(sign(c, c.buyer.id)).rejects.toThrow(/broadcast outcome unknown, no answer/)
     await expectUnknownKept(c)
     net.mode = 'accept'
     const next = await tick()
@@ -295,12 +303,12 @@ describe('Issue #299 - MULTISIG broadcast outcome: definite failure vs UNKNOWN (
     expect(net.posts).toHaveLength(1)
   })
 
-  it.each([['timeout'], ['down']] as Array<[Mode]>)('L-2 live %s: the claim is kept (UNKNOWN); PASS 1 sends the same transaction once and converges', async (mode) => {
+  it.each([['timeout'], ['down'], ['throttled'], ['moved'], ['gateway']] as Array<[Mode]>)('L-2 live %s: the claim is kept (UNKNOWN); PASS 1 sends the same transaction once and converges', async (mode) => {
     if (!dbAvailable) return
     const c = await refundRound(`live-${mode}`)
     await sign(c, c.seller.id)
     net.mode = mode
-    await expect(sign(c, c.buyer.id)).rejects.toThrow()
+    await expect(sign(c, c.buyer.id)).rejects.toThrow(/broadcast outcome unknown/)
     await expectUnknownKept(c)
     net.mode = 'accept'
     await tick()
@@ -308,44 +316,48 @@ describe('Issue #299 - MULTISIG broadcast outcome: definite failure vs UNKNOWN (
     expect(net.posts).toEqual([roundTxid(c), roundTxid(c)])
   })
 
-  it('L-3 live, the node refuses and the chain confirms nothing happened: the claim is released; a dispute is allowed', async () => {
+  it('L-3 live, the node rejects (400 + RPC error, nothing on this explorer): the claim is KEPT, a dispute is refused; PASS 1 routes it to manual review until the network accepts the same transaction', async () => {
     if (!dbAvailable) return
     const c = await refundRound('live-refuse')
     await sign(c, c.seller.id)
     net.mode = 'refuse'
-    await expect(sign(c, c.buyer.id)).rejects.toThrow(/refused.*Non-canonical signature/)
-    await expectReleased(c)
-    expect(net.posts).toEqual([roundTxid(c)])
-    await raiseDispute(c)
-    expect((await escrowOf(c)).status).toBe('DISPUTED')
-  })
-
-  it('L-3b live, the node refuses but the chain cannot be read: no proof of failure, the claim is kept (UNKNOWN)', async () => {
-    if (!dbAvailable) return
-    const c = await refundRound('live-refuse-blind')
-    await sign(c, c.seller.id)
-    net.mode = 'refuse'
-    chain.outspendUnreadable = true
-    await expect(sign(c, c.buyer.id)).rejects.toThrow(/refused.*could not be read/)
+    await expect(sign(c, c.buyer.id)).rejects.toThrow(/rejected with 400.*Non-canonical signature.*outcome unknown/)
     await expectUnknownKept(c)
-  })
-
-  it('L-3c live, the node refuses and the funding outpoint is spent by ANOTHER transaction: the claim is kept; PASS 1 sends nothing and routes it to manual review', async () => {
-    if (!dbAvailable) return
-    const c = await refundRound('live-refuse-foreign')
-    await sign(c, c.seller.id)
-    net.mode = 'refuse'
-    chain.spentBy.set(`${c.funding}:0`, 'f'.repeat(64))
-    await expect(sign(c, c.buyer.id)).rejects.toThrow(/refused.*not proven unspent/)
-    await expectUnknownKept(c)
+    const first = await tick()
+    expectRejectedReview(review(first, c), c)
+    expect(first.failed.some((x) => x.escrowId === c.escrow.id)).toBe(false) // manual review, not a silent retry loop
     net.mode = 'accept'
-    const next = await tick()
-    expect(next.requiresManualReview.find((x) => x.escrowId === c.escrow.id)?.reason).toMatch(/no longer unspent/)
-    expect(net.posts).toEqual([roundTxid(c)])
-    expect(await escrowOf(c)).toMatchObject({ status: 'REFUNDED', txReleaseId: null })
+    await tick()
+    await expectConverged(c)
   })
 
-  it('L-5 live, the round cannot be built after the claim (a stored signature is unusable): nothing was sent, a definite failure - the claim is released', async () => {
+  it('L-4 live, a lagging node rejects while another node already has the transaction: no rollback, no dispute; converged once the explorer sees it', async () => {
+    if (!dbAvailable) return
+    const c = await refundRound('live-stale')
+    await sign(c, c.seller.id)
+    net.mode = 'stale'
+    await expect(sign(c, c.buyer.id)).rejects.toThrow(/rejected with 400.*outcome unknown/)
+    await expectUnknownKept(c)
+    accept(chain, net.elsewhere.get(roundTxid(c))!)
+    const next = await tick()
+    expect(next.recovered.find((x) => x.escrowId === c.escrow.id)).toMatchObject({ txId: roundTxid(c), outcome: 'ALREADY_BROADCAST' })
+    await expectConverged(c)
+    expect(net.posts).toEqual([roundTxid(c)])
+  })
+
+  it('L-5 live, the node answers 400 because it ALREADY has the transaction (a signer broadcast it): converged in place', async () => {
+    if (!dbAvailable) return
+    const c = await refundRound('live-known')
+    await sign(c, c.seller.id)
+    const spend = completeOutsideSails(c.round.unsignedPsbtBase64, c.round.requiredSigners.map((id) => signRound(c.round.unsignedPsbtBase64, keyOf(c, id))))
+    accept(chain, spend.hex)
+    const result = await sign(c, c.buyer.id)
+    expect(result.complete).toBe(true)
+    expect(await escrowOf(c)).toMatchObject({ status: 'REFUNDED', txReleaseId: spend.txid })
+    expect(net.posts).toEqual([spend.txid])
+  })
+
+  it('L-6 live, the round cannot be built after the claim (a stored signature is unusable): nothing was sent - the claim is released, a dispute is allowed', async () => {
     if (!dbAvailable) return
     const c = await refundRound('live-unbuildable')
     await sign(c, c.seller.id)
@@ -354,23 +366,42 @@ describe('Issue #299 - MULTISIG broadcast outcome: definite failure vs UNKNOWN (
     await expect(sign(c, c.buyer.id)).rejects.toThrow(/failed to combine\/finalize/)
     expect(await escrowOf(c)).toMatchObject({ status: 'FUNDS_LOCKED', txReleaseId: null })
     expect(net.posts).toEqual([])
+    await raiseDispute(c)
+    expect((await escrowOf(c)).status).toBe('DISPUTED')
   })
 
-  it('L-4 live, the node answers 400 because it ALREADY has the transaction (a signer broadcast it): converged in place, never released', async () => {
+  it('L-7 live, the round cannot be built AND the database refuses the rollback: the failure is reported (not swallowed), the claim stays, PASS 1 routes it to manual review', async () => {
     if (!dbAvailable) return
-    const c = await refundRound('live-known')
+    const c = await refundRound('live-rollback-down')
     await sign(c, c.seller.id)
-    const spend = completeOutsideSails(c.round.unsignedPsbtBase64, c.round.requiredSigners.map((id) => signRound(c.round.unsignedPsbtBase64, keyOf(c, id))))
-    chain.mempool.add(spend.txid)
-    chain.hex.set(spend.txid, spend.hex)
-    chain.spentBy.set(`${c.funding}:0`, spend.txid)
-    const result = await sign(c, c.buyer.id)
-    expect(result.complete).toBe(true)
-    expect(await escrowOf(c)).toMatchObject({ status: 'REFUNDED', txReleaseId: spend.txid })
-    expect(net.posts).toEqual([spend.txid])
+    await prisma.escrowTransactionSignature.updateMany({ where: { pendingTxId: c.round.id, participantId: c.seller.id }, data: { signedPsbtBase64: c.round.unsignedPsbtBase64 } })
+    const updateMany = prisma.escrow.updateMany.bind(prisma.escrow)
+    jest.spyOn(prisma.escrow, 'updateMany').mockImplementation(((args: any) =>
+      args?.where?.txReleaseId === null && args?.data?.status === 'FUNDS_LOCKED'
+        ? Promise.reject(new Error('connection to the database lost'))
+        : updateMany(args)) as never)
+    await expect(sign(c, c.buyer.id)).rejects.toThrow(/failed to combine\/finalize.*the claim could not be released \(connection to the database lost\) - escrow .* stays REFUNDED pending manual review/)
+    jest.restoreAllMocks()
+    await expectUnknownKept(c)
+    const findMany = prisma.escrow.findMany.bind(prisma.escrow)
+    jest.spyOn(prisma.escrow, 'findMany').mockImplementation(((args: any) =>
+      findMany(args?.where?.OR?.[0]?.pendingTransaction ? { ...args, where: { ...args.where, AND: [{ id: { in: mine } }] } } : args)) as never)
+    const report = await tick()
+    expect(review(report, c)).toMatch(new RegExp(`^ROUND_UNBUILDABLE: escrow is REFUNDED with no txReleaseId, round ${c.round.id}\\. .*failed to combine/finalize`))
+    expect(net.posts).toEqual([])
   })
 
-  // ─── concurrency: rollback x PASS 1 (the #520 interleaving, through the production paths) ─────────────────
+  it('L-8 the release is conditional: with a settlement result recorded, it reverts nothing and raises nothing (the status-frozen trigger is never reached)', async () => {
+    if (!dbAvailable) return
+    const c = await refundRound('release-after-result')
+    await sign(c, c.seller.id)
+    await sign(c, c.buyer.id) // accepted: REFUNDED with txReleaseId
+    expect(await escrowOf(c)).toMatchObject({ status: 'REFUNDED', txReleaseId: roundTxid(c) })
+    await expect(revertUnsettledClaim(c.escrow.id, 'REFUNDED', 'FUNDS_LOCKED')).resolves.toBe(0)
+    expect(await escrowOf(c)).toMatchObject({ status: 'REFUNDED', txReleaseId: roundTxid(c) })
+  })
+
+  // ─── concurrency: live UNKNOWN x PASS 1 (the #520 interleaving) ─────────────
   it('C-1 live answer lost while PASS 1 has already read the chain and waits on the escrow lock: no rollback, PASS 1 records the result - never a non-terminal escrow with a transaction', async () => {
     if (!dbAvailable) return
     const c = await refundRound('race-lost')
@@ -393,36 +424,6 @@ describe('Issue #299 - MULTISIG broadcast outcome: definite failure vs UNKNOWN (
     await unlock()
     const report = await pass
     expect(report.recovered.find((x) => x.escrowId === c.escrow.id)).toMatchObject({ txId: roundTxid(c), outcome: 'ALREADY_BROADCAST' })
-    await expectConverged(c)
-  })
-
-  it('C-2 a proven refusal rolls back while PASS 1 broadcasts the same round: the rollback holds the lock first, PASS 1 sees the released claim and records nothing; PASS 0 then converges to the chain', async () => {
-    if (!dbAvailable) return
-    const c = await refundRound('race-refuse')
-    await sign(c, c.seller.id)
-    let releaseGate!: () => void
-    const gateReleased = new Promise<void>((r) => { releaseGate = r })
-    let gateEntered!: () => void
-    const entered = new Promise<void>((r) => { gateEntered = r })
-    net.mode = 'refuse'
-    net.outspendGate = { entered: gateEntered, release: gateReleased }
-    const live = track(sign(c, c.buyer.id))
-    await within(entered, 30_000, 'the live refusal check') // refused, txid unknown, outpoint read unspent - answer held
-    const unlock = await holdEscrowLock(c.escrow.id)
-    releaseGate()
-    await untilWaiting(1) // the rollback waits on the escrow lock
-    net.mode = 'accept'
-    const pass = track(tick()) // PASS 1: claimed, no txReleaseId, outpoint unspent -> broadcasts, then waits
-    await untilWaiting(2)
-    await unlock()
-    await expect(live).rejects.toThrow(/refused/)
-    const report = await pass
-    expect(report.recovered.some((x) => x.escrowId === c.escrow.id)).toBe(false)
-    expect(await escrowOf(c)).toMatchObject({ status: 'FUNDS_LOCKED', txReleaseId: null })
-    expect(chain.broadcasts).toEqual([roundTxid(c)])
-
-    const next = await tick()
-    expect(next.resumedUnclaimed.find((x) => x.escrowId === c.escrow.id)).toMatchObject({ txId: roundTxid(c), outcome: 'ALREADY_BROADCAST' })
     await expectConverged(c)
   })
 
@@ -452,11 +453,7 @@ describe('Issue #299 - MULTISIG broadcast outcome: definite failure vs UNKNOWN (
     expect(crashed.code).toBe(137)
     expect(await escrowOf(c)).toMatchObject({ status: 'REFUNDED', txReleaseId: null }) // claimed before the broadcast
     if (when === 'after') {
-      const { txid, hex } = JSON.parse(fs.readFileSync(accepted, 'utf8'))
-      chain.mempool.add(txid)
-      chain.hex.set(txid, hex)
-      chain.broadcasts.push(txid)
-      chain.spentBy.set(`${c.funding}:0`, txid)
+      accept(chain, JSON.parse(fs.readFileSync(accepted, 'utf8')).hex)
       fs.unlinkSync(accepted)
     }
     const restarted = await worker({ OP: 'reconcile', ESCROW_ID: c.escrow.id })
