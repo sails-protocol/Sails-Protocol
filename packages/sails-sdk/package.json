@@ -44,7 +44,7 @@
     "@satsails/p2p-schemas": "^0.2.0",
     "@scure/bip32": "^2.0.1",
     "@scure/btc-signer": "^2.0.1",
-    "bitcoinjs-lib": "^7.0.1",
+    "bitcoinjs-lib": "^7.0.5",
     "ecpair": "^3.0.1",
     "ed2curve": "^0.3.0",
     "tweetnacl": "^1.0.3"
