@@ -304,4 +304,43 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
     expect(report.notEligible.find((r) => r.escrowId === escrow.id)).toBeUndefined()
     expect(report.failed.find((r) => r.escrowId === escrow.id)).toBeUndefined()
   })
+
+  // Issue #343 - the work follows unresolved C4 cases, not retained history: RESOLVED disputes on a non-terminal
+  // MULTISIG escrow whose dispatch already persisted, or whose ruling never took the Core path, are never loaded.
+  it('#343 bounded discovery: 150 historical non-C4 disputes are never materialized; the one real C4 case is resumed once', async () => {
+    requirePostgres('#343 bounded discovery')
+    const NOISE = 150
+    const host = await makeUndispatchedDisputedEscrow('343-host', 'RELEASE')
+    expect((await reconcileMissingDispatch()).resumed.map((r) => r.escrowId)).toContain(host.escrowId) // now dispatched
+
+    // Unrelated history on the host escrow: half carry the host's ruling round (dispatch persisted, dispute-bound),
+    // half a round with no Core record (legacy). Each needs its own trade (Dispute.tradeId is unique).
+    const cols = (await prisma.$queryRaw<Array<{ c: string }>>`
+      SELECT column_name AS c FROM information_schema.columns WHERE table_name = 'trades' AND column_name NOT IN ('id', 'escrowId')`)
+      .map((r) => `"${r.c}"`).join(', ')
+    const ids = Array.from({ length: NOISE }, (_, i) => `m9r-343-noise-${Date.now()}-${i}`)
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO trades ("id", ${cols}) SELECT n, ${cols} FROM trades, unnest($1::text[]) AS n WHERE trades.id = $2`, ids, host.tradeId)
+    await prisma.dispute.createMany({
+      data: ids.map((tradeId, i) => ({ tradeId, escrowId: host.escrowId, openedBy: host.buyerId, reason: 'history', arbiterId: ARBITER_ID, status: 'RESOLVED' as const, ruling: 'RELEASE' as const, resolvedAt: new Date(), appealRound: i % 2 === 0 ? 0 : 7 })),
+    })
+
+    const real = await makeUndispatchedDisputedEscrow('343-real', 'REFUND')
+    const findMany = prisma.dispute.findMany.bind(prisma.dispute)
+    const loaded: Array<{ escrowId: string }> = []
+    jest.spyOn(prisma.dispute, 'findMany').mockImplementation(((args: any) =>
+      findMany(args).then((rows: any[]) => { loaded.push(...rows); return rows })) as never)
+
+    const report = await reconcileMissingDispatch()
+    expect(report.resumed).toContainEqual({ escrowId: real.escrowId, disputeId: real.disputeId, ruling: 'REFUND' })
+    expect(loaded.filter((d) => d.escrowId === host.escrowId)).toEqual([])
+    expect(loaded.length).toBeLessThan(NOISE)
+
+    loaded.length = 0
+    const again = await reconcileMissingDispatch()
+    expect(again.resumed.find((r) => r.escrowId === real.escrowId)).toBeUndefined()
+    expect(loaded.filter((d) => d.escrowId === real.escrowId || d.escrowId === host.escrowId)).toEqual([])
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: real.escrowId } })).toBe(1)
+    jest.restoreAllMocks()
+  })
 })
