@@ -7,14 +7,16 @@
 import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from 'tiny-secp256k1'
 import { ECPairFactory } from 'ecpair'
-import { createHash } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import * as H from './pendingRoundLifecycleHarness'
 
 const ECPair = ECPairFactory(ecc)
-const key = (label: string) => ECPair.fromPrivateKey(createHash('sha256').update(`aux2-fund-${label}`).digest(), { network: H.NETWORK })
+// Salted per run: integration files share a database (and reruns reuse it), and an address is committed only once.
+const RUN = randomBytes(8).toString('hex')
+const key = (label: string) => ECPair.fromPrivateKey(createHash('sha256').update(`aux2-fund-${RUN}-${label}`).digest(), { network: H.NETWORK })
 const hex = (k: ReturnType<typeof key>) => Buffer.from(k.publicKey).toString('hex')
 const txid = (label: string) => createHash('sha256').update(`aux2-fund-tx-${label}-${Math.random()}-${Date.now()}`).digest('hex')
 const VALUE = 100_000
@@ -23,7 +25,7 @@ describe('MULTISIG funding binding (real PostgreSQL)', () => {
   jest.setTimeout(300_000)
   const pg = createPostgresIntegrationHarness()
   let prisma: any, escrowService: any, identityService: any, liquidityRouter: any, tradeService: any, payoutAddressService: any
-  let submitSig: any, sweep: any, evidence: any, feePolicyService: any, MultisigProvider: any, multisigProvider: any
+  let submitSig: any, sweep: any, evidence: any, feePolicyService: any, MultisigProvider: any, multisigProvider: any, config: any
   let chain: H.Chain; let realFetch: typeof fetch; let posts = 0
   let utxos: Array<{ txid: string; vout: number; value: number }> = []
 
@@ -42,6 +44,7 @@ describe('MULTISIG funding binding (real PostgreSQL)', () => {
     ;({ escrowFundingEvidenceService: evidence } = require('../../src/modules/open-settlement/escrow-funding-evidence.service'))
     ;({ feePolicyService } = require('../../src/modules/open-settlement/fee-policy.service'))
     ;({ MultisigProvider, multisigProvider } = require('../../src/modules/open-settlement/multisig.provider'))
+    ;({ config } = require('../../src/config'))
     const { intentEngine } = require('../../src/core/intent-engine'); const { OpenP2PTradeIntentHandler } = require('../../src/modules/open-p2p/intent-handler')
     intentEngine.registerHandler(OpenP2PTradeIntentHandler)
   })
@@ -69,13 +72,21 @@ describe('MULTISIG funding binding (real PostgreSQL)', () => {
   afterEach(() => { jest.restoreAllMocks(); if (realFetch) global.fetch = realFetch })
 
   /** A MULTISIG escrow (fee regime pinned to "no policy") whose buyer and seller submit the keys derived from `keys`. */
-  async function escrow(label: string, keys = label) {
+  async function escrow(label: string, keys = label, fee = false) {
     const seller = await registerTestParticipant(identityService, 'Seller'); const buyer = await registerTestParticipant(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
-    const live = jest.spyOn(feePolicyService, 'findLivePolicyForRail').mockResolvedValue(null)
+    // fee: a published 0.4% policy and a collection address are pinned for createEscrow()'s real snapshot path.
+    const policy = fee ? await prisma.feePolicyVersion.create({ data: {
+      label: `aux2-fund-${RUN}-${label}`, railScope: `MULTISIG-aux2-fund-${RUN}-${label}`, status: 'PUBLISHED', publishedAt: new Date(),
+      protocolFeeRate: '0.004', payerModel: 'SELLER_PAYS', economicBasis: 'SELLER_DELIVERED_VALUE',
+      nodeOperatorPct: '30', treasuryPct: '25', walletRebatePct: '35', arbitratorReservePct: '10', requiredConfirmations: 2, createdBy: 'aux2-fund-test',
+    } }) : null
+    const live = jest.spyOn(feePolicyService, 'findLivePolicyForRail').mockResolvedValue(policy)
+    const collection = config.settlement.protocolFeeCollectionAddress
+    if (fee) config.settlement.protocolFeeCollectionAddress = H.testnetAddress(`${label}-fee`)
     let e: any
-    try { e = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id) } finally { live.mockRestore() }
+    try { e = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id) } finally { live.mockRestore(); config.settlement.protocolFeeCollectionAddress = collection }
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: e.id } })
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', H.testnetAddress(`${label}-buyer`))
     await payoutAddressService.setPayoutAddress(seller.id, 'BTC', H.testnetAddress(`${label}-seller`))
@@ -179,6 +190,48 @@ describe('MULTISIG funding binding (real PostgreSQL)', () => {
       pg.requirePostgres('fundedAmount')
       const { e } = await lockedEscrow('funded')
       expect((await row(e)).fundedAmount.toString()).toBe('0.001')
+    })
+  })
+
+  describe('protocol fee > 0 (0.4%): funding T + Fmax = 100 400 sats', () => {
+    it('fundedAmount is 0.001004 BTC (100 400 sats, not 100400 BTC), and the fee-bearing cooperative release binds and completes', async () => {
+      pg.requirePostgres('fee binding')
+      const e = await escrow('fee-ok', 'fee-ok', true); await commit(e)
+      const x = fund('fee-ok-x', 100_400); utxos = [x]
+      expect(await lock(e)).toBe('locked')
+      const r = await row(e)
+      expect(r.fundedAmount.toString()).toBe('0.001004')
+      await escrowService.markPaymentSent(e.id, e.buyerId)
+      const round = await escrowService.initiateRelease(e.id, undefined, e.sellerId)
+      const built = bitcoin.Psbt.fromBase64(round.unsignedPsbtBase64, { network: H.NETWORK })
+      expect(Number(built.data.inputs[0].witnessUtxo!.value)).toBe(100_400)
+      expect(built.txOutputs.map((o) => bitcoin.address.fromOutputScript(o.script, H.NETWORK))).toContain(H.testnetAddress('fee-ok-fee'))
+      await submitSig(e.id, e.buyerId, sign(round.unsignedPsbtBase64, e.buyerKey))
+      const done = await submitSig(e.id, e.sellerId, sign(round.unsignedPsbtBase64, e.sellerKey))
+      log('fee binding', { fundedAmount: r.fundedAmount.toString(), outputs: built.txOutputs.map((o) => Number(o.value)), posts })
+      expect(done.complete).toBe(true)
+      expect(posts).toBe(1)
+    })
+
+    it('a fee-bearing round whose input carries T (100 000) instead of T + Fmax (100 400) is refused at creation', async () => {
+      pg.requirePostgres('fee binding value')
+      const e = await escrow('fee-short', 'fee-short', true); await commit(e)
+      utxos = [fund('fee-short-x', 100_400)]
+      expect(await lock(e)).toBe('locked')
+      await escrowService.markPaymentSent(e.id, e.buyerId)
+      const release = MultisigProvider.prototype.buildUnsignedRelease
+      jest.spyOn(MultisigProvider.prototype, 'buildUnsignedRelease').mockImplementation(async function (this: any, ...args: any[]) {
+        const r = await release.apply(this, args)
+        const p = bitcoin.Psbt.fromBase64(r.psbtBase64, { network: H.NETWORK })
+        const q = new bitcoin.Psbt({ network: H.NETWORK })
+        q.addInput({ hash: p.txInputs[0].hash, index: p.txInputs[0].index, witnessUtxo: { ...p.data.inputs[0].witnessUtxo!, value: 100_000n }, witnessScript: p.data.inputs[0].witnessScript! })
+        for (const o of p.txOutputs) q.addOutput({ script: o.script, value: o.value })
+        return { ...r, psbtBase64: q.toBase64() }
+      } as never)
+      const result = await outcome(escrowService.initiateRelease(e.id, undefined, e.sellerId))
+      expect(result).toMatchObject({ code: 'ROUND_INPUT_MISMATCH' })
+      expect((result as any).message).toMatch(/input value is 100000 sats, the recorded funded amount is 100400 sats/)
+      expect(posts).toBe(0)
     })
   })
 

@@ -55,6 +55,20 @@ describe('round input binding', () => {
     expect(roundInputMismatches(psbt(), { ...escrow, ...patch }, network).join(' ')).toMatch(message)
   })
 
+  // fundedAmount is BTC (Decimal(24,8)); the PSBT carries sats. Exact conversion, no float, no rounding slack.
+  it.each([
+    ['0.001', 100_000], ['0.00100400', 100_400], ['0.001004', 100_400], ['1', 100_000_000], ['0.00000546', 546], ['20999999.97690000', 2_099_999_997_690_000],
+  ] as const)('fundedAmount %s BTC binds exactly %i sats, and one sat either way is refused', (btc, sats) => {
+    expect(roundInputMismatches(psbt({ value: sats }), { ...escrow, fundedAmount: btc }, network)).toEqual([])
+    expect(roundInputMismatches(psbt({ value: sats + 1 }), { ...escrow, fundedAmount: btc }, network).join(' ')).toMatch(/input value is/)
+    expect(roundInputMismatches(psbt({ value: sats - 1 }), { ...escrow, fundedAmount: btc }, network).join(' ')).toMatch(/input value is/)
+  })
+
+  it('a fundedAmount still written in sats by the old lockFunds() (100400 read as BTC) is refused, never reinterpreted', () => {
+    expect(roundInputMismatches(psbt({ value: 100_400 }), { ...escrow, fundedAmount: '100400.00000000' }, network).join(' '))
+      .toMatch(/input value is 100400 sats, the recorded funded amount is 10040000000000 sats/)
+  })
+
   it('refuses a PSBT that does not decode', () => {
     expect(roundInputMismatches('not-a-psbt', escrow, network).join(' ')).toMatch(/failed to decode/)
   })

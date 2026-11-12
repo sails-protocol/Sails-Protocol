@@ -21,6 +21,7 @@ import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
 import nacl from 'tweetnacl'
+import { participantKeys } from './pendingRoundLifecycleHarness'
 
 bitcoin.initEccLib(ecc)
 const ECPair = ECPairFactory(ecc)
@@ -53,10 +54,8 @@ describe('M9-F — release-leg reorg closure (C18): real Postgres + real Bitcoin
   const arbiterKeypair = nacl.sign.keyPair()
   const arbiterPublicKeyHex = Buffer.from(arbiterKeypair.publicKey).toString('hex')
 
-  const buyerKey = ECPair.fromPrivateKey(createHash('sha256').update('m9f-buyer').digest(), { network: NETWORK })
-  const sellerKey = ECPair.fromPrivateKey(createHash('sha256').update('m9f-seller').digest(), { network: NETWORK })
-  const BUYER_PUBKEY = Buffer.from(buyerKey.publicKey).toString('hex')
-  const SELLER_PUBKEY = Buffer.from(sellerKey.publicKey).toString('hex')
+  // One MULTISIG address per escrow: fresh participant keys for each escrow, looked up by escrow id when signing.
+  const escrowKeys = new Map<string, ReturnType<typeof participantKeys>>()
 
   let realFetch: typeof fetch
 
@@ -132,8 +131,9 @@ describe('M9-F — release-leg reorg closure (C18): real Postgres + real Bitcoin
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const keys = participantKeys(); escrowKeys.set(escrow.id, keys)
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, keys.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, keys.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
 
     const fundingTxid = createHash('sha256').update(`m9f-funding-${suffix}-${Date.now()}`).digest('hex')
     mockExplorerForUtxo(fundingTxid, 0, 100_000)
@@ -152,7 +152,7 @@ describe('M9-F — release-leg reorg closure (C18): real Postgres + real Bitcoin
 
     const pending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: escrow.id } })
     const requiredSignerId = ruling === 'RELEASE' ? buyer.id : seller.id
-    const requiredSignerKey = ruling === 'RELEASE' ? buyerKey : sellerKey
+    const requiredSignerKey = ruling === 'RELEASE' ? escrowKeys.get(escrow.id)!.buyerKey : escrowKeys.get(escrow.id)!.sellerKey
     const signedCopy = bitcoin.Psbt.fromBase64(pending!.unsignedPsbtBase64, { network: NETWORK })
     signedCopy.signInput(0, requiredSignerKey)
 
