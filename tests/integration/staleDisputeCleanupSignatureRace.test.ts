@@ -253,4 +253,76 @@ describe('Issue #244 - stale dispute-pending cleanup vs a concurrent signature (
     await expect(submitTransactionSignature(escrow.id, buyer.id, 'buyer-signed')).rejects.toThrow(/stop before the economic path/)
     expect(lockFree).toBe(true)
   })
+
+  // Issue #343 (AUX-B3, PR A) - declared-fee parity with the live guard, with the REAL guard on a REAL PSBT (every test above stubs the
+  // guard or has no Outcome). Only the ruling record is supplied (the same two spies the guard-failed test above uses); the guard runs.
+  describe('declared miner fee parity (real guard, real PSBT)', () => {
+    const IMPLIED_FEE = 500 // input 100_500, one faithful output of 100_000
+
+    /** Gives a fixture's round a real PSBT and a stored declared fee, and serves the real Outcome for its escrow. */
+    function realRound(f: { escrow: { id: string }; pending: { id: string } }, declaredFee: number | null) {
+      const bitcoin = require('bitcoinjs-lib')
+      const { config } = require('../../src/config')
+      const network = require('../../src/modules/open-settlement/multisig.provider').networkFor(config.multisig.network)
+      const address = bitcoin.payments.p2wpkh({ pubkey: Buffer.from('021744d7bd3cd8e7f62e7aa8f7db8292680b745d09f8f40377c4bbbc0136d4e299', 'hex'), network }).address
+      const psbt = new bitcoin.Psbt({ network })
+      psbt.addInput({ hash: 'a'.repeat(64), index: 0, witnessUtxo: { script: bitcoin.address.toOutputScript(address, network), value: BigInt(100_500) } })
+      psbt.addOutput({ address, value: BigInt(100_000) })
+      const { buildRulingOutcomeContent } = require('../../src/modules/open-settlement/dispute-outcome')
+      const { buildArbitrationOutcome, buildOutcomeDestinationBinding } = require('../../src/modules/open-settlement/economic-outcome')
+      const outcome = buildArbitrationOutcome(
+        buildRulingOutcomeContent('RELEASE', '100000', 'BTC', 'buyer-1', 'seller-1', null),
+        buildOutcomeDestinationBinding([{ beneficiary: 'buyer-1', destination: address }]),
+      )
+      return { outcome, ready: prisma.escrowPendingTransaction.update({ where: { id: f.pending.id }, data: { unsignedPsbtBase64: psbt.toBase64(), minerFeeSats: declaredFee } }) }
+    }
+    function serveOutcome(escrowIds: string[], outcome: unknown) {
+      const outcomeModule = require('../../src/modules/open-settlement/dispute-outcome')
+      const load = outcomeModule.loadDisputeRulingRecord
+      jest.spyOn(outcomeModule, 'loadDisputeRulingRecord').mockImplementation(async (escrowId: unknown, round: unknown) =>
+        escrowIds.includes(escrowId as string) ? { outcomeContent: { ruling: 'RELEASE' } } : load(escrowId, round))
+      jest.spyOn(outcomeModule, 'fromDisputeRulingRow').mockReturnValue({ outcome })
+    }
+
+    it('only a declared fee that disagrees with the PSBT is deleted; a matching and a null fee are left alone; a second run changes nothing', async () => {
+      pg.requirePostgres('fee parity')
+      const mismatch = await fixture()
+      const matching = await fixture()
+      const legacy = await fixture()
+      const a = realRound(mismatch, IMPLIED_FEE - 100)
+      await Promise.all([a.ready, realRound(matching, IMPLIED_FEE).ready, realRound(legacy, null).ready])
+      serveOutcome([mismatch.escrow.id, matching.escrow.id, legacy.escrow.id], a.outcome)
+
+      const first = await reconcileStalePendingDisputeTranslations()
+      expect(first.failed).toEqual([])
+      expect(first.reconciled.map((r) => [r.escrowId, r.verdict]).sort()).toEqual([
+        [mismatch.escrow.id, 'DELETED_GUARD_FAILED'], [matching.escrow.id, 'LEFT_GUARD_PASSED'], [legacy.escrow.id, 'LEFT_GUARD_PASSED']].sort())
+      expect(await roundState(mismatch.pending.id)).toEqual({ pending: false, signatures: 0 })
+      expect(await roundState(matching.pending.id)).toEqual({ pending: true, signatures: 0 })
+      expect(await roundState(legacy.pending.id)).toEqual({ pending: true, signatures: 0 })
+
+      const second = await reconcileStalePendingDisputeTranslations()
+      expect(second.reconciled.map((r) => [r.escrowId, r.verdict]).sort()).toEqual([[matching.escrow.id, 'LEFT_GUARD_PASSED'], [legacy.escrow.id, 'LEFT_GUARD_PASSED']].sort())
+      await prisma.escrowPendingTransaction.deleteMany({ where: { id: { in: [matching.pending.id, legacy.pending.id] } } })
+    })
+
+    it('signer first: the signature commits before the fee-mismatch delete, and the round keeps it', async () => {
+      pg.requirePostgres('fee parity, signer first')
+      const f = await fixture()
+      const r = realRound(f, IMPLIED_FEE - 100)
+      await r.ready
+      serveOutcome([f.escrow.id], r.outcome)
+      const release = await holdEscrowLock(f.escrow.id)
+
+      const signer = track(submitTransactionSignature(f.escrow.id, f.buyer.id, 'buyer-signed'))
+      await untilWaiting(1) // the signer is queued first, before writing anything
+      const cleaner = track(reconcileStalePendingDisputeTranslations())
+      await untilWaiting(2) // cleanup read zero signatures, the real guard rejected the declared fee, and its delete is queued second
+      await release()
+
+      expect(await signer).toMatchObject({ complete: false, submittedCount: 1 })
+      expect(await cleaner).toEqual({ reconciled: [], skippedTooYoung: [], skippedHasSignatures: [f.escrow.id], failed: [] })
+      expect(await roundState(f.pending.id)).toEqual({ pending: true, signatures: 1 })
+    })
+  })
 })

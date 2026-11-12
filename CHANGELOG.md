@@ -20,6 +20,10 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 
+- **Issue #343 (AUX-B3) — the stale dispute-pending sweep checks the declared miner fee like the live guard (real guard, real PSBT).** Draft, pending independent review.
+  - **Change:** `reconcileStalePendingDisputeTranslations()` now passes the round's stored `minerFeeSats` to the translation guard, exactly as `dispute.service.ts` and `dispute-dispatch-recovery.ts` do. Before, a round whose only defect was a declared fee that disagrees with its own PSBT was classified `LEFT_GUARD_PASSED`. A null fee still skips that single check.
+  - **Limits (unchanged):** the sweep is still not scheduled anywhere, still skips rounds that already carry a signature, and a round persisted before a crash can still be signed before any guard has run. This change does not close that window and does not make it safe.
+
 - **C9 — stored signed offers are append-only and re-verified on read (real PostgreSQL).** Draft, pending the Gatekeeper batch audit.
   - **Write-once:** migration `20261111120000_offer_envelopes_write_once` refuses `UPDATE`, `DELETE` and `TRUNCATE` on `offer_envelopes`. `INSERT` and idempotent ingestion are unchanged. Before this, deleting a `CANCELLED` tombstone resurrected the `ACTIVE` revision under it.
   - **Read-time re-verification:** `getLatest()` re-verifies the signature and recomputes the content digest of every row at the identity's highest revision. One altered or forged row throws `OfferEnvelopeIntegrityError`. It is never skipped, so the read never falls back to an older revision, and it is never reported as owner equivocation.
