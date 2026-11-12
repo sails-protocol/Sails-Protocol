@@ -1,5 +1,16 @@
 // Issue #239 - this suite's PSBTs are placeholders: the real signature check (multisig-round-proofs.ts) is proven with
 // real Bitcoin PSBTs in tests/multisigRoundProofs.test.ts and tests/integration/pendingRoundLifecycle.test.ts.
+// GK-M9R-D R2 - likewise, the pre-create check of a disputed round against its durable Outcome is proven with real
+// PSBTs and a real Outcome in tests/integration/m9rR2RoundLifecycle.test.ts; here it only has to let the round through.
+jest.mock('../src/modules/open-settlement/dispute-outcome', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/dispute-outcome'),
+  loadDisputeRulingRecord: jest.fn(async () => ({ outcomeContent: {} })),
+  fromDisputeRulingRow: jest.fn(() => ({ outcome: {} })),
+}))
+jest.mock('../src/modules/open-settlement/dispatch-translation-guard', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/dispatch-translation-guard'),
+  assertTranslationMatchesOutcome: jest.fn(),
+}))
 jest.mock('../src/modules/open-settlement/multisig-round-proofs', () => ({
   ...jest.requireActual('../src/modules/open-settlement/multisig-round-proofs'),
   verifySignerPartialSignature: (_unsigned: string, signed: string) => signed,
@@ -39,6 +50,7 @@ jest.mock('../src/config', () => ({
       trade: { defaultTimelockHours: 24 },
       settlement: { trustedArbitrators: [], protocolFeeRate: 0 },
       arkade: { seed: '' },
+      multisig: { network: 'testnet' }, // GK-M9R-D R2: read by the disputed-round pre-create check
       escrowCircuitBreaker: { failureThreshold: 1000, windowMs: 60_000, cooldownMs: 60_000 },
     }
   },

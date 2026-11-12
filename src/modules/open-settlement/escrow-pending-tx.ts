@@ -65,6 +65,28 @@ const log = childLogger('escrow-pending-tx')
 // PSBT for the required parties to sign. The real transition happens
 // inside submitTransactionSignature() below, once every required
 // signature has arrived.
+/**
+ * GK-M9R-D R2 - a disputed MULTISIG round must correspond to its durable authoritative Outcome before it exists. Checked
+ * inside the escrow lock, right before the create, for every caller that builds one: the live ruling, C4 recovery and the
+ * assigned arbiter's own release/refund route. A defective translation is therefore never persisted, so nobody can sign
+ * it and nothing has to delete it afterwards. Without a durable Outcome there is nothing to check against: refused.
+ * The execution-time check of R1 (economic-disposition-authority.ts) is independent of this one.
+ * Required lazily: this module is shared by many others, and these two pull in the dispute/outcome graph.
+ */
+async function assertDisputedRoundMatchesOutcome(escrowId: string, appealRound: number, round: { psbtBase64: string; minerFeeSats?: number }): Promise<void> {
+  const { loadDisputeRulingRecord, fromDisputeRulingRow } = require('./dispute-outcome') // eslint-disable-line @typescript-eslint/no-var-requires
+  const { assertTranslationMatchesOutcome } = require('./dispatch-translation-guard') // eslint-disable-line @typescript-eslint/no-var-requires
+  const row = await loadDisputeRulingRecord(escrowId, appealRound)
+  const outcome = row?.outcomeContent ? fromDisputeRulingRow(row).outcome : null
+  if (!outcome) {
+    throw new EscrowError(
+      `Escrow ${escrowId} has no durable authoritative Outcome for dispute round ${appealRound} - refusing to build a disputed ` +
+      'MULTISIG round that could not be checked against it (GK-M9R-D R2).'
+    )
+  }
+  assertTranslationMatchesOutcome(round.psbtBase64, outcome, networkFor(config.multisig.network), round.minerFeeSats)
+}
+
 // ─── Shared skeleton for initiateRelease/Refund/Split ──────────────────────
 // These three functions are 90% identical (~90 lines each). Extracted the
 // shared validation + provider lookup + pending-transaction-create skeleton
@@ -208,6 +230,11 @@ async function initiateSignatureCollectionCore(
             ruling: { disputeId: grant.disputeId, appealRound: grant.appealRound, supersedingPendingOperationId: newRoundId },
           })
         }
+      }
+      // GK-M9R-D R2 - last step before the round exists, after the existing authority/grant/funding refusals. Same
+      // transaction as retireRound() above: a mismatch rolls the retirement back, so nothing at all is written.
+      if (escrow.type === 'MULTISIG' && typeof disputedRulingProvenance.disputeId === 'string') {
+        await assertDisputedRoundMatchesOutcome(escrowId, disputedRulingProvenance.rulingAppealRound as number, result)
       }
       return tx.escrowPendingTransaction.create({
         data: {
