@@ -28,6 +28,7 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
   const kp = nacl.sign.keyPair(); const arbPub = Buffer.from(kp.publicKey).toString('hex')
   let chain: H.Chain; let realFetch: typeof fetch
   let defect = false
+  let disputeLog: any // the dispute service's own logger, captured at module load (PE-M9R R-1 classification marker)
   const created: Array<{ escrowId: string; disputeId: string }> = []; const legacy = new Set<string>()
   const SHIFT = 0.15
 
@@ -35,6 +36,8 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
     process.env.MOCK_ESCROW = 'false'; process.env.MULTISIG_SEED = process.env.MULTISIG_SEED || 'm9r-comp-seed'; process.env.TRUSTED_ARBITRATORS = ARBITER_ID
     await pg.probe()
     if (!pg.isAvailable()) return
+    const loggerModule = require('../../src/common/logger'); const realChild = loggerModule.childLogger
+    jest.spyOn(loggerModule, 'childLogger').mockImplementation(((name: string) => { const l = realChild(name); if (name === 'dispute-service') disputeLog = l; return l }) as never)
     ;({ prisma } = require('../../src/common/database'))
     ;({ escrowService } = require('../../src/modules/open-settlement/escrow.service'))
     ;({ identityService } = require('../../src/modules/open-identity/identity.service'))
@@ -258,6 +261,7 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
       await until('C4 parked on the insert', () => waiting('%INSERT INTO "public"."escrow_pending_transactions"%'))
       throw new Error('m9r-comp injected live dispatch failure (provider unavailable)')
     }) as never)
+    const warn = jest.spyOn(disputeLog, 'warn')
     const live = resolveLive(f, r).then(() => null, (e: Error) => e)
     await until('real revert waits on the dispute row', () => waiting('%FOR UPDATE%'))
     const waitsObserved = true
@@ -267,6 +271,7 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
     evidence('T9-G3 order A', { waitsObserved, liveError: liveErr?.message?.slice(0, 80), c4: rep, state: { dispute: s.dispute, outcome: s.outcome, pending: s.pending, roundDispute: s.round?.disputeId } })
     // PE-M9R R-1: C4 dispatched this generation while the live dispatch failed - the ruling stands, the call succeeds.
     expect(liveErr).toBeNull()
+    expect(warn.mock.calls.map((c) => c[0])).toContainEqual(expect.objectContaining({ msg: expect.stringMatching(/^PE-M9R R-1: .*already dispatched/), disputeId: f.disputeId, escrowId: f.escrowId, appealRound: 0 }))
     expect(s).toMatchObject({ dispute: 'RESOLVED', outcome: true, pending: 1, txRelease: false })
     expect(s.round).toMatchObject({ disputeId: f.disputeId, rulingAppealRound: 0 })
     expect(chain.broadcasts).toEqual([])
