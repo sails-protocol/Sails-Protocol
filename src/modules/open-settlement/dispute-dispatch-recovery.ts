@@ -57,14 +57,12 @@
 import { randomUUID } from 'crypto'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../common/database'
-import { config } from '../../config'
 import { EscrowError, NotFoundError } from '../../common/errors'
 import { escrowService } from './escrow.service'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { loadDisputeRulingRecord, fromDisputeRulingRow } from './dispute-outcome'
 import { evaluateDisputeDispatchEligibility, isSupersedableCooperativeRound, issueRulingSupersessionGrant } from './dispute-dispatch'
-import { assertTranslationMatchesOutcome, TranslationGuardError } from './dispatch-translation-guard'
-import { networkFor } from './multisig.provider'
+import { TranslationGuardError } from './dispatch-translation-guard'
 import { ESCROW_DISPUTE_RULING_TRANSITION_TYPE } from './discretionary-authority'
 import { childLogger } from '../../common/logger'
 
@@ -267,10 +265,9 @@ async function resumeCandidate(dispute: CandidateDispute, report: DispatchRecove
 
     // Issue #239 (A-1) - only when a cooperative round is in the way; re-validated under the escrow lock.
     const supersession = existingPending ? issueRulingSupersessionGrant(dispute) : undefined
-    let pending: { unsignedPsbtBase64: string; minerFeeSats: number | null }
     try {
       if (ruling === 'RELEASE') {
-        pending = await escrowService.initiateRelease(dispute.escrowId, buyerDestination, triggeredBy, supersession)
+        await escrowService.initiateRelease(dispute.escrowId, buyerDestination, triggeredBy, supersession)
       } else if (ruling === 'REFUND') {
         // M8-RF (Destination Consistency) — the SAME historical
         // sellerDestination (already extracted above from the durable
@@ -278,36 +275,29 @@ async function resumeCandidate(dispute: CandidateDispute, report: DispatchRecove
         // dispatch exactly as it governs a live one — never re-derived
         // from the seller's multisig key, never re-read from current
         // PayoutAddress state.
-        pending = await escrowService.initiateRefund(dispute.escrowId, triggeredBy, sellerDestination, supersession)
+        await escrowService.initiateRefund(dispute.escrowId, triggeredBy, sellerDestination, supersession)
       } else {
         const buyerBps = outcome.content.allocations.find((a) => a.beneficiary === trade.buyerId)?.basisPoints
         if (buyerBps === undefined) {
           report.failed.push({ escrowId: dispute.escrowId, error: 'SPLIT outcome has no buyer allocation — cannot resume dispatch' })
           return
         }
-        pending = await escrowService.initiateSplit(dispute.escrowId, buyerDestination, sellerDestination, buyerBps, triggeredBy, supersession)
+        await escrowService.initiateSplit(dispute.escrowId, buyerDestination, sellerDestination, buyerBps, triggeredBy, supersession)
       }
     } catch (err) {
       if (isConcurrentPendingConflict(err)) {
         report.alreadyResumedConcurrently.push(dispute.escrowId)
         return
       }
+      // GK-M9R-D R2 - the translation is checked against the same durable Outcome inside
+      // initiateSignatureCollectionCore(), under the escrow lock and before the round exists: a mismatch is refused
+      // with nothing written and nothing retired (the cooperative round, if any, stays as it was).
+      if (err instanceof TranslationGuardError) {
+        report.guardFailed.push({ escrowId: dispute.escrowId, mismatches: err.mismatches })
+        log.error({ msg: 'M9-R: resumed dispatch refused - its translation does not match its own durable Outcome; no round was created', escrowId: dispute.escrowId, mismatches: err.mismatches })
+        return
+      }
       throw err
-    }
-
-    // Same guard `applyRulingCoreAuthoritative()` itself runs before
-    // ever letting a dispatch become collectible — proves the
-    // just-resumed translation still corresponds to the same
-    // historical Outcome, using the SAME real check, not a new one.
-    const network = networkFor(config.multisig.network)
-    try {
-      assertTranslationMatchesOutcome(pending.unsignedPsbtBase64, outcome, network, pending.minerFeeSats ?? undefined)
-    } catch (guardErr) {
-      await prisma.escrowPendingTransaction.deleteMany({ where: { escrowId: dispute.escrowId } })
-      const mismatches = guardErr instanceof TranslationGuardError ? guardErr.mismatches : [guardErr instanceof Error ? guardErr.message : String(guardErr)]
-      report.guardFailed.push({ escrowId: dispute.escrowId, mismatches })
-      log.error({ msg: 'M9-R: resumed dispatch failed re-validation against its own durable Outcome — deleted, zero signatures collected yet, no fund-movement risk', escrowId: dispute.escrowId, mismatches })
-      return
     }
 
     log.info({ msg: 'M9-R: resumed authorized dispatch for a dispute ruling whose original dispatch never persisted (C4 recovery)', escrowId: dispute.escrowId, disputeId: dispute.id, ruling })

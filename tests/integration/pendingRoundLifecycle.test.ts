@@ -420,36 +420,34 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     }
   })
 
-  // CTO 24 item 6 (Claude F-1): the translation guard runs after the dispatch committed, and its failure path deletes
-  // the escrow's pending row (pre-existing `deleteMany({ escrowId })`, not changed here). Reproduced, not fixed.
-  it('F-1 evidence (live ruling): guard failure after supersession - the retirement stays, the superseding round is deleted, a later ruling dispatches a new id', async () => {
+  // CTO 24 item 6 (Claude F-1), closed by GK-M9R-D R2: the translation guard now runs inside the escrow lock before
+  // the superseding round exists, so a mismatch writes nothing - no retirement, the cooperative round stays live.
+  it('F-1 / R2 (live ruling): guard failure before supersession - nothing retired, cooperative round intact, ruling reverted, a later ruling supersedes normally', async () => {
     pg.requirePostgres('F-1 live')
     const guard = require('../../src/modules/open-settlement/dispatch-translation-guard')
     const c = await cooperative('f1-live')
     await sign(c, c.buyer.id)
     const dispute = await raiseDispute(c)
     const statusBefore = (await prisma.dispute.findUniqueOrThrow({ where: { id: dispute.id } })).status
-    const spy = jest.spyOn(guard, 'assertTranslationMatchesOutcome').mockImplementationOnce(() => { throw new Error('i239 F-1: forced translation mismatch') })
+    const spy = jest.spyOn(guard, 'assertTranslationMatchesOutcome').mockImplementationOnce(() => { throw new guard.TranslationGuardError(['i239 F-1: forced translation mismatch']) })
     await expect(resolve(c, dispute.id, 'RELEASE')).rejects.toThrow(/forced translation mismatch/)
     expect(spy).toHaveBeenCalledTimes(1)
-    const [r] = await retirements(c.escrow.id)
-    expect(r).toMatchObject({ pendingOperationId: c.round.id, reason: 'SUPERSEDED_BY_RULING', disputeId: dispute.id, signedBy: [c.buyer.id] })
-    const superseding = r.supersedingPendingOperationId!
-    expect(await prisma.escrowPendingTransaction.findUnique({ where: { id: superseding } })).toBeNull()
-    expect(await liveRound(c.escrow.id)).toBeNull()
+    expect(await retirements(c.escrow.id)).toHaveLength(0)
+    expect((await liveRound(c.escrow.id))!.id).toBe(c.round.id)
+    expect(await prisma.escrowTransactionSignature.count({ where: { pendingTxId: c.round.id } })).toBe(1)
     expect(await prisma.dispute.findUniqueOrThrow({ where: { id: dispute.id } })).toMatchObject({ status: statusBefore, ruling: null })
-    expect(await retirementModule.verifyRetirementChain(prisma, c.escrow.id)).toMatchObject({ ok: true })
-    // Funds did not move and the escrow is still DISPUTED; the next valid ruling dispatches normally, under a new id.
+    expect(await require('../../src/modules/open-settlement/dispute-outcome').loadDisputeRulingRecord(c.escrow.id, 0)).toBeNull() // Outcome reverted with the ruling
     expect(await prisma.escrow.findUniqueOrThrow({ where: { id: c.escrow.id } })).toMatchObject({ status: 'DISPUTED', txReleaseId: null })
     await resolve(c, dispute.id, 'RELEASE')
     const next = (await liveRound(c.escrow.id))!
     expect(next.disputeId).toBe(dispute.id)
-    expect(next.id).not.toBe(superseding)
-    expect(await retirements(c.escrow.id)).toHaveLength(1)
+    const [r] = await retirements(c.escrow.id)
+    expect(r).toMatchObject({ pendingOperationId: c.round.id, reason: 'SUPERSEDED_BY_RULING', supersedingPendingOperationId: next.id })
+    expect(await retirementModule.verifyRetirementChain(prisma, c.escrow.id)).toMatchObject({ ok: true })
     expect(chain.broadcasts).toEqual([])
   })
 
-  it('F-1 evidence (C4): guard failure after supersession in recovery - guardFailed, superseding round deleted, the next C4 pass re-dispatches', async () => {
+  it('F-1 / R2 (C4): guard failure in recovery - guardFailed, nothing retired, cooperative round intact, the next C4 pass supersedes', async () => {
     pg.requirePostgres('F-1 C4')
     const guard = require('../../src/modules/open-settlement/dispatch-translation-guard')
     const c = await cooperative('f1-c4')
@@ -462,18 +460,18 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
       { id: dispute.id, escrowId: c.escrow.id, status: row.status, appealRound: 0 }, r.payload, r.signature,
       Buffer.from(arbiterKeypair.publicKey).toString('hex'), '100000', 'BTC', c.buyer.id, c.seller.id,
     )).committed).toBe(true)
-    jest.spyOn(guard, 'assertTranslationMatchesOutcome').mockImplementationOnce(() => { throw new Error('i239 F-1: forced translation mismatch') })
+    jest.spyOn(guard, 'assertTranslationMatchesOutcome').mockImplementationOnce(() => { throw new guard.TranslationGuardError(['i239 F-1: forced translation mismatch']) })
     const first = await reconcileMissingDispatch()
-    expect(first.guardFailed.find((x) => x.escrowId === c.escrow.id)).toBeDefined()
-    const [retired] = await retirements(c.escrow.id)
-    expect(retired).toMatchObject({ pendingOperationId: c.round.id, reason: 'SUPERSEDED_BY_RULING' })
-    expect(await prisma.escrowPendingTransaction.findUnique({ where: { id: retired.supersedingPendingOperationId! } })).toBeNull()
-    expect(await liveRound(c.escrow.id)).toBeNull()
+    expect(first.guardFailed.find((x) => x.escrowId === c.escrow.id)).toMatchObject({ mismatches: ['i239 F-1: forced translation mismatch'] })
+    expect(first.failed.find((x) => x.escrowId === c.escrow.id)).toBeUndefined()
+    expect(await retirements(c.escrow.id)).toHaveLength(0)
+    expect((await liveRound(c.escrow.id))!.id).toBe(c.round.id)
+    expect(await require('../../src/modules/open-settlement/dispute-outcome').loadDisputeRulingRecord(c.escrow.id, 0)).not.toBeNull() // the Outcome stands
     const second = await reconcileMissingDispatch()
     expect(second.resumed.find((x) => x.escrowId === c.escrow.id)).toBeDefined()
     const next = (await liveRound(c.escrow.id))!
-    expect(next.id).not.toBe(retired.supersedingPendingOperationId)
-    expect(await retirements(c.escrow.id)).toHaveLength(1)
+    const [retired] = await retirements(c.escrow.id)
+    expect(retired).toMatchObject({ pendingOperationId: c.round.id, reason: 'SUPERSEDED_BY_RULING', supersedingPendingOperationId: next.id })
     expect(await prisma.escrow.findUniqueOrThrow({ where: { id: c.escrow.id } })).toMatchObject({ status: 'DISPUTED', txReleaseId: null })
   })
 
