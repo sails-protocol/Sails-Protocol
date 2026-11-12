@@ -734,4 +734,117 @@ describe('Issue #299 - MULTISIG broadcast outcome: UNKNOWN is never FAILED (real
     expect(chain.broadcasts).toEqual([])
     expect(await authorizations(c.escrow.id)).toBe(0)
   })
+
+  // ─── GK-M9R-D R1 / CTO 25: a round claimed BEFORE R1 existed, then recovered by PASS 1 / the catch-up ──────────
+  // Simulated, not a real crash: the code before R1 had no execution-time Outcome check (stubbed out for the live
+  // call only); the live signature authorizes and claims, and the network answer decides what reached the chain.
+  async function claimedBeforeR1(label: string, defect: boolean, mode: Mode) {
+    const d = await disputedSplit(label, defect, defect)
+    const guard = require('../../src/modules/open-settlement/dispatch-translation-guard')
+    const preR1 = jest.spyOn(guard, 'assertTranslationMatchesOutcome').mockImplementation(() => undefined)
+    net.mode = mode
+    await deps.escrowService.submitTransactionSignature(d.c.escrow.id, d.c.buyer.id, d.signed).catch(() => undefined)
+    preR1.mockRestore()
+    net.mode = 'accept'
+    expect(await escrowOf(d.c)).toMatchObject({ status: 'SPLIT', txReleaseId: null }) // claimed, UNKNOWN kept
+    expect(await authorizations(d.c.escrow.id)).toBe(1) // authorized by the code before R1
+    return { ...d, txid: completeOutsideSails(d.round.unsignedPsbtBase64, [d.signed]).txid }
+  }
+  /** The claim, the round, its signature and the earlier authorization are all still there: nothing erased. */
+  async function expectEvidenceKept(d: Awaited<ReturnType<typeof claimedBeforeR1>>) {
+    expect(await escrowOf(d.c)).toMatchObject({ status: 'SPLIT', txReleaseId: null })
+    expect((await roundOf(d.c))?.signatures).toHaveLength(1)
+    expect(await authorizations(d.c.escrow.id)).toBe(1)
+  }
+
+  it('R1-5 a mismatching round claimed before R1, never on the network: PASS 1 refuses to broadcast it, every tick (idempotent), and erases nothing', async () => {
+    requireDb()
+    const d = await claimedBeforeR1('r1-pre-claim', true, 'refuse')
+    expect(net.posts).toEqual([d.txid]) // the live attempt before R1, rejected by the node
+    for (let i = 0; i < 2; i++) {
+      const r = await tick()
+      expect(review(r, d.c)).toMatch(new RegExp(`^DISPUTED_TRANSLATION_REFUSED: escrow is SPLIT with no txReleaseId, round ${d.round.id} is not on the network`))
+      expect(r.recovered.some((x) => x.escrowId === d.c.escrow.id)).toBe(false)
+    }
+    expect(net.posts).toEqual([d.txid]) // nothing sent by recovery
+    expect(chain.broadcasts).toEqual([])
+    await expectEvidenceKept(d)
+  })
+
+  it('R1-6 replay: the same mismatching round already on the network (accepted, answer lost) is converged from chain truth, never re-sent, never reverted', async () => {
+    requireDb()
+    const d = await claimedBeforeR1('r1-pre-onchain', true, 'lost')
+    expect(chain.broadcasts).toEqual([d.txid])
+    const r = await tick()
+    expect(r.recovered.find((x) => x.escrowId === d.c.escrow.id)).toMatchObject({ txId: d.txid, outcome: 'ALREADY_BROADCAST' })
+    expect(await escrowOf(d.c)).toMatchObject({ status: 'SPLIT', txReleaseId: d.txid })
+    await tick() // a second tick adds nothing
+    expect(net.posts).toEqual([d.txid])
+    expect(chain.broadcasts).toEqual([d.txid])
+    expect(await escrowOf(d.c)).toMatchObject({ status: 'SPLIT', txReleaseId: d.txid })
+  })
+
+  it('R1-7 control, broadcast failure: a faithful round claimed before R1 passes the gate; a rejecting node stays BROADCAST_REJECTED, then the same transaction converges once', async () => {
+    requireDb()
+    const d = await claimedBeforeR1('r1-pre-faithful', false, 'refuse')
+    net.mode = 'refuse'
+    const first = await tick()
+    expect(review(first, d.c)).toMatch(/^BROADCAST_REJECTED: /)
+    expect(net.posts).toEqual([d.txid, d.txid]) // live, then PASS 1: the gate let it through
+    net.mode = 'accept'
+    const next = await tick()
+    expect(next.recovered.find((x) => x.escrowId === d.c.escrow.id)).toMatchObject({ txId: d.txid, outcome: 'NEWLY_BROADCAST' })
+    await tick()
+    expect(chain.broadcasts).toEqual([d.txid])
+    expect(await escrowOf(d.c)).toMatchObject({ status: 'SPLIT', txReleaseId: d.txid })
+    expect(await authorizations(d.c.escrow.id)).toBe(1) // reused, never a second one
+  })
+
+  it('R1-8 a faithful round claimed before R1 whose durable Outcome is gone: refused fail-closed, nothing sent, nothing erased', async () => {
+    requireDb()
+    const d = await claimedBeforeR1('r1-pre-no-outcome', false, 'refuse')
+    expect(await prisma.semanticTransitionRecord.deleteMany({ where: { interactionId: d.c.escrow.id } })).toMatchObject({ count: 1 })
+    const r = await tick()
+    expect(review(r, d.c)).toMatch(/^DISPUTED_TRANSLATION_REFUSED: .*no durable authoritative Outcome/)
+    expect(net.posts).toEqual([d.txid])
+    expect(chain.broadcasts).toEqual([])
+    await expectEvidenceKept(d)
+  })
+
+  it('R1-10 (GK D): an authorization committed before R1, escrow not claimed yet: the next signature is refused, 0 POST, the old authorization kept', async () => {
+    requireDb()
+    const { c, signed } = await disputedSplit('r1-pre-auth', true, true)
+    const guard = require('../../src/modules/open-settlement/dispatch-translation-guard')
+    const capability = require('../../src/modules/open-settlement/capability-execution-authorization')
+    const preR1 = jest.spyOn(guard, 'assertTranslationMatchesOutcome').mockImplementation(() => undefined)
+    const stop = jest.spyOn(capability, 'authorizePendingExecution').mockRejectedValueOnce(new Error('stopped after the ADR-005 authorization'))
+    await expect(deps.escrowService.submitTransactionSignature(c.escrow.id, c.buyer.id, signed)).rejects.toThrow(/stopped after/)
+    preR1.mockRestore()
+    stop.mockRestore()
+    expect(await authorizations(c.escrow.id)).toBe(1)
+    expect(await escrowOf(c)).toMatchObject({ status: 'DISPUTED', txReleaseId: null })
+    const { DisputedTranslationRefused } = require('../../src/modules/open-settlement/economic-disposition-authority')
+    await expect(deps.escrowService.submitTransactionSignature(c.escrow.id, c.buyer.id, signed)).rejects.toBeInstanceOf(DisputedTranslationRefused)
+    await tick() // PASS 0 sees the fully signed round too
+    expect(net.posts).toEqual([])
+    expect(chain.broadcasts).toEqual([])
+    expect(await escrowOf(c)).toMatchObject({ status: 'DISPUTED', txReleaseId: null })
+    expect(await authorizations(c.escrow.id)).toBe(1)
+  })
+
+  it('R1-9 catch-up: a mismatching round whose result was recorded but never reached the network is not re-broadcast by the correspondence catch-up', async () => {
+    requireDb()
+    const d = await claimedBeforeR1('r1-pre-recorded', true, 'refuse')
+    await prisma.escrow.update({ where: { id: d.c.escrow.id }, data: { txReleaseId: d.txid } }) // recorded by the code before R1
+    for (let i = 0; i < 2; i++) {
+      const r = await tick()
+      expect(review(r, d.c)).toMatch(new RegExp(`^DISPUTED_TRANSLATION_REFUSED: escrow is SPLIT with txReleaseId ${d.txid}, but that transaction is not on the network`))
+    }
+    expect(net.posts).toEqual([d.txid])
+    expect(chain.broadcasts).toEqual([])
+    expect(await escrowOf(d.c)).toMatchObject({ status: 'SPLIT', txReleaseId: d.txid })
+    // Nothing completed on an unproven result: no completion event, the round and its signature kept as evidence.
+    expect(await prisma.escrowEvent.count({ where: { escrowId: d.c.escrow.id, toStatus: 'SPLIT' } })).toBe(0)
+    expect((await roundOf(d.c))?.signatures).toHaveLength(1)
+  })
 })

@@ -170,8 +170,10 @@ export class DisputedTranslationRefused extends EscrowError {
  * and its creation-time guard, a row already in the database) can never be finalized unless it matches. No durable
  * Outcome refuses: since M8-R every MULTISIG ruling commits one before it dispatches. Pure check over persisted facts:
  * deterministic, no side effect, no key, no signature. Reads through the caller's transaction (no second pool
- * connection). Required lazily: dispute-outcome imports this module, and multisig.provider reaches it through
- * escrow.service -> escrow-pending-tx.
+ * connection). Required lazily. dispute-outcome is a real runtime cycle (it imports this module). The other three
+ * are not cycles (multisig.provider's escrow.service import is type-only); they are lazy so this small module, which
+ * every settlement path and its test mocks load, does not pull in the Bitcoin stack and config at load time.
+ * shortcut: lazy requires, until economicDispositionLockKey moves to a leaf module (CTO 25: separate evaluation).
  */
 async function assertDisputedTranslationMatchesOutcome(pending: DisputedPendingFacts, tx: Prisma.TransactionClient): Promise<void> {
   const escrow = await tx.escrow.findUnique({ where: { id: pending.escrowId }, select: { type: true } })
