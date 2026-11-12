@@ -14,6 +14,10 @@
  *  Part B - the real startServer() with a short interval: no tick at boot, the process-local overlap guard,
  *           a step that never settles, shutdown with a tick in flight, the opt-out flag, restart.
  */
+// A module, not a global script: otherwise its top-level names (ORIGINAL_ENV, sleep, until, ...) collide with
+// the same names in other import-less test files when TypeScript checks them together (TS2451 in CI).
+export {}
+
 jest.mock('dotenv/config', () => ({}))
 
 jest.mock('../src/common/events/event-bus', () => ({
