@@ -631,7 +631,7 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       const generic = [order[3], order[PAGE]]
       const conflict = order[PAGE - 1]
       const crash = order[50]
-      const guardTarget = order[PAGE - 5].escrowId // its translation guard is made to fail, right after its dispatch persisted
+      const guardTarget = order[PAGE - 5].escrowId // its translation guard is made to fail, the first time it runs for this candidate
       for (const x of generic) inject.generic.add(x.escrowId)
       inject.conflict.add(conflict.escrowId)
       inject.crash.add(crash.escrowId)
@@ -643,11 +643,14 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
         if (inject.conflict.has(escrowId)) return Promise.reject(new EscrowError(`Escrow ${escrowId} already has a pending transaction (concurrent initiate)`))
         // The dispatch really persisted, then the process "died": the run reports a failure, the round exists.
         if (inject.crash.has(escrowId)) return (real[name] as any)(escrowId, ...rest).then(() => { throw new Error('m9r-343 injected crash after the dispatch persisted') })
-        if (escrowId === guardTarget) return (real[name] as any)(escrowId, ...rest).then((r: unknown) => { guardArmed = true; return r })
+        // Armed BEFORE the dispatch starts, so the failure hits the first guard check of THIS candidate wherever the guard runs:
+        // today right after the dispatch persisted (resumeCandidate); after GK-M9R-D R2, inside the initiate, before the round
+        // exists. Arming after the initiate returned would, under R2, fail the next candidate instead (CTO 25, K5).
+        if (escrowId === guardTarget) { guardArmed = true; return (real[name] as any)(escrowId, ...rest) }
         return (real[name] as any)(escrowId, ...rest)
       }) as never)
       wrap('initiateRelease'); wrap('initiateRefund'); wrap('initiateSplit')
-      // A guard failure for one named candidate: the guard runs right after that candidate's dispatch, so it is armed by it.
+      // A guard failure for one named candidate: armed by that candidate's dispatch, consumed by its first guard check.
       const realGuard = guard.assertTranslationMatchesOutcome
       jest.spyOn(guard, 'assertTranslationMatchesOutcome').mockImplementation(((...args: unknown[]) => {
         if (guardArmed) { guardArmed = false; throw new guard.TranslationGuardError(['m9r-343 injected translation mismatch']) }
@@ -688,6 +691,7 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       expect(report.guardFailed).toHaveLength(1)
       guardFailedEscrow = report.guardFailed[0].escrowId
       expect(guardFailedEscrow).toBe(guardTarget)
+      expect(guardArmed).toBe(false) // the armed failure was consumed by the target itself, not left for a later candidate
       expect(report.notEligible).toEqual([])
       const resumed = report.resumed.map((r) => r.escrowId)
       firstRunResumed = resumed
