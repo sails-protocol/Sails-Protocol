@@ -23,11 +23,12 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
   const pg = createPostgresIntegrationHarness()
   let prisma: any, escrowService: any, identityService: any, liquidityRouter: any, tradeService: any, getDisputeService: any
   let payoutAddressService: any, signAuthorityDecision: any, commit: any, MultisigProvider: any, guard: any
-  let reconcileMissingDispatch: any, setDispatchRecoveryCursor: any, submitSig: any, loadDisputeRulingRecord: any, signatureSetDigest: any
+  let reconcileMissingDispatch: any, setDispatchRecoveryCursor: any, submitSig: any, loadDisputeRulingRecord: any, signatureSetDigest: any, outcomeModule: any
   const ARBITER_ID = 'm9r-comp-arbiter'
   const kp = nacl.sign.keyPair(); const arbPub = Buffer.from(kp.publicKey).toString('hex')
   let chain: H.Chain; let realFetch: typeof fetch
   let defect = false
+  const created: Array<{ escrowId: string; disputeId: string }> = []; const legacy = new Set<string>()
   const SHIFT = 0.15
 
   beforeAll(async () => {
@@ -42,7 +43,8 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
     ;({ getDisputeService } = require('../../src/modules/open-settlement/dispute.service'))
     ;({ payoutAddressService } = require('../../src/modules/open-settlement/payout-address.service'))
     ;({ signAuthorityDecision } = require('../../src/modules/open-settlement/arbitration-authority'))
-    ;({ commitAuthoritativeDisputeRuling: commit, loadDisputeRulingRecord } = require('../../src/modules/open-settlement/dispute-outcome'))
+    outcomeModule = require('../../src/modules/open-settlement/dispute-outcome')
+    ;({ commitAuthoritativeDisputeRuling: commit, loadDisputeRulingRecord } = outcomeModule)
     ;({ MultisigProvider } = require('../../src/modules/open-settlement/multisig.provider'))
     ;({ reconcileMissingDispatch, setDispatchRecoveryCursor } = require('../../src/modules/open-settlement/dispute-dispatch-recovery'))
     ;({ submitTransactionSignature: submitSig } = require('../../src/modules/open-settlement/escrow-pending-tx'))
@@ -94,6 +96,7 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
     const buyerAddr = H.testnetAddress(`${label}-b`), sellerAddr = opts.sameAddress ? buyerAddr : H.testnetAddress(`${label}-s`)
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', buyerAddr); await payoutAddressService.setPayoutAddress(seller.id, 'BTC', sellerAddr)
     const d = await getDisputeService().raiseDispute(trade.id, buyer.id, `m9r comp ${label}`)
+    created.push({ escrowId: escrow.id, disputeId: d.id })
     return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id, disputeId: d.id, buyerAddr, sellerAddr }
   }
 
@@ -104,6 +107,7 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
     const buyerAddr = H.testnetAddress(`${label}-buyer`), sellerAddr = H.testnetAddress(`${label}-seller`)
     await payoutAddressService.setPayoutAddress(c.seller.id, 'BTC', sellerAddr)
     const d = await getDisputeService().raiseDispute(c.trade.id, c.buyer.id, `m9r comp ${label}`)
+    created.push({ escrowId: c.escrow.id, disputeId: d.id })
     return { escrowId: c.escrow.id, tradeId: c.trade.id, buyerId: c.buyer.id, sellerId: c.seller.id, disputeId: d.id, buyerAddr, sellerAddr, coopRoundId: c.round.id }
   }
 
@@ -231,7 +235,7 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
     expect(await state(f)).toMatchObject({ pending: 0, txRelease: false })
   })
 
-  it('T9-G3 lock order A with real code: C4 holds the escrow lock + FOR SHARE (parked on its insert by a SIMULATION row), the REAL live-ruling revert (economic lock -> UPDATE dispute) waits behind it; no deadlock; documents R-1', async () => {
+  it('T9-G3 lock order A with real code: C4 holds the escrow lock + FOR SHARE (parked on its insert by a SIMULATION row), the REAL live-ruling revert (economic lock -> dispute row lock) waits behind it; no deadlock; R-1 fixed: the revert sees the C4 round and keeps the ruling', async () => {
     pg.requirePostgres('T9-G3')
     const f = await fixture('t9g3')
     const r = ruling(f)
@@ -255,17 +259,45 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
       throw new Error('m9r-comp injected live dispatch failure (provider unavailable)')
     }) as never)
     const live = resolveLive(f, r).then(() => null, (e: Error) => e)
-    await until('real revert waits on the dispute row', () => waiting('%UPDATE "public"."disputes"%'))
+    await until('real revert waits on the dispute row', () => waiting('%FOR UPDATE%'))
     const waitsObserved = true
     releaseInsert(); await blocker
     const liveErr = await live; const rep = forResume(await c4!, f)
     const s = await state(f)
     evidence('T9-G3 order A', { waitsObserved, liveError: liveErr?.message?.slice(0, 80), c4: rep, state: { dispute: s.dispute, outcome: s.outcome, pending: s.pending, roundDispute: s.round?.disputeId } })
-    expect(liveErr).toBeInstanceOf(Error)
+    // PE-M9R R-1: C4 dispatched this generation while the live dispatch failed - the ruling stands, the call succeeds.
+    expect(liveErr).toBeNull()
+    expect(s).toMatchObject({ dispute: 'RESOLVED', outcome: true, pending: 1, txRelease: false })
+    expect(s.round).toMatchObject({ disputeId: f.disputeId, rulingAppealRound: 0 })
     expect(chain.broadcasts).toEqual([])
     expect(s.txRelease).toBe(false)
     // Atomicity of each committed transaction: Outcome present <=> dispute RESOLVED (no crash injected here).
     expect(s.outcome).toBe(s.dispute === 'RESOLVED')
+  })
+
+  it('T9-G3b lock order B (SIMULATION of the revert transaction: its same statements, held open): a C4 build parks on FOR SHARE behind the revert, then refuses - no round, no retirement, and the dispute accepts a new ruling', async () => {
+    pg.requirePostgres('T9-G3b')
+    const f = await fixture('t9g3b')
+    await commitOnly(f, ruling(f))
+    let release!: () => void; const gate = new Promise<void>((r) => { release = r }); let held = false
+    const reverter = prisma.$transaction(async (tx: any) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'economic-disposition:' + f.disputeId})::bigint)`
+      await tx.$queryRawUnsafe(`SELECT "id" FROM "disputes" WHERE "id" = $1 FOR UPDATE`, f.disputeId)
+      await tx.dispute.updateMany({ where: { id: f.disputeId, status: 'RESOLVED' }, data: { status: 'OPENED', ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null } })
+      await outcomeModule.revertDisputeRulingRecord(tx, f.escrowId, 0)
+      held = true; await gate
+    }, { timeout: 120_000 })
+    await until('revert holds the row', async () => held)
+    const run = reconcileMissingDispatch()
+    await until('C4 build parked on FOR SHARE', () => waiting('%FOR SHARE%'))
+    release(); await reverter
+    const r = forResume(await run, f)
+    const after = await state(f)
+    evidence('T9-G3b order B', { c4: r.failed ? `failed: ${r.failed.error.slice(0, 80)}` : r.resumed ? 'resumed' : 'other', state: { dispute: after.dispute, outcome: after.outcome, pending: after.pending } })
+    expect(r.resumed).toBe(false)
+    expect(after).toMatchObject({ dispute: 'OPENED', outcome: false, pending: 0, retirements: 0 })
+    expect(await resolveLive(f, ruling(f)).then(() => 'accepted', (e: Error) => e.message)).toBe('accepted')
+    expect(chain.broadcasts).toEqual([])
   })
 
   it('T9-G5 / R-1 live ruling racing C4 recovery (real code): the orphan round, its signatures refused by ADR-005 (0 broadcasts), a new ruling, and the recovery ticks are measured', async () => {
@@ -292,35 +324,57 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
       ticks: ticks.map((t) => (t.failed ? `failed: ${t.failed.error.slice(0, 80)}` : t.resumed ? 'resumed' : t.notEligible ? 'notEligible' : 'not-a-candidate')),
       end: { dispute: end.dispute, outcome: end.outcome, pending: end.pending },
     })
-    // Safety (economic authority): nothing reaches the explorer and nothing settles, whatever the interleaving.
-    expect(chain.broadcasts).toEqual([])
-    expect(end.txRelease).toBe(false)
-    expect(end.pending).toBeLessThanOrEqual(1)
-    // Liveness (CTO 25 HOLD criterion): after the orphan, some safe path must let the dispute reach a settlement again.
-    expect({ reRuling, ticks: ticks.map((t) => t.resumed) }).toMatchObject({ reRuling: 'accepted' })
+    // PE-M9R R-1: no orphan. The live call succeeds on the generation C4 dispatched, its round is the RESOLVED
+    // generation's own and settles exactly once (a second ruling is correctly refused: the dispute is resolved).
+    expect(liveErr).toBeNull()
+    expect(orphan).toMatchObject({ dispute: 'RESOLVED', outcome: true, pending: 1 })
+    expect(orphan.round).toMatchObject({ disputeId: f.disputeId, rulingAppealRound: 0 })
+    expect(sigErr).toBeNull()
+    expect(chain.broadcasts).toHaveLength(1)
+    const outs = outputsOf(f, chain.hex.get(chain.broadcasts[0])!)
+    expect(outs.map((o) => o.to).sort()).toEqual(['buyer', 'seller'])
+    const buyerSats = outs.find((o) => o.to === 'buyer')!.sats, sellerSats = outs.find((o) => o.to === 'seller')!.sats
+    expect(buyerSats).toBeGreaterThan(sellerSats) // 70/30 per the Outcome, not the defective translator's shift
+    expect(end.txRelease).toBe(true)
+    expect(ticks.every((t) => !t.resumed && !t.failed)).toBe(true)
   })
 
-  it('T9-G2 (SIMULATION of a crash between the dispute revert and revertDisputeRulingRecord): the reverted dispute keeps a stale Outcome; recovery, a new ruling and the arbiter route are measured', async () => {
+  it('T9-G2 crash injected INSIDE the real revert transaction (Outcome delete fails after the dispute update): both roll back - RESOLVED + Outcome, never OPENED with a stale Outcome - and C4 recovery dispatches it', async () => {
     pg.requirePostgres('T9-G2')
     const f = await fixture('t9g2')
-    const r = ruling(f)
-    await commitOnly(f, r)
-    // The exact conditional revert dispute.service.ts runs (economic lock + updateMany), WITHOUT the Outcome delete that follows it.
-    await prisma.$transaction(async (tx: any) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'economic-disposition:' + f.disputeId})::bigint)`
-      await tx.dispute.updateMany({ where: { id: f.disputeId, status: 'RESOLVED' }, data: { status: 'OPENED', ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null } })
-    })
+    const realSplit = escrowService.initiateSplit.bind(escrowService)
+    let first = true
+    jest.spyOn(escrowService, 'initiateSplit').mockImplementation((async (...args: unknown[]) => {
+      if (first) { first = false; throw new Error('m9r-comp injected live dispatch failure (provider unavailable)') }
+      return (realSplit as any)(...args)
+    }) as never)
+    jest.spyOn(outcomeModule, 'revertDisputeRulingRecord').mockRejectedValueOnce(new Error('m9r-comp SIMULATED crash before the revert commits'))
+    const liveErr = await resolveLive(f, ruling(f)).then(() => null, (e: Error) => e)
     const crashed = await state(f)
     const ticks = [forResume(await reconcileMissingDispatch(), f), forResume(await reconcileMissingDispatch(), f)]
-    const arbiterRoute = await escrowService.initiateSplit(f.escrowId, f.buyerAddr, f.sellerAddr, 7000, ARBITER_ID).then(() => 'created', (e: Error) => `refused: ${e.message.slice(0, 100)}`)
-    const reRuling = await resolveLive(f, ruling(f)).then(() => 'accepted', (e: Error) => `refused: ${e.message.slice(0, 100)}`)
     const end = await state(f)
-    evidence('T9-G2', { crashed: { dispute: crashed.dispute, outcome: crashed.outcome }, ticks: ticks.map((t) => (t.failed ? 'failed' : t.resumed ? 'resumed' : 'not-a-candidate')), arbiterRoute, reRuling, end: { dispute: end.dispute, outcome: end.outcome, pending: end.pending } })
+    evidence('T9-G2 before commit', { liveError: liveErr?.message?.slice(0, 80), crashed: { dispute: crashed.dispute, outcome: crashed.outcome }, ticks: ticks.map((t) => (t.failed ? 'failed' : t.resumed ? 'resumed' : 'not-a-candidate')), end: { dispute: end.dispute, outcome: end.outcome, pending: end.pending } })
+    expect(liveErr?.message).toMatch(/SIMULATED crash/)
+    expect(crashed).toMatchObject({ dispute: 'RESOLVED', outcome: true, pending: 0 })
+    expect(ticks[0].resumed).toBe(true)
+    expect(end.round).toMatchObject({ disputeId: f.disputeId, rulingAppealRound: 0 })
     expect(chain.broadcasts).toEqual([])
-    expect(end.txRelease).toBe(false)
-    expect(end.pending === 0 || end.round.disputeId === f.disputeId).toBe(true)
-    // Liveness (CTO 25 HOLD criterion): the reverted dispute must be able to receive a new ruling.
+  })
+
+  it('T9-G2b revert committed (no crash): OPENED with no Outcome, and the dispute accepts a new ruling', async () => {
+    pg.requirePostgres('T9-G2b')
+    const f = await fixture('t9g2b')
+    const realSplit = escrowService.initiateSplit.bind(escrowService)
+    let first = true
+    jest.spyOn(escrowService, 'initiateSplit').mockImplementation((async (...args: unknown[]) => {
+      if (first) { first = false; throw new Error('m9r-comp injected live dispatch failure (provider unavailable)') }
+      return (realSplit as any)(...args)
+    }) as never)
+    await resolveLive(f, ruling(f)).then(() => null, (e: Error) => e)
+    expect(await state(f)).toMatchObject({ dispute: 'OPENED', outcome: false, pending: 0 })
+    const reRuling = await resolveLive(f, ruling(f)).then(() => 'accepted', (e: Error) => `refused: ${e.message.slice(0, 100)}`)
     expect(reRuling).toBe('accepted')
+    expect((await state(f)).round).toMatchObject({ disputeId: f.disputeId, rulingAppealRound: 0 })
   })
 
   it('T9-G4 stress: live rulings (some failing), C4 ticks and the arbiter route interleaved with random delays - no deadlock left unhandled, no partial state', async () => {
@@ -463,5 +517,72 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
     // Economic classification: a built round's kind must be the kind its ruling authorizes (RELEASE->release, REFUND->refund, SPLIT->split).
     const inconsistent = matrix.filter((m) => m.built && m.roundKind !== String(m.rulingOutcome).toLowerCase())
     expect(inconsistent.map((m) => `${m.ruling}->${m.roundKind} escrow ${m.escrowStatus}`)).toEqual([])
+  })
+
+  it('T9-G2c restart SIMULATION (the revert transaction\'s own database backend is terminated mid-transaction, as a process death would): Postgres rolls both back - RESOLVED + Outcome - and C4 recovery dispatches it after reconnect', async () => {
+    pg.requirePostgres('T9-G2c')
+    const f = await fixture('t9g2c')
+    const realSplit = escrowService.initiateSplit.bind(escrowService)
+    let first = true
+    jest.spyOn(escrowService, 'initiateSplit').mockImplementation((async (...args: unknown[]) => {
+      if (first) { first = false; throw new Error('m9r-comp injected live dispatch failure (provider unavailable)') }
+      return (realSplit as any)(...args)
+    }) as never)
+    jest.spyOn(outcomeModule, 'revertDisputeRulingRecord').mockImplementationOnce((async (tx: any) => {
+      await tx.$executeRawUnsafe('SELECT pg_terminate_backend(pg_backend_pid())') // after the dispute update, inside the same tx
+    }) as never)
+    const liveErr = await resolveLive(f, ruling(f)).then(() => null, (e: Error) => e)
+    const crashed = await state(f)
+    const rep = forResume(await reconcileMissingDispatch(), f)
+    const end = await state(f)
+    evidence('T9-G2c restart', { liveError: liveErr?.message?.slice(0, 100), crashed: { dispute: crashed.dispute, outcome: crashed.outcome }, resumed: rep.resumed })
+    expect(liveErr).toBeInstanceOf(Error)
+    expect(crashed).toMatchObject({ dispute: 'RESOLVED', outcome: true, pending: 0 })
+    expect(rep.resumed).toBe(true)
+    expect(end.round).toMatchObject({ disputeId: f.disputeId, rulingAppealRound: 0 })
+    expect(chain.broadcasts).toEqual([])
+  })
+
+  it('INVARIANT (CTO 25 condition 2): no dispute this file drove - crashes, concurrency, restart, stress - is left non-RESOLVED while an Outcome exists for its current appeal round', async () => {
+    pg.requirePostgres('INVARIANT')
+    const bad: string[] = []
+    for (const c of created) {
+      if (legacy.has(c.disputeId)) continue
+      const d = await prisma.dispute.findUniqueOrThrow({ where: { id: c.disputeId } })
+      if (d.status !== 'RESOLVED' && (await loadDisputeRulingRecord(c.escrowId, d.appealRound))) bad.push(`${c.disputeId}:${d.status}`)
+    }
+    evidence('INVARIANT', { disputesChecked: created.length - legacy.size, violations: bad.length })
+    expect(created.length).toBeGreaterThan(30)
+    expect(bad).toEqual([])
+  })
+
+  // ══════════════════════ KNOWN LIMITATION - characterization, NOT a GO criterion of the composition ═════════════════
+  // CTO 25 decision (#614 comment 6832811925): the pre-fix two-step crash state is a declared historical limit. The
+  // original test is kept verbatim as it.failing: it passes only while its original assertions still fail (the
+  // limit is still reproduced); if it ever starts passing, it fails and must be reclassified. No recovery is built.
+  describe('KNOWN LIMITATION T9-G2-legacy (pre-fix data only; re-evaluate before economic activation)', () => {
+    it.failing('T9-G2-legacy (SIMULATION of the PRE-FIX two-step crash state, kept unchanged as a declared residual - only pre-patch data can hold it): the reverted dispute keeps a stale Outcome; recovery, a new ruling and the arbiter route are measured', async () => {
+      pg.requirePostgres('T9-G2')
+      const f = await fixture('t9g2')
+      legacy.add(f.disputeId) // test bookkeeping only; the body below is the original, unchanged
+      const r = ruling(f)
+      await commitOnly(f, r)
+      // The exact conditional revert dispute.service.ts runs (economic lock + updateMany), WITHOUT the Outcome delete that follows it.
+      await prisma.$transaction(async (tx: any) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'economic-disposition:' + f.disputeId})::bigint)`
+        await tx.dispute.updateMany({ where: { id: f.disputeId, status: 'RESOLVED' }, data: { status: 'OPENED', ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null } })
+      })
+      const crashed = await state(f)
+      const ticks = [forResume(await reconcileMissingDispatch(), f), forResume(await reconcileMissingDispatch(), f)]
+      const arbiterRoute = await escrowService.initiateSplit(f.escrowId, f.buyerAddr, f.sellerAddr, 7000, ARBITER_ID).then(() => 'created', (e: Error) => `refused: ${e.message.slice(0, 100)}`)
+      const reRuling = await resolveLive(f, ruling(f)).then(() => 'accepted', (e: Error) => `refused: ${e.message.slice(0, 100)}`)
+      const end = await state(f)
+      evidence('T9-G2', { crashed: { dispute: crashed.dispute, outcome: crashed.outcome }, ticks: ticks.map((t) => (t.failed ? 'failed' : t.resumed ? 'resumed' : 'not-a-candidate')), arbiterRoute, reRuling, end: { dispute: end.dispute, outcome: end.outcome, pending: end.pending } })
+      expect(chain.broadcasts).toEqual([])
+      expect(end.txRelease).toBe(false)
+      expect(end.pending === 0 || end.round.disputeId === f.disputeId).toBe(true)
+      // Liveness (CTO 25 HOLD criterion): the reverted dispute must be able to receive a new ruling.
+      expect(reRuling).toBe('accepted')
+    })
   })
 })
