@@ -30,12 +30,15 @@ jobs:
           persist-credentials: false
 
       - name: Throwaway staging environment (generated, never stored)
+        # Masked before anything can print them (the failure log dump below included); written to a 0600 file only.
         run: |
-          r() { openssl rand -hex 16; }
+          pg=$(openssl rand -hex 16); redis=$(openssl rand -hex 16); seed=$(openssl rand -hex 16)
+          for v in "$pg" "$redis" "$seed"; do echo "::add-mask::$v"; done
+          umask 077
           cat > deploy/staging/.env <<EOF
-          POSTGRES_PASSWORD=$(r)
-          REDIS_PASSWORD=$(r)
-          MULTISIG_SEED=ci-staging-smoke-testnet-only-$(r)
+          POSTGRES_PASSWORD=$pg
+          REDIS_PASSWORD=$redis
+          MULTISIG_SEED=ci-staging-smoke-testnet-only-$seed
           TRUSTED_ARBITRATORS=ci-staging-smoke-arbiter
           EVIDENCE_S3_ENDPOINT=http://evidence.invalid:9000
           EVIDENCE_S3_REGION=auto

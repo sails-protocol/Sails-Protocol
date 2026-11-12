@@ -11,6 +11,12 @@ one small host, Docker Compose, isolated Postgres and Redis, one app instance, M
 | `smoke.sh` | Liveness, readiness and mock flags; in-container `NODE_ENV` and rail eligibility (only MULTISIG); five negative boots that must refuse to start. |
 | `../../.github/workflows/staging-smoke.yml` | Runs the stack and the smoke inside the CI runner with throwaway values. |
 
+**What the smoke proves, and what it does not:** the stack builds, migrates and boots on the production path; it
+is live and ready; mocks are off; only MULTISIG is deployment-eligible; Redis requires its password; and five
+misconfigurations are refused by their own boot gates. It does **not** exercise any economic flow (no escrow,
+funding, signing, settlement or dispute end to end), evidence upload, or anything over the network beyond the
+runner.
+
 ## Still pending (not decided here)
 - **Operator** (named and confirmed), **provider**, costs and credentials.
 - **Evidence store:** production refuses `local-fs`, so staging needs an S3-compatible bucket (`EVIDENCE_S3_*`).

@@ -17,6 +17,11 @@ health=$(curl -fsS "$BASE/health")
 grep -q '"mockEscrow":false' <<<"$health" && grep -q '"mockSettlement":false' <<<"$health" || fail "mock flags not off: $health"
 echo "ok   liveness, readiness, mocks off"
 
+# Redis: its own healthcheck reports healthy, and the server refuses an unauthenticated client.
+[ "$(docker inspect "$("${COMPOSE[@]}" ps -q redis)" --format '{{.State.Health.Status}}')" = healthy ] || fail "redis healthcheck is not healthy"
+"${COMPOSE[@]}" exec -T redis sh -c 'unset REDISCLI_AUTH; redis-cli ping 2>&1' | grep -q NOAUTH || fail "redis accepted an unauthenticated PING"
+echo "ok   redis healthy; unauthenticated access refused"
+
 # Inside the running app container: the environment it really booted with and the rail policy it really enforces.
 "${COMPOSE[@]}" exec -T app node -e '
   if (process.env.NODE_ENV !== "production") { console.error("NODE_ENV=" + process.env.NODE_ENV); process.exit(1) }
@@ -27,20 +32,30 @@ echo "ok   liveness, readiness, mocks off"
   }' || fail "in-container environment or rail eligibility"
 echo "ok   NODE_ENV=production in the container; only MULTISIG is deployment-eligible"
 
-# Negative boots: the same image and environment with one value wrong must refuse to start (non-zero exit).
+# Negative boots: the same image and the app's own resolved environment with exactly one value changed must refuse
+# to start, and for the reason that value's own boot gate gives (its FATAL message), not merely any failure.
+# The environment goes through a 0600 temp file, never through process arguments, and is deleted on exit; on a
+# mismatch only the FATAL line (or the exit code) is printed, never the environment.
 image=$("${COMPOSE[@]}" images -q app | head -n1); [ -n "$image" ] || fail "app image not found"
 network=$(docker inspect "$("${COMPOSE[@]}" ps -q app)" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}')
-envs=$("${COMPOSE[@]}" config --format json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const e=JSON.parse(s).services.app.environment;for(const[k,v]of Object.entries(e))console.log(k+"="+(v??""))})')
+envdir=$(mktemp -d); chmod 700 "$envdir"; trap 'rm -rf "$envdir"' EXIT
+"${COMPOSE[@]}" config --format json > "$envdir/config.json"
 refuses() {
-  local label="$1"; shift
-  local args=(); while IFS= read -r line; do args+=(-e "$line"); done <<<"$envs"
-  set +e; out=$(timeout 60 docker run --rm --network "$network" "${args[@]}" "$@" "$image" 2>&1); rc=$?; set -e
+  local label="$1" key="$2" value="$3" reason="$4" file="$envdir/case.env"
+  (umask 077; node -e '
+    const [cfg, key, value, out] = process.argv.slice(1)
+    const env = { ...JSON.parse(require("fs").readFileSync(cfg, "utf8")).services.app.environment, [key]: value }
+    require("fs").writeFileSync(out, Object.entries(env).map(([k, v]) => `${k}=${v ?? ""}`).join("\n") + "\n")
+  ' "$envdir/config.json" "$key" "$value" "$file")
+  set +e; out=$(timeout 60 docker run --rm --network "$network" --env-file "$file" "$image" 2>&1); rc=$?; set -e
+  rm -f "$file"
   [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] || fail "$label: the app did not refuse to boot (exit $rc)"
-  echo "ok   refuses to boot: $label"
+  grep -qF "$reason" <<<"$out" || fail "$label: refused (exit $rc) but not by its gate; FATAL line: $(grep -m1 -o 'FATAL: [^.]*' <<<"$out" || echo none)"
+  echo "ok   refuses to boot: $label ($reason)"
 }
-refuses "NODE_ENV=staging (unrecognized)" -e NODE_ENV=staging
-refuses "NODE_ENV empty" -e NODE_ENV=
-refuses "WDK_SEED_PHRASE configured" -e "WDK_SEED_PHRASE=test only example seed phrase never real"
-refuses "MOCK_ESCROW=true" -e MOCK_ESCROW=true
-refuses "EVIDENCE_PROVIDER=local-fs" -e EVIDENCE_PROVIDER=local-fs
-echo "SMOKE PASS"
+refuses "NODE_ENV=staging" NODE_ENV staging "FATAL: NODE_ENV is set to an unrecognized value 'staging'"
+refuses "NODE_ENV empty" NODE_ENV "" "FATAL: NODE_ENV is set to an unrecognized value ''"
+refuses "WDK_SEED_PHRASE configured" WDK_SEED_PHRASE "test only example seed phrase never real" "FATAL: NODE_ENV=production, MOCK_ESCROW=false, and WDK_SEED_PHRASE is configured"
+refuses "MOCK_ESCROW=true" MOCK_ESCROW true "FATAL: NODE_ENV=production but MOCK_ESCROW is not explicitly false"
+refuses "EVIDENCE_PROVIDER=local-fs" EVIDENCE_PROVIDER local-fs 'FATAL: NODE_ENV=production but EVIDENCE_PROVIDER is unset (or "local-fs")'
+echo "SMOKE PASS (configuration and boot gates only; no economic flow is exercised)"
