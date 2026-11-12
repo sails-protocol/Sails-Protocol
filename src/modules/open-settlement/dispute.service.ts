@@ -45,7 +45,8 @@ import { commitAuthoritativeDisputeRuling, revertDisputeRulingRecord } from './d
 import { economicDispositionLockKey } from './economic-disposition-authority'
 import { OUTBOUND_OPERATION_TYPES, POTENTIALLY_SENT_STATUSES, wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 import { splitLegAmounts } from './wdk-settlement.provider'
-import { assertDisputeDispatchEligible, issueRulingSupersessionGrant } from './dispute-dispatch'
+import { assertDisputeDispatchEligible, issueRulingSupersessionGrant, RULING_KIND } from './dispute-dispatch'
+import { childLogger } from '../../common/logger'
 import { publishPendingDisputeTransitions, transitionKeyFor, type DisputeTransitionKind } from './dispute-transition-outbox'
 
 // RFC-021 D6 — appeal fee, PROTOCOL_ECONOMY.md §4.4's own arbitration-fee
@@ -66,6 +67,8 @@ import { publishPendingDisputeTransitions, transitionKeyFor, type DisputeTransit
 // missing treasury infrastructure the Protocol Fee itself already is —
 // not attempted here.
 export const APPEAL_FEE_MULTIPLIER = 2
+
+const log = childLogger('dispute-service')
 
 // Issue #238 - recoverUnassignedDisputes(): an opening younger than this may still be finishing live.
 const UNASSIGNED_DISPUTE_GRACE_MS = 5 * 60 * 1000
@@ -845,12 +848,30 @@ export class DisputeService {
       // arbiter/appealRound/authoritySignature) means a newer generation
       // is never overwritten; if one already won, this revert is a no-op
       // and the newer generation's state stands untouched.
-      // revertDisputeRulingRecord() below is already appealRound-scoped
-      // by its own unique key and needs no such guard.
-      await prisma.$transaction(async (tx) => {
+      //
+      // PE-M9R G2 (#618) - the dispute revert and the Outcome delete are ONE transaction (a crash between them used
+      // to leave an OPENED dispute with a stale Outcome that refused every new ruling), and the Outcome is deleted
+      // only when this exact generation was the one reverted.
+      // PE-M9R R-1 (#618) - C4 recovery may have dispatched this same generation between the commit above and this
+      // failure. The row lock waits for a C4 build holding FOR SHARE, so its round is committed and visible below;
+      // if this generation's round exists (or the escrow already executed), the ruling governs a real dispatch and
+      // is never reverted - reverting it used to orphan that round and block the dispute for good.
+      const dispatched = await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
+        await tx.$queryRaw`SELECT "id" FROM "disputes" WHERE "id" = ${dispute.id} FOR UPDATE`
+        const [round, escrow] = await Promise.all([
+          tx.escrowPendingTransaction.findFirst({
+            where: {
+              escrowId: dispute.escrowId, disputeId: dispute.id, rulingAppealRound: dispute.appealRound,
+              rulingAuthoritySignature: authoritySignature, kind: RULING_KIND[payload.outcome],
+            },
+            select: { id: true },
+          }),
+          tx.escrow.findUnique({ where: { id: dispute.escrowId }, select: { txReleaseId: true } }),
+        ])
+        if (round || escrow?.txReleaseId) return true
 
-        await tx.dispute.updateMany({
+        const { count } = await tx.dispute.updateMany({
           where: {
             id: dispute.id,
             status: 'RESOLVED',
@@ -861,9 +882,12 @@ export class DisputeService {
           },
           data: { status: dispute.status as DisputeStatus, ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
         })
+        if (count === 1) await revertDisputeRulingRecord(tx, dispute.escrowId, dispute.appealRound)
+        return false
       })
-      await revertDisputeRulingRecord(dispute.escrowId, dispute.appealRound)
-      throw err
+      if (!dispatched) throw err
+      // This generation was dispatched (by C4 recovery): the ruling stands and this call succeeds below.
+      log.warn({ msg: 'PE-M9R R-1: live dispatch failed but this ruling generation was already dispatched (C4 recovery) - ruling kept, not reverted', disputeId: dispute.id, escrowId: dispute.escrowId, appealRound: dispute.appealRound, liveError: err instanceof Error ? err.message : String(err) })
     }
 
     await eventBus.emit('dispute.resolved', {

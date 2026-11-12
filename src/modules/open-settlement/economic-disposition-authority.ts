@@ -192,6 +192,17 @@ async function assertDisputedTranslationMatchesOutcome(pending: DisputedPendingF
       ['NO_DURABLE_OUTCOME'],
     )
   }
+  // PE-M9R R-4 (#618) - the outputs alone cannot tell RELEASE from REFUND when buyer and seller share an address:
+  // the round's kind must be the kind its recorded ruling authorizes (the generation check above already bound
+  // rulingOutcome to the live RESOLVED ruling, committed with this Outcome), or it would settle misclassified.
+  const { RULING_KIND } = require('./dispute-dispatch') // eslint-disable-line @typescript-eslint/no-var-requires
+  if (RULING_KIND[pending.rulingOutcome ?? ''] !== pending.kind) {
+    throw new DisputedTranslationRefused(
+      `Pending operation ${pending.id} on escrow ${pending.escrowId} is a ${pending.kind} round, but its recorded ruling for ` +
+      `dispute ${pending.disputeId} is ${pending.rulingOutcome} - refusing to execute (GK-M9R-D R1, R-4).`,
+      ['KIND_MISMATCH'],
+    )
+  }
   try {
     assertTranslationMatchesOutcome(pending.unsignedPsbtBase64, outcome, networkFor(config.multisig.network), pending.minerFeeSats ?? undefined)
   } catch (err) {
