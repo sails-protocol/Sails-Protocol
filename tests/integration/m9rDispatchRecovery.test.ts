@@ -345,9 +345,9 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
 // ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // Issue #343 - keyset pagination of the recovery, across more than one page. The suite above proves the bounded query
 // on ONE real C4 case among noise; this one proves the behaviour BETWEEN pages, which one case never reaches: more than
-// 100 eligible candidates, so the cursor (`d.id > afterId`, 100 per page) is crossed twice.
+// 100 eligible candidates, so the cursor (`d.id > afterId`, 100 per page) is crossed.
 //
-//   K1  every eligible candidate is resumed exactly once across the pages - none omitted, none loaded twice, the cursor
+//   K1  every eligible candidate is read exactly once across the pages - none omitted, none loaded twice, the cursor
 //       strictly increasing, the number of page queries what the page sizes imply (including the empty last page);
 //   K2  the recovery is idempotent: a second run loads nothing and creates nothing;
 //   K3  history that is not recovery work is never loaded and never touched (settled, legacy, already dispatched, and
@@ -364,8 +364,8 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
 //
 // LIMITS: only the explorer is simulated (pendingRoundLifecycleHarness.ts); nothing here moves funds or signs for a
 // real counterparty. The page size (100) is the production constant of dispute-dispatch-recovery.ts, restated here;
-// the first assertion of K1 fails if it changes. The database may hold candidates of other suites: everything is
-// asserted about THIS describe's escrows, and the assertions about pages hold for any database.
+// the first assertion of K1 fails if it changes. The database may hold candidates of other suites: everything is asserted
+// about THIS describe's escrows, and the assertions about pages hold for any database.
 const PAGE = 100
 type Ruling = 'RELEASE' | 'REFUND' | 'SPLIT'
 const RULINGS: Ruling[] = ['RELEASE', 'REFUND', 'SPLIT']
@@ -385,6 +385,7 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
   let commitAuthoritativeDisputeRuling: typeof import('../../src/modules/open-settlement/dispute-outcome').commitAuthoritativeDisputeRuling
   let reconcileMissingDispatch: typeof import('../../src/modules/open-settlement/dispute-dispatch-recovery').reconcileMissingDispatch
   let EscrowError: typeof import('../../src/common/errors').EscrowError
+  let guard: typeof import('../../src/modules/open-settlement/dispatch-translation-guard')
 
   // The trusted-arbiter configuration is read once per process, by whichever describe of this file loads the services first:
   // both use the same arbiter id, each with its own key (the first describe has finished when this one starts).
@@ -412,6 +413,7 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
     ;({ commitAuthoritativeDisputeRuling } = require('../../src/modules/open-settlement/dispute-outcome'))
     ;({ reconcileMissingDispatch } = require('../../src/modules/open-settlement/dispute-dispatch-recovery'))
     ;({ EscrowError } = require('../../src/common/errors'))
+    guard = require('../../src/modules/open-settlement/dispatch-translation-guard')
     const { intentEngine } = require('../../src/core/intent-engine')
     const { OpenP2PTradeIntentHandler } = require('../../src/modules/open-p2p/intent-handler')
     intentEngine.registerHandler(OpenP2PTradeIntentHandler)
@@ -423,7 +425,22 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
 
   afterEach(() => { jest.restoreAllMocks() })
 
-  afterAll(() => { if (dbAvailable) global.fetch = realFetch })
+  // ISOLATION BETWEEN SUITES ONLY - this proves nothing about ruling finalization or recovery.
+  // What this describe builds is permanent state in the database that the PostgreSQL lane shares with every later suite, and
+  // the finalization sweep (200 per call, oldest first) pages through it: its committed rulings were never finalized (they are
+  // built by commitAuthoritativeDisputeRuling(), not resolveDispute()), so left alone they sit in front of every later suite's
+  // own deferred ruling (rulingFinalizationEligibility D11-R/D12 stopped seeing theirs when this suite had ~300 of them).
+  // Hence two things. The population is kept small (101 eligible candidates: just over one page; the same population serves
+  // every test) because its volume is paid by every later suite as output the jest process keeps in memory. And afterAll
+  // records, for exactly the disputes this describe created - all raised with the reason prefix '#343 '; the unrelated history
+  // disputes of the first describe are not touched - the claim a real finalization writes. afterAll runs whether the tests
+  // passed or failed; a process killed before it (timeout, out of memory) skips it.
+  afterAll(async () => {
+    if (!dbAvailable) return
+    global.fetch = realFetch
+    const mine = await prisma.dispute.findMany({ where: { reason: { startsWith: '#343 ' } }, select: { id: true, appealRound: true } })
+    await prisma.eventProjectionClaim.createMany({ data: mine.map((d) => ({ eventId: d.id, projectionKey: 'dispute.ruling-finalized', subjectId: String(d.appealRound) })), skipDuplicates: true })
+  })
 
   // ─── fixtures: real participants, real MULTISIG escrow funded through the production services ───────────────
   const deps = () => ({ prisma, escrowService, identityService, liquidityRouter, tradeService, payoutAddressService })
@@ -518,9 +535,13 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
     expect(new Set(rows.map((r) => r.escrowId)).size).toBe(rows.length)
   }
 
-  // ═════════════════════ K1-K5: one population, several runs ═════════════════════════════════════════════════
-  describe('K1-K5: 200 eligible candidates (195 plain + 5 over a cooperative round), 11 excluded histories', () => {
-    const PLAIN = 195
+  // ═════════════════════ one population, several runs ═══════════════════════════════════════════════════════════
+  // 101 eligible candidates (just over one page: the cursor is crossed once) and 6 excluded histories, built once and used by
+  // every test below, in order: K6 races two reconcilers through them, K4 reads what that did to the cooperative rounds, then
+  // the pending rounds of the first run are removed (the deletion the guard-failure path itself performs) so that K5/K1/K2
+  // can run the same candidates again under failures.
+  describe('K1-K6: 101 eligible candidates (96 plain + 5 over a cooperative round), 6 excluded histories', () => {
+    const PLAIN = 96
     const COOP = 5
     let plain: Case[] = []
     let coop: Case[] = []
@@ -536,20 +557,20 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       eligible = [...plain, ...coop]
 
       // Histories that are NOT recovery work, each of a different kind (K3).
-      for (let i = 0; i < 3; i++) { // settled: the escrow is terminal although a ruling record exists
+      for (let i = 0; i < 2; i++) { // settled: the escrow is terminal although a ruling record exists
         const s = await c4(`settled${i}`, 'RELEASE')
         await prisma.escrow.update({ where: { id: s.escrowId }, data: { status: 'COMPLETED' } })
         excluded.settled.push(s)
       }
-      for (let i = 0; i < 3; i++) { // legacy: RESOLVED with no Core record at all
+      for (let i = 0; i < 2; i++) { // legacy: RESOLVED with no Core record at all
         const c = await funded(`legacy${i}`)
         const dispute = await getDisputeService().raiseDispute(c.trade.id, c.buyer.id, `#343 legacy${i}`)
         await prisma.dispute.update({ where: { id: dispute.id }, data: { status: 'RESOLVED', ruling: 'RELEASE', resolvedAt: new Date() } })
         excluded.legacy.push({ escrowId: c.escrow.id, disputeId: dispute.id, ruling: 'RELEASE' })
       }
-      for (let i = 0; i < 3; i++) { // already dispatched: the live ruling path persisted its round
-        const c = await funded(`live${i}`)
-        const dispute = await getDisputeService().raiseDispute(c.trade.id, c.buyer.id, `#343 live${i}`)
+      { // already dispatched: the live ruling path persisted its round, bound to its dispute
+        const c = await funded('live0')
+        const dispute = await getDisputeService().raiseDispute(c.trade.id, c.buyer.id, '#343 live0')
         await payoutsFor(c, 'RELEASE')
         const issuedAt = new Date().toISOString()
         const payload: AuthorityDecisionPayload = { disputeId: dispute.id, escrowId: c.escrow.id, appealRound: 0, authorityId: ARBITER_ID, outcome: 'RELEASE', buyerBps: null, issuedAt }
@@ -558,7 +579,7 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       }
       fullySigned = await c4OverCooperativeRound('fully-signed', 2) // #239: every signature present - never superseded
       dispatchedBefore = (await pendingRows([...ids(excluded.dispatched), fullySigned.escrowId])).map((r) => ({ escrowId: r.escrowId, id: r.id }))
-      expect(dispatchedBefore).toHaveLength(4)
+      expect(dispatchedBefore).toHaveLength(2)
     }, 3_600_000)
 
     const allExcluded = () => [...excluded.settled, ...excluded.legacy, ...excluded.dispatched, fullySigned]
@@ -566,14 +587,51 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
     const inject = { generic: new Set<string>(), conflict: new Set<string>(), crash: new Set<string>() }
     let guardFailedEscrow: string | undefined
 
-    it('K5 + K1: failures in the middle of the first run (a throwing dispatch, a conflict, a guard failure, a crash after persisting) lose no other candidate, across both page boundaries', async () => {
+    it('K6: two reconcilers racing through the pages resume each of the 101 candidates exactly once, and load none of the excluded histories', async () => {
+      pg.requirePostgres('K6')
+      const seen = observe()
+      const [a, b] = await Promise.all([reconcileMissingDispatch(), reconcileMissingDispatch()])
+      const mine = new Set(ids(eligible))
+      const resumed = [...a.resumed, ...b.resumed].map((r) => r.escrowId).filter((id) => mine.has(id))
+      process.stdout.write(`[evidence] ${JSON.stringify({ label: 'K6 two reconcilers', candidates: eligible.length, resumedByA: a.resumed.filter((r) => mine.has(r.escrowId)).length, resumedByB: b.resumed.filter((r) => mine.has(r.escrowId)).length, benignConflicts: [...a.alreadyResumedConcurrently, ...b.alreadyResumedConcurrently].filter((id) => mine.has(id)).length })}\n`)
+      expect(resumed).toHaveLength(eligible.length) // none lost
+      expect(new Set(resumed).size).toBe(eligible.length) // none twice
+      expect([...a.failed, ...b.failed].filter((f) => mine.has(f.escrowId))).toEqual([])
+      expect([...a.guardFailed, ...b.guardFailed].filter((f) => mine.has(f.escrowId))).toEqual([])
+      const loaded = seen.pages.flat()
+      for (const c of eligible) expect(loaded).toContain(c.disputeId) // every candidate was read by someone
+      for (const e of allExcluded()) expect(loaded).not.toContain(e.disputeId) // K3: no history was
+      expect(await pendingRows(ids(eligible))).toHaveLength(eligible.length)
+      await expectNoEconomicDisposition(eligible)
+    }, 1_800_000)
+
+    it('K4 (#239): each cooperative round with a signature missing was superseded by its ruling, once; the fully signed one was not touched', async () => {
+      pg.requirePostgres('K4')
+      for (const c of coop) {
+        const retirements = await prisma.escrowPendingRoundRetirement.findMany({ where: { escrowId: c.escrowId } })
+        expect(retirements).toHaveLength(1)
+        expect(retirements[0]).toMatchObject({ pendingOperationId: c.roundId, reason: 'SUPERSEDED_BY_RULING', disputeId: c.disputeId, appealRound: 0 })
+        const live = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: c.escrowId } })
+        expect(live.id).not.toBe(c.roundId) // a new round
+        expect(live.id).toBe(retirements[0].supersedingPendingOperationId)
+        expect(live.disputeId).toBe(c.disputeId)
+      }
+      const still = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: fullySigned.escrowId }, include: { signatures: true } })
+      expect(still.id).toBe(fullySigned.roundId)
+      expect(still.signatures).toHaveLength(2)
+      expect(await prisma.escrowPendingRoundRetirement.count({ where: { escrowId: fullySigned.escrowId } })).toBe(0)
+    }, 120_000)
+
+    it('K5 + K1: failures in the middle of a run (a throwing dispatch, a conflict, a guard failure, a crash after persisting) lose no other candidate, across the page boundary', async () => {
       pg.requirePostgres('K5/K1 first run')
+      // The 101 candidates become unresolved again: only the pending rounds K6 created are removed.
+      await prisma.escrowPendingTransaction.deleteMany({ where: { escrowId: { in: ids(eligible) } } })
       const order = sorted(eligible)
-      // One failure of each kind, on both sides of a boundary: the last of page 1 / the first of page 2 / the last of page 2.
+      // One failure of each kind, on both sides of the boundary: order[100] is alone on page 2, order[99] is the last of page 1.
       const generic = [order[3], order[PAGE]]
-      const conflict = order[PAGE + 1]
-      const crash = order[2 * PAGE - 1]
-      const guardTarget = order[PAGE + 50].escrowId // its translation guard is made to fail, right after its dispatch persisted
+      const conflict = order[PAGE - 1]
+      const crash = order[50]
+      const guardTarget = order[PAGE - 5].escrowId // its translation guard is made to fail, right after its dispatch persisted
       for (const x of generic) inject.generic.add(x.escrowId)
       inject.conflict.add(conflict.escrowId)
       inject.crash.add(crash.escrowId)
@@ -590,7 +648,6 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       }) as never)
       wrap('initiateRelease'); wrap('initiateRefund'); wrap('initiateSplit')
       // A guard failure for one named candidate: the guard runs right after that candidate's dispatch, so it is armed by it.
-      const guard = require('../../src/modules/open-settlement/dispatch-translation-guard')
       const realGuard = guard.assertTranslationMatchesOutcome
       jest.spyOn(guard, 'assertTranslationMatchesOutcome').mockImplementation(((...args: unknown[]) => {
         if (guardArmed) { guardArmed = false; throw new guard.TranslationGuardError(['m9r-343 injected translation mismatch']) }
@@ -609,10 +666,11 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       expect(pages[0]).toHaveLength(PAGE)
       expect(pages.slice(0, -1).every((p) => p.length === PAGE)).toBe(true) // every page but the last is full
       expect(pages[pages.length - 1].length).toBeLessThanOrEqual(PAGE)
-      expect(pages.length).toBeGreaterThanOrEqual(3) // 200 eligible: the cursor crossed two boundaries
+      expect(pages.length).toBeGreaterThanOrEqual(2) // 101 eligible: the cursor crossed the boundary
+      // Every other eligible candidate of the database is read too (other suites may leave some): none of THIS describe's is omitted.
       const pageOf = (id: string) => pages.findIndex((p) => p.includes(eligible.find((c) => c.escrowId === id)!.disputeId))
       const targets = [...generic.map((g) => g.escrowId), conflict.escrowId, crash.escrowId, guardTarget]
-      process.stdout.write(`[evidence] ${JSON.stringify({ label: 'K5 injected failures by page', pages: targets.map(pageOf), foreignCandidatesLoaded: loaded.length - eligible.length })}\n`)
+      process.stdout.write(`[evidence] ${JSON.stringify({ label: 'K5 injected failures by page', pages: targets.map(pageOf), loadedBeyondThisDescribe: loaded.length - eligible.length })}\n`)
       expect(new Set(targets.map(pageOf)).size).toBeGreaterThanOrEqual(2) // the failures are not all on one page
       expect(new Set(loaded).size).toBe(loaded.length) // no dispute loaded twice
       for (const p of pages) expect([...p]).toEqual([...p].sort()) // each page in id order
@@ -635,7 +693,7 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       firstRunResumed = resumed
       expect(new Set(resumed).size).toBe(resumed.length) // exactly once each
       const unresolved = new Set([...generic.map((g) => g.escrowId), conflict.escrowId, guardFailedEscrow])
-      // Every other candidate - including those after the failures and on the later pages - was resumed in this same run.
+      // Every other candidate - including those after the failures and on the later page - was resumed in this same run.
       for (const c of eligible) {
         if (unresolved.has(c.escrowId) || c.escrowId === crash.escrowId) continue
         expect(resumed).toContain(c.escrowId)
@@ -671,27 +729,10 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       const rows = await pendingRows(ids(eligible))
       expect(rows).toHaveLength(eligible.length)
       expect(new Set(rows.map((r) => r.escrowId)).size).toBe(eligible.length)
-      // The survivor of the failures has ONE round, bound to its own dispute.
+      // Each escrow has ONE round, bound to its own dispute.
       for (const c of eligible) expect(rows.find((r) => r.escrowId === c.escrowId)!.disputeId).toBe(c.disputeId)
       process.stdout.write(`[evidence] ${JSON.stringify({ label: 'K2 idempotent', secondRunResumed: mineResumed.length, thirdRunResumed: 0, thirdRunPagesLoadingMine: 0, pendingRounds: rows.length })}\n`)
     }, 1_800_000)
-
-    it('K4 (#239): each cooperative round with a signature missing was superseded by its ruling, once; the fully signed one was not touched', async () => {
-      pg.requirePostgres('K4')
-      for (const c of coop) {
-        const retirements = await prisma.escrowPendingRoundRetirement.findMany({ where: { escrowId: c.escrowId } })
-        expect(retirements).toHaveLength(1)
-        expect(retirements[0]).toMatchObject({ pendingOperationId: c.roundId, reason: 'SUPERSEDED_BY_RULING', disputeId: c.disputeId, appealRound: 0 })
-        const live = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: c.escrowId } })
-        expect(live.id).not.toBe(c.roundId) // a new round
-        expect(live.id).toBe(retirements[0].supersedingPendingOperationId)
-        expect(live.disputeId).toBe(c.disputeId)
-      }
-      const still = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: fullySigned.escrowId }, include: { signatures: true } })
-      expect(still.id).toBe(fullySigned.roundId)
-      expect(still.signatures).toHaveLength(2)
-      expect(await prisma.escrowPendingRoundRetirement.count({ where: { escrowId: fullySigned.escrowId } })).toBe(0)
-    }, 120_000)
 
     it('K3: the settled, legacy and already dispatched histories were never touched by any of the runs', async () => {
       pg.requirePostgres('K3')
@@ -703,31 +744,6 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       const after = (await pendingRows([...ids(excluded.dispatched), fullySigned.escrowId])).map((r) => ({ escrowId: r.escrowId, id: r.id }))
       expect(after).toEqual(dispatchedBefore) // the very same rounds: not replaced, not deleted
     })
-  })
-
-  // ═════════════════════ K6: two reconcilers through the same pages ═══════════════════════════════════════════
-  describe('K6: 101 eligible candidates, two reconcilers racing through the pages', () => {
-    const N = PAGE + 1
-    let cases: Case[] = []
-
-    beforeAll(async () => {
-      if (!dbAvailable) return
-      for (let i = 0; i < N; i++) cases.push(await c4(`race${i}`, RULINGS[i % 3]))
-    }, 1_800_000)
-
-    it('every candidate is resumed by exactly one of them, none by both, and each escrow ends with one round', async () => {
-      pg.requirePostgres('K6')
-      const [a, b] = await Promise.all([reconcileMissingDispatch(), reconcileMissingDispatch()])
-      const mine = new Set(ids(cases))
-      const resumed = [...a.resumed, ...b.resumed].map((r) => r.escrowId).filter((id) => mine.has(id))
-      process.stdout.write(`[evidence] ${JSON.stringify({ label: 'K6 two reconcilers', candidates: N, resumedByA: a.resumed.filter((r) => mine.has(r.escrowId)).length, resumedByB: b.resumed.filter((r) => mine.has(r.escrowId)).length, benignConflicts: [...a.alreadyResumedConcurrently, ...b.alreadyResumedConcurrently].filter((id) => mine.has(id)).length })}\n`)
-      expect(resumed).toHaveLength(N) // none lost
-      expect(new Set(resumed).size).toBe(N) // none twice
-      expect([...a.failed, ...b.failed].filter((f) => mine.has(f.escrowId))).toEqual([])
-      expect([...a.guardFailed, ...b.guardFailed].filter((f) => mine.has(f.escrowId))).toEqual([])
-      expect(await pendingRows(ids(cases))).toHaveLength(N)
-      await expectNoEconomicDisposition(cases)
-    }, 1_800_000)
   })
 })
 
