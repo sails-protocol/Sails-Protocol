@@ -1,3 +1,14 @@
+// GK-M9R-D R1 - this file proves the ADR-005 generation gate on mocked rows; the Outcome correspondence check it now
+// also passes through is proven on real PostgreSQL and real PSBTs (tests/integration/multisigBroadcastOutcome R1-*).
+jest.mock('../src/modules/open-settlement/dispute-outcome', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/dispute-outcome'),
+  loadDisputeRulingRecord: async () => ({ outcomeContent: {} }),
+  fromDisputeRulingRow: () => ({ outcome: {} }),
+}))
+jest.mock('../src/modules/open-settlement/dispatch-translation-guard', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/dispatch-translation-guard'),
+  assertTranslationMatchesOutcome: () => undefined,
+}))
 // Issue #239 - this suite's PSBTs are placeholders: the real signature check (multisig-round-proofs.ts) is proven with
 // real Bitcoin PSBTs in tests/multisigRoundProofs.test.ts and tests/integration/pendingRoundLifecycle.test.ts.
 jest.mock('../src/modules/open-settlement/multisig-round-proofs', () => ({
@@ -39,6 +50,7 @@ jest.mock('../src/config', () => ({
       trade: { defaultTimelockHours: 24 },
       settlement: { trustedArbitrators: [], protocolFeeRate: 0 },
       arkade: { seed: '' },
+      multisig: { network: 'regtest' }, // read by the R1 Outcome correspondence gate
       escrowCircuitBreaker: { failureThreshold: 1000, windowMs: 60_000, cooldownMs: 60_000 },
     }
   },
