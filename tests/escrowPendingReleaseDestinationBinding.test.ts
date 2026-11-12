@@ -3,8 +3,10 @@
 jest.mock('../src/modules/open-settlement/dispute-outcome', () => ({
   ...jest.requireActual('../src/modules/open-settlement/dispute-outcome'),
   loadDisputeRulingRecord: async () => ({ outcomeContent: {} }),
-  fromDisputeRulingRow: () => ({ outcome: {} }),
+  // PE-M9R R-4 - the gate binds the round kind to this Outcome's ruling; a test of another kind sets mockOutcomeRuling.
+  fromDisputeRulingRow: () => ({ outcome: { content: { ruling: mockOutcomeRuling } } }),
 }))
+let mockOutcomeRuling = 'RELEASE'
 jest.mock('../src/modules/open-settlement/dispatch-translation-guard', () => ({
   ...jest.requireActual('../src/modules/open-settlement/dispatch-translation-guard'),
   assertTranslationMatchesOutcome: () => undefined,

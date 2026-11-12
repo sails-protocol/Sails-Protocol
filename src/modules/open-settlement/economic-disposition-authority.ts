@@ -193,13 +193,13 @@ async function assertDisputedTranslationMatchesOutcome(pending: DisputedPendingF
     )
   }
   // PE-M9R R-4 (#618) - the outputs alone cannot tell RELEASE from REFUND when buyer and seller share an address:
-  // the round's kind must be the kind its recorded ruling authorizes (the generation check above already bound
-  // rulingOutcome to the live RESOLVED ruling, committed with this Outcome), or it would settle misclassified.
+  // the round's kind must be the kind the durable Outcome's ruling authorizes (anchored on the Outcome, not on the
+  // row's provenance: the reuse path above does not re-run the generation check), or it would settle misclassified.
   const { RULING_KIND } = require('./dispute-dispatch') // eslint-disable-line @typescript-eslint/no-var-requires
-  if (RULING_KIND[pending.rulingOutcome ?? ''] !== pending.kind) {
+  if (RULING_KIND[outcome.content?.ruling] !== pending.kind) {
     throw new DisputedTranslationRefused(
-      `Pending operation ${pending.id} on escrow ${pending.escrowId} is a ${pending.kind} round, but its recorded ruling for ` +
-      `dispute ${pending.disputeId} is ${pending.rulingOutcome} - refusing to execute (GK-M9R-D R1, R-4).`,
+      `Pending operation ${pending.id} on escrow ${pending.escrowId} is a ${pending.kind} round, but the authoritative Outcome of ` +
+      `dispute ${pending.disputeId} is ${outcome.content?.ruling} - refusing to execute (GK-M9R-D R1, R-4).`,
       ['KIND_MISMATCH'],
     )
   }
