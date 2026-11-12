@@ -201,6 +201,59 @@ describe('GK-M9R-D R2 - a disputed MULTISIG round never exists before its transl
     expect(row).toMatchObject({ id: p.id, disputeId: null, kind: 'release' })
   })
 
+  it('R2-8 the assigned arbiter\'s route keeps working when its translation matches the committed Outcome: a RELEASE ruling, then initiate-release, one beneficiary signature broadcasts to the buyer (CTO 25 item 3)', async () => {
+    pg.requirePostgres('R2-8')
+    const f = await fixture('r2-8')
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: f.disputeId, escrowId: f.escrowId, appealRound: 0, authorityId: ARBITER_ID, outcome: 'RELEASE' as const, buyerBps: null, issuedAt }
+    await commitOnly(f, { payload, signature: signAuthorityDecision(payload, kp.secretKey), issuedAt } as never)
+    // Same call settlement.routes.ts makes: no caller destination, the arbiter as participant.
+    await escrowService.initiateRelease(f.escrowId, undefined, ARBITER_ID)
+    const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: f.escrowId } })
+    expect(row).toMatchObject({ disputeId: f.disputeId, rulingOutcome: 'RELEASE', rulingAppealRound: 0, kind: 'release' })
+    expect((await submitSig(f.escrowId, f.buyerId, H.signRound(row.unsignedPsbtBase64, H.buyerKey))).complete).toBe(true)
+    expect(chain.broadcasts).toHaveLength(1)
+    expect(shares(f, chain.hex.get(chain.broadcasts[0])!).map((o) => o.who)).toEqual(['buyer'])
+  })
+
+  it('R2-9 generation binding: an appeal that holds the dispute row while a round is being built makes the build wait, then refuse; an unrelated write to the row lets it proceed (CTO 25 item 2)', async () => {
+    pg.requirePostgres('R2-9')
+    const until = async (cond: () => Promise<boolean>) => {
+      for (let i = 0; i < 400; i++) { if (await cond()) return; await new Promise((r) => setTimeout(r, 50)) }
+      throw new Error('R2-9: condition not reached')
+    }
+    const waitingOnRowLock = async () => (await prisma.$queryRaw`
+      SELECT count(*)::int AS n FROM pg_stat_activity
+      WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%FOR SHARE%'`)[0].n > 0
+    /** Holds an UPDATE of the dispute row open (appeal()'s own claim is an UPDATE of this row), dispatches, then commits. */
+    async function raceDispatch(f: F, setSql: string) {
+      const { bd, sd } = await commitOnly(f, ruling(f))
+      let commitNow!: () => void; const gate = new Promise<void>((r) => { commitNow = r })
+      let held = false
+      const writer = prisma.$transaction(async (tx: any) => {
+        await tx.$executeRawUnsafe(`UPDATE "disputes" SET ${setSql} WHERE "id" = $1`, f.disputeId)
+        held = true
+        await gate
+      }, { timeout: 60_000 })
+      await until(async () => held)
+      const dispatch = escrowService.initiateSplit(f.escrowId, bd, sd, 7000, ARBITER_ID).then(() => null, (e: Error) => e)
+      await until(waitingOnRowLock) // the build is parked on the dispute row, inside the escrow lock, before any round exists
+      expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: f.escrowId } })).toBe(0)
+      commitNow(); await writer
+      return dispatch
+    }
+    const appealed = await fixture('r2-9a')
+    const refused = await raceDispatch(appealed, `"status" = 'APPEALED', "appealRound" = 1, "ruling" = NULL`)
+    expect(refused).toBeInstanceOf(Error)
+    expect(refused!.message).toMatch(/no longer the RESOLVED generation 0 .*GK-M9R-D R2/)
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: appealed.escrowId } })).toBe(0)
+    expect(await loadDisputeRulingRecord(appealed.escrowId, 0)).not.toBeNull() // the round-0 Outcome is kept as provenance
+
+    const untouched = await fixture('r2-9b')
+    expect(await raceDispatch(untouched, `"updatedAt" = now()`)).toBeNull()
+    expect(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: untouched.escrowId } })).toMatchObject({ disputeId: untouched.disputeId, rulingAppealRound: 0 })
+  })
+
   it('R2-7 no unconditional pending-round delete is left on the dispute dispatch paths', () => {
     const fs = require('fs'), path = require('path')
     for (const file of ['dispute.service.ts', 'dispute-dispatch-recovery.ts']) {

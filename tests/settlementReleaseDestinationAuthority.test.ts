@@ -28,11 +28,13 @@ export {} // same forced-module-scope reasoning used throughout this suite
 
 const mockReleaseFunds = jest.fn().mockResolvedValue({ id: 'escrow-1', status: 'COMPLETED' })
 const mockInitiateRelease = jest.fn().mockResolvedValue({ id: 'pending-1', requiredSigners: ['buyer-1'] })
+const mockInitiateRefund = jest.fn()
 
 jest.mock('../src/modules/open-settlement/escrow.service', () => ({
   escrowService: {
     releaseFunds: (...args: unknown[]) => mockReleaseFunds(...args),
     initiateRelease: (...args: unknown[]) => mockInitiateRelease(...args),
+    initiateRefund: (...args: unknown[]) => mockInitiateRefund(...args),
   },
 }))
 
@@ -184,5 +186,40 @@ describe('POST /v1/settlement/escrow/:id/initiate-release — M8-R2 destination 
     })
     expect(res.statusCode).toBe(201)
     expect(mockInitiateRelease).toHaveBeenCalledWith('escrow-1', undefined, 'seller-1')
+  })
+})
+
+// GK-M9R-D R2 (CTO 25 item 1) - the arbiter's own routes surface an expected refusal as a classified 409, never a
+// generic 500, and an unexpected fault is still a 500. The real errors escrowService throws are used, not look-alikes.
+describe('initiate-release / initiate-refund - R2 refusals keep a safe, verifiable classification', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { TranslationGuardError } = require('../src/modules/open-settlement/dispatch-translation-guard')
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { EscrowError } = jest.requireActual('../src/common/errors')
+  let app: any
+  beforeEach(async () => { jest.clearAllMocks(); app = await buildTestApp() })
+  afterEach(async () => { await app.close() })
+
+  const post = (route: string) => app.inject({ method: 'POST', url: `/v1/settlement/escrow/escrow-1/${route}`, headers: { 'x-test-participant-id': 'arbiter-1' }, payload: {} })
+
+  it.each(['initiate-release', 'initiate-refund'])('%s: a translation that differs from the Outcome is 409 TRANSLATION_GUARD_MISMATCH', async (route) => {
+    const fail = route === 'initiate-release' ? mockInitiateRelease : mockInitiateRefund
+    fail.mockRejectedValueOnce(new TranslationGuardError(['output 0 pays 8500 sats, expected 7000']))
+    const res = await post(route)
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ code: 'TRANSLATION_GUARD_MISMATCH' })
+  })
+
+  it.each(['initiate-release', 'initiate-refund'])('%s: no durable Outcome is a 409 ESCROW_ERROR refusal', async (route) => {
+    const fail = route === 'initiate-release' ? mockInitiateRelease : mockInitiateRefund
+    fail.mockRejectedValueOnce(new EscrowError('Escrow escrow-1 has no durable authoritative Outcome for dispute round 0 (GK-M9R-D R2).'))
+    const res = await post(route)
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ code: 'ESCROW_ERROR' })
+  })
+
+  it('an unexpected fault is still a 500, not disguised as a refusal', async () => {
+    mockInitiateRelease.mockRejectedValueOnce(new Error('psbt decode crashed'))
+    expect((await post('initiate-release')).statusCode).toBe(500)
   })
 })

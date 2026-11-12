@@ -1,4 +1,5 @@
 import { prisma } from '../../common/database'
+import type { Prisma } from '@prisma/client'
 import { NotFoundError, EscrowError, ForbiddenError, ValidationError } from '../../common/errors'
 import { config } from '../../config'
 import { getSignatureCollectionProvider } from './escrow-providers'
@@ -73,15 +74,34 @@ const log = childLogger('escrow-pending-tx')
  * The execution-time check of R1 (economic-disposition-authority.ts) is independent of this one.
  * Required lazily: this module is shared by many others, and these two pull in the dispute/outcome graph.
  */
-async function assertDisputedRoundMatchesOutcome(escrowId: string, appealRound: number, round: { psbtBase64: string; minerFeeSats?: number }): Promise<void> {
+async function assertDisputedRoundMatchesOutcome(
+  tx: Prisma.TransactionClient,
+  escrowId: string,
+  provenance: Record<string, unknown>,
+  round: { psbtBase64: string; minerFeeSats?: number },
+): Promise<void> {
   const { loadDisputeRulingRecord, fromDisputeRulingRow } = require('./dispute-outcome') // eslint-disable-line @typescript-eslint/no-var-requires
   const { assertTranslationMatchesOutcome } = require('./dispatch-translation-guard') // eslint-disable-line @typescript-eslint/no-var-requires
-  const row = await loadDisputeRulingRecord(escrowId, appealRound)
+  const appealRound = provenance.rulingAppealRound as number
+  // FOR SHARE: an appeal or a ruling revert (both UPDATE this row) waits for this transaction, so the generation checked
+  // here is still the live one when the round is created below. Outcome records are write-once per (escrow, round).
+  const [live] = await tx.$queryRaw<{ status: string; appealRound: number; ruling: string | null; authoritySignature: string | null }[]>`
+    SELECT "status", "appealRound", "ruling", "authoritySignature" FROM "disputes" WHERE "id" = ${provenance.disputeId as string} FOR SHARE`
+  const row = await loadDisputeRulingRecord(escrowId, appealRound, tx)
   const outcome = row?.outcomeContent ? fromDisputeRulingRow(row).outcome : null
   if (!outcome) {
     throw new EscrowError(
       `Escrow ${escrowId} has no durable authoritative Outcome for dispute round ${appealRound} - refusing to build a disputed ` +
       'MULTISIG round that could not be checked against it (GK-M9R-D R2).'
+    )
+  }
+  if (
+    !live || live.status !== 'RESOLVED' || live.appealRound !== appealRound || live.ruling !== outcome.content.ruling ||
+    live.ruling !== provenance.rulingOutcome || live.authoritySignature !== (provenance.rulingAuthoritySignature ?? null)
+  ) {
+    throw new EscrowError(
+      `Dispute ${String(provenance.disputeId)} is no longer the RESOLVED generation ${appealRound} this round was built from - ` +
+      'refusing to build a disputed MULTISIG round against a superseded ruling (GK-M9R-D R2).'
     )
   }
   assertTranslationMatchesOutcome(round.psbtBase64, outcome, networkFor(config.multisig.network), round.minerFeeSats)
@@ -234,7 +254,7 @@ async function initiateSignatureCollectionCore(
       // GK-M9R-D R2 - last step before the round exists, after the existing authority/grant/funding refusals. Same
       // transaction as retireRound() above: a mismatch rolls the retirement back, so nothing at all is written.
       if (escrow.type === 'MULTISIG' && typeof disputedRulingProvenance.disputeId === 'string') {
-        await assertDisputedRoundMatchesOutcome(escrowId, disputedRulingProvenance.rulingAppealRound as number, result)
+        await assertDisputedRoundMatchesOutcome(tx, escrowId, disputedRulingProvenance, result)
       }
       return tx.escrowPendingTransaction.create({
         data: {
