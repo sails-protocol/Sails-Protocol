@@ -92,6 +92,50 @@ describe('/health/ready', () => {
     }
   })
 
+  it('sanitizes postgres failure details while preserving redis readiness', async () => {
+    const secret = 'postgres://internal-db.example/private-db?password=should-not-leak'
+    jest.doMock('../src/common/database', () => ({ prisma: { $queryRaw: jest.fn().mockRejectedValue(new Error(secret)) } }))
+    jest.doMock('../src/common/redis', () => ({ redis: { ping: jest.fn().mockResolvedValue('PONG') } }))
+    const { buildApp } = require('../src/app')
+    const app = await buildApp({ registerSwaggerUi: false })
+    try {
+      const res = await app.inject({ method: 'GET', url: '/health/ready' })
+      expect(res.statusCode).toBe(503)
+      const body = JSON.parse(res.body)
+      expect(body.status).toBe('not_ready')
+      expect(body.checks.postgres).toMatchObject({ ok: false, error: 'Dependency unavailable' })
+      expect(body.checks.redis.ok).toBe(true)
+      expect(res.body).not.toContain(secret)
+      expect(res.body).not.toContain('should-not-leak')
+    } finally {
+      await app.close()
+    }
+  })
+
+  // Gatekeeper NO-GO on 8d45a324: the response was clean, but app.log wrote the raw error. This reads what the
+  // app's own logger actually emitted, through its real configuration.
+  it.each([
+    ['userinfo', 'postgres://sails:hunter2-secret@db.internal:5432/sails', 'hunter2-secret'],
+    ['password only', 'redis://:redis-secret@cache.internal:6379', 'redis-secret'],
+    ['query string', 'postgres://db.internal/sails?sslmode=require&password=query-secret', 'query-secret'],
+  ])('logs a dependency failure without the credential in its message or stack (%s)', async (_, dsn, credential) => {
+    const lines: string[] = []
+    jest.doMock('../src/common/database', () => ({ prisma: { $queryRaw: jest.fn().mockRejectedValue(new Error(`connect failed: ${dsn}`)) } }))
+    jest.doMock('../src/common/redis', () => ({ redis: { ping: jest.fn().mockResolvedValue('PONG') } }))
+    const { buildApp } = require('../src/app')
+    const app = await buildApp({ registerSwaggerUi: false, logStream: { write: (line: string) => { lines.push(line) } } })
+    try {
+      const res = await app.inject({ method: 'GET', url: '/health/ready' })
+      expect(res.statusCode).toBe(503)
+      const logged = lines.map((l) => JSON.parse(l)).find((l) => l.msg === 'Readiness dependency unavailable')
+      expect(logged).toMatchObject({ dependency: 'postgres', err: { message: expect.stringContaining('connect failed') } })
+      expect(JSON.stringify(logged)).toContain('[REDACTED]')
+      expect(lines.join('\n')).not.toContain(credential)
+    } finally {
+      await app.close()
+    }
+  })
+
   it('reports 503 not_ready when redis is unreachable, without crashing', async () => {
     jest.doMock('../src/common/database', () => ({ prisma: { $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]) } }))
     jest.doMock('../src/common/redis', () => ({ redis: { ping: jest.fn().mockRejectedValue(new Error('ECONNREFUSED')) } }))
@@ -104,7 +148,8 @@ describe('/health/ready', () => {
       expect(body.status).toBe('not_ready')
       expect(body.checks.postgres.ok).toBe(true)
       expect(body.checks.redis.ok).toBe(false)
-      expect(body.checks.redis.error).toContain('ECONNREFUSED')
+      expect(body.checks.redis.error).toBe('Dependency unavailable')
+      expect(res.body).not.toContain('ECONNREFUSED')
     } finally {
       await app.close()
     }
@@ -120,7 +165,8 @@ describe('/health/ready', () => {
       expect(res.statusCode).toBe(503)
       const body = JSON.parse(res.body)
       expect(body.checks.redis.ok).toBe(false)
-      expect(body.checks.redis.error).toContain('WEIRD')
+      expect(body.checks.redis.error).toBe('Dependency unavailable')
+      expect(res.body).not.toContain('WEIRD')
     } finally {
       await app.close()
     }

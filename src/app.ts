@@ -13,6 +13,7 @@ import { connectDatabase } from './common/database'
 import { redis } from './common/redis'
 import { connectRedis } from './common/redis'
 import { AppError, ERROR_DOCS_URL } from './common/errors'
+import { serializeError } from './common/logger'
 import { registerEventHandlers } from './common/events/handlers'
 import { eventBus } from './common/events/event-bus'
 import { intentEngine } from './core/intent-engine'
@@ -67,10 +68,12 @@ export interface BuildAppOptions {
   // exactly today's behavior; no test's outcome changes unless it
   // explicitly opts out.
   registerSwaggerUi?: boolean
+  // Where the Fastify logger writes. Tests pass a stream to read the real log lines; the default is stdout.
+  logStream?: { write(line: string): void }
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
-  const { registerSwaggerUi = true } = options
+  const { registerSwaggerUi = true, logStream } = options
 
   // Missão 11 Fase 7.3.2 §1 (CTO-approved) — rail-capability validation,
   // evaluated once, unconditionally, before anything else boots. See
@@ -103,6 +106,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         paths: ['req.headers.authorization', 'req.headers.cookie', 'token'],
         censor: '[REDACTED]',
       },
+      // The shared error serializer, so app.log scrubs a credential out of an error's message and stack too.
+      serializers: { err: serializeError },
+      ...(logStream ? { stream: logStream } : {}),
     },
   })
 
@@ -327,10 +333,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         await fn()
         checks[label] = { ok: true, latencyMs: Date.now() - start }
       } catch (err) {
+        app.log.warn({ err, dependency: label }, 'Readiness dependency unavailable')
         checks[label] = {
           ok: false,
           latencyMs: Date.now() - start,
-          error: err instanceof Error ? err.message : String(err),
+          // Keep infrastructure exception details in internal logs, never readiness responses.
+          error: 'Dependency unavailable',
         }
       }
     }
