@@ -59,6 +59,7 @@ import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from 'tiny-secp256k1'
 import { ECPairFactory } from 'ecpair'
 import { createHash } from 'crypto'
+import nacl from 'tweetnacl'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 bitcoin.initEccLib(ecc)
@@ -262,19 +263,79 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
 
     const txid = createHash('sha256').update(escrow.id).digest('hex')
     await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'DISPUTED', txLockId: txid, txLockVout: 0 } })
-    await prisma.dispute.create({
+    const dispute = await prisma.dispute.create({
       data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'fixture', arbiterId: arbiterIdForDispute },
     })
-    return { escrow, buyer, seller, trade, txid }
+    // The buyer's own registered destination: what a Core-authoritative RELEASE resolves (never a caller override).
+    await prisma.payoutAddress.create({ data: { participantId: buyer.id, asset: 'BTC', address: RELEASE_ADDR } })
+    return { escrow, buyer, seller, trade, txid, dispute }
   }
 
-  it('1. correct arbiter context (triggeredBy matches both the assigned dispute AND the persisted commitment) -> accepted', async () => {
-    requirePostgres('correct context accepted')
-    const { escrow, buyer, txid } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
+  // GK-M9R-D R2 (CTO 25) - a disputed MULTISIG round needs the durable authoritative Outcome of a signed ruling, so the
+  // arbiter context is proven on the legitimate path that creates one: signed ruling -> resolveDispute() -> Core commit
+  // -> dispatch with triggeredBy = the arbiter. The ruling is signed with the arbiter identity's own registered Ed25519
+  // key (User.publicKey, which resolveDispute() verifies), one key per arbiter identity.
+  const SECOND_ARBITER_ID = 'a-different-assigned-arbiter'
+  const authorityKeys: Record<string, nacl.SignKeyPair> = { [DEFAULT_ARBITER_ID]: nacl.sign.keyPair(), [SECOND_ARBITER_ID]: nacl.sign.keyPair() }
+  beforeAll(async () => {
+    if (!dbAvailable) return
+    for (const [id, kp] of Object.entries(authorityKeys)) {
+      const publicKey = Buffer.from(kp.publicKey).toString('hex')
+      await prisma.user.upsert({ where: { id }, update: { publicKey }, create: { id, publicKey } })
+    }
+  })
+  /** Pass the module graph's own dispute service: a test that reloads modules under another seed must use its own. */
+  function resolveSignedRelease(disputeService: any, signAuthorityDecision: any, dispute: { id: string; escrowId: string | null }, arbiterId: string) {
+    const issuedAt = new Date().toISOString()
+    const payload = { disputeId: dispute.id, escrowId: dispute.escrowId, appealRound: 0, authorityId: arbiterId, outcome: 'RELEASE', buyerBps: null, issuedAt }
+    return disputeService.resolveDispute(dispute.id, arbiterId, 'RELEASE', undefined, undefined, undefined, signAuthorityDecision(payload, authorityKeys[arbiterId].secretKey), issuedAt)
+  }
+  const liveDeps = () => ({
+    disputeService: require('../../src/modules/open-settlement/dispute.service').getDisputeService(),
+    signAuthorityDecision: require('../../src/modules/open-settlement/arbitration-authority').signAuthorityDecision,
+  })
+  /** Nothing the refused ruling would have written survives: dispute not RESOLVED, no Outcome record, no round. */
+  async function expectNothingPersisted(escrowId: string, disputeId: string) {
+    const d = await prisma.dispute.findUniqueOrThrow({ where: { id: disputeId } })
+    expect(d.status).not.toBe('RESOLVED')
+    expect(d.ruling).toBeNull()
+    expect(await prisma.semanticTransitionRecord.count({ where: { interactionId: escrowId } })).toBe(0)
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId } })).toBe(0)
+  }
+
+  it('1a. the arbiter\'s direct route before any authoritative Outcome exists -> refused by R2 after the commitment check, nothing persisted', async () => {
+    requirePostgres('direct route before Outcome refused')
+    const { escrow, txid, dispute } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
     mockExplorerFetch(txid)
 
-    const pending = await escrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)
+    // The commitment check passed (tests 2 and 3/4 stop earlier with "does not match the arbiter public key committed");
+    // the round is refused because there is no signed ruling to build it from.
+    await expect(escrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)).rejects.toThrow(/no durable authoritative Outcome .*GK-M9R-D R2/)
+    await expectNothingPersisted(escrow.id, dispute.id)
+  })
+
+  it('1b. correct arbiter context (triggeredBy matches both the assigned dispute AND the persisted commitment) -> the signed ruling\'s live dispatch is accepted', async () => {
+    requirePostgres('correct context accepted')
+    const { escrow, buyer, txid, dispute } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
+    mockExplorerFetch(txid)
+
+    const { disputeService, signAuthorityDecision } = liveDeps()
+    await resolveSignedRelease(disputeService, signAuthorityDecision, dispute, DEFAULT_ARBITER_ID)
+
+    const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: escrow.id } })
+    expect(pending).toMatchObject({ kind: 'release', disputeId: dispute.id, rulingOutcome: 'RELEASE', rulingAppealRound: 0, rulingArbiterId: DEFAULT_ARBITER_ID, toAddress: RELEASE_ADDR })
     expect(pending.requiredSigners).toEqual([buyer.id])
+    expect(await prisma.dispute.findUniqueOrThrow({ where: { id: dispute.id } })).toMatchObject({ status: 'RESOLVED', ruling: 'RELEASE' })
+    expect(await prisma.semanticTransitionRecord.count({ where: { interactionId: escrow.id } })).toBe(1)
+  })
+
+  it('2-live. an assigned arbiter whose identity is not the one in the script signs a ruling -> its live dispatch is refused and the ruling reverted, nothing persisted', async () => {
+    requirePostgres('wrong arbiter live ruling rejected')
+    const { escrow, dispute } = await fixtureDisputedEscrowWithCommitment(escrowService, SECOND_ARBITER_ID)
+
+    const { disputeService, signAuthorityDecision } = liveDeps()
+    await expect(resolveSignedRelease(disputeService, signAuthorityDecision, dispute, SECOND_ARBITER_ID)).rejects.toThrow(/does not match the arbiter public key committed/)
+    await expectNothingPersisted(escrow.id, dispute.id)
   })
 
   it('2. wrong triggeredBy arbiter (assigned to the dispute, but not the identity baked into the script) -> rejected', async () => {
@@ -310,6 +371,18 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     await expect(
       driftedEscrowService.initiateRelease(escrow.id, RELEASE_ADDR, DEFAULT_ARBITER_ID)
     ).rejects.toThrow(/does not match the arbiter public key committed/)
+  })
+
+  it('3/4-live. MULTISIG_SEED drifted since creation: the correct arbiter\'s signed ruling -> its live dispatch is refused and the ruling reverted, nothing persisted', async () => {
+    requirePostgres('persisted pubkey mismatch live ruling rejected')
+    const { escrow, txid, dispute } = await fixtureDisputedEscrowWithCommitment(escrowService, DEFAULT_ARBITER_ID)
+
+    loadEscrowServiceWithSeed('fase-5-3-drifted-seed') // fresh module graph under the rotated seed
+    const { disputeService, signAuthorityDecision } = liveDeps() // ...whose dispute service dispatches through it
+    mockExplorerFetch(txid)
+
+    await expect(resolveSignedRelease(disputeService, signAuthorityDecision, dispute, DEFAULT_ARBITER_ID)).rejects.toThrow(/does not match the arbiter public key committed/)
+    await expectNothingPersisted(escrow.id, dispute.id)
   })
 
   it('5. legacy escrow (no persisted arbiter commitment) under a disputed release -> rejected outright (Missão 11 Fase 9.3 §4 — no persisted commitment = not eligible for real MULTISIG settlement)', async () => {
