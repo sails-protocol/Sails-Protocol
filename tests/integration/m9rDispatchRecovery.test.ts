@@ -745,6 +745,170 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       expect(after).toEqual(dispatchedBefore) // the very same rounds: not replaced, not deleted
     })
   })
+
+  // ═════════════════════ PE-M9R-B: bounded runs ═════════════════════════════════════════════════════════════════
+  // reconcileMissingDispatch({ maxCandidates, budgetMs }): at most maxCandidates per call, no new candidate after budgetMs,
+  // round-robin from where the last call stopped. To COUNT visits, most tests make every dispatch fail: nothing persists,
+  // the eligible set stays the same from call to call, and each call's loaded candidates are read from the real page
+  // queries. Other suites may have left candidates in the database: they are part of the circle, and every assertion
+  // about this describe's escrows holds whatever else is there.
+  describe('PE-M9R-B: bounded runs - per-call budget, continuity, no starvation (24 plain + 3 over a cooperative round)', () => {
+    const MAX = 10
+    let mine: Case[] = []
+    let coop: Case[] = []
+    let fullySigned: Case
+    let setCursor: typeof import('../../src/modules/open-settlement/dispute-dispatch-recovery').setDispatchRecoveryCursor
+
+    beforeAll(async () => {
+      if (!dbAvailable) return
+      ;({ setDispatchRecoveryCursor: setCursor } = require('../../src/modules/open-settlement/dispute-dispatch-recovery'))
+      const plain: Case[] = []
+      for (let i = 0; i < 24; i++) plain.push(await c4(`b${i}`, RULINGS[i % 3]))
+      for (let i = 0; i < 3; i++) coop.push(await c4OverCooperativeRound(`bcoop${i}`, 1))
+      fullySigned = await c4OverCooperativeRound('bfully', 2) // #239: every signature present - never selected
+      mine = [...plain, ...coop]
+    }, 1_800_000)
+
+    const bounded = (extra: Partial<{ budgetMs: number; now: () => number }> = {}) => reconcileMissingDispatch({ maxCandidates: MAX, budgetMs: 60_000, ...extra })
+    const failEveryDispatch = (onCall?: () => void) => {
+      for (const name of ['initiateRelease', 'initiateRefund', 'initiateSplit'] as const) {
+        jest.spyOn(escrowService, name).mockImplementation((() => { onCall?.(); return Promise.reject(new Error('pe-m9r-b injected dispatch failure')) }) as never)
+      }
+    }
+    /** Runs bounded calls until the round-robin sequence repeats its first candidate (or `limit` calls). */
+    async function sweep(seen: ReturnType<typeof observe>, limit: number, between?: (call: number) => Promise<void>) {
+      const sequence: string[] = []
+      const perCall: Array<{ loaded: number; processed: number; stoppedBy: string }> = []
+      for (let call = 0; call < limit; call++) {
+        const before = seen.pages.flat().length
+        const report = await bounded()
+        const loaded = seen.pages.flat().slice(before)
+        perCall.push({ loaded: loaded.length, processed: report.budget!.processed, stoppedBy: report.budget!.stoppedBy })
+        sequence.push(...loaded)
+        if (new Set(sequence).size < sequence.length) break
+        await between?.(call)
+      }
+      const firstRepeat = sequence.findIndex((id, i) => sequence.indexOf(id) !== i)
+      return { sequence, perCall, circle: firstRepeat === -1 ? sequence : sequence.slice(0, firstRepeat) }
+    }
+
+    it('B1/B5/B9/B10: a backlog larger than the budget is swept round-robin, at most MAX per call, each candidate - always failing - exactly once per circle; the fully signed round is never selected', async () => {
+      pg.requirePostgres('PE-M9R-B B1')
+      failEveryDispatch()
+      const roundsBefore = (await pendingRows(ids(mine))).map((r) => r.id) // the cooperative rounds the #239 cases were built with
+      const seen = observe()
+      setCursor('')
+      const { perCall, circle } = await sweep(seen, 40)
+      process.stdout.write(`[evidence] ${JSON.stringify({ label: 'PE-M9R-B B1 sweep', max: MAX, circle: circle.length, calls: perCall.length, perCall })}\n`)
+      for (const c of perCall) {
+        expect(c.loaded).toBeLessThanOrEqual(MAX) // B9: never more materialized than the budget
+        expect(c.processed).toBe(c.loaded)
+      }
+      expect(circle.length).toBeGreaterThan(MAX) // B1: the backlog is larger than one call's budget
+      expect(perCall[0]).toMatchObject({ processed: MAX, stoppedBy: 'MAX_CANDIDATES' })
+      expect(new Set(circle).size).toBe(circle.length) // never twice within one circle
+      for (const c of mine) expect(circle).toContain(c.disputeId) // B10 + B5: every candidate, though it fails every time
+      expect(circle).not.toContain(fullySigned.disputeId) // B7
+      expect(perCall.length).toBeLessThanOrEqual(Math.ceil(circle.length / MAX) + 1) // the circle closes in ceil(N/MAX)+1 calls
+      expect((await pendingRows(ids(mine))).map((r) => r.id)).toEqual(roundsBefore) // nothing persisted or replaced: every dispatch failed
+      await expectNoEconomicDisposition(mine) // B8
+    }, 1_800_000)
+
+    it('B2/B3: continuity from an arbitrary position (a restarted process starts anywhere) still covers every candidate once per circle', async () => {
+      pg.requirePostgres('PE-M9R-B B2')
+      failEveryDispatch()
+      const seen = observe()
+      const order = sorted(mine)
+      for (const start of [order[13].disputeId, 'ffffffff-ffff-ffff-ffff-ffffffffffff', '00000000-0000-0000-0000-000000000000']) {
+        setCursor(start) // the middle, past the end, before the start
+        const before = seen.pages.flat().length
+        const { perCall, circle } = await sweep(seen, 40)
+        expect(new Set(circle).size).toBe(circle.length)
+        for (const c of mine) expect(circle).toContain(c.disputeId)
+        expect(perCall.length).toBeLessThanOrEqual(Math.ceil(circle.length / MAX) + 1)
+        expect(seen.pages.flat().length - before).toBeLessThanOrEqual(perCall.length * MAX)
+      }
+    }, 1_800_000)
+
+    it('B6: candidates added during a sweep are taken on within the following circle', async () => {
+      pg.requirePostgres('PE-M9R-B B6')
+      const seen = observe()
+      setCursor('')
+      const added: Case[] = []
+      failEveryDispatch()
+      const { sequence } = await sweep(seen, 40, async (call) => {
+        // After the first call two new C4 candidates appear. Building them calls no initiate*, and the page observer only
+        // records id-list loads, so the mocks stay in place.
+        if (call === 0) added.push(await c4('bnew0', 'RELEASE'), await c4('bnew1', 'REFUND'))
+      })
+      // The sweep that started before they existed, or the next one, reaches them.
+      const second = await sweep(seen, 40)
+      const all = [...sequence, ...second.sequence]
+      for (const c of added) expect(all).toContain(c.disputeId)
+      expect(second.perCall.length).toBeLessThanOrEqual(Math.ceil(second.circle.length / MAX) + 1)
+      mine.push(...added)
+    }, 1_800_000)
+
+    it('budgetMs: no candidate is started once the time budget has elapsed; the one in flight finishes', async () => {
+      pg.requirePostgres('PE-M9R-B budgetMs')
+      let t = 0
+      const startedAt: number[] = []
+      failEveryDispatch(() => { startedAt.push(t); t += 400 }) // every dispatch "takes" 400 ms of the injected clock
+      setCursor('')
+      const firstSeen = observe()
+      const report = await bounded({ budgetMs: 1000, now: () => t })
+      const cutPage = firstSeen.pages[0] // the time stop landed inside this page: 3 taken on, the rest not started
+      jest.restoreAllMocks()
+      failEveryDispatch()
+      expect(report.budget).toEqual({ processed: 3, stoppedBy: 'BUDGET_MS' }) // started at 0, 400, 800; the clock then reads 1200
+      expect(startedAt).toEqual([0, 400, 800])
+      expect(startedAt.every((s) => s < 1000)).toBe(true)
+      expect(report.failed).toHaveLength(3) // the third, started inside the budget, ran to its end (no cut-off)
+
+      // The next call resumes with the candidate right after the last one taken on, never past the unstarted rest of
+      // that page (a time stop lands mid-page).
+      expect(cutPage.length).toBeGreaterThan(3)
+      const seen = observe()
+      const next = await bounded()
+      const loadedNext = seen.pages.flat()
+      // Exactly the unstarted rest of the cut page comes first, in the database's own order.
+      expect(loadedNext.slice(0, cutPage.length - 3)).toEqual(cutPage.slice(3))
+      expect(next.budget!.processed).toBeLessThanOrEqual(MAX)
+    })
+
+    it('B11: a call whose budget exceeds the backlog takes on each candidate once and stops when the circle closes', async () => {
+      pg.requirePostgres('PE-M9R-B B11')
+      failEveryDispatch()
+      const seen = observe()
+      setCursor(sorted(mine)[13].disputeId) // start mid-order, so the call has to wrap and then stop at its start
+      const report = await reconcileMissingDispatch({ maxCandidates: 1000, budgetMs: 600_000 })
+      const loaded = seen.pages.flat()
+      expect(report.budget!.stoppedBy).toBe('SWEEP_COMPLETE')
+      expect(new Set(loaded).size).toBe(loaded.length) // nobody twice within one call
+      for (const c of mine) expect(loaded).toContain(c.disputeId)
+      expect(report.budget!.processed).toBe(loaded.length)
+    }, 1_800_000)
+
+    it('B4/B7/B8: two concurrent bounded reconcilers, real dispatch: each candidate resumed exactly once over the calls, the fully signed round untouched, no economic disposition', async () => {
+      pg.requirePostgres('PE-M9R-B B4')
+      setCursor('')
+      const target = new Set(ids(mine))
+      const resumed: string[] = []
+      for (let round = 0; round < 12 && (await pendingRows(ids(mine))).length < mine.length; round++) {
+        const [a, b] = await Promise.all([bounded(), bounded()])
+        expect(a.budget!.processed).toBeLessThanOrEqual(MAX)
+        expect(b.budget!.processed).toBeLessThanOrEqual(MAX)
+        resumed.push(...[...a.resumed, ...b.resumed].map((r) => r.escrowId).filter((id) => target.has(id)))
+      }
+      expect(new Set(resumed).size).toBe(resumed.length) // never resumed twice
+      expect([...new Set(resumed)].sort()).toEqual([...target].sort()) // every one of them
+      const rows = await pendingRows(ids(mine))
+      expect(rows).toHaveLength(mine.length) // one round each
+      for (const c of coop) expect(await prisma.escrowPendingRoundRetirement.count({ where: { escrowId: c.escrowId } })).toBe(1) // #239 superseded once
+      expect((await pendingRows([fullySigned.escrowId])).map((r) => r.id)).toEqual([fullySigned.roundId]) // B7
+      await expectNoEconomicDisposition(mine)
+    }, 1_800_000)
+  })
 })
 
 // One teardown for the whole file: both describes share the database client and the Redis connection.

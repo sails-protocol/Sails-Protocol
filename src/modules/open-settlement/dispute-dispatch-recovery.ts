@@ -54,6 +54,7 @@
  * benign "someone else already resumed this" outcome, never a failure —
  * no new locking primitive was invented; the existing one is reused.
  */
+import { randomUUID } from 'crypto'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../common/database'
 import { config } from '../../config'
@@ -77,6 +78,36 @@ export interface DispatchRecoveryReport {
   notEligible: Array<{ escrowId: string; reason: string }>
   guardFailed: Array<{ escrowId: string; mismatches: readonly string[] }>
   failed: Array<{ escrowId: string; error: string }>
+  /** Bounded runs only (see DispatchRecoveryOptions): how many candidates this call took on, and why it stopped. */
+  budget?: { processed: number; stoppedBy: 'MAX_CANDIDATES' | 'BUDGET_MS' | 'SWEEP_COMPLETE' }
+}
+
+/**
+ * PE-M9R-B - a bounded run, so recovery cannot monopolize a reconciler tick however large the backlog is:
+ *   - at most `maxCandidates` candidates are loaded and taken on per call;
+ *   - no new candidate (and no new page) is started once `budgetMs` has elapsed. A candidate already started always
+ *     finishes: its dispatch is never cut off mid-transaction, so a call can overrun by one candidate's duration,
+ *     itself bounded by the explorer request timeout (MULTISIG_EXPLORER_TIMEOUT_MS) of the calls it makes.
+ * Fairness: calls continue round-robin from the last candidate taken on by THIS process, wrap once to the start, and
+ * stop after one full circle, so every eligible candidate - failing ones included, and ones added mid-sweep - is taken
+ * on within ceil(eligible / maxCandidates) + 1 calls, and never twice in one call. The position is process-local and
+ * starts at a random point, so a restart (or another instance) does not keep favoring the head of the list; several
+ * instances may take on the same candidate, which the dispatch path already makes harmless (one pending round per
+ * escrow, the concurrent loser reported in alreadyResumedConcurrently). Without options the call is unbounded and
+ * starts from the beginning, exactly as before.
+ */
+export interface DispatchRecoveryOptions {
+  maxCandidates: number
+  budgetMs: number
+  /** Injectable clock (milliseconds), for deterministic tests. */
+  now?: () => number
+}
+
+let boundedRunCursor: string = randomUUID()
+
+/** Tests only: where the next bounded run of this process resumes ('' = the start of the candidate order). */
+export function setDispatchRecoveryCursor(afterId: string): void {
+  boundedRunCursor = afterId
 }
 
 function isConcurrentPendingConflict(err: unknown): boolean {
@@ -96,7 +127,9 @@ const CANDIDATE_PAGE = 100
 const CANDIDATE_INCLUDE = { escrow: { include: { pendingTransaction: { include: { signatures: true } } } } } as const
 type CandidateDispute = Prisma.DisputeGetPayload<{ include: typeof CANDIDATE_INCLUDE }>
 
-async function candidatePage(afterId: string): Promise<string[]> {
+// `upTo` bounds the page from above (inclusive) in the database's own order, never JavaScript's: a bounded run closes its
+// circle with it, and string order in JS need not match the column collation.
+async function candidatePage(afterId: string, limit = CANDIDATE_PAGE, upTo: string | null = null): Promise<string[]> {
   const rows = await prisma.$queryRaw<Array<{ id: string }>>`
     SELECT d.id FROM disputes d
     JOIN escrows e ON e.id = d."escrowId"
@@ -110,13 +143,56 @@ async function candidatePage(afterId: string): Promise<string[]> {
             SELECT 1 FROM unnest(p."requiredSigners") AS required(id)
             WHERE NOT EXISTS (SELECT 1 FROM escrow_transaction_signatures s WHERE s."pendingTxId" = p.id AND s."participantId" = required.id))))
       AND d.id > ${afterId}
+      AND (${upTo}::text IS NULL OR d.id <= ${upTo}::text)
     ORDER BY d.id
-    LIMIT ${CANDIDATE_PAGE}`
+    LIMIT ${limit}`
   return rows.map((r) => r.id)
 }
 
-export async function reconcileMissingDispatch(): Promise<DispatchRecoveryReport> {
+async function loadCandidates(ids: string[]): Promise<CandidateDispute[]> {
+  return prisma.dispute.findMany({ where: { id: { in: ids } }, orderBy: { id: 'asc' }, include: CANDIDATE_INCLUDE })
+}
+
+async function boundedRun(options: DispatchRecoveryOptions, report: DispatchRecoveryReport): Promise<void> {
+  const now = options.now ?? Date.now
+  const deadline = now() + options.budgetMs
+  const start = boundedRunCursor
+  const fromBeginning = start === '' // nothing to wrap back to: the sweep simply ends at the end of the order
+  let after = start
+  let wrapped = false
+  let processed = 0
+  let stoppedBy: NonNullable<DispatchRecoveryReport['budget']>['stoppedBy'] = 'SWEEP_COMPLETE'
+  sweep: for (;;) {
+    if (processed >= options.maxCandidates) { stoppedBy = 'MAX_CANDIDATES'; break }
+    if (now() >= deadline) { stoppedBy = 'BUDGET_MS'; break }
+    const limit = Math.min(CANDIDATE_PAGE, options.maxCandidates - processed)
+    // Past the end: wrap once to the start; after the wrap, the page stops at the starting point, closing the circle.
+    const ids = await candidatePage(after, limit, wrapped ? start : null)
+    if (ids.length === 0) {
+      if (wrapped || fromBeginning) break
+      wrapped = true
+      after = ''
+      continue
+    }
+    for (const dispute of await loadCandidates(ids)) {
+      if (processed >= options.maxCandidates) { stoppedBy = 'MAX_CANDIDATES'; break sweep }
+      if (now() >= deadline) { stoppedBy = 'BUDGET_MS'; break sweep }
+      await resumeCandidate(dispute, report)
+      processed++
+      boundedRunCursor = dispute.id
+    }
+    after = ids[ids.length - 1]
+    if (ids.length < limit && (wrapped || fromBeginning)) break // the end of the order (or of the circle) was reached
+  }
+  report.budget = { processed, stoppedBy }
+}
+
+export async function reconcileMissingDispatch(options?: DispatchRecoveryOptions): Promise<DispatchRecoveryReport> {
   const report: DispatchRecoveryReport = { resumed: [], alreadyResumedConcurrently: [], notEligible: [], guardFailed: [], failed: [] }
+  if (options) {
+    await boundedRun(options, report)
+    return report
+  }
 
   for (let afterId = ''; ;) {
     const ids = await candidatePage(afterId)
