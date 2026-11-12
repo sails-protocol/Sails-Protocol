@@ -374,6 +374,18 @@ export async function fetchChainTipHeight(): Promise<number> {
 // Same shape as wdk-settlement.provider.ts's escrowIndexFor/buyerIndexFor —
 // sha256(role:id) -> a stable, evenly-distributed non-hardened BIP-32
 // index. Exported for direct unit testing, same reason those are.
+/** "txid:vout" of each given UTXO already recorded as the funding of an escrow other than this trade's. Required
+ *  lazily: this module is otherwise free of the database, and many tests load it without one. */
+async function outpointsClaimedByOtherEscrows(utxos: readonly ExplorerUtxo[], tradeId: string): Promise<Set<string>> {
+  if (utxos.length === 0) return new Set()
+  const { prisma } = require('../../common/database') // eslint-disable-line @typescript-eslint/no-var-requires
+  const rows: { txLockId: string | null; txLockVout: number | null }[] = await prisma.escrow.findMany({
+    where: { OR: utxos.map((u) => ({ txLockId: u.txid, txLockVout: u.vout })), NOT: { tradeId } },
+    select: { txLockId: true, txLockVout: true },
+  })
+  return new Set(rows.map((r) => `${r.txLockId}:${r.txLockVout}`))
+}
+
 export function keyIndexFor(role: 'buyer' | 'seller' | 'arbiter', id: string): number {
   const hash = createHash('sha256').update(`${role}:${id}`).digest()
   return hash.readUInt32BE(0) % 0x7fffffff
@@ -848,16 +860,21 @@ export class MultisigProvider implements SettlementProvider {
   // null when nothing matches, since "not found" is a normal, expected
   // outcome for a re-scan (unlike lockFunds()'s own first-time call, where
   // it's a real error to surface to the caller).
-  private async findFundingCandidate(escrow: MultisigEscrowInput): Promise<{ address: string; utxo: ExplorerUtxo } | null> {
+  // Every UTXO at the address that satisfies the funding rule and is not already recorded as another escrow's funding.
+  // More than one is ambiguous (the caller refuses rather than picking by explorer order). `ambiguous` lists them.
+  private async findFundingCandidate(escrow: MultisigEscrowInput): Promise<{ address: string; utxo: ExplorerUtxo; ambiguous?: ExplorerUtxo[] } | null> {
     const parties = this.partiesFor(escrow)
     const { p2wsh } = this.buildScript(parties)
     const address = p2wsh.address!
     const utxos = await this.fetchUtxos(address)
 
-    const utxo = this.isPolicyAware(escrow)
-      ? utxos.find((u) => u.value === this.requiredFundingSats(escrow) && u.status.confirmed)
-      : utxos.find((u) => u.value >= this.expectedSats(escrow.lockedAmount) && u.status.confirmed)
-    return utxo ? { address, utxo } : null
+    const matching = utxos.filter((u) => u.status.confirmed && (this.isPolicyAware(escrow)
+      ? u.value === this.requiredFundingSats(escrow)
+      : u.value >= this.expectedSats(escrow.lockedAmount)))
+    const claimed = await outpointsClaimedByOtherEscrows(matching, escrow.tradeId)
+    const eligible = matching.filter((u) => !claimed.has(`${u.txid}:${u.vout}`))
+    if (eligible.length === 0) return null
+    return { address, utxo: eligible[0], ...(eligible.length > 1 ? { ambiguous: eligible } : {}) }
   }
 
   private noFundingCandidateError(escrow: MultisigEscrowInput, address: string): EscrowError {
@@ -904,6 +921,12 @@ export class MultisigProvider implements SettlementProvider {
       throw this.noFundingCandidateError(escrow, p2wsh.address!)
     }
 
+    if (candidate.ambiguous) {
+      throw new EscrowError(
+        `${candidate.ambiguous.length} UTXOs at ${candidate.address} each satisfy this escrow's funding rule ` +
+        `(${candidate.ambiguous.map((u) => `${u.txid}:${u.vout}`).join(', ')}) — refusing to pick one by explorer order. Manual review required.`
+      )
+    }
     const { address, utxo: funding } = candidate
     const { depth, blockHeight, tipHeight } = await this.confirmationDepth(funding.txid)
     if (depth < required) {
@@ -914,8 +937,7 @@ export class MultisigProvider implements SettlementProvider {
       )
     }
     return {
-      txId: funding.txid, vout: funding.vout, address,
-      ...(this.isPolicyAware(escrow) ? { fundedAmount: funding.value } : {}),
+      txId: funding.txid, vout: funding.vout, address, fundedAmount: funding.value,
       ...(blockHeight !== null ? { confirmedAtHeight: blockHeight } : {}),
       ...(tipHeight !== null ? { tipHeightAtObservation: tipHeight } : {}),
     }
@@ -931,10 +953,20 @@ export class MultisigProvider implements SettlementProvider {
   async rescanFunding(escrow: MultisigEscrowInput): Promise<{
     txId: string; vout: number; depth: number; confirmedAtHeight: number | null; tipHeightAtObservation: number | null
   } | null> {
-    const candidate = await this.findFundingCandidate(escrow)
-    if (!candidate) return null
-    const { depth, blockHeight, tipHeight } = await this.confirmationDepth(candidate.utxo.txid)
-    return { txId: candidate.utxo.txid, vout: candidate.utxo.vout, depth, confirmedAtHeight: blockHeight, tipHeightAtObservation: tipHeight }
+    // The recorded outpoint first: while it is still there, other UTXOs at the address say nothing about this escrow.
+    let utxo: ExplorerUtxo | undefined
+    if (escrow.txLockId && escrow.txLockVout !== null && escrow.txLockVout !== undefined) {
+      const { p2wsh } = this.buildScript(this.partiesFor(escrow))
+      utxo = (await this.fetchUtxos(p2wsh.address!)).find((u) => u.txid === escrow.txLockId && u.vout === escrow.txLockVout && u.status.confirmed)
+    }
+    if (!utxo) {
+      // Only a single unclaimed candidate can be reported as a replacement; an ambiguous set is reported as nothing.
+      const candidate = await this.findFundingCandidate(escrow)
+      if (!candidate || candidate.ambiguous) return null
+      utxo = candidate.utxo
+    }
+    const { depth, blockHeight, tipHeight } = await this.confirmationDepth(utxo.txid)
+    return { txId: utxo.txid, vout: utxo.vout, depth, confirmedAtHeight: blockHeight, tipHeightAtObservation: tipHeight }
   }
 
   // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — TIMEOUT_ONLY, deliberately no

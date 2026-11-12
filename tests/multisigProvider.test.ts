@@ -26,6 +26,10 @@ export {} // forces module scope — without this, top-level `const` here and in
 // lightningHodlProvider.test.ts (also script-scoped, no imports of its own)
 // collide as the SAME global binding under isolatedModules-style checking.
 
+// Funding selection asks the database which outpoints other escrows already hold: none, unless a test says otherwise.
+const mockClaimedFindMany = jest.fn(async (_args?: unknown): Promise<Array<{ txLockId: string; txLockVout: number }>> => [])
+jest.mock('../src/common/database', () => ({ prisma: { escrow: { findMany: (args: unknown) => mockClaimedFindMany(args) } } }))
+
 const ORIGINAL_ENV = process.env
 
 // Real, valid 33-byte compressed secp256k1 pubkeys — generated once via
@@ -297,6 +301,7 @@ describe('MultisigProvider — lockFunds() against a mocked explorer API', () =>
 
   beforeEach(() => {
     fetchMock.mockReset()
+    mockClaimedFindMany.mockClear()
     ;(global as any).fetch = fetchMock
   })
 
@@ -341,6 +346,52 @@ describe('MultisigProvider — lockFunds() against a mocked explorer API', () =>
     await expect(
       multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
     ).rejects.toThrow('No funding UTXO')
+  })
+
+  // CTO 25 funding binding - the funding UTXO is never picked by explorer order.
+  const utxo = (c: string, vout = 0, value = 100_000) => ({ txid: c.repeat(64), vout, value, status: { confirmed: true } })
+  const depthOk = () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true, block_height: 100 }) })
+    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '100' })
+  }
+
+  it("lockFunds skips a UTXO already recorded as another escrow's funding and takes the remaining one", async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [utxo('a'), utxo('b')] })
+    depthOk()
+    mockClaimedFindMany.mockResolvedValueOnce([{ txLockId: 'a'.repeat(64), txLockVout: 0 }])
+    const result = await multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
+    expect(result).toMatchObject({ txId: 'b'.repeat(64), vout: 0, fundedAmount: 100_000 })
+    expect(mockClaimedFindMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ NOT: { tradeId: 't1' } }) }))
+  })
+
+  it('lockFunds refuses, without persisting anything, when more than one unclaimed UTXO satisfies the funding rule', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [utxo('a'), utxo('b', 1)] })
+    await expect(
+      multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
+    ).rejects.toThrow(/2 UTXOs at .* each satisfy this escrow's funding rule .*refusing to pick one by explorer order/)
+    expect(fetchMock).toHaveBeenCalledTimes(1) // refused before any depth lookup
+  })
+
+  it('rescanFunding reports the recorded outpoint while it is still there, whatever else the address holds', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [utxo('c'), utxo('a')] })
+    depthOk()
+    const scan = await multisigProvider.rescanFunding({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005', txLockId: 'a'.repeat(64), txLockVout: 0 })
+    expect(scan).toMatchObject({ txId: 'a'.repeat(64), vout: 0 })
+    expect(mockClaimedFindMany).not.toHaveBeenCalled()
+  })
+
+  it('rescanFunding reports nothing (not a pick) when the recorded outpoint is gone and two candidates remain', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
+    fetchMock.mockResolvedValue({ ok: true, json: async () => [utxo('c'), utxo('d')] })
+    const scan = await multisigProvider.rescanFunding({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005', txLockId: 'a'.repeat(64), txLockVout: 0 })
+    expect(scan).toBeNull()
   })
 
   it('lockFunds throws when no pubkeys have been submitted yet', async () => {
