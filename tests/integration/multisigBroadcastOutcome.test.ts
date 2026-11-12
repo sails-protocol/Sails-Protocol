@@ -91,6 +91,7 @@ describe('Issue #299 - MULTISIG broadcast outcome: UNKNOWN is never FAILED (real
   let getDisputeService: typeof import('../../src/modules/open-settlement/dispute.service').getDisputeService
   let reconcile: typeof import('../../src/modules/open-settlement/escrow-settlement-reconciliation.service')
   let revertUnsettledClaim: typeof import('../../src/modules/open-settlement/escrow-lifecycle').revertUnsettledClaim
+  let signAuthorityDecision: typeof import('../../src/modules/open-settlement/arbitration-authority').signAuthorityDecision
 
   const ARBITER_ID = 'i299-test-arbiter'
   const arbiterKeypair = nacl.sign.keyPair()
@@ -120,6 +121,7 @@ describe('Issue #299 - MULTISIG broadcast outcome: UNKNOWN is never FAILED (real
     }
     ;({ getDisputeService } = require('../../src/modules/open-settlement/dispute.service'))
     ;({ revertUnsettledClaim } = require('../../src/modules/open-settlement/escrow-lifecycle'))
+    ;({ signAuthorityDecision } = require('../../src/modules/open-settlement/arbitration-authority'))
     reconcile = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service')
     const { intentEngine } = require('../../src/core/intent-engine')
     intentEngine.registerHandler(require('../../src/modules/open-p2p/intent-handler').OpenP2PTradeIntentHandler)
@@ -566,6 +568,80 @@ describe('Issue #299 - MULTISIG broadcast outcome: UNKNOWN is never FAILED (real
     const restarted = await worker({ OP: 'reconcile', ESCROW_ID: c.escrow.id })
     expect(restarted).toMatchObject({ ok: true, code: 0 })
     expect(restarted.value.recovered).toEqual([{ txId: roundTxid(c), outcome: when === 'after' ? 'ALREADY_BROADCAST' : 'NEWLY_BROADCAST' }])
+    expect(await escrowOf(c)).toMatchObject({ status: 'REFUNDED', txReleaseId: roundTxid(c) })
+  })
+
+  // GK 6789395732 V1/V2: C-2's rollback-first window (rollback won, the refund is on the network, the escrow is
+  // FUNDS_LOCKED again, the round still fully signed). A dispute opened inside it can never produce a second
+  // disposition, and once PASS 0 converges the settlement it stays visible to an operator instead of silently OPENED.
+  // Last in this file: it needs the real projections (registerEventHandlers()), which stay registered once added.
+  it('C-3 a dispute opened in the rollback window: the opposite ruling is refused, PASS 0 converges the refund once, the orphaned dispute is held for manual review and later rulings are refused', async () => {
+    requireDb()
+    require('../../src/common/events/handlers').registerEventHandlers()
+    const c = await refundRound('race-window-dispute')
+    await sign(c, c.seller.id)
+    await prisma.escrowTransactionSignature.updateMany({ where: { pendingTxId: c.round.id, participantId: c.seller.id }, data: { signedPsbtBase64: c.round.unsignedPsbtBase64 } })
+    const lifecycle = require('../../src/modules/open-settlement/escrow-lifecycle')
+    let reached!: () => void
+    const atRollback = new Promise<void>((r) => { reached = r })
+    let proceed!: () => void
+    const go = new Promise<void>((r) => { proceed = r })
+    jest.spyOn(lifecycle, 'revertUnsettledClaim').mockImplementation((async (...args: [string, string, string]) => {
+      reached()
+      await go
+      return revertUnsettledClaim(...args)
+    }) as never)
+    const live = track(sign(c, c.buyer.id))
+    await within(atRollback, 30_000, 'the live rollback')
+    await prisma.escrowTransactionSignature.updateMany({ where: { pendingTxId: c.round.id, participantId: c.seller.id }, data: { signedPsbtBase64: signRound(c.round.unsignedPsbtBase64, sellerKey) } })
+    const unlock = await holdEscrowLock(c.escrow.id)
+    proceed()
+    await untilWaiting(1)
+    const pass = track(tick())
+    await untilWaiting(2)
+    await unlock()
+    await expect(live).rejects.toThrow(/failed to combine\/finalize/)
+    await pass
+    expect(await escrowOf(c)).toMatchObject({ status: 'FUNDS_LOCKED', txReleaseId: null })
+    expect(chain.broadcasts).toEqual([roundTxid(c)])
+
+    // Inside the window: the dispute opens, and the opposite ruling cannot become a second disposition.
+    const dispute = await raiseDispute(c)
+    expect(await escrowOf(c)).toMatchObject({ status: 'DISPUTED' })
+    const rule = (outcome: 'RELEASE' | 'REFUND') => {
+      const issuedAt = new Date().toISOString()
+      const signature = signAuthorityDecision({ disputeId: dispute.id, escrowId: c.escrow.id, appealRound: 0, authorityId: ARBITER_ID, outcome, buyerBps: null, issuedAt }, arbiterKeypair.secretKey)
+      return getDisputeService().resolveDispute(dispute.id, ARBITER_ID, outcome, undefined, undefined, undefined, signature, issuedAt)
+    }
+    await expect(rule('RELEASE')).rejects.toThrow()
+    expect(chain.broadcasts).toEqual([roundTxid(c)])
+
+    const scores = async () => (await prisma.user.findMany({ where: { id: { in: [c.buyer.id, c.seller.id] } }, orderBy: { id: 'asc' }, select: { id: true, reputationScore: true } }))
+    const before = await scores()
+    const report = await tick()
+    expect(report.resumedUnclaimed.find((x) => x.escrowId === c.escrow.id)).toMatchObject({ txId: roundTxid(c), outcome: 'ALREADY_BROADCAST' })
+    await expectConverged(c)
+    expect(await refundEvents(c)).toBe(1)
+
+    // The dispute row is untouched (no ruling was ever recorded) and the settlement is not read as a ruling: its
+    // provenance is unproven, so reputation is held and the case is listed for an operator on every tick.
+    expect(await prisma.dispute.findUniqueOrThrow({ where: { id: dispute.id } })).toMatchObject({ status: 'OPENED', ruling: null })
+    expect(await scores()).toEqual(before)
+    // The settlement event projects after the tick that published it, so the hold is listed from the next tick on.
+    const settlement = await prisma.escrowEvent.findFirstOrThrow({ where: { escrowId: c.escrow.id, toStatus: 'REFUNDED' } })
+    const isHeld = () => prisma.eventProjectionClaim.count({ where: { eventId: settlement.id, projectionKey: 'settlement.provenance-held' } })
+    for (let i = 0; i < 500 && (await isHeld()) === 0; i++) await new Promise((r) => setTimeout(r, 10))
+    expect(await isHeld()).toBe(1)
+    expect(await scores()).toEqual(before)
+    const heldReason = new RegExp(`^Settlement ${settlement.id} has a Dispute but no immutable provenance`)
+    expect(review(await tick(), c)).toMatch(heldReason)
+    expect(review(await tick(), c)).toMatch(heldReason)
+
+    // After convergence: no ruling, either way, moves anything.
+    await expect(rule('RELEASE')).rejects.toThrow()
+    await expect(rule('REFUND')).rejects.toThrow()
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: c.escrow.id } })).toBe(0)
+    expect(chain.broadcasts).toEqual([roundTxid(c)])
     expect(await escrowOf(c)).toMatchObject({ status: 'REFUNDED', txReleaseId: roundTxid(c) })
   })
 })
