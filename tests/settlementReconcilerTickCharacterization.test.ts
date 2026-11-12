@@ -186,20 +186,71 @@ describe('settlement reconciler tick - Part B: the interval startServer() runs i
   jest.setTimeout(60_000)
   let exitSpy: jest.SpyInstance
 
+  // Every real interval created while a server boots (the reconciler's, and any a library starts) is recorded, so the
+  // suite can end it: shutdown() leaves its timers to process.exit(), and exit is mocked here, so without this each
+  // boot would keep ticking (and keep its whole module graph alive) through every later case and suite in the worker.
+  let created: unknown[] = []
+  let cleared = new Set<unknown>()
+  const timerSpies: jest.SpyInstance[] = []
+  const survivors = () => created.filter((handle) => !cleared.has(handle))
+  const retireIntervals = () => { for (const handle of survivors()) clearInterval(handle as NodeJS.Timeout) }
+  // startServer() registers SIGTERM/SIGINT handlers: remove exactly those, never a listener that was there before.
+  const initialSignalListeners = { SIGTERM: process.listeners('SIGTERM').length, SIGINT: process.listeners('SIGINT').length }
+  const signalBaseline = { SIGTERM: [] as Function[], SIGINT: [] as Function[] }
+  const dropAddedSignalListeners = () => {
+    for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+      for (const listener of process.listeners(signal)) {
+        if (!signalBaseline[signal].includes(listener)) process.removeListener(signal, listener as (...args: any[]) => void)
+      }
+    }
+  }
+
   beforeEach(() => {
     jest.resetModules()
+    signalBaseline.SIGTERM = process.listeners('SIGTERM')
+    signalBaseline.SIGINT = process.listeners('SIGINT')
     exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
+    created = []
+    cleared = new Set()
+    const realSet = globalThis.setInterval
+    const realClear = globalThis.clearInterval
+    timerSpies.push(jest.spyOn(globalThis, 'setInterval').mockImplementation(((handler: any, ...rest: any[]) => {
+      const handle = (realSet as any)(handler, ...rest)
+      created.push(handle)
+      return handle
+    }) as any))
+    timerSpies.push(jest.spyOn(globalThis, 'clearInterval').mockImplementation(((handle: any) => {
+      cleared.add(handle)
+      return (realClear as any)(handle)
+    }) as any))
   })
   afterEach(() => {
-    process.removeAllListeners('SIGTERM')
-    process.removeAllListeners('SIGINT')
+    // The case's own shutdown must already have ended every timer; whatever is left is ended here regardless, so a
+    // failing case cannot leak, and then reported.
+    const leaked = survivors().length
+    retireIntervals()
+    for (const spy of timerSpies.splice(0)) spy.mockRestore()
+    dropAddedSignalListeners()
     exitSpy.mockRestore()
     process.env = ORIGINAL_ENV
     jest.resetModules()
+    expect(leaked).toBe(0)
+  })
+  // After every case, passed or failed: nothing this block replaced or registered is still replaced or registered.
+  afterAll(() => {
+    expect(process.env).toBe(ORIGINAL_ENV)
+    for (const replaced of [globalThis.setInterval, globalThis.clearInterval, process.exit, console.log]) {
+      expect(jest.isMockFunction(replaced)).toBe(false)
+    }
+    expect(process.listeners('SIGTERM')).toHaveLength(initialSignalListeners.SIGTERM)
+    expect(process.listeners('SIGINT')).toHaveLength(initialSignalListeners.SIGINT)
+    expect(timerSpies).toHaveLength(0)
   })
 
   async function boot(env: Record<string, string> = {}): Promise<void> {
-    process.env = { PORT: '0', HOST: '127.0.0.1', NODE_ENV: 'development', ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS: '40', ...env }
+    // NODE_ENV=test, not development: development makes the logger start a pino-pretty worker thread per boot, which
+    // nothing here would end. The tick and its flag behave the same in every non-production environment.
+    process.env = { PORT: '0', HOST: '127.0.0.1', NODE_ENV: 'test', ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS: '40', ...env }
     const banner = jest.spyOn(console, 'log').mockImplementation(() => undefined)
     try {
       await require('../src/app').startServer()
@@ -211,6 +262,7 @@ describe('settlement reconciler tick - Part B: the interval startServer() runs i
     exitSpy.mockClear()
     process.emit('SIGTERM' as any)
     await until(() => exitSpy.mock.calls.length > 0, 'shutdown to call process.exit')
+    retireIntervals() // the real process would be gone by now; exit is mocked, so end its timers the way exit would
   }
 
   it('no tick runs at boot: the first one comes one interval later; afterwards each tick is Intent recovery then settlement reconciliation', async () => {
@@ -262,17 +314,21 @@ describe('settlement reconciler tick - Part B: the interval startServer() runs i
     expect(stuck.prisma.$disconnect).toHaveBeenCalledTimes(1) // and Postgres is closed under it
 
     // Restart: a new process has none of that process-local state.
-    process.removeAllListeners('SIGTERM')
-    process.removeAllListeners('SIGINT')
+    const firstServerTimers = created.slice()
+    expect(firstServerTimers.length).toBeGreaterThan(0) // the first server did start its scheduler
+    dropAddedSignalListeners()
     jest.resetModules()
     const restarted = wire()
     await boot()
     try {
       await until(() => restarted.settlement.mock.calls.length >= 1, 'a tick after the restart')
       expect(restarted.calls.slice(0, 2)).toEqual(['intent', 'settlement'])
+      // Nothing of the first server is still scheduled while the second one runs.
+      expect(firstServerTimers.filter((handle) => !cleared.has(handle))).toHaveLength(0)
     } finally {
       await terminate()
     }
+    expect(stuck.calls).toEqual(['intent', 'settlement']) // and the first server's routines were never called again
   })
 
   it('ESCROW_SETTLEMENT_RECONCILER=false is the only way to switch the tick off: nothing is scheduled', async () => {
@@ -284,5 +340,16 @@ describe('settlement reconciler tick - Part B: the interval startServer() runs i
     } finally {
       await terminate()
     }
+  })
+
+  // The leak check must be able to fail: a live interval is reported as a survivor until it is cleared, and ending
+  // survivors is what the shutdown step and afterEach do. No timing involved: the timer is far longer than the case.
+  it('the leak check detects a timer that is still active, and sees it gone once cleared', () => {
+    const handle = setInterval(() => undefined, 60_000)
+    handle.unref()
+    expect(survivors()).toContain(handle)
+    retireIntervals()
+    expect(survivors()).toHaveLength(0)
+    expect(cleared.has(handle)).toBe(true)
   })
 })
