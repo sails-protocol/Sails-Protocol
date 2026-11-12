@@ -4,8 +4,8 @@
 // (escrow-pending-tx.ts assertDisputedRoundMatchesOutcome) that no other test isolates:
 //   - the authoritySignature binding: the live dispute keeps the same economic content (RESOLVED, same appeal round,
 //     same ruling) but carries another authority signature than the one this round's provenance was built from;
-//   - the declared miner fee: the fee the translator declares must be the fee its PSBT actually implies, and a fee
-//     that is internally consistent but taken from the beneficiary is still refused on the economic result.
+//   - the declared miner fee: the fee the translator declares must be the fee its PSBT actually implies; a fee that is
+//     internally consistent is accepted up to the execution-cost ceiling and refused past it (characterization).
 // Real PostgreSQL, real 2-of-3 P2WSH PSBTs, real services; only the explorer is simulated. Each case starts from a
 // committed RELEASE Outcome whose dispatch never persisted (C4 state) and drives the assigned arbiter's route.
 import nacl from 'tweetnacl'
@@ -158,16 +158,21 @@ describe('R2 guard discrimination - authority signature and declared miner fee (
     await nothingWritten(f)
   })
 
-  it('minerFeeSats (b): a fee that is internally consistent but taken from the beneficiary -> refused on the economic result, nothing written', async () => {
-    pg.requirePostgres('minerFeeSats b')
-    const f = await fixture('fee-b')
+  // CTO 25 T10: characterization, not a defense. The guard binds the delivered total to the Outcome only through the
+  // deterministic execution-cost ceiling (execution-cost-policy.ts, M8.6), so a fee that is internally consistent is
+  // accepted up to that ceiling even though the excess comes out of the beneficiary. Policy unchanged by decision.
+  it.each([[0, 'accepted'], [1, 'refused']] as const)('minerFeeSats (b) characterization: an internally consistent fee %i sat(s) past the current ceiling is %s', async (beyond, verdict) => {
+    pg.requirePostgres(`minerFeeSats b ${verdict}`)
+    const f = await fixture(`fee-b-${verdict}`)
     await commitRelease(f)
-    const TAKEN = 5_000
-    // The single RELEASE output is reduced (a larger real fee), and the reported fee is set to exactly what the PSBT
-    // implies, so the declared-vs-implied consistency check cannot be what refuses it.
+    const { maxExecutionCostSats } = require('../../src/modules/open-settlement/execution-cost-policy')
+    const GROSS = 100_000; const ceiling = Number(maxExecutionCostSats(1, BigInt(GROSS)))
+    const paid = GROSS - ceiling - beyond
+    // The single RELEASE output pays `paid`; the reported fee is exactly what the PSBT implies, so the declared-vs-implied
+    // consistency check cannot be what decides.
     const spend = MultisigProvider.prototype.buildUnsignedSpend
     jest.spyOn(MultisigProvider.prototype, 'buildUnsignedSpend').mockImplementation(function (this: any, escrow: any, parties: any, n: number, fn: (v: bigint) => Array<{ address: string; value: bigint }>) {
-      return spend.call(this, escrow, parties, n, (v: bigint) => fn(v).map((o) => ({ ...o, value: o.value - BigInt(TAKEN) })))
+      return spend.call(this, escrow, parties, n, (v: bigint) => fn(v).map((o) => ({ ...o, value: BigInt(paid) })))
     } as never)
     const release = MultisigProvider.prototype.buildUnsignedRelease
     jest.spyOn(MultisigProvider.prototype, 'buildUnsignedRelease').mockImplementation(async function (this: any, ...args: any[]) {
@@ -176,11 +181,20 @@ describe('R2 guard discrimination - authority signature and declared miner fee (
     } as never)
 
     const err = await arbiterRelease(f).then(() => null, (e: Error) => e)
-    expect(err).toBeInstanceOf(guard.TranslationGuardError)
-    const mismatches = (err as any).mismatches.join(' ')
-    expect(mismatches).not.toMatch(/declared a miner fee/)
-    expect(mismatches).toMatch(/beneficiary|fee/i)
-    console.log(`[evidence] ${JSON.stringify({ case: 'minerFeeSats b', mismatches: (err as any).mismatches })}`)
-    await nothingWritten(f)
+    console.log(`[evidence] ${JSON.stringify({ case: `minerFeeSats b ${verdict}`, ceiling, paid, impliedFee: GROSS - paid, mismatches: (err as any)?.mismatches ?? null })}`)
+    expect(ceiling).toBe(20_000) // 20% of a 100 000 sat gross (MULTISIG_MAX_FEE_PROPORTION_BPS default), above the 10 000 floor
+    if (verdict === 'accepted') {
+      expect(err).toBeNull()
+      const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: f.escrowId } })
+      expect(row.minerFeeSats).toBe(ceiling)
+      expect(bitcoin.Psbt.fromBase64(row.unsignedPsbtBase64, { network: H.NETWORK }).txOutputs.map((o) => Number(o.value))).toEqual([80_000])
+      expect(posts).toBe(0)
+    } else {
+      expect(err).toBeInstanceOf(guard.TranslationGuardError)
+      const mismatches = (err as any).mismatches.join(' ')
+      expect(mismatches).not.toMatch(/declared a miner fee/)
+      expect(mismatches).toMatch(/implied execution cost \(20001 sats.*exceeds the deterministic ceiling .*20000 sats/)
+      await nothingWritten(f)
+    }
   })
 })

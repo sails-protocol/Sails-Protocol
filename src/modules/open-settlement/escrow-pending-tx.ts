@@ -25,7 +25,7 @@ import { fetchOutpointSpendStatus } from './multisig.provider'
 import { verifySignerPartialSignature, RoundSignatureRejected } from './multisig-round-proofs'
 import { SubmissionDefinitelyFailed } from './broadcast-outcome'
 import { retireRound, RoundNotRetirable } from './pending-round-retirement'
-import { isSupersedableCooperativeRound, revalidateRulingSupersessionGrant, type RulingSupersessionGrant } from './dispute-dispatch'
+import { isSupersedableCooperativeRound, revalidateRulingSupersessionGrant, RULING_KIND, type RulingSupersessionGrant } from './dispute-dispatch'
 import { hasDualApproval } from './escrow-dual-approval'
 import { escrowRepository } from './escrow-repository'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
@@ -77,11 +77,12 @@ const log = childLogger('escrow-pending-tx')
 async function assertDisputedRoundMatchesOutcome(
   tx: Prisma.TransactionClient,
   escrowId: string,
+  kind: 'release' | 'refund' | 'split',
   provenance: Record<string, unknown>,
   round: { psbtBase64: string; minerFeeSats?: number },
 ): Promise<void> {
   const { loadDisputeRulingRecord, fromDisputeRulingRow } = require('./dispute-outcome') // eslint-disable-line @typescript-eslint/no-var-requires
-  const { assertTranslationMatchesOutcome } = require('./dispatch-translation-guard') // eslint-disable-line @typescript-eslint/no-var-requires
+  const { assertTranslationMatchesOutcome, TranslationGuardError } = require('./dispatch-translation-guard') // eslint-disable-line @typescript-eslint/no-var-requires
   const appealRound = provenance.rulingAppealRound as number
   // FOR SHARE: an appeal or a ruling revert (both UPDATE this row) waits for this transaction, so the generation checked
   // here is still the live one when the round is created below. Outcome records are write-once per (escrow, round).
@@ -103,6 +104,11 @@ async function assertDisputedRoundMatchesOutcome(
       `Dispute ${String(provenance.disputeId)} is no longer the RESOLVED generation ${appealRound} this round was built from - ` +
       'refusing to build a disputed MULTISIG round against a superseded ruling (GK-M9R-D R2).'
     )
+  }
+  // CTO 25 T10/R-4 - the outputs alone cannot tell the kinds apart when buyer and seller share a payout address, yet
+  // the kind decides the final status, the fee obligation, the settlement event and the reputation outcome.
+  if (RULING_KIND[outcome.content.ruling] !== kind) {
+    throw new TranslationGuardError([`authoritative Outcome ruling ${outcome.content.ruling} does not authorize a ${kind} round`])
   }
   assertTranslationMatchesOutcome(round.psbtBase64, outcome, networkFor(config.multisig.network), round.minerFeeSats)
 }
@@ -254,7 +260,7 @@ async function initiateSignatureCollectionCore(
       // GK-M9R-D R2 - last step before the round exists, after the existing authority/grant/funding refusals. Same
       // transaction as retireRound() above: a mismatch rolls the retirement back, so nothing at all is written.
       if (escrow.type === 'MULTISIG' && typeof disputedRulingProvenance.disputeId === 'string') {
-        await assertDisputedRoundMatchesOutcome(tx, escrowId, disputedRulingProvenance, result)
+        await assertDisputedRoundMatchesOutcome(tx, escrowId, kind, disputedRulingProvenance, result)
       }
       return tx.escrowPendingTransaction.create({
         data: {

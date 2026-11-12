@@ -1379,7 +1379,7 @@ describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT
   beforeEach(() => {
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
-    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1', ruling: 'SPLIT' })
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
     mockParticipantKeyFindMany.mockResolvedValue([
@@ -1418,13 +1418,13 @@ describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT
         buyerBps: 6000,
         // ADR-005 / #218 — ruling-generation provenance snapshotted
         // because this escrow is DISPUTED. mockDisputeFindFirst's own
-        // fixture above only sets {id, tradeId, arbiterId} — the other
-        // generation fields are genuinely undefined on that row, exactly
-        // as a real Dispute predating this ADR would report them.
+        // fixture above sets {id, tradeId, arbiterId, ruling} — ruling because the
+        // R2 guard binds a split round to a SPLIT Outcome (CTO 25 T10); the other
+        // generation fields are genuinely undefined on that row.
         disputeId: 'dispute-1',
         rulingAppealRound: undefined,
         rulingArbiterId: 'arbiter-1',
-        rulingOutcome: undefined,
+        rulingOutcome: 'SPLIT',
         rulingAuthoritySignature: undefined,
         rulingAuthorityIssuedAt: undefined,
       },

@@ -258,7 +258,7 @@ describe('escrow-pending-tx.ts — disputed disposition authority', () => {
   })
 
   it('keeps the current assigned arbiter authorized for initiateRelease', async () => {
-    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1' })
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1', ruling: 'RELEASE' })
 
     const pending: any = await escrowService.initiateRelease(ESCROW_ID, undefined, 'arbiter-1')
 
