@@ -138,6 +138,21 @@ describe('ADR-005 economic disposition commit gate', () => {
       expect(mockAuthCreate).not.toHaveBeenCalled()
     })
 
+    it('PE-M9R F5: an internal guard failure propagates as itself (fail-closed), never relabelled as a translation refusal', async () => {
+      const internal = new TypeError('m9r-f5 internal decoder failure')
+      mockAssertTranslation.mockImplementation(() => { throw internal })
+      const err = await authorizeDisputedPendingExecution(disputedPending).then(() => null, (e: unknown) => e)
+      expect(err).toBe(internal)
+      expect(err).not.toBeInstanceOf(DisputedTranslationRefused)
+      expect(mockAuthCreate).not.toHaveBeenCalled()
+    })
+
+    it('refuses a round whose kind is not the durable Outcome ruling (R-4), before the translation check and the authorization', async () => {
+      await expect(authorizeDisputedPendingExecution({ ...disputedPending, kind: 'refund' })).rejects.toMatchObject({ constructor: DisputedTranslationRefused, mismatches: ['KIND_MISMATCH'] })
+      expect(mockAssertTranslation).not.toHaveBeenCalled()
+      expect(mockAuthCreate).not.toHaveBeenCalled()
+    })
+
     it('refuses fail-closed when no durable Outcome exists for the recorded generation', async () => {
       mockLoadRulingRecord.mockResolvedValue(null)
       await expect(authorizeDisputedPendingExecution(disputedPending)).rejects.toMatchObject({ mismatches: ['NO_DURABLE_OUTCOME'] })
