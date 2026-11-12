@@ -13,8 +13,10 @@
  * escrow, (b) belong to an escrow with a RESOLVED Dispute (the durable
  * signal that `applyRulingCoreAuthoritative()`'s own commit path, not
  * some other flow, is what created it), and (c) have ZERO signatures
- * collected — the durable, checkable fact that makes deletion
- * unconditionally safe: `escrow-pending-tx.ts`'s own
+ * collected — the durable, checkable fact that makes deletion safe,
+ * provided it still holds at the delete itself (Issue #244, corrected
+ * 2026-11-09: it is re-checked there, under the escrow lock — see
+ * deleteIfStillUnsigned()): `escrow-pending-tx.ts`'s own
  * `submitTransactionSignature()` is the ONLY code path that can ever
  * move funds for a signature-collection escrow, and it structurally
  * cannot have run yet if no required signer has submitted anything.
@@ -47,9 +49,21 @@ import { config } from '../../config'
 import { networkFor } from './multisig.provider'
 import { loadDisputeRulingRecord, fromDisputeRulingRow } from './dispute-outcome'
 import { validateTranslatedOutputsAgainstOutcome } from './dispatch-translation-guard'
+import { withEscrowFundingLock } from './escrow-lifecycle'
 import { childLogger } from '../../common/logger'
 
 const log = childLogger('dispute-pending-reconciliation')
+
+// Issue #244 - the zero-signature snapshot read by the sweep never authorizes the delete by itself. Under the escrow
+// lock submitTransactionSignature() signs under, the delete removes this exact round only if it still has no signature.
+// GONE: another run (or the round's own finalization) already removed it.
+async function deleteIfStillUnsigned(pending: { id: string; escrowId: string }): Promise<'DELETED' | 'HAS_SIGNATURES' | 'GONE'> {
+  return withEscrowFundingLock(pending.escrowId, async (tx) => {
+    const { count } = await tx.escrowPendingTransaction.deleteMany({ where: { id: pending.id, escrowId: pending.escrowId, signatures: { none: {} } } })
+    if (count === 1) return 'DELETED'
+    return (await tx.escrowPendingTransaction.count({ where: { id: pending.id } })) ? 'HAS_SIGNATURES' : 'GONE'
+  })
+}
 
 // Conservative — never touches a pending row young enough that it could
 // still be a live, in-flight request (the arbiter's own resolveDispute()
@@ -119,7 +133,9 @@ export async function reconcileStalePendingDisputeTranslations(): Promise<StaleP
         // is still safe (zero signatures, zero fund-movement risk) but
         // reported distinctly for visibility, never silently folded into
         // the ordinary "guard failed" case.
-        await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
+        const outcome = await deleteIfStillUnsigned(pending)
+        if (outcome === 'HAS_SIGNATURES') report.skippedHasSignatures.push(pending.escrowId)
+        if (outcome !== 'DELETED') continue
         report.reconciled.push({ escrowId: pending.escrowId, pendingTransactionId: pending.id, verdict: 'DELETED_NO_OUTCOME' })
         log.error({ msg: 'M9: stale pending transaction with no durable Core-authoritative Outcome — deleted (zero signatures, no fund-movement risk)', escrowId: pending.escrowId })
         continue
@@ -137,7 +153,9 @@ export async function reconcileStalePendingDisputeTranslations(): Promise<StaleP
       if (result.ok) {
         report.reconciled.push({ escrowId: pending.escrowId, pendingTransactionId: pending.id, verdict: 'LEFT_GUARD_PASSED' })
       } else {
-        await prisma.escrowPendingTransaction.delete({ where: { id: pending.id } }).catch(() => {})
+        const outcome = await deleteIfStillUnsigned(pending)
+        if (outcome === 'HAS_SIGNATURES') report.skippedHasSignatures.push(pending.escrowId)
+        if (outcome !== 'DELETED') continue
         report.reconciled.push({ escrowId: pending.escrowId, pendingTransactionId: pending.id, verdict: 'DELETED_GUARD_FAILED' })
         log.error({ msg: 'M9: stale pending transaction failed re-validation against its own durable Outcome — deleted (zero signatures, no fund-movement risk)', escrowId: pending.escrowId, mismatches: result.mismatches })
       }

@@ -248,17 +248,36 @@ AI agent does not receive special standing to bypass §1's central
 principle; a challenge it raises is evaluated on the evidence it presents,
 exactly like a human's.
 
-**Who fills the disciplinary roles today (§3.1), stated plainly, not
-aspirationally:** Sails does not yet have dedicated headcount per
-discipline. The repository owner (`alan-schramm`) holds Product Direction
-and final merge authority; a second collaborator (`renipinto`) holds
-write access and participates in engineering/infrastructure work; AI
-sessions (Claude Code and others) do a substantial share of
-implementation, architecture investigation, and evidence-gathering under
-this same governance, always subject to human review before merge. This
-is disclosed here rather than implied by an org chart that does not
-exist — see `docs/GITHUB_PROJECT.md`'s CODEOWNERS discussion for the
-concrete, current reviewer configuration.
+**Current staffing update (2026-11-07; proposed temporary exception):** The
+repository owner (`alan-schramm`) reports being the only active human
+developer and having removed former collaborator `renipinto`. AI sessions
+(Claude Principal, Gatekeeper and CTO) support implementation, technical
+audit and decision preparation, but do not become human reviewers or
+acquire merge authority. The owner has explicitly approved a temporary
+solo-maintainer policy proposal in PR #589; the operational procedure,
+limits and sunset are recorded in
+`docs/governance/SOLO_MAINTAINER_TRANSITION_PROPOSAL.md`. The historical
+staffing and protection record remains in `docs/GITHUB_PROJECT.md` §8/§8.1.
+
+**Reconciled 2026-11-08:** this replaces the sentence "Until live branch
+protection is verified and reconciled, the existing human-review gate
+remains binding; no merge bypass is implied."
+
+- PR #589 was merged into `main` (`da3a2544`), and the owner's approval
+  of the temporary solo-maintainer policy is recorded in it.
+- Live protection on `main`, read back 2026-11-08 (see
+  `docs/GITHUB_PROJECT.md` §8.2):
+  - **zero** required human approvals;
+  - required checks `build`, `test` and `Analyze (javascript-typescript)`;
+  - the branch must be up to date (`strict`), applied to admins too
+    (`enforce_admins: true`);
+  - force pushes and deletions blocked.
+- The earlier one-approval requirement is historical. Who changed it to
+  zero, and when, is not established. No document authorizes reducing
+  any other protection.
+- Every merge still needs the solo-maintainer procedure: a Gatekeeper
+  verdict on the exact head, the CTO gate, and the owner's written,
+  SHA-specific authorization. Green CI is not permission.
 
 ---
 

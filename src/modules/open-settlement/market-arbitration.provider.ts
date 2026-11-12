@@ -23,6 +23,22 @@
  * it is *that* write `escrowService.releaseFunds()`/`refundFunds()` react
  * to — verified directly in that file before writing this one, not
  * assumed.
+ *
+ * **Corrected/disclosed (Issue #255, 2026-09-22):** "posting collateral"
+ * above describes the intended design, not what `register()` actually
+ * verifies. `monetaryCollateral` is a bare, caller-declared decimal
+ * string — no deposit txid, no on-chain lock, no escrow, no funding
+ * verification of any kind exists anywhere in this codebase. `slash()`
+ * only ever decrements this same internal column; there is no external
+ * seizure/burn to perform. This does NOT make `effectiveStake`
+ * cosmetic — `eligibleFor()`/`assign()`/`assignAppealPanel()` below are
+ * real code that grants real arbitration authority (dispute assignment
+ * + RELEASE/REFUND/SPLIT power) in proportion to this declared number,
+ * which is exactly why `ARBITRATION_MODE=market` is refused at boot in
+ * production (`arbitration-policy.ts`'s
+ * `assertMarketArbitrationCollateralProductionEligible()`) until a real
+ * funding/custody adapter exists — see that RFC's own D3 correction for
+ * the full trace.
  */
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../../common/database'

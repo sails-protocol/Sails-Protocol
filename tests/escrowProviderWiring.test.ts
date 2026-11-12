@@ -1,3 +1,10 @@
+// Issue #239 - this suite's PSBTs are placeholders: the real signature check (multisig-round-proofs.ts) is proven with
+// real Bitcoin PSBTs in tests/multisigRoundProofs.test.ts and tests/integration/pendingRoundLifecycle.test.ts.
+jest.mock('../src/modules/open-settlement/multisig-round-proofs', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/multisig-round-proofs'),
+  verifySignerPartialSignature: (_unsigned: string, signed: string) => signed,
+}))
+
 /**
  * escrow.service.ts's provider wiring — things found/fixed while building
  * the real MultisigProvider/LightningHodlProvider (multisig.provider.ts,
@@ -153,8 +160,12 @@ const mockDurableEventFindFirst = jest.fn().mockResolvedValue(null)
 // mockEscrowUpdateMany/mockPendingTxCreate/mockEscrowFundingEvidenceFindMany
 // sees the call whether it went through the mocked prisma singleton or
 // through this tx passthrough, exactly like a real Prisma transaction).
+// ADR-005 - the live dispute a recorded ruling generation is compared against, inside the gate's transaction.
+const mockLiveDisputeFindUnique = jest.fn()
 const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) =>
   callback({
+    dispute: { findUnique: (...args: unknown[]) => mockLiveDisputeFindUnique(...args) },
+    economicDispositionAuthorization: { findUnique: async () => null, create: async ({ data }: any) => ({ id: 'eda-1', ...data }) },
     durableEventRecord: {
       create: (...args: unknown[]) => mockDurableEventCreate(...args),
       findFirst: (...args: unknown[]) => mockDurableEventFindFirst(...args),
@@ -168,7 +179,12 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
       create: (...args: unknown[]) => mockPendingTxCreate(...args),
       // Issue #291 - persistSettlementResult() verifies the live pending operation inside its transaction.
       findFirst: (...args: unknown[]) => (mockPendingTxFindUnique as any)(...args),
+      // Issue #244 - submitTransactionSignature() reads the round and signs it under the escrow lock.
+      findUnique: (...args: unknown[]) => mockPendingTxFindUnique(...args),
     },
+    escrowTransactionSignature: { upsert: (...args: unknown[]) => mockTxSignatureUpsert(...args), findMany: (arg: unknown) => require('../src/common/database').prisma.escrowTransactionSignature.findMany(arg) },
+      // Issue #239 - the signature set and the signer's registered key are read under the same escrow lock.
+      escrowParticipantKey: { findFirst: async () => ({ pubkey: 'test-signer-pubkey' }) },
     escrowFundingEvidence: {
       findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args),
     },
@@ -604,6 +620,10 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
   // string MOCK" (both produce byte-identical outward behavior for every
   // input that exists today) — the mission explicitly forbids adding a
   // second real provider classification just to create that difference.
+  // **Corrected (Issue #220, 2026-09-27):** #220 classified three more real
+  // rails as production-ineligible on policy grounds (not to create a test
+  // difference), so the outcome-based test at the end of this block can now
+  // prove genericity directly as well.
   describe('eligibility check is generic — not a MOCK-only regression (Issue #229 R3)', () => {
     it('assertDeploymentEligible() itself is driven purely by set membership, not a hardcoded MOCK comparison', () => {
       isProductionFlag = true
@@ -666,6 +686,38 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
       isProductionFlag = true
       expect(() => getSettlementProvider('MULTISIG')).not.toThrow()
       expect(resolveEscrowType('BTC' as any, 'MULTISIG' as any)).toBe('MULTISIG')
+    })
+
+    // Issue #220 — the three reference-only/testnet-only rails, each refused
+    // in production with its OWN true reason (never the MOCK "fabricates
+    // settlement success" message, which would be false for them), at both
+    // provider registries (dispatch) — and allowed outside production.
+    it.each([
+      ['LIGHTNING_HODL', /testnet \(mutinynet\) only/],
+      ['SAFE_GUARD_EVM', /testnet-target only/],
+      ['WDK_USDT_EVM', /server-custodial reference implementation/],
+    ])('%s is refused in production at both registries with its own reason, and allowed outside production (Issue #220)', (type, reason) => {
+      isProductionFlag = true
+      expect(() => assertDeploymentEligible(type)).toThrow(/not economically eligible in production/)
+      expect(() => assertDeploymentEligible(type)).toThrow(reason)
+      expect(() => assertDeploymentEligible(type)).not.toThrow(/fabricates settlement success/)
+      expect(() => getSettlementProvider(type)).toThrow(reason)
+      expect(() => getSignatureCollectionProvider(type)).toThrow(reason)
+
+      isProductionFlag = false
+      expect(() => assertDeploymentEligible(type)).not.toThrow()
+      expect(() => getSettlementProvider(type)).not.toThrow()
+    })
+
+    // The concrete #220 finding: with no explicit type, production used to
+    // route LN_BTC to LIGHTNING_HODL (RECOMMENDED_ESCROW_TYPE) — a rail its own
+    // provider declares testnet-only. Creation now fails closed instead.
+    it('production creation with NO explicit type refuses LN_BTC (default-routed to LIGHTNING_HODL) instead of silently selecting a testnet-only rail (Issue #220)', () => {
+      mockEscrowFeatureFlag = false
+      isProductionFlag = true
+      expect(() => resolveEscrowType('LN_BTC' as any, undefined)).toThrow(/testnet \(mutinynet\) only/)
+      isProductionFlag = false
+      expect(resolveEscrowType('LN_BTC' as any, undefined)).toBe('LIGHTNING_HODL')
     })
   })
 })
@@ -1467,7 +1519,10 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
     mockPendingTxFindUnique.mockResolvedValue({
       id: 'ptx-3', escrowId: 'escrow-1', kind: 'split', requiredSigners: ['buyer-1'],
       unsignedPsbtBase64: 'unsigned-split-psbt', triggeredBy: 'arbiter-1',
+      // What initiateSplit() records on a DISPUTED escrow: the ruling generation that authorized it.
+      disputeId: 'dispute-1', rulingAppealRound: 0, rulingArbiterId: 'arbiter-1', rulingOutcome: 'SPLIT', rulingAuthoritySignature: null,
     })
+    mockLiveDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', appealRound: 0, arbiterId: 'arbiter-1', ruling: 'SPLIT', authoritySignature: null })
     mockTxSignatureFindMany.mockResolvedValue([
       { participantId: 'buyer-1', signedPsbtBase64: 'buyer-signed' },
     ])

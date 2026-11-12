@@ -166,7 +166,25 @@ effectiveStake(candidate) = monetaryCollateral(candidate)
 ```
 
 - `monetaryCollateral` — BTC/USDT posted into escrow for this
-  arbitration role, refundable only if never slashed.
+  arbitration role, refundable only if never slashed. **Corrected
+  (Issue #255, 2026-09-22):** this line described the intended design,
+  not the shipped code. `MarketArbitrationProvider.register()` (called
+  from `POST /v1/settlement/arbitration/register`) accepts
+  `monetaryCollateral` as a bare, caller-declared decimal string —
+  there is no deposit txid, no on-chain lock, no escrow, and no funding
+  verification of any kind anywhere in this codebase. `slash()`
+  likewise only ever decrements this same internal `ArbiterProfile`
+  column; there is no external seizure/burn to perform. Real economic
+  consequences DO flow from the declared number regardless (the
+  eligibility/selection/appeal-panel weighting below is real code, not
+  aspirational) — which is exactly why Issue #255 classifies this
+  capability as **not economically backed** and refuses to boot with
+  `ARBITRATION_MODE=market` in production
+  (`arbitration-policy.ts`'s `assertMarketArbitrationCollateralProductionEligible()`)
+  until a real funding/custody adapter exists. Safe as a deliberate
+  dev/test/sandbox capability, same as `MOCK` escrow already is; never
+  safe as something a production deployment treats as real, verified
+  stake.
 - `reputationAtRisk` — a portion of the candidate's accumulated
   arbiter-reputation score, converted to an "at-risk" value. Reputation
   is not free to lose: a veteran arbiter with little capital but years
@@ -199,7 +217,10 @@ effectiveStake(candidate) = monetaryCollateral(candidate)
   `MarketArbitrationProvider.slash()`): forfeits
   `SLASH_COLLATERAL_FRACTION` (starting `0.5`) of posted collateral
   plus a fixed reputation penalty (`OVERTURNED_PENALTY`, starting
-  `-10`, floored at 0).
+  `-10`, floored at 0). **Corrected (Issue #255):** "posted collateral"
+  here means the same declared, not-economically-backed
+  `monetaryCollateral` column — see the D3 correction above; this is an
+  internal `ArbiterProfile` decrement, not an external seizure.
 
 ### D4 — Cost-to-fabricate floor (fee-based reputation lower bound)
 

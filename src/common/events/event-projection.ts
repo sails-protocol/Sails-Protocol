@@ -66,3 +66,25 @@ export const TRANSITION_PROJECTED_KEY = 'transition.projected'
 // A ruling from before 'dispute.ruling-finalized' existed with no proof its bookkeeping ran: automatic
 // recovery skips it, since replaying could repeat counters and slashes, and it stays reported for a human.
 export const RULING_FINALIZATION_HELD_KEY = 'dispute.ruling-finalization-held'
+
+// A settlement with a Dispute and no immutable provenance: its reputation outcomes wait for a human decision.
+// See common/events/settlement-provenance.ts. Keyed on the effect identity; held and resolved use the escrow id
+// as subject, the decision uses the decided value.
+// The dispute a settlement transition was claimed for, written atomically with the claim by emitEscrowTransition()
+// when the caller carries a disputeId. Keyed on the transition id, so it survives a republication without payload.
+export const TRANSITION_DISPUTE_PROVENANCE_KEY = 'transition.dispute-provenance'
+export const SETTLEMENT_PROVENANCE_HELD_KEY = 'settlement.provenance-held'
+export const SETTLEMENT_PROVENANCE_DECISION_KEY = 'settlement.provenance-decision'
+export const SETTLEMENT_PROVENANCE_RESOLVED_KEY = 'settlement.provenance-resolved'
+
+/** Every held settlement still undecided. Deliberately unbounded: a case left out would drop out of review. */
+export function listHeldSettlementProvenance(): Promise<Array<{ effectId: string; escrowId: string }>> {
+  return prisma.$queryRaw`
+    SELECT h."eventId" AS "effectId", h."subjectId" AS "escrowId"
+    FROM event_projection_claims h
+    WHERE h."projectionKey" = ${SETTLEMENT_PROVENANCE_HELD_KEY}
+      AND NOT EXISTS (
+        SELECT 1 FROM event_projection_claims r
+        WHERE r."eventId" = h."eventId" AND r."projectionKey" = ${SETTLEMENT_PROVENANCE_RESOLVED_KEY})
+    ORDER BY h."appliedAt" ASC, h.id ASC`
+}

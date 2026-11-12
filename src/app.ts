@@ -1,4 +1,4 @@
-import Fastify, { FastifyInstance } from 'fastify'
+import Fastify, { FastifyBaseLogger, FastifyInstance } from 'fastify'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
@@ -13,6 +13,7 @@ import { connectDatabase } from './common/database'
 import { redis } from './common/redis'
 import { connectRedis } from './common/redis'
 import { AppError, ERROR_DOCS_URL } from './common/errors'
+import { serializeError } from './common/logger'
 import { registerEventHandlers } from './common/events/handlers'
 import { eventBus } from './common/events/event-bus'
 import { intentEngine } from './core/intent-engine'
@@ -33,6 +34,7 @@ import { escrowService } from './modules/open-settlement/escrow.service'
 import { reconcilePendingSettlements } from './modules/open-settlement/escrow-settlement-reconciliation.service'
 import { recoverUnpublishedIntentEvents } from './core/intent-publication-recovery'
 import { assertArbitrationModeCompatibleWithAvailableRails } from './modules/open-settlement/escrow-providers'
+import { assertMarketArbitrationCollateralProductionEligible } from './modules/open-settlement/arbitration-policy'
 import { getDisputeService } from './modules/open-settlement/dispute.service'
 import { sweepMultisigFeeConfirmations } from './modules/open-settlement/multisig-fee-confirmation-job'
 import { sweepMultisigFeeReorgs } from './modules/open-settlement/multisig-fee-reorg-sweep'
@@ -66,10 +68,12 @@ export interface BuildAppOptions {
   // exactly today's behavior; no test's outcome changes unless it
   // explicitly opts out.
   registerSwaggerUi?: boolean
+  // Where the Fastify logger writes. Tests pass a stream to read the real log lines; the default is stdout.
+  logStream?: { write(line: string): void }
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
-  const { registerSwaggerUi = true } = options
+  const { registerSwaggerUi = true, logStream } = options
 
   // Missão 11 Fase 7.3.2 §1 (CTO-approved) — rail-capability validation,
   // evaluated once, unconditionally, before anything else boots. See
@@ -80,6 +84,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     config.settlement.arbitrationMode,
     config.settlement.arbitrationPolicyByEscrowType,
   )
+
+  // Issue #255 — same "loud startup validation failure" mandate as the check above, closing a
+  // different concern: market-mode collateral is caller-declared bookkeeping, not economically backed
+  // (see arbitration-policy.ts's own comment on this function for the full trace/evidence).
+  assertMarketArbitrationCollateralProductionEligible(config.settlement.arbitrationMode, config.isProduction)
 
   const app = Fastify({
     logger: {
@@ -97,6 +106,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         paths: ['req.headers.authorization', 'req.headers.cookie', 'token'],
         censor: '[REDACTED]',
       },
+      // The shared error serializer, so app.log scrubs a credential out of an error's message and stack too.
+      serializers: { err: serializeError },
+      ...(logStream ? { stream: logStream } : {}),
     },
   })
 
@@ -321,10 +333,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         await fn()
         checks[label] = { ok: true, latencyMs: Date.now() - start }
       } catch (err) {
+        app.log.warn({ err, dependency: label }, 'Readiness dependency unavailable')
         checks[label] = {
           ok: false,
           latencyMs: Date.now() - start,
-          error: err instanceof Error ? err.message : String(err),
+          // Keep infrastructure exception details in internal logs, never readiness responses.
+          error: 'Dependency unavailable',
         }
       }
     }
@@ -388,6 +402,42 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   intentEngine.registerHandler(OpenP2PTradeIntentHandler)
 
   return app
+}
+
+/**
+ * One tick of the settlement reconciler, as startServer() runs it. Never throws: every failure is logged.
+ * D12 (#585) - ruling finalizations deferred because they can still be rolled back get their own warning, with each
+ * decision's identity and the state-derived reason. They are neither failures nor manual-review entries, and the
+ * next tick retries them.
+ */
+export async function runSettlementReconcilerTick(log: Pick<FastifyBaseLogger, 'warn' | 'error'>): Promise<void> {
+  // Issue #253: also pay the publication owed by any Intent transition that committed but never published.
+  await recoverUnpublishedIntentEvents()
+    .catch((err) => log.error({ msg: 'Intent publication recovery failed', module: 'settlement-reconciler', err: err instanceof Error ? err.message : err }))
+  try {
+    const report = await reconcilePendingSettlements()
+    if (report.failed.length || report.requiresManualReview.length || report.projectionsRecovered.length) {
+      log.warn({ msg: 'Settlement reconciliation completed with findings', module: 'settlement-reconciler', failed: report.failed.length, failedEscrowIds: [...new Set(report.failed.map((f) => f.escrowId))], requiresManualReview: report.requiresManualReview.length, projectionsRecovered: report.projectionsRecovered })
+    }
+    if (report.rulingFinalizationsDeferred.length) {
+      log.warn({ msg: 'Ruling finalizations deferred: not finalized while they can still be rolled back, retried every tick', module: 'settlement-reconciler', rulingFinalizationsDeferred: report.rulingFinalizationsDeferred })
+    }
+    // Issue #239 (GK F-2) - what needs a human and what the external-spend watch could not see. Ids, public txids and
+    // reason codes only: a free-text reason may quote a provider or database error, so it is never logged here.
+    const attention = {
+      heldIncompatibleRounds: report.heldIncompatibleRounds,
+      requiresManualReview: report.requiresManualReview.map((r) => ({ escrowId: r.escrowId, code: /^[A-Z][A-Z0-9_]{2,}(?=:)/.exec(r.reason)?.[0] ?? 'UNCODED' })),
+      externalSpendUnreadable: report.externalSpendUnreadable,
+      externalSpendPendingConfirmation: report.externalSpendPendingConfirmation,
+      externalSpendFundingUncertain: report.externalSpendFundingUncertain,
+      externallyCompleted: report.externallyCompleted,
+    }
+    if (Object.values(attention).some((list) => list.length)) {
+      log.warn({ msg: 'Settlement reconciliation: held rounds, manual review or external-spend watch findings', module: 'settlement-reconciler', ...attention })
+    }
+  } catch (err) {
+    log.error({ msg: 'Settlement reconciliation failed', module: 'settlement-reconciler', err: err instanceof Error ? err.message : err })
+  }
 }
 
 export async function startServer() {
@@ -502,17 +552,7 @@ export async function startServer() {
     const reconcileInterval = setInterval(() => {
       if (reconciling) return
       reconciling = true
-      // Issue #253: also pay the publication owed by any Intent transition that committed but never published.
-      recoverUnpublishedIntentEvents()
-        .catch((err) => app.log.error({ msg: 'Intent publication recovery failed', module: 'settlement-reconciler', err: err instanceof Error ? err.message : err }))
-        .then(() => reconcilePendingSettlements())
-        .then((report) => {
-          if (report.failed.length || report.requiresManualReview.length || report.projectionsRecovered) {
-            app.log.warn({ msg: 'Settlement reconciliation completed with findings', module: 'settlement-reconciler', failed: report.failed.length, requiresManualReview: report.requiresManualReview.length, projectionsRecovered: report.projectionsRecovered })
-          }
-        })
-        .catch((err) => app.log.error({ msg: 'Settlement reconciliation failed', module: 'settlement-reconciler', err: err instanceof Error ? err.message : err }))
-        .finally(() => { reconciling = false })
+      runSettlementReconcilerTick(app.log).finally(() => { reconciling = false })
     }, config.trade.settlementReconcileIntervalMs)
     reconcileInterval.unref()
   }

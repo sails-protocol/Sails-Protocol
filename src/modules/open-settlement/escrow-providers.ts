@@ -195,7 +195,10 @@ export const PROVIDERS: Record<string, SettlementProvider> = {
   // keys, single-arbiter limitation, testnet only). Previously absent
   // from this map entirely, meaning getProvider() silently fell through
   // to MOCK for every MULTISIG escrow ever created (fixed below too —
-  // that fallback no longer exists for any type).
+  // that fallback no longer exists for any type). **Corrected (Issue #220):**
+  // "server-derived keys" and "testnet only" are stale — buyer/seller keys
+  // are client-held (custodyModel), only the arbiter key is server-held, and
+  // mainnet is supported (see multisig.provider.ts's own #220 correction).
   MULTISIG: multisigProvider,
   // Real Safe Transaction Guard + ERC-4337 escrow (RFC-020) —
   // safe-guard-evm.provider.ts's own doc comment has the full
@@ -464,15 +467,42 @@ export function assertArbitrationModeCompatibleWithAvailableRails(
 //   - deployment/environment eligibility → THIS set. Whether an already-
 //     representable, already-implemented type may economically EXECUTE
 //     in the deployment currently running.
-// `MOCK` is the only entry today: it makes no real custody claim and
-// fabricates lock/release/refund/split success unconditionally
-// (mock-settlement.provider.ts) — safe as a deliberate dev/test/sandbox
-// choice, never safe as something a production node treats as real.
-// #220 may register other production-ineligible (reference-only/
-// testnet-only) rails here later without inventing a second mechanism —
-// deliberately a plain Set, not a broader eligibility framework, since
-// nothing today needs more than "in production, this type is refused."
-const PRODUCTION_INELIGIBLE_TYPES: ReadonlySet<string> = new Set(['MOCK'])
+// `MOCK` makes no real custody claim and fabricates lock/release/refund/
+// split success unconditionally (mock-settlement.provider.ts) — safe as a
+// deliberate dev/test/sandbox choice, never safe as something a production
+// node treats as real.
+//
+// Issue #220 (Production Surface Truth Audit) — registered the three
+// reference-only/testnet-only rails this comment always anticipated, each
+// on its OWN provider's already-published declaration, not a new judgment:
+// LIGHTNING_HODL ("Testnet (mutinynet) only", server-held arbiter key),
+// SAFE_GUARD_EVM ("Testnet-target only (Sepolia default)"), and
+// WDK_USDT_EVM (server-custodial reference implementation, production-
+// ineligible by frozen CTO decision — config/index.ts's WDK_SEED_PHRASE
+// boot guard stays in place as defense in depth). Before this, production
+// could still CREATE and dispatch all three: LN_BTC and USDT_ERC20 resolve
+// to LIGHTNING_HODL/WDK_USDT_EVM by default (RECOMMENDED_ESCROW_TYPE above).
+// MULTISIG is deliberately absent — it is the one rail with mainnet
+// support and its own mainnet/testnet boot guard (config/index.ts LB-01).
+// Its provider header ALSO said "Testnet only"; #220 found that line stale
+// against the code (real mainnet support) and corrected it in
+// multisig.provider.ts rather than blocking the only mainnet-capable rail —
+// a judgment flagged for CTO review in #220's own delivery report.
+//
+// A Map (not a Set) only so each refusal states its own true reason — the
+// MOCK message ("fabricates settlement success") would be false for a
+// testnet rail. Consequence, disclosed: this set governs BOTH creation and
+// every dispatch (release/refund/split, reconciliation, recovery), so in
+// production a persisted escrow of a newly-listed type cannot be exited
+// through this node either. Acceptable only because the system is pre-
+// launch and none of these rails was ever production-reachable in a
+// correctly configured deployment (no ARKADE_SEED / KMS arbiter / WDK seed).
+const PRODUCTION_INELIGIBLE_TYPES: ReadonlyMap<string, string> = new Map([
+  ['MOCK', 'it fabricates settlement success without moving real funds (see MockSettlementProvider).'],
+  ['LIGHTNING_HODL', 'its own provider declares it testnet (mutinynet) only, with a server-held arbiter key (lightning-hodl.provider.ts).'],
+  ['SAFE_GUARD_EVM', 'its own provider declares it testnet-target only, Sepolia by default (safe-guard-evm.provider.ts).'],
+  ['WDK_USDT_EVM', 'it is a server-custodial reference implementation, production-ineligible by frozen CTO decision (RFC-019, Missão 11 Fase 9.1.1 §4).'],
+])
 
 // Single enforcement point for the policy above. Called from BOTH:
 //   1. escrow.service.ts's resolveEscrowType() — creation time, before
@@ -490,11 +520,12 @@ const PRODUCTION_INELIGIBLE_TYPES: ReadonlySet<string> = new Set(['MOCK'])
 // Two call sites, one policy function — never a scattered per-method
 // `if (production && type === 'MOCK')`.
 export function assertDeploymentEligible(type: string): void {
-  if (config.isProduction && PRODUCTION_INELIGIBLE_TYPES.has(type)) {
+  const reason = PRODUCTION_INELIGIBLE_TYPES.get(type)
+  if (config.isProduction && reason !== undefined) {
     throw new EscrowError(
-      `Escrow type '${type}' is not economically eligible in production — it fabricates settlement success ` +
-      "without moving real funds (see MockSettlementProvider). The historical/persisted fact that this escrow's " +
-      "type is what it is remains unaffected by this refusal; only economic execution against it is refused.",
+      `Escrow type '${type}' is not economically eligible in production — ${reason} ` +
+      "The historical/persisted fact that this escrow's type is what it is remains unaffected by this refusal; " +
+      'only economic execution against it is refused.',
       'DISABLED'
     )
   }
@@ -546,6 +577,10 @@ export function getSettlementProvider(type: string): SettlementProvider {
   // doing real economic work, so it's the one entry currently in
   // PRODUCTION_INELIGIBLE_TYPES — but the check below applies to
   // WHATEVER that set contains, not to the literal string 'MOCK'.
+  // **Corrected (Issue #220, 2026-09-27):** the set now also contains
+  // LIGHTNING_HODL/SAFE_GUARD_EVM/WDK_USDT_EVM (see its own comment), so in
+  // production only MULTISIG still resolves unconditionally off the
+  // persisted type; outside production all four still do.
   //
   // Corrected/Implemented 2026-09-19 (Issue #229 R3, CTO corrective
   // mission) — R2 called assertDeploymentEligible() only inside an
