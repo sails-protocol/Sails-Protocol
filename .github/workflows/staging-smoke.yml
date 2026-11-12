@@ -1,0 +1,60 @@
+name: Staging Smoke
+
+# Staging H1 (Issue #105 comment 6809651802) and the #474 barrier, checked on a throwaway stack inside the runner:
+# build the images, start deploy/staging/docker-compose.yml with generated throwaway values, run
+# deploy/staging/smoke.sh, tear everything down. No secrets, no registry, no deploy, nothing leaves the runner.
+
+on:
+  pull_request:
+    paths:
+      - 'deploy/staging/**'
+      - 'Dockerfile'
+      - 'src/config/**'
+      - 'src/app.ts'
+      - 'src/main.ts'
+      - 'src/modules/open-settlement/escrow-providers.ts'
+      - 'prisma/**'
+      - '.github/workflows/staging-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Throwaway staging environment (generated, never stored)
+        run: |
+          r() { openssl rand -hex 16; }
+          cat > deploy/staging/.env <<EOF
+          POSTGRES_PASSWORD=$(r)
+          REDIS_PASSWORD=$(r)
+          MULTISIG_SEED=ci-staging-smoke-testnet-only-$(r)
+          TRUSTED_ARBITRATORS=ci-staging-smoke-arbiter
+          EVIDENCE_S3_ENDPOINT=http://evidence.invalid:9000
+          EVIDENCE_S3_REGION=auto
+          EVIDENCE_S3_BUCKET=ci-staging-smoke-placeholder
+          EVIDENCE_S3_ACCESS_KEY_ID=placeholder-not-a-key
+          EVIDENCE_S3_SECRET_ACCESS_KEY=placeholder-not-a-secret
+          EVIDENCE_S3_FORCE_PATH_STYLE=true
+          EOF
+
+      - name: Build and start the stack
+        run: docker compose -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env up -d --build
+
+      - name: Smoke
+        run: bash deploy/staging/smoke.sh deploy/staging/.env
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env logs --no-color --tail 200
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env down -v
