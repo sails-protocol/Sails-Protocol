@@ -205,12 +205,20 @@ describe('PE-M9R remediation - R-1, G2, R-4 execution (real PostgreSQL, simulate
       const f = await fixture(`r4-${c.ruling}-${c.kind}`, { sameAddress: true })
       await commitOnly(f, ruling(f, c.ruling))
       const before = chain.broadcasts.length
-      const built = await (c.kind === 'release' ? escrowService.initiateRelease(f.escrowId, undefined, ARBITER_ID) : escrowService.initiateRefund(f.escrowId, ARBITER_ID))
-        .then(() => true, () => false)
+      const initiate = (kind: 'release' | 'refund') => (kind === 'release' ? escrowService.initiateRelease(f.escrowId, undefined, ARBITER_ID) : escrowService.initiateRefund(f.escrowId, ARBITER_ID))
+      let built = await initiate(c.kind).then(() => true, () => false)
+      let persisted = false
+      if (!built && !c.ok) {
+        // Refused at creation (R2/#615 in the composition). SIMULATION of a round persisted before R-4: build the
+        // matching kind (same outputs: one shared address), then rewrite only its kind column - execution must refuse it.
+        await initiate(c.kind === 'release' ? 'refund' : 'release')
+        await prisma.escrowPendingTransaction.update({ where: { escrowId: f.escrowId }, data: { kind: c.kind } })
+        built = true; persisted = true
+      }
       const sigErr = built ? await signAll(f) : null
       const s = await state(f)
-      seen.push({ ...c, built, sigErr: sigErr?.message?.slice(0, 120) ?? null, posts: chain.broadcasts.length - before, escrow: s.escrow })
-      if (!built) continue // R2 (#615) refuses it at creation in the composition; here only execution is under test
+      seen.push({ ...c, built, persistedBeforeR4: persisted, sigErr: sigErr?.message?.slice(0, 120) ?? null, posts: chain.broadcasts.length - before, escrow: s.escrow })
+      expect(built).toBe(true)
       if (c.ok) {
         expect(sigErr).toBeNull(); expect(chain.broadcasts.length - before).toBe(1)
       } else {
