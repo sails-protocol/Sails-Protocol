@@ -7,6 +7,7 @@
 // Runs unchanged on main and on the R2 branch; each step is printed as an [evidence] line for the comparison.
 import nacl from 'tweetnacl'
 import * as bitcoin from 'bitcoinjs-lib'
+import * as ecc from 'tiny-secp256k1'
 import { createHash } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
@@ -90,6 +91,26 @@ describe('CTO 25 - a RELEASE Outcome never executes as a REFUND (real PostgreSQL
     const a = bitcoin.address.fromOutputScript(o.script, H.NETWORK)
     return a === f.buyerAddr ? 'buyer' : a === f.sellerAddr ? 'seller' : 'other'
   })
+  /** What a node would check, short of the funding itself (simulated): the broadcast spends this escrow's funding
+   *  outpoint, its witness script is this escrow's 2-of-3 P2WSH, and both signatures are valid BIP143 signatures by
+   *  committed participant keys. Distinguishes a valid, fully signed transaction from a merely built one. */
+  async function validity(f: F, hex: string) {
+    const tx = bitcoin.Transaction.fromHex(hex)
+    const e = await prisma.escrow.findUniqueOrThrow({ where: { id: f.escrowId } })
+    const keys = await prisma.escrowParticipantKey.findMany({ where: { escrowId: f.escrowId } })
+    const input = tx.ins[0]; const w = input.witness; const script = w[w.length - 1]
+    const signers = w.slice(1, -1).map((der) => {
+      const { signature, hashType } = bitcoin.script.signature.decode(der)
+      const digest = tx.hashForWitnessV0(0, script, 100_000n, hashType)
+      return keys.find((k: any) => ecc.verify(digest, Buffer.from(k.pubkey, 'hex'), signature))?.role ?? 'INVALID'
+    })
+    const outSats = tx.outs.reduce((s, o) => s + Number(o.value), 0)
+    return {
+      spendsEscrowFunding: Buffer.from(input.hash).reverse().toString('hex') === e.txLockId && input.index === e.txLockVout,
+      scriptIsEscrowP2wsh: bitcoin.payments.p2wsh({ redeem: { output: script }, network: H.NETWORK }).address === e.multisigAddr,
+      signers, minerFeeSats: 100_000 - outSats,
+    }
+  }
   async function snapshot(f: F) {
     const e = await prisma.escrow.findUniqueOrThrow({ where: { id: f.escrowId } }); const d = await prisma.dispute.findUniqueOrThrow({ where: { id: f.disputeId } })
     return {
@@ -117,6 +138,7 @@ describe('CTO 25 - a RELEASE Outcome never executes as a REFUND (real PostgreSQL
     }
     ev.postAttempts = posts
     ev.broadcastPayees = chain.broadcasts.map((txid) => payees(f, chain.hex.get(txid)!))
+    ev.broadcastValidity = await Promise.all(chain.broadcasts.map((txid) => validity(f, chain.hex.get(txid)!)))
     ev.state = await snapshot(f)
     console.log(`[evidence] ${JSON.stringify(ev)}`)
     return ev as any
@@ -129,6 +151,9 @@ describe('CTO 25 - a RELEASE Outcome never executes as a REFUND (real PostgreSQL
     const ev = await drive(f, 'control RELEASE->release', () => escrowService.initiateRelease(f.escrowId, undefined, ARBITER_ID))
     expect(ev.postAttempts).toBe(1)
     expect(ev.broadcastPayees).toEqual([['buyer']])
+    // The probe can tell a valid, fully signed spend apart: this is what the adversarial case is compared against.
+    expect(ev.broadcastValidity).toEqual([expect.objectContaining({ spendsEscrowFunding: true, scriptIsEscrowP2wsh: true, signers: expect.not.arrayContaining(['INVALID']) })])
+    expect(ev.broadcastValidity[0].signers).toHaveLength(2)
   })
 
   it('adversarial: under a committed RELEASE Outcome the arbiter\'s initiate-refund never pays the seller and never reaches the explorer', async () => {
