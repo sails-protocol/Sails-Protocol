@@ -8,6 +8,12 @@ COMPOSE=(docker compose -f "$(dirname "$0")/docker-compose.yml" --env-file "$ENV
 BASE="${SMOKE_BASE_URL:-http://127.0.0.1:3000}"
 fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
 
+# The runtime image must carry every workspace package the app requires (they are symlinks into packages/*).
+image=$("${COMPOSE[@]}" images -q app | head -n1); [ -n "$image" ] || fail "app image not found"
+docker run --rm --entrypoint node "$image" -e '
+  for (const m of ["@sails/core", "@satsails/p2p-schemas", "@satsails/p2p-trading-sdk"]) console.log("resolves", m, "->", require.resolve(m))
+' || fail "runtime image cannot resolve a workspace package"
+
 for i in $(seq 1 60); do curl -fsS "$BASE/health/live" >/dev/null 2>&1 && break; sleep 2; done
 code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/health/live"); [ "$code" = 200 ] || fail "/health/live answered $code"
 ready=$(curl -s -w '\n%{http_code}' "$BASE/health/ready")
@@ -36,7 +42,6 @@ echo "ok   NODE_ENV=production in the container; only MULTISIG is deployment-eli
 # to start, and for the reason that value's own boot gate gives (its FATAL message), not merely any failure.
 # The environment goes through a 0600 temp file, never through process arguments, and is deleted on exit; on a
 # mismatch only the FATAL line (or the exit code) is printed, never the environment.
-image=$("${COMPOSE[@]}" images -q app | head -n1); [ -n "$image" ] || fail "app image not found"
 network=$(docker inspect "$("${COMPOSE[@]}" ps -q app)" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}')
 envdir=$(mktemp -d); chmod 700 "$envdir"; trap 'rm -rf "$envdir"' EXIT
 "${COMPOSE[@]}" config --format json > "$envdir/config.json"
