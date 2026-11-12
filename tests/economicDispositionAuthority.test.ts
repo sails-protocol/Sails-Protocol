@@ -18,7 +18,23 @@ const tx = {
   dispute: {
     findUnique: mockDisputeFindUnique,
   },
+  escrow: { findUnique: (...args: unknown[]) => mockTxEscrowFindUnique(...args) },
 }
+
+// GK-M9R-D R1 - the Outcome correspondence check inside the gate's transaction (real PSBTs: integration R1-*).
+const mockTxEscrowFindUnique = jest.fn()
+const mockLoadRulingRecord = jest.fn()
+const mockAssertTranslation = jest.fn()
+jest.mock('../src/modules/open-settlement/dispute-outcome', () => ({
+  loadDisputeRulingRecord: (...args: unknown[]) => mockLoadRulingRecord(...args),
+  fromDisputeRulingRow: () => ({ outcome: { kind: 'stub' } }),
+}))
+jest.mock('../src/modules/open-settlement/dispatch-translation-guard', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/dispatch-translation-guard'),
+  assertTranslationMatchesOutcome: (...args: unknown[]) => mockAssertTranslation(...args),
+}))
+jest.mock('../src/modules/open-settlement/multisig.provider', () => ({ networkFor: () => 'regtest-network' }))
+jest.mock('../src/config', () => ({ config: { multisig: { network: 'regtest' } } }))
 
 const mockTransaction = jest.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx))
 
@@ -36,6 +52,7 @@ jest.mock('../src/common/database', () => ({
 }))
 
 import {
+  DisputedTranslationRefused,
   authorizeDisputedPendingExecution,
   economicDispositionLockKey,
   economicDispositionOperationDigest,
@@ -101,6 +118,54 @@ describe('ADR-005 economic disposition commit gate', () => {
     mockDisputeFindFirst.mockResolvedValue(null)
     mockEscrowFindUnique.mockResolvedValue({ status: 'PAYMENT_PENDING' })
     mockEscrowEventFindFirst.mockResolvedValue(null)
+    mockTxEscrowFindUnique.mockResolvedValue({ type: 'MULTISIG' })
+    mockLoadRulingRecord.mockResolvedValue({ outcomeContent: { stub: true } })
+    mockAssertTranslation.mockReturnValue(undefined)
+  })
+
+  describe('GK-M9R-D R1 - Outcome correspondence inside the gate', () => {
+    it('validates the round against the Outcome of its own appeal round, through the gate transaction, before authorizing', async () => {
+      await authorizeDisputedPendingExecution(disputedPending)
+      expect(mockLoadRulingRecord).toHaveBeenCalledWith('escrow-1', 0, tx)
+      expect(mockAssertTranslation).toHaveBeenCalledWith(disputedPending.unsignedPsbtBase64, { kind: 'stub' }, 'regtest-network', 250)
+      expect(mockAssertTranslation.mock.invocationCallOrder[0]).toBeLessThan(mockAuthCreate.mock.invocationCallOrder[0])
+    })
+
+    it('refuses a mismatching round and never creates the authorization', async () => {
+      const { TranslationGuardError } = jest.requireActual('../src/modules/open-settlement/dispatch-translation-guard')
+      mockAssertTranslation.mockImplementation(() => { throw new TranslationGuardError(['OUTPUT_AMOUNT_MISMATCH']) })
+      await expect(authorizeDisputedPendingExecution(disputedPending)).rejects.toMatchObject({ constructor: DisputedTranslationRefused, mismatches: ['OUTPUT_AMOUNT_MISMATCH'] })
+      expect(mockAuthCreate).not.toHaveBeenCalled()
+    })
+
+    it('refuses fail-closed when no durable Outcome exists for the recorded generation', async () => {
+      mockLoadRulingRecord.mockResolvedValue(null)
+      await expect(authorizeDisputedPendingExecution(disputedPending)).rejects.toMatchObject({ mismatches: ['NO_DURABLE_OUTCOME'] })
+      expect(mockAuthCreate).not.toHaveBeenCalled()
+    })
+
+    it('refuses a mismatching round even when an authorization was already committed for it (reuse is no bypass)', async () => {
+      mockAuthFindUnique.mockResolvedValue({
+        id: 'eda-1', pendingOperationId: disputedPending.id, escrowId: disputedPending.escrowId, disputeId: 'dispute-1',
+        operationDigest: economicDispositionOperationDigest(disputedPending),
+      })
+      mockLoadRulingRecord.mockResolvedValue(null)
+      await expect(authorizeDisputedPendingExecution(disputedPending)).rejects.toMatchObject({ mismatches: ['NO_DURABLE_OUTCOME'] })
+    })
+
+    it('a superseded generation still fails with the ADR-005 refusal first', async () => {
+      mockDisputeFindUnique.mockResolvedValue(liveDispute({ status: 'APPEALED', appealRound: 1, ruling: null }))
+      mockLoadRulingRecord.mockResolvedValue(null)
+      await expect(authorizeDisputedPendingExecution(disputedPending)).rejects.toThrow(/no longer current/)
+      expect(mockLoadRulingRecord).not.toHaveBeenCalled()
+    })
+
+    it('does not apply to rails that dispatch no Bitcoin PSBT', async () => {
+      mockTxEscrowFindUnique.mockResolvedValue({ type: 'LIGHTNING_HODL' })
+      mockLoadRulingRecord.mockResolvedValue(null)
+      await expect(authorizeDisputedPendingExecution(disputedPending)).resolves.toEqual(expect.objectContaining({ disputeId: 'dispute-1' }))
+      expect(mockLoadRulingRecord).not.toHaveBeenCalled()
+    })
   })
 
   it.each([
