@@ -206,7 +206,10 @@ async function assertDisputedTranslationMatchesOutcome(pending: DisputedPendingF
   try {
     assertTranslationMatchesOutcome(pending.unsignedPsbtBase64, outcome, networkFor(config.multisig.network), pending.minerFeeSats ?? undefined)
   } catch (err) {
-    const mismatches: readonly string[] = err instanceof TranslationGuardError ? (err as { mismatches: readonly string[] }).mismatches : [err instanceof Error ? err.message : String(err)]
+    // PE-M9R F5 - only a real translation mismatch is a translation refusal; an internal failure (config, decoder,
+    // guard bug) propagates as itself, still fail-closed, so callers classify it as a gate error, not a mismatch.
+    if (!(err instanceof TranslationGuardError)) throw err
+    const mismatches: readonly string[] = (err as { mismatches: readonly string[] }).mismatches
     throw new DisputedTranslationRefused(
       `Pending operation ${pending.id} on escrow ${pending.escrowId} does not correspond to the authoritative Outcome of ` +
       `dispute ${pending.disputeId} - refusing to execute (GK-M9R-D R1): ${mismatches.join('; ')}`,
