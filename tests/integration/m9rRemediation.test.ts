@@ -24,11 +24,14 @@ describe('PE-M9R remediation - R-1, G2, R-4 execution (real PostgreSQL, simulate
   const ARBITER_ID = 'm9r-rem-arbiter'
   const kp = nacl.sign.keyPair(); const arbPub = Buffer.from(kp.publicKey).toString('hex')
   let chain: H.Chain; let realFetch: typeof fetch
+  let disputeLog: any // the dispute service's own logger, captured at module load (PE-M9R R-1 classification marker)
 
   beforeAll(async () => {
     process.env.MOCK_ESCROW = 'false'; process.env.MULTISIG_SEED = process.env.MULTISIG_SEED || 'm9r-rem-seed'; process.env.TRUSTED_ARBITRATORS = ARBITER_ID
     await pg.probe()
     if (!pg.isAvailable()) return
+    const loggerModule = require('../../src/common/logger'); const realChild = loggerModule.childLogger
+    jest.spyOn(loggerModule, 'childLogger').mockImplementation(((name: string) => { const l = realChild(name); if (name === 'dispute-service') disputeLog = l; return l }) as never)
     ;({ prisma } = require('../../src/common/database'))
     ;({ escrowService } = require('../../src/modules/open-settlement/escrow.service'))
     ;({ identityService } = require('../../src/modules/open-identity/identity.service'))
@@ -124,13 +127,18 @@ describe('PE-M9R remediation - R-1, G2, R-4 execution (real PostgreSQL, simulate
     pg.requirePostgres('R-1')
     const f = await fixture('r1')
     failLiveDispatchOnce(true)
+    expect(disputeLog).toBeDefined()
+    const warn = jest.spyOn(disputeLog, 'warn')
     const r = ruling(f)
     let returned: any = null
     const liveErr = await resolveLive(f, r).then((d: any) => { returned = d; return null }, (e: Error) => e)
+    const warnCalls = warn.mock.calls.map((c) => c[0])
     jest.restoreAllMocks()
     const after = await state(f)
     evidence('R-1', { liveError: liveErr?.message ?? null, dispute: after.dispute, outcome: after.outcome, roundGeneration: after.round?.rulingAppealRound })
     expect(liveErr).toBeNull()
+    // Classified, not a silent success: the marker is a log (the return contract stays the dispute row).
+    expect(warnCalls).toContainEqual(expect.objectContaining({ msg: expect.stringMatching(/^PE-M9R R-1: .*already dispatched \(C4 recovery\)/), disputeId: f.disputeId, escrowId: f.escrowId, appealRound: 0 }))
     expect(returned).toMatchObject({ id: f.disputeId, status: 'RESOLVED', ruling: 'SPLIT', authoritySignature: r.signature })
     expect(after).toMatchObject({ dispute: 'RESOLVED', outcome: true, txRelease: false })
     expect(after.round).toMatchObject({ disputeId: f.disputeId, rulingAppealRound: 0, kind: 'split', rulingAuthoritySignature: r.signature })

@@ -854,12 +854,13 @@ export class DisputeService {
       // only when this exact generation was the one reverted.
       // PE-M9R R-1 (#618) - C4 recovery may have dispatched this same generation between the commit above and this
       // failure. The row lock waits for a C4 build holding FOR SHARE, so its round is committed and visible below;
-      // if this generation's round exists (or the escrow already executed), the ruling governs a real dispatch and
-      // is never reverted - reverting it used to orphan that round and block the dispute for good.
+      // if this generation's round exists (or this generation already holds an ADR-005 execution authorization),
+      // the ruling governs a real dispatch and is never reverted - reverting it used to orphan that round and block
+      // the dispute for good.
       const dispatched = await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
         await tx.$queryRaw`SELECT "id" FROM "disputes" WHERE "id" = ${dispute.id} FOR UPDATE`
-        const [round, escrow] = await Promise.all([
+        const [round, executed] = await Promise.all([
           tx.escrowPendingTransaction.findFirst({
             where: {
               escrowId: dispute.escrowId, disputeId: dispute.id, rulingAppealRound: dispute.appealRound,
@@ -867,9 +868,12 @@ export class DisputeService {
             },
             select: { id: true },
           }),
-          tx.escrow.findUnique({ where: { id: dispute.escrowId }, select: { txReleaseId: true } }),
+          tx.economicDispositionAuthorization.findFirst({
+            where: { escrowId: dispute.escrowId, disputeId: dispute.id, appealRound: dispute.appealRound, ruling: payload.outcome, arbiterId: payload.authorityId },
+            select: { id: true },
+          }),
         ])
-        if (round || escrow?.txReleaseId) return true
+        if (round || executed) return true
 
         const { count } = await tx.dispute.updateMany({
           where: {

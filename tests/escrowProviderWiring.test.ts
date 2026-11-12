@@ -3,8 +3,11 @@
 jest.mock('../src/modules/open-settlement/dispute-outcome', () => ({
   ...jest.requireActual('../src/modules/open-settlement/dispute-outcome'),
   loadDisputeRulingRecord: async () => ({ outcomeContent: {} }),
-  fromDisputeRulingRow: () => ({ outcome: {} }),
+  // PE-M9R R-4 - the gate binds the round kind to this Outcome's ruling; a test of another kind sets mockOutcomeRuling.
+  fromDisputeRulingRow: () => ({ outcome: { content: { ruling: mockOutcomeRuling } } }),
 }))
+let mockOutcomeRuling = 'RELEASE'
+beforeEach(() => { mockOutcomeRuling = 'RELEASE' })
 jest.mock('../src/modules/open-settlement/dispatch-translation-guard', () => ({
   ...jest.requireActual('../src/modules/open-settlement/dispatch-translation-guard'),
   assertTranslationMatchesOutcome: () => undefined,
@@ -1544,6 +1547,7 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
   })
 
   it('finalizes for real once every required signer has submitted — split path (RFC-021 D9)', async () => {
+    mockOutcomeRuling = 'SPLIT'
     // Real MultisigProvider.buildUnsignedSplit() requires only ONE more
     // signer alongside the arbiter's pre-embedded one (see that method's
     // own comment) — mocked here as buyer-1, its real default pairing.

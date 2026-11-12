@@ -27,7 +27,7 @@ const mockLoadRulingRecord = jest.fn()
 const mockAssertTranslation = jest.fn()
 jest.mock('../src/modules/open-settlement/dispute-outcome', () => ({
   loadDisputeRulingRecord: (...args: unknown[]) => mockLoadRulingRecord(...args),
-  fromDisputeRulingRow: () => ({ outcome: { kind: 'stub' } }),
+  fromDisputeRulingRow: () => ({ outcome: { kind: 'stub', content: { ruling: 'RELEASE' } } }),
 }))
 jest.mock('../src/modules/open-settlement/dispatch-translation-guard', () => ({
   ...jest.requireActual('../src/modules/open-settlement/dispatch-translation-guard'),
@@ -127,7 +127,7 @@ describe('ADR-005 economic disposition commit gate', () => {
     it('validates the round against the Outcome of its own appeal round, through the gate transaction, before authorizing', async () => {
       await authorizeDisputedPendingExecution(disputedPending)
       expect(mockLoadRulingRecord).toHaveBeenCalledWith('escrow-1', 0, tx)
-      expect(mockAssertTranslation).toHaveBeenCalledWith(disputedPending.unsignedPsbtBase64, { kind: 'stub' }, 'regtest-network', 250)
+      expect(mockAssertTranslation).toHaveBeenCalledWith(disputedPending.unsignedPsbtBase64, { kind: 'stub', content: { ruling: 'RELEASE' } }, 'regtest-network', 250)
       expect(mockAssertTranslation.mock.invocationCallOrder[0]).toBeLessThan(mockAuthCreate.mock.invocationCallOrder[0])
     })
 
