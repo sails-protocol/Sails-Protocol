@@ -62,6 +62,8 @@ jobs:
       # affected test file individually, since the dependency is on
       # ambient environment, not on any one file.
       TRUSTED_ARBITRATORS: k6-test-arbiter
+      # #307: enable real Redis concurrency/TTL test against disposable service.
+      RELAY_REDIS_INTEGRATION_URL: redis://127.0.0.1:6379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
