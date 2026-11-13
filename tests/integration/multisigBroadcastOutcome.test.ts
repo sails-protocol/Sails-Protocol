@@ -676,7 +676,7 @@ describe('Issue #299 - MULTISIG broadcast outcome: UNKNOWN is never FAILED (real
     jest.restoreAllMocks()
     const round = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: c.escrow.id } })
     expect(round).toMatchObject({ disputeId: dispute.id, requiredSigners: [c.buyer.id] })
-    return { c, dispute, round, signed: signRound(round.unsignedPsbtBase64, buyerKey) }
+    return { c, dispute, round, signed: signRound(round.unsignedPsbtBase64, c.buyerKey) }
   }
   const authorizations = (escrowId: string) => prisma.economicDispositionAuthorization.count({ where: { escrowId } })
   const outcomeRecords = (escrowId: string) => prisma.semanticTransitionRecord.count({ where: { interactionId: escrowId } })
