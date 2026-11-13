@@ -316,6 +316,111 @@ describe('MULTISIG funding binding (real PostgreSQL)', () => {
       expect(state).toMatchObject({ status: before.status, txReleaseId: null, rounds: 1, signatures: 2 })
     })
 
+    // Reconciliation reconstructs rounds from persisted rows (PASS 0, PASS 1, completion-effects catch-up): the same
+    // binding applies there, inside multisigProvider.reconcilePendingSettlement(), before any network call.
+    const spendsOf = (fundingTxid: string) => chain.broadcasts.filter((id) =>
+      bitcoin.Transaction.fromHex(chain.hex.get(id)!).ins.some((i) => Buffer.from(i.hash).reverse().toString('hex') === fundingTxid))
+    const reconcile = () => require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service').reconcilePendingSettlements()
+    /** Real reconcilePendingSettlement() calls for this escrow, with what each returned. */
+    const reconcileCalls = async (spy: jest.SpyInstance, e: E) => Promise.all(spy.mock.calls
+      .map((args, i) => ({ args, result: spy.mock.results[i] })).filter(({ args }) => args[0]?.id === e.id).map(({ result }) => result.value))
+
+    /** A fully signed round whose input no longer binds: both signatures persisted, submit refused (0 POST). */
+    async function refusedRound(label: string, how: 'vout' | 'value') {
+      const { e, x } = await lockedEscrow(label)
+      await escrowService.markPaymentSent(e.id, e.buyerId)
+      await escrowService.initiateRelease(e.id, undefined, e.sellerId)
+      const honest = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: e.id } })
+      const altered = tamper(honest.unsignedPsbtBase64, how)
+      await prisma.escrowPendingTransaction.update({ where: { id: honest.id }, data: { unsignedPsbtBase64: altered } })
+      await submitSig(e.id, e.buyerId, sign(altered, e.buyerKey))
+      expect(await outcome(submitSig(e.id, e.sellerId, sign(altered, e.sellerKey)))).toMatchObject({ code: 'ROUND_INPUT_MISMATCH' })
+      expect(await prisma.escrowTransactionSignature.count({ where: { pendingTxId: honest.id } })).toBe(2)
+      return { e, x, pendingId: honest.id, altered }
+    }
+    const stateOf = async (e: E, pendingId: string) => {
+      const r = await row(e)
+      return {
+        status: r.status, txReleaseId: r.txReleaseId,
+        round: (await prisma.escrowPendingTransaction.findUnique({ where: { id: pendingId } }))?.unsignedPsbtBase64 ?? null,
+        signatures: await prisma.escrowTransactionSignature.count({ where: { pendingTxId: pendingId } }),
+      }
+    }
+
+    it.each(['vout', 'value'] as const)('PASS 0: a fully signed, unclaimed round whose input differs (%s) is not broadcast, not claimed, kept as is, and reported for manual review', async (how) => {
+      pg.requirePostgres(`binding PASS 0 ${how}`)
+      const { e, x, pendingId, altered } = await refusedRound(`bind-p0-${how}`, how)
+      const before = await stateOf(e, pendingId)
+      const spy = jest.spyOn(MultisigProvider.prototype, 'reconcilePendingSettlement')
+      const first = await reconcile(); const second = await reconcile()
+      const calls = await reconcileCalls(spy, e)
+      const after = await stateOf(e, pendingId)
+      log(`binding PASS 0 ${how}`, { calls, before, after, review: first.requiresManualReview.filter((r: any) => r.escrowId === e.id) })
+      expect(calls.length).toBeGreaterThanOrEqual(2)
+      for (const c of calls) expect(c).toMatchObject({ outcome: 'ANOMALY', detail: expect.stringMatching(/^ROUND_INPUT_MISMATCH/) })
+      expect(spendsOf(x.txid)).toEqual([])
+      expect(after).toEqual({ ...before, round: altered })
+      expect(after).toMatchObject({ status: before.status, txReleaseId: null, signatures: 2 }) // not claimed
+      for (const report of [first, second]) {
+        expect(report.requiresManualReview).toContainEqual({ escrowId: e.id, reason: expect.stringMatching(/ROUND_INPUT_MISMATCH/) })
+        expect(report.resumedUnclaimed.map((r: any) => r.escrowId)).not.toContain(e.id)
+      }
+    })
+
+    it('PASS 1: a claimed escrow without txReleaseId whose round input differs is not broadcast, gets no txReleaseId, and is reported for manual review', async () => {
+      pg.requirePostgres('binding PASS 1')
+      const { e, x, pendingId, altered } = await refusedRound('bind-p1', 'vout')
+      await prisma.escrow.update({ where: { id: e.id }, data: { status: 'COMPLETED' } }) // the claim landed, the result did not
+      const spy = jest.spyOn(MultisigProvider.prototype, 'reconcilePendingSettlement')
+      const report = await reconcile()
+      const calls = await reconcileCalls(spy, e)
+      const after = await stateOf(e, pendingId)
+      log('binding PASS 1', { calls, after, review: report.requiresManualReview.filter((r: any) => r.escrowId === e.id) })
+      expect(calls.length).toBeGreaterThanOrEqual(1)
+      for (const c of calls) expect(c).toMatchObject({ outcome: 'ANOMALY', detail: expect.stringMatching(/^ROUND_INPUT_MISMATCH/) })
+      expect(spendsOf(x.txid)).toEqual([])
+      expect(after).toEqual({ status: 'COMPLETED', txReleaseId: null, round: altered, signatures: 2 })
+      expect(report.requiresManualReview).toContainEqual({ escrowId: e.id, reason: expect.stringMatching(/ROUND_INPUT_MISMATCH/) })
+      expect(report.recovered.map((r: any) => r.escrowId)).not.toContain(e.id)
+    })
+
+    it('completion-effects catch-up: a terminal escrow whose persisted round input differs is never reconstructed or broadcast, and its txReleaseId is kept', async () => {
+      pg.requirePostgres('binding catch-up')
+      const { e, x, pendingId, altered } = await refusedRound('bind-cu', 'vout')
+      const recorded = 'ce'.repeat(32)
+      await prisma.escrow.update({ where: { id: e.id }, data: { status: 'COMPLETED', txReleaseId: recorded, releasedAt: new Date() } })
+      const spy = jest.spyOn(MultisigProvider.prototype, 'reconcilePendingSettlement')
+      const report = await reconcile()
+      const calls = await reconcileCalls(spy, e)
+      const after = await stateOf(e, pendingId)
+      log('binding catch-up', { calls, after })
+      expect(calls.length).toBeGreaterThanOrEqual(1) // the catch-up did reach the reconstruction
+      for (const c of calls) expect(c).toMatchObject({ outcome: 'ANOMALY', detail: expect.stringMatching(/^ROUND_INPUT_MISMATCH/) })
+      expect(spendsOf(x.txid)).toEqual([])
+      expect(after).toEqual({ status: 'COMPLETED', txReleaseId: recorded, round: altered, signatures: 2 })
+      expect(report.requiresManualReview).toContainEqual({ escrowId: e.id, reason: expect.stringMatching(/^ROUND_INPUT_MISMATCH/) })
+      expect(report.completionEffectsRecovered.map((r: any) => r.escrowId)).not.toContain(e.id)
+    })
+
+    it('PASS 0 control: an honest fully signed, unclaimed round is still broadcast once, spending the recorded funding, and completes', async () => {
+      pg.requirePostgres('binding PASS 0 control')
+      const { e, x } = await lockedEscrow('bind-p0-ok')
+      await escrowService.markPaymentSent(e.id, e.buyerId)
+      const round = await escrowService.initiateRelease(e.id, undefined, e.sellerId)
+      const pending = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: e.id } })
+      await submitSig(e.id, e.buyerId, sign(round.unsignedPsbtBase64, e.buyerKey))
+      // The process died after the last signature was persisted and before execution (crash window C8).
+      await prisma.escrowTransactionSignature.create({ data: { pendingTxId: pending.id, participantId: e.sellerId, signedPsbtBase64: sign(round.unsignedPsbtBase64, e.sellerKey) } })
+      const report = await reconcile()
+      const spends = spendsOf(x.txid)
+      const spent = bitcoin.Transaction.fromHex(chain.hex.get(spends[0])!).ins[0]
+      log('binding PASS 0 control', { spends, resumed: report.resumedUnclaimed.filter((r: any) => r.escrowId === e.id) })
+      expect(spends).toHaveLength(1)
+      expect(`${Buffer.from(spent.hash).reverse().toString('hex')}:${spent.index}`).toBe(`${x.txid}:0`)
+      expect(report.resumedUnclaimed).toContainEqual({ escrowId: e.id, txId: spends[0], outcome: 'NEWLY_BROADCAST' })
+      expect(await row(e)).toMatchObject({ status: 'COMPLETED', txReleaseId: spends[0] })
+    })
+
     it('control: the honest cooperative release spends the recorded funding and completes with one POST', async () => {
       pg.requirePostgres('binding control')
       const { e, x } = await lockedEscrow('bind-ok')

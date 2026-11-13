@@ -93,6 +93,7 @@ import type { FeeCollectionResult } from './escrow-providers'
 import { childLogger } from '../../common/logger'
 import { boundedFetch } from './bounded-rpc'
 import { SubmissionDefinitelyFailed, BroadcastRejected } from './broadcast-outcome'
+import { roundInputMismatches } from './multisig-round-input-binding'
 
 // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded, safe retry for
 // read-only explorer queries only. Never applied to broadcast() (a
@@ -463,6 +464,11 @@ export type MultisigEscrowInput = {
   // escrow anywhere lacks this field — undefined/null here now means
   // "reject," not "fall back to live config" (partiesFor() below).
   arbiterPubkey?: string | null
+  // CTO 25 funding binding - what reconcilePendingSettlement() binds the round's input to (see
+  // multisig-round-input-binding.ts). Missing = the round is not reconstructed (ANOMALY, fail closed).
+  id?: string
+  multisigAddr?: string | null
+  fundedAmount?: Prisma.Decimal | string | null
 }
 
 export class MultisigProvider implements SettlementProvider {
@@ -1501,8 +1507,19 @@ export class MultisigProvider implements SettlementProvider {
   ): Promise<
     | { outcome: 'ALREADY_BROADCAST'; txId: string; rawTxHex: string; detail: string }
     | { outcome: 'NEWLY_BROADCAST'; txId: string; rawTxHex: string; detail: string }
-    | { outcome: 'ANOMALY'; detail: string }
+    | { outcome: 'ANOMALY'; detail: string; code?: 'ROUND_INPUT_MISMATCH' }
   > {
+    // CTO 25 funding binding - same rule as the live path (escrow-pending-tx.ts): a round that does not spend exactly
+    // this escrow's recorded funding is never reconstructed, adopted or broadcast. Checked before any network call,
+    // so no authorization gate, claim, txid write or broadcast follows; the round and its signatures are left as is.
+    const inputMismatches = roundInputMismatches(unsignedPsbtBase64, {
+      id: escrow.id ?? escrow.tradeId, txLockId: escrow.txLockId ?? null, txLockVout: escrow.txLockVout ?? null,
+      multisigAddr: escrow.multisigAddr ?? null, fundedAmount: escrow.fundedAmount ?? null,
+    }, networkFor(config.multisig.network))
+    if (inputMismatches.length > 0) {
+      return { outcome: 'ANOMALY', code: 'ROUND_INPUT_MISMATCH', detail: `ROUND_INPUT_MISMATCH: the round for trade ${escrow.tradeId} does not spend this escrow's recorded funding - not reconstructed, nothing broadcast: ${inputMismatches.join('; ')}` }
+    }
+
     const tx = this.buildFinalizedTransaction(escrow.tradeId, unsignedPsbtBase64, signedPsbtBase64List)
     const expectedTxId = tx.getId()
     // Sails Core Implementation Program M9 (Recovery) — additive, same
