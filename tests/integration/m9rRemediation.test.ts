@@ -66,22 +66,23 @@ describe('PE-M9R remediation - R-1, G2, R-4 execution (real PostgreSQL, simulate
   })
   afterEach(() => { jest.restoreAllMocks(); if (realFetch) global.fetch = realFetch })
 
-  type F = { escrowId: string; tradeId: string; buyerId: string; sellerId: string; disputeId: string; buyerAddr: string; sellerAddr: string }
+  type F = { escrowId: string; tradeId: string; buyerId: string; sellerId: string; disputeId: string; buyerAddr: string; sellerAddr: string; buyerKey: H.Key; sellerKey: H.Key }
   async function fixture(label: string, opts: { sameAddress?: boolean } = {}): Promise<F> {
     const seller = await registerTestParticipant(identityService, 'Seller'); const buyer = await registerTestParticipant(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, H.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, H.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const { buyerKey, sellerKey, BUYER_PUBKEY, SELLER_PUBKEY } = H.participantKeys() // one MULTISIG address per escrow (#621)
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
     const funding = createHash('sha256').update(`m9r-rem-${label}-${Math.random()}-${Date.now()}`).digest('hex')
     chain.fundings.add(funding); chain.locking = funding
     await escrowService.lockFunds(escrow.id, seller.id); chain.locking = null
     const buyerAddr = H.testnetAddress(`${label}-b`), sellerAddr = opts.sameAddress ? buyerAddr : H.testnetAddress(`${label}-s`)
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', buyerAddr); await payoutAddressService.setPayoutAddress(seller.id, 'BTC', sellerAddr)
     const d = await getDisputeService().raiseDispute(trade.id, buyer.id, `m9r rem ${label}`)
-    return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id, disputeId: d.id, buyerAddr, sellerAddr }
+    return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id, disputeId: d.id, buyerAddr, sellerAddr, buyerKey, sellerKey }
   }
   type Ruling = 'RELEASE' | 'REFUND' | 'SPLIT'
   const ruling = (f: F, outcome: Ruling = 'SPLIT') => {
@@ -101,7 +102,7 @@ describe('PE-M9R remediation - R-1, G2, R-4 execution (real PostgreSQL, simulate
     const round = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: f.escrowId } })
     return { escrow: e.status, txRelease: !!e.txReleaseId, dispute: d.status, outcome: !!(await loadDisputeRulingRecord(f.escrowId, 0)), round }
   }
-  const keyFor = (f: F, id: string) => (id === f.buyerId ? H.buyerKey : id === f.sellerId ? H.sellerKey : null)
+  const keyFor = (f: F, id: string) => (id === f.buyerId ? f.buyerKey : id === f.sellerId ? f.sellerKey : null)
   async function signAll(f: F): Promise<Error | null> {
     const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: f.escrowId } })
     let last: Error | null = null

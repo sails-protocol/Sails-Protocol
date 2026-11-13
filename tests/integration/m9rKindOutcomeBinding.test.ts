@@ -104,15 +104,16 @@ describe('CTO 25 T10/R-4 - a disputed round\'s kind is bound to its Outcome\'s r
       ? { feePolicyVersionId: policy!.id, snapshotFeeCollectionAddress: feeAddr, snapshotFeeCollectionWaivedPreFunding: false }
       : { feePolicyVersionId: null })
     if (opts.fee) fundingValue = 100_000 + FEE_SATS
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, H.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, H.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const { buyerKey, sellerKey, BUYER_PUBKEY, SELLER_PUBKEY } = H.participantKeys() // one MULTISIG address per escrow (#621)
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
     const funding = createHash('sha256').update(`aux2-kind-${label}-${Math.random()}-${Date.now()}`).digest('hex')
     chain.fundings.add(funding); chain.locking = funding
     await escrowService.lockFunds(escrow.id, seller.id); chain.locking = null
     const buyerAddr = H.testnetAddress(opts.shared ? `${label}-shared` : `${label}-b`)
     const sellerAddr = H.testnetAddress(opts.shared ? `${label}-shared` : `${label}-s`)
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', buyerAddr); await payoutAddressService.setPayoutAddress(seller.id, 'BTC', sellerAddr)
-    return { label, escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id, buyerAddr, sellerAddr, feeAddr }
+    return { label, escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id, buyerAddr, sellerAddr, feeAddr, buyerKey, sellerKey }
   }
   type F = Awaited<ReturnType<typeof fixture>> & { disputeId?: string }
 
@@ -177,9 +178,9 @@ describe('CTO 25 T10/R-4 - a disputed round\'s kind is bound to its Outcome\'s r
       const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: f.escrowId } })
       ev.round = { kind: row.kind, rulingOutcome: row.rulingOutcome, requiredSigners: (row.requiredSigners as string[]).map((s) => (s === f.buyerId ? 'buyer' : s === f.sellerId ? 'seller' : s)) }
       const other = row.requiredSigners.includes(f.buyerId) ? f.sellerId : f.buyerId
-      try { await submitSig(f.escrowId, other, H.signRound(row.unsignedPsbtBase64, other === f.buyerId ? H.buyerKey : H.sellerKey)); ev.nonRequiredSigner = 'accepted' } catch (e: any) { ev.nonRequiredSigner = `refused: ${e.message}` }
+      try { await submitSig(f.escrowId, other, H.signRound(row.unsignedPsbtBase64, other === f.buyerId ? f.buyerKey : f.sellerKey)); ev.nonRequiredSigner = 'accepted' } catch (e: any) { ev.nonRequiredSigner = `refused: ${e.message}` }
       for (const signer of row.requiredSigners as string[]) {
-        const r = await submitSig(f.escrowId, signer, H.signRound(row.unsignedPsbtBase64, signer === f.buyerId ? H.buyerKey : H.sellerKey)); ev.complete = r.complete
+        const r = await submitSig(f.escrowId, signer, H.signRound(row.unsignedPsbtBase64, signer === f.buyerId ? f.buyerKey : f.sellerKey)); ev.complete = r.complete
       }
     }
     ev.postAttempts = posts
@@ -290,7 +291,7 @@ describe('CTO 25 T10/R-4 - a disputed round\'s kind is bound to its Outcome\'s r
     const f: F = await fixture('coop', { shared: true })
     await escrowService.markPaymentSent(f.escrowId, f.buyerId)
     const coop = await escrowService.initiateRelease(f.escrowId, undefined, f.sellerId)
-    await submitSig(f.escrowId, f.sellerId, H.signRound(coop.unsignedPsbtBase64, H.sellerKey))
+    await submitSig(f.escrowId, f.sellerId, H.signRound(coop.unsignedPsbtBase64, f.sellerKey))
     const before = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: f.escrowId }, include: { signatures: true } })
     await raise(f); await commitRuling(f, 'RELEASE')
     const grant = issueGrant(await prisma.dispute.findUniqueOrThrow({ where: { id: f.disputeId } }))

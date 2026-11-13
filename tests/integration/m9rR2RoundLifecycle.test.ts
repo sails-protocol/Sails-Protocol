@@ -75,8 +75,9 @@ describe('GK-M9R-D R2 - a disputed MULTISIG round never exists before its transl
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, H.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, H.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const { buyerKey, sellerKey, BUYER_PUBKEY, SELLER_PUBKEY } = H.participantKeys() // one MULTISIG address per escrow (#621)
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
     const funding = createHash('sha256').update(`aux2-r2-${label}-${Math.random()}-${Date.now()}`).digest('hex')
     chain.fundings.add(funding); chain.locking = funding
     await escrowService.lockFunds(escrow.id, seller.id); chain.locking = null
@@ -84,7 +85,7 @@ describe('GK-M9R-D R2 - a disputed MULTISIG round never exists before its transl
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', buyerAddr); await payoutAddressService.setPayoutAddress(seller.id, 'BTC', sellerAddr)
     const d = dispute ? await getDisputeService().raiseDispute(trade.id, buyer.id, `aux2 r2 ${label}`) : null
     mine.push(escrow.id)
-    return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id, disputeId: d?.id as string, buyerAddr, sellerAddr }
+    return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id, disputeId: d?.id as string, buyerAddr, sellerAddr, buyerKey, sellerKey }
   }
   type F = Awaited<ReturnType<typeof fixture>>
   const ruling = (f: F, buyerBps = 7000) => { const issuedAt = new Date().toISOString(); const payload = { disputeId: f.disputeId, escrowId: f.escrowId, appealRound: 0, authorityId: ARBITER_ID, outcome: 'SPLIT' as const, buyerBps, issuedAt }; return { payload, signature: signAuthorityDecision(payload, kp.secretKey), issuedAt } }
@@ -118,7 +119,7 @@ describe('GK-M9R-D R2 - a disputed MULTISIG round never exists before its transl
     await resolveLive(f, ruling(f))
     const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: f.escrowId } })
     expect(row.disputeId).toBe(f.disputeId)
-    expect((await submitSig(f.escrowId, f.buyerId, H.signRound(row.unsignedPsbtBase64, H.buyerKey))).complete).toBe(true)
+    expect((await submitSig(f.escrowId, f.buyerId, H.signRound(row.unsignedPsbtBase64, f.buyerKey))).complete).toBe(true)
     expect(chain.broadcasts).toHaveLength(1)
     const outs = shares(f, chain.hex.get(chain.broadcasts[0])!)
     const buyer = outs.find((o) => o.who === 'buyer')!.sats, seller = outs.find((o) => o.who === 'seller')!.sats
@@ -211,7 +212,7 @@ describe('GK-M9R-D R2 - a disputed MULTISIG round never exists before its transl
     await escrowService.initiateRelease(f.escrowId, undefined, ARBITER_ID)
     const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: f.escrowId } })
     expect(row).toMatchObject({ disputeId: f.disputeId, rulingOutcome: 'RELEASE', rulingAppealRound: 0, kind: 'release' })
-    expect((await submitSig(f.escrowId, f.buyerId, H.signRound(row.unsignedPsbtBase64, H.buyerKey))).complete).toBe(true)
+    expect((await submitSig(f.escrowId, f.buyerId, H.signRound(row.unsignedPsbtBase64, f.buyerKey))).complete).toBe(true)
     expect(chain.broadcasts).toHaveLength(1)
     expect(shares(f, chain.hex.get(chain.broadcasts[0])!).map((o) => o.who)).toEqual(['buyer'])
   })

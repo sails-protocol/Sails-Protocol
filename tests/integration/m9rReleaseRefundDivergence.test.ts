@@ -66,15 +66,16 @@ describe('CTO 25 - a RELEASE Outcome never executes as a REFUND (real PostgreSQL
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, H.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, H.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const { buyerKey, sellerKey, BUYER_PUBKEY, SELLER_PUBKEY } = H.participantKeys() // one MULTISIG address per escrow (#621)
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
     const funding = createHash('sha256').update(`aux2-div-${label}-${Math.random()}-${Date.now()}`).digest('hex')
     chain.fundings.add(funding); chain.locking = funding
     await escrowService.lockFunds(escrow.id, seller.id); chain.locking = null
     const buyerAddr = H.testnetAddress(`${label}-b`), sellerAddr = H.testnetAddress(`${label}-s`)
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', buyerAddr); await payoutAddressService.setPayoutAddress(seller.id, 'BTC', sellerAddr)
     const d = await getDisputeService().raiseDispute(trade.id, buyer.id, `aux2 divergence ${label}`)
-    return { escrowId: escrow.id, buyerId: buyer.id, sellerId: seller.id, disputeId: d.id as string, buyerAddr, sellerAddr }
+    return { escrowId: escrow.id, buyerId: buyer.id, sellerId: seller.id, disputeId: d.id as string, buyerAddr, sellerAddr, buyerKey, sellerKey }
   }
   type F = Awaited<ReturnType<typeof fixture>>
 
@@ -130,7 +131,7 @@ describe('CTO 25 - a RELEASE Outcome never executes as a REFUND (real PostgreSQL
       ev.roundProvenance = { kind: row.kind, rulingOutcome: row.rulingOutcome, disputeId: row.disputeId === f.disputeId }
       const signatures: unknown[] = []
       for (const signer of row.requiredSigners as string[]) {
-        const key = signer === f.buyerId ? H.buyerKey : signer === f.sellerId ? H.sellerKey : null
+        const key = signer === f.buyerId ? f.buyerKey : signer === f.sellerId ? f.sellerKey : null
         if (!key) { signatures.push({ signer, error: 'no test key' }); continue }
         try { const r = await submitSig(f.escrowId, signer, H.signRound(row.unsignedPsbtBase64, key)); signatures.push({ signer: signer === f.buyerId ? 'buyer' : 'seller', complete: r.complete }) } catch (e: any) { signatures.push({ signer: signer === f.buyerId ? 'buyer' : 'seller', error: `${e.constructor?.name}: ${e.message}` }) }
       }

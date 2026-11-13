@@ -82,7 +82,7 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
   afterEach(() => { jest.restoreAllMocks(); if (realFetch) global.fetch = realFetch })
 
   const deps = () => ({ prisma, escrowService, identityService, liquidityRouter, tradeService, payoutAddressService })
-  type F = { escrowId: string; tradeId: string; buyerId: string; sellerId: string; disputeId: string; buyerAddr: string; sellerAddr: string; coopRoundId?: string }
+  type F = { escrowId: string; tradeId: string; buyerId: string; sellerId: string; disputeId: string; buyerAddr: string; sellerAddr: string; coopRoundId?: string; buyerKey: H.Key; sellerKey: H.Key }
 
   /** A funded MULTISIG escrow with an open dispute; `sameAddress` gives buyer and seller the same payout address. */
   async function fixture(label: string, opts: { sameAddress?: boolean } = {}): Promise<F> {
@@ -91,8 +91,9 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, H.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, H.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const { buyerKey, sellerKey, BUYER_PUBKEY, SELLER_PUBKEY } = H.participantKeys() // one MULTISIG address per escrow (#621)
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
     const funding = createHash('sha256').update(`m9r-comp-${label}-${Math.random()}-${Date.now()}`).digest('hex')
     chain.fundings.add(funding); chain.locking = funding
     await escrowService.lockFunds(escrow.id, seller.id); chain.locking = null
@@ -100,18 +101,18 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', buyerAddr); await payoutAddressService.setPayoutAddress(seller.id, 'BTC', sellerAddr)
     const d = await getDisputeService().raiseDispute(trade.id, buyer.id, `m9r comp ${label}`)
     created.push({ escrowId: escrow.id, disputeId: d.id })
-    return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id, disputeId: d.id, buyerAddr, sellerAddr }
+    return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id, disputeId: d.id, buyerAddr, sellerAddr, buyerKey, sellerKey }
   }
 
   /** A real cooperative release round with ONE of its two signatures (buyer), then a dispute over it (#239 candidate). */
   async function coopFixture(label: string): Promise<F> {
     const c = await H.buildCooperative(deps(), chain, label, 'release')
-    await escrowService.submitTransactionSignature(c.escrow.id, c.buyer.id, H.signRound(c.round.unsignedPsbtBase64, H.buyerKey))
+    await escrowService.submitTransactionSignature(c.escrow.id, c.buyer.id, H.signRound(c.round.unsignedPsbtBase64, c.buyerKey))
     const buyerAddr = H.testnetAddress(`${label}-buyer`), sellerAddr = H.testnetAddress(`${label}-seller`)
     await payoutAddressService.setPayoutAddress(c.seller.id, 'BTC', sellerAddr)
     const d = await getDisputeService().raiseDispute(c.trade.id, c.buyer.id, `m9r comp ${label}`)
     created.push({ escrowId: c.escrow.id, disputeId: d.id })
-    return { escrowId: c.escrow.id, tradeId: c.trade.id, buyerId: c.buyer.id, sellerId: c.seller.id, disputeId: d.id, buyerAddr, sellerAddr, coopRoundId: c.round.id }
+    return { escrowId: c.escrow.id, tradeId: c.trade.id, buyerId: c.buyer.id, sellerId: c.seller.id, disputeId: d.id, buyerAddr, sellerAddr, coopRoundId: c.round.id, buyerKey: c.buyerKey, sellerKey: c.sellerKey }
   }
 
   type Ruling = 'RELEASE' | 'REFUND' | 'SPLIT'
@@ -149,7 +150,7 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
   }
   const waiting = async (like: string) => (await prisma.$queryRawUnsafe(
     `SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`, like))[0].n > 0
-  const keyFor = (f: F, id: string) => (id === f.buyerId ? H.buyerKey : id === f.sellerId ? H.sellerKey : null)
+  const keyFor = (f: F, id: string) => (id === f.buyerId ? f.buyerKey : id === f.sellerId ? f.sellerKey : null)
   /** Submits every buyer/seller signature the round requires; returns the error of the last submit, if any. */
   async function signAll(f: F): Promise<Error | null> {
     const row = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: f.escrowId } })

@@ -63,14 +63,15 @@ describe('R2 guard discrimination - authority signature and declared miner fee (
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, H.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, H.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const { buyerKey, sellerKey, BUYER_PUBKEY, SELLER_PUBKEY } = H.participantKeys() // one MULTISIG address per escrow (#621)
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
     const funding = createHash('sha256').update(`aux2-r2b-${label}-${Math.random()}-${Date.now()}`).digest('hex')
     chain.fundings.add(funding); chain.locking = funding
     await escrowService.lockFunds(escrow.id, seller.id); chain.locking = null
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', H.testnetAddress(`${label}-b`)); await payoutAddressService.setPayoutAddress(seller.id, 'BTC', H.testnetAddress(`${label}-s`))
     const d = await getDisputeService().raiseDispute(trade.id, buyer.id, `aux2 r2b ${label}`)
-    return { escrowId: escrow.id, buyerId: buyer.id, sellerId: seller.id, disputeId: d.id as string }
+    return { escrowId: escrow.id, buyerId: buyer.id, sellerId: seller.id, disputeId: d.id as string, buyerKey, sellerKey }
   }
   type F = Awaited<ReturnType<typeof fixture>>
 
