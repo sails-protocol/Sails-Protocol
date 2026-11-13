@@ -39,7 +39,7 @@
   "dependencies": {
     "@arkade-os/sdk": "^0.4.66",
     "@bitcoinerlab/secp256k1": "^1.2.0",
-    "@noble/curves": "^2.0.1",
+    "@noble/curves": "^2.4.0",
     "@noble/hashes": "^2.0.1",
     "@satsails/p2p-schemas": "^0.2.0",
     "@scure/bip32": "^2.0.1",
