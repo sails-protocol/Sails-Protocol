@@ -188,10 +188,12 @@ describe('CTO 25 T10/R-4 - a disputed round\'s kind is bound to its Outcome\'s r
   }
 
   /** Durable projections run after the settlement returns: wait for the trade's projected status. */
-  async function settled(f: F, trade: string) {
-    for (let i = 0; i < 100; i++) {
+  /** Waits for both projections (trade status, and BOTH parties' reputation: they are updated separately) or gives up
+   *  after ~20 s and returns what is there, so the assertion that follows reports the real state. */
+  async function settled(f: F, trade: string, reputation: { buyer: number; seller: number }) {
+    for (let i = 0; i < 200; i++) {
       const s = await snapshot(f)
-      if (s.trade === trade && (s.reputation.buyer !== 0 || s.reputation.seller !== 0 || f.label.includes('split'))) return s
+      if (s.trade === trade && s.reputation.buyer === reputation.buyer && s.reputation.seller === reputation.seller) return s
       await new Promise((r) => setTimeout(r, 100))
     }
     return snapshot(f)
@@ -230,7 +232,7 @@ describe('CTO 25 T10/R-4 - a disputed round\'s kind is bound to its Outcome\'s r
         REFUND: { escrow: 'REFUNDED', trade: 'CANCELLED', event: 'settlement.escrow.refunded', signer: 'seller', reputation: { buyer: -5, seller: 2 } },
         SPLIT: { escrow: 'SPLIT', trade: 'COMPLETED', event: 'settlement.escrow.split', signer: 'buyer', reputation: { buyer: 0, seller: 0 } },
       }[ruling]
-      const s = await settled(f, expected.trade)
+      const s = await settled(f, expected.trade, expected.reputation)
       console.log(`[evidence] ${JSON.stringify({ ...ev, state: s })}`)
       expect(ev.round).toEqual({ kind, rulingOutcome: ruling, requiredSigners: [expected.signer] })
       expect(ev.nonRequiredSigner).toMatch(/^refused: .*is not one of the required signers/)
@@ -263,7 +265,7 @@ describe('CTO 25 T10/R-4 - a disputed round\'s kind is bound to its Outcome\'s r
     it('REFUND Outcome: the refund round completes, REFUNDED, the whole funding (reserve included) returns to the seller, no fee owed', async () => {
       pg.requirePostgres('fee faithful REFUND')
       const f: F = await fixture('fee-ok-refund', { shared: true, fee: true }); await raise(f); await commitRuling(f, 'REFUND')
-      const ev = await drive(f, 'refund'); const s = await settled(f, 'CANCELLED')
+      const ev = await drive(f, 'refund'); const s = await settled(f, 'CANCELLED', { buyer: -5, seller: 2 })
       console.log(`[evidence] ${JSON.stringify({ ...ev, state: s })}`)
       expect(ev.postAttempts).toBe(1)
       expect(ev.broadcasts[0].outputs.map((o: any) => o.address)).toEqual([f.sellerAddr])
