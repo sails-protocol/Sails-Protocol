@@ -22,7 +22,7 @@ import nacl from 'tweetnacl'
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
-import { buyerKey, sellerKey, newChain, explorer, signRound, completeOutsideSails, buildCooperative, chainToJson, type Chain } from './pendingRoundLifecycleHarness'
+import { newChain, explorer, signRound, completeOutsideSails, buildCooperative, chainToJson, type Chain } from './pendingRoundLifecycleHarness'
 
 const WORKER = path.join(__dirname, 'multisigBroadcastOutcome.worker.ts')
 type Mode = 'accept' | 'refuse' | 'flood' | 'stale' | 'lost' | 'timeout' | 'down' | 'throttled' | 'moved' | 'gateway'
@@ -166,7 +166,7 @@ describe('Issue #299 - MULTISIG broadcast outcome: UNKNOWN is never FAILED (real
     return c
   }
   type Coop = Awaited<ReturnType<typeof refundRound>>
-  const keyOf = (c: Coop, id: string) => (id === c.buyer.id ? buyerKey : sellerKey)
+  const keyOf = (c: Coop, id: string) => (id === c.buyer.id ? c.buyerKey : c.sellerKey)
   const sign = (c: Coop, id: string) => deps.escrowService.submitTransactionSignature(c.escrow.id, id, signRound(c.round.unsignedPsbtBase64, keyOf(c, id)))
   /** Every required signature persisted, no finalize: PASS 0's "fully signed, never claimed" state. */
   async function persistAllSignatures(c: Coop) {
@@ -494,7 +494,7 @@ describe('Issue #299 - MULTISIG broadcast outcome: UNKNOWN is never FAILED (real
     const live = track(sign(c, c.buyer.id).finally(() => { liveSettled = true }))
     await within(atRollback, 30_000, 'the live rollback')
     expect(await escrowOf(c)).toMatchObject({ status: 'REFUNDED', txReleaseId: null })
-    await prisma.escrowTransactionSignature.updateMany({ where: { pendingTxId: c.round.id, participantId: c.seller.id }, data: { signedPsbtBase64: signRound(c.round.unsignedPsbtBase64, sellerKey) } })
+    await prisma.escrowTransactionSignature.updateMany({ where: { pendingTxId: c.round.id, participantId: c.seller.id }, data: { signedPsbtBase64: signRound(c.round.unsignedPsbtBase64, c.sellerKey) } })
 
     // A rollback that does not take the lock finishes at once instead of waiting: the run then reaches the end state.
     const rollbackWaitsOrEnds = async (n: number) => {
@@ -558,7 +558,7 @@ describe('Issue #299 - MULTISIG broadcast outcome: UNKNOWN is never FAILED (real
     const c = await refundRound(`crash-${when}`)
     await sign(c, c.seller.id)
     const accepted = path.join(os.tmpdir(), `i299-${c.escrow.id}.json`)
-    const crashed = await worker({ OP: 'sign', CRASH: when, ACCEPTED_FILE: accepted, ESCROW_ID: c.escrow.id, ACTOR: c.buyer.id, SIGNED_PSBT: signRound(c.round.unsignedPsbtBase64, buyerKey) })
+    const crashed = await worker({ OP: 'sign', CRASH: when, ACCEPTED_FILE: accepted, ESCROW_ID: c.escrow.id, ACTOR: c.buyer.id, SIGNED_PSBT: signRound(c.round.unsignedPsbtBase64, c.buyerKey) })
     expect(crashed.code).toBe(137)
     expect(await escrowOf(c)).toMatchObject({ status: 'REFUNDED', txReleaseId: null }) // claimed before the broadcast
     if (when === 'after') {
@@ -593,7 +593,7 @@ describe('Issue #299 - MULTISIG broadcast outcome: UNKNOWN is never FAILED (real
     }) as never)
     const live = track(sign(c, c.buyer.id))
     await within(atRollback, 30_000, 'the live rollback')
-    await prisma.escrowTransactionSignature.updateMany({ where: { pendingTxId: c.round.id, participantId: c.seller.id }, data: { signedPsbtBase64: signRound(c.round.unsignedPsbtBase64, sellerKey) } })
+    await prisma.escrowTransactionSignature.updateMany({ where: { pendingTxId: c.round.id, participantId: c.seller.id }, data: { signedPsbtBase64: signRound(c.round.unsignedPsbtBase64, c.sellerKey) } })
     const unlock = await holdEscrowLock(c.escrow.id)
     proceed()
     await untilWaiting(1)

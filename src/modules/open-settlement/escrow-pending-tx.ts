@@ -33,6 +33,7 @@ import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
 import { feeCollectionRecognitionService } from './fee-collection-recognition.service'
 import { identifyFeeOutput, networkFor } from './multisig.provider'
+import { assertRoundInputBinding } from './multisig-round-input-binding'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { authorizePendingExecution } from './capability-execution-authorization'
 import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
@@ -262,6 +263,9 @@ async function initiateSignatureCollectionCore(
       if (escrow.type === 'MULTISIG' && typeof disputedRulingProvenance.disputeId === 'string') {
         await assertDisputedRoundMatchesOutcome(tx, escrowId, kind, disputedRulingProvenance, result)
       }
+      // A round only ever spends this escrow's recorded funding. Same transaction as retireRound() above: a refusal
+      // rolls the retirement back, so nothing is written.
+      if (escrow.type === 'MULTISIG') assertRoundInputBinding(result.psbtBase64, escrow)
       return tx.escrowPendingTransaction.create({
         data: {
           ...(superseded ? { id: newRoundId } : {}),
@@ -480,6 +484,10 @@ export async function submitTransactionSignature(escrowId: string, participantId
   if (pending.kind === 'split' && !provider.finalizeSplit) {
     throw new EscrowError(`Escrow type '${escrow.type}' does not support split finalization — buildUnsignedSplit was allowed but finalizeSplit is not implemented`)
   }
+
+  // The round actually being finalized must still spend this escrow's recorded funding. Pure check, before any gate
+  // writes an authorization and before the claim: a refusal leaves the round and its signatures as they are.
+  if (escrow.type === 'MULTISIG') assertRoundInputBinding(pending.unsignedPsbtBase64, escrow)
 
   // ADR-005 / #218 — Economic Disposition Commit Gate. Runs first: a stale
   // ruling generation must fail closed before Capability/Eligibility is

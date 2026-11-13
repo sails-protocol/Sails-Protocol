@@ -133,11 +133,10 @@ describe('sweepMultisigFundingReorgs() — Missão 11 Fase 9.1 §1/§3', () => {
 
   it('duplicate sweep after a reconfirmation is idempotent — the second run sees RECONFIRMED as the last row and writes nothing new', async () => {
     mockEscrowFindMany.mockResolvedValue([escrowFixture()])
-    // Simulates the state immediately after the RECONFIRMED write from the
-    // prior tick (see the next test below) — a second sweep run observing
-    // the identical, already-reconfirmed candidate must not write again.
-    mockListForEscrow.mockResolvedValue([evidenceRow('OBSERVED_CONFIRMED', 'a'.repeat(64)), evidenceRow('REORGED_INVALIDATED', 'a'.repeat(64)), evidenceRow('REPLACEMENT_OBSERVED', 'b'.repeat(64)), evidenceRow('RECONFIRMED', 'b'.repeat(64))])
-    mockRescanFunding.mockResolvedValue({ txId: 'b'.repeat(64), vout: 0, depth: 3, confirmedAtHeight: 200, tipHeightAtObservation: 203 })
+    // The state right after a RECONFIRMED write of the recorded outpoint ('a', txLockId): a second run observing the
+    // same outpoint must not write again.
+    mockListForEscrow.mockResolvedValue([evidenceRow('OBSERVED_CONFIRMED', 'a'.repeat(64)), evidenceRow('REORGED_INVALIDATED', 'a'.repeat(64)), evidenceRow('RECONFIRMED', 'a'.repeat(64))])
+    mockRescanFunding.mockResolvedValue({ txId: 'a'.repeat(64), vout: 0, depth: 3, confirmedAtHeight: 200, tipHeightAtObservation: 203 })
 
     const result = await sweepMultisigFundingReorgs()
 
@@ -145,15 +144,30 @@ describe('sweepMultisigFundingReorgs() — Missão 11 Fase 9.1 §1/§3', () => {
     expect(mockRecord).not.toHaveBeenCalled()
   })
 
-  it('the same replacement candidate seen a second time, both times deep enough — records RECONFIRMED on the second observation', async () => {
+  it('a RECONFIRMED row on a txid other than the recorded outpoint (written before 2026-11-12) is no longer trusted: REPLACEMENT_OBSERVED', async () => {
+    mockEscrowFindMany.mockResolvedValue([escrowFixture()])
+    mockListForEscrow.mockResolvedValue([evidenceRow('OBSERVED_CONFIRMED', 'a'.repeat(64)), evidenceRow('REPLACEMENT_OBSERVED', 'b'.repeat(64)), evidenceRow('RECONFIRMED', 'b'.repeat(64))])
+    mockRescanFunding.mockResolvedValue({ txId: 'b'.repeat(64), vout: 0, depth: 3, confirmedAtHeight: 200, tipHeightAtObservation: 203 })
+
+    const result = await sweepMultisigFundingReorgs()
+
+    expect(result.replacementObserved).toEqual(['escrow-1'])
+    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ kind: 'REPLACEMENT_OBSERVED', txid: 'b'.repeat(64) }), expect.anything())
+  })
+
+  // CTO 25 funding binding (2026-11-12): this used to promote the replacement to RECONFIRMED on its second sighting.
+  // Every spend uses the recorded outpoint (txLockId:txLockVout) and nothing re-records it, so trusting another txid
+  // vouched for funding the escrow never spends. A replacement now stays REPLACEMENT_OBSERVED (uncertain).
+  it('the same replacement candidate seen a second time, both times deep enough — stays REPLACEMENT_OBSERVED, never RECONFIRMED', async () => {
     mockEscrowFindMany.mockResolvedValue([escrowFixture()])
     mockListForEscrow.mockResolvedValue([evidenceRow('OBSERVED_CONFIRMED', 'a'.repeat(64)), evidenceRow('REORGED_INVALIDATED', 'a'.repeat(64)), evidenceRow('REPLACEMENT_OBSERVED', 'b'.repeat(64))])
     mockRescanFunding.mockResolvedValue({ txId: 'b'.repeat(64), vout: 0, depth: 3, confirmedAtHeight: 200, tipHeightAtObservation: 203 })
 
     const result = await sweepMultisigFundingReorgs()
 
-    expect(result.reconfirmed).toEqual(['escrow-1'])
-    expect(mockRecord).toHaveBeenCalledWith(expect.objectContaining({ kind: 'RECONFIRMED', txid: 'b'.repeat(64) }), expect.anything())
+    expect(result.reconfirmed).toEqual([])
+    expect(result.stillPending).toEqual(['escrow-1'])
+    expect(mockRecord).not.toHaveBeenCalled()
   })
 
   it('a confirmed-but-shallow candidate exists, previous state trustworthy — records REORGED_INVALIDATED (regression from trusted)', async () => {

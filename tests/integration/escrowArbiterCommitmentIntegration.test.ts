@@ -262,7 +262,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     await svc.submitParticipantKey(escrow.id, seller.id, sellerPubkeyHex, MULTISIG_CAPABILITY_PROFILE_V1)
 
     const txid = createHash('sha256').update(escrow.id).digest('hex')
-    await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'DISPUTED', txLockId: txid, txLockVout: 0 } })
+    await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'DISPUTED', txLockId: txid, txLockVout: 0, fundedAmount: '0.001' } }) // what lockFunds() records for the stub's 100 000 sat funding
     const dispute = await prisma.dispute.create({
       data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'fixture', arbiterId: arbiterIdForDispute },
     })
@@ -441,7 +441,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     await escrowService.submitParticipantKey(escrow.id, seller.id, sellerPubkeyHex, MULTISIG_CAPABILITY_PROFILE_V1)
 
     const txid = createHash('sha256').update(`hp-${escrow.id}`).digest('hex')
-    await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'PAYMENT_PENDING', txLockId: txid, txLockVout: 0 } })
+    await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'PAYMENT_PENDING', txLockId: txid, txLockVout: 0, fundedAmount: '0.001' } })
     mockExplorerFetch(txid)
 
     const pending = await escrowService.initiateRelease(escrow.id, RELEASE_ADDR, seller.id)

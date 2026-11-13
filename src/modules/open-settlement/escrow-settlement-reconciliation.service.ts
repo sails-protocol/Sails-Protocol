@@ -363,6 +363,7 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
         buyerId: trade.buyerId, sellerId: trade.sellerId,
         buyerPubkey, sellerPubkey, arbiterPubkey,
         txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
+        id: escrow.id, multisigAddr: escrow.multisigAddr, fundedAmount: escrow.fundedAmount,
         status: escrow.status,
       }
 
@@ -539,6 +540,7 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
     buyerId: trade.buyerId, sellerId: trade.sellerId,
     buyerPubkey, sellerPubkey, arbiterPubkey,
     txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
+    id: escrow.id, multisigAddr: escrow.multisigAddr, fundedAmount: escrow.fundedAmount,
     status: escrow.status,
   }
 
@@ -961,11 +963,19 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
                 buyerId: trade.buyerId, sellerId: trade.sellerId,
                 buyerPubkey, sellerPubkey, arbiterPubkey,
                 txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
+                id: escrow.id, multisigAddr: escrow.multisigAddr, fundedAmount: escrow.fundedAmount,
                 status: escrow.status,
               },
               pendingForCorrespondence.unsignedPsbtBase64, signedList,
               catchUpGate.check
             )
+            if (reconciled.outcome === 'ANOMALY' && reconciled.code === 'ROUND_INPUT_MISMATCH') {
+              // CTO 25 funding binding - the persisted round does not spend this escrow's recorded funding: no
+              // correspondence, fee recording or completion effects from it, and the round and signatures stay as evidence.
+              log.error({ msg: 'Completion-effects catch-up: persisted round does not bind to the recorded funding - manual review, nothing recorded', escrowId: escrow.id, detail: reconciled.detail })
+              report.requiresManualReview.push({ escrowId: escrow.id, reason: reconciled.detail })
+              return
+            }
             if (reconciled.outcome !== 'ANOMALY') rawTxHex = reconciled.rawTxHex
           }
         } catch (err) {
