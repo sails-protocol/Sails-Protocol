@@ -70,13 +70,9 @@ updates:
           - "lucide-react"
           - "@radix-ui/*"
 
-  # Separate ecosystems: never mix CI action or Docker updates into npm groups.
-  - package-ecosystem: github-actions
-    directory: "/"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-
+  # Separate ecosystem: never mix Docker base-image updates into npm groups. GitHub Actions are
+  # covered by their own block (#433, #304); a second github-actions entry for "/" would be a
+  # duplicate update config, which Dependabot rejects.
   - package-ecosystem: docker
     directory: "/"
     schedule:
