@@ -235,7 +235,6 @@ jobs:
       DIST_TAG: ${{ needs.validate.outputs.dist_tag }}
       LOCAL_INTEGRITY: ${{ needs.validate.outputs.integrity }}
       TARBALL: ${{ needs.validate.outputs.tarball }}
-      GH_TOKEN: ${{ github.token }}
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -262,6 +261,8 @@ jobs:
         run: sha256sum -c tarball.sha256
 
       - name: Create or verify immutable Schemas tag
+        env:
+          GH_TOKEN: ${{ github.token }} # only the steps that call git push / gh need it
         shell: bash
         run: |
           set -euo pipefail
@@ -324,6 +325,8 @@ jobs:
           node --input-type=module -e "import * as s from '@satsails/p2p-schemas'; if(!s || Object.keys(s).length === 0) process.exit(1)"
 
       - name: Create GitHub Release from prepared release record
+        env:
+          GH_TOKEN: ${{ github.token }} # only the steps that call git push / gh need it
         shell: bash
         run: |
           set -euo pipefail
@@ -336,6 +339,8 @@ jobs:
           fi
 
       - name: Verify completed release chain
+        env:
+          GH_TOKEN: ${{ github.token }} # only the steps that call git push / gh need it
         shell: bash
         run: |
           set -euo pipefail
