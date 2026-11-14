@@ -523,5 +523,87 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
       expect(posts).toEqual([])
       expect((await prisma.escrowPendingTransaction.findUnique({ where: { id: pending.id } }))!.unsignedPsbtBase64).toBe(pending.unsignedPsbtBase64) // R untouched
     })
+
+    // CTO 88/90/91 (GK VERIFY #629, bypass C1): ADR-005 at the broadcast point, read-only. Every case: a disputed
+    // RELEASE round with BOTH durable authorizations, broadcast by a DIRECT provider call with an empty callback
+    // (the bypass path). One stored fact is then made stale/absent (SIMULATION where the code offers no path to it);
+    // the same fixture without that change is the legitimate control and is sent exactly once.
+    describe('ADR-005 at the broadcast point (CTO 88/90/91)', () => {
+      const eda = () => require('../../src/modules/open-settlement/economic-disposition-authority')
+      async function authorizedDisputed(suffix: string, economic = true) {
+        const r = await signedUnsubmittedRound(suffix, { authorized: true }) // + ADR-004 durable authorization
+        if (economic) await eda().authorizeDisputedPendingExecution(r.pending as any) // what the live path commits before its claim
+        await prisma.escrow.update({ where: { id: r.escrowId }, data: { status: 'COMPLETED' } })
+        const [input, psbt, signed] = await capturedRecoveryArgs(r.escrowId)
+        recoveryExplorer(r.fundingTxid, 100_000)
+        return { ...r, input, psbt, signed }
+      }
+      const direct = (x: { input: any; psbt: string; signed: string[] }) =>
+        notAuthorized(provider().multisigProvider.reconcilePendingSettlement(x.input, x.psbt, x.signed, async () => {}))
+      const outcomeRow = (escrowId: string) => prisma.semanticTransitionRecord.findFirst({ where: { interactionId: escrowId } })
+      const lastRefusal = async (x: { input: any; psbt: string; signed: string[] }) =>
+        provider().multisigProvider.reconcilePendingSettlement(x.input, x.psbt, x.signed, async () => {}).then(() => '', (e: any) => String(e?.message))
+
+      const cases: Array<[string, (x: any) => Promise<void>]> = [
+        ['C1 Outcome record removed (GK reproduction)', async (x) => { await prisma.semanticTransitionRecord.deleteMany({ where: { interactionId: x.escrowId } }) }],
+        ['1 dispute no longer RESOLVED (SIMULATION)', async (x) => { await prisma.dispute.updateMany({ where: { escrowId: x.escrowId }, data: { status: 'OPENED' } }) }],
+        ['2 wrong generation: the dispute moved to another appeal round (SIMULATION)', async (x) => { await prisma.dispute.updateMany({ where: { escrowId: x.escrowId }, data: { appealRound: 1 } }) }],
+        ['3 Outcome of an incompatible kind (REFUND for a release round)', async (x) => {
+          const row = (await outcomeRow(x.escrowId))!
+          await prisma.semanticTransitionRecord.update({ where: { id: row.id }, data: { outcomeContent: { ...(row.outcomeContent as object), ruling: 'REFUND' } } })
+        }],
+        ['4 economic translation diverges from the Outcome (destination rebound)', async (x) => {
+          const row = (await outcomeRow(x.escrowId))!
+          const rebound = (row.outcomeDestinationBinding as any[]).map((d: any) => ({ ...d, destination: testnetAddress(`adr5-elsewhere-${d.beneficiary}`) }))
+          await prisma.semanticTransitionRecord.update({ where: { id: row.id }, data: { outcomeDestinationBinding: rebound } })
+        }],
+        ['5 ADR-005 authorization digest diverges', async (x) => { await prisma.economicDispositionAuthorization.updateMany({ where: { escrowId: x.escrowId }, data: { operationDigest: 'f'.repeat(64) } }) }],
+        ['6 cooperative round on a disputed escrow (generation erased from the round)', async (x) => {
+          await prisma.escrowPendingTransaction.update({ where: { id: x.pending.id }, data: { disputeId: null, rulingAppealRound: null, rulingArbiterId: null, rulingOutcome: null, rulingAuthoritySignature: null, rulingAuthorityIssuedAt: null } })
+        }],
+        ['7 appeal in progress (SIMULATION: APPEALED, ruling cleared)', async (x) => { await prisma.dispute.updateMany({ where: { escrowId: x.escrowId }, data: { status: 'APPEALED', ruling: null } }) }],
+      ]
+
+      it.each(cases)('%s: direct call with an empty callback -> BroadcastNotAuthorized (ADR-005), 0 POST; the untouched control is sent once', async (name, stale) => {
+        requirePostgres(`ADR-005 ${name}`)
+        const bad = await authorizedDisputed(`adr5-${name.split(' ')[0]}-bad`)
+        await stale(bad)
+        expect(await lastRefusal(bad)).toMatch(/ADR-005/)
+        expect(posts).toEqual([])
+        const ok = await authorizedDisputed(`adr5-${name.split(' ')[0]}-ok`)
+        expect(await direct(ok)).toBe('sent')
+        expect(posts).toHaveLength(1)
+      })
+
+      it('no ADR-005 authorization at all (only ADR-004): direct call refused, 0 POST - the broadcast point never commits a first one', async () => {
+        requirePostgres('ADR-005 missing')
+        const x = await authorizedDisputed('adr5-none', false)
+        expect(await lastRefusal(x)).toMatch(/ADR-005: .*no durable ADR-005 economic disposition authorization/)
+        expect(posts).toEqual([])
+        expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: x.escrowId } })).toBe(0) // read-only: nothing created
+      })
+
+      it('catch-up and PASS 1 with the Outcome removed: never broadcast, manual review; ALREADY_BROADCAST still converges', async () => {
+        requirePostgres('ADR-005 recovery')
+        const x = await authorizedDisputed('adr5-cu')
+        await prisma.semanticTransitionRecord.deleteMany({ where: { interactionId: x.escrowId } })
+        await prisma.escrow.update({ where: { id: x.escrowId }, data: { txReleaseId: 'cf'.repeat(32), releasedAt: new Date() } })
+        await reconcile()
+        expect(posts).toEqual([])
+        const known = await authorizedDisputed('adr5-known')
+        recoveryExplorer(known.fundingTxid, 100_000, 'all')
+        await reconcile()
+        expect(posts).toEqual([])
+        expect((await prisma.escrow.findUnique({ where: { id: known.escrowId } }))!.txReleaseId).toMatch(/^[0-9a-f]{64}$/)
+      })
+
+      it('appeal() is refused for this MULTISIG escrow (script-committed arbiter): scenario 7 is unreachable by the code, only by direct SQL', async () => {
+        requirePostgres('ADR-005 appeal unreachable')
+        const x = await authorizedDisputed('adr5-appeal')
+        const d = await prisma.dispute.findFirstOrThrow({ where: { escrowId: x.escrowId } })
+        const trade = await prisma.trade.findUniqueOrThrow({ where: { id: d.tradeId } })
+        await expect(getDisputeService().appeal(d.id, trade.buyerId)).rejects.toThrow(/script-committed arbiter/)
+      })
+    })
   })
 })

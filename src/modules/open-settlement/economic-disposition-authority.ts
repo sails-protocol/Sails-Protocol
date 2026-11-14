@@ -218,6 +218,55 @@ async function assertDisputedTranslationMatchesOutcome(pending: DisputedPendingF
   }
 }
 
+/**
+ * CTO 88/90 (GK VERIFY #629, bypass C1) - the read-only ADR-005 check for the MULTISIG broadcast point
+ * (broadcast-authorization.ts). Symmetric to assertDurableExecutionAuthorization() (ADR-004): it never commits a first
+ * authorization, it only proves that THIS pending operation is the economically authorized one, right before the POST.
+ *   - no recorded generation (disputeId null): the cooperative origin must be provable (never disputed);
+ *   - otherwise: the durable EconomicDispositionAuthorization this operation committed must exist and match (escrow,
+ *     dispute, generation fields and the ADR-005 digest); the dispute must still be RESOLVED in exactly that
+ *     generation; and the durable Outcome must exist and correspond to the round (kind R-4, translation R1).
+ * The live RESOLVED re-check is stricter than ADR-005 section 4's reuse path, which does not re-read the dispute for an
+ * already-committed attempt. For MULTISIG the two coincide in every reachable state: appeal() refuses every escrow with
+ * a script-committed arbiter (every MULTISIG escrow), and the R-1 live-ruling revert keeps a generation that already
+ * has an economic disposition authorization. Reads only; throws EscrowError / DisputedTranslationRefused.
+ */
+export async function assertDurableEconomicDispositionAuthorization(pending: DisputedPendingFacts): Promise<void> {
+  if (!pending.disputeId) {
+    await assertCooperativeOriginProvable(pending)
+    return
+  }
+  const existing = await prisma.economicDispositionAuthorization.findUnique({ where: { pendingOperationId: pending.id } })
+  if (!existing) {
+    throw new EscrowError(
+      `Pending operation ${pending.id} (dispute ${pending.disputeId}) has no durable ADR-005 economic disposition authorization - ` +
+      'a broadcast may only send a disputed round the economic disposition gate already authorized'
+    )
+  }
+  if (
+    existing.escrowId !== pending.escrowId ||
+    existing.disputeId !== pending.disputeId ||
+    existing.operationDigest !== economicDispositionOperationDigest(pending) ||
+    existing.appealRound !== pending.rulingAppealRound ||
+    existing.arbiterId !== pending.rulingArbiterId ||
+    existing.ruling !== pending.rulingOutcome
+  ) {
+    throw new EscrowError(`Pending operation ${pending.id} no longer matches its committed economic disposition authorization`)
+  }
+  const dispute = await prisma.dispute.findUnique({ where: { id: pending.disputeId } })
+  if (
+    !dispute || dispute.status !== 'RESOLVED' || dispute.appealRound !== existing.appealRound ||
+    dispute.arbiterId !== existing.arbiterId || dispute.ruling !== existing.ruling ||
+    dispute.authoritySignature !== pending.rulingAuthoritySignature
+  ) {
+    throw new EscrowError(
+      `Pending operation ${pending.id}: dispute ${pending.disputeId} is not RESOLVED in the authorized generation ` +
+      `(appeal round ${existing.appealRound}, ruling ${existing.ruling}) - refusing to broadcast (ADR-005)`
+    )
+  }
+  await assertDisputedTranslationMatchesOutcome(pending, prisma as unknown as Prisma.TransactionClient)
+}
+
 export async function authorizeDisputedPendingExecution(pending: DisputedPendingFacts) {
   if (!pending.disputeId) {
     // No recorded generation. Fast-path to "cooperative, ADR-005 does not
