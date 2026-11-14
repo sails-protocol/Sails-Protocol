@@ -39,7 +39,7 @@ jobs:
         # "Evidence revision ... is not available in the local
         # repository" (found running this workflow for the first time,
         # 2026-09-02). Same full-history checkout ci.yml already uses.
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
