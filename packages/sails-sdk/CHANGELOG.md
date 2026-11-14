@@ -76,6 +76,19 @@ silently as a side effect of tagging a release candidate.
 
 ## [Unreleased]
 
+### Added
+- `settlement.cancelPendingTransaction(escrowId, pendingTransactionId)` (Issue #239): the seller withdraws a
+  cooperative MULTISIG signing round that is not fully signed. Retired, not revoked: signatures already handed out
+  stay valid for that exact transaction until the funding outpoint is spent by another one.
+- `settlement.submitTransactionSignature()` takes an optional third argument, `pendingTransactionId`, which binds
+  the signature to that exact round. Existing two-argument calls send the same body as before.
+- `EscrowPendingTransaction.signedBy?: { participantId, submittedAt }[]`.
+
+### Changed
+- `getPendingTransaction()` no longer returns `signatures` (the server stopped exposing other participants' signed
+  PSBTs). The field stays in the type as optional and `@deprecated`; read `signedBy` instead. Code that counted
+  `signatures.length` should count `signedBy.length`.
+
 ## [0.2.0] - 2026-09-17
 
 ### Added

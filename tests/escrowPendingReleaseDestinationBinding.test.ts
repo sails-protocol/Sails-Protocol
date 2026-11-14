@@ -1,3 +1,10 @@
+// Issue #239 - this suite's PSBTs are placeholders: the real signature check (multisig-round-proofs.ts) is proven with
+// real Bitcoin PSBTs in tests/multisigRoundProofs.test.ts and tests/integration/pendingRoundLifecycle.test.ts.
+jest.mock('../src/modules/open-settlement/multisig-round-proofs', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/multisig-round-proofs'),
+  verifySignerPartialSignature: (_unsigned: string, signed: string) => signed,
+}))
+
 /**
  * Sails Core Implementation Program M8-R2 (Destination Authority
  * Conformance, cooperative path, 2026-09-11) — proves the FULL
@@ -77,7 +84,7 @@ const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowUpdate = jest.fn()
 const mockTradeFindUnique = jest.fn()
 const mockDisputeFindFirst = jest.fn()
-const mockEscrowEventCreate = jest.fn().mockResolvedValue({})
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockParticipantKeyFindMany = jest.fn().mockResolvedValue([])
 const mockEscrowFundingEvidenceFindMany = jest.fn().mockResolvedValue([])
@@ -144,7 +151,11 @@ jest.mock('../src/common/database', () => ({
     },
     $transaction: (callback: (tx: unknown) => Promise<unknown>) =>
       callback({
+        // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+        eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
         $executeRaw: jest.fn().mockResolvedValue(0),
+        // Issue #291 - persistSettlementResult() reads then writes the escrow inside its own locked transaction.
+        escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args), update: (...args: unknown[]) => mockEscrowUpdate(...args) },
         escrowEvent: {
           findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
           create: (...args: unknown[]) => mockEscrowEventCreate(...args),
@@ -152,7 +163,12 @@ jest.mock('../src/common/database', () => ({
         escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
         escrowPendingTransaction: {
           create: (arg: { data: Record<string, unknown> }) => mockPendingTxCreate(arg),
+          findFirst: (arg: unknown) => mockPendingTxFindUnique(arg), // Issue #291 - operation-bound result write
+          findUnique: (arg: unknown) => mockPendingTxFindUnique(arg), // Issue #244 - the round is read and signed under the escrow lock
         },
+        escrowTransactionSignature: { upsert: (arg: { create: { pendingTxId: string; participantId: string; signedPsbtBase64: string } }) => mockSignatureUpsert(arg), findMany: (arg: unknown) => require('../src/common/database').prisma.escrowTransactionSignature.findMany(arg) },
+      // Issue #239 - the signature set and the signer's registered key are read under the same escrow lock.
+      escrowParticipantKey: { findFirst: async () => ({ pubkey: 'test-signer-pubkey' }) },
         // ADR-005 / #218 — authorizeDisputedPendingExecution()'s own
         // $transaction callback needs these two, reused from the
         // top-level mocks so both call sites observe the same state.

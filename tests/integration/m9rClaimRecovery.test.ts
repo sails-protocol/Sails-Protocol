@@ -194,6 +194,113 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
     expect(completionEvent).not.toBeNull()
   })
 
+  // Gatekeeper NO-GO on 424e8969: PASS 0 ran its gates, then broadcast, and only claimed the escrow afterwards. A dispute
+  // opened between the gates and the broadcast did not stop the funds from moving.
+  async function makeCooperativeC8(label: string) {
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
+    await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const fundingTxid = createHash('sha256').update(`${label}-${Date.now()}`).digest('hex')
+    mockExplorerForUtxo(fundingTxid, 0, 100_000)
+    await escrowService.lockFunds(escrow.id, seller.id)
+    // From here the release transaction is unknown to the network and the funding outpoint unspent: PASS 0 would broadcast.
+    const funded = global.fetch
+    global.fetch = jest.fn(async (url: string, init?: unknown) =>
+      /\/tx\/[0-9a-f]{64}\/status/.test(url) && !url.includes(fundingTxid) ? ({ ok: false, status: 404 } as any) : (funded as any)(url, init)) as any
+    await escrowService.markPaymentSent(escrow.id, buyer.id)
+    await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', testnetAddress(`${label}-buyer-dest`))
+    await escrowService.initiateRelease(escrow.id, undefined, seller.id)
+
+    // Both required signatures persisted directly: the process died before submitTransactionSignature() claimed.
+    const pending = (await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: escrow.id } }))!
+    expect(pending.disputeId).toBeNull()
+    const keyOf: Record<string, ReturnType<typeof ECPair.fromPrivateKey>> = { [buyer.id]: buyerKey, [seller.id]: sellerKey }
+    for (const signer of pending.requiredSigners) {
+      const copy = bitcoin.Psbt.fromBase64(pending.unsignedPsbtBase64, { network: NETWORK })
+      copy.signInput(0, keyOf[signer])
+      await prisma.escrowTransactionSignature.create({ data: { pendingTxId: pending.id, participantId: signer, signedPsbtBase64: copy.toBase64() } })
+    }
+    return { escrow, buyer }
+  }
+
+  // Issue #238 - opening a dispute freezes the escrow and creates its canonical Dispute row in one transaction.
+  const openDispute = (escrow: { id: string; tradeId: string }, buyer: { id: string }, reason: string) =>
+    escrowService.openDispute(escrow.id, buyer.id, reason, (tx) =>
+      tx.dispute.create({ data: { tradeId: escrow.tradeId, escrowId: escrow.id, openedBy: buyer.id, reason, status: 'OPENED' } }))
+
+  it('cooperative C8: a dispute opened after the gates and before the broadcast cannot be opened, because the escrow is claimed first', async () => {
+    requirePostgres('C8 dispute between gates and broadcast')
+    const { escrow, buyer } = await makeCooperativeC8('m9r-c8-race-broadcast')
+    const { multisigProvider } = require('../../src/modules/open-settlement/multisig.provider')
+    let disputeAttempt: 'opened' | 'refused' | 'not attempted' = 'not attempted'
+    const broadcast = jest.spyOn(multisigProvider, 'broadcast').mockImplementation(async () => {
+      disputeAttempt = await openDispute(escrow, buyer, 'raced the broadcast').then(() => 'opened' as const, () => 'refused' as const)
+      return 'provider-txid'
+    })
+
+    await reconcilePendingSettlements()
+
+    expect(broadcast).toHaveBeenCalledTimes(1)
+    expect(disputeAttempt).toBe('refused')
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })).status).toBe('COMPLETED')
+    broadcast.mockRestore()
+  })
+
+  it('cooperative C8: a dispute that wins before the claim stops the broadcast', async () => {
+    requirePostgres('C8 dispute wins')
+    const { escrow, buyer } = await makeCooperativeC8('m9r-c8-race-dispute')
+    const { multisigProvider } = require('../../src/modules/open-settlement/multisig.provider')
+    const capability = require('../../src/modules/open-settlement/capability-execution-authorization')
+    const realAuthorize = capability.authorizePendingExecution
+    const authorize = jest.spyOn(capability, 'authorizePendingExecution').mockImplementation(async (pending: unknown) => {
+      await openDispute(escrow, buyer, 'won the race')
+      return realAuthorize(pending)
+    })
+    const broadcast = jest.spyOn(multisigProvider, 'broadcast')
+
+    const report = await reconcilePendingSettlements()
+
+    expect(authorize).toHaveBeenCalled()
+    expect(broadcast).not.toHaveBeenCalled()
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })).status).toBe('DISPUTED')
+    expect(report.resumedUnclaimed.find((r) => r.escrowId === escrow.id)).toBeUndefined()
+    authorize.mockRestore()
+    broadcast.mockRestore()
+  })
+
+  it('cooperative C8: a broadcast that fails after the claim is UNKNOWN, not reverted, and recovery converges from chain truth', async () => {
+    requirePostgres('C8 broadcast UNKNOWN')
+    const { escrow, buyer } = await makeCooperativeC8('m9r-c8-unknown')
+    const { multisigProvider } = require('../../src/modules/open-settlement/multisig.provider')
+    let releaseTxid = ''
+    const broadcast = jest.spyOn(multisigProvider, 'broadcast').mockImplementation(async (hex: unknown) => {
+      releaseTxid = bitcoin.Transaction.fromHex(hex as string).getId()
+      throw new Error('explorer timed out after sending')
+    })
+
+    const first = await reconcilePendingSettlements()
+
+    expect(first.failed.find((f) => f.escrowId === escrow.id)).toBeDefined()
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })).status).toBe('COMPLETED')
+    await expect(openDispute(escrow, buyer, 'after an unknown broadcast')).rejects.toThrow()
+
+    // The broadcast did reach the network: PASS 1 finds it and converges without broadcasting again.
+    const unknown = global.fetch
+    global.fetch = jest.fn(async (url: string, init?: unknown) =>
+      url.includes(`/tx/${releaseTxid}/status`) ? ({ ok: true, status: 200, json: async () => ({ confirmed: false }) } as any) : (unknown as any)(url, init)) as any
+    broadcast.mockClear()
+    await reconcilePendingSettlements()
+
+    expect(broadcast).not.toHaveBeenCalled()
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: escrow.id } })).txReleaseId).toBe(releaseTxid)
+    broadcast.mockRestore()
+  })
+
   it('duplicate workers: two concurrent recovery runs against the SAME C8 escrow never both claim the transition', async () => {
     requirePostgres('C8 duplicate workers')
 

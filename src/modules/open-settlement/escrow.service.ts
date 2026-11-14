@@ -1,5 +1,5 @@
 import { prisma } from '../../common/database'
-import { NotFoundError, EscrowError, ForbiddenError, ValidationError } from '../../common/errors'
+import { NotFoundError, EscrowError, ForbiddenError, ValidationError, SettlementExecutedError } from '../../common/errors'
 import { EscrowType } from '../../common/types/trade'
 import type { AssetType } from '../../common/types'
 import type { CreateEscrowInput } from '@satsails/p2p-schemas'
@@ -25,14 +25,19 @@ import {
   loadParticipantPubkeys,
   claimEscrowTransition,
   revertEscrowStatus,
+  settlementSucceededButLocalStepFailed,
   assertEscrowTransition,
   emitEscrowTransition,
+  recordEscrowTransition,
+  publishEscrowTransition,
   resolvePayoutAddress,
   checkFundMovementCapability,
   assertFundingNotUncertain,
   withEscrowFundingLock,
   VALID_TRANSITIONS,
 } from './escrow-lifecycle'
+import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
+import type { Prisma, WdkTransferOperationType } from '@prisma/client'
 import { assertCircuitClosed, recordEscrowConflict } from './escrow-circuit-breaker'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import * as dualApproval from './escrow-dual-approval'
@@ -318,6 +323,49 @@ function resolveEscrowTypeCandidate(asset: AssetType, explicitType: EscrowType |
   }
 
   return explicitType ?? recommendedEscrowType(asset)
+}
+
+/**
+ * D7 (#341, Gatekeeper 6675288389) - the provider failed, but an error is never proof that nothing was sent. The
+ * claim is undone only when no outbound WDK transfer of this escrow may have reached the network: read under the
+ * escrow funding lock, in the same transaction that reverts. Otherwise, or when that cannot be established, the
+ * claim stays and SettlementExecutedError keeps the ruling that authorized it (dispute.service.ts applyRuling()),
+ * so the escrow is never reopened for another disposition; reconciliation converges it from the attempt ledger.
+ *
+ * D8 (Gatekeeper 6685390103) - only an attempt of THIS disposition (`ownOperations`) keeps the claim. A potentially-sent
+ * attempt of another disposition predates this call (an escrow reopened by the old rollback): ensureAttempt() refused
+ * to start this one, so it sent nothing, and its claim and ruling are undone instead of being recorded as a settlement
+ * that never happened. Attempts are only created by the owner of the escrow's terminal claim (a single-owner CAS), so
+ * no other attempt can appear between ensureAttempt()'s check and this read.
+ *
+ * D9 (Gatekeeper 6687229129) - `rollback` is the caller's own undo of what authorized this claim (applyRuling()'s
+ * ruling). It commits in the SAME transaction as the claim's revert, so a crash can never leave the escrow reopened
+ * under a still-RESOLVED ruling. Its lock is taken first, the order applyRuling() itself uses (economic-disposition,
+ * then escrow).
+ */
+export interface ClaimRollback { lockKey: string; revert: (tx: Prisma.TransactionClient) => Promise<unknown> }
+
+async function revertClaimUnlessPotentiallySent(escrowId: string, claimedStatus: string, fromStatus: string, ownOperations: WdkTransferOperationType[], err: unknown, rollback?: ClaimRollback): Promise<never> {
+  const reason = err instanceof Error ? err.message : String(err)
+  let sent: Awaited<ReturnType<typeof wdkTransferAttemptRepository.findPotentiallySent>>
+  try {
+    sent = await prisma.$transaction(async (tx) => {
+      if (rollback) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${rollback.lockKey})::bigint)`
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${escrowId})::bigint)` // withEscrowFundingLock()'s lock
+      const attempt = await wdkTransferAttemptRepository.findPotentiallySent(escrowId, ownOperations, tx)
+      if (!attempt) {
+        await tx.escrow.updateMany({ where: { id: escrowId, status: claimedStatus as any }, data: { status: fromStatus as any } })
+        await rollback?.revert(tx)
+      }
+      return attempt
+    })
+  } catch (guardErr) {
+    throw new SettlementExecutedError(`Escrow ${escrowId}: the provider failed (${reason}) and non-submission could not be established (${guardErr instanceof Error ? guardErr.message : String(guardErr)}) - the ${claimedStatus} claim is kept`)
+  }
+  if (sent) {
+    throw new SettlementExecutedError(`Escrow ${escrowId}: the provider failed (${reason}), but WDK ${sent.operationType} attempt ${sent.id} is ${sent.status} - funds may have moved, so the ${claimedStatus} claim and its authorization are kept for reconciliation`)
+  }
+  throw err
 }
 
 export class EscrowService {
@@ -685,7 +733,11 @@ export class EscrowService {
   // SAFE_GUARD_EVM/WDK_USDT_EVM/MOCK disputes, unmigrated) still passes
   // the arbiter's own releaseToAddress here — a disclosed residual gap,
   // not fixed by M8-R2 (out of that mission's bounded scope).
-  async releaseFunds(escrowId: string, toAddress: string | undefined, triggeredBy: string) {
+  // Issue #254 - disputeId (additive, optional) is set ONLY by dispute.service.ts's applyRuling() for a
+  // real RELEASE ruling - captured into the settlement.escrow.released event's own payload (below) so
+  // common/events/handlers.ts's reputation-outcome derivation never needs to re-query CURRENT (mutable,
+  // appeal()-reinterpretable) Dispute state. Absent for every cooperative, non-disputed release.
+  async releaseFunds(escrowId: string, toAddress: string | undefined, triggeredBy: string, disputeId?: string, rollback?: ClaimRollback) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
     assertEscrowTransition(escrow.status, 'COMPLETED')
     const resolvedToAddress = await resolvePayoutAddress(toAddress, trade.buyerId, escrow.asset)
@@ -744,12 +796,21 @@ export class EscrowService {
     // concurrent loser is rejected before touching real funds, not after.
     await claimEscrowTransition(escrowId, escrow.status, 'COMPLETED')
 
+    // Issue #291 - two distinct error boundaries. Only a failing PROVIDER call
+    // reverts the claim; once it has returned, external execution may already
+    // have happened and a later local failure must never pretend it did not.
+    let result: { txId: string }
     try {
       const provider = getSettlementProvider(escrow.type)
-      const result = await provider.releaseFunds(
+      result = await provider.releaseFunds(
         { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord,
         resolvedToAddress
       )
+    } catch (err) {
+      return revertClaimUnlessPotentiallySent(escrowId, 'COMPLETED', escrow.status, ['RELEASE'], err, rollback)
+    }
+
+    try {
 
       // RFC-021 Phase 0's chargeProtocolFee() lived here until Missão 11
       // Fase 6.5.2's single-economic-authority cutover removed it —
@@ -779,21 +840,24 @@ export class EscrowService {
       // their respective modules, triggered by the event emitted below.
       await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'COMPLETED', triggeredBy, 'settlement.escrow.released', {
         txId: result.txId,
+        ...(disputeId ? { disputeId } : {}),
       })
 
       return updated
     } catch (err) {
-      // Revert the claim — see lockFunds()'s identical comment. Critical
-      // here specifically: without this, a failed release (provider
-      // threw, e.g. RPC error) would leave the escrow permanently stuck
-      // claiming COMPLETED with `txReleaseId: null` — funds neither
-      // released nor recoverable through this service again.
-      await revertEscrowStatus(escrowId, 'COMPLETED', escrow.status)
-      throw err
+      // Issue #291 - the provider already succeeded (see above): never revert
+      // here. Reconciliation converges the escrow from durable facts.
+      throw settlementSucceededButLocalStepFailed(escrowId, 'release', result.txId, err)
     }
   }
 
-  async openDispute(escrowId: string, triggeredBy: string, reason: string) {
+  /**
+   * Issue #238 - Escrow -> DISPUTED iff the canonical Dispute row exists. The status claim, the hash-chained
+   * transition with its pending-publication marker, and `recordDispute(tx)` (raiseDispute()'s Dispute insert)
+   * commit in ONE transaction under this escrow's funding lock, or none of them does. Publishing
+   * 'settlement.escrow.disputed' stays outside it; PASS 3 re-drives it from the marker after a crash.
+   */
+  async openDispute<T>(escrowId: string, triggeredBy: string, reason: string, recordDispute: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
     const escrow = await this.repo.findById(escrowId)
     if (!escrow) throw new NotFoundError('Escrow', escrowId)
     assertEscrowTransition(escrow.status, 'DISPUTED')
@@ -809,29 +873,22 @@ export class EscrowService {
       throw new ForbiddenError(`${triggeredBy} is not a party to trade ${trade.id}`)
     }
 
-    // Atomic conditional update — see lockFunds()'s comment. No external
-    // provider call here, but dispute.service.ts's raiseDispute() itself
-    // already has its own @@unique([tradeId]) guard at the Dispute-row
-    // level (2026-07-19 security round); this closes the same race one
-    // layer down, at the Escrow row this method actually mutates.
-    await claimEscrowTransition(escrowId, escrow.status, 'DISPUTED')
-    const updated = await this.repo.findById(escrowId)
+    // Atomic conditional update — see lockFunds()'s comment: a concurrent opener claims 0 rows and its whole
+    // transaction rolls back. Dispute's @@unique([tradeId]) (2026-07-19 security round) still rejects a second row.
+    const { transitionId, record } = await withEscrowFundingLock(escrowId, async (tx) => {
+      await claimEscrowTransition(escrowId, escrow.status, 'DISPUTED', tx)
+      const transitionId = await recordEscrowTransition(tx, escrowId, escrow.status, 'DISPUTED', triggeredBy, 'settlement.escrow.disputed', {}, reason)
+      return { transitionId, record: await recordDispute(tx) }
+    })
 
-    await emitEscrowTransition(
-      escrowId,
-      escrow.tradeId,
-      escrow.status,
-      'DISPUTED',
-      triggeredBy,
-      'settlement.escrow.disputed',
-      {},
-      reason
-    )
-
-    return updated
+    if (transitionId) {
+      await publishEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'DISPUTED', triggeredBy, 'settlement.escrow.disputed', {}, transitionId)
+    }
+    return record
   }
 
-  async refundFunds(escrowId: string, triggeredBy: string) {
+  // Issue #254 - disputeId, same additive/optional shape and reason as releaseFunds()'s own comment above.
+  async refundFunds(escrowId: string, triggeredBy: string, disputeId?: string, rollback?: ClaimRollback) {
     const { escrow, trade } = await loadEscrowWithAuthorization(escrowId, triggeredBy)
     assertEscrowTransition(escrow.status, 'REFUNDED')
 
@@ -845,11 +902,17 @@ export class EscrowService {
     // atomically before ever calling the real, side-effecting provider.
     await claimEscrowTransition(escrowId, escrow.status, 'REFUNDED')
 
+    let result: { txId: string }
     try {
       const provider = getSettlementProvider(escrow.type)
-      const result = await provider.refundFunds(
+      result = await provider.refundFunds(
         { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord
       )
+    } catch (err) {
+      return revertClaimUnlessPotentiallySent(escrowId, 'REFUNDED', escrow.status, ['REFUND'], err, rollback)
+    }
+
+    try {
 
       const updated = await this.repo.updateRefundResult(escrowId, result.txId)
 
@@ -860,12 +923,12 @@ export class EscrowService {
 
       await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, 'REFUNDED', triggeredBy, 'settlement.escrow.refunded', {
         txId: result.txId,
+        ...(disputeId ? { disputeId } : {}),
       })
 
       return updated
     } catch (err) {
-      await revertEscrowStatus(escrowId, 'REFUNDED', escrow.status)
-      throw err
+      throw settlementSucceededButLocalStepFailed(escrowId, 'refund', result.txId, err)
     }
   }
 
@@ -880,7 +943,7 @@ export class EscrowService {
   // since SPLIT has no non-disputed happy path. See initiateSplit()
   // (escrow-pending-tx.ts) for the client-signature-collection
   // equivalent (MULTISIG).
-  async splitFunds(escrowId: string, buyerAddress: string | undefined, sellerAddress: string | undefined, buyerBps: number, triggeredBy: string) {
+  async splitFunds(escrowId: string, buyerAddress: string | undefined, sellerAddress: string | undefined, buyerBps: number, triggeredBy: string, rollback?: ClaimRollback) {
     if (!(buyerBps > 0 && buyerBps < 10000)) {
       throw new ValidationError('buyerBps must be strictly between 0 and 10000 for a real split — use release/refund for an all-or-nothing outcome')
     }
@@ -899,13 +962,19 @@ export class EscrowService {
 
     await claimEscrowTransition(escrowId, escrow.status, 'SPLIT')
 
+    let result: { txIds: string[] }
     try {
-      const result = await provider.splitFunds(
+      result = await provider.splitFunds(
         { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, triggeredBy } as unknown as EscrowRecord,
         resolvedBuyerAddress,
         resolvedSellerAddress,
         buyerBps
       )
+    } catch (err) {
+      return revertClaimUnlessPotentiallySent(escrowId, 'SPLIT', escrow.status, ['SPLIT_BUYER', 'SPLIT_SELLER'], err, rollback)
+    }
+
+    try {
 
       const updated = await this.repo.updateSplitResult(escrowId, {
         txReleaseId: result.txIds.join(','), releasedAt: new Date(),
@@ -925,8 +994,7 @@ export class EscrowService {
 
       return updated
     } catch (err) {
-      await revertEscrowStatus(escrowId, 'SPLIT', escrow.status)
-      throw err
+      throw settlementSucceededButLocalStepFailed(escrowId, 'split', result.txIds.join(','), err)
     }
   }
 
@@ -944,20 +1012,26 @@ export class EscrowService {
   }
 
   // ─── Client-signature-collection flow — thin delegates to escrow-pending-tx.ts ──
-  async initiateRelease(escrowId: string, toAddress: string | undefined, triggeredBy: string) {
-    return pendingTx.initiateRelease(escrowId, toAddress, triggeredBy)
+  // Issue #239 - rest-forwarded so the optional trailing ruling-supersession grant (passed only by the ruling
+  // dispatch path, never by a route) reaches escrow-pending-tx.ts unchanged.
+  async initiateRelease(...args: Parameters<typeof pendingTx.initiateRelease>) {
+    return pendingTx.initiateRelease(...args)
   }
 
-  async initiateRefund(escrowId: string, triggeredBy: string, toAddress?: string) {
-    return pendingTx.initiateRefund(escrowId, triggeredBy, toAddress)
+  async initiateRefund(...args: Parameters<typeof pendingTx.initiateRefund>) {
+    return pendingTx.initiateRefund(...args)
   }
 
-  async initiateSplit(escrowId: string, buyerAddress: string | undefined, sellerAddress: string | undefined, buyerBps: number, triggeredBy: string) {
-    return pendingTx.initiateSplit(escrowId, buyerAddress, sellerAddress, buyerBps, triggeredBy)
+  async initiateSplit(...args: Parameters<typeof pendingTx.initiateSplit>) {
+    return pendingTx.initiateSplit(...args)
   }
 
-  async submitTransactionSignature(escrowId: string, participantId: string, signedPsbtBase64: string) {
-    return pendingTx.submitTransactionSignature(escrowId, participantId, signedPsbtBase64)
+  async submitTransactionSignature(...args: Parameters<typeof pendingTx.submitTransactionSignature>) {
+    return pendingTx.submitTransactionSignature(...args)
+  }
+
+  async cancelPendingSignatureRound(...args: Parameters<typeof pendingTx.cancelPendingSignatureRound>) {
+    return pendingTx.cancelPendingSignatureRound(...args)
   }
 
   async getPendingTransaction(escrowId: string) {

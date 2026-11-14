@@ -23,6 +23,7 @@ import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { createSharedRateLimit } from '../../common/middleware/redis-rate-limit'
 import { config } from '../../config'
 import { ForbiddenError, NotFoundError } from '../../common/errors'
+import { asTrustedActor } from './escrow-lifecycle'
 import { docsOnlySchema } from '../../common/openapi'
 import { MAX_PAGE_LIMIT } from '../../common/pagination'
 import { positiveDecimalString } from '../../common/validation'
@@ -117,7 +118,21 @@ const initiateReleaseSchema = z.object({
 // signEscrowPsbt() returns.
 const submitTransactionSignatureSchema = z.object({
   signedPsbtBase64: z.string().min(1),
+  // Issue #239 - optional generation binding: a signature for any other round of this escrow is refused.
+  pendingTransactionId: z.string().min(1).optional(),
 })
+
+// Issue #239 - the round to cancel, by its exact generation (EscrowPendingTransaction.id).
+const cancelPendingTransactionSchema = z.object({
+  pendingTransactionId: z.string().min(1),
+})
+
+// Issue #239 (D-1) - the HTTP shape of a pending round: never another participant's signed PSBT. Only who has
+// signed, and when. The service (and every internal caller) still sees the full row.
+export function toPendingTransactionResponse<T extends { signatures?: Array<{ participantId: string; createdAt: Date }> }>(pending: T) {
+  const { signatures, ...round } = pending
+  return { ...round, signedBy: (signatures ?? []).map((s) => ({ participantId: s.participantId, submittedAt: s.createdAt })) }
+}
 
 // Exported — Issue #266 CTO Gate re-gate. Lets a test prove the real
 // HTTP-boundary schema (not a hand-copied duplicate that could silently
@@ -395,7 +410,21 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const body = submitTransactionSignatureSchema.parse(request.body)
-    const result = await escrowService.submitTransactionSignature(id, participantId(request), body.signedPsbtBase64)
+    const result = await escrowService.submitTransactionSignature(id, participantId(request), body.signedPsbtBase64, body.pendingTransactionId)
+    return reply.code(200).send(success(result))
+  })
+
+  // Issue #239 - the seller withdraws a cooperative MULTISIG round that is not fully signed. Retired, NOT revoked:
+  // signatures already handed out stay valid for that exact transaction until the funding outpoint is spent.
+  // Only the authenticated seller reaches this through HTTP (participantId() is the caller's own id); the arbiter
+  // never cancels, and in a dispute only a valid ruling replaces a round.
+  app.post('/v1/settlement/escrow/:id/cancel-pending-transaction', {
+    preHandler: requireAuth,
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam, body: cancelPendingTransactionSchema }),
+  }, async (request, reply) => {
+    const { id } = idParam.parse(request.params)
+    const body = cancelPendingTransactionSchema.parse(request.body)
+    const result = await escrowService.cancelPendingSignatureRound(id, body.pendingTransactionId, asTrustedActor(participantId(request)))
     return reply.code(200).send(success(result))
   })
 
@@ -422,7 +451,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
       throw new ForbiddenError(`${callerId} is not authorized to view escrow ${id}'s pending transaction`)
     }
     const pending = await escrowService.getPendingTransaction(id)
-    return reply.code(200).send(success(pending))
+    return reply.code(200).send(success(toPendingTransactionResponse(pending)))
   })
 
   // RFC-015 — two-person control. Records the calling participant's

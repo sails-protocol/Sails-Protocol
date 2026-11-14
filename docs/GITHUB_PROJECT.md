@@ -764,6 +764,28 @@ cannot supply.
 
 ## 8. Branch / merge governance — APPLIED (M9.9 Completion Delta, 2026-09-01)
 
+> **2026-11-08 reconciliation — live protection read back (§8.2):**
+> - **The current state of `main`:** **zero** required human approvals; required checks `build`, `test` and `Analyze (javascript-typescript)`; branch must be up to date (`strict`); `enforce_admins: true`; force pushes and deletions blocked.
+> - **What changed from the record:** the one-approval configuration recorded below is **historical**. Who changed it to zero, and when, is not established. No other protection was authorized to be reduced.
+> - **The temporary policy:** PR #589 is merged (`da3a2544`). The owner-approved temporary solo-maintainer policy is in `docs/governance/SOLO_MAINTAINER_TRANSITION_PROPOSAL.md`.
+>
+> The 2026-11-07 note just below is kept as written; its "could not read protection (403)" and "no merge authorized until … read back" describe the state before this read-back.
+
+> **2026-11-07 staffing update / proposed policy transition (PR #589):**
+> `alan-schramm` reports being the sole active human developer and removing
+> `renipinto` as collaborator. The owner explicitly approves a temporary
+> solo-maintainer model with separate technical Gatekeeper, CTO evidence gate,
+> and owner-only final merge authorization. See
+> `docs/governance/SOLO_MAINTAINER_TRANSITION_PROPOSAL.md`.
+> **This is not a live branch-protection snapshot or evidence of a changed
+> ruleset.** The integration could not read protection settings (403);
+> the historical `required_approving_review_count: 1`, strict status checks,
+> and `enforce_admins: true` baseline below remains the last documented
+> verified state. No merge is authorized until an authorized GitHub
+> operator reads the current effective protection/rulesets and reconciles
+> the approved temporary policy. Preserve the historical record below.
+
+
 **Applied, with explicit authorization from the repository owner**, after
 direct investigation found the original recommendation below needed to
 change — exactly the "do not blindly reproduce the plan" instruction
@@ -885,6 +907,31 @@ bypass required reviews or required checks on `main`, including on his
 own PRs — `renipinto` (or a future additional collaborator) is now
 required to approve every PR `alan-schramm` authors, with no
 admin-bypass fallback if unavailable.
+
+### 8.2 Live protection read-back (2026-11-08)
+
+**The read:**
+- **When and as whom:** 2026-11-08T03:01Z, through the repository owner's (`alan-schramm`, org admin) authenticated GitHub CLI.
+- **What was requested:** `GET repos/sails-protocol/Sails-Protocol/branches/main/protection` and `GET repos/sails-protocol/Sails-Protocol/rules/branches/main`.
+- **Nature:** read-only. No setting was changed.
+
+| Setting | Historical (§8 / §8.1, 2026-09-02) | Live (2026-11-08) |
+|---|---|---|
+| Required status checks | `Analyze (javascript-typescript)` | `build`, `test`, `Analyze (javascript-typescript)` |
+| `strict` (branch up to date) | `true` | `true` |
+| `enforce_admins` | `true` | `true` |
+| `required_approving_review_count` | `1` | **`0`** |
+| `dismiss_stale_reviews` | `true` | `true` |
+| `require_code_owner_reviews` | `false` | `false` |
+| Force pushes / deletions | blocked | blocked |
+| Signed commits / linear history | not required | not required |
+| Rulesets applying to `main` | — | none (`[]`) |
+
+**How the two columns differ:**
+- **Required checks:** `CI` and `CI Tests` became required after §8 was written. This document does not record when.
+- **Approval count:** it went from `1` to `0`. This document records neither the date nor the author, and the organization audit log could not be read with this account (HTTP 404). Neither is inferred here.
+- **What has no record:** no document authorizes reducing any other protection.
+- **Every other field:** it matches the historical record. The required checks are stricter than the historical record.
 
 ---
 

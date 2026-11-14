@@ -78,6 +78,18 @@ Spark. XAUT (Tether Gold) targets Ethereum. None of this authorizes an
 decision — see `docs/BACKLOG.md`'s canonical matrix for the full,
 authoritative, current version of this target.
 
+**Successor note (2026-11-01, Product Owner + CTO; paragraph above
+preserved as the 2026-09-10 record).** The Day-0 commitment is now 14
+native P2P combinations (BTC: `BITCOIN_L1`, `LIQUID`; USDT: Ethereum,
+Polygon, Base, Arbitrum, TON, Tron, Solana; USDC: Ethereum, Polygon,
+Base, Arbitrum, Solana) — see `docs/adr/ADR-002-asset-settlement-rail-adapter-provider-architecture.md`
+§5A. Spark, Lightning, Arkade, DePix, XAUT, Optimism, Avalanche, BNB
+Chain and USDT on Liquid left the Day-0 commitment: all twelve are
+native P2P roadmap with no date commitment. Sails Market may offer
+routes, swaps and direct purchase through commercial partners, which is
+not native P2P support. The statement "USDC targets the six EVM networks
+above only" is historical.
+
 ## Months 1-3 — Foundation (Commitment)
 
 - `@sails/protocol-spec` v0.1 published to npm (interfaces + event contracts only)
@@ -237,3 +249,14 @@ Day 0 uses OpenTimestamps behind the Sails-owned `TimestampAnchor` abstraction w
 If operational evidence later justifies it, Sails may operate an OpenTimestamps-compatible aggregator/calendar as one additional availability option within the same open ecosystem. Such infrastructure MUST NOT become the mandatory calendar, a central timestamp authority, an interoperability gate, or a prerequisite for OpenProof/Sails economic availability.
 
 This roadmap item does not replace the Day-0 multi-calendar requirement in `docs/BACKLOG.md`; it deliberately keeps Sails-operated timestamp infrastructure outside the Day-0 critical path.
+
+
+## Future interoperability research — Paykit / Pubky payment discovery (2026-10-24)
+
+**Status: proposed / research only; not a Day-0, P1, P3, P4 or production gate.**
+
+Evaluate an **optional** Synonym Paykit / Pubky adapter for discovery of public or private payment endpoints and supplemental encrypted receipts. Bitkit includes Paykit integration, while the upstream Paykit protocol still declares itself work-in-progress and not production-ready; release maturity must be independently re-evaluated before implementation.
+
+The adapter MUST NOT replace Sails Participant identity, require Pubky to use Sails, select or execute settlement, confer Destination Authority or Economic Disposition Authority, or change an authorized destination without Sails validation. Existing SettlementRail / SettlementProvider and escrow invariants remain authoritative. Prefer opt-in privacy, fail-safe degradation and explicit endpoint-to-trade binding.
+
+**Next step:** review and approve the research RFC `docs/rfcs/RFC-DRAFT-paykit-pubky-payment-discovery.md` through normal governance before any code, dependency, migration or deployment. No implementation date is committed.
