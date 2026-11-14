@@ -1,0 +1,72 @@
+{
+  "_warning": "TEST VECTORS. Derived from the public test root 00..1f. Never use this root or any value here for real identities.",
+  "root": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "mnemonic": "abandon amount liar amount expire adjust cage candy arch gather drum bullet absurd math era live bid rhythm alien crouch range attend journey unaware",
+  "pubky": {
+    "secret": "d62354e1464afdaccfdfb2f3bcad1de71165731a8bfad693b95f186035fc47fd",
+    "z32": "uf65zikjnxej91yifxqqmtzh3niihgthy3uyt14odh79tdau3uno",
+    "publicKey": "997dbbd54913d09fc8152bdce5c6fcc8ab5e1a3c066608cb501f3bf88f13ccc5"
+  },
+  "pear": [
+    {
+      "deviceId": "phone-1",
+      "epoch": 0,
+      "seed": "c667c5aa2c976dde8ed16bf59e3e3c46e40a91a5e209ace1b5f6a5880711458f",
+      "publicKey": "8de51fb0121a1ecd071576c85fbb7ec3aaed7533376509339836e9c6d6112f5c"
+    },
+    {
+      "deviceId": "laptop-1",
+      "epoch": 0,
+      "seed": "c74c965e8dfd3fd27e105a4a2c6ceea0ec2ac684d66aadc61a031d9d1bc95155",
+      "publicKey": "9643d6a08c11bfba00aab819d023e78d2b85b051ae17e612a7c2be5dca3f589d"
+    },
+    {
+      "deviceId": "phone-1",
+      "epoch": 1,
+      "seed": "82c1561422f6fb80d32741c450516e378d7f9ea5d5386c725883bc771f0a47f6",
+      "publicKey": "ed4e850ee14dfbf5c69eac279ecd74d46e2fbf55b2553226c154cb4d3ef2b3b7"
+    }
+  ],
+  "authorization": {
+    "cert": {
+      "body": {
+        "v": 1,
+        "kind": "pear-session",
+        "id": "00112233445566778899aabbccddeeff",
+        "sub": "uf65zikjnxej91yifxqqmtzh3niihgthy3uyt14odh79tdau3uno",
+        "pear": "8de51fb0121a1ecd071576c85fbb7ec3aaed7533376509339836e9c6d6112f5c",
+        "dev": "phone-1",
+        "scope": [
+          "chat:read",
+          "chat:send",
+          "pear:connect"
+        ],
+        "iat": 1800000000,
+        "exp": 1800086400
+      },
+      "sig": "9e7af3b0a1bbc61b0145c0c8cadfa2d827d698c3af6e78e6f7e3a5818e4a3f34d19d51516448130438b01b9f3219da2d278d15b7137e09d2718f811d7e845f06"
+    },
+    "signingInputPrefix": "SAILS-P2P-PEAR-AUTH-V1",
+    "signingInputHex": "5341494c532d5032502d504541522d415554482d5631007b22646576223a2270686f6e652d31222c22657870223a313830303038363430302c22696174223a313830303030303030302c226964223a223030313132323333343435353636373738383939616162626363646465656666222c226b696e64223a22706561722d73657373696f6e222c2270656172223a2238646535316662303132316131656364303731353736633835666262376563336161656437353333333736353039333339383336653963366436313132663563222c2273636f7065223a5b22636861743a72656164222c22636861743a73656e64222c22706561723a636f6e6e656374225d2c22737562223a22756636357a696b6a6e78656a39317969667871716d747a68336e696968677468793375797431346f646837397464617533756e6f222c2276223a317d"
+  },
+  "challenge": {
+    "nonce": "ffeeddccbbaa99887766554433221100",
+    "audience": "market.example",
+    "exp": 1800000060
+  },
+  "pop": {
+    "sig": "ccf65bf5060715239e1c898fc490c083ceb4e3db9e662ba524a83b7bf4ef0e8d6d676e0268a449251768b22e64f90deeb5daeeabd3d226c2ff22b22c4c89f909"
+  },
+  "revocation": {
+    "body": {
+      "v": 1,
+      "kind": "revocation",
+      "sub": "uf65zikjnxej91yifxqqmtzh3niihgthy3uyt14odh79tdau3uno",
+      "targets": {
+        "dev": "phone-1"
+      },
+      "iat": 1800000100
+    },
+    "sig": "ea5facd3136a001c6e1a9df9e89cbffb80b262511d06082f16c04a82ed886283f6d2547d3a93ca45cb37de1dc7b5e92200de89027857b2f3663c752df0594d0b"
+  }
+}
