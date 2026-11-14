@@ -1,0 +1,332 @@
+#!/usr/bin/env bash
+# deploy/self-host/sails-node — install, update, roll back, back up and restore a Sails Node.
+#
+# Provider-agnostic: needs only Docker Engine + the Compose plugin, git and a shell. Nothing
+# here talks to any cloud or to Satsails. Read docs/SELF_HOSTING.md first.
+#
+#   sails-node init                 create the data directory and generate the database secret
+#   sails-node build [TAG]          build the server and migration images from this checkout
+#   sails-node update [TAG]         back up, MIGRATE, and only if that succeeded start the new server
+#   sails-node rollback             start the previous server image again (the schema is not rolled back)
+#   sails-node backup               pg_dump the database to $SAILS_NODE_HOME/backups
+#   sails-node restore FILE         restore a backup into an EMPTY database, then verify the migrations
+#   sails-node backup-evidence      cold snapshot of the bundled evidence store (objects stay encrypted; the key is NOT inside)
+#   sails-node restore-evidence FILE   restore that snapshot into a fresh store (needs the same secrets/seaweedfs.env)
+#   sails-node resolve-rolled-back NAME   after a failed migration: mark it rolled back (docs/DEPLOYMENT.md 6.1)
+#   sails-node status               containers and server readiness
+#
+# The rule enforced by `update`: the new server version is started ONLY after the migration job
+# of that same version exited 0. A failed, timed-out, missing or unreadable result stops the update
+# and leaves the running server untouched.
+#
+# Environment: SAILS_NODE_HOME (default ~/.sails-node), SAILS_PORT (3000), COMPOSE_PROJECT_NAME
+# (sails-node), SAILS_MIGRATE_TIMEOUT seconds (600), SAILS_READY_TIMEOUT seconds (120),
+# COMPOSE_PROFILES (evidence-store, tls), SAILS_DOMAIN (with the tls profile).
+
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$HERE/../.." && pwd)"
+export SAILS_NODE_HOME="${SAILS_NODE_HOME:-$HOME/.sails-node}"
+export SAILS_PORT="${SAILS_PORT:-3000}"
+MIGRATE_TIMEOUT="${SAILS_MIGRATE_TIMEOUT:-600}"
+READY_TIMEOUT="${SAILS_READY_TIMEOUT:-120}"
+STATE="$SAILS_NODE_HOME/state"
+# A Windows docker client (Docker Desktop reached from WSL) needs Windows-style paths; on a Linux
+# host this is the identity.
+host_path() {
+  if command -v wslpath >/dev/null 2>&1 && [ "$(docker version -f '{{.Client.Os}}' 2>/dev/null)" = windows ]; then wslpath -m "$1"; else echo "$1"; fi
+}
+export SAILS_HOME_HOST="$(host_path "$SAILS_NODE_HOME")"
+# ...and a Windows client only sees WSL environment variables that WSLENV names.
+if command -v wslpath >/dev/null 2>&1 && [ "$(docker version -f '{{.Client.Os}}' 2>/dev/null)" = windows ]; then
+  export WSLENV="${WSLENV:+$WSLENV:}SAILS_HOME_HOST:SAILS_SERVER_IMAGE:SAILS_MIGRATE_IMAGE:SAILS_PORT:SAILS_DOMAIN:COMPOSE_PROFILES:COMPOSE_PROJECT_NAME"
+fi
+COMPOSE_FILE_HOST="$(host_path "$HERE/compose.yml")"
+REPO_HOST="$(host_path "$REPO")"
+PROJECT="${COMPOSE_PROJECT_NAME:-sails-node}"
+export COMPOSE_PROJECT_NAME="$PROJECT"
+JOB_NAME="$PROJECT-migrate-job"
+# Commands that start no application container still need the variables to render the file.
+export SAILS_SERVER_IMAGE="${SAILS_SERVER_IMAGE:-sails-server:unset}" SAILS_MIGRATE_IMAGE="${SAILS_MIGRATE_IMAGE:-sails-migrate:unset}"
+
+die() { echo "sails-node: $*" >&2; exit 1; }
+say() { echo "sails-node: $*"; }
+compose() { docker compose -f "$COMPOSE_FILE_HOST" "$@"; }
+state_get() { [ -f "$STATE" ] && sed -n "s/^$1=//p" "$STATE" | tail -n1 || true; }
+state_set() { # key value
+  touch "$STATE"; chmod 600 "$STATE"
+  grep -v "^$1=" "$STATE" >"$STATE.tmp" || true
+  echo "$1=$2" >>"$STATE.tmp"; mv "$STATE.tmp" "$STATE"
+}
+with_images() { # tag -> exports the image variables for compose
+  export SAILS_SERVER_IMAGE="sails-server:$1" SAILS_MIGRATE_IMAGE="sails-migrate:$1"
+}
+need_init() { [ -f "$SAILS_NODE_HOME/secrets/server.env" ] || die "not initialised: run 'sails-node init' first"; }
+
+default_tag() {
+  git -C "$REPO" diff --quiet HEAD -- 2>/dev/null || die "the checkout has uncommitted changes; commit them or pass an explicit TAG"
+  git -C "$REPO" rev-parse --short=12 HEAD
+}
+
+server_ready() { # is the running server answering /health/ready with 200?
+  compose exec -T server node -e "require('http').get('http://127.0.0.1:3000/health/ready',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))" >/dev/null 2>&1
+}
+
+wait_ready() {
+  local waited=0
+  while [ "$waited" -lt "$READY_TIMEOUT" ]; do
+    server_ready && return 0
+    sleep 2; waited=$((waited + 2))
+  done
+  return 1
+}
+
+cmd_init() {
+  [ ! -e "$SAILS_NODE_HOME/secrets" ] || die "$SAILS_NODE_HOME/secrets already exists; refusing to overwrite secrets"
+  umask 077
+  mkdir -p "$SAILS_NODE_HOME/secrets" "$SAILS_NODE_HOME/backups"
+  local pw; pw="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  printf '%s' "$pw" >"$SAILS_NODE_HOME/secrets/postgres_password"
+  # db.env holds the connection string for the migration job and the server; the password never
+  # appears in an image, in a compose file or on a command line.
+  printf 'DATABASE_URL=postgresql://sails:%s@postgres:5432/sails\n' "$pw" >"$SAILS_NODE_HOME/secrets/db.env"
+  # Credentials and encryption key for the bundled S3-compatible evidence store (COMPOSE_PROFILES=evidence-store).
+  # They reach the store through an env_file (read by the Docker daemon), NOT through a mounted secret file:
+  # a 0600 file owned by the operator is unreadable by the unprivileged user the store runs as, which killed
+  # its S3 gateway in CI ("permission denied"); only an NTFS checkout hid it.
+  # The 32-byte key is for the store's server-side encryption (the server requests AES256 on every upload).
+  # LOSING IT MAKES THE STORED EVIDENCE UNREADABLE: back up secrets/ together with the database.
+  local s3_secret; s3_secret="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  printf 'AWS_ACCESS_KEY_ID=sails-evidence\nAWS_SECRET_ACCESS_KEY=%s\nWEED_S3_SSE_KEK=%s\n' "$s3_secret" "$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" >"$SAILS_NODE_HOME/secrets/seaweedfs.env"
+  cp "$HERE/server.env.example" "$SAILS_NODE_HOME/secrets/server.env"
+  cat >>"$SAILS_NODE_HOME/secrets/server.env" <<EOF
+
+# Generated by 'sails-node init' for the bundled evidence store (COMPOSE_PROFILES=evidence-store):
+EVIDENCE_S3_ACCESS_KEY_ID=sails-evidence
+EVIDENCE_S3_SECRET_ACCESS_KEY=$s3_secret
+EOF
+  chmod 600 "$SAILS_NODE_HOME"/secrets/*
+  say "created $SAILS_NODE_HOME (secrets 0600). Edit $SAILS_NODE_HOME/secrets/server.env, then run: sails-node update"
+}
+
+cmd_build() {
+  local tag="${1:-$(default_tag)}"
+  say "building sails-server:$tag and sails-migrate:$tag from $REPO"
+  docker build --target runtime -t "sails-server:$tag" "$REPO_HOST"
+  docker build --target migrate -t "sails-migrate:$tag" "$REPO_HOST"
+}
+
+# The gate. Returns 0 only when the migration job of this version exited 0.
+run_migration_job() {
+  local rc=0
+  docker rm -f "$JOB_NAME" >/dev/null 2>&1 || true
+  timeout "$MIGRATE_TIMEOUT" docker compose -f "$COMPOSE_FILE_HOST" run --rm --name "$JOB_NAME" migrate || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    docker rm -f "$JOB_NAME" >/dev/null 2>&1 || true # a timed-out job must not keep running
+    if [ "$rc" -eq 124 ]; then
+      echo "sails-node: the migration job timed out after ${MIGRATE_TIMEOUT}s: its result is UNKNOWN" >&2
+    fi
+    return "$rc"
+  fi
+}
+
+# Creates the evidence bucket in the bundled store (idempotent). Runs the server image's own S3 SDK,
+# so no extra tool image is needed; credentials come from server.env, not from the command line.
+#
+# Bounded retry against the S3 endpoint the server really uses: the store's healthcheck passes
+# when its master is up, a moment before the S3 gateway accepts connections (reproduced:
+# `Error ECONNREFUSED`, which failed the first CI run). Polls every 2 s until READY_TIMEOUT, then
+# fails with the last error; it never loops forever and never reports success it did not see.
+ensure_evidence_bucket() {
+  docker run --rm --network "${PROJECT}_default" --env-file "$(host_path "$SAILS_NODE_HOME/secrets/server.env")" \
+    -e "BUCKET_TIMEOUT_S=$READY_TIMEOUT" --entrypoint node "sails-server:$1" -e '
+      const { S3Client, HeadBucketCommand, CreateBucketCommand } = require("@aws-sdk/client-s3")
+      const c = new S3Client({ endpoint: process.env.EVIDENCE_S3_ENDPOINT, region: process.env.EVIDENCE_S3_REGION || "us-east-1", forcePathStyle: true, maxAttempts: 1,
+        credentials: { accessKeyId: process.env.EVIDENCE_S3_ACCESS_KEY_ID, secretAccessKey: process.env.EVIDENCE_S3_SECRET_ACCESS_KEY } })
+      const Bucket = process.env.EVIDENCE_S3_BUCKET
+      const timeoutS = Number(process.env.BUCKET_TIMEOUT_S)
+      const deadline = Date.now() + timeoutS * 1000
+      ;(async () => {
+        for (;;) {
+          try {
+            await c.send(new HeadBucketCommand({ Bucket })).catch(() => c.send(new CreateBucketCommand({ Bucket })))
+            console.log("evidence bucket ready:", Bucket)
+            return
+          } catch (e) {
+            if (Date.now() >= deadline) {
+              console.error("evidence store not ready within " + timeoutS + "s: " + e.name + " " + (e.code || "") + " " + e.message)
+              process.exit(1)
+            }
+            await new Promise(r => setTimeout(r, 2000))
+          }
+        }
+      })()'
+}
+
+# Starts the bundled evidence store and waits until the S3 endpoint the server really uses accepts the real
+# credentials (bounded, see ensure_evidence_bucket). It does NOT rely on `compose --wait`: whether a container
+# counts as healthy depends on the Docker host (the master elects a leader in ~2 s on a laptop and ~20 s on a
+# small CI VM), which is what failed twice in CI. Every failure is fatal and loud: `a && b` under `set -e` would
+# have skipped the store silently.
+start_evidence_store() {
+  compose up -d seaweedfs || die "cannot start the bundled evidence store"
+  if ! ensure_evidence_bucket "$1"; then
+    compose logs --tail 60 seaweedfs >&2 || true
+    docker inspect -f '{{json .State.Health}}' "$(compose ps -q seaweedfs)" >&2 || true
+    die "the bundled evidence store is not usable"
+  fi
+}
+
+cmd_update() {  need_init
+  local tag="${1:-$(default_tag)}"
+  docker image inspect "sails-server:$tag" >/dev/null 2>&1 && docker image inspect "sails-migrate:$tag" >/dev/null 2>&1 || cmd_build "$tag"
+  with_images "$tag"
+  local previous; previous="$(state_get current)"
+
+  say "starting the database services"
+  compose up -d --wait postgres redis
+  case ",${COMPOSE_PROFILES:-}," in *,evidence-store,*) start_evidence_store "$tag" ;; esac
+
+  if [ -n "$(compose exec -T postgres psql -h 127.0.0.1 -U sails -d sails -Atc "select to_regclass('public._prisma_migrations')" 2>/dev/null)" ]; then
+    cmd_backup
+  else
+    say "empty database: nothing to back up"
+  fi
+
+  say "running the migration job for $tag"
+  if ! run_migration_job; then
+    die "MIGRATION FAILED or unknown: the server was NOT updated${previous:+ (still $previous)}. Fix the cause (docs/DEPLOYMENT.md 6.1), then run update again."
+  fi
+
+  # Re-running update for the version already deployed must not overwrite the rollback target.
+  if [ "$previous" != "$tag" ]; then state_set previous "${previous:-none}"; fi
+  say "migration confirmed; starting the server $tag"
+  if compose up -d server && wait_ready; then
+    state_set current "$tag"
+    say "server $tag is ready"
+  else
+    say "server $tag did not become ready within ${READY_TIMEOUT}s"
+    if [ -n "$previous" ] && [ "$previous" != "none" ]; then
+      say "rolling back to $previous"
+      with_images "$previous"; compose up -d server && wait_ready || say "ROLLBACK ALSO FAILED: inspect 'docker compose logs server'"
+      state_set current "$previous"
+    fi
+    return 1
+  fi
+}
+
+cmd_rollback() {
+  need_init
+  local previous; previous="$(state_get previous)"
+  [ -n "$previous" ] && [ "$previous" != "none" ] || die "no previous version recorded"
+  with_images "$previous"
+  say "starting the previous server $previous. The database schema is NOT rolled back, and this kit CANNOT verify that the previous version still works on it: that holds only if every migration since then was additive (docs/SELF_HOSTING.md, Roll back). If it does not, restore the pre-update backup instead."
+  compose up -d --no-deps server && wait_ready || die "the previous server did not become ready"
+  state_set previous "$(state_get current)"
+  state_set current "$previous"
+}
+
+cmd_backup() {
+  need_init
+  local file="$SAILS_NODE_HOME/backups/sails-$(date -u +%Y%m%dT%H%M%SZ).dump"
+  (umask 077; compose exec -T postgres pg_dump -h 127.0.0.1 -U sails -d sails -Fc >"$file")
+  [ -s "$file" ] || { rm -f "$file"; die "backup produced an empty file"; }
+  say "backup written: $file ($(wc -c <"$file") bytes)"
+}
+
+cmd_restore() {
+  need_init
+  local file="${1:?usage: sails-node restore FILE}"
+  [ -s "$file" ] || die "no such backup: $file"
+  local tag; tag="$(state_get current)"; [ -n "$tag" ] || tag="$(default_tag)"
+  with_images "$tag"
+  compose up -d --wait postgres
+  local tables; tables="$(compose exec -T postgres psql -h 127.0.0.1 -U sails -d sails -Atc "select count(*) from information_schema.tables where table_schema='public'")"
+  [ "$tables" = "0" ] || die "the target database is not empty ($tables tables): restore only into a fresh database (docs/SELF_HOSTING.md)"
+  say "restoring $file"
+  compose exec -T postgres pg_restore -h 127.0.0.1 -U sails -d sails --no-owner <"$file" >/dev/null
+  say "verifying the migrations against the restored database"
+  run_migration_job || die "the restored database did not verify: do not start the server"
+  say "restore verified"
+}
+
+EVIDENCE_VOLUME="${PROJECT}_seaweedfs-data"
+need_evidence_store() {
+  case ",${COMPOSE_PROFILES:-}," in *,evidence-store,*) ;; *) die "no bundled evidence store (COMPOSE_PROFILES=evidence-store): back up your own S3-compatible store with its own tools" ;; esac
+}
+# One-shot containers with tar (the PostgreSQL alpine image the stack already uses).
+evidence_pack() { # <backup dir> <archive name>
+  docker run --rm -v "$EVIDENCE_VOLUME:/data:ro" -v "$(host_path "$1"):/backup" --entrypoint sh postgres:16-alpine \
+    -c 'tar czf "/backup/$0" -C /data . && chown "$1:$2" "/backup/$0" && chmod 600 "/backup/$0"' "$2" "$(id -u)" "$(id -g)"
+}
+evidence_unpack() { # <backup dir> <archive name>
+  docker run --rm -v "$EVIDENCE_VOLUME:/data" -v "$(host_path "$1"):/backup:ro" --entrypoint sh postgres:16-alpine \
+    -c 'tar xzf "/backup/$0" -C /data' "$2"
+}
+# Evidence objects live in the store, not in the PostgreSQL dump. This is a COLD snapshot of the
+# store's volume: the store is stopped while it is copied (uploads fail meanwhile) so the files are
+# consistent. The objects stay ENCRYPTED with the SSE key in secrets/seaweedfs.env, which is NOT in
+# the archive: without that key the objects cannot be read back (back up secrets/ separately).
+cmd_backup_evidence() {
+  need_init; need_evidence_store
+  local name="evidence-$(date -u +%Y%m%dT%H%M%SZ).tar.gz" rc=0
+  say "stopping the evidence store for a consistent snapshot (uploads fail until it is back)"
+  compose stop seaweedfs
+  evidence_pack "$SAILS_NODE_HOME/backups" "$name" || rc=$?
+  compose up -d seaweedfs
+  [ "$rc" -eq 0 ] && [ -s "$SAILS_NODE_HOME/backups/$name" ] || die "evidence backup failed (exit $rc); the store was restarted"
+  say "evidence backup written: $SAILS_NODE_HOME/backups/$name ($(wc -c <"$SAILS_NODE_HOME/backups/$name") bytes), encrypted; the key in secrets/seaweedfs.env is NOT inside it"
+}
+
+cmd_restore_evidence() {
+  need_init; need_evidence_store
+  local file="${1:?usage: sails-node restore-evidence FILE}"
+  [ -s "$file" ] || die "no such backup: $file"
+  file="$(cd "$(dirname "$file")" && pwd)/$(basename "$file")"
+  compose up --no-start seaweedfs
+  compose stop seaweedfs
+  # A fresh volume is not literally empty (the image ships an empty filerldb2/): it must hold no FILE.
+  local files; files="$(docker run --rm -v "$EVIDENCE_VOLUME:/data" --entrypoint sh postgres:16-alpine -c 'find /data -type f | wc -l')"
+  [ "$files" = "0" ] || die "the evidence volume already holds data ($files files): restore only into a fresh store (docs/SELF_HOSTING.md)"
+  say "restoring $file"
+  evidence_unpack "$(dirname "$file")" "$(basename "$file")"
+  compose up -d seaweedfs
+  say "evidence restored; the store reads it only with the SSE key that was in secrets/seaweedfs.env when the objects were written (allow it up to ~30 s to start answering)"
+}
+
+# Recovery after a FAILED migration (docs/DEPLOYMENT.md 6.1). Prisma refuses every further
+# migration until the failed one is resolved; marking it rolled back is only correct once you
+# have checked that the database really does not contain its partial effects.
+cmd_resolve_rolled_back() {
+  need_init
+  local name="${1:?usage: sails-node resolve-rolled-back MIGRATION_NAME}" tag; tag="$(state_get current)"
+  [ -n "$tag" ] || die "nothing deployed yet"
+  with_images "$tag"
+  say "marking $name as rolled back: do this only after verifying the schema (docs/DEPLOYMENT.md 6.1)"
+  compose run --rm --entrypoint node migrate node_modules/prisma/build/index.js migrate resolve --rolled-back "$name"
+}
+
+cmd_status() {
+
+  need_init
+  local tag; tag="$(state_get current)"; [ -n "$tag" ] || die "nothing deployed yet"
+  with_images "$tag"
+  say "current=$tag previous=$(state_get previous)"
+  compose ps
+  if server_ready; then say "server: ready"; else say "server: NOT ready"; return 1; fi
+}
+
+case "${1:-}" in
+  init) shift; cmd_init "$@" ;;
+  build) shift; cmd_build "$@" ;;
+  update) shift; cmd_update "$@" ;;
+  rollback) shift; cmd_rollback "$@" ;;
+  backup) shift; cmd_backup "$@" ;;
+  restore) shift; cmd_restore "$@" ;;
+  backup-evidence) shift; cmd_backup_evidence "$@" ;;
+  restore-evidence) shift; cmd_restore_evidence "$@" ;;
+  resolve-rolled-back) shift; cmd_resolve_rolled_back "$@" ;;
+  status) shift; cmd_status "$@" ;;
+  *) sed -n '2,24p' "${BASH_SOURCE[0]}"; exit 2 ;;
+esac
