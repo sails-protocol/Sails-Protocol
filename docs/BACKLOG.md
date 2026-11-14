@@ -4772,6 +4772,29 @@ obligation" is defined anywhere in this repository.
     UI/schema/state-machine/QVAC-runtime change; no child issue created
     under #165; no Authority Model Discovery mission started.
 
+    **Status update 2026-11-03 (D2 documentary reconciliation; a status note,
+    not a normative change; the text above is kept as the 2026-09-15 record).**
+    The "Appeal leaving a prior ruling's pending fund-movement instruction
+    live" decision above is no longer an open architecture question: ADR-005
+    (Accepted / Frozen, Issue #218) decided it. The gate was implemented in
+    PR #222 (merge `f7010d7`, 2026-09-18) and corrected in PR #577 (merge
+    `5f5be8d9`, 2026-11-03: a pending operation without recorded ruling
+    provenance no longer executes on an escrow that is or was DISPUTED; C8
+    recovery claims the escrow before its first broadcast). What this does
+    **not** establish: no deploy or homologation (Beta evidence stays under
+    #165; deploy is NO-GO), and the main CI run for `5f5be8d9` was still in
+    progress when this note was written. Known residuals, owned elsewhere:
+    ADR-005 §5 asks that a superseded prior-generation pending operation be
+    durable and inspectable; `main` has no superseded/invalidated marker, the
+    pending row is kept with its provenance and refused at the commit gate
+    (decision for the CTO: accept as equivalent or open a follow-up);
+    re-broadcast of the same deterministic transaction when the explorer
+    keeps missing the txid is not covered by a test (Gatekeeper residual on
+    #577); LIGHTNING_HODL / SAFE_GUARD_EVM UNKNOWN-outcome semantics remain
+    "not claimed" (`docs/PROTOCOL_INVARIANTS.md`, INV-OP-11 section). The
+    Dispute→Escrow crash window is partly covered on `main` by Issue #253
+    ruling-finalization recovery (reconciliation PASS 4), which is also not
+    homologated.
 **BACKLOG DELTA: DETECTED AND SYNCED.**
 
 45. **Authority Backlog Delta — institutional ownership reconciliation,
