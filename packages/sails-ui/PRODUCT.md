@@ -30,9 +30,7 @@ credible, wallet-grade trading UI, not a proof of concept.
 
 ## Positioning
 
-Three things together, not any one alone: (1) the protocol is
-non-custodial — it never takes custody of funds, and there is no
-platform-operator/admin visibility tier by design; (2) the SDK and this
+Three things together, not any one alone: (1) non-custody is a normative protocol invariant, while actual signing/custody guarantees and production eligibility depend on the selected provider (`WDK_USDT_EVM` is a server-custodial, production-ineligible reference path; `SAFE_GUARD_EVM` is not production-activated — RFC-019/RFC-020); the UI is designed without a platform-operator/admin visibility tier; (2) the SDK and this
 UI are real from day one — no mocked backend calls standing in for
 missing capability; (3) an embedded AI agent (QVAC, RFC-023) can
 discover and negotiate a trade within user-declared price/reputation
