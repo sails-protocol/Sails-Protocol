@@ -1,5 +1,27 @@
+// GK-M9R-D R1 - this file proves the ADR-005 generation gate on mocked rows; the Outcome correspondence check it now
+// also passes through is proven on real PostgreSQL and real PSBTs (tests/integration/multisigBroadcastOutcome R1-*).
+jest.mock('../src/modules/open-settlement/dispute-outcome', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/dispute-outcome'),
+  loadDisputeRulingRecord: async () => ({ outcomeContent: {} }),
+  fromDisputeRulingRow: () => ({ outcome: {} }),
+}))
+jest.mock('../src/modules/open-settlement/dispatch-translation-guard', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/dispatch-translation-guard'),
+  assertTranslationMatchesOutcome: () => undefined,
+}))
 // Issue #239 - this suite's PSBTs are placeholders: the real signature check (multisig-round-proofs.ts) is proven with
 // real Bitcoin PSBTs in tests/multisigRoundProofs.test.ts and tests/integration/pendingRoundLifecycle.test.ts.
+// GK-M9R-D R2 - likewise, the pre-create check of a disputed round against its durable Outcome is proven with real
+// PSBTs and a real Outcome in tests/integration/m9rR2RoundLifecycle.test.ts; here it only has to let the round through.
+jest.mock('../src/modules/open-settlement/dispute-outcome', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/dispute-outcome'),
+  loadDisputeRulingRecord: jest.fn(async () => ({ outcomeContent: {} })),
+  fromDisputeRulingRow: jest.fn(() => ({ outcome: { content: { ruling: mockR2Live?.ruling } } })),
+}))
+jest.mock('../src/modules/open-settlement/dispatch-translation-guard', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/dispatch-translation-guard'),
+  assertTranslationMatchesOutcome: jest.fn(),
+}))
 jest.mock('../src/modules/open-settlement/multisig-round-proofs', () => ({
   ...jest.requireActual('../src/modules/open-settlement/multisig-round-proofs'),
   verifySignerPartialSignature: (_unsigned: string, signed: string) => signed,
@@ -39,6 +61,7 @@ jest.mock('../src/config', () => ({
       trade: { defaultTimelockHours: 24 },
       settlement: { trustedArbitrators: [], protocolFeeRate: 0 },
       arkade: { seed: '' },
+      multisig: { network: 'testnet' }, // read by the R1 Outcome correspondence gate and the GK-M9R-D R2 disputed-round pre-create check
       escrowCircuitBreaker: { failureThreshold: 1000, windowMs: 60_000, cooldownMs: 60_000 },
     }
   },
@@ -84,6 +107,13 @@ const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowUpdate = jest.fn()
 const mockTradeFindUnique = jest.fn()
 const mockDisputeFindFirst = jest.fn()
+// GK-M9R-D R2's in-lock check reads the live dispute row (FOR SHARE); here it is the fixture the round's provenance came from.
+let mockR2Live: { status: string; appealRound: unknown; ruling: unknown; authoritySignature: unknown } | undefined
+const mockR2LiveQuery = jest.fn(async () => {
+  const d: any = await mockDisputeFindFirst.mock.results[mockDisputeFindFirst.mock.results.length - 1]?.value
+  mockR2Live = { status: 'RESOLVED', appealRound: d?.appealRound, ruling: d?.ruling, authoritySignature: d?.authoritySignature ?? null }
+  return [mockR2Live]
+})
 const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockParticipantKeyFindMany = jest.fn().mockResolvedValue([])
@@ -154,6 +184,7 @@ jest.mock('../src/common/database', () => ({
         // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
         eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
         $executeRaw: jest.fn().mockResolvedValue(0),
+        $queryRaw: (...args: unknown[]) => mockR2LiveQuery(...(args as [])),
         // Issue #291 - persistSettlementResult() reads then writes the escrow inside its own locked transaction.
         escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args), update: (...args: unknown[]) => mockEscrowUpdate(...args) },
         escrowEvent: {
