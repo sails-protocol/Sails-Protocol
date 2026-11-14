@@ -1503,12 +1503,17 @@ export class MultisigProvider implements SettlementProvider {
     escrow: MultisigEscrowInput,
     unsignedPsbtBase64: string,
     signedPsbtBase64List: string[],
-    beforeFirstBroadcast?: () => Promise<void>
+    beforeFirstBroadcast: () => Promise<void>
   ): Promise<
     | { outcome: 'ALREADY_BROADCAST'; txId: string; rawTxHex: string; detail: string }
     | { outcome: 'NEWLY_BROADCAST'; txId: string; rawTxHex: string; detail: string }
-    | { outcome: 'ANOMALY'; detail: string; code?: 'ROUND_INPUT_MISMATCH' }
+    | { outcome: 'ANOMALY'; detail: string; code?: 'ROUND_INPUT_MISMATCH' | 'EXECUTION_GATE_MISSING' }
   > {
+    // CTO 48 (GK ADR-004 A5) - the commit gate is mandatory: a caller that passes none could make recovery the first
+    // broadcaster with no authorization at all. Refused before any decode or network call (fail-closed, nothing sent).
+    if (typeof beforeFirstBroadcast !== 'function') {
+      return { outcome: 'ANOMALY', code: 'EXECUTION_GATE_MISSING', detail: `EXECUTION_GATE_MISSING: reconcilePendingSettlement() for trade ${escrow.tradeId} was called without its fail-closed commit gate - nothing reconstructed or broadcast` }
+    }
     // CTO 25 funding binding - same rule as the live path (escrow-pending-tx.ts): a round that does not spend exactly
     // this escrow's recorded funding is never reconstructed, adopted or broadcast. Checked before any network call,
     // so no authorization gate, claim, txid write or broadcast follows; the round and its signatures are left as is.
@@ -1557,7 +1562,7 @@ export class MultisigProvider implements SettlementProvider {
       // fail-closed commit gate immediately before the first broadcast.
       // ALREADY_BROADCAST never reaches this callback, preserving recovery
       // of external truth after later authority changes.
-      if (beforeFirstBroadcast) await beforeFirstBroadcast()
+      await beforeFirstBroadcast()
 
       // Sails Core Implementation Program M9-R (R6, provider txid
       // integrity) — same discipline as finalizeSpend(): `expectedTxId`
