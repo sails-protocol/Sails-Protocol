@@ -53,6 +53,7 @@
  * rejected. `UNKNOWN provenance ≠ cooperative provenance`.
  */
 import { createHash } from 'crypto'
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../../common/database'
 import { EscrowError } from '../../common/errors'
 
@@ -154,6 +155,69 @@ export async function assertCooperativeOriginProvable(
   }
 }
 
+/** GK-M9R-D R1 - a disputed MULTISIG round that does not correspond to its durable authoritative Outcome. */
+export class DisputedTranslationRefused extends EscrowError {
+  constructor(message: string, readonly mismatches: readonly string[]) {
+    super(message)
+  }
+}
+
+/**
+ * GK-M9R-D R1 - a disputed MULTISIG round must correspond to its durable authoritative Outcome before ANY execution
+ * step. Checked here, inside the one gate every executing path calls (submitTransactionSignature and settlement
+ * reconciliation PASS 0/1), before the economic disposition authorization is created or reused and before any claim
+ * or broadcast. So a round persisted by any path (the live ruling, C4 recovery, a crash between persisting the round
+ * and its creation-time guard, a row already in the database) can never be finalized unless it matches. No durable
+ * Outcome refuses: since M8-R every MULTISIG ruling commits one before it dispatches. Pure check over persisted facts:
+ * deterministic, no side effect, no key, no signature. Reads through the caller's transaction (no second pool
+ * connection). Required lazily. dispute-outcome is a real runtime cycle (it imports this module). The other three
+ * are not cycles (multisig.provider's escrow.service import is type-only); they are lazy so this small module, which
+ * every settlement path and its test mocks load, does not pull in the Bitcoin stack and config at load time.
+ * shortcut: lazy requires, until economicDispositionLockKey moves to a leaf module (CTO 25: separate evaluation).
+ */
+async function assertDisputedTranslationMatchesOutcome(pending: DisputedPendingFacts, tx: Prisma.TransactionClient): Promise<void> {
+  const escrow = await tx.escrow.findUnique({ where: { id: pending.escrowId }, select: { type: true } })
+  if (!escrow) throw new EscrowError(`Escrow ${pending.escrowId} not found while validating disputed pending operation ${pending.id}`)
+  if (escrow.type !== 'MULTISIG') return // the translation guard reads a Bitcoin PSBT; other rails do not dispatch one
+  const { loadDisputeRulingRecord, fromDisputeRulingRow } = require('./dispute-outcome') // eslint-disable-line @typescript-eslint/no-var-requires
+  const { assertTranslationMatchesOutcome, TranslationGuardError } = require('./dispatch-translation-guard') // eslint-disable-line @typescript-eslint/no-var-requires
+  const { networkFor } = require('./multisig.provider') // eslint-disable-line @typescript-eslint/no-var-requires
+  const { config } = require('../../config') // eslint-disable-line @typescript-eslint/no-var-requires
+  const row = pending.rulingAppealRound == null ? null : await loadDisputeRulingRecord(pending.escrowId, pending.rulingAppealRound, tx)
+  const outcome = row?.outcomeContent ? fromDisputeRulingRow(row).outcome : undefined
+  if (!outcome) {
+    throw new DisputedTranslationRefused(
+      `Pending operation ${pending.id} on escrow ${pending.escrowId} is bound to dispute ${pending.disputeId} (appeal round ` +
+      `${pending.rulingAppealRound}) but no durable authoritative Outcome exists for it - refusing to execute (GK-M9R-D R1).`,
+      ['NO_DURABLE_OUTCOME'],
+    )
+  }
+  // PE-M9R R-4 (#618) - the outputs alone cannot tell RELEASE from REFUND when buyer and seller share an address:
+  // the round's kind must be the kind the durable Outcome's ruling authorizes (anchored on the Outcome, not on the
+  // row's provenance: the reuse path above does not re-run the generation check), or it would settle misclassified.
+  const { RULING_KIND } = require('./dispute-dispatch') // eslint-disable-line @typescript-eslint/no-var-requires
+  if (RULING_KIND[outcome.content?.ruling] !== pending.kind) {
+    throw new DisputedTranslationRefused(
+      `Pending operation ${pending.id} on escrow ${pending.escrowId} is a ${pending.kind} round, but the authoritative Outcome of ` +
+      `dispute ${pending.disputeId} is ${outcome.content?.ruling} - refusing to execute (GK-M9R-D R1, R-4).`,
+      ['KIND_MISMATCH'],
+    )
+  }
+  try {
+    assertTranslationMatchesOutcome(pending.unsignedPsbtBase64, outcome, networkFor(config.multisig.network), pending.minerFeeSats ?? undefined)
+  } catch (err) {
+    // PE-M9R F5 - only a real translation mismatch is a translation refusal; an internal failure (config, decoder,
+    // guard bug) propagates as itself, still fail-closed, so callers classify it as a gate error, not a mismatch.
+    if (!(err instanceof TranslationGuardError)) throw err
+    const mismatches: readonly string[] = (err as { mismatches: readonly string[] }).mismatches
+    throw new DisputedTranslationRefused(
+      `Pending operation ${pending.id} on escrow ${pending.escrowId} does not correspond to the authoritative Outcome of ` +
+      `dispute ${pending.disputeId} - refusing to execute (GK-M9R-D R1): ${mismatches.join('; ')}`,
+      mismatches,
+    )
+  }
+}
+
 export async function authorizeDisputedPendingExecution(pending: DisputedPendingFacts) {
   if (!pending.disputeId) {
     // No recorded generation. Fast-path to "cooperative, ADR-005 does not
@@ -193,6 +257,7 @@ export async function authorizeDisputedPendingExecution(pending: DisputedPending
           `Pending operation ${pending.id} no longer matches its committed economic disposition authorization`
         )
       }
+      await assertDisputedTranslationMatchesOutcome(pending, tx) // R1: an authorization committed earlier is no excuse
       return existing
     }
 
@@ -224,6 +289,7 @@ export async function authorizeDisputedPendingExecution(pending: DisputedPending
       )
     }
 
+    await assertDisputedTranslationMatchesOutcome(pending, tx) // R1: after the generation check, before authorizing
     return tx.economicDispositionAuthorization.create({
       data: {
         pendingOperationId: pending.id,

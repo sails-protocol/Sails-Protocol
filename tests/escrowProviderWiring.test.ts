@@ -1,5 +1,30 @@
+// GK-M9R-D R1 - this file proves the ADR-005 generation gate on mocked rows; the Outcome correspondence check it now
+// also passes through is proven on real PostgreSQL and real PSBTs (tests/integration/multisigBroadcastOutcome R1-*).
+jest.mock('../src/modules/open-settlement/dispute-outcome', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/dispute-outcome'),
+  loadDisputeRulingRecord: async () => ({ outcomeContent: {} }),
+  // PE-M9R R-4 - the gate binds the round kind to this Outcome's ruling; a test of another kind sets mockOutcomeRuling.
+  fromDisputeRulingRow: () => ({ outcome: { content: { ruling: mockOutcomeRuling } } }),
+}))
+let mockOutcomeRuling = 'RELEASE'
+beforeEach(() => { mockOutcomeRuling = 'RELEASE' })
+jest.mock('../src/modules/open-settlement/dispatch-translation-guard', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/dispatch-translation-guard'),
+  assertTranslationMatchesOutcome: () => undefined,
+}))
 // Issue #239 - this suite's PSBTs are placeholders: the real signature check (multisig-round-proofs.ts) is proven with
 // real Bitcoin PSBTs in tests/multisigRoundProofs.test.ts and tests/integration/pendingRoundLifecycle.test.ts.
+// GK-M9R-D R2 - likewise, the pre-create check of a disputed round against its durable Outcome is proven with real
+// PSBTs and a real Outcome in tests/integration/m9rR2RoundLifecycle.test.ts; here it only has to let the round through.
+jest.mock('../src/modules/open-settlement/dispute-outcome', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/dispute-outcome'),
+  loadDisputeRulingRecord: jest.fn(async () => ({ outcomeContent: {} })),
+  fromDisputeRulingRow: jest.fn(() => ({ outcome: { content: { ruling: mockR2Live?.ruling } } })),
+}))
+jest.mock('../src/modules/open-settlement/dispatch-translation-guard', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/dispatch-translation-guard'),
+  assertTranslationMatchesOutcome: jest.fn(),
+}))
 jest.mock('../src/modules/open-settlement/multisig-round-proofs', () => ({
   ...jest.requireActual('../src/modules/open-settlement/multisig-round-proofs'),
   verifySignerPartialSignature: (_unsigned: string, signed: string) => signed,
@@ -43,6 +68,7 @@ jest.mock('../src/config', () => ({
       // Arkade build) is inert without it, same "clear config error"
       // pattern as multisig.provider.ts's own empty seed default below.
       arkade: { seed: '' },
+      multisig: { network: 'testnet' }, // read by the R1 Outcome correspondence gate and the GK-M9R-D R2 disputed-round pre-create check
     }
   },
 }))
@@ -116,6 +142,7 @@ jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
     buildUnsignedSplit: (...args: unknown[]) => mockBuildUnsignedSplit(...args),
     finalizeSplit: (...args: unknown[]) => mockFinalizeSplit(...args),
   },
+  networkFor: jest.fn(), // read by the R1 Outcome correspondence gate and the GK-M9R-D R2 pre-create check (stubbed above)
 }))
 
 const mockEscrowFindUnique = jest.fn()
@@ -126,6 +153,13 @@ const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' }
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockTradeFindUnique = jest.fn()
 const mockDisputeFindFirst = jest.fn().mockResolvedValue(null)
+// GK-M9R-D R2's in-lock check reads the live dispute row (FOR SHARE); here it is the fixture the round's provenance came from.
+let mockR2Live: { status: string; appealRound: unknown; ruling: unknown; authoritySignature: unknown } | undefined
+const mockR2LiveQuery = jest.fn(async () => {
+  const d: any = await mockDisputeFindFirst.mock.results[mockDisputeFindFirst.mock.results.length - 1]?.value
+  mockR2Live = { status: 'RESOLVED', appealRound: d?.appealRound, ruling: d?.ruling, authoritySignature: d?.authoritySignature ?? null }
+  return [mockR2Live]
+})
 const mockFeePolicyVersionFindMany = jest.fn().mockResolvedValue([])
 const mockParticipantKeyUpsert = jest.fn()
 const mockParticipantKeyFindMany = jest.fn()
@@ -198,6 +232,7 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
     eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
     $executeRaw: jest.fn().mockResolvedValue(0),
+        $queryRaw: (...args: unknown[]) => mockR2LiveQuery(...(args as [])),
   })
 )
 
@@ -1358,7 +1393,7 @@ describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT
   beforeEach(() => {
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
-    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1', ruling: 'SPLIT' })
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
     mockParticipantKeyFindMany.mockResolvedValue([
@@ -1397,13 +1432,13 @@ describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT
         buyerBps: 6000,
         // ADR-005 / #218 — ruling-generation provenance snapshotted
         // because this escrow is DISPUTED. mockDisputeFindFirst's own
-        // fixture above only sets {id, tradeId, arbiterId} — the other
-        // generation fields are genuinely undefined on that row, exactly
-        // as a real Dispute predating this ADR would report them.
+        // fixture above sets {id, tradeId, arbiterId, ruling} — ruling because the
+        // R2 guard binds a split round to a SPLIT Outcome (CTO 25 T10); the other
+        // generation fields are genuinely undefined on that row.
         disputeId: 'dispute-1',
         rulingAppealRound: undefined,
         rulingArbiterId: 'arbiter-1',
-        rulingOutcome: undefined,
+        rulingOutcome: 'SPLIT',
         rulingAuthoritySignature: undefined,
         rulingAuthorityIssuedAt: undefined,
       },
@@ -1512,6 +1547,7 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
   })
 
   it('finalizes for real once every required signer has submitted — split path (RFC-021 D9)', async () => {
+    mockOutcomeRuling = 'SPLIT'
     // Real MultisigProvider.buildUnsignedSplit() requires only ONE more
     // signer alongside the arbiter's pre-embedded one (see that method's
     // own comment) — mocked here as buyer-1, its real default pairing.
