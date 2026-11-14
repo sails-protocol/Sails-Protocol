@@ -1,3 +1,17 @@
+// GK-M9R-D R1 - this file proves the ADR-005 generation gate on mocked rows; the Outcome correspondence check it now
+// also passes through is proven on real PostgreSQL and real PSBTs (tests/integration/multisigBroadcastOutcome R1-*).
+jest.mock('../src/modules/open-settlement/dispute-outcome', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/dispute-outcome'),
+  loadDisputeRulingRecord: async () => ({ outcomeContent: {} }),
+  // PE-M9R R-4 - the gate binds the round kind to this Outcome's ruling; a test of another kind sets mockOutcomeRuling.
+  fromDisputeRulingRow: () => ({ outcome: { content: { ruling: mockOutcomeRuling } } }),
+}))
+let mockOutcomeRuling = 'RELEASE'
+beforeEach(() => { mockOutcomeRuling = 'RELEASE' })
+jest.mock('../src/modules/open-settlement/dispatch-translation-guard', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/dispatch-translation-guard'),
+  assertTranslationMatchesOutcome: () => undefined,
+}))
 // Issue #239 - this suite's PSBTs are placeholders: the real signature check (multisig-round-proofs.ts) is proven with
 // real Bitcoin PSBTs in tests/multisigRoundProofs.test.ts and tests/integration/pendingRoundLifecycle.test.ts.
 jest.mock('../src/modules/open-settlement/multisig-round-proofs', () => ({
@@ -43,6 +57,7 @@ jest.mock('../src/config', () => ({
       // Arkade build) is inert without it, same "clear config error"
       // pattern as multisig.provider.ts's own empty seed default below.
       arkade: { seed: '' },
+      multisig: { network: 'regtest' }, // read by the R1 Outcome correspondence gate
     }
   },
 }))
@@ -116,6 +131,7 @@ jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
     buildUnsignedSplit: (...args: unknown[]) => mockBuildUnsignedSplit(...args),
     finalizeSplit: (...args: unknown[]) => mockFinalizeSplit(...args),
   },
+  networkFor: jest.fn(), // read by the R1 Outcome correspondence gate (stubbed above)
 }))
 
 const mockEscrowFindUnique = jest.fn()
@@ -1512,6 +1528,7 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
   })
 
   it('finalizes for real once every required signer has submitted — split path (RFC-021 D9)', async () => {
+    mockOutcomeRuling = 'SPLIT'
     // Real MultisigProvider.buildUnsignedSplit() requires only ONE more
     // signer alongside the arbiter's pre-embedded one (see that method's
     // own comment) — mocked here as buyer-1, its real default pairing.
