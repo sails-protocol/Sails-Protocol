@@ -905,6 +905,9 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 // SAME deterministic computation the real code performs — never a value
 // the test simply asserts by fiat.
 describe('MultisigProvider — reconcilePendingSettlement() (Missão 11 Fase 9.6, CONC-03 crash recovery)', () => {
+  // CTO 48 (ADR-004 A5): the commit gate is mandatory; these cases pass an open one and count when it runs.
+  const openGate = jest.fn(async () => {})
+  beforeEach(() => openGate.mockClear())
   const ecc = require('tiny-secp256k1')
   const bitcoin = require('bitcoinjs-lib')
   const { ECPairFactory } = require('ecpair')
@@ -975,11 +978,12 @@ describe('MultisigProvider — reconcilePendingSettlement() (Missão 11 Fase 9.6
     // no broadcast — this is the whole point of asking the chain first.
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true }) })
 
-    const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList)
+    const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList, openGate)
 
     expect(result.outcome).toBe('ALREADY_BROADCAST')
     expect(result.txId).toBe(expectedTxId)
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(openGate).not.toHaveBeenCalled() // convergence to chain truth never reaches the gate
     expect(String(fetchMock.mock.calls[0][0])).toContain(`/tx/${expectedTxId}/status`)
   })
 
@@ -993,11 +997,12 @@ describe('MultisigProvider — reconcilePendingSettlement() (Missão 11 Fase 9.6
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid, vout: 0, value: 100_000, status: { confirmed: true } }] }) // outpoint still unspent
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => expectedTxId }) // broadcast
 
-    const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList)
+    const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList, openGate)
 
     expect(result.outcome).toBe('NEWLY_BROADCAST')
     expect(result.txId).toBe(expectedTxId)
     expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(openGate).toHaveBeenCalledTimes(1)
     // The broadcast call must carry the SAME deterministic transaction —
     // never a re-derived or re-signed one.
     const [, broadcastInit] = fetchMock.mock.calls[2]
@@ -1019,7 +1024,7 @@ describe('MultisigProvider — reconcilePendingSettlement() (Missão 11 Fase 9.6
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid, vout: 0, value: 100_000, status: { confirmed: true } }] }) // outpoint still unspent
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => 'ff'.repeat(32) }) // broadcast — deliberately wrong txid in the response body
 
-    const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList)
+    const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList, openGate)
 
     expect(result.outcome).toBe('NEWLY_BROADCAST')
     expect(result.txId).toBe(expectedTxId)
@@ -1035,13 +1040,22 @@ describe('MultisigProvider — reconcilePendingSettlement() (Missão 11 Fase 9.6
     fetchMock.mockResolvedValueOnce({ status: 404, ok: false }) // existence check: not found
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [] }) // outpoint no longer in the unspent set
 
-    const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList)
+    const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList, openGate)
 
     expect(result.outcome).toBe('ANOMALY')
     expect(result.detail).toMatch(/unexpected spend/i)
     // Exactly two calls — existence check + UTXO check. No third
     // (broadcast) call under any circumstance in this branch.
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('CTO 48 (ADR-004 A5): called without its commit gate -> EXECUTION_GATE_MISSING before any decode or network call, nothing broadcast', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const { escrow, unsignedPsbtBase64, signedList } = await buildRealSignedRelease(multisigProvider, 'a7'.repeat(32))
+    fetchMock.mockClear()
+    const result = await (multisigProvider.reconcilePendingSettlement as any)(escrow, unsignedPsbtBase64, signedList)
+    expect(result).toMatchObject({ outcome: 'ANOMALY', code: 'EXECUTION_GATE_MISSING' })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('anomaly — no funding txLockId recorded at all', async () => {
@@ -1051,7 +1065,7 @@ describe('MultisigProvider — reconcilePendingSettlement() (Missão 11 Fase 9.6
     fetchMock.mockClear()
     escrow.txLockId = null as any
 
-    const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList)
+    const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList, openGate)
 
     expect(result.outcome).toBe('ANOMALY')
     expect(fetchMock).not.toHaveBeenCalled() // CTO 25 funding binding: refused before the existence check
@@ -1098,7 +1112,7 @@ describe('MultisigProvider — reconcilePendingSettlement() (Missão 11 Fase 9.6
     fetchMock.mockResolvedValueOnce({ status: 503, ok: false })
 
     await expect(
-      multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList)
+      multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList, openGate)
     ).rejects.toThrow(/explorer API returned 503/)
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })

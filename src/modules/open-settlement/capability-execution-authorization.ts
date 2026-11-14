@@ -19,7 +19,7 @@
 import { createHash } from 'crypto'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../../common/database'
-import { ForbiddenError, EscrowError } from '../../common/errors'
+import { AppError, ForbiddenError, EscrowError } from '../../common/errors'
 import { config } from '../../config'
 import { CAPABILITY_IMPLEMENTATIONS } from '../../core/capability-registry'
 
@@ -65,6 +65,49 @@ export function capabilityOperationDigest(pending: PendingExecutionFacts): strin
   return createHash('sha256').update(canonical).digest('hex')
 }
 
+type CommittedAuthorization = { escrowId: string; grantedTo: string; capabilityName: string; requiredScope: string; operationDigest: string }
+
+// Reuse is legal only for the exact immutable operation previously authorized. Any mutation means this is not the same
+// committed attempt.
+function assertSameCommittedOperation<T extends CommittedAuthorization>(existing: T, pending: PendingExecutionFacts): T {
+  if (
+    existing.escrowId !== pending.escrowId ||
+    existing.grantedTo !== pending.triggeredBy ||
+    existing.capabilityName !== CAPABILITY_IMPLEMENTATIONS.opensettlement ||
+    existing.requiredScope !== requiredScope(pending.kind) ||
+    existing.operationDigest !== capabilityOperationDigest(pending)
+  ) {
+    throw new EscrowError(
+      `Pending operation ${pending.id} no longer matches its committed capability authorization`
+    )
+  }
+  return existing
+}
+
+/** An expected refusal (409): the round may not be broadcast by recovery; nothing was written or sent because of it. */
+export class ExecutionAuthorizationMissing extends AppError {
+  constructor(pendingOperationId: string) {
+    super(`Pending operation ${pendingOperationId} has no durable ADR-004 execution authorization - a recovery broadcast may only converge an attempt the live path already authorized`, 409, 'EXECUTION_AUTHORIZATION_MISSING')
+  }
+}
+
+/**
+ * CTO 48 / GK ADR-004 A2-A3 - recovery broadcasts (reconciliation PASS 1 and the completion-effects catch-up) of a round
+ * whose escrow is already claimed. They may only CONVERGE an attempt the live path already execution-committed: the
+ * durable authorization for this exact pending operation must exist and match. Read-only: it never re-evaluates or
+ * resolves a grant and never writes one, so a recovery can never become a first authorization. Missing or mismatched
+ * evidence throws, before any broadcast. With enforceCapabilities off the live path commits no authorization either
+ * (authorizePendingExecution() returns null), and this check mirrors it.
+ */
+export async function assertDurableExecutionAuthorization(pending: PendingExecutionFacts) {
+  if (!config.features.enforceCapabilities) return null
+  const existing = await prisma.capabilityExecutionAuthorization.findUnique({ where: { pendingOperationId: pending.id } })
+  if (!existing) {
+    throw new ExecutionAuthorizationMissing(pending.id)
+  }
+  return assertSameCommittedOperation(existing, pending)
+}
+
 export async function authorizePendingExecution(pending: PendingExecutionFacts) {
   if (!config.features.enforceCapabilities) return null
 
@@ -83,22 +126,7 @@ export async function authorizePendingExecution(pending: PendingExecutionFacts) 
       where: { pendingOperationId: pending.id },
     })
 
-    if (existing) {
-      // Reuse is legal only for the exact immutable operation previously
-      // authorized. Any mutation means this is not the same committed attempt.
-      if (
-        existing.escrowId !== pending.escrowId ||
-        existing.grantedTo !== pending.triggeredBy ||
-        existing.capabilityName !== capabilityName ||
-        existing.requiredScope !== scope ||
-        existing.operationDigest !== operationDigest
-      ) {
-        throw new EscrowError(
-          `Pending operation ${pending.id} no longer matches its committed capability authorization`
-        )
-      }
-      return existing
-    }
+    if (existing) return assertSameCommittedOperation(existing, pending)
 
     const grants = await tx.capabilityGrant.findMany({
       where: {

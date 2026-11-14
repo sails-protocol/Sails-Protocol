@@ -15,7 +15,7 @@ import { wdkSettlementProvider } from './wdk-settlement.provider'
 import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { childLogger } from '../../common/logger'
-import { authorizePendingExecution } from './capability-execution-authorization'
+import { authorizePendingExecution, assertDurableExecutionAuthorization } from './capability-execution-authorization'
 import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
 import type { DeferredRulingFinalization } from './dispute.service' // type only: the module itself is required lazily below
 
@@ -318,11 +318,17 @@ function isLostEscrowClaim(err: unknown): boolean {
 // ADR-005 + Outcome gate as PASS 0 and the live path, immediately before the broadcast. A transaction the network
 // already has (ALREADY_BROADCAST) never reaches the callback: chain truth is converged, never reverted or erased.
 // `refused` tells the caller the gate refused, as opposed to the chain or the node failing.
-function recoveryBroadcastGate(pending: Parameters<typeof authorizeDisputedPendingExecution>[0]) {
+// CTO 48 (GK ADR-004 A2/A3) - the escrow is already claimed here, so ADR-004 is not re-evaluated: the round may only be
+// sent when the live path durably execution-committed this exact operation (assertDurableExecutionAuthorization()).
+// A round with no such evidence is refused like any other gate refusal: manual review, nothing sent.
+function recoveryBroadcastGate(pending: Parameters<typeof authorizeDisputedPendingExecution>[0] & Parameters<typeof assertDurableExecutionAuthorization>[0]) {
   const gate = {
     refused: undefined as unknown,
     check: async () => {
-      try { await authorizeDisputedPendingExecution(pending) } catch (err) { gate.refused = err; throw err }
+      try {
+        await authorizeDisputedPendingExecution(pending)
+        await assertDurableExecutionAuthorization(pending)
+      } catch (err) { gate.refused = err; throw err }
     },
   }
   return gate

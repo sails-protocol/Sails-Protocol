@@ -20,6 +20,12 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 
+- **ADR-004 at recovery broadcast: a claimed escrow's round is only re-sent under its durable execution authorization (CTO 48, GK A2/A3/A5).** Draft, pending the Gatekeeper VERIFY.
+  - **PASS 1 and the completion-effects catch-up:** before a recovery broadcast, `assertDurableExecutionAuthorization()` requires the `CapabilityExecutionAuthorization` the live path committed for this exact pending operation (same digest, grantee, capability and scope). Read-only: no grant is re-evaluated or issued, so recovery never becomes a first authorization. Missing or mismatched -> `EXECUTION_GATE_REFUSED`, manual review, nothing sent.
+  - **Convergence kept:** with the durable authorization the round is broadcast once; a transaction already on the network still converges without reaching the gate.
+  - **Mandatory gate:** `reconcilePendingSettlement()` refuses to run without its commit gate (`EXECUTION_GATE_MISSING`, before any decode or network call).
+  - **Unchanged:** with `ENFORCE_CAPABILITIES` off (only possible outside production) the live path commits no authorization and this check mirrors it; PASS 0 still runs `authorizePendingExecution()`.
+
 - **MULTISIG funding binding: one address per escrow, outpoint-precise funding, round input binding (real PostgreSQL).** Draft, pending the Gatekeeper audit.
   - **One address per escrow:** migration `20261112120000_escrow_multisig_addr_unique` adds the partial unique index `escrows_multisig_addr_key` (MULTISIG rows only). `submitParticipantKey()` answers 409 `MULTISIG_ADDRESS_ALREADY_COMMITTED` when the derived address is already committed to another escrow; the submitted key stays recorded and a fresh key retries. Integrators must use a fresh key per escrow (the SDK already does). The migration refuses, listing them, when a database already holds two MULTISIG escrows on one address.
   - **Funding selection and reconciliation:** `lockFunds()` skips outpoints recorded by other escrows and refuses more than one eligible UTXO instead of taking the first listed. `rescanFunding()` checks the recorded outpoint first; the reorg sweep only (re)confirms that outpoint, and a different one stays `REPLACEMENT_OBSERVED`.

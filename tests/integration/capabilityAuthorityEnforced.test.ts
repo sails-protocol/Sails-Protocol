@@ -354,4 +354,97 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
     expect(resumed.resumed.map((r) => r.escrowId)).toContain(escrowId)
     expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })).not.toBeNull()
   })
+
+  // CTO 48 / GK ADR-004 A2-A3: a recovery broadcast of an already-claimed escrow (PASS 1, completion-effects catch-up)
+  // only converges an attempt the live path durably execution-committed. Simulated explorer; real PSBTs and signatures.
+  describe('ADR-004 recovery broadcast authorization (CTO 48)', () => {
+    let posts: string[] = []
+    /** Explorer: the funding outpoint is unspent; only what was POSTed here (or everything, with known='all') is on the network. */
+    function recoveryExplorer(fundingTxid: string, value: number, known: 'none' | 'all' = 'none') {
+      posts = []
+      global.fetch = jest.fn(async (url: string, init?: any) => {
+        const u = String(url)
+        if (init?.method === 'POST') { const id = bitcoin.Transaction.fromHex(String(init.body)).getId(); posts.push(id); return { ok: true, status: 200, text: async () => id } as any }
+        if (u.includes('/blocks/tip/height')) return { ok: true, text: async () => '100' } as any
+        if (u.includes('/v1/fees/recommended')) return { ok: true, json: async () => ({ halfHourFee: 5, fastestFee: 8 }) } as any
+        const st = u.match(/\/tx\/([0-9a-f]{64})\/status/)
+        if (st) {
+          if (st[1] === fundingTxid || known === 'all' || posts.includes(st[1])) return { ok: true, status: 200, json: async () => ({ confirmed: true, block_height: 100 }) } as any
+          return { ok: false, status: 404, json: async () => ({}), text: async () => 'Transaction not found' } as any
+        }
+        if (u.includes('/utxo')) return { ok: true, status: 200, json: async () => (posts.length ? [] : [{ txid: fundingTxid, vout: 0, value, status: { confirmed: true } }]) } as any
+        return { ok: true, status: 200, json: async () => ({}) } as any
+      }) as any
+    }
+    const reconcile = () => require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service').reconcilePendingSettlements()
+    const review = (r: any, escrowId: string) => r.requiresManualReview.filter((x: any) => x.escrowId === escrowId).map((x: any) => x.reason).join(' ')
+
+    /** A RELEASE ruling's round, fully signed (crash window: the signature persisted, the live submit never ran). */
+    async function signedUnsubmittedRound(suffix: string, opts: { authorized: boolean }) {
+      const { escrowId, disputeId } = await makeDisputedEscrow(suffix, { onboardArbiter: true })
+      await resolveRelease(disputeId, escrowId)
+      const pending = (await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } }))!
+      await prisma.escrowTransactionSignature.create({ data: { pendingTxId: pending.id, participantId: pending.requiredSigners[0], signedPsbtBase64: await buyerSignature(escrowId) } })
+      if (opts.authorized) await authorizePendingExecution(pending as any) // what the live path commits before its claim
+      const escrow = (await prisma.escrow.findUnique({ where: { id: escrowId } }))!
+      recoveryExplorer(escrow.txLockId!, 100_000)
+      return { escrowId, pending, fundingTxid: escrow.txLockId! }
+    }
+
+    it('PASS 1, no durable authorization (claim without Gate B): not broadcast, no txReleaseId, manual review', async () => {
+      requirePostgres('ADR-004 PASS 1 refused')
+      const { escrowId } = await signedUnsubmittedRound('adr4-p1-no', { authorized: false })
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } }) // claimed, result never recorded
+      const r = await reconcile()
+      expect(posts).toEqual([])
+      expect((await prisma.escrow.findUnique({ where: { id: escrowId } }))!.txReleaseId).toBeNull()
+      expect(review(r, escrowId)).toMatch(/EXECUTION_GATE_REFUSED: .*no durable ADR-004 execution authorization/)
+    })
+
+    it('PASS 1 convergence: the live path durably authorized and crashed after its claim - recovery broadcasts exactly once and records it', async () => {
+      requirePostgres('ADR-004 PASS 1 converges')
+      const { escrowId } = await signedUnsubmittedRound('adr4-p1-ok', { authorized: true })
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
+      await reconcile(); await reconcile()
+      expect(posts).toHaveLength(1)
+      expect((await prisma.escrow.findUnique({ where: { id: escrowId } }))!.txReleaseId).toBe(posts[0])
+    })
+
+    it('PASS 1, a durable authorization that no longer matches the round (SIMULATION: triggeredBy rewritten): refused, not broadcast', async () => {
+      requirePostgres('ADR-004 PASS 1 mismatch')
+      const { escrowId, pending } = await signedUnsubmittedRound('adr4-p1-mm', { authorized: true })
+      await prisma.escrowPendingTransaction.update({ where: { id: pending.id }, data: { triggeredBy: 'cap303-someone-else' } })
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
+      const r = await reconcile()
+      expect(posts).toEqual([])
+      expect(review(r, escrowId)).toMatch(/no longer matches its committed capability authorization/)
+    })
+
+    it('PASS 1, already on the network: converges to chain truth with no authorization (the gate is never reached)', async () => {
+      requirePostgres('ADR-004 PASS 1 already broadcast')
+      const { escrowId, fundingTxid } = await signedUnsubmittedRound('adr4-p1-known', { authorized: false })
+      recoveryExplorer(fundingTxid, 100_000, 'all')
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
+      await reconcile()
+      expect(posts).toEqual([])
+      expect((await prisma.escrow.findUnique({ where: { id: escrowId } }))!.txReleaseId).toMatch(/^[0-9a-f]{64}$/)
+    })
+
+    it('completion-effects catch-up, recorded result not on the network and no durable authorization: never re-broadcast, manual review', async () => {
+      requirePostgres('ADR-004 catch-up refused')
+      const { escrowId } = await signedUnsubmittedRound('adr4-cu-no', { authorized: false })
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED', txReleaseId: 'cd'.repeat(32), releasedAt: new Date() } })
+      const r = await reconcile()
+      expect(posts).toEqual([])
+      expect(review(r, escrowId)).toMatch(/EXECUTION_GATE_REFUSED: .*no durable ADR-004 execution authorization/)
+    })
+
+    it('completion-effects catch-up with the durable authorization: re-broadcasts once (convergence after durable authorization)', async () => {
+      requirePostgres('ADR-004 catch-up converges')
+      const { escrowId } = await signedUnsubmittedRound('adr4-cu-ok', { authorized: true })
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED', txReleaseId: 'ce'.repeat(32), releasedAt: new Date() } })
+      await reconcile()
+      expect(posts).toHaveLength(1)
+    })
+  })
 })
