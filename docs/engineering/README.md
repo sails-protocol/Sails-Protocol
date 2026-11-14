@@ -6,6 +6,10 @@ These documents exist because important engineering knowledge must survive the c
 
 > **Não duplicar. Não perder. Não inflar. Não esconder.**
 
+## New contributor / AI session entry
+
+Before taking a development mission or assuming a CTO, Gatekeeper or agent role, start with the [timeless contributor and AI session onboarding guide](AI_SESSION_ONBOARDING.md). The root [AGENTS.md](../../AGENTS.md) provides the short entry point. These are navigation and readiness aids, not new normative sources.
+
 ## Documents
 
 1. [Sails Engineering Philosophy](SAILS_ENGINEERING_PHILOSOPHY.md) — why the engineering approach emerged, the relationship between AI, evidence, judgment, consequence and permanence.

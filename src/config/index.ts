@@ -422,6 +422,13 @@ export const config = {
     // abandoned trade now auto-refunds instead of staying stuck) that a
     // deployment should opt into deliberately, not inherit silently.
     escrowTimelockSweeper: process.env.ESCROW_TIMELOCK_SWEEPER === 'true',
+    // Issue #291/#298 hardening - crash recovery for settlement (terminal escrow without a
+    // persisted result, missing completion effects, incomplete projections). Unlike the sweepers
+    // above this is ON by default: it only COMPLETES work an already-authorised settlement left
+    // half-done (write-once result, idempotent projections, never a new disposition), and without
+    // a running reconciler a crash after provider success would never be repaired. Opt out with
+    // ESCROW_SETTLEMENT_RECONCILER=false.
+    escrowSettlementReconciler: process.env.ESCROW_SETTLEMENT_RECONCILER !== 'false',
     // RFC-021 D8 — off by default, same reasoning as escrowTimelockSweeper
     // above: a real background process applying real dispute rulings on a
     // timer is a real behavior change a deployment opts into deliberately.
@@ -468,6 +475,7 @@ export const config = {
     // a real abandoned trade doesn't sit stuck for hours, infrequent
     // enough that it's not a meaningful query load on its own.
     timelockSweepIntervalMs: requiredInt('ESCROW_TIMELOCK_SWEEP_INTERVAL_MS', 300000),
+    settlementReconcileIntervalMs: requiredInt('ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS', 60000),
     // How often the RFC-021 D8 sweeper (when enabled) checks for
     // AUTO_PROPOSED disputes past their contest deadline. Same 5-minute
     // default as the escrow sweeper above, same reasoning.

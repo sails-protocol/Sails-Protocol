@@ -2688,6 +2688,8 @@ correção em `docs/CRYPTOGRAPHIC_MODEL.md` §1.
 
 ### 61. Public OfferDetail returns raw `paymentDetails` + broad participant row — OPEN (found 2026-09-09, Day-0 Completeness Cold Sweep)
 
+> **Nota de clarificação (2026-11-11).** O `OPEN` deste cabeçalho registra o estado do item **quando foi descoberto** (2026-09-09) e é mantido como histórico. O estado vigente é **`CLOSED (bounded)`**, conforme o status ao fim deste item: correção de privacidade da PR #117 (merge `2ffb6715`, 2026-09-10). Nada abaixo foi alterado.
+
 **Classification: current implementation privacy defect / Partner Beta
 blocker.** This item was not part of the original 2026-08-07 technical
 debt survey; it was found by inspecting the actual public route during

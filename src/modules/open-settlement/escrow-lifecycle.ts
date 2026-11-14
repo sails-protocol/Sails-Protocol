@@ -1,7 +1,9 @@
+import { TRANSITION_CLAIMED_KEY, TRANSITION_DISPUTE_PROVENANCE_KEY } from '../../common/events/event-projection'
+import { childLogger } from '../../common/logger'
 import { Prisma } from '@prisma/client'
 import { createHash } from 'crypto'
 import { prisma } from '../../common/database'
-import { NotFoundError, EscrowError, ForbiddenError } from '../../common/errors'
+import { NotFoundError, EscrowError, ForbiddenError, SettlementExecutedError, SettlementResultConflictError } from '../../common/errors'
 import { AssetType } from '../../common/types'
 import { config } from '../../config'
 import { eventBus } from '../../common/events/event-bus'
@@ -325,7 +327,7 @@ export async function loadParticipantPubkeys(escrowId: string): Promise<{ buyerP
 /** Atomic escrow.status transition — the same conditional updateMany +
  *  count === 0 → throw + revert idiom every mutating method below uses
  *  (the robustness-audit fix from 2026-07-20). */
-export async function claimEscrowTransition(escrowId: string, fromStatus: string, toStatus: string): Promise<void> {
+export async function claimEscrowTransition(escrowId: string, fromStatus: string, toStatus: string, tx?: Prisma.TransactionClient): Promise<void> {
   // 2026-08-15 — checked first and cheaply, before any real work: once
   // this escrow's circuit is open, every further attempt should fail
   // fast, not pay for an authorization check + DB round trip first. See
@@ -339,13 +341,38 @@ export async function claimEscrowTransition(escrowId: string, fromStatus: string
   if (!allowed.includes(toStatus)) {
     throw new EscrowError(`Invalid escrow transition: ${fromStatus} → ${toStatus}. Allowed: ${allowed.join(', ') || 'none'}`)
   }
-  const claimedCount = await escrowRepository.claimTransition(escrowId, fromStatus, toStatus)
+  const claimedCount = await escrowRepository.claimTransition(escrowId, fromStatus, toStatus, tx)
   if (claimedCount === 0) {
     // A real, concrete anomaly on this specific escrow — not a heuristic
     // guess — so it feeds the circuit breaker directly.
     recordEscrowConflict(escrowId)
     throw new EscrowError(`Escrow ${escrowId} was already transitioned by a concurrent request`)
   }
+}
+
+const lifecycleLog = childLogger('escrow-lifecycle')
+
+/**
+ * Issue #291 - error boundary AFTER external economic execution succeeded.
+ *
+ * Once the provider call has returned successfully the economic operation may
+ * already have happened externally. A later LOCAL step failing (persisting the
+ * result, fee accounting, publishing the event) must NOT revert the escrow
+ * status as though nothing happened: the escrow stays in its claimed terminal
+ * state and reconciliation (PASS 0/1/2/3) owns convergence from durable facts.
+ * A settlement-result integrity conflict is surfaced unchanged.
+ */
+export function settlementSucceededButLocalStepFailed(escrowId: string, operation: string, resultRef: string | undefined, err: unknown): Error {
+  if (err instanceof SettlementResultConflictError) return err
+  const reason = err instanceof Error ? err.message : String(err)
+  lifecycleLog.error({
+    msg: 'Provider execution succeeded but a local completion step failed - escrow NOT reverted, reconciliation owns convergence',
+    escrowId, operation, resultRef, err: reason,
+  })
+  return new SettlementExecutedError(
+    `${operation} for escrow ${escrowId} executed externally (result ${resultRef ?? 'unknown'}) but a local completion step failed (${reason}). ` +
+    'The escrow status was NOT reverted; reconciliation will converge it from durable facts.'
+  )
 }
 
 /** Revert-on-failure boilerplate — every provider call in this class wraps
@@ -358,6 +385,19 @@ export async function revertEscrowStatus(escrowId: string, claimedStatus: string
   // #241 — rollback is ownership-sensitive. A delayed worker may restore
   // the prior state only while it still owns the exact claimed state.
   await escrowRepository.revertStatus(escrowId, claimedStatus, fromStatus).catch(() => {})
+}
+
+/**
+ * Issue #299 - MULTISIG rollback after a round that could not be built (nothing was sent): one conditional
+ * statement, only while the escrow still holds this claim and no settlement result exists. Never swallows a database
+ * error - the caller reports it and the claim stays. Returns the number of rows reverted.
+ * Under the escrow lock (GK S1): PASS 1 may have rebuilt and broadcast the round meanwhile (a signer re-submitted a
+ * usable signature); its locked write re-checks the status, so the two never interleave into a non-terminal escrow
+ * with a recorded transaction.
+ */
+export async function revertUnsettledClaim(escrowId: string, claimedStatus: string, fromStatus: string): Promise<number> {
+  return withEscrowFundingLock(escrowId, async (tx) =>
+    (await tx.escrow.updateMany({ where: { id: escrowId, status: claimedStatus as any, txReleaseId: null }, data: { status: fromStatus as any } })).count)
 }
 
 export function assertEscrowTransition(current: string, next: string) {
@@ -410,6 +450,24 @@ export function computeEscrowEventHash(fromStatus: string, toStatus: string, tri
 // already had). No existing caller inspects the return value — this is
 // purely additive; every existing `await emitEscrowTransition(...)`
 // site is unaffected.
+// Issue #298 - escrow transitions whose downstream (Trade/Intent/counters/reputation) projections
+// must converge, keyed to the event name each publishes. Other transitions are untouched.
+export const RECOVERABLE_TRANSITION_EVENTS: ReadonlySet<string> = new Set([
+  'settlement.escrow.locked',
+  'settlement.escrow.disputed',
+  'settlement.escrow.released',
+  'settlement.escrow.refunded',
+  'settlement.escrow.split',
+])
+// EscrowEvent.toStatus -> the event name emitEscrowTransition() publishes for it.
+export const EVENT_NAME_BY_TARGET_STATUS: Record<string, string> = {
+  FUNDS_LOCKED: 'settlement.escrow.locked',
+  DISPUTED: 'settlement.escrow.disputed',
+  COMPLETED: 'settlement.escrow.released',
+  REFUNDED: 'settlement.escrow.refunded',
+  SPLIT: 'settlement.escrow.split',
+}
+
 export async function emitEscrowTransition(
   escrowId: string,
   tradeId: string,
@@ -420,25 +478,69 @@ export async function emitEscrowTransition(
   eventExtra: Record<string, unknown> = {},
   note?: string
 ): Promise<boolean> {
+  const claimed = await withEscrowFundingLock<string | false>(escrowId, (tx) =>
+    recordEscrowTransition(tx, escrowId, from, to, triggeredBy, eventName, eventExtra, note)
+  )
+  if (!claimed) return false
+  await publishEscrowTransition(escrowId, tradeId, from, to, triggeredBy, eventName, eventExtra, claimed)
+  return true
+}
+
+/**
+ * The transactional half of emitEscrowTransition(): the hash-chained EscrowEvent and its pending-publication
+ * marker, written with the caller's transaction (which must hold this escrow's funding lock). Returns the
+ * transition id, or false when this target status was already recorded. Issue #238 runs it in the same
+ * transaction as the status claim and the Dispute row; publishing stays outside, via publishEscrowTransition().
+ */
+export async function recordEscrowTransition(
+  tx: Prisma.TransactionClient,
+  escrowId: string,
+  from: string,
+  to: string,
+  triggeredBy: string,
+  eventName: Parameters<typeof eventBus.emit>[0],
+  eventExtra: Record<string, unknown> = {},
+  note?: string
+): Promise<string | false> {
   // entryHash/prevHash are never accepted from a caller — this function's
   // own signature has no such parameters, so they can only ever be what
   // the server itself derives here.
-  const claimed = await withEscrowFundingLock(escrowId, async (tx) => {
-    const alreadyEmitted = await tx.escrowEvent.findFirst({ where: { escrowId, toStatus: to as any } })
-    if (alreadyEmitted) return false
+  const alreadyEmitted = await tx.escrowEvent.findFirst({ where: { escrowId, toStatus: to as any } })
+  if (alreadyEmitted) return false
 
-    const last = await tx.escrowEvent.findFirst({ where: { escrowId }, orderBy: { createdAt: 'desc' } })
-    const prevHash = last?.entryHash ?? 'genesis'
-    const entryHash = computeEscrowEventHash(from, to, triggeredBy, prevHash)
+  const last = await tx.escrowEvent.findFirst({ where: { escrowId }, orderBy: { createdAt: 'desc' } })
+  const prevHash = last?.entryHash ?? 'genesis'
+  const entryHash = computeEscrowEventHash(from, to, triggeredBy, prevHash)
 
-    await tx.escrowEvent.create({
-      data: { escrowId, fromStatus: from as any, toStatus: to as any, triggeredBy, note, entryHash, prevHash },
-    })
-    return true
+  const transition = await tx.escrowEvent.create({
+    data: { escrowId, fromStatus: from as any, toStatus: to as any, triggeredBy, note, entryHash, prevHash },
   })
+  // Issue #298 - claim != publish != projection. For the transitions whose downstream projections
+  // must converge, record atomically WITH the claim that a projection is now owed. Its completion
+  // ('transition.projected', written by the handler) is a separate fact, so recovery can tell
+  // "claimed but never published" and "published but not fully projected" apart from "done".
+  // eventId here holds the transition (EscrowEvent) id - no durable event exists yet.
+  if (RECOVERABLE_TRANSITION_EVENTS.has(eventName as string)) {
+    await tx.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: TRANSITION_CLAIMED_KEY, subjectId: escrowId } })
+  }
+  // Issue #341 - the payload's disputeId is lost when recovery republishes from the transition; this row is not.
+  if (typeof eventExtra.disputeId === 'string') {
+    await tx.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: TRANSITION_DISPUTE_PROVENANCE_KEY, subjectId: eventExtra.disputeId } })
+  }
+  return transition.id as string
+}
 
-  if (!claimed) return false
-
+/** The publishing half of emitEscrowTransition(), for a transition recordEscrowTransition() committed. */
+export async function publishEscrowTransition(
+  escrowId: string,
+  tradeId: string,
+  from: string,
+  to: string,
+  triggeredBy: string,
+  eventName: Parameters<typeof eventBus.emit>[0],
+  eventExtra: Record<string, unknown>,
+  transitionId: string
+): Promise<void> {
   // correlationId = tradeId (RFC-010) — stand-in for intentId until Intent
   // persistence exists; Trade already IS the concrete TradeIntent (§2.3).
   // Deliberately outside the lock/transaction above — this cascades into
@@ -453,8 +555,8 @@ export async function emitEscrowTransition(
     to,
     triggeredBy,
     ...eventExtra,
+    transitionId,
   }, tradeId)
-  return true
 }
 
 // RFC-008 D2 amendment — Fase 5's own verification primitive. Same shape

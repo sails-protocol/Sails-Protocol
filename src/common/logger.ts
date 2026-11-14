@@ -41,10 +41,23 @@ import { config } from '../config'
 //    substring, in place, keeps the rest of the message intact. This is
 //    additive to pino's own default error serializer (still gets
 //    type/message/stack), not a replacement of it.
-const CONNECTION_STRING_CREDENTIALS_PATTERN = /:\/\/[^:@/\s]+:[^@/\s]+@/g
+// The user may be empty (`redis://:password@host`), and a DSN can carry the secret as a query parameter instead.
+const CONNECTION_STRING_CREDENTIALS_PATTERN = /:\/\/[^:@/\s]*:[^@/\s]+@/g
+const QUERY_CREDENTIALS_PATTERN = /([?&](?:password|pass|pwd|secret|token|access_token|api_?key|auth)=)[^&#\s]+/gi
 
 function scrubConnectionStringCredentials(value: string): string {
-  return value.replace(CONNECTION_STRING_CREDENTIALS_PATTERN, '://[REDACTED]@')
+  return value
+    .replace(CONNECTION_STRING_CREDENTIALS_PATTERN, '://[REDACTED]@')
+    .replace(QUERY_CREDENTIALS_PATTERN, '$1[REDACTED]')
+}
+
+/** pino's error serializer with credentials scrubbed from message and stack. Shared by every logger, the
+ *  Fastify request logger included: a dependency error's message can echo the DSN it failed to reach. */
+export function serializeError(err: unknown): ReturnType<typeof pino.stdSerializers.err> {
+  const base = pino.stdSerializers.err(err as Error)
+  if (typeof base.message === 'string') base.message = scrubConnectionStringCredentials(base.message)
+  if (typeof base.stack === 'string') base.stack = scrubConnectionStringCredentials(base.stack)
+  return base
 }
 
 // Exported separately (not inlined into the `pino()` call below) so
@@ -75,14 +88,7 @@ export const loggerOptions: pino.LoggerOptions = {
     ],
     censor: '[REDACTED]',
   },
-  serializers: {
-    err: (err: unknown) => {
-      const base = pino.stdSerializers.err(err as Error)
-      if (typeof base.message === 'string') base.message = scrubConnectionStringCredentials(base.message)
-      if (typeof base.stack === 'string') base.stack = scrubConnectionStringCredentials(base.stack)
-      return base
-    },
-  },
+  serializers: { err: serializeError },
 }
 
 // `config.app?.` — several existing test files mock '../config' with a
