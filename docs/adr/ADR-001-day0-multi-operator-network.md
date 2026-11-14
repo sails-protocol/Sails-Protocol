@@ -37,7 +37,8 @@ capability/accounting/entitlement/payout as four separate decisions,
 only the last deferred); narrows §17's no-cannibalization claim so it
 no longer depends solely on node economics being disabled; adds two new
 Day-0 sequence items, Node Contribution Accounting and Incentive
-Compatibility Evidence (§21 (j)/(k)); extends §12's privacy review to
+Compatibility Evidence (§21 (k)/(l), renumbered 2026-09-09 for the (d)
+Sails Node Operator Identity insertion); extends §12's privacy review to
 the new accounting mechanism. `docs/SAILS_NODE_SHARED_LIQUIDITY_DISCOVERY.md`
 (PR #98) is rebased and merged as a historical/research/evidence
 artifact in this same pass — this ADR remains the architecture decision
@@ -422,14 +423,15 @@ relayed to its own connected peers exactly once. **Corrected (2026-09-09,
 Sixth Pass, Property N):** this paragraph originally described the
 relay-dedup rule as "per-`logicalOfferId` dedup by highest-seen
 `revision`" — the same conflation as §3's correction above. The property
-this ADR actually freezes for a future gossip design (§21(d), not
-designed here): **a node must never suppress relay of a genuinely new,
-distinct signed fact merely because that revision number was already
-seen for that offer identity** — including a fact whose revision is
-lower than one already relayed (Property P). The exact relay-dedup data
-structure (a revision counter, a fact-identity set, a Bloom filter,
-etc.) is an implementation detail for step (d)'s own CTO Gate, not
-frozen here — only the property is frozen. **HyperDHT is used only for
+this ADR actually freezes for a future gossip design (§21(e),
+renumbered 2026-09-09 for the (d) Sails Node Operator Identity
+insertion, not designed here): **a node must never suppress relay of a
+genuinely new, distinct signed fact merely because that revision number
+was already seen for that offer identity** — including a fact whose
+revision is lower than one already relayed (Property P). The exact
+relay-dedup data structure (a revision counter, a fact-identity set, a
+Bloom filter, etc.) is an implementation detail for step (e)'s own CTO
+Gate, not frozen here — only the property is frozen. **HyperDHT is used only for
 its already-proven capability**
 (peer discovery, direct connections) — **not** as a generic key-value
 store for offer records (that would be Model D, rejected above).
@@ -586,6 +588,19 @@ obligation (§21(b) for Participant Transport Identity; §26.2/§26.3 for
 the still-undesigned Operational Sails Node Identity), not a
 beta-hardening nicety.
 
+**Reconciliation note (2026-09-09, PR #108 ↔ PR #106 merge):** PR #108
+independently reached the same correction under the earlier, retired
+term "Sails Node Operator Identity" and its own §7.2/§21(d). That term
+is superseded by this section's own, more precise A/B/C/D taxonomy —
+specifically, it collapsed **Operational Sails Node Identity (C)** and
+**Operator Economic Recipient (D)** into one label, which
+`docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5 explicitly found is exactly
+the mistake to avoid (one operator may run several C instances; C
+rotating must not redefine D's entitlement; C and D must not be assumed
+to share a key). §7.2/§7.3 below are retained for their genuinely new
+content (the node-switch continuity investigation), updated to the
+current terminology.
+
 **Sybil resistance: explicitly not promised, per instruction.** No
 strong Sybil-resistance mechanism is designed here, because none is
 *needed* for the shared-liquidity property itself: a farm of fake node
@@ -606,10 +621,25 @@ directly against this session's own prior work
 
 > **Economic participant identity = `User.publicKey`.**
 > **Transport identity = Pears/HyperDHT `peerId`.**
-> **Today: no cryptographic binding exists between them.** `peerId` is
-> generated fresh by `HyperDHT.keyPair()` with no seed on every
+> **Today: no cryptographic binding exists between them.** ~~`peerId`
+> is generated fresh by `HyperDHT.keyPair()` with no seed on every
 > `PearNode.start()` call — cryptographically unrelated to
-> `User.publicKey`, and not even stable across sessions.
+> `User.publicKey`, and not even stable across sessions.~~ (true at the
+> time this paragraph was written)
+
+**Correction (2026-09-09, CTO Gate B, PR #108 final pass) — current
+truth:** the struck-through sentence is now historically false and is
+preserved only as the record of what was true before PR #108.
+**Participant Transport Identity is now stable across ordinary restarts
+when the same persisted local seed material remains available**
+(§21(b), `participant-transport-identity.ts`) — the "generated fresh...
+not even stable across sessions" claim no longer holds. **This does not
+change what stays true above:** the binding itself still does not
+exist. `peerId` remains cryptographically unrelated to `User.publicKey`
+— persistence of a transport identity is not the same property as
+proving it belongs to a given economic identity, and this correction
+does not conflate the two. **Persistence ≠ binding**, stated explicitly
+to close that exact gap.
 
 **Preserved:** `Economic Identity ≠ Transport Identity` — this was
 already true before this correction and remains true after; what
@@ -642,6 +672,194 @@ that Pears already resolves participant public keys today. §8's own
 architectural conclusion (pairwise coordination, no globalized Trade
 state) is unaffected by this correction; only the mechanism-level claim
 about *how* the connection is keyed changes.
+
+## 7.2 Participant Transport Identity vs. Operational Sails Node Identity (correction, 2026-09-09, CTO Gate B on PR #108)
+
+**Terminology note (2026-09-09, PR #108 ↔ PR #106 merge):** this
+section originally used the single term "Sails Node Operator Identity"
+for the concept below. §26.3 and `docs/DAY0_COMPLETENESS_COLD_SWEEP.md`
+§3.5 later found that term itself collapses two distinct things —
+**Operational Sails Node Identity (C)**, discussed here, and **Operator
+Economic Recipient (D)**, a separate concept this section never
+addressed. Renamed accordingly; the investigation and evidence below
+are otherwise unchanged.
+
+**Finding:** §7's own text ("today's node-level keypair is HyperDHT's
+per-session, ephemeral `peerId`") and §7.1's definition ("Transport
+identity = Pears/HyperDHT `peerId`") both describe the identical
+underlying artifact, and PR #108 (Implementation Sequence step (b))
+correctly persisted exactly that artifact. What this correction found
+is that this ADR's own prior language never distinguished that artifact
+— always scoped to one economic participant — from a structurally
+different concept §4 and §16 both separately require: an identity for
+the **operator/deployment itself**, independent of any single
+participant, that gossips (§4: "each node maintains connections to a
+bounded set of known peer nodes") and is economically compensated (§16:
+"a node was genuinely used by a real participant to reach a real,
+confirmed trade" — compensating the infrastructure that served the
+trade, not the trading participant). Collapsing these two was never a
+deliberate architectural decision; it was inherited, unexamined,
+imprecise wording.
+
+**Confirmed directly against the real code, not assumed** (`git log`
+`feat/adr001-step-b-node-identity`, `src/infrastructure/p2p/pear.service.ts`):
+
+> `PearNode → one DHT node for ONE user... PearNodeRegistry → owns a
+> Map<userId, PearNode>` (the file's own pre-existing header comment,
+> predating PR #108). `PearNode.start()` writes the derived `peerId`
+> directly onto the `User` row: `prisma.user.update({ where: { id:
+> this.ownerUserId }, data: { peerId } })`.
+
+This is unambiguous: the identity PR #108 made persistent is scoped
+1:1 to a `User` row. There is no code path, Prisma model, or keypair in
+this codebase representing a deployment/operator entity distinct from
+its hosted `User`s — confirmed by searching `prisma/schema.prisma` for
+any `Operator`/`NodeOperator` identity model; the only matches are
+`nodeOperatorShare`/`nodeOperatorPct` `Decimal` fields inside
+distribution-policy models (§16) — a payout-recipient *category* in a
+percentage table, not an identity of any kind.
+
+**Two distinct concepts, named precisely from here forward:**
+
+> **Participant Transport Identity** — per `User`; Pears/HyperDHT
+> `peerId`; direct participant transport; persisted by PR #108. This is
+> what §7.1 already calls "Transport identity" (renamed
+> `node-identity.ts` → `participant-transport-identity.ts`,
+> `loadOrCreateNodeIdentitySeed()` →
+> `loadOrCreateParticipantTransportIdentitySeed()`, to match). **Frozen,
+> 2026-09-09 (final-precision pass on PR #108).**
+
+> **Operational Sails Node Identity (C)** — per operator/runtime/deployment;
+> independent of any hosted participant; identifies infrastructure node
+> to other nodes; future basis for gossip attribution (§4) and Node
+> Contribution Accounting (§21(k)); **does NOT yet exist.** Distinct from
+> **Operator Economic Recipient (D)** — see §26.3 for the full C≠D
+> separation, not yet drawn out when this section was first written.
+> **Frozen, 2026-09-09 (final-precision pass on PR #108).** No mechanism is proposed or invented here —
+> inventing one is explicitly out of this correction's scope (no
+> gossip, no node registry protocol, no federation design). This is
+> registered as a real, previously-unregistered gap in
+> `docs/BACKLOG.md`, item 5. **Sequenced (2026-09-09, CTO decision,
+> final-precision pass on PR #108): §21(d), inserted immediately after
+> (c) Economic Identity ↔ Transport Identity Binding and before (e)
+> Propagation/bootstrap** — not merely "sometime before gossip/
+> economics," an ordered Day-0 prerequisite. Propagation/bootstrap (e)
+> must not be implemented before this step has its own CTO-approved
+> design and evidence — see §21(d)'s own entry for the full
+> authority-separation and privacy-unresolved statements.
+
+**§21(b)'s own text is retroactively accurate, narrowly read:** "a
+stable operational node keypair across ordinary restarts (§7), closing
+the confirmed current gap (ephemeral, per-session `peerId`)" describes
+exactly the Participant Transport Identity artifact and exactly what PR
+#108 closed — §21(b) is not itself wrong, it was just read, by this
+correction's own earlier pass, as implicitly satisfying §4/§16's
+operator-level model too, which it does not and was never designed to.
+
+**Privacy, corrected accordingly:** a persistent Participant Transport
+Identity intentionally makes that *participant's* Pears `peerId`
+linkable across their own connection sessions/restarts — not "the node
+operator" (there is no operator identity here to be linkable). It does
+not automatically make it linkable to their economic identity
+(`User.publicKey`) — that binding is §7.1/step (c)'s own explicit,
+still-undesigned scope — but a network observer who has, through any
+means, previously associated a `peerId` with a real participant can now
+recognize that same participant returning, rather than seeing a fresh,
+unlinkable `peerId` every session.
+
+**Node Identity ≠ Participant Identity, restated precisely:** this
+frozen property (§7) is about economic authority, not database
+association — it forbids a transport key from ever signing an Offer's
+economic terms, not from being tied to a specific `User` row for
+bookkeeping. A Participant Transport Identity being scoped per-user does
+not violate it; the property remains fully intact (§7.1's own
+domain-separation reasoning, and `offer-envelope.ts`'s complete import
+isolation from this module, are unaffected by this correction).
+
+## 7.3 Node-switch continuity — investigation, 2026-09-09, CTO Gate B final pass (no mechanism authorized)
+
+**Question:** if the same participant moves from Sails Node A to Sails
+Node B, what happens to its Participant Transport Identity today?
+
+**Demonstrated against the actual implementation, not assumed**
+(`tests/participantTransportIdentity.test.ts`, test 8): calling
+`loadOrCreateParticipantTransportIdentitySeed(ownerUserId, storageDir)`
+for the identical `ownerUserId` against two different `storageDir`
+values — modeling two different Sails Nodes' own local storage —
+produces two different seeds and two different `peerId`s:
+
+```
+Node A local storage → seed A → peerId A
+Node B empty local storage → seed B → peerId B
+```
+
+Confirmed empirically (real `HyperDHT.keyPair()`, real filesystem):
+`peerId A ≠ peerId B`. Nothing in `participant-transport-identity.ts` or
+its `pear.service.ts` call site shares seed material across storage
+locations — each Sails Node's own local disk is the entire scope of
+today's persistence mechanism (§6 of `docs/PARTICIPANT_TRANSPORT_IDENTITY_EVIDENCE.md`).
+
+**Property, named, not solved:**
+
+> Changing Sails Node must not silently destroy participant identity
+> continuity.
+
+**Two model families, evaluated without choosing between them (no KDF,
+key path, or identity-root mechanism selected here):**
+
+> **Model P1 — Portable transport identity.** The participant controls
+> and restores the same transport identity across nodes — e.g. via a
+> participant-held recovery root that deterministically re-derives the
+> identical Pears/HyperDHT seed regardless of which node's local storage
+> is in use. This directly matches Model A/B/C's own "Pears" row already
+> surveyed in `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md` §3.3/§5 — Pears
+> "accepts a seed but define[s] no standard derivation path from an
+> external root," a gap that document already named, not newly
+> discovered here.
+
+> **Model P2 — Rotatable transport identity.** The transport identity
+> may legitimately change when switching nodes, but the participant's
+> Economic Identity (`User.publicKey`) authorizes a new, verifiable
+> binding to the new transport identity, preserving continuity at the
+> economic layer rather than the transport layer. This is not a new
+> mechanism to design — it is exactly what §21(c)'s own binding
+> mechanism (once built) already needs to support, since nothing about
+> §7.1's binding requirement assumes the transport key never changes.
+
+**Relation to `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`, confronted
+directly, not assumed:** that document is evidence-gathering only for a
+possible future "Sails Identity Root" (backlog obligation from PR #91),
+explicitly authorizing no derivation scheme. Its own §3.3 already
+covers Pears/HyperDHT as one of seven surveyed protocol rows, and its
+own preserved invariants — **`Same recovery root ≠ same private key
+across protocols`** and **`Recovery relationship must not automatically
+become public identity relationship`** — apply without modification to
+Model P1: a future Identity Root re-deriving the Pears seed must not
+reuse that seed (or a value trivially related to it) for any other
+protocol's key, and re-deriving the same `peerId` across nodes must not
+by itself make that `peerId` publicly correlated to the participant's
+other protocol identities beyond what already applies today.
+
+**Classification (2026-09-09, CTO Gate B final pass) — reconciliation,
+not a new obligation:** node-switch continuity is **not** a genuinely
+new, previously-unrepresented obligation. It decomposes into two
+obligations already registered:
+- **Model P1** is a refinement/specialization of the existing **Identity
+  Root & Multi-Protocol Identity UX** obligation (`docs/BACKLOG.md`,
+  registered via PR #91, investigated in
+  `docs/IDENTITY_ARCHITECTURE_DISCOVERY.md`) — Pears is already one of
+  its surveyed rows; node-switch portability is that same "can Pears
+  identity be re-derived from a shared root" question, not a separate
+  one.
+- **Model P2** is a refinement of the existing **Economic Identity ↔
+  Transport Identity Binding** obligation (§7.1/§21(c), item 3 in
+  `docs/BACKLOG.md`) — a binding mechanism that supports re-binding a
+  new transport key to the same economic identity already covers this
+  case; no additional obligation is needed for P2 to exist as an option.
+
+**No mechanism is chosen between P1 and P2 here — that choice, and any
+derivation/binding design, is future work under the obligations already
+named above, not this correction.**
 
 ## 8. Trade ownership / handoff
 
@@ -850,7 +1068,8 @@ new binding requirement:**
   public applies.
 
 **Reconfirmed, 2026-09-09 (CTO Gate, Fase 8) — extended to §16's new
-Node Contribution Accounting (§21(j)):**
+Node Contribution Accounting (§21(k), renumbered 2026-09-09 for the (d)
+Sails Node Operator Identity insertion):**
 
 > **Economic contribution attribution ≠ Global participant
 > surveillance.**
@@ -865,7 +1084,7 @@ accounting purposes. **Node contribution accounting must not require
 global user tracking; economic attribution must not create a universal
 participant tracking graph** — a design that needed either would be
 solving a much larger problem than "did this node serve this one
-confirmed trade," and is explicitly out of scope for §21(j)/(k).
+confirmed trade," and is explicitly out of scope for §21(k)/(l).
 
 ## 13. Professional liquidity provider
 
@@ -914,7 +1133,9 @@ offers land in the same local `Offer`-equivalent table a node already
 serves `GET /v1/liquidity/offers` from, the exact same pagination/
 filtering code already handles a larger, multi-source result set — no
 new discovery mechanism is required. **Exits this ADR as a Day-0 beta
-obligation** (§21e): fix the stale example/doc so real integrators
+obligation** (§21(h), corrected 2026-09-09 alongside the (d) Sails Node
+Operator Identity renumbering — was malformed as "§21e"): fix the stale
+example/doc so real integrators
 actually use the existing mechanism, and verify (not assume) it behaves
 correctly once offers originate from more than one source.
 
@@ -929,8 +1150,10 @@ one new, narrow, **pre-creation** read: a node exposes which
 maturity/custody label — read directly from that node's own already-
 loaded provider configuration (no new registry, no new primitive,
 just introspection of state that already exists in memory). Named for
-the beta sequence (§21e/§15's own item), not designed at the wire-
-format level here.
+the beta sequence (§21(h), pre-existing reference corrected 2026-09-09
+alongside the (d) Sails Node Operator Identity renumbering — was
+malformed as "§21e"; the intended target is Pagination/discovery
+scaling, §15's own item), not designed at the wire-format level here.
 
 ## 16. Node economics
 
@@ -944,12 +1167,14 @@ exactly the mistake this correction fixes:**
 
 - **Economic capability** — does the architecture allow contribution to
   be attributed at all? Yes, for participant-facing coordination
-  (table below), the moment §21(a)/(f) land — no new primitive
+  (table below), the moment §21(a)/(g) land (renumbered 2026-09-09 for
+  the (d) Sails Node Operator Identity insertion) — no new primitive
   required.
 - **Contribution accounting** — is a contribution actually being
   recorded/tracked as it happens? **Must be built and testable before
-  the independent partner-wallet beta (§20, §21(n))** — this is new,
-  registered as Implementation Sequence item (j).
+  the independent partner-wallet beta (§20, §21(o))** — this is new,
+  registered as Implementation Sequence item (k) (renumbered 2026-09-09
+  for the (d) Sails Node Operator Identity insertion).
 - **Entitlement recognition** — does a `DistributionPolicyVersion`
   actually name the contribution as eligible and specify (whatever)
   share? A policy decision, separate from accounting — **must also be
@@ -1208,59 +1433,107 @@ operational node keypair across ordinary restarts (§7), closing the
 confirmed current gap (ephemeral, per-session `peerId`) this ADR's own
 gossip model (§4) depends on~~. **Corrected (2026-09-09, CTO Gate,
 final institutional precision pass):** a stable, per-participant
-transport identity across ordinary restarts (§7), closing the confirmed
-current gap (ephemeral, per-session `peerId`) for participant-to-
-participant direct communication. **Does not** close §4's gossip-relay
-model, which needs Operational Sails Node Identity (§26.2/§26.3,
-`docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5) — a distinct, still-
-undesigned identity this step does not produce.
+transport identity across ordinary restarts (§7/§7.1), closing the
+confirmed current gap (ephemeral, per-session `peerId`) for
+participant-to-participant direct communication. **Narrow claim:**
+"Local participant transport identity persistence across ordinary
+restarts on the same persisted storage." **Explicitly does not close**
+(none of the following are demonstrated or claimed): §4's gossip-relay
+model (operator-to-operator, needs Operational Sails Node Identity —
+(d) below, §26.2/§26.3, `docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5, a
+distinct, still-undesigned identity this step does not produce);
+cross-node portability; node migration; recovery; rotation; node
+gossip identity; participant continuity after changing operator (§7.3's
+node-switch finding).
 **(c) Economic Identity ↔ Transport Identity Binding** — the
 participant-signed statement binding `User.publicKey` to a
 session/interaction-scoped transport identity (§7.1) — **added
 2026-09-09, a genuinely new Day-0 sequence item**, since without it
-step (e) below has no real mechanism to connect the discovering buyer
+step (f) below has no real mechanism to connect the discovering buyer
 to the actual offer owner.
-**(d) Propagation/bootstrap** — bootstrap peer list, flood-gossip with
+**(d) Operational Sails Node Identity** — ~~Sails Node Operator
+Identity~~ **renamed (2026-09-09, PR #108 ↔ PR #106 merge, §26.3) —
+inserted 2026-09-09, CTO decision, §7.2/§21 final-precision correction
+pass on PR #108**: a cryptographic identity for the operator/deployment
+itself, independent of any hosted participant, identifying
+infrastructure to other Sails Nodes — the future basis for gossip-relay
+attribution (§4) and Node Contribution Accounting (§21(k)). **Confirmed
+not to exist anywhere in this codebase today** (§7.2) — no design is
+proposed or authorized here; this entry only fixes its ordered
+position. **Critical dependency, explicit:** propagation/bootstrap (e)
+must not be implemented before this step has its own CTO-approved
+design and evidence — flood-gossip relay (§4) needs a stable
+operator-level identity to attribute relay behavior to, which (b)'s
+participant-scoped identity structurally cannot provide (one operator
+can host many participants, each with their own `PearNode`). **Authority
+separation, registered explicitly:** Operational Sails Node Identity
+(C) ≠ Participant Economic Identity (A, `User.publicKey`) ≠ Participant
+Transport Identity (B, `peerId`, (b) above) ≠ Operator Economic
+Recipient (D) ≠ Funds Authority. A node operator key must never gain
+authority to sign an Offer's economic terms, authorize a participant's
+settlement, impersonate a participant's economic identity, or become
+escrow authority merely because it operates infrastructure — this is a
+restatement of §7's own frozen "Node Identity ≠ Participant Identity"
+property, extended to cover the operator-level identity this step will
+eventually design. **C does not determine D** (§26.3): one operator may
+run several C instances, but node cardinality does not by itself fix
+how many economic recipients (D) that operator has; C rotating or being
+rebuilt must not automatically redefine D's entitlement, and D's own
+policy must not grant C's operational authority — no recipient model or
+C↔D mapping is selected here. **Privacy, explicitly unresolved, not
+decided here:** unlike (b)'s own settled privacy assessment (§7.2 —
+participant session/restart linkability, not operator linkability),
+this future operator identity's own public-observability and privacy
+characteristics are **not** determined by this entry and must be
+reviewed as part of its actual design, whenever that design is
+undertaken.
+**(e) Propagation/bootstrap** — bootstrap peer list, flood-gossip with
 fact-identity dedup, not revision-number dedup (§4/§6, corrected
-2026-09-09 Sixth Pass), building on (b)'s now-stable node identity.
-**(e) Multi-node discovery/convergence** — highest-revision-wins
+2026-09-09 Sixth Pass), building on (b)'s now-stable Participant
+Transport Identity **and gated on (d)'s own CTO-approved design**, per
+(d)'s critical-dependency note above.
+**(f) Multi-node discovery/convergence** — highest-revision-wins
 verification at the receiving node (§5), feeding into the existing
 local `Offer` table.
-**(f) Cross-node trade coordination** — jointly-signed trade-open
+**(g) Cross-node trade coordination** — jointly-signed trade-open
 handshake, pairwise Pears connection to the seller's transport
 identity as authorized by (c)'s binding, not a claimed direct
 public-key connection (§7.1/§8).
-**(g) Pagination/discovery scaling** — fix the stale
+**(h) Pagination/discovery scaling** — fix the stale
 `examples/simple-wallet` documentation, verify existing pagination/
 filter code against a multi-source local offer table, add the
 capability/rail pre-creation discovery surface (§14/§15).
-**(h) Professional provider flow** — inventory reservation/optimistic
+**(i) Professional provider flow** — inventory reservation/optimistic
 locking on the offer owner's own node (§13); quote expiry and min/max
 already covered by (a).
-**(i) Restart/offline/resume** — extend existing intra-node durability
+**(j) Restart/offline/resume** — extend existing intra-node durability
 with the jointly-signed trade handshake as the cross-node re-anchor
 point (§9).
-**(j) Node Contribution Accounting** — **added 2026-09-09**: recording
+**(k) Node Contribution Accounting** — **added 2026-09-09**: recording
 a verified contribution (§16's trade-serving row, the only one
 verifiable today) as it happens — economic *capability* without
-payout, must exist and be testable before (n) below.
-**(k) Incentive Compatibility / No-Cannibalization Evidence** — **added
-2026-09-09**: demonstrating §17's property actually holds against (j)'s
+payout, must exist and be testable before (o) below. **Must refer to
+(d)'s Sails Node Operator Identity, not (b)'s Participant Transport
+Identity** — a contribution is attributed to the infrastructure that
+served a trade, not to the participant's own transport `peerId`; this
+was implicit before (d) existed as a named step and is now explicit.
+**(l) Incentive Compatibility / No-Cannibalization Evidence** — **added
+2026-09-09**: demonstrating §17's property actually holds against (k)'s
 real accounting mechanism once built, not only as a structural argument
-on paper — must exist and be testable before (n) below.
-**(l) Stranger-node test** (§18).
-**(m) Stranger-developer test** (§19).
-**(n) First independent partner-wallet beta** (§20).
+on paper — must exist and be testable before (o) below.
+**(m) Stranger-node test** (§18).
+**(n) Stranger-developer test** (§19).
+**(o) First independent partner-wallet beta** (§20).
 
 **Actual payout execution remains gated by the Production Readiness
 Consolidated Gate (`docs/BACKLOG.md`)** — separate from, and later
-than, this sequence; (j)/(k) make accounting and entitlement
+than, this sequence; (k)/(l) make accounting and entitlement
 *testable*, they do not activate any real payment.
 
 **Deferred past Day-0 beta, named explicitly, not silently dropped:**
 partial fill (§13); outbound webhook delivery (§13); any real
 node-economic **payout activation** (§16 — capability/accounting/
-entitlement recognition are Day-0 sequence items (j)/(k), payout
+entitlement recognition are Day-0 sequence items (k)/(l), payout
 execution is not); formal Sybil-resistance mechanism (§7); Model
 D/hybrid propagation (Alternatives section).
 
@@ -1363,14 +1636,56 @@ this ADR now states explicitly: the original registration pass counted
 added **2 further** (items 3-4); **total: 4**, not left implicit.
 
 **Updated again, 2026-09-09 (Fase 2-5/9) — Node Contribution Accounting
-and Incentive Compatibility (§21 (j)/(k))** are new *sequence items*
-inside the already-counted Implementation Sequence obligation (item 2)
-— deliberately **not** registered as separate fifth/sixth top-level
-obligations, to avoid double-counting the same "build this ordered
-sequence" obligation twice. Checked against `docs/PROTOCOL_ECONOMY.md`
-§4.2 — no duplication: that section's own Node Operator Pool/routing-
-fee content is the future payout-*rollout* layer; §21(j)/(k) are the
-Day-0 accounting/entitlement-*capability* layer underneath it.
+and Incentive Compatibility (§21 (j)/(k) at the time of this entry,
+renumbered to (k)/(l) 2026-09-09 by the later (d) Sails Node Operator
+Identity insertion)** are new *sequence items* inside the already-counted
+Implementation Sequence obligation (item 2) — deliberately **not**
+registered as separate fifth/sixth top-level obligations, to avoid
+double-counting the same "build this ordered sequence" obligation
+twice. Checked against `docs/PROTOCOL_ECONOMY.md` §4.2 — no
+duplication: that section's own Node Operator Pool/routing-fee content
+is the future payout-*rollout* layer; §21(k)/(l) are the Day-0
+accounting/entitlement-*capability* layer underneath it.
+
+**Updated again, 2026-09-09 (CTO Gate B correction, PR #108, §7.2) —
+one further genuinely new obligation: Operational Sails Node Identity.**
+§7's original text conflated two distinct concepts — Participant
+Transport Identity (per-`User` `peerId`, what §21(b) actually closes)
+and a cryptographic identity for the operator/deployment itself,
+independent of any hosted participant, required by §4's gossip-relay
+peer model and §16's trade-serving-node compensation. Confirmed by
+direct code/schema search: **no such operator-level identity exists
+anywhere in this codebase today** — no model, no keypair, nothing
+beyond `nodeOperatorShare`/`nodeOperatorPct` payout-percentage fields.
+This is registered as a fifth top-level obligation, distinct from item
+2's Implementation Sequence (it is a *precondition* some later sequence
+items depend on, not itself a sequence step yet) and distinct from
+items 3/4 (Economic Identity ↔ Transport Identity Binding, Persistent
+[Participant Transport] Identity — both still participant-scoped, not
+operator-scoped). **Total: 5**, not left implicit.
+
+**Updated again, 2026-09-09 (CTO decision, final-precision correction
+pass on PR #108) — item 5 sequenced, not fabricated as a sixth
+obligation.** Placement is no longer "left to CTO decision": **§21(d)**,
+inserted immediately after (c) Economic Identity ↔ Transport Identity
+Binding and before (e) Propagation/bootstrap (renumbered from old (d)
+onward) — an ordered Day-0 prerequisite, not merely "sometime before
+gossip/economics." See §21(d)'s own entry for the critical-dependency
+statement (propagation/bootstrap must not be implemented before this
+step has its own CTO-approved design) and the authority-separation
+statement (Operational Sails Node Identity (C) ≠ Participant Economic
+Identity (A) ≠ Participant Transport Identity (B) ≠ Operator Economic
+Recipient (D) ≠ Funds Authority — full taxonomy:
+`docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5). **Total remains 5** — this
+pass only fixes item 5's ordered position, it does not add a sixth.
+
+**Reconciliation note (2026-09-09, PR #108 ↔ PR #106 merge):** the term
+"Sails Node Operator Identity" used in the two entries above (PR #108's
+own item-5 registration, predating PR #106) is superseded by the more
+precise **Operational Sails Node Identity (C)** / **Operator Economic
+Recipient (D)** split established in §26.3 below and
+`docs/DAY0_COMPLETENESS_COLD_SWEEP.md` §3.5 — retained here as history,
+not as the current canonical term.
 
 
 ## 26. Day-0 Completeness Cold Sweep — implementation consequence (2026-09-09)
@@ -1387,11 +1702,17 @@ Full evidence/registration:
 
 The §21 implementation sequence is therefore interpreted as requiring
 the following additional properties before the corresponding evidence
-gates can pass:
+gates can pass. **Letter references below are corrected, 2026-09-09
+(PR #108 ↔ PR #106 merge), for the (d) Sails Node Operator Identity
+insertion** — this section was originally written against the
+pre-insertion lettering ((d) Propagation/bootstrap, (e) discovery/
+convergence, ... (n) partner-wallet beta); every reference is shifted
+one letter to match the now-merged sequence (Propagation/bootstrap is
+(e), discovery/convergence is (f), and so on through (o)).
 
 ### 26.1 Propagation completeness
 
-§21(d)/(e) **Propagation/bootstrap + discovery/convergence** are not
+§21(e)/(f) **Propagation/bootstrap + discovery/convergence** are not
 complete until they also demonstrate:
 
 - late-joining-node catch-up / anti-entropy;
@@ -1404,7 +1725,7 @@ complete until they also demonstrate:
 
 ### 26.2 Node discoverability and compatibility
 
-§21(d)/(g) are not complete until a peer can self-authenticate the
+§21(e)/(h) are not complete until a peer can self-authenticate the
 minimum information required to decide whether interaction is safe.
 **Precision (2026-09-09, CTO Gate, final institutional precision
 pass):** this is a Node Descriptor, advertised by the operator/
@@ -1461,7 +1782,7 @@ mapping between C and D, is selected or authorized here.
 
 ### 26.4 Network-view resilience
 
-§21(d)/(e) and §21(k)'s no-cannibalization evidence must include
+§21(e)/(f) and §21(l)'s no-cannibalization evidence must include
 adversarial topology, not only honest topology:
 
 - selective forwarding;
@@ -1495,7 +1816,7 @@ No global clock or consensus-time mechanism is introduced.
 
 ### 26.7 Node switching / operator independence evidence
 
-§21(i)/(l)/(n) are not complete if a wallet can technically connect to
+§21(j)/(m)/(o) are not complete if a wallet can technically connect to
 another node but loses its economic continuity when doing so.
 
 Evidence must establish that node switching does not inherently erase
@@ -1619,7 +1940,7 @@ No global Trade replication or central lock service is introduced.
 
 ### 27.3 Concurrent acceptance
 
-§13/§21(h)'s local inventory-reservation obligation must be evidenced in
+§13/§21(i)'s local inventory-reservation obligation must be evidenced in
 the cross-node case as well: two buyers racing a single-fill or
 capacity-limited Offer through different nodes/devices must not commit
 the seller beyond the owner's signed availability.
