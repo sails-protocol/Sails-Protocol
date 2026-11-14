@@ -41,6 +41,7 @@ WORKDIR /app
 # command the host dev workflow runs (see package.json scripts) so the
 # image never drifts from what contributors test locally.
 COPY package.json package-lock.json ./
+COPY packages/sails-core/package.json ./packages/sails-core/
 COPY packages/sails-p2p-schemas/package.json ./packages/sails-p2p-schemas/
 COPY packages/sails-sdk/package.json ./packages/sails-sdk/
 
@@ -131,6 +132,10 @@ COPY --from=pruned --chown=node:node /app/node_modules ./node_modules
 COPY --from=pruned --chown=node:node /app/dist ./dist
 COPY --from=pruned --chown=node:node /app/prisma ./prisma
 COPY --from=pruned --chown=node:node /app/package.json ./package.json
+# @sails/core is a workspace symlink like the two below; without its target the app dies at its first require
+# (MODULE_NOT_FOUND, found by the staging smoke, PR #610).
+COPY --from=pruned --chown=node:node /app/packages/sails-core/dist ./packages/sails-core/dist
+COPY --from=pruned --chown=node:node /app/packages/sails-core/package.json ./packages/sails-core/package.json
 COPY --from=pruned --chown=node:node /app/packages/sails-p2p-schemas/dist ./packages/sails-p2p-schemas/dist
 COPY --from=pruned --chown=node:node /app/packages/sails-p2p-schemas/package.json ./packages/sails-p2p-schemas/package.json
 COPY --from=pruned --chown=node:node /app/packages/sails-sdk/dist ./packages/sails-sdk/dist

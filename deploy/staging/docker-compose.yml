@@ -1,0 +1,94 @@
+# Private staging, architecture H1 (CTO 24, Issue #105 comment 6809651802): one small host, Docker Compose,
+# isolated Postgres and Redis, one app instance, MULTISIG/BITCOIN_L1 on testnet, synthetic data, no real funds.
+# WDK/EVM rails are ineligible. Nothing here provisions anything; see README.md for what is still pending.
+#
+#   cp deploy/staging/.env.example deploy/staging/.env   # fill it in (gitignored)
+#   docker compose -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env up -d --build
+#
+# Unlike the root docker-compose.yml (local onboarding, mocks on, NODE_ENV unset), this runs the real production
+# boot path: NODE_ENV=production is declared explicitly (never the silent 'development' default, #474) and every
+# production boot gate in src/config/index.ts has to pass.
+name: sails-staging
+
+x-app-env: &app-env
+  NODE_ENV: production
+  MULTISIG_NETWORK: testnet
+  MOCK_ESCROW: "false"
+  MOCK_SETTLEMENT: "false"
+  ENFORCE_CAPABILITIES: "true"
+  # Forced empty: WDK_USDT_EVM is production-ineligible, and a configured seed makes the app refuse to boot.
+  WDK_SEED_PHRASE: ""
+  QVAC_AUTO_RESOLUTION_ENABLED: "false"
+  SOCIAL_ENGINEERING_DETECTION: "false"
+  DATABASE_URL: postgresql://sails:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/staging/.env}@postgres:5432/sails_staging
+  REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in deploy/staging/.env}@redis:6379
+  PORT: "3000"
+  HOST: 0.0.0.0
+  MULTISIG_SEED: ${MULTISIG_SEED:?set MULTISIG_SEED (a testnet-only seed) in deploy/staging/.env}
+  TRUSTED_ARBITRATORS: ${TRUSTED_ARBITRATORS:?set TRUSTED_ARBITRATORS in deploy/staging/.env}
+  EVIDENCE_PROVIDER: s3
+  EVIDENCE_S3_ENDPOINT: ${EVIDENCE_S3_ENDPOINT:-}
+  EVIDENCE_S3_REGION: ${EVIDENCE_S3_REGION:-auto}
+  EVIDENCE_S3_BUCKET: ${EVIDENCE_S3_BUCKET:?set EVIDENCE_S3_BUCKET in deploy/staging/.env}
+  EVIDENCE_S3_ACCESS_KEY_ID: ${EVIDENCE_S3_ACCESS_KEY_ID:?set EVIDENCE_S3_ACCESS_KEY_ID in deploy/staging/.env}
+  EVIDENCE_S3_SECRET_ACCESS_KEY: ${EVIDENCE_S3_SECRET_ACCESS_KEY:?set EVIDENCE_S3_SECRET_ACCESS_KEY in deploy/staging/.env}
+  EVIDENCE_S3_FORCE_PATH_STYLE: ${EVIDENCE_S3_FORCE_PATH_STYLE:-false}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sails
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/staging/.env}
+      POSTGRES_DB: sails_staging
+    expose: ["5432"]
+    volumes: [staging-postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sails -d sails_staging"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # The password reaches redis-server through a config file and redis-cli through REDISCLI_AUTH, never through
+    # process arguments (visible to anything that can list processes).
+    command: ["sh", "-c", "umask 077 && printf 'requirepass %s\\n' \"$$REDIS_PASSWORD\" > /tmp/redis.conf && exec redis-server /tmp/redis.conf"]
+    expose: ["6379"]
+    volumes: [staging-redis-data:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in deploy/staging/.env}
+    restart: unless-stopped
+
+  # One-shot, explicit: the runtime image never migrates on start (see the Dockerfile header). Same script as the
+  # root compose file.
+  migrate:
+    build: { context: ../.., target: builder }
+    command: sh scripts/migrate-deploy-safe.sh
+    environment:
+      DATABASE_URL: postgresql://sails:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/staging/.env}@postgres:5432/sails_staging
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  app:
+    build: { context: ../.., target: runtime }
+    environment: *app-env
+    # Loopback only: staging is not exposed. Publishing it (reverse proxy, TLS, access control) is a separate,
+    # pending decision.
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+volumes:
+  staging-postgres-data:
+  staging-redis-data:
