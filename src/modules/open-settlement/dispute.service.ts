@@ -1492,10 +1492,21 @@ export class DisputeService {
     const entry: EvidenceDescriptor = { ...resolved, submittedBy, submittedAt: new Date().toISOString() }
     const existing = Array.isArray(dispute.evidence) ? (dispute.evidence as unknown as EvidenceDescriptor[]) : []
 
-    const updated = await prisma.dispute.update({
-      where: { id: disputeId },
+    // CTO 119 (GK VERIFY #639, F1) - a compare-and-set on the row this method validated, never a blind write by id:
+    // the descriptor resolution above awaits, and a ruling committed meanwhile must not be overwritten back to
+    // EVIDENCE_SUBMITTED (that took a RESOLVED, economically authorized dispute out of RESOLVED). `updatedAt` also
+    // refuses a concurrent evidence append instead of silently losing it. Zero rows: the dispute moved - refused,
+    // nothing written; the caller may retry, the fresh read then decides.
+    const claim = await prisma.dispute.updateMany({
+      where: { id: disputeId, status: dispute.status, ruling: null, updatedAt: dispute.updatedAt },
       data: { evidence: [...existing, entry] as unknown as object, status: 'EVIDENCE_SUBMITTED' },
     })
+    if (claim.count !== 1) {
+      throw new ValidationError(
+        `Dispute ${disputeId} changed while this evidence was being validated (a ruling, another evidence submission or a status change) - evidence not recorded; retry`
+      )
+    }
+    const updated = { evidence: [...existing, entry] as unknown as Prisma.JsonValue, status: 'EVIDENCE_SUBMITTED' as DisputeStatus }
 
     // `tradeId`/`escrowId` never change in this update (only `evidence`/
     // `status` do) — merging over the already-validated pre-update
