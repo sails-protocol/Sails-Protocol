@@ -4,6 +4,12 @@ jest.mock('../src/modules/open-settlement/multisig-round-proofs', () => ({
   ...jest.requireActual('../src/modules/open-settlement/multisig-round-proofs'),
   verifySignerPartialSignature: (_unsigned: string, signed: string) => signed,
 }))
+// Same for the round input binding: proven with real PSBTs in tests/multisigRoundInputBinding.test.ts and the
+// integration suites (CTO 25 funding binding).
+jest.mock('../src/modules/open-settlement/multisig-round-input-binding', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/multisig-round-input-binding'),
+  assertRoundInputBinding: jest.fn(),
+}))
 
 /**
  * Sails Core Implementation Program M8-R2 (Destination Authority

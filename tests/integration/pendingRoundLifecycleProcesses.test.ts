@@ -9,7 +9,7 @@ import path from 'path'
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
-import { buildCooperative, newChain, explorer, signRound, completeOutsideSails, chainToJson, buyerKey, sellerKey, type Chain } from './pendingRoundLifecycleHarness'
+import { buildCooperative, newChain, explorer, signRound, completeOutsideSails, chainToJson, type Chain } from './pendingRoundLifecycleHarness'
 
 const WORKER = path.join(__dirname, 'pendingRoundLifecycle.worker.ts')
 
@@ -98,10 +98,10 @@ describe('Issue #239 (T12) - two independent OS processes, one winner (real Post
   it('T12a: cancellation (process A) against the last signature (process B): exactly one wins', async () => {
     pg.requirePostgres('T12a')
     const c = await buildCooperative(deps, chain, 't12a')
-    await deps.escrowService.submitTransactionSignature(c.escrow.id, c.buyer.id, signRound(c.round.unsignedPsbtBase64, buyerKey))
+    await deps.escrowService.submitTransactionSignature(c.escrow.id, c.buyer.id, signRound(c.round.unsignedPsbtBase64, c.buyerKey))
     const release = await holdEscrowLock(c.escrow.id)
     const a = worker('cancel', { OP: 'cancel', ESCROW_ID: c.escrow.id, PENDING_ID: c.round.id, ACTOR: c.seller.id })
-    const b = worker('sign', { OP: 'sign', ESCROW_ID: c.escrow.id, ACTOR: c.seller.id, SIGNED_PSBT: signRound(c.round.unsignedPsbtBase64, sellerKey) })
+    const b = worker('sign', { OP: 'sign', ESCROW_ID: c.escrow.id, ACTOR: c.seller.id, SIGNED_PSBT: signRound(c.round.unsignedPsbtBase64, c.sellerKey) })
     const waiting = await untilBothWaiting(['cancel', 'sign'])
     expect(new Set(waiting.map((w) => w.pid)).size).toBe(2)
     await release()
@@ -122,9 +122,9 @@ describe('Issue #239 (T12) - two independent OS processes, one winner (real Post
   it('T12b: two reconcilers in two processes converge the same external completion exactly once', async () => {
     pg.requirePostgres('T12b')
     const c = await buildCooperative(deps, chain, 't12b')
-    await deps.escrowService.submitTransactionSignature(c.escrow.id, c.seller.id, signRound(c.round.unsignedPsbtBase64, sellerKey))
+    await deps.escrowService.submitTransactionSignature(c.escrow.id, c.seller.id, signRound(c.round.unsignedPsbtBase64, c.sellerKey))
     const stored = (await prisma.escrowTransactionSignature.findFirstOrThrow({ where: { pendingTxId: c.round.id } })).signedPsbtBase64
-    const spend = completeOutsideSails(c.round.unsignedPsbtBase64, [stored, signRound(c.round.unsignedPsbtBase64, buyerKey)])
+    const spend = completeOutsideSails(c.round.unsignedPsbtBase64, [stored, signRound(c.round.unsignedPsbtBase64, c.buyerKey)])
     chain.spentBy.set(`${c.funding}:0`, spend.txid)
     chain.confirmed.add(spend.txid)
     chain.hex.set(spend.txid, spend.hex)

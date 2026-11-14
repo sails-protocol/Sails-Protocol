@@ -20,6 +20,13 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 
+- **MULTISIG funding binding: one address per escrow, outpoint-precise funding, round input binding (real PostgreSQL).** Draft, pending the Gatekeeper audit.
+  - **One address per escrow:** migration `20261112120000_escrow_multisig_addr_unique` adds the partial unique index `escrows_multisig_addr_key` (MULTISIG rows only). `submitParticipantKey()` answers 409 `MULTISIG_ADDRESS_ALREADY_COMMITTED` when the derived address is already committed to another escrow; the submitted key stays recorded and a fresh key retries. Integrators must use a fresh key per escrow (the SDK already does). The migration refuses, listing them, when a database already holds two MULTISIG escrows on one address.
+  - **Funding selection and reconciliation:** `lockFunds()` skips outpoints recorded by other escrows and refuses more than one eligible UTXO instead of taking the first listed. `rescanFunding()` checks the recorded outpoint first; the reorg sweep only (re)confirms that outpoint, and a different one stays `REPLACEMENT_OBSERVED`.
+  - **Round input binding:** every MULTISIG round must spend exactly the recorded outpoint, with this escrow's P2WSH script and the recorded funded value; checked at creation and before execution (409 `ROUND_INPUT_MISMATCH`, nothing written, no broadcast).
+  - **Reconciliation:** the same binding applies when reconciliation rebuilds a round (PASS 0, PASS 1, completion-effects catch-up). A round that does not bind is reported `ANOMALY` (`ROUND_INPUT_MISMATCH`) for manual review before any network call: no authorization, claim, txid write, effects or broadcast, and the round and its signatures are kept.
+  - **`fundedAmount`:** recorded for every MULTISIG lock, in BTC. It was written in sats into the BTC column for policy-aware escrows. Escrows locked earlier (NULL, or the sats value) have their rounds refused.
+
 - **C9 — stored signed offers are append-only and re-verified on read (real PostgreSQL).** Draft, pending the Gatekeeper batch audit.
   - **Write-once:** migration `20261111120000_offer_envelopes_write_once` refuses `UPDATE`, `DELETE` and `TRUNCATE` on `offer_envelopes`. `INSERT` and idempotent ingestion are unchanged. Before this, deleting a `CANCELLED` tombstone resurrected the `ACTIVE` revision under it.
   - **Read-time re-verification:** `getLatest()` re-verifies the signature and recomputes the content digest of every row at the identity's highest revision. One altered or forged row throws `OfferEnvelopeIntegrityError`. It is never skipped, so the read never falls back to an older revision, and it is never reported as owner equivocation.

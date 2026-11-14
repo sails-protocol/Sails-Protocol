@@ -16,6 +16,7 @@ import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
+import { participantKeys } from './pendingRoundLifecycleHarness'
 
 describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
   jest.setTimeout(30_000)
@@ -30,10 +31,9 @@ describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
   let intentEngine: typeof import('../../src/core/intent-engine').intentEngine
   let OpenP2PTradeIntentHandler: any
 
-  const BUYER_PUBKEY_A = '021744d7bd3cd8e7f62e7aa8f7db8292680b745d09f8f40377c4bbbc0136d4e299'
-  const SELLER_PUBKEY_A = '038e41e2cb09677fd4bde9f232871533925c4b628c25efdb9d572546293850ddd4'
-  const BUYER_PUBKEY_B = '03a8f0fdc9911d8e33f58b1fced67b769189f2188431515e5171462522cb1be87b'
-  const SELLER_PUBKEY_B = '022704740d198905f841d3c4a82afd828398130d62190d9142761158eb893c9419'
+  // Fresh participant keys per escrow (one MULTISIG address per escrow); the stubbed explorer still reports the same
+  // outpoint for both addresses, which is the case the outpoint uniqueness guards.
+  const freshPubkeys = () => { const k = participantKeys(); return [k.BUYER_PUBKEY, k.SELLER_PUBKEY] as const }
   // Suffixed with a per-run timestamp, not a fixed literal — this test
   // hits the real, persistent dev Postgres (not a fresh/truncated DB per
   // run), so a fixed txid would collide with the previous run's own row
@@ -120,8 +120,8 @@ describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
   it('item 10: concurrent lockFunds() on two different escrows for the identical outpoint — exactly one wins', async () => {
     requirePostgres('concurrent double-claim')
 
-    const a = await makeMultisigEscrow('race-a', BUYER_PUBKEY_A, SELLER_PUBKEY_A)
-    const b = await makeMultisigEscrow('race-b', BUYER_PUBKEY_B, SELLER_PUBKEY_B)
+    const a = await makeMultisigEscrow('race-a', ...freshPubkeys())
+    const b = await makeMultisigEscrow('race-b', ...freshPubkeys())
 
     // Both escrows' lockFunds() will independently query the explorer for
     // THEIR OWN derived address, but both mocked responses report the
@@ -138,7 +138,9 @@ describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
     const rejected = results.filter((r) => r.status === 'rejected')
     expect(fulfilled).toHaveLength(1)
     expect(rejected).toHaveLength(1)
-    expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/already claimed/)
+    // Two layers can refuse the loser: the database's unique outpoint (both read before either wrote) or, once the
+    // winner's row is visible, funding selection skipping an outpoint another escrow holds (CTO 25 funding binding).
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/already claimed|No funding UTXO/)
 
     // The losing escrow must NOT be left half-claiming FUNDS_LOCKED with
     // no real lock behind it (lockFunds()'s existing revert-on-failure
@@ -164,13 +166,15 @@ describe('MULTISIG outpoint integrity — real Postgres (Missão 10)', () => {
   it('item 7: a second escrow cannot claim an outpoint already locked by a completed first escrow', async () => {
     requirePostgres('sequential double-claim')
 
-    const a = await makeMultisigEscrow('seq-a', BUYER_PUBKEY_A, SELLER_PUBKEY_A)
+    const a = await makeMultisigEscrow('seq-a', ...freshPubkeys())
     const sequentialTxid = `seq${RUN_ID}`.padEnd(64, 'b')
     mockExplorerForUtxo(sequentialTxid, 1, 100_000)
     await escrowService.lockFunds(a.escrowId, a.sellerId)
 
-    const b = await makeMultisigEscrow('seq-b', BUYER_PUBKEY_B, SELLER_PUBKEY_B)
-    await expect(escrowService.lockFunds(b.escrowId, b.sellerId)).rejects.toThrow(/already claimed/)
+    const b = await makeMultisigEscrow('seq-b', ...freshPubkeys())
+    // Refused at selection: an outpoint recorded by another escrow is never a candidate (CTO 25 funding binding); the
+    // unique (txLockId, txLockVout) index stays the backstop, proven by item 10.
+    await expect(escrowService.lockFunds(b.escrowId, b.sellerId)).rejects.toThrow(/No funding UTXO/)
 
     const bRow = await prisma.escrow.findUnique({ where: { id: b.escrowId } })
     expect(bRow!.status).toBe('CREATED') // reverted, not stuck claiming FUNDS_LOCKED
