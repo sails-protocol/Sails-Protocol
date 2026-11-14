@@ -64,7 +64,7 @@ jobs:
         run: node scripts/build-architecture-pages.mjs /tmp/archify-src/archify/bin/archify.mjs _site
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
