@@ -60,8 +60,8 @@ function summaryToOffer(s: LiquidityOfferSummary): Offer {
     asset: s.asset,
     side: s.side,
     priceUsd: price,
-    fiatCurrency: 'BRL', // this route doesn't return priceBrl/fiat choice — BRL is this UI's default display currency
-    priceFiat: price, // no real BRL conversion available from this endpoint; shown as USD-equivalent, not invented
+    fiatCurrency: 'USD', // discover() returns priceUsd, never a converted BRL price
+    priceFiat: price,
     minAmount: Number(s.minAmount),
     maxAmount: Number(s.maxAmount),
     paymentMethod: (s.paymentMethods[0] as PaymentMethod) ?? 'PIX',
