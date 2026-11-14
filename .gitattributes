@@ -1,0 +1,6 @@
+# Shell scripts run inside Linux containers (docker compose `migrate`,
+# scripts/docker-test.sh). A Windows checkout with core.autocrlf=true wrote
+# them as CRLF, and the image's /bin/sh then failed with
+# "set: Illegal option -" — the Docker stack could not be brought up from
+# Windows at all. Always check them out with LF.
+*.sh text eol=lf
