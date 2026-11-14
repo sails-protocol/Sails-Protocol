@@ -335,7 +335,125 @@ stops with **P3009** (section 6.1) until an operator resolves it.
 
 To reverse the index (not applied automatically):
 `DROP INDEX "escrows_multisig_addr_key";`. This is documented in the
-migration's header.
+migration's header. Read "Reversal and Prisma history" below first.
+
+> **Complemented 2026-11-14 (CTO 140, GK VERIFY of #622 at `08637dd4`).**
+> The subsections below were added after the migration was exercised on
+> disposable databases. They correct nothing above; they add the cases
+> the procedure did not cover.
+
+#### Variant: a duplicate committed while the migration runs
+
+The duplicate check does not see rows from a transaction that has not
+committed yet. If such a transaction inserts a duplicate MULTISIG
+address and commits while the migration waits for its lock, the check
+passes. `CREATE UNIQUE INDEX` then fails with PostgreSQL's own message
+instead of the friendly one above:
+
+```
+could not create unique index "escrows_multisig_addr_key" ... Key ("multisigAddr")=(...) is duplicated.
+```
+
+The state is the same as a refused check: no index, no data changed,
+the migration recorded as failed (P3009). Follow steps 1-6 above
+unchanged.
+
+#### Lock wait and `lock_timeout`
+
+`CREATE UNIQUE INDEX` (not `CONCURRENTLY`) needs a lock on `escrows`
+that conflicts with writes. It waits, **with no time limit**, for every
+open transaction that has written to `escrows`. While it waits, new
+writes to `escrows` queue behind it, including writes that are not
+related to this migration. Once it has the lock, building the index
+blocks writes for the length of the build (about 1.3 s for 1.5 million
+MULTISIG rows on a local test machine; negligible on small tables).
+Reads keep working.
+
+Apply it in a quiet window with a lock timeout, so a forgotten open
+transaction fails the migration instead of stalling every write.
+
+Set it in the connection URL the CLI uses, as the `options` parameter
+(URL-encoded):
+
+```bash
+DATABASE_URL='postgresql://USER@HOST:5432/DB?options=-c%20lock_timeout%3D5s' npx prisma migrate deploy
+```
+
+Do **not** rely on `PGOPTIONS`: Prisma's CLI does not read it. Checked
+2026-11-14 with Prisma 7.10.0 on a disposable PostgreSQL. With another
+session holding a lock, the same `CREATE UNIQUE INDEX` through the CLI
+stopped after about 3 s with `canceling statement due to lock timeout`
+when `lock_timeout` was in the URL. With `PGOPTIONS` alone it was still
+waiting when it was stopped at 14 s, and `current_setting('lock_timeout')`
+read `0` inside the CLI's session.
+
+If the timeout fires, the migration fails before any index exists. The
+state is the one described above (P3009); find and end the blocking
+transaction, then follow steps 4-6.
+
+#### Reversal and Prisma history
+
+`DROP INDEX` keeps every row, but Prisma does not notice it: after the
+drop, `migrate status` still reports "Database schema is up to date",
+`migrate deploy` reports no pending migration, and
+`migrate resolve --rolled-back` refuses (P3012: the migration is not in
+a failed state). Prisma's history then states an index that does not
+exist.
+
+- While the code that maps the unique violation to
+  `MULTISIG_ADDRESS_ALREADY_COMMITTED` is deployed, the index is the
+  only thing that keeps one MULTISIG address per escrow. Dropping it
+  removes that guarantee without any error. Do not drop it with that
+  code running.
+- To restore the guarantee, run the migration's own `CREATE UNIQUE
+  INDEX` statement by hand (the same predicate), after the duplicate
+  query from step 1 returns no rows.
+- Record every manual drop or re-create with the date and the reason:
+  Prisma's history will not.
+
+#### A database without Prisma migration history (`P3005`)
+
+A database whose schema was created with `prisma db push` has no
+`_prisma_migrations` table. On it, `migrate deploy` stops with **P3005**
+("The database schema is not empty") and applies nothing, this
+migration included. `db push` cannot create this index either: a partial
+index cannot be written in `schema.prisma`.
+
+The AWS RDS instance of section 8 was provisioned this way (header note
+above and section 8.2). The gap is not only this index: 14 of the 50
+migrations create triggers, functions, partial indexes or checks that
+`db push` never creates, including the write-once guards (for example
+`escrow_arbiter_pubkey_commitment`, `settlement_result_write_once`,
+`offer_envelopes_write_once`).
+
+Baselining such a database is an operator decision, not a script. Do
+**not** mark every migration as applied (`migrate resolve --applied`):
+that would record write-once triggers and partial indexes the database
+does not have. Before choosing how to baseline:
+
+1. Take a backup and prove the restore (section 6.2).
+2. Produce the exact difference between the database and the migration
+   history, read-only:
+   ```bash
+   npx prisma migrate diff --from-config-datasource --to-migrations prisma/migrations --script
+   ```
+   `--to-migrations` replays the history in a shadow database, which
+   must be a disposable, empty database configured for the CLI
+   (`prisma.config.ts` sets none today). Never use the real database as
+   the shadow database.
+3. With that difference, choose one of:
+   - **(a) Rebuild:** create a new database from the full migration
+     history (`migrate deploy` on an empty database) and restore only the
+     data into it. The schema then matches the history exactly.
+   - **(b) Per-migration baseline:** mark as applied only the migrations
+     whose every object is verified present in the database, then run
+     `migrate deploy` for the rest.
+4. Either path needs the duplicate query from step 1 to return no rows
+   first, and a specific authorization for that environment.
+
+Note: `prisma.config.ts` loads `.env` and falls back to a localhost URL.
+`npm run db:migrate` applies **every** pending migration to whatever
+`DATABASE_URL` resolves to. Check the target before running it.
 
 ## 6.2 Backup / Restore Procedure (Missão 11 Fase 8.1 LB-06)
 
@@ -571,6 +689,18 @@ fails, the error will point at exactly which assumption above was wrong.
 4. **App Runner** — create a service from the GitHub source, Dockerfile
    build mode, port 3000, environment variables per section 8.3 below
    (non-secret ones set directly, secret ones referenced from step 3).
+   > **Added 2026-11-14 (CTO 140):** an App Runner service built from a
+   > GitHub source can redeploy on every push to its branch (its
+   > automatic deployment setting). Confirm that setting is **off**
+   > before merging anything to that branch; this repository's workflows
+   > do not deploy, so nothing here would stop such a redeploy.
+   > **Corrected 2026-11-14 (CTO 140):** step 5 below is the 2026-08-02
+   > procedure and is no longer valid. This repository has had migration
+   > history since 2026-08-07, and `db push` skips every object that
+   > exists only in migration SQL (write-once triggers, partial indexes).
+   > For this RDS instance, follow section 6.1.1, "A database without
+   > Prisma migration history (`P3005`)". Step 5 is kept as the
+   > historical record.
 5. **`npx prisma db push`** against the RDS instance — run once, from a
    machine that can reach the database (locally via an SSH
    tunnel/bastion, or as a one-off App Runner/ECS task), *before* the
