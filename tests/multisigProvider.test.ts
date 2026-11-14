@@ -29,6 +29,10 @@ export {} // forces module scope — without this, top-level `const` here and in
 // Funding selection asks the database which outpoints other escrows already hold: none, unless a test says otherwise.
 const mockClaimedFindMany = jest.fn(async (_args?: unknown): Promise<Array<{ txLockId: string; txLockVout: number }>> => [])
 jest.mock('../src/common/database', () => ({ prisma: { escrow: { findMany: (args: unknown) => mockClaimedFindMany(args) } } }))
+// CTO 61: the broadcast-point authorization reads durable rows (real-PostgreSQL proof: capabilityAuthorityEnforced).
+// Here it is a recorded stand-in; the cases below prove the provider consults it with the exact tx before any POST.
+const mockBroadcastGuard = jest.fn(async (_tx: unknown) => {})
+jest.mock('../src/modules/open-settlement/broadcast-authorization', () => ({ assertBroadcastAuthorized: (tx: unknown) => mockBroadcastGuard(tx) }))
 
 const ORIGINAL_ENV = process.env
 
@@ -1047,6 +1051,32 @@ describe('MultisigProvider — reconcilePendingSettlement() (Missão 11 Fase 9.6
     // Exactly two calls — existence check + UTXO check. No third
     // (broadcast) call under any circumstance in this branch.
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('CTO 61: the broadcast point consults the authorization with the EXACT transaction about to be sent, before its POST', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const txid = 'a8'.repeat(32)
+    const { escrow, unsignedPsbtBase64, signedList, expectedTxId } = await buildRealSignedRelease(multisigProvider, txid)
+    fetchMock.mockClear(); mockBroadcastGuard.mockClear()
+    fetchMock.mockResolvedValueOnce({ status: 404, ok: false })
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid, vout: 0, value: 100_000, status: { confirmed: true } }] })
+    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => expectedTxId })
+    let postsWhenConsulted = -1
+    mockBroadcastGuard.mockImplementationOnce(async () => { postsWhenConsulted = fetchMock.mock.calls.filter((c: any[]) => c[1]?.method === 'POST').length })
+    await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList, openGate)
+    expect(mockBroadcastGuard).toHaveBeenCalledTimes(1)
+    expect((mockBroadcastGuard.mock.calls[0][0] as any).getId()).toBe(expectedTxId)
+    expect(postsWhenConsulted).toBe(0)
+  })
+
+  it('CTO 61: a broadcast-point refusal (finalizeRelease called directly) -> BroadcastNotAuthorized, 0 POST', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const { BroadcastNotAuthorized } = require('../src/modules/open-settlement/broadcast-outcome')
+    const { escrow, unsignedPsbtBase64, signedList } = await buildRealSignedRelease(multisigProvider, 'a9'.repeat(32))
+    fetchMock.mockClear()
+    mockBroadcastGuard.mockImplementationOnce(async () => { throw new BroadcastNotAuthorized('refused by the test') })
+    await expect(multisigProvider.finalizeRelease(escrow, unsignedPsbtBase64, signedList)).rejects.toBeInstanceOf(BroadcastNotAuthorized)
+    expect(fetchMock.mock.calls.filter((c: any[]) => c[1]?.method === 'POST')).toHaveLength(0)
   })
 
   it('CTO 48 (ADR-004 A5): called without its commit gate -> EXECUTION_GATE_MISSING before any decode or network call, nothing broadcast', async () => {

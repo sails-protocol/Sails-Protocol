@@ -10,7 +10,7 @@ import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
 import { feeCollectionRecognitionService } from './fee-collection-recognition.service'
 import { multisigProvider, identifyFeeOutput, networkFor, type MultisigEscrowInput } from './multisig.provider'
-import { BroadcastRejected, SubmissionDefinitelyFailed } from './broadcast-outcome'
+import { BroadcastNotAuthorized, BroadcastRejected, SubmissionDefinitelyFailed } from './broadcast-outcome'
 import { wdkSettlementProvider } from './wdk-settlement.provider'
 import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
@@ -568,7 +568,7 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
     // UNKNOWN - another node may have it) or the round cannot be built. Structured manual review (code, txid, round),
     // never a rollback or a new disposition; the claim stays and the same transaction is re-sent next tick.
     if (err instanceof BroadcastRejected || err instanceof SubmissionDefinitelyFailed) {
-      const code = err instanceof BroadcastRejected ? 'BROADCAST_REJECTED' : 'ROUND_UNBUILDABLE'
+      const code = err instanceof BroadcastNotAuthorized ? 'BROADCAST_NOT_AUTHORIZED' : err instanceof BroadcastRejected ? 'BROADCAST_REJECTED' : 'ROUND_UNBUILDABLE'
       log.error({ msg: 'PASS 1: claimed MULTISIG escrow cannot converge automatically - manual review', escrowId: escrow.id, pendingTransactionId: pending.id, code, err: err.message })
       report.requiresManualReview.push({ escrowId: escrow.id, reason: `${code}: escrow is ${escrow.status} with no txReleaseId, round ${pending.id}. ${err.message}` })
       return
@@ -986,12 +986,12 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
           }
         } catch (err) {
           reconstructionFailed = true
-          if (catchUpGate.refused) {
+          if (catchUpGate.refused || err instanceof BroadcastNotAuthorized) { // CTO 61: the broadcast point refused it too
             // GK-M9R-D R1 - the recorded transaction is not on the network and the round may not be sent: nothing here
             // completes it. No correspondence, no completion effects, no deletion: the round stays as evidence and
             // every tick refuses it again, until the chain or a human decides.
             log.error({ msg: 'PASS 2: recorded MULTISIG result not on the network and its round refused by the execution gate - not re-broadcast, manual review', escrowId: escrow.id, pendingTransactionId: pendingForCorrespondence.id, err: err instanceof Error ? err.message : String(err) })
-            report.requiresManualReview.push({ escrowId: escrow.id, reason: `${err instanceof DisputedTranslationRefused ? 'DISPUTED_TRANSLATION_REFUSED' : 'EXECUTION_GATE_REFUSED'}: escrow is ${escrow.status} with txReleaseId ${escrow.txReleaseId}, but that transaction is not on the network and the round was not re-broadcast. ${err instanceof Error ? err.message : String(err)}` })
+            report.requiresManualReview.push({ escrowId: escrow.id, reason: `${err instanceof DisputedTranslationRefused ? 'DISPUTED_TRANSLATION_REFUSED' : err instanceof BroadcastNotAuthorized ? 'BROADCAST_NOT_AUTHORIZED' : 'EXECUTION_GATE_REFUSED'}: escrow is ${escrow.status} with txReleaseId ${escrow.txReleaseId}, but that transaction is not on the network and the round was not re-broadcast. ${err instanceof Error ? err.message : String(err)}` })
             return
           }
           log.error({ msg: 'M9: exact reconstruction for correspondence catch-up failed — proceeding without it', escrowId: escrow.id, err: err instanceof Error ? err.message : String(err) })
