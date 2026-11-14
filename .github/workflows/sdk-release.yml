@@ -59,7 +59,6 @@ jobs:
       EXPECTED_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_version || '' }}
       DIST_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.dist_tag || 'dry-run' }}
       RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'dry-run' }}
-      GH_TOKEN: ${{ github.token }}
 
     steps:
       - name: Validate source SHA
@@ -184,6 +183,7 @@ jobs:
         id: inspect
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }} # only the steps that call git push / gh need it
           VERSION: ${{ steps.identity.outputs.version }}
           SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
           TAG: ${{ steps.identity.outputs.tag }}
