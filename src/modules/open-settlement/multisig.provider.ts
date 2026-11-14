@@ -991,6 +991,11 @@ export class MultisigProvider implements SettlementProvider {
   // success (positive evidence, locally-derived txid), and a 400 carrying an identifiable RPC rejection is
   // BroadcastRejected, so PASS 1 can route it to manual review instead of retrying blindly.
   private async broadcast(txHex: string): Promise<string> {
+    // CTO 61 (GK ADR-004 A8/A8b/A9/A11) - the one place a MULTISIG transaction leaves Sails: authorized here from the
+    // signed transaction and durable rows only, never from anything the caller passed (broadcast-authorization.ts).
+    // Required lazily: that module reads the database and the ADR-004 authorization module.
+    const { assertBroadcastAuthorized } = require('./broadcast-authorization') // eslint-disable-line @typescript-eslint/no-var-requires
+    await assertBroadcastAuthorized(bitcoin.Transaction.fromHex(txHex))
     let res: Response
     try {
       res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx`, { method: 'POST', body: txHex }, {

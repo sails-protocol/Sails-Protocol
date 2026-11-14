@@ -446,5 +446,82 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
       await reconcile()
       expect(posts).toHaveLength(1)
     })
+
+    // CTO 61 (GK ADR-004 A8/A8b/A9/A11): the broadcast point itself refuses, whatever callback or path the caller uses.
+    const provider = () => require('../../src/modules/open-settlement/multisig.provider')
+    /** The exact (input, PSBT, signatures) the reconciler builds for this escrow, captured without broadcasting. */
+    async function capturedRecoveryArgs(escrowId: string): Promise<[any, string, string[]]> {
+      const { MultisigProvider } = provider()
+      const real = MultisigProvider.prototype.reconcilePendingSettlement
+      let captured: [any, string, string[]] | null = null
+      const spy = jest.spyOn(MultisigProvider.prototype, 'reconcilePendingSettlement').mockImplementation(async function (this: any, ...args: any[]) {
+        if (args[0]?.id === escrowId) { captured = [args[0], args[1], args[2]]; return { outcome: 'ANOMALY', detail: 'captured by the test' } }
+        return real.apply(this, args)
+      } as never)
+      await reconcile()
+      spy.mockRestore()
+      expect(captured).not.toBeNull()
+      return captured!
+    }
+    const notAuthorized = (p: Promise<unknown>) => p.then(() => 'sent', (e: any) => e?.constructor?.name)
+
+    it('A8/A8b: a direct recovery call with an empty or a permissive callback and no authorization: BroadcastNotAuthorized, 0 POST', async () => {
+      requirePostgres('ADR-004 A8')
+      const { escrowId, fundingTxid } = await signedUnsubmittedRound('adr4-a8', { authorized: false })
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
+      const [input, psbt, signed] = await capturedRecoveryArgs(escrowId)
+      recoveryExplorer(fundingTxid, 100_000)
+      expect(await notAuthorized(provider().multisigProvider.reconcilePendingSettlement(input, psbt, signed, async () => {}))).toBe('BroadcastNotAuthorized')
+      expect(await notAuthorized(provider().multisigProvider.reconcilePendingSettlement(input, psbt, signed, jest.fn().mockResolvedValue(undefined)))).toBe('BroadcastNotAuthorized')
+      expect(posts).toEqual([])
+      expect((await prisma.escrow.findUnique({ where: { id: escrowId } }))!.txReleaseId).toBeNull()
+    })
+
+    it('A9: finalizeRelease called directly with the round and its signatures, no authorization: BroadcastNotAuthorized, 0 POST', async () => {
+      requirePostgres('ADR-004 A9')
+      const { escrowId, fundingTxid } = await signedUnsubmittedRound('adr4-a9', { authorized: false })
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
+      const [input, psbt, signed] = await capturedRecoveryArgs(escrowId)
+      recoveryExplorer(fundingTxid, 100_000)
+      expect(await notAuthorized(provider().multisigProvider.finalizeRelease(input, psbt, signed))).toBe('BroadcastNotAuthorized')
+      expect(posts).toEqual([])
+    })
+
+    it('A11: the gate of an authorized round A cannot send round B of another escrow (callback reuse, empty or permissive): 0 POST', async () => {
+      requirePostgres('ADR-004 A11')
+      const a = await signedUnsubmittedRound('adr4-a11-a', { authorized: true })
+      const b = await signedUnsubmittedRound('adr4-a11-b', { authorized: false })
+      await prisma.escrow.update({ where: { id: b.escrowId }, data: { status: 'COMPLETED' } })
+      const [input, psbt, signed] = await capturedRecoveryArgs(b.escrowId)
+      recoveryExplorer(b.fundingTxid, 100_000)
+      const { assertDurableExecutionAuthorization } = require('../../src/modules/open-settlement/capability-execution-authorization')
+      const gateOfA = async () => { await assertDurableExecutionAuthorization(a.pending as any) } // passes: A is authorized
+      expect(await notAuthorized(provider().multisigProvider.reconcilePendingSettlement(input, psbt, signed, gateOfA))).toBe('BroadcastNotAuthorized')
+      expect(await notAuthorized(provider().multisigProvider.reconcilePendingSettlement(input, psbt, signed, jest.fn().mockResolvedValue(undefined)))).toBe('BroadcastNotAuthorized')
+      expect(posts).toEqual([])
+      // Control (A11b): A itself, with its own durable authorization, is still sent exactly once by recovery.
+      await prisma.escrow.update({ where: { id: a.escrowId }, data: { status: 'COMPLETED' } })
+      recoveryExplorer(a.fundingTxid, 100_000)
+      await reconcile()
+      expect(posts).toHaveLength(1)
+      expect((await prisma.escrow.findUnique({ where: { id: a.escrowId } }))!.txReleaseId).toBe(posts[0])
+    })
+
+    it('a DIFFERENT signed transaction spending the same funding (the escrow\'s authorized round left intact) is refused at the broadcast point: the authorization is bound to the round\'s txid', async () => {
+      requirePostgres('ADR-004 tx identity')
+      const { escrowId, pending, fundingTxid } = await signedUnsubmittedRound('adr4-txid', { authorized: true })
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
+      const [input] = await capturedRecoveryArgs(escrowId)
+      // T: built by the provider itself (arbiter-signed like any round) from the same funding to another address, then
+      // signed by the round's real signer - a fully valid transaction that is NOT the authorized round R.
+      recoveryExplorer(fundingTxid, 100_000)
+      const t = await provider().multisigProvider.buildUnsignedRelease(input, testnetAddress('adr4-txid-elsewhere'))
+      const sign = (k: any) => { const p = bitcoin.Psbt.fromBase64(t.psbtBase64, { network: NETWORK }); p.signInput(0, k); return p.toBase64() }
+      const signedT = [sign(escrowKeys.get(escrowId)!.buyerKey), sign(escrowKeys.get(escrowId)!.sellerKey)] // a complete 2-of-3
+      expect(bitcoin.Psbt.fromBase64(t.psbtBase64, { network: NETWORK }).txInputs[0].index).toBe(bitcoin.Psbt.fromBase64(pending.unsignedPsbtBase64, { network: NETWORK }).txInputs[0].index)
+      expect(await notAuthorized(provider().multisigProvider.finalizeRelease(input, t.psbtBase64, signedT))).toBe('BroadcastNotAuthorized')
+      expect(posts).toEqual([])
+      expect((await prisma.escrowPendingTransaction.findUnique({ where: { id: pending.id } }))!.unsignedPsbtBase64).toBe(pending.unsignedPsbtBase64) // R untouched
+    })
   })
 })
