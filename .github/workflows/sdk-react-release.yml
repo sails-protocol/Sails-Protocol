@@ -63,7 +63,6 @@ jobs:
       EXPECTED_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_version || '' }}
       DIST_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.dist_tag || 'dry-run' }}
       RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'dry-run' }}
-      GH_TOKEN: ${{ github.token }}
 
     steps:
       - name: Validate source SHA
@@ -73,7 +72,7 @@ jobs:
           [[ "$REQUESTED_SOURCE_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo 'source_sha must be an exact commit SHA' >&2; exit 1; }
 
       - name: Checkout exact source SHA
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ env.REQUESTED_SOURCE_SHA }}
           fetch-depth: 0
@@ -90,7 +89,7 @@ jobs:
             git cat-file -e 'HEAD:.github/workflows/sdk-react-release.yml'
           fi
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: 'https://registry.npmjs.org'
@@ -194,6 +193,7 @@ jobs:
         id: inspect
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }} # only the steps that call git push / gh need it
           VERSION: ${{ steps.identity.outputs.version }}
           SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
           TAG: ${{ steps.identity.outputs.tag }}
@@ -247,7 +247,7 @@ jobs:
           EOF
 
       - name: Upload verified release evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sdk-react-release-evidence-${{ steps.identity.outputs.version }}
           path: release-evidence/
@@ -274,15 +274,15 @@ jobs:
       DIST_TAG: ${{ needs.validate.outputs.dist_tag }}
       LOCAL_INTEGRITY: ${{ needs.validate.outputs.integrity }}
       TARBALL: ${{ needs.validate.outputs.tarball }}
-      GH_TOKEN: ${{ github.token }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: 'https://registry.npmjs.org'
@@ -290,7 +290,7 @@ jobs:
 
       - run: npm install --global npm@${NPM_VERSION}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: sdk-react-release-evidence-${{ needs.validate.outputs.version }}
           path: release-evidence
@@ -300,6 +300,8 @@ jobs:
         run: sha256sum -c tarball.sha256
 
       - name: Create or verify immutable React SDK tag
+        env:
+          GH_TOKEN: ${{ github.token }} # only the steps that call git push / gh need it
         shell: bash
         run: |
           set -euo pipefail
@@ -310,7 +312,8 @@ jobs:
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git tag -a "$TAG" "$SOURCE_SHA" -m "$PACKAGE_NAME@$VERSION from $SOURCE_SHA"
-            git push origin "refs/tags/$TAG"
+            # Authenticate only this push. Checkout credentials remain unpersisted.
+            git -c credential.helper='!f() { printf "username=x-access-token\npassword=%s\n" "$GH_TOKEN"; }; f' push origin "refs/tags/$TAG"
           fi
 
       - name: Reconcile registry before publish
@@ -362,6 +365,8 @@ jobs:
           node --input-type=module -e "import * as s from '@satsails/sdk-react'; if(!s || Object.keys(s).length === 0) process.exit(1)"
 
       - name: Create GitHub Release from prepared release record
+        env:
+          GH_TOKEN: ${{ github.token }} # only the steps that call git push / gh need it
         shell: bash
         run: |
           set -euo pipefail
@@ -374,6 +379,8 @@ jobs:
           fi
 
       - name: Verify completed release chain
+        env:
+          GH_TOKEN: ${{ github.token }} # only the steps that call git push / gh need it
         shell: bash
         run: |
           set -euo pipefail
