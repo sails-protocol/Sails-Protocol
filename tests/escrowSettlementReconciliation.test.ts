@@ -1134,6 +1134,55 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.7, C5 missing-comp
   })
 })
 
+// Issue #474 - in production a persisted escrow of a deployment-ineligible rail (e.g. a promoted staging database)
+// is never converged: no result written, no completion effects, held for an operator. PASS 1's WDK path and PASS 2
+// never go through getSettlementProvider(), where that policy is otherwise enforced.
+describe('reconcilePendingSettlements() - Issue #474, deployment eligibility in production', () => {
+  const mockedConfig = require('../src/config').config as { isProduction?: boolean }
+  beforeEach(() => { mockedConfig.isProduction = true })
+  afterEach(() => { delete mockedConfig.isProduction })
+  const ineligible = /is not economically eligible in production/
+
+  it('PASS 1: a WDK_USDT_EVM terminal escrow with CONFIRMED provider evidence (no wallet needed) is held - nothing written, provider never asked', async () => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([wdkEscrowFixture()])
+    mockReconcileTerminalTransfer.mockResolvedValue({ outcome: 'CONFIRMED', txHash: '0xconfirmed' })
+
+    const report = await reconcilePendingSettlements()
+
+    expect(mockReconcileTerminalTransfer).not.toHaveBeenCalled()
+    expect(mockUpdateReleaseResult).not.toHaveBeenCalled()
+    expect(mockEscrowEventCreate).not.toHaveBeenCalled()
+    expect(report.recovered).toEqual([])
+    expect(report.requiresManualReview).toEqual([{ escrowId: 'escrow-1', reason: expect.stringMatching(ineligible) }])
+  })
+
+  it.each(['MOCK', 'WDK_USDT_EVM', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM'])('PASS 2: a terminal %s escrow with missing completion effects is held - no obligation, no event', async (type) => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ id: 'escrow-x', type, txReleaseId: 'txid-x', status: 'COMPLETED' })])
+    mockEscrowEventFindFirst.mockResolvedValue(null)
+    mockPendingTxFindUnique.mockResolvedValue(null)
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.completionEffectsRecovered).toEqual([])
+    expect(mockRecordObligation).not.toHaveBeenCalled()
+    expect(mockEscrowEventCreate).not.toHaveBeenCalled()
+    expect(report.requiresManualReview).toEqual([{ escrowId: 'escrow-x', reason: expect.stringMatching(ineligible) }])
+  })
+
+  it('MULTISIG, the one production-eligible rail, still converges in production (PASS 2 catch-up runs as before)', async () => {
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([])
+    mockFindTerminalWithTxReleaseId.mockResolvedValue([multisigEscrowFixture({ txReleaseId: 'confirmed-txid' })])
+    mockEscrowEventFindFirst.mockResolvedValue(null)
+    mockPendingTxFindUnique.mockResolvedValue(null)
+
+    const report = await reconcilePendingSettlements()
+
+    expect(report.requiresManualReview).toEqual([])
+    expect(report.completionEffectsRecovered).toEqual([{ escrowId: 'escrow-1', obligationSkipped: false }])
+  })
+})
+
 // Missão 11 Fase 9.7 — the actual double-fire guard: emitEscrowTransition()
 // itself (escrow-lifecycle.ts), exercised directly here rather than
 // only indirectly through the reconciliation orchestration above, since
