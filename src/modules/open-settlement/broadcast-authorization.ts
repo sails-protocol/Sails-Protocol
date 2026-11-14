@@ -20,10 +20,15 @@
  * Steps 3 and 4 are read-only: no grant or authorization is evaluated or written here, so the broadcast point can never
  * become a first authorization.
  *
- * Read-then-POST consistency: the facts read here cannot be withdrawn between this check and the POST once both durable
- * authorizations exist - an authorization is write-once per pending operation, the round is deleted only after its
- * settlement, the R-1 revert keeps a generation that has an economic disposition authorization (it does not delete its
- * Outcome), and appeal() refuses every MULTISIG escrow (script-committed arbiter).
+ * Read-then-POST consistency (corrected, CTO 119 / GK VERIFY #639): this is a check immediately before the POST, NOT a
+ * lock held until it. A fact changed between this read and the POST is not seen (GK T1-T6 reproduced it by pausing
+ * here). What keeps the stored facts from changing for a MULTISIG round that holds both durable authorizations is the
+ * set of production writers, not this check: the authorizations have no writer in src after creation; a round is
+ * deleted only after its settlement (or while cooperative and unsigned); the Outcome's only deleter is the R-1 revert,
+ * which keeps a generation that has an economic disposition authorization; appeal() refuses every MULTISIG escrow
+ * (script-committed arbiter); and every disputes writer is a conditional compare-and-set (submitEvidence's former
+ * unconditional write, GK F1, is now one too). A future writer that breaks this, or direct database access, is not
+ * covered by this check.
  *
  * With ENFORCE_CAPABILITIES off (development/test only; a production process refuses to boot that way, see
  * config/index.ts) step 3 is skipped exactly as the live path skips committing it; steps 1, 2 and 4 still apply.

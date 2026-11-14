@@ -548,6 +548,10 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
         ['C1 Outcome record removed (GK reproduction)', async (x) => { await prisma.semanticTransitionRecord.deleteMany({ where: { interactionId: x.escrowId } }) }],
         ['1 dispute no longer RESOLVED (SIMULATION)', async (x) => { await prisma.dispute.updateMany({ where: { escrowId: x.escrowId }, data: { status: 'OPENED' } }) }],
         ['2 wrong generation: the dispute moved to another appeal round (SIMULATION)', async (x) => { await prisma.dispute.updateMany({ where: { escrowId: x.escrowId }, data: { appealRound: 1 } }) }],
+        // CTO 119 / GK Z12-Z13: each live generation field alone (the original suite never isolated them).
+        ['2b live dispute arbiterId alone diverges (SIMULATION)', async (x) => { await prisma.dispute.updateMany({ where: { escrowId: x.escrowId }, data: { arbiterId: 'cap303-another-arbiter' } }) }],
+        ['2c live dispute ruling alone diverges (SIMULATION)', async (x) => { await prisma.dispute.updateMany({ where: { escrowId: x.escrowId }, data: { ruling: 'REFUND' } }) }],
+        ['2d live dispute authoritySignature alone diverges (SIMULATION)', async (x) => { await prisma.dispute.updateMany({ where: { escrowId: x.escrowId }, data: { authoritySignature: 'f'.repeat(128) } }) }],
         ['3 Outcome of an incompatible kind (REFUND for a release round)', async (x) => {
           const row = (await outcomeRow(x.escrowId))!
           await prisma.semanticTransitionRecord.update({ where: { id: row.id }, data: { outcomeContent: { ...(row.outcomeContent as object), ruling: 'REFUND' } } })
@@ -603,6 +607,35 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
         const d = await prisma.dispute.findFirstOrThrow({ where: { escrowId: x.escrowId } })
         const trade = await prisma.trade.findUniqueOrThrow({ where: { id: d.tradeId } })
         await expect(getDisputeService().appeal(d.id, trade.buyerId)).rejects.toThrow(/script-committed arbiter/)
+      })
+
+      it('F1 (GK W2): an evidence submission that read the dispute OPENED and writes after the ruling is refused; the dispute stays RESOLVED and the authorized round is still sent once', async () => {
+        requirePostgres('ADR-005 F1 stale evidence')
+        const { escrowId, disputeId, buyer } = await makeDisputedEscrow('adr5-w2', { onboardArbiter: true })
+        const svc = getDisputeService() as any
+        let release!: () => void
+        const parked = new Promise<void>((r) => { release = r })
+        const real = svc.resolveEvidenceDescriptor.bind(svc)
+        const spy = jest.spyOn(svc, 'resolveEvidenceDescriptor').mockImplementation((async (...a: any[]) => { await parked; return real(...a) }) as never)
+        const evidence = svc.submitEvidence(disputeId, buyer.id, { type: 'payment_receipt', note: 'stale writer' }).then(() => 'recorded', (e: any) => String(e?.message))
+        await new Promise((r) => setTimeout(r, 300)) // the submission has read the dispute (OPENED) and is parked
+        await resolveRelease(disputeId, escrowId) // the ruling commits meanwhile
+        release()
+        const result = await evidence
+        spy.mockRestore()
+        expect(result).toMatch(/changed while this evidence was being validated/)
+        const after = (await prisma.dispute.findUniqueOrThrow({ where: { id: disputeId } }))
+        expect(after).toMatchObject({ status: 'RESOLVED', ruling: 'RELEASE' })
+        // Liveness: the round the ruling dispatched is still authorized and goes out exactly once.
+        const pending = (await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } }))!
+        await prisma.escrowTransactionSignature.create({ data: { pendingTxId: pending.id, participantId: pending.requiredSigners[0], signedPsbtBase64: await buyerSignature(escrowId) } })
+        await authorizePendingExecution(pending as any)
+        await eda().authorizeDisputedPendingExecution(pending as any)
+        await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
+        const [input, psbt, signed] = await capturedRecoveryArgs(escrowId)
+        recoveryExplorer((await prisma.escrow.findUniqueOrThrow({ where: { id: escrowId } })).txLockId!, 100_000)
+        expect(await direct({ input, psbt, signed })).toBe('sent')
+        expect(posts).toHaveLength(1)
       })
     })
   })
