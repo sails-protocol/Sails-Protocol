@@ -11,6 +11,7 @@ import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, closeTestRedis, preserveTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
+import { participantKeys } from './pendingRoundLifecycleHarness'
 
 describe('Escrow funding uncertainty — real Postgres (Missão 11 Fase 9.1)', () => {
   jest.setTimeout(30_000)
@@ -28,8 +29,6 @@ describe('Escrow funding uncertainty — real Postgres (Missão 11 Fase 9.1)', (
   let getDisputeService: typeof import('../../src/modules/open-settlement/dispute.service').getDisputeService
   let escrowFundingEvidenceRepository: typeof import('../../src/modules/open-settlement/escrow-funding-evidence-repository').escrowFundingEvidenceRepository
 
-  const BUYER_PUBKEY = '021744d7bd3cd8e7f62e7aa8f7db8292680b745d09f8f40377c4bbbc0136d4e299'
-  const SELLER_PUBKEY = '038e41e2cb09677fd4bde9f232871533925c4b628c25efdb9d572546293850ddd4'
   const RUN_ID = Date.now().toString(36)
 
   let realFetch: typeof fetch
@@ -90,8 +89,9 @@ describe('Escrow funding uncertainty — real Postgres (Missão 11 Fase 9.1)', (
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     // Missão 11 Fase 9.1.1 — fail-closed capability declaration is now
     // required for a real MULTISIG commit (no more grandfathered omission).
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const keys = participantKeys() // one MULTISIG address per escrow
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, keys.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, keys.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
 
     const txid = `fund${RUN_ID}${suffix}`.padEnd(64, 'f')
     mockExplorerForUtxo(txid, 0, 100_000)

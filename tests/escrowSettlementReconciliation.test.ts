@@ -137,6 +137,7 @@ jest.mock('../src/modules/open-settlement/economic-disposition-authority', () =>
   authorizeDisputedPendingExecution: (...args: unknown[]) => mockAuthorizeDisputedPendingExecution(...args),
   // Issue #239 - the typed no-provenance refusal PASS 0 classifies as held; real class shape, no behavior.
   CooperativeOriginNotProvable: class CooperativeOriginNotProvable extends Error {},
+  DisputedTranslationRefused: class DisputedTranslationRefused extends Error {},
 }))
 
 const mockPendingTxFindUnique = jest.fn()
@@ -673,6 +674,26 @@ describe('reconcilePendingSettlements() — Missão 11 Fase 9.6, CONC-03 crash r
     expect(report.recovered).toEqual([{ escrowId: 'escrow-1', txId: 'real-txid-2', outcome: 'NEWLY_BROADCAST' }])
     expect(mockReconcilePendingSettlement).toHaveBeenCalledTimes(1) // never called twice — no retry loop, no second attempt
     expect(mockUpdateSignatureCollectionResult).toHaveBeenCalledWith('escrow-1', { txReleaseId: 'real-txid-2', releasedAt: expect.any(Date) }, { tx: expect.anything(), operation: { pendingOperationId: 'pending-1' } })
+  })
+
+  it('GK-M9R-D R1 (CTO 25): PASS 1 runs the execution gate immediately before a new broadcast; a refusal is manual review, nothing recorded, the claim kept', async () => {
+    const { DisputedTranslationRefused } = require('../src/modules/open-settlement/economic-disposition-authority')
+    mockFindTerminalWithoutTxReleaseId.mockResolvedValue([multisigEscrowFixture()])
+    mockPendingTxFindUnique.mockResolvedValue(pendingTxFixture())
+    mockReconcilePendingSettlement.mockImplementation(async (_input, _unsigned, _signed, beforeFirstBroadcast) => {
+      await beforeFirstBroadcast() // the provider calls it only when the round is not on the network yet
+      return { outcome: 'NEWLY_BROADCAST', txId: 'never', detail: 'unreachable' }
+    })
+    mockAuthorizeDisputedPendingExecution.mockRejectedValueOnce(new DisputedTranslationRefused('does not correspond'))
+
+    const report = await reconcilePendingSettlements()
+
+    expect(mockAuthorizeDisputedPendingExecution).toHaveBeenCalledWith(expect.objectContaining({ id: 'pending-1' }))
+    expect(report.requiresManualReview).toEqual([{ escrowId: 'escrow-1', reason: expect.stringMatching(/^DISPUTED_TRANSLATION_REFUSED: .*not broadcast. does not correspond$/) }])
+    expect(report.recovered).toEqual([])
+    expect(report.failed).toEqual([])
+    expect(mockUpdateSignatureCollectionResult).not.toHaveBeenCalled()
+    expect(mockPendingTxDelete).not.toHaveBeenCalled()
   })
 
   it('a refund convergence omits releasedAt — matches submitTransactionSignature()\'s own refund-vs-release/split field shape exactly', async () => {

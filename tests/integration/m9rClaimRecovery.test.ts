@@ -25,6 +25,7 @@ import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
 import nacl from 'tweetnacl'
+import { participantKeys } from './pendingRoundLifecycleHarness'
 
 bitcoin.initEccLib(ecc)
 const ECPair = ECPairFactory(ecc)
@@ -57,10 +58,8 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
   const arbiterKeypair = nacl.sign.keyPair()
   const arbiterPublicKeyHex = Buffer.from(arbiterKeypair.publicKey).toString('hex')
 
-  const buyerKey = ECPair.fromPrivateKey(createHash('sha256').update('m9r-c8-buyer').digest(), { network: NETWORK })
-  const sellerKey = ECPair.fromPrivateKey(createHash('sha256').update('m9r-c8-seller').digest(), { network: NETWORK })
-  const BUYER_PUBKEY = Buffer.from(buyerKey.publicKey).toString('hex')
-  const SELLER_PUBKEY = Buffer.from(sellerKey.publicKey).toString('hex')
+  // One MULTISIG address per escrow: fresh participant keys for each escrow, looked up by escrow id when signing.
+  const escrowKeys = new Map<string, ReturnType<typeof participantKeys>>()
 
   let realFetch: typeof fetch
 
@@ -129,8 +128,9 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const keys = participantKeys(); escrowKeys.set(escrow.id, keys)
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, keys.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, keys.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
 
     const fundingTxid = createHash('sha256').update(`m9r-c8-funding-${Date.now()}`).digest('hex')
     mockExplorerForUtxo(fundingTxid, 0, 100_000)
@@ -157,7 +157,7 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
     // REAL persisted unsigned PSBT, same technique
     // tests/multisigProvider.test.ts's own buildRealSignedRelease() uses.
     const buyerCopy = bitcoin.Psbt.fromBase64(pendingBefore!.unsignedPsbtBase64, { network: NETWORK })
-    buyerCopy.signInput(0, buyerKey)
+    buyerCopy.signInput(0, escrowKeys.get(escrow.id)!.buyerKey)
     const buyerSignedBase64 = buyerCopy.toBase64()
 
     // Reproduces C8 exactly: the signature is inserted DIRECTLY (bypassing
@@ -203,8 +203,9 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const keys = participantKeys(); escrowKeys.set(escrow.id, keys)
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, keys.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, keys.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
     const fundingTxid = createHash('sha256').update(`${label}-${Date.now()}`).digest('hex')
     mockExplorerForUtxo(fundingTxid, 0, 100_000)
     await escrowService.lockFunds(escrow.id, seller.id)
@@ -219,7 +220,7 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
     // Both required signatures persisted directly: the process died before submitTransactionSignature() claimed.
     const pending = (await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: escrow.id } }))!
     expect(pending.disputeId).toBeNull()
-    const keyOf: Record<string, ReturnType<typeof ECPair.fromPrivateKey>> = { [buyer.id]: buyerKey, [seller.id]: sellerKey }
+    const keyOf: Record<string, ReturnType<typeof ECPair.fromPrivateKey>> = { [buyer.id]: escrowKeys.get(escrow.id)!.buyerKey, [seller.id]: escrowKeys.get(escrow.id)!.sellerKey }
     for (const signer of pending.requiredSigners) {
       const copy = bitcoin.Psbt.fromBase64(pending.unsignedPsbtBase64, { network: NETWORK })
       copy.signInput(0, keyOf[signer])
@@ -310,8 +311,9 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const keys = participantKeys(); escrowKeys.set(escrow.id, keys)
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, keys.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, keys.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
 
     const fundingTxid = createHash('sha256').update(`m9r-c8-dup-funding-${Date.now()}`).digest('hex')
     mockExplorerForUtxo(fundingTxid, 0, 100_000)
@@ -327,7 +329,7 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
 
     const pendingBefore = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: escrow.id } })
     const buyerCopy = bitcoin.Psbt.fromBase64(pendingBefore!.unsignedPsbtBase64, { network: NETWORK })
-    buyerCopy.signInput(0, buyerKey)
+    buyerCopy.signInput(0, escrowKeys.get(escrow.id)!.buyerKey)
     await prisma.escrowTransactionSignature.create({
       data: { pendingTxId: pendingBefore!.id, participantId: buyer.id, signedPsbtBase64: buyerCopy.toBase64() },
     })
