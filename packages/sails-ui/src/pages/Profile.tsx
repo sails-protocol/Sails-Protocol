@@ -27,7 +27,6 @@ import type { Offer, OfferStatus, User } from '../types'
 // used to read lib/offersStore.ts/localStorage instead).
 function toOffer(raw: Awaited<ReturnType<typeof sailsClient.liquidity.getMyOffers>>[number], user: User): Offer {
   const priceUsd = Number(raw.priceUsd)
-  const priceBrl = raw.priceBrl ? Number(raw.priceBrl) : priceUsd
   return {
     id: raw.id,
     userId: raw.userId,
@@ -35,8 +34,8 @@ function toOffer(raw: Awaited<ReturnType<typeof sailsClient.liquidity.getMyOffer
     asset: raw.asset,
     side: raw.side,
     priceUsd,
-    fiatCurrency: 'BRL', // real Offer only ever models a BRL fiat price — see types.ts's own header comment
-    priceFiat: priceBrl,
+    fiatCurrency: 'USD', // same priceUsd unit as discovery and the trade contract
+    priceFiat: priceUsd,
     minAmount: Number(raw.minAmount),
     maxAmount: Number(raw.maxAmount),
     paymentMethod: raw.paymentMethod,
