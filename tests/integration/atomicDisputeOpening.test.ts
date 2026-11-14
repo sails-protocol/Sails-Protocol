@@ -245,7 +245,9 @@ describe('Issue #238 - dispute opening is atomic with the escrow freeze (real Po
     const legacy = await makeLockedTrade('MULTISIG')
     await prisma.escrowParticipantKey.create({ data: { escrowId: legacy.escrowId, role: 'arbiter', participantId: 'arb-legacy-committed', pubkey: `02${'22'.repeat(32)}` } })
     await prisma.escrow.update({ where: { id: legacy.escrowId }, data: { status: 'DISPUTED' } })
-    const unassigned = await prisma.dispute.create({ data: { tradeId: legacy.tradeId, escrowId: legacy.escrowId, openedBy: legacy.buyerId, reason: 'legacy', status: 'OPENED' } })
+    // A legacy row is old by definition. createdAt is TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP (PG clock, rounded to ms),
+    // so a row stamped this instant can compare >= the Node `now` of the strict `<` filter below (CTO 54/61, #626).
+    const unassigned = await prisma.dispute.create({ data: { tradeId: legacy.tradeId, escrowId: legacy.escrowId, openedBy: legacy.buyerId, reason: 'legacy', status: 'OPENED', createdAt: new Date(Date.now() - 60_000) } })
     const picker = provider('arb-picked-instead')
 
     const result = await new DisputeService(picker).recoverUnassignedDisputes(0)
