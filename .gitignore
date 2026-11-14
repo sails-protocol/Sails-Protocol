@@ -37,3 +37,5 @@ internal/
 # testing (Missão 06) without changing the committed, deliberately
 # host-unexposed default.
 docker-compose.override.yml
+
+.migrate-test.*/
