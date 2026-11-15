@@ -383,7 +383,7 @@ Do not proceed with a restore, and escalate instead, if:
   this section) do not match the last known source counts — investigate
   before repointing any application traffic at the restored database.
 
-## 6.3 Trade Admission: Unresolved Idempotency Claims and Manual Event Redelivery (E21 slice 1)
+## 6.4 Trade Admission: Unresolved Idempotency Claims and Manual Event Redelivery (E21 slice 1)
 
 Since E21 slice 1, `POST /v1/openp2p/trades` writes its idempotency claim
 (`idempotency_keys`, scope `openp2p.trade.create`) already `COMPLETED`,
