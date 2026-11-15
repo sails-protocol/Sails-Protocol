@@ -283,7 +283,7 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
 
   // ─── CTO 239 — deterministic "latest evidence" ────────────────────────
   // recordedAt is timestamp(3); two rows of one obligation can share a millisecond (CI run 43748566359 picked
-  // BROADCAST over DROPPED on such a tie). Every reader orders by (recordedAt, seq). Each case below writes two
+  // BROADCAST over DROPPED on such a tie). Every reader orders by seq alone (CTO 246). Each case below writes two
   // rows with an IDENTICAL recordedAt and asserts the row with the higher seq wins, twice: once inserted in seq
   // order and once physically reversed (higher seq inserted first), so the answer cannot come from physical order.
   describe('CTO 239 — latest evidence is deterministic on recordedAt ties', () => {
@@ -506,7 +506,7 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
           feeCollectionRecognitionService.recordReplacement(o.obligationId, TXID_A, TXID_B),
         ])
         const rows = await prisma.$queryRawUnsafe<Array<{ kind: string; seq: number }>>(
-          `SELECT kind::text AS kind, seq FROM fee_collection_evidence WHERE "feeObligationId" = $1 ORDER BY "recordedAt" DESC, seq DESC`,
+          `SELECT kind::text AS kind, seq FROM fee_collection_evidence WHERE "feeObligationId" = $1 ORDER BY seq DESC`,
           o.obligationId,
         )
         expect(new Set(rows.map((r) => r.seq)).size).toBe(3)
@@ -518,6 +518,249 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
           expect(flagged).toBe(expectedLast === 'DROPPED')
         }
       }
+    })
+
+    // ─── CTO 245 — sequence order vs commit order ───────────────────────
+    // Two real connections, explicit BEGIN/COMMIT. Rule under test: latest = greatest seq among COMMITTED rows;
+    // seq = nextval at INSERT, not commit order; recordedAt (DB default = transaction start) is informational.
+    describe('CTO 245 — interleaved transactions (two real connections)', () => {
+      type Row = { id: string; seq: number; ms: number }
+      type Ev = { kind: string; txid: string; amount?: string; dpv?: boolean }
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      const FORCED_AT = '2099-01-01 00:00:00.123'
+      let a: import('pg').Client
+      let b: import('pg').Client
+
+      beforeEach(async () => {
+        if (!dbAvailable) return
+        const { Client } = require('pg')
+        a = new Client({ connectionString: config.database.url })
+        b = new Client({ connectionString: config.database.url })
+        await a.connect()
+        await b.connect()
+      })
+      afterEach(async () => {
+        if (!dbAvailable) return
+        await a.end()
+        await b.end()
+      })
+
+      const txStartMs = async (c: import('pg').Client) =>
+        (await c.query(`SELECT (extract(epoch FROM now()::timestamp(3)) * 1000)::float8 AS ms`)).rows[0].ms as number
+
+      async function insert(c: import('pg').Client, feeObligationId: string, ev: Ev, recordedAt?: string): Promise<Row> {
+        const cols = ['id', '"feeObligationId"', 'kind', 'txid', 'amount', '"distributionPolicyVersionId"']
+        const vals = ['gen_random_uuid()::text', '$1', '$2::"FeeCollectionEvidenceKind"', '$3', '$4::decimal', '$5']
+        const params: unknown[] = [feeObligationId, ev.kind, ev.txid, ev.amount ?? null, ev.dpv ? livePolicyId : null]
+        if (recordedAt) { cols.push('"recordedAt"'); vals.push('$6::timestamp(3)'); params.push(recordedAt) }
+        const r = await c.query(
+          `INSERT INTO fee_collection_evidence (${cols.join(', ')}) VALUES (${vals.join(', ')})
+           RETURNING id, seq, (extract(epoch FROM "recordedAt") * 1000)::float8 AS ms`, params)
+        return r.rows[0]
+      }
+
+      // Every changed reader, for one obligation.
+      async function readers(obligationId: string, escrowId: string) {
+        const listed = await feeCollectionEvidenceRepository.listForObligation(obligationId)
+        const mine = <T extends { feeObligationId: string }>(rows: T[]) => rows.find((r) => r.feeObligationId === obligationId)
+        return {
+          listed: listed.map((e) => e.id),
+          unresolved: mine(await reconciliation.findUnresolvedChainEvents())?.lastEvidenceKind ?? null,
+          mismatchAmount: mine(await reconciliation.findCollectionEvidenceMismatches())?.confirmedEvidenceAmount ?? null,
+          notYetAllocated: mine(await distributionReconciliation.findCollectedNotYetAllocated())?.confirmationEvidenceId ?? null,
+          details: (await escrowRepository.findByIdWithDetails(escrowId))!.feeObligation!.evidence.map((e) => e.id),
+        }
+      }
+
+      // IN_PROGRESS: A writes DROPPED, B writes BROADCAST (latest DROPPED => flagged).
+      // COLLECTED: A writes CONFIRMED with a wrong amount, B with the computed fee (latest A => mismatch).
+      const sets: Record<'IN_PROGRESS' | 'COLLECTED', { A: Ev; B: Ev }> = {
+        IN_PROGRESS: { A: { kind: 'DROPPED', txid: TXID_A }, B: { kind: 'BROADCAST', txid: TXID_B } },
+        COLLECTED: { A: { kind: 'CONFIRMED', txid: TXID_A, amount: '0.00000999', dpv: true }, B: { kind: 'CONFIRMED', txid: TXID_B, amount: '0.000004', dpv: true } },
+      }
+      function expected(status: 'IN_PROGRESS' | 'COLLECTED', visible: Row[], latest: Row, A?: Row) {
+        const ids = visible.map((r) => r.id)
+        const latestIsA = latest === A
+        return status === 'IN_PROGRESS'
+          ? { listed: ids, unresolved: latestIsA ? 'DROPPED' : null, mismatchAmount: null, notYetAllocated: null, details: [] }
+          : { listed: ids, unresolved: null, mismatchAmount: latestIsA ? '0.00000999' : null, notYetAllocated: latest.id, details: ids }
+      }
+
+      describe.each([['IN_PROGRESS'], ['COLLECTED']] as const)('%s obligation', (status) => {
+        const { A: evA, B: evB } = sets[status]
+
+        it('(lock-wait inversion, CTO 246) B begins first, waits for the obligation lock A holds, inserts and commits last: B is latest for every reader although its recordedAt is earlier', async () => {
+          requirePostgres('cto246 inversion')
+          const o = await obligationIn(status, `246inv-${status}`)
+          const lock = `SELECT 1 FROM fee_obligations WHERE id = $1 FOR UPDATE` // the row lock the collectionStatus CAS takes
+          await b.query('BEGIN')
+          await sleep(15)
+          await a.query('BEGIN')
+          await a.query(lock, [o.obligationId])
+          const rowA = await insert(a, o.obligationId, evB)
+          const bLocked = b.query(lock, [o.obligationId]) // blocks until A commits
+          await sleep(50)
+          await a.query('COMMIT')
+          await bLocked
+          const rowB = await insert(b, o.obligationId, evA)
+          await b.query('COMMIT')
+          expect(rowB.ms).toBeLessThan(rowA.ms) // recordedAt order is the reverse of commit order
+          expect(rowB.seq).toBeGreaterThan(rowA.seq) // seq follows the lock order
+          expect(await readers(o.obligationId, o.escrow.id)).toEqual(expected(status, [rowA, rowB], rowB, rowB))
+        })
+
+        it('(a) latest = greatest committed seq; forced equal recordedAt: A reserves the lower seq, B commits first; A committing later never becomes latest (no retroactive flip)', async () => {
+          requirePostgres('cto245 a')
+          const o = await obligationIn(status, `245a-${status}`)
+          await a.query('BEGIN')
+          const rowA = await insert(a, o.obligationId, evA, FORCED_AT)
+          await b.query('BEGIN')
+          const rowB = await insert(b, o.obligationId, evB, FORCED_AT)
+          await b.query('COMMIT')
+          expect(rowA.seq).toBeLessThan(rowB.seq)
+          expect(rowA.ms).toBe(rowB.ms)
+          expect(await readers(o.obligationId, o.escrow.id)).toEqual(expected(status, [rowB], rowB))
+          await a.query('COMMIT')
+          expect(await readers(o.obligationId, o.escrow.id)).toEqual(expected(status, [rowA, rowB], rowB, rowA))
+        })
+
+        it('(b) latest = greatest committed seq; natural recordedAt: A begins and reserves the lower seq, B commits first; B stays latest after A commits', async () => {
+          requirePostgres('cto245 b')
+          const o = await obligationIn(status, `245b-${status}`)
+          await a.query('BEGIN')
+          const rowA = await insert(a, o.obligationId, evA)
+          await b.query('BEGIN')
+          const rowB = await insert(b, o.obligationId, evB)
+          await b.query('COMMIT')
+          expect(rowA.ms).toBeLessThanOrEqual(rowB.ms)
+          expect(rowA.seq).toBeLessThan(rowB.seq)
+          expect(await readers(o.obligationId, o.escrow.id)).toEqual(expected(status, [rowB], rowB))
+          await a.query('COMMIT')
+          expect(await readers(o.obligationId, o.escrow.id)).toEqual(expected(status, [rowA, rowB], rowB, rowA))
+        })
+
+        it('(c) latest = greatest committed seq, recordedAt ignored: A begins first (earlier recordedAt) but inserts after B (higher seq), so A becomes latest when it commits', async () => {
+          requirePostgres('cto245 c')
+          const o = await obligationIn(status, `245c-${status}`)
+          await a.query('BEGIN')
+          const aStart = await txStartMs(a)
+          await sleep(15)
+          await b.query('BEGIN')
+          const rowB = await insert(b, o.obligationId, evB)
+          await b.query('COMMIT')
+          expect(await readers(o.obligationId, o.escrow.id)).toEqual(expected(status, [rowB], rowB))
+          const rowA = await insert(a, o.obligationId, evA)
+          await a.query('COMMIT')
+          expect(rowA.ms).toBe(aStart) // recordedAt is A's transaction start, not its insert time
+          expect(rowA.ms).toBeLessThan(rowB.ms)
+          expect(rowA.seq).toBeGreaterThan(rowB.seq)
+          expect(await readers(o.obligationId, o.escrow.id)).toEqual(expected(status, [rowB, rowA], rowA, rowA))
+        })
+
+        it('(d) latest = greatest COMMITTED seq: a rolled-back insert leaves a gap in seq and changes no reader', async () => {
+          requirePostgres('cto245 d')
+          const o = await obligationIn(status, `245d-${status}`)
+          await a.query('BEGIN')
+          const rowA = await insert(a, o.obligationId, evA, FORCED_AT)
+          await b.query('BEGIN')
+          const rowB = await insert(b, o.obligationId, evB, FORCED_AT)
+          await b.query('COMMIT')
+          const before = await readers(o.obligationId, o.escrow.id)
+          await a.query('ROLLBACK')
+          expect(await readers(o.obligationId, o.escrow.id)).toEqual(before)
+          expect(before).toEqual(expected(status, [rowB], rowB))
+          const seqs = await prisma.$queryRawUnsafe<Array<{ seq: number }>>(`SELECT seq FROM fee_collection_evidence WHERE seq IN ($1, $2)`, rowA.seq, rowB.seq)
+          expect(seqs.map((r) => r.seq)).toEqual([rowB.seq])
+        })
+
+        it('(e) the only answer change: a HIGHER seq inserted before an earlier read but committed after it becomes latest on the next read', async () => {
+          requirePostgres('cto245 e')
+          const o = await obligationIn(status, `245e-${status}`)
+          await b.query('BEGIN')
+          await a.query('BEGIN')
+          const rowB = await insert(b, o.obligationId, evB)
+          const rowA = await insert(a, o.obligationId, evA)
+          await b.query('COMMIT')
+          expect(rowA.seq).toBeGreaterThan(rowB.seq)
+          expect(await readers(o.obligationId, o.escrow.id)).toEqual(expected(status, [rowB], rowB))
+          await a.query('COMMIT')
+          expect(await readers(o.obligationId, o.escrow.id)).toEqual(expected(status, [rowB, rowA], rowA, rowA))
+        })
+      })
+
+      // Why recordedAt cannot order application writes either: Prisma Client fills @default(now()) itself.
+      it('application writes: Prisma sets recordedAt at insert time (app clock), not the DB transaction start', async () => {
+        requirePostgres('cto245 prisma recordedAt')
+        const o = await obligationIn('IN_PROGRESS', '245-prisma')
+        const { row, startMs } = await prisma.$transaction(async (tx) => {
+          const [{ ms }] = await tx.$queryRawUnsafe<Array<{ ms: number }>>(`SELECT (extract(epoch FROM now()::timestamp(3)) * 1000)::float8 AS ms`)
+          await tx.$executeRawUnsafe('SELECT pg_sleep(0.2)')
+          return { row: await feeCollectionEvidenceRepository.record({ feeObligationId: o.obligationId, kind: 'DROPPED', txid: TXID_A }, tx), startMs: ms }
+        })
+        expect(row.recordedAt.getTime() - startMs).toBeGreaterThanOrEqual(150)
+      })
+    })
+
+    // ─── CTO 245 — seq is write-once ────────────────────────────────────
+    describe('CTO 245 — seq immutability trigger', () => {
+      it('an UPDATE that changes seq is refused; an UPDATE of another column (note) still works and keeps seq', async () => {
+        requirePostgres('cto245 seq immutability')
+        const o = await obligationIn('IN_PROGRESS', '245-immut')
+        const row = await feeCollectionEvidenceRepository.record({ feeObligationId: o.obligationId, kind: 'DROPPED', txid: TXID_A })
+        await expect(prisma.$executeRawUnsafe(`UPDATE fee_collection_evidence SET seq = seq + 1000000 WHERE id = $1`, row.id))
+          .rejects.toThrow(/seq is immutable/)
+        await expect(prisma.feeCollectionEvidence.update({ where: { id: row.id }, data: { seq: row.seq + 1 } })).rejects.toThrow(/seq is immutable/)
+        await prisma.$executeRawUnsafe(`UPDATE fee_collection_evidence SET note = 'cto245' WHERE id = $1`, row.id)
+        const after = await prisma.feeCollectionEvidence.findUnique({ where: { id: row.id } })
+        expect(after!.note).toBe('cto245')
+        expect(after!.seq).toBe(row.seq)
+      })
+    })
+
+    // ─── CTO 245 (A) — economic impact of a historical tie ──────────────
+    // Rows that predate the seq column got seq in physical order. These cases fix which row a historical tie
+    // resolves to and show what allocate() does with it. They characterize current behavior; they do not
+    // change it (economic policy is a CTO decision).
+    describe('CTO 245 (A) — historical same-millisecond CONFIRMED tie, economic outcome', () => {
+      async function otherPolicyId(): Promise<string> {
+        const { distributionPolicyService } = require('../../src/modules/open-settlement/distribution-policy.service')
+        const { distributionRecipientRepository } = require('../../src/modules/open-settlement/distribution-recipient-repository')
+        const recipient = await distributionRecipientRepository.create({ class: `FIXTURE_CTO245_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, label: 'cto245-other' })
+        const draft = await distributionPolicyService.createDraft({ label: `cto245-${Date.now()}`, createdBy: 'cto245-integration-test' })
+        await distributionPolicyService.addRecipient(draft.id, recipient.id, '100')
+        return draft.id
+      }
+
+      it.each([['live policy holds the higher seq', true], ['other policy holds the higher seq', false]])(
+        'allocate(): on two tied CONFIRMED rows frozen to different policies, the higher seq decides who is entitled (%s)', async (_l, liveHigher) => {
+          requirePostgres('cto245 A policy')
+          const other = await otherPolicyId()
+          const o = await obligationIn('COLLECTED', '245A-policy')
+          const [low, high] = liveHigher ? [other, livePolicyId] : [livePolicyId, other]
+          await tiedPair(o.obligationId, { kind: 'CONFIRMED', txid: TXID_A, distributionPolicyVersionId: low }, { kind: 'CONFIRMED', txid: TXID_A, distributionPolicyVersionId: high }, true)
+          await entitlementAllocationService.allocate(o.obligationId)
+          const entries = await prisma.entitlementLedgerEntry.findMany({ where: { feeObligationId: o.obligationId } })
+          expect(new Set(entries.map((e) => e.distributionPolicyVersionId))).toEqual(new Set([high]))
+        })
+
+      it('STOP characterization: an obligation allocated on the tie row the old order picked is allocated AGAIN once seq makes the other row latest', async () => {
+        requirePostgres('cto245 A double allocation')
+        const o = await obligationIn('COLLECTED', '245A-double')
+        const recordedAt = new Date(Date.now() + 86_400_000)
+        const [lo, hi] = await nextSeqs()
+        const confirmed = { kind: 'CONFIRMED' as const, txid: TXID_A, distributionPolicyVersionId: livePolicyId, feeObligationId: o.obligationId, recordedAt }
+        const x = await prisma.feeCollectionEvidence.create({ data: { ...confirmed, seq: lo } })
+        await entitlementAllocationService.allocate(o.obligationId) // as if allocated before the migration, on x
+        const y = await prisma.feeCollectionEvidence.create({ data: { ...confirmed, seq: hi } }) // the tied row seq now ranks higher
+
+        const flagged = await distributionReconciliation.findCollectedNotYetAllocated()
+        expect(flagged.find((r) => r.feeObligationId === o.obligationId)?.confirmationEvidenceId).toBe(y.id)
+        await entitlementAllocationService.allocate(o.obligationId)
+        const entries = await prisma.entitlementLedgerEntry.findMany({ where: { feeObligationId: o.obligationId, kind: 'ALLOCATION' } })
+        const sumFor = (id: string) => entries.filter((e) => e.confirmationEvidenceId === id).reduce((s, e) => s.plus(e.amount), new Prisma.Decimal(0))
+        expect(sumFor(x.id).isZero()).toBe(false)
+        expect(sumFor(y.id).toString()).toBe(sumFor(x.id).toString()) // the same revenue entitled twice
+      })
     })
   })
 })

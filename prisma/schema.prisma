@@ -979,10 +979,12 @@ model FeeCollectionEvidence {
   confirmedAtHeight Int?
   note              String?
   recordedAt        DateTime                  @default(now())
-  // CTO 239 — insertion-order tie-break for "latest evidence" reads. recordedAt is timestamp(3) and
-  // two rows of one obligation often share a millisecond; every reader orders by (recordedAt, seq).
-  // Rows that predate this column got values in physical order when it was added (migration
-  // 20261116120000); that order is arbitrary for historical same-millisecond ties but now fixed.
+  // CTO 239/245/246 — record order. "Latest evidence" = greatest seq among committed rows; every
+  // reader orders by seq alone. seq is nextval at INSERT (after the collectionStatus lock for
+  // BROADCAST), never updated (DB trigger). recordedAt is informational: it is not commit order
+  // (a lock-waiting writer can carry the smaller one) and it ties within a millisecond.
+  // Pre-existing rows keep the physical-order seq from migration 20261116120000 (not economic
+  // evidence; review per docs/DEPLOYMENT.md 6.5).
   seq               Int                       @default(autoincrement())
 
   // Missão 11 Fase 7.2 — CTO-frozen decision: DistributionPolicyVersion

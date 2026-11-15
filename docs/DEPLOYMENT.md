@@ -383,6 +383,72 @@ Do not proceed with a restore, and escalate instead, if:
   this section) do not match the last known source counts — investigate
   before repointing any application traffic at the restored database.
 
+## 6.5 Fee collection evidence: historical order review (CTO 245/246/249)
+
+Since migration `20261116120000_fee_collection_evidence_seq`, "the latest
+fee collection evidence" of an obligation is the committed row with the
+greatest `seq` (record order); `recordedAt` is informational. Rows that
+existed before the migration keep the `seq` the migration assigned in
+physical order. That historical order is **not economic evidence**, and it
+is never rewritten automatically. For an obligation with pre-migration
+evidence, the decision can depend on it in two ways:
+
+- **Ties:** two or more rows share the obligation's greatest `recordedAt`;
+  the old reader picked either one.
+- **Disagreement:** the greatest-`seq` row is not at the greatest
+  `recordedAt`, so the old `ORDER BY "recordedAt" DESC` reader and the new
+  `seq` reader pick different rows.
+
+Read-only inventory (run after the migration; it writes nothing). For every
+obligation with pre-migration evidence, overall (`scope = 'ANY'`) and per
+evidence kind, it lists the cases above with the candidate rows and whether
+a candidate CONFIRMED row already has an ALLOCATION:
+
+```sql
+WITH applied AS (
+  SELECT finished_at AT TIME ZONE 'UTC' AS at FROM _prisma_migrations
+  WHERE migration_name = '20261116120000_fee_collection_evidence_seq' AND finished_at IS NOT NULL
+), ev AS (
+  SELECT e.id, e."feeObligationId", e.kind::text AS kind, e."recordedAt", e.seq, 'ANY' AS scope FROM fee_collection_evidence e
+  UNION ALL
+  SELECT e.id, e."feeObligationId", e.kind::text, e."recordedAt", e.seq, e.kind::text FROM fee_collection_evidence e
+), ranked AS (
+  SELECT ev.*,
+         max("recordedAt") OVER w AS top_at,
+         max(seq) OVER w AS top_seq,
+         bool_or("recordedAt" < (SELECT at FROM applied)) OVER w AS has_historical
+  FROM ev WINDOW w AS (PARTITION BY "feeObligationId", scope)
+)
+SELECT "feeObligationId", scope,
+       count(*) FILTER (WHERE "recordedAt" = top_at) AS "rowsAtMaxRecordedAt",
+       bool_or(seq = top_seq AND "recordedAt" < top_at) AS "seqAndRecordedAtDisagree",
+       array_agg(kind || ' seq=' || seq || ' at=' || "recordedAt" || ' id=' || id ORDER BY seq)
+         FILTER (WHERE "recordedAt" = top_at OR seq = top_seq) AS "candidateRows",
+       coalesce(bool_or(EXISTS (SELECT 1 FROM entitlement_ledger_entries l
+                                WHERE l."confirmationEvidenceId" = ranked.id AND l.kind = 'ALLOCATION'))
+         FILTER (WHERE kind = 'CONFIRMED' AND ("recordedAt" = top_at OR seq = top_seq)), false) AS "candidateAllocated"
+FROM ranked
+WHERE has_historical
+GROUP BY "feeObligationId", scope
+HAVING count(*) FILTER (WHERE "recordedAt" = top_at) >= 2
+    OR bool_or(seq = top_seq AND "recordedAt" < top_at)
+ORDER BY "feeObligationId", scope;
+```
+
+Operator handling:
+
+- Review each listed obligation before relying on reconciliation output
+  for it. Nothing is rewritten automatically, and `seq` cannot be changed
+  (a trigger refuses it).
+- `scope = 'CONFIRMED'` is the economic case: `allocate()` uses the
+  greatest-`seq` CONFIRMED row. If `candidateAllocated` is true and the
+  allocated row is not the greatest `seq`, do not run `allocate()` for
+  that obligation: it would allocate the same revenue a second time under
+  the other row. Escalate to the CTO.
+- Other scopes affect detect-only checks (`findUnresolvedChainEvents()`,
+  the txid and destination checks) or which BROADCAST the confirmation job
+  watches. Compare the candidate rows with the chain before acting.
+
 ## 7. Production Considerations
 
 - [ ] Reverse proxy/TLS — closed differently than originally planned:

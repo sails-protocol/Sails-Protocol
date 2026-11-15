@@ -111,7 +111,7 @@ describe('Distribution & Entitlement Accounting Foundation (Missão 11 Fase 6.3A
     await feeCollectionRecognitionService.recordBroadcastAndAdvance(obligation.id, { txid, vout: 1, scriptPubKey: 'deadbeef', amountSats: 1 })
     await feeCollectionRecognitionService.recognizeConfirmation(obligation.id, txid, 800_000)
 
-    const confirmed = await prisma.feeCollectionEvidence.findFirst({ where: { feeObligationId: obligation.id, kind: 'CONFIRMED' }, orderBy: [{ recordedAt: 'desc' }, { seq: 'desc' }] })
+    const confirmed = await prisma.feeCollectionEvidence.findFirst({ where: { feeObligationId: obligation.id, kind: 'CONFIRMED' }, orderBy: { seq: 'desc' } })
     return { obligationId: obligation.id, confirmationEvidenceId: confirmed!.id }
   }
 
@@ -610,7 +610,7 @@ describe('Distribution & Entitlement Accounting Foundation (Missão 11 Fase 6.3A
       const { obligationId } = await fixtureCollectedObligation('0.00000101')
 
       for (let cycle = 0; cycle < 3; cycle++) {
-        const evidence = await prisma.feeCollectionEvidence.findFirstOrThrow({ where: { feeObligationId: obligationId, kind: 'CONFIRMED' }, orderBy: [{ recordedAt: 'desc' }, { seq: 'desc' }] })
+        const evidence = await prisma.feeCollectionEvidence.findFirstOrThrow({ where: { feeObligationId: obligationId, kind: 'CONFIRMED' }, orderBy: { seq: 'desc' } })
         await entitlementAllocationService.allocate(obligationId)
         const confirmedRow = await prisma.feeCollectionEvidence.findUniqueOrThrow({ where: { id: evidence.id } })
         await feeCollectionRecognitionService.recordReorgAndRevert(obligationId, confirmedRow.txid!)
