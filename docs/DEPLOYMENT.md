@@ -426,9 +426,15 @@ until it is classified, and the grant step fails while any table is unclassified
    refuses to start if that role is a superuser, has CREATEROLE/CREATEDB/
    REPLICATION/BYPASSRLS, is a member of any role, owns the database, schema or
    any relation or routine in `public`, can CREATE in `public` or in the database,
-   can create TEMP tables, holds TRUNCATE/TRIGGER/REFERENCES on any table, or can
-   UPDATE/DELETE an append-only or frozen table as a whole, counting grants to
-   PUBLIC (`src/common/database/runtime-privileges.ts`).
+   can create TEMP tables, or holds ANY table- or column-level privilege beyond its
+   table's class, counting grants to PUBLIC; an unclassified table allows nothing
+   (`src/common/database/runtime-privileges.ts`). The classes it compares against
+   are the ones the grant step applied and recorded in schema `sails_meta`
+   (`runtime_table_class`, `runtime_column_update`, readable by the runtime): one
+   inventory, `scripts/db/runtime-grants.sql`, so the boot check cannot drift from
+   it, and a stray grant made between deploys is refused at the next boot. Run
+   migrations through `npm run db:migrate` (= `scripts/migrate-deploy-safe.sh`),
+   never `npx prisma migrate deploy` alone: that skips the grants.
    `DB_PRIVILEGE_CHECK=enforce|warn` runs the same check elsewhere: `docker-compose.yml`
    enforces it; set `enforce` in any shared non-production environment (staging),
    where the default is off.
