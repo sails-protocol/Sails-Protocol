@@ -56,11 +56,11 @@ real and callable as shown.
 | Verb | Maps to (internally) | Primitive it invokes |
 |---|---|---|
 | `createIntent` | `POST /v1/{module}/intents` | Intent (`PROTOCOL_SPECIFICATION.md` §1.2) |
-| `cancelIntent` | `PATCH /v1/{module}/intents/:id` (status → CANCELLED) | Intent |
+| `cancelIntent` | `DELETE /v1/intents/:id` (status → CANCELLED; `409 INTENT_BOUND` for an Offer's or a Trade's Intent, see §1B). *Corrected 2026-11-15 (E21 slice 1, PR #651): this row named `PATCH /v1/{module}/intents/:id`, a route the SDK never called.* | Intent |
 | `negotiate` | **Not implemented in the SDK today** — throws `SailsNotImplementedError`; use `openp2p.chat(tradeId)`'s real `WebSocketChannel` instead | Negotiation (§1.4) |
 | `submitProof` | Submits a `Proof` — `claimType` is open-ended (`payment_sent`, `invoice_paid`, `oracle_verified`, `delivery_confirmed`, `collateral_held`, ...), never hardcoded at the API level | Proof (§1.8) |
-| `releaseAsset` | `POST /v1/settlement/escrow/:id/release` | Settlement (§1.5) |
-| `dispute` | `POST /v1/settlement/escrow/:id/dispute` | Dispute (§1.9) |
+| `releaseAsset` | `GET /v1/openp2p/trades/by-intent/:intentId`, then `POST /v1/settlement/escrow/:id/release` (by-intent errors, including `409 AMBIGUOUS_INTENT`, see §5) | Settlement (§1.5) |
+| `dispute` | `GET /v1/openp2p/trades/by-intent/:intentId`, then `POST /v1/settlement/escrow/:id/dispute` (same by-intent errors, see §5) | Dispute (§1.9) |
 
 **RFC-007 note:** an escrow's status is *designed* to eventually pass
 through `PENDING_BANK_SETTLEMENT` between `payment-sent` and `release`
@@ -121,7 +121,7 @@ a Module.
 | Method | Path | Description |
 |---|---|---|
 | POST | `/v1/intents` | `{ type: 'TradeIntent', payload, agentId? }`. Requires auth — `participantId` is derived from the session (`requireAuth`), never accepted from the body. Runs the full `CREATED → VALIDATED → COORDINATED` lifecycle (RFC-012) before returning. |
-| DELETE | `/v1/intents/:id` | Requires auth. Only the Intent's own `participantId` may cancel it — `403` otherwise. |
+| DELETE | `/v1/intents/:id` | Requires auth. Unknown Intent `404 NOT_FOUND`. Only the Intent's own `participantId` may cancel it — `403 FORBIDDEN` otherwise, checked before anything else. **Additive, 2026-11-15 (E21 slice 1, PR #651):** an Intent that an Offer or a Trade references (an Offer's Intent, or a trade's own `tradeIntentId`) answers `409 INTENT_BOUND` and is not changed; it moves only with its Offer (`PATCH /v1/liquidity/offers/:id/status`) or its trade (`PATCH /v1/openp2p/trades/:id/status`). |
 
 Not documented here until a gap audit found `POST`/`DELETE` had no auth
 at all (`THREAT_MODEL.md` §4) — added alongside that fix rather than
@@ -241,7 +241,7 @@ tracked; see that file's "Resolved Items" section.
 |---|---|---|
 | POST | `/v1/openp2p/trades` | Start a trade from an offer |
 | GET | `/v1/openp2p/trades/:id` | Trade detail with escrow + messages + originating offer |
-| GET | `/v1/openp2p/trades/by-intent/:intentId` | Resolve an `intentId` to the Trade it produced (RFC-018) — new, backs `@satsails/p2p-trading-sdk`'s `dispute()` |
+| GET | `/v1/openp2p/trades/by-intent/:intentId` | Resolve an `intentId` to the Trade it produced (RFC-018) — new, backs `@satsails/p2p-trading-sdk`'s `dispute()`, `releaseAsset()` and `openp2p.getTradeByIntent()`. Requires auth. **Caller-scoped, 2026-11-15 (E21 slice 1, PR #651):** a trade's own Intent (`tradeIntentId`) resolves to that trade for its buyer and seller; an Offer's Intent resolves to the caller's only trade on that Offer. Several of the caller's trades on it: `409 AMBIGUOUS_INTENT`, `details: { tradeIds }` (the caller's own trades only; before, one was picked arbitrarily). A non-party and an unknown Intent both get the same `404 NOT_FOUND` (a non-party got `403` before). |
 | PATCH | `/v1/openp2p/trades/:id/status` | Update trade status (ACTIVE/DISPUTED/CANCELLED) |
 | WS | `/v1/openp2p/chat` | WebSocket negotiation channel (see below) |
 | GET | `/v1/openp2p/chat/:tradeId/messages` | Message history for a trade |
