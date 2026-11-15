@@ -195,7 +195,7 @@ describe('CTO 225 - runtime role cannot bypass write-once guarantees (disposable
     await expectSqlError(runtime, 'TRUNCATE custody_attestations')
   })
 
-  it('the grant step fails when sails_runtime is missing, and runs only for a segregated database', async () => {
+  it('the grant step fails when sails_runtime is missing; the legacy single credential is an explicit opt-in', async () => {
     const sql = readFileSync(join(ROOT, 'scripts', 'db', 'runtime-grants.sql'), 'utf8')
       .replace("runtime_role constant text := 'sails_runtime'", "runtime_role constant text := 'sails_runtime_absent'")
     const tmp = `runtime-grants-absent-${randomUUID()}.sql` // relative to ROOT: the prisma CLI path must not contain spaces on Windows
@@ -211,10 +211,20 @@ describe('CTO 225 - runtime role cannot bypass write-once guarantees (disposable
       require('fs').unlinkSync(join(ROOT, tmp))
     }
     expect(output).toMatch(/role sails_runtime_absent does not exist/)
+    // Neither a migrator URL nor the legacy opt-in: refused before any migration runs.
+    let refused = ''
+    try {
+      execFileSync('sh', ['scripts/migrate-deploy-safe.sh'], {
+        cwd: ROOT, env: { ...process.env, MIGRATION_DATABASE_URL: '', SAILS_LEGACY_SINGLE_CREDENTIAL: '', DATABASE_URL: adminUrl }, encoding: 'utf8', stdio: 'pipe',
+      })
+    } catch (err) {
+      refused = String((err as { stderr?: string }).stderr ?? '')
+    }
+    expect(refused).toMatch(/set MIGRATION_DATABASE_URL .* or, for a legacy single-credential database only, SAILS_LEGACY_SINGLE_CREDENTIAL=1/)
     const legacy = execFileSync('sh', ['scripts/migrate-deploy-safe.sh'], {
-      cwd: ROOT, env: { ...process.env, MIGRATION_DATABASE_URL: '', DATABASE_URL: adminUrl }, encoding: 'utf8', stdio: 'pipe',
+      cwd: ROOT, env: { ...process.env, MIGRATION_DATABASE_URL: '', SAILS_LEGACY_SINGLE_CREDENTIAL: '1', DATABASE_URL: adminUrl }, encoding: 'utf8', stdio: 'pipe',
     })
-    expect(legacy).toMatch(/runtime grants NOT applied/)
+    expect(legacy).toMatch(/SAILS_LEGACY_SINGLE_CREDENTIAL=1: legacy single-credential database, runtime grants NOT applied/)
   })
 
   it('the runtime ingests and reads offers and tombstones through the real repository', async () => {

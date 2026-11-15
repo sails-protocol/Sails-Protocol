@@ -416,11 +416,12 @@ until it is classified, and the grant step fails while any table is unclassified
    already there (ownership only: no row is read or changed). On RDS first run
    `GRANT sails_migrator TO <master>` so the master may transfer ownership.
 2. Migrator, every release: `MIGRATION_DATABASE_URL=... sh scripts/migrate-deploy-safe.sh`
-   (migrations, then the runtime grants). `MIGRATION_DATABASE_URL` marks the database
-   as segregated: the grant step then fails if `sails_runtime` does not exist or a
-   table is unclassified. Without it the script prints that the database is still
-   on the legacy single credential and applies no grants (production refuses to
-   boot on that credential).
+   (migrations, then the runtime grants; the grant step fails if `sails_runtime`
+   does not exist or a table is unclassified). Without `MIGRATION_DATABASE_URL` the
+   script refuses to run, before migrating anything, unless the legacy single
+   superuser credential is opted into explicitly with `SAILS_LEGACY_SINGLE_CREDENTIAL=1`;
+   then it migrates, applies no grants and says so (production refuses to boot on
+   that credential).
 3. Application: `DATABASE_URL` = `sails_runtime`. In production the server
    refuses to start if that role is a superuser, has CREATEROLE/CREATEDB/
    REPLICATION/BYPASSRLS, is a member of any role, owns the database, schema or
