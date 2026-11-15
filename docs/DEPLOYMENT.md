@@ -432,9 +432,18 @@ until it is classified, and the grant step fails while any table is unclassified
    are the ones the grant step applied and recorded in schema `sails_meta`
    (`runtime_table_class`, `runtime_column_update`, readable by the runtime): one
    inventory, `scripts/db/runtime-grants.sql`, so the boot check cannot drift from
-   it, and a stray grant made between deploys is refused at the next boot. Run
+   it, and a stray grant made between deploys is refused at the next boot. The
+   inventory is itself guarded: the boot check also refuses the runtime if it
+   could INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER either `sails_meta` table
+   (table or column level, PUBLIC included), CREATE in `sails_meta`, or owns the
+   schema or any relation in it (it would otherwise rewrite its own class). Run
    migrations through `npm run db:migrate` (= `scripts/migrate-deploy-safe.sh`),
    never `npx prisma migrate deploy` alone: that skips the grants.
+
+Shell requirement: `scripts/migrate-deploy-safe.sh` (and therefore `npm run
+db:migrate`) needs a POSIX-compatible `sh` (Linux, macOS, the Docker images,
+CI; on Windows use WSL or Git Bash). Native Windows `cmd`/PowerShell is not
+supported by these scripts.
    `DB_PRIVILEGE_CHECK=enforce|warn` runs the same check elsewhere: `docker-compose.yml`
    enforces it; set `enforce` in any shared non-production environment (staging),
    where the default is off.

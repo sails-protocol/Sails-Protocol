@@ -194,6 +194,44 @@ describe('CTO 225 - runtime role cannot bypass write-once guarantees (disposable
     ])
   })
 
+  it('N4: the runtime can read but never modify the sails_meta inventory, and the boot check refuses any grant that would let it', async () => {
+    const { rows } = await runtime.query('SELECT count(*)::int AS n FROM sails_meta.runtime_table_class')
+    expect(rows[0].n).toBe(classification().size)
+    for (const sql of [
+      "INSERT INTO sails_meta.runtime_table_class VALUES ('zz', 'mutable_delete')",
+      "UPDATE sails_meta.runtime_table_class SET class = 'mutable_delete' WHERE table_name = 'offer_envelopes'",
+      'DELETE FROM sails_meta.runtime_table_class',
+      'TRUNCATE sails_meta.runtime_table_class',
+      "INSERT INTO sails_meta.runtime_column_update VALUES ('offer_envelopes', 'status')",
+      'DELETE FROM sails_meta.runtime_column_update',
+      'ALTER TABLE sails_meta.runtime_table_class DROP CONSTRAINT runtime_table_class_class_check',
+      'DROP TABLE sails_meta.runtime_column_update',
+      'CREATE TABLE sails_meta.zz (id int)',
+      'ALTER SCHEMA sails_meta RENAME TO zz_meta',
+    ]) await expectSqlError(runtime, sql)
+    const check = () => app.privileges.inspectRuntimePrivileges()
+    expect(await check()).toEqual([])
+    const breaches: Array<[string, string, RegExp]> = [
+      ['GRANT UPDATE ON sails_meta.runtime_table_class TO sails_runtime', 'REVOKE UPDATE ON sails_meta.runtime_table_class FROM sails_runtime', /can modify the privilege classification \(runtime_table_class:UPDATE\)/],
+      ['GRANT INSERT ON sails_meta.runtime_column_update TO PUBLIC', 'REVOKE INSERT ON sails_meta.runtime_column_update FROM PUBLIC', /can modify the privilege classification \(runtime_column_update:INSERT\)/],
+      ['GRANT DELETE, TRUNCATE ON sails_meta.runtime_table_class TO PUBLIC', 'REVOKE DELETE, TRUNCATE ON sails_meta.runtime_table_class FROM PUBLIC', /runtime_table_class:DELETE, runtime_table_class:TRUNCATE/],
+      ['GRANT UPDATE ("class") ON sails_meta.runtime_table_class TO sails_runtime', 'REVOKE UPDATE ("class") ON sails_meta.runtime_table_class FROM sails_runtime', /runtime_table_class:UPDATE/],
+      ['GRANT CREATE ON SCHEMA sails_meta TO sails_runtime', 'REVOKE CREATE ON SCHEMA sails_meta FROM sails_runtime', /can CREATE in schema sails_meta/],
+      ['ALTER TABLE sails_meta.runtime_column_update OWNER TO sails_runtime', 'ALTER TABLE sails_meta.runtime_column_update OWNER TO sails_migrator', /owns \d+ relation\(s\) in schema sails_meta/], // the table and its primary-key index
+      ['GRANT sails_migrator TO sails_runtime', 'REVOKE sails_migrator FROM sails_runtime', /is a member of 1 other role/],
+    ]
+    for (const [breach, undo, expected] of breaches) {
+      await admin.query(breach)
+      try {
+        expect((await check()).join('; ')).toMatch(expected)
+      } finally {
+        await admin.query(undo)
+      }
+    }
+    grant({ MIGRATION_DATABASE_URL: migratorUrl }) // an ownership round trip drops the runtime's SELECT; the grant step restores the baseline
+    expect(await check()).toEqual([])
+  })
+
   it('MG1/MG2: re-running the grant step revokes stale table and column grants; the boot check refuses them in between (N2)', async () => {
     const check = () => app.privileges.inspectRuntimePrivileges()
     expect(await check()).toEqual([])

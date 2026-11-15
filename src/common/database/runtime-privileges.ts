@@ -61,6 +61,23 @@ export async function inspectRuntimePrivileges(query: Query = prisma.$queryRaw.b
   if (!installed) {
     findings.push('has no readable privilege classification (sails_meta; run scripts/db/runtime-grants.sql as the migrator)')
   } else {
+    // N4 (CTO 242): the inventory itself must be read-only for this role, or it could rewrite its own classification.
+    const [meta] = (await query`
+      SELECT has_schema_privilege('sails_meta', 'CREATE') AS can_create,
+             (SELECT n.nspowner = r.oid FROM pg_namespace n WHERE n.nspname = 'sails_meta') AS owns_schema,
+             (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+               WHERE n.nspname = 'sails_meta' AND c.relowner = r.oid) AS owned,
+             (SELECT string_agg(c.relname || ':' || p.privilege, ', ' ORDER BY c.relname, p.privilege)
+                FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+               CROSS JOIN (VALUES ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) p(privilege)
+               WHERE n.nspname = 'sails_meta' AND c.relkind IN ('r', 'p')
+                 AND (has_table_privilege(c.oid, p.privilege)
+                   OR CASE WHEN p.privilege IN ('INSERT', 'UPDATE', 'REFERENCES') THEN has_any_column_privilege(c.oid, p.privilege) ELSE false END)) AS writable
+        FROM pg_roles r WHERE r.rolname = current_user`) as Array<{ can_create: boolean; owns_schema: boolean; owned: number; writable: string | null }>
+    if (meta.can_create) findings.push('can CREATE in schema sails_meta')
+    if (meta.owns_schema) findings.push('owns schema sails_meta')
+    if (Number(meta.owned) > 0) findings.push(`owns ${meta.owned} relation(s) in schema sails_meta`)
+    if (meta.writable) findings.push(`can modify the privilege classification (${meta.writable})`)
     const excess = (await query`
       WITH cls AS (SELECT table_name, class FROM sails_meta.runtime_table_class),
       allowed(class, privilege) AS (VALUES
