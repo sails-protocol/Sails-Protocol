@@ -39,6 +39,8 @@
 -- fee_collection_evidence_enforce_distribution_policy_immutability()).
 --
 -- Reversal (not applied automatically):
+--   DROP TRIGGER fee_collection_evidence_seq_assign ON "fee_collection_evidence";
+--   DROP FUNCTION fee_collection_evidence_assign_seq();
 --   DROP TRIGGER fee_collection_evidence_seq_immutability_guard ON "fee_collection_evidence";
 --   DROP FUNCTION fee_collection_evidence_enforce_seq_immutability();
 --   ALTER TABLE "fee_collection_evidence" DROP COLUMN "seq";
@@ -59,3 +61,19 @@ CREATE TRIGGER fee_collection_evidence_seq_immutability_guard
 BEFORE UPDATE ON "fee_collection_evidence"
 FOR EACH ROW
 EXECUTE FUNCTION fee_collection_evidence_enforce_seq_immutability();
+
+-- CTO 255 G3 / CTO 261: "seq" is assigned by the database on every INSERT, whatever the client sent, so no role
+-- (sails_runtime included) can choose its row's position: an explicit value (huge, duplicate, negative) is replaced.
+-- The column DEFAULT stays (Prisma's autoincrement); it also draws a value, so each insert consumes two (gaps only).
+CREATE OR REPLACE FUNCTION fee_collection_evidence_assign_seq()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW."seq" := nextval('"fee_collection_evidence_seq_seq"');
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER fee_collection_evidence_seq_assign
+BEFORE INSERT ON "fee_collection_evidence"
+FOR EACH ROW
+EXECUTE FUNCTION fee_collection_evidence_assign_seq();

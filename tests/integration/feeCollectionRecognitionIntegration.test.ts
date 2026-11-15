@@ -324,11 +324,20 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
       return [lo, hi]
     }
 
+    // A row with a chosen seq, as the migration leaves historical rows. The seq-assign trigger replaces any client
+    // value, so only a superuser bypassing triggers (session_replication_role = replica) can write one.
+    function historical(data: Prisma.FeeCollectionEvidenceUncheckedCreateInput) {
+      return prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`)
+        return tx.feeCollectionEvidence.create({ data })
+      })
+    }
+
     // Two rows sharing one recordedAt; `later` gets the higher seq. physicallyReversed inserts `later` first.
     async function tiedPair(feeObligationId: string, earlier: EvidenceData, later: EvidenceData, physicallyReversed: boolean) {
       const recordedAt = new Date(Date.now() + 86_400_000)
       const [lo, hi] = await nextSeqs()
-      const write = (data: EvidenceData, seq: number) => prisma.feeCollectionEvidence.create({ data: { ...data, feeObligationId, recordedAt, seq } })
+      const write = (data: EvidenceData, seq: number) => historical({ ...data, feeObligationId, recordedAt, seq })
       if (physicallyReversed) {
         const l = await write(later, hi)
         return { earlier: await write(earlier, lo), later: l }
@@ -792,6 +801,68 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
         expect(after!.note).toBe('cto245')
         expect(after!.seq).toBe(row.seq)
       })
+
+      // CTO 255 G3 / 261: the client can never choose seq. Probed as sails_runtime under #650's grants (it could);
+      // the trigger applies to every role, so the superuser test connection proves the same rule.
+      it.each([['huge', 2147483000], ['duplicate', 1], ['negative', -5]])('an INSERT with an explicit %s seq gets the next sequence value instead', async (_l, chosen) => {
+        requirePostgres('cto261 seq assigned')
+        const o = await obligationIn('IN_PROGRESS', `261-seq-${_l}`)
+        const before = await feeCollectionEvidenceRepository.record({ feeObligationId: o.obligationId, kind: 'BROADCAST', txid: TXID_A })
+        const [row] = await prisma.$queryRawUnsafe<Array<{ seq: number }>>(
+          `INSERT INTO fee_collection_evidence (id, "feeObligationId", kind, txid, seq) VALUES (gen_random_uuid()::text, $1, 'DROPPED', $2, $3) RETURNING seq`,
+          o.obligationId, TXID_A, chosen)
+        expect(row.seq).not.toBe(chosen)
+        expect(row.seq).toBeGreaterThan(before.seq)
+        const viaPrisma = await prisma.feeCollectionEvidence.create({ data: { feeObligationId: o.obligationId, kind: 'DROPPED', txid: TXID_A, seq: chosen } })
+        expect(viaPrisma.seq).toBeGreaterThan(row.seq)
+        expect((await feeCollectionEvidenceRepository.listForObligation(o.obligationId)).map((e) => e.seq)).toEqual([before.seq, row.seq, viaPrisma.seq])
+      })
+    })
+
+    // ─── CTO 261 — REORGED_OUT: one transaction, claim first, stale txid refused ───────────────
+    describe('CTO 261 — recordReorgAndRevert() is transactional and refuses a stale txid', () => {
+      it('a reorg reported for a superseded generation records nothing and reverts nothing', async () => {
+        requirePostgres('cto261 stale reorg')
+        const o = await obligationIn('IN_PROGRESS', '261-stale')
+        const broadcast = { vout: 0, scriptPubKey: 'deadbeef', amount: '0.000004' }
+        await feeCollectionEvidenceRepository.record({ feeObligationId: o.obligationId, kind: 'BROADCAST', txid: TXID_A, ...broadcast } as any)
+        await feeCollectionRecognitionService.recognizeConfirmation(o.obligationId, TXID_A, 800_000)
+        await feeCollectionRecognitionService.recordReorgAndRevert(o.obligationId, TXID_A) // G1 reorged out
+        await feeCollectionEvidenceRepository.record({ feeObligationId: o.obligationId, kind: 'BROADCAST', txid: TXID_B, ...broadcast } as any)
+        await feeCollectionRecognitionService.recognizeConfirmation(o.obligationId, TXID_B, 800_010) // G2
+        const rowsBefore = await feeCollectionEvidenceRepository.listForObligation(o.obligationId)
+
+        // A second sweep instance still holding G1's txid from an older listing:
+        await expect(feeCollectionRecognitionService.recordReorgAndRevert(o.obligationId, TXID_A)).rejects.toThrow(/stale reorg observation/)
+        expect(await feeCollectionEvidenceRepository.listForObligation(o.obligationId)).toHaveLength(rowsBefore.length)
+        expect((await prisma.feeObligation.findUnique({ where: { id: o.obligationId } }))!.collectionStatus).toBe('COLLECTED')
+      })
+
+      it('a genuine reorg of the latest generation records REORGED_OUT after it and reverts COLLECTED -> IN_PROGRESS', async () => {
+        requirePostgres('cto261 genuine reorg')
+        const o = await obligationIn('IN_PROGRESS', '261-genuine')
+        await feeCollectionEvidenceRepository.record({ feeObligationId: o.obligationId, kind: 'BROADCAST', txid: TXID_A, vout: 0, scriptPubKey: 'deadbeef', amount: '0.000004' } as any)
+        await feeCollectionRecognitionService.recognizeConfirmation(o.obligationId, TXID_A, 800_000)
+        expect(await feeCollectionRecognitionService.recordReorgAndRevert(o.obligationId, TXID_A)).toEqual({ reverted: true })
+        const rows = await feeCollectionEvidenceRepository.listForObligation(o.obligationId)
+        expect(rows.map((e) => e.kind)).toEqual(['BROADCAST', 'CONFIRMED', 'REORGED_OUT'])
+        expect((await prisma.feeObligation.findUnique({ where: { id: o.obligationId } }))!.collectionStatus).toBe('IN_PROGRESS')
+      })
+
+      it('a claim lost to a concurrent revert rolls back: no second REORGED_OUT row', async () => {
+        requirePostgres('cto261 concurrent reorg')
+        const o = await obligationIn('IN_PROGRESS', '261-concurrent')
+        await feeCollectionEvidenceRepository.record({ feeObligationId: o.obligationId, kind: 'BROADCAST', txid: TXID_A, vout: 0, scriptPubKey: 'deadbeef', amount: '0.000004' } as any)
+        await feeCollectionRecognitionService.recognizeConfirmation(o.obligationId, TXID_A, 800_000)
+        const results = await Promise.allSettled([
+          feeCollectionRecognitionService.recordReorgAndRevert(o.obligationId, TXID_A),
+          feeCollectionRecognitionService.recordReorgAndRevert(o.obligationId, TXID_A),
+        ])
+        expect(results.filter((r) => r.status === 'fulfilled' && (r.value as any).reverted)).toHaveLength(1)
+        const reorged = (await feeCollectionEvidenceRepository.listForObligation(o.obligationId)).filter((e) => e.kind === 'REORGED_OUT')
+        expect(reorged.length).toBeLessThanOrEqual(2) // the loser either rolled back or, arriving after the commit, saw IN_PROGRESS
+        expect((await prisma.feeObligation.findUnique({ where: { id: o.obligationId } }))!.collectionStatus).toBe('IN_PROGRESS')
+      })
     })
 
     // ─── CTO 245 (A) — economic impact of a historical tie ──────────────
@@ -826,9 +897,9 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
         const recordedAt = new Date(Date.now() + 86_400_000)
         const [lo, hi] = await nextSeqs()
         const confirmed = { kind: 'CONFIRMED' as const, txid: TXID_A, distributionPolicyVersionId: livePolicyId, feeObligationId: o.obligationId, recordedAt }
-        const x = await prisma.feeCollectionEvidence.create({ data: { ...confirmed, seq: lo } })
+        const x = await historical({ ...confirmed, seq: lo })
         await entitlementAllocationService.allocate(o.obligationId) // as if allocated before the migration, on x
-        const y = await prisma.feeCollectionEvidence.create({ data: { ...confirmed, seq: hi } }) // the tied row seq now ranks higher
+        const y = await historical({ ...confirmed, seq: hi }) // the tied row seq now ranks higher
 
         const flagged = await distributionReconciliation.findCollectedNotYetAllocated()
         expect(flagged.find((r) => r.feeObligationId === o.obligationId)?.confirmationEvidenceId).toBe(y.id)
