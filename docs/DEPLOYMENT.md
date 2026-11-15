@@ -452,6 +452,20 @@ Do not proceed with a restore, and escalate instead, if:
 
 ## 8. AWS Production Deployment (2026-08-02)
 
+> **Historical, not the approved production infrastructure (2026-11-14,
+> CTO 144).** This section records the AWS plan of August 2026 (App
+> Runner, RDS, Secrets Manager). It is kept unchanged for traceability.
+> It is **not** the approved production infrastructure:
+>
+> - The definitive hosting provider has **not** been chosen.
+> - Any future deployment, on AWS or elsewhere, requires its own
+>   homologation and a specific GO before it starts.
+> - Nothing in this section, including its setup order and environment
+>   variables, authorizes a deployment, a migration on a real database or
+>   economic activation.
+> - Where later sections of this file refer to "the AWS RDS instance of
+>   section 8", they describe that historical plan.
+
 **Scope, stated explicitly rather than assumed**: a real, live deployment
 — real domain, real Postgres, real `MULTISIG` custody on Bitcoin mainnet
 — funded by the project owner's own balance to validate the full flow in
