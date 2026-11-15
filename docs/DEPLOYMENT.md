@@ -399,8 +399,12 @@ roles, never shared:
 
 Runtime privileges are per table, from the explicit classification in
 `scripts/db/runtime-grants.sql`: `read` (SELECT), `append` (SELECT, INSERT),
-`mutable` (+UPDATE) or `mutable_delete` (+DELETE). TRUNCATE, REFERENCES, TRIGGER,
-`CREATE` on the schema and any access to `_prisma_migrations` are never granted,
+`mutable` (+UPDATE), `append_delete` (SELECT, INSERT, DELETE) or `mutable_delete`
+(+UPDATE, DELETE; unused today). Where an append-only table has one column the
+runtime sets once, only that column gets UPDATE: `custody_attestations."supersededAt"`
+(NULL -> timestamp, also trigger-guarded) and `intent_events."publishedAt"` (the
+publication marker of the hash-chained history). TRUNCATE, REFERENCES, TRIGGER,
+`CREATE` on the schema, any table privilege for PUBLIC and any access to `_prisma_migrations` are never granted,
 and there are no default privileges: a table added by a migration is unreachable
 until it is classified, and the grant step fails while any table is unclassified.
 
@@ -412,13 +416,21 @@ until it is classified, and the grant step fails while any table is unclassified
    already there (ownership only: no row is read or changed). On RDS first run
    `GRANT sails_migrator TO <master>` so the master may transfer ownership.
 2. Migrator, every release: `MIGRATION_DATABASE_URL=... sh scripts/migrate-deploy-safe.sh`
-   (migrations, then the runtime grants).
+   (migrations, then the runtime grants). `MIGRATION_DATABASE_URL` marks the database
+   as segregated: the grant step then fails if `sails_runtime` does not exist or a
+   table is unclassified. Without it the script prints that the database is still
+   on the legacy single credential and applies no grants (production refuses to
+   boot on that credential).
 3. Application: `DATABASE_URL` = `sails_runtime`. In production the server
    refuses to start if that role is a superuser, has CREATEROLE/CREATEDB/
    REPLICATION/BYPASSRLS, is a member of any role, owns the database, schema or
-   any relation in `public`, can CREATE in `public`, or can UPDATE/DELETE/TRUNCATE
-   an append-only table (`src/common/database/runtime-privileges.ts`).
-   `DB_PRIVILEGE_CHECK=enforce|warn` runs the same check elsewhere (`docker-compose.yml` enforces it).
+   any relation or routine in `public`, can CREATE in `public` or in the database,
+   can create TEMP tables, holds TRUNCATE/TRIGGER/REFERENCES on any table, or can
+   UPDATE/DELETE an append-only or frozen table as a whole, counting grants to
+   PUBLIC (`src/common/database/runtime-privileges.ts`).
+   `DB_PRIVILEGE_CHECK=enforce|warn` runs the same check elsewhere: `docker-compose.yml`
+   enforces it; set `enforce` in any shared non-production environment (staging),
+   where the default is off.
 
 ### Existing installations
 
@@ -447,6 +459,17 @@ can stay in place: they do not change any row.
 - A runtime write path missing from the classification fails with SQLSTATE 42501
   (permission denied); the CI lane "Critical flows as the restricted runtime role"
   re-runs the critical real-Postgres suites as `sails_runtime` to catch it.
+- Segregation protects append-only records from deletion and rewrite, not the
+  mutable state: a compromised runtime can still INSERT into append tables (a
+  forged fact is caught only where reads verify a signature, e.g. offer envelopes)
+  and UPDATE mutable state (`offers`, `trades`, `escrows`, `disputes`, ...).
+- Not segregated: the main CI test lanes and the devcontainer
+  (`.devcontainer/docker-compose.extend.yml`) still connect as the superuser,
+  because test setup needs privileged operations (cleanup DELETE, fault-injection
+  triggers). Only the dedicated CI lane and `docker-compose.yml` run as `sails_runtime`.
+- `scripts/db/bootstrap-roles.js` sets the passwords in SQL; it turns statement
+  logging off for its own session where the administrator may (a non-superuser
+  RDS master may not), so check the server log settings before running it there.
 
 ## 7. Production Considerations
 

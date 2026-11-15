@@ -30,6 +30,7 @@ const CLASS_PRIVILEGES: Record<string, string[]> = {
   read: ['SELECT'],
   append: ['SELECT', 'INSERT'],
   mutable: ['SELECT', 'INSERT', 'UPDATE'],
+  append_delete: ['SELECT', 'INSERT', 'DELETE'],
   mutable_delete: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'],
 }
 
@@ -47,7 +48,7 @@ function hex(bytes: Uint8Array): string {
 
 function classification(): Map<string, string> {
   const sql = readFileSync(join(ROOT, 'scripts', 'db', 'runtime-grants.sql'), 'utf8')
-  return new Map([...sql.matchAll(/\('([a-z_]+)', '(read|append|mutable|mutable_delete)'\)/g)].map((m) => [m[1], m[2]]))
+  return new Map([...sql.matchAll(/\('([a-z_]+)', '(read|append|mutable|append_delete|mutable_delete)'\)/g)].map((m) => [m[1], m[2]]))
 }
 
 async function expectSqlError(client: Client, sql: string, code = '42501'): Promise<void> {
@@ -174,6 +175,46 @@ describe('CTO 225 - runtime role cannot bypass write-once guarantees (disposable
     expect(mismatches).toEqual([])
     const { rows: [{ migrations }] } = await admin.query(`SELECT has_table_privilege('sails_runtime', 'public._prisma_migrations', 'SELECT') AS migrations`)
     expect(migrations).toBe(false)
+    // The only column-level grant: custody_attestations."supersededAt" (one-time NULL -> timestamp, trigger-guarded).
+    const { rows: writes } = await admin.query(
+      `SELECT table_name, column_name, privilege_type FROM information_schema.column_privileges
+        WHERE grantee = 'sails_runtime' AND table_schema = 'public' AND privilege_type IN ('UPDATE', 'DELETE', 'TRUNCATE')`)
+    const columnGrants = writes.filter((w) => !CLASS_PRIVILEGES[classes.get(w.table_name)!].includes(w.privilege_type))
+    expect(columnGrants.sort((a, b) => a.table_name.localeCompare(b.table_name))).toEqual([
+      { table_name: 'custody_attestations', column_name: 'supersededAt', privilege_type: 'UPDATE' },
+      { table_name: 'intent_events', column_name: 'publishedAt', privilege_type: 'UPDATE' },
+    ])
+  })
+
+  it('custody_attestations: the runtime may supersede (supersededAt) but cannot rewrite or delete an attestation', async () => {
+    await expect(runtime.query(`UPDATE custody_attestations SET "supersededAt" = now() WHERE id = $1`, [randomUUID()])).resolves.toMatchObject({ rowCount: 0 })
+    for (const column of ['descriptor', 'attestedBy', 'attestedAt', 'createdAt', 'id', 'recipientId']) {
+      await expectSqlError(runtime, `UPDATE custody_attestations SET "${column}" = "${column}"`)
+    }
+    await expectSqlError(runtime, 'DELETE FROM custody_attestations')
+    await expectSqlError(runtime, 'TRUNCATE custody_attestations')
+  })
+
+  it('the grant step fails when sails_runtime is missing, and runs only for a segregated database', async () => {
+    const sql = readFileSync(join(ROOT, 'scripts', 'db', 'runtime-grants.sql'), 'utf8')
+      .replace("runtime_role constant text := 'sails_runtime'", "runtime_role constant text := 'sails_runtime_absent'")
+    const tmp = `runtime-grants-absent-${randomUUID()}.sql` // relative to ROOT: the prisma CLI path must not contain spaces on Windows
+    require('fs').writeFileSync(join(ROOT, tmp), sql)
+    let output = ''
+    try {
+      execFileSync('npx', ['prisma', 'db', 'execute', '--file', tmp], {
+        cwd: ROOT, env: { ...process.env, MIGRATION_DATABASE_URL: migratorUrl }, encoding: 'utf8', stdio: 'pipe', shell: process.platform === 'win32',
+      })
+    } catch (err) {
+      output = `${(err as { stdout?: string }).stdout ?? ''}${(err as { stderr?: string }).stderr ?? ''}`
+    } finally {
+      require('fs').unlinkSync(join(ROOT, tmp))
+    }
+    expect(output).toMatch(/role sails_runtime_absent does not exist/)
+    const legacy = execFileSync('sh', ['scripts/migrate-deploy-safe.sh'], {
+      cwd: ROOT, env: { ...process.env, MIGRATION_DATABASE_URL: '', DATABASE_URL: adminUrl }, encoding: 'utf8', stdio: 'pipe',
+    })
+    expect(legacy).toMatch(/runtime grants NOT applied/)
   })
 
   it('the runtime ingests and reads offers and tombstones through the real repository', async () => {
@@ -270,6 +311,27 @@ describe('CTO 225 - runtime role cannot bypass write-once guarantees (disposable
     } finally {
       await migrator.end()
     }
+  })
+
+  it('boot check: a grant to PUBLIC, a TRUNCATE grant and a routine owned by the runtime are each refused', async () => {
+    const check = () => app.privileges.inspectRuntimePrivileges()
+    expect(await check()).toEqual([])
+    try {
+      await admin.query('GRANT UPDATE ON offer_envelopes TO PUBLIC')
+      expect((await check()).join()).toMatch(/protected table offer_envelopes/)
+      await admin.query('REVOKE UPDATE ON offer_envelopes FROM PUBLIC')
+      await admin.query('GRANT TRUNCATE ON trades TO sails_runtime')
+      expect((await check()).join()).toMatch(/protected table trades/)
+      await admin.query('REVOKE TRUNCATE ON trades FROM sails_runtime')
+      await admin.query("CREATE FUNCTION public.zz_runtime_owned() RETURNS int LANGUAGE sql AS 'SELECT 1'")
+      await admin.query('ALTER FUNCTION public.zz_runtime_owned() OWNER TO sails_runtime')
+      expect((await check()).join()).toMatch(/owns 1 routine/)
+    } finally {
+      await admin.query('REVOKE UPDATE ON offer_envelopes FROM PUBLIC')
+      await admin.query('REVOKE TRUNCATE ON trades FROM sails_runtime')
+      await admin.query('DROP FUNCTION IF EXISTS public.zz_runtime_owned()')
+    }
+    expect(await check()).toEqual([])
   })
 
   it('a table added by a migration without a privilege class blocks the grant step and stays unreachable to the runtime', async () => {

@@ -43,6 +43,12 @@ fi
 npx prisma migrate deploy
 
 # CTO 225 - runtime privilege matrix, applied as the migrator after every
-# migration run (idempotent; a no-op notice until scripts/db/bootstrap-roles.js
-# has created sails_runtime; fails if a table has no privilege class).
-npx prisma db execute --file scripts/db/runtime-grants.sql
+# migration run (idempotent). MIGRATION_DATABASE_URL marks a segregated database
+# (docs/DEPLOYMENT.md 6.3): then a missing sails_runtime role or an unclassified
+# table fails the deploy. Without it the database still runs the legacy single
+# credential, which the production boot check refuses.
+if [ -n "$MIGRATION_DATABASE_URL" ]; then
+  npx prisma db execute --file scripts/db/runtime-grants.sql
+else
+  echo "MIGRATION_DATABASE_URL not set: legacy single-credential database, runtime grants NOT applied (production refuses to boot on it; see docs/DEPLOYMENT.md 6.3)."
+fi

@@ -46,6 +46,11 @@ async function bootstrap() {
     const runtimePassword = required('SAILS_RUNTIME_PASSWORD')
     if (migratorPassword === runtimePassword) throw new Error('migrator and runtime passwords must differ')
 
+    // Keep the passwords out of the server log (statement logging); a non-superuser admin (RDS) may not change it.
+    await client.query("SET log_statement = 'none'").catch(() => {})
+    await client.query('SET log_min_error_statement = panic').catch(() => {})
+    // Roles, memberships and ownership commit together or not at all.
+    await client.query('BEGIN')
     await upsertRole(client, MIGRATOR, migratorPassword, 'INHERIT')
     await upsertRole(client, RUNTIME, runtimePassword, 'NOINHERIT')
 
@@ -59,7 +64,6 @@ async function bootstrap() {
 
     const { rows: [{ db }] } = await client.query('SELECT current_database() AS db')
     const m = client.escapeIdentifier(MIGRATOR)
-    await client.query('BEGIN')
     await client.query(`ALTER DATABASE ${client.escapeIdentifier(db)} OWNER TO ${m}`)
     await client.query(`REVOKE ALL ON DATABASE ${client.escapeIdentifier(db)} FROM PUBLIC`)
     await client.query(`ALTER SCHEMA public OWNER TO ${m}`)
@@ -72,7 +76,7 @@ async function bootstrap() {
          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'S', 'v', 'm')
           AND pg_get_userbyid(c.relowner) <> $1
-          AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = c.oid AND d.deptype = 'e')
+          AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = c.oid AND d.deptype IN ('e', 'a')) -- extension members; sequences owned by a column follow their table
        UNION ALL
        SELECT 'ROUTINE', p.oid::regprocedure::text
          FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
