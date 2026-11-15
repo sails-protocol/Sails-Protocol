@@ -383,6 +383,89 @@ Do not proceed with a restore, and escalate instead, if:
   this section) do not match the last known source counts — investigate
   before repointing any application traffic at the restored database.
 
+## 6.3 Trade Admission: Unresolved Idempotency Claims and Manual Event Redelivery (E21 slice 1)
+
+Since E21 slice 1, `POST /v1/openp2p/trades` writes its idempotency claim
+(`idempotency_keys`, scope `openp2p.trade.create`) already `COMPLETED`,
+with `resultRef` = the new trade id, in the same PostgreSQL transaction as
+the trade (`TradeService.createTrade()`). The new path never leaves an
+`IN_PROGRESS` or `FAILED` claim for this scope. Such claims exist only from
+the earlier two-step `withIdempotency()` path.
+
+### 409 `IDEMPOTENCY_OUTCOME_UNKNOWN`
+
+**Which requests get it:** a request whose key matches an existing claim
+of scope `openp2p.trade.create` for the same caller, with the same payload
+(`offerId` + `amount`), when that claim has no `resultRef`. In practice
+that is a legacy `IN_PROGRESS` or `FAILED` claim. A claim with
+`resultRef` (`COMPLETED` or `UNKNOWN`) replays its trade. A key reused with
+a different payload is refused with 400 first.
+
+**Why fail-closed:** a `FAILED` claim used to be reclaimed and re-run. That
+is no longer done. A failed or interrupted old call does not prove that
+nothing was written, so re-running it could create a second trade for the
+same attempt. The claim is never attributed to a trade by correlation.
+
+**What the caller sees:** `details.authoritative = false` and
+`details.unverifiedCandidateTradeIds`. The candidates are hints only, not
+an answer: trades on that `offerId` where the caller is buyer or seller
+but not the offer's maker, created at or after the claim's `createdAt`,
+with no own Intent (`tradeIntentId` NULL), not named by any other claim's
+`resultRef`, at most 20. They are never another participant's trades.
+
+**Reconciling safely (read-only, no automatic reconciliation exists):**
+
+1. Read the claim:
+   `SELECT id, "participantId", key, "requestHash", status, "resultRef", "createdAt", "completedAt" FROM idempotency_keys WHERE scope = 'openp2p.trade.create' AND "participantId" = $1 AND key = $2;`
+2. Read the caller's trades on that offer since the claim:
+   `SELECT id, status, amount, "tradeIntentId", "createdAt" FROM trades WHERE "offerId" = $1 AND ("buyerId" = $2 OR "sellerId" = $2) AND "createdAt" >= $3 ORDER BY "createdAt";`
+3. For each candidate, read its durable history:
+   `SELECT "eventName", "publishedAt" FROM durable_events WHERE "correlationId" = $tradeId ORDER BY "publishedAt";`
+   and check whether any other claim already names it:
+   `SELECT scope, key FROM idempotency_keys WHERE "resultRef" = $tradeId;`
+4. Decide with the participant whether a trade exists for that attempt:
+   - **No trade for that attempt:** tell the participant to retry with a
+     **new** idempotency key.
+   - **A trade exists:** point the participant to it
+     (`GET /v1/openp2p/trades`, `GET /v1/openp2p/trades/:id`). It needs no
+     new request.
+
+Never rewrite the claim row (no `UPDATE ... SET status = 'COMPLETED'` or
+`resultRef` from a guess), and never delete it. The row is the only record
+that the attempt happened, and the key stays unusable by design.
+
+### Manual redelivery of `openp2p.trade.created` (R-a)
+
+The admission writes `openp2p.trade.created`, `negotiation.opened` and
+`openp2p.trade.status_changed` to `durable_events` (`correlationId` = trade
+id) inside its transaction and dispatches them only after the commit. A
+dispatch that fails is logged and never fails the request. A lost dispatch
+is **not** redelivered automatically: nothing records whether an event was
+dispatched. (The trade Intent's owed `intent.created` is different: the
+settlement reconciler tick recovers it automatically through
+`recoverUnpublishedIntentEvents()`.)
+
+**Finding one:** the error log line `Post-commit dispatch failed; the
+durable event stays redeliverable via eventBus.redeliver()` carries
+`eventName`, `eventId` and `tradeId`. After a crash between commit and
+dispatch there is no log line. Look the event up by trade:
+`SELECT id FROM durable_events WHERE "eventName" = 'openp2p.trade.created' AND "correlationId" = $tradeId;`
+
+**Redelivering:** `await eventBus.redeliver(eventId)` (`src/common/events/event-bus.ts`).
+It reloads the row and emits it, with the same `eventId`, to the handlers
+registered **in the calling process only** (no cross-instance fanout). It
+returns `false` if the row does not exist. No route or CLI wraps it. A
+one-off process must call `registerEventHandlers()` first, or nothing
+consumes the event.
+
+**Idempotency expectations:** redelivery can deliver an event more than
+once. Its only consumer today is the `autoSettleOnMatch` handler
+(`src/common/events/handlers.ts`), which returns immediately while
+`AUTO_SETTLE_ON_MATCH` is not `true`, the default. With the flag off,
+redelivering is harmless and has no effect. The handler was not proven
+idempotent under redelivery. `autoSettleOnMatch` stays off, and do not
+redeliver `openp2p.trade.created` on an instance where it is on.
+
 ## 7. Production Considerations
 
 - [ ] Reverse proxy/TLS — closed differently than originally planned:
