@@ -35,7 +35,7 @@ export async function findCollectedNotYetAllocated(): Promise<CollectedNotAlloca
   for (const obligation of collected) {
     const confirmed = await prisma.feeCollectionEvidence.findFirst({
       where: { feeObligationId: obligation.id, kind: 'CONFIRMED' },
-      orderBy: { recordedAt: 'desc' },
+      orderBy: [{ recordedAt: 'desc' }, { seq: 'desc' }],
     })
     if (!confirmed) continue
     const hasAllocation = await prisma.entitlementLedgerEntry.findFirst({
@@ -175,7 +175,8 @@ export async function findReorgedGenerationsNotReversed(): Promise<ReorgedGenera
   const rows: ReorgedGenerationNotReversedRow[] = []
   for (const confirmed of confirmedRows) {
     const reorgedOut = await prisma.feeCollectionEvidence.findFirst({
-      where: { feeObligationId: confirmed.feeObligationId, kind: 'REORGED_OUT', txid: confirmed.txid, recordedAt: { gt: confirmed.recordedAt } },
+      where: { feeObligationId: confirmed.feeObligationId, kind: 'REORGED_OUT', txid: confirmed.txid,
+        OR: [{ recordedAt: { gt: confirmed.recordedAt } }, { recordedAt: confirmed.recordedAt, seq: { gt: confirmed.seq } }] },
     })
     if (!reorgedOut) continue
     const allocations = await prisma.entitlementLedgerEntry.findMany({ where: { confirmationEvidenceId: confirmed.id, kind: 'ALLOCATION' } })

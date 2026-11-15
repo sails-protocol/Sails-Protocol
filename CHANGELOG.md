@@ -18,6 +18,13 @@ All notable changes to this project will be documented in this file.
 - Production EvidenceProvider durability/provenance, cross-evidence integrity, upload controls, and remaining Day-0 production owners remain active under dedicated Issues; this changelog does not round active work up to completed readiness.
 
 
+### Fixed
+
+- **CTO 239 — "latest" fee collection evidence is deterministic (real PostgreSQL).** Local commit, pending review.
+  - **Cause:** `fee_collection_evidence."recordedAt"` is `timestamp(3) DEFAULT now()`, and two rows of one obligation (for example BROADCAST then DROPPED) often share a millisecond. `ORDER BY "recordedAt" DESC LIMIT 1` then returned either row: a 200-run probe of `findUnresolvedChainEvents()` showed 79 ties and 2 misses, both on ties (one CI failure, run 43748566359).
+  - **Fix:** additive migration `20261116120000_fee_collection_evidence_seq` adds an insertion-order `seq` (`SERIAL`). Every reader of the latest or ordered evidence orders by `("recordedAt", "seq")`: the four fee reconciliation checks, `listForObligation()` (last BROADCAST for `recognizeConfirmation()` and the confirmation job, last CONFIRMED for the reorg sweep), `allocate()`, `findCollectedNotYetAllocated()`, `findReorgedGenerationsNotReversed()` (a same-millisecond REORGED_OUT now counts when recorded after the CONFIRMED row) and the escrow detail reads. `recordedAt` keeps its meaning; `seq` only decides exact ties.
+  - **Limit:** rows that existed before the migration got `seq` in physical order, so a historical same-millisecond tie is resolved arbitrarily, though now fixed. The existing `distributionPolicyVersionId` immutability trigger is unchanged and is not fired by the migration. Economic policy is unchanged.
+
 ### Security
 
 - **C9 — stored signed offers are append-only and re-verified on read (real PostgreSQL).** Draft, pending the Gatekeeper batch audit.

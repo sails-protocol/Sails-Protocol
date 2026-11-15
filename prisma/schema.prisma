@@ -979,6 +979,11 @@ model FeeCollectionEvidence {
   confirmedAtHeight Int?
   note              String?
   recordedAt        DateTime                  @default(now())
+  // CTO 239 — insertion-order tie-break for "latest evidence" reads. recordedAt is timestamp(3) and
+  // two rows of one obligation often share a millisecond; every reader orders by (recordedAt, seq).
+  // Rows that predate this column got values in physical order when it was added (migration
+  // 20261116120000); that order is arbitrary for historical same-millisecond ties but now fixed.
+  seq               Int                       @default(autoincrement())
 
   // Missão 11 Fase 7.2 — CTO-frozen decision: DistributionPolicyVersion
   // becomes economically binding at COLLECTED time, not at whenever an

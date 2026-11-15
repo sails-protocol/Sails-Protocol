@@ -259,7 +259,7 @@ class PrismaEscrowRepository implements EscrowRepository {
           include: {
             evidence: {
               where: { kind: 'CONFIRMED' },
-              orderBy: { recordedAt: 'asc' },
+              orderBy: [{ recordedAt: 'asc' }, { seq: 'asc' }],
               include: { distributionPolicyVersion: { include: { recipients: { include: { recipient: true } } } } },
             },
           },
@@ -279,7 +279,7 @@ class PrismaEscrowRepository implements EscrowRepository {
           include: {
             evidence: {
               where: { kind: 'CONFIRMED' },
-              orderBy: { recordedAt: 'asc' },
+              orderBy: [{ recordedAt: 'asc' }, { seq: 'asc' }],
               include: { distributionPolicyVersion: { include: { recipients: { include: { recipient: true } } } } },
             },
           },

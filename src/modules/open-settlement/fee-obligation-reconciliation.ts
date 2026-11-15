@@ -105,7 +105,7 @@ export interface CollectionEvidenceMismatchRow {
 export async function findCollectionEvidenceMismatches(): Promise<CollectionEvidenceMismatchRow[]> {
   const obligations = await prisma.feeObligation.findMany({
     where: { collectionStatus: 'COLLECTED' },
-    include: { evidence: { where: { kind: 'CONFIRMED' }, orderBy: { recordedAt: 'desc' }, take: 1 } },
+    include: { evidence: { where: { kind: 'CONFIRMED' }, orderBy: [{ recordedAt: 'desc' }, { seq: 'desc' }], take: 1 } },
   })
 
   const mismatches: CollectionEvidenceMismatchRow[] = []
@@ -170,7 +170,7 @@ export interface SettlementTxidMismatchRow {
 export async function findSettlementTxidMismatches(): Promise<SettlementTxidMismatchRow[]> {
   const obligations = await prisma.feeObligation.findMany({
     where: { collectionStatus: { in: ['IN_PROGRESS', 'COLLECTED', 'DISTRIBUTED'] } },
-    include: { escrow: true, evidence: { where: { kind: 'BROADCAST' }, orderBy: { recordedAt: 'desc' }, take: 1 } },
+    include: { escrow: true, evidence: { where: { kind: 'BROADCAST' }, orderBy: [{ recordedAt: 'desc' }, { seq: 'desc' }], take: 1 } },
   })
   const mismatches: SettlementTxidMismatchRow[] = []
   for (const obligation of obligations) {
@@ -239,7 +239,7 @@ export interface WrongCollectionDestinationRow {
 export async function findWrongCollectionDestinationEvidence(): Promise<WrongCollectionDestinationRow[]> {
   const obligations = await prisma.feeObligation.findMany({
     where: { collectionStatus: { in: ['IN_PROGRESS', 'COLLECTED', 'DISTRIBUTED'] } },
-    include: { escrow: true, evidence: { where: { kind: { in: ['BROADCAST', 'CONFIRMED'] } }, orderBy: { recordedAt: 'desc' }, take: 1 } },
+    include: { escrow: true, evidence: { where: { kind: { in: ['BROADCAST', 'CONFIRMED'] } }, orderBy: [{ recordedAt: 'desc' }, { seq: 'desc' }], take: 1 } },
   })
   const mismatches: WrongCollectionDestinationRow[] = []
   const network = networkFor(config.multisig.network)
@@ -276,7 +276,7 @@ export interface UnresolvedChainEventRow {
 export async function findUnresolvedChainEvents(): Promise<UnresolvedChainEventRow[]> {
   const obligations = await prisma.feeObligation.findMany({
     where: { collectionStatus: { in: ['IN_PROGRESS', 'COLLECTED', 'DISTRIBUTED'] } },
-    include: { evidence: { orderBy: { recordedAt: 'desc' }, take: 1 } },
+    include: { evidence: { orderBy: [{ recordedAt: 'desc' }, { seq: 'desc' }], take: 1 } },
   })
   const flagged: UnresolvedChainEventRow[] = []
   for (const obligation of obligations) {

@@ -280,4 +280,244 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
     expect(readiness.blockers).toHaveLength(1)
     expect(readiness.blockers[0]).toMatch(/No real, atomic Protocol Fee collection implementation exists for rail 'LIGHTNING_HODL'/)
   })
+
+  // ─── CTO 239 — deterministic "latest evidence" ────────────────────────
+  // recordedAt is timestamp(3); two rows of one obligation can share a millisecond (CI run 43748566359 picked
+  // BROADCAST over DROPPED on such a tie). Every reader orders by (recordedAt, seq). Each case below writes two
+  // rows with an IDENTICAL recordedAt and asserts the row with the higher seq wins, twice: once inserted in seq
+  // order and once physically reversed (higher seq inserted first), so the answer cannot come from physical order.
+  describe('CTO 239 — latest evidence is deterministic on recordedAt ties', () => {
+    type EvidenceData = Omit<Prisma.FeeCollectionEvidenceUncheckedCreateInput, 'feeObligationId' | 'recordedAt' | 'seq'>
+    const TXID_A = 'a'.repeat(64)
+    const TXID_B = 'b'.repeat(64)
+    let distributionReconciliation: typeof import('../../src/modules/open-settlement/distribution-reconciliation')
+    let entitlementAllocationService: typeof import('../../src/modules/open-settlement/entitlement-allocation.service').entitlementAllocationService
+    let escrowRepository: typeof import('../../src/modules/open-settlement/escrow-repository').escrowRepository
+    let feeCollectionEvidenceRepository: typeof import('../../src/modules/open-settlement/fee-collection-evidence-repository').feeCollectionEvidenceRepository
+    let livePolicyId: string
+
+    beforeAll(async () => {
+      if (!dbAvailable) return
+      distributionReconciliation = require('../../src/modules/open-settlement/distribution-reconciliation')
+      ;({ entitlementAllocationService } = require('../../src/modules/open-settlement/entitlement-allocation.service'))
+      ;({ escrowRepository } = require('../../src/modules/open-settlement/escrow-repository'))
+      ;({ feeCollectionEvidenceRepository } = require('../../src/modules/open-settlement/fee-collection-evidence-repository'))
+      const { distributionPolicyService } = require('../../src/modules/open-settlement/distribution-policy.service')
+      const { distributionRecipientRepository } = require('../../src/modules/open-settlement/distribution-recipient-repository')
+      // findCollectedNotYetAllocated() returns nothing without a PUBLISHED policy; allocate() needs a real one.
+      const live = await distributionPolicyService.findLivePolicy()
+      if (live) {
+        livePolicyId = live.id
+      } else {
+        const recipient = await distributionRecipientRepository.create({ class: `FIXTURE_CTO239_${Date.now()}`, label: 'cto239' })
+        const draft = await distributionPolicyService.createDraft({ label: `cto239-${Date.now()}`, createdBy: 'cto239-integration-test' })
+        await distributionPolicyService.addRecipient(draft.id, recipient.id, '100')
+        livePolicyId = (await distributionPolicyService.publish(draft.id)).id
+      }
+    })
+
+    async function nextSeqs(): Promise<[number, number]> {
+      const rows = await prisma.$queryRawUnsafe<Array<{ v: number }>>(
+        `SELECT nextval(pg_get_serial_sequence('fee_collection_evidence', 'seq'))::int AS v FROM generate_series(1, 2)`,
+      )
+      const [lo, hi] = rows.map((r) => r.v).sort((x, y) => x - y)
+      return [lo, hi]
+    }
+
+    // Two rows sharing one recordedAt; `later` gets the higher seq. physicallyReversed inserts `later` first.
+    async function tiedPair(feeObligationId: string, earlier: EvidenceData, later: EvidenceData, physicallyReversed: boolean) {
+      const recordedAt = new Date(Date.now() + 86_400_000)
+      const [lo, hi] = await nextSeqs()
+      const write = (data: EvidenceData, seq: number) => prisma.feeCollectionEvidence.create({ data: { ...data, feeObligationId, recordedAt, seq } })
+      if (physicallyReversed) {
+        const l = await write(later, hi)
+        return { earlier: await write(earlier, lo), later: l }
+      }
+      const e = await write(earlier, lo)
+      return { earlier: e, later: await write(later, hi) }
+    }
+
+    async function obligationIn(status: 'IN_PROGRESS' | 'COLLECTED', suffix: string) {
+      const fixture = await createFixtureEscrowWithObligation(`cto239-${suffix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+      const obligationId: string = fixture.obligation!.id
+      await prisma.feeObligation.update({ where: { id: obligationId }, data: { collectionStatus: 'IN_PROGRESS' } })
+      if (status === 'COLLECTED') await prisma.feeObligation.update({ where: { id: obligationId }, data: { collectionStatus: 'COLLECTED' } })
+      return { ...fixture, obligationId }
+    }
+
+    function frozenScriptHex(): string {
+      const bitcoin = require('bitcoinjs-lib')
+      const { networkFor } = require('../../src/modules/open-settlement/multisig.provider')
+      return Buffer.from(bitcoin.address.toOutputScript(COLLECTIBLE_ADDRESS, networkFor(config.multisig.network))).toString('hex')
+    }
+
+    describe.each([['inserted in seq order', false], ['physically reversed', true]])('%s', (_label, reversed) => {
+      it('findUnresolvedChainEvents(): BROADCAST then DROPPED in the same millisecond flags DROPPED; the reverse does not', async () => {
+        requirePostgres('cto239 unresolved')
+        const dropped = await obligationIn('IN_PROGRESS', 'drop')
+        await tiedPair(dropped.obligationId, { kind: 'BROADCAST', txid: TXID_A }, { kind: 'DROPPED', txid: TXID_A }, reversed)
+        const notDropped = await obligationIn('IN_PROGRESS', 'nodrop')
+        await tiedPair(notDropped.obligationId, { kind: 'DROPPED', txid: TXID_A }, { kind: 'BROADCAST', txid: TXID_B }, reversed)
+
+        const found = await reconciliation.findUnresolvedChainEvents()
+        expect(found.find((r) => r.feeObligationId === dropped.obligationId)?.lastEvidenceKind).toBe('DROPPED')
+        expect(found.some((r) => r.feeObligationId === notDropped.obligationId)).toBe(false)
+      })
+
+      it('findCollectionEvidenceMismatches(): the latest CONFIRMED amount on a tie is the one compared', async () => {
+        requirePostgres('cto239 confirmed amount')
+        const ok = await obligationIn('COLLECTED', 'amt-ok')
+        await tiedPair(ok.obligationId, { kind: 'CONFIRMED', txid: TXID_A, amount: '0.00000999' }, { kind: 'CONFIRMED', txid: TXID_A, amount: '0.000004' }, reversed)
+        const bad = await obligationIn('COLLECTED', 'amt-bad')
+        await tiedPair(bad.obligationId, { kind: 'CONFIRMED', txid: TXID_A, amount: '0.000004' }, { kind: 'CONFIRMED', txid: TXID_A, amount: '0.00000999' }, reversed)
+
+        const found = await reconciliation.findCollectionEvidenceMismatches()
+        expect(found.some((r) => r.feeObligationId === ok.obligationId)).toBe(false)
+        expect(found.find((r) => r.feeObligationId === bad.obligationId)?.confirmedEvidenceAmount).toBe('0.00000999')
+      })
+
+      it('findSettlementTxidMismatches(): the latest BROADCAST txid on a tie is the one compared', async () => {
+        requirePostgres('cto239 settlement txid')
+        const ok = await obligationIn('IN_PROGRESS', 'txid-ok')
+        await prisma.escrow.update({ where: { id: ok.escrow.id }, data: { txReleaseId: TXID_A } })
+        await tiedPair(ok.obligationId, { kind: 'BROADCAST', txid: TXID_B }, { kind: 'BROADCAST', txid: TXID_A }, reversed)
+        const bad = await obligationIn('IN_PROGRESS', 'txid-bad')
+        await prisma.escrow.update({ where: { id: bad.escrow.id }, data: { txReleaseId: TXID_A } })
+        await tiedPair(bad.obligationId, { kind: 'BROADCAST', txid: TXID_A }, { kind: 'BROADCAST', txid: TXID_B }, reversed)
+
+        const found = await reconciliation.findSettlementTxidMismatches()
+        expect(found.some((r) => r.feeObligationId === ok.obligationId)).toBe(false)
+        expect(found.find((r) => r.feeObligationId === bad.obligationId)?.evidenceTxid).toBe(TXID_B)
+      })
+
+      it('findWrongCollectionDestinationEvidence(): the latest BROADCAST/CONFIRMED script on a tie is the one compared', async () => {
+        requirePostgres('cto239 destination')
+        const frozen = frozenScriptHex()
+        const ok = await obligationIn('COLLECTED', 'dest-ok')
+        await tiedPair(ok.obligationId, { kind: 'BROADCAST', txid: TXID_A, scriptPubKey: 'not-the-frozen-script' }, { kind: 'CONFIRMED', txid: TXID_A, scriptPubKey: frozen }, reversed)
+        const bad = await obligationIn('COLLECTED', 'dest-bad')
+        await tiedPair(bad.obligationId, { kind: 'BROADCAST', txid: TXID_A, scriptPubKey: frozen }, { kind: 'CONFIRMED', txid: TXID_A, scriptPubKey: 'not-the-frozen-script' }, reversed)
+
+        const found = await reconciliation.findWrongCollectionDestinationEvidence()
+        expect(found.some((r) => r.feeObligationId === ok.obligationId)).toBe(false)
+        expect(found.find((r) => r.feeObligationId === bad.obligationId)?.actualScriptPubKey).toBe('not-the-frozen-script')
+      })
+
+      it('listForObligation() + recognizeConfirmation(): the last BROADCAST on a tie is the one confirmed', async () => {
+        requirePostgres('cto239 last broadcast')
+        const o = await obligationIn('IN_PROGRESS', 'lastbc')
+        const broadcast = { kind: 'BROADCAST' as const, vout: 0, scriptPubKey: 'deadbeef', amount: '0.000004' }
+        await tiedPair(o.obligationId, { ...broadcast, txid: TXID_A }, { ...broadcast, txid: TXID_B }, reversed)
+
+        const listed = await feeCollectionEvidenceRepository.listForObligation(o.obligationId)
+        expect(listed.map((e) => e.txid)).toEqual([TXID_A, TXID_B])
+        await expect(feeCollectionRecognitionService.recognizeConfirmation(o.obligationId, TXID_A, 800_000)).rejects.toThrow(/does not match/)
+        await feeCollectionRecognitionService.recognizeConfirmation(o.obligationId, TXID_B, 800_000)
+        expect((await prisma.feeObligation.findUnique({ where: { id: o.obligationId } }))!.collectionStatus).toBe('COLLECTED')
+      })
+
+      it('allocate(): the latest CONFIRMED on a tie is the generation it reads', async () => {
+        requirePostgres('cto239 allocate')
+        const o = await obligationIn('COLLECTED', 'alloc')
+        const confirmed = { kind: 'CONFIRMED' as const, txid: TXID_A, distributionPolicyVersionId: null }
+        const { earlier, later } = await tiedPair(o.obligationId, confirmed, confirmed, reversed)
+
+        const err: Error = await entitlementAllocationService.allocate(o.obligationId).then(
+          () => { throw new Error('allocate() should have refused') },
+          (e: Error) => e,
+        )
+        expect(err.message).toContain(`confirmed generation ${later.id} has no frozen distribution policy`)
+        expect(err.message).not.toContain(earlier.id)
+      })
+
+      it('findCollectedNotYetAllocated(): reports the latest CONFIRMED on a tie', async () => {
+        requirePostgres('cto239 not yet allocated')
+        const o = await obligationIn('COLLECTED', 'notalloc')
+        const confirmed = { kind: 'CONFIRMED' as const, txid: TXID_A, distributionPolicyVersionId: livePolicyId }
+        const { later } = await tiedPair(o.obligationId, confirmed, confirmed, reversed)
+
+        const found = await distributionReconciliation.findCollectedNotYetAllocated()
+        expect(found.find((r) => r.feeObligationId === o.obligationId)?.confirmationEvidenceId).toBe(later.id)
+      })
+
+      it('findReorgedGenerationsNotReversed(): a same-millisecond REORGED_OUT counts only when recorded after the CONFIRMED row', async () => {
+        requirePostgres('cto239 reorged generation')
+        const confirmed = { kind: 'CONFIRMED' as const, txid: TXID_A, distributionPolicyVersionId: livePolicyId }
+        const reorged = { kind: 'REORGED_OUT' as const, txid: TXID_A }
+        const after = await obligationIn('COLLECTED', 'reorg-after')
+        const a = await tiedPair(after.obligationId, confirmed, reorged, reversed)
+        await entitlementAllocationService.allocate(after.obligationId)
+        const before = await obligationIn('COLLECTED', 'reorg-before')
+        const b = await tiedPair(before.obligationId, reorged, confirmed, reversed)
+        await entitlementAllocationService.allocate(before.obligationId)
+
+        const found = await distributionReconciliation.findReorgedGenerationsNotReversed()
+        expect(found.some((r) => r.confirmationEvidenceId === a.earlier.id)).toBe(true)
+        expect(found.some((r) => r.confirmationEvidenceId === b.later.id)).toBe(false)
+      })
+
+      it('escrowRepository details: CONFIRMED rows on a tie come back in seq order', async () => {
+        requirePostgres('cto239 escrow details')
+        const o = await obligationIn('COLLECTED', 'details')
+        const { earlier, later } = await tiedPair(o.obligationId, { kind: 'CONFIRMED', txid: TXID_A }, { kind: 'CONFIRMED', txid: TXID_B }, reversed)
+
+        const byId = await escrowRepository.findByIdWithDetails(o.escrow.id)
+        expect(byId!.feeObligation!.evidence.map((e) => e.id)).toEqual([earlier.id, later.id])
+        const byTrade = await escrowRepository.findByTradeIdWithDetails(o.trade.id)
+        expect(byTrade!.feeObligation!.evidence.map((e) => e.id)).toEqual([earlier.id, later.id])
+      })
+    })
+
+    it('a separate process (restart) after a table rewrite (VACUUM FULL) reads the same latest evidence', async () => {
+      requirePostgres('cto239 restart')
+      const o = await obligationIn('IN_PROGRESS', 'restart')
+      await tiedPair(o.obligationId, { kind: 'BROADCAST', txid: TXID_A }, { kind: 'DROPPED', txid: TXID_A }, true)
+      await prisma.$executeRawUnsafe('VACUUM FULL "fee_collection_evidence"')
+
+      const inProcess = await reconciliation.findUnresolvedChainEvents()
+      expect(inProcess.find((r) => r.feeObligationId === o.obligationId)?.lastEvidenceKind).toBe('DROPPED')
+
+      // A new Node process: new module graph, new Prisma client, new connection pool.
+      const { execFile } = require('child_process')
+      const root = require('path').resolve(__dirname, '..', '..')
+      const code = `
+        const r = require(${JSON.stringify(root + '/src/modules/open-settlement/fee-obligation-reconciliation')})
+        const { prisma } = require(${JSON.stringify(root + '/src/common/database')})
+        r.findUnresolvedChainEvents().then(async (rows) => {
+          const row = rows.find((x) => x.feeObligationId === ${JSON.stringify(o.obligationId)})
+          process.stdout.write('LAST=' + (row ? row.lastEvidenceKind : 'NONE') + '\\n')
+          await prisma.$disconnect()
+        }, (e) => { console.error(e); process.exit(1) })
+      `
+      const stdout: string = await new Promise((resolve, reject) => {
+        execFile(process.execPath, ['-r', 'ts-node/register/transpile-only', '-e', code], { cwd: root, env: process.env, timeout: 90_000 },
+          (err: Error | null, out: string, errOut: string) => (err ? reject(new Error(err.message + ' ' + errOut.slice(0, 600))) : resolve(out)))
+      })
+      expect(stdout).toContain('LAST=DROPPED')
+    })
+
+    it('two writers racing on one obligation: every reader agrees with the (recordedAt, seq) maximum, on every read', async () => {
+      requirePostgres('cto239 race')
+      for (let round = 0; round < 10; round++) {
+        const o = await obligationIn('IN_PROGRESS', `race${round}`)
+        await feeCollectionEvidenceRepository.record({ feeObligationId: o.obligationId, kind: 'BROADCAST', txid: TXID_A })
+        await Promise.all([
+          feeCollectionRecognitionService.recordDropped(o.obligationId, TXID_A),
+          feeCollectionRecognitionService.recordReplacement(o.obligationId, TXID_A, TXID_B),
+        ])
+        const rows = await prisma.$queryRawUnsafe<Array<{ kind: string; seq: number }>>(
+          `SELECT kind::text AS kind, seq FROM fee_collection_evidence WHERE "feeObligationId" = $1 ORDER BY "recordedAt" DESC, seq DESC`,
+          o.obligationId,
+        )
+        expect(new Set(rows.map((r) => r.seq)).size).toBe(3)
+        const expectedLast = rows[0].kind
+        for (let read = 0; read < 3; read++) {
+          const listed = await feeCollectionEvidenceRepository.listForObligation(o.obligationId)
+          expect(listed[listed.length - 1].kind).toBe(expectedLast)
+          const flagged = (await reconciliation.findUnresolvedChainEvents()).some((r) => r.feeObligationId === o.obligationId)
+          expect(flagged).toBe(expectedLast === 'DROPPED')
+        }
+      }
+    })
+  })
 })

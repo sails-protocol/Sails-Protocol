@@ -153,7 +153,7 @@ export class EntitlementAllocationService {
 
       const evidenceRows = await tx.feeCollectionEvidence.findMany({
         where: { feeObligationId, kind: 'CONFIRMED' },
-        orderBy: { recordedAt: 'desc' },
+        orderBy: [{ recordedAt: 'desc' }, { seq: 'desc' }],
         take: 1,
       })
       const confirmation = evidenceRows[0]
