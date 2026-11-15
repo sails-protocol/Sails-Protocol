@@ -647,6 +647,49 @@ describe('Distribution & Entitlement Accounting Foundation (Missão 11 Fase 6.3A
       expect((await entitlementLedgerRepository.sumBalance(treasury.id, 'BTC', 'MULTISIG')).toString()).toBe('41')
     })
 
+    // Aux01 H2/L1: a reversal that stopped part-way (multi-recipient) blocks the next generation until finished;
+    // retrying reverseGeneration() reverses only what is left, then allocation proceeds; a further retry is a no-op.
+    it('partial reversal blocks the next generation; reverseGeneration() retry finishes it; then allocate succeeds once', async () => {
+      requirePostgres('partial reversal retry')
+      const treasury = await fixtureRecipient('Treasury-partial')
+      const node = await fixtureRecipient('Node-partial')
+      await fixturePublishedPolicy([{ recipientId: treasury.id, weightPct: '90' }, { recipientId: node.id, weightPct: '10' }])
+      const { obligationId, confirmationEvidenceId } = await fixtureCollectedObligation('0.00000101')
+      const [first] = await entitlementAllocationService.allocate(obligationId)
+
+      const [confirmed] = await prisma.feeCollectionEvidence.findMany({ where: { feeObligationId: obligationId, kind: 'CONFIRMED' } })
+      await feeCollectionRecognitionService.recordReorgAndRevert(obligationId, confirmed.txid!)
+      await entitlementAllocationService.reverseEntry(first.id) // crash after the first of two reversals
+      await reconfirm(obligationId, require('crypto').createHash('sha256').update(obligationId + 'partial').digest('hex'), 800_500)
+
+      await expect(entitlementAllocationService.allocate(obligationId)).rejects.toThrow(/still allocated/)
+      expect(await entitlementAllocationService.reverseGeneration(confirmationEvidenceId)).toHaveLength(1)
+      expect(await entitlementAllocationService.reverseGeneration(confirmationEvidenceId)).toEqual([])
+      await entitlementAllocationService.allocate(obligationId)
+      const total = (await entitlementLedgerRepository.listForObligation(obligationId)).reduce((s, e) => s.plus(e.amount), new Prisma.Decimal(0))
+      expect(total.toString()).toBe('101')
+    })
+
+    // Aux01 L2: allocate() racing allocate() and reverseGeneration() on a reorged obligation ends with exactly C allocated.
+    it('concurrent allocate() and reverseGeneration() on a reorged obligation never leave two live generations', async () => {
+      requirePostgres('allocate vs reverse concurrency')
+      const treasury = await fixtureRecipient('Treasury-alloc-rev')
+      await fixturePublishedPolicy([{ recipientId: treasury.id, weightPct: '100' }])
+      const { obligationId, confirmationEvidenceId } = await fixtureCollectedObligation('0.00000041')
+      await entitlementAllocationService.allocate(obligationId)
+      const [confirmed] = await prisma.feeCollectionEvidence.findMany({ where: { feeObligationId: obligationId, kind: 'CONFIRMED' } })
+      await feeCollectionRecognitionService.recordReorgAndRevert(obligationId, confirmed.txid!)
+      await reconfirm(obligationId, require('crypto').createHash('sha256').update(obligationId + 'alloc-rev').digest('hex'), 800_600)
+
+      await Promise.allSettled([
+        entitlementAllocationService.allocate(obligationId),
+        entitlementAllocationService.allocate(obligationId),
+        entitlementAllocationService.reverseGeneration(confirmationEvidenceId),
+      ])
+      await Promise.allSettled([entitlementAllocationService.allocate(obligationId)]) // settle: allocates if still missing
+      expect((await entitlementLedgerRepository.sumBalance(treasury.id, 'BTC', 'MULTISIG')).toString()).toBe('41')
+    })
+
     // CTO 254: the guard must not depend on WHICH confirmation row the reader picks. A second CONFIRMED row of the
     // same obligation that becomes "latest" (an ordering change such as #652's on a historical recordedAt tie, with
     // no reorg in between) must not make already-allocated revenue eligible again.

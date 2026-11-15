@@ -310,12 +310,13 @@ export class EntitlementAllocationService {
    *  collection generation (confirmationEvidenceId) — the real operation a
    *  caller invokes when a reorg un-collects the revenue that generation
    *  represented. Each reversal is independently idempotent (reverseEntry()'s
-   *  own P2002 guard); reversing a generation that was already fully
-   *  reversed is a safe, idempotent no-op (every entry's reversal attempt
-   *  fails closed with a clear error, none silently succeed twice). */
+   *  own P2002 guard). Only entries not yet reversed are attempted, so a
+   *  retry after a crash part-way through finishes the remaining entries, and
+   *  a fully reversed generation is a no-op (returns []). allocate() refuses
+   *  the next generation until every entry here is reversed. */
   async reverseGeneration(confirmationEvidenceId: string): Promise<AllocatedEntry[]> {
     const entries = await prisma.entitlementLedgerEntry.findMany({
-      where: { confirmationEvidenceId, kind: 'ALLOCATION' },
+      where: { confirmationEvidenceId, kind: 'ALLOCATION', reversedBy: { none: {} } },
     })
     const reversed: AllocatedEntry[] = []
     for (const entry of entries) {
