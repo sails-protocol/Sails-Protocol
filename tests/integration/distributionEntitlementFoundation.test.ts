@@ -625,6 +625,77 @@ describe('Distribution & Entitlement Accounting Foundation (Missão 11 Fase 6.3A
       const balance = await entitlementLedgerRepository.sumBalance(treasury.id, 'BTC', 'MULTISIG')
       expect(balance.toString()).toBe('101') // exactly C, never 4x, never 0
     })
+
+    // CTO 252-P P3: G9/G10 is keyed on the generation, so nothing stopped a second generation being allocated
+    // while the first was still allocated (reorg recorded, reversal not yet run): the same revenue entitled twice.
+    it('allocate() refuses a new generation while an earlier one is still allocated; succeeds once it is reversed', async () => {
+      requirePostgres('no second live generation')
+      const treasury = await fixtureRecipient('Treasury-live-gen')
+      await fixturePublishedPolicy([{ recipientId: treasury.id, weightPct: '100' }])
+      const { obligationId, confirmationEvidenceId } = await fixtureCollectedObligation('0.00000041')
+      await entitlementAllocationService.allocate(obligationId)
+
+      const [confirmed] = await prisma.feeCollectionEvidence.findMany({ where: { feeObligationId: obligationId, kind: 'CONFIRMED' } })
+      await feeCollectionRecognitionService.recordReorgAndRevert(obligationId, confirmed.txid!)
+      await reconfirm(obligationId, require('crypto').createHash('sha256').update(obligationId + 'live-gen').digest('hex'), 800_400)
+
+      await expect(entitlementAllocationService.allocate(obligationId)).rejects.toThrow(/still allocated/)
+      expect((await entitlementLedgerRepository.sumBalance(treasury.id, 'BTC', 'MULTISIG')).toString()).toBe('41')
+
+      await entitlementAllocationService.reverseGeneration(confirmationEvidenceId)
+      await entitlementAllocationService.allocate(obligationId)
+      expect((await entitlementLedgerRepository.sumBalance(treasury.id, 'BTC', 'MULTISIG')).toString()).toBe('41')
+    })
+
+    // CTO 254: the guard must not depend on WHICH confirmation row the reader picks. A second CONFIRMED row of the
+    // same obligation that becomes "latest" (an ordering change such as #652's on a historical recordedAt tie, with
+    // no reorg in between) must not make already-allocated revenue eligible again.
+    it('a second CONFIRMED row that becomes latest does not re-open allocation (order-independent)', async () => {
+      requirePostgres('order-independent single allocation')
+      const treasury = await fixtureRecipient('Treasury-order-indep')
+      await fixturePublishedPolicy([{ recipientId: treasury.id, weightPct: '100' }])
+      const { obligationId, confirmationEvidenceId } = await fixtureCollectedObligation('0.00000041')
+      await entitlementAllocationService.allocate(obligationId)
+
+      const first = await prisma.feeCollectionEvidence.findUniqueOrThrow({ where: { id: confirmationEvidenceId } })
+      const { id: _id, recordedAt, ...copy } = first
+      await prisma.feeCollectionEvidence.create({ data: { ...copy, recordedAt: new Date(recordedAt.getTime() + 1000) } as any })
+
+      await expect(entitlementAllocationService.allocate(obligationId)).rejects.toThrow(/still allocated/)
+      await expect(entitlementAllocationService.allocate(obligationId)).rejects.toThrow(/still allocated/) // a retry is refused the same way
+      expect((await entitlementLedgerRepository.sumBalance(treasury.id, 'BTC', 'MULTISIG')).toString()).toBe('41')
+    })
+
+    // The check above only holds if no collection-status change commits while allocate() runs: allocate() must
+    // hold the obligation row (FOR NO KEY UPDATE, the lock the status UPDATE itself takes).
+    it('allocate() waits for a concurrent holder of the obligation row before reading it', async () => {
+      requirePostgres('allocate serializes on the obligation row')
+      const treasury = await fixtureRecipient('Treasury-row-lock')
+      await fixturePublishedPolicy([{ recipientId: treasury.id, weightPct: '100' }])
+      const { obligationId } = await fixtureCollectedObligation('0.00000041')
+      const { Client } = require('pg')
+      const holder = new Client({ connectionString: process.env.DATABASE_URL })
+      await holder.connect()
+      try {
+        await holder.query('BEGIN')
+        await holder.query('SELECT 1 FROM fee_obligations WHERE id = $1 FOR NO KEY UPDATE', [obligationId])
+        const pending = entitlementAllocationService.allocate(obligationId).then(() => 'allocated', (e: Error) => e.message)
+        let waiting = false
+        for (let i = 0; i < 60 && !waiting; i++) {
+          const { rows } = await holder.query(
+            'SELECT count(*)::int AS n FROM pg_stat_activity WHERE pg_backend_pid() = ANY (pg_blocking_pids(pid))')
+          waiting = rows[0].n > 0
+          if (!waiting) await new Promise((r) => setTimeout(r, 50))
+        }
+        // Undo the status as the reorg path would, then release: allocate() must see it and refuse.
+        await holder.query(`UPDATE fee_obligations SET "collectionStatus" = 'IN_PROGRESS' WHERE id = $1`, [obligationId])
+        await holder.query('COMMIT')
+        expect(waiting).toBe(true)
+        expect(await pending).toMatch(/is not COLLECTED/)
+      } finally {
+        await holder.end()
+      }
+    })
   })
 
   // ─── Reconciliation ──────────────────────────────────────────────────────

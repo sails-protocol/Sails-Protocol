@@ -132,6 +132,9 @@ export class EntitlementAllocationService {
    */
   async allocate(feeObligationId: string): Promise<AllocatedEntry[]> {
     return prisma.$transaction(async (tx) => {
+      // Hold the obligation row so no collection-status change (reorg revert, reconfirmation) commits between the
+      // checks below and the inserts. NO KEY UPDATE is the lock the status UPDATE takes; FK inserts are not blocked.
+      await tx.$queryRaw`SELECT 1 FROM "fee_obligations" WHERE "id" = ${feeObligationId} FOR NO KEY UPDATE`
       const obligation = await tx.feeObligation.findUnique({ where: { id: feeObligationId } })
       if (!obligation) {
         throw new NotFoundError('FeeObligation', feeObligationId)
@@ -160,6 +163,18 @@ export class EntitlementAllocationService {
       if (!confirmation) {
         throw new EscrowError(
           `allocate: FeeObligation ${feeObligationId} is COLLECTED but has no CONFIRMED FeeCollectionEvidence row — structurally impossible per Fase 5's own invariant (COLLECTED only ever results from recognizeConfirmation() recording one); refusing to guess (G13/G14).`
+        )
+      }
+
+      // One revenue, one live allocation: G9/G10 is per generation, so an earlier generation still allocated
+      // (reorg recorded, reverseGeneration() not yet run) must block a new one, or C is entitled twice.
+      const earlier = await tx.entitlementLedgerEntry.findFirst({
+        where: { feeObligationId, kind: 'ALLOCATION', confirmationEvidenceId: { not: confirmation.id }, reversedBy: { none: {} } },
+        select: { confirmationEvidenceId: true },
+      })
+      if (earlier) {
+        throw new EscrowError(
+          `allocate: FeeObligation ${feeObligationId}'s earlier generation (confirmationEvidenceId=${earlier.confirmationEvidenceId}) is still allocated — reverse it (reverseGeneration) before allocating generation ${confirmation.id}; refusing to entitle the same revenue twice.`
         )
       }
 
