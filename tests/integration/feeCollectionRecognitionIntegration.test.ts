@@ -496,7 +496,7 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
       expect(stdout).toContain('LAST=DROPPED')
     })
 
-    it('two writers racing on one obligation: every reader agrees with the (recordedAt, seq) maximum, on every read', async () => {
+    it('two writers racing on one obligation: every reader agrees with the greatest seq, on every read', async () => {
       requirePostgres('cto239 race')
       for (let round = 0; round < 10; round++) {
         const o = await obligationIn('IN_PROGRESS', `race${round}`)
@@ -525,7 +525,7 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
     // seq = nextval at INSERT, not commit order; recordedAt (DB default = transaction start) is informational.
     describe('CTO 245 — interleaved transactions (two real connections)', () => {
       type Row = { id: string; seq: number; ms: number }
-      type Ev = { kind: string; txid: string; amount?: string; dpv?: boolean }
+      type Ev = { kind: string; txid: string; amount?: string; dpv?: boolean; scriptPubKey?: string }
       const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
       const FORCED_AT = '2099-01-01 00:00:00.123'
       let a: import('pg').Client
@@ -552,7 +552,8 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
         const cols = ['id', '"feeObligationId"', 'kind', 'txid', 'amount', '"distributionPolicyVersionId"']
         const vals = ['gen_random_uuid()::text', '$1', '$2::"FeeCollectionEvidenceKind"', '$3', '$4::decimal', '$5']
         const params: unknown[] = [feeObligationId, ev.kind, ev.txid, ev.amount ?? null, ev.dpv ? livePolicyId : null]
-        if (recordedAt) { cols.push('"recordedAt"'); vals.push('$6::timestamp(3)'); params.push(recordedAt) }
+        if (recordedAt) { cols.push('"recordedAt"'); params.push(recordedAt); vals.push(`$${params.length}::timestamp(3)`) }
+        if (ev.scriptPubKey) { cols.push('"scriptPubKey"'); params.push(ev.scriptPubKey); vals.push(`$${params.length}`) }
         const r = await c.query(
           `INSERT INTO fee_collection_evidence (${cols.join(', ')}) VALUES (${vals.join(', ')})
            RETURNING id, seq, (extract(epoch FROM "recordedAt") * 1000)::float8 AS ms`, params)
@@ -569,6 +570,7 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
           mismatchAmount: mine(await reconciliation.findCollectionEvidenceMismatches())?.confirmedEvidenceAmount ?? null,
           notYetAllocated: mine(await distributionReconciliation.findCollectedNotYetAllocated())?.confirmationEvidenceId ?? null,
           details: (await escrowRepository.findByIdWithDetails(escrowId))!.feeObligation!.evidence.map((e) => e.id),
+          detailsByTrade: (await escrowRepository.findByTradeIdWithDetails((await prisma.escrow.findUniqueOrThrow({ where: { id: escrowId } })).tradeId))!.feeObligation!.evidence.map((e) => e.id),
         }
       }
 
@@ -582,8 +584,8 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
         const ids = visible.map((r) => r.id)
         const latestIsA = latest === A
         return status === 'IN_PROGRESS'
-          ? { listed: ids, unresolved: latestIsA ? 'DROPPED' : null, mismatchAmount: null, notYetAllocated: null, details: [] }
-          : { listed: ids, unresolved: null, mismatchAmount: latestIsA ? '0.00000999' : null, notYetAllocated: latest.id, details: ids }
+          ? { listed: ids, unresolved: latestIsA ? 'DROPPED' : null, mismatchAmount: null, notYetAllocated: null, details: [], detailsByTrade: [] }
+          : { listed: ids, unresolved: null, mismatchAmount: latestIsA ? '0.00000999' : null, notYetAllocated: latest.id, details: ids, detailsByTrade: ids }
       }
 
       describe.each([['IN_PROGRESS'], ['COLLECTED']] as const)('%s obligation', (status) => {
@@ -685,6 +687,81 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
           expect(await readers(o.obligationId, o.escrow.id)).toEqual(expected(status, [rowB], rowB))
           await a.query('COMMIT')
           expect(await readers(o.obligationId, o.escrow.id)).toEqual(expected(status, [rowB, rowA], rowA, rowA))
+        })
+      })
+
+      // CTO 255 G1: the same lock-wait inversion for the four readers readers() does not cover. In each case the
+      // row committed last has the EARLIER recordedAt, so recordedAt-first ordering (with seq only as a tiebreak)
+      // picks the wrong row.
+      describe('CTO 255 G1 — lock-wait inversion, remaining readers', () => {
+        /** B begins first, A takes the obligation row lock, inserts `first` and commits; B then inserts `last`. */
+        async function inverted(obligationId: string, first: Ev, last: Ev): Promise<{ first: Row; last: Row }> {
+          const lock = `SELECT 1 FROM fee_obligations WHERE id = $1 FOR UPDATE`
+          await b.query('BEGIN')
+          await sleep(15)
+          await a.query('BEGIN')
+          await a.query(lock, [obligationId])
+          const rowFirst = await insert(a, obligationId, first)
+          const bLocked = b.query(lock, [obligationId])
+          await sleep(50)
+          await a.query('COMMIT')
+          await bLocked
+          const rowLast = await insert(b, obligationId, last)
+          await b.query('COMMIT')
+          expect(rowLast.ms).toBeLessThan(rowFirst.ms)
+          expect(rowLast.seq).toBeGreaterThan(rowFirst.seq)
+          return { first: rowFirst, last: rowLast }
+        }
+
+        it('allocate(): allocates the CONFIRMED generation committed last', async () => {
+          requirePostgres('cto255 allocate inversion')
+          const o = await obligationIn('COLLECTED', '255-alloc')
+          const { last } = await inverted(o.obligationId, { kind: 'CONFIRMED', txid: TXID_A, dpv: true }, { kind: 'CONFIRMED', txid: TXID_B, dpv: true })
+          const entries = await entitlementAllocationService.allocate(o.obligationId)
+          const rows = await prisma.entitlementLedgerEntry.findMany({ where: { id: { in: entries.map((e) => e.id) } } })
+          expect(rows.length).toBeGreaterThan(0)
+          expect(new Set(rows.map((r) => r.confirmationEvidenceId))).toEqual(new Set([last.id]))
+        })
+
+        it('findSettlementTxidMismatches(): compares the BROADCAST committed last', async () => {
+          requirePostgres('cto255 settlement txid inversion')
+          const ok = await obligationIn('IN_PROGRESS', '255-txid-ok')
+          await prisma.escrow.update({ where: { id: ok.escrow.id }, data: { txReleaseId: TXID_B } })
+          await inverted(ok.obligationId, { kind: 'BROADCAST', txid: TXID_A }, { kind: 'BROADCAST', txid: TXID_B })
+          const bad = await obligationIn('IN_PROGRESS', '255-txid-bad')
+          await prisma.escrow.update({ where: { id: bad.escrow.id }, data: { txReleaseId: TXID_A } })
+          await inverted(bad.obligationId, { kind: 'BROADCAST', txid: TXID_A }, { kind: 'BROADCAST', txid: TXID_B })
+
+          const found = await reconciliation.findSettlementTxidMismatches()
+          expect(found.some((r) => r.feeObligationId === ok.obligationId)).toBe(false)
+          expect(found.find((r) => r.feeObligationId === bad.obligationId)?.evidenceTxid).toBe(TXID_B)
+        })
+
+        it('findWrongCollectionDestinationEvidence(): compares the BROADCAST/CONFIRMED script committed last', async () => {
+          requirePostgres('cto255 destination inversion')
+          const frozen = frozenScriptHex()
+          const ok = await obligationIn('COLLECTED', '255-dest-ok')
+          await inverted(ok.obligationId, { kind: 'BROADCAST', txid: TXID_A, scriptPubKey: 'not-the-frozen-script' }, { kind: 'CONFIRMED', txid: TXID_A, scriptPubKey: frozen })
+          const bad = await obligationIn('COLLECTED', '255-dest-bad')
+          await inverted(bad.obligationId, { kind: 'BROADCAST', txid: TXID_A, scriptPubKey: frozen }, { kind: 'CONFIRMED', txid: TXID_A, scriptPubKey: 'not-the-frozen-script' })
+
+          const found = await reconciliation.findWrongCollectionDestinationEvidence()
+          expect(found.some((r) => r.feeObligationId === ok.obligationId)).toBe(false)
+          expect(found.find((r) => r.feeObligationId === bad.obligationId)?.actualScriptPubKey).toBe('not-the-frozen-script')
+        })
+
+        it('findReorgedGenerationsNotReversed(): a REORGED_OUT counts only when committed after the CONFIRMED row', async () => {
+          requirePostgres('cto255 reorged inversion')
+          const after = await obligationIn('COLLECTED', '255-reorg-after')
+          const x = await inverted(after.obligationId, { kind: 'CONFIRMED', txid: TXID_A, dpv: true }, { kind: 'REORGED_OUT', txid: TXID_A })
+          await entitlementAllocationService.allocate(after.obligationId)
+          const before = await obligationIn('COLLECTED', '255-reorg-before')
+          const y = await inverted(before.obligationId, { kind: 'REORGED_OUT', txid: TXID_A }, { kind: 'CONFIRMED', txid: TXID_A, dpv: true })
+          await entitlementAllocationService.allocate(before.obligationId)
+
+          const found = await distributionReconciliation.findReorgedGenerationsNotReversed()
+          expect(found.some((r) => r.confirmationEvidenceId === x.first.id)).toBe(true)
+          expect(found.some((r) => r.confirmationEvidenceId === y.last.id)).toBe(false)
         })
       })
 
