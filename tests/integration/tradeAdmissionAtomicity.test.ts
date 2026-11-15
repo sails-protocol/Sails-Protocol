@@ -7,12 +7,13 @@
 //           sequential buyer (RED on main a530fdc1: "Invalid Intent transition: NEGOTIATING -> DISCOVERING"),
 //           refusal / crash before and after the commit, legacy (L1) trades, cancel/lock isolation;
 //   F-1/F-7 DELETE /v1/intents/:id precedence (403 -> 409 -> 404) and caller-scoped by-intent lookup, no leakage;
-//   C1-C6   a legacy claim without a recorded outcome is never resolved by correlation (C7, the session time zone,
-//           does not apply: this path compares no SQL now() values);
+//   C1-C7   a legacy claim without a recorded outcome is never resolved by correlation, and the PostgreSQL session
+//           time zone cannot change the replay's answer (C7: this path compares no SQL now() values, proven anyway);
 //   plus the transactional event-store contract, Offer-close races and the migration's constraints and reversal.
 // Invariant 3b (seller PaymentAccount binding, E22) is NOT exercised: this slice does not implement it.
 
 import { PrismaClient } from '@prisma/client'
+import { PrismaPg } from '@prisma/adapter-pg'
 import { randomBytes, randomUUID } from 'crypto'
 import type { FastifyInstance } from 'fastify'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
@@ -587,6 +588,61 @@ describe('E21 slice 1 — transactional, idempotent trade admission (real Postgr
     await prisma.idempotencyKey.create({ data: { scope: SCOPE, participantId: buyer.id, key: 'lc', requestHash: hashIdempotentPayload({ offerId: offer.id, amount: '0.001' }), status: 'UNKNOWN', resultRef: lt.id } })
     expect((await admit(offer.id, buyer.id, 'lc')).id).toBe(lt.id)
     await expect(admit(offer.id, buyer.id, 'lc', '0.002')).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  // ─── C7: the PostgreSQL session time zone cannot change a legacy-claim replay ──────────────────────────────
+  // The hint window compares two timestamp(3) columns (no SQL now()); this proves a non-UTC application session gets
+  // the very same non-authoritative answer, and changes nothing, as a UTC one.
+  it('C7 — the session time zone cannot change a legacy-claim replay: same 409, same hints, nothing written (real session zones)', async () => {
+    pg.requirePostgres('C7')
+    const seller = await user()
+    const buyer = await user()
+    const offer = await offerOf(seller.id)
+    const claim = await legacyClaim(buyer.id, offer.id, 'c7')
+    const at = (createdAt: Date) =>
+      prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: offer.userId, asset: 'BTC', amount: '0.001', priceUsd: '60000', totalUsd: '60', intentId: offer.intentId, createdAt } })
+    await at(new Date(claim.createdAt.getTime() - 1)) // 1 ms before the claim: never a hint
+    const onEdge = await at(claim.createdAt) // exactly at the claim: a hint (gte)
+    const later = await legacyTrade(offer, buyer.id) // DB/Prisma default createdAt, ~60 s after the claim
+    const replayWith = (service: any) =>
+      service.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001', idempotencyKey: 'c7' }).then(
+        () => { throw new Error('C7: a legacy claim replay must never succeed') },
+        (err: any) => ({ statusCode: err.statusCode, code: err.code, details: err.details }),
+      )
+    const offerIntent = () => prisma.intent.findUnique({ where: { id: offer.intentId } })
+    const before = { snap: await snapshot(), claim: await prisma.idempotencyKey.findUnique({ where: { id: claim.id } }), intent: await offerIntent() }
+
+    const expected = { statusCode: 409, code: 'IDEMPOTENCY_OUTCOME_UNKNOWN', details: { authoritative: false, unverifiedCandidateTradeIds: [onEdge.id, later.id] } }
+    const [utcSession] = await prisma.$queryRaw<Array<{ tz: string }>>`SELECT current_setting('TimeZone') AS tz`
+    expect(await replayWith(tradeService)).toEqual(expected)
+
+    const answers: Record<string, unknown> = {}
+    for (const tz of ['Pacific/Kiritimati', 'Etc/GMT+12', 'America/Sao_Paulo']) {
+      expect(tz).not.toBe(utcSession.tz)
+      const zoned = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL, options: `-c TimeZone=${tz}` }) })
+      const saved = (global as any).__prisma
+      let isolated: any
+      let isolatedRedis: any
+      let isolatedPrisma: any
+      try {
+        ;(global as any).__prisma = zoned // the isolated module tree's database singleton is the zoned client
+        jest.isolateModules(() => {
+          isolated = require('../../src/modules/open-p2p/trade.service').tradeService
+          isolatedRedis = require('../../src/common/redis').redis
+          isolatedPrisma = require('../../src/common/database').prisma
+        })
+        expect(isolatedPrisma).toBe(zoned) // the service under test really runs on the zoned client
+        const [s] = await zoned.$queryRaw<Array<{ tz: string }>>`SELECT current_setting('TimeZone') AS tz`
+        expect(s.tz).toBe(tz) // ...and its session REALLY is in that zone (cannot pass vacuously)
+        answers[tz] = await replayWith(isolated)
+      } finally {
+        ;(global as any).__prisma = saved
+        isolatedRedis?.disconnect()
+        await zoned.$disconnect()
+      }
+    }
+    for (const answer of Object.values(answers)) expect(answer).toEqual(expected)
+    expect({ snap: await snapshot(), claim: await prisma.idempotencyKey.findUnique({ where: { id: claim.id } }), intent: await offerIntent() }).toEqual(before)
   })
 
   // ─── the transactional event-store contract ───────────────────────────────────────────────────────────────
