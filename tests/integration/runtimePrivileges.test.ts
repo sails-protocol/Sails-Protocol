@@ -184,6 +184,37 @@ describe('CTO 225 - runtime role cannot bypass write-once guarantees (disposable
       { table_name: 'custody_attestations', column_name: 'supersededAt', privilege_type: 'UPDATE' },
       { table_name: 'intent_events', column_name: 'publishedAt', privilege_type: 'UPDATE' },
     ])
+    // The one inventory the boot check reads (N1) is exactly the applied classification.
+    const { rows: recorded } = await admin.query('SELECT table_name, class FROM sails_meta.runtime_table_class ORDER BY 1')
+    expect(recorded).toEqual([...classes].sort(([a], [b]) => (a < b ? -1 : 1)).map(([table_name, cls]) => ({ table_name, class: cls })))
+    const { rows: recordedColumns } = await admin.query('SELECT table_name, column_name FROM sails_meta.runtime_column_update ORDER BY 1, 2')
+    expect(recordedColumns).toEqual([
+      { table_name: 'custody_attestations', column_name: 'supersededAt' },
+      { table_name: 'intent_events', column_name: 'publishedAt' },
+    ])
+  })
+
+  it('MG1/MG2: re-running the grant step revokes stale table and column grants; the boot check refuses them in between (N2)', async () => {
+    const check = () => app.privileges.inspectRuntimePrivileges()
+    expect(await check()).toEqual([])
+    await admin.query('GRANT UPDATE ("descriptor") ON custody_attestations TO sails_runtime') // stale column grant
+    await admin.query('GRANT DELETE ON offer_envelopes TO sails_runtime') // stale table grant
+    await admin.query('GRANT UPDATE ON fee_distributions TO sails_runtime') // stale table grant on a frozen table
+    await admin.query('GRANT INSERT ("id") ON fee_distributions TO sails_runtime') // stale column grant on a read table
+    const between = (await check()).join('\n')
+    expect(between).toMatch(/has UPDATE on custody_attestations\.descriptor beyond its privilege class \(append\)/)
+    expect(between).toMatch(/has DELETE on offer_envelopes beyond its privilege class \(append\)/)
+    expect(between).toMatch(/has UPDATE on fee_distributions beyond its privilege class \(read\)/)
+    expect(between).toMatch(/has INSERT on fee_distributions\.id beyond its privilege class \(read\)/)
+    grant({ MIGRATION_DATABASE_URL: migratorUrl })
+    const { rows: [after] } = await admin.query(
+      `SELECT has_column_privilege('sails_runtime', 'public.custody_attestations', 'descriptor', 'UPDATE') AS col,
+              has_table_privilege('sails_runtime', 'public.offer_envelopes', 'DELETE') AS del,
+              has_table_privilege('sails_runtime', 'public.fee_distributions', 'UPDATE') AS upd,
+              has_column_privilege('sails_runtime', 'public.fee_distributions', 'id', 'INSERT') AS ins,
+              has_column_privilege('sails_runtime', 'public.custody_attestations', 'supersededAt', 'UPDATE') AS kept`)
+    expect(after).toEqual({ col: false, del: false, upd: false, ins: false, kept: true })
+    expect(await check()).toEqual([])
   })
 
   it('custody_attestations: the runtime may supersede (supersededAt) but cannot rewrite or delete an attestation', async () => {
@@ -323,23 +354,36 @@ describe('CTO 225 - runtime role cannot bypass write-once guarantees (disposable
     }
   })
 
-  it('boot check: a grant to PUBLIC, a TRUNCATE grant and a routine owned by the runtime are each refused', async () => {
+  it('boot check: PUBLIC grant, TRUNCATE, owned routine, TEMP (MG3), unreadable classification and an unclassified table are each refused', async () => {
     const check = () => app.privileges.inspectRuntimePrivileges()
     expect(await check()).toEqual([])
     try {
       await admin.query('GRANT UPDATE ON offer_envelopes TO PUBLIC')
-      expect((await check()).join()).toMatch(/protected table offer_envelopes/)
+      expect((await check()).join()).toMatch(/has UPDATE on offer_envelopes beyond its privilege class \(append\)/)
       await admin.query('REVOKE UPDATE ON offer_envelopes FROM PUBLIC')
       await admin.query('GRANT TRUNCATE ON trades TO sails_runtime')
-      expect((await check()).join()).toMatch(/protected table trades/)
+      expect((await check()).join()).toMatch(/has TRUNCATE on trades beyond its privilege class \(mutable\)/)
       await admin.query('REVOKE TRUNCATE ON trades FROM sails_runtime')
       await admin.query("CREATE FUNCTION public.zz_runtime_owned() RETURNS int LANGUAGE sql AS 'SELECT 1'")
       await admin.query('ALTER FUNCTION public.zz_runtime_owned() OWNER TO sails_runtime')
       expect((await check()).join()).toMatch(/owns 1 routine/)
+      await admin.query('DROP FUNCTION public.zz_runtime_owned()')
+      await admin.query(`GRANT TEMP ON DATABASE ${dbName} TO sails_runtime`)
+      expect((await check()).join()).toMatch(/can create TEMP tables/)
+      await admin.query(`REVOKE TEMP ON DATABASE ${dbName} FROM sails_runtime`)
+      await admin.query('REVOKE SELECT ON sails_meta.runtime_table_class FROM sails_runtime')
+      expect((await check()).join()).toMatch(/has no readable privilege classification/)
+      await admin.query('GRANT SELECT ON sails_meta.runtime_table_class TO sails_runtime')
+      await admin.query('CREATE TABLE public.zz_unclassified_reachable (id int)')
+      await admin.query('GRANT SELECT ON public.zz_unclassified_reachable TO sails_runtime')
+      expect((await check()).join()).toMatch(/has SELECT on zz_unclassified_reachable beyond its privilege class \(unclassified\)/)
     } finally {
       await admin.query('REVOKE UPDATE ON offer_envelopes FROM PUBLIC')
       await admin.query('REVOKE TRUNCATE ON trades FROM sails_runtime')
       await admin.query('DROP FUNCTION IF EXISTS public.zz_runtime_owned()')
+      await admin.query(`REVOKE TEMP ON DATABASE ${dbName} FROM sails_runtime`)
+      await admin.query('GRANT SELECT ON sails_meta.runtime_table_class TO sails_runtime')
+      await admin.query('DROP TABLE IF EXISTS public.zz_unclassified_reachable')
     }
     expect(await check()).toEqual([])
   })

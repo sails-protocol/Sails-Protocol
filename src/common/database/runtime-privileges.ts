@@ -1,13 +1,15 @@
 /**
- * Runtime database privilege check (CTO 221/225).
+ * Runtime database privilege check (CTO 221/225/230).
  *
  * The write-once guarantees (offer_envelopes, escrow_pending_round_retirements,
  * ...) are triggers. A role that owns a table can disable its trigger, and a
  * superuser can bypass it with session_replication_role = replica, so they only
  * hold if the application's own connection is neither. This check runs once at
  * boot (startServer) and, in production, refuses to start when the connected
- * role could bypass them. Roles and grants come from scripts/db/bootstrap-roles.js
- * and scripts/db/runtime-grants.sql.
+ * role could bypass them or holds any privilege beyond its classification.
+ * Roles and grants come from scripts/db/bootstrap-roles.js and
+ * scripts/db/runtime-grants.sql; the latter records the classification it
+ * applied in schema sails_meta, which is the one inventory read here.
  */
 import { prisma } from '.'
 import { config } from '../../config'
@@ -15,16 +17,9 @@ import { childLogger } from '../logger'
 
 export type PrivilegeCheckMode = 'enforce' | 'warn' | 'off'
 
-// Tables the runtime may never UPDATE or DELETE as a whole (append-only or frozen in scripts/db/runtime-grants.sql;
-// custody_attestations and intent_events keep a single column-level UPDATE, which this table-level check allows).
-const APPEND_ONLY_TABLES = [
-  'offer_envelopes', 'escrow_pending_round_retirements', 'entitlement_ledger_entries', 'distribution_policy_recipients',
-  'distribution_recipients', 'custody_attestations', 'intent_events', 'fee_collection_evidence', 'escrow_funding_evidence',
-  'escrow_release_evidence', 'escrow_events', 'durable_events', 'event_projection_claims', 'fee_distributions',
-  'fee_distribution_batches', 'fee_distribution_batch_items',
-]
-
 type Query = (sql: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>
+
+interface ExcessPrivilege { name: string; privilege: string; col: string | null; class: string | null }
 
 /** Every reason the current connection could bypass a write-once guard; empty means it cannot. */
 export async function inspectRuntimePrivileges(query: Query = prisma.$queryRaw.bind(prisma) as Query): Promise<string[]> {
@@ -55,14 +50,48 @@ export async function inspectRuntimePrivileges(query: Query = prisma.$queryRaw.b
   if (role.can_create) findings.push('can CREATE in schema public')
   if (role.can_create_schema) findings.push('can CREATE schemas in the database')
   if (role.can_temp) findings.push('can create TEMP tables')
-  // Effective privileges, so a grant to PUBLIC counts too. TRUNCATE, TRIGGER and REFERENCES are never granted.
-  const writable = (await query`
-    SELECT c.relname AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-     WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
-       AND (has_table_privilege(c.oid, 'TRUNCATE, TRIGGER, REFERENCES')
-         OR (c.relname = ANY(${APPEND_ONLY_TABLES}::text[]) AND has_table_privilege(c.oid, 'UPDATE, DELETE')))
-     ORDER BY 1`) as Array<{ name: string }>
-  for (const { name } of writable) findings.push(`can UPDATE, DELETE, TRUNCATE, TRIGGER or REFERENCES protected table ${name}`)
+
+  // One inventory (N1): every EFFECTIVE privilege of this role, grants to PUBLIC included, table- or column-level
+  // (N2), must be allowed by its table's recorded class or be a recorded one-column UPDATE. Unclassified allows nothing.
+  const [{ installed }] = (await query`
+    SELECT to_regclass('sails_meta.runtime_table_class') IS NOT NULL
+       AND to_regclass('sails_meta.runtime_column_update') IS NOT NULL
+       AND has_table_privilege('sails_meta.runtime_table_class', 'SELECT')
+       AND has_table_privilege('sails_meta.runtime_column_update', 'SELECT') AS installed`) as Array<{ installed: boolean }>
+  if (!installed) {
+    findings.push('has no readable privilege classification (sails_meta; run scripts/db/runtime-grants.sql as the migrator)')
+  } else {
+    const excess = (await query`
+      WITH cls AS (SELECT table_name, class FROM sails_meta.runtime_table_class),
+      allowed(class, privilege) AS (VALUES
+        ('read', 'SELECT'), ('append', 'SELECT'), ('append', 'INSERT'),
+        ('mutable', 'SELECT'), ('mutable', 'INSERT'), ('mutable', 'UPDATE'),
+        ('append_delete', 'SELECT'), ('append_delete', 'INSERT'), ('append_delete', 'DELETE'),
+        ('mutable_delete', 'SELECT'), ('mutable_delete', 'INSERT'), ('mutable_delete', 'UPDATE'), ('mutable_delete', 'DELETE')),
+      tbl AS (SELECT c.oid, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+               WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p'))
+      SELECT t.relname::text AS name, p.privilege, NULL::text AS col, k.class
+        FROM tbl t
+        CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) p(privilege)
+        LEFT JOIN cls k ON k.table_name = t.relname
+       WHERE has_table_privilege(t.oid, p.privilege)
+         AND NOT EXISTS (SELECT 1 FROM allowed a WHERE a.class = k.class AND a.privilege = p.privilege)
+      UNION ALL
+      SELECT t.relname::text, p.privilege, a.attname::text, k.class
+        FROM tbl t
+        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum > 0 AND NOT a.attisdropped
+        CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('REFERENCES')) p(privilege)
+        LEFT JOIN cls k ON k.table_name = t.relname
+       WHERE has_column_privilege(t.oid, a.attnum, p.privilege)
+         AND NOT has_table_privilege(t.oid, p.privilege)
+         AND NOT EXISTS (SELECT 1 FROM allowed al WHERE al.class = k.class AND al.privilege = p.privilege)
+         AND NOT (p.privilege = 'UPDATE' AND EXISTS (SELECT 1 FROM sails_meta.runtime_column_update u
+                                                       WHERE u.table_name = t.relname AND u.column_name = a.attname))
+       ORDER BY 1, 2, 3`) as ExcessPrivilege[]
+    for (const e of excess) {
+      findings.push(`has ${e.privilege} on ${e.name}${e.col ? '.' + e.col : ''} beyond its privilege class (${e.class ?? 'unclassified'})`)
+    }
+  }
   return findings.map((f) => `database role ${String(role.name)} ${f}`)
 }
 

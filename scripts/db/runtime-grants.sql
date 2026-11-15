@@ -18,6 +18,12 @@
 -- column alone gets UPDATE (runtime_column_update below), never the table.
 -- The script fails if sails_runtime does not exist: scripts/migrate-deploy-safe.sh
 -- only calls it once MIGRATION_DATABASE_URL marks the database as segregated.
+--
+-- The classification applied here is also recorded in schema sails_meta
+-- (runtime_table_class, runtime_column_update), readable by the runtime: the
+-- boot check (src/common/database/runtime-privileges.ts) compares the runtime's
+-- EFFECTIVE table and column privileges against it, so there is one inventory
+-- and a stray grant made between deploys is refused at the next boot.
 DO $grants$
 DECLARE
   runtime_role constant text := 'sails_runtime';
@@ -27,9 +33,14 @@ BEGIN
     RAISE EXCEPTION 'role % does not exist: run scripts/db/bootstrap-roles.js before the runtime grants', runtime_role;
   END IF;
 
-  CREATE TEMP TABLE runtime_table_class (table_name text PRIMARY KEY, class text NOT NULL
-    CHECK (class IN ('read', 'append', 'mutable', 'append_delete', 'mutable_delete'))) ON COMMIT DROP;
-  INSERT INTO runtime_table_class VALUES
+  CREATE SCHEMA IF NOT EXISTS sails_meta;
+  REVOKE ALL ON SCHEMA sails_meta FROM PUBLIC;
+  CREATE TABLE IF NOT EXISTS sails_meta.runtime_table_class (table_name text PRIMARY KEY, class text NOT NULL
+    CHECK (class IN ('read', 'append', 'mutable', 'append_delete', 'mutable_delete')));
+  CREATE TABLE IF NOT EXISTS sails_meta.runtime_column_update (table_name text, column_name text, PRIMARY KEY (table_name, column_name));
+  DELETE FROM sails_meta.runtime_table_class;
+  DELETE FROM sails_meta.runtime_column_update;
+  INSERT INTO sails_meta.runtime_table_class VALUES
     -- frozen legacy fee distribution (20260823020000 write freeze)
     ('fee_distributions', 'read'),
     ('fee_distribution_batches', 'read'),
@@ -85,20 +96,19 @@ BEGIN
     ('semantic_transition_records', 'append_delete');
 
   -- One-time column transitions the trigger already constrains (NULL -> timestamp).
-  CREATE TEMP TABLE runtime_column_update (table_name text, column_name text, PRIMARY KEY (table_name, column_name)) ON COMMIT DROP;
-  INSERT INTO runtime_column_update VALUES
+  INSERT INTO sails_meta.runtime_column_update VALUES
     ('custody_attestations', 'supersededAt'), -- custody-attestation-repository.ts create(): supersedes the previous attestation
     ('intent_events', 'publishedAt');         -- intent-repository.ts markEventPublished()/publishOwedEvent()
 
   FOR r IN
     SELECT t.tablename FROM pg_tables t
     WHERE t.schemaname = 'public' AND t.tablename <> '_prisma_migrations'
-      AND NOT EXISTS (SELECT 1 FROM runtime_table_class c WHERE c.table_name = t.tablename)
+      AND NOT EXISTS (SELECT 1 FROM sails_meta.runtime_table_class c WHERE c.table_name = t.tablename)
   LOOP
     RAISE EXCEPTION 'table public.% has no runtime privilege class: add it to scripts/db/runtime-grants.sql', r.tablename;
   END LOOP;
   FOR r IN
-    SELECT c.table_name FROM runtime_table_class c
+    SELECT c.table_name FROM sails_meta.runtime_table_class c
     WHERE NOT EXISTS (SELECT 1 FROM pg_tables t WHERE t.schemaname = 'public' AND t.tablename = c.table_name)
   LOOP
     RAISE EXCEPTION 'classified table public.% does not exist: remove it from scripts/db/runtime-grants.sql', r.table_name;
@@ -110,15 +120,12 @@ BEGIN
   EXECUTE format('GRANT USAGE ON SCHEMA public TO %I', runtime_role);
   EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA public FROM %I', runtime_role);
   EXECUTE 'REVOKE ALL ON ALL TABLES IN SCHEMA public FROM PUBLIC';
-  -- REVOKE ALL ON ALL TABLES leaves column-level grants in place; drop them too.
-  FOR r IN SELECT DISTINCT p.table_name, p.column_name FROM information_schema.column_privileges p
-    WHERE p.grantee = runtime_role AND p.table_schema = 'public' LOOP
-    EXECUTE format('REVOKE ALL (%I) ON public.%I FROM %I', r.column_name, r.table_name, runtime_role);
-  END LOOP;
+  -- A table-level REVOKE also revokes every column-level grant on that table (PostgreSQL REVOKE semantics), so
+  -- stale column grants are cleared here too; tests/integration/runtimePrivileges.test.ts proves it (MG1/MG2).
   EXECUTE format('REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM %I', runtime_role);
   EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', runtime_role);
 
-  FOR r IN SELECT table_name, class FROM runtime_table_class LOOP
+  FOR r IN SELECT table_name, class FROM sails_meta.runtime_table_class LOOP
     EXECUTE format('GRANT %s ON public.%I TO %I',
       CASE r.class
         WHEN 'read' THEN 'SELECT'
@@ -128,8 +135,12 @@ BEGIN
         WHEN 'mutable_delete' THEN 'SELECT, INSERT, UPDATE, DELETE'
       END, r.table_name, runtime_role);
   END LOOP;
-  FOR r IN SELECT u.table_name, u.column_name FROM runtime_column_update u LOOP
+  FOR r IN SELECT u.table_name, u.column_name FROM sails_meta.runtime_column_update u LOOP
     EXECUTE format('GRANT UPDATE (%I) ON public.%I TO %I', r.column_name, r.table_name, runtime_role);
   END LOOP;
+  -- Read-only for the runtime: the boot check reads the recorded classification.
+  EXECUTE format('GRANT USAGE ON SCHEMA sails_meta TO %I', runtime_role);
+  EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA sails_meta FROM %I', runtime_role);
+  EXECUTE format('GRANT SELECT ON sails_meta.runtime_table_class, sails_meta.runtime_column_update TO %I', runtime_role);
 END
 $grants$;

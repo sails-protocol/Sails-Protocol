@@ -134,7 +134,7 @@ rebuild per change):
 cp .env.example .env              # defaults already match docker-compose.yml below
 docker compose up -d postgres redis   # just the two real dependencies, not the app container
 npm install
-npm run db:migrate                # current command: `npx prisma migrate deploy`; applies committed migration history
+npm run db:migrate                # sh scripts/migrate-deploy-safe.sh: migrations, then the runtime grants (§6.3); needs MIGRATION_DATABASE_URL or SAILS_LEGACY_SINGLE_CREDENTIAL=1
 npm run dev                       # http://localhost:3000 — hot-reload dev server
 ```
 
@@ -158,7 +158,7 @@ Docker-composed Postgres/Redis above. `BACKLOG.md`, live GitHub Issues/Project, 
 | `dev` | `ts-node-dev --respawn --transpile-only src/main.ts` | Hot-reload dev server |
 | `build` | `npm run build -w @satsails/p2p-schemas && npm run build -w @satsails/p2p-trading-sdk && tsc` | Builds both workspace packages, then the server (`dist/`) |
 | `start` | `node dist/src/main.js` | Run the compiled build (note the `dist/src/` path — `tsc`'s inferred rootDir includes `packages/` via a `paths` alias, so output isn't flat under `dist/`) |
-| `db:migrate` | `npx prisma migrate deploy` | Apply committed production migration history |
+| `db:migrate` | `sh scripts/migrate-deploy-safe.sh` | Apply committed migration history, then the runtime grants (§6.3). Do not run `npx prisma migrate deploy` directly on a segregated database: it skips the grants |
 | `db:generate` | `npx prisma generate` | Regenerate the Prisma client (also runs automatically on `npm install`) |
 | `db:seed` | `ts-node src/test/seeds/seed.ts` | ⚠️ Still not built — see section 3 |
 | `db:studio` | `npx prisma studio` | Visual database browser |

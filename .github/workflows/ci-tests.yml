@@ -49,6 +49,12 @@ jobs:
       # this service container is a fresh, disposable, CI-only Postgres,
       # never a shared or production database.
       SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
+      # CTO 230 - npm run db:migrate goes through scripts/migrate-deploy-safe.sh. These
+      # lanes deliberately migrate and test as the superuser (test setup needs
+      # privileged operations), so the legacy single credential is opted into
+      # explicitly; the role-segregated path is exercised by runtimePrivileges and
+      # by the restricted-runtime lane in ci-tests.yml.
+      SAILS_LEGACY_SINGLE_CREDENTIAL: "1"
       # M9.10-R root cause: TRUSTED_ARBITRATORS was never set anywhere in
       # this workflow. src/config/index.ts reads it once, at
       # module-import time; when empty, dispute.service.ts's lazy
