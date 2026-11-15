@@ -41,3 +41,8 @@ if echo "$STATUS_OUTPUT" | grep -qx "20260807_init"; then
 fi
 
 npx prisma migrate deploy
+
+# CTO 225 - runtime privilege matrix, applied as the migrator after every
+# migration run (idempotent; a no-op notice until scripts/db/bootstrap-roles.js
+# has created sails_runtime; fails if a table has no privilege class).
+npx prisma db execute --file scripts/db/runtime-grants.sql

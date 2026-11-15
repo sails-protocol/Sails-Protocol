@@ -383,6 +383,71 @@ Do not proceed with a restore, and escalate instead, if:
   this section) do not match the last known source counts — investigate
   before repointing any application traffic at the restored database.
 
+## 6.3 Database roles (CTO 225, 2026-11-15)
+
+The write-once guarantees (`offer_envelopes`, `escrow_pending_round_retirements`,
+the fee/custody/evidence records) are triggers. The owner of a table can disable
+its trigger and a superuser can bypass it (`session_replication_role = replica`),
+so they only hold if the application connects as a role that is neither. Three
+roles, never shared:
+
+| Role | Attributes | Used by |
+|---|---|---|
+| cluster administrator (`postgres`; RDS master) | superuser / `rds_superuser` | `scripts/db/bootstrap-roles.js` only, once |
+| `sails_migrator` | login; no superuser, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS; owns the database, schema `public` and every object | `prisma migrate deploy` and `scripts/db/runtime-grants.sql` (`MIGRATION_DATABASE_URL`) |
+| `sails_runtime` | login, NOINHERIT; no elevated attribute; owns nothing; member of no role | the application (`DATABASE_URL`) |
+
+Runtime privileges are per table, from the explicit classification in
+`scripts/db/runtime-grants.sql`: `read` (SELECT), `append` (SELECT, INSERT),
+`mutable` (+UPDATE) or `mutable_delete` (+DELETE). TRUNCATE, REFERENCES, TRIGGER,
+`CREATE` on the schema and any access to `_prisma_migrations` are never granted,
+and there are no default privileges: a table added by a migration is unreachable
+until it is classified, and the grant step fails while any table is unclassified.
+
+### Order (new or existing database)
+
+1. Administrator, once: `ADMIN_DATABASE_URL=... SAILS_MIGRATOR_PASSWORD=... SAILS_RUNTIME_PASSWORD=... node scripts/db/bootstrap-roles.js`.
+   Creates or realigns both roles, revokes every runtime membership, and makes
+   `sails_migrator` the owner of the database, of `public` and of every object
+   already there (ownership only: no row is read or changed). On RDS first run
+   `GRANT sails_migrator TO <master>` so the master may transfer ownership.
+2. Migrator, every release: `MIGRATION_DATABASE_URL=... sh scripts/migrate-deploy-safe.sh`
+   (migrations, then the runtime grants).
+3. Application: `DATABASE_URL` = `sails_runtime`. In production the server
+   refuses to start if that role is a superuser, has CREATEROLE/CREATEDB/
+   REPLICATION/BYPASSRLS, is a member of any role, owns the database, schema or
+   any relation in `public`, can CREATE in `public`, or can UPDATE/DELETE/TRUNCATE
+   an append-only table (`src/common/database/runtime-privileges.ts`).
+   `DB_PRIVILEGE_CHECK=enforce|warn` runs the same check elsewhere (`docker-compose.yml` enforces it).
+
+### Existing installations
+
+An installation created before this section has every object owned by the
+administrator and the application connected as it. Step 1 hands ownership over
+in place; rehearse it on a copy first, with the catalog inventory of §6.1.1
+(triggers, functions, partial indexes, CHECKs) compared before and after. Do not
+use `REASSIGN OWNED BY postgres` (it also moves objects outside the schema).
+Credentials: store the migrator and runtime passwords separately; the
+administrator credential is not needed after step 1.
+
+### Rollback
+
+Point `DATABASE_URL` back at the previous credential and restart (the production
+check will refuse a privileged role, so this is only possible outside production
+or after reverting the release that added the check). Roles, ownership and grants
+can stay in place: they do not change any row.
+
+### Residual risks (declared, not solved here)
+
+- Whoever holds the migrator or administrator credential can still bypass every
+  trigger; from here on that is credential custody, not a technical control.
+- Restore (§6.2): `pg_restore --disable-triggers` needs a superuser and the
+  write-once triggers can reject restored rows; restore as the administrator into
+  an empty database, then run step 1 and step 2 before pointing the runtime at it.
+- A runtime write path missing from the classification fails with SQLSTATE 42501
+  (permission denied); the CI lane "Critical flows as the restricted runtime role"
+  re-runs the critical real-Postgres suites as `sails_runtime` to catch it.
+
 ## 7. Production Considerations
 
 - [ ] Reverse proxy/TLS — closed differently than originally planned:

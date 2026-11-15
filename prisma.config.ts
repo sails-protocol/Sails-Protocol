@@ -19,6 +19,8 @@ import { defineConfig } from 'prisma/config'
 export default defineConfig({
   schema: 'prisma/schema.prisma',
   datasource: {
-    url: process.env.DATABASE_URL ?? 'postgresql://postgres:password@localhost:5432/sails_protocol',
+    // CTO 225 - the CLI (migrations) connects as sails_migrator when MIGRATION_DATABASE_URL is set;
+    // DATABASE_URL is the application's (sails_runtime) and stays the fallback.
+    url: process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL ?? 'postgresql://postgres:password@localhost:5432/sails_protocol',
   },
 })
