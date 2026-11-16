@@ -248,7 +248,9 @@ async function main(): Promise<void> {
   const escrowIds: string[] = JSON.parse(process.env.ESCROW_IDS ?? '[]')
   const deadline = Date.now() + Number(process.env.WORKER_DEADLINE_MS ?? 90_000)
   while (Date.now() < deadline) {
-    await reconcilePendingSettlements({ projectionGraceMs: 0 })
+    // Issue #239 (O1): the external-spend watch is proven by its own suites (pendingRoundLifecycle*, T12b); here it
+    // would only read the public explorer for other suites' escrows. Every recovery pass this suite asserts still runs.
+    await reconcilePendingSettlements({ projectionGraceMs: 0, externalSpendMinIntervalMs: Number.POSITIVE_INFINITY })
     if (frozen) await never
     // PASS 3 redelivers the first durable event only; a duplicate reaches a consumer through at-least-once delivery.
     const durable = await prisma.$queryRaw`

@@ -845,6 +845,14 @@ restated, not weakened, by this freeze: immaturity does not remove a
 capability from scope (frozen product property, `docs/BACKLOG.md`
 item 20).
 
+**SUCCESSOR (2026-11-01, Product Owner + CTO).** The Full Reference
+Wallet Day-0 Capability Target named above has itself been superseded as
+the Day-0 commitment by a narrower set of 14 native P2P `{asset, rail}`
+combinations (`docs/adr/ADR-002-asset-settlement-rail-adapter-provider-architecture.md`
+§5A; `docs/BACKLOG.md` item 20). DePix is outside that set. The text
+above and the 2026-09-10 supersession stay as history; the
+"DePix-inclusive" evidence in §14.4 follows the 14-row commitment.
+
 ### 14.3 Quote-currency / market-pair discoverability
 
 The current aggregate `LiquidityOffer` public discovery shape exposes

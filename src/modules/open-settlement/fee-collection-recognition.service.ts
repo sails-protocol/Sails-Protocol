@@ -348,13 +348,33 @@ export class FeeCollectionRecognitionService {
    * happened; refusing to even record it would be worse) is that surface
    * today; a real remediation workflow for this specific case is
    * explicitly out of this phase's scope.
+   *
+   * CTO 261: one transaction, claim before insert (the BROADCAST shape). For
+   * a COLLECTED obligation the COLLECTED -> IN_PROGRESS claim comes first and
+   * takes the obligation row lock the other writers take, so the REORGED_OUT
+   * row's seq follows them. Then the caller's txid must still be the latest
+   * CONFIRMED: a sweep that listed the evidence before a newer generation was
+   * confirmed is refused and rolled back (no evidence, no revert) instead of
+   * reverting the new generation.
    */
   async recordReorgAndRevert(feeObligationId: string, txid: string): Promise<{ reverted: boolean }> {
-    const obligation = await this.obligationRepo.findById(feeObligationId)
-    if (!obligation) {
-      throw new EscrowError(`recordReorgAndRevert: FeeObligation ${feeObligationId} not found`)
-    }
-    await this.evidenceRepo.record({ feeObligationId, kind: 'REORGED_OUT', txid })
+    const obligation = await this.runInTransaction(async (tx) => {
+      const current = await this.obligationRepo.findById(feeObligationId, tx)
+      if (!current) {
+        throw new EscrowError(`recordReorgAndRevert: FeeObligation ${feeObligationId} not found`)
+      }
+      if (current.collectionStatus === 'COLLECTED') {
+        await this.obligationService.transitionCollectionStatus(feeObligationId, 'COLLECTED', 'IN_PROGRESS', tx)
+      }
+      const latest = (await this.evidenceRepo.listForObligation(feeObligationId, tx)).filter((e) => e.kind === 'CONFIRMED').pop()
+      if (!latest || !sameHex(latest.txid, txid)) {
+        throw new EscrowError(
+          `recordReorgAndRevert: txid ${txid} is not the latest CONFIRMED evidence of FeeObligation ${feeObligationId} (latest: ${latest?.txid ?? 'none'}) — stale reorg observation, nothing recorded or reverted`
+        )
+      }
+      await this.evidenceRepo.record({ feeObligationId, kind: 'REORGED_OUT', txid }, tx)
+      return current
+    })
 
     if (obligation.collectionStatus === 'DISTRIBUTED') {
       log.error({
@@ -364,7 +384,6 @@ export class FeeCollectionRecognitionService {
       return { reverted: false }
     }
     if (obligation.collectionStatus === 'COLLECTED') {
-      await this.obligationService.transitionCollectionStatus(feeObligationId, 'COLLECTED', 'IN_PROGRESS')
       return { reverted: true }
     }
     // Already IN_PROGRESS (or earlier) — evidence recorded for the

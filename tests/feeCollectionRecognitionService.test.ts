@@ -304,32 +304,55 @@ describe('FeeCollectionRecognitionService — §8 replacement/dropped/reorg', ()
 
   it('reverts COLLECTED -> IN_PROGRESS on a reorg (Fase 2.1\'s own design principle)', async () => {
     const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'COLLECTED' }) })
-    const evidenceRepo = fakeEvidenceRepo()
-    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo))
+    const evidenceRepo = fakeEvidenceRepo({ listForObligation: jest.fn().mockResolvedValue([{ kind: 'CONFIRMED', txid: 'h'.repeat(64) }]) })
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo), fakeDistributionPolicyService(), fakeRunInTransaction)
 
     const result = await service.recordReorgAndRevert('obligation-1', 'h'.repeat(64))
 
     expect(result.reverted).toBe(true)
-    expect(evidenceRepo.record).toHaveBeenCalledWith(expect.objectContaining({ kind: 'REORGED_OUT', txid: 'h'.repeat(64) }))
+    expect(evidenceRepo.record).toHaveBeenCalledWith(expect.objectContaining({ kind: 'REORGED_OUT', txid: 'h'.repeat(64) }), undefined)
     expect(obligationRepo.claimCollectionStatusTransition).toHaveBeenCalledWith('obligation-1', 'COLLECTED', 'IN_PROGRESS')
   })
 
   it('refuses to auto-revert an already-DISTRIBUTED obligation — surfaces as an exceptional condition instead', async () => {
     const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'DISTRIBUTED' }) })
-    const evidenceRepo = fakeEvidenceRepo()
-    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo))
+    const evidenceRepo = fakeEvidenceRepo({ listForObligation: jest.fn().mockResolvedValue([{ kind: 'CONFIRMED', txid: 'i'.repeat(64) }]) })
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo), fakeDistributionPolicyService(), fakeRunInTransaction)
 
     const result = await service.recordReorgAndRevert('obligation-1', 'i'.repeat(64))
 
     expect(result.reverted).toBe(false)
-    expect(evidenceRepo.record).toHaveBeenCalledWith(expect.objectContaining({ kind: 'REORGED_OUT' })) // still recorded for the forensic trail
+    expect(evidenceRepo.record).toHaveBeenCalledWith(expect.objectContaining({ kind: 'REORGED_OUT' }), undefined) // still recorded for the forensic trail
     expect(obligationRepo.claimCollectionStatusTransition).not.toHaveBeenCalled() // never improvised
+  })
+
+  it('CTO 261: claims COLLECTED -> IN_PROGRESS BEFORE inserting REORGED_OUT, in one transaction', async () => {
+    const order: string[] = []
+    const obligationRepo = fakeObligationRepo({
+      findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'COLLECTED' }),
+      claimCollectionStatusTransition: jest.fn().mockImplementation(async (_id, _f, _t, tx) => { order.push(tx ? 'claim(tx)' : 'claim'); return 1 }),
+    })
+    const evidenceRepo = fakeEvidenceRepo({
+      listForObligation: jest.fn().mockResolvedValue([{ kind: 'CONFIRMED', txid: 'k'.repeat(64) }]),
+      record: jest.fn().mockImplementation(async (input, tx) => { order.push(tx ? 'insert(tx)' : 'insert'); return { id: 'e1', ...input } }),
+    })
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo), fakeDistributionPolicyService(), ((fn) => fn({} as any)) as TransactionRunner)
+    await service.recordReorgAndRevert('obligation-1', 'k'.repeat(64))
+    expect(order).toEqual(['claim(tx)', 'insert(tx)'])
+  })
+
+  it('CTO 261: a txid that is not the latest CONFIRMED is refused before anything is written', async () => {
+    const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'IN_PROGRESS' }) })
+    const evidenceRepo = fakeEvidenceRepo({ listForObligation: jest.fn().mockResolvedValue([{ kind: 'CONFIRMED', txid: 'a'.repeat(64) }, { kind: 'CONFIRMED', txid: 'b'.repeat(64) }]) })
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo), fakeDistributionPolicyService(), fakeRunInTransaction)
+    await expect(service.recordReorgAndRevert('obligation-1', 'a'.repeat(64))).rejects.toThrow(/stale reorg observation/)
+    expect(evidenceRepo.record).not.toHaveBeenCalled()
   })
 
   it('records reorg evidence but reverts nothing for an obligation not yet COLLECTED', async () => {
     const obligationRepo = fakeObligationRepo({ findById: jest.fn().mockResolvedValue({ id: 'obligation-1', collectionStatus: 'IN_PROGRESS' }) })
-    const evidenceRepo = fakeEvidenceRepo()
-    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo))
+    const evidenceRepo = fakeEvidenceRepo({ listForObligation: jest.fn().mockResolvedValue([{ kind: 'CONFIRMED', txid: 'j'.repeat(64) }]) })
+    const service = new FeeCollectionRecognitionService(obligationRepo, evidenceRepo, new FeeObligationService(obligationRepo), fakeDistributionPolicyService(), fakeRunInTransaction)
 
     const result = await service.recordReorgAndRevert('obligation-1', 'j'.repeat(64))
 

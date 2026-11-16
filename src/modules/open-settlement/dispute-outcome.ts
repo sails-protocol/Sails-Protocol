@@ -292,6 +292,11 @@ export async function commitAuthoritativeDisputeRuling(
     if (claim.count === 0) {
       return { committed: false, reason: 'DISPUTE_STATE_LOST_RACE' } as const
     }
+    // D11-R - same rule as applyRuling()'s resolve-write: only a DISPUTED escrow takes a ruling; throwing rolls the claim back.
+    const escrowNow = await tx.escrow.findUnique({ where: { id: dispute.escrowId }, select: { status: true } })
+    if (escrowNow && escrowNow.status !== 'DISPUTED') {
+      throw new EscrowError(`Ruling ${payload.outcome} for dispute ${dispute.id} refused: escrow ${dispute.escrowId} is ${escrowNow.status}, not DISPUTED, so this ruling cannot execute.`)
+    }
 
     const beneficiaries = beneficiariesFor(payload.outcome, buyerId, sellerId)
     const destinations: BeneficiaryDestination[] = []

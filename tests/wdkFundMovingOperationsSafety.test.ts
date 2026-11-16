@@ -73,6 +73,9 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
     },
     // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
     eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
+    // D7 - the rollback reads the WDK attempt ledger first. The provider is a full stand-in here and keeps no ledger,
+    // so no attempt exists, exactly as in this file's scenarios.
+    wdkTransferAttempt: { findFirst: jest.fn().mockResolvedValue(null) },
     $executeRaw: jest.fn().mockResolvedValue(0),
   })
 )

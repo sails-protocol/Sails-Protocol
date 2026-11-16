@@ -313,6 +313,17 @@ This decision does not by itself change `AssetType`, `EscrowType`,
 Reference Wallet — see ADR-002 for the architecture this decision
 enables and the explicit non-authorization of any such change here.
 
+**2026-11-01 successor note (historical text above unchanged).** The
+two-dimension decision (`Asset + SettlementRail`) stands. The "canonical
+Day-0 target" it refers to has been narrowed by a Product Owner + CTO
+decision to 14 native P2P `{asset, rail}` combinations — BTC on
+`BITCOIN_L1`/`LIQUID`; USDT on `ETHEREUM`/`POLYGON`/`BASE`/`ARBITRUM`/
+`TON`/`TRON`/`SOLANA`; USDC on `ETHEREUM`/`POLYGON`/`BASE`/`ARBITRUM`/
+`SOLANA` — recorded in ADR-002 §5A. Sails Protocol stays non-custodial
+and permissionless; Sails Market's independent commercial layer (swaps,
+direct purchase, routing, partner integrations) is not a native P2P
+settlement provider. Nothing is homologated by the list.
+
 ---
 
 ## 2D. Product Decision — Reference Components / White-label / Sails Market Product Layering (2026-09-12)

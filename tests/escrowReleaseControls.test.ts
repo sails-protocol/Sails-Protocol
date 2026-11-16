@@ -674,30 +674,28 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'DISPUTED' })
     })
 
+    // Issue #238 - openDispute() returns what its in-transaction `recordDispute` wrote (the Dispute row).
+    const recordDispute = jest.fn(async () => ({ id: 'dispute-1' }))
+
     it('rejects a caller who is not a party to the trade', async () => {
-      await expect(escrowService.openDispute('escrow-1', 'stranger-1', 'reason')).rejects.toThrow(
+      await expect(escrowService.openDispute('escrow-1', 'stranger-1', 'reason', recordDispute)).rejects.toThrow(
         /not a party to trade/
       )
       expect(mockEscrowUpdate).not.toHaveBeenCalled()
+      expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
+      expect(recordDispute).not.toHaveBeenCalled()
     })
 
     it('allows the buyer', async () => {
-      // Same fix as markPaymentSent's identical comment — openDispute()
-      // also has no external provider call, so both findUnique calls
-      // (initial read + post-claim re-fetch) need queuing explicitly.
-      mockEscrowFindUnique
-        .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED' })
-        .mockResolvedValueOnce({ ...baseEscrow, status: 'DISPUTED' })
-      const result = await escrowService.openDispute('escrow-1', 'buyer-1', 'reason')
-      expect(result.status).toBe('DISPUTED')
+      const result = await escrowService.openDispute('escrow-1', 'buyer-1', 'reason', recordDispute)
+      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'DISPUTED' } })
+      expect(result).toEqual({ id: 'dispute-1' })
     })
 
     it('allows the seller', async () => {
-      mockEscrowFindUnique
-        .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED' })
-        .mockResolvedValueOnce({ ...baseEscrow, status: 'DISPUTED' })
-      const result = await escrowService.openDispute('escrow-1', 'seller-1', 'reason')
-      expect(result.status).toBe('DISPUTED')
+      const result = await escrowService.openDispute('escrow-1', 'seller-1', 'reason', recordDispute)
+      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'DISPUTED' } })
+      expect(result).toEqual({ id: 'dispute-1' })
     })
   })
 })
