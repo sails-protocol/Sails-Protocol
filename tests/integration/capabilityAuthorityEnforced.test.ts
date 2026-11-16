@@ -19,6 +19,7 @@
 process.env.ENFORCE_CAPABILITIES = 'true' // before ANY src/config load (the harness probe loads it)
 
 import { PrismaClient } from '@prisma/client'
+import { PrismaPg } from '@prisma/adapter-pg'
 import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from '@bitcoinerlab/secp256k1'
 import { ECPairFactory } from 'ecpair'
@@ -46,6 +47,10 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
   const pg = createPostgresIntegrationHarness()
   let dbAvailable = false
   let prisma: PrismaClient
+  // SIMULATION writes that forge append-only facts (Outcome record, ADR-005 authorization, a pending round's provenance)
+  // model direct database access, not the application: they go through the administrator connection when one is given
+  // (the restricted-runtime CI lane sets ADMIN_DATABASE_URL), never by widening sails_runtime's privileges.
+  let tamper: PrismaClient
   let escrowService: import('../../src/modules/open-settlement/escrow.service').EscrowService
   let identityService: typeof import('../../src/modules/open-identity/identity.service').identityService
   let liquidityRouter: typeof import('../../src/modules/open-liquidity/liquidity.service').liquidityRouter
@@ -92,6 +97,7 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
 
     ;({ config } = require('../../src/config'))
     ;({ prisma } = require('../../src/common/database'))
+    tamper = process.env.ADMIN_DATABASE_URL ? new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.ADMIN_DATABASE_URL }) }) : prisma
     ;({ escrowService } = require('../../src/modules/open-settlement/escrow.service'))
     ;({ identityService } = require('../../src/modules/open-identity/identity.service'))
     ;({ liquidityRouter } = require('../../src/modules/open-liquidity/liquidity.service'))
@@ -118,6 +124,7 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
   afterAll(async () => {
     if (dbAvailable) {
       await prisma.$disconnect()
+      if (tamper !== prisma) await tamper.$disconnect()
       await closeTestRedis()
     }
   })
@@ -413,7 +420,7 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
     it('PASS 1, a durable authorization that no longer matches the round (SIMULATION: triggeredBy rewritten): refused, not broadcast', async () => {
       requirePostgres('ADR-004 PASS 1 mismatch')
       const { escrowId, pending } = await signedUnsubmittedRound('adr4-p1-mm', { authorized: true })
-      await prisma.escrowPendingTransaction.update({ where: { id: pending.id }, data: { triggeredBy: 'cap303-someone-else' } })
+      await tamper.escrowPendingTransaction.update({ where: { id: pending.id }, data: { triggeredBy: 'cap303-someone-else' } })
       await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
       const r = await reconcile()
       expect(posts).toEqual([])
@@ -554,16 +561,16 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
         ['2d live dispute authoritySignature alone diverges (SIMULATION)', async (x) => { await prisma.dispute.updateMany({ where: { escrowId: x.escrowId }, data: { authoritySignature: 'f'.repeat(128) } }) }],
         ['3 Outcome of an incompatible kind (REFUND for a release round)', async (x) => {
           const row = (await outcomeRow(x.escrowId))!
-          await prisma.semanticTransitionRecord.update({ where: { id: row.id }, data: { outcomeContent: { ...(row.outcomeContent as object), ruling: 'REFUND' } } })
+          await tamper.semanticTransitionRecord.update({ where: { id: row.id }, data: { outcomeContent: { ...(row.outcomeContent as object), ruling: 'REFUND' } } })
         }],
         ['4 economic translation diverges from the Outcome (destination rebound)', async (x) => {
           const row = (await outcomeRow(x.escrowId))!
           const rebound = (row.outcomeDestinationBinding as any[]).map((d: any) => ({ ...d, destination: testnetAddress(`adr5-elsewhere-${d.beneficiary}`) }))
-          await prisma.semanticTransitionRecord.update({ where: { id: row.id }, data: { outcomeDestinationBinding: rebound } })
+          await tamper.semanticTransitionRecord.update({ where: { id: row.id }, data: { outcomeDestinationBinding: rebound } })
         }],
-        ['5 ADR-005 authorization digest diverges', async (x) => { await prisma.economicDispositionAuthorization.updateMany({ where: { escrowId: x.escrowId }, data: { operationDigest: 'f'.repeat(64) } }) }],
+        ['5 ADR-005 authorization digest diverges', async (x) => { await tamper.economicDispositionAuthorization.updateMany({ where: { escrowId: x.escrowId }, data: { operationDigest: 'f'.repeat(64) } }) }],
         ['6 cooperative round on a disputed escrow (generation erased from the round)', async (x) => {
-          await prisma.escrowPendingTransaction.update({ where: { id: x.pending.id }, data: { disputeId: null, rulingAppealRound: null, rulingArbiterId: null, rulingOutcome: null, rulingAuthoritySignature: null, rulingAuthorityIssuedAt: null } })
+          await tamper.escrowPendingTransaction.update({ where: { id: x.pending.id }, data: { disputeId: null, rulingAppealRound: null, rulingArbiterId: null, rulingOutcome: null, rulingAuthoritySignature: null, rulingAuthorityIssuedAt: null } })
         }],
         ['7 appeal in progress (SIMULATION: APPEALED, ruling cleared)', async (x) => { await prisma.dispute.updateMany({ where: { escrowId: x.escrowId }, data: { status: 'APPEALED', ruling: null } }) }],
       ]
