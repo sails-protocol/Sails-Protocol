@@ -196,6 +196,7 @@ describe('R2-c - static inventory of dispute writers in src', () => {
     'modules/open-settlement/dispute.service.ts update',
     'modules/open-settlement/dispute.service.ts update',
     'modules/open-settlement/dispute.service.ts update', // persistEvidence (#674): atomic append, status IN (OPENED, EVIDENCE_SUBMITTED) AND ruling IS NULL
+    'modules/open-settlement/dispute-dispatch-recovery.ts update', // claimCandidates (#675): C4 queue stamp; SET only dispatchRecoveryAttemptedAt, guarded by d.status = 'RESOLVED'
   ]
 
   describe('R2-c (raw SQL) - every raw writer of disputes is inventoried and status-guarded', () => {
@@ -206,7 +207,7 @@ describe('R2-c - static inventory of dispute writers in src', () => {
 
     it('every raw UPDATE is conditional on status, and none takes a dispute out of RESOLVED', () => {
       const writes = sources.flatMap(({ path, text }) => rawDisputeWrites(text).map((w) => ({ path, ...w })))
-      expect(writes.length).toBeGreaterThanOrEqual(3) // the scan must see the real writers, not pass vacuously
+      expect(writes.length).toBeGreaterThanOrEqual(4) // the scan must see the real writers, not pass vacuously
       expect(writes.filter((w) => !statusGuarded(w.where)).map((w) => `${w.path}: ${w.verb} where {${w.where.trim()}}`)).toEqual([])
       expect(writes.filter((w) => leavesResolved(w)).map((w) => w.path)).toEqual([])
     })
