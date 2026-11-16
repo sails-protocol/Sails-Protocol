@@ -281,6 +281,15 @@ commit `b0c581dd26281f230a3795dfdaa48412574ea5c1`) marks frozen. All of
 these change only through the RFC process or an explicitly-authorized
 follow-up mission — never as a side effect of an unrelated PR.
 
+**Prisma migrations are LF and never rewritten.** Prisma records a checksum
+of each `prisma/migrations/*/migration.sql` as committed, so an applied
+migration must not change, not even its line endings or comments. Fix or
+harden behavior in a new, later migration (forward-only). `.gitattributes`
+keeps these files LF on checkout, and `tests/migrationLineEndings.test.ts`
+(part of `npm run test:unit`) fails if any of them contains a carriage
+return. On Windows, write scripted edits with LF (in Python,
+`open(path, 'w', newline='')`).
+
 ## 9. Human + AI Contributors
 
 Applies equally — `docs/ENGINEERING_GOVERNANCE.md` §7. AI-generated code
