@@ -60,6 +60,10 @@ async function bootstrap() {
     await client.query('SET log_min_error_statement = panic').catch(() => {})
     const { rows: [admin] } = await client.query(
       `SELECT rolsuper, current_setting('server_version_num')::int >= 160000 AS pg16 FROM pg_roles WHERE rolname = current_user`)
+    // The non-superuser path is tested on PostgreSQL 16 only (tests/integration/bootstrapNonSuperuser.test.ts).
+    if (!admin.rolsuper && !admin.pg16) {
+      throw new Error('a non-superuser administrator needs PostgreSQL 16 or later; on an older server run this as a superuser')
+    }
     // Roles, memberships and ownership commit together or not at all.
     await client.query('BEGIN')
     await upsertRole(client, MIGRATOR, migratorPassword, 'INHERIT', admin.rolsuper)
@@ -81,7 +85,7 @@ async function bootstrap() {
     // (SET and INHERIT; the documented "GRANT sails_migrator TO <master>"). The administrator is already above the
     // migrator, so this adds nothing it could not do; the runtime never gets any membership (revoked above).
     if (!admin.rolsuper) {
-      await client.query(`GRANT ${m} TO CURRENT_USER${admin.pg16 ? ' WITH SET TRUE, INHERIT TRUE' : ''}`)
+      await client.query(`GRANT ${m} TO CURRENT_USER WITH SET TRUE, INHERIT TRUE`)
     }
     await client.query(`ALTER DATABASE ${client.escapeIdentifier(db)} OWNER TO ${m}`)
     await client.query(`REVOKE ALL ON DATABASE ${client.escapeIdentifier(db)} FROM PUBLIC`)

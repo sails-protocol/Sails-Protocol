@@ -415,7 +415,8 @@ until it is classified, and the grant step fails while any table is unclassified
    `sails_migrator` the owner of the database, of `public` and of every object
    already there (ownership only: no row is read or changed). A non-superuser
    administrator (managed PostgreSQL master with CREATEROLE/CREATEDB only) is
-   supported: the script grants itself membership in `sails_migrator` (SET,
+   supported on PostgreSQL 16 or later (older servers: run it as a superuser; the
+   script refuses otherwise): the script grants itself membership in `sails_migrator` (SET,
    INHERIT; nothing the administrator could not already do). It cannot remove SUPERUSER/REPLICATION/BYPASSRLS from an
    existing role and refuses to continue if one is set (rehearsed on PostgreSQL
    16, 2026-11-16: first run, re-runs, restore).
