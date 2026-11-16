@@ -375,6 +375,20 @@ describe('CTO 225 - runtime role cannot bypass write-once guarantees (disposable
     expect(runs).toBe(1)
   })
 
+  it('regression as runtime: the C4 dispatch claim (UPDATE of the stamp, FOR UPDATE SKIP LOCKED) and the stale-translation cleanup run with the privileges the runtime already has', async () => {
+    // CTO 341: no grant was added for them. Statements are planned and privilege-checked even when no row qualifies, so a
+    // missing privilege on disputes / escrow_pending_transactions would fail here (SQLSTATE 42501) on an empty database too.
+    const { reconcileMissingDispatch } = require('../../src/modules/open-settlement/dispute-dispatch-recovery')
+    const { reconcileStalePendingDisputeTranslations } = require('../../src/modules/open-settlement/dispute-pending-reconciliation')
+    const dispatch = await reconcileMissingDispatch({ maxCandidates: 5, budgetMs: 10_000 })
+    expect(dispatch.failed).toEqual([])
+    expect(dispatch.budget.stoppedBy).toBe('SWEEP_COMPLETE')
+    const stale = await reconcileStalePendingDisputeTranslations({ maxRows: 5, budgetMs: 10_000 })
+    expect(stale.failed).toEqual([])
+    const [{ dml }] = await app.prisma.$queryRaw<Array<{ dml: boolean }>>`SELECT has_table_privilege(current_user, 'disputes', 'UPDATE') AS dml`
+    expect(dml).toBe(true) // the existing 'mutable' class, unchanged by this mission
+  })
+
   it('production boot check: refuses the administrator and the migrator, accepts the runtime', async () => {
     const asClient = (client: Client) => async (sql: TemplateStringsArray, ...values: unknown[]) => {
       const text = sql.reduce((acc, part, i) => acc + part + (i < values.length ? `$${i + 1}` : ''), '')

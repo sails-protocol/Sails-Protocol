@@ -44,6 +44,7 @@
  * resume automatically" — sufficient evidence exists here precisely
  * because the deterministic re-check IS that evidence).
  */
+import { randomUUID } from 'crypto'
 import { prisma } from '../../common/database'
 import { config } from '../../config'
 import { networkFor } from './multisig.provider'
@@ -72,6 +73,19 @@ async function deleteIfStillUnsigned(pending: { id: string; escrowId: string }):
 // an operational policy a deployment should need to tune.
 const MIN_AGE_MS = 5 * 60 * 1000
 
+type StaleWhere = { escrow: { type: 'MULTISIG'; disputes: { some: { status: 'RESOLVED' } } } }
+const STALE_INCLUDE = { signatures: true, escrow: true } as const
+
+// Only rows this module could actually act on, from the current position, wrapping once.
+async function boundedCandidates(baseWhere: StaleWhere, maxRows: number) {
+  const where = { ...baseWhere, signatures: { none: {} }, createdAt: { lt: new Date(Date.now() - MIN_AGE_MS) } }
+  const page = (gt: string, take: number) => prisma.escrowPendingTransaction.findMany({ where: { ...where, id: { gt } }, orderBy: { id: 'asc' }, take, include: STALE_INCLUDE })
+  const first = await page(staleCursor, maxRows)
+  const rows = first.length < maxRows ? [...first, ...(await page('', maxRows - first.length)).filter((r) => !first.some((f) => f.id === r.id))] : first
+  if (rows.length) staleCursor = rows[rows.length - 1].id
+  return rows
+}
+
 export interface StalePendingReconciliationReport {
   reconciled: Array<{ escrowId: string; pendingTransactionId: string; verdict: 'DELETED_GUARD_FAILED' | 'LEFT_GUARD_PASSED' | 'DELETED_NO_OUTCOME' }>
   skippedTooYoung: string[]
@@ -87,19 +101,43 @@ export interface StalePendingReconciliationReport {
  * signature-bearing is structurally excluded from a later run's own
  * candidate query.
  */
-export async function reconcileStalePendingDisputeTranslations(): Promise<StalePendingReconciliationReport> {
+/**
+ * CTO 341 - a bounded run for the production tick: at most `maxRows` rows are LOADED and taken on, and no new row is
+ * started once `budgetMs` has elapsed (one already started finishes). Rows that could never be acted on (carrying a
+ * signature, or younger than MIN_AGE_MS) are excluded in the query, so they never consume the budget. Fairness is
+ * round-robin by id from a process-local position that starts at a random point: a row that passes re-validation stays
+ * a candidate (it is a legitimate round awaiting signatures), so a plain `take` would starve the rows behind it.
+ * Unlike the C4 dispatch claim this position is NOT durable: after a restart the sweep resumes from a random point and
+ * still covers every row within ceil(rows / maxRows) + 1 runs. Disclosed limit, not a safety property: every deletion
+ * stays conditional (deleteIfStillUnsigned) whatever order the rows are visited in.
+ */
+export interface StalePendingReconciliationOptions {
+  maxRows: number
+  budgetMs: number
+  /** Injectable clock (milliseconds), for deterministic tests. */
+  now?: () => number
+}
+let staleCursor: string = randomUUID()
+/** Tests only: where the next bounded run of this process resumes ('' = the start). */
+export function setStalePendingCursor(afterId: string): void { staleCursor = afterId }
+
+export async function reconcileStalePendingDisputeTranslations(options?: StalePendingReconciliationOptions): Promise<StalePendingReconciliationReport> {
   const report: StalePendingReconciliationReport = { reconciled: [], skippedTooYoung: [], skippedHasSignatures: [], failed: [] }
 
   // Candidates: any pending row for a MULTISIG escrow with a RESOLVED
   // dispute. Signature count and age are checked per-row below (cheaper
   // to express precisely in code than in a single complex query, and
   // this table is never large — one row per escrow, at most).
-  const candidates = await prisma.escrowPendingTransaction.findMany({
-    where: { escrow: { type: 'MULTISIG', disputes: { some: { status: 'RESOLVED' } } } },
+  const baseWhere = { escrow: { type: 'MULTISIG' as const, disputes: { some: { status: 'RESOLVED' as const } } } }
+  const now = options?.now ?? Date.now
+  const deadline = options ? now() + options.budgetMs : Infinity
+  const candidates = options ? await boundedCandidates(baseWhere, options.maxRows) : await prisma.escrowPendingTransaction.findMany({
+    where: baseWhere,
     include: { signatures: true, escrow: true },
   })
 
   for (const pending of candidates) {
+    if (now() >= deadline) break
     try {
       if (pending.signatures.length > 0) {
         report.skippedHasSignatures.push(pending.escrowId)
