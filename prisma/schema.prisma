@@ -986,7 +986,7 @@ model FeeCollectionEvidence {
   // Pre-existing rows keep the physical-order seq from migration 20261116120000 (not economic
   // evidence; review per docs/DEPLOYMENT.md 6.5).
   // The DB default is the constant 0 and a SECURITY DEFINER trigger always assigns the real value, so the
-  // runtime role needs no privilege on the sequence (CTO 295/296).
+  // runtime role needs no privilege on the sequence (CTO 295/296, migration 20261116200000).
   seq               Int                       @default(0)
 
   // Missão 11 Fase 7.2 — CTO-frozen decision: DistributionPolicyVersion

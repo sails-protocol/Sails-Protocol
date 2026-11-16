@@ -125,7 +125,7 @@ BEGIN
   EXECUTE format('REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM %I', runtime_role);
   EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', runtime_role);
   -- CTO 295/296: only the SECURITY DEFINER trigger draws fee_collection_evidence."seq"; a runtime that could call
-  -- nextval() itself could exhaust it (migration 20261116120000).
+  -- nextval() itself could exhaust it (migration 20261116200000_fee_collection_evidence_seq_definer).
   EXECUTE format('REVOKE ALL ON SEQUENCE public.fee_collection_evidence_seq_seq FROM %I', runtime_role);
 
   FOR r IN SELECT table_name, class FROM sails_meta.runtime_table_class LOOP
