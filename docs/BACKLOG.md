@@ -4782,8 +4782,10 @@ obligation" is defined anywhere in this repository.
     provenance no longer executes on an escrow that is or was DISPUTED; C8
     recovery claims the escrow before its first broadcast). What this does
     **not** establish: no deploy or homologation (Beta evidence stays under
-    #165; deploy is NO-GO), and the main CI run for `5f5be8d9` was still in
-    progress when this note was written. Known residuals, owned elsewhere:
+    #165; deploy is NO-GO). The main CI run for `5f5be8d9`, still in progress
+    when this note was written, completed with success (`build`
+    41687687156, `test` 41687687350, CodeQL `Analyze` 41687687427; checked
+    2026-11-16). Known residuals, owned elsewhere:
     ADR-005 §5 asks that a superseded prior-generation pending operation be
     durable and inspectable; `main` has no superseded/invalidated marker, the
     pending row is kept with its provenance and refused at the commit gate
@@ -4795,6 +4797,27 @@ obligation" is defined anywhere in this repository.
     Dispute→Escrow crash window is partly covered on `main` by Issue #253
     ruling-finalization recovery (reconciliation PASS 4), which is also not
     homologated.
+
+    **Rechecked 2026-11-16 against `main` `aeddf871` (status only; nothing
+    above is decided by this check):**
+    - ADR-005 §5 marker: `main` now records cooperative rounds that a
+      dispute's ruling superseded, append-only (Issue #239,
+      `escrow_pending_round_retirements`). There is still no
+      superseded/invalidated marker for a prior-generation *disputed*
+      pending operation after an appeal. On MULTISIG an appeal is refused
+      for every escrow with a script-committed arbiter, so that state is
+      not reachable there. The equivalence decision stays with the CTO.
+    - Re-broadcast / UNKNOWN: PR #596 (merge `6c912440`, 2026-11-11, Issue
+      #299) made a MULTISIG broadcast failure after the POST an UNKNOWN
+      outcome, never FAILED. The claim is kept and reconciliation converges
+      from chain truth; an identifiable RPC rejection goes to manual review
+      with the txid. PR #602 (merge `be4a124a`, 2026-11-11) adds that a
+      dispute opened in the MULTISIG rollback window stays held, never a
+      second disposition. The Gatekeeper residual about a test for
+      re-broadcasting the same deterministic transaction while the explorer
+      keeps missing the txid was not re-verified here and stays recorded.
+    - The LIGHTNING_HODL / SAFE_GUARD_EVM "not claimed" statement is still in
+      `docs/PROTOCOL_INVARIANTS.md`.
 **BACKLOG DELTA: DETECTED AND SYNCED.**
 
 45. **Authority Backlog Delta — institutional ownership reconciliation,
