@@ -772,6 +772,12 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       mine = [...plain, ...coop]
     }, 1_800_000)
 
+    // CTO 344: SAILS_C4_RECOVERY_ENABLED is off by default; this describe turns it on for the tick tests and F1 turns it off.
+    const c4Flag = () => require('../../src/config').config.features as { c4Recovery: boolean }
+    let originalFlag = false
+    beforeEach(() => { originalFlag = c4Flag().c4Recovery; c4Flag().c4Recovery = true })
+    afterEach(() => { c4Flag().c4Recovery = originalFlag })
+
     const bounded = (extra: Partial<{ budgetMs: number; now: () => number }> = {}) => reconcileMissingDispatch({ maxCandidates: MAX, budgetMs: 60_000, ...extra })
     const failEveryDispatch = (onCall?: () => void) => {
       for (const name of ['initiateRelease', 'initiateRefund', 'initiateSplit'] as const) {
@@ -1035,6 +1041,49 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       await tickUntil(tickLog(), () => hasRound(unsigned))
       expect((await pendingRows([unsigned.escrowId])).length).toBe(1)
       await expectNoEconomicDisposition([unsigned, signed])
+    }, 1_800_000)
+
+    it('F1 flag OFF (the default): the tick performs ZERO C4 operations - no dispatch claim, no stamp, no round, no cleanup - while the rest of the tick still runs', async () => {
+      pg.requirePostgres('C4 F1')
+      const candidate = await c4('flagoff', 'RELEASE')
+      c4Flag().c4Recovery = false
+      const recovery = require('../../src/modules/open-settlement/dispute-dispatch-recovery')
+      const stale = require('../../src/modules/open-settlement/dispute-pending-reconciliation')
+      const settlement = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service')
+      const c4Spy = jest.spyOn(recovery, 'reconcileMissingDispatch')
+      const staleSpy = jest.spyOn(stale, 'reconcileStalePendingDisputeTranslations')
+      const settlementSpy = jest.spyOn(settlement, 'reconcilePendingSettlements')
+      const claims = claimStatements()
+      const before = (await rows([candidate])).get(candidate.disputeId)!
+      await runTick(tickLog())
+      await runTick(tickLog())
+      expect(settlementSpy).toHaveBeenCalledTimes(2) // the settlement pass is not gated by this flag
+      expect(c4Spy).not.toHaveBeenCalled()
+      expect(staleSpy).not.toHaveBeenCalled()
+      expect(claims).toEqual([]) // not even the claim statement was issued
+      const after = (await rows([candidate])).get(candidate.disputeId)!
+      expect(after.t).toBeNull()
+      expect(after.u.getTime()).toBe(before.u.getTime())
+      expect(await pendingRows([candidate.escrowId])).toEqual([]) // nothing was dispatched
+      await expectNoEconomicDisposition([candidate])
+    }, 1_800_000)
+
+    it('F2 flag ON: the tick runs BOTH routines - the bounded dispatch recovery and the bounded stale-translation cleanup - and the candidate is claimed and resumed', async () => {
+      pg.requirePostgres('C4 F2')
+      const candidate = await c4('flagon', 'REFUND')
+      const recovery = require('../../src/modules/open-settlement/dispute-dispatch-recovery')
+      const stale = require('../../src/modules/open-settlement/dispute-pending-reconciliation')
+      const c4Spy = jest.spyOn(recovery, 'reconcileMissingDispatch')
+      const staleSpy = jest.spyOn(stale, 'reconcileStalePendingDisputeTranslations')
+      let ticks = 0
+      for (; ticks < 40 && !(await hasRound(candidate)); ticks++) await runTick(tickLog())
+      expect(await hasRound(candidate)).toBe(true)
+      expect(c4Spy).toHaveBeenCalledTimes(ticks)
+      expect(staleSpy).toHaveBeenCalledTimes(ticks)
+      expect(c4Spy.mock.calls[0][0]).toMatchObject({ maxCandidates: expect.any(Number), budgetMs: expect.any(Number) })
+      expect(staleSpy.mock.calls[0][0]).toMatchObject({ maxRows: expect.any(Number), budgetMs: expect.any(Number) })
+      expect((await rows([candidate])).get(candidate.disputeId)!.t).not.toBeNull() // stamped by the claim
+      await expectNoEconomicDisposition([candidate])
     }, 1_800_000)
 
     it('T5 stale cleanup budget: a bounded run loads at most maxRows and, over a few runs from any starting position, reaches every row; rows that cannot be acted on never use the budget', async () => {

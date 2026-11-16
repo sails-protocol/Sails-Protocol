@@ -25,6 +25,17 @@ function requiredInt(name: string, fallback: number): number {
   return parsed
 }
 
+// A strict boolean flag: unset means `fallback`; only 'true' or 'false' are accepted (exactly, lower case). Anything else
+// ('1', 'yes', 'True', a typo) throws at boot instead of silently reading as one of the two - a flag that gates a
+// recovery path must never be on, or off, by accident.
+function requiredBool(name: string, fallback: boolean): boolean {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  if (raw === 'true') return true
+  if (raw === 'false') return false
+  throw new Error(`Environment variable ${name} must be 'true' or 'false', got: ${raw}`)
+}
+
 // Same shape as requiredInt(), plus a floor of 1 — for values (like a
 // network-call timeout in ms) where zero or negative would be nonsensical
 // rather than merely unusual. Same validated-config discipline
@@ -429,6 +440,11 @@ export const config = {
     // a running reconciler a crash after provider success would never be repaired. Opt out with
     // ESCROW_SETTLEMENT_RECONCILER=false.
     escrowSettlementReconciler: process.env.ESCROW_SETTLEMENT_RECONCILER !== 'false',
+    // CTO 344 - M9-R C4 recovery inside the settlement reconciler tick: the dispatch recovery
+    // (dispute-dispatch-recovery.ts) AND the stale-translation cleanup (dispute-pending-reconciliation.ts). Off by default and
+    // validated strictly ('true' / 'false'); off means the tick performs zero C4 operations. Independent of
+    // ESCROW_SETTLEMENT_RECONCILER, which still governs the rest of the tick.
+    c4Recovery: requiredBool('SAILS_C4_RECOVERY_ENABLED', false),
     // RFC-021 D8 — off by default, same reasoning as escrowTimelockSweeper
     // above: a real background process applying real dispute rulings on a
     // timer is a real behavior change a deployment opts into deliberately.
