@@ -891,7 +891,9 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
           expect(new Set(entries.map((e) => e.distributionPolicyVersionId))).toEqual(new Set([high]))
         })
 
-      it('STOP characterization: an obligation allocated on the tie row the old order picked is allocated AGAIN once seq makes the other row latest', async () => {
+      // Was the STOP characterization (CTO 245): before #653 the second allocate() succeeded and entitled the same
+      // revenue twice. Composed with #653 (CTO 272) it must be refused while the first allocation is unreversed.
+      it('an obligation allocated on the tie row the old order picked is NOT allocated again once seq makes the other row latest', async () => {
         requirePostgres('cto245 A double allocation')
         const o = await obligationIn('COLLECTED', '245A-double')
         const recordedAt = new Date(Date.now() + 86_400_000)
@@ -903,11 +905,17 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
 
         const flagged = await distributionReconciliation.findCollectedNotYetAllocated()
         expect(flagged.find((r) => r.feeObligationId === o.obligationId)?.confirmationEvidenceId).toBe(y.id)
-        await entitlementAllocationService.allocate(o.obligationId)
+        await expect(entitlementAllocationService.allocate(o.obligationId)).rejects.toThrow(/earlier generation .* is still allocated/)
         const entries = await prisma.entitlementLedgerEntry.findMany({ where: { feeObligationId: o.obligationId, kind: 'ALLOCATION' } })
         const sumFor = (id: string) => entries.filter((e) => e.confirmationEvidenceId === id).reduce((s, e) => s.plus(e.amount), new Prisma.Decimal(0))
         expect(sumFor(x.id).isZero()).toBe(false)
-        expect(sumFor(y.id).toString()).toBe(sumFor(x.id).toString()) // the same revenue entitled twice
+        expect(sumFor(y.id).isZero()).toBe(true) // the revenue stays entitled once
+
+        // Only after the first generation is fully reversed may the row seq now ranks latest be allocated.
+        await entitlementAllocationService.reverseGeneration(x.id)
+        await entitlementAllocationService.allocate(o.obligationId)
+        const all = await prisma.entitlementLedgerEntry.findMany({ where: { feeObligationId: o.obligationId } })
+        expect(all.reduce((s, e) => s.plus(e.amount), new Prisma.Decimal(0)).toString()).toBe(sumFor(x.id).toString())
       })
     })
   })
