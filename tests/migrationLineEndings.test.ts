@@ -1,7 +1,8 @@
 /**
  * Prisma records a checksum of each migration's exact bytes. A migration file rewritten with CRLF (an editor or
- * script on Windows) would no longer match the checksum of databases that applied it, and `migrate deploy` would
- * report it as modified. Every migration must stay LF; .gitattributes keeps checkouts LF, this keeps commits LF.
+ * script on Windows) no longer matches the checksum of databases that applied it, and Prisma 7's `migrate deploy`
+ * does not report that (GK rehearsal on #657): the divergence would go unnoticed. Every migration must stay LF;
+ * .gitattributes keeps checkouts LF, this keeps commits LF.
  */
 import { readdirSync, readFileSync } from 'fs'
 import { join } from 'path'

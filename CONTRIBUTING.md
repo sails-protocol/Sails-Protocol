@@ -283,7 +283,9 @@ follow-up mission — never as a side effect of an unrelated PR.
 
 **Prisma migrations are LF and never rewritten.** Prisma records a checksum
 of each `prisma/migrations/*/migration.sql` as committed, so an applied
-migration must not change, not even its line endings or comments. Fix or
+migration must not change, not even its line endings or comments (Prisma 7's
+`migrate deploy` does not flag a changed checksum, so a rewrite would go
+unnoticed). Fix or
 harden behavior in a new, later migration (forward-only). `.gitattributes`
 keeps these files LF on checkout, and `tests/migrationLineEndings.test.ts`
 (part of `npm run test:unit`) fails if any of them contains a carriage
