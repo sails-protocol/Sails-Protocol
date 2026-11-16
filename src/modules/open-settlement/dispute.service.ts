@@ -1450,7 +1450,7 @@ export class DisputeService {
 
   // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — the durable side effect here
   // is the validation reads (no writes) followed by exactly one durable
-  // write, `prisma.dispute.update(...)`, which durably appends the
+  // write, an atomic `UPDATE ... RETURNING`, which durably appends the
   // evidence entry AND advances `status` to `EVIDENCE_SUBMITTED` in the
   // same statement. Before that call returns, no evidence has been
   // durably appended — a throw anywhere above it (including the
@@ -1476,23 +1476,24 @@ export class DisputeService {
     // descriptor (see resolveEvidenceDescriptor()'s own header comment).
     const resolved = await this.resolveEvidenceDescriptor(descriptor, dispute.tradeId)
     const entry: EvidenceDescriptor = { ...resolved, submittedBy, submittedAt: new Date().toISOString() }
-    const existing = Array.isArray(dispute.evidence) ? (dispute.evidence as unknown as EvidenceDescriptor[]) : []
-
-    // CTO 119 (GK VERIFY #639, F1) - a compare-and-set on the row this method validated, never a blind write by id:
-    // the descriptor resolution above awaits, and a ruling committed meanwhile must not be overwritten back to
-    // EVIDENCE_SUBMITTED (that took a RESOLVED, economically authorized dispute out of RESOLVED). `updatedAt` also
-    // refuses a concurrent evidence append instead of silently losing it. Zero rows: the dispute moved - refused,
-    // nothing written; the caller may retry, the fresh read then decides.
-    const claim = await prisma.dispute.updateMany({
-      where: { id: disputeId, status: dispute.status, ruling: null, updatedAt: dispute.updatedAt },
-      data: { evidence: [...existing, entry] as unknown as object, status: 'EVIDENCE_SUBMITTED' },
-    })
-    if (claim.count !== 1) {
+    // #367 / CTO 340-343 - one atomic append in PostgreSQL, never a read-modify-write of the array: the entry is
+    // concatenated to whatever evidence the row holds when the UPDATE runs, so two concurrent submissions both survive,
+    // whatever their timestamps or instance clocks. The WHERE re-checks the status this method validated (still
+    // accepting evidence) and that no ruling exists: a ruling committed meanwhile (RESOLVED) is never overwritten back
+    // to EVIDENCE_SUBMITTED. Zero rows: the dispute moved on - refused, nothing written. The row lock the UPDATE takes
+    // serializes it with every other writer of the row.
+    const [row] = await prisma.$queryRaw<Array<{ evidence: Prisma.JsonValue; status: DisputeStatus; updatedAt: Date }>>`
+      UPDATE "disputes"
+         SET "evidence" = COALESCE("evidence", '[]'::jsonb) || jsonb_build_array(${JSON.stringify(entry)}::jsonb),
+             "status" = 'EVIDENCE_SUBMITTED', "updatedAt" = ${new Date()}
+       WHERE "id" = ${disputeId} AND "status" IN ('OPENED', 'EVIDENCE_SUBMITTED') AND "ruling" IS NULL
+      RETURNING "evidence", "status", "updatedAt"`
+    if (!row) {
       throw new ValidationError(
-        `Dispute ${disputeId} changed while this evidence was being validated (a ruling, another evidence submission or a status change) - evidence not recorded; retry`
+        `Dispute ${disputeId} changed while this evidence was being validated (a ruling or a status change) - evidence not recorded`
       )
     }
-    const updated = { evidence: [...existing, entry] as unknown as Prisma.JsonValue, status: 'EVIDENCE_SUBMITTED' as DisputeStatus }
+    const updated = { evidence: row.evidence, status: row.status, updatedAt: row.updatedAt }
 
     // `tradeId`/`escrowId` never change in this update (only `evidence`/
     // `status` do) — merging over the already-validated pre-update
