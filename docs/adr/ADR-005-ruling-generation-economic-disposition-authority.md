@@ -94,6 +94,14 @@ After this durable commit:
 - mutation of economic facts requires a new operation;
 - later appeal/revocation is prospective with respect to an already committed execution attempt, subject to external-outcome reconciliation.
 
+> **Implementation note (2026-11-16, R2, CTO 306/316 alternative A; #639/#642).** At the MULTISIG provider's effective broadcast point, `assertDurableEconomicDispositionAuthorization()` also re-reads the live dispute and refuses unless it is still RESOLVED in the authorized generation (status, appeal round, arbiter, ruling, authority signature). That is stricter than the reuse allowed above. In every state reachable on MULTISIG the two coincide:
+>
+> - `appeal()` refuses every escrow with a script-committed arbiter, which is every MULTISIG escrow;
+> - every `disputes` writer is a conditional compare-and-set;
+> - the only writers that take a dispute out of RESOLVED are the failed-dispatch `revertRuling`, the R-1 live-ruling revert (only while no round and no economic disposition authorization exist for that generation) and the refused `appeal()`.
+>
+> The rule above is unchanged. Any rail where an appeal or revocation can follow a committed execution attempt MUST apply this paragraph's reuse (without re-reading the dispute) before it is enabled. `tests/r2Adr005LiveRecheck.test.ts` (R2-a/b/c) fails if that premise stops holding.
+
 ### 5. Appeal supersedes uncommitted prior-generation pending authority
 
 When appeal advances the dispute generation, any prior-generation disputed pending operation that has **not** reached durable Economic Disposition execution commit becomes non-executable.
