@@ -66,14 +66,36 @@ EXECUTE FUNCTION fee_collection_evidence_enforce_seq_immutability();
 
 -- CTO 255 G3 / CTO 261: "seq" is assigned by the database on every INSERT, whatever the client sent, so no role
 -- (sails_runtime included) can choose its row's position: an explicit value (huge, duplicate, negative) is replaced.
--- The column DEFAULT stays (Prisma's autoincrement); it also draws a value, so each insert consumes two (gaps only).
-CREATE OR REPLACE FUNCTION fee_collection_evidence_assign_seq()
-RETURNS TRIGGER AS $$
+--
+-- CTO 295/296: the runtime has no privilege on the sequence, so it cannot call nextval() itself and exhaust the
+-- int4 range (an availability attack). Only this trigger draws values:
+--   * SECURITY DEFINER: runs with its owner's privileges (the role that ran the migration: sails_migrator, which
+--     already owns every object, so this grants nothing new). search_path is pinned to pg_catalog, pg_temp and
+--     every object is schema-qualified, so a caller cannot substitute a function or sequence. The body only
+--     draws nextval and takes no caller input besides NEW. EXECUTE is revoked from PUBLIC (a trigger function
+--     cannot be called directly anyway; triggers fire regardless of EXECUTE).
+--   * The column DEFAULT becomes the constant 0: a nextval() DEFAULT is evaluated with the inserter's privileges
+--     before the trigger runs, so it would refuse the runtime's insert. 0 never reaches a row (the trigger replaces
+--     it). Prisma: @default(0). The SERIAL above still assigned the historical rows in physical order first.
+--   * scripts/db/runtime-grants.sql revokes the runtime's privileges on this sequence after its
+--     "ON ALL SEQUENCES" grant.
+-- Each insert now consumes one value.
+ALTER TABLE "fee_collection_evidence" ALTER COLUMN "seq" SET DEFAULT 0;
+
+CREATE OR REPLACE FUNCTION public.fee_collection_evidence_assign_seq()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
 BEGIN
-  NEW."seq" := nextval('"fee_collection_evidence_seq_seq"');
+  NEW."seq" := pg_catalog.nextval('public.fee_collection_evidence_seq_seq'::pg_catalog.regclass);
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
+
+REVOKE ALL ON FUNCTION public.fee_collection_evidence_assign_seq() FROM PUBLIC;
+REVOKE ALL ON SEQUENCE public.fee_collection_evidence_seq_seq FROM PUBLIC;
 
 CREATE TRIGGER fee_collection_evidence_seq_assign
 BEFORE INSERT ON "fee_collection_evidence"

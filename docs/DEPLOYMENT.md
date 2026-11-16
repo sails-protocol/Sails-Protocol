@@ -405,6 +405,8 @@ runtime sets once, only that column gets UPDATE: `custody_attestations."supersed
 (NULL -> timestamp, also trigger-guarded) and `intent_events."publishedAt"` (the
 publication marker of the hash-chained history). TRUNCATE, REFERENCES, TRIGGER,
 `CREATE` on the schema, any table privilege for PUBLIC and any access to `_prisma_migrations` are never granted,
+sequences get USAGE and SELECT except `fee_collection_evidence_seq_seq`, which only its SECURITY DEFINER trigger may draw
+(CTO 295/296),
 and there are no default privileges: a table added by a migration is unreachable
 until it is classified, and the grant step fails while any table is unclassified.
 
