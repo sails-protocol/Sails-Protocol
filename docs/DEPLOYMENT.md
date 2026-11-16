@@ -416,8 +416,7 @@ until it is classified, and the grant step fails while any table is unclassified
    already there (ownership only: no row is read or changed). A non-superuser
    administrator (managed PostgreSQL master with CREATEROLE/CREATEDB only) is
    supported: the script grants itself membership in `sails_migrator` (SET,
-   INHERIT; nothing the administrator could not already do) and hands the
-   database over last. It cannot remove SUPERUSER/REPLICATION/BYPASSRLS from an
+   INHERIT; nothing the administrator could not already do). It cannot remove SUPERUSER/REPLICATION/BYPASSRLS from an
    existing role and refuses to continue if one is set (rehearsed on PostgreSQL
    16, 2026-11-16: first run, re-runs, restore).
 2. Migrator, every release: `MIGRATION_DATABASE_URL=... sh scripts/migrate-deploy-safe.sh`

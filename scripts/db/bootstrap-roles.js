@@ -18,10 +18,9 @@
  *
  * A non-superuser administrator (a managed-PostgreSQL master with only
  * CREATEROLE/CREATEDB) is supported: the script makes it a member of
- * sails_migrator (SET, INHERIT) so it may transfer ownership and re-run, hands
- * the database itself over last, and verifies (instead of naming) SUPERUSER,
- * REPLICATION and BYPASSRLS on roles that already exist. Never point the
- * application at the administrator.
+ * sails_migrator (SET, INHERIT) so it may transfer ownership and re-run, and
+ * verifies (instead of naming) SUPERUSER, REPLICATION and BYPASSRLS on roles
+ * that already exist. Never point the application at the administrator.
  */
 const { Client } = require('pg')
 
@@ -84,12 +83,10 @@ async function bootstrap() {
     if (!admin.rolsuper) {
       await client.query(`GRANT ${m} TO CURRENT_USER${admin.pg16 ? ' WITH SET TRUE, INHERIT TRUE' : ''}`)
     }
-    // Order matters for a non-superuser administrator: it can revoke and hand over only what it still owns (directly,
-    // or as the database owner through pg_database_owner, which owns schema public on PostgreSQL 15+), so the
-    // database itself is handed over last, after the schema and every object.
+    await client.query(`ALTER DATABASE ${client.escapeIdentifier(db)} OWNER TO ${m}`)
     await client.query(`REVOKE ALL ON DATABASE ${client.escapeIdentifier(db)} FROM PUBLIC`)
-    await client.query('REVOKE CREATE ON SCHEMA public FROM PUBLIC')
     await client.query(`ALTER SCHEMA public OWNER TO ${m}`)
+    await client.query('REVOKE CREATE ON SCHEMA public FROM PUBLIC')
 
     // Every object in public not yet owned by the migrator; extension members are left to their extension.
     const owned = await client.query(
@@ -113,7 +110,6 @@ async function bootstrap() {
     for (const { kind, name } of owned.rows) {
       await client.query(`ALTER ${kind} ${name} OWNER TO ${m}`)
     }
-    await client.query(`ALTER DATABASE ${client.escapeIdentifier(db)} OWNER TO ${m}`)
     await client.query('COMMIT')
     console.log(`bootstrap-roles: ${MIGRATOR} and ${RUNTIME} ready on ${db}; ownership moved for ${owned.rowCount} object(s); ${memberships.rowCount} runtime membership(s) revoked`)
   } catch (err) {
