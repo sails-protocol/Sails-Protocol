@@ -243,6 +243,8 @@ both direct non-custodial comparables while remaining high enough to fund
 a real Node Operator Pool and Treasury (section 6.2) rather than a
 token-gesture fee that can't sustain either.
 
+> **Dated note, 2026-10-26 — mandatory fee (Founder/CTO decision).** The Protocol Fee is 0.40% from the first day of operation and is a homologation condition for every settlement line enabled in production; a controlled beta with real funds charges it from the first operation. The "Protocol Fee is OFF" bootstrap wording earlier in this document and the "optional per integrator" statement in §6.4 item 4 no longer describe the plan; both are preserved unchanged as history. The fee is charged to the seller on the value actually delivered, with an additional funded reserve (`SELLER_PAYS` / `SELLER_DELIVERED_VALUE`). A REFUND carries no Protocol Fee; a RELEASE ruling charges it and a REFUND ruling does not; settlement `SPLIT` stays disabled on fee-enabled lines until proportional fee treatment is defined and homologated; amounts are rounded down to the asset's smallest unit; per-line minimums must be justified and no fee may be waived silently; external costs (network, miner, gas) stay separate from the fee. This note activates nothing: no `FeePolicyVersion` or `DistributionPolicyVersion` is published by it, and no settlement line is claimed here as implemented, tested or homologated.
+
 **Concrete entity structure for "Governance Layer v1":** `GOVERNANCE.md`
 §2B names this — Satsails plays the Morpho-Labs/Fedi role (the company
 that builds); a future **Sails Foundation** (working name, not yet a
@@ -479,6 +481,8 @@ prose, before either primitive existed in this form.
   reputation-as-bond achieves the same "skin in the game" property without
   introducing a speculative asset arbitrators would need to acquire first.
 
+> **Dated note, 2026-10-26.** No charge exists beyond the 0.40% Protocol Fee. The loser-pays arbitration fee (1-2%) described above is not part of the Day-0 model, and the appeal-fee multiplier of RFC-021 D6 is not a Day-0 charge. The 10% Arbitration Reserve (§6.2) is protocol-treasury revenue earmarked to finance arbitration; it is not a user balance and not an automatic payment to any arbiter. Effective arbiter remuneration is a later policy (POST-DAY0) that must not depend on the direction of a ruling. Provisionally, for the beta, the operator that designates an arbiter bears that arbiter's operational costs; in a beta operated by Sails, Sails bears them; users are charged nothing additional.
+
 ### 4.5 Wallets (reference implementations and third-party wallet integrators)
 
 - **Primary incentive:** product differentiation. A wallet that offers
@@ -695,6 +699,8 @@ likewise illustrative, not fixed — the architectural commitment is that
 the split is per-originating-side, so a trade between two different
 wallets pays both, never just one.
 
+> **Dated note, 2026-10-26 — approved target distribution.** The Founder/CTO approved the following distribution of the 0.40% as the Day-0 target: 35% originating wallet/integrator, 30% node operators, 25% protocol treasury (development), 10% arbitration reserve. The 25% and the 10% are both treasury revenue: the treasury receives 35% of the fee automatically at settlement and keeps the two shares in separate, verifiable accounting classes (`TREASURY_DEVELOPMENT`, `TREASURY_ARBITRATION_RESERVE`). The reserve is not a user balance and not an automatic payment to an arbiter. This is a target, not an activation: no `DistributionPolicyVersion` has been published, and publication or production activation requires the technical and security gates and independent homologation per settlement line. Terminology: "SPLIT" is reserved for the settlement ruling between buyer and seller (`EscrowStatus.SPLIT`); the division of the fee is "distribution".
+
 ### 6.3 How distributed
 
 **HISTORICAL / SUPERSEDED — see §6.2's own note.** The real, built
@@ -725,6 +731,8 @@ Rust follows the same split as the Satsails TypeScript implementation. This
 is what makes the fee model a protocol-level guarantee rather than a
 business decision any single implementer could quietly change.
 
+> **Dated note, 2026-10-26 — distribution happens at settlement.** The settlement-time distribution of the original proposal above is reinstated in intent by the Founder/CTO decision, with the entitlement ledger kept as accounting and not as a deferred payout. Wallet and node shares are paid automatically — inside the settlement itself where the rail supports it safely — to recipients frozen in the escrow's economic snapshot and validated by the participants before the escrow opens; the treasury receives its 35% in the same operation. Where an atomic payment is not viable, an automatic payment chained to the confirmation of the settlement may be evaluated, with durable execution, idempotent retries and verifiable pending/recovery states. A ledger entry is not receipt of funds: each recipient has a verifiable state of its own. If a verifiable wallet or node attribution is missing, the operation fails before the escrow opens; third-party shares are never silently redirected to the treasury. Amounts are whole units of the asset; each wallet and node share is rounded down individually; the unavoidable rounding residue goes to `TREASURY_DEVELOPMENT` by a deterministic rule and never reduces a share already computed for another beneficiary; the sum distributed never exceeds the fee. No Sails Node can unilaterally redirect a wallet or node share. Cooperative participants may be able to bypass the official flow on some script-based rails; no mandatory central co-signer is introduced for that reason. This note does not state that any of this is implemented, tested or homologated; see the `docs/BACKLOG.md` entry of 2026-10-26.
+
 ### 6.4 How to avoid centralization
 
 Four concrete mechanisms:
@@ -751,6 +759,8 @@ Four concrete mechanisms:
    Fee is OFF (0%)" bootstrap-phase default in section 3. This prevents the
    protocol itself from becoming a mandatory rent-extraction layer that
    integrators have no way to opt out of.
+
+> **Dated note, 2026-10-26.** Superseded for production settlement lines: the Protocol Fee is mandatory at 0.40% (see the note in §3). The statement above is kept as history.
 
 ### 6.5 Economic Authority Model — Terminology (Missão 11 Fase 7.1/7.2)
 
@@ -884,6 +894,8 @@ production* (as of this writing: none — `PROTOCOL_FEE_RATE` remains at
 its bootstrap default, no `FeePolicyVersion` or `DistributionPolicyVersion`
 has been published outside a test). Never present an unpublished/
 unauthorized parameter as if it were already live.
+
+> **Dated note, 2026-10-26 — three categories kept absolutely separate.** (1) User escrow funds. (2) The economic rights of beneficiaries — wallet/integrator and node-operator shares belong to the beneficiary from settlement and are paid to the address frozen in the snapshot. (3) Protocol-treasury revenue (25% development + 10% arbitration reserve), administered by the treasury. Treasury keys are distinct from any escrow or arbiter signing key and can never control an escrow, move user funds, or decide a dispute unilaterally; administering the arbitration reserve grants no power over user funds or over dispute resolution beyond powers previously consented to. A beneficiary address is registered and validated per asset and network, tied to the beneficiary's verifiable identity, and frozen in the snapshot before the escrow opens; later changes apply only to new operations. A registration by itself is not proof of economic eligibility (see the Sails Console entry in `docs/BACKLOG.md`, 2026-10-26).
 
 ---
 
