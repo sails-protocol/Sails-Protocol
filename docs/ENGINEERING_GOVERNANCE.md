@@ -1312,3 +1312,19 @@ OpenProof timestamp infrastructure follows the same authority discipline as othe
 - Any future Sails-operated OpenTimestamps-compatible infrastructure remains an optional participant in the open ecosystem and receives no special protocol authority.
 
 Cross-reference: `docs/BACKLOG.md` owns the Day-0 multi-calendar implementation/evidence obligation; `docs/ROADMAP.md` owns the optional/future Sails-operated aggregator/calendar horizon.
+
+---
+
+## Progressive integration into `main` — evidence-based CTO operating policy
+
+**Objective.** Integrate small, compatible, adequately verified changes continuously instead of accumulating finished work in Draft PRs or long-lived branches. The `main` branch is the tested integration baseline, **not** a claim of production readiness. This policy supplements, and does not override, the existing architecture-change process, Gatekeeper authority, security invariants, Day 0 homologation, or active STOP/HOLD decisions.
+
+1. **Risk-proportionate evidence.** R1: non-executable documentation and comments require coherent diff and applicable checks. R2: isolated SDK, UI, and refactors require applicable CI, contract/compatibility, integration, and regression evidence. R3: settlement, escrow, migrations, privileges, security and economic paths require applicable complete CI, invariants, adversarial tests, migration/rollback evidence when relevant, and formal Gatekeeper VERIFY. Reclassify upward when impact warrants it. No finite test suite proves absence of all failures.
+2. **Short path to a decision.** Prefer small cohesive PRs. Standard sequence: implementation → tests/CI → risk-appropriate VERIFY → **explicit CTO authorization for the specific PR and exact HEAD** → merge → verify the integrated `main`. Green CI or a preliminary review never grants merge authority. Revalidate dependent PRs against the new base.
+3. **Parallel preparation, exact-head approval.** Engineering, EPM, and Gatekeeper may prepare evidence and pre-review in parallel. The final reviewer must account for the exact HEAD and changes since pre-review; an updated HEAD invalidates any unsupported assumption that previous checks still apply.
+4. **Bounded HOLDs.** Record the specific incompatibility or missing evidence, accountable owner, objective release condition, and next action. EPM maintains a decision queue with PR, HEAD/base, risk, dependencies, check results, Gatekeeper status, waiting time, and recommended disposition. Administrative inertia alone is not a valid HOLD.
+5. **Safe partial integration.** Incomplete functionality may be merged only when isolation and non-activation are demonstrated, interfaces remain compatible, and existing invariants hold. A feature flag alone is insufficient proof.
+6. **Separate authorities.** Merge to `main` is not server deployment, release, persistent database migration, or economic activation. Each requires its own authorization. Existing institutional STOP MERGE remains in force for every PR without a specific GO; STOP DEPLOY, STOP persistent migration and STOP economic activation remain independently binding.
+7. **Continuous feedback.** Track time from green CI to decision, ready/Draft PR age, review wait, unowned blockers, and post-merge regressions. Never invent metrics. After each merge, verify the integrated `main` and promptly address any regression.
+
+**CTO handoff question:** What concrete evidence is missing to integrate this change safely into `main`? If none, route it promptly for an explicit decision. If something is missing, assign its production and verification. Do not silently change protocol semantics or bypass the authority hierarchy to gain speed.
