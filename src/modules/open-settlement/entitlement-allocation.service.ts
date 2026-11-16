@@ -132,6 +132,10 @@ export class EntitlementAllocationService {
    */
   async allocate(feeObligationId: string): Promise<AllocatedEntry[]> {
     return prisma.$transaction(async (tx) => {
+      // Hold the obligation row so no collection-status change (reorg revert, reconfirmation) or reversal commits
+      // between the checks below and the inserts. NO KEY UPDATE is the lock the status UPDATE takes; FK inserts are
+      // not blocked.
+      await lockObligation(tx, feeObligationId)
       const obligation = await tx.feeObligation.findUnique({ where: { id: feeObligationId } })
       if (!obligation) {
         throw new NotFoundError('FeeObligation', feeObligationId)
@@ -153,13 +157,25 @@ export class EntitlementAllocationService {
 
       const evidenceRows = await tx.feeCollectionEvidence.findMany({
         where: { feeObligationId, kind: 'CONFIRMED' },
-        orderBy: { recordedAt: 'desc' },
+        orderBy: { seq: 'desc' },
         take: 1,
       })
       const confirmation = evidenceRows[0]
       if (!confirmation) {
         throw new EscrowError(
           `allocate: FeeObligation ${feeObligationId} is COLLECTED but has no CONFIRMED FeeCollectionEvidence row — structurally impossible per Fase 5's own invariant (COLLECTED only ever results from recognizeConfirmation() recording one); refusing to guess (G13/G14).`
+        )
+      }
+
+      // One revenue, one live allocation: G9/G10 is per generation, so an earlier generation still allocated
+      // (reorg recorded, reverseGeneration() not yet run) must block a new one, or C is entitled twice.
+      const earlier = await tx.entitlementLedgerEntry.findFirst({
+        where: { feeObligationId, kind: 'ALLOCATION', confirmationEvidenceId: { not: confirmation.id }, reversedBy: { none: {} } },
+        select: { confirmationEvidenceId: true },
+      })
+      if (earlier) {
+        throw new EscrowError(
+          `allocate: FeeObligation ${feeObligationId}'s earlier generation (confirmationEvidenceId=${earlier.confirmationEvidenceId}) is still allocated — reverse it (reverseGeneration) before allocating generation ${confirmation.id}; refusing to entitle the same revenue twice.`
         )
       }
 
@@ -264,49 +280,71 @@ export class EntitlementAllocationService {
       if (original.kind !== 'ALLOCATION') {
         throw new EscrowError(`reverseEntry: entry ${originalEntryId} is not an ALLOCATION (kind=${original.kind}) — only an ALLOCATION may be reversed.`)
       }
-
-      try {
-        const row = await tx.entitlementLedgerEntry.create({
-          data: {
-            feeObligationId: original.feeObligationId,
-            confirmationEvidenceId: original.confirmationEvidenceId,
-            distributionPolicyVersionId: original.distributionPolicyVersionId,
-            recipientId: original.recipientId,
-            asset: original.asset,
-            rail: original.rail,
-            kind: 'REVERSAL',
-            amount: new Prisma.Decimal(original.amount).negated(),
-            reversalOfId: original.id,
-          },
-        })
-        return { id: row.id, recipientId: row.recipientId, amount: row.amount.toString() }
-      } catch (err: any) {
-        if (err?.code === 'P2002') {
-          throw new EscrowError(
-            `reverseEntry: entry ${originalEntryId} has already been reversed — refusing to reverse it twice (H7/H8, idempotent retry protection).`
-          )
-        }
-        throw err
-      }
+      // No obligation lock needed: a reversal in flight can only make allocate() refuse (it still sees the entry as
+      // unreversed), never allocate twice; a concurrent second reversal of the same entry fails on the unique key.
+      return insertReversal(tx, original)
     })
   }
 
-  /** Reverses every currently-net-positive ALLOCATION entry for one
-   *  collection generation (confirmationEvidenceId) — the real operation a
+  /** Reverses every ALLOCATION entry of one collection generation
+   *  (confirmationEvidenceId) that is not reversed yet — the real operation a
    *  caller invokes when a reorg un-collects the revenue that generation
-   *  represented. Each reversal is independently idempotent (reverseEntry()'s
-   *  own P2002 guard); reversing a generation that was already fully
-   *  reversed is a safe, idempotent no-op (every entry's reversal attempt
-   *  fails closed with a clear error, none silently succeed twice). */
+   *  represented. One transaction under the obligation row lock (the lock
+   *  allocate() takes, same order: obligation row, then ledger inserts): all
+   *  remaining recipients are reversed or none is. A retry after an
+   *  interruption, or after some entries were reversed one by one with
+   *  reverseEntry(), finishes exactly the rest; a fully reversed generation is
+   *  a no-op (returns []). allocate() refuses the next generation until every
+   *  entry here is reversed. */
   async reverseGeneration(confirmationEvidenceId: string): Promise<AllocatedEntry[]> {
-    const entries = await prisma.entitlementLedgerEntry.findMany({
-      where: { confirmationEvidenceId, kind: 'ALLOCATION' },
+    return prisma.$transaction(async (tx) => {
+      const evidence = await tx.feeCollectionEvidence.findUnique({ where: { id: confirmationEvidenceId }, select: { feeObligationId: true } })
+      if (!evidence) {
+        throw new NotFoundError('FeeCollectionEvidence', confirmationEvidenceId)
+      }
+      await lockObligation(tx, evidence.feeObligationId)
+      const entries = await tx.entitlementLedgerEntry.findMany({
+        where: { confirmationEvidenceId, kind: 'ALLOCATION', reversedBy: { none: {} } },
+        orderBy: { id: 'asc' },
+      })
+      const reversed: AllocatedEntry[] = []
+      for (const entry of entries) {
+        reversed.push(await insertReversal(tx, entry))
+      }
+      return reversed
     })
-    const reversed: AllocatedEntry[] = []
-    for (const entry of entries) {
-      reversed.push(await this.reverseEntry(entry.id))
+  }
+}
+
+// The obligation row lock allocate() takes first. reverseGeneration() takes it too, so two reversals of one generation
+// run one after the other (the second finds nothing left and returns []) instead of colliding on the unique key.
+async function lockObligation(tx: Prisma.TransactionClient, feeObligationId: string): Promise<void> {
+  await tx.$queryRaw`SELECT 1 FROM "fee_obligations" WHERE "id" = ${feeObligationId} FOR NO KEY UPDATE`
+}
+
+async function insertReversal(tx: Prisma.TransactionClient, original: { id: string; feeObligationId: string; confirmationEvidenceId: string; distributionPolicyVersionId: string; recipientId: string; asset: AssetType; rail: string; amount: Prisma.Decimal }): Promise<AllocatedEntry> {
+  try {
+    const row = await tx.entitlementLedgerEntry.create({
+      data: {
+        feeObligationId: original.feeObligationId,
+        confirmationEvidenceId: original.confirmationEvidenceId,
+        distributionPolicyVersionId: original.distributionPolicyVersionId,
+        recipientId: original.recipientId,
+        asset: original.asset,
+        rail: original.rail,
+        kind: 'REVERSAL',
+        amount: new Prisma.Decimal(original.amount).negated(),
+        reversalOfId: original.id,
+      },
+    })
+    return { id: row.id, recipientId: row.recipientId, amount: row.amount.toString() }
+  } catch (err: any) {
+    if (err?.code === 'P2002') {
+      throw new EscrowError(
+        `reverseEntry: entry ${original.id} has already been reversed — refusing to reverse it twice (H7/H8, idempotent retry protection).`
+      )
     }
-    return reversed
+    throw err
   }
 }
 

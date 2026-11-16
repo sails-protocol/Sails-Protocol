@@ -29,7 +29,9 @@ export const prisma: PrismaClient =
   global.__prisma ??
   new PrismaClient({
     adapter,
-    log: config.isProduction ? ['error', 'warn'] : ['error', 'warn', 'query'],
+    // No per-query log under Jest (NODE_ENV=test): every query became a captured console entry with a stack trace,
+    // retained by the test process (CTO 48, CI heap OOM). Errors and warnings are still logged; development unchanged.
+    log: config.isProduction || process.env.NODE_ENV === 'test' ? ['error', 'warn'] : ['error', 'warn', 'query'],
   })
 
 if (!config.isProduction) {
