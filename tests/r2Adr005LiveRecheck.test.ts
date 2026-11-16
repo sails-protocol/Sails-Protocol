@@ -150,7 +150,7 @@ describe('R2-c - static inventory of dispute writers in src', () => {
   it('every dispute updateMany is conditional on the dispute status or on the unassigned arbiter', () => {
     const writers = sources.flatMap(({ path, text }) =>
       [...text.matchAll(/\.dispute\.updateMany\(\{\s*where:\s*\{([\s\S]*?)\},?\s*data:/g)].map((m) => ({ path, where: m[1] })))
-    expect(writers.length).toBeGreaterThanOrEqual(8) // the scan must see the real writers, not pass vacuously
+    expect(writers.length).toBeGreaterThanOrEqual(7) // the scan must see the real writers, not pass vacuously
     const unguarded = writers.filter(({ where }) => !/\bstatus\s*:/.test(where) && !/arbiterId:\s*null/.test(where))
     expect(unguarded.map(({ path, where }) => `${path}: where {${where.trim()}}`)).toEqual([])
   })
@@ -189,12 +189,13 @@ describe('R2-c - static inventory of dispute writers in src', () => {
     /\bstatus"?\s*(=|\bin\b)[^)]*'RESOLVED'/i.test(w.where) &&
     [...w.set.matchAll(/"?(\w+)"?\s*=/g)].some((c) => !STAMP_ONLY.includes(c[1]))
 
-  // The raw writers that exist in src today (dispute.service.ts, auto-resolution contest/expire). Each moves a dispute
-  // out of AUTO_PROPOSED only. A new raw writer must be added here deliberately, with its status guard (e.g. the C4
+  // The raw writers that exist in src today (dispute.service.ts: auto-resolution contest/expire and persistEvidence). Each is
+  // conditional on status and none leaves RESOLVED. A new raw writer must be added here deliberately, with its guard (e.g. the C4
   // dispatch-recovery stamp, which sets only dispatchRecoveryAttemptedAt and must keep `AND d.status = 'RESOLVED'`).
   const KNOWN_RAW_DISPUTE_WRITERS = [
     'modules/open-settlement/dispute.service.ts update',
     'modules/open-settlement/dispute.service.ts update',
+    'modules/open-settlement/dispute.service.ts update', // persistEvidence (#674): atomic append, status IN (OPENED, EVIDENCE_SUBMITTED) AND ruling IS NULL
   ]
 
   describe('R2-c (raw SQL) - every raw writer of disputes is inventoried and status-guarded', () => {
@@ -205,7 +206,7 @@ describe('R2-c - static inventory of dispute writers in src', () => {
 
     it('every raw UPDATE is conditional on status, and none takes a dispute out of RESOLVED', () => {
       const writes = sources.flatMap(({ path, text }) => rawDisputeWrites(text).map((w) => ({ path, ...w })))
-      expect(writes.length).toBeGreaterThanOrEqual(2) // the scan must see the real writers, not pass vacuously
+      expect(writes.length).toBeGreaterThanOrEqual(3) // the scan must see the real writers, not pass vacuously
       expect(writes.filter((w) => !statusGuarded(w.where)).map((w) => `${w.path}: ${w.verb} where {${w.where.trim()}}`)).toEqual([])
       expect(writes.filter((w) => leavesResolved(w)).map((w) => w.path)).toEqual([])
     })

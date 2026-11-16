@@ -8,9 +8,11 @@
  *
  * The interleaving is forced, not timed: a second connection holds the dispute row lock, submitEvidence() reads the row
  * (MVCC, not blocked), validates it, and its write blocks on the lock (observed in pg_locks); the second connection then
- * commits its change and releases the lock. Every production writer of `disputes` bumps "updatedAt" (Prisma's
- * @updatedAt, and the explicit "updatedAt" of the raw auto-resolution UPDATEs), and the concurrent changes below do the
- * same. The fix is the compare-and-set of #642 (f7c1366a), identical text.
+ * commits its change and releases the lock.
+ *
+ * Fix (CTO 343): one atomic `evidence || entry` append in PostgreSQL, guarded by a status that still accepts evidence and
+ * no ruling. It does not depend on "updatedAt": the #642-style compare-and-set on updatedAt (timestamp(3), app clock)
+ * still lost a concurrent append written in the same millisecond or by an instance with a lagging clock (GK pre-VERIFY).
  */
 // getDisputeService() needs an arbitration provider; set before src/config is first loaded (by the harness probe).
 process.env.TRUSTED_ARBITRATORS = process.env.TRUSTED_ARBITRATORS || 'cas367-arbiter'
@@ -71,28 +73,29 @@ describe('#367 - submitEvidence() is a compare-and-set on the dispute it validat
     return id
   }
 
-  const submit = (id: string) => service.submitEvidence(id, 'cas367-seller', { type: 'TEXT', uri: 'e1', note: 'cas367', externalReference: true })
+  const submit = (id: string, uri = 'e1') => service.submitEvidence(id, 'cas367-seller', { type: 'TEXT', uri, note: 'cas367', externalReference: true })
     .then(() => 'recorded', (e: any) => `refused: ${String(e?.message)}`)
 
   // Runs submitEvidence() with its write parked behind a row lock, commits `concurrentSql` meanwhile, returns the outcome.
-  async function interleave(id: string, concurrentSql: string) {
+  async function interleave(id: string, concurrentSql: string | null, uris: string[] = ['e1']) {
     const holder = new Client({ connectionString: pg.getUrl() })
     await holder.connect()
     await holder.query('BEGIN')
     await holder.query('SELECT 1 FROM disputes WHERE id = $1 FOR UPDATE', [id])
-    let settled = false
-    const call = submit(id).finally(() => { settled = true })
+    let settled = 0
+    const calls = uris.map((uri) => submit(id, uri).finally(() => { settled++ }))
     let blocked = false
-    for (let i = 0; i < 300 && !settled; i++) {
-      const { rowCount } = await admin.query(`SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+    for (let i = 0; i < 300 && settled < uris.length; i++) {
+      const { rows: [{ n }] } = await admin.query(`SELECT count(*)::int AS n FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
         WHERE NOT l.granted AND a.datname = current_database() AND a.query ILIKE '%disputes%'`)
-      if (rowCount) { blocked = true; break }
+      if (n >= uris.length) { blocked = true; break } // every submission's write waits on the row lock
       await new Promise((r) => setTimeout(r, 20))
     }
-    await holder.query(concurrentSql, [id])
+    if (concurrentSql) await holder.query(concurrentSql, [id])
     await holder.query('COMMIT')
     await holder.end()
-    const result = await call
+    const results = await Promise.all(calls)
+    const result = results.join(' | ')
     const { rows: [row] } = await admin.query('SELECT status, ruling, evidence FROM disputes WHERE id = $1', [id])
     return { blocked, result, status: row.status, ruling: row.ruling, uris: (row.evidence ?? []).map((e: any) => e.uri) }
   }
@@ -104,22 +107,45 @@ describe('#367 - submitEvidence() is a compare-and-set on the dispute it validat
     expect({ status: row.status, uris: row.evidence.map((e: any) => e.uri) }).toEqual({ status: 'EVIDENCE_SUBMITTED', uris: ['e0', 'e1'] })
   })
 
-  it('A: a concurrent evidence append committed while the write waited is never lost; the stale submission is refused', async () => {
+  it('A: a concurrent evidence append committed while the write waited is kept; the waiting submission is appended after it', async () => {
     const id = await dispute('A')
     const out = await interleave(id, `UPDATE disputes SET evidence = evidence || '[{"type":"TEXT","uri":"e2","submittedBy":"cas367-buyer"}]'::jsonb, "updatedAt" = now() WHERE id = $1`)
     expect(out.blocked).toBe(true)
-    expect(out.result).toMatch(/refused: .*changed while this evidence was being validated/)
-    expect(out.uris).toEqual(['e0', 'e2'])
-    expect(out.status).toBe('EVIDENCE_SUBMITTED')
-    expect(await submit(id)).toBe('recorded') // the retry the error asks for reads the fresh row and succeeds
+    expect(out.result).toBe('recorded')
+    expect({ status: out.status, uris: out.uris }).toEqual({ status: 'EVIDENCE_SUBMITTED', uris: ['e0', 'e2', 'e1'] })
+  })
+
+  it('A-same-timestamp: a concurrent append that leaves "updatedAt" unchanged (same millisecond / lagging instance clock) is still kept', async () => {
+    const id = await dispute('Asame')
+    const out = await interleave(id, `UPDATE disputes SET evidence = evidence || '[{"type":"TEXT","uri":"e2","submittedBy":"cas367-buyer"}]'::jsonb WHERE id = $1`)
+    expect(out.blocked).toBe(true)
+    expect(out.result).toBe('recorded')
+    expect(out.uris).toEqual(['e0', 'e2', 'e1'])
+  })
+
+  it('two instances: two real submissions racing on the same dispute both survive, each exactly once', async () => {
+    const id = await dispute('two')
+    const out = await interleave(id, null, ['e1', 'e3'])
+    expect(out.blocked).toBe(true)
+    expect(out.result).toBe('recorded | recorded')
+    expect(out.uris.slice(0, 1)).toEqual(['e0'])
+    expect([...out.uris].sort()).toEqual(['e0', 'e1', 'e3'])
   })
 
   it('B: a concurrent RESOLVED/RELEASE ruling is never overwritten back to EVIDENCE_SUBMITTED', async () => {
     const id = await dispute('B')
     const out = await interleave(id, `UPDATE disputes SET status = 'RESOLVED', ruling = 'RELEASE', "resolvedAt" = now(), "updatedAt" = now() WHERE id = $1`)
     expect(out.blocked).toBe(true)
-    expect(out.result).toMatch(/refused: /)
+    expect(out.result).toMatch(/refused: .*changed while this evidence was being validated/)
     expect({ status: out.status, ruling: out.ruling, uris: out.uris }).toEqual({ status: 'RESOLVED', ruling: 'RELEASE', uris: ['e0'] })
     expect(await submit(id)).toMatch(/refused: .*cannot accept new evidence/) // and a fresh submission is refused by status
+  })
+
+  it('B-same-timestamp: a concurrent ruling that leaves "updatedAt" unchanged is still never overwritten', async () => {
+    const id = await dispute('Bsame')
+    const out = await interleave(id, `UPDATE disputes SET status = 'RESOLVED', ruling = 'RELEASE', "resolvedAt" = now() WHERE id = $1`)
+    expect(out.blocked).toBe(true)
+    expect(out.result).toMatch(/refused: /)
+    expect({ status: out.status, ruling: out.ruling, uris: out.uris }).toEqual({ status: 'RESOLVED', ruling: 'RELEASE', uris: ['e0'] })
   })
 })
