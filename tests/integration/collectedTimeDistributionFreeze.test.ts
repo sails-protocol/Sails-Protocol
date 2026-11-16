@@ -126,7 +126,7 @@ describe('COLLECTED-time DistributionPolicyVersion freeze (Missão 11 Fase 7.2, 
   }
 
   async function latestConfirmedEvidence(obligationId: string) {
-    return prisma.feeCollectionEvidence.findFirst({ where: { feeObligationId: obligationId, kind: 'CONFIRMED' }, orderBy: { recordedAt: 'desc' } })
+    return prisma.feeCollectionEvidence.findFirst({ where: { feeObligationId: obligationId, kind: 'CONFIRMED' }, orderBy: { seq: 'desc' } })
   }
 
   // ─── R1-R3: freeze at COLLECTED, allocate() uses the frozen value ───────

@@ -169,7 +169,12 @@ mapping a Prisma `Offer` row into a `LiquidityOffer`. Extracted into
    exactly one primitive and consume several others via events.
 4. Add any new entities to `schema.prisma` with `moduleId` defaulting to
    your module's canonical name and `protocolVersion` defaulting to the
-   current spec version (see `DATABASE.md` section 1).
+   current spec version (see `DATABASE.md` section 1). Every new table
+   also needs a runtime privilege class in `scripts/db/runtime-grants.sql`
+   (`read`, `append`, `mutable` or `mutable_delete`, the least the runtime
+   code needs; an append-only table is `append`): the grant step and
+   `tests/integration/runtimePrivileges.test.ts` fail while a table is
+   unclassified (`docs/DEPLOYMENT.md` §6.3).
 5. Add your module's events to `common/events/event-bus.ts`'s
    `SailsEventMap`, namespaced `{yourmodule}.{entity}.{action}`.
 6. If your module needs to react to another module's events, write the
