@@ -178,10 +178,16 @@ describe('R2-c - static inventory of dispute writers in src', () => {
     const rest = text.slice(m.index)
     const end = rest.indexOf('`') // a template literal ends at its backtick; a plain string is bounded by length
     const statement = end === -1 ? rest.slice(0, 600) : rest.slice(0, end)
-    return { verb: m[1].toLowerCase().replace(/\s+/g, ' '), where: statement.split(/\bwhere\b/i).slice(1).join(' WHERE ') }
+    const set = /\bset\b([\s\S]*?)(?:\bfrom\b|\bwhere\b|$)/i.exec(statement)?.[1] ?? ''
+    return { verb: m[1].toLowerCase().replace(/\s+/g, ' '), where: statement.split(/\bwhere\b/i).slice(1).join(' WHERE '), set }
   })
   const statusGuarded = (where: string) => /\bstatus"?\s*(=|<>|!=|\bin\b)/i.test(where)
-  const leavesResolved = (where: string) => /\bstatus"?\s*(=|\bin\b)[^)]*'RESOLVED'/i.test(where)
+  // A writer that is conditional on RESOLVED may only set the C4 queue stamp. Any other column (status, ruling, arbiterId,
+  // authoritySignature, appealRound...) is a dispute fact the ADR-005 gate re-reads, so it is flagged.
+  const STAMP_ONLY = ['dispatchRecoveryAttemptedAt']
+  const leavesResolved = (w: { where: string; set: string }) =>
+    /\bstatus"?\s*(=|\bin\b)[^)]*'RESOLVED'/i.test(w.where) &&
+    [...w.set.matchAll(/"?(\w+)"?\s*=/g)].some((c) => !STAMP_ONLY.includes(c[1]))
 
   // The raw writers that exist in src today (dispute.service.ts, auto-resolution contest/expire). Each moves a dispute
   // out of AUTO_PROPOSED only. A new raw writer must be added here deliberately, with its status guard (e.g. the C4
@@ -201,7 +207,7 @@ describe('R2-c - static inventory of dispute writers in src', () => {
       const writes = sources.flatMap(({ path, text }) => rawDisputeWrites(text).map((w) => ({ path, ...w })))
       expect(writes.length).toBeGreaterThanOrEqual(2) // the scan must see the real writers, not pass vacuously
       expect(writes.filter((w) => !statusGuarded(w.where)).map((w) => `${w.path}: ${w.verb} where {${w.where.trim()}}`)).toEqual([])
-      expect(writes.filter((w) => leavesResolved(w.where)).map((w) => w.path)).toEqual([])
+      expect(writes.filter((w) => leavesResolved(w)).map((w) => w.path)).toEqual([])
     })
 
     // The detector itself: each spelling a raw writer can take must be seen, and an unguarded one must fail the guard.
@@ -221,17 +227,28 @@ describe('R2-c - static inventory of dispute writers in src', () => {
     })
     it.each(MUTANTS)('...and the guards reject it unless it is status-guarded: %s', (_name, snippet) => {
       const [w] = rawDisputeWrites(snippet)
-      expect(statusGuarded(w.where) && !leavesResolved(w.where)).toBe(false)
+      expect(statusGuarded(w.where) && !leavesResolved(w)).toBe(false)
     })
     it('the status-leaving variant is caught even when guarded', () => {
       const [w] = rawDisputeWrites('await tx.$executeRaw`UPDATE disputes SET status = \'OPENED\' WHERE id = ${id} AND status = \'RESOLVED\'`')
       expect(statusGuarded(w.where)).toBe(true)
-      expect(leavesResolved(w.where)).toBe(true)
+      expect(leavesResolved(w)).toBe(true)
     })
     it('positive control: the two real writers are seen, status-guarded and not leaving RESOLVED', () => {
       const real = 'await tx.$executeRaw`UPDATE "disputes" SET "status" = \'EVIDENCE_SUBMITTED\' WHERE "id" = ${id} AND "status" = \'AUTO_PROPOSED\' AND "ruling" IS NULL`'
       const [w] = rawDisputeWrites(real)
-      expect(statusGuarded(w.where) && !leavesResolved(w.where)).toBe(true)
+      expect(statusGuarded(w.where) && !leavesResolved(w)).toBe(true)
+    })
+    // The C4 dispatch-recovery claim (a queue stamp) is RESOLVED-conditional by design: it sets only the stamp.
+    it('a RESOLVED-guarded writer that sets only the C4 queue stamp is allowed', () => {
+      const [w] = rawDisputeWrites('tx.$queryRaw`WITH picked AS (SELECT d.id FROM disputes d FOR UPDATE OF d SKIP LOCKED) UPDATE disputes d SET "dispatchRecoveryAttemptedAt" = clock_timestamp() FROM picked WHERE d.id = picked.id AND d.status = \'RESOLVED\' RETURNING d.id`')
+      expect(statusGuarded(w.where) && !leavesResolved(w)).toBe(true)
+    })
+    it('...but a RESOLVED-guarded writer that also sets any other column is flagged', () => {
+      for (const extra of ['"ruling" = NULL', '"arbiterId" = NULL', '"appealRound" = 1', 'status = \'OPENED\'']) {
+        const [w] = rawDisputeWrites(`tx.$executeRaw\`UPDATE disputes d SET "dispatchRecoveryAttemptedAt" = now(), ${extra} FROM picked WHERE d.id = picked.id AND d.status = 'RESOLVED'\``)
+        expect(leavesResolved(w)).toBe(true)
+      }
     })
   })
 })
