@@ -453,6 +453,8 @@ const STALE_TRANSLATION_MAX_ROWS = 50
 const STALE_TRANSLATION_BUDGET_MS = 10_000
 
 export async function runDisputeDispatchRecovery(log: Pick<FastifyBaseLogger, 'warn' | 'error'>): Promise<void> {
+  // CTO 344: off by default. Off means zero C4 operations - neither the dispatch claim nor the cleanup touches the database.
+  if (!config.features.c4Recovery) return
   try {
     const r = await reconcileMissingDispatch({ maxCandidates: C4_MAX_CANDIDATES, budgetMs: C4_BUDGET_MS })
     if (r.resumed.length || r.failed.length || r.guardFailed.length || r.notEligible.length) {
