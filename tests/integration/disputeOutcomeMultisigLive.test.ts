@@ -18,6 +18,7 @@ import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from '@bitcoinerlab/secp256k1'
 import { createHash } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
 // NOTE: recordLiveCorrespondenceIfApplicable is NOT statically imported
@@ -126,7 +127,10 @@ describe('Mission13 MULTISIG disputed settlement — live, Core-authoritative (M
   })
 
   afterAll(async () => {
-    if (dbAvailable) await prisma.$disconnect()
+    if (dbAvailable) {
+      await prisma.$disconnect()
+      await closeTestRedis()
+    }
   })
 
   function requirePostgres(name: string): void {
@@ -141,8 +145,8 @@ describe('Mission13 MULTISIG disputed settlement — live, Core-authoritative (M
   })
 
   async function makeDisputedMultisigEscrow(suffix: string) {
-    const seller = await identityService.register({ publicKey: `m8r-seller-${suffix}-${Date.now()}`, displayName: 'Seller' })
-    const buyer = await identityService.register({ publicKey: `m8r-buyer-${suffix}-${Date.now()}`, displayName: 'Buyer' })
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({
       userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER',
     })
@@ -356,6 +360,29 @@ describe('Mission13 MULTISIG disputed settlement — live, Core-authoritative (M
 
     const pending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
     expect(pending).toBeNull()
+  })
+
+  it('D11-R adversarial: an OPENED dispute whose escrow is PAYMENT_PENDING is refused by the Core commit - no ruling, no record, no pending transaction', async () => {
+    requirePostgres('D11-R Core commit requires DISPUTED')
+    const { escrowId, disputeId, buyerId } = await makeDisputedMultisigEscrow('payment-pending')
+    await payoutAddressService.setPayoutAddress(buyerId, 'BTC', testnetAddress('m8r-d11r-buyer'))
+    await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'PAYMENT_PENDING' } }) // PAYMENT_PENDING -> COMPLETED is a valid transition
+
+    const { signature, issuedAt } = signRuling(escrowId, disputeId, 'RELEASE', null)
+    await expect(
+      getDisputeService().resolveDispute(disputeId, ARBITER_ID, 'RELEASE', undefined, undefined, undefined, signature, issuedAt)
+    ).rejects.toThrow(/is PAYMENT_PENDING, not DISPUTED, so this ruling cannot execute/)
+
+    const dispute = await prisma.dispute.findUnique({ where: { id: disputeId } })
+    expect(dispute!.status).toBe('OPENED')
+    expect(dispute!.ruling).toBeNull()
+    expect(dispute!.authoritySignature).toBeNull()
+    expect(await prisma.semanticTransitionRecord.findUnique({
+      where: { interactionId_transitionType_appealRound: { interactionId: escrowId, transitionType: 'escrow.dispute.rule', appealRound: 0 } },
+    })).toBeNull()
+    expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })).toBeNull()
+    expect((await prisma.escrow.findUnique({ where: { id: escrowId } }))!.status).toBe('PAYMENT_PENDING')
+    expect(await prisma.eventProjectionClaim.count({ where: { eventId: disputeId, projectionKey: 'dispute.ruling-finalized' } })).toBe(0)
   })
 
   it('P18/J — a forged/mismatched signature is rejected before any state changes; proofVerified cannot be injected', async () => {

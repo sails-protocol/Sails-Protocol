@@ -105,7 +105,9 @@ would just be a synonym, not a real accessibility gain.
 
 ### `identity` / `auth`
 - `create(keypair?, displayName?)` → `{ participant, keypair }`
-- `createWithPublicKey(publicKeyHex, displayName?)` → `Participant` *(wallet-backed registration — no keypair object, no secretKey; closes `PRODUCTION_READINESS_REVIEW.md`'s finding #3, 2026-08-02)*
+- `createWithWallet(publicKeyHex, wallet, displayName?)` → `Participant` *(wallet-backed registration with proof of possession via `wallet.signMessage()`; Issue #302, 2026-09-20 — additive)*
+- `registerChallenge(publicKeyHex)` → `{ challenge, expiresIn }` *(Issue #302, additive)*
+- `createWithPublicKey(publicKeyHex, displayName?)` → `Participant` *(**deprecated 2026-09-20, Issue #302**: the server now requires proof of possession, which this signature cannot produce — use `createWithWallet()`; wallet-backed registration — no keypair object, no secretKey; closes `PRODUCTION_READINESS_REVIEW.md`'s finding #3, 2026-08-02)*
 - `get(participantId)` → `PublicParticipant` *(public lookup of another participant — narrowed from `Participant` Missão 11 Fase 9.3.5, INV-OP-10: no reputation stats, no bookkeeping fields; use `reputation.get(participantId)` for reputation facts. `me()` below is unaffected — authenticated, self-referential, stays full `Participant`)*
 - `me()` → `Participant` *(requires session)*
 - `challenge(publicKeyHex)` → `{ challenge, expiresIn }`
@@ -208,7 +210,8 @@ converse with a counterparty, or hold state across calls.
 - `register(input)` → `CapabilityGrant`
 - `list(participantId)` → `CapabilityGrant[]`
 - `revoke(grantId)` → `void`
-- `registerFromWallet(wallet)` → `CapabilityGrant`
+- `ensureCanonicalGrants(participantId)` → `CapabilityGrant[]` *(Issue #303, additive: idempotent self-issued onboarding of the canonical `trade-coordination` + `settlement` grants)*
+- `registerFromWallet(wallet)` → `CapabilityGrant` *(**deprecated 2026-09-21, Issue #303**: ignores the wallet's technical capabilities and self-issues both canonical grants; returns the `trade-coordination` one)*
 
 ### Top-level (Intent facade, delegated straight off `SailsClient`)
 🔒 `createIntent`, `cancelIntent`, `dispute`, `submitProof(intentId,

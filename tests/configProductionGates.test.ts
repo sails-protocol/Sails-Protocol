@@ -30,7 +30,7 @@ const REQUIRED_PROD_ENV = {
   // MOCK_ESCROW already had; every production-boot test in this file must
   // satisfy it explicitly or it would trip the new gate below.
   MOCK_SETTLEMENT: 'false',
-  ENFORCE_CAPABILITIES: 'false',
+  ENFORCE_CAPABILITIES: 'true',
   DATABASE_URL: 'postgresql://real-host/sails_protocol',
   REDIS_URL: 'redis://real-host:6379',
   // Missão 11 Fase 8.1 LB-01 — MULTISIG_NETWORK now required in
@@ -92,22 +92,34 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
   })
 
-  describe('ENFORCE_CAPABILITIES gate (Missão 06.5)', () => {
+  // Issue #303 - supersedes Missao 06.5's "explicitly set, true or false"
+  // rule: production requires exactly 'true'.
+  describe('ENFORCE_CAPABILITIES gate (Issue #303 - production requires exactly true)', () => {
     it('refuses to boot in production when ENFORCE_CAPABILITIES is unset', () => {
       const load = loadConfig({ ...REQUIRED_PROD_ENV, ENFORCE_CAPABILITIES: undefined })
-      expect(load).toThrow(/ENFORCE_CAPABILITIES/)
+      expect(load).toThrow(/requires ENFORCE_CAPABILITIES=true \(got unset\)/)
     })
 
-    it('boots in production when ENFORCE_CAPABILITIES=false explicitly — this mission does not mandate enforcement on', () => {
+    it('refuses to boot in production when ENFORCE_CAPABILITIES=false', () => {
       const load = loadConfig({ ...REQUIRED_PROD_ENV, ENFORCE_CAPABILITIES: 'false' })
-      expect(load).not.toThrow()
-      expect(load().features.enforceCapabilities).toBe(false)
+      expect(load).toThrow(/requires ENFORCE_CAPABILITIES=true \(got 'false'\)/)
+    })
+
+    it.each(['TRUE', '1', 'yes', ''])('refuses to boot in production for the non-exact value %p', (value) => {
+      const load = loadConfig({ ...REQUIRED_PROD_ENV, ENFORCE_CAPABILITIES: value })
+      expect(load).toThrow(/requires ENFORCE_CAPABILITIES=true/)
     })
 
     it('boots in production when ENFORCE_CAPABILITIES=true explicitly', () => {
       const load = loadConfig({ ...REQUIRED_PROD_ENV, ENFORCE_CAPABILITIES: 'true' })
       expect(load).not.toThrow()
       expect(load().features.enforceCapabilities).toBe(true)
+    })
+
+    it('still boots in development with enforcement disabled explicitly', () => {
+      const load = loadConfig({ NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: 'false', MOCK_ESCROW: undefined })
+      expect(load).not.toThrow()
+      expect(load().features.enforceCapabilities).toBe(false)
     })
 
     it('boots in development with ENFORCE_CAPABILITIES unset — preserves today\'s dev/test ergonomics', () => {
@@ -451,7 +463,7 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
       const cfg = load()
       expect(cfg.isProduction).toBe(true)
       expect(cfg.features.mockEscrow).toBe(false)
-      expect(cfg.features.enforceCapabilities).toBe(false)
+      expect(cfg.features.enforceCapabilities).toBe(true)
       expect(cfg.database.url).toBe('postgresql://real-host/sails_protocol')
       expect(cfg.redis.url).toBe('redis://real-host:6379')
     })

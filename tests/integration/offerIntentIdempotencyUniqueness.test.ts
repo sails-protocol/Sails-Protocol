@@ -28,6 +28,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 
 describe('Offer/Intent idempotency uniqueness — real Postgres (CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R5)', () => {
   jest.setTimeout(30_000)
@@ -58,15 +59,18 @@ describe('Offer/Intent idempotency uniqueness — real Postgres (CROSS-LAYER-SEM
   })
 
   afterAll(async () => {
-    if (dbAvailable) await prisma.$disconnect()
+    if (dbAvailable) {
+      await prisma.$disconnect()
+      await closeTestRedis()
+    }
   })
 
   function requirePostgres(name: string): void {
     pg.requirePostgres(name)
   }
 
-  async function makeSeller(suffix: string) {
-    return identityService.register({ publicKey: `offer-intent-uniqueness-${suffix}-${RUN_ID}`, displayName: 'Seller' })
+  async function makeSeller(_suffix: string) {
+    return registerTestParticipant(identityService, 'Seller')
   }
 
   // Item 1 — the database itself enforces the invariant, not application

@@ -58,18 +58,85 @@ function toCapabilityGrant(record: {
   }
 }
 
+function isPastExpiry(constraints: unknown, now: Date): boolean {
+  const expiresAt = (constraints as Record<string, unknown> | null | undefined)?.expiresAt
+  return typeof expiresAt === 'string' && new Date(expiresAt) <= now
+}
+
+// Order-insensitive deep equality for JSON constraints; null/undefined/{} are all "no constraints".
+function canonicalJson(value: unknown): string {
+  if (value === null || value === undefined) return 'null'
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1))
+    return entries.length === 0 ? 'null' : `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+function sameConstraints(a: unknown, b: unknown): boolean {
+  return canonicalJson(a) === canonicalJson(b)
+}
+
 class PrismaCapabilityGrantRepository implements CapabilityGrantRepository {
+  /**
+   * Issue #303 delta - idempotent, concurrency-safe creation.
+   *
+   * `create()` used to be a blind INSERT, so N concurrent onboarding calls
+   * for the same participant each saw "capability missing" and each inserted
+   * an identical live grant. A database UNIQUE constraint cannot express
+   * "at most one LIVE equivalent grant": liveness is time-dependent
+   * (constraints.expiresAt is JSON and compared to now()), a partial unique
+   * index on revokedAt IS NULL would either block reissue after an expiry
+   * (an expired grant is not revoked) or forbid legitimately distinct grants
+   * (different scope/constraints). So this uses the repository's existing
+   * pattern instead: the same per-(actor, capability) advisory lock
+   * markRevoked() and Gate B already use, held for the duration of one short
+   * transaction, with the equivalence check INSIDE the lock. Consequences:
+   * the lock key is the narrowest one (other participants and other
+   * capabilities of the same participant never wait); it works across
+   * processes/nodes because the lock lives in PostgreSQL; and it also
+   * serializes creation against Gate B/revoke for that actor, which is the
+   * intended ordering.
+   *
+   * Equivalent = same grantedTo, capabilityName and issuedBy; LIVE (not
+   * revoked, not past constraints.expiresAt); its scopes cover every
+   * requested scope; identical constraints. An equivalent live grant is
+   * returned instead of inserting another one. A revoked or expired grant is
+   * never equivalent, so reissue after revocation/expiry always works and the
+   * historical row is left untouched. A grant with different constraints or a
+   * wider request is not equivalent and is created normally.
+   */
   async create(input: Omit<CapabilityGrant, 'grantId'>): Promise<CapabilityGrant> {
-    const record = await prisma.capabilityGrant.create({
-      data: {
-        grantedTo: input.grantedTo,
-        capabilityName: input.capabilityName,
-        scope: input.scope,
-        constraints: (input.constraints ?? undefined) as object | undefined,
-        issuedBy: input.issuedBy,
-      },
+    return prisma.$transaction(async (tx) => {
+      const lockKey = `capability:${input.grantedTo}:${input.capabilityName}`
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey})::bigint)`
+
+      const live = await tx.capabilityGrant.findMany({
+        where: { grantedTo: input.grantedTo, capabilityName: input.capabilityName, revokedAt: null },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], // oldest wins, same as findActiveGrants()
+      })
+      const now = new Date()
+      const equivalent = live.find(
+        (g) =>
+          g.issuedBy === input.issuedBy &&
+          !isPastExpiry(g.constraints, now) &&
+          input.scope.every((s) => g.scope.includes(s)) &&
+          sameConstraints(g.constraints, input.constraints)
+      )
+      if (equivalent) return toCapabilityGrant(equivalent)
+
+      const record = await tx.capabilityGrant.create({
+        data: {
+          grantedTo: input.grantedTo,
+          capabilityName: input.capabilityName,
+          scope: input.scope,
+          constraints: (input.constraints ?? undefined) as object | undefined,
+          issuedBy: input.issuedBy,
+        },
+      })
+      return toCapabilityGrant(record)
     })
-    return toCapabilityGrant(record)
   }
 
   async findActiveGrants(grantedTo: string, capabilityName: string): Promise<CapabilityGrant[]> {

@@ -60,7 +60,7 @@ const ENV_BASE = {
   // two if left unset alongside MOCK_ESCROW=false/NODE_ENV=production.
   MOCK_SETTLEMENT: 'false',
   MULTISIG_NETWORK: 'testnet',
-  ENFORCE_CAPABILITIES: 'false',
+  ENFORCE_CAPABILITIES: 'true',
   DATABASE_URL: 'postgresql://postgres:password@localhost:5432/sails_protocol',
   REDIS_URL: 'redis://localhost:6379',
   // Issue #265 — same reasoning as tests/cors.test.ts's identical

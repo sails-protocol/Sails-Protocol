@@ -181,15 +181,16 @@ lets you register/list/revoke your own grants.
 identity, not a KYC step, and it does not gate reading public data
 (discover, get a trade you're party to, etc).
 
-**When it's enforced:** only when the server sets
-`ENFORCE_CAPABILITIES=true` — **off by default**, including in this
-repo's own `docker-compose.yml` quickstart. With it off (the common
-case for local dev and for most deployments today), every capability
-check inside the backend short-circuits and returns immediately —
-`sdk.capabilities` calls still work (they always write/read real rows),
-they just don't gate anything yet. Why it's off by default: turning it
-on requires a real deployment to have already issued grants to every
-participant who needs one — flipping it on cold locks everyone out. See
+**When it's enforced:** when the server sets `ENFORCE_CAPABILITIES=true`
+- **mandatory in production** (a production process refuses to boot
+without it, Issue #303) and off by default in development, test and this
+repo's `docker-compose.yml` quickstart. With it off, every capability
+check short-circuits and `sdk.capabilities` calls just write/read rows.
+With it on, call `sdk.capabilities.ensureCanonicalGrants(participantId)`
+once after authenticating (idempotent; the reference UI does it on every
+login) - buyers, sellers and arbiters all need it. Grants are
+self-issued: your own consent, not independent third-party permission.
+The old `registerFromWallet()` helper is deprecated. See
 `src/config/index.ts`'s own doc comment on this flag for the production
 boot-guard around it.
 

@@ -10,10 +10,16 @@
  * `verifySignedChallenge` already assumes exists (`prisma.user.findUnique`).
  */
 import { prisma } from '../../common/database'
-import { NotFoundError, ValidationError } from '../../common/errors'
+import { NotFoundError, ValidationError, AuthError } from '../../common/errors'
+import { verifyRegistrationProof } from '../../common/middleware/auth'
 
 export interface RegisterParticipantInput {
   publicKey: string
+  // Issue #302 — proof of possession, required. See
+  // common/middleware/auth.ts's verifyRegistrationProof() for the exact
+  // signed-message construction and atomic-consumption semantics this
+  // is checked against.
+  signature: string
   displayName?: string
 }
 
@@ -49,18 +55,61 @@ export interface PublicParticipantIdentity {
 }
 
 export class IdentityService {
+  /**
+   * Issue #302 — canonical participant registration now REQUIRES proof
+   * of possession of the submitted Ed25519 public key. Before this
+   * fix, `POST /v1/identity/participants` was fully unauthenticated and
+   * accepted any caller-supplied publicKey + displayName — knowledge
+   * of a public key (which is not secret; other participants routinely
+   * learn it through normal protocol interaction) was sufficient to
+   * squat the canonical User row for it, permanently denying the real
+   * key holder their own identity metadata. Frozen invariant this
+   * closes: `Identity knowledge != Identity registration authority`.
+   *
+   * Defense-in-depth, three independent layers, in this exact order:
+   * 1. Pre-check (below) — an already-registered key is rejected
+   *    immediately, before ever touching a registration challenge, so
+   *    this endpoint can never be used to burn/replace an existing
+   *    registration's challenge or metadata.
+   * 2. verifyRegistrationProof() (auth.ts) — reuses #301's atomic Redis
+   *    compare-and-consume primitive; cryptographic verification
+   *    happens BEFORE the challenge is consumed, so an invalid
+   *    signature can never burn the legitimate holder's outstanding
+   *    challenge, and exactly one of any N concurrent valid claimants
+   *    wins the atomic consumption.
+   * 3. `User.publicKey @unique` (below, P2002 catch) — the database
+   *    remains the FINAL backstop independent of Redis: even if two
+   *    proofs were somehow both successfully consumed for the same key
+   *    (e.g. two separately-issued challenges, consumed moments apart),
+   *    the database can still only ever create one canonical row.
+   */
   async register(input: RegisterParticipantInput) {
     const existing = await prisma.user.findUnique({ where: { publicKey: input.publicKey } })
     if (existing) {
       throw new ValidationError(`A participant is already registered for this public key`)
     }
 
-    return prisma.user.create({
-      data: {
-        publicKey: input.publicKey,
-        displayName: input.displayName,
-      },
-    })
+    // AuthError (401), matching /v1/identity/authenticate's own exact
+    // precedent for the same class of failure — "you have not proven
+    // possession of this key," not "you are known but not permitted."
+    const proof = await verifyRegistrationProof(input.publicKey, input.signature, input.displayName)
+    if (!proof.verified) {
+      throw new AuthError(proof.reason ?? 'Proof of possession of this public key could not be verified')
+    }
+
+    try {
+      return await prisma.user.create({
+        data: {
+          publicKey: input.publicKey,
+          displayName: input.displayName,
+        },
+      })
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        throw new ValidationError(`A participant is already registered for this public key`)
+      }
+      throw err
+    }
   }
 
   async getParticipant(participantId: string) {

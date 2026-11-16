@@ -30,6 +30,12 @@ jest.mock('../src/common/database', () => ({
   },
 }))
 
+// identity.service.ts imports auth.ts (Issue #302 registration proof), which
+// opens the shared ioredis singleton at import. These tests only exercise
+// getPublicView(), so Redis is stubbed — otherwise a real connection is left
+// open and Jest cannot exit.
+jest.mock('../src/common/redis', () => ({ redis: { get: jest.fn(), set: jest.fn(), eval: jest.fn() } }))
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { IdentityService } = require('../src/modules/open-identity/identity.service')
 

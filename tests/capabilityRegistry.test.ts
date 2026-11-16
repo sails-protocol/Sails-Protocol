@@ -12,7 +12,7 @@
  * Prisma's raw row shape needed here at all; this test only ever deals
  * in the real `CapabilityGrant` domain shape.
  */
-import { createCapabilityRegistry, CAPABILITY_IMPLEMENTATIONS } from '../src/core/capability-registry'
+import { createCapabilityRegistry, CAPABILITY_IMPLEMENTATIONS, CANONICAL_CAPABILITY_SCOPES } from '../src/core/capability-registry'
 import type { CapabilityGrantRepository } from '../src/core/capability-grant-repository'
 import type { CapabilityGrant } from '../src/common/types/capability'
 
@@ -33,7 +33,7 @@ describe('capabilityRegistry.grant', () => {
       grantId: 'grant-1',
       grantedTo: 'user-1',
       capabilityName: 'trade-coordination',
-      scope: ['openp2p.trade.created'],
+      scope: ['intent.created'],
       constraints: { maxValue: '100' },
       issuedBy: 'user-1',
     }
@@ -43,13 +43,57 @@ describe('capabilityRegistry.grant', () => {
     const grant = await registry.grant({
       grantedTo: 'user-1',
       capabilityName: 'trade-coordination',
-      scope: ['openp2p.trade.created'],
+      scope: ['intent.created'],
       constraints: { maxValue: '100' },
       issuedBy: 'user-1',
     })
 
     expect(grant).toEqual(created)
     expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ grantedTo: 'user-1' }))
+  })
+})
+
+describe('capabilityRegistry.grant - canonical vocabulary (Issue #303)', () => {
+  const base = { grantedTo: 'user-1', issuedBy: 'user-1' }
+
+  it('exposes exactly the capability names/scopes the existing gates consume', () => {
+    expect(CANONICAL_CAPABILITY_SCOPES).toEqual({
+      'trade-coordination': ['intent.created', 'intent.discovering'],
+      settlement: ['settlement.escrow.released', 'settlement.escrow.refunded', 'settlement.escrow.split'],
+    })
+  })
+
+  it.each([
+    ['anything'],
+    ['liquidity-discovery'], // a real RFC-005 name that no gate consumes yet
+    ['__proto__'],
+    ['constructor'],
+  ])('rejects the unknown capabilityName %p and persists nothing', async (name) => {
+    const repo = fakeRepo()
+    const registry = createCapabilityRegistry(repo)
+    await expect(registry.grant({ ...base, capabilityName: name, scope: ['intent.created'] })).rejects.toThrow(/Unknown capabilityName/)
+    expect(repo.create).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['trade-coordination', ['whatever']],
+    ['trade-coordination', ['settlement.escrow.released']], // valid scope, wrong capability
+    ['settlement', ['intent.created']], // valid scope, wrong capability
+    ['settlement', ['settlement.escrow.released', 'settlement.escrow.everything']],
+    ['trade-coordination', ['trade-coordination']], // the old registerFromWallet() shape
+  ])('rejects mismatched/invalid scope %p %p and persists nothing', async (name, scope) => {
+    const repo = fakeRepo()
+    const registry = createCapabilityRegistry(repo)
+    await expect(registry.grant({ ...base, capabilityName: name, scope })).rejects.toThrow(/Invalid scope/)
+    expect(repo.create).not.toHaveBeenCalled()
+  })
+
+  it('accepts every canonical (name, scope) pair', async () => {
+    for (const [name, scopes] of Object.entries(CANONICAL_CAPABILITY_SCOPES)) {
+      const repo = fakeRepo({ create: jest.fn().mockResolvedValue({ grantId: 'g', ...base, capabilityName: name, scope: [...scopes] }) })
+      await createCapabilityRegistry(repo).grant({ ...base, capabilityName: name, scope: [...scopes] })
+      expect(repo.create).toHaveBeenCalledTimes(1)
+    }
   })
 })
 

@@ -70,7 +70,7 @@ const ENV_BASE = {
   // Explicit here so this test's outcome never depends on whatever a
   // local, gitignored .env file happens to already have in process.env —
   // CI (and any fresh checkout) has none of that.
-  ENFORCE_CAPABILITIES: 'false',
+  ENFORCE_CAPABILITIES: 'true',
   DATABASE_URL: 'postgresql://postgres:password@localhost:5432/sails_protocol',
   REDIS_URL: 'redis://localhost:6379',
   TRUSTED_ARBITRATORS: 'arbiter-1',

@@ -35,6 +35,7 @@ import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from 'tiny-secp256k1'
 import { ECPairFactory } from 'ecpair'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { registerTestParticipant, closeTestRedis, preserveTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 bitcoin.initEccLib(ecc)
@@ -116,7 +117,10 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
   })
 
   afterAll(async () => {
-    if (dbAvailable) await prisma.$disconnect()
+    if (dbAvailable) {
+      await prisma.$disconnect()
+      await closeTestRedis()
+    }
   })
 
   function requirePostgres(name: string): void {
@@ -131,8 +135,8 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
   }
 
   async function makeLockedMultisigEscrow(suffix: string) {
-    const seller = await identityService.register({ publicKey: `funding-concurrency-seller-${suffix}-${Date.now()}`, displayName: 'Seller' })
-    const buyer = await identityService.register({ publicKey: `funding-concurrency-buyer-${suffix}-${Date.now()}`, displayName: 'Buyer' })
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({
       userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER',
     })
@@ -262,6 +266,7 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
       // both concurrent sweep ticks should observe this identical external
       // reality and, between them, write REORGED_INVALIDATED exactly once.
       process.env.MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS = '2'
+      preserveTestRedis() // keep ONE Redis client across resetModules() so afterAll can close it
       jest.resetModules()
       ;({ sweepMultisigFundingReorgs } = require('../../src/modules/open-settlement/multisig-funding-reorg-sweep'))
       global.fetch = jest.fn(async (url: string) => {
@@ -281,6 +286,7 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
       expect(kinds).toEqual(['OBSERVED_CONFIRMED', 'REORGED_INVALIDATED'])
 
       process.env.MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS = '1'
+      preserveTestRedis() // keep ONE Redis client across resetModules() so afterAll can close it
       jest.resetModules()
       ;({ sweepMultisigFundingReorgs } = require('../../src/modules/open-settlement/multisig-funding-reorg-sweep'))
     })
@@ -368,6 +374,7 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
 
       // Simulated restart: fresh require() of the repository module reads
       // the SAME rows back from Postgres — durable, not in-process state.
+      preserveTestRedis() // keep ONE Redis client across resetModules() so afterAll can close it
       jest.resetModules()
       const freshRepo = require('../../src/modules/open-settlement/escrow-funding-evidence-repository').escrowFundingEvidenceRepository
       const afterRestart = await freshRepo.listForEscrow(escrowId)

@@ -20,6 +20,7 @@ import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from '@bitcoinerlab/secp256k1'
 import { createHash } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
 import nacl from 'tweetnacl'
@@ -99,7 +100,10 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
   })
 
   afterAll(async () => {
-    if (dbAvailable) await prisma.$disconnect()
+    if (dbAvailable) {
+      await prisma.$disconnect()
+      await closeTestRedis()
+    }
   })
 
   function requirePostgres(name: string): void {
@@ -114,8 +118,8 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
   })
 
   async function makeUndispatchedDisputedEscrow(suffix: string, ruling: 'RELEASE' | 'REFUND' | 'SPLIT', buyerBps: number | null = null) {
-    const seller = await identityService.register({ publicKey: `m9r-seller-${suffix}-${Date.now()}`, displayName: 'Seller' })
-    const buyer = await identityService.register({ publicKey: `m9r-buyer-${suffix}-${Date.now()}`, displayName: 'Buyer' })
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({
       userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER',
     })
@@ -285,8 +289,8 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
     // went through commitAuthoritativeDisputeRuling()) must be silently
     // excluded — this module's candidate query itself checks
     // `row.outcomeContent`, not just `Dispute.status === 'RESOLVED'`.
-    const seller = await identityService.register({ publicKey: `m9r-legacy-seller-${Date.now()}`, displayName: 'Seller' })
-    const buyer = await identityService.register({ publicKey: `m9r-legacy-buyer-${Date.now()}`, displayName: 'Buyer' })
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' }, seller.id)

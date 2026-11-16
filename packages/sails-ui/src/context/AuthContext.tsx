@@ -230,6 +230,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // transport for every subsequent authenticated call.
       await sailsClient.identity.authenticate(keypair)
       const participant = await sailsClient.identity.me()
+      // Issue #303 - production servers enforce Capability Authority
+      // (ENFORCE_CAPABILITIES=true is mandatory), so a participant with no
+      // canonical grants would be refused at intent creation and at every
+      // release/refund/split. Idempotent (a no-op when live grants already
+      // exist), so it runs on every login; self-issued consent, not
+      // independent permission - see capabilities.ts.
+      await sailsClient.capabilities.ensureCanonicalGrants(participant.id)
       // Mission 3 R2 — activate() BEFORE the React state setters below,
       // synchronously, in this same function (never deferred to an
       // effect): the epoch gate must already reflect "this session is

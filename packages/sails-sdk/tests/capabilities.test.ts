@@ -55,58 +55,63 @@ describe('SailsCapabilitiesModule', () => {
     expect(init.headers.authorization).toBe('Bearer session-abc')
   })
 
-  it('registerFromWallet() derives scope from the WalletAdapter\'s declared capabilities', async () => {
-    const fetchImpl = fakeFetch(201, {
-      success: true,
-      data: { grantId: 'grant-1', grantedTo: 'user-1', capabilityName: 'trade-coordination', scope: ['trade-coordination', 'settlement'], issuedBy: 'user-1' },
-    })
+  // Issue #303 - a wallet's technical capabilities are NOT permission.
+  it('registerFromWallet() is deprecated: it ignores the wallet declaration and self-issues both canonical grants', async () => {
+    const fetchImpl = jest.fn()
+      .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ success: true, data: { grantId: 'g1', grantedTo: 'u', capabilityName: 'trade-coordination', scope: ['intent.created', 'intent.discovering'], issuedBy: 'u' } }) })
+      .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ success: true, data: { grantId: 'g2', grantedTo: 'u', capabilityName: 'settlement', scope: [], issuedBy: 'u' } }) })
     const capabilities = new SailsCapabilitiesModule(authedTransport(fetchImpl))
+    const wallet = {
+      getCapabilities: async () => ({ assets: ['USDT'], fiatRails: ['PIX'], supportsP2PTrading: false, supportsOnchainSettlement: false }),
+    } as unknown as WalletAdapter
 
-    const wallet: WalletAdapter = {
-      getPeerId: async () => 'peer-1',
-      getAddress: async () => '0xabc',
-      getBalance: async () => '0',
-      signTransaction: async (_asset, tx) => tx,
-      broadcastTransaction: async () => 'txid',
-      signMessage: async (message) => message,
-      getCapabilities: async () => ({
-        assets: ['USDT', 'BTC'],
-        fiatRails: ['PIX'],
-        supportsP2PTrading: true,
-        supportsOnchainSettlement: true,
-      }),
-    }
+    const grant = await capabilities.registerFromWallet(wallet)
 
-    await capabilities.registerFromWallet(wallet)
+    expect(grant.grantId).toBe('g1')
+    const bodies = fetchImpl.mock.calls.map(([, init]) => JSON.parse(init.body))
+    expect(bodies).toEqual([
+      { capabilityName: 'trade-coordination', scope: ['intent.created', 'intent.discovering'] },
+      { capabilityName: 'settlement', scope: ['settlement.escrow.released', 'settlement.escrow.refunded', 'settlement.escrow.split'] },
+    ])
+  })
+})
 
-    const [, init] = fetchImpl.mock.calls[0]
-    const sentBody = JSON.parse(init.body)
-    expect(sentBody.scope).toEqual(['trade-coordination', 'settlement'])
-    expect(sentBody.constraints).toEqual({ assets: ['USDT', 'BTC'], fiatRails: ['PIX'] })
+describe('SailsCapabilitiesModule.ensureCanonicalGrants (Issue #303)', () => {
+  const trade = { grantId: 't', grantedTo: 'u', capabilityName: 'trade-coordination', scope: ['intent.created', 'intent.discovering'], issuedBy: 'u' }
+  const settlement = { grantId: 's', grantedTo: 'u', capabilityName: 'settlement', scope: ['settlement.escrow.released', 'settlement.escrow.refunded', 'settlement.escrow.split'], issuedBy: 'u' }
+  const ok = (status: number, data: unknown) => ({ ok: true, status, json: async () => ({ success: true, data }) })
+
+  it('issues both canonical grants for a participant with none', async () => {
+    const fetchImpl = jest.fn()
+      .mockResolvedValueOnce(ok(200, []))
+      .mockResolvedValueOnce(ok(201, trade))
+      .mockResolvedValueOnce(ok(201, settlement))
+    const result = await new SailsCapabilitiesModule(authedTransport(fetchImpl)).ensureCanonicalGrants('u')
+    expect(result.map((g) => g.capabilityName)).toEqual(['trade-coordination', 'settlement'])
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
   })
 
-  it('registerFromWallet() omits settlement scope when the wallet does not support on-chain settlement', async () => {
-    const fetchImpl = fakeFetch(201, { success: true, data: { grantId: 'g', grantedTo: 'u', capabilityName: 'trade-coordination', scope: [], issuedBy: 'u' } })
-    const capabilities = new SailsCapabilitiesModule(authedTransport(fetchImpl))
+  it('is idempotent: registers nothing when live canonical grants already cover every scope', async () => {
+    const fetchImpl = jest.fn().mockResolvedValueOnce(ok(200, [trade, settlement]))
+    await new SailsCapabilitiesModule(authedTransport(fetchImpl)).ensureCanonicalGrants('u')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
 
-    const wallet: WalletAdapter = {
-      getPeerId: async () => 'peer-1',
-      getAddress: async () => '0xabc',
-      getBalance: async () => '0',
-      signTransaction: async (_asset, tx) => tx,
-      broadcastTransaction: async () => 'txid',
-      signMessage: async (message) => message,
-      getCapabilities: async () => ({
-        assets: ['USDT'],
-        fiatRails: ['PIX'],
-        supportsP2PTrading: true,
-        supportsOnchainSettlement: false,
-      }),
-    }
+  it('re-issues a canonical grant whose only live coverage has expired, and only that one', async () => {
+    const expired = { ...settlement, constraints: { expiresAt: '2000-01-01T00:00:00.000Z' } }
+    const fetchImpl = jest.fn()
+      .mockResolvedValueOnce(ok(200, [trade, expired]))
+      .mockResolvedValueOnce(ok(201, { ...settlement, grantId: 's2' }))
+    const result = await new SailsCapabilitiesModule(authedTransport(fetchImpl)).ensureCanonicalGrants('u')
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(fetchImpl.mock.calls[1][1].body).capabilityName).toBe('settlement')
+    expect(result.map((g) => g.grantId).sort()).toEqual(['s2', 't'])
+  })
 
-    await capabilities.registerFromWallet(wallet)
-
-    const [, init] = fetchImpl.mock.calls[0]
-    expect(JSON.parse(init.body).scope).toEqual(['trade-coordination'])
+  it('ignores non-canonical grants a participant may hold', async () => {
+    const legacy = { grantId: 'x', grantedTo: 'u', capabilityName: 'legacy', scope: ['a'], issuedBy: 'u' }
+    const fetchImpl = jest.fn().mockResolvedValueOnce(ok(200, [legacy, trade, settlement]))
+    const result = await new SailsCapabilitiesModule(authedTransport(fetchImpl)).ensureCanonicalGrants('u')
+    expect(result.map((g) => g.grantId)).toEqual(['t', 's'])
   })
 })

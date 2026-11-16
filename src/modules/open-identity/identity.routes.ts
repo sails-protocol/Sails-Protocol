@@ -10,7 +10,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { identityService } from './identity.service'
-import { issueChallenge, verifySignedChallenge, requireAuth, issueWsTicket } from '../../common/middleware/auth'
+import { issueChallenge, verifySignedChallenge, requireAuth, issueWsTicket, issueRegistrationChallenge } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { createSharedRateLimit } from '../../common/middleware/redis-rate-limit'
 import { config } from '../../config'
@@ -27,8 +27,13 @@ const authRateLimit = createSharedRateLimit({
   keyPrefix: 'auth',
 })
 
+// Issue #302 — signature now required: proof of possession of the
+// submitted public key before canonical registration. See
+// identity.service.ts's register()/common/middleware/auth.ts's
+// verifyRegistrationProof() for the full property this closes.
 const registerSchema = z.object({
   publicKey: z.string().regex(/^[0-9a-fA-F]{64}$/, 'Must be a 64-character hex-encoded Ed25519 public key'),
+  signature: z.string().min(1),
   displayName: z.string().optional(),
 })
 
@@ -38,13 +43,43 @@ const challengeSchema = z.object({
   publicKey: z.string().regex(/^[0-9a-fA-F]{64}$/, 'Must be a 64-character hex-encoded Ed25519 public key'),
 })
 
+// Issue #302 — same shape as challengeSchema; kept as its own named
+// const (not reused directly) so the two request bodies stay free to
+// diverge independently — they already belong to different security
+// domains (see auth.ts's REGISTRATION_PROOF_DOMAIN).
+const registerChallengeSchema = z.object({
+  publicKey: z.string().regex(/^[0-9a-fA-F]{64}$/, 'Must be a 64-character hex-encoded Ed25519 public key'),
+})
+
 const authenticateSchema = z.object({
   publicKey: z.string().regex(/^[0-9a-fA-F]{64}$/, 'Must be a 64-character hex-encoded Ed25519 public key'),
   signature: z.string().min(1),
 })
 
 export async function identityRoutes(app: FastifyInstance): Promise<void> {
+  // Issue #302 — registration-challenge issuance. Deliberately
+  // unauthenticated (the participant does not exist yet), and rate-
+  // limited the same as /v1/identity/challenge below — this route is
+  // now exactly the same class of endpoint (a free Ed25519 challenge
+  // mint keyed by a caller-supplied public key), so it gets the same
+  // existing credential-stuffing/brute-force protection, not a new one.
+  app.post('/v1/identity/register-challenge', {
+    preHandler: authRateLimit,
+    ...docsOnlySchema({ tags: ['open-identity'], body: registerChallengeSchema }),
+  }, async (request, reply) => {
+    const body = registerChallengeSchema.parse(request.body)
+    const result = await issueRegistrationChallenge(body.publicKey)
+    return reply.code(200).send({ success: true, data: result })
+  })
+
+  // Issue #302 — now requires signature: proof of possession of
+  // `publicKey`'s corresponding private key against a current
+  // registration challenge (POST /v1/identity/register-challenge
+  // above). Rate-limited the same as /v1/identity/authenticate below —
+  // this route now performs a real Ed25519 verification + Redis
+  // round-trip, the same cost/abuse profile.
   app.post('/v1/identity/participants', {
+    preHandler: authRateLimit,
     ...docsOnlySchema({ tags: ['open-identity'], body: registerSchema }),
   }, async (request, reply) => {
     const body = registerSchema.parse(request.body)

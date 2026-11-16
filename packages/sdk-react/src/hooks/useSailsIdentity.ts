@@ -11,6 +11,13 @@ export interface UseSailsIdentityResult {
   query: UseQueryResult<PublicParticipant>
   create: UseMutationResult<{ participant: Participant; keypair: Ed25519Keypair }, Error, { keypair?: Ed25519Keypair; displayName?: string }>
   createWithPublicKey: UseMutationResult<Participant, Error, { publicKeyHex: string; displayName?: string }>
+  // Issue #302 — createWithPublicKey() above can no longer complete
+  // registration on its own (the server now requires proof of
+  // possession, and that method has no signing capability by design —
+  // see packages/sails-sdk/src/modules/identity.ts's own doc comment).
+  // This is the wallet-backed equivalent, mirroring
+  // authenticateWithWallet() below.
+  createWithWallet: UseMutationResult<Participant, Error, { publicKeyHex: string; wallet: { signMessage(message: Uint8Array): Promise<Uint8Array> }; displayName?: string }>
   challenge: UseMutationResult<{ challenge: string; expiresIn: number }, Error, string>
   authenticate: UseMutationResult<AuthenticateResult, Error, Ed25519Keypair>
   authenticateWithWallet: UseMutationResult<AuthenticateResult, Error, { publicKeyHex: string; wallet: { signMessage(message: Uint8Array): Promise<Uint8Array> } }>
@@ -51,6 +58,12 @@ export function useSailsIdentity(participantId: string | undefined): UseSailsIde
     onSuccess: invalidate,
   })
 
+  const createWithWallet = useMutation({
+    mutationFn: ({ publicKeyHex, wallet, displayName }: { publicKeyHex: string; wallet: { signMessage(message: Uint8Array): Promise<Uint8Array> }; displayName?: string }) =>
+      client.identity.createWithWallet(publicKeyHex, wallet, displayName),
+    onSuccess: invalidate,
+  })
+
   const challenge = useMutation({
     mutationFn: (publicKeyHex: string) => client.identity.challenge(publicKeyHex),
     onSuccess: invalidate,
@@ -67,5 +80,5 @@ export function useSailsIdentity(participantId: string | undefined): UseSailsIde
     onSuccess: invalidate,
   })
 
-  return { query, create, createWithPublicKey, challenge, authenticate, authenticateWithWallet }
+  return { query, create, createWithPublicKey, createWithWallet, challenge, authenticate, authenticateWithWallet }
 }

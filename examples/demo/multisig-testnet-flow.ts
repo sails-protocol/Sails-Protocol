@@ -62,7 +62,9 @@ import { createHash } from 'crypto'
 import { config } from '../../src/config'
 import { connectDatabase } from '../../src/common/database'
 import { connectRedis } from '../../src/common/redis'
+import nacl from 'tweetnacl'
 import { identityService } from '../../src/modules/open-identity/identity.service'
+import { issueRegistrationChallenge, registrationProofMessage } from '../../src/common/middleware/auth'
 import { liquidityRouter } from '../../src/modules/open-liquidity/liquidity.service'
 import { tradeService } from '../../src/modules/open-p2p/trade.service'
 import { escrowService } from '../../src/modules/open-settlement/escrow.service'
@@ -166,6 +168,25 @@ const FUNDING_POLL_TIMEOUT_MS = (Number(process.env.DEMO_FUNDING_POLL_TIMEOUT_MI
 
 function step(n: number, total: number, label: string) {
   console.log(`\n[${n}/${total}] ${label}`)
+}
+
+// Issue #302 — registration now requires real proof of possession
+// (common/middleware/auth.ts's verifyRegistrationProof()); this demo
+// previously registered these two identities with arbitrary,
+// non-Ed25519 placeholder strings ("demo-multisig-seller-<ts>") as
+// their "public key," which can no longer satisfy that requirement.
+// Generates a real, throwaway keypair for each demo participant
+// instead — a strict improvement (a real identity, not a fake string)
+// with the same net effect the old code had: an isolated,
+// disposable User row for this one rehearsal run.
+async function registerDemoParticipant(displayName: string) {
+  const keypair = nacl.sign.keyPair()
+  const publicKey = Buffer.from(keypair.publicKey).toString('hex')
+  const { challenge } = await issueRegistrationChallenge(publicKey)
+  const signature = Buffer.from(
+    nacl.sign.detached(registrationProofMessage(challenge, displayName), keypair.secretKey)
+  ).toString('hex')
+  return identityService.register({ publicKey, signature, displayName })
 }
 
 type FundingUtxo = { txid: string; vout: number; value: number; status: { confirmed: boolean } }
@@ -312,9 +333,8 @@ export async function main() {
     console.log(`   Endereço re-derivado (via multisigProvider.getDepositAddress, código real de produção): ${rederived} — CONFERE com o multisigAddr já armazenado.`)
   } else {
     step(1, TOTAL, 'Registrando identidades (Sails OpenIdentity)...')
-    const suffix = Date.now()
-    const seller = await identityService.register({ publicKey: `demo-multisig-seller-${suffix}`, displayName: 'Vendedor BTC (MULTISIG)' })
-    const buyer = await identityService.register({ publicKey: `demo-multisig-buyer-${suffix}`, displayName: 'Comprador BTC (MULTISIG)' })
+    const seller = await registerDemoParticipant('Vendedor BTC (MULTISIG)')
+    const buyer = await registerDemoParticipant('Comprador BTC (MULTISIG)')
     console.log(`   Vendedor: ${seller.id}`)
     console.log(`   Comprador: ${buyer.id}`)
 

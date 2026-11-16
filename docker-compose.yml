@@ -69,9 +69,17 @@ services:
     # migrate deploy` for every database that already has some
     # migration history -- verified directly against this project's own
     # dev database before landing.
-    command: sh scripts/migrate-deploy-safe.sh
+    # CTO 225 - role segregation: the administrator (postgres) only creates
+    # sails_migrator/sails_runtime and hands the schema to the migrator; the
+    # migrations and the runtime grants then run as sails_migrator, and `app`
+    # below connects as sails_runtime (no superuser, owns nothing). Dev-only
+    # default passwords; override them in a docker-compose.override.yml.
+    command: sh -c "node scripts/db/bootstrap-roles.js && sh scripts/migrate-deploy-safe.sh"
     environment:
-      DATABASE_URL: postgresql://postgres:password@postgres:5432/sails_protocol
+      ADMIN_DATABASE_URL: postgresql://postgres:password@postgres:5432/sails_protocol
+      SAILS_MIGRATOR_PASSWORD: migrator_dev_password
+      SAILS_RUNTIME_PASSWORD: runtime_dev_password
+      MIGRATION_DATABASE_URL: postgresql://sails_migrator:migrator_dev_password@postgres:5432/sails_protocol
     depends_on:
       postgres:
         condition: service_healthy
@@ -96,7 +104,9 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: postgresql://postgres:password@postgres:5432/sails_protocol
+      DATABASE_URL: postgresql://sails_runtime:runtime_dev_password@postgres:5432/sails_protocol
+      # Same check production always runs: refuse to boot on a privileged connection.
+      DB_PRIVILEGE_CHECK: enforce
       REDIS_URL: redis://redis:6379
       PORT: 3000
       HOST: 0.0.0.0

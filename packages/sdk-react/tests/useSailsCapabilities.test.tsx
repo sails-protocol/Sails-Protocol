@@ -11,7 +11,8 @@ function mockClient(): SailsClient {
       list: vi.fn().mockResolvedValue([{ grantId: 'grant-1', grantedTo: 'participant-1', capabilityName: 'trade-coordination', scope: ['intent.created'], issuedBy: 'participant-1' }]),
       register: vi.fn().mockResolvedValue({ grantId: 'grant-2', grantedTo: 'participant-1', capabilityName: 'settlement', scope: ['settlement.escrow.released'], issuedBy: 'participant-1' }),
       revoke: vi.fn().mockResolvedValue(undefined),
-      registerFromWallet: vi.fn().mockResolvedValue({ grantId: 'grant-3', grantedTo: 'participant-1', capabilityName: 'trade-coordination', scope: ['trade-coordination', 'settlement'], issuedBy: 'participant-1' }),
+      registerFromWallet: vi.fn().mockResolvedValue({ grantId: 'grant-3', grantedTo: 'participant-1', capabilityName: 'trade-coordination', scope: ['intent.created', 'intent.discovering'], issuedBy: 'participant-1' }),
+      ensureCanonicalGrants: vi.fn().mockResolvedValue([{ grantId: 'grant-4', grantedTo: 'participant-1', capabilityName: 'settlement', scope: ['settlement.escrow.released'], issuedBy: 'participant-1' }]),
     },
   } as unknown as SailsClient
 }
@@ -23,6 +24,7 @@ function errorClient(): SailsClient {
       register: vi.fn().mockRejectedValue(new Error('Register failed')),
       revoke: vi.fn().mockRejectedValue(new Error('Revoke failed')),
       registerFromWallet: vi.fn().mockRejectedValue(new Error('Wallet register failed')),
+      ensureCanonicalGrants: vi.fn().mockRejectedValue(new Error('Ensure failed')),
     },
   } as unknown as SailsClient
 }
@@ -143,6 +145,21 @@ describe('useSailsCapabilities', () => {
 
     await act(async () => {
       await expect(result.current.registerFromWallet.mutateAsync(mockWallet)).rejects.toThrow('Wallet register failed')
+    })
+  })
+  it('ensureCanonicalGrants mutation calls client.capabilities.ensureCanonicalGrants with the participantId (Issue #303)', async () => {
+    const { result } = renderHookWithProvider()
+    await act(async () => {
+      await result.current.ensureCanonicalGrants.mutateAsync('participant-1')
+    })
+    expect(client.capabilities.ensureCanonicalGrants).toHaveBeenCalledWith('participant-1')
+  })
+
+  it('ensureCanonicalGrants surfaces a rejection instead of swallowing it (Issue #303)', async () => {
+    client = errorClient()
+    const { result } = renderHookWithProvider()
+    await act(async () => {
+      await expect(result.current.ensureCanonicalGrants.mutateAsync('participant-1')).rejects.toThrow('Ensure failed')
     })
   })
 })

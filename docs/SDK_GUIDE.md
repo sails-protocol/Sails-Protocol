@@ -171,6 +171,8 @@ interface SailsClient {
   // Sails OpenIdentity (alias: auth)
   identity: {
     create(keypair?: Ed25519Keypair, displayName?: string): Promise<{ participant: Participant; keypair: Ed25519Keypair }>
+    createWithWallet(publicKeyHex: string, wallet: { signMessage(m: Uint8Array): Promise<Uint8Array> }, displayName?: string): Promise<Participant>   // registration with proof of possession (Issue #302)
+    registerChallenge(publicKeyHex: string): Promise<{ challenge: string; expiresIn: number }>   // Issue #302
     createWithPublicKey(publicKeyHex: string, displayName?: string): Promise<Participant>   // wallet-backed registration — no keypair object, no secretKey (2026-08-02)
     challenge(publicKeyHex: string): Promise<{ challenge: string; expiresIn: number }>
     authenticate(keypair: Ed25519Keypair): Promise<{ participantId: string; sessionToken: string }>
@@ -280,7 +282,8 @@ interface SailsClient {
     // Convenience: derives scope directly from a WalletAdapter's own
     // getCapabilities() declaration instead of the caller re-assembling
     // it into a register() call by hand.
-    registerFromWallet(wallet: WalletAdapter): Promise<CapabilityGrant>
+    ensureCanonicalGrants(participantId: string): Promise<CapabilityGrant[]>   // Issue #303 - idempotent onboarding
+    registerFromWallet(wallet: WalletAdapter): Promise<CapabilityGrant>   // deprecated, Issue #303
   }
 
   // Sails OpenProof (RFC-006, RFC-007) — advanced/direct use; submitProof()

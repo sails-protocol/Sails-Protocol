@@ -145,7 +145,7 @@ export {
 export { signEscrowArkTx } from './modules/escrow-ark-signing'
 export { signEscrowSafeUserOp } from './modules/escrow-safe-signing'
 export { SailsPeersModule, type StaticTopic } from './modules/peers'
-export { SailsCapabilitiesModule, type RegisterCapabilityInput } from './modules/capabilities'
+export { SailsCapabilitiesModule, CANONICAL_CAPABILITY_SCOPES, type RegisterCapabilityInput } from './modules/capabilities'
 export { SailsArbitrationModule, type ArbiterCandidate } from './modules/arbitration'
 export { SailsPaymentAccountModule, type PaymentAccount, type PublicPaymentAccount } from './modules/payment-account'
 export { hashPaymentAccount } from './payment-account'

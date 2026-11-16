@@ -7,6 +7,9 @@ export interface UseSailsCapabilitiesResult {
   register: UseMutationResult<CapabilityGrant, Error, RegisterCapabilityInput>
   revoke: UseMutationResult<void, Error, string>
   registerFromWallet: UseMutationResult<CapabilityGrant, Error, WalletAdapter>
+  // Issue #303 - the supported onboarding call (idempotent; see SDK's
+  // capabilities.ensureCanonicalGrants). Variable = the caller's participantId.
+  ensureCanonicalGrants: UseMutationResult<CapabilityGrant[], Error, string>
 }
 
 /**
@@ -48,5 +51,10 @@ export function useSailsCapabilities(participantId: string | undefined): UseSail
     onSuccess: invalidate,
   })
 
-  return { query, register, revoke, registerFromWallet }
+  const ensureCanonicalGrants = useMutation({
+    mutationFn: (id: string) => client.capabilities.ensureCanonicalGrants(id),
+    onSuccess: invalidate,
+  })
+
+  return { query, register, revoke, registerFromWallet, ensureCanonicalGrants }
 }

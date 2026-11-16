@@ -75,7 +75,9 @@
 import { config } from '../../src/config'
 import { connectDatabase } from '../../src/common/database'
 import { connectRedis } from '../../src/common/redis'
+import nacl from 'tweetnacl'
 import { identityService } from '../../src/modules/open-identity/identity.service'
+import { issueRegistrationChallenge, registrationProofMessage } from '../../src/common/middleware/auth'
 import { liquidityRouter } from '../../src/modules/open-liquidity/liquidity.service'
 import { tradeService } from '../../src/modules/open-p2p/trade.service'
 import { executeSettlement } from '../../src/modules/open-settlement/settlement-orchestrator'
@@ -95,6 +97,23 @@ function step(n: number, total: number, label: string) {
   console.log(`\n[${n}/${total}] ${label}`)
 }
 
+// Issue #302 — registration now requires real proof of possession
+// (common/middleware/auth.ts's verifyRegistrationProof()); this demo
+// previously registered with arbitrary, non-Ed25519 placeholder
+// strings ("demo-seller-<ts>") as the "public key," which can no
+// longer satisfy that requirement. Generates a real, throwaway keypair
+// instead — a strict improvement, same net effect (an isolated,
+// disposable User row for this one rehearsal run).
+async function registerDemoParticipant(displayName: string) {
+  const keypair = nacl.sign.keyPair()
+  const publicKey = Buffer.from(keypair.publicKey).toString('hex')
+  const { challenge } = await issueRegistrationChallenge(publicKey)
+  const signature = Buffer.from(
+    nacl.sign.detached(registrationProofMessage(challenge, displayName), keypair.secretKey)
+  ).toString('hex')
+  return identityService.register({ publicKey, signature, displayName })
+}
+
 export async function main() {
   console.log('=== Sails Protocol — Emulação: Comprador PIX ➡️ Vendedor USDT ===')
 
@@ -104,9 +123,8 @@ export async function main() {
   const TOTAL = 9
 
   step(1, TOTAL, 'Registrando identidades (Sails OpenIdentity)...')
-  const suffix = Date.now()
-  const seller = await identityService.register({ publicKey: `demo-seller-${suffix}`, displayName: 'Vendedor USDT' })
-  const buyer = await identityService.register({ publicKey: `demo-buyer-${suffix}`, displayName: 'Comprador PIX' })
+  const seller = await registerDemoParticipant('Vendedor USDT')
+  const buyer = await registerDemoParticipant('Comprador PIX')
   console.log(`   Vendedor: ${seller.id}`)
   console.log(`   Comprador: ${buyer.id}`)
 

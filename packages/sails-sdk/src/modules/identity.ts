@@ -69,6 +69,22 @@ function sign(challenge: string, secretKey: Uint8Array): string {
   return bytesToHex(signature)
 }
 
+// Issue #302 — registration proof-of-possession. Deliberately a
+// SEPARATE construction from sign() above, matching
+// `src/common/middleware/auth.ts`'s own domain separation
+// (`REGISTRATION_PROOF_DOMAIN`/`registrationProofMessage()`) byte for
+// byte: the registration signed message is never the bare challenge
+// text the way an AUTHENTICATION signature is — it is always prefixed
+// with this literal domain tag and binds the caller's chosen
+// `displayName` (empty string when omitted), so a signature produced
+// for one domain can never verify against the other's construction.
+const REGISTRATION_PROOF_DOMAIN = 'sails-registration-proof-of-possession:v1'
+
+function signRegistrationProof(challenge: string, displayName: string | undefined, secretKey: Uint8Array): string {
+  const message = utf8ToBytes(`${REGISTRATION_PROOF_DOMAIN}:${challenge}:${displayName ?? ''}`)
+  return bytesToHex(nacl.sign.detached(message, secretKey))
+}
+
 export class SailsIdentityModule {
   constructor(private readonly transport: SailsTransport) {}
 
@@ -78,12 +94,52 @@ export class SailsIdentityModule {
    * both the registered Participant and the keypair used, since a caller
    * who didn't supply one needs it back to ever authenticate again — the
    * SDK never silently generates and discards key material.
+   *
+   * Issue #302 — registration now requires proof of possession server-
+   * side: this method's own EXTERNAL signature is unchanged (still just
+   * `keypair?`/`displayName?` in, `{participant, keypair}` out — no
+   * caller of `create()` needs to change anything), but internally it
+   * now requests a registration challenge and signs it before
+   * submitting, matching `src/common/middleware/auth.ts`'s
+   * `verifyRegistrationProof()` byte for byte (see
+   * `signRegistrationProof()`'s own header comment above).
    */
   async create(keypair?: Ed25519Keypair, displayName?: string): Promise<{ participant: Participant; keypair: Ed25519Keypair }> {
     const kp = keypair ?? generateKeypair()
     const publicKey = bytesToHex(kp.publicKey)
-    const participant = await this.transport.post<Participant>('/v1/identity/participants', { publicKey, displayName })
+    const { challenge } = await this.registerChallenge(publicKey)
+    const signature = signRegistrationProof(challenge, displayName, kp.secretKey)
+    const participant = await this.transport.post<Participant>('/v1/identity/participants', { publicKey, signature, displayName })
     return { participant, keypair: kp }
+  }
+
+  /**
+   * Issue #302 — registration-challenge issuance for the public key
+   * being registered. Deliberately unauthenticated (the participant
+   * does not exist yet) and a separate call from `challenge()` below —
+   * the two are different security domains server-side (see
+   * `src/common/middleware/auth.ts`'s own `REGISTER_CHALLENGE_PREFIX`
+   * comment).
+   */
+  async registerChallenge(publicKeyHex: string): Promise<{ challenge: string; expiresIn: number }> {
+    return this.transport.post<{ challenge: string; expiresIn: number }>('/v1/identity/register-challenge', { publicKey: publicKeyHex })
+  }
+
+  /**
+   * Issue #302 — `createWithPublicKey()` below can no longer register
+   * on its own: registration now requires a signature, and that method
+   * deliberately has no secret-key or wallet-signing capability at all
+   * (its own doc comment's whole point). `createWithWallet()` is the
+   * wallet-backed equivalent, mirroring `authenticateWithWallet()`'s
+   * existing pattern exactly — delegates signing to
+   * `wallet.signMessage()` rather than ever touching a secret key.
+   */
+  async createWithWallet(publicKeyHex: string, wallet: { signMessage(message: Uint8Array): Promise<Uint8Array> }, displayName?: string): Promise<Participant> {
+    const { challenge } = await this.registerChallenge(publicKeyHex)
+    const message = utf8ToBytes(`${REGISTRATION_PROOF_DOMAIN}:${challenge}:${displayName ?? ''}`)
+    const signatureBytes = await wallet.signMessage(message)
+    const signature = bytesToHex(signatureBytes)
+    return this.transport.post<Participant>('/v1/identity/participants', { publicKey: publicKeyHex, signature, displayName })
   }
 
   /**
@@ -94,6 +150,19 @@ export class SailsIdentityModule {
    * hand over, just to call this. Closes the same
    * PRODUCTION_READINESS_REVIEW.md finding #3 gap authenticateWithWallet()
    * below closes for the sign-in half of the flow.
+   *
+   * Issue #302 — registration now requires proof of possession, which
+   * this method has no way to produce (no secret key, no wallet
+   * parameter — see its own original doc comment above, still true).
+   * It can therefore no longer complete registration on its own; the
+   * server now rejects it with a clear 401 rather than creating an
+   * unauthenticated row. Kept — not removed or silently repurposed,
+   * per this SDK's own frozen-public-API discipline — but callers that
+   * need to register a wallet-held key must use `createWithWallet()`
+   * above instead. Deprecating/removing this method outright is a
+   * follow-up decision this mission does not make unilaterally.
+   * @deprecated Cannot satisfy Issue #302's proof-of-possession
+   * requirement on its own — use `createWithWallet()` instead.
    */
   async createWithPublicKey(publicKeyHex: string, displayName?: string): Promise<Participant> {
     return this.transport.post<Participant>('/v1/identity/participants', { publicKey: publicKeyHex, displayName })

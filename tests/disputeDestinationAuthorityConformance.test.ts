@@ -1,3 +1,10 @@
+// Issue #239 - this suite's PSBTs are placeholders: the real signature check (multisig-round-proofs.ts) is proven with
+// real Bitcoin PSBTs in tests/multisigRoundProofs.test.ts and tests/integration/pendingRoundLifecycle.test.ts.
+jest.mock('../src/modules/open-settlement/multisig-round-proofs', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/multisig-round-proofs'),
+  verifySignerPartialSignature: (_unsigned: string, signed: string) => signed,
+}))
+
 /**
  * Sails Core Implementation Program M8-R2 (Destination Authority
  * Conformance, remaining disputed rails, 2026-09-11, extended with the
@@ -134,7 +141,7 @@ const mockTradeFindUnique = jest.fn()
 const mockDisputeFindUnique = jest.fn()
 const mockDisputeUpdate = jest.fn()
 const mockEscrowParticipantKeyFindUnique = jest.fn().mockResolvedValue(null) // no committed arbiter — non-MULTISIG
-const mockEscrowEventCreate = jest.fn().mockResolvedValue({})
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockParticipantKeyFindMany = jest.fn().mockResolvedValue([])
 const mockEscrowFundingEvidenceFindMany = jest.fn().mockResolvedValue([])
@@ -155,6 +162,7 @@ const mockSignatureUpsert = jest.fn((args: { create: { pendingTxId: string; part
 })
 const mockSignatureFindMany = jest.fn((_arg?: unknown) => Promise.resolve(signatureStore))
 
+let mockLastWrittenDispute: unknown
 jest.mock('../src/common/database', () => ({
   prisma: {
     escrow: {
@@ -179,7 +187,7 @@ jest.mock('../src/common/database', () => ({
       // required, which ES-module import hoisting can trigger before
       // those later `const` declarations in this same file initialize.
       findFirst: jest.fn().mockImplementation(({ where }: { where: { tradeId: string; arbiterId: string } }) =>
-        Promise.resolve(where.tradeId === 'trade-1' && where.arbiterId === 'arbiter-1' ? { id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' } : null)
+        Promise.resolve(where.tradeId === 'trade-1' && where.arbiterId === 'arbiter-1' ? { id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1', appealRound: 0, ruling: 'RELEASE' } : null)
       ),
     },
     user: { findUnique: (...args: unknown[]) => mockUserFindUnique(...args) },
@@ -215,11 +223,21 @@ jest.mock('../src/common/database', () => ({
     $transaction: (callback: (tx: unknown) => Promise<unknown>) => {
       let writtenRow: unknown
       return callback({
+        // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+        eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
         $executeRaw: jest.fn().mockResolvedValue(0),
+        // D9 - applyRuling()'s resolve-write reads the WDK attempt ledger for another disposition's unreconciled attempt.
+        wdkTransferAttempt: { findFirst: jest.fn().mockResolvedValue(null) },
+        // Issue #291 - persistSettlementResult() reads then writes the escrow inside its own locked transaction.
+        escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args), update: (...args: unknown[]) => mockEscrowUpdate(...args) },
+        // ADR-005 - the gate commits its authorization in this same transaction mock.
+        economicDispositionAuthorization: { findUnique: async () => null, create: async ({ data }: { data: Record<string, unknown> }) => ({ id: 'eda-1', ...data }) },
         dispute: {
-          findUnique: async () => writtenRow,
+          // A later transaction (the ADR-005 gate) reads the row the last committed write left.
+          findUnique: async () => writtenRow ?? mockLastWrittenDispute,
           updateMany: async (...args: unknown[]) => {
             writtenRow = await mockDisputeUpdate(...args)
+            mockLastWrittenDispute = writtenRow
             return { count: 1 }
           },
         },
@@ -228,7 +246,14 @@ jest.mock('../src/common/database', () => ({
           create: (...args: unknown[]) => mockEscrowEventCreate(...args),
         },
         escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
-        escrowPendingTransaction: { create: (arg: { data: Record<string, unknown> }) => mockPendingTxCreate(arg) },
+        escrowPendingTransaction: {
+          create: (arg: { data: Record<string, unknown> }) => mockPendingTxCreate(arg),
+          findFirst: (arg: unknown) => mockPendingTxFindUnique(arg), // Issue #291 - operation-bound result write
+          findUnique: (arg: unknown) => mockPendingTxFindUnique(arg), // Issue #244 - the round is read and signed under the escrow lock
+        },
+        escrowTransactionSignature: { upsert: (arg: { create: { pendingTxId: string; participantId: string; signedPsbtBase64: string } }) => mockSignatureUpsert(arg), findMany: (arg: unknown) => require('../src/common/database').prisma.escrowTransactionSignature.findMany(arg) },
+      // Issue #239 - the signature set and the signer's registered key are read under the same escrow lock.
+      escrowParticipantKey: { findFirst: async () => ({ pubkey: 'test-signer-pubkey' }) },
       })
     },
   },
@@ -272,7 +297,7 @@ describe('LIGHTNING_HODL — disputed RELEASE (signature-collection binding)', (
     pendingTxStore = null
     signatureStore = []
     mockTradeFindUnique.mockResolvedValue(TRADE_ROW)
-    mockEscrowFindUnique.mockResolvedValue(escrowRow())
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' })) // D11-R: an open dispute's escrow is DISPUTED
     mockDisputeFindUnique.mockResolvedValue({ id: DISPUTE_ID, tradeId: TRADE_ID, escrowId: ESCROW_ID, arbiterId: ARBITER_ID, status: 'OPENED', appealRound: 0 })
     mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE' })
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
@@ -315,6 +340,9 @@ describe('LIGHTNING_HODL — disputed RELEASE (signature-collection binding)', (
 
   describe('4/5/6. rotation and retry — binding survives across the signature-collection round', () => {
     beforeEach(async () => {
+      // A ruling is applied to a DISPUTED escrow, so the pending operation records the generation that authorized it.
+      mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' }))
+      mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE', appealRound: 0, arbiterId: ARBITER_ID })
       mockPayoutAddressFindUnique.mockResolvedValue({ address: 'buyer-address-A', participantId: BUYER_ID, asset: 'BTC' })
       const [sig, issuedAt] = signResolution('RELEASE')
       await service.resolveDispute(DISPUTE_ID, ARBITER_ID, 'RELEASE', undefined, undefined, undefined, sig, issuedAt)
@@ -371,7 +399,7 @@ describe('SAFE_GUARD_EVM — disputed RELEASE (signature-collection binding)', (
     pendingTxStore = null
     signatureStore = []
     mockTradeFindUnique.mockResolvedValue(TRADE_ROW)
-    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'SAFE_GUARD_EVM', asset: 'USDT_ERC20' }))
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'SAFE_GUARD_EVM', asset: 'USDT_ERC20', status: 'DISPUTED' }))
     mockDisputeFindUnique.mockResolvedValue({ id: DISPUTE_ID, tradeId: TRADE_ID, escrowId: ESCROW_ID, arbiterId: ARBITER_ID, status: 'OPENED', appealRound: 0 })
     mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE' })
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
@@ -401,6 +429,8 @@ describe('SAFE_GUARD_EVM — disputed RELEASE (signature-collection binding)', (
   })
 
   it('rotation after binding and a retried signature submission never re-resolve PayoutAddress', async () => {
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'SAFE_GUARD_EVM', asset: 'USDT_ERC20', status: 'DISPUTED' }))
+    mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE', appealRound: 0, arbiterId: ARBITER_ID })
     mockPayoutAddressFindUnique.mockResolvedValue({ address: '0xBuyerRegistered', participantId: BUYER_ID, asset: 'USDT_ERC20' })
     const [sig, issuedAt] = signResolution('RELEASE')
     await service.resolveDispute(DISPUTE_ID, ARBITER_ID, 'RELEASE', undefined, undefined, undefined, sig, issuedAt)
@@ -441,7 +471,7 @@ describe('WDK_USDT_EVM — direct-call rail (resolution and execution in the sam
     pendingTxStore = null
     signatureStore = []
     mockTradeFindUnique.mockResolvedValue(TRADE_ROW)
-    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', status: 'PAYMENT_PENDING' }))
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', status: 'DISPUTED' }))
     mockDisputeFindUnique.mockResolvedValue({ id: DISPUTE_ID, tradeId: TRADE_ID, escrowId: ESCROW_ID, arbiterId: ARBITER_ID, status: 'OPENED', appealRound: 0 })
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
     mockUserFindUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({ id: where.id, publicKey: testPublicKeyHex }))
@@ -469,7 +499,7 @@ describe('WDK_USDT_EVM — direct-call rail (resolution and execution in the sam
   })
 
   it('REFUND: has no caller-facing destination concept at all — returns to the protocol\'s own treasury, PayoutAddress is never consulted', async () => {
-    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', status: 'FUNDS_LOCKED' }))
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'WDK_USDT_EVM', asset: 'USDT_ERC20', status: 'DISPUTED' }))
     mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'REFUND' })
     // wdk-settlement.provider.ts's own real refundFunds() takes no
     // destination parameter — it derives the treasury address internally
@@ -515,7 +545,7 @@ describe('MOCK — direct-call rail, real (unmocked) MockSettlementProvider', ()
     pendingTxStore = null
     signatureStore = []
     mockTradeFindUnique.mockResolvedValue(TRADE_ROW)
-    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'MOCK', status: 'PAYMENT_PENDING' }))
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'MOCK', status: 'DISPUTED' }))
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
     mockUserFindUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({ id: where.id, publicKey: testPublicKeyHex }))
   })
@@ -537,7 +567,7 @@ describe('MOCK — direct-call rail, real (unmocked) MockSettlementProvider', ()
   })
 
   it('REFUND: the real MockSettlementProvider has no destination concept at all — PayoutAddress is never consulted, the txId carries no address', async () => {
-    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'MOCK', status: 'FUNDS_LOCKED' }))
+    mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'MOCK', status: 'DISPUTED' }))
     mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'REFUND' })
     mockEscrowUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: ESCROW_ID, ...data }))
     const [sig, issuedAt] = signResolution('REFUND')

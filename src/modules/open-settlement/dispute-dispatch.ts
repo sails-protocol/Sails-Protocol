@@ -24,6 +24,7 @@ import { loadDisputeRulingRecord, fromDisputeRulingRow, DISPUTE_RULING_RULESET }
 import { ArbitrationOutcomeContent, BeneficiaryDestination } from './economic-outcome'
 import type { DispatchGateVerdict, TransitionRecord } from '@sails/core'
 import { EscrowError } from '../../common/errors'
+import type { Prisma } from '@prisma/client'
 
 const TERMINAL_ESCROW_STATUSES = ['COMPLETED', 'REFUNDED', 'SPLIT'] as const
 
@@ -35,12 +36,77 @@ const TERMINAL_ESCROW_STATUSES = ['COMPLETED', 'REFUNDED', 'SPLIT'] as const
  */
 async function checkDisputeRulingAlreadyDispatched(escrowId: string): Promise<boolean> {
   const [pending, escrow] = await Promise.all([
-    prisma.escrowPendingTransaction.findUnique({ where: { escrowId } }),
-    prisma.escrow.findUnique({ where: { id: escrowId }, select: { status: true } }),
+    prisma.escrowPendingTransaction.findUnique({ where: { escrowId }, include: { signatures: true } }),
+    prisma.escrow.findUnique({ where: { id: escrowId }, select: { status: true, type: true } }),
   ])
-  if (pending) return true
+  // Issue #239 - a cooperative MULTISIG round that is not fully signed is not this ruling's dispatch: the ruling
+  // supersedes it (initiateSignatureCollectionCore() re-checks everything under the escrow lock).
+  if (pending && !(escrow?.type === 'MULTISIG' && isSupersedableCooperativeRound(pending))) return true
   if (escrow && (TERMINAL_ESCROW_STATUSES as readonly string[]).includes(escrow.status)) return true
   return false
+}
+
+/** Pre-check only (no lock): the authoritative decision is re-taken under the escrow lock. */
+export function isSupersedableCooperativeRound(round: { disputeId: string | null; requiredSigners: string[]; signatures: Array<{ participantId: string }> }): boolean {
+  const signed = new Set(round.signatures.map((s) => s.participantId))
+  return round.disputeId === null && !round.requiredSigners.every((id) => signed.has(id))
+}
+
+/**
+ * Issue #239 (A-1) - the ONLY authority that lets a ruling's dispatch replace a cooperative round. Issued only by
+ * dispute.service.ts's applyRulingCoreAuthoritative() after its ruling committed, and by C4 recovery
+ * (dispute-dispatch-recovery.ts). Never derivable from a request: the core accepts only an instance this module
+ * issued (the WeakSet below), and re-validates it against the database under the escrow lock.
+ */
+export interface RulingSupersessionGrant {
+  readonly disputeId: string
+  readonly appealRound: number
+  readonly arbiterId: string
+  readonly ruling: string
+  readonly authoritySignature: string | null
+  readonly authorityIssuedAt: Date | null
+}
+const issuedGrants = new WeakSet<object>()
+
+export function issueRulingSupersessionGrant(dispute: {
+  id: string; appealRound: number; arbiterId: string | null; ruling: string | null
+  authoritySignature: string | null; authorityIssuedAt: Date | null; status: string
+}): RulingSupersessionGrant {
+  if (dispute.status !== 'RESOLVED' || !dispute.arbiterId || !dispute.ruling) {
+    throw new EscrowError(`Dispute ${dispute.id} has no committed ruling to supersede a cooperative round with`)
+  }
+  const grant: RulingSupersessionGrant = Object.freeze({
+    disputeId: dispute.id, appealRound: dispute.appealRound, arbiterId: dispute.arbiterId, ruling: dispute.ruling,
+    authoritySignature: dispute.authoritySignature, authorityIssuedAt: dispute.authorityIssuedAt,
+  })
+  issuedGrants.add(grant)
+  return grant
+}
+
+const RULING_KIND: Record<string, string> = { RELEASE: 'release', REFUND: 'refund', SPLIT: 'split' }
+
+/** Under the escrow lock: the grant is one this module issued and still matches the committed ruling. */
+export async function revalidateRulingSupersessionGrant(
+  tx: Prisma.TransactionClient, grant: unknown, escrowId: string, kind: string
+): Promise<RulingSupersessionGrant> {
+  if (typeof grant !== 'object' || grant === null || !issuedGrants.has(grant)) {
+    throw new EscrowError('Ruling supersession grant was not issued by the ruling dispatch path')
+  }
+  const g = grant as RulingSupersessionGrant
+  const [dispute, escrow] = await Promise.all([
+    tx.dispute.findUnique({ where: { id: g.disputeId } }),
+    tx.escrow.findUnique({ where: { id: escrowId }, select: { status: true, type: true } }),
+  ])
+  const same = dispute && dispute.escrowId === escrowId && dispute.status === 'RESOLVED'
+    && dispute.appealRound === g.appealRound && dispute.arbiterId === g.arbiterId && dispute.ruling === g.ruling
+    && dispute.authoritySignature === g.authoritySignature
+    && (dispute.authorityIssuedAt?.getTime() ?? null) === (g.authorityIssuedAt?.getTime() ?? null)
+  if (!same) throw new EscrowError(`Ruling supersession grant for dispute ${g.disputeId} no longer matches the committed ruling`)
+  if (RULING_KIND[g.ruling] !== kind) throw new EscrowError(`Ruling ${g.ruling} does not authorize a ${kind} round`)
+  if (escrow?.status !== 'DISPUTED' || escrow.type !== 'MULTISIG') throw new EscrowError(`Escrow ${escrowId} is not a DISPUTED MULTISIG escrow`)
+  const record = await loadDisputeRulingRecord(escrowId, g.appealRound)
+  if (!record?.outcomeContent) throw new EscrowError(`No durable authoritative record for escrow ${escrowId} appeal round ${g.appealRound}`)
+  return g
 }
 
 export type DisputeDispatchResult =

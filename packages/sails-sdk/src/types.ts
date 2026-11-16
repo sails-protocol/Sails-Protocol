@@ -308,10 +308,15 @@ export interface EscrowPendingTransaction {
   requiredSigners: string[]
   triggeredBy: string
   createdAt: string
-  // Only present on getPendingTransaction() — initiateRelease()/
-  // initiateRefund()'s own create response doesn't include it (no
-  // signatures can exist yet at that point).
+  /**
+   * @deprecated Issue #239 - no longer returned by getPendingTransaction():
+   * the server never hands out another participant's signed PSBT. Read
+   * `signedBy` instead. Kept (optional) so existing code still type-checks.
+   */
   signatures?: EscrowTransactionSignature[]
+  // Issue #239 - who has already signed this round, and when (no signature
+  // material). Only present on getPendingTransaction().
+  signedBy?: Array<{ participantId: string; submittedAt: string }>
 }
 
 export interface Dispute {

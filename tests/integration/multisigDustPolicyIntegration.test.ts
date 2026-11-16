@@ -19,6 +19,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 describe('MULTISIG dust policy — rejection happens before any pending transaction (real Postgres, Missão 10)', () => {
@@ -69,7 +70,10 @@ describe('MULTISIG dust policy — rejection happens before any pending transact
   })
 
   afterAll(async () => {
-    if (dbAvailable) await prisma.$disconnect()
+    if (dbAvailable) {
+      await prisma.$disconnect()
+      await closeTestRedis()
+    }
   })
 
   function requirePostgres(name: string): void {
@@ -82,8 +86,8 @@ describe('MULTISIG dust policy — rejection happens before any pending transact
   it('a dust-triggering initiateRelease() leaves zero EscrowPendingTransaction rows and the escrow status unchanged', async () => {
     requirePostgres('dust-rejected release leaves no pending row')
 
-    const seller = await identityService.register({ publicKey: `dust-seller-${Date.now()}`, displayName: 'Seller' })
-    const buyer = await identityService.register({ publicKey: `dust-buyer-${Date.now()}`, displayName: 'Buyer' })
+    const seller = await registerTestParticipant(identityService, 'Seller')
+    const buyer = await registerTestParticipant(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     // lockedAmount is independent of the trade's own `amount` (no

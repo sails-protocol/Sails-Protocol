@@ -16,6 +16,7 @@ function mockClient(): SailsClient {
       get: vi.fn().mockResolvedValue({ participantId: 'participant-1', displayName: 'Alice' }),
       create: vi.fn().mockResolvedValue({ participant: { participantId: 'participant-2', displayName: 'Bob' }, keypair: mockKeypair }),
       createWithPublicKey: vi.fn().mockResolvedValue({ participantId: 'participant-3', displayName: 'Charlie' }),
+      createWithWallet: vi.fn().mockResolvedValue({ participantId: 'participant-4', displayName: 'Dana' }),
       challenge: vi.fn().mockResolvedValue({ challenge: 'challenge-123', expiresIn: 300 }),
       authenticate: vi.fn().mockResolvedValue({ token: 'session-token-123' }),
       authenticateWithWallet: vi.fn().mockResolvedValue({ token: 'wallet-session-token-123' }),
@@ -29,6 +30,7 @@ function errorClient(): SailsClient {
       get: vi.fn().mockRejectedValue(new Error('Get failed')),
       create: vi.fn().mockRejectedValue(new Error('Create failed')),
       createWithPublicKey: vi.fn().mockRejectedValue(new Error('CreateWithPubKey failed')),
+      createWithWallet: vi.fn().mockRejectedValue(new Error('CreateWithWallet failed')),
       challenge: vi.fn().mockRejectedValue(new Error('Challenge failed')),
       authenticate: vi.fn().mockRejectedValue(new Error('Auth failed')),
       authenticateWithWallet: vi.fn().mockRejectedValue(new Error('AuthWithWallet failed')),
@@ -121,6 +123,17 @@ describe('useSailsIdentity', () => {
     })
 
     expect(client.identity.createWithPublicKey).toHaveBeenCalledWith('010203', 'Charlie')
+  })
+
+  it('createWithWallet mutation calls client.identity.createWithWallet', async () => {
+    const { result } = renderHookWithProvider()
+    const mockWallet = { signMessage: vi.fn() }
+
+    await act(async () => {
+      await result.current.createWithWallet.mutateAsync({ publicKeyHex: '010203', wallet: mockWallet, displayName: 'Dana' })
+    })
+
+    expect(client.identity.createWithWallet).toHaveBeenCalledWith('010203', mockWallet, 'Dana')
   })
 
   it('challenge mutation calls client.identity.challenge', async () => {

@@ -24,6 +24,18 @@ function serverVerify(challenge: string, signatureHex: string, publicKeyHex: str
   )
 }
 
+// Issue #302 — reproduces src/common/middleware/auth.ts's
+// verifyRegistrationProof()/registrationProofMessage() exactly (domain
+// tag + challenge + displayName, UTF-8 bytes — a deliberately DIFFERENT
+// construction from serverVerify() above, matching the server's own
+// domain separation).
+const REGISTRATION_PROOF_DOMAIN = 'sails-registration-proof-of-possession:v1'
+function registrationServerVerify(challenge: string, displayName: string | undefined, signatureHex: string, publicKeyHex: string): boolean {
+  const toBytes = (hex: string) => Uint8Array.from(Buffer.from(hex, 'hex'))
+  const message = Uint8Array.from(Buffer.from(`${REGISTRATION_PROOF_DOMAIN}:${challenge}:${displayName ?? ''}`, 'utf8'))
+  return nacl.sign.detached.verify(message, toBytes(signatureHex), toBytes(publicKeyHex))
+}
+
 function fakeFetch(responses: Array<{ status: number; body: unknown }>): jest.Mock {
   let call = 0
   return jest.fn().mockImplementation(async () => {
@@ -82,22 +94,89 @@ describe('SailsIdentityModule.authenticate — real signature verified against s
 })
 
 describe('SailsIdentityModule.create', () => {
-  it('registers a generated keypair when none is supplied, and returns it', async () => {
+  // Issue #302 — create() now performs the real registration-challenge
+  // round trip and signs it (registerChallenge() then a domain-separated
+  // signature), not a bare { publicKey, displayName } POST. Two fetch
+  // calls, in order: register-challenge, then participants.
+  it('requests a registration challenge, signs it with the domain-separated construction, and registers a generated keypair when none is supplied', async () => {
+    const challenge = 'deadbeef'.repeat(8)
     const fetchImpl = fakeFetch([
-      { status: 201, body: { success: true, data: { id: 'user-1', publicKey: 'will-not-match-generated', displayName: null } } },
+      { status: 200, body: { success: true, data: { challenge, expiresIn: 120 } } },
+      { status: 201, body: { success: true, data: { id: 'user-1', publicKey: 'will-not-match-generated', displayName: 'Alice' } } },
     ])
     const transport = new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
     const identity = new SailsIdentityModule(transport)
 
-    const { participant, keypair } = await identity.create()
+    const { participant, keypair } = await identity.create(undefined, 'Alice')
 
     expect(participant.id).toBe('user-1')
     expect(keypair.publicKey).toBeInstanceOf(Uint8Array)
     expect(keypair.secretKey).toBeInstanceOf(Uint8Array)
 
-    const [, init] = fetchImpl.mock.calls[0]
-    const sentBody = JSON.parse(init.body)
-    expect(sentBody.publicKey).toBe(bytesToHex(keypair.publicKey))
+    const publicKeyHex = bytesToHex(keypair.publicKey)
+    const [, challengeInit] = fetchImpl.mock.calls[0]
+    expect(JSON.parse(challengeInit.body)).toEqual({ publicKey: publicKeyHex })
+
+    const [, registerInit] = fetchImpl.mock.calls[1]
+    const sentBody = JSON.parse(registerInit.body)
+    expect(sentBody.publicKey).toBe(publicKeyHex)
+    expect(sentBody.displayName).toBe('Alice')
+    // the signature actually sent must satisfy the real server's
+    // registration-proof verification logic, not just "some string."
+    expect(registrationServerVerify(challenge, 'Alice', sentBody.signature, publicKeyHex)).toBe(true)
+  })
+})
+
+// Issue #302 — createWithPublicKey() below has no way to produce a
+// registration proof (no secretKey, no wallet). createWithWallet() is
+// the wallet-backed equivalent, mirroring authenticateWithWallet()'s own
+// established test rigor (real nacl-backed fake wallet, real signature
+// verified against the real server construction).
+describe('SailsIdentityModule.createWithWallet — real signature verified against server logic', () => {
+  it('produces a registration proof the real server verification accepts, via wallet.signMessage() instead of a raw secretKey', async () => {
+    const keypair = generateKeypair()
+    const publicKeyHex = bytesToHex(keypair.publicKey)
+    const wallet = {
+      signMessage: async (message: Uint8Array) => nacl.sign.detached(message, keypair.secretKey),
+    }
+    const challenge = 'cafebabe'.repeat(8)
+
+    const fetchImpl = fakeFetch([
+      { status: 200, body: { success: true, data: { challenge, expiresIn: 120 } } },
+      { status: 201, body: { success: true, data: { id: 'user-1', publicKey: publicKeyHex, displayName: 'Wallet User' } } },
+    ])
+    const transport = new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+    const identity = new SailsIdentityModule(transport)
+
+    const participant = await identity.createWithWallet(publicKeyHex, wallet, 'Wallet User')
+
+    expect(participant.id).toBe('user-1')
+
+    const [, registerInit] = fetchImpl.mock.calls[1]
+    const sentBody = JSON.parse(registerInit.body)
+    expect(sentBody.publicKey).toBe(publicKeyHex)
+    expect(registrationServerVerify(challenge, 'Wallet User', sentBody.signature, publicKeyHex)).toBe(true)
+  })
+
+  it('never receives or needs a secretKey — the signing function is the only thing that ever sees one', async () => {
+    const keypair = generateKeypair()
+    const publicKeyHex = bytesToHex(keypair.publicKey)
+    const signMessage = jest.fn(async (message: Uint8Array) => nacl.sign.detached(message, keypair.secretKey))
+    const challenge = 'deadbeef'.repeat(8)
+
+    const fetchImpl = fakeFetch([
+      { status: 200, body: { success: true, data: { challenge, expiresIn: 120 } } },
+      { status: 201, body: { success: true, data: { id: 'user-1', publicKey: publicKeyHex, displayName: null } } },
+    ])
+    const transport = new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: fetchImpl as unknown as typeof fetch })
+    const identity = new SailsIdentityModule(transport)
+
+    await identity.createWithWallet(publicKeyHex, { signMessage })
+
+    expect(signMessage).toHaveBeenCalledTimes(1)
+    // domain-separated construction, not the bare challenge text
+    // authenticate()'s own sign() uses.
+    expect(Buffer.from(signMessage.mock.calls[0][0]).toString('utf8')).toBe(`${REGISTRATION_PROOF_DOMAIN}:${challenge}:`)
   })
 })
 

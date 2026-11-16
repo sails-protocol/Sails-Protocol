@@ -106,6 +106,20 @@ export class EscrowError extends AppError {
   }
 }
 
+// The provider call returned and a later local step failed: the economic
+// operation may already have happened externally, so nothing that authorized
+// it may be undone (see settlementSucceededButLocalStepFailed()).
+export class SettlementExecutedError extends EscrowError {}
+
+// Issue #291 - a settlement result (provider evidence: txReleaseId) is
+// write-once. A DIFFERENT value for an escrow that already holds one is an
+// integrity anomaly: never overwritten, never silently ignored.
+export class SettlementResultConflictError extends AppError {
+  constructor(message: string) {
+    super(message, 409, 'SETTLEMENT_RESULT_CONFLICT')
+  }
+}
+
 export class AuthError extends AppError {
   constructor(message = 'Authentication required or invalid') {
     super(message, 401, 'AUTH_ERROR')

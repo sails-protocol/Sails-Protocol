@@ -4,6 +4,12 @@ import nacl from 'tweetnacl'
 const BASE_URL = process.env.SAILS_BASE_URL ?? 'http://127.0.0.1:3000'
 const HEALTH_URL = `${BASE_URL}/health`
 const PARTICIPANTS_URL = `${BASE_URL}/v1/identity/participants`
+// Issue #302 — registration now requires proof of possession via its
+// own, separate challenge namespace (never CHALLENGE_URL below, a
+// different security domain — see common/middleware/auth.ts's own
+// REGISTER_CHALLENGE_PREFIX/REGISTRATION_PROOF_DOMAIN comments).
+const REGISTER_CHALLENGE_URL = `${BASE_URL}/v1/identity/register-challenge`
+const REGISTRATION_PROOF_DOMAIN = 'sails-registration-proof-of-possession:v1'
 const CHALLENGE_URL = `${BASE_URL}/v1/identity/challenge`
 const AUTH_URL = `${BASE_URL}/v1/identity/authenticate`
 const OFFER_URL = `${BASE_URL}/v1/liquidity/offers`
@@ -77,8 +83,18 @@ async function main(): Promise<void> {
   const keypair = nacl.sign.keyPair()
   const publicKey = bytesToHex(keypair.publicKey)
 
+  console.log('Requesting registration challenge...')
+  const displayName = 'failure-injection'
+  const registerChallengeRes = await fetchJson(REGISTER_CHALLENGE_URL, { publicKey })
+  if (registerChallengeRes.status !== 200) {
+    throw new Error(`Registration challenge request failed: ${JSON.stringify(registerChallengeRes.body)}`)
+  }
+  const registerChallenge = registerChallengeRes.body.data.challenge as string
+  const registrationProofMessage = new TextEncoder().encode(`${REGISTRATION_PROOF_DOMAIN}:${registerChallenge}:${displayName}`)
+  const registrationSignature = bytesToHex(nacl.sign.detached(registrationProofMessage, keypair.secretKey))
+
   console.log('Registering participant...')
-  const createRes = await fetchJson(PARTICIPANTS_URL, { publicKey, displayName: 'failure-injection' })
+  const createRes = await fetchJson(PARTICIPANTS_URL, { publicKey, signature: registrationSignature, displayName })
   if (createRes.status !== 201) {
     throw new Error(`Participant registration failed: ${JSON.stringify(createRes.body)}`)
   }

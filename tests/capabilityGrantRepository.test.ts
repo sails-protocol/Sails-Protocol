@@ -15,11 +15,17 @@ export {} // forces this file to be a module (no top-level import/export
 const mockFindMany = jest.fn().mockResolvedValue([])
 const mockFindUnique = jest.fn()
 const mockUpdate = jest.fn()
+const mockTxFindMany = jest.fn()
+const mockTxCreate = jest.fn()
 const mockExecuteRaw = jest.fn().mockResolvedValue(0)
 const mockTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
   fn({
     $executeRaw: mockExecuteRaw,
-    capabilityGrant: { update: (...args: unknown[]) => mockUpdate(...args) },
+    capabilityGrant: {
+      update: (...args: unknown[]) => mockUpdate(...args),
+      findMany: (...args: unknown[]) => mockTxFindMany(...args),
+      create: (...args: unknown[]) => mockTxCreate(...args),
+    },
   })
 )
 jest.mock('../src/common/database', () => ({
@@ -110,4 +116,81 @@ describe('capabilityGrantRepository.markRevoked() — ADR-004 serialization', ()
     })
   })
 
+})
+
+// Issue #303 delta - create() is idempotent for an equivalent LIVE grant and
+// runs under the same per-(actor, capability) advisory lock as Gate B/revoke.
+describe('capabilityGrantRepository.create() - idempotent, locked (Issue #303 delta)', () => {
+  const SCOPES = ['settlement.escrow.released', 'settlement.escrow.refunded', 'settlement.escrow.split']
+  const input = { grantedTo: 'user-1', capabilityName: 'settlement', scope: SCOPES, issuedBy: 'user-1' }
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: 'existing', grantedTo: 'user-1', capabilityName: 'settlement', scope: SCOPES, constraints: null,
+    issuedBy: 'user-1', revokedAt: null, createdAt: new Date(), ...over,
+  })
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockTxFindMany.mockResolvedValue([])
+    mockTxCreate.mockImplementation(async ({ data }: any) => ({ id: 'new', revokedAt: null, createdAt: new Date(), ...data }))
+  })
+
+  it('takes the advisory lock on the SAME key namespace as markRevoked()/Gate B, before reading or writing', async () => {
+    await capabilityGrantRepository.create(input)
+    expect(mockTransaction).toHaveBeenCalledTimes(1)
+    expect(mockExecuteRaw).toHaveBeenCalledTimes(1)
+    const [strings, key] = mockExecuteRaw.mock.calls[0]
+    expect(strings.join('?')).toContain('pg_advisory_xact_lock')
+    expect(key).toBe('capability:user-1:settlement')
+    expect(mockExecuteRaw.mock.invocationCallOrder[0]).toBeLessThan(mockTxFindMany.mock.invocationCallOrder[0])
+  })
+
+  it('only considers non-revoked grants of exactly this (grantedTo, capabilityName) - a revoked grant can never block reissue', async () => {
+    await capabilityGrantRepository.create(input)
+    expect(mockTxFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { grantedTo: 'user-1', capabilityName: 'settlement', revokedAt: null },
+    }))
+  })
+
+  it('inserts when no equivalent live grant exists', async () => {
+    const grant = await capabilityGrantRepository.create(input)
+    expect(mockTxCreate).toHaveBeenCalledTimes(1)
+    expect(grant.grantId).toBe('new')
+  })
+
+  it('returns the existing grant instead of inserting when an equivalent live one exists', async () => {
+    mockTxFindMany.mockResolvedValue([row()])
+    const grant = await capabilityGrantRepository.create(input)
+    expect(mockTxCreate).not.toHaveBeenCalled()
+    expect(grant.grantId).toBe('existing')
+  })
+
+  it('an existing grant whose scopes cover a SUBSET-request is equivalent (superset satisfies the request)', async () => {
+    mockTxFindMany.mockResolvedValue([row()])
+    await capabilityGrantRepository.create({ ...input, scope: ['settlement.escrow.released'] })
+    expect(mockTxCreate).not.toHaveBeenCalled()
+  })
+
+  it('an EXPIRED existing grant is not equivalent - reissue inserts a new one (history untouched)', async () => {
+    mockTxFindMany.mockResolvedValue([row({ constraints: { expiresAt: new Date(Date.now() - 1000).toISOString() } })])
+    await capabilityGrantRepository.create(input)
+    expect(mockTxCreate).toHaveBeenCalledTimes(1)
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('a not-yet-expired existing grant with the SAME constraints is equivalent regardless of key order', async () => {
+    const future = new Date(Date.now() + 3_600_000).toISOString()
+    mockTxFindMany.mockResolvedValue([row({ constraints: { expiresAt: future, note: 'a' } })])
+    await capabilityGrantRepository.create({ ...input, constraints: { note: 'a', expiresAt: future } })
+    expect(mockTxCreate).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['different constraints', { constraints: { expiresAt: new Date(Date.now() + 3_600_000).toISOString() } }, {}],
+    ['a wider scope request than the existing grant covers', { scope: [...SCOPES, 'settlement.escrow.extra'] }, {}],
+    ['a different issuer', {}, { issuedBy: 'someone-else' }],
+  ])('is NOT equivalent for %s - a new grant is inserted, not collapsed', async (_name, inputOver, rowOver) => {
+    mockTxFindMany.mockResolvedValue([row(rowOver)])
+    await capabilityGrantRepository.create({ ...input, ...inputOver })
+    expect(mockTxCreate).toHaveBeenCalledTimes(1)
+  })
 })

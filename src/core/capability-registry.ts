@@ -32,7 +32,7 @@
  * `jest.mock('../common/database', ...)`), with the real, always-used
  * `capabilityRegistry` export's own call sites completely unchanged.
  */
-import { NotFoundError, ForbiddenError } from '../common/errors'
+import { NotFoundError, ForbiddenError, ValidationError } from '../common/errors'
 import type { CapabilityGrant } from '../common/types/capability'
 import { capabilityGrantRepository, type CapabilityGrantRepository } from './capability-grant-repository'
 
@@ -51,6 +51,39 @@ export const CAPABILITY_IMPLEMENTATIONS: Record<string, string> = {
   openproof: 'proof-verification', // RFC-006
 }
 
+// Issue #303 - the ONE canonical vocabulary of capability names and action
+// scopes a CapabilityGrant may carry. Every entry is a scope that an
+// existing gate actually consumes today:
+//   - 'intent.created'      -> intent-engine.ts create() (trade-coordination)
+//   - 'intent.discovering'  -> intent.routes.ts propose (trade-coordination)
+//   - 'settlement.escrow.*' -> checkFundMovementCapability() (Gate A) and
+//                              authorizePendingExecution() (Gate B)
+// Anything else (an unknown name, or a scope that belongs to a different
+// capability) is rejected at registration instead of being persisted as an
+// arbitrary authority string. A new gated action must be added here in the
+// same change that adds its gate.
+export const CANONICAL_CAPABILITY_SCOPES: Readonly<Record<string, readonly string[]>> = {
+  'trade-coordination': ['intent.created', 'intent.discovering'],
+  settlement: ['settlement.escrow.released', 'settlement.escrow.refunded', 'settlement.escrow.split'],
+}
+
+export function assertCanonicalCapabilityGrant(capabilityName: string, scope: readonly string[]): void {
+  const allowed = Object.prototype.hasOwnProperty.call(CANONICAL_CAPABILITY_SCOPES, capabilityName)
+    ? CANONICAL_CAPABILITY_SCOPES[capabilityName]
+    : undefined
+  if (!allowed) {
+    throw new ValidationError(
+      `Unknown capabilityName '${capabilityName}' - expected one of: ${Object.keys(CANONICAL_CAPABILITY_SCOPES).join(', ')}`
+    )
+  }
+  const invalid = scope.filter((s) => !allowed.includes(s))
+  if (invalid.length > 0) {
+    throw new ValidationError(
+      `Invalid scope(s) for capability '${capabilityName}': ${invalid.join(', ')} - allowed: ${allowed.join(', ')}`
+    )
+  }
+}
+
 export interface CapabilityRegistry {
   grant(input: Omit<CapabilityGrant, 'grantId'>): Promise<CapabilityGrant>
   check(grantedTo: string, capabilityName: string, requiredScope: string): Promise<boolean>
@@ -67,6 +100,7 @@ export interface CapabilityRegistry {
 export function createCapabilityRegistry(repo: CapabilityGrantRepository = capabilityGrantRepository): CapabilityRegistry {
   return {
     async grant(input) {
+      assertCanonicalCapabilityGrant(input.capabilityName, input.scope)
       return repo.create(input)
     },
 

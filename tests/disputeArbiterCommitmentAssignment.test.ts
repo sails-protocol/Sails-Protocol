@@ -22,7 +22,7 @@
 const mockTradeFindUnique = jest.fn()
 const mockDisputeCreate = jest.fn()
 const mockDisputeFindUnique = jest.fn()
-const mockDisputeUpdate = jest.fn()
+const mockDisputeUpdateMany = jest.fn()
 const mockEscrowParticipantKeyFindUnique = jest.fn()
 const mockEmit = jest.fn().mockResolvedValue(undefined)
 
@@ -32,7 +32,7 @@ jest.mock('../src/common/database', () => ({
     dispute: {
       create: (...args: unknown[]) => mockDisputeCreate(...args),
       findUnique: (...args: unknown[]) => mockDisputeFindUnique(...args),
-      update: (...args: unknown[]) => mockDisputeUpdate(...args),
+      updateMany: (...args: unknown[]) => mockDisputeUpdateMany(...args),
     },
     escrowParticipantKey: { findUnique: (...args: unknown[]) => mockEscrowParticipantKeyFindUnique(...args) },
   },
@@ -40,9 +40,19 @@ jest.mock('../src/common/database', () => ({
 jest.mock('../src/common/events/event-bus', () => ({
   eventBus: { emit: (...args: unknown[]) => mockEmit(...args) },
 }))
+// Issue #238 - openDispute() runs the Dispute insert inside its own transaction; the mocked prisma stands in for it.
 jest.mock('../src/modules/open-settlement/escrow.service', () => ({
-  escrowService: { openDispute: jest.fn().mockResolvedValue({}) },
+  escrowService: {
+    openDispute: jest.fn((_e: string, _b: string, _r: string, recordDispute: (tx: unknown) => Promise<unknown>) =>
+      recordDispute(require('../src/common/database').prisma)),
+  },
 }))
+
+// The arbiter each raiseDispute() ended up persisting: written with the Dispute row (committed) or by the conditional assignment.
+const persistedArbiters = () => [
+  ...mockDisputeCreate.mock.calls.map((call: any) => call[0].data.arbiterId).filter(Boolean),
+  ...mockDisputeUpdateMany.mock.calls.map((call: any) => call[0].data.arbiterId),
+]
 
 import { DisputeService } from '../src/modules/open-settlement/dispute.service'
 import type { ArbitrationProvider } from '../src/modules/open-settlement/arbitration-provider'
@@ -64,16 +74,18 @@ describe('DisputeService — script-committed arbiter always wins over Arbitrati
   // behavior for escrow types with no script commitment at all.
   it('falls back to ArbitrationProvider.assign() when the escrow has no script-committed arbiter', async () => {
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: 'escrow-1' })
-    mockDisputeCreate.mockResolvedValue({ id: 'dispute-1' })
+    mockDisputeCreate.mockImplementation(async ({ data }: any) => ({ id: 'dispute-1', ...data }))
     mockEscrowParticipantKeyFindUnique.mockResolvedValue(null) // no commitment
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', arbiterId: 'arb-configured' })
+    mockDisputeUpdateMany.mockResolvedValue({ count: 1 })
+    mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', arbiterId: 'arb-configured' })
     const provider = fakeArbitrationProvider('arb-configured')
 
     const service = new DisputeService(provider)
     await service.raiseDispute('trade-1', 'buyer-1', 'reason')
 
     expect(provider.assign).toHaveBeenCalledWith('dispute-1', 'trade-1')
-    expect(mockDisputeUpdate).toHaveBeenCalledWith({ where: { id: 'dispute-1' }, data: { arbiterId: 'arb-configured' } })
+    expect(mockDisputeCreate.mock.calls[0][0].data.arbiterId).toBeNull()
+    expect(mockDisputeUpdateMany).toHaveBeenCalledWith({ where: { id: 'dispute-1', arbiterId: null, appealRound: 0 }, data: { arbiterId: 'arb-configured' } })
   })
 
   // Proof: "different authorized-but-uncommitted arbiter cannot produce a
@@ -82,19 +94,21 @@ describe('DisputeService — script-committed arbiter always wins over Arbitrati
   // that pick win.
   it('uses the script-committed arbiter and never calls assign() at all when a commitment exists', async () => {
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: 'escrow-1' })
-    mockDisputeCreate.mockResolvedValue({ id: 'dispute-1' })
+    mockDisputeCreate.mockImplementation(async ({ data }: any) => ({ id: 'dispute-1', ...data }))
     mockEscrowParticipantKeyFindUnique.mockResolvedValue({ participantId: 'arb-committed', role: 'arbiter', escrowId: 'escrow-1' })
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', arbiterId: 'arb-committed' })
     // A provider that would pick a DIFFERENT identity than the commitment
     // — proves the commitment wins, not merely that assign() happens to
     // agree with it.
     const provider = fakeArbitrationProvider('arb-would-be-picked-instead')
 
     const service = new DisputeService(provider)
-    await service.raiseDispute('trade-1', 'buyer-1', 'reason')
+    const dispute = await service.raiseDispute('trade-1', 'buyer-1', 'reason')
 
     expect(provider.assign).not.toHaveBeenCalled()
-    expect(mockDisputeUpdate).toHaveBeenCalledWith({ where: { id: 'dispute-1' }, data: { arbiterId: 'arb-committed' } })
+    // Issue #238 - written with the Dispute row itself, in the opening transaction: never an unassigned window.
+    expect(mockDisputeCreate.mock.calls[0][0].data.arbiterId).toBe('arb-committed')
+    expect(mockDisputeUpdateMany).not.toHaveBeenCalled()
+    expect(dispute.arbiterId).toBe('arb-committed')
   })
 
   // Proof: "multi-arbiter configuration cannot create an unexecutable
@@ -106,8 +120,7 @@ describe('DisputeService — script-committed arbiter always wins over Arbitrati
     const { TrustedArbitratorProvider } = require('../src/modules/open-settlement/arbitration-provider')
     const roundRobinProvider = new TrustedArbitratorProvider(['arb-1', 'arb-2', 'arb-3'])
     mockEscrowParticipantKeyFindUnique.mockResolvedValue({ participantId: 'arb-1', role: 'arbiter', escrowId: 'escrow-1' })
-    mockDisputeCreate.mockResolvedValueOnce({ id: 'dispute-1' }).mockResolvedValueOnce({ id: 'dispute-2' })
-    mockDisputeUpdate.mockImplementation(async ({ data }: any) => ({ id: 'dispute-x', ...data }))
+    mockDisputeCreate.mockImplementation(async ({ data }: any) => ({ id: 'dispute-x', ...data }))
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: 'escrow-1' })
 
     const service = new DisputeService(roundRobinProvider)
@@ -116,8 +129,7 @@ describe('DisputeService — script-committed arbiter always wins over Arbitrati
 
     // Round-robin would normally advance to arb-2 on the second call —
     // both calls must still resolve to the SAME committed identity.
-    const arbiterIds = mockDisputeUpdate.mock.calls.map((call: any) => call[0].data.arbiterId)
-    expect(arbiterIds).toEqual(['arb-1', 'arb-1'])
+    expect(persistedArbiters()).toEqual(['arb-1', 'arb-1'])
   })
 
   describe('appeal() — a script-committed identity can never be reassigned', () => {

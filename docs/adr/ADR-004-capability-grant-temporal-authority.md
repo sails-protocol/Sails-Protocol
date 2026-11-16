@@ -26,7 +26,9 @@ That leaves the following semantics undefined rather than intentionally decided:
 
 ## Decision
 
-These temporal gates apply only when `config.features.enforceCapabilities` is enabled. ADR-004 does not change RFC-014's activation policy: enforcement remains config-gated and disabled by default. When enforcement is disabled, existing unchecked behavior remains unchanged and no capability execution-authorization snapshot is required.
+These temporal gates apply only when `config.features.enforceCapabilities` is enabled. ADR-004 does not change RFC-014's activation policy: enforcement remains config-gated and disabled by default.
+
+> **Amended 2026-09-21 (Issue #303) - production-only invariant.** Enforcement stays config-gated and disabled by default in development, test and reference environments, and everything below about "enforcement disabled" remains true THERE. In a production process (`NODE_ENV=production`) it is no longer optional: the process refuses to boot unless `ENFORCE_CAPABILITIES` is exactly `true` (`src/config/index.ts`; unset, `false`, or any other value is fatal). See "Production eligibility and self-issued semantics" below. Gate A, Gate B, revocation, expiry and recovery semantics are unchanged. When enforcement is disabled, existing unchecked behavior remains unchanged and no capability execution-authorization snapshot is required.
 
 ### 1. CapabilityGrant and execution authority remain separate
 
@@ -149,7 +151,7 @@ Implementation is authorized only if it preserves all of the following:
 6. Once execution is committed, capability handling during retry/recovery must reuse that operation identity and authorization; it must not manufacture a second capability authorization from a new request. Provider-specific submission identity, reconciliation, and idempotency remain separately owned.
 7. Existing cryptographic signer validation and state-transition claims must not be weakened.
 8. Economic-authority freshness remains independently required; this ADR does not close the stale-ruling/pending-instruction owner.
-9. `ENFORCE_CAPABILITIES=false` must preserve the existing unchecked behavior and must not require capability authorization provenance.
+9. `ENFORCE_CAPABILITIES=false` must preserve the existing unchecked behavior and must not require capability authorization provenance. *(Amended, Issue #303: this applies to non-production environments only; a production process cannot run with `false`.)*
 
 ## Constraint-policy boundary
 
@@ -215,3 +217,20 @@ The protocol gains an explicit temporal boundary:
 `permission to prepare` != `permission to execute` != `permission to retry a new economic action`.
 
 A CapabilityGrant remains revocable until execution authority is durably committed. After that boundary, capability semantics follow the already-authorized operation rather than ambient permission state; this ADR does not claim to solve provider-specific reconciliation or idempotency.
+
+## Production eligibility and self-issued semantics (Issue #303, 2026-09-21)
+
+**Production eligibility.** A production-eligible Sails deployment cannot disable Capability Authority: `NODE_ENV=production` with `ENFORCE_CAPABILITIES` unset, `false`, or any value other than exactly `true` fails at boot. Development, test and reference environments may still run with enforcement disabled.
+
+**Canonical vocabulary.** Only these (capabilityName -> action scopes) pairs may be registered; anything else is rejected at registration (400) instead of being persisted as an arbitrary authority string. They are exactly the scopes an existing gate consumes (`CANONICAL_CAPABILITY_SCOPES`, `src/core/capability-registry.ts`; mirrored by the SDK and kept in lockstep by `tests/capabilityCanonicalOnboarding.test.ts`):
+
+| capabilityName | scopes | consumed by |
+| --- | --- | --- |
+| `trade-coordination` | `intent.created`, `intent.discovering` | `intent-engine.ts` create(), `intent.routes.ts` propose |
+| `settlement` | `settlement.escrow.released`, `settlement.escrow.refunded`, `settlement.escrow.split` | Gate A `checkFundMovementCapability()`, Gate B `authorizePendingExecution()` |
+
+**Self-issued semantics (explicit).** The only public issuance route is self-issued (`issuedBy = grantedTo`). A self-issued CapabilityGrant is the participant's OWN revocable, expiring, auditable consent/delegation, plus the operation-bound Gate B commitment. **Self-issued CapabilityGrant != independent third-party authorization.** It does NOT protect against an already-authorized participant acting maliciously, is not bounded per trade, escrow or amount, and no claim to the contrary is made. Independent / multi-party issuance is a separate architectural evolution (RFC-013 s5 follow-up), deliberately not part of #303; no platform admin or central issuer exists.
+
+**Onboarding (no manual DB intervention).** Every actor that reaches a gate self-issues the canonical grants through `capabilities.ensureCanonicalGrants(participantId)` (SDK), which the reference UI runs on every login: buyers and sellers need both capabilities; an **arbiter** needs the `settlement` grant (an assigned arbiter without one fails closed on release/refund/split); the **seller** needs the `settlement` grant for the sweeper's expiry refund, which runs as the seller (there is no "system" actor and no silent exemption). A missing or expired grant makes the action fail with an explicit error and is recoverable by onboarding; nothing deadlocks.
+
+**Registration is idempotent under concurrency.** `CapabilityGrantRepository.create()` runs in one transaction under the per-(actor, capability) `pg_advisory_xact_lock` that revocation and Gate B already use (a database UNIQUE constraint cannot express "one LIVE grant": liveness depends on `constraints.expiresAt`, and an expired grant is not revoked). An equivalent LIVE grant (same grantedTo/capabilityName/issuedBy, not revoked, not expired, covering every requested scope, identical constraints) is returned instead of inserting a duplicate, so concurrent or repeated onboarding converges to one effective grant per canonical capability. A revoked or expired grant is never equivalent: reissue always works and the historical row is untouched. Distinct grants (different constraints or wider scope) are still created normally. `lockFunds` deliberately has no capability gate (separate semantic decision, out of #303).
