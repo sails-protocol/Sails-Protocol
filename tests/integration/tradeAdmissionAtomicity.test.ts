@@ -12,6 +12,8 @@
 //   plus the transactional event-store contract, Offer-close races and the migration's constraints and reversal.
 // Invariant 3b (seller PaymentAccount binding, E22) is NOT exercised: this slice does not implement it.
 
+// CTO 344: this suite asserts the E21 transactional admission, which is selectable and off by default.
+process.env.TRADE_ADMISSION_TRANSACTIONAL = 'true'
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { randomBytes, randomUUID } from 'crypto'

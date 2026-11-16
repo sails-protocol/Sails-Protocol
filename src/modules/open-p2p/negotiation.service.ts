@@ -12,6 +12,7 @@ import type { Prisma } from '@prisma/client'
 import { prisma } from '../../common/database'
 import { NotFoundError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
+import { tradeRepository, type TradeRepository } from './trade-repository'
 import type { DurableEvent } from '../../common/events/event-store'
 import { pearNodeRegistry, type PearNode } from '../../infrastructure/p2p/pear.service'
 import { childLogger } from '../../common/logger'
@@ -182,6 +183,25 @@ export class NegotiationService {
   // Process-local and NOT authoritative (E21 slice 1): the durable record that a negotiation was opened is the
   // negotiation.opened / openp2p.trade.status_changed pair written by openInTransaction().
   private status = new Map<string, NegotiationStatus>()
+
+  constructor(private readonly tradeRepo: TradeRepository = tradeRepository) {}
+
+  // Pre-E21 opening, kept verbatim from main for the legacy admission path (CTO 344, tradeAdmissionTransactional off).
+  async open(tradeId: string, buyerId: string, sellerId: string): Promise<HumanChatChannel> {
+    const trade = await this.tradeRepo.findById(tradeId)
+    if (!trade) throw new NotFoundError('Trade', tradeId)
+
+    this.status.set(tradeId, 'CREATED')
+    await eventBus.emit('negotiation.opened', { tradeId, buyerId, sellerId }, tradeId)
+    await eventBus.emit('openp2p.trade.status_changed', {
+      tradeId, from: 'PENDING', to: 'NEGOTIATING', triggeredBy: buyerId,
+    }, tradeId)
+    this.status.set(tradeId, 'NEGOTIATING')
+
+    // Both directions — buyer's view of the channel and seller's view are
+    // two separate HumanChatChannel instances pointed at each other.
+    return new HumanChatChannel(buyerId, sellerId, tradeId)
+  }
 
   /**
    * E21 slice 1 (CTO 24 6811766719, item 4) - opening the negotiation is part of the trade admission: its two events

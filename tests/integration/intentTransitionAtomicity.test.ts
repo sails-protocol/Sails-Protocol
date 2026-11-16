@@ -9,6 +9,8 @@
 // the old (two statements) and the new (one transaction) implementation alike, so the same test is RED before
 // the fix and GREEN after, with no knowledge of how the engine is built.
 
+// CTO 344: this suite asserts the E21 transactional admission, which is selectable and off by default.
+process.env.TRADE_ADMISSION_TRANSACTIONAL = 'true'
 import { PrismaClient } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
