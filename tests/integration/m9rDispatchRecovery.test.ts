@@ -16,6 +16,7 @@
 // succeeded, dispatch never ran" instead of "two appeal rounds."
 
 import { PrismaClient } from '@prisma/client'
+import { PrismaPg } from '@prisma/adapter-pg'
 import type { DispatchRecoveryReport } from '../../src/modules/open-settlement/dispute-dispatch-recovery'
 import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from '@bitcoinerlab/secp256k1'
@@ -772,6 +773,17 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       mine = [...plain, ...coop]
     }, 1_800_000)
 
+    // Simulation writes that AGE a pending round (escrow_pending_transactions is append_delete for sails_runtime) model direct
+    // database access, not the application: they use the administrator connection when one is given (the restricted-runtime lane
+    // sets ADMIN_DATABASE_URL), the same pattern as #669 - never a widening of sails_runtime's privileges. Production code under
+    // test still runs as the application's own connection.
+    let tamper: PrismaClient
+    beforeAll(() => {
+      if (!dbAvailable) return
+      tamper = process.env.ADMIN_DATABASE_URL ? new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.ADMIN_DATABASE_URL }) }) : prisma
+    })
+    afterAll(async () => { if (dbAvailable && tamper && tamper !== prisma) await tamper.$disconnect() })
+
     // CTO 344: SAILS_C4_RECOVERY_ENABLED is off by default; this describe turns it on for the tick tests and F1 turns it off.
     const c4Flag = () => require('../../src/config').config.features as { c4Recovery: boolean }
     let originalFlag = false
@@ -894,9 +906,11 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       const windows: Array<{ lo: number; hi: number; claimed: Array<[string, number]> }> = []
       for (const skew of [+86_400_000, -86_400_000]) {
         const lo = await dbNow()
-        const skewed = jest.spyOn(Date, 'now').mockImplementation(() => realNow() + skew)
-        const { claimed } = await claimedBy(() => bounded())
-        skewed.mockRestore()
+        // Only the Date clock is faked (new Date() AND Date.now()); timers and I/O stay real. A stamp taken from the Node clock,
+        // whichever way it is read, lands a day away from the database window and fails below.
+        jest.useFakeTimers({ now: realNow() + skew, doNotFake: ['hrtime', 'nextTick', 'performance', 'queueMicrotask', 'requestAnimationFrame', 'cancelAnimationFrame', 'requestIdleCallback', 'cancelIdleCallback', 'setImmediate', 'clearImmediate', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
+        let claimed: string[]
+        try { ;({ claimed } = await claimedBy(() => bounded())) } finally { jest.useRealTimers() }
         const hi = await dbNow()
         const stamped = await rows(mine)
         windows.push({ lo, hi, claimed: claimed.map((id) => [id, stamped.get(id)!.t!.getTime()] as [string, number]) })
@@ -1021,7 +1035,7 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       jest.restoreAllMocks()
       for (const c of [unsigned, signed]) expect((await pendingRows([c.escrowId])).length).toBe(1)
       const aged = new Date(Date.now() - 10 * 60 * 1000)
-      await prisma.escrowPendingTransaction.updateMany({ where: { escrowId: { in: [unsigned.escrowId, signed.escrowId] } }, data: { createdAt: aged } })
+      await tamper.escrowPendingTransaction.updateMany({ where: { escrowId: { in: [unsigned.escrowId, signed.escrowId] } }, data: { createdAt: aged } })
       const signedRound = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: signed.escrowId } })
       await prisma.escrowTransactionSignature.create({ data: { pendingTxId: signedRound.id, participantId: signedRound.requiredSigners[0], signedPsbtBase64: 'signed-by-a-participant' } })
       // Their translation does not match the durable Outcome.
@@ -1091,7 +1105,7 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       const stale = require('../../src/modules/open-settlement/dispute-pending-reconciliation')
       const rounds = await prisma.escrowPendingTransaction.findMany({ where: { escrow: { type: 'MULTISIG', disputes: { some: { status: 'RESOLVED' } } }, signatures: { none: {} } } })
       const aged = new Date(Date.now() - 10 * 60 * 1000)
-      await prisma.escrowPendingTransaction.updateMany({ where: { id: { in: rounds.map((r) => r.id) } }, data: { createdAt: aged } })
+      await tamper.escrowPendingTransaction.updateMany({ where: { id: { in: rounds.map((r) => r.id) } }, data: { createdAt: aged } })
       const total = rounds.length
       expect(total).toBeGreaterThan(3)
       const MAXROWS = 2
