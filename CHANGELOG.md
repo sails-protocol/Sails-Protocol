@@ -18,6 +18,14 @@ All notable changes to this project will be documented in this file.
 - Production EvidenceProvider durability/provenance, cross-evidence integrity, upload controls, and remaining Day-0 production owners remain active under dedicated Issues; this changelog does not round active work up to completed readiness.
 
 
+### Documentation
+
+- **CTO 316 — Technical Debt #57 closed under the A2 criterion only (documentation, no code change).** `docs/TECHNICAL_DEBT_AUDIT.md` item 57 gains a dated closing note; its history is unchanged.
+  - **Criterion:** the CI operating standard homologated for A2 (Issue #105, CTO 234): the suite does not fail on app start-up timeouts under the CI's parallelism and cold Jest cache.
+  - **Not claimed:** the historical root cause is not fully demonstrated, and `buildApp()` contention under parallel load is not declared solved in general.
+  - **Limits kept open:** 10 or more workers unproven; the unreachable PostgreSQL/Redis explanation unproven; four suites do not mock Redis; the CI worker count is inferred from runner documentation; real PostgreSQL/Redis unavailability is outside A2.
+  - **Evidence date:** commit `1e8b52d1`, before the #654 merge; the cold-cache battery was not re-run afterwards.
+
 ### Fixed
 
 - **CTO 239/245/246 — "latest" fee collection evidence follows record order (real PostgreSQL).** Local commits, pending review.
