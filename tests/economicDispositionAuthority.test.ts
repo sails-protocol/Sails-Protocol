@@ -22,9 +22,15 @@ const tx = {
 
 const mockTransaction = jest.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx))
 
+// A missing Dispute row is not enough: the escrow's status and recorded transitions must show no dispute either.
+const mockEscrowFindUnique = jest.fn()
+const mockEscrowEventFindFirst = jest.fn()
+
 jest.mock('../src/common/database', () => ({
   prisma: {
     dispute: { findFirst: (...args: unknown[]) => mockDisputeFindFirst(...args) },
+    escrow: { findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args) },
+    escrowEvent: { findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args) },
     $transaction: (...args: unknown[]) => mockTransaction(...(args as [any])),
   },
 }))
@@ -93,6 +99,18 @@ describe('ADR-005 economic disposition commit gate', () => {
     // Default: this escrow's trade was never disputed — the durable fact
     // that makes a disputeId-null pending row provably cooperative.
     mockDisputeFindFirst.mockResolvedValue(null)
+    mockEscrowFindUnique.mockResolvedValue({ status: 'PAYMENT_PENDING' })
+    mockEscrowEventFindFirst.mockResolvedValue(null)
+  })
+
+  it.each([
+    ['the escrow is DISPUTED with no Dispute row yet', () => mockEscrowFindUnique.mockResolvedValue({ status: 'DISPUTED' })],
+    ['a recorded transition entered DISPUTED', () => mockEscrowEventFindFirst.mockResolvedValue({ id: 'transition-1' })],
+    ['the escrow cannot be found', () => mockEscrowFindUnique.mockResolvedValue(null)],
+  ])('fails closed for a pending row with no recorded provenance when %s', async (_, arrange) => {
+    arrange()
+    await expect(authorizeDisputedPendingExecution(cooperativePending)).rejects.toThrow(/is or was DISPUTED/)
+    expect(mockTransaction).not.toHaveBeenCalled()
   })
 
   it('is a no-op for a pending operation with no recorded ruling generation and a durably-never-disputed escrow (cooperative release)', async () => {

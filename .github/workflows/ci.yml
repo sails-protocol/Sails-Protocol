@@ -50,14 +50,14 @@ jobs:
           --health-retries 5
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3
         with:
           fetch-depth: 0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@3235b876344d2a9aa001b8d1453c930bba69e610 # v3
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
@@ -95,6 +95,12 @@ jobs:
         # service above, never a shared or production database.
         env:
           DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+          # CTO 230 - npm run db:migrate goes through scripts/migrate-deploy-safe.sh. This
+          # lane deliberately migrates and tests as the superuser (test setup needs
+          # privileged operations), so the legacy single credential is opted into
+          # explicitly; the role-segregated path is exercised by runtimePrivileges and
+          # by the restricted-runtime lane in ci-tests.yml.
+          SAILS_LEGACY_SINGLE_CREDENTIAL: "1"
         run: npm run db:migrate
 
       - name: Run unit tests

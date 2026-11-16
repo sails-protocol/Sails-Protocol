@@ -19,11 +19,13 @@ const mockIntentUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockIntentEventCreate = jest.fn()
 const mockIntentEventFindFirst = jest.fn()
 
-jest.mock('../src/common/database', () => ({
-  prisma: {
+jest.mock('../src/common/database', () => {
+  // Issue #253: transition() commits the CAS + IntentEvent in ONE prisma.$transaction (same client here).
+  const prisma: any = {
     intent: {
       create: (...args: unknown[]) => mockIntentCreate(...args),
       findUnique: (...args: unknown[]) => mockIntentFindUnique(...args),
+      findUniqueOrThrow: (...args: unknown[]) => mockIntentFindUnique(...args),
       // Robustness-audit fix (2026-07-20): transition() now does an
       // atomic conditional updateMany() instead of an unconditional
       // update() — see intent-engine.ts's own comment on why. Defaults
@@ -32,11 +34,14 @@ jest.mock('../src/common/database', () => ({
       updateMany: (...args: unknown[]) => mockIntentUpdateMany(...args),
     },
     intentEvent: {
-      create: (...args: unknown[]) => mockIntentEventCreate(...args),
+      create: async (...args: unknown[]) => (await mockIntentEventCreate(...args)) ?? { id: 'intent-event-1' },
       findFirst: (...args: unknown[]) => mockIntentEventFindFirst(...args),
+      updateMany: async () => ({ count: 1 }),
     },
-  },
-}))
+  }
+  prisma.$transaction = (cb: (tx: unknown) => unknown) => cb(prisma)
+  return { prisma }
+})
 
 const mockEmit = jest.fn().mockResolvedValue(undefined)
 jest.mock('../src/common/events/event-bus', () => ({

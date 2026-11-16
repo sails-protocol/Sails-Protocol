@@ -60,7 +60,7 @@ import { EscrowError, NotFoundError } from '../../common/errors'
 import { escrowService } from './escrow.service'
 import { tradeRepository } from '../open-p2p/trade-repository'
 import { loadDisputeRulingRecord, fromDisputeRulingRow } from './dispute-outcome'
-import { evaluateDisputeDispatchEligibility } from './dispute-dispatch'
+import { evaluateDisputeDispatchEligibility, isSupersedableCooperativeRound, issueRulingSupersessionGrant } from './dispute-dispatch'
 import { assertTranslationMatchesOutcome, TranslationGuardError } from './dispatch-translation-guard'
 import { networkFor } from './multisig.provider'
 import { childLogger } from '../../common/logger'
@@ -102,8 +102,10 @@ export async function reconcileMissingDispatch(): Promise<DispatchRecoveryReport
 
   for (const dispute of candidates) {
     try {
-      const existingPending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: dispute.escrowId } })
-      if (existingPending) continue // not a C4 case at all — dispatch already happened; a different reconciler owns whatever state it's in
+      const existingPending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: dispute.escrowId }, include: { signatures: true } })
+      // Not a C4 case: dispatch already happened, a different reconciler owns that state. Issue #239: except a
+      // cooperative MULTISIG round that is not fully signed - this ruling's dispatch supersedes it.
+      if (existingPending && !(dispute.escrow.type === 'MULTISIG' && isSupersedableCooperativeRound(existingPending))) continue
 
       const row = await loadDisputeRulingRecord(dispute.escrowId, dispute.appealRound)
       if (!row || !row.outcomeContent) continue // not a Core-authoritative-path ruling (legacy applyRuling()) — out of this module's scope, not a gap
@@ -153,10 +155,12 @@ export async function reconcileMissingDispatch(): Promise<DispatchRecoveryReport
         continue
       }
 
+      // Issue #239 (A-1) - only when a cooperative round is in the way; re-validated under the escrow lock.
+      const supersession = existingPending ? issueRulingSupersessionGrant(dispute) : undefined
       let pending: { unsignedPsbtBase64: string; minerFeeSats: number | null }
       try {
         if (ruling === 'RELEASE') {
-          pending = await escrowService.initiateRelease(dispute.escrowId, buyerDestination, triggeredBy)
+          pending = await escrowService.initiateRelease(dispute.escrowId, buyerDestination, triggeredBy, supersession)
         } else if (ruling === 'REFUND') {
           // M8-RF (Destination Consistency) — the SAME historical
           // sellerDestination (already extracted above from the durable
@@ -164,14 +168,14 @@ export async function reconcileMissingDispatch(): Promise<DispatchRecoveryReport
           // dispatch exactly as it governs a live one — never re-derived
           // from the seller's multisig key, never re-read from current
           // PayoutAddress state.
-          pending = await escrowService.initiateRefund(dispute.escrowId, triggeredBy, sellerDestination)
+          pending = await escrowService.initiateRefund(dispute.escrowId, triggeredBy, sellerDestination, supersession)
         } else {
           const buyerBps = outcome.content.allocations.find((a) => a.beneficiary === trade.buyerId)?.basisPoints
           if (buyerBps === undefined) {
             report.failed.push({ escrowId: dispute.escrowId, error: 'SPLIT outcome has no buyer allocation — cannot resume dispatch' })
             continue
           }
-          pending = await escrowService.initiateSplit(dispute.escrowId, buyerDestination, sellerDestination, buyerBps, triggeredBy)
+          pending = await escrowService.initiateSplit(dispute.escrowId, buyerDestination, sellerDestination, buyerBps, triggeredBy, supersession)
         }
       } catch (err) {
         if (isConcurrentPendingConflict(err)) {

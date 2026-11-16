@@ -72,7 +72,9 @@ export interface FeeObligationRepository {
   createNotApplicable(input: CreateNotApplicableObligationData): Promise<FeeObligationRow>
 
   findByEscrowId(escrowId: string): Promise<FeeObligationRow | null>
-  findById(id: string): Promise<FeeObligationRow | null>
+  // Issue #245 — optional `tx`, same additive precedent claimCollectionStatusTransition() documents below:
+  // the BROADCAST retry check reads the CURRENT status inside the transaction whose claim just lost.
+  findById(id: string, tx?: Prisma.TransactionClient): Promise<FeeObligationRow | null>
 
   /** Atomic conditional transition — mirrors EscrowRepository.claimTransition()'s
    *  own updateMany+count pattern exactly. Returns the affected-row count (0
@@ -138,8 +140,9 @@ class PrismaFeeObligationRepository implements FeeObligationRepository {
     return prisma.feeObligation.findUnique({ where: { escrowId } })
   }
 
-  async findById(id: string) {
-    return prisma.feeObligation.findUnique({ where: { id } })
+  async findById(id: string, tx?: Prisma.TransactionClient) {
+    const client = tx ?? prisma
+    return client.feeObligation.findUnique({ where: { id } })
   }
 
   async claimCollectionStatusTransition(id: string, fromStatus: FeeCollectionStatus, toStatus: FeeCollectionStatus, tx?: Prisma.TransactionClient): Promise<number> {

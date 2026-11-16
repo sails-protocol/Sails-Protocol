@@ -17,7 +17,7 @@ const mockEscrowFindById = jest.fn()
 const mockTradeFindUnique = jest.fn()
 const mockDisputeCreate = jest.fn()
 const mockDisputeFindUnique = jest.fn()
-const mockDisputeUpdate = jest.fn()
+const mockDisputeUpdateMany = jest.fn()
 const mockEscrowParticipantKeyFindUnique = jest.fn()
 const mockEmit = jest.fn().mockResolvedValue(undefined)
 
@@ -27,7 +27,7 @@ jest.mock('../src/common/database', () => ({
     dispute: {
       create: (...args: unknown[]) => mockDisputeCreate(...args),
       findUnique: (...args: unknown[]) => mockDisputeFindUnique(...args),
-      update: (...args: unknown[]) => mockDisputeUpdate(...args),
+      updateMany: (...args: unknown[]) => mockDisputeUpdateMany(...args),
     },
     escrowParticipantKey: { findUnique: (...args: unknown[]) => mockEscrowParticipantKeyFindUnique(...args) },
   },
@@ -35,8 +35,12 @@ jest.mock('../src/common/database', () => ({
 jest.mock('../src/common/events/event-bus', () => ({
   eventBus: { emit: (...args: unknown[]) => mockEmit(...args) },
 }))
+// Issue #238 - openDispute() runs the Dispute insert inside its own transaction; the mocked prisma stands in for it.
 jest.mock('../src/modules/open-settlement/escrow.service', () => ({
-  escrowService: { openDispute: jest.fn().mockResolvedValue({}) },
+  escrowService: {
+    openDispute: jest.fn((_e: string, _b: string, _r: string, recordDispute: (tx: unknown) => Promise<unknown>) =>
+      recordDispute(require('../src/common/database').prisma)),
+  },
 }))
 jest.mock('../src/modules/open-settlement/escrow-repository', () => ({
   escrowRepository: { findById: (...args: unknown[]) => mockEscrowFindById(...args) },
@@ -55,9 +59,10 @@ describe('DisputeService.initiateExpiryRecovery() — Gen-1 recovery authority (
   function seedExpiredEscrow() {
     mockEscrowFindById.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', status: 'EXPIRED' })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: 'escrow-1' })
-    mockDisputeCreate.mockResolvedValue({ id: 'dispute-1' })
+    mockDisputeCreate.mockImplementation(async ({ data }: any) => ({ id: 'dispute-1', ...data }))
     mockEscrowParticipantKeyFindUnique.mockResolvedValue(null)
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', arbiterId: 'arb-configured' })
+    mockDisputeUpdateMany.mockResolvedValue({ count: 1 })
+    mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', arbiterId: 'arb-configured' })
   }
 
   // Proof 1
@@ -124,14 +129,15 @@ describe('DisputeService.initiateExpiryRecovery() — Gen-1 recovery authority (
   it('7. the script-committed arbiter identity is still required, never the configured provider\'s own independent pick', async () => {
     seedExpiredEscrow()
     mockEscrowParticipantKeyFindUnique.mockResolvedValue({ participantId: 'arb-committed', role: 'arbiter', escrowId: 'escrow-1' })
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', arbiterId: 'arb-committed' })
     const provider = fakeArbitrationProvider('arb-would-be-picked-instead')
     const service = new DisputeService(provider)
 
     await service.initiateExpiryRecovery('escrow-1', 'seller-1')
 
     expect(provider.assign).not.toHaveBeenCalled()
-    expect(mockDisputeUpdate).toHaveBeenCalledWith({ where: { id: 'dispute-1' }, data: { arbiterId: 'arb-committed' } })
+    // Issue #238 - written with the Dispute row in the opening transaction, never by a later assignment.
+    expect(mockDisputeCreate.mock.calls[0][0].data.arbiterId).toBe('arb-committed')
+    expect(mockDisputeUpdateMany).not.toHaveBeenCalled()
   })
 
   // Proof 8 — inherited from Fase 7.3.1 §B / multisigProvider.test.ts's own
@@ -143,12 +149,12 @@ describe('DisputeService.initiateExpiryRecovery() — Gen-1 recovery authority (
   it('8. config rotation cannot rewrite recovery authority — the persisted commitment is read directly, never re-derived from live config', async () => {
     seedExpiredEscrow()
     mockEscrowParticipantKeyFindUnique.mockResolvedValue({ participantId: 'arb-original-committed', role: 'arbiter', escrowId: 'escrow-1' })
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', arbiterId: 'arb-original-committed' })
     const service = new DisputeService(fakeArbitrationProvider('arb-new-after-rotation'))
 
     await service.initiateExpiryRecovery('escrow-1', 'seller-1')
 
-    expect(mockDisputeUpdate).toHaveBeenCalledWith({ where: { id: 'dispute-1' }, data: { arbiterId: 'arb-original-committed' } })
+    expect(mockDisputeCreate.mock.calls[0][0].data.arbiterId).toBe('arb-original-committed')
+    expect(mockDisputeUpdateMany).not.toHaveBeenCalled()
   })
 
   // Proofs 9/10 are structural, not behavioral: initiateExpiryRecovery()'s

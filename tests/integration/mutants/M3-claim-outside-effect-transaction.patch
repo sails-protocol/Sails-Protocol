@@ -1,0 +1,22 @@
+diff --git a/src/common/events/event-projection.ts b/src/common/events/event-projection.ts
+index 417a33dd..bd6e6ab9 100644
+--- a/src/common/events/event-projection.ts
++++ b/src/common/events/event-projection.ts
+@@ -37,12 +37,12 @@ export async function applyEventProjectionOnce(
+   apply: (tx: ProjectionTx) => Promise<void>,
+   client: Pick<PrismaClient, '$transaction'> = prisma
+ ): Promise<boolean> {
++  const claimed = await prisma.eventProjectionClaim.createMany({
++    data: [{ eventId, projectionKey, subjectId }],
++    skipDuplicates: true,
++  })
++  if (claimed.count === 0) return false
+   return client.$transaction(async (tx) => {
+-    const claimed = await tx.eventProjectionClaim.createMany({
+-      data: [{ eventId, projectionKey, subjectId }],
+-      skipDuplicates: true,
+-    })
+-    if (claimed.count === 0) return false
+     await apply(tx)
+     return true
+   })
