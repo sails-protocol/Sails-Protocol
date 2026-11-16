@@ -35,7 +35,7 @@ export async function findCollectedNotYetAllocated(): Promise<CollectedNotAlloca
   for (const obligation of collected) {
     const confirmed = await prisma.feeCollectionEvidence.findFirst({
       where: { feeObligationId: obligation.id, kind: 'CONFIRMED' },
-      orderBy: { recordedAt: 'desc' },
+      orderBy: { seq: 'desc' },
     })
     if (!confirmed) continue
     const hasAllocation = await prisma.entitlementLedgerEntry.findFirst({
@@ -166,7 +166,7 @@ export interface ReorgedGenerationNotReversedRow {
 }
 
 /** (7) A generation's CONFIRMED evidence has a corresponding REORGED_OUT
- *  evidence row (same feeObligationId, same txid) recorded AFTER it, but
+ *  evidence row (same feeObligationId, same txid) recorded AFTER it (higher seq), but
  *  the generation's ALLOCATION entries have not been reversed — a real,
  *  actionable gap (the reorg was detected at the collection layer but
  *  reverseGeneration() was never called for it). */
@@ -175,7 +175,7 @@ export async function findReorgedGenerationsNotReversed(): Promise<ReorgedGenera
   const rows: ReorgedGenerationNotReversedRow[] = []
   for (const confirmed of confirmedRows) {
     const reorgedOut = await prisma.feeCollectionEvidence.findFirst({
-      where: { feeObligationId: confirmed.feeObligationId, kind: 'REORGED_OUT', txid: confirmed.txid, recordedAt: { gt: confirmed.recordedAt } },
+      where: { feeObligationId: confirmed.feeObligationId, kind: 'REORGED_OUT', txid: confirmed.txid, seq: { gt: confirmed.seq } },
     })
     if (!reorgedOut) continue
     const allocations = await prisma.entitlementLedgerEntry.findMany({ where: { confirmationEvidenceId: confirmed.id, kind: 'ALLOCATION' } })
