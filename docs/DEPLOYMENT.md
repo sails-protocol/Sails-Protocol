@@ -155,7 +155,7 @@ Docker-composed Postgres/Redis above. `BACKLOG.md`, live GitHub Issues/Project, 
 
 | Script | Command | Purpose |
 |---|---|---|
-| `dev` | `ts-node-dev --respawn --transpile-only src/main.ts` | Hot-reload dev server |
+| `dev` | `node --watch --require ts-node/register/transpile-only src/main.ts` | Hot-reload dev server (Node's built-in watch mode; `ts-node-dev` was removed) |
 | `build` | `npm run build -w @satsails/p2p-schemas && npm run build -w @satsails/p2p-trading-sdk && tsc` | Builds both workspace packages, then the server (`dist/`) |
 | `start` | `node dist/src/main.js` | Run the compiled build (note the `dist/src/` path — `tsc`'s inferred rootDir includes `packages/` via a `paths` alias, so output isn't flat under `dist/`) |
 | `db:migrate` | `sh scripts/migrate-deploy-safe.sh` | Apply committed migration history, then the runtime grants (§6.3). Do not run `npx prisma migrate deploy` directly on a segregated database: it skips the grants |
@@ -183,7 +183,7 @@ auth. `@tetherto/wdk-wallet-evm` — real signed USDT settlement (testnet).
 `@qvac/sdk` — real local LLM inference. `@satsails/p2p-schemas` — the
 in-repo types workspace package.
 
-**Dev:** `typescript`, `ts-node`/`ts-node-dev`, `jest`/`ts-jest`,
+**Dev:** `typescript`, `ts-node`, `jest`/`ts-jest`,
 `prisma`, `pino-pretty`, plus `@types/*` packages.
 
 `npm install` also installs and builds `packages/sails-p2p-schemas` and
