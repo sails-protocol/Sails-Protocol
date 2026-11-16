@@ -242,7 +242,7 @@ describe('recordBroadcastAndAdvance() atomicity and retry semantics (Issue #245,
 
   async function state(obligationId: string) {
     const [rows, obligation] = await Promise.all([
-      prisma.feeCollectionEvidence.findMany({ where: { feeObligationId: obligationId }, orderBy: { recordedAt: 'asc' } }),
+      prisma.feeCollectionEvidence.findMany({ where: { feeObligationId: obligationId }, orderBy: { seq: 'asc' } }),
       prisma.feeObligation.findUnique({ where: { id: obligationId } }),
     ])
     const count = (kind: string) => rows.filter((r) => r.kind === kind).length
