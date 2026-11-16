@@ -11,13 +11,23 @@
  *   DATABASE_URL=postgresql://sails_runtime:...@host/db npm run db:check-runtime
  *   EXPECT_ROLE (default sails_runtime): refuse to run the check under any other role.
  *
- * Exit codes: 0 no finding; 3 findings (one per line); 4 connection, read-only or query error;
+ * Exit codes: 0 no finding; 3 findings (one per line); 4 connection, read-only, query or app-configuration error
+ * (the check module loads the app config, which refuses an incomplete production environment);
  * 5 the connected role is not EXPECT_ROLE.
+ *
+ * Where it runs: a repository checkout with dev dependencies (`npm ci`), because it uses ts-node. The production image
+ * ships neither ts-node nor this script; run it from an operator workstation or a CI job that can reach the database.
  */
 import { Client } from 'pg'
-import { inspectRuntimePrivileges } from '../../src/common/database/runtime-privileges'
 
 async function main(): Promise<number> {
+  let inspectRuntimePrivileges: typeof import('../../src/common/database/runtime-privileges').inspectRuntimePrivileges
+  try {
+    inspectRuntimePrivileges = require('../../src/common/database/runtime-privileges').inspectRuntimePrivileges
+  } catch (err) {
+    console.error(`check-runtime-privileges: app configuration could not be loaded (${err instanceof Error ? err.message : String(err)}); refusing to run`)
+    return 4
+  }
   const url = process.env.DATABASE_URL
   if (!url) {
     console.error('check-runtime-privileges: DATABASE_URL is required (the runtime credential of the target database)')
