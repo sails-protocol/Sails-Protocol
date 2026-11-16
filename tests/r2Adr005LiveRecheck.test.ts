@@ -9,7 +9,8 @@
  *   R2-b  with a committed, matching authorization, the gate refuses when the live dispute left the authorized
  *         generation (control: it passes while the dispute is still RESOLVED in it).
  *   R2-c  static inventory of src: no unconditional dispute writer, and the writers that can take a dispute out of
- *         RESOLVED are exactly the three known ones.
+ *         RESOLVED are exactly the three known ones. Raw SQL writers of disputes (any spelling) are inventoried too:
+ *         exactly the known ones, each guarded by status, none leaving RESOLVED (GK C7b, CTO 341).
  */
 import { readdirSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
@@ -169,5 +170,68 @@ describe('R2-c - static inventory of dispute writers in src', () => {
     const raw = sources.flatMap(({ path, text }) =>
       [...text.matchAll(/UPDATE\s+"disputes"[\s\S]*?WHERE([\s\S]*?)`/g)].filter((m) => /"status"\s*=\s*'RESOLVED'/.test(m[1])).map(() => path))
     expect(raw).toEqual([])
+  })
+
+  // --- detector (pure, so the mutants below can be fed to it directly) ---------------------------------------------
+  const RAW_DISPUTE_WRITE = /\b(update(?:\s+only)?|insert\s+into|delete\s+from)\s+(?:"?public"?\s*\.\s*)?"?disputes"?(?![\w"])/gi
+  const rawDisputeWrites = (text: string) => [...text.matchAll(RAW_DISPUTE_WRITE)].map((m) => {
+    const rest = text.slice(m.index)
+    const end = rest.indexOf('`') // a template literal ends at its backtick; a plain string is bounded by length
+    const statement = end === -1 ? rest.slice(0, 600) : rest.slice(0, end)
+    return { verb: m[1].toLowerCase().replace(/\s+/g, ' '), where: statement.split(/\bwhere\b/i).slice(1).join(' WHERE ') }
+  })
+  const statusGuarded = (where: string) => /\bstatus"?\s*(=|<>|!=|\bin\b)/i.test(where)
+  const leavesResolved = (where: string) => /\bstatus"?\s*(=|\bin\b)[^)]*'RESOLVED'/i.test(where)
+
+  // The raw writers that exist in src today (dispute.service.ts, auto-resolution contest/expire). Each moves a dispute
+  // out of AUTO_PROPOSED only. A new raw writer must be added here deliberately, with its status guard (e.g. the C4
+  // dispatch-recovery stamp, which sets only dispatchRecoveryAttemptedAt and must keep `AND d.status = 'RESOLVED'`).
+  const KNOWN_RAW_DISPUTE_WRITERS = [
+    'modules/open-settlement/dispute.service.ts update',
+    'modules/open-settlement/dispute.service.ts update',
+  ]
+
+  describe('R2-c (raw SQL) - every raw writer of disputes is inventoried and status-guarded', () => {
+    it('the raw writers in src are exactly the known ones', () => {
+      const found = sources.flatMap(({ path, text }) => rawDisputeWrites(text).map((w) => `${path} ${w.verb}`)).sort()
+      expect(found).toEqual([...KNOWN_RAW_DISPUTE_WRITERS].sort())
+    })
+
+    it('every raw UPDATE is conditional on status, and none takes a dispute out of RESOLVED', () => {
+      const writes = sources.flatMap(({ path, text }) => rawDisputeWrites(text).map((w) => ({ path, ...w })))
+      expect(writes.length).toBeGreaterThanOrEqual(2) // the scan must see the real writers, not pass vacuously
+      expect(writes.filter((w) => !statusGuarded(w.where)).map((w) => `${w.path}: ${w.verb} where {${w.where.trim()}}`)).toEqual([])
+      expect(writes.filter((w) => leavesResolved(w.where)).map((w) => w.path)).toEqual([])
+    })
+
+    // The detector itself: each spelling a raw writer can take must be seen, and an unguarded one must fail the guard.
+    const MUTANTS: Array<[string, string]> = [
+      ['GK C7b: unquoted, id only', 'export async function zz(id: string) { return prisma.$executeRaw`UPDATE disputes SET status = \'APPEALED\' WHERE id = ${id}` }'],
+      ['inside a transaction (tx client)', 'await tx.$executeRaw`UPDATE "disputes" SET "ruling" = NULL WHERE "id" = ${id}`'],
+      ['$executeRawUnsafe plain string', "await prisma.$executeRawUnsafe('UPDATE disputes SET status = $1 WHERE id = $2', s, id)"],
+      ['lower case, multi-line', 'await tx.$executeRaw`update\n  disputes\n  set status = \'OPENED\'\n where id = ${id}`'],
+      ['public.disputes', 'await tx.$executeRaw`UPDATE public.disputes SET "ruling" = NULL WHERE "id" = ${id}`'],
+      ['"public"."disputes"', 'await tx.$executeRaw`UPDATE "public"."disputes" SET "ruling" = NULL WHERE "id" = ${id}`'],
+      ['Prisma.sql fragment passed on', 'const frag = Prisma.sql`UPDATE disputes SET "ruling" = NULL WHERE "id" = ${id}`; await tx.$executeRaw(frag)'],
+      ['alias', 'await tx.$executeRaw`UPDATE disputes d SET "ruling" = NULL FROM picked WHERE d."id" = picked.id`'],
+      ['DELETE', 'await tx.$executeRaw`DELETE FROM disputes WHERE id = ${id}`'],
+    ]
+    it.each(MUTANTS)('detector sees the raw writer: %s', (_name, snippet) => {
+      expect(rawDisputeWrites(snippet)).toHaveLength(1)
+    })
+    it.each(MUTANTS)('...and the guards reject it unless it is status-guarded: %s', (_name, snippet) => {
+      const [w] = rawDisputeWrites(snippet)
+      expect(statusGuarded(w.where) && !leavesResolved(w.where)).toBe(false)
+    })
+    it('the status-leaving variant is caught even when guarded', () => {
+      const [w] = rawDisputeWrites('await tx.$executeRaw`UPDATE disputes SET status = \'OPENED\' WHERE id = ${id} AND status = \'RESOLVED\'`')
+      expect(statusGuarded(w.where)).toBe(true)
+      expect(leavesResolved(w.where)).toBe(true)
+    })
+    it('positive control: the two real writers are seen, status-guarded and not leaving RESOLVED', () => {
+      const real = 'await tx.$executeRaw`UPDATE "disputes" SET "status" = \'EVIDENCE_SUBMITTED\' WHERE "id" = ${id} AND "status" = \'AUTO_PROPOSED\' AND "ruling" IS NULL`'
+      const [w] = rawDisputeWrites(real)
+      expect(statusGuarded(w.where) && !leavesResolved(w.where)).toBe(true)
+    })
   })
 })
