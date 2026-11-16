@@ -1500,6 +1500,11 @@ model Dispute {
   authorityIssuedAt  DateTime?
   authorityBuyerBps  Int?
 
+  // M9-R C4 recovery (dispute-dispatch-recovery.ts): when a bounded run last CLAIMED this dispute, by the database's own
+  // clock. Queue position only, never authority or eligibility. Written with raw SQL so it never touches `updatedAt`.
+  // Durable, so the round-robin order survives restarts, crashes and several instances. null = never attempted.
+  dispatchRecoveryAttemptedAt DateTime?
+
   moduleId        String   @default("opensettlement")
   protocolVersion String   @default("0.1")
   createdAt       DateTime @default(now())
