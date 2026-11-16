@@ -19,7 +19,7 @@
  * (RFC-010's EventStore, already real).
  */
 import { prisma } from '../../common/database'
-import { NotFoundError, ValidationError, ForbiddenError, SettlementExecutedError, SettlementResultConflictError } from '../../common/errors'
+import { NotFoundError, ValidationError, ForbiddenError, EscrowError, SettlementExecutedError, SettlementResultConflictError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
 import { applyEventProjectionOnce, RULING_FINALIZATION_HELD_KEY } from '../../common/events/event-projection'
 import { escrowService } from './escrow.service'
@@ -29,12 +29,12 @@ import { marketArbitrationProvider } from './market-arbitration.provider'
 import { createArbitrationProviderResolver } from './arbitration-provider-resolver'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
-import { isPartyOrAgent, asTrustedActor } from './escrow-lifecycle'
+import { isPartyOrAgent, asTrustedActor, resolvePayoutAddress } from './escrow-lifecycle'
 import { withIdempotency } from '../../common/idempotency'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { AssetType } from '../../common/types'
 import type { EvidenceDescriptor, DisputeRuling } from '@satsails/p2p-schemas'
-import type { DisputeStatus } from '@prisma/client'
+import type { DisputeStatus, WdkTransferOperationType } from '@prisma/client'
 import {
   verifyAuthorityDecisionSignature,
   assertExecutionMatchesAuthorization,
@@ -43,7 +43,9 @@ import {
 import { Prisma } from '@prisma/client'
 import { commitAuthoritativeDisputeRuling, revertDisputeRulingRecord } from './dispute-outcome'
 import { economicDispositionLockKey } from './economic-disposition-authority'
-import { assertDisputeDispatchEligible } from './dispute-dispatch'
+import { OUTBOUND_OPERATION_TYPES, POTENTIALLY_SENT_STATUSES, wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
+import { splitLegAmounts } from './wdk-settlement.provider'
+import { assertDisputeDispatchEligible, issueRulingSupersessionGrant } from './dispute-dispatch'
 import { assertTranslationMatchesOutcome } from './dispatch-translation-guard'
 import { networkFor } from './multisig.provider'
 import { publishPendingDisputeTransitions, transitionKeyFor, type DisputeTransitionKind } from './dispute-transition-outbox'
@@ -67,9 +69,51 @@ import { publishPendingDisputeTransitions, transitionKeyFor, type DisputeTransit
 // not attempted here.
 export const APPEAL_FEE_MULTIPLIER = 2
 
+// Issue #238 - recoverUnassignedDisputes(): an opening younger than this may still be finishing live.
+const UNASSIGNED_DISPUTE_GRACE_MS = 5 * 60 * 1000
+// shortcut: oldest-first with no cursor, so 200+ unstaffable disputes would starve newer ones; add a cursor if that occurs.
+const UNASSIGNED_DISPUTE_BATCH = 200
+
 export type ArbitrationProviderResolver = (implementation: string) => ArbitrationProvider
 
+/** D10 P2 - the ruling cannot be finalized yet; nothing was applied and a later recovery pass retries it. */
+class RulingFinalizationDeferred extends Error {
+  constructor(readonly reason: RulingDeferralReason) { super(reason.code) }
+}
+// D12 - why a ruling was not finalized, read from the rows that decided it (under the economic-disposition lock):
+// - GENERATION_SUPERSEDED: the dispute no longer holds this generation (status, round, ruling or arbiter changed);
+// - SETTLEMENT_NOT_CONFIRMED: WDK only - the escrow is not yet in this ruling's terminal status with its settlement
+//   recorded (an attempt may still be unconfirmed or rolled back).
+export type RulingDeferralReason =
+  | { code: 'GENERATION_SUPERSEDED' }
+  | { code: 'SETTLEMENT_NOT_CONFIRMED'; escrowStatus: string; settlementRecorded: boolean }
+// A ruling generation recovery left unfinalized because it can still be rolled back (D10 P2): not a failure, retried
+// every pass, reported so an operator can see which decisions are still waiting.
+export interface DeferredRulingFinalization { disputeId: string; escrowId: string; appealRound: number; ruling: DisputeRuling; arbiterId: string; reason: RulingDeferralReason }
+
+// D13 - the order recovery has always swept in (oldest ruling first, no resolvedAt last), made total by the id.
+const SWEEP_KEY = Prisma.sql`COALESCE(d."resolvedAt", 'infinity'::timestamp)`
+const SWEEP_START = { at: '-infinity', id: '' }
+
+const SETTLED_STATUS: Record<DisputeRuling, string> = { RELEASE: 'COMPLETED', REFUND: 'REFUNDED', SPLIT: 'SPLIT' }
+
+/**
+ * D10 P2 (#585) - whether a WDK_USDT_EVM ruling has left its rollback window: its escrow holds that ruling's own
+ * terminal status AND the settlement is recorded (txReleaseId, written only once the transfer is confirmed, by the
+ * live path or by reconciliation; for SPLIT, once both legs are). A pending attempt is not enough: until confirmed it
+ * may still be rolled back, or never resolve. Every other rail keeps its existing finalization semantics.
+ */
+async function wdkRulingUnsettled(tx: Prisma.TransactionClient, escrowId: string, ruling: DisputeRuling): Promise<RulingDeferralReason | null> {
+  const escrow = await tx.escrow.findUnique({ where: { id: escrowId }, select: { type: true, status: true, txReleaseId: true } })
+  if (escrow?.type !== 'WDK_USDT_EVM') return null
+  if (escrow.status === SETTLED_STATUS[ruling] && !!escrow.txReleaseId) return null
+  return { code: 'SETTLEMENT_NOT_CONFIRMED', escrowStatus: escrow.status, settlementRecorded: !!escrow.txReleaseId }
+}
+
 export class DisputeService {
+  // D13 - recoverMissingRulingFinalization()'s sweep position per queue, as (sort key, id); in memory, so a restart starts over.
+  private readonly rulingRecoveryCursor = { resolved: SWEEP_START, appealed: SWEEP_START }
+
   constructor(
     private readonly arbitrationProvider: ArbitrationProvider,
     private readonly repo: EscrowRepository = escrowRepository,
@@ -114,8 +158,8 @@ export class DisputeService {
   // same deferred-scope decision documented in escrow-repository.ts's own
   // header), so this reads it directly, matching how this file already
   // reads Dispute/DisputeAppealFee via `prisma` rather than a repository.
-  private async findCommittedArbiterId(escrowId: string): Promise<string | null> {
-    const key = await prisma.escrowParticipantKey.findUnique({
+  private async findCommittedArbiterId(escrowId: string, client: Prisma.TransactionClient = prisma): Promise<string | null> {
+    const key = await client.escrowParticipantKey.findUnique({
       where: { escrowId_role: { escrowId, role: 'arbiter' } },
     })
     return key?.participantId ?? null
@@ -233,32 +277,30 @@ export class DisputeService {
       evidence.map((entry) => this.resolveEvidenceDescriptor(entry, tradeId))
     )
 
-    // Freezes the trade — escrow.service.ts's real, existing state
-    // transition (Escrow -> DISPUTED), not new logic written here.
-    await escrowService.openDispute(trade.escrowId, raisedBy, reason)
+    const escrowId = trade.escrowId
+    const { provider } = await this.providerForEscrow(escrowId)
 
-    // Security-validation round (2026-07-19, "disputa dupla" scenario):
-    // this create() reads-then-writes across two calls (this one and
-    // openDispute() above) with no locking — buyer and seller calling
-    // raiseDispute() concurrently could both pass every check above
-    // before either write lands. The schema's new @@unique([tradeId])
-    // on Dispute (see that model's own comment) is the actual guard: the
-    // loser of the race hits a real P2002 here, caught and turned into a
-    // clean rejection instead of a second, corrupting Dispute row —
-    // same pattern reputation.service.ts's rate() already established
-    // for its own unique-constraint race.
+    // Freezes the trade. Issue #238: the Escrow -> DISPUTED claim, its transition and this Dispute row commit
+    // together (escrow.service.ts's openDispute()), so a crash can no longer leave a DISPUTED escrow with no
+    // Dispute. Fase 7.3.1 §B: a script-committed arbiter identity always wins over the provider's own pick and
+    // is written in that same transaction, so a committed rail never has an unassigned window.
+    // Security-validation round (2026-07-19, "disputa dupla"): @@unique([tradeId]) on Dispute stays the guard;
+    // a P2002 rolls the whole transaction back and is turned into a clean rejection.
     let dispute
     try {
-      dispute = await prisma.dispute.create({
-        data: {
-          tradeId,
-          escrowId: trade.escrowId,
-          openedBy: raisedBy,
-          reason,
-          evidence: resolvedEvidence as unknown as object,
-          status: 'OPENED',
-        },
-      })
+      dispute = await escrowService.openDispute(escrowId, raisedBy, reason, async (tx) =>
+        tx.dispute.create({
+          data: {
+            tradeId,
+            escrowId,
+            openedBy: raisedBy,
+            reason,
+            evidence: resolvedEvidence as unknown as object,
+            status: 'OPENED',
+            arbiterId: await this.findCommittedArbiterId(escrowId, tx),
+          },
+        })
+      )
     } catch (err: any) {
       if (err?.code === 'P2002') {
         throw new ValidationError(`A dispute has already been raised for trade ${tradeId}`)
@@ -266,23 +308,22 @@ export class DisputeService {
       throw err
     }
 
-    // Fase 7.3.1 §B — a script-committed arbiter identity always wins
-    // over the configured ArbitrationProvider's own independent pick;
-    // assign() is only ever consulted for an escrow type with no such
-    // commitment (see findCommittedArbiterId()'s own comment above).
-    const { provider } = await this.providerForEscrow(trade.escrowId)
-    const committedArbiterId = await this.findCommittedArbiterId(trade.escrowId)
-    const arbiterId = committedArbiterId ?? (await provider.assign(dispute.id, tradeId))
-    const updated = await prisma.dispute.update({
-      where: { id: dispute.id },
-      data: { arbiterId },
-    })
+    // assign() is only consulted with no committed arbiter, after the commit (it may read or call outside this
+    // database). If this process dies first, recoverUnassignedDisputes() finishes it; until then no ruling or
+    // escrow movement can name an arbiter, since both require dispute.arbiterId to equal the actor.
+    let arbiterId = dispute.arbiterId
+    let updated = dispute
+    if (!arbiterId) {
+      arbiterId = await this.assignArbiterOnce(dispute, await provider.assign(dispute.id, tradeId))
+      updated = (await prisma.dispute.findUnique({ where: { id: dispute.id } })) ?? dispute
+      if (!arbiterId) return updated // recoverUnassignedDisputes() assigned and announced it concurrently
+    }
 
     // Notification via pubsub (EventStore, RFC-010) — correlationId =
     // tradeId, the established convention for trade-lifecycle events.
     await eventBus.emit('dispute.opened', {
       disputeId: dispute.id,
-      settlementId: trade.escrowId,
+      settlementId: escrowId,
       tradeId,
       arbiterId,
       reason,
@@ -290,6 +331,63 @@ export class DisputeService {
     }, tradeId)
 
     return updated
+  }
+
+  /**
+   * Issue #238 - persists `arbiterId` only while the first-instance dispute is still unassigned. Returns it when
+   * this call won, or null when another writer (the live path or recoverUnassignedDisputes()) already assigned
+   * one: the persisted arbiter is never replaced, and only the winner announces 'dispute.opened'.
+   */
+  private async assignArbiterOnce(dispute: { id: string }, arbiterId: string): Promise<string | null> {
+    const claim = await prisma.dispute.updateMany({
+      where: { id: dispute.id, arbiterId: null, appealRound: 0 },
+      data: { arbiterId },
+    })
+    return claim.count === 1 ? arbiterId : null
+  }
+
+  /**
+   * Issue #238 - finishes raiseDispute() for a dispute whose opening committed but whose process died before the
+   * arbiter was assigned. Same choice as the live path: the script-committed arbiter, else the escrow's own
+   * provider; written by assignArbiterOnce(), so an arbiter already persisted (by the live path or an earlier
+   * tick) is never replaced. A dispute no provider can staff (no eligible arbiter) stays unassigned, which keeps
+   * every ruling and DISPUTED-escrow movement refused, and is reported in `failed` and retried next tick.
+   * `graceMs` leaves a live raiseDispute() time to finish first; appeals always carry their panel arbiter.
+   */
+  async recoverUnassignedDisputes(graceMs = UNASSIGNED_DISPUTE_GRACE_MS): Promise<{ recovered: string[]; failed: Array<{ disputeId: string; error: string }> }> {
+    const candidates = await prisma.dispute.findMany({
+      where: {
+        arbiterId: null,
+        appealRound: 0,
+        ruling: null,
+        status: { in: ['OPENED', 'EVIDENCE_SUBMITTED', 'AUTO_PROPOSED'] },
+        createdAt: { lt: new Date(Date.now() - graceMs) },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: UNASSIGNED_DISPUTE_BATCH,
+    })
+    const recovered: string[] = []
+    const failed: Array<{ disputeId: string; error: string }> = []
+    for (const dispute of candidates) {
+      try {
+        const { provider } = await this.providerForEscrow(dispute.escrowId)
+        const chosen = (await this.findCommittedArbiterId(dispute.escrowId)) ?? (await provider.assign(dispute.id, dispute.tradeId))
+        const arbiterId = await this.assignArbiterOnce(dispute, chosen)
+        if (!arbiterId) continue // assigned concurrently; that writer announces it
+        await eventBus.emit('dispute.opened', {
+          disputeId: dispute.id,
+          settlementId: dispute.escrowId,
+          tradeId: dispute.tradeId,
+          arbiterId,
+          reason: dispute.reason,
+          triggeredBy: dispute.openedBy,
+        }, dispute.tradeId)
+        recovered.push(dispute.id)
+      } catch (err) {
+        failed.push({ disputeId: dispute.id, error: err instanceof Error ? err.message : String(err) })
+      }
+    }
+    return { recovered, failed }
   }
 
   /**
@@ -476,8 +574,67 @@ export class DisputeService {
       }
       const row = await tx.dispute.findUnique({ where: { id: dispute.id } })
       if (!row) throw new NotFoundError('Dispute', dispute.id)
+      // D9 (Gatekeeper 6687229129) - refused before anything is written: a WDK transfer of ANOTHER disposition that may
+      // have moved this escrow's funds (an escrow reopened by the old rollback) makes this ruling unexecutable, so it
+      // is never committed and no crash can leave it RESOLVED for recoverMissingRulingFinalization() to count.
+      // While the escrow is DISPUTED nobody owns its claim, and only a claim owner creates attempts.
+      const own: WdkTransferOperationType[] = ruling === 'SPLIT' ? ['SPLIT_BUYER', 'SPLIT_SELLER'] : [ruling]
+      const other = await wdkTransferAttemptRepository.findPotentiallySent(dispute.escrowId, OUTBOUND_OPERATION_TYPES.filter((o) => !own.includes(o)), tx)
+      if (other) {
+        throw new EscrowError(`Ruling ${ruling} for dispute ${dispute.id} refused: WDK ${other.operationType} attempt ${other.id} is ${other.status}, so this escrow's funds may already have moved. No other disposition may start until that attempt is reconciled.`)
+      }
+      // #585 P1-A - a potentially-sent SPLIT leg is kept as this ruling's execution (D8), so it must be this ruling's
+      // own leg: the amount splitFunds() computes for its buyerBps, to the party's payout address. A leg of another
+      // allocation (an escrow reopened by the old rollback) would settle, and finalize, a split nobody authorized.
+      if (ruling === 'SPLIT' && splitBuyerBps !== undefined && await wdkTransferAttemptRepository.findPotentiallySent(dispute.escrowId, own, tx)) {
+        const escrow = await tx.escrow.findUniqueOrThrow({ where: { id: dispute.escrowId }, select: { lockedAmount: true, asset: true } })
+        const trade = await tradeRepository.findById(dispute.tradeId)
+        if (!trade) throw new NotFoundError('Trade', dispute.tradeId)
+        const amounts = splitLegAmounts(escrow.lockedAmount.toString(), splitBuyerBps)
+        for (const [leg, participantId, amount] of [['SPLIT_BUYER', trade.buyerId, amounts.buyer], ['SPLIT_SELLER', trade.sellerId, amounts.seller]] as const) {
+          const destination = await resolvePayoutAddress(undefined, participantId, escrow.asset as AssetType)
+          const foreign = await tx.wdkTransferAttempt.findFirst({ where: { escrowId: dispute.escrowId, operationType: leg, status: { in: POTENTIALLY_SENT_STATUSES }, NOT: { destination, amount } } })
+          if (foreign) {
+            throw new EscrowError(`Ruling SPLIT for dispute ${dispute.id} refused: WDK ${leg} attempt ${foreign.id} is ${foreign.status} (${foreign.amount.toString()} to ${foreign.destination}) and is not this ruling's own ${leg} (${amount} to ${destination}), so this escrow's funds may already have moved under another allocation. No ruling may start until that attempt is reconciled.`)
+          }
+        }
+      }
+      // D10 P1 / D11-R - a ruling is recorded only while its escrow is DISPUTED: raiseDispute() freezes it there before
+      // the dispute exists and only a disposition moves it on. Any other status (settled by an earlier round, never
+      // frozen) is refused here, before anything is written, rather than failing after the commit.
+      const escrowNow = await tx.escrow.findUnique({ where: { id: dispute.escrowId }, select: { status: true } })
+      if (escrowNow && escrowNow.status !== 'DISPUTED') {
+        throw new EscrowError(`Ruling ${ruling} for dispute ${dispute.id} refused: escrow ${dispute.escrowId} is ${escrowNow.status}, not DISPUTED, so this ruling cannot execute.`)
+      }
       return row
     })
+
+    // One implementation of the ruling's undo, used both inside the escrow claim's own revert transaction (D9) and
+    // below for a failure before any claim.
+    const revertRuling = (tx: Prisma.TransactionClient) => tx.dispute.updateMany({
+      where: {
+        id: dispute.id,
+        status: 'RESOLVED',
+        ruling,
+        arbiterId: triggeredBy,
+        appealRound: updated.appealRound,
+        ...(authority ? { authoritySignature: authority.authoritySignature } : {}),
+      },
+      data: {
+        status: dispute.status as DisputeStatus,
+        ruling: null,
+        resolvedAt: null,
+        // Missão 13 Fase 2 — a reverted ruling never leaves a verified
+        // authority decision attached to a dispute that in fact never
+        // settled; the arbiter must re-submit (their real decision may
+        // legitimately change once the underlying failure is understood).
+        ...(authority ? { authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null } : {}),
+      },
+    })
+    // #585 P1-B - set once the escrow helper has reverted this ruling with its claim: the catch below must not revert
+    // it again, because by then a resubmission of the same decision may own the identical RESOLVED row.
+    let rolledBack = false
+    const rollback = { lockKey: economicDispositionLockKey(dispute.id), revert: async (tx: Prisma.TransactionClient) => { await revertRuling(tx); rolledBack = true } }
 
     try {
       // Second real bug found while building SPLIT (RFC-021 D9,
@@ -501,15 +658,20 @@ export class DisputeService {
       // This ruling decided WHO is entitled and HOW MUCH — never WHERE.
       if (ruling === 'RELEASE') {
         if (needsSignatureCollection) {
+          // Issue #254B - the pending operation freezes the disputeId itself (see
+          // initiateSignatureCollectionCore()), so nothing is threaded through this call.
           await escrowService.initiateRelease(dispute.escrowId, undefined, triggeredBy)
         } else {
-          await escrowService.releaseFunds(dispute.escrowId, undefined, triggeredBy)
+          // Issue #254 - dispute.id is real, immutable, generation-scoped provenance: it travels with
+          // the settlement.escrow.released event itself, so a later appeal() mutating Dispute can never
+          // retroactively change what this specific release meant.
+          await escrowService.releaseFunds(dispute.escrowId, undefined, triggeredBy, dispute.id, rollback)
         }
       } else if (ruling === 'REFUND') {
         if (needsSignatureCollection) {
           await escrowService.initiateRefund(dispute.escrowId, triggeredBy, undefined)
         } else {
-          await escrowService.refundFunds(dispute.escrowId, triggeredBy)
+          await escrowService.refundFunds(dispute.escrowId, triggeredBy, dispute.id, rollback)
         }
       } else if (ruling === 'SPLIT') {
         // RFC-021 D9 — the third §1.9 option finally has a real settlement
@@ -529,7 +691,7 @@ export class DisputeService {
         if (needsSignatureCollection) {
           await escrowService.initiateSplit(dispute.escrowId, undefined, undefined, splitBuyerBps, triggeredBy)
         } else {
-          await escrowService.splitFunds(dispute.escrowId, undefined, undefined, splitBuyerBps, triggeredBy)
+          await escrowService.splitFunds(dispute.escrowId, undefined, undefined, splitBuyerBps, triggeredBy, rollback)
         }
       }
     } catch (err) {
@@ -561,29 +723,10 @@ export class DisputeService {
       // authorized a real settlement and its outcome handlers read it, and
       // recoverMissingRulingFinalization() owns the finalization skipped by this throw.
       if (err instanceof SettlementExecutedError || err instanceof SettlementResultConflictError) throw err
-      await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
-
-        await tx.dispute.updateMany({
-          where: {
-            id: dispute.id,
-            status: 'RESOLVED',
-            ruling,
-            arbiterId: triggeredBy,
-            appealRound: updated.appealRound,
-            ...(authority ? { authoritySignature: authority.authoritySignature } : {}),
-          },
-          data: {
-            status: dispute.status as DisputeStatus,
-            ruling: null,
-            resolvedAt: null,
-            // Missão 13 Fase 2 — a reverted ruling never leaves a verified
-            // authority decision attached to a dispute that in fact never
-            // settled; the arbiter must re-submit (their real decision may
-            // legitimately change once the underlying failure is understood).
-            ...(authority ? { authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null } : {}),
-          },
-        })
+      // After a claim this already ran atomically with the claim's revert (D9): only a failure before it reverts here.
+      if (!rolledBack) await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${rollback.lockKey})::bigint)`
+        await revertRuling(tx)
         // A count of 0 here means a newer generation already won — never
         // logged as an error and never retried: the correct outcome IS
         // "do nothing," not a failure of the revert itself.
@@ -662,9 +805,16 @@ export class DisputeService {
       const buyerDestination = commitResult.destinations.find((d) => d.beneficiary === buyerId)?.destination
       const sellerDestination = commitResult.destinations.find((d) => d.beneficiary === sellerId)?.destination
 
+      // Issue #239 (A-1) - this ruling's own supersession grant, built from exactly what the guarded update above
+      // committed (dispute-outcome.ts). It is the only way the dispatch may replace a cooperative round that is not
+      // fully signed; initiateSignatureCollectionCore() re-validates it against the database under the escrow lock.
+      const supersession = issueRulingSupersessionGrant({
+        id: dispute.id, appealRound: dispute.appealRound, arbiterId: payload.authorityId, ruling: payload.outcome,
+        authoritySignature, authorityIssuedAt: new Date(payload.issuedAt), status: 'RESOLVED',
+      })
       let pending: { unsignedPsbtBase64: string; minerFeeSats: number | null }
       if (payload.outcome === 'RELEASE') {
-        pending = await escrowService.initiateRelease(dispute.escrowId, buyerDestination, payload.authorityId)
+        pending = await escrowService.initiateRelease(dispute.escrowId, buyerDestination, payload.authorityId, supersession)
       } else if (payload.outcome === 'REFUND') {
         // M8-RF (Destination Consistency) — sellerDestination is the
         // seller's OWN historical DestinationBinding, already resolved
@@ -674,9 +824,9 @@ export class DisputeService {
         // the real Bitcoin translation match what the Outcome already
         // authorized — never re-derived from the seller's multisig
         // signing key, never re-read from current PayoutAddress state.
-        pending = await escrowService.initiateRefund(dispute.escrowId, payload.authorityId, sellerDestination)
+        pending = await escrowService.initiateRefund(dispute.escrowId, payload.authorityId, sellerDestination, supersession)
       } else {
-        pending = await escrowService.initiateSplit(dispute.escrowId, buyerDestination, sellerDestination, payload.buyerBps!, payload.authorityId)
+        pending = await escrowService.initiateSplit(dispute.escrowId, buyerDestination, sellerDestination, payload.buyerBps!, payload.authorityId, supersession)
       }
 
       try {
@@ -923,8 +1073,29 @@ export class DisputeService {
     dispute: { id: string; escrowId: string; appealRound: number; previousRuling: DisputeRuling | null; previousArbiterId: string | null },
     arbiterId: string,
     ruling: DisputeRuling,
-  ): Promise<void> {
+    recovered = false, // recoverMissingRulingFinalization(): `dispute` is a snapshot it read earlier
+  ): Promise<RulingDeferralReason | null> { // a reason: deferred by D10 P2, nothing applied; null: not deferred
     const { provider, escrow: providerEscrow } = await this.providerForEscrow(dispute.escrowId)
+
+    // D10 P2 (#585) - eligibility from current rows, under the economic-disposition lock that the ruling's write, its
+    // rollback (D9) and appeal() all take: the ruling has left its rollback window and, for a recovered candidate, its
+    // generation is still the current one. Checked once on its own, so an ineligible ruling is deferred without a claim
+    // ever being opened, then again inside the claim's own transaction, where it is authoritative (a concurrent
+    // rollback can land in between); there, a throw undoes the claim with the transaction and nothing is applied.
+    const deferral = async (tx: Prisma.TransactionClient): Promise<RulingDeferralReason | null> => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(dispute.id)})::bigint)`
+      if (recovered) {
+        const current = await tx.dispute.findUnique({ where: { id: dispute.id } })
+        const sameGeneration = !!current && (current.appealRound === dispute.appealRound
+          ? current.status === 'RESOLVED' && current.ruling === ruling && current.arbiterId === arbiterId
+          // the appealed case: round N's ruling, captured by appeal() into round N+1
+          : current.appealRound === dispute.appealRound + 1 && current.previousRuling === ruling && current.previousArbiterId === arbiterId)
+        if (!sameGeneration) return { code: 'GENERATION_SUPERSEDED' }
+      }
+      return wdkRulingUnsettled(tx, dispute.escrowId, ruling)
+    }
+    const early = await prisma.$transaction(deferral)
+    if (early) return early
 
     // RFC-021 D6 — an appeal round reversing the ruling being appealed is
     // real evidence the original arbiter got it wrong; slash them.
@@ -938,7 +1109,11 @@ export class DisputeService {
     const shouldSlash = !!(dispute.previousRuling && dispute.previousRuling !== ruling && dispute.previousArbiterId && provider.slash)
     let slashOutcome: { participantId: string; forfeitedCollateral: string; newCollateral: string; newReputation: number } | undefined
 
+    try {
     await applyEventProjectionOnce(dispute.id, 'dispute.ruling-finalized', String(dispute.appealRound), async (tx) => {
+      const late = await deferral(tx)
+      if (late) throw new RulingFinalizationDeferred(late) // D10 P2, authoritative (see above)
+
       // RFC-021 D6/D4 — feeds the arbiter's track record on every real
       // resolution, correct or not (optional: only market mode has an
       // ArbiterProfile to update; trusted-list mode silently skips this).
@@ -994,6 +1169,11 @@ export class DisputeService {
         await eventBus.emit('arbiter.slashed', slashOutcome, slashOutcome.participantId)
       }
     })
+    } catch (err) {
+      if (err instanceof RulingFinalizationDeferred) return err.reason
+      throw err
+    }
+    return null
   }
 
   /**
@@ -1004,32 +1184,78 @@ export class DisputeService {
    * (projectionKey, subjectId)), and a genuine race between two concurrent callers for the same dispute is
    * resolved by applyEventProjectionOnce()'s own unique-constraint claim, not by anything here.
    *
-   * Disclosed, bounded residual (FOLLOW-UP, not BLOCKER — see Issue #253's own delivery report): this only
-   * ever inspects a dispute's CURRENT (id, appealRound). If a crash leaves round N's finalize missing AND a
-   * human calls appeal() again (bumping to round N+1) BEFORE this ever runs once, round N's own
-   * previousRuling/previousArbiterId snapshot is overwritten by round N+1's own appeal() call before this
-   * function ever gets a chance to see it - an operationally narrow window (requires a human appeal
-   * action to land before any reconciliation tick), not a crash/replay/concurrency case, and out of this
-   * mission's scope to close (would require a full ruling-history table, a genuine schema change).
+   * **Corrected/Implemented (Issue #254, semantic-provenance review):** this section previously disclosed
+   * a residual - "if a human calls appeal() before this ever runs once, round N's own snapshot is
+   * overwritten and unrecoverable" - as an accepted, out-of-scope gap. #254's own investigation proved it
+   * is real but structurally BOUNDED, not open-ended: `applyRuling()`'s fund-movement call can only ever
+   * succeed ONCE per escrow (VALID_TRANSITIONS has zero outgoing edges from every terminal escrow status),
+   * so a dispute can only ever reach `status: 'RESOLVED'` for real exactly once - meaning at most ONE
+   * `appeal()` call can EVER succeed for any given dispute (appeal() itself requires `status: 'RESOLVED'`,
+   * and every later resolution attempt against the now-terminal escrow structurally fails and reverts back
+   * to APPEALED, so a SECOND appeal is never reachable). This makes the missing generation ALWAYS round 0
+   * (the one and only real resolution), and round 0's OWN previousRuling/previousArbiterId are ALWAYS null
+   * (nothing preceded the very first resolution - `shouldSlash` inside finalizeResolveDispute() is
+   * therefore always false for this branch, correctly: a first-instance ruling never slashes anyone).
+   * The second query below closes this for real: an APPEALED dispute's CURRENT previousRuling/
+   * previousArbiterId (written by appeal()'s own one-time capture of round 0's ruling/arbiter, durable and
+   * never overwritten again since a second appeal is unreachable) is round 0's real, historical data -
+   * reused as-is, no schema change, no new provenance field.
    */
-  async recoverMissingRulingFinalization(limit = 200): Promise<{ recovered: string[]; failed: Array<{ disputeId: string; error: string }>; held: string[] }> {
-    const candidates = await prisma.$queryRaw<Array<{ id: string; escrowId: string; appealRound: number; previousRuling: DisputeRuling | null; previousArbiterId: string | null; arbiterId: string | null; ruling: DisputeRuling | null }>>`
-      SELECT d.id, d."escrowId", d."appealRound", d."previousRuling", d."previousArbiterId", d."arbiterId", d.ruling
+  async recoverMissingRulingFinalization(limit = 200): Promise<{ recovered: string[]; deferred: DeferredRulingFinalization[]; failed: Array<{ disputeId: string; error: string }>; held: string[] }> {
+    type Candidate = { id: string; escrowId: string; appealRound: number; previousRuling: DisputeRuling | null; previousArbiterId: string | null; arbiterId: string | null; ruling: DisputeRuling | null; sortKey: string }
+
+    // D13 (#585) - each queue is swept with a keyset cursor over its existing order (oldest ruling first, rows with no
+    // resolvedAt last, id as tie-break), so candidates that stay unfinalized (deferred, failed or skipped) cannot pin
+    // the first page: a call reads at most `limit` rows per queue, those after the cursor, and a short page means the
+    // sweep reached the end, so the next call starts over from the same first page as before D13. A candidate
+    // that stays in its queue is therefore evaluated at least once every ceil(queue size / limit) + 1 calls. The
+    // cursor moves as soon as the page is read, so concurrent calls on this instance take successive pages.
+    const page = async (queue: 'resolved' | 'appealed', read: (after: typeof SWEEP_START) => Promise<Candidate[]>) => {
+      const rows = await read(this.rulingRecoveryCursor[queue])
+      const last = rows[rows.length - 1]
+      this.rulingRecoveryCursor[queue] = rows.length < limit ? SWEEP_START : { at: last.sortKey, id: last.id }
+      return rows
+    }
+
+    const resolvedCandidates = await page('resolved', (after) => prisma.$queryRaw<Candidate[]>`
+      SELECT d.id, d."escrowId", d."appealRound", d."previousRuling", d."previousArbiterId", d."arbiterId", d.ruling, ${SWEEP_KEY}::text AS "sortKey"
       FROM disputes d
-      WHERE d.status = 'RESOLVED'
+      WHERE d.status = 'RESOLVED' AND (${SWEEP_KEY}, d.id) > (${after.at}::timestamp, ${after.id})
         AND NOT EXISTS (
           SELECT 1 FROM event_projection_claims c
           WHERE c."eventId" = d.id AND c."projectionKey" IN ('dispute.ruling-finalized', ${RULING_FINALIZATION_HELD_KEY}) AND c."subjectId" = d."appealRound"::text)
-      ORDER BY d."resolvedAt" ASC NULLS LAST
-      LIMIT ${limit}`
+      ORDER BY ${SWEEP_KEY}, d.id
+      LIMIT ${limit}`)
+
+    // The one bounded "appealed before recovery" case proven above: the dispute is now APPEALED, but
+    // round 0 never had its own finalize claim recorded. previousRuling/previousArbiterId ARE round 0's
+    // own real ruling/arbiter (appeal()'s own durable capture); round 0's own previousRuling/
+    // previousArbiterId are always null (see this method's own header comment) - never re-derived from
+    // anything else. The escrow must have settled as that ruling: appeal() can win the lock while the
+    // provider call is in flight, and when that call then fails the ruling never happened.
+    const appealedCandidates = await page('appealed', (after) => prisma.$queryRaw<Candidate[]>`
+      SELECT d.id, d."escrowId", (d."appealRound" - 1) AS "appealRound", NULL::text AS "previousRuling", NULL::text AS "previousArbiterId",
+             d."previousArbiterId" AS "arbiterId", d."previousRuling" AS ruling, ${SWEEP_KEY}::text AS "sortKey"
+      FROM disputes d
+      JOIN escrows e ON e.id = d."escrowId"
+        AND e.status::text = CASE d."previousRuling"::text WHEN 'RELEASE' THEN 'COMPLETED' WHEN 'REFUND' THEN 'REFUNDED' WHEN 'SPLIT' THEN 'SPLIT' END
+      WHERE d.status = 'APPEALED' AND d."appealRound" = 1 AND d."previousRuling" IS NOT NULL AND d."previousArbiterId" IS NOT NULL
+        AND (${SWEEP_KEY}, d.id) > (${after.at}::timestamp, ${after.id})
+        AND NOT EXISTS (
+          SELECT 1 FROM event_projection_claims c
+          WHERE c."eventId" = d.id AND c."projectionKey" IN ('dispute.ruling-finalized', ${RULING_FINALIZATION_HELD_KEY}) AND c."subjectId" = '0')
+      ORDER BY ${SWEEP_KEY}, d.id
+      LIMIT ${limit}`)
 
     const recovered: string[] = []
+    const deferred: DeferredRulingFinalization[] = []
     const failed: Array<{ disputeId: string; error: string }> = []
-    for (const candidate of candidates) {
-      if (!candidate.arbiterId || !candidate.ruling) continue // structurally shouldn't happen for a RESOLVED dispute - skip rather than guess
+    for (const candidate of [...resolvedCandidates, ...appealedCandidates]) {
+      if (!candidate.arbiterId || !candidate.ruling) continue // structurally shouldn't happen - skip rather than guess
       try {
-        await this.finalizeResolveDispute(candidate, candidate.arbiterId, candidate.ruling)
-        recovered.push(candidate.id)
+        const reason = await this.finalizeResolveDispute(candidate, candidate.arbiterId, candidate.ruling, true)
+        if (!reason) recovered.push(candidate.id)
+        else deferred.push({ disputeId: candidate.id, escrowId: candidate.escrowId, appealRound: candidate.appealRound, ruling: candidate.ruling, arbiterId: candidate.arbiterId, reason })
       } catch (err) {
         failed.push({ disputeId: candidate.id, error: err instanceof Error ? err.message : String(err) })
       }
@@ -1041,7 +1267,7 @@ export class DisputeService {
       distinct: ['eventId'],
       orderBy: { eventId: 'asc' },
     })
-    return { recovered, failed, held: heldClaims.map((c) => c.eventId) }
+    return { recovered, deferred, failed, held: heldClaims.map((c) => c.eventId) }
   }
 
   /**

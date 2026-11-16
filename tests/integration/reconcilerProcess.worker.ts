@@ -240,15 +240,17 @@ async function main(): Promise<void> {
   if (gateAt.some((g) => g.at === 'start')) await gate(gateAt.find((g) => g.at === 'start')!.name)
 
   // The live path: claim a transition and publish it, exactly as the settlement code does after a fund movement.
-  for (const t of JSON.parse(process.env.LIVE_PUBLISH ?? '[]') as Array<{ escrowId: string; tradeId: string; from: string; to: string; triggeredBy: string; eventName: string }>) {
-    await emitEscrowTransition(t.escrowId, t.tradeId, t.from, t.to, t.triggeredBy, t.eventName)
+  for (const t of JSON.parse(process.env.LIVE_PUBLISH ?? '[]') as Array<{ escrowId: string; tradeId: string; from: string; to: string; triggeredBy: string; eventName: string; disputeId?: string }>) {
+    await emitEscrowTransition(t.escrowId, t.tradeId, t.from, t.to, t.triggeredBy, t.eventName, t.disputeId ? { disputeId: t.disputeId } : {})
   }
   if (process.env.ROLE === 'publisher') return finish(0)
 
   const escrowIds: string[] = JSON.parse(process.env.ESCROW_IDS ?? '[]')
   const deadline = Date.now() + Number(process.env.WORKER_DEADLINE_MS ?? 90_000)
   while (Date.now() < deadline) {
-    await reconcilePendingSettlements({ projectionGraceMs: 0 })
+    // Issue #239 (O1): the external-spend watch is proven by its own suites (pendingRoundLifecycle*, T12b); here it
+    // would only read the public explorer for other suites' escrows. Every recovery pass this suite asserts still runs.
+    await reconcilePendingSettlements({ projectionGraceMs: 0, externalSpendMinIntervalMs: Number.POSITIVE_INFINITY })
     if (frozen) await never
     // PASS 3 redelivers the first durable event only; a duplicate reaches a consumer through at-least-once delivery.
     const durable = await prisma.$queryRaw`

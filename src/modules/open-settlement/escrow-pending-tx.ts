@@ -9,13 +9,22 @@ import {
   loadParticipantPubkeys,
   claimEscrowTransition,
   revertEscrowStatus,
+  revertUnsettledClaim,
   settlementSucceededButLocalStepFailed,
   emitEscrowTransition,
   resolvePayoutAddress,
   checkFundMovementCapability,
   assertFundingNotUncertain,
   withEscrowFundingLock,
+  isPartyOrAgent,
+  type TrustedActorId,
 } from './escrow-lifecycle'
+import { randomUUID } from 'crypto'
+import { fetchOutpointSpendStatus } from './multisig.provider'
+import { verifySignerPartialSignature, RoundSignatureRejected } from './multisig-round-proofs'
+import { SubmissionDefinitelyFailed } from './broadcast-outcome'
+import { retireRound, RoundNotRetirable } from './pending-round-retirement'
+import { isSupersedableCooperativeRound, revalidateRulingSupersessionGrant, type RulingSupersessionGrant } from './dispute-dispatch'
 import { hasDualApproval } from './escrow-dual-approval'
 import { escrowRepository } from './escrow-repository'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
@@ -68,7 +77,8 @@ async function initiateSignatureCollectionCore(
   targetStatus: string,
   triggeredBy: string,
   buildProvider: (provider: any, escrowRecord: any) => Promise<{ psbtBase64: string; requiredSigners: string[]; toAddress?: string; toAddressSecondary?: string; feeCollection?: { feeSats: number; waived: boolean } | null; minerFeeSats?: number }>,
-  extraData?: Record<string, unknown>
+  extraData?: Record<string, unknown>,
+  supersession?: RulingSupersessionGrant
 ) {
   const escrow = await escrowRepository.findById(escrowId)
   if (!escrow) throw new NotFoundError('Escrow', escrowId)
@@ -136,9 +146,15 @@ async function initiateSignatureCollectionCore(
     : 'settlement.escrow.split' as const
   await checkFundMovementCapability(triggeredBy, capabilityScope)
 
-  const existingPending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
+  const existingPending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId }, include: { signatures: true } })
+  // Issue #239 (A-1) - only a ruling's own dispatch, holding a grant the dispatch path issued, may replace a
+  // cooperative MULTISIG round that is not fully signed. Everything is re-checked under the lock below.
+  let superseded: { id: string; funding: FundingOutpoint } | null = null
   if (existingPending) {
-    throw new EscrowError(`Escrow ${escrowId} already has a pending ${existingPending.kind} transaction awaiting signatures`)
+    if (!supersession || escrow.type !== 'MULTISIG' || !isSupersedableCooperativeRound(existingPending)) {
+      throw new EscrowError(`Escrow ${escrowId} already has a pending ${existingPending.kind} transaction awaiting signatures`)
+    }
+    superseded = { id: existingPending.id, funding: await assertFundingOutpointUnspent(escrow) }
   }
 
   const { buyerPubkey, sellerPubkey, arbiterPubkey } = await loadParticipantPubkeys(escrowId)
@@ -178,8 +194,24 @@ async function initiateSignatureCollectionCore(
           )
         }
       }
+      const newRoundId = randomUUID()
+      if (superseded) {
+        const grant = await revalidateRulingSupersessionGrant(tx, supersession, escrowId, kind)
+        if (await escrowFundingEvidenceService.isFundingUncertain(escrowId, tx)) {
+          throw new RoundNotRetirable(`Escrow ${escrowId}'s funding evidence is uncertain — refusing to supersede its cooperative round`)
+        }
+        // A round already gone needs no retirement; a different round makes the create below fail (P2002).
+        const round = await tx.escrowPendingTransaction.findFirst({ where: { id: superseded.id, escrowId }, include: { signatures: true } })
+        if (round) {
+          await retireRound(tx, {
+            round, funding: superseded.funding, reason: 'SUPERSEDED_BY_RULING', retiredBy: grant.arbiterId,
+            ruling: { disputeId: grant.disputeId, appealRound: grant.appealRound, supersedingPendingOperationId: newRoundId },
+          })
+        }
+      }
       return tx.escrowPendingTransaction.create({
         data: {
+          ...(superseded ? { id: newRoundId } : {}),
           escrowId,
           kind,
           toAddress: result.toAddress!,
@@ -213,7 +245,7 @@ async function initiateSignatureCollectionCore(
   }
 }
 
-export async function initiateRelease(escrowId: string, toAddress: string | undefined, triggeredBy: string) {
+export async function initiateRelease(escrowId: string, toAddress: string | undefined, triggeredBy: string, supersession?: RulingSupersessionGrant) {
   // Capability check (RFC-014) now lives in initiateSignatureCollectionCore()
   // above, shared by release/refund/split (Missão 06.9) — this file used
   // to duplicate it here, which is exactly why refund/split never got it.
@@ -235,7 +267,8 @@ export async function initiateRelease(escrowId: string, toAddress: string | unde
 
   return initiateSignatureCollectionCore(
     escrowId, 'release', 'COMPLETED', triggeredBy,
-    (provider, record) => provider.buildUnsignedRelease(record, resolvedToAddress).then((r: any) => ({ ...r, toAddress: resolvedToAddress }))
+    (provider, record) => provider.buildUnsignedRelease(record, resolvedToAddress).then((r: any) => ({ ...r, toAddress: resolvedToAddress })),
+    undefined, supersession
   )
 }
 
@@ -260,7 +293,7 @@ export async function initiateRelease(escrowId: string, toAddress: string | unde
 // out of this mission's scope — still derive their OWN, different
 // destination internally and must keep reporting THAT truthfully, not a
 // value they never actually used).
-export async function initiateRefund(escrowId: string, triggeredBy: string, toAddress?: string) {
+export async function initiateRefund(escrowId: string, triggeredBy: string, toAddress?: string, supersession?: RulingSupersessionGrant) {
   const escrow = await escrowRepository.findById(escrowId)
   if (!escrow) throw new NotFoundError('Escrow', escrowId)
   const trade = await tradeRepository.findById(escrow.tradeId)
@@ -269,11 +302,12 @@ export async function initiateRefund(escrowId: string, triggeredBy: string, toAd
 
   return initiateSignatureCollectionCore(
     escrowId, 'refund', 'REFUNDED', triggeredBy,
-    (provider, record) => provider.buildUnsignedRefund(record, resolvedToAddress)
+    (provider, record) => provider.buildUnsignedRefund(record, resolvedToAddress),
+    undefined, supersession
   )
 }
 
-export async function initiateSplit(escrowId: string, buyerAddress: string | undefined, sellerAddress: string | undefined, buyerBps: number, triggeredBy: string) {
+export async function initiateSplit(escrowId: string, buyerAddress: string | undefined, sellerAddress: string | undefined, buyerBps: number, triggeredBy: string, supersession?: RulingSupersessionGrant) {
   if (!(buyerBps > 0 && buyerBps < 10000)) {
     throw new ValidationError('buyerBps must be strictly between 0 and 10000 for a real split — use release/refund for an all-or-nothing outcome')
   }
@@ -300,7 +334,8 @@ export async function initiateSplit(escrowId: string, buyerAddress: string | und
     // way to compute the seller's basisAmount for a SPLIT settled via this
     // path. EscrowPendingTransaction.buyerBps (new, additive column) closes
     // this gap.
-    { buyerBps }
+    { buyerBps },
+    supersession
   )
 }
 
@@ -314,27 +349,49 @@ export async function initiateSplit(escrowId: string, buyerAddress: string | und
 // finalizeRefund()) and performs the same atomic status-claim
 // releaseFunds()/refundFunds() already do, so the race protection those
 // methods have is preserved here too.
-export async function submitTransactionSignature(escrowId: string, participantId: string, signedPsbtBase64: string) {
+export async function submitTransactionSignature(escrowId: string, participantId: string, signedPsbtBase64: string, pendingTransactionId?: string) {
   const escrow = await escrowRepository.findById(escrowId)
   if (!escrow) throw new NotFoundError('Escrow', escrowId)
 
-  const pending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
-  if (!pending) {
-    throw new EscrowError(`Escrow ${escrowId} has no pending transaction awaiting signatures — call initiate-release/initiate-refund (or, for a dispute SPLIT ruling, resolveDispute()) first`)
-  }
-  if (!pending.requiredSigners.includes(participantId)) {
-    throw new ForbiddenError(
-      `${participantId} is not one of the required signers (${pending.requiredSigners.join(', ')}) for escrow ${escrowId}'s pending ${pending.kind}`
-    )
-  }
-
-  await prisma.escrowTransactionSignature.upsert({
-    where: { pendingTxId_participantId: { pendingTxId: pending.id, participantId } },
-    update: { signedPsbtBase64 },
-    create: { pendingTxId: pending.id, participantId, signedPsbtBase64 },
+  // Issue #244 - read and signed under the escrow lock stale cleanup deletes under
+  // (dispute-pending-reconciliation.ts): a signature lands on a round cleanup can no longer delete, or finds no round.
+  // Issue #239 - the escrow status, the round, the signature check and the resulting signature set are one
+  // snapshot taken under that lock; finalization below uses it and re-reads nothing.
+  const { pending, signatures, escrowStatus } = await withEscrowFundingLock(escrowId, async (tx) => {
+    const current = await tx.escrow.findUnique({ where: { id: escrowId }, select: { status: true } })
+    const pending = await tx.escrowPendingTransaction.findUnique({ where: { escrowId } })
+    if (!pending) {
+      throw new EscrowError(`Escrow ${escrowId} has no pending transaction awaiting signatures — call initiate-release/initiate-refund (or, for a dispute SPLIT ruling, resolveDispute()) first`)
+    }
+    if (pendingTransactionId !== undefined && pendingTransactionId !== pending.id) {
+      throw new RoundSignatureRejected(`Signature is for pending round ${pendingTransactionId}, but escrow ${escrowId}'s live round is ${pending.id}`)
+    }
+    if (!pending.requiredSigners.includes(participantId)) {
+      throw new ForbiddenError(
+        `${participantId} is not one of the required signers (${pending.requiredSigners.join(', ')}) for escrow ${escrowId}'s pending ${pending.kind}`
+      )
+    }
+    if (escrow.type === 'MULTISIG' && !pending.disputeId && current?.status === 'DISPUTED') {
+      // ADR-005 already refuses to execute it; refusing the signature keeps the round supersedable by the ruling.
+      // MULTISIG only (#239 scope): LIGHTNING_HODL / SAFE_GUARD_EVM keep their unchanged path to that ADR-005 refusal.
+      throw new EscrowError(`Escrow ${escrowId} is DISPUTED: its cooperative ${pending.kind} round accepts no further signatures`)
+    }
+    let stored = signedPsbtBase64
+    if (escrow.type === 'MULTISIG') {
+      const key = await tx.escrowParticipantKey.findFirst({ where: { escrowId, participantId, role: { in: ['buyer', 'seller'] } }, select: { pubkey: true } })
+      if (!key) throw new RoundSignatureRejected(`${participantId} has no registered key on escrow ${escrowId}`)
+      // The server's own copy of the round plus this one signature - never the client's PSBT fields.
+      stored = verifySignerPartialSignature(pending.unsignedPsbtBase64, signedPsbtBase64, key.pubkey)
+    }
+    await tx.escrowTransactionSignature.upsert({
+      where: { pendingTxId_participantId: { pendingTxId: pending.id, participantId } },
+      update: { signedPsbtBase64: stored },
+      create: { pendingTxId: pending.id, participantId, signedPsbtBase64: stored },
+    })
+    const signatures = await tx.escrowTransactionSignature.findMany({ where: { pendingTxId: pending.id } })
+    return { pending, signatures, escrowStatus: current?.status ?? escrow.status }
   })
 
-  const signatures = await prisma.escrowTransactionSignature.findMany({ where: { pendingTxId: pending.id } })
   const submittedIds = new Set(signatures.map((s: { participantId: string }) => s.participantId))
   const allSubmitted = pending.requiredSigners.every((id: string) => submittedIds.has(id))
 
@@ -387,7 +444,7 @@ export async function submitTransactionSignature(escrowId: string, participantId
 
   // Atomic claim before ever calling the real, side-effecting provider —
   // same idiom as releaseFunds()/refundFunds() (escrow.service.ts).
-  await claimEscrowTransition(escrowId, escrow.status, targetStatus)
+  await claimEscrowTransition(escrowId, escrowStatus, targetStatus)
 
   // Issue #291 - two distinct error boundaries. Only a failing PROVIDER
   // finalize reverts the claim (the pending row and signatures stay for a
@@ -406,7 +463,19 @@ export async function submitTransactionSignature(escrowId: string, participantId
       ? await provider.finalizeRefund(escrow, pending.unsignedPsbtBase64, signedList, pending.id)
       : await provider.finalizeSplit!(escrow, pending.unsignedPsbtBase64, signedList)
   } catch (err) {
-    await revertEscrowStatus(escrowId, targetStatus, escrow.status)
+    // Issue #299 - UNKNOWN is not FAILED. A MULTISIG claim is released only when the round could not be built (nothing
+    // was sent); any other error may mean the network has the transaction, so the claim stays (no dispute, no new
+    // disposition) and PASS 1 converges from chain truth with the same transaction.
+    if (escrow.type !== 'MULTISIG') await revertEscrowStatus(escrowId, targetStatus, escrowStatus)
+    else if (err instanceof SubmissionDefinitelyFailed) {
+      try {
+        await revertUnsettledClaim(escrowId, targetStatus, escrowStatus)
+      } catch (revertErr) {
+        const reason = revertErr instanceof Error ? revertErr.message : String(revertErr)
+        log.error({ msg: 'MULTISIG: the round could not be built and its claim could not be released - escrow stays claimed, PASS 1 routes it to manual review', escrowId, pendingTransactionId: pending.id, stage: 'release-claim', cause: err.message, err: reason })
+        throw new EscrowError(`${err.message}; the claim could not be released (${reason}) - escrow ${escrowId} stays ${targetStatus} pending manual review`)
+      }
+    }
     throw err
   }
 
@@ -505,8 +574,16 @@ export async function submitTransactionSignature(escrowId: string, participantId
       : pending.kind === 'refund'
       ? 'settlement.escrow.refunded'
       : 'settlement.escrow.split'
+    // Issue #254B - pending.disputeId (ADR-005/#218's own write-time provenance, captured by
+    // initiateSignatureCollectionCore() at the moment this pending operation was created, immutable and
+    // never re-derived from current Dispute state) closes the #254 Day-0 blocker for every rail that
+    // finalizes through THIS function (MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM) - no schema change: the
+    // column already existed for the Economic Disposition Commit Gate, only threading it onto the
+    // settlement event itself was missing. common/events/settlement-provenance.ts's classifySettlementProvenance() reads
+    // this exact field first, before any other provenance source.
     await emitEscrowTransition(escrowId, escrow.tradeId, escrow.status, targetStatus, pending.triggeredBy, eventName, {
       txId: result.txId,
+      ...(pending.disputeId ? { disputeId: pending.disputeId } : {}),
     })
 
     // Cascade-deletes its EscrowTransactionSignature rows (schema.prisma's
@@ -529,4 +606,59 @@ export async function getPendingTransaction(escrowId: string) {
   })
   if (!pending) throw new NotFoundError('Pending transaction for this escrow', escrowId)
   return pending
+}
+
+type FundingOutpoint = { txid: string; vout: number; checkedAt: Date }
+
+// Issue #239 - a round is retired only while its funding outpoint is provably unspent: a spent or unreadable
+// outpoint may mean someone completed the round outside Sails (UNKNOWN, never FAILED). Read before the lock;
+// a spend landing after this read is caught by reconcileExternalFundingSpends().
+async function assertFundingOutpointUnspent(escrow: { id: string; txLockId: string | null; txLockVout: number | null }): Promise<FundingOutpoint> {
+  if (!escrow.txLockId || escrow.txLockVout === null || escrow.txLockVout === undefined) {
+    throw new RoundNotRetirable(`Escrow ${escrow.id} has no recorded funding outpoint`)
+  }
+  let spend: Awaited<ReturnType<typeof fetchOutpointSpendStatus>>
+  try {
+    spend = await fetchOutpointSpendStatus(escrow.txLockId, escrow.txLockVout)
+  } catch (err) {
+    throw new RoundNotRetirable(`Escrow ${escrow.id}'s funding outpoint could not be read (${err instanceof Error ? err.message : String(err)}) — refusing to retire its round`)
+  }
+  if (spend.spent) {
+    throw new RoundNotRetirable(`Escrow ${escrow.id}'s funding outpoint is already spent (by ${spend.spendingTxid ?? 'an unknown transaction'}) — refusing to retire its round`)
+  }
+  return { txid: escrow.txLockId, vout: escrow.txLockVout, checkedAt: new Date() }
+}
+
+const TERMINAL_STATUSES = ['COMPLETED', 'REFUNDED', 'SPLIT']
+export const RETIRED_NOT_REVOKED =
+  'Retired, not revoked: Sails stops collecting, combining and executing this round, but signatures already handed out stay valid for this exact transaction until the funding outpoint is spent by another one.'
+
+/**
+ * Issue #239 - the seller (or the seller's own agent, which only internal callers can produce) withdraws a
+ * cooperative MULTISIG round that is not fully signed. Never the arbiter and never in a dispute: there, only a
+ * valid ruling replaces the round. LIGHTNING_HODL / SAFE_GUARD_EVM fail closed.
+ */
+export async function cancelPendingSignatureRound(escrowId: string, pendingTransactionId: string, actor: TrustedActorId) {
+  const escrow = await escrowRepository.findById(escrowId)
+  if (!escrow) throw new NotFoundError('Escrow', escrowId)
+  if (escrow.type !== 'MULTISIG') {
+    throw new EscrowError(`Escrow type '${escrow.type}' does not support cancelling a pending signature round`)
+  }
+  const trade = await tradeRepository.findById(escrow.tradeId)
+  if (!trade) throw new NotFoundError('Trade', escrow.tradeId)
+  if (!isPartyOrAgent(actor, trade.sellerId)) {
+    throw new ForbiddenError(`${actor} is not the seller of trade ${trade.id} and cannot cancel its pending signature round`)
+  }
+  const funding = await assertFundingOutpointUnspent(escrow)
+
+  return withEscrowFundingLock(escrowId, async (tx) => {
+    const current = await tx.escrow.findUnique({ where: { id: escrowId }, select: { status: true } })
+    if (!current || current.status === 'DISPUTED' || TERMINAL_STATUSES.includes(current.status)) {
+      throw new EscrowError(`Escrow ${escrowId} is ${current?.status ?? 'missing'}: only a non-disputed, non-terminal escrow's round can be cancelled (in a dispute, only a valid ruling replaces it)`)
+    }
+    const round = await tx.escrowPendingTransaction.findFirst({ where: { id: pendingTransactionId, escrowId }, include: { signatures: true } })
+    if (!round) return { outcome: 'GONE' as const, pendingTransactionId }
+    const retirement = await retireRound(tx, { round, funding, reason: 'CANCELLED', retiredBy: actor })
+    return { outcome: 'CANCELLED' as const, pendingTransactionId, retirementId: retirement.id, note: RETIRED_NOT_REVOKED }
+  })
 }

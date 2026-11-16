@@ -23,9 +23,12 @@
 // DIFFERENT handlers racing for the same trade).
 
 import { PrismaClient } from '@prisma/client'
-import { randomBytes, randomUUID } from 'crypto'
+import { createHash, randomBytes, randomUUID } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
+// The first link of a real escrow transition chain (escrow-lifecycle.ts's computeEscrowEventHash()). Settlement
+// provenance proves a cooperative settlement from this chain, so a fixture's hash must be one the writer would compute.
+const genesisEscrowHash = (from: string, to: string, by: string) => createHash('sha256').update(`${from}|${to}|${by}|genesis`).digest('hex')
 
 // A terminal Escrow status is projected only once its settlement result exists.
 const settlementResult = (status: string) => (['COMPLETED', 'SPLIT', 'REFUNDED'].includes(status) ? { txReleaseId: randomUUID() } : {})
@@ -457,7 +460,7 @@ describe('Issue #236 - delayed/duplicated/reordered settlement events never regr
     // handler actually races to project - concurrently redeliver BOTH, from two independent module
     // graphs, and confirm the deterministic winner is always the authoritative persisted truth.
     const lockedTransition = await prisma.escrowEvent.create({
-      data: { escrowId: ctx.escrowId, fromStatus: 'CREATED', toStatus: 'FUNDS_LOCKED', triggeredBy: ctx.sellerId, entryHash: 'h' + randomUUID(), prevHash: 'genesis' },
+      data: { escrowId: ctx.escrowId, fromStatus: 'CREATED', toStatus: 'FUNDS_LOCKED', triggeredBy: ctx.sellerId, entryHash: genesisEscrowHash('CREATED', 'FUNDS_LOCKED', ctx.sellerId), prevHash: 'genesis' },
     })
     await prisma.eventProjectionClaim.create({ data: { eventId: lockedTransition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
     const lockedEventId = randomUUID()
@@ -491,7 +494,7 @@ describe('Issue #236 - delayed/duplicated/reordered settlement events never regr
     await sleep(200)
 
     const lockedTransition = await prisma.escrowEvent.create({
-      data: { escrowId: ctx.escrowId, fromStatus: 'CREATED', toStatus: 'FUNDS_LOCKED', triggeredBy: ctx.sellerId, entryHash: 'h' + randomUUID(), prevHash: 'genesis' },
+      data: { escrowId: ctx.escrowId, fromStatus: 'CREATED', toStatus: 'FUNDS_LOCKED', triggeredBy: ctx.sellerId, entryHash: genesisEscrowHash('CREATED', 'FUNDS_LOCKED', ctx.sellerId), prevHash: 'genesis' },
     })
     await prisma.eventProjectionClaim.create({ data: { eventId: lockedTransition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
     const lockedEventId = randomUUID()

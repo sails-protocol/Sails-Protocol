@@ -26,9 +26,12 @@
 // not re-proving fund movement.
 
 import { PrismaClient } from '@prisma/client'
-import { randomBytes, randomUUID } from 'crypto'
+import { createHash, randomBytes, randomUUID } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
+// The first link of a real escrow transition chain (escrow-lifecycle.ts's computeEscrowEventHash()). Settlement
+// provenance proves a cooperative settlement from this chain, so a fixture's hash must be one the writer would compute.
+const genesisEscrowHash = (from: string, to: string, by: string) => createHash('sha256').update(`${from}|${to}|${by}|genesis`).digest('hex')
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -153,7 +156,7 @@ describe('Issue #253 - durable downstream projection completion (real PostgreSQL
     requirePostgres('A3 PASS 3 recovery for dispute.count')
     const ctx = await makeFundsLockedEscrow()
     const transition = await prisma.escrowEvent.create({
-      data: { escrowId: ctx.escrowId, fromStatus: 'FUNDS_LOCKED', toStatus: 'DISPUTED', triggeredBy: ctx.sellerId, entryHash: 'h' + randomUUID(), prevHash: 'genesis' },
+      data: { escrowId: ctx.escrowId, fromStatus: 'FUNDS_LOCKED', toStatus: 'DISPUTED', triggeredBy: ctx.sellerId, entryHash: genesisEscrowHash('FUNDS_LOCKED', 'DISPUTED', ctx.sellerId), prevHash: 'genesis' },
     })
     await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
     const eventId = randomUUID()

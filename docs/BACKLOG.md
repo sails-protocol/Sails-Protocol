@@ -1993,6 +1993,43 @@ or hidden operational conventions.
       question resolved 2026-09-10, Product Direction — previously
       recorded as pending; superseded here.)
 
+    **SUCCESSOR DECISION (2026-11-01, Product Owner + CTO) — Day-0
+    commitment narrowed to 14 native P2P combinations.** The matrix
+    immediately above (25 `{asset, rail}` rows) is preserved verbatim as
+    the 2026-09-10 Product Direction Freeze; it is no longer the Day-0
+    commitment. The commitment is now the complete set: **BTC** on
+    `BITCOIN_L1`, `LIQUID`; **USDT** on `ETHEREUM`, `POLYGON`, `BASE`,
+    `ARBITRUM`, `TON`, `TRON`, `SOLANA`; **USDC** on `ETHEREUM`,
+    `POLYGON`, `BASE`, `ARBITRUM`, `SOLANA` — not an "initial wave" of
+    25. The 12 rows that left the commitment are native P2P roadmap with
+    no date commitment (BTC/LIGHTNING, BTC/SPARK, BTC/ARKADE;
+    DEPIX/LIQUID, DEPIX/SPARK; USDT/OPTIMISM, USDT/AVALANCHE,
+    USDT/BNB_CHAIN, USDT/LIQUID; USDC/OPTIMISM, USDC/AVALANCHE;
+    XAUT/ETHEREUM), without erasing the 2026-09-10 decision. `{USDC,
+    SOLANA}` is added intentionally (25 − 12 + 1 = 14, i.e. 13 retained
+    plus 1 new). Sails Market may offer routes, swaps and direct purchase
+    through commercial partners; that is not native P2P support of the
+    protocol, and DePix may have commercial coverage there provided
+    approved partners exist. Cross-cutting requirements (security,
+    recovery, external integration, multi-operator operation, evidence)
+    are not reduced, and no combination is homologated by appearing in
+    the list. The 25-row architectural registry and its tests are
+    unchanged: catalog (25), Day-0 commitment (14), registered provider
+    and beta/production eligibility are four separate facts, and an
+    explicit validation of the Day-0 matrix awaits a separately
+    authorized implementation mission. CTO decisions D1–D4 (Issue #105,
+    issuecomment-6561714306) and canonical text:
+    `docs/adr/ADR-002-asset-settlement-rail-adapter-provider-architecture.md`
+    §5A. The frozen product properties above ("may be immature but may
+    not disappear through scope reduction") are preserved verbatim as the
+    rule of the 2026-09-10 freeze; the successor decision revises its
+    reach: **none of the 14 combinations may be withdrawn silently —
+    withdrawal needs a new Product Owner + CTO approval, with
+    justification and traceability.** The unconditional DePix evidence in
+    the "Required evidence" paragraph below and the
+    DePix-on-Liquid-and-Spark requirement above are historical for the
+    Day-0 commitment.
+
     **Architecture obligation recorded, mechanism NOT frozen:** the
     current flat `AssetType` (10 string values, each conflating asset
     identity and network/rail identity in one token, e.g. `USDT_ERC20`)
@@ -2154,6 +2191,13 @@ or hidden operational conventions.
     matrix above. What remains open is architecture/integration
     sequencing (see the existing architecture obligation immediately
     above and 20.6 below), not whether these belong in scope.
+    *(2026-11-01 note: "already Day-0-required" is historical for the
+    assets and networks that left the Day-0 commitment — Spark, DePix,
+    Optimism, Avalanche, BNB Chain, Lightning, Arkade, USDT on Liquid,
+    XAUT — see the successor decision under item 20 and ADR-002 §5A. The
+    paragraph is preserved; the integration-coverage obligation of this
+    item now applies to the 14 combinations of the commitment, per the
+    CTO decisions D3/D4 in Issue #105, issuecomment-6561714306.)*
 
     20.3. **Institutional maturity/terminology reconciliation (one
     correction family).** Beyond the Lightning/Arkade correction this
@@ -2288,6 +2332,13 @@ or hidden operational conventions.
     optional `currency`. For any beta supporting more than one fiat
     quote denomination, the market pair/currency must be explicit and
     never inferred from node, locale, payment method or geography.
+
+    **Quote-currency inventory, implemented versus planned (2026-11-03, EPM, requested by the CTO for criterion B7).** A statement of facts: B7 stays OPEN and this note freezes no scope.
+    - **Persisted today.** `Offer.priceUsd` (required) and `Offer.priceBrl` (optional). The same pair feeds the derived offer schema, which can name only `USD` or `BRL` as the quote currency (`packages/sails-p2p-schemas/src/offer.ts:63`). `OfferEnvelope` and `Trade` carry `priceUsd`.
+    - **Declared on intents.** `currency` is optional and validated against eight codes (`BRL`, `USD`, `EUR`, `GBP`, `ARS`, `MXN`, `NGN`, `INR`) in `src/core/intent.routes.ts` and `src/modules/open-agents/agent.routes.ts`. It is not stored as a quote on the Offer.
+    - **Aggregated discovery.** `GET /v1/liquidity/offers` does not return `priceBrl` (`packages/sails-sdk/src/modules/liquidity.ts`), so a client cannot read an offer's local-fiat quote from it.
+    - **Reference UI only.** `FIAT_CURRENCIES` lists thirteen codes; five of them (`VES`, `COP`, `PEN`, `BOB`, `EGP`) exist only in the UI. Amount presets are illustrative, and the UI defaults the display currency to BRL where a route returns no fiat choice.
+    - **Planned.** Nothing is decided: no frozen list of quote currencies, no live FX feed, no canonical market-pair field. These remain the open obligations of this item.
 
 Required evidence:
 Beta Asset/Rail Matrix Truth Test; Unsupported Asset Fail-Closed Test;
@@ -5924,3 +5975,19 @@ Canonical invariants:
 A future Sails-operated OpenTimestamps-compatible aggregator/calendar is OPTIONAL / FUTURE only. If operated later, it is one additional ecosystem participant, never a mandatory calendar, central timestamp authority, interoperability gate, or Day-0 dependency.
 
 **Implementation/evidence remains open.** This entry freezes the required property; it does not claim the current implementation already satisfies multi-calendar redundancy.
+
+---
+
+## Institutional status after the #654 integration (2026-11-16)
+
+**Status: CURRENT — DOCUMENTARY RECONCILIATION. It records facts already decided elsewhere; it is not a homologation, a migration or an economic activation, and it changes no criterion.** The authoritative records of Day-0 homologation remain Issue #105 and the live GitHub Project; if this entry conflicts with them, they govern.
+
+**Integration.** PR #654 (the composition of #650, #653 and #652, head `a8d9f196`) was merged on 2026-11-16 as `main` commit `5c436367` (parents `a530fdc1` and `a8d9f196`; 28 files; one migration, `20261116120000_fee_collection_evidence_seq`). #650, #652 and #653 are marked merged by GitHub because their commits entered `main` by ancestry; it is a single integration, counted once. CI on `main` at `5c436367` (CI, CI Tests, CodeQL) succeeded. The Gatekeeper's technical opinions on the composition (`86dc743d`) and on the last delta (`a8d9f196`) are "GO TÉCNICO LIMITADO"; they do not authorize a migration or economic activation.
+
+**Day-0 formal count: 4/54 (A1, A2, A3, B4); CC12–CC17: 0/6; Day 0 remains NO-GO.** A2 was homologated by the Gatekeeper with CTO authorization 234 on 2026-11-15 (Issue #105 comment 6899915553; evidence commit `1e8b52d1d79224efa6d4569b3ba085a4cc61b175`) under the CI operating standard. Its limits are preserved: the original configuration with 10 or more workers is not proven; the explanation attributing TD #57 to unreachable PostgreSQL/Redis is not proven; four suites do not mock Redis (`fullTradeLifecycle`, `intentCapabilityCheck`, `intentFlow`, `pearRoutes`); the CI worker count is inferred from the runner documentation, not measured; real PostgreSQL/Redis unavailability is outside A2's scope. Closing TD #57 in `docs/TECHNICAL_DEBT_AUDIT.md` still needs its own documentation PR; this entry does not change that file.
+
+**Item 38 (Asset × Network/Rail × Wallet Adapter × Settlement Capability × Maturity).** A provisional, declarative freeze was approved (CTO 263, documentary GO in CTO 266). It is **not** a homologation of item 38, and J49 remains on HOLD. In that matrix: MULTISIG on BTC is the only future production candidate, with no operational authorization, and its arbiter key is derived on the server from `MULTISIG_SEED` with no independence claim and no production exception; LIGHTNING_HODL is Arkade-backed (technical identifier kept), testnet validation only, and its provider registration does not declare `split`; SAFE_GUARD_EVM has no canonical asset and its AWS KMS dependency is not approved; WDK_USDT_EVM is ineligible (RFC-019); LIQUID_COVENANT has no provider; MOCK is for internal tests. Adapter maturity is without evidence until H40/H41. E26 decisions D-a to D-o and blockers B1–B9 remain open. Day-0 validation is limited to local, disposable, regtest and authorized testnet environments, with no customer funds.
+
+**Migration `20261116120000_fee_collection_evidence_seq`.** It is present in `main` but is not known to have been applied to any persistent database, and no persistent environment is designated (CTO 142/144). The database steps are separately gated and unauthorized: role bootstrap, `npm run db:migrate`, the post-migration review of historical evidence order (`docs/DEPLOYMENT.md` §6.5), the inventories of duplicate and partially reversed allocations, and any economic activation. `docs/DEPLOYMENT.md` §6.3 and §6.5 hold the existing procedures.
+
+**Still open and unchanged by this entry:** C9 (HOLD: O3, compaction, network integration); H42 (STOP: the external integrator's recoverable event consumption is not chosen or built); E21/F28 (open; #651 is a Draft); the ordering of escrow funding/release evidence (HOLD); E25/F33 without homologation.
