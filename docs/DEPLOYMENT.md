@@ -413,8 +413,13 @@ until it is classified, and the grant step fails while any table is unclassified
 1. Administrator, once: `ADMIN_DATABASE_URL=... SAILS_MIGRATOR_PASSWORD=... SAILS_RUNTIME_PASSWORD=... node scripts/db/bootstrap-roles.js`.
    Creates or realigns both roles, revokes every runtime membership, and makes
    `sails_migrator` the owner of the database, of `public` and of every object
-   already there (ownership only: no row is read or changed). On RDS first run
-   `GRANT sails_migrator TO <master>` so the master may transfer ownership.
+   already there (ownership only: no row is read or changed). A non-superuser
+   administrator (managed PostgreSQL master with CREATEROLE/CREATEDB only) is
+   supported: the script grants itself membership in `sails_migrator` (SET,
+   INHERIT; nothing the administrator could not already do) and hands the
+   database over last. It cannot remove SUPERUSER/REPLICATION/BYPASSRLS from an
+   existing role and refuses to continue if one is set (rehearsed on PostgreSQL
+   16, 2026-11-16: first run, re-runs, restore).
 2. Migrator, every release: `MIGRATION_DATABASE_URL=... sh scripts/migrate-deploy-safe.sh`
    (migrations, then the runtime grants; the grant step fails if `sails_runtime`
    does not exist or a table is unclassified). Without `MIGRATION_DATABASE_URL` the
