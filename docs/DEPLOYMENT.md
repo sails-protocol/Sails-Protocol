@@ -134,7 +134,7 @@ rebuild per change):
 cp .env.example .env              # defaults already match docker-compose.yml below
 docker compose up -d postgres redis   # just the two real dependencies, not the app container
 npm install
-npm run db:migrate                # current command: `npx prisma migrate deploy`; applies committed migration history
+npm run db:migrate                # sh scripts/migrate-deploy-safe.sh: migrations, then the runtime grants (§6.3); needs MIGRATION_DATABASE_URL or SAILS_LEGACY_SINGLE_CREDENTIAL=1
 npm run dev                       # http://localhost:3000 — hot-reload dev server
 ```
 
@@ -158,7 +158,7 @@ Docker-composed Postgres/Redis above. `BACKLOG.md`, live GitHub Issues/Project, 
 | `dev` | `ts-node-dev --respawn --transpile-only src/main.ts` | Hot-reload dev server |
 | `build` | `npm run build -w @satsails/p2p-schemas && npm run build -w @satsails/p2p-trading-sdk && tsc` | Builds both workspace packages, then the server (`dist/`) |
 | `start` | `node dist/src/main.js` | Run the compiled build (note the `dist/src/` path — `tsc`'s inferred rootDir includes `packages/` via a `paths` alias, so output isn't flat under `dist/`) |
-| `db:migrate` | `npx prisma migrate deploy` | Apply committed production migration history |
+| `db:migrate` | `sh scripts/migrate-deploy-safe.sh` | Apply committed migration history, then the runtime grants (§6.3). Do not run `npx prisma migrate deploy` directly on a segregated database: it skips the grants |
 | `db:generate` | `npx prisma generate` | Regenerate the Prisma client (also runs automatically on `npm install`) |
 | `db:seed` | `ts-node src/test/seeds/seed.ts` | ⚠️ Still not built — see section 3 |
 | `db:studio` | `npx prisma studio` | Visual database browser |
@@ -382,6 +382,178 @@ Do not proceed with a restore, and escalate instead, if:
 - Row counts for any economically-relevant table (the list at the top of
   this section) do not match the last known source counts — investigate
   before repointing any application traffic at the restored database.
+
+## 6.3 Database roles (CTO 225, 2026-11-15)
+
+The write-once guarantees (`offer_envelopes`, `escrow_pending_round_retirements`,
+the fee/custody/evidence records) are triggers. The owner of a table can disable
+its trigger and a superuser can bypass it (`session_replication_role = replica`),
+so they only hold if the application connects as a role that is neither. Three
+roles, never shared:
+
+| Role | Attributes | Used by |
+|---|---|---|
+| cluster administrator (`postgres`; RDS master) | superuser / `rds_superuser` | `scripts/db/bootstrap-roles.js` only, once |
+| `sails_migrator` | login; no superuser, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS; owns the database, schema `public` and every object | `prisma migrate deploy` and `scripts/db/runtime-grants.sql` (`MIGRATION_DATABASE_URL`) |
+| `sails_runtime` | login, NOINHERIT; no elevated attribute; owns nothing; member of no role | the application (`DATABASE_URL`) |
+
+Runtime privileges are per table, from the explicit classification in
+`scripts/db/runtime-grants.sql`: `read` (SELECT), `append` (SELECT, INSERT),
+`mutable` (+UPDATE), `append_delete` (SELECT, INSERT, DELETE) or `mutable_delete`
+(+UPDATE, DELETE; unused today). Where an append-only table has one column the
+runtime sets once, only that column gets UPDATE: `custody_attestations."supersededAt"`
+(NULL -> timestamp, also trigger-guarded) and `intent_events."publishedAt"` (the
+publication marker of the hash-chained history). TRUNCATE, REFERENCES, TRIGGER,
+`CREATE` on the schema, any table privilege for PUBLIC and any access to `_prisma_migrations` are never granted,
+and there are no default privileges: a table added by a migration is unreachable
+until it is classified, and the grant step fails while any table is unclassified.
+
+### Order (new or existing database)
+
+1. Administrator, once: `ADMIN_DATABASE_URL=... SAILS_MIGRATOR_PASSWORD=... SAILS_RUNTIME_PASSWORD=... node scripts/db/bootstrap-roles.js`.
+   Creates or realigns both roles, revokes every runtime membership, and makes
+   `sails_migrator` the owner of the database, of `public` and of every object
+   already there (ownership only: no row is read or changed). On RDS first run
+   `GRANT sails_migrator TO <master>` so the master may transfer ownership.
+2. Migrator, every release: `MIGRATION_DATABASE_URL=... sh scripts/migrate-deploy-safe.sh`
+   (migrations, then the runtime grants; the grant step fails if `sails_runtime`
+   does not exist or a table is unclassified). Without `MIGRATION_DATABASE_URL` the
+   script refuses to run, before migrating anything, unless the legacy single
+   superuser credential is opted into explicitly with `SAILS_LEGACY_SINGLE_CREDENTIAL=1`;
+   then it migrates, applies no grants and says so (production refuses to boot on
+   that credential).
+3. Application: `DATABASE_URL` = `sails_runtime`. In production the server
+   refuses to start if that role is a superuser, has CREATEROLE/CREATEDB/
+   REPLICATION/BYPASSRLS, is a member of any role, owns the database, schema or
+   any relation or routine in `public`, can CREATE in `public` or in the database,
+   can create TEMP tables, or holds ANY table- or column-level privilege beyond its
+   table's class, counting grants to PUBLIC; an unclassified table allows nothing
+   (`src/common/database/runtime-privileges.ts`). The classes it compares against
+   are the ones the grant step applied and recorded in schema `sails_meta`
+   (`runtime_table_class`, `runtime_column_update`, readable by the runtime): one
+   inventory, `scripts/db/runtime-grants.sql`, so the boot check cannot drift from
+   it, and a stray grant made between deploys is refused at the next boot. The
+   inventory is itself guarded: the boot check also refuses the runtime if it
+   could INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER either `sails_meta` table
+   (table or column level, PUBLIC included), CREATE in `sails_meta`, or owns the
+   schema or any relation in it (it would otherwise rewrite its own class). Run
+   migrations through `npm run db:migrate` (= `scripts/migrate-deploy-safe.sh`),
+   never `npx prisma migrate deploy` alone: that skips the grants.
+
+Shell requirement: `scripts/migrate-deploy-safe.sh` (and therefore `npm run
+db:migrate`) needs a POSIX-compatible `sh` (Linux, macOS, the Docker images,
+CI; on Windows use WSL or Git Bash). Native Windows `cmd`/PowerShell is not
+supported by these scripts.
+   `DB_PRIVILEGE_CHECK=enforce|warn` runs the same check elsewhere: `docker-compose.yml`
+   enforces it; set `enforce` in any shared non-production environment (staging),
+   where the default is off.
+
+### Existing installations
+
+An installation created before this section has every object owned by the
+administrator and the application connected as it. Step 1 hands ownership over
+in place; rehearse it on a copy first, with the catalog inventory of §6.1.1
+(triggers, functions, partial indexes, CHECKs) compared before and after. Do not
+use `REASSIGN OWNED BY postgres` (it also moves objects outside the schema).
+Credentials: store the migrator and runtime passwords separately; the
+administrator credential is not needed after step 1.
+
+### Rollback
+
+Point `DATABASE_URL` back at the previous credential and restart (the production
+check will refuse a privileged role, so this is only possible outside production
+or after reverting the release that added the check). Roles, ownership and grants
+can stay in place: they do not change any row.
+
+### Residual risks (declared, not solved here)
+
+- Whoever holds the migrator or administrator credential can still bypass every
+  trigger; from here on that is credential custody, not a technical control.
+- Restore (§6.2): `pg_restore --disable-triggers` needs a superuser and the
+  write-once triggers can reject restored rows; restore as the administrator into
+  an empty database, then run step 1 and step 2 before pointing the runtime at it.
+- A runtime write path missing from the classification fails with SQLSTATE 42501
+  (permission denied); the CI lane "Critical flows as the restricted runtime role"
+  re-runs the critical real-Postgres suites as `sails_runtime` to catch it.
+- Segregation protects append-only records from deletion and rewrite, not the
+  mutable state: a compromised runtime can still INSERT into append tables (a
+  forged fact is caught only where reads verify a signature, e.g. offer envelopes)
+  and UPDATE mutable state (`offers`, `trades`, `escrows`, `disputes`, ...).
+- Not segregated: the main CI test lanes and the devcontainer
+  (`.devcontainer/docker-compose.extend.yml`) still connect as the superuser,
+  because test setup needs privileged operations (cleanup DELETE, fault-injection
+  triggers). Only the dedicated CI lane and `docker-compose.yml` run as `sails_runtime`.
+- `scripts/db/bootstrap-roles.js` sets the passwords in SQL; it turns statement
+  logging off for its own session where the administrator may (a non-superuser
+  RDS master may not), so check the server log settings before running it there.
+
+## 6.5 Fee collection evidence: historical order review (CTO 245/246/249)
+
+Since migration `20261116120000_fee_collection_evidence_seq`, "the latest
+fee collection evidence" of an obligation is the committed row with the
+greatest `seq` (record order); `recordedAt` is informational. Rows that
+existed before the migration keep the `seq` the migration assigned in
+physical order. That historical order is **not economic evidence**, and it
+is never rewritten automatically. For an obligation with pre-migration
+evidence, the decision can depend on it in two ways:
+
+- **Ties:** two or more rows share the obligation's greatest `recordedAt`;
+  the old reader picked either one.
+- **Disagreement:** the greatest-`seq` row is not at the greatest
+  `recordedAt`, so the old `ORDER BY "recordedAt" DESC` reader and the new
+  `seq` reader pick different rows.
+
+Read-only inventory (run after the migration; it writes nothing). For every
+obligation with pre-migration evidence, overall (`scope = 'ANY'`) and per
+evidence kind, it lists the cases above with the candidate rows and whether
+a candidate CONFIRMED row already has an ALLOCATION:
+
+```sql
+WITH applied AS (
+  SELECT finished_at AT TIME ZONE 'UTC' AS at FROM _prisma_migrations
+  WHERE migration_name = '20261116120000_fee_collection_evidence_seq' AND finished_at IS NOT NULL
+), ev AS (
+  SELECT e.id, e."feeObligationId", e.kind::text AS kind, e."recordedAt", e.seq, 'ANY' AS scope FROM fee_collection_evidence e
+  UNION ALL
+  SELECT e.id, e."feeObligationId", e.kind::text, e."recordedAt", e.seq, e.kind::text FROM fee_collection_evidence e
+), ranked AS (
+  SELECT ev.*,
+         max("recordedAt") OVER w AS top_at,
+         max(seq) OVER w AS top_seq,
+         bool_or("recordedAt" < (SELECT at FROM applied)) OVER w AS has_historical
+  FROM ev WINDOW w AS (PARTITION BY "feeObligationId", scope)
+)
+SELECT "feeObligationId", scope,
+       count(*) FILTER (WHERE "recordedAt" = top_at) AS "rowsAtMaxRecordedAt",
+       bool_or(seq = top_seq AND "recordedAt" < top_at) AS "seqAndRecordedAtDisagree",
+       array_agg(kind || ' seq=' || seq || ' at=' || "recordedAt" || ' id=' || id ORDER BY seq)
+         FILTER (WHERE "recordedAt" = top_at OR seq = top_seq) AS "candidateRows",
+       coalesce(bool_or(EXISTS (SELECT 1 FROM entitlement_ledger_entries l
+                                WHERE l."confirmationEvidenceId" = ranked.id AND l.kind = 'ALLOCATION'))
+         FILTER (WHERE kind = 'CONFIRMED' AND ("recordedAt" = top_at OR seq = top_seq)), false) AS "candidateAllocated"
+FROM ranked
+WHERE has_historical
+GROUP BY "feeObligationId", scope
+HAVING count(*) FILTER (WHERE "recordedAt" = top_at) >= 2
+    OR bool_or(seq = top_seq AND "recordedAt" < top_at)
+ORDER BY "feeObligationId", scope;
+```
+
+Operator handling:
+
+- Review each listed obligation before relying on reconciliation output
+  for it. Nothing is rewritten automatically, and `seq` cannot be changed
+  (a trigger refuses it).
+- `scope = 'CONFIRMED'` is the economic case: `allocate()` uses the
+  greatest-`seq` CONFIRMED row. If `candidateAllocated` is true and the
+  allocated row is not the greatest `seq`, escalate to the CTO before any
+  allocation work on that obligation. With the one-live-allocation guard
+  (#653) `allocate()` refuses it ("earlier generation is still allocated")
+  instead of allocating the same revenue a second time; the row still needs
+  manual review.
+- Other scopes affect detect-only checks (`findUnresolvedChainEvents()`,
+  the txid and destination checks) or which BROADCAST the confirmation job
+  watches. Compare the candidate rows with the chain before acting.
 
 ## 7. Production Considerations
 
