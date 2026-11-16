@@ -33,7 +33,7 @@ import {
   verifyOfferEnvelope,
   type OfferEnvelopeContent,
 } from '../../src/modules/open-liquidity/offer-envelope'
-import { OfferEnvelopeRepository } from '../../src/modules/open-liquidity/offer-envelope-repository'
+import { OfferEnvelopeRepository, OfferEnvelopeIntegrityError, isOfferStateEconomicallyActive } from '../../src/modules/open-liquidity/offer-envelope-repository'
 
 function hex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('hex')
@@ -74,7 +74,7 @@ describe('OfferEnvelope — persistence round-trip against real Postgres (Proper
 
   afterAll(async () => {
     if (!dbAvailable) return
-    await prisma.offerEnvelope.deleteMany({ where: { logicalOfferId: { startsWith: TEST_LOGICAL_ID_PREFIX } } })
+    // No cleanup: offer_envelopes is append-only (migration 20261111120000); every id here is unique per run.
     await prisma.$disconnect()
   })
 
@@ -558,5 +558,323 @@ describe('OfferEnvelope — persistence round-trip against real Postgres (Proper
     if (latest.status === 'EQUIVOCATED') {
       expect(new Set(latest.rows.map((r) => r.priceUsd.toString()))).toEqual(new Set(['65000', '70000']))
     }
+  })
+})
+
+// C9 regression hardening (CTO 24, Issue #105 comment 6800551839; Gatekeeper
+// audit 6799838486). The block above proves storage fidelity and the
+// equivocation/idempotency races; nothing in it (nor in the mocked
+// tests/offerEnvelope.test.ts) asserts against real Postgres that a
+// tombstone is economically inactive, that it survives replays and every
+// arrival order, or that concurrent higher revisions keep reads monotonic.
+// That gap let mutant Q7 (`isOfferEnvelopeEconomicallyActive` ignoring
+// `status`) survive. Deterministic: fixed seed, fixed `now`.
+describe('OfferEnvelope — C9 tombstone / revision regression against real Postgres', () => {
+  jest.setTimeout(120_000)
+  const pg = createPostgresIntegrationHarness()
+  const PREFIX = 'offer-envelope-c9-test-'
+  // Before every fixture's expiresAt, so ACTIVE really is active and only
+  // `status` can make a row inactive.
+  const NOW = new Date('2026-09-09T12:00:00.000Z')
+  let prisma: PrismaClient
+  let repo: OfferEnvelopeRepository
+  let dbAvailable = false
+
+  beforeAll(async () => {
+    await pg.probe()
+    dbAvailable = pg.isAvailable()
+    if (dbAvailable) {
+      prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: pg.getUrl() }) })
+      repo = new OfferEnvelopeRepository()
+    }
+  })
+
+  afterAll(async () => {
+    if (!dbAvailable) return
+    // No cleanup: offer_envelopes is append-only (migration 20261111120000); every id here is unique per run.
+    await prisma.$disconnect()
+  })
+
+  type Fact = { revision: number; status: 'ACTIVE' | 'CANCELLED'; priceUsd: string }
+
+  function signFact(owner: { publicKeyHex: string; secretKeyHex: string }, logicalOfferId: string, fact: Fact) {
+    const content: OfferEnvelopeContent = {
+      logicalOfferId,
+      ownerPublicKey: owner.publicKeyHex,
+      asset: 'BTC',
+      side: 'SELL',
+      priceUsd: fact.priceUsd,
+      minAmount: '0.00100000',
+      maxAmount: '0.50000000',
+      paymentMethod: 'PIX',
+      revision: fact.revision,
+      createdAt: '2026-09-09T00:00:00.000Z',
+      revisedAt: '2026-09-09T00:00:00.000Z',
+      expiresAt: '2026-09-10T00:00:00.000Z',
+      status: fact.status,
+    }
+    return { ...content, signature: signOfferEnvelope(content, owner.secretKeyHex) }
+  }
+
+  function permutations<T>(items: T[]): T[][] {
+    if (items.length <= 1) return [items]
+    return items.flatMap((item, i) => permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [item, ...rest]))
+  }
+
+  // Deterministic Fisher-Yates (LCG) so a failure reproduces exactly.
+  function seededShuffle<T>(items: T[], seed: number): T[] {
+    const out = [...items]
+    let s = seed
+    for (let i = out.length - 1; i > 0; i--) {
+      s = (s * 1103515245 + 12345) % 2147483648
+      const j = s % (i + 1)
+      ;[out[i], out[j]] = [out[j], out[i]]
+    }
+    return out
+  }
+
+  async function currentState(owner: string, logicalOfferId: string) {
+    const state = await repo.getLatest(owner, logicalOfferId)
+    const stored = await prisma.offerEnvelope.findMany({ where: { ownerPublicKey: owner, logicalOfferId } })
+    return {
+      status: state.status,
+      revision: state.status === 'RESOLVED' ? state.row.revision : state.status === 'EQUIVOCATED' ? state.revision : null,
+      envelopeStatus: state.status === 'RESOLVED' ? state.row.status : null,
+      active: isOfferStateEconomicallyActive(state, NOW),
+      storedFacts: stored.length,
+    }
+  }
+
+  it('C9-1: a stored CANCELLED tombstone makes the offer economically inactive (kills mutant Q7)', async () => {
+    pg.requirePostgres('C9-1 tombstone => inactive')
+    const owner = makeKeypair()
+    const id = `${PREFIX}${Date.now()}-inactive`
+    expect((await repo.ingest(signFact(owner, id, { revision: 1, status: 'ACTIVE', priceUsd: '65000.00000000' }))).accepted).toBe(true)
+    expect((await currentState(owner.publicKeyHex, id)).active).toBe(true)
+
+    expect((await repo.ingest(signFact(owner, id, { revision: 2, status: 'CANCELLED', priceUsd: '65000.00000000' }))).accepted).toBe(true)
+    expect(await currentState(owner.publicKeyHex, id)).toEqual({
+      status: 'RESOLVED',
+      revision: 2,
+      envelopeStatus: 'CANCELLED',
+      active: false,
+      storedFacts: 2,
+    })
+  })
+
+  // Every arrival order of each fact set, then a full replay in reverse,
+  // must give one identical outcome and keep every distinct fact.
+  const scenarios: { name: string; facts: Fact[]; expected: Record<string, unknown> }[] = [
+    {
+      name: 'tombstone on top: older ACTIVE revisions arriving before or after never resurrect it',
+      facts: [
+        { revision: 1, status: 'ACTIVE', priceUsd: '65000.00000000' },
+        { revision: 2, status: 'ACTIVE', priceUsd: '66000.00000000' },
+        { revision: 3, status: 'CANCELLED', priceUsd: '66000.00000000' },
+      ],
+      expected: { status: 'RESOLVED', revision: 3, envelopeStatus: 'CANCELLED', active: false, storedFacts: 3 },
+    },
+    {
+      name: 'ACTIVE equivocation at the top revision is fail-closed',
+      facts: [
+        { revision: 1, status: 'ACTIVE', priceUsd: '65000.00000000' },
+        { revision: 2, status: 'ACTIVE', priceUsd: '66000.00000000' },
+        { revision: 2, status: 'ACTIVE', priceUsd: '70000.00000000' },
+      ],
+      expected: { status: 'EQUIVOCATED', revision: 2, envelopeStatus: null, active: false, storedFacts: 3 },
+    },
+    {
+      name: 'ACTIVE vs CANCELLED equivocation at the top revision is fail-closed',
+      facts: [
+        { revision: 1, status: 'ACTIVE', priceUsd: '65000.00000000' },
+        { revision: 2, status: 'ACTIVE', priceUsd: '66000.00000000' },
+        { revision: 2, status: 'CANCELLED', priceUsd: '66000.00000000' },
+      ],
+      expected: { status: 'EQUIVOCATED', revision: 2, envelopeStatus: null, active: false, storedFacts: 3 },
+    },
+  ]
+
+  it.each(scenarios)('C9-2 arrival-order independence + replay: $name', async ({ facts, expected }) => {
+    pg.requirePostgres('C9-2 arrival-order independence')
+    const owner = makeKeypair()
+    const orders = permutations(facts.map((_, i) => i))
+    for (const [k, order] of orders.entries()) {
+      const id = `${PREFIX}${Date.now()}-perm-${k}`
+      const signed = facts.map((fact) => signFact(owner, id, fact))
+      for (const i of [...order, ...[...order].reverse()]) {
+        expect((await repo.ingest(signed[i])).accepted).toBe(true)
+      }
+      expect({ order, ...(await currentState(owner.publicKeyHex, id)) }).toEqual({ order, ...expected })
+    }
+  })
+
+  it('C9-3: once a tombstone is stored, relabelled, revision-bumped or foreign-key envelopes cannot un-cancel it', async () => {
+    pg.requirePostgres('C9-3 signature binds status/revision/owner')
+    const owner = makeKeypair()
+    const forger = makeKeypair()
+    const id = `${PREFIX}${Date.now()}-forgery`
+    const active1 = signFact(owner, id, { revision: 1, status: 'ACTIVE', priceUsd: '65000.00000000' })
+    const cancel2 = signFact(owner, id, { revision: 2, status: 'CANCELLED', priceUsd: '65000.00000000' })
+    await repo.ingest(active1)
+    await repo.ingest(cancel2)
+
+    const attempts = [
+      { ...cancel2, status: 'ACTIVE' as const }, // relay flips the tombstone, keeps its signature
+      { ...active1, revision: 3 }, // old ACTIVE replayed above the tombstone with its old signature
+      { ...signFact(forger, id, { revision: 3, status: 'ACTIVE', priceUsd: '65000.00000000' }), ownerPublicKey: owner.publicKeyHex }, // signed by another key
+    ]
+    for (const attempt of attempts) {
+      expect(await repo.ingest(attempt)).toEqual(expect.objectContaining({ accepted: false }))
+    }
+    expect(await currentState(owner.publicKeyHex, id)).toEqual({
+      status: 'RESOLVED',
+      revision: 2,
+      envelopeStatus: 'CANCELLED',
+      active: false,
+      storedFacts: 2,
+    })
+  })
+
+  it('C9-4: concurrent ingestion of shuffled revisions with replays and tombstones keeps reads monotonic and ends on the top tombstone', async () => {
+    pg.requirePostgres('C9-4 concurrent ingestion with concurrent readers')
+    const owner = makeKeypair()
+    const id = `${PREFIX}${Date.now()}-concurrent`
+    // r0..r11 ACTIVE, interleaved tombstones at r4 and r8, top tombstone at r12.
+    const facts: Fact[] = Array.from({ length: 13 }, (_, r) => ({
+      revision: r,
+      status: r === 4 || r === 8 || r === 12 ? 'CANCELLED' : 'ACTIVE',
+      priceUsd: `${65000 + r}.00000000`,
+    }))
+    const signed = facts.map((fact) => signFact(owner, id, fact))
+    const sends = seededShuffle([...signed, ...signed, ...signed], 20261111)
+
+    let writing = true
+    const reader = async () => {
+      const seen: number[] = []
+      while (writing) {
+        const state = await repo.getLatest(owner.publicKeyHex, id)
+        seen.push(state.status === 'RESOLVED' ? state.row.revision : state.status === 'EQUIVOCATED' ? state.revision : -1)
+      }
+      return seen
+    }
+    const readers = [reader(), reader(), reader()]
+    const results = await Promise.allSettled(sends.map((envelope) => repo.ingest(envelope)))
+    writing = false
+    const reads = await Promise.all(readers)
+
+    expect(results.filter((r) => r.status === 'rejected')).toEqual([])
+    expect(results.filter((r) => r.status === 'fulfilled' && !r.value.accepted)).toEqual([])
+    for (const seen of reads) {
+      expect(seen.length).toBeGreaterThan(0)
+      expect(seen.every((rev, i) => i === 0 || rev >= seen[i - 1])).toBe(true)
+    }
+    expect(await currentState(owner.publicKeyHex, id)).toEqual({
+      status: 'RESOLVED',
+      revision: 12,
+      envelopeStatus: 'CANCELLED',
+      active: false,
+      storedFacts: 13,
+    })
+  })
+
+  // ─── C9 write-once + read-time re-verification (migration 20261111120000) ────
+  const GUARD = 'offer_envelopes_immutability_guard'
+  /** What only an unrestricted database role can do: switch the guard off, rewrite, switch it back, atomically. */
+  const asTableOwner = (sql: string, ...params: unknown[]) => prisma.$transaction([
+    prisma.$executeRawUnsafe(`ALTER TABLE offer_envelopes DISABLE TRIGGER ${GUARD}`),
+    prisma.$executeRawUnsafe(sql, ...params),
+    prisma.$executeRawUnsafe(`ALTER TABLE offer_envelopes ENABLE TRIGGER ${GUARD}`),
+  ])
+  const rowAt = (owner: string, logicalOfferId: string, revision: number) =>
+    prisma.offerEnvelope.findFirstOrThrow({ where: { ownerPublicKey: owner, logicalOfferId, revision } })
+  const forgedRow = (envelope: ReturnType<typeof signFact>) => ({
+    ...envelope,
+    createdAt: new Date(envelope.createdAt), revisedAt: new Date(envelope.revisedAt), expiresAt: new Date(envelope.expiresAt),
+    contentDigest: hashOfferEnvelope(envelope).toString('hex'),
+  })
+  /** r1 ACTIVE under an r2 CANCELLED tombstone: the resurrection target. */
+  async function tombstoned(label: string) {
+    const owner = makeKeypair()
+    const id = `${PREFIX}${Date.now()}-${label}`
+    for (const fact of [{ revision: 1, status: 'ACTIVE' as const, priceUsd: '60000.00000000' }, { revision: 2, status: 'CANCELLED' as const, priceUsd: '60000.00000000' }]) {
+      expect(await repo.ingest(signFact(owner, id, fact))).toMatchObject({ accepted: true })
+    }
+    expect(await currentState(owner.publicKeyHex, id)).toMatchObject({ status: 'RESOLVED', revision: 2, active: false })
+    return { owner, id }
+  }
+
+  it('C9-5: the migration guards the table - UPDATE, DELETE and TRUNCATE are refused, rows are unchanged, the triggers are installed and enabled', async () => {
+    pg.requirePostgres('C9-5 write-once')
+    const { owner, id } = await tombstoned('write-once')
+    const before = await prisma.offerEnvelope.findMany({ where: { ownerPublicKey: owner.publicKeyHex, logicalOfferId: id }, orderBy: { revision: 'asc' } })
+    await expect(prisma.$executeRaw`UPDATE offer_envelopes SET status = 'ACTIVE' WHERE "logicalOfferId" = ${id} AND revision = 2`).rejects.toThrow(/append-only/)
+    await expect(prisma.$executeRaw`DELETE FROM offer_envelopes WHERE "logicalOfferId" = ${id} AND revision = 2`).rejects.toThrow(/append-only/)
+    await expect(prisma.offerEnvelope.deleteMany({ where: { logicalOfferId: id } })).rejects.toThrow(/append-only/)
+    await expect(prisma.$executeRawUnsafe('TRUNCATE offer_envelopes')).rejects.toThrow(/append-only/)
+    expect(await prisma.offerEnvelope.findMany({ where: { ownerPublicKey: owner.publicKeyHex, logicalOfferId: id }, orderBy: { revision: 'asc' } })).toEqual(before)
+    const triggers = await prisma.$queryRaw<Array<{ name: string; enabled: string }>>`
+      SELECT t.tgname AS name, t.tgenabled::text AS enabled FROM pg_trigger t JOIN pg_class c ON t.tgrelid = c.oid
+      WHERE c.relname = 'offer_envelopes' AND NOT t.tgisinternal ORDER BY t.tgname`
+    expect(triggers).toEqual([{ name: GUARD, enabled: 'O' }, { name: 'offer_envelopes_truncate_guard', enabled: 'O' }])
+  })
+
+  it.each([
+    ['the tombstone relabelled ACTIVE', `UPDATE offer_envelopes SET status = 'ACTIVE' WHERE "logicalOfferId" = $1 AND revision = 2`],
+    ['the price rewritten', `UPDATE offer_envelopes SET "priceUsd" = 1 WHERE "logicalOfferId" = $1 AND revision = 2`],
+    ['the stored digest rewritten', `UPDATE offer_envelopes SET "contentDigest" = repeat('0', 64) WHERE "logicalOfferId" = $1 AND revision = 2`],
+    ['the r1 ACTIVE renumbered above the tombstone', `UPDATE offer_envelopes SET revision = 3 WHERE "logicalOfferId" = $1 AND revision = 1`],
+  ])('C9-6: %s by a table owner fails the identity closed - an integrity error, never the older ACTIVE revision', async (_name, sql) => {
+    pg.requirePostgres('C9-6 tampered top row')
+    const { owner, id } = await tombstoned('tamper')
+    await asTableOwner(sql, id)
+    const read = repo.getLatest(owner.publicKeyHex, id)
+    await expect(read).rejects.toBeInstanceOf(OfferEnvelopeIntegrityError)
+    await expect(read).rejects.toMatchObject({ ownerPublicKey: owner.publicKeyHex, logicalOfferId: id })
+  })
+
+  it('C9-7: rows inserted around ingest() at a higher revision (bad signature, or signed by another key) fail the identity closed', async () => {
+    pg.requirePostgres('C9-7 forged rows')
+    const mallory = makeKeypair()
+    for (const forge of [
+      (e: ReturnType<typeof signFact>) => ({ ...e, signature: 'ab'.repeat(64) }),
+      ({ signature: _owners, ...content }: ReturnType<typeof signFact>) => ({ ...content, signature: signOfferEnvelope(content, mallory.secretKeyHex) }),
+    ]) {
+      const { owner, id } = await tombstoned('forged')
+      await prisma.offerEnvelope.create({ data: forgedRow(forge(signFact(owner, id, { revision: 3, status: 'ACTIVE', priceUsd: '1.00000000' }))) })
+      await expect(repo.getLatest(owner.publicKeyHex, id)).rejects.toBeInstanceOf(OfferEnvelopeIntegrityError)
+    }
+  })
+
+  it('C9-8: an equivocation cannot be collapsed into one RESOLVED fact - not by sharing a digest (unique index), not by rewriting content', async () => {
+    pg.requirePostgres('C9-8 equivocation collapse')
+    const owner = makeKeypair()
+    const id = `${PREFIX}${Date.now()}-collapse`
+    const a = signFact(owner, id, { revision: 5, status: 'ACTIVE', priceUsd: '60000.00000000' })
+    const b = signFact(owner, id, { revision: 5, status: 'ACTIVE', priceUsd: '61000.00000000' })
+    for (const e of [a, b]) expect(await repo.ingest(e)).toMatchObject({ accepted: true })
+    expect(await currentState(owner.publicKeyHex, id)).toMatchObject({ status: 'EQUIVOCATED', active: false })
+    const bRow = await prisma.offerEnvelope.findFirstOrThrow({ where: { logicalOfferId: id, priceUsd: '61000.00000000' } })
+    // Even with the trigger off, two rows of one revision cannot share a digest: the identity's unique index refuses it.
+    await expect(asTableOwner(`UPDATE offer_envelopes SET "contentDigest" = $1 WHERE id = $2`, hashOfferEnvelope(a).toString('hex'), bRow.id))
+      .rejects.toThrow(/offer_envelopes_identity_revision_digest_key|23505/)
+    // B rewritten to A's terms keeps its own digest and signature, so it no longer verifies: closed, never RESOLVED as A.
+    await asTableOwner(`UPDATE offer_envelopes SET "priceUsd" = 60000 WHERE id = $1`, bRow.id)
+    await expect(repo.getLatest(owner.publicKeyHex, id)).rejects.toBeInstanceOf(OfferEnvelopeIntegrityError)
+  })
+
+  it('C9-9: concurrent rewrite and delete attempts during ingestion are all refused; ingestion and reads are unaffected', async () => {
+    pg.requirePostgres('C9-9 concurrent mutation')
+    const owner = makeKeypair()
+    const id = `${PREFIX}${Date.now()}-concurrent-mutation`
+    expect(await repo.ingest(signFact(owner, id, { revision: 1, status: 'ACTIVE', priceUsd: '60000.00000000' }))).toMatchObject({ accepted: true })
+    const ingests = [2, 3, 4, 5, 6].map((revision) => repo.ingest(signFact(owner, id, { revision, status: revision === 6 ? 'CANCELLED' : 'ACTIVE', priceUsd: '60000.00000000' })))
+    const mutations = Array.from({ length: 10 }, (_, i) => i % 2 === 0
+      ? prisma.$executeRaw`UPDATE offer_envelopes SET status = 'ACTIVE' WHERE "logicalOfferId" = ${id}`
+      : prisma.$executeRaw`DELETE FROM offer_envelopes WHERE "logicalOfferId" = ${id}`)
+    const [ingested, mutated] = await Promise.all([Promise.allSettled(ingests), Promise.allSettled(mutations)])
+    expect(ingested.every((r) => r.status === 'fulfilled' && r.value.accepted)).toBe(true)
+    expect(mutated.every((r) => r.status === 'rejected' && /append-only/.test(String(r.reason)))).toBe(true)
+    expect(await currentState(owner.publicKeyHex, id)).toEqual({ status: 'RESOLVED', revision: 6, envelopeStatus: 'CANCELLED', active: false, storedFacts: 6 })
+    expect((await rowAt(owner.publicKeyHex, id, 1)).status).toBe('ACTIVE')
   })
 })

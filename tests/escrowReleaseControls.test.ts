@@ -88,7 +88,7 @@ const mockEscrowUpdate = jest.fn()
 // file's own comment. Defaults to a successful claim.
 const mockEscrowUpdateMany = jest.fn().mockResolvedValue({ count: 1 })
 const mockEscrowCreate = jest.fn()
-const mockEscrowEventCreate = jest.fn()
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockTradeFindUnique = jest.fn()
 const mockCapabilityGrantFindMany = jest.fn()
@@ -120,7 +120,11 @@ const mockEscrowFundingEvidenceFindMany = jest.fn().mockResolvedValue([])
 // went through, exactly like a real Prisma transaction would.
 const mockTransaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
   callback({
-    escrow: { updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args) },
+    escrow: {
+      updateMany: (...args: unknown[]) => mockEscrowUpdateMany(...args),
+      findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args),
+      update: (...args: unknown[]) => mockEscrowUpdate(...args),
+    },
     escrowFundingEvidence: { findMany: (...args: unknown[]) => mockEscrowFundingEvidenceFindMany(...args) },
     // Missão 11 Fase 9.7 — emitEscrowTransition() now does its own
     // escrowEvent existence-check-then-create INSIDE withEscrowFundingLock(),
@@ -130,6 +134,8 @@ const mockTransaction = jest.fn(async (callback: (tx: unknown) => Promise<unknow
       findFirst: (...args: unknown[]) => mockEscrowEventFindFirst(...args),
       create: (...args: unknown[]) => mockEscrowEventCreate(...args),
     },
+    // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+    eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
     $executeRaw: jest.fn().mockResolvedValue(0),
   })
 )
@@ -668,30 +674,28 @@ describe('escrowService — ownership/IDOR checks (gap audit)', () => {
       mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'DISPUTED' })
     })
 
+    // Issue #238 - openDispute() returns what its in-transaction `recordDispute` wrote (the Dispute row).
+    const recordDispute = jest.fn(async () => ({ id: 'dispute-1' }))
+
     it('rejects a caller who is not a party to the trade', async () => {
-      await expect(escrowService.openDispute('escrow-1', 'stranger-1', 'reason')).rejects.toThrow(
+      await expect(escrowService.openDispute('escrow-1', 'stranger-1', 'reason', recordDispute)).rejects.toThrow(
         /not a party to trade/
       )
       expect(mockEscrowUpdate).not.toHaveBeenCalled()
+      expect(mockEscrowUpdateMany).not.toHaveBeenCalled()
+      expect(recordDispute).not.toHaveBeenCalled()
     })
 
     it('allows the buyer', async () => {
-      // Same fix as markPaymentSent's identical comment — openDispute()
-      // also has no external provider call, so both findUnique calls
-      // (initial read + post-claim re-fetch) need queuing explicitly.
-      mockEscrowFindUnique
-        .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED' })
-        .mockResolvedValueOnce({ ...baseEscrow, status: 'DISPUTED' })
-      const result = await escrowService.openDispute('escrow-1', 'buyer-1', 'reason')
-      expect(result.status).toBe('DISPUTED')
+      const result = await escrowService.openDispute('escrow-1', 'buyer-1', 'reason', recordDispute)
+      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'DISPUTED' } })
+      expect(result).toEqual({ id: 'dispute-1' })
     })
 
     it('allows the seller', async () => {
-      mockEscrowFindUnique
-        .mockResolvedValueOnce({ ...baseEscrow, status: 'FUNDS_LOCKED' })
-        .mockResolvedValueOnce({ ...baseEscrow, status: 'DISPUTED' })
-      const result = await escrowService.openDispute('escrow-1', 'seller-1', 'reason')
-      expect(result.status).toBe('DISPUTED')
+      const result = await escrowService.openDispute('escrow-1', 'seller-1', 'reason', recordDispute)
+      expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'FUNDS_LOCKED' }, data: { status: 'DISPUTED' } })
+      expect(result).toEqual({ id: 'dispute-1' })
     })
   })
 })

@@ -65,6 +65,17 @@
  *
  * Testnet only. MULTISIG_SEED empty by default — same "surface a clear
  * config error, don't refuse to boot" pattern as WDK_SEED_PHRASE.
+ *
+ * **Corrected (Issue #220, 2026-09-27):** "Testnet only" described the
+ * Phase-1 state and is stale. The code supports MULTISIG_NETWORK=mainnet
+ * (networkFor() below, normalized at config load) behind a mainnet-specific
+ * boot guard (config/index.ts LB-01), and #220 deliberately leaves MULTISIG
+ * out of escrow-providers.ts's PRODUCTION_INELIGIBLE_TYPES — it is the only
+ * production-selectable settlement rail. Evidence: a disclosed small-value
+ * mainnet rehearsal (docs/MAINNET_MULTISIG_PROOF.md). This states what the
+ * code allows and what was rehearsed, not an audit attestation: no
+ * independent security audit of mainnet operation is recorded in this
+ * repository.
  */
 import * as ecc from 'tiny-secp256k1'
 import { BIP32Factory, type BIP32Interface } from 'bip32'
@@ -81,6 +92,7 @@ import { estimatedVBytesForOutputCount, maxExecutionCostSats } from './execution
 import type { FeeCollectionResult } from './escrow-providers'
 import { childLogger } from '../../common/logger'
 import { boundedFetch } from './bounded-rpc'
+import { SubmissionDefinitelyFailed, BroadcastRejected } from './broadcast-outcome'
 
 // docs/TECHNICAL_DEBT_AUDIT.md #51 (F1) — bounded, safe retry for
 // read-only explorer queries only. Never applied to broadcast() (a
@@ -230,6 +242,8 @@ export interface TransactionExistence {
 // explorer call in this file already relies on): `GET /tx/{txid}/status`
 // 404s only when the txid is genuinely unknown; a known-but-unconfirmed
 // (mempool) tx 200s with `confirmed: false`.
+const BROADCAST_BODY_LIMIT = 500
+
 export async function fetchTransactionExistence(txid: string): Promise<TransactionExistence> {
   const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}/status`, {}, {
     timeoutMs: config.multisig.explorerRequestTimeoutMs,
@@ -288,6 +302,19 @@ export async function fetchTransactionOutputs(txid: string): Promise<BroadcastTr
   }
   const body = (await res.json()) as { vout: Array<{ scriptpubkey: string; value: number }> }
   return body.vout.map((o, vout) => ({ vout, scriptPubKeyHex: o.scriptpubkey, valueSats: o.value }))
+}
+
+// Issue #239 - the raw bytes of a transaction someone else broadcast (`GET /tx/{txid}/hex`, same REST family).
+// Read-only. The caller never trusts the txid it asked for: it re-hashes these bytes (multisig-round-proofs.ts).
+export async function fetchTransactionHex(txid: string): Promise<string> {
+  const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx/${txid}/hex`, {}, {
+    timeoutMs: config.multisig.explorerRequestTimeoutMs,
+    retry: EXPLORER_READ_RETRY,
+  })
+  if (!res.ok) {
+    throw new EscrowError(`MULTISIG provider: explorer API returned ${res.status} fetching raw transaction ${txid}`)
+  }
+  return (await res.text()).trim()
 }
 
 export interface OutpointSpendStatus {
@@ -920,14 +947,36 @@ export class MultisigProvider implements SettlementProvider {
   // existing caller, which already treats a broadcast failure as
   // "did not confirm this attempt succeeded," never as "definitely
   // failed" — no escrow-state semantics are changed by this fix.
+  //
+  // Issue #299 (CTO D1) - after the POST nothing proves the transaction never propagated: every error here is UNKNOWN
+  // and the caller keeps its claim. Two answers are told apart: a 400 for a transaction the explorer already has is
+  // success (positive evidence, locally-derived txid), and a 400 carrying an identifiable RPC rejection is
+  // BroadcastRejected, so PASS 1 can route it to manual review instead of retrying blindly.
   private async broadcast(txHex: string): Promise<string> {
-    const res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx`, { method: 'POST', body: txHex }, {
-      timeoutMs: config.multisig.explorerRequestTimeoutMs,
-    })
-    if (!res.ok) {
-      throw new EscrowError(`MULTISIG provider: broadcast failed with ${res.status}: ${await res.text()}`)
+    let res: Response
+    try {
+      res = await boundedFetch(`${config.multisig.explorerApiUrl}/tx`, { method: 'POST', body: txHex }, {
+        timeoutMs: config.multisig.explorerRequestTimeoutMs,
+      })
+    } catch (err) {
+      throw new EscrowError(`MULTISIG provider: broadcast outcome unknown, no answer: ${err instanceof Error ? err.message : String(err)}`)
     }
-    return (await res.text()).trim()
+    if (res.ok) return (await res.text()).trim()
+    // Bounded (GK S4): the remote body reaches error messages, manual-review reasons and logs.
+    const body = await res.text()
+    const answer = `${res.status}: ${body.length > BROADCAST_BODY_LIMIT ? `${body.slice(0, BROADCAST_BODY_LIMIT)}... [${body.length - BROADCAST_BODY_LIMIT} more chars]` : body}`
+    const txid = bitcoin.Transaction.fromHex(txHex).getId()
+    if (res.status !== 400 || !/sendrawtransaction RPC error/i.test(answer)) {
+      throw new EscrowError(`MULTISIG provider: broadcast outcome unknown, the explorer answered ${answer}`)
+    }
+    let known: boolean
+    try {
+      known = (await fetchTransactionExistence(txid)).exists
+    } catch (err) {
+      throw new EscrowError(`MULTISIG provider: broadcast of ${txid} rejected with ${answer}, and the explorer could not be read back - outcome unknown: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    if (known) return txid
+    throw new BroadcastRejected(`MULTISIG provider: broadcast of ${txid} rejected with ${answer} - not visible on this explorer, outcome unknown (another node may have it)`)
   }
 
   // Real fee estimation (2026-08-02) — closes this provider's own former
@@ -1329,7 +1378,8 @@ export class MultisigProvider implements SettlementProvider {
       merged.finalizeAllInputs()
       return merged.extractTransaction()
     } catch (err) {
-      throw new EscrowError(
+      // Nothing was sent: a round that cannot be built is a definite failure (Issue #299).
+      throw new SubmissionDefinitelyFailed(
         `MULTISIG provider: failed to combine/finalize signatures for trade ${tradeId}: ${err instanceof Error ? err.message : String(err)}`
       )
     }

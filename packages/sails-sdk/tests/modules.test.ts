@@ -819,6 +819,43 @@ describe('SailsSettlementModule — RFC-021 settlement gaps', () => {
     expect(init.headers.authorization).toBe('Bearer session-abc')
   })
 
+  // Issue #239 - the server no longer returns any signed PSBT on this route, only `signedBy`.
+  it('getPendingTransaction() accepts the #239 shape: no signatures, signedBy present', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { id: 'pending-1', escrowId: 'escrow-1', kind: 'release', toAddress: 'addr-1', unsignedPsbtBase64: 'cHNidA==', requiredSigners: ['buyer-1', 'seller-1'], triggeredBy: 'seller-1', createdAt: '2026-08-01T00:00:00Z', signedBy: [{ participantId: 'buyer-1', submittedAt: '2026-08-01T00:01:00Z' }] } })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+
+    const result = await settlement.getPendingTransaction('escrow-1')
+
+    expect(result.signatures).toBeUndefined()
+    expect(result.signedBy).toEqual([{ participantId: 'buyer-1', submittedAt: '2026-08-01T00:01:00Z' }])
+    expect(result.requiredSigners.filter((id) => !result.signedBy!.some((s) => s.participantId === id))).toEqual(['seller-1'])
+  })
+
+  it('submitTransactionSignature() sends pendingTransactionId only when given (#239), unchanged otherwise', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { complete: false } })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+
+    await settlement.submitTransactionSignature('escrow-1', 'signed-psbt')
+    await settlement.submitTransactionSignature('escrow-1', 'signed-psbt', 'pending-1')
+
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({ signedPsbtBase64: 'signed-psbt' })
+    expect(JSON.parse(fetchImpl.mock.calls[1][1].body)).toEqual({ signedPsbtBase64: 'signed-psbt', pendingTransactionId: 'pending-1' })
+  })
+
+  it('cancelPendingTransaction() hits POST /v1/settlement/escrow/:id/cancel-pending-transaction WITH auth (#239)', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { outcome: 'CANCELLED', pendingTransactionId: 'pending-1', retirementId: 'r-1' } })
+    const settlement = new SailsSettlementModule(authedTransport(fetchImpl))
+
+    const result = await settlement.cancelPendingTransaction('escrow-1', 'pending-1')
+
+    expect(result.outcome).toBe('CANCELLED')
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/v1/settlement/escrow/escrow-1/cancel-pending-transaction')
+    expect(init.method).toBe('POST')
+    expect(init.headers.authorization).toBe('Bearer session-abc')
+    expect(JSON.parse(init.body)).toEqual({ pendingTransactionId: 'pending-1' })
+  })
+
   // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 38, 2026-09-13) —
   // registerArbiter()/getArbiterProfile() (this module's own, wrong-
   // shaped duplicate of arbitration.ts's register()/getProfile()) were
