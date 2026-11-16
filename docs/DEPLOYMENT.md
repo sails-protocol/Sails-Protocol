@@ -503,9 +503,17 @@ supported by these scripts.
 
 An installation created before this section has every object owned by the
 administrator and the application connected as it. Step 1 hands ownership over
-in place; rehearse it on a copy first, with the catalog inventory of §6.1.1
-(triggers, functions, partial indexes, CHECKs) compared before and after. Do not
-use `REASSIGN OWNED BY postgres` (it also moves objects outside the schema).
+in place; rehearse it on a copy first, comparing before and after the database
+objects the write-once guarantees depend on (triggers, functions, partial indexes,
+CHECKs), read directly from the target database as §6.1 step 3 describes (for
+example `\d <table>` in `psql`). A ready-made catalog inventory is not part of
+this file yet. Do not use `REASSIGN OWNED BY postgres` (it also moves objects
+outside the schema).
+
+> **Corrected 2026-11-16 (CTO 290).** This paragraph referred to a "catalog
+> inventory of §6.1.1". Section 6.1.1 does not exist on `main`; it is part of
+> an open, unmerged documentation PR. The reference now points to §6.1 step 3,
+> which is on `main`. The rest of the procedure is unchanged.
 Credentials: store the migrator and runtime passwords separately; the
 administrator credential is not needed after step 1.
 
