@@ -363,8 +363,14 @@ comes; rehearsed above against a local instance via a throwaway
 5. Spot-check row counts against whatever monitoring/last-known-good
    numbers exist for the source (exact match is the expected outcome —
    `pg_dump`/`pg_restore` do not silently drop rows).
-6. Post-restore checks, all required (rehearsed 2026-11-16 on a disposable
-   PostgreSQL 16 with scram-sha-256 and reproduced by the Gatekeeper):
+6. Post-restore checks, all required. All of them were rehearsed 2026-11-16
+   on a disposable PostgreSQL 16 with scram-sha-256. The Gatekeeper
+   independently reproduced `seq` per `id`, the sequence's `last_value`, the
+   enabled triggers, `sails_migrator` ownership, the first insert above
+   `max(seq)`, and the step 3 failures (without dropping `sails_meta`, and
+   with a non-superuser administrator). The strict `pg_restore` flags of
+   step 2, the `pg_stat_activity` check and the boot check on the restored
+   copy were rehearsed by the Principal only.
    - `fee_collection_evidence."seq"` per `id` equals the source, and the
      sequence's `last_value` equals the source. A full restore preserves
      both without `--disable-triggers`: `pg_dump` creates triggers in the
