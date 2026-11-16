@@ -1,4 +1,5 @@
 import { prisma } from '../../common/database'
+import type { Prisma } from '@prisma/client'
 import { NotFoundError, EscrowError, ForbiddenError, ValidationError } from '../../common/errors'
 import { config } from '../../config'
 import { getSignatureCollectionProvider } from './escrow-providers'
@@ -24,7 +25,7 @@ import { fetchOutpointSpendStatus } from './multisig.provider'
 import { verifySignerPartialSignature, RoundSignatureRejected } from './multisig-round-proofs'
 import { SubmissionDefinitelyFailed } from './broadcast-outcome'
 import { retireRound, RoundNotRetirable } from './pending-round-retirement'
-import { isSupersedableCooperativeRound, revalidateRulingSupersessionGrant, type RulingSupersessionGrant } from './dispute-dispatch'
+import { isSupersedableCooperativeRound, revalidateRulingSupersessionGrant, RULING_KIND, type RulingSupersessionGrant } from './dispute-dispatch'
 import { hasDualApproval } from './escrow-dual-approval'
 import { escrowRepository } from './escrow-repository'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
@@ -32,6 +33,7 @@ import { tradeRepository } from '../open-p2p/trade-repository'
 import { feeObligationService } from './fee-obligation.service'
 import { feeCollectionRecognitionService } from './fee-collection-recognition.service'
 import { identifyFeeOutput, networkFor } from './multisig.provider'
+import { assertRoundInputBinding } from './multisig-round-input-binding'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { authorizePendingExecution } from './capability-execution-authorization'
 import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
@@ -65,6 +67,53 @@ const log = childLogger('escrow-pending-tx')
 // PSBT for the required parties to sign. The real transition happens
 // inside submitTransactionSignature() below, once every required
 // signature has arrived.
+/**
+ * GK-M9R-D R2 - a disputed MULTISIG round must correspond to its durable authoritative Outcome before it exists. Checked
+ * inside the escrow lock, right before the create, for every caller that builds one: the live ruling, C4 recovery and the
+ * assigned arbiter's own release/refund route. A defective translation is therefore never persisted, so nobody can sign
+ * it and nothing has to delete it afterwards. Without a durable Outcome there is nothing to check against: refused.
+ * The execution-time check of R1 (economic-disposition-authority.ts) is independent of this one.
+ * Required lazily: this module is shared by many others, and these two pull in the dispute/outcome graph.
+ */
+async function assertDisputedRoundMatchesOutcome(
+  tx: Prisma.TransactionClient,
+  escrowId: string,
+  kind: 'release' | 'refund' | 'split',
+  provenance: Record<string, unknown>,
+  round: { psbtBase64: string; minerFeeSats?: number },
+): Promise<void> {
+  const { loadDisputeRulingRecord, fromDisputeRulingRow } = require('./dispute-outcome') // eslint-disable-line @typescript-eslint/no-var-requires
+  const { assertTranslationMatchesOutcome, TranslationGuardError } = require('./dispatch-translation-guard') // eslint-disable-line @typescript-eslint/no-var-requires
+  const appealRound = provenance.rulingAppealRound as number
+  // FOR SHARE: an appeal or a ruling revert (both UPDATE this row) waits for this transaction, so the generation checked
+  // here is still the live one when the round is created below. Outcome records are write-once per (escrow, round).
+  const [live] = await tx.$queryRaw<{ status: string; appealRound: number; ruling: string | null; authoritySignature: string | null }[]>`
+    SELECT "status", "appealRound", "ruling", "authoritySignature" FROM "disputes" WHERE "id" = ${provenance.disputeId as string} FOR SHARE`
+  const row = await loadDisputeRulingRecord(escrowId, appealRound, tx)
+  const outcome = row?.outcomeContent ? fromDisputeRulingRow(row).outcome : null
+  if (!outcome) {
+    throw new EscrowError(
+      `Escrow ${escrowId} has no durable authoritative Outcome for dispute round ${appealRound} - refusing to build a disputed ` +
+      'MULTISIG round that could not be checked against it (GK-M9R-D R2).'
+    )
+  }
+  if (
+    !live || live.status !== 'RESOLVED' || live.appealRound !== appealRound || live.ruling !== outcome.content.ruling ||
+    live.ruling !== provenance.rulingOutcome || live.authoritySignature !== (provenance.rulingAuthoritySignature ?? null)
+  ) {
+    throw new EscrowError(
+      `Dispute ${String(provenance.disputeId)} is no longer the RESOLVED generation ${appealRound} this round was built from - ` +
+      'refusing to build a disputed MULTISIG round against a superseded ruling (GK-M9R-D R2).'
+    )
+  }
+  // CTO 25 T10/R-4 - the outputs alone cannot tell the kinds apart when buyer and seller share a payout address, yet
+  // the kind decides the final status, the fee obligation, the settlement event and the reputation outcome.
+  if (RULING_KIND[outcome.content.ruling] !== kind) {
+    throw new TranslationGuardError([`authoritative Outcome ruling ${outcome.content.ruling} does not authorize a ${kind} round`])
+  }
+  assertTranslationMatchesOutcome(round.psbtBase64, outcome, networkFor(config.multisig.network), round.minerFeeSats)
+}
+
 // ─── Shared skeleton for initiateRelease/Refund/Split ──────────────────────
 // These three functions are 90% identical (~90 lines each). Extracted the
 // shared validation + provider lookup + pending-transaction-create skeleton
@@ -209,6 +258,14 @@ async function initiateSignatureCollectionCore(
           })
         }
       }
+      // GK-M9R-D R2 - last step before the round exists, after the existing authority/grant/funding refusals. Same
+      // transaction as retireRound() above: a mismatch rolls the retirement back, so nothing at all is written.
+      if (escrow.type === 'MULTISIG' && typeof disputedRulingProvenance.disputeId === 'string') {
+        await assertDisputedRoundMatchesOutcome(tx, escrowId, kind, disputedRulingProvenance, result)
+      }
+      // A round only ever spends this escrow's recorded funding. Same transaction as retireRound() above: a refusal
+      // rolls the retirement back, so nothing is written.
+      if (escrow.type === 'MULTISIG') assertRoundInputBinding(result.psbtBase64, escrow)
       return tx.escrowPendingTransaction.create({
         data: {
           ...(superseded ? { id: newRoundId } : {}),
@@ -427,6 +484,10 @@ export async function submitTransactionSignature(escrowId: string, participantId
   if (pending.kind === 'split' && !provider.finalizeSplit) {
     throw new EscrowError(`Escrow type '${escrow.type}' does not support split finalization — buildUnsignedSplit was allowed but finalizeSplit is not implemented`)
   }
+
+  // The round actually being finalized must still spend this escrow's recorded funding. Pure check, before any gate
+  // writes an authorization and before the claim: a refusal leaves the round and its signatures as they are.
+  if (escrow.type === 'MULTISIG') assertRoundInputBinding(pending.unsignedPsbtBase64, escrow)
 
   // ADR-005 / #218 — Economic Disposition Commit Gate. Runs first: a stale
   // ruling generation must fail closed before Capability/Eligibility is

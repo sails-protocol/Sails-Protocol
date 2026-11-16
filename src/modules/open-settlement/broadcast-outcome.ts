@@ -15,3 +15,10 @@ export class SubmissionDefinitelyFailed extends EscrowError {}
  * converge it: PASS 1 routes it to manual review with the txid.
  */
 export class BroadcastRejected extends EscrowError {}
+
+/**
+ * CTO 61 (GK ADR-004 A8/A8b/A9/A11) - the provider's broadcast point refused the transaction: it is not the
+ * persisted round of the one escrow whose recorded funding it spends, or (with ENFORCE_CAPABILITIES on) that round
+ * has no matching durable ADR-004 execution authorization. Nothing was POSTed, so it is a SubmissionDefinitelyFailed.
+ */
+export class BroadcastNotAuthorized extends SubmissionDefinitelyFailed {}

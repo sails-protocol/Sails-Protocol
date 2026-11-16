@@ -1,3 +1,9 @@
+// CTO 25 funding binding - this suite's PSBTs are placeholders; the round input binding is proven with real PSBTs in
+// tests/multisigRoundInputBinding.test.ts and tests/integration/multisigFundingBinding.test.ts.
+jest.mock('../src/modules/open-settlement/multisig-round-input-binding', () => ({
+  ...jest.requireActual('../src/modules/open-settlement/multisig-round-input-binding'),
+  assertRoundInputBinding: jest.fn(),
+}))
 // Issue #239 - this suite's PSBTs are placeholders: the real signature check (multisig-round-proofs.ts) is proven with
 // real Bitcoin PSBTs in tests/multisigRoundProofs.test.ts and tests/integration/pendingRoundLifecycle.test.ts.
 jest.mock('../src/modules/open-settlement/multisig-round-proofs', () => ({

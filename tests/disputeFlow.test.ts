@@ -838,12 +838,13 @@ describe('DisputeService — submitEvidence() (RFC-021 D8)', () => {
       id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'OPENED', evidence: [],
     })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
+    mockDisputeUpdateMany.mockResolvedValue({ count: 1 })
 
     await service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt', note: 'bank confirmation' })
 
-    expect(mockDisputeUpdate).toHaveBeenCalledWith({
-      where: { id: 'dispute-1' },
+    // CTO 119 (GK F1): a compare-and-set on the validated row, never a blind write by id.
+    expect(mockDisputeUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'dispute-1', status: 'OPENED', ruling: null, updatedAt: undefined },
       data: {
         evidence: [expect.objectContaining({ type: 'payment_receipt', note: 'bank confirmation', submittedBy: 'buyer-1' })],
         status: 'EVIDENCE_SUBMITTED',
@@ -862,11 +863,11 @@ describe('DisputeService — submitEvidence() (RFC-021 D8)', () => {
       evidence: [{ type: 'chat_log', submittedBy: 'seller-1', submittedAt: '2026-01-01T00:00:00.000Z' }],
     })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-    mockDisputeUpdate.mockResolvedValue({})
+    mockDisputeUpdateMany.mockResolvedValue({ count: 1 })
 
     await service.submitEvidence('dispute-1', 'seller-1', { type: 'payment_receipt' })
 
-    const call = mockDisputeUpdate.mock.calls[0][0]
+    const call = mockDisputeUpdateMany.mock.calls[0][0]
     expect(call.data.evidence).toHaveLength(2)
     expect(call.data.evidence[0].type).toBe('chat_log')
     expect(call.data.evidence[1].type).toBe('payment_receipt')
@@ -878,6 +879,7 @@ describe('DisputeService — submitEvidence() (RFC-021 D8)', () => {
 
     await expect(service.submitEvidence('dispute-1', 'not-a-party', { type: 'payment_receipt' })).rejects.toThrow('is not a party to trade')
     expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    expect(mockDisputeUpdateMany).not.toHaveBeenCalled()
   })
 
   it('rejects new evidence once the dispute has moved past evidence-gathering (RESOLVED/APPEALED/AUTO_PROPOSED)', async () => {
@@ -885,6 +887,19 @@ describe('DisputeService — submitEvidence() (RFC-021 D8)', () => {
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
 
     await expect(service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt' })).rejects.toThrow('cannot accept new evidence')
+  })
+
+  it('CTO 119 (GK F1): the dispute changed after it was read (e.g. a ruling committed meanwhile): zero rows matched -> refused, nothing written by a blind update, no event', async () => {
+    mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'OPENED', evidence: [], updatedAt: new Date('2026-11-14T00:00:00Z') })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    mockDisputeUpdateMany.mockResolvedValue({ count: 0 })
+
+    await expect(service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt' })).rejects.toThrow(/changed while this evidence was being validated/)
+    expect(mockDisputeUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'dispute-1', status: 'OPENED', ruling: null, updatedAt: new Date('2026-11-14T00:00:00Z') },
+    }))
+    expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalledWith('dispute.evidence_submitted', expect.anything(), expect.anything())
   })
 })
 

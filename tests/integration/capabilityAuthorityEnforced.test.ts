@@ -28,6 +28,7 @@ import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
+import { participantKeys } from './pendingRoundLifecycleHarness'
 
 bitcoin.initEccLib(ecc)
 const ECPair = ECPairFactory(ecc)
@@ -64,10 +65,8 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
   const ARBITER_ID = 'cap303-test-arbiter'
   const arbiterKeypair = nacl.sign.keyPair()
   const arbiterPublicKeyHex = Buffer.from(arbiterKeypair.publicKey).toString('hex')
-  const buyerKey = ECPair.fromPrivateKey(createHash('sha256').update('cap303-buyer').digest(), { network: NETWORK })
-  const sellerKey = ECPair.fromPrivateKey(createHash('sha256').update('cap303-seller').digest(), { network: NETWORK })
-  const BUYER_PUBKEY = Buffer.from(buyerKey.publicKey).toString('hex')
-  const SELLER_PUBKEY = Buffer.from(sellerKey.publicKey).toString('hex')
+  // One MULTISIG address per escrow: fresh participant keys for each escrow, looked up by escrow id when signing.
+  const escrowKeys = new Map<string, ReturnType<typeof participantKeys>>()
   const SETTLEMENT = 'settlement'
 
   let realFetch: typeof fetch
@@ -174,8 +173,9 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const keys = participantKeys(); escrowKeys.set(escrow.id, keys)
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, keys.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, keys.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
 
     const fundingTxid = createHash('sha256').update(`cap303-funding-${suffix}-${Date.now()}`).digest('hex')
     mockExplorerForUtxo(fundingTxid, 0, 100_000)
@@ -196,7 +196,7 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
   async function buyerSignature(escrowId: string): Promise<string> {
     const pending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
     const psbt = bitcoin.Psbt.fromBase64(pending!.unsignedPsbtBase64, { network: NETWORK })
-    psbt.signInput(0, buyerKey)
+    psbt.signInput(0, escrowKeys.get(escrowId)!.buyerKey)
     return psbt.toBase64()
   }
 
@@ -353,5 +353,290 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
     const resumed = await reconcileMissingDispatch()
     expect(resumed.resumed.map((r) => r.escrowId)).toContain(escrowId)
     expect(await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })).not.toBeNull()
+  })
+
+  // CTO 48 / GK ADR-004 A2-A3: a recovery broadcast of an already-claimed escrow (PASS 1, completion-effects catch-up)
+  // only converges an attempt the live path durably execution-committed. Simulated explorer; real PSBTs and signatures.
+  describe('ADR-004 recovery broadcast authorization (CTO 48)', () => {
+    let posts: string[] = []
+    /** Explorer: the funding outpoint is unspent; only what was POSTed here (or everything, with known='all') is on the network. */
+    function recoveryExplorer(fundingTxid: string, value: number, known: 'none' | 'all' = 'none') {
+      posts = []
+      global.fetch = jest.fn(async (url: string, init?: any) => {
+        const u = String(url)
+        if (init?.method === 'POST') { const id = bitcoin.Transaction.fromHex(String(init.body)).getId(); posts.push(id); return { ok: true, status: 200, text: async () => id } as any }
+        if (u.includes('/blocks/tip/height')) return { ok: true, text: async () => '100' } as any
+        if (u.includes('/v1/fees/recommended')) return { ok: true, json: async () => ({ halfHourFee: 5, fastestFee: 8 }) } as any
+        const st = u.match(/\/tx\/([0-9a-f]{64})\/status/)
+        if (st) {
+          if (st[1] === fundingTxid || known === 'all' || posts.includes(st[1])) return { ok: true, status: 200, json: async () => ({ confirmed: true, block_height: 100 }) } as any
+          return { ok: false, status: 404, json: async () => ({}), text: async () => 'Transaction not found' } as any
+        }
+        if (u.includes('/utxo')) return { ok: true, status: 200, json: async () => (posts.length ? [] : [{ txid: fundingTxid, vout: 0, value, status: { confirmed: true } }]) } as any
+        return { ok: true, status: 200, json: async () => ({}) } as any
+      }) as any
+    }
+    const reconcile = () => require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service').reconcilePendingSettlements()
+    const review = (r: any, escrowId: string) => r.requiresManualReview.filter((x: any) => x.escrowId === escrowId).map((x: any) => x.reason).join(' ')
+
+    /** A RELEASE ruling's round, fully signed (crash window: the signature persisted, the live submit never ran). */
+    async function signedUnsubmittedRound(suffix: string, opts: { authorized: boolean }) {
+      const { escrowId, disputeId } = await makeDisputedEscrow(suffix, { onboardArbiter: true })
+      await resolveRelease(disputeId, escrowId)
+      const pending = (await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } }))!
+      await prisma.escrowTransactionSignature.create({ data: { pendingTxId: pending.id, participantId: pending.requiredSigners[0], signedPsbtBase64: await buyerSignature(escrowId) } })
+      if (opts.authorized) await authorizePendingExecution(pending as any) // what the live path commits before its claim
+      const escrow = (await prisma.escrow.findUnique({ where: { id: escrowId } }))!
+      recoveryExplorer(escrow.txLockId!, 100_000)
+      return { escrowId, pending, fundingTxid: escrow.txLockId! }
+    }
+
+    it('PASS 1, no durable authorization (claim without Gate B): not broadcast, no txReleaseId, manual review', async () => {
+      requirePostgres('ADR-004 PASS 1 refused')
+      const { escrowId } = await signedUnsubmittedRound('adr4-p1-no', { authorized: false })
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } }) // claimed, result never recorded
+      const r = await reconcile()
+      expect(posts).toEqual([])
+      expect((await prisma.escrow.findUnique({ where: { id: escrowId } }))!.txReleaseId).toBeNull()
+      expect(review(r, escrowId)).toMatch(/EXECUTION_GATE_REFUSED: .*no durable ADR-004 execution authorization/)
+    })
+
+    it('PASS 1 convergence: the live path durably authorized and crashed after its claim - recovery broadcasts exactly once and records it', async () => {
+      requirePostgres('ADR-004 PASS 1 converges')
+      const { escrowId } = await signedUnsubmittedRound('adr4-p1-ok', { authorized: true })
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
+      await reconcile(); await reconcile()
+      expect(posts).toHaveLength(1)
+      expect((await prisma.escrow.findUnique({ where: { id: escrowId } }))!.txReleaseId).toBe(posts[0])
+    })
+
+    it('PASS 1, a durable authorization that no longer matches the round (SIMULATION: triggeredBy rewritten): refused, not broadcast', async () => {
+      requirePostgres('ADR-004 PASS 1 mismatch')
+      const { escrowId, pending } = await signedUnsubmittedRound('adr4-p1-mm', { authorized: true })
+      await prisma.escrowPendingTransaction.update({ where: { id: pending.id }, data: { triggeredBy: 'cap303-someone-else' } })
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
+      const r = await reconcile()
+      expect(posts).toEqual([])
+      expect(review(r, escrowId)).toMatch(/no longer matches its committed capability authorization/)
+    })
+
+    it('PASS 1, already on the network: converges to chain truth with no authorization (the gate is never reached)', async () => {
+      requirePostgres('ADR-004 PASS 1 already broadcast')
+      const { escrowId, fundingTxid } = await signedUnsubmittedRound('adr4-p1-known', { authorized: false })
+      recoveryExplorer(fundingTxid, 100_000, 'all')
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
+      await reconcile()
+      expect(posts).toEqual([])
+      expect((await prisma.escrow.findUnique({ where: { id: escrowId } }))!.txReleaseId).toMatch(/^[0-9a-f]{64}$/)
+    })
+
+    it('completion-effects catch-up, recorded result not on the network and no durable authorization: never re-broadcast, manual review', async () => {
+      requirePostgres('ADR-004 catch-up refused')
+      const { escrowId } = await signedUnsubmittedRound('adr4-cu-no', { authorized: false })
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED', txReleaseId: 'cd'.repeat(32), releasedAt: new Date() } })
+      const r = await reconcile()
+      expect(posts).toEqual([])
+      expect(review(r, escrowId)).toMatch(/EXECUTION_GATE_REFUSED: .*no durable ADR-004 execution authorization/)
+    })
+
+    it('completion-effects catch-up with the durable authorization: re-broadcasts once (convergence after durable authorization)', async () => {
+      requirePostgres('ADR-004 catch-up converges')
+      const { escrowId } = await signedUnsubmittedRound('adr4-cu-ok', { authorized: true })
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED', txReleaseId: 'ce'.repeat(32), releasedAt: new Date() } })
+      await reconcile()
+      expect(posts).toHaveLength(1)
+    })
+
+    // CTO 61 (GK ADR-004 A8/A8b/A9/A11): the broadcast point itself refuses, whatever callback or path the caller uses.
+    const provider = () => require('../../src/modules/open-settlement/multisig.provider')
+    /** The exact (input, PSBT, signatures) the reconciler builds for this escrow, captured without broadcasting. */
+    async function capturedRecoveryArgs(escrowId: string): Promise<[any, string, string[]]> {
+      const { MultisigProvider } = provider()
+      const real = MultisigProvider.prototype.reconcilePendingSettlement
+      let captured: [any, string, string[]] | null = null
+      const spy = jest.spyOn(MultisigProvider.prototype, 'reconcilePendingSettlement').mockImplementation(async function (this: any, ...args: any[]) {
+        if (args[0]?.id === escrowId) { captured = [args[0], args[1], args[2]]; return { outcome: 'ANOMALY', detail: 'captured by the test' } }
+        return real.apply(this, args)
+      } as never)
+      await reconcile()
+      spy.mockRestore()
+      expect(captured).not.toBeNull()
+      return captured!
+    }
+    const notAuthorized = (p: Promise<unknown>) => p.then(() => 'sent', (e: any) => e?.constructor?.name)
+
+    it('A8/A8b: a direct recovery call with an empty or a permissive callback and no authorization: BroadcastNotAuthorized, 0 POST', async () => {
+      requirePostgres('ADR-004 A8')
+      const { escrowId, fundingTxid } = await signedUnsubmittedRound('adr4-a8', { authorized: false })
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
+      const [input, psbt, signed] = await capturedRecoveryArgs(escrowId)
+      recoveryExplorer(fundingTxid, 100_000)
+      expect(await notAuthorized(provider().multisigProvider.reconcilePendingSettlement(input, psbt, signed, async () => {}))).toBe('BroadcastNotAuthorized')
+      expect(await notAuthorized(provider().multisigProvider.reconcilePendingSettlement(input, psbt, signed, jest.fn().mockResolvedValue(undefined)))).toBe('BroadcastNotAuthorized')
+      expect(posts).toEqual([])
+      expect((await prisma.escrow.findUnique({ where: { id: escrowId } }))!.txReleaseId).toBeNull()
+    })
+
+    it('A9: finalizeRelease called directly with the round and its signatures, no authorization: BroadcastNotAuthorized, 0 POST', async () => {
+      requirePostgres('ADR-004 A9')
+      const { escrowId, fundingTxid } = await signedUnsubmittedRound('adr4-a9', { authorized: false })
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
+      const [input, psbt, signed] = await capturedRecoveryArgs(escrowId)
+      recoveryExplorer(fundingTxid, 100_000)
+      expect(await notAuthorized(provider().multisigProvider.finalizeRelease(input, psbt, signed))).toBe('BroadcastNotAuthorized')
+      expect(posts).toEqual([])
+    })
+
+    it('A11: the gate of an authorized round A cannot send round B of another escrow (callback reuse, empty or permissive): 0 POST', async () => {
+      requirePostgres('ADR-004 A11')
+      const a = await signedUnsubmittedRound('adr4-a11-a', { authorized: true })
+      const b = await signedUnsubmittedRound('adr4-a11-b', { authorized: false })
+      await prisma.escrow.update({ where: { id: b.escrowId }, data: { status: 'COMPLETED' } })
+      const [input, psbt, signed] = await capturedRecoveryArgs(b.escrowId)
+      recoveryExplorer(b.fundingTxid, 100_000)
+      const { assertDurableExecutionAuthorization } = require('../../src/modules/open-settlement/capability-execution-authorization')
+      const gateOfA = async () => { await assertDurableExecutionAuthorization(a.pending as any) } // passes: A is authorized
+      expect(await notAuthorized(provider().multisigProvider.reconcilePendingSettlement(input, psbt, signed, gateOfA))).toBe('BroadcastNotAuthorized')
+      expect(await notAuthorized(provider().multisigProvider.reconcilePendingSettlement(input, psbt, signed, jest.fn().mockResolvedValue(undefined)))).toBe('BroadcastNotAuthorized')
+      expect(posts).toEqual([])
+      // Control (A11b): A itself, with its own durable authorization, is still sent exactly once by recovery.
+      await prisma.escrow.update({ where: { id: a.escrowId }, data: { status: 'COMPLETED' } })
+      recoveryExplorer(a.fundingTxid, 100_000)
+      await reconcile()
+      expect(posts).toHaveLength(1)
+      expect((await prisma.escrow.findUnique({ where: { id: a.escrowId } }))!.txReleaseId).toBe(posts[0])
+    })
+
+    it('a DIFFERENT signed transaction spending the same funding (the escrow\'s authorized round left intact) is refused at the broadcast point: the authorization is bound to the round\'s txid', async () => {
+      requirePostgres('ADR-004 tx identity')
+      const { escrowId, pending, fundingTxid } = await signedUnsubmittedRound('adr4-txid', { authorized: true })
+      await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
+      const [input] = await capturedRecoveryArgs(escrowId)
+      // T: built by the provider itself (arbiter-signed like any round) from the same funding to another address, then
+      // signed by the round's real signer - a fully valid transaction that is NOT the authorized round R.
+      recoveryExplorer(fundingTxid, 100_000)
+      const t = await provider().multisigProvider.buildUnsignedRelease(input, testnetAddress('adr4-txid-elsewhere'))
+      const sign = (k: any) => { const p = bitcoin.Psbt.fromBase64(t.psbtBase64, { network: NETWORK }); p.signInput(0, k); return p.toBase64() }
+      const signedT = [sign(escrowKeys.get(escrowId)!.buyerKey), sign(escrowKeys.get(escrowId)!.sellerKey)] // a complete 2-of-3
+      expect(bitcoin.Psbt.fromBase64(t.psbtBase64, { network: NETWORK }).txInputs[0].index).toBe(bitcoin.Psbt.fromBase64(pending.unsignedPsbtBase64, { network: NETWORK }).txInputs[0].index)
+      expect(await notAuthorized(provider().multisigProvider.finalizeRelease(input, t.psbtBase64, signedT))).toBe('BroadcastNotAuthorized')
+      expect(posts).toEqual([])
+      expect((await prisma.escrowPendingTransaction.findUnique({ where: { id: pending.id } }))!.unsignedPsbtBase64).toBe(pending.unsignedPsbtBase64) // R untouched
+    })
+
+    // CTO 88/90/91 (GK VERIFY #629, bypass C1): ADR-005 at the broadcast point, read-only. Every case: a disputed
+    // RELEASE round with BOTH durable authorizations, broadcast by a DIRECT provider call with an empty callback
+    // (the bypass path). One stored fact is then made stale/absent (SIMULATION where the code offers no path to it);
+    // the same fixture without that change is the legitimate control and is sent exactly once.
+    describe('ADR-005 at the broadcast point (CTO 88/90/91)', () => {
+      const eda = () => require('../../src/modules/open-settlement/economic-disposition-authority')
+      async function authorizedDisputed(suffix: string, economic = true) {
+        const r = await signedUnsubmittedRound(suffix, { authorized: true }) // + ADR-004 durable authorization
+        if (economic) await eda().authorizeDisputedPendingExecution(r.pending as any) // what the live path commits before its claim
+        await prisma.escrow.update({ where: { id: r.escrowId }, data: { status: 'COMPLETED' } })
+        const [input, psbt, signed] = await capturedRecoveryArgs(r.escrowId)
+        recoveryExplorer(r.fundingTxid, 100_000)
+        return { ...r, input, psbt, signed }
+      }
+      const direct = (x: { input: any; psbt: string; signed: string[] }) =>
+        notAuthorized(provider().multisigProvider.reconcilePendingSettlement(x.input, x.psbt, x.signed, async () => {}))
+      const outcomeRow = (escrowId: string) => prisma.semanticTransitionRecord.findFirst({ where: { interactionId: escrowId } })
+      const lastRefusal = async (x: { input: any; psbt: string; signed: string[] }) =>
+        provider().multisigProvider.reconcilePendingSettlement(x.input, x.psbt, x.signed, async () => {}).then(() => '', (e: any) => String(e?.message))
+
+      const cases: Array<[string, (x: any) => Promise<void>]> = [
+        ['C1 Outcome record removed (GK reproduction)', async (x) => { await prisma.semanticTransitionRecord.deleteMany({ where: { interactionId: x.escrowId } }) }],
+        ['1 dispute no longer RESOLVED (SIMULATION)', async (x) => { await prisma.dispute.updateMany({ where: { escrowId: x.escrowId }, data: { status: 'OPENED' } }) }],
+        ['2 wrong generation: the dispute moved to another appeal round (SIMULATION)', async (x) => { await prisma.dispute.updateMany({ where: { escrowId: x.escrowId }, data: { appealRound: 1 } }) }],
+        // CTO 119 / GK Z12-Z13: each live generation field alone (the original suite never isolated them).
+        ['2b live dispute arbiterId alone diverges (SIMULATION)', async (x) => { await prisma.dispute.updateMany({ where: { escrowId: x.escrowId }, data: { arbiterId: 'cap303-another-arbiter' } }) }],
+        ['2c live dispute ruling alone diverges (SIMULATION)', async (x) => { await prisma.dispute.updateMany({ where: { escrowId: x.escrowId }, data: { ruling: 'REFUND' } }) }],
+        ['2d live dispute authoritySignature alone diverges (SIMULATION)', async (x) => { await prisma.dispute.updateMany({ where: { escrowId: x.escrowId }, data: { authoritySignature: 'f'.repeat(128) } }) }],
+        ['3 Outcome of an incompatible kind (REFUND for a release round)', async (x) => {
+          const row = (await outcomeRow(x.escrowId))!
+          await prisma.semanticTransitionRecord.update({ where: { id: row.id }, data: { outcomeContent: { ...(row.outcomeContent as object), ruling: 'REFUND' } } })
+        }],
+        ['4 economic translation diverges from the Outcome (destination rebound)', async (x) => {
+          const row = (await outcomeRow(x.escrowId))!
+          const rebound = (row.outcomeDestinationBinding as any[]).map((d: any) => ({ ...d, destination: testnetAddress(`adr5-elsewhere-${d.beneficiary}`) }))
+          await prisma.semanticTransitionRecord.update({ where: { id: row.id }, data: { outcomeDestinationBinding: rebound } })
+        }],
+        ['5 ADR-005 authorization digest diverges', async (x) => { await prisma.economicDispositionAuthorization.updateMany({ where: { escrowId: x.escrowId }, data: { operationDigest: 'f'.repeat(64) } }) }],
+        ['6 cooperative round on a disputed escrow (generation erased from the round)', async (x) => {
+          await prisma.escrowPendingTransaction.update({ where: { id: x.pending.id }, data: { disputeId: null, rulingAppealRound: null, rulingArbiterId: null, rulingOutcome: null, rulingAuthoritySignature: null, rulingAuthorityIssuedAt: null } })
+        }],
+        ['7 appeal in progress (SIMULATION: APPEALED, ruling cleared)', async (x) => { await prisma.dispute.updateMany({ where: { escrowId: x.escrowId }, data: { status: 'APPEALED', ruling: null } }) }],
+      ]
+
+      it.each(cases)('%s: direct call with an empty callback -> BroadcastNotAuthorized (ADR-005), 0 POST; the untouched control is sent once', async (name, stale) => {
+        requirePostgres(`ADR-005 ${name}`)
+        const bad = await authorizedDisputed(`adr5-${name.split(' ')[0]}-bad`)
+        await stale(bad)
+        expect(await lastRefusal(bad)).toMatch(/ADR-005/)
+        expect(posts).toEqual([])
+        const ok = await authorizedDisputed(`adr5-${name.split(' ')[0]}-ok`)
+        expect(await direct(ok)).toBe('sent')
+        expect(posts).toHaveLength(1)
+      })
+
+      it('no ADR-005 authorization at all (only ADR-004): direct call refused, 0 POST - the broadcast point never commits a first one', async () => {
+        requirePostgres('ADR-005 missing')
+        const x = await authorizedDisputed('adr5-none', false)
+        expect(await lastRefusal(x)).toMatch(/ADR-005: .*no durable ADR-005 economic disposition authorization/)
+        expect(posts).toEqual([])
+        expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: x.escrowId } })).toBe(0) // read-only: nothing created
+      })
+
+      it('catch-up and PASS 1 with the Outcome removed: never broadcast, manual review; ALREADY_BROADCAST still converges', async () => {
+        requirePostgres('ADR-005 recovery')
+        const x = await authorizedDisputed('adr5-cu')
+        await prisma.semanticTransitionRecord.deleteMany({ where: { interactionId: x.escrowId } })
+        await prisma.escrow.update({ where: { id: x.escrowId }, data: { txReleaseId: 'cf'.repeat(32), releasedAt: new Date() } })
+        await reconcile()
+        expect(posts).toEqual([])
+        const known = await authorizedDisputed('adr5-known')
+        recoveryExplorer(known.fundingTxid, 100_000, 'all')
+        await reconcile()
+        expect(posts).toEqual([])
+        expect((await prisma.escrow.findUnique({ where: { id: known.escrowId } }))!.txReleaseId).toMatch(/^[0-9a-f]{64}$/)
+      })
+
+      it('appeal() is refused for this MULTISIG escrow (script-committed arbiter): scenario 7 is unreachable by the code, only by direct SQL', async () => {
+        requirePostgres('ADR-005 appeal unreachable')
+        const x = await authorizedDisputed('adr5-appeal')
+        const d = await prisma.dispute.findFirstOrThrow({ where: { escrowId: x.escrowId } })
+        const trade = await prisma.trade.findUniqueOrThrow({ where: { id: d.tradeId } })
+        await expect(getDisputeService().appeal(d.id, trade.buyerId)).rejects.toThrow(/script-committed arbiter/)
+      })
+
+      it('F1 (GK W2): an evidence submission that read the dispute OPENED and writes after the ruling is refused; the dispute stays RESOLVED and the authorized round is still sent once', async () => {
+        requirePostgres('ADR-005 F1 stale evidence')
+        const { escrowId, disputeId, buyer } = await makeDisputedEscrow('adr5-w2', { onboardArbiter: true })
+        const svc = getDisputeService() as any
+        let release!: () => void
+        const parked = new Promise<void>((r) => { release = r })
+        const real = svc.resolveEvidenceDescriptor.bind(svc)
+        const spy = jest.spyOn(svc, 'resolveEvidenceDescriptor').mockImplementation((async (...a: any[]) => { await parked; return real(...a) }) as never)
+        const evidence = svc.submitEvidence(disputeId, buyer.id, { type: 'payment_receipt', note: 'stale writer' }).then(() => 'recorded', (e: any) => String(e?.message))
+        await new Promise((r) => setTimeout(r, 300)) // the submission has read the dispute (OPENED) and is parked
+        await resolveRelease(disputeId, escrowId) // the ruling commits meanwhile
+        release()
+        const result = await evidence
+        spy.mockRestore()
+        expect(result).toMatch(/changed while this evidence was being validated/)
+        const after = (await prisma.dispute.findUniqueOrThrow({ where: { id: disputeId } }))
+        expect(after).toMatchObject({ status: 'RESOLVED', ruling: 'RELEASE' })
+        // Liveness: the round the ruling dispatched is still authorized and goes out exactly once.
+        const pending = (await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } }))!
+        await prisma.escrowTransactionSignature.create({ data: { pendingTxId: pending.id, participantId: pending.requiredSigners[0], signedPsbtBase64: await buyerSignature(escrowId) } })
+        await authorizePendingExecution(pending as any)
+        await eda().authorizeDisputedPendingExecution(pending as any)
+        await prisma.escrow.update({ where: { id: escrowId }, data: { status: 'COMPLETED' } })
+        const [input, psbt, signed] = await capturedRecoveryArgs(escrowId)
+        recoveryExplorer((await prisma.escrow.findUniqueOrThrow({ where: { id: escrowId } })).txLockId!, 100_000)
+        expect(await direct({ input, psbt, signed })).toBe('sent')
+        expect(posts).toHaveLength(1)
+      })
+    })
   })
 })

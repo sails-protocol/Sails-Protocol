@@ -275,6 +275,68 @@ This same procedure applies identically whether the affected database is
 a throwaway local Docker volume or a real production instance — the
 stakes differ, the verification discipline should not.
 
+### 6.1.1 `20261112120000_escrow_multisig_addr_unique` refused: duplicate MULTISIG addresses
+
+This migration creates the partial unique index `escrows_multisig_addr_key`
+on `escrows("multisigAddr")`. It applies to `type = 'MULTISIG'` rows and
+excludes `NULL`. With the index, a MULTISIG address can be committed to
+only one escrow.
+
+Before it creates the index, the migration checks for existing
+duplicates. If two or more MULTISIG escrows already share an address, it
+aborts with:
+
+```
+escrows_multisig_addr_key: MULTISIG escrows already share an address: <address> x<count>, ...
+```
+
+The migration alters and deletes nothing. The abort happens before
+`CREATE UNIQUE INDEX`, so the schema is left exactly as it was. Prisma
+still records the attempt as failed, and every later `migrate deploy`
+stops with **P3009** (section 6.1) until an operator resolves it.
+
+**Procedure:**
+
+1. List the duplicates and the escrows behind them:
+   ```sql
+   SELECT "multisigAddr", array_agg("id" ORDER BY "createdAt") AS escrows, count(*)
+   FROM "escrows"
+   WHERE "type" = 'MULTISIG' AND "multisigAddr" IS NOT NULL
+   GROUP BY "multisigAddr" HAVING count(*) > 1;
+   ```
+2. Correct the data. For each duplicated address, decide which single
+   escrow keeps it, based on its status and its funding evidence
+   (`txLockId`/`txLockVout`, `escrow_funding_evidence`). This is an
+   operator decision: the migration never makes it, and no script in this
+   repository makes it.
+   - Two escrows on one address cannot have any UTXO at that address
+     attributed to either of them. Treat every escrow involved as
+     needing review before it settles.
+   - Never delete or rewrite funding evidence, signatures or pending
+     rounds to make the check pass. Record the decision and the rows it
+     touched.
+3. Run the query from step 1 again. It must return no rows.
+4. Confirm the index does not exist, which shows the failed attempt had
+   no effect on the schema:
+   ```sql
+   SELECT indexname FROM pg_indexes WHERE indexname = 'escrows_multisig_addr_key';
+   ```
+   This must return no rows. If the index exists, the migration did not
+   fail at the duplicate check: follow section 6.1 instead.
+5. Mark the failed attempt as rolled back, then deploy again:
+   ```bash
+   npx prisma migrate resolve --rolled-back 20261112120000_escrow_multisig_addr_unique
+   npx prisma migrate deploy
+   ```
+   `migrate resolve` only edits Prisma's bookkeeping. The new
+   `migrate deploy` runs the duplicate check again and creates the index.
+6. `npx prisma migrate status` must report a clean state, and the query
+   from step 4 must now return `escrows_multisig_addr_key`.
+
+To reverse the index (not applied automatically):
+`DROP INDEX "escrows_multisig_addr_key";`. This is documented in the
+migration's header.
+
 ## 6.2 Backup / Restore Procedure (Missão 11 Fase 8.1 LB-06)
 
 Operator-driven for the first controlled launch — no automated backup
