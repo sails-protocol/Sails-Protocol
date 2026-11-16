@@ -134,7 +134,7 @@ rebuild per change):
 cp .env.example .env              # defaults already match docker-compose.yml below
 docker compose up -d postgres redis   # just the two real dependencies, not the app container
 npm install
-npm run db:migrate                # current command: `npx prisma migrate deploy`; applies committed migration history
+npm run db:migrate                # sh scripts/migrate-deploy-safe.sh: migrations, then the runtime grants (§6.3); needs MIGRATION_DATABASE_URL or SAILS_LEGACY_SINGLE_CREDENTIAL=1
 npm run dev                       # http://localhost:3000 — hot-reload dev server
 ```
 
@@ -158,7 +158,7 @@ Docker-composed Postgres/Redis above. `BACKLOG.md`, live GitHub Issues/Project, 
 | `dev` | `ts-node-dev --respawn --transpile-only src/main.ts` | Hot-reload dev server |
 | `build` | `npm run build -w @satsails/p2p-schemas && npm run build -w @satsails/p2p-trading-sdk && tsc` | Builds both workspace packages, then the server (`dist/`) |
 | `start` | `node dist/src/main.js` | Run the compiled build (note the `dist/src/` path — `tsc`'s inferred rootDir includes `packages/` via a `paths` alias, so output isn't flat under `dist/`) |
-| `db:migrate` | `npx prisma migrate deploy` | Apply committed production migration history |
+| `db:migrate` | `sh scripts/migrate-deploy-safe.sh` | Apply committed migration history, then the runtime grants (§6.3). Do not run `npx prisma migrate deploy` directly on a segregated database: it skips the grants |
 | `db:generate` | `npx prisma generate` | Regenerate the Prisma client (also runs automatically on `npm install`) |
 | `db:seed` | `ts-node src/test/seeds/seed.ts` | ⚠️ Still not built — see section 3 |
 | `db:studio` | `npx prisma studio` | Visual database browser |
@@ -382,6 +382,110 @@ Do not proceed with a restore, and escalate instead, if:
 - Row counts for any economically-relevant table (the list at the top of
   this section) do not match the last known source counts — investigate
   before repointing any application traffic at the restored database.
+
+## 6.3 Database roles (CTO 225, 2026-11-15)
+
+The write-once guarantees (`offer_envelopes`, `escrow_pending_round_retirements`,
+the fee/custody/evidence records) are triggers. The owner of a table can disable
+its trigger and a superuser can bypass it (`session_replication_role = replica`),
+so they only hold if the application connects as a role that is neither. Three
+roles, never shared:
+
+| Role | Attributes | Used by |
+|---|---|---|
+| cluster administrator (`postgres`; RDS master) | superuser / `rds_superuser` | `scripts/db/bootstrap-roles.js` only, once |
+| `sails_migrator` | login; no superuser, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS; owns the database, schema `public` and every object | `prisma migrate deploy` and `scripts/db/runtime-grants.sql` (`MIGRATION_DATABASE_URL`) |
+| `sails_runtime` | login, NOINHERIT; no elevated attribute; owns nothing; member of no role | the application (`DATABASE_URL`) |
+
+Runtime privileges are per table, from the explicit classification in
+`scripts/db/runtime-grants.sql`: `read` (SELECT), `append` (SELECT, INSERT),
+`mutable` (+UPDATE), `append_delete` (SELECT, INSERT, DELETE) or `mutable_delete`
+(+UPDATE, DELETE; unused today). Where an append-only table has one column the
+runtime sets once, only that column gets UPDATE: `custody_attestations."supersededAt"`
+(NULL -> timestamp, also trigger-guarded) and `intent_events."publishedAt"` (the
+publication marker of the hash-chained history). TRUNCATE, REFERENCES, TRIGGER,
+`CREATE` on the schema, any table privilege for PUBLIC and any access to `_prisma_migrations` are never granted,
+and there are no default privileges: a table added by a migration is unreachable
+until it is classified, and the grant step fails while any table is unclassified.
+
+### Order (new or existing database)
+
+1. Administrator, once: `ADMIN_DATABASE_URL=... SAILS_MIGRATOR_PASSWORD=... SAILS_RUNTIME_PASSWORD=... node scripts/db/bootstrap-roles.js`.
+   Creates or realigns both roles, revokes every runtime membership, and makes
+   `sails_migrator` the owner of the database, of `public` and of every object
+   already there (ownership only: no row is read or changed). On RDS first run
+   `GRANT sails_migrator TO <master>` so the master may transfer ownership.
+2. Migrator, every release: `MIGRATION_DATABASE_URL=... sh scripts/migrate-deploy-safe.sh`
+   (migrations, then the runtime grants; the grant step fails if `sails_runtime`
+   does not exist or a table is unclassified). Without `MIGRATION_DATABASE_URL` the
+   script refuses to run, before migrating anything, unless the legacy single
+   superuser credential is opted into explicitly with `SAILS_LEGACY_SINGLE_CREDENTIAL=1`;
+   then it migrates, applies no grants and says so (production refuses to boot on
+   that credential).
+3. Application: `DATABASE_URL` = `sails_runtime`. In production the server
+   refuses to start if that role is a superuser, has CREATEROLE/CREATEDB/
+   REPLICATION/BYPASSRLS, is a member of any role, owns the database, schema or
+   any relation or routine in `public`, can CREATE in `public` or in the database,
+   can create TEMP tables, or holds ANY table- or column-level privilege beyond its
+   table's class, counting grants to PUBLIC; an unclassified table allows nothing
+   (`src/common/database/runtime-privileges.ts`). The classes it compares against
+   are the ones the grant step applied and recorded in schema `sails_meta`
+   (`runtime_table_class`, `runtime_column_update`, readable by the runtime): one
+   inventory, `scripts/db/runtime-grants.sql`, so the boot check cannot drift from
+   it, and a stray grant made between deploys is refused at the next boot. The
+   inventory is itself guarded: the boot check also refuses the runtime if it
+   could INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER either `sails_meta` table
+   (table or column level, PUBLIC included), CREATE in `sails_meta`, or owns the
+   schema or any relation in it (it would otherwise rewrite its own class). Run
+   migrations through `npm run db:migrate` (= `scripts/migrate-deploy-safe.sh`),
+   never `npx prisma migrate deploy` alone: that skips the grants.
+
+Shell requirement: `scripts/migrate-deploy-safe.sh` (and therefore `npm run
+db:migrate`) needs a POSIX-compatible `sh` (Linux, macOS, the Docker images,
+CI; on Windows use WSL or Git Bash). Native Windows `cmd`/PowerShell is not
+supported by these scripts.
+   `DB_PRIVILEGE_CHECK=enforce|warn` runs the same check elsewhere: `docker-compose.yml`
+   enforces it; set `enforce` in any shared non-production environment (staging),
+   where the default is off.
+
+### Existing installations
+
+An installation created before this section has every object owned by the
+administrator and the application connected as it. Step 1 hands ownership over
+in place; rehearse it on a copy first, with the catalog inventory of §6.1.1
+(triggers, functions, partial indexes, CHECKs) compared before and after. Do not
+use `REASSIGN OWNED BY postgres` (it also moves objects outside the schema).
+Credentials: store the migrator and runtime passwords separately; the
+administrator credential is not needed after step 1.
+
+### Rollback
+
+Point `DATABASE_URL` back at the previous credential and restart (the production
+check will refuse a privileged role, so this is only possible outside production
+or after reverting the release that added the check). Roles, ownership and grants
+can stay in place: they do not change any row.
+
+### Residual risks (declared, not solved here)
+
+- Whoever holds the migrator or administrator credential can still bypass every
+  trigger; from here on that is credential custody, not a technical control.
+- Restore (§6.2): `pg_restore --disable-triggers` needs a superuser and the
+  write-once triggers can reject restored rows; restore as the administrator into
+  an empty database, then run step 1 and step 2 before pointing the runtime at it.
+- A runtime write path missing from the classification fails with SQLSTATE 42501
+  (permission denied); the CI lane "Critical flows as the restricted runtime role"
+  re-runs the critical real-Postgres suites as `sails_runtime` to catch it.
+- Segregation protects append-only records from deletion and rewrite, not the
+  mutable state: a compromised runtime can still INSERT into append tables (a
+  forged fact is caught only where reads verify a signature, e.g. offer envelopes)
+  and UPDATE mutable state (`offers`, `trades`, `escrows`, `disputes`, ...).
+- Not segregated: the main CI test lanes and the devcontainer
+  (`.devcontainer/docker-compose.extend.yml`) still connect as the superuser,
+  because test setup needs privileged operations (cleanup DELETE, fault-injection
+  triggers). Only the dedicated CI lane and `docker-compose.yml` run as `sails_runtime`.
+- `scripts/db/bootstrap-roles.js` sets the passwords in SQL; it turns statement
+  logging off for its own session where the administrator may (a non-superuser
+  RDS master may not), so check the server log settings before running it there.
 
 ## 7. Production Considerations
 

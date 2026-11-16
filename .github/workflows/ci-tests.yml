@@ -49,6 +49,12 @@ jobs:
       # this service container is a fresh, disposable, CI-only Postgres,
       # never a shared or production database.
       SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
+      # CTO 230 - npm run db:migrate goes through scripts/migrate-deploy-safe.sh. These
+      # lanes deliberately migrate and test as the superuser (test setup needs
+      # privileged operations), so the legacy single credential is opted into
+      # explicitly; the role-segregated path is exercised by runtimePrivileges and
+      # by the restricted-runtime lane in ci-tests.yml.
+      SAILS_LEGACY_SINGLE_CREDENTIAL: "1"
       # M9.10-R root cause: TRUSTED_ARBITRATORS was never set anywhere in
       # this workflow. src/config/index.ts reads it once, at
       # module-import time; when empty, dispute.service.ts's lazy
@@ -92,6 +98,37 @@ jobs:
         run: |
           set -o pipefail
           npm test 2>&1 | tee jest-output.txt
+      - name: Critical flows as the restricted runtime role (CTO 225)
+        # Re-runs real-Postgres suites for trade, escrow, dispute, reconciliation,
+        # event store/projections, idempotency and capabilities with the
+        # application connected as sails_runtime (no superuser, owns nothing,
+        # least-privilege grants from scripts/db/runtime-grants.sql). Suites that
+        # need test-only privileges are left out: eventProjectionClaims (cleanup
+        # deleteMany), intentTransitionAtomicity (fault-injection triggers),
+        # economicDispositionCooperativeGate (deletes a Dispute row as the attack).
+        env:
+          ADMIN_DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+          SAILS_MIGRATOR_PASSWORD: ci-migrator-password
+          SAILS_RUNTIME_PASSWORD: ci-runtime-password
+          MIGRATION_DATABASE_URL: postgresql://sails_migrator:ci-migrator-password@localhost:5432/sails_protocol
+        run: |
+          set -o pipefail
+          node scripts/db/bootstrap-roles.js
+          npx prisma db execute --file scripts/db/runtime-grants.sql
+          DATABASE_URL=postgresql://sails_runtime:ci-runtime-password@localhost:5432/sails_protocol DB_PRIVILEGE_CHECK=enforce \
+            npx jest --runInBand \
+              tests/integration/tradeProjectionMonotonicity.test.ts \
+              tests/integration/offerIntentIdempotencyUniqueness.test.ts \
+              tests/integration/escrowFundingConcurrency.test.ts \
+              tests/integration/m9rClaimRecovery.test.ts \
+              tests/integration/m9rDispatchRecovery.test.ts \
+              tests/integration/atomicDisputeOpening.test.ts \
+              tests/integration/disputeSemanticProvenance.test.ts \
+              tests/integration/capabilityAuthorityEnforced.test.ts \
+              tests/integration/durableProjectionCompletion.test.ts \
+              tests/integration/semanticTransitionRecordAtomicity.test.ts \
+              tests/integration/settlementResultIntegrity.test.ts \
+              2>&1 | tee -a jest-output.txt
       - name: Upload test logs
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

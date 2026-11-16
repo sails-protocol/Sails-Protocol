@@ -95,6 +95,12 @@ jobs:
         # service above, never a shared or production database.
         env:
           DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+          # CTO 230 - npm run db:migrate goes through scripts/migrate-deploy-safe.sh. This
+          # lane deliberately migrates and tests as the superuser (test setup needs
+          # privileged operations), so the legacy single credential is opted into
+          # explicitly; the role-segregated path is exercised by runtimePrivileges and
+          # by the restricted-runtime lane in ci-tests.yml.
+          SAILS_LEGACY_SINGLE_CREDENTIAL: "1"
         run: npm run db:migrate
 
       - name: Run unit tests
