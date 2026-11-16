@@ -119,6 +119,7 @@ jobs:
             npx jest --runInBand \
               tests/integration/tradeProjectionMonotonicity.test.ts \
               tests/integration/offerIntentIdempotencyUniqueness.test.ts \
+              tests/integration/tradeAdmissionAtomicity.test.ts \
               tests/integration/escrowFundingConcurrency.test.ts \
               tests/integration/m9rClaimRecovery.test.ts \
               tests/integration/m9rDispatchRecovery.test.ts \
