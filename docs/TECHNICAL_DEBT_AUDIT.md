@@ -2477,7 +2477,10 @@ nota):
 
 **A evidência é anterior ao merge da PR #654** (`main` `5c436367`,
 2026-11-16). Depois dela mudaram `src/app.ts` (a checagem de
-privilégios do banco, em `startServer()`, fora de `buildApp()`),
+privilégios do banco: a chamada fica em `startServer()`, fora de
+`buildApp()`, mas o import do módulo novo
+`src/common/database/runtime-privileges.ts` está no topo do arquivo e
+entra na compilação de toda suíte que carrega o app),
 `.github/workflows/ci.yml`, `.github/workflows/ci-tests.yml` e as
 listas de teste do `package.json`. A bateria de cache frio não foi
 reexecutada depois dessas mudanças. O CI da `main` em `5c436367` (CI,
@@ -2506,8 +2509,9 @@ correção:
 5. Indisponibilidade real de Postgres ou Redis é obrigação
    independente, fora do escopo do A2.
 
-Das sete perguntas deste item: a 5 fica respondida apenas para o padrão
-do CI; a 1 e a 4 seguem sem resposta; a 2, a 3 e a 6 seguem parciais; a
+Das sete perguntas deste item: a 5 fica respondida só quanto ao
+sintoma (ele não aparece no CI); a distribuição de tempo no CI não foi
+medida; a 1 e a 4 seguem sem resposta; a 2, a 3 e a 6 seguem parciais; a
 7 segue respondida só para a fatia do Swagger-UI. Reabrir este item é o
 caminho correto se o sintoma voltar a aparecer no CI ou se qualquer um
 dos limites 1 a 4 passar a ser exigido por outro critério.
