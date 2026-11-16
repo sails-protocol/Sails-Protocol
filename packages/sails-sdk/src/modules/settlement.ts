@@ -593,14 +593,41 @@ export class SailsSettlementModule {
    * submitted and the escrow has actually finalized (combined, broadcast,
    * and transitioned) — check `getPendingTransaction()`/`get()` for the
    * resulting `txReleaseId` if needed.
+   *
+   * `pendingTransactionId` (optional, Issue #239) binds the signature to that
+   * exact round (`EscrowPendingTransaction.id` from `getPendingTransaction()`):
+   * the server refuses it if the escrow's live round is a different one. For
+   * MULTISIG the server also refuses any PSBT that does not add exactly one
+   * SIGHASH_ALL signature, by the caller's registered key, to that round.
    */
   async submitTransactionSignature(
     escrowId: string,
     signedPsbtBase64: string,
+    pendingTransactionId?: string,
   ): Promise<{ complete: boolean }> {
     return this.transport.post(
       `/v1/settlement/escrow/${escrowId}/submit-transaction-signature`,
-      { signedPsbtBase64 },
+      { signedPsbtBase64, ...(pendingTransactionId ? { pendingTransactionId } : {}) },
+      true,
+    );
+  }
+
+  /**
+   * Issue #239 - the seller withdraws a cooperative MULTISIG signing round
+   * that is not fully signed (`pendingTransactionId` names the exact round).
+   * Retired, NOT revoked: signatures already handed out stay valid for that
+   * exact transaction until the funding outpoint is spent by another one.
+   * Only the seller may call it, never in a dispute (there, only a valid
+   * ruling replaces the round). `outcome: 'GONE'` means the round no longer
+   * exists (already retired, replaced or finalized).
+   */
+  async cancelPendingTransaction(
+    escrowId: string,
+    pendingTransactionId: string,
+  ): Promise<{ outcome: 'CANCELLED' | 'GONE'; pendingTransactionId: string; retirementId?: string; note?: string }> {
+    return this.transport.post(
+      `/v1/settlement/escrow/${escrowId}/cancel-pending-transaction`,
+      { pendingTransactionId },
       true,
     );
   }

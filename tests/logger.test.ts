@@ -89,6 +89,18 @@ describe('common/logger.ts — Missão 11 Fase 8.1 LB-09 (redaction outside the 
     expect(String(errField.stack)).not.toContain('password')
   })
 
+  it.each([
+    ['an empty user', 'redis://:redis-secret@cache:6379', 'redis-secret'],
+    ['a query parameter', 'postgresql://db:5432/sails?sslmode=require&password=query-secret', 'query-secret'],
+  ])('scrubs a credential carried with %s, keeping the host', (_, dsn, credential) => {
+    const { log, lines } = buildTestLogger()
+    log.error({ msg: 'connect failed', err: new Error(`connect failed: ${dsn}`) })
+    const message = String((lastLine(lines).err as Record<string, unknown>).message)
+    expect(message).not.toContain(credential)
+    expect(message).toContain('[REDACTED]')
+    expect(message).toMatch(/cache:6379|db:5432/)
+  })
+
   it('leaves useful correlation identifiers (module, escrowId, tradeId) fully readable — redaction does not make logs useless', () => {
     const { log, lines } = buildTestLogger()
     log.child({ module: 'multisig-fee-confirmation-job' }).info({ msg: 'sweep completed', escrowId: 'escrow-42', tradeId: 'trade-7', collected: 3 })

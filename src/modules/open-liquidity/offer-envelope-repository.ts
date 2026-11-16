@@ -103,6 +103,19 @@ export type LatestOfferState =
   | { status: 'RESOLVED'; row: OfferEnvelopeRow }
   | { status: 'EQUIVOCATED'; revision: number; rows: OfferEnvelopeRow[] }
 
+/**
+ * C9 - a stored row at an identity's highest revision no longer verifies: its signature fails, or its stored
+ * `contentDigest` is not the digest of its own content. Only a writer outside `ingest()` can produce this (the
+ * table is append-only by trigger, migration 20261111120000), so the current state is unknown, not "inactive by
+ * the owner's choice": `getLatest()` throws instead of returning a state, and no economic read gets past it.
+ */
+export class OfferEnvelopeIntegrityError extends Error {
+  constructor(readonly ownerPublicKey: string, readonly logicalOfferId: string, readonly revision: number, readonly rowIds: string[]) {
+    super(`OfferEnvelope integrity failure for (${ownerPublicKey}, ${logicalOfferId}) at revision ${revision}: stored row(s) ${rowIds.join(', ')} do not verify`)
+    this.name = 'OfferEnvelopeIntegrityError'
+  }
+}
+
 export class OfferEnvelopeRepository {
   /**
    * Verify, then store. CURRENT-STATE selection (ADR-001 §5: highest
@@ -333,6 +346,16 @@ export class OfferEnvelopeRepository {
     const rowsAtHighestRevision = await prisma.offerEnvelope.findMany({
       where: { ownerPublicKey, logicalOfferId, revision: highest.revision },
     })
+    // C9 - every row deciding the current state is re-verified on read: the table is a local cache, never trusted
+    // on its own. One altered or forged row fails the whole identity closed; it is never skipped (that would fall
+    // back to an older revision) and never folded into another row by its stored digest (that would hide it).
+    const tampered = rowsAtHighestRevision.filter((row) => {
+      const envelope = this.reconstructSignedEnvelope(row)
+      return !verifyOfferEnvelope(envelope).valid || hashOfferEnvelope(envelope).toString('hex') !== row.contentDigest
+    })
+    if (tampered.length > 0) {
+      throw new OfferEnvelopeIntegrityError(ownerPublicKey, logicalOfferId, highest.revision, tampered.map((row) => row.id))
+    }
     const distinctByContentDigest = new Map(rowsAtHighestRevision.map((row) => [row.contentDigest, row]))
     const sortedRows = [...distinctByContentDigest.values()].sort((a, b) => a.contentDigest.localeCompare(b.contentDigest))
 

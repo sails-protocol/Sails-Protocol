@@ -130,7 +130,7 @@ const mockEscrowUpdate = jest.fn(async ({ where, data }: any) => {
   Object.assign(row, data)
   return { ...row }
 })
-const mockEscrowEventCreate = jest.fn().mockResolvedValue({})
+const mockEscrowEventCreate = jest.fn().mockResolvedValue({ id: 'transition-1' })
 const mockEscrowEventFindFirst = jest.fn().mockResolvedValue(null)
 const mockTradeFindUnique = jest.fn(async ({ where }: any) => {
   const sellerId = fakeDb.tradeSeller.get(where.id)
@@ -188,6 +188,8 @@ jest.mock('../src/common/database', () => {
       // SemanticTransitionRecord insert — this tx object exposes both.
       $transaction: (async (callback: (tx: unknown) => Promise<unknown>) =>
         callback({
+          // Issue #298 - emitEscrowTransition() records the 'transition.claimed' marker in the same transaction as the claim.
+          eventProjectionClaim: { create: jest.fn().mockResolvedValue({}), createMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]) },
           $executeRaw: jest.fn().mockResolvedValue(0),
           escrowEvent: {
             findFirst: ((...args: unknown[]) => (mockEscrowEventFindFirst as any)(...args)) as any,
@@ -195,6 +197,8 @@ jest.mock('../src/common/database', () => {
           },
           escrow: {
             updateMany: ((...args: unknown[]) => (mockEscrowUpdateMany as any)(...args)) as any,
+            findUnique: ((...args: unknown[]) => (mockEscrowFindUnique as any)(...args)) as any,
+            update: ((...args: unknown[]) => (mockEscrowUpdate as any)(...args)) as any,
           },
           semanticTransitionRecord: {
             create: ((...args: unknown[]) => (mockSemanticTransitionRecordCreate as any)(...args)) as any,
