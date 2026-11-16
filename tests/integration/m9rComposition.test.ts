@@ -23,7 +23,7 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
   const pg = createPostgresIntegrationHarness()
   let prisma: any, escrowService: any, identityService: any, liquidityRouter: any, tradeService: any, getDisputeService: any
   let payoutAddressService: any, signAuthorityDecision: any, commit: any, MultisigProvider: any, guard: any
-  let reconcileMissingDispatch: any, setDispatchRecoveryCursor: any, submitSig: any, loadDisputeRulingRecord: any, signatureSetDigest: any, outcomeModule: any
+  let reconcileMissingDispatch: any, submitSig: any, loadDisputeRulingRecord: any, signatureSetDigest: any, outcomeModule: any
   const ARBITER_ID = 'm9r-comp-arbiter'
   const kp = nacl.sign.keyPair(); const arbPub = Buffer.from(kp.publicKey).toString('hex')
   let chain: H.Chain; let realFetch: typeof fetch
@@ -49,7 +49,7 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
     outcomeModule = require('../../src/modules/open-settlement/dispute-outcome')
     ;({ commitAuthoritativeDisputeRuling: commit, loadDisputeRulingRecord } = outcomeModule)
     ;({ MultisigProvider } = require('../../src/modules/open-settlement/multisig.provider'))
-    ;({ reconcileMissingDispatch, setDispatchRecoveryCursor } = require('../../src/modules/open-settlement/dispute-dispatch-recovery'))
+    ;({ reconcileMissingDispatch } = require('../../src/modules/open-settlement/dispute-dispatch-recovery'))
     ;({ submitTransactionSignature: submitSig } = require('../../src/modules/open-settlement/escrow-pending-tx'))
     ;({ signatureSetDigest } = require('../../src/modules/open-settlement/pending-round-retirement'))
     guard = require('../../src/modules/open-settlement/dispatch-translation-guard')
@@ -174,10 +174,13 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
 
     defect = true
     await commitOnly(f, ruling(f))
-    // Unbounded run (#604 keyset pages) and bounded run (#613), both refused by R2 inside the initiate.
-    const runs = [await reconcileMissingDispatch(), (setDispatchRecoveryCursor(''), await reconcileMissingDispatch({ maxCandidates: 50, budgetMs: 60_000 }))]
+    // Unbounded run (keyset pages) and bounded run (durable claim stamp, #675), both refused by R2 inside the initiate.
+    const runs = [await reconcileMissingDispatch(), await reconcileMissingDispatch({ maxCandidates: 50, budgetMs: 60_000 })]
     for (const rep of runs) expect(forResume(rep, f)).toMatchObject({ resumed: false, failed: undefined, guardFailed: { escrowId: f.escrowId } })
     expect(runs[1].budget).toMatchObject({ stoppedBy: 'SWEEP_COMPLETE' })
+    // The bounded run's turn is recorded in the database (no process-local cursor exists): the refused candidate was stamped.
+    const stamped = await prisma.dispute.findUniqueOrThrow({ where: { id: f.disputeId }, select: { dispatchRecoveryAttemptedAt: true } })
+    expect(stamped.dispatchRecoveryAttemptedAt).not.toBeNull()
     const refused = await state(f)
     expect(refused).toMatchObject({ dispute: 'RESOLVED', outcome: true, pending: 1, retirements: 0, txRelease: false })
     expect(refused.round).toMatchObject({ id: f.coopRoundId, disputeId: null })
