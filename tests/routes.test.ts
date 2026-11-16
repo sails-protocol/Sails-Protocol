@@ -24,6 +24,8 @@
  * tests/rateLimit.test.ts and tests/criticalRateLimit.test.ts's job), so
  * the global ceiling should just stay out of its way.
  */
+// CTO 344: this suite asserts the E21 transactional admission, which is selectable and off by default.
+process.env.TRADE_ADMISSION_TRANSACTIONAL = 'true'
 process.env.RATE_LIMIT_MAX = '10000'
 
 import type { FastifyInstance } from 'fastify'

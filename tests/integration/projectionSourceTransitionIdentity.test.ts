@@ -8,6 +8,8 @@
 // "Equal to an uninterrupted run, except for the one extra durable event" is what excludes a repeated effect on
 // totalTrades, volume, fee floor, reputation, vouch and disputeCount, and on the derived notifications.
 
+// CTO 344: this suite asserts the E21 transactional admission, which is selectable and off by default.
+process.env.TRADE_ADMISSION_TRANSACTIONAL = 'true'
 import { PrismaClient } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import { readFileSync } from 'fs'

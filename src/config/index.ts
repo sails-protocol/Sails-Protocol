@@ -376,6 +376,11 @@ export const config = {
     // shape as mockEscrow/mockSettlement above, for the same reason:
     // moving funds automatically is not a safe default.
     autoSettleOnMatch: process.env.AUTO_SETTLE_ON_MATCH === 'true',
+    // E21 slice 1 (CTO 344): the transactional trade admission (trade.service.ts createTradeTransactional) is selectable
+    // and OFF by default; unset keeps the pre-E21 path (createTradeLegacy) byte-for-byte. Both read and write the same
+    // idempotency scope safely: the transactional path writes claims already COMPLETED (the legacy path replays them),
+    // and refuses a legacy IN_PROGRESS/FAILED claim with 409 instead of re-running it.
+    tradeAdmissionTransactional: process.env.TRADE_ADMISSION_TRANSACTIONAL === 'true',
     // RFC-014: capability-registry.ts (real since RFC-013) had zero real
     // callers anywhere in the money-moving path — a working permission
     // system nothing ever consults. This flag turns on the two real

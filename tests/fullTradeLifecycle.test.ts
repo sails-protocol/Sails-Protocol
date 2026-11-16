@@ -31,6 +31,8 @@
  * needed — only a chain that runs escrow creation for real and then
  * asserts what raiseDispute() sees would).
  */
+// CTO 344: this suite asserts the E21 transactional admission, which is selectable and off by default.
+process.env.TRADE_ADMISSION_TRANSACTIONAL = 'true'
 export {} // same reasoning as chatUnification.test.ts/reputationOutcome.test.ts's
 // identical comment — forces this file to be a module so top-level consts
 // don't leak into the global scope and collide with another test file's.

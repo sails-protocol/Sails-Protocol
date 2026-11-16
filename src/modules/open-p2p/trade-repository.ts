@@ -88,6 +88,7 @@ export interface TradeRepository {
    * Offer status writer (liquidity.service.ts) then waits for the admission to commit, and a write that committed
    * first is what this read returns. Concurrent admissions on the same Offer do not block each other.
    */
+  findOfferById(offerId: string): Promise<OfferRow | null> // legacy admission path (CTO 344)
   findOfferForAdmission(tx: Prisma.TransactionClient, offerId: string): Promise<OfferRow | null>
 
   /** Bare row, no relations. Shared by updateStatus()'s ownership-check read, negotiationService.open()'s existence check, and TradeService.assertParticipant() — the one shape 4 separate lightweight auth-gate call sites go through. */
@@ -186,6 +187,11 @@ class PrismaTradeRepository implements TradeRepository {
         tradeIntentId: input.tradeIntentId,
       },
     })
+  }
+
+  // Pre-E21 read, kept for the legacy admission path (CTO 344).
+  async findOfferById(offerId: string) {
+    return prisma.offer.findUnique({ where: { id: offerId } })
   }
 
   async findOfferForAdmission(tx: Prisma.TransactionClient, offerId: string) {

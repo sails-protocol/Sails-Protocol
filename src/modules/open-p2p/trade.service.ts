@@ -14,13 +14,14 @@ import { AppError, NotFoundError, ValidationError, ForbiddenError } from '../../
 import { eventBus } from '../../common/events/event-bus'
 import type { DurableEvent } from '../../common/events/event-store'
 import { childLogger } from '../../common/logger'
+import { config } from '../../config'
 import { negotiationService } from './negotiation.service'
 import { intentEngine, type OwedIntentEvent } from '../../core/intent-engine'
 import { tradeRepository, type TradeRepository } from './trade-repository'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { TradeStatus } from '../../common/types'
 import {
-  claimCompletedInTransaction, findIdempotencyClaim, hashIdempotentPayload, isUniqueConstraintError,
+  claimCompletedInTransaction, findIdempotencyClaim, hashIdempotentPayload, isUniqueConstraintError, withIdempotency,
   type IdempotencyRecord,
 } from '../../common/idempotency'
 
@@ -99,6 +100,160 @@ export class TradeService {
    * (3b, E22) is NOT enforced here.
    */
   async createTrade(input: CreateTradeInput) {
+    return config.features.tradeAdmissionTransactional ? this.createTradeTransactional(input) : this.createTradeLegacy(input)
+  }
+
+  // Pre-E21 admission, kept verbatim from main (CTO 344): the default while tradeAdmissionTransactional is off.
+  private async createTradeLegacy(input: CreateTradeInput) {
+    return withIdempotency(
+      {
+        scope: 'openp2p.trade.create',
+        participantId: input.counterpartyId,
+        key: input.idempotencyKey,
+        // offerId + amount are the only fields that make two requests
+        // "the same logical attempt" for this operation — counterpartyId
+        // is already the scoping key itself, not part of the payload hash.
+        requestPayload: { offerId: input.offerId, amount: input.amount },
+      },
+      () => this.persistTrade(input),
+      (trade) => this.postPersistTrade(input, trade),
+      async (tradeId) => {
+        const trade = await this.repo.findById(tradeId)
+        // The claim row's own resultRef only ever gets set to a real,
+        // just-created Trade's id (idempotency.ts's runAndSettle()) — a
+        // miss here means the Trade was deleted out-of-band after this
+        // idempotency key completed, a real data-integrity anomaly, not
+        // a normal "not found" the caller could have caused.
+        if (!trade) throw new NotFoundError('Trade', tradeId)
+        return trade
+      }
+    )
+  }
+
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — this is the ENTIRE durable
+  // side effect of createTrade(): validation reads (no writes) followed
+  // by exactly one durable write, `this.repo.create(...)`. Nothing past
+  // that line may live in this function. Proof this boundary is correct:
+  // before `this.repo.create()` returns, no Trade row exists anywhere —
+  // a thrown error above that line genuinely means "nothing durable
+  // happened," which is the only case `runAndSettle()` is allowed to
+  // treat as FAILED (safe to retry via a fresh `persistTrade()` call).
+  // Once `this.repo.create()` returns, the Trade is real and permanent
+  // regardless of what `postPersistTrade()` below does next.
+  private async persistTrade(input: CreateTradeInput) {
+    const offer = await this.repo.findOfferById(input.offerId)
+    if (!offer) throw new NotFoundError('Offer', input.offerId)
+    if (offer.status !== 'ACTIVE') {
+      throw new ValidationError(`Offer ${input.offerId} is not active (status: ${offer.status})`)
+    }
+    if (offer.userId === input.counterpartyId) {
+      throw new ValidationError('Cannot start a trade against your own offer')
+    }
+
+    // Robustness-audit fix (2026-07-20): createTrade() never validated
+    // `input.amount` at all — neither that it's a sane positive number,
+    // nor that it falls within the very `minAmount`/`maxAmount` bounds
+    // the Offer publishes and the UI displays as a hard constraint
+    // (OfferDetail.tsx's "Limites 10-100 USDT"). A caller could request
+    // any amount, including one wildly outside what the seller actually
+    // offered, and a real Trade would be created for it — an accepted
+    // "trade" the counterparty never agreed to, not just a UX gap.
+    // `Number()` here is the same "bounds check, not exact arithmetic"
+    // precedent RFC-009 already established (policy-engine.ts's
+    // validateFinancialSanity(), liquidity.service.ts's sort comparator)
+    // — the decimal string itself is still what's persisted below.
+    const amountNum = Number(input.amount)
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      throw new ValidationError(`amount must be a positive decimal string, got "${input.amount}"`)
+    }
+    if (amountNum < Number(offer.minAmount) || amountNum > Number(offer.maxAmount)) {
+      throw new ValidationError(
+        `amount ${input.amount} is outside Offer ${offer.id}'s limits (${offer.minAmount}-${offer.maxAmount})`
+      )
+    }
+
+    // Offer.side is the offer creator's side — the caller takes the
+    // opposite role. A SELL offer means the creator is the seller; a BUY
+    // offer means the creator is the buyer.
+    const [buyerId, sellerId] =
+      offer.side === 'SELL' ? [input.counterpartyId, offer.userId] : [offer.userId, input.counterpartyId]
+
+    const priceUsd = offer.priceUsd
+    const totalUsd = (Number(priceUsd) * Number(input.amount)).toFixed(8)
+
+    const trade = await this.repo.create({
+      offerId: offer.id,
+      buyerId,
+      sellerId,
+      asset: offer.asset,
+      amount: input.amount,
+      priceUsd,
+      totalUsd,
+      network: offer.network,
+      intentId: offer.intentId, // RFC-018 — carried over from the accepted Offer
+    })
+
+    return trade
+  }
+
+  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — everything that must happen
+  // AFTER the Trade already durably exists: event emission, the RFC-018
+  // Intent walk, and opening the negotiation channel. Any of these can
+  // throw (event bus backpressure, an intent-engine transition
+  // conflict, a negotiation-channel error) — when one does, the error
+  // still propagates to createTrade()'s original caller (it is a real
+  // failure the caller must see), but `idempotency.ts`'s `runAndSettle()`
+  // has ALREADY settled the claim to COMPLETED/UNKNOWN by the time this
+  // runs, so a retry with the same key always recovers the existing
+  // Trade via `recover()` above — it can never call `persistTrade()`
+  // again and can never create a second Trade row. Recovering does NOT
+  // re-run this method — a Trade recovered after a postPersist failure
+  // may still be missing its event emission and/or intent transitions;
+  // that gap is the disclosed residual in `idempotency.ts`'s own header.
+  private async postPersistTrade(input: CreateTradeInput, trade: Awaited<ReturnType<TradeService['persistTrade']>>) {
+    const buyerId = trade.buyerId
+    const sellerId = trade.sellerId
+
+    await eventBus.emit('openp2p.trade.created', {
+      tradeId: trade.id,
+      offerId: trade.offerId,
+      buyerId,
+      sellerId,
+      asset: trade.asset,
+      amount: trade.amount.toString(),   // RFC-009 — Decimal -> decimal string at the event boundary
+      priceUsd: trade.priceUsd.toString(),
+    }, trade.id)
+
+    // RFC-018 (rfcs/RFC-018-intent-as-canonical-trade-entry-point.md) —
+    // walks the originating Intent through the states this reference
+    // implementation's synchronous "accept an offer" flow actually
+    // represents: DISCOVERING (the search that led the counterparty to
+    // this offer already happened, outside this function) -> MATCHED (a
+    // counterparty is now committed) -> NEGOTIATING (negotiationService.
+    // open() below opens the chat channel immediately after). COMMITTED
+    // itself waits for escrow to actually lock
+    // (common/events/handlers.ts's settlement.escrow.locked reaction) —
+    // this mapping is PROTOCOL_SPECIFICATION.md §3.1's own table, not
+    // invented here. `intentId` is null for any Offer created before
+    // this RFC landed — skipped entirely, not an error, same
+    // backward-compatible posture as every other nullable-FK migration
+    // in this codebase.
+    if (trade.intentId) {
+      const triggeredBy = 'system:trade-lifecycle'
+      await intentEngine.transition(trade.intentId, 'DISCOVERING', triggeredBy, 'intent.discovering', { intentId: trade.intentId })
+      await intentEngine.transition(trade.intentId, 'MATCHED', triggeredBy, 'intent.matched', { intentId: trade.intentId, candidateIds: [input.counterpartyId] })
+      await intentEngine.transition(trade.intentId, 'NEGOTIATING', triggeredBy, 'intent.negotiating', { intentId: trade.intentId, negotiationId: trade.id })
+    }
+
+    // Opens the negotiation channel's in-memory status tracking and emits
+    // negotiation.opened/openp2p.trade.status_changed. The HumanChatChannel
+    // instance this returns is discarded here — chat.routes.ts constructs
+    // its own per-connection channel scoped to whichever participant is
+    // actually connected via WebSocket, not the buyer specifically.
+    await negotiationService.open(trade.id, buyerId, sellerId)
+  }
+
+  private async createTradeTransactional(input: CreateTradeInput) {
     const claim = input.idempotencyKey
       ? { key: input.idempotencyKey, requestHash: hashIdempotentPayload({ offerId: input.offerId, amount: input.amount }) }
       : null

@@ -16,6 +16,8 @@
 //   G3. Trade.escrowId is projected from a NON-durable 'settlement.escrow.created' consumer. A crash between
 //       the Escrow insert and that consumer must still converge from the authoritative Escrow row.
 
+// CTO 344: this suite asserts the E21 transactional admission, which is selectable and off by default.
+process.env.TRADE_ADMISSION_TRANSACTIONAL = 'true'
 import { PrismaClient } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
