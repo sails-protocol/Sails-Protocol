@@ -217,7 +217,9 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     const transition = await prisma.escrowEvent.create({
       data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: genesisEscrowHash('PAYMENT_PENDING', 'COMPLETED', ctx.sellerId), prevHash: 'genesis' },
     })
-    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
+    // Claimed in the past, explicitly: Prisma fills appliedAt (timestamp(3)) from the app clock, and with staleness 0 the
+    // recovery selects appliedAt < Date.now(); a claim made in the same millisecond as the recovery would be excluded.
+    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId, appliedAt: new Date(Date.now() - 1000) } })
     expect(await prisma.durableEventRecord.count({ where: { correlationId: ctx.tradeId, eventName: 'settlement.escrow.released' } })).toBe(0)
 
     const report = { requiresManualReview: [], failed: [], projectionsRecovered: [] } as any
@@ -241,7 +243,9 @@ describe('Issue #298 - durable event projections are replay-safe (real PostgreSQ
     const transition = await prisma.escrowEvent.create({
       data: { escrowId: ctx.escrowId, fromStatus: 'PAYMENT_PENDING', toStatus: 'COMPLETED', triggeredBy: ctx.sellerId, entryHash: genesisEscrowHash('PAYMENT_PENDING', 'COMPLETED', ctx.sellerId), prevHash: 'genesis' },
     })
-    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
+    // Claimed in the past, explicitly: Prisma fills appliedAt (timestamp(3)) from the app clock, and with staleness 0 the
+    // recovery selects appliedAt < Date.now(); a claim made in the same millisecond as the recovery would be excluded.
+    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId, appliedAt: new Date(Date.now() - 1000) } })
     const eventId = randomUUID()
     await prisma.durableEventRecord.create({
       data: {
