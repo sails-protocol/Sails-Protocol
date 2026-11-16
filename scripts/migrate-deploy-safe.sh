@@ -24,6 +24,15 @@
 # zero behavior change from before this script existed.
 set -e
 
+# CTO 225 - decide the credential model BEFORE migrating anything. A segregated
+# database (docs/DEPLOYMENT.md 6.3) is migrated through MIGRATION_DATABASE_URL
+# (sails_migrator). The legacy single superuser credential is an explicit,
+# affirmative opt-in; forgetting both is a configuration error, not a skip.
+if [ -z "$MIGRATION_DATABASE_URL" ] && [ "$SAILS_LEGACY_SINGLE_CREDENTIAL" != "1" ]; then
+  echo "migrate-deploy-safe: set MIGRATION_DATABASE_URL (sails_migrator, see docs/DEPLOYMENT.md 6.3) or, for a legacy single-credential database only, SAILS_LEGACY_SINGLE_CREDENTIAL=1" >&2
+  exit 1
+fi
+
 # `prisma db execute` never prints SELECT output (verified directly --
 # it only ever says "Script executed successfully", regardless of the
 # query), so detection here goes through `migrate status` instead:
@@ -41,3 +50,13 @@ if echo "$STATUS_OUTPUT" | grep -qx "20260807_init"; then
 fi
 
 npx prisma migrate deploy
+
+# CTO 225 - runtime privilege matrix, applied as the migrator after every
+# migration run (idempotent). On a segregated database a missing sails_runtime
+# role or an unclassified table fails the deploy; the legacy opt-in (checked at
+# the top) skips it, and the production boot check refuses that credential.
+if [ -n "$MIGRATION_DATABASE_URL" ]; then
+  npx prisma db execute --file scripts/db/runtime-grants.sql
+else
+  echo "SAILS_LEGACY_SINGLE_CREDENTIAL=1: legacy single-credential database, runtime grants NOT applied (production refuses to boot on it; see docs/DEPLOYMENT.md 6.3)."
+fi

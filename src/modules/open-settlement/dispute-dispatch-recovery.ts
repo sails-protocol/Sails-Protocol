@@ -54,7 +54,6 @@
  * benign "someone else already resumed this" outcome, never a failure —
  * no new locking primitive was invented; the existing one is reused.
  */
-import { randomUUID } from 'crypto'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../common/database'
 import { config } from '../../config'
@@ -88,12 +87,15 @@ export interface DispatchRecoveryReport {
  *   - no new candidate (and no new page) is started once `budgetMs` has elapsed. A candidate already started always
  *     finishes: its dispatch is never cut off mid-transaction, so a call can overrun by one candidate's duration,
  *     itself bounded by the explorer request timeout (MULTISIG_EXPLORER_TIMEOUT_MS) of the calls it makes.
- * Fairness: calls continue round-robin from the last candidate taken on by THIS process, wrap once to the start, and
- * stop after one full circle, so every eligible candidate - failing ones included, and ones added mid-sweep - is taken
- * on within ceil(eligible / maxCandidates) + 1 calls, and never twice in one call. The position is process-local and
- * starts at a random point, so a restart (or another instance) does not keep favoring the head of the list; several
- * instances may take on the same candidate, which the dispatch path already makes harmless (one pending round per
- * escrow, the concurrent loser reported in alreadyResumedConcurrently). Without options the call is unbounded and
+ * Fairness (durable, CTO 341): every call CLAIMS its candidates in the database, in one statement, ordered by
+ * COALESCE(dispatchRecoveryAttemptedAt, resolvedAt, createdAt) then id, FOR UPDATE SKIP LOCKED, and stamps them with the
+ * database's own clock_timestamp() - which moves them behind every candidate not attempted since. The queue position
+ * therefore survives a restart, a crash and several instances (two workers claim disjoint candidates); nothing is kept
+ * in process memory. A candidate is never claimed twice in one call (the call's start is the cut-off), and every eligible
+ * candidate - failing ones included, and ones added later - is taken on within ceil(eligible / maxCandidates) calls.
+ * The stamp is queue position only, never authority or eligibility: each attempt re-derives eligibility from durable
+ * facts, and duplicate dispatch is still prevented by EscrowPendingTransaction's @@unique(escrowId) alone. A crash after
+ * the stamp commits costs one queue turn, never the candidate. Without options the call is unbounded, unstamped, and
  * starts from the beginning, exactly as before.
  */
 export interface DispatchRecoveryOptions {
@@ -101,13 +103,6 @@ export interface DispatchRecoveryOptions {
   budgetMs: number
   /** Injectable clock (milliseconds), for deterministic tests. */
   now?: () => number
-}
-
-let boundedRunCursor: string = randomUUID()
-
-/** Tests only: where the next bounded run of this process resumes ('' = the start of the candidate order). */
-export function setDispatchRecoveryCursor(afterId: string): void {
-  boundedRunCursor = afterId
 }
 
 function isConcurrentPendingConflict(err: unknown): boolean {
@@ -129,6 +124,7 @@ type CandidateDispute = Prisma.DisputeGetPayload<{ include: typeof CANDIDATE_INC
 
 // `upTo` bounds the page from above (inclusive) in the database's own order, never JavaScript's: a bounded run closes its
 // circle with it, and string order in JS need not match the column collation.
+// `upTo` bounds the page from above (inclusive) in the database's own order, never JavaScript's.
 async function candidatePage(afterId: string, limit = CANDIDATE_PAGE, upTo: string | null = null): Promise<string[]> {
   const rows = await prisma.$queryRaw<Array<{ id: string }>>`
     SELECT d.id FROM disputes d
@@ -153,36 +149,57 @@ async function loadCandidates(ids: string[]): Promise<CandidateDispute[]> {
   return prisma.dispute.findMany({ where: { id: { in: ids } }, orderBy: { id: 'asc' }, include: CANDIDATE_INCLUDE })
 }
 
+// Claimed in small chunks: a candidate claimed but not started when the time budget runs out loses its queue turn, so the
+// chunk is the most a budget expiry can cost.
+const CLAIM_CHUNK = 5
+
+/** The database's clock, as the same UTC instant clock_timestamp() writes into the stamp (no Node clock, no session zone). */
+async function databaseNow(): Promise<Date> {
+  const [{ t }] = await prisma.$queryRaw<Array<{ t: Date }>>`SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS t`
+  return t
+}
+
+async function claimCandidates(limit: number, runStart: Date): Promise<string[]> {
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    WITH picked AS (
+      SELECT d.id FROM disputes d
+      JOIN escrows e ON e.id = d."escrowId"
+      LEFT JOIN escrow_pending_transactions p ON p."escrowId" = e.id
+      -- The same eligibility predicate as candidatePage() above (a unit test keeps the two texts identical).
+      WHERE d.status = 'RESOLVED' AND e.type = 'MULTISIG'
+        AND e.status NOT IN ('COMPLETED', 'REFUNDED', 'SPLIT')
+        AND EXISTS (SELECT 1 FROM semantic_transition_records r
+                    WHERE r."interactionId" = d."escrowId" AND r."transitionType" = ${ESCROW_DISPUTE_RULING_TRANSITION_TYPE}
+                      AND r."appealRound" = d."appealRound" AND r."outcomeContent" IS NOT NULL)
+        AND (p.id IS NULL OR (p."disputeId" IS NULL AND EXISTS (
+              SELECT 1 FROM unnest(p."requiredSigners") AS required(id)
+              WHERE NOT EXISTS (SELECT 1 FROM escrow_transaction_signatures s WHERE s."pendingTxId" = p.id AND s."participantId" = required.id))))
+        AND (d."dispatchRecoveryAttemptedAt" IS NULL OR d."dispatchRecoveryAttemptedAt" < ${runStart})
+      ORDER BY COALESCE(d."dispatchRecoveryAttemptedAt", d."resolvedAt", d."createdAt") ASC, d.id ASC
+      LIMIT ${limit}
+      FOR UPDATE OF d SKIP LOCKED)
+    UPDATE disputes d SET "dispatchRecoveryAttemptedAt" = (clock_timestamp() AT TIME ZONE 'UTC')
+    FROM picked WHERE d.id = picked.id AND d.status = 'RESOLVED' -- a stamp write never leaves, or depends on leaving, RESOLVED
+    RETURNING d.id`
+  return rows.map((r) => r.id)
+}
+
 async function boundedRun(options: DispatchRecoveryOptions, report: DispatchRecoveryReport): Promise<void> {
   const now = options.now ?? Date.now
   const deadline = now() + options.budgetMs
-  const start = boundedRunCursor
-  const fromBeginning = start === '' // nothing to wrap back to: the sweep simply ends at the end of the order
-  let after = start
-  let wrapped = false
+  const runStart = await databaseNow()
   let processed = 0
   let stoppedBy: NonNullable<DispatchRecoveryReport['budget']>['stoppedBy'] = 'SWEEP_COMPLETE'
   sweep: for (;;) {
     if (processed >= options.maxCandidates) { stoppedBy = 'MAX_CANDIDATES'; break }
     if (now() >= deadline) { stoppedBy = 'BUDGET_MS'; break }
-    const limit = Math.min(CANDIDATE_PAGE, options.maxCandidates - processed)
-    // Past the end: wrap once to the start; after the wrap, the page stops at the starting point, closing the circle.
-    const ids = await candidatePage(after, limit, wrapped ? start : null)
-    if (ids.length === 0) {
-      if (wrapped || fromBeginning) break
-      wrapped = true
-      after = ''
-      continue
-    }
+    const ids = await claimCandidates(Math.min(CLAIM_CHUNK, options.maxCandidates - processed), runStart)
+    if (ids.length === 0) break
     for (const dispute of await loadCandidates(ids)) {
-      if (processed >= options.maxCandidates) { stoppedBy = 'MAX_CANDIDATES'; break sweep }
       if (now() >= deadline) { stoppedBy = 'BUDGET_MS'; break sweep }
       await resumeCandidate(dispute, report)
       processed++
-      boundedRunCursor = dispute.id
     }
-    after = ids[ids.length - 1]
-    if (ids.length < limit && (wrapped || fromBeginning)) break // the end of the order (or of the circle) was reached
   }
   report.budget = { processed, stoppedBy }
 }

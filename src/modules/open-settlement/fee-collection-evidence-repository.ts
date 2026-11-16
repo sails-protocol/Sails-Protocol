@@ -83,7 +83,7 @@ class PrismaFeeCollectionEvidenceRepository implements FeeCollectionEvidenceRepo
     const client = tx ?? prisma
     return client.feeCollectionEvidence.findMany({
       where: { feeObligationId },
-      orderBy: { recordedAt: 'asc' },
+      orderBy: { seq: 'asc' },
     })
   }
 }

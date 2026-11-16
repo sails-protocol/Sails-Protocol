@@ -18,6 +18,23 @@ All notable changes to this project will be documented in this file.
 - Production EvidenceProvider durability/provenance, cross-evidence integrity, upload controls, and remaining Day-0 production owners remain active under dedicated Issues; this changelog does not round active work up to completed readiness.
 
 
+### Documentation
+
+- **CTO 316 — Technical Debt #57 closed under the A2 criterion only (documentation, no code change).** `docs/TECHNICAL_DEBT_AUDIT.md` item 57 gains a dated closing note; its history is unchanged.
+  - **Criterion:** the CI operating standard homologated for A2 (Issue #105, CTO 234): the suite does not fail on app start-up timeouts under the CI's parallelism and cold Jest cache.
+  - **Not claimed:** the historical root cause is not fully demonstrated, and `buildApp()` contention under parallel load is not declared solved in general.
+  - **Limits kept open:** 10 or more workers unproven; the unreachable PostgreSQL/Redis explanation unproven; four suites do not mock Redis; the CI worker count is inferred from runner documentation; real PostgreSQL/Redis unavailability is outside A2.
+  - **Evidence date:** commit `1e8b52d1`, before the #654 merge; the cold-cache battery was not re-run afterwards.
+
+### Fixed
+
+- **CTO 239/245/246 — "latest" fee collection evidence follows record order (real PostgreSQL).** Local commits, pending review.
+  - **Cause:** readers used `ORDER BY "recordedAt" DESC LIMIT 1`. `recordedAt` is `timestamp(3)`, so rows of one obligation often tie within a millisecond (200-run probe: 79 ties, 2 misses; CI run 43748566359). It is also not commit order: a DB-default insert carries its transaction's start, so a writer that begins first, waits for the obligation's row lock and commits last has the smaller `recordedAt` (CTO 246 lock-wait inversion, reproduced on fee evidence; a `(recordedAt, seq)` order still picked the wrong row). Prisma Client fills `@default(now())` itself, with the app clock at insert time.
+  - **Fix:** migration `20261116120000_fee_collection_evidence_seq` adds `seq` (`SERIAL`, nextval at insert) and every reader orders by `seq` alone: the four fee reconciliation checks, `listForObligation()` (last BROADCAST for `recognizeConfirmation()` and the confirmation job, last CONFIRMED for the reorg sweep), `allocate()`, `findCollectedNotYetAllocated()`, `findReorgedGenerationsNotReversed()` ("recorded after" = higher `seq`) and the escrow detail reads. `recordedAt` is informational.
+  - **Semantics:** latest = greatest `seq` among committed rows; a rolled-back insert leaves a gap and changes nothing; a later-committed row with a lower `seq` never becomes latest. BROADCAST and CONFIRMED writers are serialized per obligation by the `collectionStatus` CAS (BROADCAST takes `seq` after the claim; CONFIRMED before it, but only the claim winner commits). REPLACED and DROPPED (no production caller) are bare autocommit inserts, ordered by insertion. REORGED_OUT (CTO 261) now runs in one transaction, claim `COLLECTED -> IN_PROGRESS` first and insert after, and is refused with nothing written when its txid is no longer the latest CONFIRMED (a stale sweep observation can no longer revert a newer generation). The money-bearing reader (`allocate()`) reads only CONFIRMED rows, which are causally ordered per obligation.
+  - **Immutability:** a `BEFORE UPDATE` trigger refuses any change of `seq`, and a `BEFORE INSERT` trigger assigns `seq` from the sequence whatever the client sent (CTO 255 G3 / 261: `sails_runtime` could otherwise pin an obligation's latest row with a huge explicit value); the existing `distributionPolicyVersionId` guard is unchanged.
+  - **Historical rows:** keep the `seq` that `ADD COLUMN` assigns (physical order); no automatic renumbering (CTO 249). Their order is not economic evidence: the old `recordedAt` order and the new `seq` order can disagree on the latest row. A read-only inventory and the operator handling are in `docs/DEPLOYMENT.md` §6.5. A historical tie between two CONFIRMED rows can change who is entitled and, if the other row was already allocated, lets `allocate()` allocate the same revenue again (characterized by a test; CTO decision). Economic policy is unchanged.
+
 ### Security
 
 - **C9 — stored signed offers are append-only and re-verified on read (real PostgreSQL).** Draft, pending the Gatekeeper batch audit.

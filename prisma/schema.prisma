@@ -979,6 +979,13 @@ model FeeCollectionEvidence {
   confirmedAtHeight Int?
   note              String?
   recordedAt        DateTime                  @default(now())
+  // CTO 239/245/246 — record order. "Latest evidence" = greatest seq among committed rows; every
+  // reader orders by seq alone. seq is nextval at INSERT (after the collectionStatus lock for
+  // BROADCAST), never updated (DB trigger). recordedAt is informational: it is not commit order
+  // (a lock-waiting writer can carry the smaller one) and it ties within a millisecond.
+  // Pre-existing rows keep the physical-order seq from migration 20261116120000 (not economic
+  // evidence; review per docs/DEPLOYMENT.md 6.5).
+  seq               Int                       @default(autoincrement())
 
   // Missão 11 Fase 7.2 — CTO-frozen decision: DistributionPolicyVersion
   // becomes economically binding at COLLECTED time, not at whenever an
@@ -1489,6 +1496,11 @@ model Dispute {
   authoritySignature String?
   authorityIssuedAt  DateTime?
   authorityBuyerBps  Int?
+
+  // M9-R C4 recovery (dispute-dispatch-recovery.ts): when a bounded run last CLAIMED this dispute, by the database's own
+  // clock. Queue position only, never authority or eligibility. Written with raw SQL so it never touches `updatedAt`.
+  // Durable, so the round-robin order survives restarts, crashes and several instances. null = never attempted.
+  dispatchRecoveryAttemptedAt DateTime?
 
   moduleId        String   @default("opensettlement")
   protocolVersion String   @default("0.1")
