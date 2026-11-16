@@ -324,17 +324,62 @@ comes; rehearsed above against a local instance via a throwaway
    restore on top of an existing one (a partial restore into a
    non-empty database is a real corruption risk, not a shortcut).
 2. `pg_restore -h <host> -p <port> -U <user> -d sails_protocol \
-   --no-owner --no-privileges sails_protocol_<timestamp>.dump` —
+   --no-owner --no-privileges --exit-on-error --single-transaction \
+   sails_protocol_<timestamp>.dump` —
    `--no-owner`/`--no-privileges` matter whenever the restore target's
    own role names differ from the source's (true by construction for a
    disaster-recovery restore onto new infrastructure).
-3. `npx prisma migrate status` against the restored database — must
+   `--exit-on-error --single-transaction` make any error a failure of the
+   whole restore. Without them, `pg_restore` prints "errors ignored on
+   restore", exits 1 and leaves a database that looks complete (rehearsed
+   2026-11-16: one orphan row left 52 of 53 foreign keys in place; the 53rd
+   was never created). With them, the same dump exits 1 and the database
+   stays empty. **Any non-zero exit is a STOP:** drop the database, fix the
+   cause and restore again from step 1. Never continue on a partial restore.
+3. **Database roles (§6.3), as the administrator, only after step 2 exited 0:**
+   1. `DROP SCHEMA sails_meta CASCADE`. `sails_meta` holds only the
+      runtime privilege classification, which the grant step rebuilds
+      from `scripts/db/runtime-grants.sql` on every run. Restored with
+      `--no-owner`, it is owned by the administrator. The grant step runs
+      as `sails_migrator` and then fails with "permission denied for
+      schema sails_meta", because `bootstrap-roles.js` transfers ownership
+      only for `public`. Dropping the schema loses nothing the grant step
+      does not rebuild. Run this **only on the freshly restored
+      database**, never on a database in service: there the
+      classification is in use, and dropping it between two deploys
+      makes the next boot check refuse the runtime.
+   2. `bootstrap-roles.js` (§6.3 step 1), then `npm run db:migrate`
+      (§6.3 step 2). With no pending migration, it only applies the grants
+      and recreates `sails_meta`.
+   This needs a **superuser** administrator. With an administrator that
+   only has CREATEROLE/CREATEDB (the usual managed-database master),
+   `bootstrap-roles.js` fails (PostgreSQL 16: "must be able to SET ROLE",
+   then "permission denied to alter role"), and every restored object
+   stays owned by that administrator. That path is not supported yet
+   (provider-specific, open).
+4. `npx prisma migrate status` against the restored database — must
    report "Database schema is up to date!" with zero drift before
    anything else touches it.
-4. Spot-check row counts against whatever monitoring/last-known-good
+5. Spot-check row counts against whatever monitoring/last-known-good
    numbers exist for the source (exact match is the expected outcome —
    `pg_dump`/`pg_restore` do not silently drop rows).
-5. Only then repoint the application's own `DATABASE_URL` at the
+6. Post-restore checks, all required (rehearsed 2026-11-16 on a disposable
+   PostgreSQL 16 with scram-sha-256 and reproduced by the Gatekeeper):
+   - `fee_collection_evidence."seq"` per `id` equals the source, and the
+     sequence's `last_value` equals the source. A full restore preserves
+     both without `--disable-triggers`: `pg_dump` creates triggers in the
+     post-data section, after the rows are loaded, and restores the
+     sequence position with `SEQUENCE SET`.
+   - Every non-internal trigger of the source exists and is enabled
+     (`pg_trigger.tgenabled = 'O'`). Functions, indexes (partial ones
+     included) and CHECK constraints match the source.
+   - Everything in `public` is owned by `sails_migrator`.
+   - `sails_runtime` has exactly its classified grants and the production
+     boot check accepts it (§6.3 step 3).
+   - No other session wrote to the database during the restore
+     (`pg_stat_activity`), and the first insert by the runtime gets a
+     `seq` greater than the restored `max(seq)`.
+7. Only then repoint the application's own `DATABASE_URL` at the
    restored instance.
 
 ### Verification procedure (what "restore succeeded" actually means)
@@ -469,9 +514,13 @@ can stay in place: they do not change any row.
 
 - Whoever holds the migrator or administrator credential can still bypass every
   trigger; from here on that is credential custody, not a technical control.
-- Restore (§6.2): `pg_restore --disable-triggers` needs a superuser and the
-  write-once triggers can reject restored rows; restore as the administrator into
-  an empty database, then run step 1 and step 2 before pointing the runtime at it.
+- Restore (§6.2): restore the full dump as the administrator into an empty
+  database with `--exit-on-error --single-transaction`, drop the restored
+  `sails_meta`, then run step 1 and step 2 before pointing the runtime at it
+  (§6.2 "Restoration order" step 3). A data-only restore into an existing schema
+  with triggers on fails outright and is not supported. `--disable-triggers`
+  needs a superuser. Restoring with a non-superuser administrator is not
+  supported yet.
 - A runtime write path missing from the classification fails with SQLSTATE 42501
   (permission denied); the CI lane "Critical flows as the restricted runtime role"
   re-runs the critical real-Postgres suites as `sails_runtime` to catch it.
