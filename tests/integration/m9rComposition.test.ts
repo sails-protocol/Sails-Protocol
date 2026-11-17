@@ -174,10 +174,20 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
 
     defect = true
     await commitOnly(f, ruling(f))
-    // Unbounded run (keyset pages) and bounded run (durable claim stamp, #675), both refused by R2 inside the initiate.
-    const runs = [await reconcileMissingDispatch(), await reconcileMissingDispatch({ maxCandidates: 50, budgetMs: 60_000 })]
-    for (const rep of runs) expect(forResume(rep, f)).toMatchObject({ resumed: false, failed: undefined, guardFailed: { escrowId: f.escrowId } })
-    expect(runs[1].budget).toMatchObject({ stoppedBy: 'SWEEP_COMPLETE' })
+    // Unbounded run (keyset pages), refused by R2 inside the initiate.
+    const unbounded = await reconcileMissingDispatch()
+    expect(forResume(unbounded, f)).toMatchObject({ resumed: false, failed: undefined, guardFailed: { escrowId: f.escrowId } })
+    // Bounded runs (durable claim stamp, #675). The database may hold eligible candidates left by other suites, queued ahead
+    // of this newer dispute, so one run of 50 need not reach it. The #675 guarantee is that every eligible candidate is taken
+    // within ceil(eligible / maxCandidates) calls; RESOLVED disputes bound `eligible` from above, so that is the loop's cap.
+    const MAX = 50
+    const maxCalls = Math.ceil((await prisma.dispute.count({ where: { status: 'RESOLVED' } })) / MAX) + 1
+    let bounded: any; let calls = 0
+    do {
+      bounded = await reconcileMissingDispatch({ maxCandidates: MAX, budgetMs: 60_000 }); calls++
+    } while (!bounded.guardFailed.some((g: any) => g.escrowId === f.escrowId) && bounded.budget.stoppedBy !== 'SWEEP_COMPLETE' && calls < maxCalls)
+    expect(forResume(bounded, f)).toMatchObject({ resumed: false, failed: undefined, guardFailed: { escrowId: f.escrowId } })
+    expect(bounded.budget.processed).toBeLessThanOrEqual(MAX)
     // The bounded run's turn is recorded in the database (no process-local cursor exists): the refused candidate was stamped.
     const stamped = await prisma.dispute.findUniqueOrThrow({ where: { id: f.disputeId }, select: { dispatchRecoveryAttemptedAt: true } })
     expect(stamped.dispatchRecoveryAttemptedAt).not.toBeNull()
