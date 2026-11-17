@@ -475,16 +475,18 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
 
     it('accepts valid values and the defaults; auto-resolution stays OFF by default', () => {
-      const d = JSON.stringify(loadConfig({ ...dev })())
-      expect(d).toContain('"qvacAutoResolutionEnabled":false')
-      expect(d).toContain('"qvacAutoResolutionConfidenceThreshold":0.85')
-      expect(d).toContain('"qvacAutoResolutionWindowHours":24')
+      const d = loadConfig({ ...dev })().settlement
+      expect(d.qvacAutoResolutionEnabled).toBe(false)
+      expect(d.qvacAutoResolutionConfidenceThreshold).toBe(0.85)
+      expect(d.qvacAutoResolutionWindowHours).toBe(24)
       jest.resetModules()
-      const v = JSON.stringify(loadConfig({ ...dev, [T]: '1', [W]: '720' })())
-      expect(v).toContain('"qvacAutoResolutionConfidenceThreshold":1')
-      expect(v).toContain('"qvacAutoResolutionWindowHours":720)'.slice(0,-1))
+      const v = loadConfig({ ...dev, [T]: '1', [W]: '720' })().settlement
+      expect(v.qvacAutoResolutionConfidenceThreshold).toBe(1)
+      expect(v.qvacAutoResolutionWindowHours).toBe(720)
       jest.resetModules()
-      expect(JSON.stringify(loadConfig({ ...dev, [T]: '0', [W]: '0.5' })())).toContain('"qvacAutoResolutionWindowHours":0.5')
+      const lo = loadConfig({ ...dev, [T]: '0', [W]: '0.5' })().settlement
+      expect(lo.qvacAutoResolutionConfidenceThreshold).toBe(0)
+      expect(lo.qvacAutoResolutionWindowHours).toBe(0.5)
     })
   })
 
