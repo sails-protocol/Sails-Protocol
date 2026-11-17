@@ -88,6 +88,13 @@ silently as a side effect of tagging a release candidate.
 - `getPendingTransaction()` no longer returns `signatures` (the server stopped exposing other participants' signed
   PSBTs). The field stays in the type as optional and `@deprecated`; read `signedBy` instead. Code that counted
   `signatures.length` should count `signedBy.length`.
+- Dependency floor: `bitcoinjs-lib` is now `^7.0.5` (was `^7.0.1`), resolving GHSA-8vv3-6qpc-gpw6 (merkle node
+  duplication in block root computation, fixed in 7.0.2). The SDK does not call that code path (`Block`, merkle roots,
+  proof-of-work checks); the new floor keeps consumers from resolving the vulnerable 7.0.1. 7.0.4 also makes PSBT
+  signing and fee accounting resolve each input UTXO consistently: a `nonWitnessUtxo` that disagrees with the
+  `witnessUtxo` is rejected, and an input with no UTXO now fails fee accounting instead of counting as zero. The PSBTs
+  the SDK signs carry `witnessUtxo` only (built by the Sails server; wallet-verification requires it), so they are
+  unaffected.
 
 ## [0.2.0] - 2026-09-17
 
