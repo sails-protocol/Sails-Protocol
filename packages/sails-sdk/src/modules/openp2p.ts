@@ -12,7 +12,7 @@
  * example still omits `amount` and remains to be fixed.
  */
 import type { SailsTransport } from "../transport";
-import type { Message, PaginatedMessages, PaginatedTrades, Trade } from "../types";
+import type { PaginatedMessages, PaginatedTrades, ReconciliationResult, Trade } from "../types";
 import { SailsTransportError } from "../errors";
 
 export interface ChatFrame {
@@ -369,15 +369,17 @@ export class SailsOpenP2PModule {
   }
 
   /**
-   * RFC-011 — client-side reconciliation. Returns missed messages
-   * since `sinceMessageCreatedAt` for this trade. Requires an
-   * active session. Useful after reconnects or app resume.
+   * RFC-011 — client-side reconciliation. Returns the trade's current
+   * trade/escrow status plus the messages created after
+   * `sinceMessageCreatedAt` (oldest first, at most 100) - an object, never
+   * an array. Requires an active session. Useful after reconnects or app
+   * resume.
    */
   async reconcileTrade(
     tradeId: string,
     sinceMessageCreatedAt: Date | null,
-  ): Promise<Message[]> {
-    return this.transport.post<Message[]>(
+  ): Promise<ReconciliationResult> {
+    return this.transport.post<ReconciliationResult>(
       `/v1/openp2p/trades/${tradeId}/reconcile`,
       { sinceMessageCreatedAt },
       true,

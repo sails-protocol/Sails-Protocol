@@ -89,6 +89,14 @@ silently as a side effect of tagging a release candidate.
   PSBTs). The field stays in the type as optional and `@deprecated`; read `signedBy` instead. Code that counted
   `signatures.length` should count `signedBy.length`.
 
+### Fixed
+- `openp2p.reconcileTrade()` was typed as returning `Message[]`, but the route has always returned an object,
+  `{ tradeId, currentTradeStatus, currentEscrowStatus, missedMessages }`, and the SDK hands it back unchanged. It is now
+  typed as the exported `ReconciliationResult` (its items as `ReconciledMessage`, which has no `tradeId`/`readAt`). No
+  runtime change. Code that compiled against `Message[]` will now fail to compile - and was already reading the wrong shape
+  at runtime (`.length`, iteration and `.map` never worked on the result). The method is not part of the frozen
+  `API_STABLE` contract.
+
 ## [0.2.0] - 2026-09-17
 
 ### Added
