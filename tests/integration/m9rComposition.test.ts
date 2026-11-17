@@ -188,6 +188,7 @@ describe('M9-R composition #618 - T2/T9/T10 (real PostgreSQL, simulated explorer
     } while (!bounded.guardFailed.some((g: any) => g.escrowId === f.escrowId) && bounded.budget.stoppedBy !== 'SWEEP_COMPLETE' && calls < maxCalls)
     expect(forResume(bounded, f)).toMatchObject({ resumed: false, failed: undefined, guardFailed: { escrowId: f.escrowId } })
     expect(bounded.budget.processed).toBeLessThanOrEqual(MAX)
+    expect(calls).toBeLessThanOrEqual(maxCalls) // the sweep ended within the bound: no candidate (failing ones included) is retried before the rest had a turn
     // The bounded run's turn is recorded in the database (no process-local cursor exists): the refused candidate was stamped.
     const stamped = await prisma.dispute.findUniqueOrThrow({ where: { id: f.disputeId }, select: { dispatchRecoveryAttemptedAt: true } })
     expect(stamped.dispatchRecoveryAttemptedAt).not.toBeNull()
