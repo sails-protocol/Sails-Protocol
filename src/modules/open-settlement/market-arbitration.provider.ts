@@ -98,7 +98,7 @@ export const PANEL_SIZE_BASE = 3
 // recorded a deliberate decision NOT to fold this into D3's baseline
 // `effectiveStake`/`eligibleFor()` — doing so would zero out every
 // reputation-heavy arbiter's eligibility for ordinary disputes for as
-// long as `protocolFeeRate` stays at its bootstrap-phase default of 0
+// long as fee collection stays inactive (no fee is charged yet)
 // (nobody has meaningful `cumulativeFeesObserved` yet), directly undoing
 // D3's own "veteran with low capital can still compete" design goal.
 // Project owner's own decision (2026-08-04, after Yuri's audio 06-08

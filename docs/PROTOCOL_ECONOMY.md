@@ -190,7 +190,7 @@ the first 12 months, activating only after a grant-funded period ended
 
 **Corrected 2026-08-24** — the diagram below describes the DESIGNED
 activation plan for Day 0, not a claim that it is active today. As of
-this writing, `PROTOCOL_FEE_RATE` remains at its inactive default, no
+this writing, fee collection remains inactive (the reader-less `PROTOCOL_FEE_RATE` env var was removed 2026-11-17), no
 `FeePolicyVersion`/`DistributionPolicyVersion` has been published outside
 a test, and no production 0.40% fee has ever been charged (see section
 6.5 below for the full, authoritative activation-state disclosure — this
@@ -880,8 +880,8 @@ economic model to an external partner must distinguish, explicitly,
 between *architecture that is implemented* (the entities above, the
 exclusivity/fail-closed/COLLECTED-time-freeze guarantees, the bootstrap
 proof) and *economic parameters that are actually activated in
-production* (as of this writing: none — `PROTOCOL_FEE_RATE` remains at
-its bootstrap default, no `FeePolicyVersion` or `DistributionPolicyVersion`
+production* (as of this writing: none — fee collection is inactive and
+the reader-less `PROTOCOL_FEE_RATE` env var was removed 2026-11-17, no `FeePolicyVersion` or `DistributionPolicyVersion`
 has been published outside a test). Never present an unpublished/
 unauthorized parameter as if it were already live.
 
