@@ -16,6 +16,8 @@
 // succeeded, dispatch never ran" instead of "two appeal rounds."
 
 import { PrismaClient } from '@prisma/client'
+import { PrismaPg } from '@prisma/adapter-pg'
+import type { DispatchRecoveryReport } from '../../src/modules/open-settlement/dispute-dispatch-recovery'
 import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from '@bitcoinerlab/secp256k1'
 import { createHash } from 'crypto'
@@ -750,22 +752,20 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
     })
   })
 
-  // ═════════════════════ PE-M9R-B: bounded runs ═════════════════════════════════════════════════════════════════
-  // reconcileMissingDispatch({ maxCandidates, budgetMs }): at most maxCandidates per call, no new candidate after budgetMs,
-  // round-robin from where the last call stopped. To COUNT visits, most tests make every dispatch fail: nothing persists,
-  // the eligible set stays the same from call to call, and each call's loaded candidates are read from the real page
-  // queries. Other suites may have left candidates in the database: they are part of the circle, and every assertion
-  // about this describe's escrows holds whatever else is there.
-  describe('PE-M9R-B: bounded runs - per-call budget, continuity, no starvation (24 plain + 3 over a cooperative round)', () => {
+  // ═════════════════════ C4 durable claim (CTO 341) ═════════════════════════════════════════════════════════════
+  // reconcileMissingDispatch({ maxCandidates, budgetMs }) CLAIMS its candidates in the database (FOR UPDATE SKIP LOCKED) and
+  // stamps them with the database's own clock: the queue position is durable, nothing lives in process memory. To COUNT visits
+  // most tests make every dispatch fail: nothing persists, the eligible set stays the same, and the stamps are the evidence.
+  // Other suites may have left candidates in the database: they are part of the queue, and every assertion about this
+  // describe's escrows holds whatever else is there.
+  describe('C4 durable claim: per-call budget, durable fair order, no starvation (24 plain + 3 over a cooperative round)', () => {
     const MAX = 10
     let mine: Case[] = []
     let coop: Case[] = []
     let fullySigned: Case
-    let setCursor: typeof import('../../src/modules/open-settlement/dispute-dispatch-recovery').setDispatchRecoveryCursor
 
     beforeAll(async () => {
       if (!dbAvailable) return
-      ;({ setDispatchRecoveryCursor: setCursor } = require('../../src/modules/open-settlement/dispute-dispatch-recovery'))
       const plain: Case[] = []
       for (let i = 0; i < 24; i++) plain.push(await c4(`b${i}`, RULINGS[i % 3]))
       for (let i = 0; i < 3; i++) coop.push(await c4OverCooperativeRound(`bcoop${i}`, 1))
@@ -773,129 +773,165 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       mine = [...plain, ...coop]
     }, 1_800_000)
 
+    // Simulation writes that AGE a pending round (escrow_pending_transactions is append_delete for sails_runtime) model direct
+    // database access, not the application: they use the administrator connection when one is given (the restricted-runtime lane
+    // sets ADMIN_DATABASE_URL), the same pattern as #669 - never a widening of sails_runtime's privileges. Production code under
+    // test still runs as the application's own connection.
+    let tamper: PrismaClient
+    beforeAll(() => {
+      if (!dbAvailable) return
+      tamper = process.env.ADMIN_DATABASE_URL ? new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.ADMIN_DATABASE_URL }) }) : prisma
+    })
+    afterAll(async () => { if (dbAvailable && tamper && tamper !== prisma) await tamper.$disconnect() })
+
+    // CTO 344: SAILS_C4_RECOVERY_ENABLED is off by default; this describe turns it on for the tick tests and F1 turns it off.
+    const c4Flag = () => require('../../src/config').config.features as { c4Recovery: boolean }
+    let originalFlag = false
+    beforeEach(() => { originalFlag = c4Flag().c4Recovery; c4Flag().c4Recovery = true })
+    afterEach(() => { c4Flag().c4Recovery = originalFlag })
+
     const bounded = (extra: Partial<{ budgetMs: number; now: () => number }> = {}) => reconcileMissingDispatch({ maxCandidates: MAX, budgetMs: 60_000, ...extra })
     const failEveryDispatch = (onCall?: () => void) => {
       for (const name of ['initiateRelease', 'initiateRefund', 'initiateSplit'] as const) {
-        jest.spyOn(escrowService, name).mockImplementation((() => { onCall?.(); return Promise.reject(new Error('pe-m9r-b injected dispatch failure')) }) as never)
+        jest.spyOn(escrowService, name).mockImplementation((() => { onCall?.(); return Promise.reject(new Error('c4 durable claim injected dispatch failure')) }) as never)
       }
     }
-    /** Runs bounded calls until the round-robin sequence repeats its first candidate (or `limit` calls). */
-    async function sweep(seen: ReturnType<typeof observe>, limit: number, between?: (call: number) => Promise<void>) {
+    type Row = { id: string; t: Date | null; u: Date; key: Date }
+    // Raw SQL: the stamp and updatedAt are read exactly as stored, whatever the generated client knows about the column.
+    async function rows(cases: Case[]): Promise<Map<string, Row>> {
+      const found = await prisma.$queryRaw<Row[]>`
+        SELECT id, "dispatchRecoveryAttemptedAt" AS t, "updatedAt" AS u, COALESCE("dispatchRecoveryAttemptedAt", "resolvedAt", "createdAt") AS key
+        FROM disputes WHERE id = ANY(${cases.map((c) => c.disputeId)}::text[])`
+      return new Map(found.map((r) => [r.id, r]))
+    }
+    const same = (a: Date | null, b: Date | null) => (a?.getTime() ?? null) === (b?.getTime() ?? null)
+    const resetStamps = () => prisma.$executeRaw`UPDATE disputes SET "dispatchRecoveryAttemptedAt" = NULL WHERE id = ANY(${mine.map((c) => c.disputeId)}::text[])`
+    /** One call; which of this describe's disputes it claimed = those whose stamp changed. updatedAt must never change. */
+    async function claimedBy(run: () => Promise<DispatchRecoveryReport>) {
+      const before = await rows(mine)
+      const report = await run()
+      const after = await rows(mine)
+      for (const c of mine) expect(after.get(c.disputeId)!.u.getTime()).toBe(before.get(c.disputeId)!.u.getTime())
+      return { report, before, claimed: mine.filter((c) => !same(before.get(c.disputeId)!.t, after.get(c.disputeId)!.t)).map((c) => c.disputeId) }
+    }
+    /** A clock that expires the budget right after the first claim: the claimed chunk is stamped but never attempted. */
+    const expiresAfterClaim = () => { let n = 0; return () => (n++ < 2 ? 0 : 1e9) }
+    const claimStatements = () => {
+      const claimed: string[][] = []
+      const queryRaw = (prisma.$queryRaw as any).bind(prisma)
+      jest.spyOn(prisma, '$queryRaw').mockImplementation(((strings: TemplateStringsArray, ...values: unknown[]) => {
+        const result = queryRaw(strings, ...values)
+        if (Array.isArray(strings) && strings.join('?').includes('UPDATE disputes d SET')) return result.then((r: Array<{ id: string }>) => { claimed.push(r.map((x) => x.id)); return r })
+        return result
+      }) as never)
+      return claimed
+    }
+
+    it('S1: a backlog larger than the budget is claimed fairly, at most MAX per call, each candidate - always failing - once before any is claimed twice; updatedAt never moves; the fully signed round is never selected', async () => {
+      pg.requirePostgres('C4 S1')
+      await resetStamps()
+      failEveryDispatch()
+      const roundsBefore = (await pendingRows(ids(mine))).map((r) => r.id)
       const sequence: string[] = []
-      const perCall: Array<{ loaded: number; processed: number; stoppedBy: string }> = []
-      for (let call = 0; call < limit; call++) {
-        const before = seen.pages.flat().length
-        const report = await bounded()
-        const loaded = seen.pages.flat().slice(before)
-        perCall.push({ loaded: loaded.length, processed: report.budget!.processed, stoppedBy: report.budget!.stoppedBy })
-        sequence.push(...loaded)
-        if (new Set(sequence).size < sequence.length) break
-        await between?.(call)
+      const calls: string[][] = []
+      const perCall: Array<{ claimed: number; processed: number; stoppedBy: string }> = []
+      for (let call = 0; call < 40 && !mine.every((c) => sequence.includes(c.disputeId)); call++) {
+        const { report, claimed } = await claimedBy(bounded)
+        perCall.push({ claimed: claimed.length, processed: report.budget!.processed, stoppedBy: report.budget!.stoppedBy })
+        expect(report.budget!.processed).toBeLessThanOrEqual(MAX)
+        calls.push(claimed)
+        sequence.push(...claimed)
       }
-      const firstRepeat = sequence.findIndex((id, i) => sequence.indexOf(id) !== i)
-      return { sequence, perCall, circle: firstRepeat === -1 ? sequence : sequence.slice(0, firstRepeat) }
-    }
-
-    it('B1/B5/B9/B10: a backlog larger than the budget is swept round-robin, at most MAX per call, each candidate - always failing - exactly once per circle; the fully signed round is never selected', async () => {
-      pg.requirePostgres('PE-M9R-B B1')
-      failEveryDispatch()
-      const roundsBefore = (await pendingRows(ids(mine))).map((r) => r.id) // the cooperative rounds the #239 cases were built with
-      const seen = observe()
-      setCursor('')
-      const { perCall, circle } = await sweep(seen, 40)
-      process.stdout.write(`[evidence] ${JSON.stringify({ label: 'PE-M9R-B B1 sweep', max: MAX, circle: circle.length, calls: perCall.length, perCall })}\n`)
-      for (const c of perCall) {
-        expect(c.loaded).toBeLessThanOrEqual(MAX) // B9: never more materialized than the budget
-        expect(c.processed).toBe(c.loaded)
-      }
-      expect(circle.length).toBeGreaterThan(MAX) // B1: the backlog is larger than one call's budget
+      // Fair order: nobody is claimed a second time until the circle has closed. Only the call that closes it (the last one)
+      // may repeat candidates - it continues from the oldest attempted - and every earlier call claims only new ones.
+      const seen = new Set<string>()
+      calls.slice(0, -1).forEach((claimed) => { for (const id of claimed) { expect(seen.has(id)).toBe(false); seen.add(id) } })
+      process.stdout.write(`[evidence] ${JSON.stringify({ label: 'C4 S1 sweep', max: MAX, calls: perCall.length, perCall })}\n`)
       expect(perCall[0]).toMatchObject({ processed: MAX, stoppedBy: 'MAX_CANDIDATES' })
-      expect(new Set(circle).size).toBe(circle.length) // never twice within one circle
-      for (const c of mine) expect(circle).toContain(c.disputeId) // B10 + B5: every candidate, though it fails every time
-      expect(circle).not.toContain(fullySigned.disputeId) // B7
-      expect(perCall.length).toBeLessThanOrEqual(Math.ceil(circle.length / MAX) + 1) // the circle closes in ceil(N/MAX)+1 calls
-      expect((await pendingRows(ids(mine))).map((r) => r.id)).toEqual(roundsBefore) // nothing persisted or replaced: every dispatch failed
-      await expectNoEconomicDisposition(mine) // B8
+      for (const c of mine) expect(sequence).toContain(c.disputeId) // every candidate, though it fails every time
+      expect((await rows([fullySigned])).get(fullySigned.disputeId)!.t).toBeNull() // #239: never selected, never stamped
+      expect((await pendingRows(ids(mine))).map((r) => r.id)).toEqual(roundsBefore) // every dispatch failed: nothing persisted or replaced
+      await expectNoEconomicDisposition(mine)
     }, 1_800_000)
 
-    it('B2/B3: continuity from an arbitrary position (a restarted process starts anywhere) still covers every candidate once per circle', async () => {
-      pg.requirePostgres('PE-M9R-B B2')
+    it('S2 restart: a brand new instance of the module continues the SAME queue - the next-oldest candidates, none just attempted - because the order is in the database, not in memory', async () => {
+      pg.requirePostgres('C4 S2')
+      await resetStamps()
       failEveryDispatch()
-      const seen = observe()
-      const order = sorted(mine)
-      for (const start of [order[13].disputeId, 'ffffffff-ffff-ffff-ffff-ffffffffffff', '00000000-0000-0000-0000-000000000000']) {
-        setCursor(start) // the middle, past the end, before the start
-        const before = seen.pages.flat().length
-        const { perCall, circle } = await sweep(seen, 40)
-        expect(new Set(circle).size).toBe(circle.length)
-        for (const c of mine) expect(circle).toContain(c.disputeId)
-        expect(perCall.length).toBeLessThanOrEqual(Math.ceil(circle.length / MAX) + 1)
-        expect(seen.pages.flat().length - before).toBeLessThanOrEqual(perCall.length * MAX)
-      }
-    }, 1_800_000)
-
-    it('B6: candidates added during a sweep are taken on within the following circle', async () => {
-      pg.requirePostgres('PE-M9R-B B6')
-      const seen = observe()
-      setCursor('')
-      const added: Case[] = []
-      failEveryDispatch()
-      const { sequence } = await sweep(seen, 40, async (call) => {
-        // After the first call two new C4 candidates appear. Building them calls no initiate*, and the page observer only
-        // records id-list loads, so the mocks stay in place.
-        if (call === 0) added.push(await c4('bnew0', 'RELEASE'), await c4('bnew1', 'REFUND'))
+      const first = await claimedBy(bounded)
+      // Restart: a separate OS process loads the module from scratch (nothing from this process survives) and claims one chunk.
+      expect((require('../../src/modules/open-settlement/dispute-dispatch-recovery') as any).setDispatchRecoveryCursor).toBeUndefined() // no in-memory position exists to restore
+      const second = await claimedBy(async () => {
+        const out = require('child_process').execFileSync(process.execPath, [require.resolve('tsx/cli'), require('path').join(__dirname, 'helpers', 'c4ClaimChild.ts')], {
+          env: { ...process.env, C4_MAX: String(MAX), NODE_ENV: 'test' }, encoding: 'utf8', timeout: 180_000,
+        }) as string
+        const line = out.split('\n').find((l) => l.startsWith('C4_CHILD '))
+        if (!line) throw new Error('child produced no report: ' + out)
+        return { budget: JSON.parse(line.slice('C4_CHILD '.length)) } as DispatchRecoveryReport
       })
-      // The sweep that started before they existed, or the next one, reaches them.
-      const second = await sweep(seen, 40)
-      const all = [...sequence, ...second.sequence]
-      for (const c of added) expect(all).toContain(c.disputeId)
-      expect(second.perCall.length).toBeLessThanOrEqual(Math.ceil(second.circle.length / MAX) + 1)
-      mine.push(...added)
+      expect(second.report.budget).toMatchObject({ processed: 0, stoppedBy: 'BUDGET_MS' })
+      expect(second.claimed.length).toBeGreaterThan(0)
+      for (const id of second.claimed) expect(first.claimed).not.toContain(id) // not the ones the first instance just attempted
+      // Queue order: every candidate the restarted instance claimed was ahead of every candidate it left.
+      const queue = second.before
+      const left = mine.filter((c) => !second.claimed.includes(c.disputeId))
+      const maxClaimed = Math.max(...second.claimed.map((id) => queue.get(id)!.key.getTime()))
+      const minLeft = Math.min(...left.map((c) => queue.get(c.disputeId)!.key.getTime()))
+      expect(maxClaimed).toBeLessThanOrEqual(minLeft)
     }, 1_800_000)
 
-    it('budgetMs: no candidate is started once the time budget has elapsed; the one in flight finishes', async () => {
-      pg.requirePostgres('PE-M9R-B budgetMs')
-      let t = 0
-      const startedAt: number[] = []
-      failEveryDispatch(() => { startedAt.push(t); t += 400 }) // every dispatch "takes" 400 ms of the injected clock
-      setCursor('')
-      const firstSeen = observe()
-      const report = await bounded({ budgetMs: 1000, now: () => t })
-      const cutPage = firstSeen.pages[0] // the time stop landed inside this page: 3 taken on, the rest not started
+    it('S3 worker failure: candidates claimed by a worker that died before attempting them lose one turn, not the candidate - they are still eligible, and the next calls reach them', async () => {
+      pg.requirePostgres('C4 S3')
+      await resetStamps()
+      failEveryDispatch()
+      const died = await claimedBy(() => bounded({ now: expiresAfterClaim() })) // claimed (stamped), never attempted
+      expect(died.report.budget).toMatchObject({ processed: 0, stoppedBy: 'BUDGET_MS' })
+      expect(died.claimed.length).toBeGreaterThan(0)
+      expect(await pendingRows(died.claimed.map((id) => mine.find((c) => c.disputeId === id)!.escrowId))).toEqual([]) // nothing was attempted
+      const sequence: string[] = []
+      for (let call = 0; call < 40 && !died.claimed.every((id) => sequence.includes(id)); call++) sequence.push(...(await claimedBy(bounded)).claimed)
+      for (const id of died.claimed) expect(sequence).toContain(id) // still reached
+      // They went behind the candidates that had never been attempted: those come first.
+      const firstAgain = sequence.findIndex((id) => died.claimed.includes(id))
+      const untouched = mine.filter((c) => !died.claimed.includes(c.disputeId)).map((c) => c.disputeId)
+      expect(untouched.length === 0 || sequence.slice(0, firstAgain).some((id) => untouched.includes(id))).toBe(true)
+    }, 1_800_000)
+
+    it('S5 clocks: the stamp is the DATABASE clock - instances whose Node clocks are a day apart, in opposite directions, stamp inside the database window and keep one order', async () => {
+      pg.requirePostgres('C4 S5')
+      await resetStamps()
+      failEveryDispatch()
+      const dbNow = async () => (await prisma.$queryRaw<Array<{ t: Date }>>`SELECT (clock_timestamp() AT TIME ZONE 'UTC') AS t`)[0].t.getTime()
+      const realNow = Date.now
+      const windows: Array<{ lo: number; hi: number; claimed: Array<[string, number]> }> = []
+      for (const skew of [+86_400_000, -86_400_000]) {
+        const lo = await dbNow()
+        // Only the Date clock is faked (new Date() AND Date.now()); timers and I/O stay real. A stamp taken from the Node clock,
+        // whichever way it is read, lands a day away from the database window and fails below.
+        jest.useFakeTimers({ now: realNow() + skew, doNotFake: ['hrtime', 'nextTick', 'performance', 'queueMicrotask', 'requestAnimationFrame', 'cancelAnimationFrame', 'requestIdleCallback', 'cancelIdleCallback', 'setImmediate', 'clearImmediate', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
+        let claimed: string[]
+        try { ;({ claimed } = await claimedBy(() => bounded())) } finally { jest.useRealTimers() }
+        const hi = await dbNow()
+        const stamped = await rows(mine)
+        windows.push({ lo, hi, claimed: claimed.map((id) => [id, stamped.get(id)!.t!.getTime()] as [string, number]) })
+      }
+      for (const w of windows) {
+        expect(w.claimed.length).toBeGreaterThan(0)
+        for (const [, t] of w.claimed) { expect(t).toBeGreaterThanOrEqual(w.lo - 1); expect(t).toBeLessThanOrEqual(w.hi + 1) } // the database's window, not Node's +/- 1 day
+      }
+      const firstMax = Math.max(...windows[0].claimed.map(([, t]) => t))
+      for (const [, t] of windows[1].claimed) expect(t).toBeGreaterThanOrEqual(firstMax) // later call, later stamp, whatever Node said
+    }, 1_800_000)
+    it('S4 concurrency: two bounded reconcilers claim disjoint candidates; real dispatch resumes each exactly once, the cooperative rounds are superseded once, the fully signed round is untouched', async () => {
+      pg.requirePostgres('C4 S4')
+      await resetStamps()
+      failEveryDispatch()
+      const statements = claimStatements()
+      await Promise.all([bounded(), bounded()])
+      const all = statements.flat()
+      expect(new Set(all).size).toBe(all.length) // no candidate claimed by both overlapping calls
       jest.restoreAllMocks()
-      failEveryDispatch()
-      expect(report.budget).toEqual({ processed: 3, stoppedBy: 'BUDGET_MS' }) // started at 0, 400, 800; the clock then reads 1200
-      expect(startedAt).toEqual([0, 400, 800])
-      expect(startedAt.every((s) => s < 1000)).toBe(true)
-      expect(report.failed).toHaveLength(3) // the third, started inside the budget, ran to its end (no cut-off)
-
-      // The next call resumes with the candidate right after the last one taken on, never past the unstarted rest of
-      // that page (a time stop lands mid-page).
-      expect(cutPage.length).toBeGreaterThan(3)
-      const seen = observe()
-      const next = await bounded()
-      const loadedNext = seen.pages.flat()
-      // Exactly the unstarted rest of the cut page comes first, in the database's own order.
-      expect(loadedNext.slice(0, cutPage.length - 3)).toEqual(cutPage.slice(3))
-      expect(next.budget!.processed).toBeLessThanOrEqual(MAX)
-    })
-
-    it('B11: a call whose budget exceeds the backlog takes on each candidate once and stops when the circle closes', async () => {
-      pg.requirePostgres('PE-M9R-B B11')
-      failEveryDispatch()
-      const seen = observe()
-      setCursor(sorted(mine)[13].disputeId) // start mid-order, so the call has to wrap and then stop at its start
-      const report = await reconcileMissingDispatch({ maxCandidates: 1000, budgetMs: 600_000 })
-      const loaded = seen.pages.flat()
-      expect(report.budget!.stoppedBy).toBe('SWEEP_COMPLETE')
-      expect(new Set(loaded).size).toBe(loaded.length) // nobody twice within one call
-      for (const c of mine) expect(loaded).toContain(c.disputeId)
-      expect(report.budget!.processed).toBe(loaded.length)
-    }, 1_800_000)
-
-    it('B4/B7/B8: two concurrent bounded reconcilers, real dispatch: each candidate resumed exactly once over the calls, the fully signed round untouched, no economic disposition', async () => {
-      pg.requirePostgres('PE-M9R-B B4')
-      setCursor('')
+      await resetStamps()
       const target = new Set(ids(mine))
       const resumed: string[] = []
       for (let round = 0; round < 12 && (await pendingRows(ids(mine))).length < mine.length; round++) {
@@ -906,11 +942,187 @@ describe('Issue #343 - M9-R dispatch recovery across keyset pages (real PostgreS
       }
       expect(new Set(resumed).size).toBe(resumed.length) // never resumed twice
       expect([...new Set(resumed)].sort()).toEqual([...target].sort()) // every one of them
-      const rows = await pendingRows(ids(mine))
-      expect(rows).toHaveLength(mine.length) // one round each
+      expect(await pendingRows(ids(mine))).toHaveLength(mine.length) // one round each
       for (const c of coop) expect(await prisma.escrowPendingRoundRetirement.count({ where: { escrowId: c.escrowId } })).toBe(1) // #239 superseded once
-      expect((await pendingRows([fullySigned.escrowId])).map((r) => r.id)).toEqual([fullySigned.roundId]) // B7
+      expect((await pendingRows([fullySigned.escrowId])).map((r) => r.id)).toEqual([fullySigned.roundId])
       await expectNoEconomicDisposition(mine)
+    }, 1_800_000)
+
+    // ─── the production tick (CTO 341): runSettlementReconcilerTick() now runs C4 and the stale-translation cleanup ────────────
+    // Each step is bounded and fails independently. These use FRESH candidates: S4 above resumed the population of this describe.
+    const tickLog = () => ({ warn: jest.fn(), error: jest.fn() })
+    const loggedMessages = (log: { warn: jest.Mock; error: jest.Mock }) => [...log.warn.mock.calls, ...log.error.mock.calls].map(([entry]) => String((entry as { msg?: string }).msg))
+    const runTick = (log: ReturnType<typeof tickLog>) => require('../../src/app').runSettlementReconcilerTick(log) as Promise<void>
+    const hasRound = async (c: Case) => (await pendingRows([c.escrowId])).length === 1
+    /** Ticks until `done()`, at most 40 times: candidates that can never succeed may sit ahead, and fairness reaches ours. */
+    async function tickUntil(log: ReturnType<typeof tickLog>, done: () => Promise<boolean>) {
+      for (let i = 0; i < 40 && !(await done()); i++) await runTick(log)
+    }
+
+    it('T1 production tick: one tick resumes a C4 candidate through the real wiring - a persisted round, no broadcast, no economic disposition - and the next tick does nothing more', async () => {
+      pg.requirePostgres('C4 T1')
+      const fresh = [await c4('tick1', 'RELEASE'), await c4('tick2', 'REFUND')]
+      const log = tickLog()
+      await tickUntil(log, async () => (await Promise.all(fresh.map(hasRound))).every(Boolean))
+      expect((await pendingRows(ids(fresh))).map((r) => r.escrowId).sort()).toEqual(ids(fresh).sort())
+      expect(loggedMessages(log)).toContain('C4 dispatch recovery completed with findings')
+      await expectNoEconomicDisposition(fresh)
+      const before = (await pendingRows(ids(fresh))).map((r) => r.id)
+      await runTick(tickLog())
+      expect((await pendingRows(ids(fresh))).map((r) => r.id)).toEqual(before) // idempotent: same rounds, none replaced
+    }, 1_800_000)
+
+    it('T2 independence: a failing C4 step, a failing settlement pass and a failing cleanup each leave the other steps running, and the tick never throws', async () => {
+      pg.requirePostgres('C4 T2')
+      const recovery = require('../../src/modules/open-settlement/dispute-dispatch-recovery')
+      const stale = require('../../src/modules/open-settlement/dispute-pending-reconciliation')
+      const settlement = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service')
+      const c4Spy = jest.spyOn(recovery, 'reconcileMissingDispatch')
+      const staleSpy = jest.spyOn(stale, 'reconcileStalePendingDisputeTranslations')
+      // 1. C4 throws: the settlement pass already ran, the cleanup still runs.
+      c4Spy.mockRejectedValueOnce(new Error('c4 step failed'))
+      let log = tickLog()
+      await expect(runTick(log)).resolves.toBeUndefined()
+      expect(loggedMessages(log)).toContain('C4 dispatch recovery failed')
+      expect(staleSpy).toHaveBeenCalledTimes(1)
+      // 2. The settlement pass throws: C4 and the cleanup still run.
+      jest.spyOn(settlement, 'reconcilePendingSettlements').mockRejectedValueOnce(new Error('settlement pass failed'))
+      c4Spy.mockClear(); staleSpy.mockClear()
+      log = tickLog()
+      await expect(runTick(log)).resolves.toBeUndefined()
+      expect(loggedMessages(log)).toContain('Settlement reconciliation failed')
+      expect(c4Spy).toHaveBeenCalledTimes(1)
+      expect(staleSpy).toHaveBeenCalledTimes(1)
+      // 3. The cleanup throws: reported on its own.
+      staleSpy.mockRejectedValueOnce(new Error('cleanup failed'))
+      log = tickLog()
+      await expect(runTick(log)).resolves.toBeUndefined()
+      expect(loggedMessages(log)).toContain('Stale dispute translation cleanup failed')
+      // The budgets handed to the real functions are the bounded ones (never an unbounded sweep from the tick).
+      expect(c4Spy.mock.calls[0][0]).toMatchObject({ maxCandidates: expect.any(Number), budgetMs: expect.any(Number) })
+      expect(staleSpy.mock.calls[0][0]).toMatchObject({ maxRows: expect.any(Number), budgetMs: expect.any(Number) })
+    }, 1_800_000)
+
+    it('T3 interruption: a tick whose dispatch dies mid-run (after the round persisted, and before it) never throws, loses nothing, and the next tick finishes exactly the unresolved candidate', async () => {
+      pg.requirePostgres('C4 T3')
+      const dies = await c4('tickdie', 'RELEASE') // dispatch fails before anything persists
+      const crashes = await c4('tickcrash', 'REFUND') // the round persists, then the process "dies" before the guard
+      const real = { initiateRelease: escrowService.initiateRelease.bind(escrowService), initiateRefund: escrowService.initiateRefund.bind(escrowService) }
+      jest.spyOn(escrowService, 'initiateRelease').mockImplementation(((escrowId: string, ...rest: unknown[]) =>
+        escrowId === dies.escrowId ? Promise.reject(new Error('c4 tick injected failure')) : (real.initiateRelease as any)(escrowId, ...rest)) as never)
+      jest.spyOn(escrowService, 'initiateRefund').mockImplementation(((escrowId: string, ...rest: unknown[]) =>
+        escrowId === crashes.escrowId ? (real.initiateRefund as any)(escrowId, ...rest).then(() => { throw new Error('c4 tick injected crash after persisting') }) : (real.initiateRefund as any)(escrowId, ...rest)) as never)
+      await expect(runTick(tickLog())).resolves.toBeUndefined()
+      await tickUntil(tickLog(), () => hasRound(crashes)) // never throws, whatever dies on the way
+      expect((await pendingRows([dies.escrowId])).length).toBe(0) // nothing persisted for the first
+      expect((await pendingRows([crashes.escrowId])).length).toBe(1) // the second persisted, guard never ran
+      jest.restoreAllMocks()
+      await tickUntil(tickLog(), () => hasRound(dies))
+      expect((await pendingRows([dies.escrowId])).length).toBe(1) // finished by the next tick
+      expect((await pendingRows([crashes.escrowId])).length).toBe(1) // not repeated, not duplicated
+      await expectNoEconomicDisposition([dies, crashes])
+    }, 1_800_000)
+
+    it('T4 "persists before it validates": the unvalidated round a crash leaves is removed by the tick when unsigned and aged, kept when it carries a signature - and C4 then rebuilds a validated one', async () => {
+      pg.requirePostgres('C4 T4')
+      const unsigned = await c4('tickwin1', 'RELEASE')
+      const signed = await c4('tickwin2', 'RELEASE')
+      const real = { initiateRelease: escrowService.initiateRelease.bind(escrowService) }
+      // The dispatch persists its round and the process dies BEFORE the translation guard ran: the window.
+      jest.spyOn(escrowService, 'initiateRelease').mockImplementation(((escrowId: string, ...rest: unknown[]) =>
+        (real.initiateRelease as any)(escrowId, ...rest).then(() => { throw new Error('c4 injected crash before validation') })) as never)
+      for (let i = 0; i < 40 && !((await hasRound(unsigned)) && (await hasRound(signed))); i++) await bounded()
+      jest.restoreAllMocks()
+      for (const c of [unsigned, signed]) expect((await pendingRows([c.escrowId])).length).toBe(1)
+      const aged = new Date(Date.now() - 10 * 60 * 1000)
+      await tamper.escrowPendingTransaction.updateMany({ where: { escrowId: { in: [unsigned.escrowId, signed.escrowId] } }, data: { createdAt: aged } })
+      const signedRound = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: signed.escrowId } })
+      await prisma.escrowTransactionSignature.create({ data: { pendingTxId: signedRound.id, participantId: signedRound.requiredSigners[0], signedPsbtBase64: 'signed-by-a-participant' } })
+      // Their translation does not match the durable Outcome.
+      const guardModule = require('../../src/modules/open-settlement/dispatch-translation-guard')
+      const ours = new Set([(await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: unsigned.escrowId } })).unsignedPsbtBase64, signedRound.unsignedPsbtBase64])
+      const realValidate = guardModule.validateTranslatedOutputsAgainstOutcome
+      jest.spyOn(guardModule, 'validateTranslatedOutputsAgainstOutcome').mockImplementation(((psbt: string, ...rest: unknown[]) =>
+        ours.has(psbt) ? { ok: false, mismatches: ['c4 injected mismatch'] } : (realValidate as any)(psbt, ...rest)) as never) // only THESE two rounds mismatch
+      // The cleanup runs after the C4 step in the same tick and takes at most 50 rows per run: tick until it has reached ours.
+      for (let i = 0; i < 40 && (await hasRound(unsigned)); i++) await runTick(tickLog())
+      jest.restoreAllMocks()
+      expect((await pendingRows([signed.escrowId])).length).toBe(1) // a round with a signature is never deleted by this path
+      expect(await prisma.escrowTransactionSignature.count({ where: { pendingTxId: signedRound.id } })).toBe(1)
+      // The unsigned one is gone ...
+      expect((await pendingRows([unsigned.escrowId])).length).toBe(0)
+      // ... and the next tick - guard now real - rebuilds a round for it, validated against the Outcome by the dispatch itself.
+      await tickUntil(tickLog(), () => hasRound(unsigned))
+      expect((await pendingRows([unsigned.escrowId])).length).toBe(1)
+      await expectNoEconomicDisposition([unsigned, signed])
+    }, 1_800_000)
+
+    it('F1 flag OFF (the default): the tick performs ZERO C4 operations - no dispatch claim, no stamp, no round, no cleanup - while the rest of the tick still runs', async () => {
+      pg.requirePostgres('C4 F1')
+      const candidate = await c4('flagoff', 'RELEASE')
+      c4Flag().c4Recovery = false
+      const recovery = require('../../src/modules/open-settlement/dispute-dispatch-recovery')
+      const stale = require('../../src/modules/open-settlement/dispute-pending-reconciliation')
+      const settlement = require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service')
+      const c4Spy = jest.spyOn(recovery, 'reconcileMissingDispatch')
+      const staleSpy = jest.spyOn(stale, 'reconcileStalePendingDisputeTranslations')
+      const settlementSpy = jest.spyOn(settlement, 'reconcilePendingSettlements')
+      const claims = claimStatements()
+      const before = (await rows([candidate])).get(candidate.disputeId)!
+      await runTick(tickLog())
+      await runTick(tickLog())
+      expect(settlementSpy).toHaveBeenCalledTimes(2) // the settlement pass is not gated by this flag
+      expect(c4Spy).not.toHaveBeenCalled()
+      expect(staleSpy).not.toHaveBeenCalled()
+      expect(claims).toEqual([]) // not even the claim statement was issued
+      const after = (await rows([candidate])).get(candidate.disputeId)!
+      expect(after.t).toBeNull()
+      expect(after.u.getTime()).toBe(before.u.getTime())
+      expect(await pendingRows([candidate.escrowId])).toEqual([]) // nothing was dispatched
+      await expectNoEconomicDisposition([candidate])
+    }, 1_800_000)
+
+    it('F2 flag ON: the tick runs BOTH routines - the bounded dispatch recovery and the bounded stale-translation cleanup - and the candidate is claimed and resumed', async () => {
+      pg.requirePostgres('C4 F2')
+      const candidate = await c4('flagon', 'REFUND')
+      const recovery = require('../../src/modules/open-settlement/dispute-dispatch-recovery')
+      const stale = require('../../src/modules/open-settlement/dispute-pending-reconciliation')
+      const c4Spy = jest.spyOn(recovery, 'reconcileMissingDispatch')
+      const staleSpy = jest.spyOn(stale, 'reconcileStalePendingDisputeTranslations')
+      let ticks = 0
+      for (; ticks < 40 && !(await hasRound(candidate)); ticks++) await runTick(tickLog())
+      expect(await hasRound(candidate)).toBe(true)
+      expect(c4Spy).toHaveBeenCalledTimes(ticks)
+      expect(staleSpy).toHaveBeenCalledTimes(ticks)
+      expect(c4Spy.mock.calls[0][0]).toMatchObject({ maxCandidates: expect.any(Number), budgetMs: expect.any(Number) })
+      expect(staleSpy.mock.calls[0][0]).toMatchObject({ maxRows: expect.any(Number), budgetMs: expect.any(Number) })
+      expect((await rows([candidate])).get(candidate.disputeId)!.t).not.toBeNull() // stamped by the claim
+      await expectNoEconomicDisposition([candidate])
+    }, 1_800_000)
+
+    it('T5 stale cleanup budget: a bounded run loads at most maxRows and, over a few runs from any starting position, reaches every row; rows that cannot be acted on never use the budget', async () => {
+      pg.requirePostgres('C4 T5')
+      const stale = require('../../src/modules/open-settlement/dispute-pending-reconciliation')
+      const rounds = await prisma.escrowPendingTransaction.findMany({ where: { escrow: { type: 'MULTISIG', disputes: { some: { status: 'RESOLVED' } } }, signatures: { none: {} } } })
+      const aged = new Date(Date.now() - 10 * 60 * 1000)
+      await tamper.escrowPendingTransaction.updateMany({ where: { id: { in: rounds.map((r) => r.id) } }, data: { createdAt: aged } })
+      const total = rounds.length
+      expect(total).toBeGreaterThan(3)
+      const MAXROWS = 2
+      const seen = new Set<string>()
+      for (const start of ['', 'ffffffff-ffff-ffff-ffff-ffffffffffff', rounds[1].id]) {
+        stale.setStalePendingCursor(start)
+        for (let run = 0; run < Math.ceil(total / MAXROWS) + 1; run++) {
+          const report = await stale.reconcileStalePendingDisputeTranslations({ maxRows: MAXROWS, budgetMs: 60_000 })
+          expect(report.reconciled.length + report.skippedHasSignatures.length + report.skippedTooYoung.length + report.failed.length).toBeLessThanOrEqual(MAXROWS)
+          for (const r of report.reconciled) seen.add(r.escrowId)
+        }
+      }
+      for (const r of rounds) expect(seen.has(r.escrowId) || (await prisma.escrowPendingTransaction.count({ where: { id: r.id } })) === 0).toBe(true)
+      // The clock budget: no row is started once it has elapsed.
+      let t = 0
+      const none = await stale.reconcileStalePendingDisputeTranslations({ maxRows: 50, budgetMs: 0, now: () => (t += 1) })
+      expect(none.reconciled.length + none.failed.length).toBe(0)
     }, 1_800_000)
   })
 })

@@ -33,6 +33,8 @@ import { agentRoutes } from './modules/open-agents/agent.routes'
 import { proofRoutes } from './modules/open-proof/proof.routes'
 import { escrowService } from './modules/open-settlement/escrow.service'
 import { reconcilePendingSettlements } from './modules/open-settlement/escrow-settlement-reconciliation.service'
+import { reconcileMissingDispatch } from './modules/open-settlement/dispute-dispatch-recovery'
+import { reconcileStalePendingDisputeTranslations } from './modules/open-settlement/dispute-pending-reconciliation'
 import { recoverUnpublishedIntentEvents } from './core/intent-publication-recovery'
 import { assertArbitrationModeCompatibleWithAvailableRails } from './modules/open-settlement/escrow-providers'
 import { assertMarketArbitrationCollateralProductionEligible } from './modules/open-settlement/arbitration-policy'
@@ -438,6 +440,43 @@ export async function runSettlementReconcilerTick(log: Pick<FastifyBaseLogger, '
     }
   } catch (err) {
     log.error({ msg: 'Settlement reconciliation failed', module: 'settlement-reconciler', err: err instanceof Error ? err.message : err })
+  }
+  await runDisputeDispatchRecovery(log)
+}
+
+// CTO 341 - M9-R C4 recovery, one bounded call per tick, each step failing independently of the others and of
+// reconcilePendingSettlements() above. A backlog is worked through over later ticks, fairly and durably (the claim stamp in
+// dispute-dispatch-recovery.ts); the stale-translation cleanup is its own bounded step. Counts and ids only are logged.
+const C4_MAX_CANDIDATES = 10
+const C4_BUDGET_MS = 20_000
+const STALE_TRANSLATION_MAX_ROWS = 50
+const STALE_TRANSLATION_BUDGET_MS = 10_000
+
+export async function runDisputeDispatchRecovery(log: Pick<FastifyBaseLogger, 'warn' | 'error'>): Promise<void> {
+  // CTO 344: off by default. Off means zero C4 operations - neither the dispatch claim nor the cleanup touches the database.
+  if (!config.features.c4Recovery) return
+  try {
+    const r = await reconcileMissingDispatch({ maxCandidates: C4_MAX_CANDIDATES, budgetMs: C4_BUDGET_MS })
+    if (r.resumed.length || r.failed.length || r.guardFailed.length || r.notEligible.length) {
+      log.warn({
+        msg: 'C4 dispatch recovery completed with findings', module: 'dispute-dispatch-recovery',
+        processed: r.budget?.processed, stoppedBy: r.budget?.stoppedBy, resumed: r.resumed.length, alreadyResumedConcurrently: r.alreadyResumedConcurrently.length,
+        notEligible: r.notEligible.length, guardFailed: r.guardFailed.map((g) => g.escrowId), failed: r.failed.map((f) => f.escrowId),
+      })
+    }
+  } catch (err) {
+    log.error({ msg: 'C4 dispatch recovery failed', module: 'dispute-dispatch-recovery', err: err instanceof Error ? err.message : err })
+  }
+  try {
+    const r = await reconcileStalePendingDisputeTranslations({ maxRows: STALE_TRANSLATION_MAX_ROWS, budgetMs: STALE_TRANSLATION_BUDGET_MS })
+    if (r.reconciled.some((x) => x.verdict !== 'LEFT_GUARD_PASSED') || r.failed.length) {
+      log.warn({
+        msg: 'Stale dispute translation cleanup completed with findings', module: 'dispute-pending-reconciliation',
+        deleted: r.reconciled.filter((x) => x.verdict !== 'LEFT_GUARD_PASSED').map((x) => ({ escrowId: x.escrowId, verdict: x.verdict })), failed: r.failed.map((f) => f.escrowId),
+      })
+    }
+  } catch (err) {
+    log.error({ msg: 'Stale dispute translation cleanup failed', module: 'dispute-pending-reconciliation', err: err instanceof Error ? err.message : err })
   }
 }
 
