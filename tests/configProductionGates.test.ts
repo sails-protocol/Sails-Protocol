@@ -457,6 +457,37 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
   })
 
+  describe('QVAC auto-resolution numeric knobs (#330 — fail-closed, strict parse)', () => {
+    const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
+    const T = 'QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD'
+    const W = 'QVAC_AUTO_RESOLUTION_WINDOW_HOURS'
+
+    it.each(['0,85', 'abc', '-1', '1.5', '', ' ', 'Infinity', 'NaN', '0.85abc', '1e0'])('refuses threshold %p', (v) => {
+      expect(loadConfig({ ...dev, [T]: v })).toThrow(new RegExp(T))
+    })
+
+    it.each(['0', 'NaN', 'Infinity', '-5', '721', '0,5', 'abc', ''])('refuses window %p', (v) => {
+      expect(loadConfig({ ...dev, [W]: v })).toThrow(new RegExp(W))
+    })
+
+    it('also refuses invalid values in production', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, [T]: '0,85' })).toThrow(new RegExp(T))
+    })
+
+    it('accepts valid values and the defaults; auto-resolution stays OFF by default', () => {
+      const d = JSON.stringify(loadConfig({ ...dev })())
+      expect(d).toContain('"qvacAutoResolutionEnabled":false')
+      expect(d).toContain('"qvacAutoResolutionConfidenceThreshold":0.85')
+      expect(d).toContain('"qvacAutoResolutionWindowHours":24')
+      jest.resetModules()
+      const v = JSON.stringify(loadConfig({ ...dev, [T]: '1', [W]: '720' })())
+      expect(v).toContain('"qvacAutoResolutionConfidenceThreshold":1')
+      expect(v).toContain('"qvacAutoResolutionWindowHours":720)'.slice(0,-1))
+      jest.resetModules()
+      expect(JSON.stringify(loadConfig({ ...dev, [T]: '0', [W]: '0.5' })())).toContain('"qvacAutoResolutionWindowHours":0.5')
+    })
+  })
+
   describe('a fully correct production configuration boots cleanly', () => {
     it('every gate satisfied at once — no throw, all values reflect what was set', () => {
       const load = loadConfig(REQUIRED_PROD_ENV)

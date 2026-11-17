@@ -40,6 +40,20 @@ function requiredPositiveInt(name: string, fallback: number): number {
   return parsed
 }
 
+// Strict decimal parse for numeric knobs where a silent parseFloat() coercion
+// is a fail-open: "0,85" -> 0 and "abc" -> NaN make `confidence < threshold`
+// never filter, an invalid window yields Invalid Date. Plain decimals only
+// (no comma, sign, exponent, Infinity); anything else refuses to boot.
+function requiredDecimalInRange(name: string, fallback: number, min: number, max: number, minExclusive = false): number {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  const parsed = /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : NaN
+  if (!Number.isFinite(parsed) || parsed > max || (minExclusive ? parsed <= min : parsed < min)) {
+    throw new Error(`Environment variable ${name} must be a decimal ${minExclusive ? '>' : '>='} ${min} and <= ${max}, got: ${raw}`)
+  }
+  return parsed
+}
+
 // Missão 11 Fase 8.1 LB-03 — NODE_ENV used to be a bare `=== 'production'`
 // string comparison with no validation of anything else. Every fail-closed
 // guard in this file (RT-001, ENFORCE_CAPABILITIES, DATABASE_URL/REDIS_URL
@@ -596,10 +610,10 @@ export const config = {
     // proposed — anything lower falls straight through to the human
     // arbiter, unchanged. Starting conservative (high bar), tunable per
     // deployment as real-world calibration data accumulates.
-    qvacAutoResolutionConfidenceThreshold: parseFloat(process.env.QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD ?? '0.85'),
+    qvacAutoResolutionConfidenceThreshold: requiredDecimalInRange('QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD', 0.85, 0, 1),
     // How long either trade party has to contest a proposed automated
     // ruling before sweepExpiredAutoResolutions() applies it.
-    qvacAutoResolutionWindowHours: parseFloat(process.env.QVAC_AUTO_RESOLUTION_WINDOW_HOURS ?? '24'),
+    qvacAutoResolutionWindowHours: requiredDecimalInRange('QVAC_AUTO_RESOLUTION_WINDOW_HOURS', 24, 0, 720, true),
   },
 
   // WDK_USDT_EVM SettlementProvider (wdk-settlement.provider.ts) — real
