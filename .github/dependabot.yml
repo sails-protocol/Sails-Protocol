@@ -5,12 +5,16 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # CTO 403: stop automatic rebase of existing Dependabot PRs (manual: `@dependabot rebase`).
+    rebase-strategy: disabled
     # Maintain SHA-pinned Actions via reviewed Dependabot PRs.
   - package-ecosystem: npm
     directory: "/"
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    # CTO 403: stop automatic rebase of existing Dependabot PRs (manual: `@dependabot rebase`).
+    rebase-strategy: disabled
     # Mission 9.10 (docs/GITHUB_PROJECT.md §9) — replaces the previous
     # single catch-all `patterns: ["*"]` group, which is exactly how PR
     # #39 bundled 37 unrelated updates into one diff: a real
@@ -84,3 +88,5 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # CTO 403: stop automatic rebase of existing Dependabot PRs (manual: `@dependabot rebase`).
+    rebase-strategy: disabled
