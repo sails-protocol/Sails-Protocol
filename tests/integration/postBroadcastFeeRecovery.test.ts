@@ -157,6 +157,11 @@ describe('post-broadcast fee recovery (Issue #245 Phase 2, real Postgres)', () =
     evidenceLine('6 after the race', { ...s, directOutcome: settled[3].status === 'fulfilled' ? (settled[3] as PromiseFulfilledResult<string>).value : String((settled[3] as PromiseRejectedResult).reason) })
     expect(s).toMatchObject({ status: 'IN_PROGRESS', broadcast: 1, confirmed: 0, events: 1 })
     expect(settled[3].status).toBe('fulfilled')
+    // A race loser must not surface as a failure: no reconciler reports this escrow in `failed`.
+    for (const run of settled.slice(0, 3)) {
+      expect(run.status).toBe('fulfilled')
+      expect((run as PromiseFulfilledResult<Awaited<ReturnType<typeof reconcilePendingSettlements>>>).value.failed.filter((f) => f.escrowId === escrowId)).toEqual([])
+    }
     await reconcilePendingSettlements() // once more, now that every writer is done: leftovers are cleaned
     expect((await snapshot(escrowId, obligationId)).pendingRow).toBe(false)
   })
