@@ -6,6 +6,14 @@ on:
   pull_request:
     branches: [main]
 
+# CTO 403 - cancel only the OBSOLETE runs of the same pull request. A pull_request run belongs to the group "<workflow>-pr-<number>":
+# a newer run of the same PR replaces an older one still queued or running. Every other event (push to main, schedule, manual
+# dispatch) gets a group of its own per run (run_id), so it can never be cancelled, never cancels anything and never queues behind
+# another run. Different PRs have different numbers and never share a group. cancel-in-progress is true only for pull_request.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
