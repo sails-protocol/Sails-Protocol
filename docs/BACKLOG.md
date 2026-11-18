@@ -5999,7 +5999,7 @@ Every merge was individually authorized by the CTO for one exact head, after an 
 ### Superseded
 
 - **PR #325** (bind the SAFE bundler result to `bundle.userOpHash`) is closed as superseded by #683, which recomputes the hash from the submitted UserOperation. The branch is preserved. Issue #258 stays open in Validation.
-- **PR #330** is **not** closed: it still carries two items of Issue #311 that #681 does not cover (a positive-integer validation of `DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS`, and the stale comments in `.env.example` and `src/config/index.ts` that say the contest-window expiry applies the QVAC recommendation, while `sweepExpiredAutoResolutions()` actually returns the dispute to human review). A small isolated pull request for those two items is being prepared; #330 is closed only after it is merged. Issue #311 stays blocked with partial coverage.
+- **PR #330** is **not** closed: it still carries two items of Issue #311 that #681 does not cover (a positive-integer validation of `DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS`, and the stale comments in `.env.example` and `src/config/index.ts` that say the contest-window expiry applies the QVAC recommendation, while `sweepExpiredAutoResolutions()` actually returns the dispute to human review). The isolated pull request #688 (head `f24d9b47`) carries those two items; #330 is closed only after #688 is merged. Issue #311 stays blocked with partial coverage.
 
 ### Pending (open, none authorized to merge here)
 
