@@ -5971,7 +5971,7 @@ A future Sails-operated OpenTimestamps-compatible aggregator/calendar is OPTIONA
 
 ---
 
-## Institutional status after the #678–#694 integration run (2026-11-18)
+## Institutional status after the #678–#696 integration run (2026-11-18)
 
 **Status: CURRENT — DOCUMENTARY RECONCILIATION. It records facts already decided elsewhere (CTO 397–418); it is not a homologation, a migration or an economic activation, and it changes no criterion.** The authoritative records of Day-0 homologation remain Issue #105 and the live GitHub Project; if this entry conflicts with them, they govern. Each statement below is marked **in force**, **superseded** or **pending**.
 
@@ -5993,6 +5993,7 @@ A future Sails-operated OpenTimestamps-compatible aggregator/calendar is OPTIONA
 | #692 | Strict positive-integer validation, capped at the Node timer limit 2147483647, of 8 variables that feed timers (6 intervals, 2 timeouts) | `dfd578de` | R3 | CI, CI Tests, CodeQL succeeded |
 | #694 | Test-only fix of the intermittent failure of Issue #298 (claims created with `appliedAt` one second in the past in the grace-0 tests) | `3795f0fe` | R2 (test) | CI, CI Tests, CodeQL succeeded |
 | #685 | `rebase-strategy: disabled` for the three ecosystems in `.github/dependabot.yml` | `a3ab1f70` | R3 (config) | CI, CI Tests, CodeQL succeeded |
+| #696 | Test-only: the grace-0 cases of `wdkUnresolvedAttemptGuard` and its worker stop reading the public explorer (`externalSpendMinIntervalMs` = Infinity), whose latency made the push CI of `8e8fc997` time out | `c1a0f84d` | R2 (test) | not verified when this entry was written |
 
 Every merge was individually authorized by the CTO for one exact head, after an independent Gatekeeper opinion for that SHA. The Gatekeeper's opinions are technical; they are not homologation.
 
@@ -6017,7 +6018,7 @@ Every merge was individually authorized by the CTO for one exact head, after an 
 - **`wdkUnresolvedAttemptGuard` on `main` `8e8fc997`:** three cases timed out; cause not yet established.
 - **Evidence limits that remain:** the global per-instance `@fastify/rate-limit` under the authentication and critical routes was not analyzed; the text-valued `RATE_LIMIT_WINDOW` is a probable fail-open that is not proven; the ethers `FetchRequest.timeout` was not proven near 2^31-1; therefore no claim of full coverage is made.
 - **#685** is integrated (`rebase-strategy: disabled`); its effect on the Actions queue and on the number of pull requests behind `main` must be measured (first "Dependabot Updates" run, redundant CI, pull requests behind `main`), not assumed.
-- **Open, in review, none authorized to merge:** #696 (test-only: the grace-0 tests of `wdkUnresolvedAttemptGuard` stop reading the public explorer, whose latency made the push CI of `8e8fc997` time out), #697 (recreates the #349 observability hardening: `/metrics` disabled by default in production, no internal feature flags in `/health` in production) and an isolated experiment, authorized after #696, for a Jest-level fallback of `MULTISIG_EXPLORER_API_URL`.
+- **Open, in review, none authorized to merge here:** #697 (recreates the #349 observability hardening: `/metrics` disabled by default in production, no internal feature flags in `/health` in production) and an isolated experiment, now authorized because #696 is integrated, for a Jest-level fallback of `MULTISIG_EXPLORER_API_URL` (it does not replace #696, adoption and merge need a new CTO decision, and #696 alone does not close the intermittency of the CI).
 - **Separate tasks:** removal of unused text-valued settings (needs proof that no consumer exists), and `FeePolicyVersion` P2 (a database `CHECK`, which is a migration: not authorized) and P3 (an economic ceiling: not chosen).
 ### Blocked chains (CTO 418 classification; none authorizes a merge, deploy, migration or change of economic policy)
 
