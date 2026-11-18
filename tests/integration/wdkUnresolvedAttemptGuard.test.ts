@@ -467,7 +467,9 @@ describe('D7 - an unreconciled WDK attempt blocks rollback and every other opera
 
   // ─── D9: crash and race around the rollback, then restart and repeated recovery ──────────────────────
   // Other files' settled rulings may be finalized by any reconciler pass: drain them before taking a baseline.
-  const drain = () => reconcilePendingSettlements({ projectionGraceMs: 0 })
+  // No external-spend watch here: it reads the public explorer (up to 8 s per read, once per 60 s per process), these
+  // cases do not test it, and each fresh process re-arms it (CI 44305564273: D9 cases over 120 s).
+  const drain = () => reconcilePendingSettlements({ projectionGraceMs: 0, externalSpendMinIntervalMs: Number.POSITIVE_INFINITY })
 
   it.each([
     ['the provider fails before any attempt', 'RELEASE', null, 'after-escrow-revert'],
