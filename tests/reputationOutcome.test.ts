@@ -168,8 +168,7 @@ describe('RFC-007 D8/D9 Outcome Engine (dispute-aware, via settlement.escrow.rel
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', amount: '0.01', intentId: 'intent-1' })
     mockUserUpdate.mockResolvedValue({ id: 'x', reputationScore: 0, totalTrades: 0 })
     // RFC-021 D4, Phase 3 default: bootstrap-phase escrow, no protocol fee
-    // charged (config.settlement.protocolFeeRate === 0, the documented
-    // default) — most tests below don't care about this dimension at all.
+    // charged (feeCharged null) — most tests below don't care about this dimension at all.
     mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', feeCharged: null })
   })
 

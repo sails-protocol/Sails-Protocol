@@ -37,7 +37,7 @@ jest.mock('../src/config', () => ({
     return {
       features: { mockEscrow: true, enforceCapabilities: false, requireDualApprovalForRelease: false },
       trade: { defaultTimelockHours: 24 },
-      settlement: { trustedArbitrators: [], protocolFeeRate: 0 },
+      settlement: { trustedArbitrators: [] },
       arkade: { seed: '' },
       escrowCircuitBreaker: { failureThreshold: 1000, windowMs: 60_000, cooldownMs: 60_000 },
     }

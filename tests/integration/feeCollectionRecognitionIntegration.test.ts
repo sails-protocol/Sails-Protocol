@@ -41,7 +41,6 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
   let checkRailActivationReadiness: typeof import('../../src/modules/open-settlement/fee-activation-readiness').checkRailActivationReadiness
   let config: typeof import('../../src/config').config
   let originalCollectionAddress: string | undefined
-  let originalProtocolFeeRate: number
 
   beforeAll(async () => {
     await pg.probe()
@@ -54,13 +53,11 @@ describe('Fee collection recognition — real lifecycle + reconciliation (Missã
     reconciliation = require('../../src/modules/open-settlement/fee-obligation-reconciliation')
     ;({ checkRailActivationReadiness } = require('../../src/modules/open-settlement/fee-activation-readiness'))
     originalCollectionAddress = config.settlement.protocolFeeCollectionAddress
-    originalProtocolFeeRate = config.settlement.protocolFeeRate
   })
 
   afterEach(() => {
     if (dbAvailable) {
       config.settlement.protocolFeeCollectionAddress = originalCollectionAddress
-      config.settlement.protocolFeeRate = originalProtocolFeeRate
     }
   })
 
