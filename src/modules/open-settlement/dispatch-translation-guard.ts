@@ -52,8 +52,8 @@
  *
  * SCOPE (disclosed, not silently assumed): this guard's "exactly the
  * authorized beneficiary set, no more, no less" output-count check
- * assumes the Sails Protocol Fee remains inactive (PROTOCOL_FEE_RATE has
- * never been raised above 0, `escrow-lifecycle.ts`'s own comment) — a
+ * assumes the Sails Protocol Fee remains inactive (fee collection has
+ * never been activated, `escrow-lifecycle.ts`'s own comment) — a
  * MULTISIG PSBT built today always has exactly one output per
  * beneficiary, never an additional fee-collection output. Mission M8-R
  * does not activate the fee (§39); if a future mission does, THIS guard
