@@ -18,9 +18,10 @@
 --     seq is taken BEFORE the lock, but only the claim winner commits and the loser rolls back, so committed
 --     CONFIRMED rows still follow the serialized order) and REORGED_OUT from COLLECTED (recordReorgAndRevert,
 --     CTO 261: claim COLLECTED -> IN_PROGRESS, then the txid must still be the latest CONFIRMED, then insert,
---     one transaction). Not serialized (bare autocommit inserts): REPLACED (recordReplacement), DROPPED
---     (recordDropped), and REORGED_OUT from any other status (inserted in its transaction without the claim);
---     for them seq is insertion order, and two concurrent ones may commit in the opposite order of their nextval.
+--     one transaction). Not serialized: REPLACED (recordReplacement) and DROPPED (recordDropped), bare
+--     autocommit inserts, and REORGED_OUT from any other status (one transaction with the same latest-CONFIRMED
+--     txid check, but no claim, so no obligation row lock); for them seq is insertion order, and two
+--     concurrent ones may commit in the opposite order of their nextval.
 --   * Sufficient for money: the only money-bearing reader, allocate(), reads CONFIRMED rows only, and a new
 --     CONFIRMED generation needs the obligation back in IN_PROGRESS (REORGED_OUT + revert) before it is
 --     written, so CONFIRMED rows of one obligation are causally ordered and seq order equals commit order.
