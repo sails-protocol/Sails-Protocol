@@ -461,12 +461,16 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
     const K = 'DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS'
 
-    it.each(['0', '-1', 'abc', ''])('refuses %p', (v) => {
+    it.each(['1.5', '100abc', '0', '-1', 'abc', '', ' 5', '5 ', '+5', '1e3', '0x10', '9007199254740993'])('refuses %p', (v) => {
       expect(loadConfig({ ...dev, [K]: v })).toThrow(new RegExp(K))
     })
 
-    it('accepts a positive integer and defaults to 300000', () => {
+    it('accepts strict positive integers and defaults to 300000', () => {
       expect(loadConfig({ ...dev, [K]: '1000' })().trade.disputeAutoResolutionSweepIntervalMs).toBe(1000)
+      jest.resetModules()
+      expect(loadConfig({ ...dev, [K]: '300000' })().trade.disputeAutoResolutionSweepIntervalMs).toBe(300000)
+      jest.resetModules()
+      expect(loadConfig({ ...dev, [K]: '1' })().trade.disputeAutoResolutionSweepIntervalMs).toBe(1)
       jest.resetModules()
       expect(loadConfig({ ...dev, [K]: undefined })().trade.disputeAutoResolutionSweepIntervalMs).toBe(300000)
     })

@@ -54,6 +54,20 @@ function requiredDecimalInRange(name: string, fallback: number, min: number, max
   return parsed
 }
 
+// Strict positive integer: decimal digits only, > 0. Unlike requiredPositiveInt()
+// (parseInt: "1.5" -> 1, "100abc" -> 100) it refuses anything that is not
+// exactly a positive integer. Local on purpose: other variables rely on the
+// shared helper's current behavior.
+function requiredStrictPositiveInt(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  const parsed = /^[1-9]\d*$/.test(raw) ? Number(raw) : NaN
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`Environment variable ${name} must be a strictly positive integer (digits only), got: ${raw}`)
+  }
+  return parsed
+}
+
 // Missão 11 Fase 8.1 LB-03 — NODE_ENV used to be a bare `=== 'production'`
 // string comparison with no validation of anything else. Every fail-closed
 // guard in this file (RT-001, ENFORCE_CAPABILITIES, DATABASE_URL/REDIS_URL
@@ -493,7 +507,7 @@ export const config = {
     // How often the RFC-021 D8 sweeper (when enabled) checks for
     // AUTO_PROPOSED disputes past their contest deadline. Same 5-minute
     // default as the escrow sweeper above, same reasoning.
-    disputeAutoResolutionSweepIntervalMs: requiredPositiveInt('DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS', 300000),
+    disputeAutoResolutionSweepIntervalMs: requiredStrictPositiveInt('DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS', 300000),
     // How often the Fase 5 confirmation sweeper (when enabled) checks
     // IN_PROGRESS MULTISIG fee obligations against the chain. Same
     // 5-minute default as the other two sweepers — confirmation depth
