@@ -54,6 +54,22 @@ function requiredDecimalInRange(name: string, fallback: number, min: number, max
   return parsed
 }
 
+// Strict positive integer: decimal digits only, > 0. Unlike requiredPositiveInt()
+// (parseInt: "1.5" -> 1, "100abc" -> 100) it refuses anything that is not
+// exactly a positive integer, capped at the Node timer limit (a larger delay
+// makes setInterval fire every ~1 ms). Local on purpose: other variables rely on the
+// shared helper's current behavior.
+const MAX_TIMER_DELAY_MS = 2147483647 // 2^31-1, the largest delay setInterval honors
+function requiredStrictPositiveInt(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  const parsed = /^[1-9]\d*$/.test(raw) ? Number(raw) : NaN
+  if (!Number.isSafeInteger(parsed) || parsed > MAX_TIMER_DELAY_MS) {
+    throw new Error(`Environment variable ${name} must be a strictly positive integer (digits only) <= ${MAX_TIMER_DELAY_MS} (setInterval limit), got: ${raw}`)
+  }
+  return parsed
+}
+
 // Missão 11 Fase 8.1 LB-03 — NODE_ENV used to be a bare `=== 'production'`
 // string comparison with no validation of anything else. Every fail-closed
 // guard in this file (RT-001, ENFORCE_CAPABILITIES, DATABASE_URL/REDIS_URL
@@ -444,7 +460,7 @@ export const config = {
     // ESCROW_SETTLEMENT_RECONCILER=false.
     escrowSettlementReconciler: process.env.ESCROW_SETTLEMENT_RECONCILER !== 'false',
     // RFC-021 D8 — off by default, same reasoning as escrowTimelockSweeper
-    // above: a real background process applying real dispute rulings on a
+    // above: a real background process acting on real disputes on a
     // timer is a real behavior change a deployment opts into deliberately.
     // Only meaningful when qvacAutoResolutionEnabled (settlement config,
     // below) is also true — otherwise no dispute is ever AUTO_PROPOSED for
@@ -493,7 +509,7 @@ export const config = {
     // How often the RFC-021 D8 sweeper (when enabled) checks for
     // AUTO_PROPOSED disputes past their contest deadline. Same 5-minute
     // default as the escrow sweeper above, same reasoning.
-    disputeAutoResolutionSweepIntervalMs: requiredInt('DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS', 300000),
+    disputeAutoResolutionSweepIntervalMs: requiredStrictPositiveInt('DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS', 300000),
     // How often the Fase 5 confirmation sweeper (when enabled) checks
     // IN_PROGRESS MULTISIG fee obligations against the chain. Same
     // 5-minute default as the other two sweepers — confirmation depth
@@ -603,7 +619,8 @@ export const config = {
     // deployment as real-world calibration data accumulates.
     qvacAutoResolutionConfidenceThreshold: requiredDecimalInRange('QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD', 0.85, 0, 1),
     // How long either trade party has to contest a proposed automated
-    // ruling before sweepExpiredAutoResolutions() applies it.
+    // recommendation. On expiry sweepExpiredAutoResolutions() returns it to
+    // human review; QVAC is advisory-only and its output is never applied.
     qvacAutoResolutionWindowHours: requiredDecimalInRange('QVAC_AUTO_RESOLUTION_WINDOW_HOURS', 24, 0, 720, true),
   },
 
