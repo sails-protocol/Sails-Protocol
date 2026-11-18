@@ -37,7 +37,7 @@
  * eligibility never depends on how much fee THIS transaction happens to
  * pay. Also deliberately unrelated to any Sails Protocol Fee (RFC-021 /
  * PROTOCOL_ECONOMY.md) — that is an entirely separate, currently-inert
- * (`PROTOCOL_FEE_RATE` defaults to 0) economic mechanism this mission
+ * (fee collection not activated) economic mechanism this mission
  * does not touch. Three genuinely independent concepts: miner fee, dust
  * threshold, protocol fee.
  */
