@@ -5985,7 +5985,7 @@ A future Sails-operated OpenTimestamps-compatible aggregator/calendar is OPTIONA
 | #683 | SAFE bundler result is bound to the submitted UserOperation hash (#325/#258) | `1db1a631` | R3 | CI, CI Tests, CodeQL succeeded |
 | #684 | `concurrency` in the three pull-request workflows (cancels obsolete runs of the same PR only) | `e686465c` | R3 (workflow) | CI, CI Tests, CodeQL succeeded |
 | #681 | Fail-closed strict parse of the QVAC confidence threshold and contest window (#330/#311) | `18418876` | R3 | CI, CI Tests, CodeQL succeeded |
-| #687 | `FeePolicyVersion` rate validation in `createDraft()` and `publish()` (finite, non-negative, at most 8 decimals, no rounding) | `29e4ef5a` | R3 | not verified when this entry was written |
+| #687 | `FeePolicyVersion` rate validation in `createDraft()` and `publish()` (finite, non-negative, at most 8 decimals, no rounding) | `29e4ef5a` | R3 | CI, CI Tests, CodeQL succeeded |
 
 Every merge was individually authorized by the CTO for one exact head, after an independent Gatekeeper opinion for that SHA. The Gatekeeper's opinions are technical; they are not homologation.
 
