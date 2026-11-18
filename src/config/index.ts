@@ -56,14 +56,16 @@ function requiredDecimalInRange(name: string, fallback: number, min: number, max
 
 // Strict positive integer: decimal digits only, > 0. Unlike requiredPositiveInt()
 // (parseInt: "1.5" -> 1, "100abc" -> 100) it refuses anything that is not
-// exactly a positive integer. Local on purpose: other variables rely on the
+// exactly a positive integer, capped at the Node timer limit (a larger delay
+// makes setInterval fire every ~1 ms). Local on purpose: other variables rely on the
 // shared helper's current behavior.
+const MAX_TIMER_DELAY_MS = 2147483647 // 2^31-1, the largest delay setInterval honors
 function requiredStrictPositiveInt(name: string, fallback: number): number {
   const raw = process.env[name]
   if (raw === undefined) return fallback
   const parsed = /^[1-9]\d*$/.test(raw) ? Number(raw) : NaN
-  if (!Number.isSafeInteger(parsed)) {
-    throw new Error(`Environment variable ${name} must be a strictly positive integer (digits only), got: ${raw}`)
+  if (!Number.isSafeInteger(parsed) || parsed > MAX_TIMER_DELAY_MS) {
+    throw new Error(`Environment variable ${name} must be a strictly positive integer (digits only) <= ${MAX_TIMER_DELAY_MS} (setInterval limit), got: ${raw}`)
   }
   return parsed
 }
