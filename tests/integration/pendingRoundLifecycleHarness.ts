@@ -12,10 +12,13 @@ import { createHash } from 'crypto'
 bitcoin.initEccLib(ecc)
 const ECPair = ECPairFactory(ecc)
 export const NETWORK = bitcoin.networks.testnet
-export const buyerKey = ECPair.fromPrivateKey(createHash('sha256').update('i239-buyer').digest(), { network: NETWORK })
-export const sellerKey = ECPair.fromPrivateKey(createHash('sha256').update('i239-seller').digest(), { network: NETWORK })
-export const BUYER_PUBKEY = Buffer.from(buyerKey.publicKey).toString('hex')
-export const SELLER_PUBKEY = Buffer.from(sellerKey.publicKey).toString('hex')
+export type Key = ReturnType<typeof ECPair.makeRandom>
+/** A fresh participant key pair for each escrow: a MULTISIG address is committed to one escrow only
+ *  (escrows_multisig_addr_key), and integration files share one database, so fixed keys would collide. */
+export function participantKeys() {
+  const buyerKey = ECPair.makeRandom({ network: NETWORK }); const sellerKey = ECPair.makeRandom({ network: NETWORK })
+  return { buyerKey, sellerKey, BUYER_PUBKEY: Buffer.from(buyerKey.publicKey).toString('hex'), SELLER_PUBKEY: Buffer.from(sellerKey.publicKey).toString('hex') }
+}
 
 export function testnetAddress(label: string): string {
   const pubkey = Buffer.from(ecc.pointFromScalar(createHash('sha256').update(label).digest(), true)!)
@@ -31,7 +34,7 @@ export interface Chain {
   hex: Map<string, string>
   outspendUnreadable: boolean
   broadcasts: string[]
-  /** Every fixture escrow shares one P2WSH address (same keys): while set, lockFunds() sees only this funding. */
+  /** The stub lists every funding for any address: while set, lockFunds() sees only this funding. */
   locking: string | null
   /** Every outspend lookup the explorer served, in order ("txid:vout"). */
   outspendCalls: string[]
@@ -73,7 +76,7 @@ export function explorer(chain: Chain): typeof fetch {
   }) as typeof fetch
 }
 
-export function signRound(unsignedPsbtBase64: string, key: typeof buyerKey): string {
+export function signRound(unsignedPsbtBase64: string, key: Key): string {
   const psbt = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network: NETWORK })
   psbt.signInput(0, key)
   return psbt.toBase64()
@@ -107,6 +110,7 @@ export async function buildCooperative(
   const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
   const created = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
   await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: created.id } })
+  const { buyerKey, sellerKey, BUYER_PUBKEY, SELLER_PUBKEY } = participantKeys()
   await escrowService.submitParticipantKey(created.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
   await escrowService.submitParticipantKey(created.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
   const funding = createHash('sha256').update(`i239-${label}-${Math.random()}-${Date.now()}`).digest('hex')
@@ -124,7 +128,8 @@ export async function buildCooperative(
   }
   const round = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: created.id } })
   const escrow = await prisma.escrow.findUniqueOrThrow({ where: { id: created.id } })
-  return { escrow, trade, buyer, seller, round, funding } as {
+  return { escrow, trade, buyer, seller, round, funding, buyerKey, sellerKey } as {
+    buyerKey: Key; sellerKey: Key
     escrow: { id: string; status: string; txLockId: string | null }; trade: { id: string }; buyer: { id: string }; seller: { id: string }
     round: { id: string; unsignedPsbtBase64: string; requiredSigners: string[]; disputeId: string | null; kind: string }; funding: string
   }

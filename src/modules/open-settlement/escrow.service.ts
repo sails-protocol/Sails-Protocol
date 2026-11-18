@@ -1,5 +1,5 @@
 import { prisma } from '../../common/database'
-import { NotFoundError, EscrowError, ForbiddenError, ValidationError, SettlementExecutedError } from '../../common/errors'
+import { AppError, NotFoundError, EscrowError, ForbiddenError, ValidationError, SettlementExecutedError } from '../../common/errors'
 import { EscrowType } from '../../common/types/trade'
 import type { AssetType } from '../../common/types'
 import type { CreateEscrowInput } from '@satsails/p2p-schemas'
@@ -37,7 +37,7 @@ import {
   VALID_TRANSITIONS,
 } from './escrow-lifecycle'
 import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
-import type { Prisma, WdkTransferOperationType } from '@prisma/client'
+import { Prisma, type WdkTransferOperationType } from '@prisma/client'
 import { assertCircuitClosed, recordEscrowConflict } from './escrow-circuit-breaker'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import * as dualApproval from './escrow-dual-approval'
@@ -542,7 +542,21 @@ export class EscrowService {
       }
 
       const { address, arbiterPubkeyHex, arbiterId } = await provider.getDepositAddress(trade.id, buyerKey.pubkey, sellerKey.pubkey)
-      updatedEscrow = await this.repo.updateMultisigAddr(escrowId, address)
+      // One MULTISIG address per escrow: two escrows with the same participant keys (and arbiter) would share one
+      // P2WSH address, and no UTXO there could be attributed to either of them. First commit wins; the partial unique
+      // index escrows_multisig_addr_key settles a race. The submitted key stays recorded; a fresh key retries the commit.
+      try {
+        updatedEscrow = await this.repo.updateMultisigAddr(escrowId, address)
+      } catch (err: any) {
+        if (err?.code === 'P2002') {
+          throw new AppError(
+            `MULTISIG address ${address} is already committed to another escrow: these participant keys were used before. ` +
+            'Submit a fresh key for this escrow (one key per escrow).',
+            409, 'MULTISIG_ADDRESS_ALREADY_COMMITTED'
+          )
+        }
+        throw err
+      }
 
       // Missão 11 Fase 5.2 §2/§3 — persist the escrow-specific, immutable
       // arbiter public-key commitment, using the EXACT bytes
@@ -624,7 +638,8 @@ export class EscrowService {
       // legacy escrow or a provider that doesn't report it.
       const updated = await this.repo.updateLockResult(escrowId, {
         txLockId: result.txId, txLockVout: result.vout ?? null, multisigAddr: result.address, lockedAt: now, expiresAt,
-        ...(result.fundedAmount !== undefined ? { fundedAmount: result.fundedAmount } : {}),
+        // The provider reports sats; the column (and the SDK/UI reading it) is BTC.
+        ...(result.fundedAmount !== undefined ? { fundedAmount: new Prisma.Decimal(result.fundedAmount).div(1e8) } : {}),
       })
 
       // Missão 11 Fase 9.1 §1 — the durable historical record of "funding

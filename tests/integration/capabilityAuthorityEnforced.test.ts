@@ -28,6 +28,7 @@ import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
+import { participantKeys } from './pendingRoundLifecycleHarness'
 
 bitcoin.initEccLib(ecc)
 const ECPair = ECPairFactory(ecc)
@@ -64,10 +65,8 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
   const ARBITER_ID = 'cap303-test-arbiter'
   const arbiterKeypair = nacl.sign.keyPair()
   const arbiterPublicKeyHex = Buffer.from(arbiterKeypair.publicKey).toString('hex')
-  const buyerKey = ECPair.fromPrivateKey(createHash('sha256').update('cap303-buyer').digest(), { network: NETWORK })
-  const sellerKey = ECPair.fromPrivateKey(createHash('sha256').update('cap303-seller').digest(), { network: NETWORK })
-  const BUYER_PUBKEY = Buffer.from(buyerKey.publicKey).toString('hex')
-  const SELLER_PUBKEY = Buffer.from(sellerKey.publicKey).toString('hex')
+  // One MULTISIG address per escrow: fresh participant keys for each escrow, looked up by escrow id when signing.
+  const escrowKeys = new Map<string, ReturnType<typeof participantKeys>>()
   const SETTLEMENT = 'settlement'
 
   let realFetch: typeof fetch
@@ -174,8 +173,9 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const keys = participantKeys(); escrowKeys.set(escrow.id, keys)
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, keys.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, keys.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
 
     const fundingTxid = createHash('sha256').update(`cap303-funding-${suffix}-${Date.now()}`).digest('hex')
     mockExplorerForUtxo(fundingTxid, 0, 100_000)
@@ -196,7 +196,7 @@ describe('Issue #303 - Capability Authority enforced end to end (real Postgres +
   async function buyerSignature(escrowId: string): Promise<string> {
     const pending = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
     const psbt = bitcoin.Psbt.fromBase64(pending!.unsignedPsbtBase64, { network: NETWORK })
-    psbt.signInput(0, buyerKey)
+    psbt.signInput(0, escrowKeys.get(escrowId)!.buyerKey)
     return psbt.toBase64()
   }
 

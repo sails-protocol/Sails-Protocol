@@ -28,13 +28,16 @@
  *     -> no write (nothing changed)
  *   uncertain, same txid now deep enough again
  *     -> RECONFIRMED
- *   any state, a DIFFERENT txid now satisfies the exact funding-matching
- *   rule at sufficient depth
- *     -> REPLACEMENT_OBSERVED (deliberately NOT auto-promoted to
- *        trustworthy on first sight — requires being seen again, deep
- *        enough, on a LATER tick before RECONFIRMED is recorded; see
- *        escrow-funding-evidence.service.ts's own header comment for why
- *        "do not manufacture certainty" applies here too)
+ *   any state, the recorded outpoint is gone and a single DIFFERENT,
+ *   unclaimed UTXO satisfies the exact funding-matching rule at
+ *   sufficient depth
+ *     -> REPLACEMENT_OBSERVED, and it stays that: never promoted to
+ *        RECONFIRMED, since every spend uses the recorded outpoint
+ *        (txLockId:txLockVout) and nothing re-records it. Corrected
+ *        2026-11-12 (CTO 25 funding binding): it used to be promoted on a
+ *        later tick, vouching for funding the escrow never spends. While
+ *        the recorded outpoint is still there, other UTXOs at the address
+ *        are ignored (rescanFunding()).
  *   a confirmed-but-not-yet-deep-enough candidate exists, previous state
  *   was trustworthy
  *     -> REORGED_INVALIDATED (a real regression from trusted to uncertain)
@@ -114,6 +117,7 @@ export async function sweepMultisigFundingReorgs(): Promise<FundingReorgSweepRes
       const { buyerPubkey, sellerPubkey, arbiterPubkey } = await loadParticipantPubkeys(escrow.id)
       const input: MultisigEscrowInput = {
         tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString(),
+        txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
         buyerPubkey, sellerPubkey, arbiterPubkey,
         feePolicyVersionId: escrow.feePolicyVersionId,
         snapshotProtocolFeeRate: escrow.snapshotProtocolFeeRate?.toString() ?? null,
@@ -145,8 +149,11 @@ export async function sweepMultisigFundingReorgs(): Promise<FundingReorgSweepRes
         const trustworthy = last.kind === 'OBSERVED_CONFIRMED' || last.kind === 'RECONFIRMED'
 
         if (scan && scan.depth >= required) {
-          if (last.txid === scan.txId) {
-            if (trustworthy) {
+          // Only the recorded outpoint can be (re)confirmed: every spend uses txLockId:txLockVout, so trusting any other
+          // txid would vouch for funding this escrow never spends. A different candidate stays REPLACEMENT_OBSERVED.
+          const recorded = scan.txId === escrow.txLockId && (escrow.txLockVout === null || escrow.txLockVout === undefined || scan.vout === escrow.txLockVout)
+          if (recorded) {
+            if (trustworthy && last.txid === scan.txId) {
               result.stillGood.push(escrow.id)
             } else {
               await escrowFundingEvidenceRepository.record({

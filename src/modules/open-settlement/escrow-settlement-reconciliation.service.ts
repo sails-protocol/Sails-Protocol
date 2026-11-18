@@ -28,7 +28,7 @@ import { isFullySigned } from './pending-round-retirement'
 import { VALID_TRANSITIONS } from './escrow-lifecycle'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import { capabilityOperationDigest } from './capability-execution-authorization'
-import { assertCooperativeOriginProvable, CooperativeOriginNotProvable } from './economic-disposition-authority'
+import { assertCooperativeOriginProvable, CooperativeOriginNotProvable, DisputedTranslationRefused } from './economic-disposition-authority'
 
 /**
  * Sails OpenSettlement — settlement crash-recovery reconciliation
@@ -313,6 +313,21 @@ function isLostEscrowClaim(err: unknown): boolean {
   return err instanceof EscrowError && /already transitioned by a concurrent request/.test(err.message)
 }
 
+// GK-M9R-D R1 (CTO 25) - a recovery broadcast of a round that is NOT already on the network is a first economic
+// effect, even when the escrow was claimed (or the result recorded) by code that predates R1: it passes the same
+// ADR-005 + Outcome gate as PASS 0 and the live path, immediately before the broadcast. A transaction the network
+// already has (ALREADY_BROADCAST) never reaches the callback: chain truth is converged, never reverted or erased.
+// `refused` tells the caller the gate refused, as opposed to the chain or the node failing.
+function recoveryBroadcastGate(pending: Parameters<typeof authorizeDisputedPendingExecution>[0]) {
+  const gate = {
+    refused: undefined as unknown,
+    check: async () => {
+      try { await authorizeDisputedPendingExecution(pending) } catch (err) { gate.refused = err; throw err }
+    },
+  }
+  return gate
+}
+
 async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport): Promise<void> {
   const candidates = await prisma.escrowPendingTransaction.findMany({
     where: { escrow: { type: 'MULTISIG', status: { notIn: [...NON_TERMINAL_QUERY_STATUSES] } } },
@@ -348,6 +363,7 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
         buyerId: trade.buyerId, sellerId: trade.sellerId,
         buyerPubkey, sellerPubkey, arbiterPubkey,
         txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
+        id: escrow.id, multisigAddr: escrow.multisigAddr, fundedAmount: escrow.fundedAmount,
         status: escrow.status,
       }
 
@@ -524,13 +540,24 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
     buyerId: trade.buyerId, sellerId: trade.sellerId,
     buyerPubkey, sellerPubkey, arbiterPubkey,
     txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
+    id: escrow.id, multisigAddr: escrow.multisigAddr, fundedAmount: escrow.fundedAmount,
     status: escrow.status,
   }
 
+  const gate = recoveryBroadcastGate(pending)
   let result: Awaited<ReturnType<typeof multisigProvider.reconcilePendingSettlement>>
   try {
-    result = await multisigProvider.reconcilePendingSettlement(input, pending.unsignedPsbtBase64, signedList as string[])
+    result = await multisigProvider.reconcilePendingSettlement(input, pending.unsignedPsbtBase64, signedList as string[], gate.check)
   } catch (err) {
+    // GK-M9R-D R1 - the round is claimed but not on the network, and the gate refused it: nothing is sent. The claim,
+    // the round, its signatures and any earlier authorization stay as evidence (the claim is never reverted: an
+    // earlier broadcast may still surface); refused the same way every tick until the chain or a human decides.
+    if (gate.refused) {
+      const code = err instanceof DisputedTranslationRefused ? 'DISPUTED_TRANSLATION_REFUSED' : 'EXECUTION_GATE_REFUSED'
+      log.error({ msg: 'PASS 1: claimed MULTISIG round refused by the execution gate - not broadcast, manual review', escrowId: escrow.id, pendingTransactionId: pending.id, code, err: err instanceof Error ? err.message : String(err) })
+      report.requiresManualReview.push({ escrowId: escrow.id, reason: `${code}: escrow is ${escrow.status} with no txReleaseId, round ${pending.id} is not on the network and was not broadcast. ${err instanceof Error ? err.message : String(err)}` })
+      return
+    }
     // Issue #299 (CTO D3) - no automatic convergence from here: the node rejected the round's transaction (still
     // UNKNOWN - another node may have it) or the round cannot be built. Structured manual review (code, txid, round),
     // never a rollback or a new disposition; the claim stays and the same transaction is re-sent next tick.
@@ -916,7 +943,7 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
   if (escrow.type === 'MULTISIG' && escrow.txReleaseId) {
     const pendingForCorrespondence = await prisma.escrowPendingTransaction.findUnique({
       where: { escrowId: escrow.id },
-      select: { id: true, kind: true, feeCollectionSats: true, feeCollectionWaived: true, unsignedPsbtBase64: true, requiredSigners: true, signatures: true },
+      include: { signatures: true }, // the full row: the recovery broadcast gate below reads its ruling facts
     })
     let rawTxHex: string | undefined
     let reconstructionFailed = false
@@ -925,6 +952,7 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
         (id: string) => pendingForCorrespondence.signatures.find((s: { participantId: string; signedPsbtBase64: string }) => s.participantId === id)?.signedPsbtBase64
       )
       if (signedList.every((s: string | undefined): s is string => s !== undefined)) {
+        const catchUpGate = recoveryBroadcastGate(pendingForCorrespondence)
         try {
           const trade = await tradeRepository.findById(escrow.tradeId)
           if (trade) {
@@ -935,14 +963,31 @@ async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<Ret
                 buyerId: trade.buyerId, sellerId: trade.sellerId,
                 buyerPubkey, sellerPubkey, arbiterPubkey,
                 txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
+                id: escrow.id, multisigAddr: escrow.multisigAddr, fundedAmount: escrow.fundedAmount,
                 status: escrow.status,
               },
-              pendingForCorrespondence.unsignedPsbtBase64, signedList
+              pendingForCorrespondence.unsignedPsbtBase64, signedList,
+              catchUpGate.check
             )
+            if (reconciled.outcome === 'ANOMALY' && reconciled.code === 'ROUND_INPUT_MISMATCH') {
+              // CTO 25 funding binding - the persisted round does not spend this escrow's recorded funding: no
+              // correspondence, fee recording or completion effects from it, and the round and signatures stay as evidence.
+              log.error({ msg: 'Completion-effects catch-up: persisted round does not bind to the recorded funding - manual review, nothing recorded', escrowId: escrow.id, detail: reconciled.detail })
+              report.requiresManualReview.push({ escrowId: escrow.id, reason: reconciled.detail })
+              return
+            }
             if (reconciled.outcome !== 'ANOMALY') rawTxHex = reconciled.rawTxHex
           }
         } catch (err) {
           reconstructionFailed = true
+          if (catchUpGate.refused) {
+            // GK-M9R-D R1 - the recorded transaction is not on the network and the round may not be sent: nothing here
+            // completes it. No correspondence, no completion effects, no deletion: the round stays as evidence and
+            // every tick refuses it again, until the chain or a human decides.
+            log.error({ msg: 'PASS 2: recorded MULTISIG result not on the network and its round refused by the execution gate - not re-broadcast, manual review', escrowId: escrow.id, pendingTransactionId: pendingForCorrespondence.id, err: err instanceof Error ? err.message : String(err) })
+            report.requiresManualReview.push({ escrowId: escrow.id, reason: `${err instanceof DisputedTranslationRefused ? 'DISPUTED_TRANSLATION_REFUSED' : 'EXECUTION_GATE_REFUSED'}: escrow is ${escrow.status} with txReleaseId ${escrow.txReleaseId}, but that transaction is not on the network and the round was not re-broadcast. ${err instanceof Error ? err.message : String(err)}` })
+            return
+          }
           log.error({ msg: 'M9: exact reconstruction for correspondence catch-up failed — proceeding without it', escrowId: escrow.id, err: err instanceof Error ? err.message : String(err) })
         }
       }

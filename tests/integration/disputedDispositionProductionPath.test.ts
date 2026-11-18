@@ -225,7 +225,9 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
     try {
       submit = escrowService.submitTransactionSignature(f.escrow.id, f.buyer.id, 'signed-bundle').catch((e: Error) => e)
       const end = Date.now() + 15_000
-      while ((await observer.query(`SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted`)).rowCount === 0) {
+      // Scoped to this database: an advisory waiter of another database on the same server (a parallel test run) must
+      // not end the wait before submitTransactionSignature() has loaded the row (the cause of the PE-M9R-R1 flake).
+      while ((await observer.query(`SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`)).rowCount === 0) {
         if (Date.now() > end) throw new Error('submitTransactionSignature never reached the economic-disposition lock')
         await new Promise((r) => setTimeout(r, 20))
       }
