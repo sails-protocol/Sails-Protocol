@@ -4,6 +4,9 @@ module.exports = {
   testEnvironment: 'node',
   testMatch: ['**/tests/**/*.test.ts'],
   clearMocks: true,
+  // CTO 429 experiment: an absent MULTISIG_EXPLORER_API_URL points at a closed loopback port (refused at once), never
+  // the public explorer. Explicit values are untouched. See tests/setup/closedExplorerDefault.ts.
+  setupFiles: ['<rootDir>/tests/setup/closedExplorerDefault.ts'],
   // `app.ts` now imports the root package.json (API_VERSION, see its own
   // comment) — tsc's resolveJsonModule copies that file into dist/ as a
   // build artifact, which then collides with the real root package.json
