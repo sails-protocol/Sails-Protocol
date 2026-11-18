@@ -158,7 +158,9 @@ describe('Issue #253 - durable downstream projection completion (real PostgreSQL
     const transition = await prisma.escrowEvent.create({
       data: { escrowId: ctx.escrowId, fromStatus: 'FUNDS_LOCKED', toStatus: 'DISPUTED', triggeredBy: ctx.sellerId, entryHash: genesisEscrowHash('FUNDS_LOCKED', 'DISPUTED', ctx.sellerId), prevHash: 'genesis' },
     })
-    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId } })
+    // PASS 3 takes claims strictly older than Date.now() - graceMs (here 0); a claim written in the same ms is not
+    // eligible yet (#298: 2/30 local runs with appliedAt == cutoff). Back-date it, as eventProjectionClaims does.
+    await prisma.eventProjectionClaim.create({ data: { eventId: transition.id, projectionKey: 'transition.claimed', subjectId: ctx.escrowId, appliedAt: new Date(Date.now() - 1000) } })
     const eventId = randomUUID()
     await prisma.durableEventRecord.create({
       data: {
