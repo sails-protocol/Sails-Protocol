@@ -584,19 +584,10 @@ export const config = {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
-    // RFC-021 Phase 0 — real Protocol Fee rate (PROTOCOL_ECONOMY.md §3/§6.2:
-    // "Protocol Fee is OFF (0%)" is the documented bootstrap-phase default,
-    // activating later "at a default of 0.40%" (revised 2026-08-11 from
-    // the original 0.05%-0.15% planning range — see PROTOCOL_ECONOMY.md
-    // §3/§6.2 for the competitive reasoning). Default 0 here matches the
-    // bootstrap phase exactly — a deployment opts in by setting a real
-    // rate, e.g. PROTOCOL_FEE_RATE=0.004 for 0.40%. escrow.service.ts's
-    // releaseFunds() is the only place this is read.
-    protocolFeeRate: parseFloat(process.env.PROTOCOL_FEE_RATE ?? '0'),
     // Missão 11 Fase 4 — a plain destination address for the NEW,
     // policy-versioned Protocol Fee collection mechanism (FeePolicyVersion/
-    // FeeObligation) — completely unrelated to protocolFeeRate above (the
-    // OLD, still-untouched RFC-021 Phase 0 accounting-only mechanism).
+    // FeeObligation). The rate lives in FeePolicyVersion, not here: the old
+    // PROTOCOL_FEE_RATE env var (RFC-021 Phase 0) had no reader after Missão 11 Fase 6.5.2 and was removed.
     // Deliberately just an address string, never a seed/private key —
     // same "empty by default, surface a clear config error rather than
     // refuse to boot" pattern MULTISIG_SEED/WDK_SEED_PHRASE already use.

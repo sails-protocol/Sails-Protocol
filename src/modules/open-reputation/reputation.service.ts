@@ -176,9 +176,9 @@ export class ReputationService {
       // RFC-021 D4 — real, not fabricated (unlike the three above): the
       // cost-to-fabricate-reputation floor. common/events/handlers.ts's
       // settlement.escrow.released handler is the only writer. Stays
-      // '0' for every participant while config.settlement.protocolFeeRate
-      // is 0 (the bootstrap-phase default) — that's the honest number,
-      // not a bug.
+      // '0' for every participant while Escrow.feeCharged is null (always,
+      // since Missão 11 Fase 6.5.2 retired the legacy fee) — that's the
+      // honest number, not a bug.
       cumulativeFeesObserved: String(user.cumulativeFeesObserved),
     }
   }

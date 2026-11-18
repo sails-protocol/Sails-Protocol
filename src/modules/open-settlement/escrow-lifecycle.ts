@@ -624,8 +624,8 @@ export async function verifyEscrowEventChain(escrowId: string): Promise<EscrowCh
 // normative source of a future economic entitlement (see
 // entitlement-allocation.service.ts). It had exactly one caller
 // (escrow.service.ts's releaseFunds()) and was already permanently inert
-// in every environment this repository evidences — PROTOCOL_FEE_RATE has
-// never been set above 0. Removed rather than left as unreachable dead
+// in every environment this repository evidences — the (since removed)
+// PROTOCOL_FEE_RATE was never set above 0. Removed rather than left as unreachable dead
 // code (CODE_STYLE.md's "no commented-out/dead code" discipline) once
 // Fase 6.5.1's audit confirmed zero other production call sites existed
 // anywhere in the repository. Historical `fee_distributions` rows are

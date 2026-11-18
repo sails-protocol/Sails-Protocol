@@ -820,7 +820,7 @@ export class EscrowService {
       // Escrow.feeCharged is retained as a schema column (historical rows
       // remain readable) but is never set again by this path — always
       // null going forward, exactly as it already was in every real
-      // environment (PROTOCOL_FEE_RATE has never been set above 0).
+      // environment (the since-removed PROTOCOL_FEE_RATE was never set above 0).
       const feeCharged = null
 
       const updated = await this.repo.updateReleaseResult(escrowId, {

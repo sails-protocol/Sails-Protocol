@@ -47,11 +47,6 @@ jest.mock('../src/config', () => ({
   config: {
     features: { mockEscrow: true, enforceCapabilities: false, requireDualApprovalForRelease: false },
     trade: { defaultTimelockHours: 24 },
-    // RFC-021 Phase 0 — releaseFunds() now always reads
-    // config.settlement.protocolFeeRate; 0 matches the documented
-    // bootstrap default and keeps this race-condition test focused on
-    // its own concern (the atomic-claim guarantee), not fee math.
-    settlement: { protocolFeeRate: 0 },
     // 2026-08-15 — escrow-circuit-breaker.ts (claimEscrowTransition()'s
     // new first line) needs this. High threshold so it never interferes
     // with what this file actually tests (the atomic-claim guarantee

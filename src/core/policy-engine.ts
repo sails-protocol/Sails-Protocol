@@ -8,17 +8,13 @@
  * unimplemented — real scope, correctly out of the current MVP per this
  * file's own original reasoning below.
  *
- * RFC-021 Phase 0 (`docs/rfcs/RFC-021-...md`) added the actual fee
- * *collection* this comment used to say didn't exist: a real
- * `config.settlement.protocolFeeRate` read directly by
- * `escrow.service.ts`'s `releaseFunds()`, using PROTOCOL_ECONOMY.md
- * §6.2's already-decided 40/30/20/10 split — deliberately bypassing
- * this file's governed-policy indirection, the same way
- * `validateFinancialSanity()` below already bypasses it for its own
- * real, working check. A single hardcoded rate is not a governed,
- * versioned `FeePolicy` — this file's `get`/`propose`/`activate` still
- * throw, correctly, until that bigger governance feature is actually
- * built.
+ * RFC-021 Phase 0 (`docs/rfcs/RFC-021-...md`) once read a hardcoded
+ * `config.settlement.protocolFeeRate` in `releaseFunds()`; that mechanism
+ * was retired in Missão 11 Fase 6.5.2 and the config value removed. Fee
+ * rates now live in the versioned `FeePolicyVersion` foundation
+ * (`fee-policy.service.ts`), not here — this file's `get`/`propose`/
+ * `activate` still throw, correctly, until the broader governance
+ * feature is actually built.
  */
 export interface FeePolicy {
   feeRate: number
