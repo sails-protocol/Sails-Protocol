@@ -457,6 +457,39 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
   })
 
+  describe('QVAC auto-resolution numeric knobs (#330 — fail-closed, strict parse)', () => {
+    const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
+    const T = 'QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD'
+    const W = 'QVAC_AUTO_RESOLUTION_WINDOW_HOURS'
+
+    it.each(['0,85', 'abc', '-1', '1.5', '', ' ', 'Infinity', 'NaN', '0.85abc', '1e0'])('refuses threshold %p', (v) => {
+      expect(loadConfig({ ...dev, [T]: v })).toThrow(new RegExp(T))
+    })
+
+    it.each(['0', 'NaN', 'Infinity', '-5', '721', '0,5', 'abc', ''])('refuses window %p', (v) => {
+      expect(loadConfig({ ...dev, [W]: v })).toThrow(new RegExp(W))
+    })
+
+    it('also refuses invalid values in production', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, [T]: '0,85' })).toThrow(new RegExp(T))
+    })
+
+    it('accepts valid values and the defaults; auto-resolution stays OFF by default', () => {
+      const d = loadConfig({ ...dev })().settlement
+      expect(d.qvacAutoResolutionEnabled).toBe(false)
+      expect(d.qvacAutoResolutionConfidenceThreshold).toBe(0.85)
+      expect(d.qvacAutoResolutionWindowHours).toBe(24)
+      jest.resetModules()
+      const v = loadConfig({ ...dev, [T]: '1', [W]: '720' })().settlement
+      expect(v.qvacAutoResolutionConfidenceThreshold).toBe(1)
+      expect(v.qvacAutoResolutionWindowHours).toBe(720)
+      jest.resetModules()
+      const lo = loadConfig({ ...dev, [T]: '0', [W]: '0.5' })().settlement
+      expect(lo.qvacAutoResolutionConfidenceThreshold).toBe(0)
+      expect(lo.qvacAutoResolutionWindowHours).toBe(0.5)
+    })
+  })
+
   describe('a fully correct production configuration boots cleanly', () => {
     it('every gate satisfied at once — no throw, all values reflect what was set', () => {
       const load = loadConfig(REQUIRED_PROD_ENV)
