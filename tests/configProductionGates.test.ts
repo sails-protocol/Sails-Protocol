@@ -466,9 +466,9 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
 
     it('accepts a positive integer and defaults to 300000', () => {
-      expect(loadConfig({ ...dev, [K]: '1000' })().settlement.disputeAutoResolutionSweepIntervalMs).toBe(1000)
+      expect(loadConfig({ ...dev, [K]: '1000' })().trade.disputeAutoResolutionSweepIntervalMs).toBe(1000)
       jest.resetModules()
-      expect(loadConfig({ ...dev })().settlement.disputeAutoResolutionSweepIntervalMs).toBe(300000)
+      expect(loadConfig({ ...dev, [K]: undefined })().trade.disputeAutoResolutionSweepIntervalMs).toBe(300000)
     })
 
     it('.env.example and the config no longer claim that QVAC applies the recommendation', () => {
