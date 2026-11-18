@@ -457,6 +457,30 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
   })
 
+  describe('DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS (#311 item 3 — positive integer)', () => {
+    const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
+    const K = 'DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS'
+
+    it.each(['0', '-1', 'abc', ''])('refuses %p', (v) => {
+      expect(loadConfig({ ...dev, [K]: v })).toThrow(new RegExp(K))
+    })
+
+    it('accepts a positive integer and defaults to 300000', () => {
+      expect(loadConfig({ ...dev, [K]: '1000' })().settlement.disputeAutoResolutionSweepIntervalMs).toBe(1000)
+      jest.resetModules()
+      expect(loadConfig({ ...dev })().settlement.disputeAutoResolutionSweepIntervalMs).toBe(300000)
+    })
+
+    it('.env.example and the config no longer claim that QVAC applies the recommendation', () => {
+      const fs = require('fs')
+      const text = ['.env.example', 'src/config/index.ts'].map((f) => fs.readFileSync(require('path').join(__dirname, '..', f), 'utf8')).join(' ')
+      expect(text).not.toMatch(/Applies every AUTO_PROPOSED/)
+      expect(text).not.toMatch(/recommendation only applies once/)
+      expect(text).not.toMatch(/sweepExpiredAutoResolutions\(\) applies it/)
+      expect(text).toMatch(/advisory-only/)
+    })
+  })
+
   describe('QVAC auto-resolution numeric knobs (#330 — fail-closed, strict parse)', () => {
     const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
     const T = 'QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD'
