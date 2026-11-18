@@ -228,6 +228,8 @@ export type {
   Dispute,
   Message,
   PaginatedMessages,
+  ReconciledMessage,
+  ReconciliationResult,
   ReputationScore,
   LeaderboardEntry,
   LeaderboardResult,
