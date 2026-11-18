@@ -504,8 +504,8 @@ export const config = {
     // FUNDS_LOCKED escrows. 5 minutes by default — frequent enough that
     // a real abandoned trade doesn't sit stuck for hours, infrequent
     // enough that it's not a meaningful query load on its own.
-    timelockSweepIntervalMs: requiredInt('ESCROW_TIMELOCK_SWEEP_INTERVAL_MS', 300000),
-    settlementReconcileIntervalMs: requiredInt('ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS', 60000),
+    timelockSweepIntervalMs: requiredStrictPositiveInt('ESCROW_TIMELOCK_SWEEP_INTERVAL_MS', 300000),
+    settlementReconcileIntervalMs: requiredStrictPositiveInt('ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS', 60000),
     // How often the RFC-021 D8 sweeper (when enabled) checks for
     // AUTO_PROPOSED disputes past their contest deadline. Same 5-minute
     // default as the escrow sweeper above, same reasoning.
@@ -515,10 +515,10 @@ export const config = {
     // 5-minute default as the other two sweepers — confirmation depth
     // itself is a per-policy decision (FeePolicyVersion.requiredConfirmations),
     // this is only how often the job bothers to look.
-    multisigFeeConfirmationSweepIntervalMs: requiredInt('MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS', 300000),
+    multisigFeeConfirmationSweepIntervalMs: requiredStrictPositiveInt('MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS', 300000),
     // How often the Fase 8.1 reorg sweeper (when enabled) re-checks
     // recently-collected MULTISIG fee obligations. Same 5-minute default.
-    multisigFeeReorgSweepIntervalMs: requiredInt('MULTISIG_FEE_REORG_SWEEP_INTERVAL_MS', 300000),
+    multisigFeeReorgSweepIntervalMs: requiredStrictPositiveInt('MULTISIG_FEE_REORG_SWEEP_INTERVAL_MS', 300000),
     // Missão 11 Fase 8.1 LB-08 — once a COLLECTED/DISTRIBUTED obligation's
     // confirming block is this many blocks deep, the reorg sweeper stops
     // re-checking it — a reorg past this depth is not a real operational
@@ -529,12 +529,12 @@ export const config = {
     multisigReorgSafetyWindowBlocks: requiredInt('MULTISIG_REORG_SAFETY_WINDOW_BLOCKS', 100),
     // How often the Fase 8.1(A) funding-reorg sweeper (when enabled)
     // re-checks FUNDS_LOCKED MULTISIG escrows. Same 5-minute default.
-    multisigFundingReorgSweepIntervalMs: requiredInt('MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS', 300000),
+    multisigFundingReorgSweepIntervalMs: requiredStrictPositiveInt('MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS', 300000),
     // Sails Core Implementation Program M9-F — how often the release-leg
     // reorg sweeper (when enabled) re-checks terminal MULTISIG escrows'
     // main payout. Same 5-minute default as every other sweeper here.
     // Reuses multisigReorgSafetyWindowBlocks above for its own depth cutoff.
-    multisigReleaseReorgSweepIntervalMs: requiredInt('MULTISIG_RELEASE_REORG_SWEEP_INTERVAL_MS', 300000),
+    multisigReleaseReorgSweepIntervalMs: requiredStrictPositiveInt('MULTISIG_RELEASE_REORG_SWEEP_INTERVAL_MS', 300000),
   },
 
   // Sails OpenProof (proof.service.ts) — Fase 1 Task 3(c). Evidence
@@ -732,7 +732,7 @@ export const config = {
     // fail within this ceiling; whether a given call may then be safely
     // retried is decided per-call-site in multisig.provider.ts, never
     // here (a read may retry, a broadcast never does).
-    explorerRequestTimeoutMs: requiredPositiveInt('MULTISIG_EXPLORER_TIMEOUT_MS', 8000),
+    explorerRequestTimeoutMs: requiredStrictPositiveInt('MULTISIG_EXPLORER_TIMEOUT_MS', 8000),
   },
 
   // LIGHTNING_HODL SettlementProvider (lightning-hodl.provider.ts) — real
@@ -795,7 +795,7 @@ export const config = {
     // the RPC (ethers JsonRpcProvider reads) and the bundler (raw fetch
     // submission). Retry policy is decided per-call-site in
     // safe-guard-evm.provider.ts, never here.
-    rpcRequestTimeoutMs: requiredPositiveInt('SAFE_GUARD_EVM_RPC_TIMEOUT_MS', 8000),
+    rpcRequestTimeoutMs: requiredStrictPositiveInt('SAFE_GUARD_EVM_RPC_TIMEOUT_MS', 8000),
   },
 }
 

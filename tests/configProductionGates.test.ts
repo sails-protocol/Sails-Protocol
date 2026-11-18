@@ -487,6 +487,56 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
   })
 
+  // CTO 420 phase 2 - class A (direct timers): the six sweep/reconcile intervals feed setInterval in app.ts and the two request timeouts feed
+  // setTimeout(abort) in bounded-rpc.ts. Node turns a delay of 0, a negative one or one above 2147483647 into ~1 ms, so an interval fires in a
+  // tight loop and a timeout aborts every call at once. requiredStrictPositiveInt() (#688) refuses all of that at boot. Defaults are unchanged.
+  describe('class A timer variables (CTO 420 phase 2) - strict positive integer <= 2147483647', () => {
+    const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
+    const TIMERS: Array<[string, string, string, number]> = [
+      ['ESCROW_TIMELOCK_SWEEP_INTERVAL_MS', 'trade', 'timelockSweepIntervalMs', 300000],
+      ['ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS', 'trade', 'settlementReconcileIntervalMs', 60000],
+      ['MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS', 'trade', 'multisigFeeConfirmationSweepIntervalMs', 300000],
+      ['MULTISIG_FEE_REORG_SWEEP_INTERVAL_MS', 'trade', 'multisigFeeReorgSweepIntervalMs', 300000],
+      ['MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS', 'trade', 'multisigFundingReorgSweepIntervalMs', 300000],
+      ['MULTISIG_RELEASE_REORG_SWEEP_INTERVAL_MS', 'trade', 'multisigReleaseReorgSweepIntervalMs', 300000],
+      ['MULTISIG_EXPLORER_TIMEOUT_MS', 'multisig', 'explorerRequestTimeoutMs', 8000],
+      ['SAFE_GUARD_EVM_RPC_TIMEOUT_MS', 'safeGuardEvm', 'rpcRequestTimeoutMs', 8000],
+    ]
+    const BAD = ['0', '-1', '-5000', '1.5', '100abc', '1e3', '0x10', '007', ' 5', '5 ', '+5', '', 'abc', '2147483648', '3000000000', '99999999999999999999']
+    const read = (env: string, group: string, key: string, value: string | undefined) => {
+      jest.resetModules()
+      return loadConfig({ ...dev, [env]: value })()[group][key]
+    }
+
+    describe.each(TIMERS)('%s', (env, group, key, dflt) => {
+      it.each(BAD)('refuses %p at boot', (v) => {
+        jest.resetModules()
+        expect(loadConfig({ ...dev, [env]: v })).toThrow(new RegExp(env))
+      })
+
+      it('refuses the same values in production', () => {
+        jest.resetModules()
+        expect(loadConfig({ ...REQUIRED_PROD_ENV, [env]: '2147483648' })).toThrow(new RegExp(env))
+        jest.resetModules()
+        expect(loadConfig({ ...REQUIRED_PROD_ENV, [env]: '1.5' })).toThrow(new RegExp(env))
+      })
+
+      it('accepts the borders 1 and 2147483647, an ordinary value, and keeps its default', () => {
+        expect(read(env, group, key, '1')).toBe(1)
+        expect(read(env, group, key, '2147483647')).toBe(2147483647)
+        expect(read(env, group, key, '1000')).toBe(1000)
+        expect(read(env, group, key, undefined)).toBe(dflt)
+      })
+    })
+
+    it('the two request timeouts refuse 2147483648 at boot instead of letting every explorer / RPC call abort immediately', () => {
+      for (const env of ['MULTISIG_EXPLORER_TIMEOUT_MS', 'SAFE_GUARD_EVM_RPC_TIMEOUT_MS']) {
+        jest.resetModules()
+        expect(loadConfig({ ...dev, [env]: '2147483648' })).toThrow(new RegExp(`${env} must be a strictly positive integer`))
+      }
+    })
+  })
+
   describe('QVAC auto-resolution numeric knobs (#330 — fail-closed, strict parse)', () => {
     const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
     const T = 'QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD'
