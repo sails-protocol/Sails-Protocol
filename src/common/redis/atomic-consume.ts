@@ -40,7 +40,7 @@ import { redis } from './index'
 // is enforced by the Redis server itself, not by anything in this
 // process's own memory.
 
-const ATOMIC_CONSUME_SCRIPT = `
+export const ATOMIC_CONSUME_SCRIPT = `
 local v = redis.call('GET', KEYS[1])
 if v then
   redis.call('DEL', KEYS[1])

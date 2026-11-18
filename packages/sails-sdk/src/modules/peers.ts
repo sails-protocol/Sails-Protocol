@@ -38,6 +38,19 @@ export class SailsPeersModule {
     return this.transport.post<{ peerId: string }>('/v1/peers/start', undefined, true)
   }
 
+  /**
+   * Open the server's blind WebSocket relay with a freshly minted, single-use
+   * ticket. The caller owns the socket and its message protocol. Every
+   * reconnect must call this method again; a consumed ticket cannot be reused.
+   * This does not provide Pears topic discovery or DHT broadcast semantics.
+   */
+  async connectRelay(): Promise<WebSocket> {
+    const { ticket } = await this.transport.post<{ ticket: string; expiresIn: number }>(
+      '/v1/identity/ws-ticket', {}, true,
+    )
+    return this.transport.openWebSocket('/ws/relay', { ticket })
+  }
+
   /** Requires an active session. */
   async stop(): Promise<void> {
     await this.transport.post('/v1/peers/stop', undefined, true)
