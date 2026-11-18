@@ -461,7 +461,7 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
     const K = 'DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS'
 
-    it.each(['1.5', '100abc', '0', '-1', 'abc', '', ' 5', '5 ', '+5', '1e3', '0x10', '9007199254740993'])('refuses %p', (v) => {
+    it.each(['1.5', '100abc', '0', '-1', 'abc', '', ' 5', '5 ', '+5', '1e3', '0x10', '007', ' 300', '300 ', '9007199254740993', '99999999999999999999'])('refuses %p', (v) => {
       expect(loadConfig({ ...dev, [K]: v })).toThrow(new RegExp(K))
     })
 
