@@ -5971,7 +5971,7 @@ A future Sails-operated OpenTimestamps-compatible aggregator/calendar is OPTIONA
 
 ---
 
-## Institutional status after the #678–#687 integration run (2026-11-18)
+## Institutional status after the #678–#688 integration run (2026-11-18)
 
 **Status: CURRENT — DOCUMENTARY RECONCILIATION. It records facts already decided elsewhere (CTO 397–418); it is not a homologation, a migration or an economic activation, and it changes no criterion.** The authoritative records of Day-0 homologation remain Issue #105 and the live GitHub Project; if this entry conflicts with them, they govern. Each statement below is marked **in force**, **superseded** or **pending**.
 
@@ -5986,6 +5986,8 @@ A future Sails-operated OpenTimestamps-compatible aggregator/calendar is OPTIONA
 | #684 | `concurrency` in the three pull-request workflows (cancels obsolete runs of the same PR only) | `e686465c` | R3 (workflow) | CI, CI Tests, CodeQL succeeded |
 | #681 | Fail-closed strict parse of the QVAC confidence threshold and contest window (#330/#311) | `18418876` | R3 | CI, CI Tests, CodeQL succeeded |
 | #687 | `FeePolicyVersion` rate validation in `createDraft()` and `publish()` (finite, non-negative, at most 8 decimals, no rounding) | `29e4ef5a` | R3 | CI, CI Tests, CodeQL succeeded |
+| #686 | Remove the inert `PROTOCOL_FEE_RATE` setting and correct its documentation (the effective fee stays `FeePolicyVersion`) | `f24e65b5` | R3 | CI, CI Tests, CodeQL succeeded |
+| #688 | Strict positive-integer validation (capped at the Node timer limit 2147483647) of `DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS`, and stale QVAC comments corrected (items 3 and 5 of #311) | `8e8fc997` | R3 | not verified when this entry was written |
 
 Every merge was individually authorized by the CTO for one exact head, after an independent Gatekeeper opinion for that SHA. The Gatekeeper's opinions are technical; they are not homologation.
 
@@ -5999,11 +6001,11 @@ Every merge was individually authorized by the CTO for one exact head, after an 
 ### Superseded
 
 - **PR #325** (bind the SAFE bundler result to `bundle.userOpHash`) is closed as superseded by #683, which recomputes the hash from the submitted UserOperation. The branch is preserved. Issue #258 stays open in Validation.
-- **PR #330** is **not** closed: it still carries two items of Issue #311 that #681 does not cover (a positive-integer validation of `DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS`, and the stale comments in `.env.example` and `src/config/index.ts` that say the contest-window expiry applies the QVAC recommendation, while `sweepExpiredAutoResolutions()` actually returns the dispute to human review). The isolated pull request #688 (head `f24d9b47`) carries those two items; #330 is closed only after #688 is merged. Issue #311 stays blocked with partial coverage.
+- **PR #330** (fail-closed QVAC configuration, Issue #311) is closed as covered by #681 (the strict parse of the threshold and window) and #688 (the sweeper interval validation and the corrected stale comments). The branch is preserved. Issue #311 stays open in Validation; the closure is not a homologation.
 
 ### Pending (open, none authorized to merge here)
 
-- **#686** (remove the dead `PROTOCOL_FEE_RATE` setting and correct its documentation; the effective fee remains `FeePolicyVersion`): technical opinion GO R3 FINAL at head `229f0357`; it is behind `main` and is the next in the queue.
+- **Time-valued configuration (CTO 420/421):** two separate R3 pull requests are being prepared and none is integrated. Class A: 8 variables that feed Node timers (6 intervals and 2 timeouts) move to the strict, capped helper. Class B: 11 security windows whose zero, negative or malformed value was shown to fail open (circuit breaker, WebSocket, suspicious-activity detection, and the Redis auth/critical rate-limit windows) move to a strict, uncapped helper; authentication and proof TTLs, `DEFAULT_TIMELOCK_HOURS` and business limits are not touched. Removal of unused text-valued settings needs a proof of no consumers and is a separate task.
 - **#682** (type `reconcileTrade()` as the object the route returns): technical content opinion GO; behind `main`; Draft.
 - **#685** (`rebase-strategy: disabled` in `.github/dependabot.yml`): technical opinion GO R3 FINAL at head `6fc3cf3c`; behind `main`; Draft. Its effect on the Actions queue and on the number of pull requests behind `main` must be measured after integration, not assumed.
 
