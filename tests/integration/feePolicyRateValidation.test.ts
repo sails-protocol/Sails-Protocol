@@ -5,6 +5,7 @@
 // the two things only a real database can: what the DECIMAL(24,8) column does on its own (why the
 // check is needed) and that createDraft()/publish() hold on that path.
 
+import { randomUUID } from 'crypto'
 import type { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 
@@ -42,10 +43,18 @@ describe('FeePolicyVersion protocolFeeRate validation (CTO 413, real Postgres)',
     if (pg.isAvailable()) await prisma.$disconnect()
   })
 
-  it('the column alone (repository write, no service check) stores NaN, rounds a 9th decimal and refuses Infinity', async () => {
+  // Raw SQL (an old row, a manual fix): the one path that skips both the service and Prisma's own Decimal check.
+  async function insertRawNaNDraft(tag: string): Promise<string> {
+    const id = randomUUID()
+    await prisma.$executeRaw`INSERT INTO fee_policy_versions (id, label, "railScope", status, "protocolFeeRate", "payerModel", "economicBasis", "requiredConfirmations", "createdBy")
+      VALUES (${id}, ${`cto413-${tag}-${run}`}, ${`CTO413_RAIL_${tag}-${run}`}, 'DRAFT', 'NaN', 'SELLER_PAYS', 'SELLER_DELIVERED_VALUE', 2, 'cto413-fixture')`
+    return id
+  }
+
+  it('without the service check: Prisma itself refuses NaN, the column rounds a 9th decimal and refuses Infinity', async () => {
     pg.requirePostgres('CTO 413 column characterization')
-    await repo.create(input('nan', 'NaN')).catch(() => undefined) // reading NaN back may fail; the stored text is what counts
-    expect(await storedRate(`cto413-nan-${run}`)).toEqual(['NaN'])
+    await expect(repo.create(input('nan', 'NaN'))).rejects.toThrow(/Expected decimal/)
+    expect(await storedRate(`cto413-nan-${run}`)).toEqual([])
 
     await repo.create(input('round', '0.004000009'))
     expect(await storedRate(`cto413-round-${run}`)).toEqual(['0.00400001'])
@@ -65,12 +74,14 @@ describe('FeePolicyVersion protocolFeeRate validation (CTO 413, real Postgres)',
     expect(await storedRate(`cto413-${tag}-${run}`)).toEqual([])
   })
 
-  it('publish refuses a NaN draft that reached the table by another path', async () => {
+  it('raw SQL still lands NaN in the column, and publish refuses that draft (it stays DRAFT)', async () => {
     pg.requirePostgres('CTO 413 publish NaN')
-    await repo.create(input('nan-pub', 'NaN')).catch(() => undefined)
-    const [row] = await prisma.$queryRaw<Array<{ id: string }>>`SELECT id FROM fee_policy_versions WHERE label = ${`cto413-nan-pub-${run}`}`
-    await expect(service.publish(row.id)).rejects.toThrow(/finite/)
-    const [after] = await prisma.$queryRaw<Array<{ status: string }>>`SELECT status::text AS status FROM fee_policy_versions WHERE id = ${row.id}`
+    const id = await insertRawNaNDraft('nan-pub')
+    expect(await storedRate(`cto413-nan-pub-${run}`)).toEqual(['NaN'])
+    // Refused either by this check or, if the adapter cannot read NaN back, by findById itself: fail-closed both ways.
+    const err: Error = await service.publish(id).then(() => { throw new Error('publish accepted a NaN rate') }, (e) => e)
+    console.log(`CTO 413: publish of a raw-SQL NaN draft refused with: ${err.message}`)
+    const [after] = await prisma.$queryRaw<Array<{ status: string }>>`SELECT status::text AS status FROM fee_policy_versions WHERE id = ${id}`
     expect(after.status).toBe('DRAFT')
   })
 
