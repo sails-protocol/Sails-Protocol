@@ -29,7 +29,6 @@ export {} // see chatUnification.test.ts's identical comment
 let enforceCapabilities = false
 let requireDualApprovalForRelease = false
 let mockEscrowFeatureFlag = true
-let protocolFeeRate = 0 // RFC-021 Phase 0 — real Protocol Fee, 0 = documented bootstrap default
 jest.mock('../src/config', () => ({
   get config() {
     return {
@@ -41,7 +40,7 @@ jest.mock('../src/config', () => ({
       // pubkey" error, same "reliable provider failure" fixture role
       // LIGHTNING_HODL always played here even back when it was a
       // permanent throw-only stub.
-      settlement: { trustedArbitrators: [], protocolFeeRate },
+      settlement: { trustedArbitrators: [] },
       arkade: { seed: '' },
       // 2026-08-15 — escrow-circuit-breaker.ts (claimEscrowTransition()'s
       // new first line) needs this. Threshold high enough that this
@@ -245,32 +244,20 @@ describe('escrowService.releaseFunds — RFC-021 Phase 0 legacy Protocol Fee (Me
   // exercised a function that no longer exists) with a regression proof
   // that release/refund/split behave exactly as before the retirement —
   // Escrow.feeCharged is always null now, and the legacy FeeDistribution
-  // write path is never reached, regardless of config.settlement.
-  // protocolFeeRate (which itself is untouched, still defaults to 0, and
-  // is simply no longer read by this path).
+  // write path is never reached (config.settlement.protocolFeeRate, which
+  // this path stopped reading, was removed 2026-11-17).
   beforeEach(() => {
     jest.clearAllMocks()
     enforceCapabilities = false
     requireDualApprovalForRelease = false
     mockEscrowFeatureFlag = true
-    protocolFeeRate = 0
     mockEscrowFindUnique.mockResolvedValue(baseEscrow)
     mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'COMPLETED', txReleaseId: 'tx-1' })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
   })
 
-  it('releaseFunds() never invokes the legacy FeeDistribution write path, regardless of protocolFeeRate', async () => {
+  it('releaseFunds() never invokes the legacy FeeDistribution write path', async () => {
     await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
-    expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
-    expect(mockEscrowUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ feeCharged: null }) })
-    )
-  })
-
-  it('a nonzero protocolFeeRate no longer has any effect on release — the legacy reader of that config value is gone', async () => {
-    protocolFeeRate = 0.004 // would have triggered the old 35/30/25/10 split before Fase 6.5.2
-    await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
-
     expect(mockFeeDistributionCreate).not.toHaveBeenCalled()
     expect(mockEscrowUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ feeCharged: null }) })
@@ -278,7 +265,6 @@ describe('escrowService.releaseFunds — RFC-021 Phase 0 legacy Protocol Fee (Me
   })
 
   it('a policy-aware escrow (feePolicyVersionId set) behaves identically — still no legacy FeeDistribution row, ever', async () => {
-    protocolFeeRate = 0.004
     mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, feePolicyVersionId: 'policy-1', snapshotProtocolFeeRate: '0.004' })
     await escrowService.releaseFunds('escrow-1', '0xbuyer', 'seller-1')
 
@@ -289,7 +275,6 @@ describe('escrowService.releaseFunds — RFC-021 Phase 0 legacy Protocol Fee (Me
   })
 
   it('refundFunds() never touches the legacy FeeDistribution write path — unchanged from before the retirement', async () => {
-    protocolFeeRate = 0.001
     mockEscrowFindUnique.mockResolvedValue({ ...baseEscrow, status: 'FUNDS_LOCKED' })
     mockEscrowUpdate.mockResolvedValue({ ...baseEscrow, status: 'REFUNDED' })
     await escrowService.refundFunds('escrow-1', 'seller-1')

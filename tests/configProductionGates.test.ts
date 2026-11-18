@@ -573,6 +573,48 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
   })
 
+  // CTO 421 (Classe B) — each of these, with 0 / a negative / a fraction / a unit suffix, silently disabled its
+  // protection (measured: breaker never opens, WS lets 1000/1000 through, suspicious-activity detects nothing,
+  // Redis PEXPIRE <= 0 deletes the rate-limit key). Strict positive integer, no timer cap, defaults unchanged.
+  describe('security windows and thresholds (CTO 421 — strict positive integer, no cap)', () => {
+    const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
+    const cases: Array<[string, (c: any) => number, number]> = [
+      ['RATE_LIMIT_AUTH_WINDOW_MS', (c) => c.rateLimit.authWindowMs, 60000],
+      ['RATE_LIMIT_CRITICAL_WINDOW_MS', (c) => c.rateLimit.criticalWindowMs, 60000],
+      ['RATE_LIMIT_WS_MESSAGE_WINDOW_MS', (c) => c.rateLimit.wsMessageWindowMs, 10000],
+      ['SUSPICIOUS_AUTH_FAILURE_MAX', (c) => c.suspiciousActivity.authFailureMax, 8],
+      ['SUSPICIOUS_AUTH_FAILURE_WINDOW_MS', (c) => c.suspiciousActivity.authFailureWindowMs, 300000],
+      ['SUSPICIOUS_NOT_FOUND_MAX', (c) => c.suspiciousActivity.notFoundClusterMax, 15],
+      ['SUSPICIOUS_NOT_FOUND_WINDOW_MS', (c) => c.suspiciousActivity.notFoundClusterWindowMs, 300000],
+      ['SUSPICIOUS_RATE_LIMITED_MAX', (c) => c.suspiciousActivity.rateLimitedMax, 3],
+      ['SUSPICIOUS_RATE_LIMITED_WINDOW_MS', (c) => c.suspiciousActivity.rateLimitedWindowMs, 300000],
+      ['ESCROW_BREAKER_WINDOW_MS', (c) => c.escrowCircuitBreaker.windowMs, 30000],
+      ['ESCROW_BREAKER_COOLDOWN_MS', (c) => c.escrowCircuitBreaker.cooldownMs, 120000],
+    ]
+    const refused = ['0', '-1', '-1000', '0.5', '1.5', '30s', '10000ms', '5m', '', ' ', 'abc', 'NaN', ' 5', '5 ', '+5', '1e3', '0x10', '007', '9007199254740993']
+
+    describe.each(cases)('%s', (K, read, fallback) => {
+      it.each(refused)('refuses %p at boot', (v) => {
+        expect(loadConfig({ ...dev, [K]: v })).toThrow(new RegExp(`${K} must be a strictly positive integer`))
+      })
+
+      it('accepts strict positive integers, with no timer cap, and keeps the default', () => {
+        for (const [v, expected] of [['1', 1], ['60000', 60000], ['2147483648', 2147483648], ['3000000000', 3000000000]] as const) {
+          jest.resetModules()
+          expect(read(loadConfig({ ...dev, [K]: v })())).toBe(expected)
+        }
+        jest.resetModules()
+        expect(read(loadConfig({ ...dev, [K]: undefined })())).toBe(fallback)
+      })
+    })
+
+    it('leaves the fail-closed-only knobs on their existing parser (ESCROW_BREAKER_FAILURE_THRESHOLD, RATE_LIMIT_WS_MESSAGE_MAX)', () => {
+      const c = loadConfig({ ...dev, ESCROW_BREAKER_FAILURE_THRESHOLD: '0', RATE_LIMIT_WS_MESSAGE_MAX: '0' })()
+      expect(c.escrowCircuitBreaker.failureThreshold).toBe(0)
+      expect(c.rateLimit.wsMessageMax).toBe(0)
+    })
+  })
+
   describe('a fully correct production configuration boots cleanly', () => {
     it('every gate satisfied at once — no throw, all values reflect what was set', () => {
       const load = loadConfig(REQUIRED_PROD_ENV)

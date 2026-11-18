@@ -36,7 +36,7 @@ jest.mock('../src/config', () => ({
     return {
       features: { mockEscrow: true, enforceCapabilities, requireDualApprovalForRelease: false },
       trade: { defaultTimelockHours: 24 },
-      settlement: { trustedArbitrators: [], protocolFeeRate: 0 },
+      settlement: { trustedArbitrators: [] },
       arkade: { seed: '' },
       // escrow-circuit-breaker.ts's claimEscrowTransition() first line — same
       // threshold-too-high-to-trip shape tests/escrowReleaseControls.test.ts
