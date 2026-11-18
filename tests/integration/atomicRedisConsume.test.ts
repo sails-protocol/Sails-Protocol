@@ -50,7 +50,7 @@ describe('Atomic Redis consume primitives (Issue #301, real Redis)', () => {
   // stands in for a separate server process/instance racing the same
   // key, which is the actual deployment shape this closes.
   function newClient(): Redis {
-    const client = new Redis(REDIS_URL, { maxRetriesPerRequest: 1, retryStrategy: () => null, lazyConnect: true })
+    const client = new Redis(REDIS_URL, { maxRetriesPerRequest: 1, retryStrategy: () => null, lazyConnect: true, disconnectTimeout: 10 })
     clients.push(client)
     return client
   }
