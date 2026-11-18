@@ -7,7 +7,7 @@
  */
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { proofService } from './proof.service'
+import { assertInlineEvidenceResourceBounds, proofService } from './proof.service'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { docsOnlySchema } from '../../common/openapi'
@@ -31,7 +31,16 @@ const attachEvidenceSchema = z.object({
 
 const submitProofSchema = z.object({
   claimId: z.string().min(1),
-  evidence: z.unknown(),
+  evidence: z.unknown().superRefine((value, ctx) => {
+    try {
+      assertInlineEvidenceResourceBounds(value)
+    } catch (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: error instanceof Error ? error.message : 'Inline proof evidence violates resource policy',
+      })
+    }
+  }),
   claimedHash: z.string().optional(),
 })
 
