@@ -530,9 +530,12 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
 
     it('the two request timeouts refuse 2147483648 at boot instead of letting every explorer / RPC call abort immediately', () => {
-      for (const env of ['MULTISIG_EXPLORER_TIMEOUT_MS', 'SAFE_GUARD_EVM_RPC_TIMEOUT_MS']) {
+      const both = ['MULTISIG_EXPLORER_TIMEOUT_MS', 'SAFE_GUARD_EVM_RPC_TIMEOUT_MS']
+      for (const env of both) {
         jest.resetModules()
-        expect(loadConfig({ ...dev, [env]: '2147483648' })).toThrow(new RegExp(`${env} must be a strictly positive integer`))
+        // loadConfig() leaves what it sets in process.env: clear the other variable so each iteration tests ONE variable
+        const only = Object.fromEntries(both.map((k) => [k, k === env ? '2147483648' : undefined]))
+        expect(loadConfig({ ...dev, ...only })).toThrow(new RegExp(`${env} must be a strictly positive integer`))
       }
     })
   })
