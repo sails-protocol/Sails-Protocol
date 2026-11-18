@@ -70,6 +70,19 @@ function requiredStrictPositiveInt(name: string, fallback: number): number {
   return parsed
 }
 
+// CTO 421 (Classe B) — same strict rule, no timer cap: these are security windows/thresholds read by
+// in-memory counters and Redis PEXPIRE, where 0, a negative, a fraction or a unit suffix silently turns
+// the protection off. Number.isSafeInteger stays (precision), not a business ceiling.
+function requiredStrictPositiveIntUncapped(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  const parsed = /^[1-9]\d*$/.test(raw) ? Number(raw) : NaN
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`Environment variable ${name} must be a strictly positive integer (digits only), got: ${raw}`)
+  }
+  return parsed
+}
+
 // Missão 11 Fase 8.1 LB-03 — NODE_ENV used to be a bare `=== 'production'`
 // string comparison with no validation of anything else. Every fail-closed
 // guard in this file (RT-001, ENFORCE_CAPABILITIES, DATABASE_URL/REDIS_URL
@@ -329,8 +342,8 @@ export const config = {
     // dependency added just for this) so Redis's PEXPIRE gets a plain
     // number directly — same default window (60s) as the tiers they
     // parallel and supersede.
-    authWindowMs: requiredInt('RATE_LIMIT_AUTH_WINDOW_MS', 60000),
-    criticalWindowMs: requiredInt('RATE_LIMIT_CRITICAL_WINDOW_MS', 60000),
+    authWindowMs: requiredStrictPositiveIntUncapped('RATE_LIMIT_AUTH_WINDOW_MS', 60000),
+    criticalWindowMs: requiredStrictPositiveIntUncapped('RATE_LIMIT_CRITICAL_WINDOW_MS', 60000),
     // 2026-08-15 security review: the two tiers above are @fastify/rate-limit,
     // which only fires on the HTTP request/response lifecycle — a WebSocket
     // upgrade is one HTTP request, then the connection stays open and every
@@ -342,7 +355,7 @@ export const config = {
     // deliberate-simplification precedent as the HTTP tiers above (no shared
     // Redis store yet); see ws-message-rate-limiter.ts.
     wsMessageMax: requiredInt('RATE_LIMIT_WS_MESSAGE_MAX', 20),
-    wsMessageWindowMs: requiredInt('RATE_LIMIT_WS_MESSAGE_WINDOW_MS', 10000),
+    wsMessageWindowMs: requiredStrictPositiveIntUncapped('RATE_LIMIT_WS_MESSAGE_WINDOW_MS', 10000),
   },
 
   // 2026-08-15 security review — common/security/suspicious-activity.ts.
@@ -359,12 +372,12 @@ export const config = {
   // exactly that reason: tune them once real traffic exists, don't
   // treat the defaults as validated.
   suspiciousActivity: {
-    authFailureMax: requiredInt('SUSPICIOUS_AUTH_FAILURE_MAX', 8),
-    authFailureWindowMs: requiredInt('SUSPICIOUS_AUTH_FAILURE_WINDOW_MS', 5 * 60 * 1000),
-    notFoundClusterMax: requiredInt('SUSPICIOUS_NOT_FOUND_MAX', 15),
-    notFoundClusterWindowMs: requiredInt('SUSPICIOUS_NOT_FOUND_WINDOW_MS', 5 * 60 * 1000),
-    rateLimitedMax: requiredInt('SUSPICIOUS_RATE_LIMITED_MAX', 3),
-    rateLimitedWindowMs: requiredInt('SUSPICIOUS_RATE_LIMITED_WINDOW_MS', 5 * 60 * 1000),
+    authFailureMax: requiredStrictPositiveIntUncapped('SUSPICIOUS_AUTH_FAILURE_MAX', 8),
+    authFailureWindowMs: requiredStrictPositiveIntUncapped('SUSPICIOUS_AUTH_FAILURE_WINDOW_MS', 5 * 60 * 1000),
+    notFoundClusterMax: requiredStrictPositiveIntUncapped('SUSPICIOUS_NOT_FOUND_MAX', 15),
+    notFoundClusterWindowMs: requiredStrictPositiveIntUncapped('SUSPICIOUS_NOT_FOUND_WINDOW_MS', 5 * 60 * 1000),
+    rateLimitedMax: requiredStrictPositiveIntUncapped('SUSPICIOUS_RATE_LIMITED_MAX', 3),
+    rateLimitedWindowMs: requiredStrictPositiveIntUncapped('SUSPICIOUS_RATE_LIMITED_WINDOW_MS', 5 * 60 * 1000),
   },
 
   // 2026-08-15 security review — escrow-circuit-breaker.ts. Deliberately
@@ -384,8 +397,8 @@ export const config = {
   // trip), not something measured against real traffic.
   escrowCircuitBreaker: {
     failureThreshold: requiredInt('ESCROW_BREAKER_FAILURE_THRESHOLD', 5),
-    windowMs: requiredInt('ESCROW_BREAKER_WINDOW_MS', 30 * 1000),
-    cooldownMs: requiredInt('ESCROW_BREAKER_COOLDOWN_MS', 2 * 60 * 1000),
+    windowMs: requiredStrictPositiveIntUncapped('ESCROW_BREAKER_WINDOW_MS', 30 * 1000),
+    cooldownMs: requiredStrictPositiveIntUncapped('ESCROW_BREAKER_COOLDOWN_MS', 2 * 60 * 1000),
   },
 
   features: {
