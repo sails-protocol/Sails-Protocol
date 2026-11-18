@@ -1,0 +1,628 @@
+{
+  "summary": {
+    "head": "22c4f6ebb3fbe5ea710cbe8215def3c60bce0e6c",
+    "suites": 88,
+    "databasesInspected": 88,
+    "suitesFailing": 1,
+    "withCandidatesLeft": [],
+    "withNonBase64OnArbiterEscrow": []
+  },
+  "rows": [
+    {
+      "suite": "tests/integration/atomicCollectionRecognition.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/capabilityAuthorityEnforced.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/capabilityOnboardingConcurrency.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/collectedTimeDistributionFreeze.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/custodyAttestationFoundation.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/dbNativeInvariants.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/disputeOutcomeMultisigLive.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/disputeSemanticProvenance.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/distributionEntitlementFoundation.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/durableProjectionCompletion.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/economicDispositionAuthorityConcurrency.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/economicPolicyExclusivity.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/escrowArbiterCommitmentIntegration.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/escrowFundingConcurrency.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/escrowFundingUncertainty.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/escrowTimelockExpiryAuthority.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/expiryRecoveryStateMachine.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/feeAccountingFoundation.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/feeCollectionRecognitionIntegration.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/feeObligationSettlementLifecycle.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/feePolicyImmutability.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/feeSnapshotPreFundingIntegration.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/legacyFeeDistributionWriteFreeze.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/m9fReleaseReorg.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/m9rClaimRecovery.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/m9rDispatchRecovery.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/multisigDustPolicyIntegration.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/multisigOutpointIntegrity.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/offerEnvelopePersistenceRoundTrip.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/offerIntentIdempotencyUniqueness.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/registrationProofOfPossessionLive.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/semanticTransitionRecordAtomicity.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/settlementResultIntegrity.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/signatureCollectionDisputeProvenance.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/tradeProjectionMonotonicity.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/eventProjectionClaims.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/settlementReconcilerMultiInstance.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/wdkTerminalRestartConvergence.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/wdkSplitRestartConvergence.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/signatureCollectionRestartConvergence.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/feeBroadcastCrashConsistency.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/disputeAutoResolutionRace.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/disputeEvidenceConcurrency.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/rulingPriorStateAtomicity.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/feeReleaseReorgIdempotency.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/projectionRecoveryQueue.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/transitionPublishAuthority.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/timelockExpiryCrashConsistency.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/timelockExpiryBoundedness.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/disputeEvidenceGeneration.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/escrowExecutionIntent.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/atomicDisputeOpening.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/staleDisputeCleanupSignatureRace.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/st1TemporalCleanupAuthority.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/pendingRoundSupersession.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/signatureAuthorityConvergence.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/timelockAuthority.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/securityWindowFailClosed.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/paymentAccountBindingAuthority.test.ts",
+      "jestExit": 1,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/paymentAccountTrustRamp.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/tradeEscrowEconomicBinding.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/cancelledTradeEscrowGate.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/unilateralCancellationAuthority.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/multisigScriptAuthority.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/unclaimedSignedRecoveryQueue.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/settlementReconciliationBoundedness.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/wdkEscrowAccountIdentity.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/wdkSignedLockAuthority.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/wdkOutboundAuthority.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/buyerPayoutAuthority.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/multisigResidualRecovery.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/cooperativeDispositionProvenance.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/signingRoundStateCompatibility.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/economicAuthorityFoundation.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/priceAuthorityCollector.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/escrowSellerPaymentBinding.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/sellerPaymentAccountJourney.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/tradeAdmissionAuthority.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/intentBindingAndLookup.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/tradeIntentSchema.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/tradeIntentAtomicAdmission.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/tradeClaimReconciliation.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/p4DisputedRecreationGuard.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/lostPendingCandidates.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/undecodableSignedCopies.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/aud1xBearerCapability.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/integration/aud1xR2DispatchAuthority.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    },
+    {
+      "suite": "tests/disputedOutcomeBinding.test.ts",
+      "jestExit": 0,
+      "candidatesLeft": 0,
+      "nonBase64Total": 0,
+      "nonBase64OnArbiterEscrow": 0
+    }
+  ]
+}
