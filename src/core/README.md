@@ -22,8 +22,8 @@ remains a genuine stub today.
 - `policy-engine.ts`      — **still a genuine stub.** `get`/`propose`/`activate`
   all throw "Not yet implemented" — FeePolicy/TrustPolicy/RoutingPolicy
   governance is real future work (`PROTOCOL_ECONOMY.md` §7, roadmap "Months 10-12"),
-  not built yet. A single hardcoded `protocolFeeRate` (config) covers fees
-  in the meantime.
+  not built yet. Fee rates live in the versioned `FeePolicyVersion`
+  foundation (`modules/open-settlement/fee-policy.service.ts`) in the meantime.
 
 No module should import another module directly — every module imports
 from `core/` instead. See `ARCHITECTURE.md` section 5 for the enforcement

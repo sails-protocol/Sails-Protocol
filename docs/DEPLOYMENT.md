@@ -732,7 +732,7 @@ MULTISIG_EXPLORER_API_URL=https://mempool.space/api
 TRUSTED_ARBITRATORS=<one-participant-id>
 ARBITRATION_MODE=trusted-list
 
-# Everything else (RATE_LIMIT_*, AUTH_*, PROTOCOL_FEE_RATE, the sweeper
+# Everything else (RATE_LIMIT_*, AUTH_*, the sweeper
 # flags) can stay at .env.example's own documented defaults unless this
 # deployment specifically needs otherwise — see each variable's own
 # comment there before changing it.

@@ -457,6 +457,69 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
   })
 
+  describe('DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS (#311 item 3 — positive integer)', () => {
+    const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
+    const K = 'DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS'
+
+    it.each(['1.5', '100abc', '0', '-1', 'abc', '', ' 5', '5 ', '+5', '1e3', '0x10', '007', ' 300', '300 ', '2147483648', '3000000000', '9007199254740993', '99999999999999999999'])('refuses %p', (v) => {
+      expect(loadConfig({ ...dev, [K]: v })).toThrow(new RegExp(K))
+    })
+
+    it('accepts strict positive integers and defaults to 300000', () => {
+      expect(loadConfig({ ...dev, [K]: '1000' })().trade.disputeAutoResolutionSweepIntervalMs).toBe(1000)
+      jest.resetModules()
+      expect(loadConfig({ ...dev, [K]: '300000' })().trade.disputeAutoResolutionSweepIntervalMs).toBe(300000)
+      jest.resetModules()
+      expect(loadConfig({ ...dev, [K]: '1' })().trade.disputeAutoResolutionSweepIntervalMs).toBe(1)
+      jest.resetModules()
+      expect(loadConfig({ ...dev, [K]: '2147483647' })().trade.disputeAutoResolutionSweepIntervalMs).toBe(2147483647)
+      jest.resetModules()
+      expect(loadConfig({ ...dev, [K]: undefined })().trade.disputeAutoResolutionSweepIntervalMs).toBe(300000)
+    })
+
+    it('.env.example and the config no longer claim that QVAC applies the recommendation', () => {
+      const fs = require('fs')
+      const text = ['.env.example', 'src/config/index.ts'].map((f) => fs.readFileSync(require('path').join(__dirname, '..', f), 'utf8')).join(' ')
+      expect(text).not.toMatch(/Applies every AUTO_PROPOSED/)
+      expect(text).not.toMatch(/recommendation only applies once/)
+      expect(text).not.toMatch(/sweepExpiredAutoResolutions\(\) applies it/)
+      expect(text).toMatch(/advisory-only/)
+    })
+  })
+
+  describe('QVAC auto-resolution numeric knobs (#330 — fail-closed, strict parse)', () => {
+    const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
+    const T = 'QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD'
+    const W = 'QVAC_AUTO_RESOLUTION_WINDOW_HOURS'
+
+    it.each(['0,85', 'abc', '-1', '1.5', '', ' ', 'Infinity', 'NaN', '0.85abc', '1e0'])('refuses threshold %p', (v) => {
+      expect(loadConfig({ ...dev, [T]: v })).toThrow(new RegExp(T))
+    })
+
+    it.each(['0', 'NaN', 'Infinity', '-5', '721', '0,5', 'abc', ''])('refuses window %p', (v) => {
+      expect(loadConfig({ ...dev, [W]: v })).toThrow(new RegExp(W))
+    })
+
+    it('also refuses invalid values in production', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, [T]: '0,85' })).toThrow(new RegExp(T))
+    })
+
+    it('accepts valid values and the defaults; auto-resolution stays OFF by default', () => {
+      const d = loadConfig({ ...dev })().settlement
+      expect(d.qvacAutoResolutionEnabled).toBe(false)
+      expect(d.qvacAutoResolutionConfidenceThreshold).toBe(0.85)
+      expect(d.qvacAutoResolutionWindowHours).toBe(24)
+      jest.resetModules()
+      const v = loadConfig({ ...dev, [T]: '1', [W]: '720' })().settlement
+      expect(v.qvacAutoResolutionConfidenceThreshold).toBe(1)
+      expect(v.qvacAutoResolutionWindowHours).toBe(720)
+      jest.resetModules()
+      const lo = loadConfig({ ...dev, [T]: '0', [W]: '0.5' })().settlement
+      expect(lo.qvacAutoResolutionConfidenceThreshold).toBe(0)
+      expect(lo.qvacAutoResolutionWindowHours).toBe(0.5)
+    })
+  })
+
   describe('a fully correct production configuration boots cleanly', () => {
     it('every gate satisfied at once — no throw, all values reflect what was set', () => {
       const load = loadConfig(REQUIRED_PROD_ENV)
