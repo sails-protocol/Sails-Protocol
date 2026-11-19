@@ -717,6 +717,10 @@ NODE_ENV=production
 DATABASE_URL=                      # from Secrets Manager — the real RDS endpoint
 PORT=3000
 HOST=0.0.0.0
+# GET /metrics is OFF by default in production. Set METRICS_ENABLED=true only for an
+# authorized private scrape path: the route is unauthenticated, so it still needs network
+# isolation (security group / reverse-proxy allowlist). /health hides `features` in production.
+# METRICS_ENABLED=false
 
 MOCK_ESCROW=false
 MOCK_SETTLEMENT=false
@@ -732,7 +736,7 @@ MULTISIG_EXPLORER_API_URL=https://mempool.space/api
 TRUSTED_ARBITRATORS=<one-participant-id>
 ARBITRATION_MODE=trusted-list
 
-# Everything else (RATE_LIMIT_*, AUTH_*, PROTOCOL_FEE_RATE, the sweeper
+# Everything else (RATE_LIMIT_*, AUTH_*, the sweeper
 # flags) can stay at .env.example's own documented defaults unless this
 # deployment specifically needs otherwise — see each variable's own
 # comment there before changing it.
