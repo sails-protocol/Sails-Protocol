@@ -21,6 +21,7 @@ import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
+import { participantKeys } from './pendingRoundLifecycleHarness'
 // NOTE: recordLiveCorrespondenceIfApplicable is NOT statically imported
 // here — a top-level ES import is evaluated when THIS FILE loads, before
 // beforeAll() ever runs, and dispute-correspondence.ts transitively
@@ -71,8 +72,6 @@ describe('Mission13 MULTISIG disputed settlement — live, Core-authoritative (M
   const arbiterKeypair = nacl.sign.keyPair()
   const arbiterPublicKeyHex = Buffer.from(arbiterKeypair.publicKey).toString('hex')
 
-  const BUYER_PUBKEY = '021744d7bd3cd8e7f62e7aa8f7db8292680b745d09f8f40377c4bbbc0136d4e299'
-  const SELLER_PUBKEY = '038e41e2cb09677fd4bde9f232871533925c4b628c25efdb9d572546293850ddd4'
   const ATTACKER_ADDRESS = testnetAddress('m8r-attacker')
 
   let realFetch: typeof fetch
@@ -160,8 +159,9 @@ describe('Mission13 MULTISIG disputed settlement — live, Core-authoritative (M
     // Setting it directly here is the test-fixture equivalent of that
     // one handler's own write, nothing more.
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const keys = participantKeys() // one MULTISIG address per escrow
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, keys.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, keys.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
 
     const txid = createHash('sha256').update(`m8r-txid-${suffix}-${Date.now()}`).digest('hex')
     mockExplorerForUtxo(txid, 0, 100_000)
@@ -328,7 +328,7 @@ describe('Mission13 MULTISIG disputed settlement — live, Core-authoritative (M
     // the pre-M8-RF defect would have paid instead) must never be what
     // was actually used, even though the seller genuinely controls that
     // key.
-    const sellerKeyDerivedAddress = bitcoin.payments.p2wpkh({ pubkey: Buffer.from(SELLER_PUBKEY, 'hex'), network: bitcoin.networks.testnet }).address
+    const sellerKeyDerivedAddress = bitcoin.payments.p2wpkh({ pubkey: Buffer.from((await prisma.escrowParticipantKey.findFirstOrThrow({ where: { escrowId, role: 'seller' } })).pubkey, 'hex'), network: bitcoin.networks.testnet }).address
     expect(pending!.toAddress).not.toBe(sellerKeyDerivedAddress)
 
     const record = await prisma.semanticTransitionRecord.findUnique({

@@ -26,6 +26,10 @@ export {} // forces module scope — without this, top-level `const` here and in
 // lightningHodlProvider.test.ts (also script-scoped, no imports of its own)
 // collide as the SAME global binding under isolatedModules-style checking.
 
+// Funding selection asks the database which outpoints other escrows already hold: none, unless a test says otherwise.
+const mockClaimedFindMany = jest.fn(async (_args?: unknown): Promise<Array<{ txLockId: string; txLockVout: number }>> => [])
+jest.mock('../src/common/database', () => ({ prisma: { escrow: { findMany: (args: unknown) => mockClaimedFindMany(args) } } }))
+
 const ORIGINAL_ENV = process.env
 
 // Real, valid 33-byte compressed secp256k1 pubkeys — generated once via
@@ -297,6 +301,7 @@ describe('MultisigProvider — lockFunds() against a mocked explorer API', () =>
 
   beforeEach(() => {
     fetchMock.mockReset()
+    mockClaimedFindMany.mockClear()
     ;(global as any).fetch = fetchMock
   })
 
@@ -341,6 +346,52 @@ describe('MultisigProvider — lockFunds() against a mocked explorer API', () =>
     await expect(
       multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
     ).rejects.toThrow('No funding UTXO')
+  })
+
+  // CTO 25 funding binding - the funding UTXO is never picked by explorer order.
+  const utxo = (c: string, vout = 0, value = 100_000) => ({ txid: c.repeat(64), vout, value, status: { confirmed: true } })
+  const depthOk = () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true, block_height: 100 }) })
+    fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '100' })
+  }
+
+  it("lockFunds skips a UTXO already recorded as another escrow's funding and takes the remaining one", async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [utxo('a'), utxo('b')] })
+    depthOk()
+    mockClaimedFindMany.mockResolvedValueOnce([{ txLockId: 'a'.repeat(64), txLockVout: 0 }])
+    const result = await multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
+    expect(result).toMatchObject({ txId: 'b'.repeat(64), vout: 0, fundedAmount: 100_000 })
+    expect(mockClaimedFindMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ NOT: { tradeId: 't1' } }) }))
+  })
+
+  it('lockFunds refuses, without persisting anything, when more than one unclaimed UTXO satisfies the funding rule', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [utxo('a'), utxo('b', 1)] })
+    await expect(
+      multisigProvider.lockFunds({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005' })
+    ).rejects.toThrow(/2 UTXOs at .* each satisfy this escrow's funding rule .*refusing to pick one by explorer order/)
+    expect(fetchMock).toHaveBeenCalledTimes(1) // refused before any depth lookup
+  })
+
+  it('rescanFunding reports the recorded outpoint while it is still there, whatever else the address holds', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [utxo('c'), utxo('a')] })
+    depthOk()
+    const scan = await multisigProvider.rescanFunding({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005', txLockId: 'a'.repeat(64), txLockVout: 0 })
+    expect(scan).toMatchObject({ txId: 'a'.repeat(64), vout: 0 })
+    expect(mockClaimedFindMany).not.toHaveBeenCalled()
+  })
+
+  it('rescanFunding reports nothing (not a pick) when the recorded outpoint is gone and two candidates remain', async () => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
+    fetchMock.mockResolvedValue({ ok: true, json: async () => [utxo('c'), utxo('d')] })
+    const scan = await multisigProvider.rescanFunding({ tradeId: 't1', buyerPubkey: BUYER_PUBKEY, sellerPubkey: SELLER_PUBKEY, arbiterPubkey, lockedAmount: '0.0005', txLockId: 'a'.repeat(64), txLockVout: 0 })
+    expect(scan).toBeNull()
   })
 
   it('lockFunds throws when no pubkeys have been submitted yet', async () => {
@@ -904,10 +955,12 @@ describe('MultisigProvider — reconcilePendingSettlement() (Missão 11 Fase 9.6
     independentlyMerged.finalizeAllInputs()
     const expectedTxId = independentlyMerged.extractTransaction().getId()
 
+    const { address: multisigAddr } = await multisigProvider.getDepositAddress('t1', buyerPubkeyHex, sellerPubkeyHex)
     const escrow = {
-      tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1',
+      id: 'escrow-t1', tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1',
       buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey,
       lockedAmount: '0.001', txLockId: txid, txLockVout: 0, status: 'COMPLETED',
+      multisigAddr, fundedAmount: '0.001' as string | null, // the recorded funding: 100000 sats at txid:0
     }
     return { escrow, unsignedPsbtBase64: psbtBase64, signedList: [buyerCopy.toBase64(), sellerCopy.toBase64()], expectedTxId }
   }
@@ -998,12 +1051,36 @@ describe('MultisigProvider — reconcilePendingSettlement() (Missão 11 Fase 9.6
     fetchMock.mockClear()
     escrow.txLockId = null as any
 
-    fetchMock.mockResolvedValueOnce({ status: 404, ok: false })
-
     const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList)
 
     expect(result.outcome).toBe('ANOMALY')
-    expect(fetchMock).toHaveBeenCalledTimes(1) // never even reaches the outpoint check
+    expect(fetchMock).not.toHaveBeenCalled() // CTO 25 funding binding: refused before the existence check
+  })
+
+  // CTO 25 funding binding - a round that does not spend this escrow's recorded funding is never reconstructed,
+  // adopted (ALREADY_BROADCAST) or broadcast: ANOMALY before any network call, the commit gate is never reached.
+  it.each([
+    ['another recorded outpoint', (e: any) => { e.txLockId = 'b7'.repeat(32) }, /round spends (a6){32}:0, the recorded funding outpoint is (b7){32}:0/],
+    ['another recorded vout', (e: any) => { e.txLockVout = 1 }, /the recorded funding outpoint is (a6){32}:1/],
+    ['another funded value', (e: any) => { e.fundedAmount = '0.00100001' }, /input value is 100000 sats, the recorded funded amount is 100001 sats/],
+    ['another escrow address', (e: any) => { e.multisigAddr = 'tb1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3q0sl5k7' }, /not this escrow's P2WSH/],
+    ['no recorded funded amount', (e: any) => { e.fundedAmount = null }, /no recorded funded amount/],
+    ['a funded amount still in sats', (e: any) => { e.fundedAmount = '100000' }, /recorded funded amount is 10000000000000 sats/],
+  ])('ROUND_INPUT_MISMATCH (%s) - ANOMALY, no network call, no broadcast, commit gate not called', async (_name, mutate, message) => {
+    const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
+    const txid = 'a6'.repeat(32)
+    const { escrow, unsignedPsbtBase64, signedList } = await buildRealSignedRelease(multisigProvider, txid)
+    fetchMock.mockClear()
+    mutate(escrow)
+    const gate = jest.fn()
+
+    const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList, gate)
+
+    expect(result.outcome).toBe('ANOMALY')
+    expect(result.detail).toMatch(/^ROUND_INPUT_MISMATCH/)
+    expect(result.detail).toMatch(message)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(gate).not.toHaveBeenCalled()
   })
 
   it('a genuine 404 vs. every other explorer failure are NOT treated the same way — a non-404 error still throws loud, never silently reads as "not found"', async () => {

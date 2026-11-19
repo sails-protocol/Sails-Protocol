@@ -15,7 +15,7 @@ import nacl from 'tweetnacl'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
-import { buyerKey, sellerKey, testnetAddress, newChain, explorer, signRound, completeOutsideSails, buildCooperative, type Chain } from './pendingRoundLifecycleHarness'
+import { testnetAddress, newChain, explorer, signRound, completeOutsideSails, buildCooperative, type Chain } from './pendingRoundLifecycleHarness'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
 
 describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, real PSBTs)', () => {
@@ -113,7 +113,7 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     return c
   }
   type Coop = Awaited<ReturnType<typeof cooperative>>
-  const keyOf = (c: Coop, participantId: string) => (participantId === c.buyer.id ? buyerKey : sellerKey)
+  const keyOf = (c: Coop, participantId: string) => (participantId === c.buyer.id ? c.buyerKey : c.sellerKey)
 
   /** Signs through the production path (submitTransactionSignature); returns the stored server copy. */
   async function sign(c: Coop, participantId: string, opts: { pendingTransactionId?: string } = {}) {
@@ -232,7 +232,7 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     const releaseA = await holdEscrowLock(a.escrow.id)
     const cancelA = track(outcomeOf(escrowService.cancelPendingSignatureRound(a.escrow.id, a.round.id, asTrustedActor(a.seller.id))))
     await untilWaiting(1)
-    const lastA = track(outcomeOf(escrowService.submitTransactionSignature(a.escrow.id, a.seller.id, signRound(a.round.unsignedPsbtBase64, sellerKey))))
+    const lastA = track(outcomeOf(escrowService.submitTransactionSignature(a.escrow.id, a.seller.id, signRound(a.round.unsignedPsbtBase64, a.sellerKey))))
     await untilWaiting(2)
     await releaseA()
     expect(await cancelA).toMatchObject({ ok: true, v: { outcome: 'CANCELLED' } })
@@ -243,7 +243,7 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     const b = await cooperative('t3b')
     await sign(b, b.buyer.id)
     const releaseB = await holdEscrowLock(b.escrow.id)
-    const lastB = track(outcomeOf(escrowService.submitTransactionSignature(b.escrow.id, b.seller.id, signRound(b.round.unsignedPsbtBase64, sellerKey))))
+    const lastB = track(outcomeOf(escrowService.submitTransactionSignature(b.escrow.id, b.seller.id, signRound(b.round.unsignedPsbtBase64, b.sellerKey))))
     await untilWaiting(1)
     const cancelB = track(outcomeOf(escrowService.cancelPendingSignatureRound(b.escrow.id, b.round.id, asTrustedActor(b.seller.id))))
     await untilWaiting(2)
@@ -277,9 +277,9 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     await escrowService.initiateRelease(c.escrow.id, undefined, c.seller.id)
     const next = (await liveRound(c.escrow.id))!
     expect(await escrowService.cancelPendingSignatureRound(c.escrow.id, c.round.id, asTrustedActor(c.seller.id))).toEqual({ outcome: 'GONE', pendingTransactionId: c.round.id })
-    await expect(escrowService.submitTransactionSignature(c.escrow.id, c.buyer.id, signRound(next.unsignedPsbtBase64, buyerKey), c.round.id)).rejects.toThrow(/live round is/)
+    await expect(escrowService.submitTransactionSignature(c.escrow.id, c.buyer.id, signRound(next.unsignedPsbtBase64, c.buyerKey), c.round.id)).rejects.toThrow(/live round is/)
     // The old round's own signature is refused on the new round (different transaction).
-    await expect(escrowService.submitTransactionSignature(c.escrow.id, c.buyer.id, signRound(c.round.unsignedPsbtBase64, buyerKey))).rejects.toThrow(/does not sign this round/)
+    await expect(escrowService.submitTransactionSignature(c.escrow.id, c.buyer.id, signRound(c.round.unsignedPsbtBase64, c.buyerKey))).rejects.toThrow(/does not sign this round/)
     expect((await liveRound(c.escrow.id))!).toMatchObject({ id: next.id, signatures: [] })
   })
 
@@ -504,7 +504,7 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     const release = await holdEscrowLock(c.escrow.id)
     const opening = track(outcomeOf(getDisputeService().raiseDispute(c.trade.id, c.buyer.id, 'race')))
     await untilWaiting(1)
-    const last = track(outcomeOf(escrowService.submitTransactionSignature(c.escrow.id, c.seller.id, signRound(c.round.unsignedPsbtBase64, sellerKey))))
+    const last = track(outcomeOf(escrowService.submitTransactionSignature(c.escrow.id, c.seller.id, signRound(c.round.unsignedPsbtBase64, c.sellerKey))))
     await untilWaiting(2)
     await release()
     const [opened, signed] = await Promise.all([opening, last])
@@ -550,7 +550,7 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     const c = await cooperative('t11-b1', 'refund') // requires [seller, buyer]
     await sign(c, c.seller.id)
     const reshape = (edit: (der: Buffer) => Buffer) => {
-      const psbt = bitcoin.Psbt.fromBase64(signRound(c.round.unsignedPsbtBase64, buyerKey), { network: NETWORK })
+      const psbt = bitcoin.Psbt.fromBase64(signRound(c.round.unsignedPsbtBase64, c.buyerKey), { network: NETWORK })
       psbt.data.inputs[0].partialSig[0].signature = edit(Buffer.from(psbt.data.inputs[0].partialSig[0].signature))
       return psbt.toBase64()
     }
@@ -583,14 +583,14 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     const none = (() => {
       const psbt = bitcoin.Psbt.fromBase64(c.round.unsignedPsbtBase64, { network: NETWORK })
       psbt.updateInput(0, { sighashType: bitcoin.Transaction.SIGHASH_NONE })
-      psbt.signInput(0, buyerKey, [bitcoin.Transaction.SIGHASH_NONE])
+      psbt.signInput(0, c.buyerKey, [bitcoin.Transaction.SIGHASH_NONE])
       return psbt.toBase64()
     })()
     const attempts: Array<[string, string, RegExp, string?]> = [
-      ['another transaction', signRound(other.round.unsignedPsbtBase64, buyerKey), /does not sign this round/],
+      ['another transaction', signRound(other.round.unsignedPsbtBase64, other.buyerKey), /does not sign this round/],
       ['SIGHASH_NONE', none, /SIGHASH_ALL/],
-      ['the wrong key', signRound(c.round.unsignedPsbtBase64, sellerKey), /registered key/],
-      ['another generation id', signRound(c.round.unsignedPsbtBase64, buyerKey), /live round is/, other.round.id],
+      ['the wrong key', signRound(c.round.unsignedPsbtBase64, c.sellerKey), /registered key/],
+      ['another generation id', signRound(c.round.unsignedPsbtBase64, c.buyerKey), /live round is/, other.round.id],
     ]
     for (const [, psbt, error, generation] of attempts) {
       await expect(escrowService.submitTransactionSignature(c.escrow.id, c.buyer.id, psbt, generation)).rejects.toThrow(error)
@@ -606,7 +606,7 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
   async function completedOutside(label: string, kind: 'release' | 'refund' = 'release') {
     const c = await cooperative(label, kind)
     const sellerStored = await sign(c, c.seller.id)
-    const spend = completeOutsideSails(c.round.unsignedPsbtBase64, [sellerStored, signRound(c.round.unsignedPsbtBase64, buyerKey)])
+    const spend = completeOutsideSails(c.round.unsignedPsbtBase64, [sellerStored, signRound(c.round.unsignedPsbtBase64, c.buyerKey)])
     chain.spentBy.set(`${c.funding}:0`, spend.txid)
     chain.hex.set(spend.txid, spend.hex)
     return { c, spend }
@@ -760,7 +760,7 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     const realRetire = retirementModule.retireRound
     let spendTxid = ''
     jest.spyOn(retirementModule, 'retireRound').mockImplementationOnce(async (...args: Parameters<typeof realRetire>) => {
-      const spend = completeOutsideSails(c.round.unsignedPsbtBase64, [sellerStored, signRound(c.round.unsignedPsbtBase64, buyerKey)])
+      const spend = completeOutsideSails(c.round.unsignedPsbtBase64, [sellerStored, signRound(c.round.unsignedPsbtBase64, c.buyerKey)])
       spendTxid = spend.txid
       chain.spentBy.set(`${c.funding}:0`, spend.txid)
       chain.confirmed.add(spend.txid)
@@ -785,7 +785,7 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     const { roundUnsignedTxid } = require('../../src/modules/open-settlement/multisig-round-proofs')
     const { NETWORK } = require('./pendingRoundLifecycleHarness')
     expect(roundUnsignedTxid(live.unsignedPsbtBase64, NETWORK)).toBe((await retirements(c.escrow.id))[0].unsignedTxid)
-    const spend = completeOutsideSails(live.unsignedPsbtBase64, [retiredSellerSignature, signRound(live.unsignedPsbtBase64, buyerKey)])
+    const spend = completeOutsideSails(live.unsignedPsbtBase64, [retiredSellerSignature, signRound(live.unsignedPsbtBase64, c.buyerKey)])
     chain.spentBy.set(`${c.funding}:0`, spend.txid)
     chain.confirmed.add(spend.txid)
     chain.hex.set(spend.txid, spend.hex)
@@ -803,7 +803,7 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     const ruling = (await liveRound(c.escrow.id))!
     expect(ruling.disputeId).toBe(dispute.id)
     // A disputed refund is arbiter-presigned; the seller completes it outside Sails.
-    const spend = completeOutsideSails(ruling.unsignedPsbtBase64, [signRound(ruling.unsignedPsbtBase64, sellerKey)])
+    const spend = completeOutsideSails(ruling.unsignedPsbtBase64, [signRound(ruling.unsignedPsbtBase64, c.sellerKey)])
     chain.spentBy.set(`${c.funding}:0`, spend.txid)
     chain.confirmed.add(spend.txid)
     chain.hex.set(spend.txid, spend.hex)

@@ -18,6 +18,12 @@ jest.mock('../../src/modules/open-settlement/multisig-round-proofs', () => ({
   ...jest.requireActual('../../src/modules/open-settlement/multisig-round-proofs'),
   verifySignerPartialSignature: (_unsigned: string, signed: string) => signed,
 }))
+// The round's PSBT is a placeholder here, so its input binding is stubbed too (proven with real PSBTs in
+// multisigFundingBinding.test.ts). This suite is about lock timing, not what the round spends.
+jest.mock('../../src/modules/open-settlement/multisig-round-input-binding', () => ({
+  ...jest.requireActual('../../src/modules/open-settlement/multisig-round-input-binding'),
+  assertRoundInputBinding: jest.fn(),
+}))
 
 describe('Issue #244 - stale dispute-pending cleanup vs a concurrent signature (real PostgreSQL)', () => {
   jest.setTimeout(60_000)

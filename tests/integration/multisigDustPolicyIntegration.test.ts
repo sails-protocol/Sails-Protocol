@@ -21,6 +21,7 @@ import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
+import { participantKeys } from './pendingRoundLifecycleHarness'
 
 describe('MULTISIG dust policy — rejection happens before any pending transaction (real Postgres, Missão 10)', () => {
   jest.setTimeout(30_000)
@@ -35,8 +36,6 @@ describe('MULTISIG dust policy — rejection happens before any pending transact
   let intentEngine: typeof import('../../src/core/intent-engine').intentEngine
   let OpenP2PTradeIntentHandler: any
 
-  const BUYER_PUBKEY = '021744d7bd3cd8e7f62e7aa8f7db8292680b745d09f8f40377c4bbbc0136d4e299'
-  const SELLER_PUBKEY = '038e41e2cb09677fd4bde9f232871533925c4b628c25efdb9d572546293850ddd4'
   const P2WPKH_ADDR = 'bc1q7mrvhs3xxzg9jyesd60nvda26ueukn9nc404xk'
   const RELEASE_FEE_1SAT = 164
 
@@ -98,8 +97,9 @@ describe('MULTISIG dust policy — rejection happens before any pending transact
     // dust threshold.
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.00000457', asset: 'BTC' }, seller.id)
     // Missão 11 Fase 9.1.1 — fail-closed capability declaration required.
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const keys = participantKeys() // one MULTISIG address per escrow
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, keys.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, keys.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
 
     // Real lockFunds() against a mocked explorer — a real UTXO exists,
     // just small enough that the release output (after the real fee)
