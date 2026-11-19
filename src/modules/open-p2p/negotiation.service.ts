@@ -8,11 +8,12 @@
  * `NegotiationChannel`, built on the real `pearNodeRegistry` — not a
  * mock transport.
  */
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../../common/database'
 import { NotFoundError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
+import type { DurableEvent } from '../../common/events/event-store'
 import { pearNodeRegistry, type PearNode } from '../../infrastructure/p2p/pear.service'
-import { tradeRepository, type TradeRepository } from './trade-repository'
 import { childLogger } from '../../common/logger'
 
 const log = childLogger('negotiation')
@@ -178,24 +179,27 @@ export function wireInboundNegotiationChannel(participantId: string, counterpart
 export type NegotiationStatus = 'CREATED' | 'NEGOTIATING' | 'TERMS_AGREED' | 'ABANDONED'
 
 export class NegotiationService {
+  // Process-local and NOT authoritative (E21 slice 1): the durable record that a negotiation was opened is the
+  // negotiation.opened / openp2p.trade.status_changed pair written by openInTransaction().
   private status = new Map<string, NegotiationStatus>()
 
-  constructor(private readonly tradeRepo: TradeRepository = tradeRepository) {}
-
-  async open(tradeId: string, buyerId: string, sellerId: string): Promise<HumanChatChannel> {
-    const trade = await this.tradeRepo.findById(tradeId)
-    if (!trade) throw new NotFoundError('Trade', tradeId)
-
-    this.status.set(tradeId, 'CREATED')
-    await eventBus.emit('negotiation.opened', { tradeId, buyerId, sellerId }, tradeId)
-    await eventBus.emit('openp2p.trade.status_changed', {
+  /**
+   * E21 slice 1 (CTO 24 6811766719, item 4) - opening the negotiation is part of the trade admission: its two events
+   * are written durably in the admission's own transaction, so a committed trade always has its negotiation opened
+   * and a rolled-back admission leaves no trace of one. The caller dispatches the returned events after the commit
+   * and then calls markOpened(). The chat channel itself is per-connection (chat.routes.ts), not created here.
+   */
+  async openInTransaction(tx: Prisma.TransactionClient, trade: { id: string; buyerId: string; sellerId: string }): Promise<DurableEvent[]> {
+    const { id: tradeId, buyerId, sellerId } = trade
+    const opened = await eventBus.publishInTransaction(tx, 'negotiation.opened', { tradeId, buyerId, sellerId }, tradeId)
+    const statusChanged = await eventBus.publishInTransaction(tx, 'openp2p.trade.status_changed', {
       tradeId, from: 'PENDING', to: 'NEGOTIATING', triggeredBy: buyerId,
     }, tradeId)
-    this.status.set(tradeId, 'NEGOTIATING')
+    return [opened, statusChanged]
+  }
 
-    // Both directions — buyer's view of the channel and seller's view are
-    // two separate HumanChatChannel instances pointed at each other.
-    return new HumanChatChannel(buyerId, sellerId, tradeId)
+  markOpened(tradeId: string): void {
+    this.status.set(tradeId, 'NEGOTIATING')
   }
 
   getStatus(tradeId: string): NegotiationStatus {

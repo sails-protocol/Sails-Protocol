@@ -172,6 +172,7 @@
  * idempotency key, and needs no separate bookkeeping write to prove it.
  */
 import { createHash } from 'node:crypto'
+import type { Prisma } from '@prisma/client'
 import { prisma } from './database'
 import { childLogger } from './logger'
 import { ValidationError, IdempotencyKeyConflictError } from './errors'
@@ -189,6 +190,7 @@ export interface IdempotencyRecord {
   requestHash: string
   status: IdempotencyKeyStatus
   resultRef: string | null
+  createdAt?: Date
 }
 
 /**
@@ -233,7 +235,7 @@ export class PrismaIdempotencyKeyStore implements IdempotencyKeyStore {
       where: { scope_participantId_key: { scope, participantId, key } },
     })
     if (!row) return null
-    return { id: row.id, requestHash: row.requestHash, status: row.status, resultRef: row.resultRef }
+    return { id: row.id, requestHash: row.requestHash, status: row.status, resultRef: row.resultRef, createdAt: row.createdAt }
   }
 
   async markCompleted(id: string, resultRef: string): Promise<void> {
@@ -264,6 +266,23 @@ export class PrismaIdempotencyKeyStore implements IdempotencyKeyStore {
 }
 
 const defaultStore = new PrismaIdempotencyKeyStore()
+
+/**
+ * E21 slice 1 - an idempotency claim written ALREADY COMPLETED inside the caller's business transaction (the trade
+ * admission): claim and outcome commit or roll back together, so no IN_PROGRESS row ever exists for it. The insert
+ * is also the lock: a concurrent transaction with the same (scope, participantId, key) waits on the unique index
+ * and then fails with P2002, and re-reads this committed claim. Every other caller keeps withIdempotency().
+ */
+export async function claimCompletedInTransaction(
+  tx: Prisma.TransactionClient,
+  claim: { scope: string; participantId: string; key: string; requestHash: string; resultRef: string }
+): Promise<void> {
+  await tx.idempotencyKey.create({ data: { ...claim, status: 'COMPLETED', completedAt: new Date() } })
+}
+
+export function findIdempotencyClaim(scope: string, participantId: string, key: string): Promise<IdempotencyRecord | null> {
+  return defaultStore.find(scope, participantId, key)
+}
 
 /** Real, non-cryptographic-purpose hash — only used to detect "this key
  *  was reused for a materially different request," never as a security
@@ -341,6 +360,9 @@ export interface WithIdempotencyParams {
  * API-contract decision, not an implementation detail to decide
  * silently inside a bounded corrective mission.
  */
+// E21 slice 1 (2026-11-15): trade creation ('openp2p.trade.create') no longer goes through this function — its claim
+// is written COMPLETED inside the admission transaction (claimCompletedInTransaction(), trade.service.ts). The
+// history above still describes the other callers (offers, evidence) and the trade path's legacy claims.
 export async function withIdempotency<T extends { id: string }>(
   params: WithIdempotencyParams,
   persist: (claimId: string | null) => Promise<T>,

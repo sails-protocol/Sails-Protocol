@@ -501,3 +501,60 @@ describe('PostgresEventStore - restart survival (Missao 05.7, the definitive pro
     }
   })
 })
+
+// E21 slice 1 (CTO 24 6811766719) - the additive transactional API. Real PostgreSQL proof (lock held to the caller's
+// commit, rollback, one chain) lives in tests/integration/tradeAdmissionAtomicity.test.ts; these pin the contract.
+describe('PostgresEventStore.publishInTransaction() / dispatchCommitted() and the fail-closed facade (E21 slice 1)', () => {
+  it('writes through the CALLER transaction with the same lock and chain as publish(), and dispatches nothing until dispatchCommitted()', async () => {
+    const store = new PostgresEventStore()
+    const bus = new SailsEventBus(store)
+    const correlationId = `e21-${Date.now()}`
+    const received: string[] = []
+    bus.onDurable('openp2p.message.sent', (e) => { received.push(e.eventId) })
+
+    // The caller's transaction client. PostgreSQL's transaction-level advisory lock is re-entrant for the same
+    // transaction (this file's FIFO lock double is not), so this one only records the lock calls.
+    const tx = { $executeRaw: jest.fn().mockResolvedValue(0), durableEventRecord: mockDurableEventRecordDelegate } as any
+    const first: any = await bus.publishInTransaction(tx, 'openp2p.message.sent', messagePayload('m1', correlationId, 'a'), correlationId)
+    await tick()
+    const second: any = await bus.publishInTransaction(tx, 'openp2p.message.sent', messagePayload('m2', correlationId, 'b'), correlationId)
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2) // pg_advisory_xact_lock(hashtext(correlationId)) per event
+    expect(tx.$executeRaw.mock.calls[0].slice(1)).toEqual([correlationId])
+    expect(mockTransaction).not.toHaveBeenCalled() // never a transaction of its own
+    expect(received).toEqual([])
+    expect(first.prevHash).toBe(GENESIS_HASH)
+    expect(second.prevHash).toBe(first.entryHash)
+    expect(second.entryHash).toBe(computeEntryHash('openp2p.message.sent', second.publishedAt, second.payload, first.entryHash))
+    expect(await bus.getEvents(correlationId)).toEqual([first, second])
+
+    bus.dispatchCommitted(first)
+    bus.dispatchCommitted(second)
+    expect(received).toEqual([first.eventId, second.eventId])
+  })
+
+  it('publish() keeps its contract: it opens its own transaction and dispatches after it', async () => {
+    const bus = new SailsEventBus(new PostgresEventStore())
+    const correlationId = `e21-plain-${Date.now()}`
+    const received: string[] = []
+    bus.onDurable('openp2p.message.sent', (e) => { received.push(e.correlationId) })
+    await bus.emit('openp2p.message.sent', messagePayload('m1', correlationId, 'a'), correlationId)
+    expect(mockTransaction).toHaveBeenCalledTimes(1)
+    expect(received).toEqual([correlationId])
+  })
+
+  it('a store that cannot join a PostgreSQL transaction fails closed: nothing is written and nothing is dispatched', async () => {
+    const { InMemoryEventStore } = jest.requireActual('../src/common/events/event-store')
+    const bus = new SailsEventBus(new InMemoryEventStore())
+    const received: unknown[] = []
+    bus.on('openp2p.message.sent', (p) => { received.push(p) })
+    const tx = { $executeRaw: jest.fn(), durableEventRecord: mockDurableEventRecordDelegate } as any
+
+    await expect(bus.publishInTransaction(tx, 'openp2p.message.sent', messagePayload('m1', 'c1', 'a'), 'c1'))
+      .rejects.toThrow(/cannot publish inside a database transaction/)
+    expect(() => bus.dispatchCommitted({ eventId: 'e', eventName: 'openp2p.message.sent', correlationId: 'c1', payload: messagePayload('m1', 'c1', 'a'), publishedAt: '', entryHash: '', prevHash: '' }))
+      .toThrow(/cannot publish inside a database transaction/)
+    expect(tx.$executeRaw).not.toHaveBeenCalled()
+    expect(mockCreate).not.toHaveBeenCalled()
+    expect(received).toEqual([])
+  })
+})

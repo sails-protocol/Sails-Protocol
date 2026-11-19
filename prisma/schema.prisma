@@ -370,7 +370,11 @@ model Trade {
   // creation (createTrade()). Nullable, same rationale as Offer.intentId
   // above.
   intentId        String?
-  intent          Intent?     @relation(fields: [intentId], references: [id])
+  intent          Intent?     @relation("TradeOfferIntent", fields: [intentId], references: [id])
+  // E21 slice 1 (migration 20261115120000) - the trade's own Intent, created with the trade in one transaction.
+  // NULL for every trade admitted before it (legacy: those keep following the shared Offer Intent in `intentId`).
+  tradeIntentId   String?     @unique
+  tradeIntent     Intent?     @relation("TradeOwnIntent", fields: [tradeIntentId], references: [id], onDelete: Restrict)
   completedAt     DateTime?
   cancelledAt     DateTime?
   createdAt       DateTime    @default(now())
@@ -383,6 +387,7 @@ model Trade {
   @@index([buyerId])
   @@index([sellerId])
   @@index([status])
+  @@index([intentId])
   @@map("trades")
 }
 
@@ -1996,8 +2001,9 @@ model Intent {
   //   a composite-business-key uniqueness constraint on Trade creation
   //   for exactly this reason — see `src/common/idempotency.ts`'s own
   //   header).
-  offers Offer[]
-  trades Trade[]
+  offers     Offer[]
+  trades     Trade[] @relation("TradeOfferIntent")
+  ownerTrade Trade?  @relation("TradeOwnIntent")
 
   @@index([participantId])
   @@index([status])
