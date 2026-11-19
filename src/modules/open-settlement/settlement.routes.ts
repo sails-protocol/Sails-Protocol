@@ -14,6 +14,7 @@ import { ESCROW_TYPE_VALUES, ASSET_TYPE_VALUES } from '@satsails/p2p-schemas'
 import { escrowService } from './escrow.service'
 import { getDisputeService } from './dispute.service'
 import { loadDisputeRulingRecord } from './dispute-outcome'
+import { getPartyAbsenceSignals } from './party-absence-signals.service'
 import { marketArbitrationProvider } from './market-arbitration.provider'
 import { paymentAccountService } from './payment-account.service'
 import { payoutAddressService } from './payout-address.service'
@@ -452,6 +453,27 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     }
     const pending = await escrowService.getPendingTransaction(id)
     return reply.code(200).send(success(toPendingTransactionResponse(pending)))
+  })
+
+  // F32 alternative A (CTO Despacho 012, P46) - READ-ONLY operational signals while a MULTISIG dispute ruling waits for
+  // the signature of the required party. Same visibility as pending-transaction above (buyer, seller or assigned
+  // arbiter). Evidence only: the response never proves a party is unavailable and nothing here moves, signs or
+  // authorizes anything. See party-absence-signals.ts and docs/F32_PARTY_ABSENCE_LIMITATION.md.
+  app.get('/v1/settlement/escrow/:id/party-absence-signals', {
+    preHandler: [criticalRateLimit, requireAuth],
+    ...docsOnlySchema({ tags: ['open-settlement'], params: idParam }),
+  }, async (request, reply) => {
+    const { id } = idParam.parse(request.params)
+    const callerId = participantId(request)
+    const escrow = await escrowService.getEscrow(id)
+    const trade = await tradeService.getTrade(escrow.tradeId)
+    const isParty = callerId === trade.buyerId || callerId === trade.sellerId
+    const isAssignedArbiter = escrow.disputes.some((d: { arbiterId: string | null }) => d.arbiterId === callerId)
+    if (!isParty && !isAssignedArbiter) {
+      throw new ForbiddenError(`${callerId} is not authorized to view escrow ${id}'s party-absence signals`)
+    }
+    const signals = await getPartyAbsenceSignals(id)
+    return reply.code(200).send(success(signals))
   })
 
   // RFC-015 — two-person control. Records the calling participant's
