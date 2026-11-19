@@ -83,7 +83,8 @@ describe('PE-M9R remediation - R-1, G2, R-4 execution (real PostgreSQL, simulate
     const buyerAddr = H.testnetAddress(`${label}-b`), sellerAddr = opts.sameAddress ? buyerAddr : H.testnetAddress(`${label}-s`)
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', buyerAddr); await payoutAddressService.setPayoutAddress(seller.id, 'BTC', sellerAddr)
     // P23: an unsigned cooperative release round in the way, so the ruling's dispatch has to supersede it (#239 grant).
-    if (opts.cooperativeRound) await escrowService.initiateRelease(escrow.id, undefined, seller.id)
+    // Same steps as pendingRoundLifecycleHarness.buildCooperative(): a cooperative release needs the buyer's payment mark first.
+    if (opts.cooperativeRound) { await escrowService.markPaymentSent(escrow.id, buyer.id); await escrowService.initiateRelease(escrow.id, undefined, seller.id) }
     const d = await getDisputeService().raiseDispute(trade.id, buyer.id, `m9r rem ${label}`)
     return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id, disputeId: d.id, buyerAddr, sellerAddr }
   }
