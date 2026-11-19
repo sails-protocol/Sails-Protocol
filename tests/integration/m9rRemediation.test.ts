@@ -251,20 +251,20 @@ describe('PE-M9R remediation - R-1, G2, R-4 execution (real PostgreSQL, simulate
       if (held++ === 0) { entered(); await gate }
       return realRevalidate(...args)
     }) as never)
-    let c4: Promise<any> | null = null
+    const c4Holder: { run: Promise<any> | null } = { run: null } // an object, so TS does not narrow it to null
     let first = true
     const realSplit = escrowService.initiateSplit.bind(escrowService)
     jest.spyOn(escrowService, 'initiateSplit').mockImplementation((async (...args: unknown[]) => {
       if (!first) return (realSplit as any)(...args)
       first = false
-      c4 = reconcileMissingDispatch(); await inBuild
+      c4Holder.run = reconcileMissingDispatch(); await inBuild
       throw new Error('m9r-rem injected live dispatch failure (provider unavailable)')
     }) as never)
     const r = ruling(f)
     const live = resolveLive(f, r).then(() => null, (e: Error) => e)
     const parked = await waitParkedOnEscrowLock(f.escrowId)
     release()
-    const liveErr = await live; const c4Report = await c4
+    const liveErr = await live; const c4Report = await c4Holder.run
     jest.restoreAllMocks()
     const after = await state(f)
     const retired = await prisma.escrowPendingRoundRetirement.findMany({ where: { escrowId: f.escrowId } })
