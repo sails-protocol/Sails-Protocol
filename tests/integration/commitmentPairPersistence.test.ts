@@ -106,7 +106,9 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     const row = await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })
     expect(row).toMatchObject({ committedAnchorRef: f.commitment.anchorRef, capability: 'FIXED_ARBITER_COMMITMENT', rail: 'MULTISIG' })
     expect(row.makerReceivedAt.getTime()).toBeGreaterThanOrEqual(row.takerReceivedAt.getTime())
-    expect(row.createdAt.getTime()).toBeLessThanOrEqual(row.takerReceivedAt.getTime() + 1) // both from the database clock
+    // Both from the database clock: the stamp is read once, before admission; createdAt is clock_timestamp() at the INSERT.
+    expect(row.createdAt.getTime()).toBeGreaterThanOrEqual(row.takerReceivedAt.getTime())
+    expect(row.createdAt.getTime() - row.takerReceivedAt.getTime()).toBeLessThan(10_000)
   })
 
   it('idempotency: the same key + body re-reads the pair as it is NOW; the same key with another body is refused; another participant\'s key is independent', async () => {
@@ -243,6 +245,17 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     await rawRefused(prisma.$executeRaw`UPDATE "commitment_pairs" SET "makerTradeSig" = ${sign(f.cd, maker)}, "makerArbitrationSig" = ${sign(f.ad, maker)},
       "makerReceivedAt" = date_trunc('milliseconds', clock_timestamp()), "state" = 'COMMITTED', "committedAnchorRef" = ${f.commitment.anchorRef} WHERE "id" = ${p.pairId}`)
     expect((await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })).state).toBe('PARTIALLY_SIGNED')
+  })
+
+  it('B-1: the runtime role may only INSERT/SELECT and UPDATE the signing/state columns; never the canonical pair, never DELETE/TRUNCATE', async () => {
+    pg.requirePostgres('F3 B-1 privileges')
+    const [{ exists }] = await prisma.$queryRaw`SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sails_runtime') AS exists`
+    if (!exists) return // the default lane has no roles; the "restricted runtime role" lane (bootstrap-roles + runtime-grants) runs this
+    const col = async (c: string) => (await prisma.$queryRaw`SELECT has_column_privilege('sails_runtime', 'public.commitment_pairs', ${c}, 'UPDATE') AS ok`)[0].ok
+    const tbl = async (priv: string) => (await prisma.$queryRaw`SELECT has_table_privilege('sails_runtime', 'public.commitment_pairs', ${priv}) AS ok`)[0].ok
+    for (const c of ['state', 'committedAnchorRef', 'makerTradeSig', 'makerArbitrationSig', 'makerReceivedAt', 'takerTradeSig', 'takerArbitrationSig', 'takerReceivedAt', 'withdrawnBy', 'withdrawProof']) expect([c, await col(c)]).toEqual([c, true])
+    for (const c of ['trade', 'arbitration', 'policy', 'commitmentDigest', 'arbitrationCommitmentDigest', 'anchorRef', 'rail', 'capability', 'reason', 'feePolicyVersionId', 'createdAt']) expect([c, await col(c)]).toEqual([c, false])
+    expect([await tbl('SELECT'), await tbl('INSERT'), await tbl('DELETE'), await tbl('TRUNCATE')]).toEqual([true, true, false, false])
   })
 
   it('terminal: a COMMITTED pair accepts no further UPDATE; a pair is born taker-only (T1)', async () => {
