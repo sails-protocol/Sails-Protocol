@@ -9,15 +9,20 @@
 //   after-pair-update   inside the transaction, the pair row already UPDATEd, before the idempotency claim insert
 //   after-claim         inside the transaction, pair UPDATEd and claim inserted, before COMMIT
 //   after-commit        the transaction committed, before the call returns to its caller
-import { writeFileSync } from 'fs'
+//   none                no stop; the call runs to its end
+// HOLD=1: at KILL_AT the worker waits for a `go` file instead of forever (a barrier, not a kill), then continues.
+// The call's outcome is written to `result` (JSON: { ok: true, view } or { ok: false, code }).
+import { existsSync, writeFileSync } from 'fs'
 import path from 'path'
 
 const syncDir = process.env.SYNC_DIR!
 const killAt = process.env.KILL_AT!
 const input = JSON.parse(process.env.SIGN_INPUT!)
-const freeze = (point: string): Promise<never> => {
+const hold = process.env.HOLD === '1'
+const freeze = async (point: string): Promise<void> => {
   writeFileSync(path.join(syncDir, 'arrived'), JSON.stringify({ point, pid: process.pid }))
-  return new Promise<never>(() => {})
+  if (!hold) return new Promise<void>(() => {})
+  while (!existsSync(path.join(syncDir, 'go'))) await new Promise((r) => setTimeout(r, 25))
 }
 
 async function main() {
@@ -54,8 +59,12 @@ async function main() {
   }
   const { CommitmentPairService } = require('../../src/modules/open-p2p/commitment-pair.service')
   const svc = new CommitmentPairService({ enabledRails: () => new Set(JSON.parse(process.env.ENABLED_RAILS ?? '["MULTISIG"]')) })
-  await svc.signPair(input)
-  writeFileSync(path.join(syncDir, 'finished'), 'unexpected: the call returned')
+  try {
+    const view = await svc.signPair(input)
+    writeFileSync(path.join(syncDir, 'result'), JSON.stringify({ ok: true, view }))
+  } catch (err) {
+    writeFileSync(path.join(syncDir, 'result'), JSON.stringify({ ok: false, code: (err as { code?: string }).code ?? String(err) }))
+  }
   process.exit(0)
 }
 

@@ -6,7 +6,7 @@
 import nacl from 'tweetnacl'
 import { randomUUID } from 'crypto'
 import { spawn } from 'child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import path from 'path'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
@@ -170,18 +170,6 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     expect((await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })).state).toBe('PARTIALLY_SIGNED')
   })
 
-  it('C2: two pairs of ONE anchor signed concurrently - exactly one COMMITTED, the other E25_ANCHOR_ALREADY_COMMITTED', async () => {
-    pg.requirePostgres('F3 C2')
-    const s = service(); const anchorRef = randomUUID()
-    const a = fresh({ anchorRef }), b = fresh({ anchorRef, ttlMs: 1_700_000 }) // different digests, same anchor
-    const pa = await s.proposePair(a.proposeInput()); const pb = await s.proposePair(b.proposeInput())
-    const results = await Promise.allSettled([s.signPair(a.makerSign(pa.pairId)), s.signPair(b.makerSign(pb.pairId))])
-    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
-    const lost = results.find((r) => r.status === 'rejected') as PromiseRejectedResult
-    expect(lost.reason).toMatchObject({ code: 'E25_ANCHOR_ALREADY_COMMITTED' })
-    expect(await prisma.commitmentPair.count({ where: { anchorRef, state: 'COMMITTED' } })).toBe(1)
-  })
-
   it('C3: withdraw x final signature on the same pair - one wins, never both (row lock)', async () => {
     pg.requirePostgres('F3 C3')
     const s = service(); const f = fresh()
@@ -248,6 +236,15 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
       "makerReceivedAt" = ${past}, "state" = 'COMMITTED', "committedAnchorRef" = ${f.commitment.anchorRef} WHERE "id" = ${id}`)
   })
 
+  it('(A) stamp window: even a stamp taken from THIS transaction's database clock is refused by the trigger once it is >= expiresAt', async () => {
+    pg.requirePostgres('F3 stamp expiry')
+    const f = fresh({ ttlMs: 2_500 }); const p = await service().proposePair(f.proposeInput())
+    await sleep(3_000)
+    await rawRefused(prisma.$executeRaw`UPDATE "commitment_pairs" SET "makerTradeSig" = ${sign(f.cd, maker)}, "makerArbitrationSig" = ${sign(f.ad, maker)},
+      "makerReceivedAt" = date_trunc('milliseconds', clock_timestamp()), "state" = 'COMMITTED', "committedAnchorRef" = ${f.commitment.anchorRef} WHERE "id" = ${p.pairId}`)
+    expect((await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })).state).toBe('PARTIALLY_SIGNED')
+  })
+
   it('terminal: a COMMITTED pair accepts no further UPDATE; a pair is born taker-only (T1)', async () => {
     pg.requirePostgres('F3 terminal')
     const s = service(); const f = fresh()
@@ -309,5 +306,53 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     expect(await s.signPair(input)).toMatchObject({ pairId: p.pairId, state: 'COMMITTED' })
     expect((await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })).makerReceivedAt.getTime()).toBe(stamp)
     expect(await prisma.idempotencyKey.count({ where: { key: input.idempotencyKey } })).toBe(1)
+  })
+
+  /** A worker process running one signPair(); with hold, it waits at `point` until released (a real 2-session barrier). */
+  function startWorker(label: string, point: string, input: unknown, hold: boolean) {
+    const dir = mkdtempSync(path.join(tmpdir(), `f3-${label}-`))
+    const child = spawn(process.execPath, ['-r', 'ts-node/register/transpile-only', WORKER], {
+      cwd: path.join(__dirname, '..', '..'),
+      env: { ...process.env, SYNC_DIR: dir, KILL_AT: point, HOLD: hold ? '1' : '0', PGAPPNAME: `f3-${label}-${RUN}`, SIGN_INPUT: JSON.stringify(input), ENABLED_RAILS: JSON.stringify(['MULTISIG', 'WDK_USDT_EVM']) },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    })
+    let stderr = ''
+    child.stderr!.on('data', (d: Buffer) => { stderr = (stderr + d.toString()).slice(-5_000) })
+    const exited = new Promise<void>((r) => child.on('exit', () => r()))
+    const waitFile = async (name: string) => {
+      for (let i = 0; i < 600 && !existsSync(path.join(dir, name)); i++) {
+        if (child.exitCode !== null && !existsSync(path.join(dir, name))) throw new Error(`worker ${label} exited without ${name}: ${stderr}`)
+        await sleep(100)
+      }
+      return readFileSync(path.join(dir, name), 'utf8')
+    }
+    return {
+      arrived: () => waitFile('arrived'),
+      release: () => writeFileSync(path.join(dir, 'go'), 'go'),
+      result: async () => { await exited; const r = JSON.parse(await waitFile('result')); rmSync(dir, { recursive: true, force: true }); return r },
+    }
+  }
+
+  it('C2 with a real barrier: session A holds its uncommitted COMMITTED UPDATE; session B, same anchor, is seen WAITING on it; A commits and B loses with E25_ANCHOR_ALREADY_COMMITTED', async () => {
+    pg.requirePostgres('F3 C2 barrier')
+    const s = service(); const anchorRef = randomUUID()
+    const a = fresh({ anchorRef }), b = fresh({ anchorRef, ttlMs: 1_700_000 }) // two pairs, different digests, one anchor
+    const pa = await s.proposePair(a.proposeInput()); const pb = await s.proposePair(b.proposeInput())
+    const A = startWorker('A', 'after-pair-update', a.makerSign(pa.pairId), true)
+    expect(JSON.parse(await A.arrived()).point).toBe('after-pair-update')
+    const B = startWorker('B', 'none', b.makerSign(pb.pairId), false)
+    let waiting = false
+    for (let i = 0; i < 300 && !waiting; i++) {
+      const [{ n }] = await prisma.$queryRaw`SELECT count(*)::int AS n FROM pg_stat_activity WHERE application_name = ${`f3-B-${RUN}`} AND wait_event_type = 'Lock'`
+      waiting = n > 0; if (!waiting) await sleep(50)
+    }
+    A.release()
+    const [ra, rb] = await Promise.all([A.result(), B.result()])
+    process.stdout.write(`[evidence] ${JSON.stringify({ label: 'F3 C2 barrier', bWaitedOnA: waiting, a: ra, b: rb })}
+`)
+    expect(waiting).toBe(true)
+    expect(ra).toMatchObject({ ok: true, view: { state: 'COMMITTED' } })
+    expect(rb).toEqual({ ok: false, code: 'E25_ANCHOR_ALREADY_COMMITTED' })
+    expect(await prisma.commitmentPair.count({ where: { anchorRef, state: 'COMMITTED' } })).toBe(1)
   })
 })
