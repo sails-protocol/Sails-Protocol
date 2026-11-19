@@ -1705,6 +1705,93 @@
       ]
     },
     {
+      "name": "REFUSED FIXED promising liveness on the current script (R6)",
+      "commitment": {
+        "commitmentDigest": "e71471104103921147f814c43fe0a44b665c182b62d307d2b9535d0d1f7075eb",
+        "commitmentDomainTag": "sails-trade-commitment-v1",
+        "anchorRef": "7b0c8f2e-1a2b-4c3d-9e8f-000000000001",
+        "makerPublicKey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+        "takerPublicKey": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "rail": "MULTISIG",
+        "arbitrationCapability": "FIXED_ARBITER_COMMITMENT",
+        "arbitrationPolicyDigest": "5c8ac37262d45a170cf17d7b23f95c67601d6042e2c0d347ce59a60a380cf60c",
+        "arbiterRef": "17cb79fb2b4120f2b1ec65e4198d6e08b28e813feb01e4a400839b85e18080ce",
+        "proposedAt": "2026-11-19T11:00:00.000Z",
+        "expiresAt": "2026-11-19T12:00:00.000Z"
+      },
+      "policy": {
+        "policyVersion": "1",
+        "capability": "FIXED_ARBITER_COMMITMENT",
+        "mode": "trusted-list",
+        "rail": "MULTISIG",
+        "arbiterSelection": "fixed",
+        "appeal": "NONE_SCRIPT_FIXED",
+        "hosting": "PARTIES_HOLD_COPIES_HOST_CONVENIENCE_FAILOVER_OPEN",
+        "liveness": "ARBITER_LIVENESS_PROMISED"
+      },
+      "expect": [
+        "E26_CONTRADICTORY_ARBITRATION_TERMS:liveness"
+      ]
+    },
+    {
+      "name": "REFUSED UNAVAILABLE promising an appeal (R7)",
+      "commitment": {
+        "commitmentDigest": "5ba1536d6374fccb474c1a380c9451900b1eee2567a927b6f30fffda43987e86",
+        "commitmentDomainTag": "sails-trade-commitment-v1",
+        "anchorRef": "7b0c8f2e-1a2b-4c3d-9e8f-000000000001",
+        "makerPublicKey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+        "takerPublicKey": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "rail": "EXAMPLE_RAIL_WITHOUT_ARBITRATION",
+        "arbitrationCapability": "UNAVAILABLE",
+        "arbitrationPolicyDigest": "b486a3f5adf1e43bb35957fc10e9e9c5a234cc942bda953727b68f57591f221e",
+        "arbiterRef": "NONE",
+        "proposedAt": "2026-11-19T11:00:00.000Z",
+        "expiresAt": "2026-11-19T12:00:00.000Z"
+      },
+      "policy": {
+        "policyVersion": "1",
+        "capability": "UNAVAILABLE",
+        "mode": "none",
+        "rail": "EXAMPLE_RAIL_WITHOUT_ARBITRATION",
+        "arbiterSelection": "none",
+        "appeal": "ARBITER_REASSIGNABLE",
+        "hosting": "PARTIES_HOLD_COPIES_HOST_CONVENIENCE_FAILOVER_OPEN",
+        "liveness": "NONE_UNAVAILABLE"
+      },
+      "expect": [
+        "E26_CONTRADICTORY_ARBITRATION_TERMS:appeal"
+      ]
+    },
+    {
+      "name": "REFUSED UNKNOWN promising an appeal (R7)",
+      "commitment": {
+        "commitmentDigest": "0b244712fed09fa8b51d3f703fee2f8e23f562b06995a16f06a026f735dbdea4",
+        "commitmentDomainTag": "sails-trade-commitment-v1",
+        "anchorRef": "7b0c8f2e-1a2b-4c3d-9e8f-000000000001",
+        "makerPublicKey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+        "takerPublicKey": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "rail": "EXAMPLE_UNCLASSIFIED_RAIL",
+        "arbitrationCapability": "UNKNOWN",
+        "arbitrationPolicyDigest": "1ea73123de83f058b324cca93b8c6743f6af66551b18a5a1fdcb4a2ac7b1a326",
+        "arbiterRef": "UNPROVEN",
+        "proposedAt": "2026-11-19T11:00:00.000Z",
+        "expiresAt": "2026-11-19T12:00:00.000Z"
+      },
+      "policy": {
+        "policyVersion": "1",
+        "capability": "UNKNOWN",
+        "mode": "none",
+        "rail": "EXAMPLE_UNCLASSIFIED_RAIL",
+        "arbiterSelection": "unproven",
+        "appeal": "ARBITER_REASSIGNABLE",
+        "hosting": "PARTIES_HOLD_COPIES_HOST_CONVENIENCE_FAILOVER_OPEN",
+        "liveness": "NONE_UNPROVEN"
+      },
+      "expect": [
+        "E26_CONTRADICTORY_ARBITRATION_TERMS:appeal"
+      ]
+    },
+    {
       "name": "REFUSED invalid capability value (ordered list: every rule it breaks)",
       "commitment": {
         "commitmentDigest": "e71471104103921147f814c43fe0a44b665c182b62d307d2b9535d0d1f7075eb",
@@ -3265,6 +3352,199 @@
         "ok": false,
         "code": "E26_NONCANONICAL_FIELD",
         "field": "policy.hosting"
+      }
+    },
+    {
+      "name": "E26 taker signature carries another receipt than its trade signature (one action, one server stamp)",
+      "input": {
+        "trade": {
+          "commitment": {
+            "anchorRef": "7b0c8f2e-1a2b-4c3d-9e8f-000000000001",
+            "offerEnvelopeDigest": "cf337063918eb519cb8863c9d305f16e03ab1e67299ecd81ed90e66c6bede4aa",
+            "offerLogicalId": "offer-vector-0001",
+            "offerRevision": 3,
+            "makerPublicKey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+            "takerPublicKey": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+            "side": "SELL",
+            "asset": "BTC",
+            "rail": "MULTISIG",
+            "network": "bitcoin-testnet",
+            "amount": "0.00500000",
+            "priceUsd": "65000.00000000",
+            "paymentMethod": "PIX",
+            "feePolicyVersionId": "3f1d2c4b-5a6e-4f70-8a9b-000000000002",
+            "feePolicyDigest": "8ee10874513fdc5a16527a17139664d0554747cf60f92bf862fb82ceb6f0fee5",
+            "proposedAt": "2026-11-19T11:00:00.000Z",
+            "expiresAt": "2026-11-19T12:00:00.000Z"
+          },
+          "declaredDigest": "e71471104103921147f814c43fe0a44b665c182b62d307d2b9535d0d1f7075eb",
+          "offer": {
+            "digest": "cf337063918eb519cb8863c9d305f16e03ab1e67299ecd81ed90e66c6bede4aa",
+            "logicalOfferId": "offer-vector-0001",
+            "revision": 3,
+            "ownerPublicKey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+            "side": "SELL",
+            "asset": "BTC",
+            "priceUsd": "65000.00000000",
+            "paymentMethod": "PIX",
+            "minAmount": "0.00100000",
+            "maxAmount": "0.01000000",
+            "expiresAt": "2026-11-20T10:00:00.000Z"
+          },
+          "feePolicy": {
+            "protocolFeeRate": "0.004",
+            "payerModel": "SELLER_PAYS",
+            "economicBasis": "SELLER_DELIVERED_VALUE",
+            "requiredConfirmations": 2,
+            "smallTradeRule": null
+          },
+          "enabledRails": [
+            "MULTISIG"
+          ],
+          "maker": {
+            "signature": "3898e7ffa2d914695f46e34abeddf3dd70841a7b615749659f68031545ed5f5507fd52750f9fb5d47c3c4b38a040d1d8c195bf0a0c9cf35e753cfbc06eebe201",
+            "receivedAt": "2026-11-19T11:10:00.000Z"
+          },
+          "taker": {
+            "signature": "aa5427989c7c916ca36376e99a4ed4acc911cd16fae5021c7a0a1f277fa24a728b08bf5235dfbd8c185e125f20699dceb790d10ebc5059348ee68465ddd62101",
+            "receivedAt": "2026-11-19T11:10:00.000Z"
+          }
+        },
+        "arbitration": {
+          "commitment": {
+            "commitmentDigest": "e71471104103921147f814c43fe0a44b665c182b62d307d2b9535d0d1f7075eb",
+            "commitmentDomainTag": "sails-trade-commitment-v1",
+            "anchorRef": "7b0c8f2e-1a2b-4c3d-9e8f-000000000001",
+            "makerPublicKey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+            "takerPublicKey": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+            "rail": "MULTISIG",
+            "arbitrationCapability": "FIXED_ARBITER_COMMITMENT",
+            "arbitrationPolicyDigest": "a0687cfc36e934d881cef5c4bb88b1c97532cebbf178f45d0480d4d46515d226",
+            "arbiterRef": "17cb79fb2b4120f2b1ec65e4198d6e08b28e813feb01e4a400839b85e18080ce",
+            "proposedAt": "2026-11-19T11:00:00.000Z",
+            "expiresAt": "2026-11-19T12:00:00.000Z"
+          },
+          "declaredDigest": "c5b6b4b645dab531189a769cb1023a5960e25b1cc08dacc18125bc79537a97ca",
+          "policy": {
+            "policyVersion": "1",
+            "capability": "FIXED_ARBITER_COMMITMENT",
+            "mode": "trusted-list",
+            "rail": "MULTISIG",
+            "arbiterSelection": "fixed",
+            "appeal": "NONE_SCRIPT_FIXED",
+            "hosting": "PARTIES_HOLD_COPIES_HOST_CONVENIENCE_FAILOVER_OPEN",
+            "liveness": "NONE_UNDER_CURRENT_SCRIPT"
+          },
+          "maker": {
+            "signature": "328e28d3ae4a608d0d581f56ae9797251f5bd9be570aa9bff447c2c2ce4810b63af08fa121184c162be19f5bbbd9663864281f5a373d87ac4a465d7fda4fd908",
+            "receivedAt": "2026-11-19T11:10:00.000Z"
+          },
+          "taker": {
+            "signature": "e9420511312dede5754b50a990d2e058437f3d0d492fed6a91d119d1e59a0f24cfd733dc0d535cf33295a2a9a22cbf9b6ca9489d3e330b3877335d7cd323670e",
+            "receivedAt": "2026-11-19T11:10:00.001Z"
+          }
+        }
+      },
+      "expect": {
+        "ok": false,
+        "code": "E26_COSIGNATURE_INCOMPLETE",
+        "field": "taker.receivedAt"
+      }
+    },
+    {
+      "name": "E26 declared digest differs from the recomputed one",
+      "input": {
+        "trade": {
+          "commitment": {
+            "anchorRef": "7b0c8f2e-1a2b-4c3d-9e8f-000000000001",
+            "offerEnvelopeDigest": "cf337063918eb519cb8863c9d305f16e03ab1e67299ecd81ed90e66c6bede4aa",
+            "offerLogicalId": "offer-vector-0001",
+            "offerRevision": 3,
+            "makerPublicKey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+            "takerPublicKey": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+            "side": "SELL",
+            "asset": "BTC",
+            "rail": "MULTISIG",
+            "network": "bitcoin-testnet",
+            "amount": "0.00500000",
+            "priceUsd": "65000.00000000",
+            "paymentMethod": "PIX",
+            "feePolicyVersionId": "3f1d2c4b-5a6e-4f70-8a9b-000000000002",
+            "feePolicyDigest": "8ee10874513fdc5a16527a17139664d0554747cf60f92bf862fb82ceb6f0fee5",
+            "proposedAt": "2026-11-19T11:00:00.000Z",
+            "expiresAt": "2026-11-19T12:00:00.000Z"
+          },
+          "declaredDigest": "e71471104103921147f814c43fe0a44b665c182b62d307d2b9535d0d1f7075eb",
+          "offer": {
+            "digest": "cf337063918eb519cb8863c9d305f16e03ab1e67299ecd81ed90e66c6bede4aa",
+            "logicalOfferId": "offer-vector-0001",
+            "revision": 3,
+            "ownerPublicKey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+            "side": "SELL",
+            "asset": "BTC",
+            "priceUsd": "65000.00000000",
+            "paymentMethod": "PIX",
+            "minAmount": "0.00100000",
+            "maxAmount": "0.01000000",
+            "expiresAt": "2026-11-20T10:00:00.000Z"
+          },
+          "feePolicy": {
+            "protocolFeeRate": "0.004",
+            "payerModel": "SELLER_PAYS",
+            "economicBasis": "SELLER_DELIVERED_VALUE",
+            "requiredConfirmations": 2,
+            "smallTradeRule": null
+          },
+          "enabledRails": [
+            "MULTISIG"
+          ],
+          "maker": {
+            "signature": "3898e7ffa2d914695f46e34abeddf3dd70841a7b615749659f68031545ed5f5507fd52750f9fb5d47c3c4b38a040d1d8c195bf0a0c9cf35e753cfbc06eebe201",
+            "receivedAt": "2026-11-19T11:10:00.000Z"
+          },
+          "taker": {
+            "signature": "aa5427989c7c916ca36376e99a4ed4acc911cd16fae5021c7a0a1f277fa24a728b08bf5235dfbd8c185e125f20699dceb790d10ebc5059348ee68465ddd62101",
+            "receivedAt": "2026-11-19T11:10:00.000Z"
+          }
+        },
+        "arbitration": {
+          "commitment": {
+            "commitmentDigest": "e71471104103921147f814c43fe0a44b665c182b62d307d2b9535d0d1f7075eb",
+            "commitmentDomainTag": "sails-trade-commitment-v1",
+            "anchorRef": "7b0c8f2e-1a2b-4c3d-9e8f-000000000001",
+            "makerPublicKey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+            "takerPublicKey": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+            "rail": "MULTISIG",
+            "arbitrationCapability": "FIXED_ARBITER_COMMITMENT",
+            "arbitrationPolicyDigest": "a0687cfc36e934d881cef5c4bb88b1c97532cebbf178f45d0480d4d46515d226",
+            "arbiterRef": "17cb79fb2b4120f2b1ec65e4198d6e08b28e813feb01e4a400839b85e18080ce",
+            "proposedAt": "2026-11-19T11:00:00.000Z",
+            "expiresAt": "2026-11-19T12:00:00.000Z"
+          },
+          "declaredDigest": "e71471104103921147f814c43fe0a44b665c182b62d307d2b9535d0d1f7075eb",
+          "policy": {
+            "policyVersion": "1",
+            "capability": "FIXED_ARBITER_COMMITMENT",
+            "mode": "trusted-list",
+            "rail": "MULTISIG",
+            "arbiterSelection": "fixed",
+            "appeal": "NONE_SCRIPT_FIXED",
+            "hosting": "PARTIES_HOLD_COPIES_HOST_CONVENIENCE_FAILOVER_OPEN",
+            "liveness": "NONE_UNDER_CURRENT_SCRIPT"
+          },
+          "maker": {
+            "signature": "328e28d3ae4a608d0d581f56ae9797251f5bd9be570aa9bff447c2c2ce4810b63af08fa121184c162be19f5bbbd9663864281f5a373d87ac4a465d7fda4fd908",
+            "receivedAt": "2026-11-19T11:10:00.000Z"
+          },
+          "taker": {
+            "signature": "e9420511312dede5754b50a990d2e058437f3d0d492fed6a91d119d1e59a0f24cfd733dc0d535cf33295a2a9a22cbf9b6ca9489d3e330b3877335d7cd323670e",
+            "receivedAt": "2026-11-19T11:10:00.000Z"
+          }
+        }
+      },
+      "expect": {
+        "ok": false,
+        "code": "E26_DIGEST_MISMATCH"
       }
     }
   ]

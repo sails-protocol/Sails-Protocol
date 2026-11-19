@@ -25,7 +25,7 @@ export type ArbitrationCapability = (typeof ARBITRATION_CAPABILITIES)[number]
 
 export type E26RefusalCode =
   | 'E26_NONCANONICAL_FIELD' | 'E26_COMMITMENT_BINDING_MISMATCH' | 'E26_POLICY_DIGEST_MISMATCH'
-  | 'E26_TERMS_REFUSED' | 'E26_DIGEST_MISMATCH' | 'E26_COSIGNATURE_INCOMPLETE' | 'E26_SIGNATURE_INVALID' | 'E26_EXPIRED'
+  | 'E26_TERMS_REFUSED' | 'E26_DIGEST_MISMATCH' | 'E26_COSIGNATURE_INCOMPLETE' | 'E26_SIGNATURE_INVALID'
 /** `E26_TERMS_REFUSED` carries the ordered rule violations (R1 -> R7) in `terms`. */
 export type E26Refusal = { ok: false; code: E26RefusalCode; field?: string; terms?: string[] }
 
@@ -155,8 +155,8 @@ export function evaluateCommitmentPair(e: CommitmentPairEvaluation): CommitmentP
     if (!sig !== !tradeSig) return bad('E26_COSIGNATURE_INCOMPLETE', role)
     if (!sig) continue
     if (!verifyDigestSignature(digest, sig.signature, key)) return bad('E26_SIGNATURE_INVALID', role)
-    if (sig.receivedAt !== e.trade[role]?.receivedAt) return bad('E26_COSIGNATURE_INCOMPLETE', `${role}.receivedAt`) // one action, one receipt
-    if (Date.parse(sig.receivedAt) >= Date.parse(a.expiresAt)) return bad('E26_EXPIRED', role)
+    // One action, one server stamp; expiry is then already enforced on the trade signature (same expiresAt).
+    if (sig.receivedAt !== e.trade[role]?.receivedAt) return bad('E26_COSIGNATURE_INCOMPLETE', `${role}.receivedAt`)
   }
   return { ok: true, state: trade.state, commitmentDigest: trade.digest, arbitrationCommitmentDigest: digest }
 }
