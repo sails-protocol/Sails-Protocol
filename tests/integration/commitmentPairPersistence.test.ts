@@ -5,6 +5,10 @@
  */
 import nacl from 'tweetnacl'
 import { randomUUID } from 'crypto'
+import { spawn } from 'child_process'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import path from 'path'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 
 const hex = (b: Uint8Array) => Buffer.from(b).toString('hex')
@@ -253,5 +257,57 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     await rawRefused(prisma.$executeRaw`INSERT INTO "commitment_pairs" ("id","anchorRef","commitmentDigest","arbitrationCommitmentDigest","trade","arbitration","policy","feePolicyVersionId","rail","capability","state","makerTradeSig","makerArbitrationSig","makerReceivedAt")
       VALUES (${randomUUID()}, ${g.commitment.anchorRef}, ${g.cd}, ${g.ad}, ${JSON.stringify(g.commitment)}::jsonb, ${JSON.stringify(g.arbitration)}::jsonb, ${JSON.stringify(g.policy)}::jsonb,
               ${feePolicyVersionId}, 'MULTISIG', 'FIXED_ARBITER_COMMITMENT', 'PARTIALLY_SIGNED', ${sign(g.cd, maker)}, ${sign(g.ad, maker)}, clock_timestamp())`)
+  })
+
+  // ── D-1 and "the pair is never partial": a real OS process SIGKILLed at three points of signPair() ───────────
+  const WORKER = path.join(__dirname, 'commitmentPairKill.worker.ts')
+  async function killAt(point: string, input: unknown): Promise<string> {
+    const dir = mkdtempSync(path.join(tmpdir(), 'f3kill-'))
+    const child = spawn(process.execPath, ['-r', 'ts-node/register/transpile-only', WORKER], {
+      cwd: path.join(__dirname, '..', '..'),
+      env: { ...process.env, SYNC_DIR: dir, KILL_AT: point, SIGN_INPUT: JSON.stringify(input), ENABLED_RAILS: JSON.stringify(['MULTISIG', 'WDK_USDT_EVM']) },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    })
+    let stderr = ''
+    child.stderr!.on('data', (d: Buffer) => { stderr = (stderr + d.toString()).slice(-5_000) })
+    const exited = new Promise<void>((r) => child.on('exit', () => r()))
+    for (let i = 0; i < 600 && !existsSync(path.join(dir, 'arrived')); i++) {
+      if (child.exitCode !== null) throw new Error(`worker exited before ${point}: ${stderr}`)
+      await sleep(100)
+    }
+    const arrived = JSON.parse(readFileSync(path.join(dir, 'arrived'), 'utf8')).point
+    child.kill('SIGKILL')
+    await exited
+    rmSync(dir, { recursive: true, force: true })
+    return arrived
+  }
+
+  for (const point of ['after-pair-update', 'after-claim'] as const) {
+    it(`SIGKILL inside the transaction (${point}): nothing persists - the pair is unchanged and no claim exists; the retry with the same key commits once`, async () => {
+      pg.requirePostgres(`F3 SIGKILL ${point}`)
+      const s = service(); const f = fresh()
+      const p = await s.proposePair(f.proposeInput())
+      const input = f.makerSign(p.pairId)
+      expect(await killAt(point, input)).toBe(point)
+      const row = await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })
+      expect(row).toMatchObject({ state: 'PARTIALLY_SIGNED', makerTradeSig: null, makerReceivedAt: null, committedAnchorRef: null })
+      expect(await prisma.idempotencyKey.count({ where: { key: input.idempotencyKey } })).toBe(0)
+      expect(await s.signPair(input)).toMatchObject({ pairId: p.pairId, state: 'COMMITTED' })
+      expect(await prisma.idempotencyKey.count({ where: { key: input.idempotencyKey } })).toBe(1)
+    })
+  }
+
+  it('SIGKILL after COMMIT, before the answer: the effect and its claim both persisted; the retry re-reads the pair (no second effect)', async () => {
+    pg.requirePostgres('F3 SIGKILL after-commit')
+    const s = service(); const f = fresh()
+    const p = await s.proposePair(f.proposeInput())
+    const input = f.makerSign(p.pairId)
+    expect(await killAt('after-commit', input)).toBe('after-commit')
+    const row = await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })
+    expect(row.state).toBe('COMMITTED')
+    const stamp = row.makerReceivedAt.getTime()
+    expect(await s.signPair(input)).toMatchObject({ pairId: p.pairId, state: 'COMMITTED' })
+    expect((await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })).makerReceivedAt.getTime()).toBe(stamp)
+    expect(await prisma.idempotencyKey.count({ where: { key: input.idempotencyKey } })).toBe(1)
   })
 })
