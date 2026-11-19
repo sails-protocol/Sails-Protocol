@@ -148,7 +148,9 @@ export async function reconcileStalePendingDisputeTranslations(): Promise<StaleP
       }
 
       const network = networkFor(config.multisig.network)
-      const result = validateTranslatedOutputsAgainstOutcome(pending.unsignedPsbtBase64, record.outcome, network)
+      // Same call as the live paths (dispute.service.ts, dispute-dispatch-recovery.ts): the declared miner fee stored with the round is
+      // checked against the fee its own PSBT implies. A null fee (legacy / non-policy-aware round) keeps skipping that one check.
+      const result = validateTranslatedOutputsAgainstOutcome(pending.unsignedPsbtBase64, record.outcome, network, pending.minerFeeSats ?? undefined)
 
       if (result.ok) {
         report.reconciled.push({ escrowId: pending.escrowId, pendingTransactionId: pending.id, verdict: 'LEFT_GUARD_PASSED' })

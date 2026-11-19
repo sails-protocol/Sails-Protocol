@@ -11,12 +11,14 @@
 // around it — same division of labor tests/escrowSettlementReconciliation.test.ts
 // already establishes for the sibling PASS 1/PASS 2 reconciliation module.
 
+// The three fee limits are the shipped defaults (src/config/index.ts); only the real-guard block at the end reads them.
 jest.mock('../src/config', () => ({
-  config: { multisig: { network: 'testnet' } },
+  config: { multisig: { network: 'testnet', maxFeeRateSatsPerVByte: 200, maxFeeProportionOfGrossBasisPoints: 2000, minFeeFloorSats: 10000 } },
 }))
 
+const mockNetworkFor = jest.fn((): unknown => 'testnet')
 jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
-  networkFor: jest.fn(() => 'testnet'),
+  networkFor: () => mockNetworkFor(),
 }))
 
 const mockLoadDisputeRulingRecord = jest.fn()
@@ -53,7 +55,9 @@ jest.mock('../src/modules/open-settlement/escrow-lifecycle', () => ({
   },
 }))
 
+import * as bitcoin from 'bitcoinjs-lib'
 import { reconcileStalePendingDisputeTranslations } from '../src/modules/open-settlement/dispute-pending-reconciliation'
+import { buildArbitrationOutcome, buildOutcomeDestinationBinding } from '../src/modules/open-settlement/economic-outcome'
 
 const SIX_MIN_AGO = new Date(Date.now() - 6 * 60 * 1000)
 const NOW = new Date()
@@ -218,5 +222,115 @@ describe('reconcileStalePendingDisputeTranslations() — M9 stale pending-artifa
     const report = await reconcileStalePendingDisputeTranslations()
 
     expect(report).toEqual({ reconciled: [], skippedTooYoung: [], skippedHasSignatures: [], failed: [] })
+  })
+})
+
+// Issue #343 (AUX-B3, PR A) - declared-fee parity with the live guard. The live paths (dispute.service.ts, dispute-dispatch-recovery.ts)
+// hand the guard `pending.minerFeeSats ?? undefined`; the sweep used to hand it nothing, so a round whose only defect is a declared
+// fee that disagrees with its own PSBT passed here although the live guard would have rejected it. The suite above mocks the guard,
+// which is why that difference was invisible: this block runs the REAL guard on a REAL PSBT. It proves parity of the guard's inputs
+// and verdicts only - it does not make a signed or never-validated round safe (that is outside this change).
+describe('reconcileStalePendingDisputeTranslations() - declared miner fee parity with the live guard (real guard, real PSBT)', () => {
+  const realGuard = jest.requireActual('../src/modules/open-settlement/dispatch-translation-guard') as typeof import('../src/modules/open-settlement/dispatch-translation-guard')
+  const { buildRulingOutcomeContent } = jest.requireActual('../src/modules/open-settlement/dispute-outcome') as typeof import('../src/modules/open-settlement/dispute-outcome')
+  const NETWORK = bitcoin.networks.regtest
+  const BUYER_ADDRESS = bitcoin.payments.p2wpkh({ pubkey: Buffer.from('021744d7bd3cd8e7f62e7aa8f7db8292680b745d09f8f40377c4bbbc0136d4e299', 'hex'), network: NETWORK }).address!
+  const OUTCOME = buildArbitrationOutcome(
+    buildRulingOutcomeContent('RELEASE', '100000', 'BTC', 'buyer-1', 'seller-1', null),
+    buildOutcomeDestinationBinding([{ beneficiary: 'buyer-1', destination: BUYER_ADDRESS }]),
+  )
+  // Input 100_500, one correct output of 100_000: the fee the PSBT really implies is 500 sats, and everything else about it is faithful.
+  const PSBT = (() => {
+    const psbt = new bitcoin.Psbt({ network: NETWORK })
+    psbt.addInput({ hash: 'a'.repeat(64), index: 0, witnessUtxo: { script: bitcoin.address.toOutputScript(BUYER_ADDRESS, NETWORK), value: BigInt(100_500) } })
+    psbt.addOutput({ address: BUYER_ADDRESS, value: BigInt(100_000) })
+    return psbt.toBase64()
+  })()
+  const IMPLIED_FEE = 500
+
+  beforeEach(() => {
+    mockNetworkFor.mockReturnValue(NETWORK)
+    mockValidateTranslatedOutputsAgainstOutcome.mockImplementation(realGuard.validateTranslatedOutputsAgainstOutcome)
+    mockFromDisputeRulingRow.mockReturnValue({ outcome: OUTCOME })
+  })
+  afterEach(() => {
+    mockNetworkFor.mockReturnValue('testnet')
+    mockValidateTranslatedOutputsAgainstOutcome.mockReset()
+  })
+
+  const round = (minerFeeSats: number | null, extra: Record<string, unknown> = {}) =>
+    pendingFixture({ unsignedPsbtBase64: PSBT, minerFeeSats, ...extra })
+
+  it('a declared fee that disagrees with the PSBT is a guard failure: the round is deleted (it was LEFT_GUARD_PASSED before this change)', async () => {
+    mockPendingFindMany.mockResolvedValue([round(IMPLIED_FEE - 100)])
+
+    const report = await reconcileStalePendingDisputeTranslations()
+
+    expect(report.reconciled).toEqual([{ escrowId: 'escrow-1', pendingTransactionId: 'pending-1', verdict: 'DELETED_GUARD_FAILED' }])
+    expect(mockPendingDeleteMany).toHaveBeenCalledWith(CONDITIONAL_DELETE)
+  })
+
+  it('the stored declared fee reaches the guard as its fourth argument, exactly as the live paths pass it', async () => {
+    mockPendingFindMany.mockResolvedValue([round(IMPLIED_FEE)])
+
+    await reconcileStalePendingDisputeTranslations()
+
+    expect(mockValidateTranslatedOutputsAgainstOutcome).toHaveBeenCalledWith(PSBT, OUTCOME, NETWORK, IMPLIED_FEE)
+  })
+
+  it('a declared fee that matches the PSBT leaves the round alone', async () => {
+    mockPendingFindMany.mockResolvedValue([round(IMPLIED_FEE)])
+
+    const report = await reconcileStalePendingDisputeTranslations()
+
+    expect(report.reconciled).toEqual([{ escrowId: 'escrow-1', pendingTransactionId: 'pending-1', verdict: 'LEFT_GUARD_PASSED' }])
+    expect(mockPendingDeleteMany).not.toHaveBeenCalled()
+  })
+
+  it('a null declared fee keeps the existing behavior: no fee check, the guard gets no fourth argument, the faithful round is left alone', async () => {
+    mockPendingFindMany.mockResolvedValue([round(null)])
+
+    const report = await reconcileStalePendingDisputeTranslations()
+
+    expect(mockValidateTranslatedOutputsAgainstOutcome.mock.calls[0].slice(0, 3)).toEqual([PSBT, OUTCOME, NETWORK])
+    expect(mockValidateTranslatedOutputsAgainstOutcome.mock.calls[0][3]).toBeUndefined()
+    expect(report.reconciled).toEqual([{ escrowId: 'escrow-1', pendingTransactionId: 'pending-1', verdict: 'LEFT_GUARD_PASSED' }])
+    expect(mockPendingDeleteMany).not.toHaveBeenCalled()
+  })
+
+  it.each([[IMPLIED_FEE], [IMPLIED_FEE - 100], [IMPLIED_FEE + 1], [0], [null]])(
+    'parity: for a declared fee of %p the sweep reaches the verdict the live guard call (declared fee ?? undefined) reaches',
+    async (declared) => {
+      mockPendingFindMany.mockResolvedValue([round(declared)])
+      const live = realGuard.validateTranslatedOutputsAgainstOutcome(PSBT, OUTCOME, NETWORK, declared ?? undefined).ok
+
+      const report = await reconcileStalePendingDisputeTranslations()
+
+      expect(report.reconciled.map((r) => r.verdict)).toEqual([live ? 'LEFT_GUARD_PASSED' : 'DELETED_GUARD_FAILED'])
+    },
+  )
+
+  // Signatures stay protected on the route this change opens (a fee-only mismatch now ends in a delete).
+  it('a round that already carries a signature is never validated or deleted, whatever its declared fee says', async () => {
+    mockPendingFindMany.mockResolvedValue([round(IMPLIED_FEE - 100, { signatures: [{ participantId: 'buyer-1' }] })])
+
+    const report = await reconcileStalePendingDisputeTranslations()
+
+    expect(report.skippedHasSignatures).toEqual(['escrow-1'])
+    expect(report.reconciled).toEqual([])
+    expect(mockValidateTranslatedOutputsAgainstOutcome).not.toHaveBeenCalled()
+    expect(mockPendingDeleteMany).not.toHaveBeenCalled()
+  })
+
+  it('a signature that lands after the zero-signature snapshot keeps a fee-mismatched round: the conditional delete removes nothing and the round is reported as signed', async () => {
+    mockPendingFindMany.mockResolvedValue([round(IMPLIED_FEE - 100)])
+    mockPendingDeleteMany.mockResolvedValueOnce({ count: 0 })
+    mockPendingCount.mockResolvedValueOnce(1)
+
+    const report = await reconcileStalePendingDisputeTranslations()
+
+    expect(mockPendingDeleteMany).toHaveBeenCalledWith(CONDITIONAL_DELETE)
+    expect(report.skippedHasSignatures).toEqual(['escrow-1'])
+    expect(report.reconciled).toEqual([])
   })
 })
