@@ -142,6 +142,14 @@ describe('F32-A party-absence signals (pure evaluator)', () => {
     expect(out.signals.s0RoundCommitted).toEqual({ state: 'DESCONHECIDO', reason: 'DATA_INVALIDA' })
   })
 
+  it('T-A15 RESOLVED with a ruling but no stored authority signature (legacy path) is not a committed ruling: E0 DESCONHECIDO (kills: isRuled without the signature check)', () => {
+    const legacy = evaluatePartyAbsenceSignals(base({ dispute: { ok: true, value: dispute({ status: 'RESOLVED', ruling: 'RELEASE', authoritySignature: null }) } }))
+    expect(legacy.signals.s0RoundCommitted).toEqual({ state: 'DESCONHECIDO', reason: 'RULING_NULO_OU_REVERTIDO' })
+    expect(legacy.signals.s7Ruling.state).toBe('NAO_OBSERVADO')
+    expect(legacy.signals.s1RequiredSignature.state).toBe('DESCONHECIDO')
+    expect(legacy.status).toBe('AGUARDANDO_RULING')
+  })
+
   it('T-A11a the evaluator is pure: no imports, no I/O, no clock of its own', () => {
     const src = fs.readFileSync(path.join(__dirname, '../src/modules/open-settlement/party-absence-signals.ts'), 'utf8')
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
