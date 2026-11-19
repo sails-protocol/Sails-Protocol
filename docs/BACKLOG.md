@@ -5968,3 +5968,68 @@ A future Sails-operated OpenTimestamps-compatible aggregator/calendar is OPTIONA
 **Migration `20261116120000_fee_collection_evidence_seq`.** It is present in `main` but is not known to have been applied to any persistent database, and no persistent environment is designated (CTO 142/144). The database steps are separately gated and unauthorized: role bootstrap, `npm run db:migrate`, the post-migration review of historical evidence order (`docs/DEPLOYMENT.md` §6.5), the inventories of duplicate and partially reversed allocations, and any economic activation. `docs/DEPLOYMENT.md` §6.3 and §6.5 hold the existing procedures.
 
 **Still open and unchanged by this entry:** C9 (HOLD: O3, compaction, network integration); H42 (STOP: the external integrator's recoverable event consumption is not chosen or built); E21/F28 (open; #651 is a Draft); the ordering of escrow funding/release evidence (HOLD); E25/F33 without homologation.
+
+---
+
+## Institutional status after the #678–#696 integration run (2026-11-18)
+
+**Status: CURRENT — DOCUMENTARY RECONCILIATION. It records facts already decided elsewhere (CTO 397–418); it is not a homologation, a migration or an economic activation, and it changes no criterion.** The authoritative records of Day-0 homologation remain Issue #105 and the live GitHub Project; if this entry conflicts with them, they govern. Each statement below is marked **in force**, **superseded** or **pending**.
+
+**Day-0 formal count: 4/54 (A1, A2, A3, B4); CC12–CC17: 0/6; Day 0 remains NO-GO.** Nothing below changes these numbers.
+
+### Integrated into `main` (in force)
+
+| PR | Subject | Merge commit on `main` | Risk class | CI on `main` at that commit |
+| --- | --- | --- | --- | --- |
+| #678 | SDK CHANGELOG note for the `bitcoinjs-lib ^7.0.5` floor | `d944ff32` | R1 (docs) | CI, CI Tests, CodeQL succeeded |
+| #683 | SAFE bundler result is bound to the submitted UserOperation hash (#325/#258) | `1db1a631` | R3 | CI, CI Tests, CodeQL succeeded |
+| #684 | `concurrency` in the three pull-request workflows (cancels obsolete runs of the same PR only) | `e686465c` | R3 (workflow) | CI, CI Tests, CodeQL succeeded |
+| #681 | Fail-closed strict parse of the QVAC confidence threshold and contest window (#330/#311) | `18418876` | R3 | CI, CI Tests, CodeQL succeeded |
+| #687 | `FeePolicyVersion` rate validation in `createDraft()` and `publish()` (finite, non-negative, at most 8 decimals, no rounding) | `29e4ef5a` | R3 | CI, CI Tests, CodeQL succeeded |
+| #686 | Remove the inert `PROTOCOL_FEE_RATE` setting and correct its documentation (the effective fee stays `FeePolicyVersion`) | `f24e65b5` | R3 | CI, CI Tests, CodeQL succeeded |
+| #688 | Strict positive-integer validation (capped at the Node timer limit 2147483647) of `DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS`, and stale QVAC comments corrected (items 3 and 5 of #311) | `8e8fc997` | R3 | CI and CodeQL succeeded; CI Tests failed on an unrelated integration test (`wdkUnresolvedAttemptGuard`, three cases hit the 120 s timeout), under investigation |
+| #682 | `reconcileTrade()` in the SDK is typed as the object the route returns (type change only, no runtime change, no SDK version) | `5f83e4c6` | R2 | CI and CodeQL succeeded; CI Tests failed once on the known flaky test of Issue #298 (fixed in the test by #694) |
+| #693 | Strict positive-integer validation, without a timer cap, of 11 security windows whose zero, negative or malformed value failed open (circuit breaker, WebSocket, suspicious activity, Redis auth/critical rate limit) | `07640fdc` | R3 | CI, CI Tests, CodeQL succeeded |
+| #692 | Strict positive-integer validation, capped at the Node timer limit 2147483647, of 8 variables that feed timers (6 intervals, 2 timeouts) | `dfd578de` | R3 | CI, CI Tests, CodeQL succeeded |
+| #694 | Test-only fix of the intermittent failure of Issue #298 (claims created with `appliedAt` one second in the past in the grace-0 tests) | `3795f0fe` | R2 (test) | CI, CI Tests, CodeQL succeeded |
+| #685 | `rebase-strategy: disabled` for the three ecosystems in `.github/dependabot.yml` | `a3ab1f70` | R3 (config) | CI, CI Tests, CodeQL succeeded |
+| #696 | Test-only: the grace-0 cases of `wdkUnresolvedAttemptGuard` and its worker stop reading the public explorer (`externalSpendMinIntervalMs` = Infinity), whose latency made the push CI of `8e8fc997` time out | `c1a0f84d` | R2 (test) | not verified when this entry was written |
+
+Every merge was individually authorized by the CTO for one exact head, after an independent Gatekeeper opinion for that SHA. The Gatekeeper's opinions are technical; they are not homologation.
+
+**CI of `main` is not uniformly green.** The push of `8e8fc997` failed in `wdkUnresolvedAttemptGuard` (timeouts of three SIGKILL cases) and the push of `5f83e4c6` failed in the test of Issue #298; both were first noticed after the merge, and both are unrelated to the diff of their PR by inspection. `#694` fixes the second in the test; the first is under investigation. The later pushes (`07640fdc`, `dfd578de`, `3795f0fe`) succeeded.
+
+### Decisions in force
+
+- **QVAC (CTO 399):** the 720-hour ceiling on the contest window is a defensive configuration limit, not a business deadline. The default stays 24 hours and the automation flag stays OFF. A confidence threshold of `0` is accepted by the parser only; it does not authorize production use or enabling the automation.
+- **`FeePolicyVersion` (CTO 413):** P1 (strict validation, no migration, no ceiling, published policies not re-validated) is integrated by #687. **P2** (a database `CHECK`, which is a migration) is only investigation and planning; no migration is authorized. **P3** (an economic ceiling on the fee) is an economic decision of the CTO; no value is chosen and the current policy is unchanged. Through Prisma a `NaN` rate never reaches the database; the remaining path is a legacy row or raw SQL, which `publish()` now refuses.
+- **Actions concurrency (CTO 403/415):** #684 is integrated, but its effect is **not yet measured**. The first real cancellation of an obsolete run has not been observed, and none is to be provoked. Re-running a run of an old SHA cancels the newer run of the same PR; do not do it without need.
+- **Updating a pull request behind `main`:** use GitHub "Update branch" (a merge, never a rebase), or the API `PUT /pulls/{n}/update-branch` with `expected_head_sha`, only on the PR chosen for the next integration. The Dependabot command `@dependabot rebase` is not documented to work when `rebase-strategy` is `disabled`; `@dependabot recreate` replaces the whole head. Documentation also says PRs opened before the change keep being rebased for up to 30 days.
+
+### Superseded
+
+- **PR #325** (bind the SAFE bundler result to `bundle.userOpHash`) is closed as superseded by #683, which recomputes the hash from the submitted UserOperation. The branch is preserved. Issue #258 stays open in Validation.
+- **Nine more Draft pull requests were closed administratively as superseded (CTO 429)**, each with a traceability comment and its branch preserved, based on the Gatekeeper's read-only equivalence opinion: #563 (about 99% of its lines are on main, the rest relocated), #367 (equivalent to #674), #390 (equivalent to #593), #348 (covered by #681 and #688), #396 (the same 11 variables as #693), #457 (Node 24 is already configured), #642 (superseded by #674; its inherited comment belongs to the never-integrated #639 stack), #605 (bitcoinjs-lib 7.0.5 is on main through #595) and #672 (the same change as #694, which covers more). This is a reduction of administrative debt, not nine new technical fixes; no issue, Day-0 criterion or Project card was closed.
+- **PR #330** (fail-closed QVAC configuration, Issue #311) is closed as covered by #681 (the strict parse of the threshold and window) and #688 (the sweeper interval validation and the corrected stale comments). The branch is preserved. Issue #311 stays open in Validation; the closure is not a homologation.
+
+### Pending (open, none authorized to merge here)
+
+- **Issue #298:** the fix is in the test (#694); the issue is not declared closed until later executions of the CI confirm it. A separate intermittency, a 5000 ms timeout of an interactive Prisma transaction under local memory pressure, was seen once locally and not in the CI; it is only observed.
+- **`wdkUnresolvedAttemptGuard` on `main` `8e8fc997`:** three cases timed out; cause not yet established.
+- **Evidence limits that remain:** the global per-instance `@fastify/rate-limit` under the authentication and critical routes was not analyzed; the text-valued `RATE_LIMIT_WINDOW` is a probable fail-open that is not proven; the ethers `FetchRequest.timeout` was not proven near 2^31-1; therefore no claim of full coverage is made.
+- **#685** is integrated (`rebase-strategy: disabled`); its effect on the Actions queue and on the number of pull requests behind `main` must be measured (first "Dependabot Updates" run, redundant CI, pull requests behind `main`), not assumed.
+- **Open, in review, none authorized to merge here:** #697 (recreates the #349 observability hardening: `/metrics` disabled by default in production, no internal feature flags in `/health` in production) and an isolated experiment, now authorized because #696 is integrated, for a Jest-level fallback of `MULTISIG_EXPLORER_API_URL` (it does not replace #696, adoption and merge need a new CTO decision, and #696 alone does not close the intermittency of the CI).
+- **Separate tasks:** removal of unused text-valued settings (needs proof that no consumer exists), and `FeePolicyVersion` P2 (a database `CHECK`, which is a migration: not authorized) and P3 (an economic ceiling: not chosen).
+### Blocked chains (CTO 418 classification; none authorizes a merge, deploy, migration or change of economic policy)
+
+| Chain | Decision | Review |
+| --- | --- | --- |
+| P3 Docker / self-host (#519, #521, #529, #530, #533, #536, #541, #544, #547, #554) | Deferred; keep as Draft | 2026-12-02 (a re-evaluation date, not a delivery deadline) |
+| Pubky + Pear experiment (#543) | Deferred; evidence preserved | 2026-12-02 |
+| P4 Gate 3 (#525, #535, #540) | Resume the analysis: revalidate dependencies and state integrity before any further implementation; no integration authorized | — |
+| #546 and #532 | HOLD; diagnose the failing CI check; no early release | — |
+| Documentation #531 and #538 | Resume as one consolidated reconciliation; do not integrate outdated documents | — |
+| Documentation #551 (economic amendments) | HOLD; depends on a specific economic decision; the 0.40% fee is not to be assumed as an activated policy | — |
+| Redis Streams #539 | Isolated evaluation of scope and tests; Redis Gate 2 remains NO-GO | — |
+
+**Still open and unchanged by this entry:** every item listed as open in the entry "Institutional status after the #654 integration (2026-11-16)" above, the database steps for any migration, and every economic activation.
