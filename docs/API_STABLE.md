@@ -131,7 +131,7 @@ would just be a synonym, not a real accessibility gain.
 ### `openp2p` / `trades`
 - `trade(offerId, amount)` → `Trade` *(requires session)*
 - `getTrade(tradeId)` → `Trade`
-- `getTradeByIntent(intentId)` → `Trade`
+- `getTradeByIntent(intentId)` → `Trade` *(requires session; same route as the Intent facade's `dispute`/`releaseAsset`, so it carries the same 2026-11-15 additive error outcomes listed under "Top-level" below: `409 AMBIGUOUS_INTENT`, and `404` instead of `403` for a non-party)*
 - `updateTradeStatus(tradeId, status)` → `Trade` *(requires session)*
 - `getMessages(tradeId)` → `Message[]` *(requires session)*
 - `chat(tradeId, options?)` → `WebSocketChannel` *(requires session)* — `.onMessage()`, `.onEvent()`, `.send()`, `.leave()`, `.close()`, `.onConnectionStateChange()`. Real reconnect-with-backoff by default as of 2026-08-02 (`options: WebSocketChannelOptions` — additive, `chat()`'s own signature was never frozen beyond its return type); `WebSocketChannel`'s own constructor changed shape (a socket factory, not a bare `WebSocket`) to make that possible — a disclosed, deliberate exception, not something `chat()` callers ever see
@@ -222,6 +222,35 @@ already exist; `releaseAsset` on a missing `toAddress` parameter, now
 added). `releaseAsset` gaining a required `toAddress` parameter is this
 document's own precedent for why that kind of change is additive, not
 breaking, for these six-verb methods specifically.
+
+**Behaviour change, 2026-11-15 (E21 slice 1, PR #651), additive:** the
+signatures and return types of `cancelIntent`, `dispute` and
+`releaseAsset` are unchanged; only their error outcomes are new. Every
+newly admitted trade has its own Intent (`Trade.tradeIntentId`, a child
+of the Offer's Intent).
+- `cancelIntent(intentId)` (`DELETE /v1/intents/:id`): unknown Intent
+  `404 NOT_FOUND`; a caller who does not own the Intent `403 FORBIDDEN`,
+  checked first, so a non-owner never learns whether it is bound.
+  **New:** an Intent that an Offer or a Trade references (an Offer's
+  Intent, or a trade's own `tradeIntentId`) answers `409 INTENT_BOUND`
+  and is left untouched. Such an Intent moves only with its Offer or
+  trade: cancel the trade with `openp2p.updateTradeStatus(tradeId,
+  'CANCELLED')`, the Offer with `liquidity.updateStatus(offerId,
+  'CANCELLED')`.
+- `dispute(intentId, reason)` and `releaseAsset(intentId, toAddress?)`
+  resolve the trade through `GET /v1/openp2p/trades/by-intent/:intentId`,
+  now scoped to the caller. A trade's own Intent resolves to that trade
+  for its buyer and seller; an Offer's Intent resolves to the caller's
+  only trade on that Offer. **New:** when the caller has several trades
+  on that Offer, `409 AMBIGUOUS_INTENT` with `details: { tradeIds }`
+  (the caller's own trade ids only); before, one of them was picked
+  arbitrarily. **Changed:** a caller who is not a party gets `404
+  NOT_FOUND` (`SailsNotFoundError`), the same answer as an unknown
+  Intent, instead of `403 FORBIDDEN`. Passing the trade's own
+  `tradeIntentId`, or calling `settlement.dispute(escrowId, ...)` /
+  `settlement.release(escrowId)` directly, never hits the 409.
+- In the SDK, `INTENT_BOUND` and `AMBIGUOUS_INTENT` arrive as a plain
+  `SailsError` with that `code` and `statusCode: 409`.
 
 🧪 **EXPERIMENTAL** — `negotiate` still throws `SailsNotImplementedError`
 unconditionally — the canonical fire-and-forget signature can't

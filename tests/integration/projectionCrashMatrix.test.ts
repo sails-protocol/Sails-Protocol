@@ -130,7 +130,7 @@ describe('Issue #253 - projection crash/recovery matrix (real PostgreSQL)', () =
       // the loser of the ruling is the one whose active vouch is burned
       await prisma.vouch.create({ data: { voucherId: voucher.id, voucheeId: spec.ruling === 'RELEASE' ? seller.id : buyer.id } })
     }
-    return { kind, spec, tradeId: trade.id, intentId: trade.intentId as string | null, escrowId: escrow.id, sellerId: seller.id, buyerId: buyer.id, voucherId: voucher.id }
+    return { kind, spec, tradeId: trade.id, intentId: (trade.tradeIntentId ?? trade.intentId) as string | null, escrowId: escrow.id, sellerId: seller.id, buyerId: buyer.id, voucherId: voucher.id }
   }
 
   async function snapshot(s: Awaited<ReturnType<typeof build>>) {

@@ -90,11 +90,16 @@ const mockCapabilityGrantTransaction = jest.fn(async (fn: (tx: unknown) => Promi
     trade: {
       updateMany: async () => ({ count: 1 }),
       findUnique: (...args: unknown[]) => mockTradeUpdate(...args),
+      // E21 slice 1 - the trade admission inserts the Trade (and reads the Offer) inside its transaction.
+      create: (...args: unknown[]) => mockTradeCreate(...args),
     },
+    offer: { findUnique: (...args: unknown[]) => mockOfferFindUnique(...args) },
+    idempotencyKey: { create: async () => ({ id: 'claim-1' }) },
     // Issue #253 - an Intent transition commits the status CAS and its IntentEvent in one transaction.
     intent: {
       updateMany: (...args: unknown[]) => mockIntentUpdateMany(...args),
       findUniqueOrThrow: (...args: unknown[]) => mockIntentFindUnique(...args),
+      create: (...args: unknown[]) => mockIntentCreate(...args), // E21 slice 1 - the trade's own Intent
     },
     intentEvent: {
       create: async (...args: unknown[]) => (await mockIntentEventCreate(...args)) ?? { id: 'intent-event-1' },
@@ -183,6 +188,7 @@ jest.mock('../src/common/database', () => ({
       findUnique: (...args: unknown[]) => mockEscrowFindUnique(...args),
       create: (...args: unknown[]) => mockEscrowCreate(...args),
       update: jest.fn().mockResolvedValue({}),
+      count: jest.fn().mockResolvedValue(0), // E21 slice 1 - legacy cancel: does the trade have an escrow of its own?
       // Robustness-audit fix (2026-07-20) — escrow.service.ts's own
       // comment has the full reasoning; same shape as the intent fix
       // above (a default successful claim is enough for route-level
@@ -298,11 +304,17 @@ jest.mock('../src/common/redis', () => ({
   },
 }))
 
+const mockPublishInTransaction = jest.fn(async (_tx: unknown, eventName: string, payload: unknown, correlationId: string) =>
+  ({ eventId: `evt-${eventName}`, eventName, payload, correlationId }))
+const mockDispatchCommitted = jest.fn()
 jest.mock('../src/common/events/event-bus', () => ({
   eventBus: {
     emit: jest.fn().mockResolvedValue(undefined),
     on: jest.fn(),
     onDurable: jest.fn(),
+    // E21 slice 1 - the trade admission writes its events in its own transaction, dispatching after the commit.
+    publishInTransaction: (...args: [unknown, string, unknown, string]) => mockPublishInTransaction(...args),
+    dispatchCommitted: (...args: unknown[]) => mockDispatchCommitted(...args),
   },
 }))
 
@@ -982,7 +994,6 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
         id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', status: 'PENDING',
         asset: 'BTC', amount: '0.01', priceUsd: '65000', // Decimal fields — real Prisma rows have .toString(), strings do too
       })
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', status: 'PENDING' }) // negotiationService.open()'s own lookup
 
       const res = await app.inject({
         method: 'POST',
@@ -995,32 +1006,25 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(mockTradeCreate).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ buyerId: 'buyer-1', sellerId: 'seller-1' }) })
       )
+      // E21 slice 1 - the negotiation is opened durably inside the admission transaction, and every event of the
+      // admission is dispatched only after it (trade.created, negotiation.opened, trade.status_changed).
+      expect(mockPublishInTransaction.mock.calls.map((c) => c[1])).toEqual(['openp2p.trade.created', 'negotiation.opened', 'openp2p.trade.status_changed'])
+      expect(mockDispatchCommitted.mock.calls.map((c) => (c[0] as { eventName: string }).eventName)).toEqual(['openp2p.trade.created', 'negotiation.opened', 'openp2p.trade.status_changed'])
     })
 
-    it('RFC-018: walks the offer\'s Intent through DISCOVERING -> MATCHED -> NEGOTIATING when a trade starts', async () => {
+    // E21 slice 1 replaces the old offer-Intent walk (DISCOVERING -> MATCHED -> NEGOTIATING on the Offer's single-shot
+    // Intent, which made every later trade on the same offer fail): the trade gets its OWN Intent, born NEGOTIATING,
+    // and the Offer's Intent is never transitioned by a trade.
+    it("E21: a trade gets its own Trade Intent (born NEGOTIATING, child of the offer's Intent) and the offer's Intent is not transitioned", async () => {
       const token = await authedSession('buyer-1')
       mockOfferFindUnique.mockResolvedValueOnce({
         id: 'offer-1', userId: 'seller-1', status: 'ACTIVE', side: 'SELL',
         asset: 'BTC', priceUsd: '65000', network: null, intentId: 'intent-1',
       })
-      mockTradeCreate.mockResolvedValueOnce({
-        id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', status: 'PENDING',
-        asset: 'BTC', amount: '0.01', priceUsd: '65000', intentId: 'intent-1',
-      })
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', status: 'PENDING' })
-      mockIntentEventFindFirst.mockResolvedValue(null)
-      // Robustness-audit fix (2026-07-20): each of the three transition()
-      // calls below now reads Intent twice (claim + re-fetch), not once —
-      // 6 queued values total, not 3. Order: DISCOVERING's (read, refetch),
-      // MATCHED's (read, refetch), NEGOTIATING's (read, refetch).
-      mockIntentFindUnique
-        .mockResolvedValueOnce({ id: 'intent-1', status: 'COORDINATED' })  // -> DISCOVERING: read
-        .mockResolvedValueOnce({ id: 'intent-1', status: 'DISCOVERING' })  // -> DISCOVERING: refetch
-        .mockResolvedValueOnce({ id: 'intent-1', status: 'DISCOVERING' })  // -> MATCHED: read
-        .mockResolvedValueOnce({ id: 'intent-1', status: 'MATCHED' })      // -> MATCHED: refetch
-        .mockResolvedValueOnce({ id: 'intent-1', status: 'MATCHED' })      // -> NEGOTIATING: read
-        .mockResolvedValueOnce({ id: 'intent-1', status: 'NEGOTIATING' }) // -> NEGOTIATING: refetch
-      mockIntentUpdateMany.mockResolvedValue({ count: 1 })
+      mockTradeCreate.mockImplementationOnce(async ({ data }: any) => ({
+        id: data.id, buyerId: 'buyer-1', sellerId: 'seller-1', status: 'PENDING',
+        asset: 'BTC', amount: '0.01', priceUsd: '65000', intentId: data.intentId, tradeIntentId: data.tradeIntentId,
+      }))
 
       const res = await app.inject({
         method: 'POST',
@@ -1030,14 +1034,16 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
 
       expect(res.statusCode).toBe(201)
+      const intentData = mockIntentCreate.mock.calls[0][0].data
+      expect(intentData).toMatchObject({ type: 'TradeIntent', status: 'NEGOTIATING', parentIntentId: 'intent-1', participantId: 'buyer-1' })
+      expect(mockIntentEventCreate).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ intentId: intentData.id, fromStatus: null, toStatus: 'NEGOTIATING', prevHash: 'genesis', eventName: 'intent.created' }),
+      }))
       expect(mockTradeCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ intentId: 'intent-1' }) })
+        expect.objectContaining({ data: expect.objectContaining({ intentId: 'intent-1', tradeIntentId: intentData.id }) })
       )
-      // Three sequential transitions, in order — the actual state-machine
-      // edges (core/state-machine.ts) enforce the ordering; this just
-      // confirms trade.service.ts actually drives it.
-      const toStatuses = mockIntentUpdateMany.mock.calls.map((c) => c[0]?.data?.status)
-      expect(toStatuses).toEqual(['DISCOVERING', 'MATCHED', 'NEGOTIATING'])
+      expect(JSON.parse(res.body).data.tradeIntentId).toBe(intentData.id)
+      expect(mockIntentUpdateMany).not.toHaveBeenCalled() // the Offer's Intent stays where it is
     })
 
     // Failure-scenario coverage requested directly in a CTO-role
@@ -1053,6 +1059,9 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       })
       mockTradeUpdate.mockResolvedValueOnce({ id: 'trade-1', status: 'CANCELLED' })
       mockIntentEventFindFirst.mockResolvedValue(null)
+      // A legacy trade (no own Intent) with no live sibling and a non-terminal shared Intent: prior behaviour.
+      mockTradeCount.mockResolvedValueOnce(0)
+      mockIntentFindUnique.mockResolvedValueOnce({ id: 'intent-1', status: 'NEGOTIATING' }) // E21 legacy cancel context
       mockIntentFindUnique.mockResolvedValueOnce({ id: 'intent-1', status: 'NEGOTIATING' })
       mockIntentUpdateMany.mockResolvedValueOnce({ id: 'intent-1', status: 'CANCELLED' })
 
@@ -2410,6 +2419,9 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it("cancels the caller's own Intent", async () => {
       const token = await authedSession('buyer-1')
+      // E21 slice 1 - an Intent no Offer or Trade references is free to cancel.
+      mockOfferCount.mockResolvedValueOnce(0)
+      mockTradeCount.mockResolvedValueOnce(0)
       // Two resolved values: cancel()'s own ownership-check fetch, then
       // transition()'s separate internal re-fetch of the same Intent.
       mockIntentFindUnique
