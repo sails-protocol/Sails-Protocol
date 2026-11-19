@@ -1,0 +1,186 @@
+name: TMP P23 mutants (#706) - informational, DO NOT MERGE
+
+# TEMPORARY (CTO 28 Despacho 009, P39). Runs tests/integration/m9rRemediation.test.ts at the exact head of PR #706
+# (tests only, on top of #614 e0c4974b) against an ephemeral Postgres and Redis, first unmutated (the base must pass),
+# then once per declared mutant of the #614 revert. INFORMATIONAL: not a required check, it changes no branch
+# protection and must never reach main. The PR that carries this file is closed unmerged once the evidence is kept.
+#
+# Inert anywhere else: it only triggers on a pull_request that touches THIS file, and the job re-checks that the PR
+# head is the temporary branch of this repository. If this file were ever merged by mistake, no later PR would run it.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/tmp-p23-mutants-706.yml'
+
+# No secrets, no write access, no pull_request_target.
+permissions:
+  contents: read
+
+concurrency:
+  group: tmp-p23-mutants-706-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  # The exact commit under proof: head of PR #706. The job refuses to continue if the checkout is anything else.
+  EXPECTED_SHA: de04876731e7e56d683e669f9f52b8339c09f33a
+  TEST_FILE: tests/integration/m9rRemediation.test.ts
+  CI: 'true'
+  # Same disposable-database settings as ci-tests.yml's `test` job (ephemeral service containers, never shared).
+  REDISMS_DISABLE_POSTINSTALL: true
+  REDISMS_SYSTEM_BINARY: /usr/bin/redis-server
+  # CTO 230: the migrate-deploy-safe path refuses a single-credential database URL without this explicit opt-in (as in ci-tests.yml).
+  SAILS_LEGACY_SINGLE_CREDENTIAL: '1'
+  DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+  SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
+  TRUSTED_ARBITRATORS: k6-test-arbiter
+
+jobs:
+  p23-mutants:
+    name: p23-mutants
+    # Not named build / test / Analyze (javascript-typescript): those are the required checks of main.
+    if: >-
+      github.event.pull_request.head.ref == 'tmp/p23-mutants-706' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: sails_protocol
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout the commit under proof (#706 head)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.EXPECTED_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Confirm the checkout is exactly the expected SHA
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          actual="$(git rev-parse HEAD)"
+          echo "expected=$EXPECTED_SHA actual=$actual" | tee evidence/00-environment.txt
+          test "$actual" = "$EXPECTED_SHA"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+
+      - name: Install, build the workspace packages, generate Prisma, migrate (same commands as ci-tests.yml)
+        run: |
+          set -euo pipefail
+          {
+            npm install --no-audit --no-fund
+            npm run build -w @sails/core -w @satsails/p2p-schemas -w @satsails/p2p-trading-sdk
+            npm run db:generate
+            npm run db:migrate
+          } 2>&1 | tee evidence/10-setup.log
+
+      - name: Write the declarative mutant spec and runner
+        run: |
+          set -euo pipefail
+          # Each mutant: file, exact `from` text (must occur EXACTLY once, else the job fails), `to` text.
+          cat > evidence/mutants.json <<'JSON'
+          [
+            { "id": "ML", "what": "the R-1 revert no longer takes the escrow lock (e0c4974b undone)",
+              "file": "src/modules/open-settlement/dispute.service.ts",
+              "from": "        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dispute.escrowId})::bigint)` // withEscrowFundingLock()'s lock\n",
+              "to": "" },
+            { "id": "R1b", "what": "the executed-only branch is dropped: only an existing round blocks the revert",
+              "file": "src/modules/open-settlement/dispute.service.ts",
+              "from": "        if (round || executed) return true\n",
+              "to": "        if (round) return true\n" },
+            { "id": "R1a", "what": "the round branch is dropped: only an ADR-005 authorization blocks the revert",
+              "file": "src/modules/open-settlement/dispute.service.ts",
+              "from": "        if (round || executed) return true\n",
+              "to": "        if (executed) return true\n" }
+          ]
+          JSON
+          cat > evidence/mut.js <<'JS'
+          const fs = require('fs')
+          const [, , specPath, id, mode] = process.argv
+          const m = JSON.parse(fs.readFileSync(specPath, 'utf8')).find((x) => x.id === id)
+          if (!m) { console.error(`no mutant ${id}`); process.exit(2) }
+          const src = fs.readFileSync(m.file, 'utf8')
+          const n = src.split(m.from).length - 1
+          if (n !== 1) { console.error(`anchor of ${id} occurs ${n} times in ${m.file} (must be exactly 1)`); process.exit(3) }
+          if (mode === 'apply') fs.writeFileSync(m.file, src.replace(m.from, m.to))
+          JS
+
+      - name: Base (no mutant) - must pass AND prove both P23 cases ran, otherwise every mutant result is invalid
+        run: |
+          set -euo pipefail
+          node node_modules/jest/bin/jest.js --runInBand --verbose "$TEST_FILE" 2>&1 | tee evidence/20-base.log
+          tests_line="$(grep -E '^Tests:' evidence/20-base.log | tail -1)"
+          echo "$tests_line" | tee evidence/21-base-check.txt
+          if echo "$tests_line" | grep -Eq 'skipped|todo|failed'; then echo "INVALID base: $tests_line"; exit 1; fi
+          for name in 'P23 R1b executed-only' 'P23 supersession'; do
+            grep -E "^\s+(✓|√) $name" evidence/20-base.log | tee -a evidence/21-base-check.txt | grep -q . || { echo "INVALID base: '$name' did not pass"; exit 1; }
+          done
+
+      - name: Mutants, one at a time, restored and verified between them
+        run: |
+          set -uo pipefail
+          : > evidence/30-results.txt
+          for id in $(node -p "JSON.parse(require('fs').readFileSync('evidence/mutants.json','utf8')).map(m=>m.id).join(' ')"); do
+            node evidence/mut.js evidence/mutants.json "$id" check || exit 1
+            node evidence/mut.js evidence/mutants.json "$id" apply || exit 1
+            git --no-pager diff --stat | tee -a "evidence/31-$id.log"
+            if node node_modules/jest/bin/jest.js --runInBand --verbose "$TEST_FILE" >> "evidence/31-$id.log" 2>&1; then
+              echo "$id SURVIVED" | tee -a evidence/30-results.txt
+            else
+              # KILLED only by a NAMED failing test: a non-zero exit with no failed test (compile error, setup, crash) is INVALID.
+              failed="$(grep -E '^\s+(✕|×) ' "evidence/31-$id.log" | sed 's/^ *//' | paste -sd ';' -)"
+              if [ -z "$failed" ]; then echo "$id INVALID (non-zero exit, no named failing test)" | tee -a evidence/30-results.txt; exit 1; fi
+              echo "$id KILLED by: $failed" | tee -a evidence/30-results.txt
+            fi
+            git checkout -- src/
+            git diff --exit-code -- src/ || { echo "restore of $id failed"; exit 1; }
+          done
+          # A surviving mutant fails the job (R1b is the one result not yet proven anywhere): that is the intended outcome.
+          ! grep -Eq 'SURVIVED|INVALID' evidence/30-results.txt
+
+      - name: Evidence summary
+        if: always()
+        run: |
+          {
+            echo "## P23 mutants for #706 (informational)"
+            echo
+            echo "Commit under proof: \`$EXPECTED_SHA\`"
+            echo
+            [ -f evidence/21-base-check.txt ] && { echo '### base'; echo '```'; cat evidence/21-base-check.txt; echo '```'; }
+            [ -f evidence/30-results.txt ] && { echo '### mutants'; echo '```'; cat evidence/30-results.txt; echo '```'; }
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: p23-mutants-706-evidence
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: warn
