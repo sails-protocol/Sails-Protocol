@@ -111,8 +111,12 @@ export interface CommitmentPairEvaluation {
 }
 export type CommitmentPairVerdict =
   | { ok: true; state: 'PROPOSED' | 'PARTIALLY_SIGNED' | 'COMMITTED'; commitmentDigest: string; arbitrationCommitmentDigest: string }
-  /** P22 (CTO 28 Despacho 006): an UNKNOWN pair is never COMMITTED, whatever it carries - a non-executable proposal. */
-  | { ok: true; state: 'PROPOSED'; executable: false; reason: 'E26_CAPABILITY_UNPROVEN'; commitmentDigest: string; arbitrationCommitmentDigest: string }
+  /**
+   * P22 (CTO 28 Despacho 006): an UNKNOWN pair is never COMMITTED, whatever it carries - a non-executable proposal.
+   * P32 (Despachos 007/008): the same for UNAVAILABLE, with its own reason - the bilateral "no arbitration" consent is
+   * recorded (the signatures are verified) but never authorizes economic execution in this phase.
+   */
+  | { ok: true; state: 'PROPOSED'; executable: false; reason: 'E26_CAPABILITY_UNPROVEN' | 'E26_ARBITRATION_UNAVAILABLE'; commitmentDigest: string; arbitrationCommitmentDigest: string }
   | E25Refusal | E26Refusal
 
 /**
@@ -162,5 +166,6 @@ export function evaluateCommitmentPair(e: CommitmentPairEvaluation): CommitmentP
   }
   // Signatures are still verified above; only COMMITTED enables escrow and funding (INV-1), so this cannot be executed.
   if (a.arbitrationCapability === 'UNKNOWN') return { ok: true, state: 'PROPOSED', executable: false, reason: 'E26_CAPABILITY_UNPROVEN', commitmentDigest: trade.digest, arbitrationCommitmentDigest: digest }
+  if (a.arbitrationCapability === 'UNAVAILABLE') return { ok: true, state: 'PROPOSED', executable: false, reason: 'E26_ARBITRATION_UNAVAILABLE', commitmentDigest: trade.digest, arbitrationCommitmentDigest: digest }
   return { ok: true, state: trade.state, commitmentDigest: trade.digest, arbitrationCommitmentDigest: digest }
 }
