@@ -236,7 +236,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
       "makerReceivedAt" = ${past}, "state" = 'COMMITTED', "committedAnchorRef" = ${f.commitment.anchorRef} WHERE "id" = ${id}`)
   })
 
-  it('(A) stamp window: even a stamp taken from THIS transaction's database clock is refused by the trigger once it is >= expiresAt', async () => {
+  it('(A) stamp window: even a stamp taken from THIS transaction database clock is refused by the trigger once it is >= expiresAt', async () => {
     pg.requirePostgres('F3 stamp expiry')
     const f = fresh({ ttlMs: 2_500 }); const p = await service().proposePair(f.proposeInput())
     await sleep(3_000)
