@@ -158,6 +158,16 @@ describe('F32 characterization - a party stops acting during a MULTISIG dispute 
       settleCompleted: settle.externallyCompleted.some((x) => x.escrowId === f.escrowId),
     }
   }
+  /** Registers a participant like registerTestParticipant() does, but keeps the secret key so the test can sign as that identity. */
+  async function registerParticipantWithKey(displayName: string) {
+    const { issueRegistrationChallenge, registrationProofMessage } = require('../../src/common/middleware/auth')
+    const keypair = nacl.sign.keyPair()
+    const publicKey = Buffer.from(keypair.publicKey).toString('hex')
+    const { challenge } = await issueRegistrationChallenge(publicKey)
+    const signature = Buffer.from(nacl.sign.detached(registrationProofMessage(challenge, displayName), keypair.secretKey)).toString('hex')
+    const user = await identityService.register({ publicKey, signature, displayName })
+    return { id: user.id as string, secretKey: keypair.secretKey }
+  }
   /** Ages everything a time-based recovery could look at by a year. */
   async function ageOneYear(f: Opened) {
     const old = new Date(Date.now() - 365 * DAY)
@@ -278,11 +288,14 @@ describe('F32 characterization - a party stops acting during a MULTISIG dispute 
     expect(await round(f.escrowId)).toBeNull()
     expect(chain.broadcasts).toHaveLength(0)
     // no other identity can rule instead of the script-committed arbiter
-    const other = await registerTestParticipant(identityService, 'NotTheArbiter')
+    // The outsider is a real registered identity and signs with ITS OWN registered key, so the signature is valid for that
+    // identity: the only thing that can refuse the ruling is the designated-arbiter check itself (dispute.service.ts).
+    const outsider = await registerParticipantWithKey('NotTheArbiter')
     const issuedAt = new Date().toISOString()
-    const payload: AuthorityDecisionPayload = { disputeId: f.disputeId, escrowId: f.escrowId, appealRound: 0, authorityId: other.id, outcome: 'REFUND', buyerBps: null, issuedAt }
-    const signature = signAuthorityDecision(payload, nacl.sign.keyPair().secretKey)
-    await expect(getDisputeService().resolveDispute(f.disputeId, other.id, 'REFUND', undefined, undefined, undefined, signature, issuedAt)).rejects.toThrow()
+    const payload: AuthorityDecisionPayload = { disputeId: f.disputeId, escrowId: f.escrowId, appealRound: 0, authorityId: outsider.id, outcome: 'REFUND', buyerBps: null, issuedAt }
+    const signature = signAuthorityDecision(payload, outsider.secretKey)
+    await expect(getDisputeService().resolveDispute(f.disputeId, outsider.id, 'REFUND', undefined, undefined, undefined, signature, issuedAt))
+      .rejects.toThrow(/is not the arbiter assigned to dispute/)
     expect((await disputeOf(f.disputeId)).status).toBe('OPENED')
   })
 
@@ -302,13 +315,19 @@ describe('F32 characterization - a party stops acting during a MULTISIG dispute 
     child.stdout.on('data', (d) => { out += d })
     child.stderr.on('data', (d) => { err += d })
     const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => child.on('exit', (code, signal) => resolve({ code, signal })))
-    const started = Date.now()
-    while (!out.includes('READY')) {
-      if (Date.now() - started > 120_000 || child.exitCode !== null) throw new Error(`operator never became READY: ${out.slice(-400)} ${err.slice(-600)}`)
-      await new Promise((resolve) => setTimeout(resolve, 100))
+    try {
+      const started = Date.now()
+      while (!out.includes('READY')) {
+        if (Date.now() - started > 120_000 || child.exitCode !== null) throw new Error(`operator never became READY: ${out.slice(-400)} ${err.slice(-600)}`)
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      child.kill('SIGKILL')
+      expect(await exited).toMatchObject({ signal: 'SIGKILL' })
+    } finally {
+      // also on the timeout / failure path: never leave the operator process (or its piped handles) alive after the test
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      await exited
     }
-    child.kill('SIGKILL')
-    expect(await exited).toMatchObject({ signal: 'SIGKILL' })
 
     // the operator is gone; what it committed is durable and the winner can finish without it
     expect((await disputeOf(f.disputeId)).status).toBe('RESOLVED')
