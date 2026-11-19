@@ -151,6 +151,17 @@ describe('F32 characterization - a party stops acting during a MULTISIG dispute 
     const dispatch = await reconcileMissingDispatch()
     const stale = await reconcileStalePendingDisputeTranslations()
     const settle = await reconcile.reconcilePendingSettlements({ externalSpendMinIntervalMs: 0 })
+    // These passes catch per-escrow exceptions into their reports instead of throwing: a BROKEN recovery would otherwise look
+    // exactly like "nothing moved". So every internal failure about this escrow/dispute fails the test here, in every case.
+    const failures = [
+      ...swept.failed.filter((x) => x.escrowId === f.escrowId).map((x) => `sweepExpiredEscrows: ${x.error}`),
+      ...auto.failed.filter((x) => x.disputeId === f.disputeId).map((x) => `sweepExpiredAutoResolutions: ${x.error}`),
+      ...dispatch.failed.filter((x) => x.escrowId === f.escrowId).map((x) => `reconcileMissingDispatch: ${x.error}`),
+      ...dispatch.guardFailed.filter((x) => x.escrowId === f.escrowId).map((x) => `reconcileMissingDispatch guardFailed: ${x.mismatches.join(',')}`),
+      ...stale.failed.filter((x) => x.escrowId === f.escrowId).map((x) => `reconcileStalePendingDisputeTranslations: ${x.error}`),
+      ...settle.failed.filter((x) => x.escrowId === f.escrowId || x.escrowId.startsWith('external-spend')).map((x) => `reconcilePendingSettlements: ${x.error}`),
+    ]
+    expect(failures).toEqual([])
     return {
       sweptThisEscrow: [...swept.refunded, ...swept.requiresManualRecovery].includes(f.escrowId) || swept.failed.some((x) => x.escrowId === f.escrowId),
       autoThisDispute: auto.revertedToHuman.includes(f.disputeId) || auto.failed.some((x) => x.disputeId === f.disputeId),
@@ -224,7 +235,8 @@ describe('F32 characterization - a party stops acting during a MULTISIG dispute 
       expect(passes.sweptThisEscrow).toBe(false)
       expect(passes.autoThisDispute).toBe(false)
       expect(passes.settleCompleted).toBe(false)
-      expect(passes.staleThisEscrow).not.toContain('DELETED_NO_OUTCOME')
+      // the aged, unsigned round was positively examined and LEFT (its guard passed): not merely "nothing was reported"
+      expect(passes.staleThisEscrow).toEqual(['LEFT_GUARD_PASSED'])
       const after = await round(f.escrowId)
       expect(after!.id).toBe(roundIdBefore)
       expect(after!.signatures).toHaveLength(0)
