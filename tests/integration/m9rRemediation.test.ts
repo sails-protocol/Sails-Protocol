@@ -20,7 +20,7 @@ describe('PE-M9R remediation - R-1, G2, R-4 execution (real PostgreSQL, simulate
   const pg = createPostgresIntegrationHarness()
   let prisma: any, escrowService: any, identityService: any, liquidityRouter: any, tradeService: any, getDisputeService: any
   let payoutAddressService: any, signAuthorityDecision: any, commit: any, loadDisputeRulingRecord: any, outcomeModule: any
-  let reconcileMissingDispatch: any, submitSig: any, escrowFundingEvidenceService: any
+  let reconcileMissingDispatch: any, submitSig: any, escrowFundingEvidenceService: any, disputeDispatch: any
   const ARBITER_ID = 'm9r-rem-arbiter'
   const kp = nacl.sign.keyPair(); const arbPub = Buffer.from(kp.publicKey).toString('hex')
   let chain: H.Chain; let realFetch: typeof fetch
@@ -44,6 +44,7 @@ describe('PE-M9R remediation - R-1, G2, R-4 execution (real PostgreSQL, simulate
     ;({ commitAuthoritativeDisputeRuling: commit, loadDisputeRulingRecord } = outcomeModule)
     ;({ reconcileMissingDispatch } = require('../../src/modules/open-settlement/dispute-dispatch-recovery'))
     ;({ escrowFundingEvidenceService } = require('../../src/modules/open-settlement/escrow-funding-evidence.service'))
+    disputeDispatch = require('../../src/modules/open-settlement/dispute-dispatch')
     ;({ submitTransactionSignature: submitSig } = require('../../src/modules/open-settlement/escrow-pending-tx'))
     const { intentEngine } = require('../../src/core/intent-engine'); const { OpenP2PTradeIntentHandler } = require('../../src/modules/open-p2p/intent-handler')
     intentEngine.registerHandler(OpenP2PTradeIntentHandler)
@@ -68,7 +69,7 @@ describe('PE-M9R remediation - R-1, G2, R-4 execution (real PostgreSQL, simulate
   afterEach(() => { jest.restoreAllMocks(); if (realFetch) global.fetch = realFetch })
 
   type F = { escrowId: string; tradeId: string; buyerId: string; sellerId: string; disputeId: string; buyerAddr: string; sellerAddr: string }
-  async function fixture(label: string, opts: { sameAddress?: boolean } = {}): Promise<F> {
+  async function fixture(label: string, opts: { sameAddress?: boolean; cooperativeRound?: boolean } = {}): Promise<F> {
     const seller = await registerTestParticipant(identityService, 'Seller'); const buyer = await registerTestParticipant(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
@@ -81,6 +82,9 @@ describe('PE-M9R remediation - R-1, G2, R-4 execution (real PostgreSQL, simulate
     await escrowService.lockFunds(escrow.id, seller.id); chain.locking = null
     const buyerAddr = H.testnetAddress(`${label}-b`), sellerAddr = opts.sameAddress ? buyerAddr : H.testnetAddress(`${label}-s`)
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', buyerAddr); await payoutAddressService.setPayoutAddress(seller.id, 'BTC', sellerAddr)
+    // P23: an unsigned cooperative release round in the way, so the ruling's dispatch has to supersede it (#239 grant).
+    // Same steps as pendingRoundLifecycleHarness.buildCooperative(): a cooperative release needs the buyer's payment mark first.
+    if (opts.cooperativeRound) { await escrowService.markPaymentSent(escrow.id, buyer.id); await escrowService.initiateRelease(escrow.id, undefined, seller.id) }
     const d = await getDisputeService().raiseDispute(trade.id, buyer.id, `m9r rem ${label}`)
     return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id, disputeId: d.id, buyerAddr, sellerAddr }
   }
@@ -192,6 +196,86 @@ describe('PE-M9R remediation - R-1, G2, R-4 execution (real PostgreSQL, simulate
     expect(liveErr).toBeNull()
     expect(parked).toBe(true)
     expect(after.round).toMatchObject({ disputeId: f.disputeId, rulingAppealRound: 0, kind: 'split', rulingAuthoritySignature: r.signature })
+    expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: f.escrowId } })).toBe(1)
+    expect(await signAll(f)).toBeNull()
+    expect(chain.broadcasts).toHaveLength(1)
+  })
+
+  // Bounded wait until the revert is parked on THIS escrow's lock, hashtext(escrowId) as (classid, objid).
+  async function waitParkedOnEscrowLock(escrowId: string): Promise<boolean> {
+    for (let i = 0; i < 60; i++) {
+      const [{ n }] = await prisma.$queryRaw`SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND objsubid = 1
+        AND classid::bigint = ((hashtext(${escrowId})::bigint >> 32) & 4294967295) AND objid::bigint = (hashtext(${escrowId})::bigint & 4294967295)`
+      if (n > 0) return true
+      await new Promise((res) => setTimeout(res, 50))
+    }
+    return false
+  }
+
+  it('P23 R1b executed-only: C4 dispatched AND settled this generation before the live failure - no round left, only its ADR-005 authorization - the revert keeps the ruling', async () => {
+    pg.requirePostgres('P23 R1b')
+    const f = await fixture('p23-r1b')
+    let first = true
+    const realSplit = escrowService.initiateSplit.bind(escrowService)
+    jest.spyOn(escrowService, 'initiateSplit').mockImplementation((async (...args: unknown[]) => {
+      if (!first) return (realSplit as any)(...args)
+      first = false
+      await reconcileMissingDispatch() // C4 builds this generation's round...
+      expect(await signAll(f)).toBeNull() // ...and it is signed and broadcast: the round row is gone, its authorization stays
+      throw new Error('m9r-rem injected live dispatch failure (provider unavailable)')
+    }) as never)
+    const r = ruling(f)
+    const liveErr = await resolveLive(f, r).then(() => null, (e: Error) => e)
+    jest.restoreAllMocks()
+    const after = await state(f)
+    const authorizations = await prisma.economicDispositionAuthorization.count({ where: { escrowId: f.escrowId, disputeId: f.disputeId, appealRound: 0, ruling: 'SPLIT', arbiterId: ARBITER_ID } })
+    evidence('P23 R1b', { liveError: liveErr?.message ?? null, dispute: after.dispute, outcome: after.outcome, round: !!after.round, authorizations, broadcasts: chain.broadcasts.length })
+    // The symptom first: a reverted ruling here would reopen a dispute whose funds already moved.
+    expect(after).toMatchObject({ dispute: 'RESOLVED', outcome: true, txRelease: true, round: null })
+    expect(authorizations).toBe(1)
+    expect(chain.broadcasts).toHaveLength(1)
+    expect(liveErr).toBeNull()
+  })
+
+  it('P23 supersession: a C4 build OPEN inside withEscrowFundingLock() while it supersedes a cooperative round - the revert waits for it, sees the new round and never reverts', async () => {
+    pg.requirePostgres('P23 supersession')
+    const f = await fixture('p23-sup', { cooperativeRound: true })
+    const coop = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: f.escrowId } })
+    expect(coop).toMatchObject({ disputeId: null, kind: 'release' })
+    const realRevalidate = disputeDispatch.revalidateRulingSupersessionGrant
+    let entered!: () => void; const inBuild = new Promise<void>((r) => { entered = r })
+    let release!: () => void; const gate = new Promise<void>((r) => { release = r })
+    let held = 0
+    // Holds C4 at its supersession grant re-validation, under the escrow lock, before the cooperative round is retired
+    // and the ruling's round inserted. The live path never reaches it (its dispatch fails first, below).
+    jest.spyOn(disputeDispatch, 'revalidateRulingSupersessionGrant').mockImplementation((async (...args: unknown[]) => {
+      if (held++ === 0) { entered(); await gate }
+      return realRevalidate(...args)
+    }) as never)
+    const c4Holder: { run: Promise<any> | null } = { run: null } // an object, so TS does not narrow it to null
+    let first = true
+    const realSplit = escrowService.initiateSplit.bind(escrowService)
+    jest.spyOn(escrowService, 'initiateSplit').mockImplementation((async (...args: unknown[]) => {
+      if (!first) return (realSplit as any)(...args)
+      first = false
+      c4Holder.run = reconcileMissingDispatch(); await inBuild
+      throw new Error('m9r-rem injected live dispatch failure (provider unavailable)')
+    }) as never)
+    const r = ruling(f)
+    const live = resolveLive(f, r).then(() => null, (e: Error) => e)
+    const parked = await waitParkedOnEscrowLock(f.escrowId)
+    release()
+    const liveErr = await live; const c4Report = await c4Holder.run
+    jest.restoreAllMocks()
+    const after = await state(f)
+    const retired = await prisma.escrowPendingRoundRetirement.findMany({ where: { escrowId: f.escrowId } })
+    evidence('P23 supersession', { revertWaitedOnHashtextEscrowId: parked, held, liveError: liveErr?.message ?? null, dispute: after.dispute, outcome: after.outcome, roundKind: after.round?.kind, retired: retired.map((x: any) => x.reason), resumed: c4Report?.resumed?.length })
+    expect(held).toBe(1) // the hold was really reached: the barrier is not vacuous
+    expect(after).toMatchObject({ dispute: 'RESOLVED', outcome: true, txRelease: false })
+    expect(liveErr).toBeNull()
+    expect(parked).toBe(true)
+    expect(after.round).toMatchObject({ disputeId: f.disputeId, rulingAppealRound: 0, kind: 'split', rulingAuthoritySignature: r.signature })
+    expect(retired).toEqual([expect.objectContaining({ reason: 'SUPERSEDED_BY_RULING' })])
     expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: f.escrowId } })).toBe(1)
     expect(await signAll(f)).toBeNull()
     expect(chain.broadcasts).toHaveLength(1)
