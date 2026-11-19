@@ -112,6 +112,8 @@ export interface CommitmentPairEvaluation {
 }
 export type CommitmentPairVerdict =
   | { ok: true; state: 'PROPOSED' | 'PARTIALLY_SIGNED' | 'COMMITTED'; commitmentDigest: string; arbitrationCommitmentDigest: string }
+  /** P22 (CTO 28 Despacho 006): an UNKNOWN pair is never COMMITTED, whatever it carries - a non-executable proposal. */
+  | { ok: true; state: 'PROPOSED'; executable: false; reason: 'E26_CAPABILITY_UNPROVEN'; commitmentDigest: string; arbitrationCommitmentDigest: string }
   | E25Refusal | E26Refusal
 
 /**
@@ -159,5 +161,7 @@ export function evaluateCommitmentPair(e: CommitmentPairEvaluation): CommitmentP
     // One action, one server stamp; expiry is then already enforced on the trade signature (same expiresAt).
     if (sig.receivedAt !== e.trade[role]?.receivedAt) return bad('E26_COSIGNATURE_INCOMPLETE', `${role}.receivedAt`)
   }
+  // Signatures are still verified above; only COMMITTED enables escrow and funding (INV-1), so this cannot be executed.
+  if (a.arbitrationCapability === 'UNKNOWN') return { ok: true, state: 'PROPOSED', executable: false, reason: 'E26_CAPABILITY_UNPROVEN', commitmentDigest: trade.digest, arbitrationCommitmentDigest: digest }
   return { ok: true, state: trade.state, commitmentDigest: trade.digest, arbitrationCommitmentDigest: digest }
 }
