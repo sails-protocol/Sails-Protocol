@@ -67,6 +67,7 @@ BEGIN
     ('verifications', 'append'),
     ('custody_attestations', 'append'), -- + UPDATE (supersededAt) only, see runtime_column_update
     ('intent_events', 'append'),        -- + UPDATE (publishedAt) only: hash-chained history, publication marker
+    ('commitment_pairs', 'append'),     -- E25/E26 F3: + UPDATE of the signing/withdraw columns only; the pair itself is immutable (trigger)
     -- mutable state (write-once columns are still guarded by triggers)
     ('users', 'mutable'),
     ('offers', 'mutable'),
@@ -98,7 +99,19 @@ BEGIN
   -- One-time column transitions the trigger already constrains (NULL -> timestamp).
   INSERT INTO sails_meta.runtime_column_update VALUES
     ('custody_attestations', 'supersededAt'), -- custody-attestation-repository.ts create(): supersedes the previous attestation
-    ('intent_events', 'publishedAt');         -- intent-repository.ts markEventPublished()/publishOwedEvent()
+    ('intent_events', 'publishedAt'),         -- intent-repository.ts markEventPublished()/publishOwedEvent()
+    -- E25/E26 F3 (commitment-pair.service.ts signPair()/withdrawPair()): one UPDATE per party writes its two
+    -- signatures and its stamp once (NULL -> value), plus the state; the trigger refuses everything else.
+    ('commitment_pairs', 'state'),
+    ('commitment_pairs', 'committedAnchorRef'),
+    ('commitment_pairs', 'makerTradeSig'),
+    ('commitment_pairs', 'makerArbitrationSig'),
+    ('commitment_pairs', 'makerReceivedAt'),
+    ('commitment_pairs', 'takerTradeSig'),
+    ('commitment_pairs', 'takerArbitrationSig'),
+    ('commitment_pairs', 'takerReceivedAt'),
+    ('commitment_pairs', 'withdrawnBy'),
+    ('commitment_pairs', 'withdrawProof');
 
   FOR r IN
     SELECT t.tablename FROM pg_tables t
