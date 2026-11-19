@@ -41,7 +41,7 @@
     "postcss": "^8.4.38",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
-    "vite": "^8.2.2",
+    "vite": "^8.2.4",
     "vite-plugin-node-polyfills": "^0.28.0"
   }
 }
