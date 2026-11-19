@@ -717,6 +717,10 @@ NODE_ENV=production
 DATABASE_URL=                      # from Secrets Manager — the real RDS endpoint
 PORT=3000
 HOST=0.0.0.0
+# GET /metrics is OFF by default in production. Set METRICS_ENABLED=true only for an
+# authorized private scrape path: the route is unauthenticated, so it still needs network
+# isolation (security group / reverse-proxy allowlist). /health hides `features` in production.
+# METRICS_ENABLED=false
 
 MOCK_ESCROW=false
 MOCK_SETTLEMENT=false

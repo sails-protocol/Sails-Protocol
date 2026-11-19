@@ -242,17 +242,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     else if (reply.statusCode === 429) recordSuspiciousActivity('RATE_LIMITED', identity, app.log)
   })
 
-  // Unauthenticated by default, matching standard Prometheus exporter
-  // convention (Prometheus itself has no notion of a Bearer token without
-  // extra scrape-config wiring) — restrict actual access at the network
-  // layer (security group / reverse-proxy allowlist) in production, the
-  // same expectation DEPLOYMENT.md already sets for the Postgres/Redis
-  // ports. Contains only aggregate counters, never per-user data — safe
-  // under this protocol's own no-platform-operator-visibility principle.
-  app.get('/metrics', async (_request, reply) => {
-    reply.header('content-type', metricsRegistry.contentType)
-    return metricsRegistry.metrics()
-  })
+  // /metrics is DISABLED by default in production (METRICS_ENABLED, CTO 429);
+  // outside production it stays on. Setting METRICS_ENABLED=true in production
+  // does NOT protect the route: it is unauthenticated (standard Prometheus
+  // exporter convention), so it still requires network isolation (security
+  // group / private scrape path / reverse-proxy allowlist) or an equivalent
+  // control. Aggregate counters only, never per-user data.
+  if (config.observability.metricsEnabled) {
+    app.get('/metrics', async (_request, reply) => {
+      reply.header('content-type', metricsRegistry.contentType)
+      return metricsRegistry.metrics()
+    })
+  }
 
   // ── Error Handler ─────────────────────────────────────────────────────────
   app.setErrorHandler((error, request, reply) => {
@@ -365,10 +366,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     protocol: 'Sails Protocol',
     module: 'Sails OpenP2P',
     referenceImplementation: 'Satsails Wallet',
-    features: {
-      mockEscrow: config.features.mockEscrow,
-      mockSettlement: config.features.mockSettlement,
-    },
+    // Internal feature flags are not disclosed in production (CTO 429).
+    ...(config.isProduction
+      ? {}
+      : { features: { mockEscrow: config.features.mockEscrow, mockSettlement: config.features.mockSettlement } }),
   }))
 
   app.get('/', async () => ({

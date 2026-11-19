@@ -495,6 +495,13 @@ else → HTTP 500, message redacted outside development mode.
 ```
 GET /health   → { status, timestamp, version, protocol: "Sails Protocol",
                    module: "Sails OpenP2P", referenceImplementation: "Satsails Wallet",
-                   features: { mockEscrow, mockSettlement } }
+                   features: { mockEscrow, mockSettlement } }   // `features` only outside production
 GET /         → { name, protocol, referenceImplementation, docs, ws, version }
 ```
+
+Contract notes (observability disclosure, CTO 429):
+
+- `/health` stays public; in production it omits the internal `features` object.
+- `/health/live` is a process-only liveness probe (no PostgreSQL/Redis access); unchanged.
+- `/health/ready` keeps its status codes (200 `ready` / 503 `not_ready`) and per-dependency `ok` and `latencyMs`; the `error` field is the fixed text `Dependency unavailable`, never the raw exception.
+- `GET /metrics` is enabled outside production and **disabled by default in production**. `METRICS_ENABLED=true|false` (exact values; anything else refuses to boot) overrides the default. Enabling it does not protect it: the route is unauthenticated, so in production it still requires network isolation (security group / private scrape path / reverse-proxy allowlist) or an equivalent control.
