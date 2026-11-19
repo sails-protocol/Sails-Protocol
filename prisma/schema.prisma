@@ -395,6 +395,7 @@ model Escrow {
   lockedAmount                          Decimal           @db.Decimal(24, 8)
   asset                                 AssetType
   network                               String?
+  // Unique among MULTISIG escrows: partial index escrows_multisig_addr_key (raw SQL, 20261112120000).
   multisigAddr                          String?
   redeemScript                          String?
   txLockId                              String?
@@ -482,14 +483,16 @@ model Escrow {
   // Missão 11 Fase 4 §B/C — purely observational audit data, NOT the source
   // of truth for transaction construction (that remains the real chain/
   // explorer lookup, unchanged — Missão 10's own outpoint-exact selection).
-  // Populated only for policy-aware escrows, at lockFunds() success time,
+  // Populated at lockFunds() success time
   // with the actual value the provider observed funding the escrow (under
   // exact-funding enforcement this always equals requiredFundingAmount in
   // the success case — recorded anyway so reconciliation can flag a
   // divergence without a live chain call, per Fase 3.3's own finding that
   // the actually-funded value was never persisted anywhere before this).
-  // Legacy escrows (feePolicyVersionId NULL) never populate this — stays
-  // NULL forever for them, unchanged behavior.
+  // CTO 25 funding binding (2026-11-12): now populated for every MULTISIG
+  // lock (BTC, like lockedAmount; it was written in sats before), and it is
+  // the value a round's input must carry (multisig-round-input-binding.ts).
+  // Escrows locked earlier keep NULL and their rounds are refused.
   fundedAmount                          Decimal?          @db.Decimal(24, 8)
   moduleId                              String            @default("opensettlement")
   protocolVersion                       String            @default("0.1")

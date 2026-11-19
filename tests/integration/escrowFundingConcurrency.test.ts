@@ -37,6 +37,7 @@ import { ECPairFactory } from 'ecpair'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, closeTestRedis, preserveTestRedis } from './identityTestHelpers'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
+import { participantKeys } from './pendingRoundLifecycleHarness'
 
 bitcoin.initEccLib(ecc)
 const ECPair = ECPairFactory(ecc)
@@ -59,8 +60,6 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
   let sweepMultisigFundingReorgs: typeof import('../../src/modules/open-settlement/multisig-funding-reorg-sweep').sweepMultisigFundingReorgs
   let withEscrowFundingLock: typeof import('../../src/modules/open-settlement/escrow-lifecycle').withEscrowFundingLock
 
-  const BUYER_PUBKEY = '021744d7bd3cd8e7f62e7aa8f7db8292680b745d09f8f40377c4bbbc0136d4e299'
-  const SELLER_PUBKEY = '038e41e2cb09677fd4bde9f232871533925c4b628c25efdb9d572546293850ddd4'
   const RELEASE_ADDR = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
   // A hand-typed second testnet address here previously had a bad
   // checksum/network mismatch (bitcoin.address.toOutputScript() rejected
@@ -142,8 +141,9 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
     })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
-    await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
-    await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    const keys = participantKeys() // one MULTISIG address per escrow
+    await escrowService.submitParticipantKey(escrow.id, buyer.id, keys.BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
+    await escrowService.submitParticipantKey(escrow.id, seller.id, keys.SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
 
     // createHash, not template+padEnd — a suffix containing a hyphen (several
     // in this file do, e.g. 'recovery-refund') produces an invalid hex
