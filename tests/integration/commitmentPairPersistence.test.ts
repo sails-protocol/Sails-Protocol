@@ -132,7 +132,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     const p = await s.proposePair(f.proposeInput())
     expect(p).toMatchObject({ state: 'PROPOSED', executable: false, reason: 'E26_CAPABILITY_UNPROVEN' })
     expect(await s.signPair(f.makerSign(p.pairId))).toMatchObject({ state: 'PROPOSED', executable: false, reason: 'E26_CAPABILITY_UNPROVEN' })
-    const { readiness } = await prisma.$transaction((tx: any) => svcMod.lockPairForEffect(tx, p.pairId))
+    const { readiness } = await prisma.$transaction((tx: any) => svcMod.lockPairForEffect(tx, { pairId: p.pairId }))
     expect(readiness).toEqual({ ok: false, code: 'E26_CAPABILITY_UNPROVEN' })
   })
 
@@ -140,9 +140,13 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     pg.requirePostgres('F3 readiness')
     const s = service(); const f = fresh()
     const p = await s.proposePair(f.proposeInput())
-    expect((await prisma.$transaction((tx: any) => svcMod.lockPairForEffect(tx, p.pairId))).readiness).toEqual({ ok: false, code: 'E25_NOT_COMMITTED' })
+    expect((await prisma.$transaction((tx: any) => svcMod.lockPairForEffect(tx, { pairId: p.pairId }))).readiness).toEqual({ ok: false, code: 'E25_NOT_COMMITTED' })
     await s.signPair(f.makerSign(p.pairId))
-    expect((await prisma.$transaction((tx: any) => svcMod.lockPairForEffect(tx, p.pairId))).readiness).toMatchObject({ ok: true, gate: 'COMMITMENT_PAIR_COMMITTED' })
+    expect((await prisma.$transaction((tx: any) => svcMod.lockPairForEffect(tx, { pairId: p.pairId }))).readiness).toMatchObject({ ok: true, gate: 'COMMITMENT_PAIR_COMMITTED' })
+    const byAnchor = await prisma.$transaction((tx: any) => svcMod.lockPairForEffect(tx, { anchorRef: f.commitment.anchorRef }))
+    expect(byAnchor.row.id).toBe(p.pairId)
+    expect(byAnchor.t).toBeInstanceOf(Date)
+    expect((await prisma.$transaction((tx: any) => svcMod.lockPairForEffect(tx, { anchorRef: randomUUID() }))).readiness).toEqual({ ok: false, code: 'E25_COMMITMENT_MISSING' })
   })
 
   it('T3: an offer revised after the proposal refuses the maker\'s signature (the CURRENT signed state is read at every operation)', async () => {

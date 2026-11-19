@@ -219,18 +219,27 @@ export class CommitmentPairService {
 
 /**
  * For F4 (B6): the first step of the transaction of an economic effect (createEscrow, submitParticipantKey,
- * lockFunds). Locks the pair row and evaluates readiness on what is stored; the caller then takes the exposure,
- * economic and escrow locks, in that order, and never the reverse.
+ * lockFunds). Locks the pair row, reads the database clock ONCE after the lock (B4) and evaluates readiness on what
+ * is STORED; the caller then takes the exposure, economic and escrow locks, in that order, never the reverse.
+ * By anchor, only the anchor's COMMITTED pair is considered (there is at most one); none -> E25_COMMITMENT_MISSING.
  */
-export async function lockPairForEffect(tx: Prisma.TransactionClient, pairId: string): Promise<{ row: PairRow; readiness: ExecutionReadiness }> {
-  await tx.$queryRaw`SELECT "id" FROM "commitment_pairs" WHERE "id" = ${pairId} FOR UPDATE`
-  const row = await tx.commitmentPair.findUnique({ where: { id: pairId } })
-  if (!row) throw new NotFoundError('CommitmentPair', pairId)
+export async function lockPairForEffect(
+  tx: Prisma.TransactionClient, ref: { pairId: string } | { anchorRef: string },
+): Promise<{ row: PairRow | null; readiness: ExecutionReadiness; t: Date }> {
+  const locked = 'pairId' in ref
+    ? await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "commitment_pairs" WHERE "id" = ${ref.pairId} FOR UPDATE`
+    : await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "commitment_pairs" WHERE "committedAnchorRef" = ${ref.anchorRef} FOR UPDATE`
+  const t = await databaseNow(tx)
+  if (locked.length === 0) {
+    if ('pairId' in ref) throw new NotFoundError('CommitmentPair', ref.pairId)
+    return { row: null, readiness: { ok: false, code: 'E25_COMMITMENT_MISSING' }, t }
+  }
+  const row = await tx.commitmentPair.findUniqueOrThrow({ where: { id: locked[0].id } })
   const digests = { commitmentDigest: row.commitmentDigest, arbitrationCommitmentDigest: row.arbitrationCommitmentDigest }
   const verdict: CommitmentPairVerdict =
     row.state === 'WITHDRAWN' ? { ok: false, code: 'E25_COMMITMENT_SUPERSEDED' } as unknown as CommitmentPairVerdict
     : row.state === 'EXPIRED' ? { ok: false, code: 'E25_EXPIRED' } as unknown as CommitmentPairVerdict
     : row.reason ? { ok: true, state: 'PROPOSED', executable: false, reason: row.reason as 'E26_CAPABILITY_UNPROVEN' | 'E26_ARBITRATION_UNAVAILABLE', ...digests }
     : { ok: true, state: row.state as 'PROPOSED' | 'PARTIALLY_SIGNED' | 'COMMITTED', ...digests }
-  return { row, readiness: executionReadiness(verdict, row.arbitration as unknown as ArbitrationCommitmentV1) }
+  return { row, readiness: executionReadiness(verdict, row.arbitration as unknown as ArbitrationCommitmentV1), t }
 }
