@@ -899,6 +899,7 @@ model FeePolicyVersion {
 
   obligations FeeObligation[]
   escrows     Escrow[]
+  commitmentPairs CommitmentPair[] // E25/E26 F3: the version a pair's fee digest was reproduced from
 
   @@index([railScope, status])
   @@map("fee_policy_versions")
@@ -2663,4 +2664,38 @@ model EventProjectionClaim {
   @@unique([eventId, projectionKey, subjectId], map: "event_projection_claim_identity_key")
   @@index([projectionKey, subjectId])
   @@map("event_projection_claims")
+}
+
+/// E25/E26 F3 (CTO 28 Despacho 021) - the bilateral TradeCommitmentV1 + ArbitrationCommitmentV1 pair, one row per pair.
+/// Migration 20261120120000: every invariant (K1-K4, write-once signatures, the server-stamp window, transitions,
+/// append-only) is enforced by CHECKs and triggers in the database; see that migration. `executable` is not stored:
+/// it is state = 'COMMITTED'. anchorRef is an opaque uuid until #651 lands (no FK yet).
+model CommitmentPair {
+  id                          String           @id @default(uuid())
+  anchorRef                   String
+  /// = anchorRef while COMMITTED, NULL otherwise (CHECK): one COMMITTED pair per anchor (INV-5, C2).
+  committedAnchorRef          String?          @unique
+  commitmentDigest            String           @unique
+  arbitrationCommitmentDigest String           @unique
+  trade                       Json
+  arbitration                 Json
+  policy                      Json
+  feePolicyVersionId          String
+  feePolicyVersion            FeePolicyVersion @relation(fields: [feePolicyVersionId], references: [id], onDelete: Restrict)
+  rail                        String
+  capability                  String
+  state                       String
+  reason                      String?
+  makerTradeSig               String?
+  makerArbitrationSig         String?
+  makerReceivedAt             DateTime?        @db.Timestamptz(3)
+  takerTradeSig               String?
+  takerArbitrationSig         String?
+  takerReceivedAt             DateTime?        @db.Timestamptz(3)
+  withdrawnBy                 String?
+  withdrawProof               String?
+  createdAt                   DateTime         @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(3)
+
+  @@index([anchorRef])
+  @@map("commitment_pairs")
 }
