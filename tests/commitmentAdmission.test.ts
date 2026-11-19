@@ -4,12 +4,11 @@
  */
 import nacl from 'tweetnacl'
 import { signOfferEnvelope } from '../src/modules/open-liquidity/offer-envelope'
-import { evaluateCommitmentPair } from '../src/modules/open-p2p/arbitration-commitment'
+import { evaluateCommitmentPair, hashArbitrationCommitment } from '../src/modules/open-p2p/arbitration-commitment'
 import { admitCommitmentPair, executionReadiness } from '../src/modules/open-p2p/commitment-admission'
 
 const V = require('../conformance/vectors/sails-trade-commitment-v1.vectors.json')
 const NOW = new Date('2026-11-19T11:10:00.000Z')
-const MULTISIG = { rail: 'MULTISIG', arbitrationCapability: 'FIXED_ARBITER_COMMITMENT' }
 const envelope = { ...V.offerEnvelope.content, signature: V.offerEnvelope.signature }
 const pairCase = (name: string) => V.pairCases.find((t: any) => t.name.startsWith(name)).input
 const admit = (input: any, over: { envelope?: any; now?: Date } = {}) => {
@@ -20,6 +19,9 @@ const secretHex = (seed: string) => Buffer.from(nacl.sign.keyPair.fromSeed(Buffe
 
 describe('E25/E26 F2 - commitment admission and execution readiness (pure)', () => {
   const fixed = pairCase('valid FIXED pair')
+  const MULTISIG = fixed.arbitration.commitment
+  /** A COMMITTED verdict whose digest is these terms' own: readiness reads only the verdict and the terms. */
+  const committedFor = (terms: any) => ({ ok: true as const, state: 'COMMITTED' as const, commitmentDigest: terms.commitmentDigest, arbitrationCommitmentDigest: hashArbitrationCommitment(terms) })
 
   it('F2.1+F2.2: a valid MULTISIG pair admitted against its verified envelope passes the commitment gate', () => {
     const v = admit(fixed)
@@ -51,7 +53,7 @@ describe('E25/E26 F2 - commitment admission and execution readiness (pure)', () 
   it('F2.3: an unclassified rail is UNKNOWN for the real classification -> non-executable proposal (P22)', () => {
     const v = admit(pairCase('P22: valid UNKNOWN pair with all four signatures'))
     expect(v).toMatchObject({ ok: true, state: 'PROPOSED', executable: false, reason: 'E26_CAPABILITY_UNPROVEN' })
-    expect(executionReadiness(v, { rail: 'EXAMPLE_UNCLASSIFIED_RAIL', arbitrationCapability: 'UNKNOWN' })).toEqual({ ok: false, code: 'E26_CAPABILITY_UNPROVEN' })
+    expect(executionReadiness(v, pairCase('P22: valid UNKNOWN pair with all four signatures').arbitration.commitment)).toEqual({ ok: false, code: 'E26_CAPABILITY_UNPROVEN' })
   })
 
   it('F2.3: UNAVAILABLE cannot be reached through the real classification (no rail declares it): the pair is refused', () => {
@@ -68,9 +70,17 @@ describe('E25/E26 F2 - commitment admission and execution readiness (pure)', () 
   })
 
   it('F2.2: a COMMITTED verdict is not ready on a rail the real classification does not prove', () => {
-    expect(executionReadiness(admit(fixed), { rail: 'WDK_USDT_EVM', arbitrationCapability: 'FIXED_ARBITER_COMMITMENT' })).toEqual({ ok: false, code: 'E26_CAPABILITY_UNPROVEN' })
+    const onWdk = { ...MULTISIG, rail: 'WDK_USDT_EVM' }
+    expect(executionReadiness(committedFor(onWdk), onWdk)).toEqual({ ok: false, code: 'E26_CAPABILITY_UNPROVEN' })
     // A fixture-DYNAMIC rail is unknown to the real classification.
-    expect(executionReadiness(admit(fixed), { rail: 'EXAMPLE_POOL_RAIL', arbitrationCapability: 'DYNAMIC_REASSIGNABLE' })).toEqual({ ok: false, code: 'E26_CAPABILITY_UNPROVEN' })
+    const onPool = { ...MULTISIG, rail: 'EXAMPLE_POOL_RAIL', arbitrationCapability: 'DYNAMIC_REASSIGNABLE' }
+    expect(executionReadiness(committedFor(onPool), onPool)).toEqual({ ok: false, code: 'E26_CAPABILITY_UNPROVEN' })
+  })
+
+  it('GK R-A: terms of another pair never pass, even with a COMMITTED verdict', () => {
+    const other = pairCase('P22: valid UNKNOWN pair with all four signatures').arbitration.commitment
+    expect(executionReadiness(admit(fixed), other)).toEqual({ ok: false, code: 'E26_DIGEST_MISMATCH', field: 'terms' })
+    expect(executionReadiness(admit(fixed), { ...MULTISIG, arbiterRef: 'f'.repeat(64) })).toEqual({ ok: false, code: 'E26_DIGEST_MISMATCH', field: 'terms' })
   })
 
   it('GK F2: every ok verdict from admission carries a boolean executable, true only for a ready COMMITTED pair', () => {

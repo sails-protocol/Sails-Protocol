@@ -12,7 +12,7 @@
 import { hashOfferEnvelope, isOfferEnvelopeEconomicallyActive, verifyOfferEnvelope, type SignedOfferEnvelope } from '../open-liquidity/offer-envelope'
 import { arbitrationCapabilityFor } from '../open-settlement/arbitration-policy'
 import type { E25Refusal, TradeCommitmentEvaluation } from './trade-commitment'
-import { evaluateCommitmentPair, type ArbitrationCommitmentV1, type CommitmentPairEvaluation, type CommitmentPairVerdict } from './arbitration-commitment'
+import { evaluateCommitmentPair, hashArbitrationCommitment, type ArbitrationCommitmentV1, type CommitmentPairEvaluation, type CommitmentPairVerdict } from './arbitration-commitment'
 
 export interface CommitmentPairAdmission {
   envelope: SignedOfferEnvelope
@@ -52,10 +52,12 @@ export type ExecutionReadiness =
  * E26_ARBITRATION_UNAVAILABLE, adopted here at the EPM's explicit order). The switch is exhaustive over the
  * real classification: a new value fails to compile here until its execution rule is decided.
  */
-export function executionReadiness(verdict: CommitmentPairVerdict, terms: Pick<ArbitrationCommitmentV1, 'rail' | 'arbitrationCapability'>): ExecutionReadiness {
+export function executionReadiness(verdict: CommitmentPairVerdict, terms: ArbitrationCommitmentV1): ExecutionReadiness {
   if (!verdict.ok) return { ok: false, code: verdict.code, ...(verdict.field ? { field: verdict.field } : {}) }
   if ('executable' in verdict && verdict.executable === false) return { ok: false, code: verdict.reason ?? 'E25_NOT_COMMITTED' }
   if (verdict.state !== 'COMMITTED') return { ok: false, code: 'E25_NOT_COMMITTED' }
+  // GK R-A: the terms read below must be this pair's own, never another pair's.
+  if (hashArbitrationCommitment(terms) !== verdict.arbitrationCommitmentDigest) return { ok: false, code: 'E26_DIGEST_MISMATCH', field: 'terms' }
   if (terms.arbitrationCapability === 'UNAVAILABLE') return { ok: false, code: 'E26_ARBITRATION_UNAVAILABLE' }
   const capability = arbitrationCapabilityFor(terms.rail)
   switch (capability) {
