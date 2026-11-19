@@ -77,6 +77,13 @@ function refusal(v: Exclude<CommitmentPairVerdict, { ok: true }>): CommitmentPai
   return new CommitmentPairRefused(v.code, { ...(v.field ? { field: v.field } : {}), ...('terms' in v && v.terms ? { terms: v.terms } : {}) })
 }
 
+/**
+ * The stored `reason` is only the capability's non-executability reason (P22/P32, CHECK K3). The admitted verdict also
+ * carries a readiness reason for a pair that is merely not COMMITTED yet (E25_NOT_COMMITTED): that one is not stored.
+ */
+const CAPABILITY_REASONS = new Set(['E26_CAPABILITY_UNPROVEN', 'E26_ARBITRATION_UNAVAILABLE'])
+const capabilityReason = (v: { reason?: string }): string | null => (v.reason && CAPABILITY_REASONS.has(v.reason) ? v.reason : null)
+
 const stampOf = (sig: string | null, at: Date | null): PartySignature | undefined => (sig && at ? { signature: sig, receivedAt: at.toISOString() } : undefined)
 
 export class CommitmentPairService {
@@ -124,7 +131,7 @@ export class CommitmentPairService {
             anchorRef: c.anchorRef, commitmentDigest: v.commitmentDigest, arbitrationCommitmentDigest: v.arbitrationCommitmentDigest,
             trade: c as unknown as Prisma.InputJsonValue, arbitration: i.arbitration.commitment as unknown as Prisma.InputJsonValue,
             policy: i.arbitration.policy as unknown as Prisma.InputJsonValue, feePolicyVersionId: c.feePolicyVersionId,
-            rail: c.rail, capability: i.arbitration.commitment.arbitrationCapability, state: v.state, reason: 'reason' in v ? v.reason ?? null : null,
+            rail: c.rail, capability: i.arbitration.commitment.arbitrationCapability, state: v.state, reason: capabilityReason(v),
             takerTradeSig: i.trade.takerSignature, takerArbitrationSig: i.arbitration.takerSignature, takerReceivedAt: t,
           },
         })
