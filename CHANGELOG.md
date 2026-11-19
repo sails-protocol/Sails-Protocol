@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 
 ### Documentation
 
+- **F32 alternative A (CTO Despacho 012, P46) — read-only party-absence signals and the documented limitation.** New `GET /v1/settlement/escrow/:id/party-absence-signals` (buyer, seller or assigned arbiter) and `docs/F32_PARTY_ABSENCE_LIMITATION.md`. Derived on read from existing tables and explorer GETs; **no migration, no write, no change to signatures, authority, escrow, settlement, funding or arbitration.** The indicator uses the application clock the operator controls and **does not prove a party is unavailable**; the arbiter key belongs to the node operator.
 - **CTO 316 — Technical Debt #57 closed under the A2 criterion only (documentation, no code change).** `docs/TECHNICAL_DEBT_AUDIT.md` item 57 gains a dated closing note; its history is unchanged.
   - **Criterion:** the CI operating standard homologated for A2 (Issue #105, CTO 234): the suite does not fail on app start-up timeouts under the CI's parallelism and cold Jest cache.
   - **Not claimed:** the historical root cause is not fully demonstrated, and `buildApp()` contention under parallel load is not declared solved in general.
