@@ -123,6 +123,15 @@ most applications; the module-level methods above are for advanced/direct
 use. Only `client.negotiate` still throws `SailsNotImplementedError` —
 see `intent-facade.ts`'s own header for the architectural reason.
 
+Since 2026-11-15 (E21 slice 1, PR #651; same signatures, new error
+outcomes): `cancelIntent` answers 409 `INTENT_BOUND` for an Intent an
+Offer or a Trade references (cancel the trade or the Offer instead);
+`dispute`, `releaseAsset` and `openp2p.getTradeByIntent` answer 409
+`AMBIGUOUS_INTENT` (`details.tradeIds`) when an Offer's Intent matches
+several of your trades, and 404 instead of 403 when you are not a party.
+Both 409s arrive as a `SailsError` with that `code`. Details:
+[`docs/API_STABLE.md`](../../docs/API_STABLE.md).
+
 ## Wallet adapter (optional)
 
 `SailsClient` accepts an optional `wallet: WalletAdapter` for wallet
