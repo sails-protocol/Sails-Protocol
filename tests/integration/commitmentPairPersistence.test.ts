@@ -19,7 +19,7 @@ const iso = (ms: number) => new Date(ms).toISOString()
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
-  jest.setTimeout(120_000)
+  jest.setTimeout(300_000) // OS-process cases spawn ts-node workers; slow under machine load
   const pg = createPostgresIntegrationHarness()
   let prisma: any, svcMod: any, envMod: any, offerRepo: any, tc: any, ac: any
   let makerId: string, takerId: string, strangerId: string, feePolicyVersionId: string, feePolicyDigest: string
@@ -165,9 +165,9 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('C5: a signature received at or after expiresAt is refused (database clock, exclusive limit)', async () => {
     pg.requirePostgres('F3 C5')
-    const s = service(); const f = fresh({ ttlMs: 2_500 })
+    const s = service(); const f = fresh({ ttlMs: 20_000 })
     const p = await s.proposePair(f.proposeInput())
-    await sleep(3_000)
+    await sleep(Math.max(0, Date.parse(f.commitment.expiresAt) - Date.now()) + 1_000) // until expiresAt has passed
     await refusedWith(s.signPair(f.makerSign(p.pairId)), 'E25_EXPIRED')
     expect((await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })).state).toBe('PARTIALLY_SIGNED')
   })
@@ -261,8 +261,8 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('(A) stamp window: even a stamp taken from THIS transaction database clock is refused by the trigger once it is >= expiresAt', async () => {
     pg.requirePostgres('F3 stamp expiry')
-    const f = fresh({ ttlMs: 2_500 }); const p = await service().proposePair(f.proposeInput())
-    await sleep(3_000)
+    const f = fresh({ ttlMs: 20_000 }); const p = await service().proposePair(f.proposeInput())
+    await sleep(Math.max(0, Date.parse(f.commitment.expiresAt) - Date.now()) + 1_000) // until expiresAt has passed
     await rawRefused(prisma.$executeRaw`UPDATE "commitment_pairs" SET "makerTradeSig" = ${sign(f.cd, maker)}, "makerArbitrationSig" = ${sign(f.ad, maker)},
       "makerReceivedAt" = date_trunc('milliseconds', clock_timestamp()), "state" = 'COMMITTED', "committedAnchorRef" = ${f.commitment.anchorRef} WHERE "id" = ${p.pairId}`)
     expect((await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })).state).toBe('PARTIALLY_SIGNED')
