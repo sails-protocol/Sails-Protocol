@@ -144,7 +144,7 @@ describe('escrow.service.ts — resolvePayoutAddress() fallback (private, exerci
       },
     }))
     jest.doMock('../src/config', () => ({
-      config: { features: { enforceCapabilities: false, requireDualApprovalForRelease: false }, settlement: { protocolFeeRate: 0 } },
+      config: { features: { enforceCapabilities: false, requireDualApprovalForRelease: false }, settlement: {} },
     }))
     jest.doMock('../src/common/events/event-bus', () => ({ eventBus: { emit: jest.fn().mockResolvedValue(undefined) } }))
   })

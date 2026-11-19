@@ -110,6 +110,13 @@ original (fora do escopo de uma missão de discovery) — **corrigido e
 fechado em 2026-09-08 (Institutional Cold Sweep)**, ver #60 para o
 achado completo e a correção aplicada.
 
+**Nota — 2026-11-16 (CTO 316).** O item **#57** foi fechado somente no
+critério A2 da Issue #105 (padrão operacional do CI), com cinco limites
+declarados e sem causa raiz histórica demonstrada por completo. As
+notas acima que dizem que o #57 "permanece aberto" são registros
+datados e ficam como estão; o estado atual está na nota de fechamento
+ao fim do próprio #57.
+
 ---
 
 ## CRÍTICO — Bloqueia Evolução do Sistema
@@ -2012,7 +2019,7 @@ testes adversariais + extensão do teste `REVERTED` existente
 `docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` §22.1. Nenhum novo BACKLOG
 DELTA — correção de uma remediação já registrada, não um achado novo.
 
-### 57. Falhas de `buildApp()` sob carga paralela do Jest — evidência de confiabilidade do harness de testes não conclusiva (CTO Gate Follow-up sobre F8, 2026-09-07)
+### 57. Falhas de `buildApp()` sob carga paralela do Jest — evidência de confiabilidade do harness de testes não conclusiva (CTO Gate Follow-up sobre F8, 2026-09-07) — FECHADO somente no critério A2, padrão operacional do CI (2026-11-16); limites declarados ao fim do item
 
 **Classificação: novo delta de backlog / confiabilidade de sistema de
 engenharia / qualidade de evidência do harness de testes. Não é uma
@@ -2444,6 +2451,70 @@ call sites de teste Classificação C, sem perda de cobertura, com
 teste/bootstrap paralelo, permanece explicitamente ABERTO / parcialmente
 compreendido — NÃO fechado por este freeze.** Nenhuma alegação de causa
 raiz completa foi feita ou é autorizada por esta nota.
+
+**Fechamento no critério A2, padrão operacional do CI (2026-11-16, CTO
+316).** O histórico acima fica preservado sem alteração; esta nota
+registra o estado atual.
+
+O critério A2 da Issue #105 (Gate A item 2) foi homologado pelo
+Gatekeeper, com autorização do CTO 234, em 2026-11-15 (comentário
+6899915553 da Issue #105). O critério adotado é o padrão operacional do
+CI: a suíte não falha por estouro de tempo da inicialização do app
+(`buildApp()` dentro de `beforeAll()`) sob o paralelismo e o cache que o
+CI usa, isto é, configuração original, cache do Jest frio e
+`--maxWorkers=50%` no runner padrão.
+
+Evidência, no commit `1e8b52d1d79224efa6d4569b3ba085a4cc61b175`
+(executada e registrada pelo Gatekeeper; não reexecutada para esta
+nota):
+
+- configuração original, 2 workers, cache frio, 3 execuções: em cada
+  uma, 10/10 suítes e 90/90 testes; a suíte mais lenta levou de 17,3 s a
+  18,5 s, contra o limite de 30 s do hook;
+- configuração original, 1 e 2 workers, cache quente: 12/12;
+- CI real na `main` de 2026-10-17 a 2026-11-15: 80 execuções, 3
+  falhas, nenhuma com o sintoma deste item.
+
+**A evidência é anterior ao merge da PR #654** (`main` `5c436367`,
+2026-11-16). Depois dela mudaram `src/app.ts` (a checagem de
+privilégios do banco: a chamada fica em `startServer()`, fora de
+`buildApp()`, mas o import do módulo novo
+`src/common/database/runtime-privileges.ts` está no topo do arquivo e
+entra na compilação de toda suíte que carrega o app),
+`.github/workflows/ci.yml`, `.github/workflows/ci-tests.yml` e as
+listas de teste do `package.json`. A bateria de cache frio não foi
+reexecutada depois dessas mudanças. O CI da `main` em `5c436367` (CI,
+CI Tests e CodeQL) terminou com sucesso, o que é uma execução, não uma
+repetição da bateria.
+
+**Status: FECHADO somente no critério A2 (padrão operacional do CI).**
+Não se afirma que a contenção de `buildApp()` sob carga paralela está
+resolvida em geral. **A causa raiz histórica não foi demonstrada por
+completo.** Cinco limites continuam declarados, sem prova e sem
+correção:
+
+1. A explicação registrada acima em 2026-09-10, de Postgres/Redis
+   inacessíveis como fator dominante, não se sustenta pela leitura do
+   código: as 10 suítes já simulavam banco e Redis antes da remediação.
+   A causa mais provável, sem prova direta, é a compilação do ts-jest
+   com cache frio sob muitos workers.
+2. A configuração original com 10 ou mais workers não foi provada (a
+   tentativa foi inconclusiva por falta de memória).
+3. Quatro suítes do lane unitário sobem `buildApp()` sem simular o
+   Redis: `fullTradeLifecycle`, `intentCapabilityCheck`, `intentFlow` e
+   `pearRoutes`.
+4. O número de workers do CI vem da documentação do runner (4
+   processadores, logo 2 workers com `--maxWorkers=50%`), não de um log
+   de execução.
+5. Indisponibilidade real de Postgres ou Redis é obrigação
+   independente, fora do escopo do A2.
+
+Das sete perguntas deste item: a 5 fica respondida só quanto ao
+sintoma (ele não aparece no CI); a distribuição de tempo no CI não foi
+medida; a 1 e a 4 seguem sem resposta; a 2, a 3 e a 6 seguem parciais; a
+7 segue respondida só para a fatia do Swagger-UI. Reabrir este item é o
+caminho correto se o sintoma voltar a aparecer no CI ou se qualquer um
+dos limites 1 a 4 passar a ser exigido por outro critério.
 
 ### 58. `WDK_USDT_EVM`'s `releaseFunds()`/`refundFunds()`/`splitFunds()` — sweep de segurança de fund-moving operations, veredito por método (2026-09-08)
 

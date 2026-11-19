@@ -333,9 +333,10 @@ describe('SafeGuardEvmProvider.finalizeRelease — real signature combination + 
 
   it('with a bundler configured, submits a real eth_sendUserOperation JSON-RPC request and returns the bundler-accepted userOpHash', async () => {
     config.safeGuardEvm.bundlerUrl = 'https://bundler.example/rpc'
+    let acceptedHash = ''
     const mockFetch = jest.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ jsonrpc: '2.0', id: 1, result: '0xacceptedhash' }),
+      json: async () => ({ jsonrpc: '2.0', id: 1, result: acceptedHash }),
     })
     global.fetch = mockFetch as unknown as typeof fetch
 
@@ -346,10 +347,11 @@ describe('SafeGuardEvmProvider.finalizeRelease — real signature combination + 
     const digest = Buffer.from(bundle.userOpHash, 'hex')
     const buyerSig = signDigestHex(buyer.privateKey, digest)
     const sellerSig = signDigestHex(seller.privateKey, digest)
+    acceptedHash = '0x' + bundle.userOpHash
 
     const result = await provider.finalizeRelease(escrow, unsigned.psbtBase64, [buyerSig, sellerSig])
 
-    expect(result.txId).toBe('0xacceptedhash')
+    expect(result.txId).toBe(acceptedHash)
     const [url, init] = mockFetch.mock.calls[0]
     expect(url).toBe('https://bundler.example/rpc')
     const body = JSON.parse(init.body)
@@ -381,6 +383,47 @@ describe('SafeGuardEvmProvider.finalizeRelease — real signature combination + 
 
     await expect(provider.finalizeRelease(escrow, unsigned.psbtBase64, [buyerSig, sellerSig])).rejects.toThrow(/invalid signature/)
     config.safeGuardEvm.bundlerUrl = ''
+  })
+
+  // #325: the bundler's answer is accepted only when it names the UserOperation this provider sent.
+  async function finalizeAgainstBundlerResult(result: (userOpHash: string) => unknown): Promise<{ txId: string; signedHash: string }> {
+    config.safeGuardEvm.bundlerUrl = 'https://bundler.example/rpc'
+    const provider = new SafeGuardEvmProvider()
+    const escrow = baseEscrow({ status: 'FUNDS_LOCKED' })
+    const unsigned = await provider.buildUnsignedRelease(escrow, '0x' + '22'.repeat(20))
+    const bundle = JSON.parse(unsigned.psbtBase64)
+    const digest = Buffer.from(bundle.userOpHash, 'hex')
+    const sigs = [signDigestHex(buyer.privateKey, digest), signDigestHex(seller.privateKey, digest)]
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ jsonrpc: '2.0', id: 1, result: result(bundle.userOpHash) }),
+    }) as unknown as typeof fetch
+    try {
+      return { ...(await provider.finalizeRelease(escrow, unsigned.psbtBase64, sigs)), signedHash: bundle.userOpHash }
+    } finally {
+      config.safeGuardEvm.bundlerUrl = ''
+    }
+  }
+
+  it.each([
+    ['uppercase hex', (h: string) => '0x' + h.toUpperCase()],
+    ['0X prefix', (h: string) => '0X' + h],
+    ['no prefix', (h: string) => h],
+  ])('#325: accepts the computed userOpHash in another spelling (%s)', async (_label, spell) => {
+    const { txId, signedHash } = await finalizeAgainstBundlerResult(spell)
+    expect(txId).toBe('0x' + signedHash.toLowerCase()) // the signed hash is recorded, never the bundler's spelling
+  })
+
+  it.each([
+    ['a different hash', () => '0x' + 'ab'.repeat(32)],
+    ['the hash with one nibble changed', (h: string) => '0x' + h.slice(0, -1) + (h.endsWith('0') ? '1' : '0')],
+    ['a missing result', () => undefined],
+    ['a null result', () => null],
+    ['an empty string', () => ''],
+    ['a bare 0x', () => '0x'],
+    ['a non-string result', (h: string) => ({ userOpHash: '0x' + h })],
+  ])('#325: refuses (fail-closed) a bundler success that returns %s', async (_label, result) => {
+    await expect(finalizeAgainstBundlerResult(result)).rejects.toThrow(/does not match the submitted UserOperation/)
   })
 })
 

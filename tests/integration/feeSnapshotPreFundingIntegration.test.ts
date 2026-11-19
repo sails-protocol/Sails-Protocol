@@ -261,6 +261,30 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
   // Test 7 (Fase 4.1 §4 — "policy retirement after snapshot does not
   // affect escrow"): retiring the referenced policy must never touch the
   // already-snapshotted escrow.
+  // E25 (CTO 433) — CHARACTERIZATION of a KNOWN GAP, not a guarantee. ADR-001 §28.3 asks the fee policy/version to
+  // be frozen "before commitment", and CTO 24 set the signed trade-open as the intended commitment point. On main the
+  // trade-open records no policy (Trade has no such field) and the escrow is created later, asynchronously (the
+  // openp2p.trade.created handler -> executeSettlement -> createEscrow). So a policy published in that window is the
+  // one frozen. This test pins today's behaviour so the gap is executable; when the trade-open binding exists (E21-E24
+  // anchor, CTO decision) this test must be INVERTED to expect policyAtTradeOpen: inverting it needs no new decision,
+  // it is not a gate protecting the defect. Tracked as E25 on #105. It does not homologate E25.
+  it('E25 gap CHARACTERIZATION (#105), to invert when the trade-open -> fee policy binding exists: a policy published between trade-open and escrow creation is the one frozen', async () => {
+    requirePostgres('E25 window')
+    config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
+    const policyAtTradeOpen = await createPublishedPolicy('MULTISIG', { protocolFeeRate: '0.004' })
+    const { trade, buyer } = await createFixtureTrade(`e25w-${Date.now()}`) // the trade-open moment: policyAtTradeOpen is in force
+
+    const tradeRow = await prisma.trade.findUniqueOrThrow({ where: { id: trade.id } })
+    expect(Object.keys(tradeRow).some((k) => /policy|fee/i.test(k))).toBe(false) // nothing about the policy is recorded at trade-open
+
+    const rotated = await createPublishedPolicy('MULTISIG', { protocolFeeRate: '0.008', label: `e25w-rotated-${Date.now()}` })
+    const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, buyer.id)
+
+    expect(escrow.feePolicyVersionId).toBe(rotated.id) // GAP: not policyAtTradeOpen.id
+    expect(escrow.feePolicyVersionId).not.toBe(policyAtTradeOpen.id)
+    expect(escrow.snapshotProtocolFeeRate?.toString()).toBe('0.008')
+  })
+
   it('Test 7: retiring the referenced policy after snapshotting leaves the escrow\'s own snapshot untouched', async () => {
     requirePostgres('Test 7')
     config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS

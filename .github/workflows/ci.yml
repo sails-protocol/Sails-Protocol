@@ -6,6 +6,14 @@ on:
   pull_request:
     branches: [main]
 
+# CTO 403 - cancel only the OBSOLETE runs of the same pull request. A pull_request run belongs to the group "<workflow>-pr-<number>":
+# a newer run of the same PR replaces an older one still queued or running. Every other event (push to main, schedule, manual
+# dispatch) gets a group of its own per run (run_id), so it can never be cancelled, never cancels anything and never queues behind
+# another run. Different PRs have different numbers and never share a group. cancel-in-progress is true only for pull_request.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -50,12 +58,12 @@ jobs:
           --health-retries 5
     steps:
       - name: Checkout repository
-        uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Set up Node.js
-        uses: actions/setup-node@3235b876344d2a9aa001b8d1453c930bba69e610 # v3
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           cache: 'npm'

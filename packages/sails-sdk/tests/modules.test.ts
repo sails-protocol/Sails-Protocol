@@ -11,6 +11,7 @@ import { SailsSettlementModule, recommendedEscrowType, parseSafeGuardBundle } fr
 import { SailsArbitrationModule } from '../src/modules/arbitration'
 import { SailsPeersModule } from '../src/modules/peers'
 import { SailsOpenP2PModule, WebSocketChannel } from '../src/modules/openp2p'
+import type { Message, ReconciliationResult } from '../src/types'
 import { SailsReputationModule } from '../src/modules/reputation'
 import { SailsProofModule } from '../src/modules/proof'
 import { SailsAgentsModule } from '../src/modules/agents'
@@ -986,19 +987,52 @@ describe('SailsArbitrationModule', () => {
 })
 
 describe('SailsOpenP2PModule — reconcileTrade()', () => {
-  it('reconcileTrade() posts sinceMessageCreatedAt to /v1/openp2p/trades/:id/reconcile with auth', async () => {
-    const fetchImpl = fakeFetch(200, { success: true, data: [{ id: 'msg-1', tradeId: 'trade-1', senderId: 'seller', content: 'Payment sent', msgType: 'TEXT', timestamp: '2026-08-01T00:00:00Z' }] })
+  // The route answers { success: true, data: ReconciliationResult } (trade.routes.ts / reconciliation.service.ts): an OBJECT. The
+  // SDK used to declare Message[] and this mock used to return an array, so the wrong type and the wrong mock agreed with each other.
+  const reconciliation = {
+    tradeId: 'trade-1',
+    currentTradeStatus: 'ACTIVE',
+    currentEscrowStatus: 'FUNDS_LOCKED',
+    missedMessages: [{ id: 'msg-1', senderId: 'seller', content: 'Payment sent', msgType: 'TEXT', createdAt: '2026-08-01T00:00:00.000Z' }],
+  }
+
+  it('reconcileTrade() posts sinceMessageCreatedAt to /v1/openp2p/trades/:id/reconcile with auth and returns the real object', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: reconciliation })
     const openp2p = new SailsOpenP2PModule(authedTransport(fetchImpl))
 
     const result = await openp2p.reconcileTrade('trade-1', new Date('2026-07-01T00:00:00Z'))
 
-    expect(result).toHaveLength(1)
+    expect(result).toEqual(reconciliation)
+    expect(Array.isArray(result)).toBe(false)
+    expect(result.currentTradeStatus).toBe('ACTIVE')
+    expect(result.currentEscrowStatus).toBe('FUNDS_LOCKED')
+    expect(result.missedMessages).toHaveLength(1)
+    expect(result.missedMessages[0].createdAt).toBe('2026-08-01T00:00:00.000Z')
     const [url, init] = fetchImpl.mock.calls[0]
     expect(url).toBe('http://localhost:3000/v1/openp2p/trades/trade-1/reconcile')
     expect(init.method).toBe('POST')
     expect(init.headers.authorization).toBe('Bearer session-abc')
     const body = JSON.parse(init.body)
     expect(body.sinceMessageCreatedAt).toBe('2026-07-01T00:00:00.000Z')
+  })
+
+  it('a trade without an escrow reports currentEscrowStatus null and no missed messages', async () => {
+    const fetchImpl = fakeFetch(200, { success: true, data: { ...reconciliation, currentEscrowStatus: null, missedMessages: [] } })
+    const result = await new SailsOpenP2PModule(authedTransport(fetchImpl)).reconcileTrade('trade-1', null)
+    expect(result.currentEscrowStatus).toBeNull()
+    expect(result.missedMessages).toEqual([])
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body).sinceMessageCreatedAt).toBeNull()
+  })
+
+  // Compile-time guard (ts-jest reports type errors as failures): if the return type goes back to Message[], the first line below
+  // stops compiling AND the @ts-expect-error on the second becomes unused, which is itself an error. Never executed.
+  it('type contract: the result is a ReconciliationResult and is not assignable to Message[]', () => {
+    const typed = (openp2p: SailsOpenP2PModule): Promise<ReconciliationResult> => openp2p.reconcileTrade('t', null)
+    const notAnArray = async (openp2p: SailsOpenP2PModule): Promise<Message[]> =>
+      // @ts-expect-error reconcileTrade() resolves to an object, not Message[]
+      openp2p.reconcileTrade('t', null)
+    expect(typeof typed).toBe('function')
+    expect(typeof notAnArray).toBe('function')
   })
 })
 

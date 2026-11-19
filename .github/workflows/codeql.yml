@@ -15,6 +15,14 @@ on:
     # can still surface a newly-added finding against unchanged code.
     - cron: '0 6 * * 1'
 
+# CTO 403 - cancel only the OBSOLETE runs of the same pull request. A pull_request run belongs to the group "<workflow>-pr-<number>":
+# a newer run of the same PR replaces an older one still queued or running. Every other event (push to main, schedule, manual
+# dispatch) gets a group of its own per run (run_id), so it can never be cancelled, never cancels anything and never queues behind
+# another run. Different PRs have different numbers and never share a group. cancel-in-progress is true only for pull_request.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   analyze:
     name: Analyze (javascript-typescript)
@@ -26,7 +34,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@9418214df1f2c4b8128c770156c409013b07d6b9 # v3

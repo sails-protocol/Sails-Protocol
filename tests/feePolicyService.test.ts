@@ -6,6 +6,7 @@
  * fixture. Fake-repo DI, same pattern as tests/capabilityRegistry.test.ts
  * (no `jest.mock('../src/common/database', ...)` needed).
  */
+import { Prisma } from '@prisma/client'
 import { FeePolicyService } from '../src/modules/open-settlement/fee-policy.service'
 import type { FeePolicyVersionRepository } from '../src/modules/open-settlement/fee-policy-repository'
 
@@ -187,6 +188,70 @@ describe('FeePolicyService.publish — structural validation (G/H/F)', () => {
     const service = new FeePolicyService(repo)
 
     await expect(service.publish(draft.id)).resolves.toMatchObject({ status: 'PUBLISHED' })
+  })
+})
+
+// CTO 413 (P1) — the rate is validated, never coerced: the DECIMAL(24,8) column would otherwise
+// store NaN (and treat it as > 0) and round a 9th decimal place silently (sometimes upward).
+describe('FeePolicyService — protocolFeeRate strict validation (CTO 413)', () => {
+  function draftInput(protocolFeeRate: unknown) {
+    return {
+      label: 'fixture-v1', railScope: 'FIXTURE_RAIL', protocolFeeRate: protocolFeeRate as string,
+      payerModel: 'SELLER_PAYS' as const, economicBasis: 'SELLER_DELIVERED_VALUE' as const,
+      requiredConfirmations: 2, createdBy: 'test-fixture',
+    }
+  }
+
+  const invalid: Array<[string, unknown, RegExp]> = [
+    ['NaN', 'NaN', /finite/],
+    ['Decimal NaN', new Prisma.Decimal('NaN'), /finite/],
+    ['Infinity', 'Infinity', /finite/],
+    ['-Infinity', '-Infinity', /finite/],
+    ['negative', '-0.01', /must be >= 0/],
+    ['9 decimal places', '0.000000001', /at most 8 decimal places/],
+    ['9 decimal places that PG would round up', '0.004000009', /at most 8 decimal places/],
+    ['comma decimal', '0,5', /not a decimal number/],
+    ['non-numeric', 'abc', /not a decimal number/],
+    ['empty', '', /not a decimal number/],
+  ]
+
+  it.each(invalid)('createDraft refuses %s and writes nothing', async (_label, rate, message) => {
+    const repo = fakeRepo()
+    await expect(new FeePolicyService(repo).createDraft(draftInput(rate))).rejects.toThrow(message)
+    expect(repo.create).not.toHaveBeenCalled()
+  })
+
+  it.each(invalid)('publish refuses a stored draft with %s', async (_label, rate, message) => {
+    const draft = fixtureDraft({ protocolFeeRate: rate })
+    const repo = fakeRepo({ findById: jest.fn().mockResolvedValue(draft) })
+    await expect(new FeePolicyService(repo).publish(draft.id)).rejects.toThrow(message)
+    expect(repo.publish).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['zero', '0'],
+    ['exactly 8 decimal places', '0.00000001'],
+    ['the fixture rate', '0.004'],
+    ['trailing zeros past 8 places (value has 8 or fewer)', '0.0040000000'],
+    ['above 100% (no ceiling: an economic decision, not this check)', '1.5'],
+  ])('createDraft and publish accept %s, passing the value through unchanged', async (_label, rate) => {
+    const repo = fakeRepo({ create: jest.fn().mockImplementation(async (input) => input) })
+    await expect(new FeePolicyService(repo).createDraft(draftInput(rate))).resolves.toMatchObject({ protocolFeeRate: rate })
+    expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ protocolFeeRate: rate }))
+
+    const draft = fixtureDraft({ protocolFeeRate: rate })
+    const publishRepo = fakeRepo({
+      findById: jest.fn().mockResolvedValue(draft),
+      publish: jest.fn().mockResolvedValue({ ...draft, status: 'PUBLISHED' }),
+    })
+    await expect(new FeePolicyService(publishRepo).publish(draft.id)).resolves.toMatchObject({ status: 'PUBLISHED', protocolFeeRate: rate })
+  })
+
+  it('accepts a Prisma.Decimal input (the stored column type) and passes the same object through', async () => {
+    const rate = new Prisma.Decimal('0.004')
+    const repo = fakeRepo({ create: jest.fn().mockImplementation(async (input) => input) })
+    await new FeePolicyService(repo).createDraft(draftInput(rate))
+    expect(repo.create.mock.calls[0][0].protocolFeeRate).toBe(rate)
   })
 })
 

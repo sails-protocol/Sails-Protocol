@@ -271,7 +271,7 @@ originally cited no longer describes the plan: `PROTOCOL_ECONOMY.md`
 §3 now has the fee active at 0.40% from Day 0 rather than after a
 12-month grace period. The code default stays `0` regardless (a safety
 default, not a phase marker) — production deployments are expected to
-set `PROTOCOL_FEE_RATE=0.004` explicitly from launch. **D3 correction:** `cumulativeFeesObserved`
+set `PROTOCOL_FEE_RATE=0.004` explicitly from launch. **Corrigido 2026-11-17:** that expectation no longer holds — `PROTOCOL_FEE_RATE` had no reader after Missão 11 Fase 6.5.2 retired `chargeProtocolFee()`, and was removed; the rate is a published `FeePolicyVersion`, a governance decision, never an env var. **D3 correction:** `cumulativeFeesObserved`
 does **not** compose into `reputationAtRisk` in the shipped code — see
 D3's own correction above; the two ended up as independent signals, not
 one feeding the other.

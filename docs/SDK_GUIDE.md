@@ -279,7 +279,7 @@ interface SailsClient {
     updateTradeStatus(tradeId: string, status: 'ACTIVE' | 'CANCELLED'): Promise<Trade>   // requires an active session
     chat(tradeId: string, options?: WebSocketChannelOptions): WebSocketChannel   // requires an active session — real reconnect-with-backoff by default (2026-08-02); onConnectionStateChange() reports 'open'/'reconnecting'/'closed'
     getMessages(tradeId: string): Promise<Message[]>   // requires an active session
-    reconcileTrade(tradeId: string, sinceMessageCreatedAt: Date | null): Promise<Message[]>   // requires an active session — RFC-011 client-side reconciliation, returns missed messages since the given timestamp
+    reconcileTrade(tradeId: string, sinceMessageCreatedAt: Date | null): Promise<ReconciliationResult>   // requires an active session — RFC-011 client-side reconciliation: { tradeId, currentTradeStatus, currentEscrowStatus, missedMessages[] } (an object, not an array; at most 100 messages, oldest first)
   }
 
   // Capability declaration/grants — RFC-005 (rfcs/RFC-005-capability-model.md),
