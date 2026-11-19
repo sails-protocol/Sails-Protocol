@@ -1,0 +1,154 @@
+name: TMP Linux proof (#702) - informational, DO NOT MERGE
+
+# TEMPORARY. Proves, on a real Linux runner, that the root lockfile of PR #702 (next 16.4.5 / sharp 0.35.5) installs
+# cleanly and that the integration starter builds and answers correctly. It is INFORMATIONAL: it is not a required
+# check, it changes no branch protection and it must never reach main. The PR that carries this file is closed
+# unmerged once the evidence is preserved.
+#
+# Inert anywhere else: it only triggers on a pull_request that touches THIS file, and every job re-checks that the PR
+# head is the temporary branch of this repository. If this file were ever merged by mistake, no later PR would run it.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/tmp-linux-proof-702.yml'
+
+# No secrets, no write access, no pull_request_target.
+permissions:
+  contents: read
+
+# Own group, never shared with the CTO 403 groups of CI / CI Tests / CodeQL ("<workflow>-pr-<n>"), which are keyed on
+# their own workflow name. cancel-in-progress is false so a re-push does not discard a proof run that is under way.
+concurrency:
+  group: tmp-linux-proof-702-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  # The exact commit under proof: head of PR #702. The job refuses to continue if the checkout is anything else.
+  EXPECTED_SHA: f3c74e15fc39bc735b0c682d94b2aafa1e7c6198
+  EXPECTED_NEXT: 16.4.5
+  EXPECTED_SHARP: 0.35.5
+  NEXT_TELEMETRY_DISABLED: '1'
+  CI: 'true'
+
+jobs:
+  linux-proof:
+    name: linux-proof
+    # Not named build / test / Analyze (javascript-typescript): those are the required checks of main.
+    if: >-
+      github.event.pull_request.head.ref == 'tmp/linux-proof-702' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout the commit under proof (#702 head)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.EXPECTED_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Confirm the checkout is exactly the expected SHA
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          actual="$(git rev-parse HEAD)"
+          echo "expected=$EXPECTED_SHA" | tee -a evidence/00-environment.txt
+          echo "actual=$actual" | tee -a evidence/00-environment.txt
+          test "$actual" = "$EXPECTED_SHA"
+          git log -1 --format='%H %s' | tee -a evidence/00-environment.txt
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          # No cache on purpose: this is a CLEAN install from the root lockfile.
+
+      - name: Record the Linux environment
+        run: |
+          {
+            echo "--- uname"; uname -a
+            echo "--- os-release"; head -3 /etc/os-release
+            echo "--- glibc"; ldd --version | head -1
+            echo "--- node / npm"; node -v; npm -v
+          } | tee -a evidence/00-environment.txt
+
+      - name: Clean install from the ROOT lockfile (same command as CI)
+        run: |
+          set -euo pipefail
+          npm ci 2>&1 | tee evidence/10-npm-ci.log
+
+      - name: Confirm the installed versions (not just the lockfile)
+        run: |
+          set -euo pipefail
+          # Read package.json from disk: sharp's "exports" does not expose ./package.json to require().
+          ver() { node -p "JSON.parse(require('fs').readFileSync('node_modules/$1/package.json','utf8')).version"; }
+          next_v="$(ver next)"
+          sharp_v="$(ver sharp)"
+          echo "next=$next_v sharp=$sharp_v" | tee evidence/20-versions.txt
+          test "$next_v" = "$EXPECTED_NEXT"
+          test "$sharp_v" = "$EXPECTED_SHARP"
+
+      - name: Build the workspace packages the starter imports
+        run: |
+          set -euo pipefail
+          {
+            npm run build -w @satsails/p2p-schemas
+            npm run build -w @satsails/p2p-trading-sdk
+            npm run build -w @satsails/sdk-react
+          } 2>&1 | tee evidence/30-build-packages.log
+
+      - name: next build of the integration starter
+        run: |
+          set -euo pipefail
+          npm run build -w @sails/example-integration-starter 2>&1 | tee evidence/40-next-build.log
+
+      - name: Smoke test with next start (200 / 404 / 400)
+        run: |
+          set -euo pipefail
+          npm run start -w @sails/example-integration-starter > evidence/50-next-start.log 2>&1 &
+          echo $! > evidence/server.pid
+          for i in $(seq 1 60); do
+            curl -s -o /dev/null http://127.0.0.1:3001/ && break
+            sleep 1
+          done
+          # `|| true`: a refused connection must show up as "000" in the report, not abort the script before it is printed.
+          code() { curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:3001$1" || true; }
+          root="$(code /)"
+          missing="$(code /does-not-exist)"
+          # No images.remotePatterns is configured, so a remote URL must be rejected by the image optimizer.
+          remote="$(code '/_next/image?url=https%3A%2F%2Fexample.com%2Fa.png&w=64&q=75')"
+          printf '%s\n' "/ -> $root (expect 200)" "/does-not-exist -> $missing (expect 404)" \
+            "/_next/image remote url -> $remote (expect 400)" | tee evidence/60-smoke.txt
+          test "$root" = 200
+          test "$missing" = 404
+          test "$remote" = 400
+
+      - name: Stop the server
+        if: always()
+        run: |
+          if [ -f evidence/server.pid ]; then kill "$(cat evidence/server.pid)" 2>/dev/null || true; fi
+
+      - name: Evidence summary
+        if: always()
+        run: |
+          {
+            echo "## Linux proof for #702 (informational)"
+            echo
+            echo "Commit under proof: \`$EXPECTED_SHA\`"
+            echo
+            for f in evidence/00-environment.txt evidence/20-versions.txt evidence/60-smoke.txt; do
+              [ -f "$f" ] && { echo "### $f"; echo '```'; cat "$f"; echo '```'; }
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-proof-702-evidence
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: warn
