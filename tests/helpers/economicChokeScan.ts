@@ -8,6 +8,9 @@
 // triggers, F4 slice S1) exists; the two layers are acceptance criteria together.
 //
 // Scope: src/** and scripts/** (GK 4.1-4). Comments are stripped first; definitions are not calls (a call is preceded by `.`).
+//
+// Found while designing S1: `updateLockResult` writes `multisigAddr` through a `data` VARIABLE, so a pattern that looks for the
+// word inside the call's own arguments misses it. The multisigAddr rule therefore looks at the WHOLE enclosing function.
 
 export interface ChokeRule {
   readonly id: string
@@ -16,8 +19,10 @@ export interface ChokeRule {
   readonly pattern: RegExp
   /** The rule only applies to files whose path matches (a generic name such as `repo.create` is only meaningful in one service). */
   readonly onlyInFile?: RegExp
-  /** Extra condition on the text that follows the match (used for "update ... with multisigAddr in data"). */
+  /** Extra condition on the text that follows the match. */
   readonly followedBy?: { readonly within: number; readonly pattern: RegExp }
+  /** Extra condition on the WHOLE enclosing function (signature and body): the rule only fires when the function mentions this. */
+  readonly bodyContains?: RegExp
   /** Reviewed places, `path` or `path::function`. */
   readonly allowed: readonly string[]
 }
@@ -60,11 +65,17 @@ export const CHOKE_RULES: readonly ChokeRule[] = [
     allowed: [`${ESCROW_SERVICE}::submitParticipantKey`],
   },
   {
+    id: 'DEPOSIT_ADDRESS_PERSIST_AT_LOCK',
+    description: 'updateLockResult (the SECOND writer of multisigAddr: lockFunds stores the provider address with the funding)',
+    pattern: /\.updateLockResult\s*\(/g,
+    allowed: [`${ESCROW_SERVICE}::lockFunds`],
+  },
+  {
     id: 'MULTISIG_ADDR_UPDATE_MODEL',
-    description: 'any escrow update / updateMany / upsert that carries multisigAddr in its data',
+    description: 'any escrow update / updateMany / upsert in a function that handles multisigAddr (the value may travel in a data variable)',
     pattern: /\bescrow\.(?:update|updateMany|upsert)\s*\(/g,
-    followedBy: { within: 600, pattern: /multisigAddr/ },
-    allowed: [`${ESCROW_REPOSITORY}::updateMultisigAddr`],
+    bodyContains: /multisigAddr/,
+    allowed: [`${ESCROW_REPOSITORY}::updateMultisigAddr`, `${ESCROW_REPOSITORY}::updateLockResult`],
   },
   {
     id: 'MULTISIG_ADDR_UPDATE_RAW',
@@ -95,16 +106,33 @@ export function stripComments(src: string): string {
 }
 
 const NOT_A_FUNCTION = new Set(['if', 'for', 'while', 'switch', 'catch', 'return', 'function', 'await', 'typeof', 'new'])
+// A declaration is a line that starts with optional modifiers and a name, then `(...)` on ONE line (it may contain object-type
+// params such as `data: { a: string; b: number }`), an optional return type, and `{` ending the line.
+const DECLARATION = /(?:^|\n)[ \t]*(?:export\s+)?(?:public\s+|private\s+|protected\s+|static\s+)*(?:async\s+)?(?:function\s+)?([A-Za-z_$][\w$]*)\s*(?:<[^>\n]*>)?\([^\n]*\)\s*(?::\s*[^{=\n]+)?\s*\{[ \t]*(?=\n)/g
 
-/** The nearest preceding function / method name (heuristic; arrow callbacks in a route file fall back to the file). */
-export function enclosingFunction(code: string, index: number): string | null {
+interface FunctionRange { readonly name: string; readonly start: number; readonly end: number }
+
+/** The nearest preceding function / method (heuristic): its name and the text range up to the next declaration. */
+export function enclosingFunctionRange(code: string, index: number): FunctionRange | null {
   const head = code.slice(0, index)
-  const re = /(?:^|\n)[ \t]*(?:export\s+)?(?:public\s+|private\s+|protected\s+|static\s+)*(?:async\s+)?(?:function\s+)?([A-Za-z_$][\w$]*)\s*(?:<[^>\n]*>)?\([^;{}]*\)\s*(?::\s*[^;{=\n]+)?\s*\{/g
-  let name: string | null = null
+  const re = new RegExp(DECLARATION.source, 'g')
+  let found: { name: string; start: number } | null = null
   for (let m = re.exec(head); m; m = re.exec(head)) {
-    if (!NOT_A_FUNCTION.has(m[1])) name = m[1]
+    if (!NOT_A_FUNCTION.has(m[1])) found = { name: m[1], start: m.index }
   }
-  return name
+  if (!found) return null
+  const after = new RegExp(DECLARATION.source, 'g')
+  after.lastIndex = Math.max(index, found.start + 1)
+  let end = code.length
+  for (let m = after.exec(code); m; m = after.exec(code)) {
+    if (!NOT_A_FUNCTION.has(m[1])) { end = m.index; break }
+  }
+  return { name: found.name, start: found.start, end }
+}
+
+/** The nearest preceding function / method name (arrow callbacks in a route file fall back to the file). */
+export function enclosingFunction(code: string, index: number): string | null {
+  return enclosingFunctionRange(code, index)?.name ?? null
 }
 
 export interface ChokeFinding { readonly rule: string; readonly path: string; readonly fn: string | null; readonly line: number }
@@ -127,7 +155,12 @@ export function scanChokePoints(files: Record<string, string>, rules: readonly C
           const tail = code.slice(m.index, m.index + m[0].length + rule.followedBy.within)
           if (!rule.followedBy.pattern.test(tail)) continue
         }
-        const fn = enclosingFunction(code, m.index)
+        const range = enclosingFunctionRange(code, m.index)
+        if (rule.bodyContains) {
+          const text = range ? code.slice(range.start, range.end) : code.slice(Math.max(0, m.index - 600), m.index + 600)
+          if (!rule.bodyContains.test(text)) continue
+        }
+        const fn = range?.name ?? null
         const line = code.slice(0, m.index).split('\n').length
         const finding = { rule: rule.id, path, fn, line }
         matches.push(finding)

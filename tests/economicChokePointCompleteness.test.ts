@@ -57,8 +57,8 @@ describe('economic choke-points: the guard itself is mutation-tested (synthetic 
   /** A minimal, compliant tree: every reviewed call exactly where it is allowed. */
   function compliant(): Record<string, string> {
     return {
-      [REPO]: 'export class R {\n  async create(d) {\n    return prisma.escrow.create({ data: d })\n  }\n  async updateMultisigAddr(id, a) {\n    return prisma.escrow.update({ where: { id }, data: { multisigAddr: a } })\n  }\n}\n',
-      [SERVICE]: 'export class S {\n  async createEscrow(i) {\n    return this.repo.create(i)\n  }\n  async submitParticipantKey(id) {\n    const x = await provider.getDepositAddress(id)\n    return this.repo.updateMultisigAddr(id, x)\n  }\n  async lockFunds(id) {\n    return provider.lockFunds(id)\n  }\n}\n',
+      [REPO]: 'export class R {\n  async create(d) {\n    return prisma.escrow.create({ data: d })\n  }\n  async updateMultisigAddr(id, a) {\n    return prisma.escrow.update({ where: { id }, data: { multisigAddr: a } })\n  }\n  async updateLockResult(id, data: { multisigAddr: string; lockedAt: Date }) {\n    return prisma.escrow.update({ where: { id }, data })\n  }\n}\n',
+      [SERVICE]: 'export class S {\n  async createEscrow(i) {\n    return this.repo.create(i)\n  }\n  async submitParticipantKey(id) {\n    const x = await provider.getDepositAddress(id)\n    return this.repo.updateMultisigAddr(id, x)\n  }\n  async lockFunds(id) {\n    const r = await provider.lockFunds(id)\n    return this.repo.updateLockResult(id, { multisigAddr: r.address, lockedAt: new Date() })\n  }\n}\n',
       [ROUTES]: "export async function settlementRoutes(app) {\n  app.post('/x', async () => { await escrowService.createEscrow(b) })\n  app.post('/y', async () => { await escrowService.lockFunds(i) })\n}\n",
       [ORCH]: 'export async function executeSettlement(i) {\n  await escrowService.createEscrow(i)\n  await escrowService.lockFunds(i)\n}\n',
     }
@@ -79,7 +79,9 @@ describe('economic choke-points: the guard itself is mutation-tested (synthetic 
     ['raw INSERT INTO "escrows"', 'src/other/a.ts', 'export function f() {\n  return prisma.$executeRaw`INSERT INTO "escrows" (id) VALUES (1)`\n}\n'],
     ['raw INSERT INTO escrows inside scripts/**', 'scripts/seed.sql', 'INSERT INTO escrows (id) VALUES (1);\n'],
     ['escrow.update with multisigAddr, anywhere else', 'src/other/a.ts', 'export function f() {\n  return tx.escrow.update({ where: { id }, data: { multisigAddr: x } })\n}\n'],
-    ['escrow.updateMany with multisigAddr', 'src/other/a.ts', 'export function f() {\n  return tx.escrow.updateMany({ where: {}, data: { multisigAddr: x } })\n}\n'],
+    ['escrow.update where multisigAddr travels in a data VARIABLE (the updateLockResult shape), in another file', 'src/other/a.ts', 'export async function writeIt(id, data: { multisigAddr: string }) {\n  return prisma.escrow.update({ where: { id }, data })\n}\n'],
+    ['updateLockResult called from another place', 'src/other/a.ts', 'export function f() {\n  return repo.updateLockResult(i, d)\n}\n'],
+    ['escrow.updateMany with multisigAddr','src/other/a.ts', 'export function f() {\n  return tx.escrow.updateMany({ where: {}, data: { multisigAddr: x } })\n}\n'],
     ['raw UPDATE "escrows" ... multisigAddr', 'src/other/a.ts', 'export function f() {\n  return prisma.$executeRaw`UPDATE "escrows" SET "multisigAddr" = ${x} WHERE id = ${i}`\n}\n'],
     ['getDepositAddress in another file', 'src/other/a.ts', 'export function f() {\n  return provider.getDepositAddress(t)\n}\n'],
     ['updateMultisigAddr in another file', 'src/other/a.ts', 'export function f() {\n  return repo.updateMultisigAddr(i, a)\n}\n'],
@@ -101,7 +103,9 @@ describe('economic choke-points: the guard itself is mutation-tested (synthetic 
   it.each([
     ['getDepositAddress', SERVICE, /await provider\.getDepositAddress\(id\)/, 'DEPOSIT_ADDRESS_DERIVATION'],
     ['updateMultisigAddr', SERVICE, /return this\.repo\.updateMultisigAddr\(id, x\)/, 'DEPOSIT_ADDRESS_PERSIST'],
-    ['provider.lockFunds', SERVICE, /return provider\.lockFunds\(id\)/, 'LOCK_FUNDS_CALL'],
+    ['provider.lockFunds', SERVICE, /const r = await provider\.lockFunds\(id\)/, 'LOCK_FUNDS_CALL'],
+    ['updateLockResult (the second multisigAddr writer, in the repository)', REPO, /return prisma\.escrow\.update\(\{ where: \{ id \}, data \}\)/, 'MULTISIG_ADDR_UPDATE_MODEL'],
+    ['updateLockResult call in lockFunds', SERVICE, /return this\.repo\.updateLockResult\(id, \{ multisigAddr: r\.address, lockedAt: new Date\(\) \}\)/, 'DEPOSIT_ADDRESS_PERSIST_AT_LOCK'],
     ['createEscrow (orchestrator)', ORCH, /await escrowService\.createEscrow\(i\)/, 'CREATE_ESCROW_CALL'],
   ])('MUTANT: the reviewed %s call disappears -> the allow-list entry is reported stale', (_name, path, call, rule) => {
     const tree = compliant()
