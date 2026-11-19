@@ -9,6 +9,7 @@ import { admitCommitmentPair, executionReadiness } from '../src/modules/open-p2p
 
 const V = require('../conformance/vectors/sails-trade-commitment-v1.vectors.json')
 const NOW = new Date('2026-11-19T11:10:00.000Z')
+const MULTISIG = { rail: 'MULTISIG', arbitrationCapability: 'FIXED_ARBITER_COMMITMENT' }
 const envelope = { ...V.offerEnvelope.content, signature: V.offerEnvelope.signature }
 const pairCase = (name: string) => V.pairCases.find((t: any) => t.name.startsWith(name)).input
 const admit = (input: any, over: { envelope?: any; now?: Date } = {}) => {
@@ -22,8 +23,8 @@ describe('E25/E26 F2 - commitment admission and execution readiness (pure)', () 
 
   it('F2.1+F2.2: a valid MULTISIG pair admitted against its verified envelope passes the commitment gate', () => {
     const v = admit(fixed)
-    expect(v).toMatchObject({ ok: true, state: 'COMMITTED', commitmentDigest: V.tradeCommitment.digest })
-    expect(executionReadiness(v, 'MULTISIG')).toMatchObject({ ok: true, gate: 'COMMITMENT_PAIR_COMMITTED' })
+    expect(v).toMatchObject({ ok: true, state: 'COMMITTED', executable: true, commitmentDigest: V.tradeCommitment.digest })
+    expect(executionReadiness(v, MULTISIG)).toMatchObject({ ok: true, gate: 'COMMITMENT_PAIR_COMMITTED' })
   })
 
   it('F2.1: an envelope whose signature does not verify is refused BEFORE the pair is evaluated', () => {
@@ -50,24 +51,45 @@ describe('E25/E26 F2 - commitment admission and execution readiness (pure)', () 
   it('F2.3: an unclassified rail is UNKNOWN for the real classification -> non-executable proposal (P22)', () => {
     const v = admit(pairCase('P22: valid UNKNOWN pair with all four signatures'))
     expect(v).toMatchObject({ ok: true, state: 'PROPOSED', executable: false, reason: 'E26_CAPABILITY_UNPROVEN' })
-    expect(executionReadiness(v, 'EXAMPLE_UNCLASSIFIED_RAIL')).toEqual({ ok: false, code: 'E26_CAPABILITY_UNPROVEN' })
+    expect(executionReadiness(v, { rail: 'EXAMPLE_UNCLASSIFIED_RAIL', arbitrationCapability: 'UNKNOWN' })).toEqual({ ok: false, code: 'E26_CAPABILITY_UNPROVEN' })
   })
 
   it('F2.3: UNAVAILABLE cannot be reached through the real classification (no rail declares it): the pair is refused', () => {
     expect(admit(pairCase('valid UNAVAILABLE pair'))).toEqual({ ok: false, code: 'E26_TERMS_REFUSED', terms: ['E26_CAPABILITY_RAIL_MISMATCH'] })
   })
 
-  it('F2.2: a COMMITTED verdict built with any other classification is not ready on a rail the real one does not prove (P32 fail-closed)', () => {
+  const pure = (input: any) => evaluateCommitmentPair({ trade: { ...input.trade, enabledRails: new Set(input.trade.enabledRails) }, arbitration: input.arbitration, deriveCapability: (r) => V.railCapability[r] })
+
+  it('F2.2 (P32): a COMMITTED pair declaring UNAVAILABLE records the consent but is never executable: E26_ARBITRATION_UNAVAILABLE, not UNPROVEN', () => {
     const input = pairCase('valid UNAVAILABLE pair')
-    const v = evaluateCommitmentPair({ trade: { ...input.trade, enabledRails: new Set(input.trade.enabledRails) }, arbitration: input.arbitration, deriveCapability: (r) => V.railCapability[r] })
+    const v = pure(input)
     expect(v).toMatchObject({ ok: true, state: 'COMMITTED' })
-    expect(executionReadiness(v, 'EXAMPLE_RAIL_WITHOUT_ARBITRATION')).toEqual({ ok: false, code: 'E26_CAPABILITY_UNPROVEN' })
-    expect(executionReadiness(admit(fixed), 'WDK_USDT_EVM')).toEqual({ ok: false, code: 'E26_CAPABILITY_UNPROVEN' })
+    expect(executionReadiness(v, input.arbitration.commitment)).toEqual({ ok: false, code: 'E26_ARBITRATION_UNAVAILABLE' })
+  })
+
+  it('F2.2: a COMMITTED verdict is not ready on a rail the real classification does not prove', () => {
+    expect(executionReadiness(admit(fixed), { rail: 'WDK_USDT_EVM', arbitrationCapability: 'FIXED_ARBITER_COMMITMENT' })).toEqual({ ok: false, code: 'E26_CAPABILITY_UNPROVEN' })
+    // A fixture-DYNAMIC rail is unknown to the real classification.
+    expect(executionReadiness(admit(fixed), { rail: 'EXAMPLE_POOL_RAIL', arbitrationCapability: 'DYNAMIC_REASSIGNABLE' })).toEqual({ ok: false, code: 'E26_CAPABILITY_UNPROVEN' })
+  })
+
+  it('GK F2: every ok verdict from admission carries a boolean executable, true only for a ready COMMITTED pair', () => {
+    let seen = 0
+    for (const t of V.pairCases) {
+      const v: any = admit(t.input)
+      if (!v.ok) continue
+      seen++
+      expect(typeof v.executable).toBe('boolean')
+      expect(v.executable).toBe(v.state === 'COMMITTED' && t.input.arbitration.commitment.rail === 'MULTISIG')
+      if (!v.executable) expect(typeof v.reason).toBe('string')
+    }
+    expect(seen).toBeGreaterThanOrEqual(3)
+    expect(admit(pairCase('nobody signed either object'))).toMatchObject({ ok: true, state: 'PROPOSED', executable: false, reason: 'E25_NOT_COMMITTED' })
   })
 
   it('F2.2: only COMMITTED passes; a partial pair and a refusal never do', () => {
-    expect(executionReadiness({ ok: true, state: 'PARTIALLY_SIGNED', commitmentDigest: 'x', arbitrationCommitmentDigest: 'y' }, 'MULTISIG')).toEqual({ ok: false, code: 'E25_NOT_COMMITTED' })
-    expect(executionReadiness({ ok: true, state: 'PROPOSED', commitmentDigest: 'x', arbitrationCommitmentDigest: 'y' }, 'MULTISIG')).toEqual({ ok: false, code: 'E25_NOT_COMMITTED' })
-    expect(executionReadiness({ ok: false, code: 'E26_SIGNATURE_INVALID', field: 'maker' }, 'MULTISIG')).toEqual({ ok: false, code: 'E26_SIGNATURE_INVALID', field: 'maker' })
+    expect(executionReadiness({ ok: true, state: 'PARTIALLY_SIGNED', commitmentDigest: 'x', arbitrationCommitmentDigest: 'y' }, MULTISIG)).toEqual({ ok: false, code: 'E25_NOT_COMMITTED' })
+    expect(executionReadiness({ ok: true, state: 'PROPOSED', commitmentDigest: 'x', arbitrationCommitmentDigest: 'y' }, MULTISIG)).toEqual({ ok: false, code: 'E25_NOT_COMMITTED' })
+    expect(executionReadiness({ ok: false, code: 'E26_SIGNATURE_INVALID', field: 'maker' }, MULTISIG)).toEqual({ ok: false, code: 'E26_SIGNATURE_INVALID', field: 'maker' })
   })
 })

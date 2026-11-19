@@ -12,7 +12,7 @@
 import { hashOfferEnvelope, isOfferEnvelopeEconomicallyActive, verifyOfferEnvelope, type SignedOfferEnvelope } from '../open-liquidity/offer-envelope'
 import { arbitrationCapabilityFor } from '../open-settlement/arbitration-policy'
 import type { E25Refusal, TradeCommitmentEvaluation } from './trade-commitment'
-import { evaluateCommitmentPair, type CommitmentPairEvaluation, type CommitmentPairVerdict } from './arbitration-commitment'
+import { evaluateCommitmentPair, type ArbitrationCommitmentV1, type CommitmentPairEvaluation, type CommitmentPairVerdict } from './arbitration-commitment'
 
 export interface CommitmentPairAdmission {
   envelope: SignedOfferEnvelope
@@ -22,7 +22,12 @@ export interface CommitmentPairAdmission {
   arbitration: CommitmentPairEvaluation['arbitration']
 }
 
-export function admitCommitmentPair(i: CommitmentPairAdmission): CommitmentPairVerdict {
+/** Every admitted verdict carries `executable`, so a consumer that stops at `ok` still has to face it (GK F2 requirement). */
+export type AdmittedPairVerdict =
+  | Exclude<CommitmentPairVerdict, { ok: true }>
+  | (Extract<CommitmentPairVerdict, { ok: true }> & { executable: boolean; reason?: string })
+
+export function admitCommitmentPair(i: CommitmentPairAdmission): AdmittedPairVerdict {
   const envelopeBad = (field: string): E25Refusal => ({ ok: false, code: 'E25_OFFER_ENVELOPE_INVALID', field })
   if (!verifyOfferEnvelope(i.envelope).valid) return envelopeBad('envelope')
   if (!isOfferEnvelopeEconomicallyActive(i.envelope, i.now)) return envelopeBad('envelope.active')
@@ -31,7 +36,10 @@ export function admitCommitmentPair(i: CommitmentPairAdmission): CommitmentPairV
     digest: hashOfferEnvelope(e).toString('hex'), logicalOfferId: e.logicalOfferId, revision: e.revision, ownerPublicKey: e.ownerPublicKey,
     side: e.side, asset: e.asset, priceUsd: e.priceUsd, paymentMethod: e.paymentMethod, minAmount: e.minAmount, maxAmount: e.maxAmount, expiresAt: e.expiresAt,
   }
-  return evaluateCommitmentPair({ trade: { ...i.trade, offer }, arbitration: i.arbitration, deriveCapability: arbitrationCapabilityFor })
+  const v = evaluateCommitmentPair({ trade: { ...i.trade, offer }, arbitration: i.arbitration, deriveCapability: arbitrationCapabilityFor })
+  if (!v.ok) return v
+  const r = executionReadiness(v, i.arbitration.commitment)
+  return r.ok ? { ...v, executable: true } : { ...v, executable: false, reason: r.code }
 }
 
 export type ExecutionReadiness =
@@ -39,15 +47,17 @@ export type ExecutionReadiness =
   | { ok: false; code: string; field?: string }
 
 /**
- * Only a COMMITTED pair on a rail whose capability the real classification proves passes. The switch is
- * exhaustive over that classification: a new value (e.g. UNAVAILABLE, ADR-003/#580) fails to compile here
- * until its execution rule is decided (P32), instead of passing silently.
+ * Only a COMMITTED pair on a rail whose capability the real classification proves passes. A declared
+ * UNAVAILABLE (bilateral consent to no arbitration) is recorded but never executable in this phase (P32,
+ * E26_ARBITRATION_UNAVAILABLE, adopted here at the EPM's explicit order). The switch is exhaustive over the
+ * real classification: a new value fails to compile here until its execution rule is decided.
  */
-export function executionReadiness(verdict: CommitmentPairVerdict, rail: string): ExecutionReadiness {
+export function executionReadiness(verdict: CommitmentPairVerdict, terms: Pick<ArbitrationCommitmentV1, 'rail' | 'arbitrationCapability'>): ExecutionReadiness {
   if (!verdict.ok) return { ok: false, code: verdict.code, ...(verdict.field ? { field: verdict.field } : {}) }
-  if ('executable' in verdict) return { ok: false, code: verdict.reason }
+  if ('executable' in verdict && verdict.executable === false) return { ok: false, code: verdict.reason ?? 'E25_NOT_COMMITTED' }
   if (verdict.state !== 'COMMITTED') return { ok: false, code: 'E25_NOT_COMMITTED' }
-  const capability = arbitrationCapabilityFor(rail)
+  if (terms.arbitrationCapability === 'UNAVAILABLE') return { ok: false, code: 'E26_ARBITRATION_UNAVAILABLE' }
+  const capability = arbitrationCapabilityFor(terms.rail)
   switch (capability) {
     case 'FIXED_ARBITER_COMMITMENT':
     case 'DYNAMIC_REASSIGNABLE':
