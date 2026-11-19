@@ -57,16 +57,19 @@ describe('E25/E26 F2 - commitment admission and execution readiness (pure)', () 
   })
 
   it('F2.3: UNAVAILABLE cannot be reached through the real classification (no rail declares it): the pair is refused', () => {
-    expect(admit(pairCase('valid UNAVAILABLE pair'))).toEqual({ ok: false, code: 'E26_TERMS_REFUSED', terms: ['E26_CAPABILITY_RAIL_MISMATCH'] })
+    expect(admit(pairCase('P32: valid UNAVAILABLE pair with all four signatures'))).toEqual({ ok: false, code: 'E26_TERMS_REFUSED', terms: ['E26_CAPABILITY_RAIL_MISMATCH'] })
   })
 
   const pure = (input: any) => evaluateCommitmentPair({ trade: { ...input.trade, enabledRails: new Set(input.trade.enabledRails) }, arbitration: input.arbitration, deriveCapability: (r) => V.railCapability[r] })
 
   it('F2.2 (P32): a COMMITTED pair declaring UNAVAILABLE records the consent but is never executable: E26_ARBITRATION_UNAVAILABLE, not UNPROVEN', () => {
-    const input = pairCase('valid UNAVAILABLE pair')
+    const input = pairCase('P32: valid UNAVAILABLE pair with all four signatures')
+    // Since #704 HEAD-U the pure verdict itself is a non-executable proposal; readiness refuses it by its reason.
     const v = pure(input)
-    expect(v).toMatchObject({ ok: true, state: 'COMMITTED' })
+    expect(v).toMatchObject({ ok: true, state: 'PROPOSED', executable: false, reason: 'E26_ARBITRATION_UNAVAILABLE' })
     expect(executionReadiness(v, input.arbitration.commitment)).toEqual({ ok: false, code: 'E26_ARBITRATION_UNAVAILABLE' })
+    // GK R-B, defence in depth: even a COMMITTED verdict whose terms declare UNAVAILABLE is never ready.
+    expect(executionReadiness(committedFor(input.arbitration.commitment), input.arbitration.commitment)).toEqual({ ok: false, code: 'E26_ARBITRATION_UNAVAILABLE' })
   })
 
   it('F2.2: a COMMITTED verdict is not ready on a rail the real classification does not prove', () => {
