@@ -1,0 +1,320 @@
+name: TMP regtest P51 - informational, DO NOT MERGE
+
+# TEMPORARY, INFORMATIONAL. A disposable Bitcoin regtest environment on a Linux runner: official Bitcoin Core (verified: SHA256SUMS + pinned
+# GPG builder fingerprints at a pinned guix.sigs commit + pinned tarball hash), electrs (Esplora REST) built from a pinned commit with
+# `cargo build --locked`, a one-route front proxy for /v1/fees/recommended, ephemeral PostgreSQL and Redis. Two runs on the same SHA; the
+# structural verdicts are compared. It is NOT a homologation, enables NO rail, and is NOT production. It never becomes a required check and
+# never reaches main.
+#
+# TRIGGER (PRIMARY, accepted by the GK for isolation): `on: push` ONLY to branches `tmp/regtest-**`: one temporary remote branch, no PR.
+# Inert elsewhere: the filter is exact, there is NO pull_request / pull_request_target / workflow_run / workflow_dispatch trigger, and the
+# job repeats the ref check. Pushes to main do not match; the other workflows of this repository trigger only on push to main and on pull
+# requests to main, so a push to a tmp/regtest-* branch starts THIS workflow only. NOT TESTED in this repository: the first execution
+# validates the trigger.
+# FALLBACK, if the push does not trigger: a temporary DRAFT pull request whose BASE is not main (the #702 pattern); only ci-tests.yml
+# would also fire there (cancel only that run, after confirming head_branch, head_sha and pull_requests with `gh api`). It needs a
+# different `on:` block and is NOT enabled here. `workflow_dispatch` is not used: the deviation is ratified by the CTO (Pedido 53).
+#
+# FAIL CLOSED: every value marked PIN_REQUIRED_* is supplied and CHECKED by the GK / Aux 01 before the first run. While any is still a
+# placeholder, `verify-pins` stops the job before anything is downloaded or built. Nothing here invents a hash, a fingerprint or a digest.
+on:
+  push:
+    branches: ['tmp/regtest-**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tmp-regtest-p51-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # ---- the code under proof and the reviewed infrastructure (not circular: the tree hash covers tests/regtest, not this file) ----
+  # For the first run (infrastructure only) the code under proof is main as of 46d93df7 (the GK: "basta, porque é só infra").
+  EXPECTED_SHA: 46d93df77f1d0223262fd52a699628df5fc3e68b
+  # git tree hash of tests/regtest in the commit pushed to the tmp/regtest-* branch. NOT pinned here: the GK pins it on the FINAL branch (it changes
+  # whenever any file under tests/regtest changes). CANDIDATE for the delivered files (LF, mode 100644): 042e9bed8869ef9fdec1fbeb81b0ec66c5f2ae6b
+  # Until the GK replaces the placeholder below, `verify-pins` refuses to run, so a push to a tmp/regtest-* branch cannot proceed past the first step.
+  EXPECTED_INFRA_TREE: 042e9bed8869ef9fdec1fbeb81b0ec66c5f2ae6b
+  # ---- Bitcoin Core v32.1: official tarball, verified (GK decisions V2.1) ----
+  BITCOIN_CORE_VERSION: '32.1'
+  # sha256 of bitcoin-32.1-x86_64-linux-gnu.tar.gz. 13 Guix builders attest this same hash in guix.sigs (per the GK). Pinned
+  # INDEPENDENTLY of the GPG check: both checks are mandatory.
+  BITCOIN_CORE_TARBALL_SHA256: 61545c17c3120fb7412f896d248b11993af04ec8817aad3649c55b2afb044963
+  # The builder public keys are VENDORED in tests/regtest/keys/bitcoin-core-builders/<builder>.asc: byte-for-byte the files
+  # builder-keys/<builder>.gpg of bitcoin-core/guix.sigs at this commit. Nothing is fetched from guix.sigs or a keyserver during the job.
+  GUIX_SIGS_REPO_URL: https://github.com/bitcoin-core/guix.sigs.git
+  GUIX_SIGS_COMMIT: a171559775c54949da8017714ddf9b5305071f73
+  # sha256 of EACH vendored key file (GK R3 review, re-read by the author from guix.sigs at the commit above: 13/13 equal, each file's
+  # primary fingerprint equal to the pinned one). The directory must hold exactly these 13 files.
+  BUILDER_KEY_SHA256S: |
+    Emzy 24201144a4bccf69fb5ab226d93318f344b07722e3696f7a0ef96b5a33a8712a
+    Sjors f7d0c746d69686302cb8465bddd4faf2e1930a22785dfc98c6f0cd149d0cfb13
+    achow101 1b31ab2e336d5ee44dd4d9f5703ad4445798fcee3b1352ab75afa145e737224a
+    benthecarman 438417e4db2106a1be8105f9b9abb777967840f7d4a81f1e5c0607d286b82735
+    danielabrozzoni 55a1a2b551a92b1049c9e62a4ed94381945711825b09b211f60db96d414789d1
+    fanquake d9d6d89f5d9da0811ed94469f790d5bd0e185b7ee678e7ca7b3121995ded3d26
+    guggero 09d130b060d28e257a9e76773252d1ae35238e93425848b86bc67bd0f6b28675
+    hebasto f305e90cb6b3cfe47beb71a51242395f1fc8d46840a1d2345283df2fefca021b
+    m3dwards c6affc7b4375d0a4a36c6d6ab684c351dba28e45da6aadc083ec93c243e7908e
+    pinheadmz c69f6402bc7d63c60f2bcba1d2e853af521e625319118ab0fb57ec32f8405437
+    sedited 4ccc4bd4de9b05625671dd6817f29d65e52bae8bb0fad402b5bd1f04eb211802
+    stickies-v 14dff06d3bc3855843546cc8594672d3fb8b3cdaa41bcaaaf45387c50d5c2f1e
+    willcl-ark af9ece5e85a90bbca6bb10f41aa11a51176010904e021b5d4530e414c10b2414
+  # The 13 builders whose SHA256SUMS attest the hash above (PRIMARY key fingerprints, explicit list, conferred by the GK against guix.sigs
+  # at the pinned commit): Emzy, Sjors, achow101, benthecarman, danielabrozzoni, fanquake, guggero, hebasto, m3dwards, pinheadmz,
+  # sedited, stickies-v, willcl-ark. The keyring holds exactly these 13 and nothing else (asserted).
+  BITCOIN_CORE_BUILDER_FINGERPRINTS: >-
+    9EDAFF80E080659604F4A76B2EBB056FD847F8A7
+    ED9BDF7AD6A55E232E84524257FF9BDBCC301009
+    152812300785C96444D3334D17565732E08E5E41
+    0AD83877C1F0CD1EE9BD660AD7CC770B81FD22A8
+    D06C7DB566A0CA42271BB74EBB6735D6BF9E8E58
+    E777299FC265DD04793070EB944D35F9AC3DB76A
+    F4FC70F07310028424EFC20A8E4256593F177720
+    D1DBF2C4B96F2DEBF4C16654410108112E7EA81F
+    E86AE73439625BBEE306AAE6B66D427F873CB1A3
+    E61773CD6E01040E2F1BD78CE7E2984B6289C93A
+    A8FC55F3B04BA3146F3492E79303B33A305224CB
+    E60FE080866DE5F71C8DF3A05CB1CE6E5E66A757
+    67AA5B46E7AF78053167FE343B8F814A784218F8
+  # At least 3 VALID signatures by DISTINCT primary fingerprints of the list above (GK decision).
+  GPG_MIN_VALID_SIGNATURES: '3'
+  # ---- electrs (Esplora), compiled from a pinned commit of the new-index branch (NOT v0.4.1: 2018, 956 commits behind) ----
+  ELECTRS_REPO_URL: https://github.com/Blockstream/electrs
+  ELECTRS_COMMIT: 76836e20e512598634b17bb5d38c565788ca12ef
+  # sha256 of Cargo.lock at that commit (GK: the git blob of this content equals GitHub's, e7f76760...) and the toolchain declared by the
+  # commit's own rust-toolchain.toml.
+  ELECTRS_CARGO_LOCK_SHA256: 7f2a870ced77c26c7628ea3e8510dcff5a53602beef935407cc8b39b7e0ae934
+  RUST_TOOLCHAIN: 1.92.0
+  # ---- declared parameters (decisions, not pins) ----
+  # FIXED fee rate: an INPUT (policy), not chain state, NOT market data. Must be >= the node's minrelaytxfee (proved by real acceptance
+  # of the transaction) and <= the provider ceiling MULTISIG_MAX_FEE_RATE_SATS_PER_VBYTE (default 200). Declared by the author, CONFIRMED by the GK.
+  FIXED_FEE_SAT_PER_VB: '10'
+  MULTISIG_EXPLORER_API_URL: http://127.0.0.1:3003
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  regtest-p51:
+    # Not named build / test / Analyze (javascript-typescript): those are the required checks of main.
+    name: regtest-p51
+    # Repeated on purpose (GK): defence if the trigger filter ever changes.
+    if: >-
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/heads/tmp/regtest-') &&
+      github.repository == 'sails-protocol/Sails-Protocol'
+    runs-on: ubuntu-latest
+    # The steps alone add up to 10 + 35 + 30 + 30 minutes: 120 keeps a slow step from cutting the job in the middle of the evidence.
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    # Same engines as ci-tests.yml, pinned by DIGEST (the env context is not available in `services:`, so the literal is here).
+    # ORIGIN of both digests: Docker Hub registry API (registry-1.docker.io), HEAD of the manifest of the tag, the multi-arch image
+    # index, resolved 2026-11-19T14:56:52Z. Tags move: this pins the index as of that moment. ci-tests.yml itself still uses the tags.
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:1d5b02d3a9941fbd52437db4107f8c52d6297dac553ca1e5c299ebb3756b4857
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: sails_protocol
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Ephemeral test database of THIS job (not a secret: it exists only for the duration of the run).
+      DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+      SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
+      SAILS_LEGACY_SINGLE_CREDENTIAL: '1'
+      TRUSTED_ARBITRATORS: k6-test-arbiter
+      REDISMS_DISABLE_POSTINSTALL: true
+      REDISMS_SYSTEM_BINARY: /usr/bin/redis-server
+      EVIDENCE_ROOT: ${{ github.workspace }}/evidence
+      CODE_DIR: ${{ github.workspace }}/code
+      # SECRETS_DIR (where the ephemeral secret VALUES of each run are written, OUTSIDE evidence/) is declared in the env: of the steps that use it:
+      # the `runner` context does not exist in jobs.<id>.env.
+    steps:
+      # ---------- 1. the reviewed infrastructure (this very commit), then the pins ----------
+      - name: Checkout the reviewed infrastructure (tests/regtest only)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: infra
+          sparse-checkout: tests/regtest
+          persist-credentials: false
+
+      - name: Verify every pin (fail closed on a placeholder)
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_ROOT"
+          bash infra/tests/regtest/scripts/verify-pins.sh 2>&1 | tee "$EVIDENCE_ROOT/00-verify-pins.txt"
+
+      # Self-tests that need no network and run BEFORE anything is downloaded: if the signature counter or the vendored keys are wrong, stop here.
+      - name: Self-test of the signature counter (real gpg, throw-away keys)
+        run: bash infra/tests/regtest/scripts/gpg-count.check.sh 2>&1 | tee "$EVIDENCE_ROOT/05-gpg-count-selftest.txt"
+
+      - name: Self-test of the vendored builder keys against the pins
+        env:
+          KEYS_DIR: ${{ github.workspace }}/infra/tests/regtest/keys/bitcoin-core-builders
+        run: bash infra/tests/regtest/scripts/gpg-keys.check.sh 2>&1 | tee "$EVIDENCE_ROOT/06-gpg-keys-selftest.txt"
+
+      - name: Confirm the infrastructure is exactly the reviewed tree
+        env:
+          PUSHED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          head="$(git -C infra rev-parse HEAD)"
+          tree="$(git -C infra rev-parse HEAD:tests/regtest)"
+          echo "infra head=$head" | tee -a "$EVIDENCE_ROOT/00-identity.txt"
+          echo "infra tests/regtest tree=$tree (expected $EXPECTED_INFRA_TREE)" | tee -a "$EVIDENCE_ROOT/00-identity.txt"
+          test "$head" = "$PUSHED_SHA"
+          test "$tree" = "$EXPECTED_INFRA_TREE"
+
+      # ---------- 2. the code under proof (exact SHA) ----------
+      - name: Checkout the code under proof
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.EXPECTED_SHA }}
+          path: code
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Confirm the code checkout is exactly the expected SHA, then overlay the infrastructure
+        run: |
+          set -euo pipefail
+          actual="$(git -C code rev-parse HEAD)"
+          echo "code expected=$EXPECTED_SHA actual=$actual" | tee -a "$EVIDENCE_ROOT/00-identity.txt"
+          test "$actual" = "$EXPECTED_SHA"
+          # The infra must not overwrite anything that exists in the code tree.
+          if [ -e code/tests/regtest ]; then echo "code/tests/regtest already exists: refusing to overlay" >&2; exit 1; fi
+          mkdir -p code/tests
+          cp -r infra/tests/regtest code/tests/regtest
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          # No cache: a clean install, and no cache-poisoning surface.
+
+      - name: Record the environment
+        run: |
+          {
+            echo "--- uname"; uname -a
+            echo "--- os-release"; head -3 /etc/os-release
+            echo "--- glibc"; ldd --version | head -1
+            echo "--- node / npm"; node -v; npm -v
+          } | tee "$EVIDENCE_ROOT/00-environment.txt"
+
+      # ---------- 3. Bitcoin Core: official tarball, verified ----------
+      - name: Bitcoin Core provenance (sha256 + pinned hash + pinned-fingerprint GPG threshold)
+        timeout-minutes: 15
+        env:
+          INSTALL_DIR: ${{ runner.temp }}/bitcoin-core
+          KEYS_DIR: ${{ github.workspace }}/code/tests/regtest/keys/bitcoin-core-builders
+          EVIDENCE_DIR: ${{ github.workspace }}/evidence
+        run: |
+          set -euo pipefail
+          bash code/tests/regtest/scripts/provenance-bitcoin-core.sh
+          echo "BITCOIN_BIN_DIR=$INSTALL_DIR/bin" >> "$GITHUB_ENV"
+
+      # ---------- 4. electrs from a pinned commit ----------
+      - name: Build electrs (pinned commit, cargo --locked)
+        timeout-minutes: 35
+        env:
+          SRC_DIR: ${{ runner.temp }}/electrs-src
+          EVIDENCE_DIR: ${{ github.workspace }}/evidence
+        run: |
+          set -euo pipefail
+          bash code/tests/regtest/scripts/build-electrs.sh
+          echo "ELECTRS_BIN=$SRC_DIR/target/release/electrs" >> "$GITHUB_ENV"
+
+      # ---------- 5. the code under proof: same preparation as ci-tests.yml ----------
+      - name: Install dependencies (clean, from the lockfile)
+        working-directory: code
+        run: npm ci
+      - name: Build workspace packages
+        working-directory: code
+        run: npm run build -w @sails/core -w @satsails/p2p-schemas -w @satsails/p2p-trading-sdk
+      - name: Generate Prisma Client
+        working-directory: code
+        run: npm run db:generate
+      - name: Apply database migrations (ephemeral PostgreSQL service)
+        working-directory: code
+        run: npm run db:migrate
+
+      # ---------- 6. the proxy's own tests, then two full runs ----------
+      - name: Front proxy self-test (loopback, no chain)
+        working-directory: code
+        run: node --test tests/regtest/esplora-front/proxy.check.mjs 2>&1 | tee "$EVIDENCE_ROOT/10-proxy-selftest.txt"
+
+      - name: Run 1 (fresh regtest chain)
+        timeout-minutes: 30
+        env:
+          SECRETS_DIR: ${{ runner.temp }}/p51-secrets
+        run: bash code/tests/regtest/scripts/run-once.sh 1
+
+      - name: Run 2 (fresh regtest chain, same SHA)
+        timeout-minutes: 30
+        env:
+          SECRETS_DIR: ${{ runner.temp }}/p51-secrets
+        run: bash code/tests/regtest/scripts/run-once.sh 2
+
+      - name: Structural comparison of run 1 and run 2
+        run: node code/tests/regtest/first-flow/structural-compare.mjs "$EVIDENCE_ROOT/run1" "$EVIDENCE_ROOT/run2" 2>&1 | tee "$EVIDENCE_ROOT/90-structural-compare.txt"
+
+      # ---------- 7. evidence: manifest, summary, scan, upload (the scan GATES the upload) ----------
+      - name: Manifest
+        if: always()
+        run: node code/tests/regtest/scripts/write-manifest.mjs "$EVIDENCE_ROOT"
+
+      - name: Summary (what this run covers, and what it does NOT)
+        if: always()
+        run: |
+          {
+            echo "## P51 regtest (informational, not a homologation)"
+            echo
+            echo "Code under proof: \`$EXPECTED_SHA\`. Fixed fee: ${FIXED_FEE_SAT_PER_VB} sat/vB (a declared input, **not** market data)."
+            echo
+            echo "Declared test-only node setting: \`bitcoind -fallbackfee=0.0002\` (20 sat/vB) is used by the test wallet ONLY to fund the test transactions; it is not the fee the provider uses."
+            echo
+            echo "**This first run validates the workflow and the infrastructure. It does NOT count for P45.**"
+            echo
+            echo "**Scope of this run:** infrastructure, fidelity of the 7 Esplora routes against bitcoind, fixed-fee acceptance by the real node, fee-route negative case."
+            echo
+            echo "**Scenarios D7-D12:**"
+            echo '```'
+            cat "$EVIDENCE_ROOT/run1/scenarios-status.txt" 2>/dev/null || echo "no scenarios-status.txt (the run did not get that far)"
+            echo '```'
+            echo "**NOT covered:** D1-D6 (they depend on #235 / F3 / F4); any scenario not listed as PASS above; production; any rail."
+            echo
+            for f in 90-structural-compare.txt; do [ -f "$EVIDENCE_ROOT/$f" ] && { echo "### $f"; echo '```'; cat "$EVIDENCE_ROOT/$f"; echo '```'; }; done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Scan the evidence for keys, seeds, cookies and the literal ephemeral secrets (gates the upload)
+        id: scan
+        if: always()
+        env:
+          SECRETS_DIR: ${{ runner.temp }}/p51-secrets
+        run: bash code/tests/regtest/scripts/scan-evidence.sh "$EVIDENCE_ROOT" "$SECRETS_DIR"
+
+      - name: Keep the evidence
+        if: always() && steps.scan.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: regtest-p51-evidence
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: warn
