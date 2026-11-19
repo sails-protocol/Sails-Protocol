@@ -103,6 +103,9 @@ export function computeEntryHash(eventName: string, publishedAt: string, payload
     .digest('hex')
 }
 
+/** The transaction client publishInTransaction() writes through: the caller's own `prisma.$transaction` client. */
+export type EventStoreTransaction = Pick<Prisma.TransactionClient, '$executeRaw' | 'durableEventRecord'>
+
 // ─── Non-durable fallback (test/dev use only — NOT the wired default) ─────────
 // Corrected 2026-08-17 (Missão 07.6 release-readiness audit): this section
 // header used to read "Default: in-memory, explicitly NOT durable," which
@@ -352,95 +355,105 @@ export class PostgresEventStore implements EventStore {
     payload: SailsEventMap[K],
     correlationId: string
   ): Promise<void> {
-    const eventId = uuidv4()
-    let prevHash = GENESIS_HASH
-    let entryHash = ''
-    let publishedAt = ''
-
+    let event!: DurableEvent<K>
     await this.client.$transaction(async (tx) => {
-      // $executeRaw, not $queryRaw — Missão 06 (2026-08-16) real-Postgres
-      // integration testing found $queryRaw fails against a live server
-      // here: pg_advisory_xact_lock() returns void, and Prisma's
-      // $queryRaw tries to deserialize every returned column into a JS
-      // value, which a void column has none of ("Failed to deserialize
-      // column of type 'void'"). The mocked suite (tests/postgresEventStore.test.ts)
-      // never caught this — its fake $queryRaw resolves unconditionally,
-      // never executing real SQL against a real engine. $executeRaw is
-      // the correct tool for a call whose only purpose is the side
-      // effect (the lock itself), with no row data ever needed back.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${correlationId})::bigint)`
+      event = await this.publishInTransaction(tx, eventName, payload, correlationId)
+    })
+    this.dispatchCommitted(event)
+  }
 
-      // Real prevHash: this correlationId's own last row, not a
-      // separately maintained counter — same read-then-write shape
-      // emitEscrowTransition()/writeIntentEvent() already established
-      // (escrow-lifecycle.ts, intent-engine.ts). Now genuinely race-free
-      // (not just race-free "as long as the caller already serialized
-      // upstream," the precondition this comment used to state): the
-      // advisory lock above means no other publish() call for this same
-      // correlationId can be inside this transaction at the same time,
-      // on this process or any other.
-      const last = await tx.durableEventRecord.findFirst({
-        where: { correlationId },
-        orderBy: { publishedAt: 'desc' },
-      })
-      prevHash = last?.entryHash ?? GENESIS_HASH
+  /**
+   * E21 slice 1 (CTO 24 6811766719) - appends ONE durable event inside the CALLER's open transaction, with exactly
+   * publish()'s guarantees: the same per-correlationId advisory lock (held until the caller's commit or rollback),
+   * the same hash chain and the same strictly monotonic publishedAt. Nothing is dispatched: the row only exists if
+   * the caller's transaction commits, so the caller hands the returned event to dispatchCommitted() AFTER the commit
+   * (never before it) and a dispatch failure there cannot undo or fail the committed write.
+   */
+  async publishInTransaction<K extends SailsEventName>(
+    tx: EventStoreTransaction,
+    eventName: K,
+    payload: SailsEventMap[K],
+    correlationId: string
+  ): Promise<DurableEvent<K>> {
+    const eventId = uuidv4()
+    // $executeRaw, not $queryRaw — Missão 06 (2026-08-16) real-Postgres
+    // integration testing found $queryRaw fails against a live server
+    // here: pg_advisory_xact_lock() returns void, and Prisma's
+    // $queryRaw tries to deserialize every returned column into a JS
+    // value, which a void column has none of ("Failed to deserialize
+    // column of type 'void'"). The mocked suite (tests/postgresEventStore.test.ts)
+    // never caught this — its fake $queryRaw resolves unconditionally,
+    // never executing real SQL against a real engine. $executeRaw is
+    // the correct tool for a call whose only purpose is the side
+    // effect (the lock itself), with no row data ever needed back.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${correlationId})::bigint)`
 
-      // Computed here, AFTER acquiring the lock and reading `last` — not
-      // before entering the transaction — and forced strictly greater
-      // than the prior entry's own publishedAt. Missão 06 (2026-08-16)
-      // real-Postgres load testing found the previous version (timestamp
-      // captured once, before the lock, from wall-clock time alone) let
-      // several advisory-lock-serialized writers land in the SAME
-      // millisecond under genuine concurrency — harmless for the write
-      // path itself, but `getEvents()`'s `ORDER BY "publishedAt" ASC`
-      // has no tie-break guarantee in Postgres for equal values, so a
-      // read could return two same-millisecond rows in the opposite of
-      // their real write order, and `verifyChain()` (which walks rows in
-      // query order) reported a false-positive broken chain — reproduced
-      // directly against the live database, not assumed. Bumping by 1ms
-      // past the real last write when a collision would occur keeps
-      // every row's publishedAt strictly monotonic within a
-      // correlationId, which is the only ordering guarantee `getEvents()`
-      // actually needs — no schema change, no change to
-      // `computeEntryHash()`'s formula, publishedAt stays an ISO-8601
-      // string throughout.
-      publishedAt = new Date().toISOString()
-      if (last && publishedAt <= last.publishedAt) {
-        publishedAt = new Date(new Date(last.publishedAt).getTime() + 1).toISOString()
-      }
+    // Real prevHash: this correlationId's own last row, not a
+    // separately maintained counter — same read-then-write shape
+    // emitEscrowTransition()/writeIntentEvent() already established
+    // (escrow-lifecycle.ts, intent-engine.ts). Now genuinely race-free
+    // (not just race-free "as long as the caller already serialized
+    // upstream," the precondition this comment used to state): the
+    // advisory lock above means no other publish() call for this same
+    // correlationId can be inside this transaction at the same time,
+    // on this process or any other.
+    const last = await tx.durableEventRecord.findFirst({
+      where: { correlationId },
+      orderBy: { publishedAt: 'desc' },
+    })
+    const prevHash = last?.entryHash ?? GENESIS_HASH
 
-      entryHash = computeEntryHash(eventName, publishedAt, payload, prevHash)
+    // Computed here, AFTER acquiring the lock and reading `last` — not
+    // before entering the transaction — and forced strictly greater
+    // than the prior entry's own publishedAt. Missão 06 (2026-08-16)
+    // real-Postgres load testing found the previous version (timestamp
+    // captured once, before the lock, from wall-clock time alone) let
+    // several advisory-lock-serialized writers land in the SAME
+    // millisecond under genuine concurrency — harmless for the write
+    // path itself, but `getEvents()`'s `ORDER BY "publishedAt" ASC`
+    // has no tie-break guarantee in Postgres for equal values, so a
+    // read could return two same-millisecond rows in the opposite of
+    // their real write order, and `verifyChain()` (which walks rows in
+    // query order) reported a false-positive broken chain — reproduced
+    // directly against the live database, not assumed. Bumping by 1ms
+    // past the real last write when a collision would occur keeps
+    // every row's publishedAt strictly monotonic within a
+    // correlationId, which is the only ordering guarantee `getEvents()`
+    // actually needs — no schema change, no change to
+    // `computeEntryHash()`'s formula, publishedAt stays an ISO-8601
+    // string throughout.
+    let publishedAt = new Date().toISOString()
+    if (last && publishedAt <= last.publishedAt) {
+      publishedAt = new Date(new Date(last.publishedAt).getTime() + 1).toISOString()
+    }
 
-      await tx.durableEventRecord.create({
-        data: {
-          id: eventId,
-          eventName,
-          correlationId,
-          payload: payload as unknown as Prisma.InputJsonValue,
-          publishedAt,
-          entryHash,
-          prevHash,
-        },
-      })
+    const entryHash = computeEntryHash(eventName, publishedAt, payload, prevHash)
+
+    await tx.durableEventRecord.create({
+      data: {
+        id: eventId,
+        eventName,
+        correlationId,
+        payload: payload as unknown as Prisma.InputJsonValue,
+        publishedAt,
+        entryHash,
+        prevHash,
+      },
     })
 
+    return { eventId, eventName, correlationId, payload, publishedAt, entryHash, prevHash }
+  }
+
+  /** Local dispatch + cross-instance signal of an event whose transaction already committed (publish()'s own tail). */
+  dispatchCommitted<K extends SailsEventName>(event: DurableEvent<K>): void {
     // Same log-level reasoning InMemoryEventStore.publish() already
     // states — debug, not info, since this dumps full event payloads
     // (trade amounts, participant ids, escrow details).
     if (process.env.NODE_ENV === 'development') {
-      log.debug({ msg: 'Event emitted', eventName, correlationId, payload })
+      log.debug({ msg: 'Event emitted', eventName: event.eventName, correlationId: event.correlationId, payload: event.payload })
     }
 
-    const event: DurableEvent<K> = {
-      eventId,
-      eventName,
-      correlationId,
-      payload,
-      publishedAt,
-      entryHash,
-      prevHash,
-    }
-    this.emitter.emit(eventName, event)
+    this.emitter.emit(event.eventName, event)
 
     // Missão 08B — best-effort signal for any OTHER instance's own
     // subscription (enableCrossInstanceFanout() above) to dispatch this
@@ -453,7 +466,7 @@ export class PostgresEventStore implements EventStore {
     if (this.crossInstancePublisher) {
       const message = JSON.stringify({ ...event, __originInstanceId: this.instanceId })
       this.crossInstancePublisher.publish(CROSS_INSTANCE_CHANNEL, message).catch((err) => {
-        log.error({ msg: 'Cross-instance event publish failed (durable write already committed, unaffected)', eventName, eventId, err: err instanceof Error ? err.message : String(err) })
+        log.error({ msg: 'Cross-instance event publish failed (durable write already committed, unaffected)', eventName: event.eventName, eventId: event.eventId, err: err instanceof Error ? err.message : String(err) })
       })
     }
   }

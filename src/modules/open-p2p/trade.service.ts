@@ -7,14 +7,37 @@
  * into a real Trade row, the other half of TODO.md §1's "modules/open-p2p/
  * — trade routes ... only service-layer logic survived" gap.
  */
-import { NotFoundError, ValidationError, ForbiddenError } from '../../common/errors'
+import { randomUUID } from 'crypto'
+import type { Prisma } from '@prisma/client'
+import { prisma } from '../../common/database'
+import { AppError, NotFoundError, ValidationError, ForbiddenError } from '../../common/errors'
 import { eventBus } from '../../common/events/event-bus'
+import type { DurableEvent } from '../../common/events/event-store'
+import { childLogger } from '../../common/logger'
 import { negotiationService } from './negotiation.service'
-import { intentEngine } from '../../core/intent-engine'
+import { intentEngine, type OwedIntentEvent } from '../../core/intent-engine'
 import { tradeRepository, type TradeRepository } from './trade-repository'
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../../common/pagination'
 import type { TradeStatus } from '../../common/types'
-import { withIdempotency } from '../../common/idempotency'
+import {
+  claimCompletedInTransaction, findIdempotencyClaim, hashIdempotentPayload, isUniqueConstraintError,
+  type IdempotencyRecord,
+} from '../../common/idempotency'
+
+const log = childLogger('trade')
+
+const TRADE_CREATE_SCOPE = 'openp2p.trade.create'
+// Same-key requests wait on the claim's unique index until the first one commits; Prisma's 2 s / 5 s defaults are
+// too short for that under load. Generous on purpose: a lost wait is a 500 for a request that could have replayed.
+const ADMISSION_TX_OPTIONS = { maxWait: 10_000, timeout: 30_000 }
+const TERMINAL_INTENT_STATUSES: readonly string[] = ['FULFILLED', 'FAILED', 'CANCELLED', 'EXPIRED']
+
+type TradeRow = Awaited<ReturnType<TradeRepository['create']>>
+interface Admission {
+  trade: TradeRow
+  tradeIntent: OwedIntentEvent
+  events: DurableEvent[]
+}
 
 export interface CreateTradeInput {
   offerId: string
@@ -56,44 +79,65 @@ const MANUAL_TRADE_TRANSITIONS: Record<string, Array<'ACTIVE' | 'CANCELLED'>> = 
 export class TradeService {
   constructor(private readonly repo: TradeRepository = tradeRepository) {}
 
+  /**
+   * E21 slice 1 (Issue #105, CTO 24 6811594078 / 6811766719, CTO 223) - transactional, idempotent admission.
+   *
+   * ONE PostgreSQL transaction holds the whole admission: the idempotency claim (written COMPLETED), the Offer
+   * re-validation under FOR SHARE, the trade's own Intent (born NEGOTIATING, genesis IntentEvent), the Trade, the
+   * durable openp2p.trade.created event and the durable opening of the negotiation. Lock order, always the same:
+   * claim (unique index) -> Offer row (FOR SHARE) -> event-store advisory lock (trade id). Either all of it commits
+   * or none of it exists, so a refusal or a crash before the commit leaves the key reusable.
+   *
+   * After the commit, dispatch and the owed `intent.created` publication are best effort and never turn a committed
+   * admission into an error. R-a (CTO 223): a lost openp2p.trade.created dispatch is NOT redelivered automatically -
+   * its durable row stays and an operator redelivers it with eventBus.redeliver(eventId) (only consumer today:
+   * autoSettleOnMatch, off by default). The `intent.created` owed by the Trade Intent is recovered by
+   * recoverUnpublishedIntentEvents().
+   *
+   * The Offer Intent (`intentId`) is copied as before and never transitioned by a trade (A1 invariant 1). The
+   * economic checks inside the transaction are the ones main already had (3a); the seller's PaymentAccount binding
+   * (3b, E22) is NOT enforced here.
+   */
   async createTrade(input: CreateTradeInput) {
-    return withIdempotency(
-      {
-        scope: 'openp2p.trade.create',
-        participantId: input.counterpartyId,
-        key: input.idempotencyKey,
-        // offerId + amount are the only fields that make two requests
-        // "the same logical attempt" for this operation — counterpartyId
-        // is already the scoping key itself, not part of the payload hash.
-        requestPayload: { offerId: input.offerId, amount: input.amount },
-      },
-      () => this.persistTrade(input),
-      (trade) => this.postPersistTrade(input, trade),
-      async (tradeId) => {
-        const trade = await this.repo.findById(tradeId)
-        // The claim row's own resultRef only ever gets set to a real,
-        // just-created Trade's id (idempotency.ts's runAndSettle()) — a
-        // miss here means the Trade was deleted out-of-band after this
-        // idempotency key completed, a real data-integrity anomaly, not
-        // a normal "not found" the caller could have caused.
-        if (!trade) throw new NotFoundError('Trade', tradeId)
-        return trade
+    const claim = input.idempotencyKey
+      ? { key: input.idempotencyKey, requestHash: hashIdempotentPayload({ offerId: input.offerId, amount: input.amount }) }
+      : null
+
+    if (claim) {
+      const existing = await findIdempotencyClaim(TRADE_CREATE_SCOPE, input.counterpartyId, claim.key)
+      if (existing) return this.replay(existing, claim.requestHash, input)
+    }
+
+    let admission: Admission
+    try {
+      admission = await prisma.$transaction((tx) => this.admit(tx, input, claim), ADMISSION_TX_OPTIONS)
+    } catch (err) {
+      // A concurrent request with the same key committed first: its claim, and only its claim, is the answer.
+      if (claim && isUniqueConstraintError(err)) {
+        const existing = await findIdempotencyClaim(TRADE_CREATE_SCOPE, input.counterpartyId, claim.key)
+        if (existing) return this.replay(existing, claim.requestHash, input)
       }
-    )
+      throw err
+    }
+
+    this.afterAdmissionCommit(admission)
+    await this.publishTradeIntentCreated(admission.tradeIntent)
+    return admission.trade
   }
 
-  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — this is the ENTIRE durable
-  // side effect of createTrade(): validation reads (no writes) followed
-  // by exactly one durable write, `this.repo.create(...)`. Nothing past
-  // that line may live in this function. Proof this boundary is correct:
-  // before `this.repo.create()` returns, no Trade row exists anywhere —
-  // a thrown error above that line genuinely means "nothing durable
-  // happened," which is the only case `runAndSettle()` is allowed to
-  // treat as FAILED (safe to retry via a fresh `persistTrade()` call).
-  // Once `this.repo.create()` returns, the Trade is real and permanent
-  // regardless of what `postPersistTrade()` below does next.
-  private async persistTrade(input: CreateTradeInput) {
-    const offer = await this.repo.findOfferById(input.offerId)
+  private async admit(
+    tx: Prisma.TransactionClient,
+    input: CreateTradeInput,
+    claim: { key: string; requestHash: string } | null
+  ): Promise<Admission> {
+    const tradeId = randomUUID()
+    if (claim) {
+      await claimCompletedInTransaction(tx, {
+        scope: TRADE_CREATE_SCOPE, participantId: input.counterpartyId, key: claim.key, requestHash: claim.requestHash, resultRef: tradeId,
+      })
+    }
+
+    const offer = await this.repo.findOfferForAdmission(tx, input.offerId)
     if (!offer) throw new NotFoundError('Offer', input.offerId)
     if (offer.status !== 'ACTIVE') {
       throw new ValidationError(`Offer ${input.offerId} is not active (status: ${offer.status})`)
@@ -133,7 +177,16 @@ export class TradeService {
     const priceUsd = offer.priceUsd
     const totalUsd = (Number(priceUsd) * Number(input.amount)).toFixed(8)
 
+    const tradeIntent = await intentEngine.createTradeIntentInTransaction(tx, {
+      intentId: randomUUID(),
+      participantId: input.counterpartyId,
+      parentIntentId: offer.intentId,
+      payload: { asset: offer.asset, side: offer.side === 'SELL' ? 'BUY' : 'SELL', minValue: input.amount, maxValue: input.amount, network: offer.network },
+      metadata: { tradeId, offerId: offer.id },
+    })
+
     const trade = await this.repo.create({
+      id: tradeId,
       offerId: offer.id,
       buyerId,
       sellerId,
@@ -142,31 +195,11 @@ export class TradeService {
       priceUsd,
       totalUsd,
       network: offer.network,
-      intentId: offer.intentId, // RFC-018 — carried over from the accepted Offer
-    })
+      intentId: offer.intentId, // RFC-018 — carried over from the accepted Offer (published meaning unchanged)
+      tradeIntentId: tradeIntent.intentId,
+    }, tx)
 
-    return trade
-  }
-
-  // CROSS-LAYER-SEMANTIC-CORRECTIVE-1-R2 — everything that must happen
-  // AFTER the Trade already durably exists: event emission, the RFC-018
-  // Intent walk, and opening the negotiation channel. Any of these can
-  // throw (event bus backpressure, an intent-engine transition
-  // conflict, a negotiation-channel error) — when one does, the error
-  // still propagates to createTrade()'s original caller (it is a real
-  // failure the caller must see), but `idempotency.ts`'s `runAndSettle()`
-  // has ALREADY settled the claim to COMPLETED/UNKNOWN by the time this
-  // runs, so a retry with the same key always recovers the existing
-  // Trade via `recover()` above — it can never call `persistTrade()`
-  // again and can never create a second Trade row. Recovering does NOT
-  // re-run this method — a Trade recovered after a postPersist failure
-  // may still be missing its event emission and/or intent transitions;
-  // that gap is the disclosed residual in `idempotency.ts`'s own header.
-  private async postPersistTrade(input: CreateTradeInput, trade: Awaited<ReturnType<TradeService['persistTrade']>>) {
-    const buyerId = trade.buyerId
-    const sellerId = trade.sellerId
-
-    await eventBus.emit('openp2p.trade.created', {
+    const created = await eventBus.publishInTransaction(tx, 'openp2p.trade.created', {
       tradeId: trade.id,
       offerId: trade.offerId,
       buyerId,
@@ -175,46 +208,77 @@ export class TradeService {
       amount: trade.amount.toString(),   // RFC-009 — Decimal -> decimal string at the event boundary
       priceUsd: trade.priceUsd.toString(),
     }, trade.id)
+    const negotiation = await negotiationService.openInTransaction(tx, trade)
 
-    // RFC-018 (rfcs/RFC-018-intent-as-canonical-trade-entry-point.md) —
-    // walks the originating Intent through the states this reference
-    // implementation's synchronous "accept an offer" flow actually
-    // represents: DISCOVERING (the search that led the counterparty to
-    // this offer already happened, outside this function) -> MATCHED (a
-    // counterparty is now committed) -> NEGOTIATING (negotiationService.
-    // open() below opens the chat channel immediately after). COMMITTED
-    // itself waits for escrow to actually lock
-    // (common/events/handlers.ts's settlement.escrow.locked reaction) —
-    // this mapping is PROTOCOL_SPECIFICATION.md §3.1's own table, not
-    // invented here. `intentId` is null for any Offer created before
-    // this RFC landed — skipped entirely, not an error, same
-    // backward-compatible posture as every other nullable-FK migration
-    // in this codebase.
-    if (trade.intentId) {
-      const triggeredBy = 'system:trade-lifecycle'
-      await intentEngine.transition(trade.intentId, 'DISCOVERING', triggeredBy, 'intent.discovering', { intentId: trade.intentId })
-      await intentEngine.transition(trade.intentId, 'MATCHED', triggeredBy, 'intent.matched', { intentId: trade.intentId, candidateIds: [input.counterpartyId] })
-      await intentEngine.transition(trade.intentId, 'NEGOTIATING', triggeredBy, 'intent.negotiating', { intentId: trade.intentId, negotiationId: trade.id })
+    return { trade, tradeIntent, events: [created, ...negotiation] }
+  }
+
+  // Post-commit, never throws: the admission is already durable and authoritative; dispatch and in-memory state
+  // are not. A failure is logged with the eventId an operator needs for eventBus.redeliver() (R-a).
+  private afterAdmissionCommit(admission: Admission): void {
+    for (const event of admission.events) {
+      try {
+        eventBus.dispatchCommitted(event)
+      } catch (err) {
+        log.error({ msg: 'Post-commit dispatch failed; the durable event stays redeliverable via eventBus.redeliver()', eventName: event.eventName, eventId: event.eventId, tradeId: admission.trade.id, err: err instanceof Error ? err.message : String(err) })
+      }
     }
+    negotiationService.markOpened(admission.trade.id)
+  }
 
-    // Opens the negotiation channel's in-memory status tracking and emits
-    // negotiation.opened/openp2p.trade.status_changed. The HumanChatChannel
-    // instance this returns is discarded here — chat.routes.ts constructs
-    // its own per-connection channel scoped to whichever participant is
-    // actually connected via WebSocket, not the buyer specifically.
-    await negotiationService.open(trade.id, buyerId, sellerId)
+  private async publishTradeIntentCreated(owed: OwedIntentEvent): Promise<void> {
+    try {
+      await intentEngine.publishCommittedIntentEvent(owed)
+    } catch (err) {
+      log.error({ msg: 'Owed intent.created not published yet; recoverUnpublishedIntentEvents() will publish it', intentId: owed.intentId, intentEventId: owed.intentEventId, err: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  // A key that already has a claim. Only a recorded outcome (resultRef) answers a replay; a LEGACY claim without one
+  // (IN_PROGRESS, or FAILED - a failed call is not proof of no side effect) stays unresolved: it is never attributed
+  // by correlation and never reused. Hints are the caller's own candidate trades, explicitly not authoritative.
+  private async replay(existing: IdempotencyRecord, requestHash: string, input: CreateTradeInput) {
+    if (existing.requestHash !== requestHash) {
+      throw new ValidationError(
+        `Idempotency key '${input.idempotencyKey}' was already used for a different request. ` +
+        'Reusing an idempotency key for a new logical action is not allowed — use a new key for a new request.'
+      )
+    }
+    if ((existing.status === 'COMPLETED' || existing.status === 'UNKNOWN') && existing.resultRef) {
+      const trade = await this.repo.findById(existing.resultRef)
+      // resultRef only ever names a trade committed with this claim — a miss is a data-integrity anomaly.
+      if (!trade) throw new NotFoundError('Trade', existing.resultRef)
+      return trade
+    }
+    const unverifiedCandidateTradeIds = existing.createdAt
+      ? await this.repo.findLegacyAdmissionCandidateIds(input.counterpartyId, input.offerId, existing.createdAt)
+      : []
+    throw new AppError(
+      `The outcome of the earlier request with idempotency key '${input.idempotencyKey}' is unknown — use GET /v1/openp2p/trades to check, and a new key for a new request.`,
+      409, 'IDEMPOTENCY_OUTCOME_UNKNOWN', { authoritative: false, unverifiedCandidateTradeIds }
+    )
   }
 
   // Closes the real gap @satsails/p2p-trading-sdk's intent-facade.ts's dispute() needed:
   // resolving an intentId (the caller's own vocabulary — createIntent()
   // is the entry point) to the Trade/Escrow RFC-018 already links it to
-  // server-side. Same no-auth pattern as getTrade() below — an intentId
-  // isn't guessable-and-sensitive any more than a tradeId already is,
-  // and getTrade() itself has never required auth.
-  async getTradeByIntentId(intentId: string) {
-    const trade = await this.repo.findByIntentId(intentId)
-    if (!trade) throw new NotFoundError('Trade for this intent', intentId)
-    return trade
+  // server-side.
+  // E21 slice 1 - deterministic and caller-scoped: a trade's own Intent resolves to that trade for its buyer and
+  // seller; an Offer/legacy Intent resolves to the caller's trade on it if there is exactly one, 409 AMBIGUOUS_INTENT
+  // (only the caller's ids) if several. Everything else - a stranger, or an unknown Intent - is the same 404.
+  async getTradeByIntentId(intentId: string, participantId: string) {
+    const notFound = () => new NotFoundError('Trade for this intent', intentId)
+    const owner = await this.repo.findByTradeIntentId(intentId)
+    if (owner) {
+      if (participantId !== owner.buyerId && participantId !== owner.sellerId) throw notFound()
+      return owner
+    }
+    const mine = await this.repo.findByIntentIdForParticipant(intentId, participantId)
+    if (mine.length === 1) return mine[0]
+    if (mine.length > 1) {
+      throw new AppError(`Intent ${intentId} resolves to ${mine.length} of your trades`, 409, 'AMBIGUOUS_INTENT', { tradeIds: mine.map((t) => t.id) })
+    }
+    throw notFound()
   }
 
   // escrow + messages(asc) + offer include — found while auditing a real
@@ -315,14 +379,30 @@ export class TradeService {
     // CANCELLED is a valid direct transition from every pre-COMMITTED
     // state (core/state-machine.ts), so this is safe regardless of
     // which one the Intent is actually in.
-    if (status === 'CANCELLED' && trade.intentId) {
-      await intentEngine.transition(
-        trade.intentId, 'CANCELLED', triggeredBy, 'intent.cancelled',
-        { intentId: trade.intentId, cancelledBy: triggeredBy }
-      )
-    }
+    if (status === 'CANCELLED') await this.cancelLifecycleIntent(trade, triggeredBy)
 
     return updated
+  }
+
+  // E21 slice 1 - a trade with its own Intent cancels exactly that Intent. A LEGACY trade (L1, no own Intent) shares
+  // the Offer Intent: it is left intact, with an audited openp2p.trade.intent_unchanged, when another trade on it is
+  // still live or it is already terminal (both explained by OTHER trades, never inferred for this one). Otherwise,
+  // and always when the trade has an escrow of its own, the previous behaviour applies unchanged.
+  private async cancelLifecycleIntent(trade: { id: string; intentId: string | null; tradeIntentId?: string | null }, triggeredBy: string) {
+    const intentId = trade.tradeIntentId ?? trade.intentId
+    if (!intentId) return
+    if (!trade.tradeIntentId) {
+      const ctx = await this.repo.legacyIntentCancelContext(trade.id, intentId)
+      const reason = ctx.tradeHasEscrow ? null
+        : ctx.liveSiblingTrades > 0 ? 'SHARED_INTENT_SIBLING_TRADES_LIVE' as const
+        : ctx.intentStatus && TERMINAL_INTENT_STATUSES.includes(ctx.intentStatus) ? 'SHARED_INTENT_ALREADY_TERMINAL' as const
+        : null
+      if (reason) {
+        await eventBus.emit('openp2p.trade.intent_unchanged', { tradeId: trade.id, intentId, reason, triggeredBy }, trade.id)
+        return
+      }
+    }
+    await intentEngine.transition(intentId, 'CANCELLED', triggeredBy, 'intent.cancelled', { intentId, cancelledBy: triggeredBy })
   }
 }
 
