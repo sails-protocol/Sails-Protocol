@@ -21,7 +21,7 @@ All notable changes to this project will be documented in this file.
 ### Documentation
 
 - **CTO 433/434 — E26 decision reconciliation (documentation, no code change).** `docs/BACKLOG.md` gains a dated entry that records the CTO decisions already taken for E26 (CTO 104/110/112), the approved declaration of evidence hosting and the absence of liveness, the conditions for any bootstrap use of `MULTISIG_SEED`, and the status of blockers B1–B9 (all open). `docs/rfcs/RFC-021-market-based-arbitration-and-payment-trust.md` gains a dated correction note under D1 (the MULTISIG arbiter key is a spending key; collusion; no independence claim).
-  - **Not claimed:** E26 is not homologated; no design is accepted; B9 is not resolved (the Gatekeeper's confirmation of the F1 equivalence comes first); ADR-003 and Draft #580 are untouched.
+  - **Not claimed:** E26 is not homologated; no design is accepted; B9 is not resolved (F1 is recorded as closed by #674, Gatekeeper-confirmed, with two caveats: the #642 W2 liveness assertion and the ADR-005 broadcast-guard cases 2b–2d are not preserved; ADR-005 at the POST point stays open); ADR-003 and Draft #580 are untouched.
 
 - **CTO 316 — Technical Debt #57 closed under the A2 criterion only (documentation, no code change).** `docs/TECHNICAL_DEBT_AUDIT.md` item 57 gains a dated closing note; its history is unchanged.
   - **Criterion:** the CI operating standard homologated for A2 (Issue #105, CTO 234): the suite does not fail on app start-up timeouts under the CI's parallelism and cold Jest cache.
