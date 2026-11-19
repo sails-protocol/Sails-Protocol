@@ -106,7 +106,7 @@ CREATE TRIGGER escrows_f4_guard_insert
 
 -- UPDATE OF the bound columns: the pair id and both marks never change; the deposit address never changes once written, and it is
 -- written only under a COMMITTED pair (a legacy mark does NOT authorize a new address: a legacy escrow without an address at the
--- cut can only be cancelled); a legacy escrow never gets a LATER expiry (NULL -> value at funding is the start of the clock).
+-- cut can only be cancelled); no escrow gets a cleared or LATER expiry once set (NULL -> value at funding is the start of the clock).
 CREATE FUNCTION escrows_f4_guard_update() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -134,8 +134,11 @@ BEGIN
                 USING ERRCODE = 'check_violation';
         END IF;
     END IF;
-    IF OLD."legacyPreCommitmentAt" IS NOT NULL AND OLD."expiresAt" IS NOT NULL AND NEW."expiresAt" > OLD."expiresAt" THEN
-        RAISE EXCEPTION 'escrows: the expiry of a legacy escrow cannot be extended (escrow id=%)', OLD."id" USING ERRCODE = 'check_violation';
+    -- GK (C): NULL > x is NULL, so clearing the deadline must be refused explicitly (NEW IS NULL branch).
+    -- Principal (3): applies to EVERY escrow, not only legacy; the sole writer of expiresAt (updateLockResult) goes NULL -> value once.
+    IF OLD."expiresAt" IS NOT NULL
+       AND (NEW."expiresAt" IS NULL OR NEW."expiresAt" > OLD."expiresAt") THEN
+        RAISE EXCEPTION 'escrows: the expiry of an escrow cannot be cleared or extended once set (escrow id=%)', OLD."id" USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;
 END
