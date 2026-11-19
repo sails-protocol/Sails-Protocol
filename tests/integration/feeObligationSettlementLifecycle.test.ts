@@ -249,6 +249,34 @@ describe('FeeObligation settlement-lifecycle integration (Missão 11 Fase 3, rea
     expect(obligationAfter.computedFee!.toString()).toBe('400') // unchanged
   })
 
+  // E25 (CTO 433) — "Fee discovery ≠ Fee obligation" (ADR-001 §28.3) at the point where the protocol freezes today
+  // (escrow creation, before funding): what a participant reads from the escrow before funding is exactly what the
+  // settled FeeObligation uses, even when a new policy is published between that read and the release. This proves
+  // the CURRENT freeze point only; it does not prove a binding at the trade-open and does not homologate E25.
+  it('E25: the fee disclosed on the escrow before funding is the fee the release obligates, despite a policy rotation in between', async () => {
+    requirePostgres('E25 disclosed = obligated')
+    const suffix = `e25d-${Date.now()}`
+    const { escrow, trade, policy } = await createPolicyAwareEscrow(suffix, '100000', { protocolFeeRate: '0.004' })
+    const { computeMaxProtocolFee } = require('../../src/modules/open-settlement/fee-reserve-math')
+
+    const disclosed = await escrowService.getEscrow(escrow.id) // the read behind GET /v1/settlement/escrow/:id
+    expect(disclosed.feePolicyVersionId).toBe(policy.id)
+    expect(disclosed.snapshotProtocolFeeRate!.toString()).toBe('0.004')
+    const disclosedFee = computeMaxProtocolFee(disclosed.lockedAmount, disclosed.snapshotProtocolFeeRate!)
+
+    // A real rotation on the SAME rail before settlement (this file's createPublishedPolicy() uses a unique rail per
+    // call, so it is done inline): retire the disclosed version, publish a 0.05 one for policy.railScope.
+    await prisma.feePolicyVersion.update({ where: { id: policy.id }, data: { status: 'RETIRED', retiredAt: new Date() } })
+    const rotated = await prisma.feePolicyVersion.create({ data: { ...(({ id, createdAt, publishedAt, retiredAt, ...rest }) => rest)(policy as any), label: `${suffix}-rotated`, protocolFeeRate: '0.05', status: 'PUBLISHED', publishedAt: new Date() } })
+    expect(rotated.railScope).toBe(policy.railScope)
+    await escrowService.releaseFunds(escrow.id, trade.buyerId, trade.sellerId)
+
+    const obligation = await prisma.feeObligation.findUniqueOrThrow({ where: { escrowId: escrow.id } })
+    expect(obligation.feePolicyVersionId).toBe(disclosed.feePolicyVersionId)
+    expect(obligation.computedFee!.toString()).toBe(disclosedFee.toString())
+    expect(obligation.computedFee!.toString()).toBe('400')
+  })
+
   // Test 11: duplicate settlement retry -> one obligation (idempotent, via the repo's own unique constraint + the service's existence check)
   it('Test 11: retrying recordObligationForEscrowSettlement for an already-settled escrow does not create a second obligation', async () => {
     requirePostgres('Test 11')
