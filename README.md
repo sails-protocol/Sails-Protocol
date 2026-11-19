@@ -1,9 +1,9 @@
 # Sails Protocol
 
 [![npm version](https://img.shields.io/npm/v/@satsails/p2p-trading-sdk.svg)](https://www.npmjs.com/package/@satsails/p2p-trading-sdk)
-[![CI](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/alan-schramm/Sails-Protocol/actions/workflows/ci.yml)
+[![CI](https://github.com/sails-protocol/Sails-Protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/sails-protocol/Sails-Protocol/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Architecture Diagrams](https://img.shields.io/badge/architecture-diagrams-informational.svg)](https://alan-schramm.github.io/Sails-Protocol/)
+[![Architecture Diagrams](https://img.shields.io/badge/architecture-diagrams-informational.svg)](https://sails-protocol.github.io/Sails-Protocol/)
 
 **Sails Protocol is an Economic Coordination Protocol.**
 
@@ -57,7 +57,7 @@ The concrete repository surfaces behind that map are:
 
 **No interface or reference implementation owns protocol semantics.** Sails Market and Satsails exercise and expose protocol behavior; they do not redefine it.
 
-This diagram is orientation, not specification. [System Design](docs/SYSTEM_DESIGN.md) is the consolidated current system-level technical map. [Documentation Index](docs/00-INDEX.md) routes to the deeper normative owners.
+This diagram is orientation, not specification. [System Design](docs/SYSTEM_DESIGN.md) is the consolidated current system-level technical map. [Documentation Index](docs/00-INDEX.md) routes to the deeper normative owners. Rendered architecture diagrams: [sails-protocol.github.io/Sails-Protocol](https://sails-protocol.github.io/Sails-Protocol/).
 
 For current engineering reality, use [Backlog](docs/BACKLOG.md), live GitHub Issues/Project, the relevant RFCs, provider documentation and evidence records. [TODO](docs/TODO.md) is retained as a historical/category-oriented gap inventory, not the primary execution queue.
 
