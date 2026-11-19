@@ -83,6 +83,16 @@ function requiredStrictPositiveIntUncapped(name: string, fallback: number): numb
   return parsed
 }
 
+// Exactly 'true' or 'false' (case-sensitive); anything else refuses to boot,
+// so a typo can never silently flip an exposure setting.
+function parseStrictBoolean(name: string, fallback: boolean): boolean {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  if (raw === 'true') return true
+  if (raw === 'false') return false
+  throw new Error(`Environment variable ${name} must be exactly 'true' or 'false', got: ${raw}`)
+}
+
 // Missão 11 Fase 8.1 LB-03 — NODE_ENV used to be a bare `=== 'production'`
 // string comparison with no validation of anything else. Every fail-closed
 // guard in this file (RT-001, ENFORCE_CAPABILITIES, DATABASE_URL/REDIS_URL
@@ -371,6 +381,14 @@ export const config = {
   // to calibrate a false-positive rate against. Env-var overridable for
   // exactly that reason: tune them once real traffic exists, don't
   // treat the defaults as validated.
+  observability: {
+    // GET /metrics: enabled outside production, DISABLED by default in
+    // production (CTO 429). Enabling it in production is an explicit opt-in
+    // and does NOT protect the route: it is unauthenticated, so it still needs
+    // network isolation (security group / private scrape path) or equivalent.
+    metricsEnabled: parseStrictBoolean('METRICS_ENABLED', !isProductionEnv),
+  },
+
   suspiciousActivity: {
     authFailureMax: requiredStrictPositiveIntUncapped('SUSPICIOUS_AUTH_FAILURE_MAX', 8),
     authFailureWindowMs: requiredStrictPositiveIntUncapped('SUSPICIOUS_AUTH_FAILURE_WINDOW_MS', 5 * 60 * 1000),

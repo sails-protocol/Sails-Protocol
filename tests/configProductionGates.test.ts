@@ -615,6 +615,31 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
   })
 
+  describe('METRICS_ENABLED (CTO 429 — /metrics off by default in production, strict parse)', () => {
+    const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
+
+    it('defaults to OFF in production when unset', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, METRICS_ENABLED: undefined })().observability.metricsEnabled).toBe(false)
+    })
+
+    it('defaults to ON outside production when unset', () => {
+      expect(loadConfig({ ...dev, METRICS_ENABLED: undefined })().observability.metricsEnabled).toBe(true)
+    })
+
+    it('METRICS_ENABLED=true enables it in production (explicit opt-in)', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, METRICS_ENABLED: 'true' })().observability.metricsEnabled).toBe(true)
+    })
+
+    it('METRICS_ENABLED=false disables it outside production', () => {
+      expect(loadConfig({ ...dev, METRICS_ENABLED: 'false' })().observability.metricsEnabled).toBe(false)
+    })
+
+    it.each(['TRUE', 'False', '1', '0', 'yes', '', ' true', 'true '])('refuses to boot for the invalid value %p, in production and outside it', (v) => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, METRICS_ENABLED: v })).toThrow(/METRICS_ENABLED/)
+      expect(loadConfig({ ...dev, METRICS_ENABLED: v })).toThrow(/METRICS_ENABLED/)
+    })
+  })
+
   describe('a fully correct production configuration boots cleanly', () => {
     it('every gate satisfied at once — no throw, all values reflect what was set', () => {
       const load = loadConfig(REQUIRED_PROD_ENV)
