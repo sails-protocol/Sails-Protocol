@@ -9,6 +9,7 @@ import { spawn } from 'child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import path from 'path'
+import { Client } from 'pg'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 
 const hex = (b: Uint8Array) => Buffer.from(b).toString('hex')
@@ -238,6 +239,8 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     expect((await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })).takerTradeSig).toBe(f.proposeInput().trade.takerSignature)
   })
 
+  // Sentinel of mutant M8 (no date_trunc), accepted by the GK as an equivalent: a JS Date carries no sub-millisecond, so
+  // the driver already truncates. If a driver ever kept microseconds, this identity would break and flag it.
   it('(A) the stored stamp IS the instant the admission used (read once, truncated to the column precision): over 12 operations', async () => {
     pg.requirePostgres('F3 stamp identity')
     const s = service()
@@ -390,5 +393,51 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     expect(ra).toMatchObject({ ok: true, view: { state: 'COMMITTED' } })
     expect(rb).toEqual({ ok: false, code: 'E25_ANCHOR_ALREADY_COMMITTED' })
     expect(await prisma.commitmentPair.count({ where: { anchorRef, state: 'COMMITTED' } })).toBe(1)
+  })
+
+  /** Session B: a separate real connection that holds the pair row FOR UPDATE until told to write and commit. */
+  async function holdRow(pairId: string) {
+    const b = new Client({ connectionString: pg.getUrl() }); await b.connect()
+    await b.query('BEGIN'); await b.query('SELECT "id" FROM "commitment_pairs" WHERE "id" = $1 FOR UPDATE', [pairId])
+    return b
+  }
+  async function waitForLockWaiter(): Promise<boolean> {
+    for (let i = 0; i < 300; i++) {
+      const [{ n }] = await prisma.$queryRaw`SELECT count(*)::int AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query ILIKE '%commitment_pairs%' AND datname = current_database()`
+      if (n > 0) return true
+      await sleep(50)
+    }
+    return false
+  }
+
+  it('M6 barrier: B holds the pair row and withdraws it while the signPair of A waits on the lock; A then re-reads WITHDRAWN and gets E25_COMMITMENT_SUPERSEDED (never a raw constraint error)', async () => {
+    pg.requirePostgres('F3 M6 withdraw barrier')
+    const s = service(); const f = fresh()
+    const p = await s.proposePair(f.proposeInput())
+    const b = await holdRow(p.pairId)
+    const a = s.signPair(f.makerSign(p.pairId)).then(() => null, (e: { code?: string; message?: string }) => e)
+    const waited = await waitForLockWaiter()
+    await b.query(`UPDATE "commitment_pairs" SET "state" = 'WITHDRAWN', "withdrawnBy" = 'taker', "withdrawProof" = $2 WHERE "id" = $1`, [p.pairId, sign(svcMod.withdrawProofDigest(f.cd, f.ad), taker)])
+    await b.query('COMMIT'); await b.end()
+    const err = await a
+    expect(waited).toBe(true)
+    expect(err).toMatchObject({ code: 'E25_COMMITMENT_SUPERSEDED' })
+    expect(await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })).toMatchObject({ state: 'WITHDRAWN', makerTradeSig: null, makerReceivedAt: null })
+  })
+
+  it('M6 barrier (variant): B completes the maker signature while A, the same role with another key, waits; A gets E25_ROLE_ALREADY_SIGNED', async () => {
+    pg.requirePostgres('F3 M6 role barrier')
+    const s = service(); const f = fresh()
+    const p = await s.proposePair(f.proposeInput())
+    const b = await holdRow(p.pairId)
+    const a = s.signPair(f.makerSign(p.pairId)).then(() => null, (e: { code?: string }) => e)
+    const waited = await waitForLockWaiter()
+    await b.query(`UPDATE "commitment_pairs" SET "makerTradeSig" = $2, "makerArbitrationSig" = $3, "makerReceivedAt" = date_trunc('milliseconds', clock_timestamp()),
+      "state" = 'COMMITTED', "committedAnchorRef" = "anchorRef" WHERE "id" = $1`, [p.pairId, sign(f.cd, maker), sign(f.ad, maker)])
+    await b.query('COMMIT'); await b.end()
+    const err = await a
+    expect(waited).toBe(true)
+    expect(err).toMatchObject({ code: 'E25_ROLE_ALREADY_SIGNED' })
+    expect((await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })).state).toBe('COMMITTED')
   })
 })
