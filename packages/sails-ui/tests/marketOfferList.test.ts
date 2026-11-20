@@ -50,8 +50,8 @@ describe('Market seller cell', () => {
   })
 
   it('shows name and counters when the summary carries them', () => {
-    const o = offer('x', { makerStats: { totalTrades: 12, disputeCount: 1 } }, { displayName: 'Gaivota', reputationScore: 19 })
-    expect(sellerTrust(o)).toEqual({ name: 'Gaivota', parts: ['Reputação 19', '12 trades', '1 disputa'] })
+    const o = offer('x', { makerStats: { totalTrades: 12, disputeCount: 1 } }, { displayName: 'Carol', reputationScore: 19 })
+    expect(sellerTrust(o)).toEqual({ name: 'Carol', parts: ['Reputação 19', '12 trades', '1 disputa'] })
   })
 
   it('shows trade count without inventing a dispute count', () => {
