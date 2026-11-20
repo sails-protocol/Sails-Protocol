@@ -23,7 +23,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
   jest.setTimeout(300_000) // OS-process cases spawn ts-node workers; slow under machine load
   const pg = createPostgresIntegrationHarness()
   let prisma: any, svcMod: any, envMod: any, offerRepo: any, tc: any, ac: any
-  let makerId: string, takerId: string, strangerId: string, feePolicyVersionId: string, feePolicyDigest: string
+  let makerId: string, takerId: string, strangerId: string, feePolicyVersionId: string, feePolicyDigest: string, legacyOfferId: string
   const RUN = randomUUID().slice(0, 8)
   let revision = 1
   const logicalOfferId = `f3-offer-${RUN}`
@@ -44,8 +44,21 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     })
     feePolicyVersionId = fp.id
     feePolicyDigest = tc.feePolicyDigestV1({ protocolFeeRate: '0.004', payerModel: 'SELLER_PAYS', economicBasis: 'SELLER_DELIVERED_VALUE', requiredConfirmations: 2, smallTradeRule: {} })
+    legacyOfferId = (await prisma.offer.create({
+      data: { userId: makerId, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '0.01', paymentMethod: 'PIX' },
+    })).id
     await publishOffer('ACTIVE')
   })
+
+  /** D025: an E21-admitted trade (its OWN Intent in tradeIntentId); the maker sells (side SELL), the taker buys. Returns the anchor. */
+  async function admitTrade(o: { sellerId?: string; buyerId?: string; asset?: string; amount?: string; status?: string } = {}): Promise<string> {
+    const intent = await prisma.intent.create({ data: { type: 'TradeIntent', participantId: takerId, moduleId: 'openp2p', payload: {}, status: 'PENDING' } })
+    await prisma.trade.create({
+      data: { offerId: legacyOfferId, sellerId: o.sellerId ?? makerId, buyerId: o.buyerId ?? takerId, asset: o.asset ?? 'BTC', amount: o.amount ?? '0.005', status: o.status ?? 'PENDING', priceUsd: '65000', totalUsd: '325', tradeIntentId: intent.id },
+    })
+    return intent.id
+  }
+
   afterAll(async () => { if (prisma) await prisma.$disconnect() })
 
   let envelopeDigest = ''
@@ -68,11 +81,11 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     UNKNOWN: { mode: 'none', arbiterSelection: 'unproven', appeal: 'NONE_UNPROVEN', liveness: 'NONE_UNPROVEN' },
   }
   /** A fresh pair: TradeCommitmentV1 + ArbitrationCommitmentV1 + policy, with the taker's two signatures. */
-  function fresh(opts: { rail?: string; capability?: string; anchorRef?: string; ttlMs?: number } = {}) {
+  async function fresh(opts: { rail?: string; capability?: string; anchorRef?: string; ttlMs?: number } = {}) {
     const rail = opts.rail ?? 'MULTISIG', capability = opts.capability ?? 'FIXED_ARBITER_COMMITMENT'
     const now = Date.now()
     const commitment = {
-      anchorRef: opts.anchorRef ?? randomUUID(), offerEnvelopeDigest: envelopeDigest, offerLogicalId: logicalOfferId, offerRevision: revision,
+      anchorRef: opts.anchorRef ?? await admitTrade(), offerEnvelopeDigest: envelopeDigest, offerLogicalId: logicalOfferId, offerRevision: revision,
       makerPublicKey: hex(maker.publicKey), takerPublicKey: hex(taker.publicKey), side: 'SELL', asset: 'BTC', rail, network: 'bitcoin-testnet',
       amount: '0.00500000', priceUsd: '65000.00000000', paymentMethod: 'PIX', feePolicyVersionId, feePolicyDigest,
       proposedAt: iso(now - 5_000), expiresAt: iso(now + (opts.ttlMs ?? 1_800_000)),
@@ -99,7 +112,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('propose (taker) -> PARTIALLY_SIGNED; maker signs -> COMMITTED, executable, one stamp per party from the database clock', async () => {
     pg.requirePostgres('F3 happy path')
-    const s = service(); const f = fresh()
+    const s = service(); const f = await fresh()
     const p = await s.proposePair(f.proposeInput())
     expect(p).toMatchObject({ state: 'PARTIALLY_SIGNED', executable: false, reason: null, commitmentDigest: f.cd, arbitrationCommitmentDigest: f.ad })
     const c = await s.signPair(f.makerSign(p.pairId))
@@ -114,11 +127,11 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('idempotency: the same key + body re-reads the pair as it is NOW; the same key with another body is refused; another participant\'s key is independent', async () => {
     pg.requirePostgres('F3 idempotency')
-    const s = service(); const f = fresh(); const key = randomUUID()
+    const s = service(); const f = await fresh(); const key = randomUUID()
     const p = await s.proposePair(f.proposeInput(key))
     await s.signPair(f.makerSign(p.pairId))
     expect(await s.proposePair(f.proposeInput(key))).toMatchObject({ pairId: p.pairId, state: 'COMMITTED' }) // re-read, not a cached PARTIALLY_SIGNED
-    const other = fresh()
+    const other = await fresh()
     await expect(s.proposePair({ ...other.proposeInput(key) })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
     const claims = await prisma.idempotencyKey.findMany({ where: { key } })
     expect(claims).toHaveLength(1)
@@ -127,7 +140,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('authorship: only the participant whose registered key is the role key may propose or sign (E25_NOT_A_PARTY)', async () => {
     pg.requirePostgres('F3 authorship')
-    const s = service(); const f = fresh()
+    const s = service(); const f = await fresh()
     await refusedWith(s.proposePair({ ...f.proposeInput(), participantId: strangerId }), 'E25_NOT_A_PARTY')
     const p = await s.proposePair(f.proposeInput())
     await refusedWith(s.signPair({ ...f.makerSign(p.pairId), participantId: takerId }), 'E25_NOT_A_PARTY')
@@ -135,7 +148,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('P22: an UNKNOWN-rail pair is stored PROPOSED with its reason and stays a non-executable proposal after both parties sign', async () => {
     pg.requirePostgres('F3 UNKNOWN')
-    const s = service(); const f = fresh({ rail: 'WDK_USDT_EVM', capability: 'UNKNOWN' })
+    const s = service(); const f = await fresh({ rail: 'WDK_USDT_EVM', capability: 'UNKNOWN' })
     const p = await s.proposePair(f.proposeInput())
     expect(p).toMatchObject({ state: 'PROPOSED', executable: false, reason: 'E26_CAPABILITY_UNPROVEN' })
     expect(await s.signPair(f.makerSign(p.pairId))).toMatchObject({ state: 'PROPOSED', executable: false, reason: 'E26_CAPABILITY_UNPROVEN' })
@@ -145,7 +158,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('lockPairForEffect: only a COMMITTED pair is ready; PARTIALLY_SIGNED is E25_NOT_COMMITTED', async () => {
     pg.requirePostgres('F3 readiness')
-    const s = service(); const f = fresh()
+    const s = service(); const f = await fresh()
     const p = await s.proposePair(f.proposeInput())
     expect((await prisma.$transaction((tx: any) => svcMod.lockPairForEffect(tx, { pairId: p.pairId }))).readiness).toEqual({ ok: false, code: 'E25_NOT_COMMITTED' })
     await s.signPair(f.makerSign(p.pairId))
@@ -158,7 +171,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('T3: an offer revised after the proposal refuses the maker\'s signature (the CURRENT signed state is read at every operation)', async () => {
     pg.requirePostgres('F3 T3')
-    const s = service(); const f = fresh()
+    const s = service(); const f = await fresh()
     const p = await s.proposePair(f.proposeInput())
     await publishOffer('ACTIVE', true)
     await refusedWith(s.signPair(f.makerSign(p.pairId)), 'E25_OFFER_ENVELOPE_INVALID')
@@ -166,7 +179,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('C5: a signature received at or after expiresAt is refused (database clock, exclusive limit)', async () => {
     pg.requirePostgres('F3 C5')
-    const s = service(); const f = fresh({ ttlMs: 20_000 })
+    const s = service(); const f = await fresh({ ttlMs: 20_000 })
     const p = await s.proposePair(f.proposeInput())
     await sleep(Math.max(0, Date.parse(f.commitment.expiresAt) - Date.now()) + 1_000) // until expiresAt has passed
     await refusedWith(s.signPair(f.makerSign(p.pairId)), 'E25_EXPIRED')
@@ -175,7 +188,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('C3: withdraw x final signature on the same pair - one wins, never both (row lock)', async () => {
     pg.requirePostgres('F3 C3')
-    const s = service(); const f = fresh()
+    const s = service(); const f = await fresh()
     const p = await s.proposePair(f.proposeInput())
     const proof = sign(svcMod.withdrawProofDigest(f.cd, f.ad), taker)
     const results = await Promise.allSettled([
@@ -191,18 +204,18 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('B8: withdraw needs the party\'s proof; after WITHDRAWN no signature is accepted; after COMMITTED no withdrawal', async () => {
     pg.requirePostgres('F3 B8')
-    const s = service(); const f = fresh()
+    const s = service(); const f = await fresh()
     const p = await s.proposePair(f.proposeInput())
     await refusedWith(s.withdrawPair({ participantId: takerId, idempotencyKey: randomUUID(), pairId: p.pairId, role: 'taker', proof: sign(svcMod.withdrawProofDigest(f.cd, f.ad), stranger) }), 'E25_SIGNATURE_INVALID')
     expect(await s.withdrawPair({ participantId: takerId, idempotencyKey: randomUUID(), pairId: p.pairId, role: 'taker', proof: sign(svcMod.withdrawProofDigest(f.cd, f.ad), taker) })).toMatchObject({ state: 'WITHDRAWN' })
     await refusedWith(s.signPair(f.makerSign(p.pairId)), 'E25_COMMITMENT_SUPERSEDED')
-    const g = fresh(); const q = await s.proposePair(g.proposeInput()); await s.signPair(g.makerSign(q.pairId))
+    const g = await fresh(); const q = await s.proposePair(g.proposeInput()); await s.signPair(g.makerSign(q.pairId))
     await refusedWith(s.withdrawPair({ participantId: makerId, idempotencyKey: randomUUID(), pairId: q.pairId, role: 'maker', proof: sign(svcMod.withdrawProofDigest(g.cd, g.ad), maker) }), 'E25_ANCHOR_ALREADY_COMMITTED')
   })
 
   // ── The database guards themselves, by direct SQL (the service is bypassed on purpose) ───────────────────────
   async function partiallySigned() {
-    const f = fresh(); const p = await service().proposePair(f.proposeInput())
+    const f = await fresh(); const p = await service().proposePair(f.proposeInput())
     return { f, id: p.pairId }
   }
   const rawRefused = async (sql: Promise<unknown>) => { await expect(sql).rejects.toThrow() }
@@ -233,7 +246,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('write-once alone: on a non-executable PROPOSED pair (PROPOSED -> PROPOSED is a legal transition) a stored signature still cannot be replaced', async () => {
     pg.requirePostgres('F3 write-once PROPOSED')
-    const f = fresh({ rail: 'WDK_USDT_EVM', capability: 'UNKNOWN' })
+    const f = await fresh({ rail: 'WDK_USDT_EVM', capability: 'UNKNOWN' })
     const p = await service().proposePair(f.proposeInput())
     await rawRefused(prisma.$executeRaw`UPDATE "commitment_pairs" SET "takerTradeSig" = ${sign(f.cd, stranger)} WHERE "id" = ${p.pairId}`)
     expect((await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })).takerTradeSig).toBe(f.proposeInput().trade.takerSignature)
@@ -245,7 +258,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     pg.requirePostgres('F3 stamp identity')
     const s = service()
     for (let n = 0; n < 6; n++) {
-      const f = fresh(); const pk = randomUUID(); const mk = randomUUID()
+      const f = await fresh(); const pk = randomUUID(); const mk = randomUUID()
       const p = await s.proposePair(f.proposeInput(pk)); await s.signPair(f.makerSign(p.pairId, mk))
       const row = await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })
       const claim = async (key: string) => (await prisma.idempotencyKey.findFirst({ where: { key } })).completedAt.getTime()
@@ -264,7 +277,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('(A) stamp window: even a stamp taken from THIS transaction database clock is refused by the trigger once it is >= expiresAt', async () => {
     pg.requirePostgres('F3 stamp expiry')
-    const f = fresh({ ttlMs: 20_000 }); const p = await service().proposePair(f.proposeInput())
+    const f = await fresh({ ttlMs: 20_000 }); const p = await service().proposePair(f.proposeInput())
     await sleep(Math.max(0, Date.parse(f.commitment.expiresAt) - Date.now()) + 1_000) // until expiresAt has passed
     await rawRefused(prisma.$executeRaw`UPDATE "commitment_pairs" SET "makerTradeSig" = ${sign(f.cd, maker)}, "makerArbitrationSig" = ${sign(f.ad, maker)},
       "makerReceivedAt" = date_trunc('milliseconds', clock_timestamp()), "state" = 'COMMITTED', "committedAnchorRef" = ${f.commitment.anchorRef} WHERE "id" = ${p.pairId}`)
@@ -286,10 +299,10 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('terminal: a COMMITTED pair accepts no further UPDATE; a pair is born taker-only (T1)', async () => {
     pg.requirePostgres('F3 terminal')
-    const s = service(); const f = fresh()
+    const s = service(); const f = await fresh()
     const p = await s.proposePair(f.proposeInput()); await s.signPair(f.makerSign(p.pairId))
     await rawRefused(prisma.$executeRaw`UPDATE "commitment_pairs" SET "state" = 'EXPIRED', "committedAnchorRef" = NULL WHERE "id" = ${p.pairId}`)
-    const g = fresh()
+    const g = await fresh()
     await rawRefused(prisma.$executeRaw`INSERT INTO "commitment_pairs" ("id","anchorRef","commitmentDigest","arbitrationCommitmentDigest","trade","arbitration","policy","feePolicyVersionId","rail","capability","state","makerTradeSig","makerArbitrationSig","makerReceivedAt")
       VALUES (${randomUUID()}, ${g.commitment.anchorRef}, ${g.cd}, ${g.ad}, ${JSON.stringify(g.commitment)}::jsonb, ${JSON.stringify(g.arbitration)}::jsonb, ${JSON.stringify(g.policy)}::jsonb,
               ${feePolicyVersionId}, 'MULTISIG', 'FIXED_ARBITER_COMMITMENT', 'PARTIALLY_SIGNED', ${sign(g.cd, maker)}, ${sign(g.ad, maker)}, clock_timestamp())`)
@@ -321,7 +334,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
   for (const point of ['after-pair-update', 'after-claim'] as const) {
     it(`SIGKILL inside the transaction (${point}): nothing persists - the pair is unchanged and no claim exists; the retry with the same key commits once`, async () => {
       pg.requirePostgres(`F3 SIGKILL ${point}`)
-      const s = service(); const f = fresh()
+      const s = service(); const f = await fresh()
       const p = await s.proposePair(f.proposeInput())
       const input = f.makerSign(p.pairId)
       expect(await killAt(point, input)).toBe(point)
@@ -335,7 +348,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('SIGKILL after COMMIT, before the answer: the effect and its claim both persisted; the retry re-reads the pair (no second effect)', async () => {
     pg.requirePostgres('F3 SIGKILL after-commit')
-    const s = service(); const f = fresh()
+    const s = service(); const f = await fresh()
     const p = await s.proposePair(f.proposeInput())
     const input = f.makerSign(p.pairId)
     expect(await killAt('after-commit', input)).toBe('after-commit')
@@ -374,8 +387,8 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('C2 with a real barrier: session A holds its uncommitted COMMITTED UPDATE; session B, same anchor, is seen WAITING on it; A commits and B loses with E25_ANCHOR_ALREADY_COMMITTED', async () => {
     pg.requirePostgres('F3 C2 barrier')
-    const s = service(); const anchorRef = randomUUID()
-    const a = fresh({ anchorRef }), b = fresh({ anchorRef, ttlMs: 1_700_000 }) // two pairs, different digests, one anchor
+    const s = service(); const anchorRef = await admitTrade()
+    const a = await fresh({ anchorRef }), b = await fresh({ anchorRef, ttlMs: 1_700_000 }) // two pairs, different digests, one anchor
     const pa = await s.proposePair(a.proposeInput()); const pb = await s.proposePair(b.proposeInput())
     const A = startWorker('A', 'after-pair-update', a.makerSign(pa.pairId), true)
     expect(JSON.parse(await A.arrived()).point).toBe('after-pair-update')
@@ -412,7 +425,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('M6 barrier: B holds the pair row and withdraws it while the signPair of A waits on the lock; A then re-reads WITHDRAWN and gets E25_COMMITMENT_SUPERSEDED (never a raw constraint error)', async () => {
     pg.requirePostgres('F3 M6 withdraw barrier')
-    const s = service(); const f = fresh()
+    const s = service(); const f = await fresh()
     const p = await s.proposePair(f.proposeInput())
     const b = await holdRow(p.pairId)
     const a = s.signPair(f.makerSign(p.pairId)).then(() => null, (e: { code?: string; message?: string }) => e)
@@ -427,7 +440,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 
   it('M6 barrier (variant): B completes the maker signature while A, the same role with another key, waits; A gets E25_ROLE_ALREADY_SIGNED', async () => {
     pg.requirePostgres('F3 M6 role barrier')
-    const s = service(); const f = fresh()
+    const s = service(); const f = await fresh()
     const p = await s.proposePair(f.proposeInput())
     const b = await holdRow(p.pairId)
     const a = s.signPair(f.makerSign(p.pairId)).then(() => null, (e: { code?: string }) => e)
@@ -439,5 +452,42 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     expect(waited).toBe(true)
     expect(err).toMatchObject({ code: 'E25_ROLE_ALREADY_SIGNED' })
     expect((await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })).state).toBe('COMMITTED')
+  })
+
+  it('D025 anchor: a pair exists only on an E21-admitted trade own Intent - an unknown uuid or an Offer Intent is refused (E25_ANCHOR_NOT_ADMITTED), also on a raw INSERT', async () => {
+    pg.requirePostgres('F3 anchor admitted')
+    const s = service()
+    const offerIntent = await prisma.intent.create({ data: { type: 'OfferIntent', participantId: makerId, moduleId: 'openliquidity', payload: {}, status: 'PENDING' } })
+    await prisma.offer.create({ data: { userId: makerId, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '0.01', paymentMethod: 'PIX', intentId: offerIntent.id } })
+    for (const anchorRef of [randomUUID(), offerIntent.id]) {
+      const f = await fresh({ anchorRef })
+      await refusedWith(s.proposePair(f.proposeInput()), 'E25_ANCHOR_NOT_ADMITTED')
+      expect(await prisma.commitmentPair.count({ where: { anchorRef } })).toBe(0)
+    }
+    const g = await fresh({ anchorRef: offerIntent.id })
+    await expect(prisma.$executeRaw`INSERT INTO "commitment_pairs" ("id","anchorRef","commitmentDigest","arbitrationCommitmentDigest","trade","arbitration","policy","feePolicyVersionId","rail","capability","state")
+      VALUES (${randomUUID()}, ${g.commitment.anchorRef}, ${g.cd}, ${g.ad}, ${JSON.stringify(g.commitment)}::jsonb, ${JSON.stringify(g.arbitration)}::jsonb, ${JSON.stringify(g.policy)}::jsonb,
+        ${feePolicyVersionId}, 'MULTISIG', 'FIXED_ARBITER_COMMITMENT', 'PROPOSED')`).rejects.toThrow(/commitment_pairs_anchorRef_fkey/)
+  })
+
+  it('D025 anchor: the pair binds to THAT trade - another trade parties, swapped roles, another asset or amount, a terminal trade are refused (E25_ANCHOR_MISMATCH)', async () => {
+    pg.requirePostgres('F3 anchor parties')
+    const s = service()
+    const others = [
+      await admitTrade({ sellerId: strangerId }),            // a trade of other people (stranger sells to the taker)
+      await admitTrade({ sellerId: takerId, buyerId: makerId }), // the same two people, roles swapped
+      await admitTrade({ asset: 'LIQUID_BTC' }),
+      await admitTrade({ amount: '0.006' }),
+      await admitTrade({ amount: '0.00500001' }),               // numeric, not text: 8 decimals compared exactly
+      await admitTrade({ status: 'CANCELLED' }),
+      await admitTrade({ status: 'COMPLETED' }),
+    ]
+    for (const anchorRef of others) {
+      const f = await fresh({ anchorRef })
+      await refusedWith(s.proposePair(f.proposeInput()), 'E25_ANCHOR_MISMATCH')
+      expect(await prisma.commitmentPair.count({ where: { anchorRef } })).toBe(0)
+    }
+    const ok = await fresh({ anchorRef: await admitTrade({ amount: '0.00500000', status: 'ACTIVE' }) }) // control: same value, other text form, live
+    await expect(s.proposePair(ok.proposeInput())).resolves.toMatchObject({ state: 'PARTIALLY_SIGNED' })
   })
 })
