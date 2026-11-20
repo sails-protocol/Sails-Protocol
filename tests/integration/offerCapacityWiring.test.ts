@@ -81,4 +81,35 @@ describe('M-1b wiring: reservation trigger on COMMITTED (real catalog)', () => {
     expect(await col('offer_capacity', 'unblockProof')).toBe(false)
     for (const c of ['capacityTotal', 'capacityRevision', 'declaration', 'declarationSignature']) expect(await col('offer_capacity', c)).toBe(true)
   })
+
+  const preInsert = (pairId: string, anchorRef: string, owner: string, offer: string, amount: string) => db.query(
+    `INSERT INTO offer_capacity_reservations ("id","ownerPublicKey","logicalOfferId","tradeIntentId","commitmentPairId","amount","capacityRevisionObserved","capacityTotalAtReservation","offerRevision","offerEnvelopeDigest")
+     VALUES (gen_random_uuid()::text,$1,$2,$3,$4,$5,1,1000000,1,'x')`, [owner, offer, anchorRef, pairId, amount])
+
+  run('B4 (a): the runtime has NO INSERT on reservations (only SELECT); a direct INSERT as sails_runtime is refused; the SECURITY DEFINER function is the only writer', async () => {
+    expect((await db.query(`SELECT has_table_privilege('sails_runtime', 'public.offer_capacity_reservations', 'INSERT') AS ok`)).rows[0].ok).toBe(false)
+    expect((await db.query(`SELECT has_table_privilege('sails_runtime', 'public.offer_capacity_reservations', 'SELECT') AS ok`)).rows[0].ok).toBe(true)
+    const fx = await createCommitmentFixture(prisma, { seed: 0x84 })
+    await fx.declareCapacity()
+    const { anchorRef } = await fx.admitTrade('PENDING')
+    const p = await fx.proposePartialPair(anchorRef)
+    await db.query('BEGIN')
+    try {
+      await db.query('SET LOCAL ROLE sails_runtime')
+      await expect(preInsert(p.pairId, anchorRef, fx.envelopeRow.ownerPublicKey, fx.logicalOfferId, '0.00000001')).rejects.toThrow(/permission denied/)
+    } finally { await db.query('ROLLBACK') }
+    const def = (await db.query(`SELECT prosecdef, proconfig FROM pg_proc WHERE proname='commitment_pairs_reserve_capacity'`)).rows[0]
+    expect(def.prosecdef).toBe(true)
+    expect((def.proconfig as string[]).join(',')).toContain('search_path=public, pg_catalog')
+  })
+
+  run('B4 (b) MUTANT "idempotence without checking amount": a reservation pre-seeded (superuser) with a SMALLER amount for the same pair is refused as ANCHOR_RESERVED, never accepted as "already reserved"', async () => {
+    const fx = await createCommitmentFixture(prisma, { seed: 0x85 })
+    await fx.declareCapacity()
+    const { anchorRef } = await fx.admitTrade('PENDING')
+    const p = await fx.proposePartialPair(anchorRef)
+    await preInsert(p.pairId, anchorRef, fx.envelopeRow.ownerPublicKey, fx.logicalOfferId, '0.00000001')
+    await expect(p.signMaker()).rejects.toMatchObject({ code: 'E25_OFFER_CAPACITY_ANCHOR_RESERVED', statusCode: 409 })
+    expect((await db.query(`SELECT state FROM commitment_pairs WHERE id=$1`, [p.pairId])).rows[0].state).toBe('PARTIALLY_SIGNED')
+  })
 })

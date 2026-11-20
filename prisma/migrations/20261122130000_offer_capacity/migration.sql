@@ -155,7 +155,7 @@ CREATE TRIGGER offer_capacity_reservations_guard BEFORE UPDATE ON "offer_capacit
 -- attached here). Everything is read from the PAIR and from the trade it anchors, never from a caller parameter. The capacity row is
 -- resolved AND locked by ONE statement (FOR UPDATE), so the total and the reserved sum are read after the lock.
 -- SQLSTATEs (the service maps them, never a raw check_violation): E2501 offer not resolved, E2502 capacity not configured,
--- E2503 blocked, E2504 exceeded, E2505 anchor already reserved by another pair.
+-- E2503 blocked, E2504 exceeded, E2505 anchor already reserved by another pair or by a reservation that is not this pair's own RESERVED amount.
 CREATE OR REPLACE FUNCTION commitment_pairs_reserve_capacity()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -189,9 +189,11 @@ BEGIN
   END IF;
 
   -- (3) Idempotent: the same pair is already reserved; another pair holding this trade's life is refused.
-  SELECT r."commitmentPairId" INTO have FROM "offer_capacity_reservations" r WHERE r."tradeIntentId" = NEW."anchorRef";
+  SELECT r."commitmentPairId", r."amount", r."state" INTO have FROM "offer_capacity_reservations" r WHERE r."tradeIntentId" = NEW."anchorRef";
   IF FOUND THEN
-    IF have."commitmentPairId" = NEW."id" THEN RETURN NEW; END IF;
+    -- Idempotent ONLY for the very same reservation: same pair, same amount, still RESERVED (GK B4). Anything else (a smaller
+    -- pre-inserted amount, a RELEASED row, another pair) is refused, so a reservation can never be pre-seeded to dodge the capacity.
+    IF have."commitmentPairId" = NEW."id" AND have."amount" = amt AND have."state" = 'RESERVED' THEN RETURN NEW; END IF;
     RAISE EXCEPTION 'E25_OFFER_CAPACITY_ANCHOR_RESERVED: the trade already holds a reservation for another pair (pair=%)', NEW."id" USING ERRCODE = 'E2505';
   END IF;
 
@@ -207,6 +209,8 @@ BEGIN
       cap."capacityRevision", cap."capacityTotal", env."revision", env."contentDigest");
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+-- SECURITY DEFINER (owner = the migration role) with a fixed search_path: the runtime has NO INSERT on offer_capacity_reservations
+-- (GK B4); only this function, run by the COMMITTED transition, creates a reservation.
+$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_catalog;
 
 RESET lock_timeout;
