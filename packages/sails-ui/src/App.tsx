@@ -28,6 +28,7 @@ const Disputes = lazy(() => import('./pages/Disputes').then((m) => ({ default: m
 const CurrentActionPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/CurrentActionPreview').then((m) => ({ default: m.CurrentActionPreview }))) : null
 const SigningRequestPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/SigningRequestPreview').then((m) => ({ default: m.SigningRequestPreview }))) : null
 const FundingInstructionPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/FundingInstructionPreview').then((m) => ({ default: m.FundingInstructionPreview }))) : null
+const MarketContextPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/MarketContextPreview').then((m) => ({ default: m.MarketContextPreview }))) : null
 
 // Mobile: top, so a toast never covers the page's primary action or the bottom nav.
 const MOBILE_QUERY = '(max-width: 767px)'
@@ -73,6 +74,7 @@ export default function App() {
                 {CurrentActionPreview && <Route path="/dev/current-action" element={<Suspense fallback={<RouteFallback />}><CurrentActionPreview /></Suspense>} />}
                 {SigningRequestPreview && <Route path="/dev/signing-request" element={<Suspense fallback={<RouteFallback />}><SigningRequestPreview /></Suspense>} />}
                 {FundingInstructionPreview && <Route path="/dev/funding-instruction" element={<Suspense fallback={<RouteFallback />}><FundingInstructionPreview /></Suspense>} />}
+                {MarketContextPreview && <Route path="/dev/market-context" element={<Suspense fallback={<RouteFallback />}><MarketContextPreview /></Suspense>} />}
                 <Route path="*" element={<NotFound />} />
               </Route>
             </Routes>

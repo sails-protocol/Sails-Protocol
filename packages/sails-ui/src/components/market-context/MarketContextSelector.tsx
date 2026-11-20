@@ -1,0 +1,241 @@
+/**
+ * Market Context Navigation selector (Layer A, NAVIGATION-FILTER-1 / docs/SAILS_DESIGN_LANGUAGE.md §16.6).
+ * "Which market or community am I exploring?" — navigation, never a Screen Filter: it deliberately does not
+ * use `.toolbar-chip` and must not be placed inside the filter toolbar. No data fetching, no routing; all copy
+ * comes from the caller. Desktop opens a popover, mobile a bottom sheet (focus returns to the trigger on close).
+ */
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Building2, Check, ChevronsUpDown, Globe, Users, X, type LucideIcon } from 'lucide-react'
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '../ui/sheet'
+import { ListSkeleton } from '../ui/skeleton'
+import { Button } from '../ui/button'
+import { cn } from '../../lib/utils'
+import {
+  orderMarketContexts,
+  isSelectableContext,
+  resolveContextSelection,
+  type MarketContextCopy,
+  type MarketContextKind,
+  type MarketContextListState,
+  type MarketContextView,
+} from '../../lib/marketContext'
+
+export interface MarketContextSelectorProps {
+  current: MarketContextView
+  options: MarketContextView[]
+  onSelect: (id: string) => void
+  state: MarketContextListState
+  copy: MarketContextCopy
+  /** Shown as a retry action when `state` is 'unavailable'. */
+  onRetry?: () => void
+  className?: string
+}
+
+const KIND_ICON: Record<MarketContextKind, LucideIcon> = { public: Globe, community: Users, private: Building2 }
+const DESKTOP_QUERY = '(min-width: 768px)'
+
+function useIsDesktop() {
+  const [desktop, setDesktop] = useState(() => window.matchMedia(DESKTOP_QUERY).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(DESKTOP_QUERY)
+    const onChange = () => setDesktop(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return desktop
+}
+
+function KindTile({ kind, muted }: { kind: MarketContextKind; muted?: boolean }) {
+  const Icon = KIND_ICON[kind]
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border',
+        muted ? 'border-brand-border-subtle bg-brand-elevated text-brand-text-muted' : 'border-brand-orange-accent/40 bg-brand-orange-accent/10 text-brand-orange-accent'
+      )}
+    >
+      <Icon className="h-5 w-5" />
+    </span>
+  )
+}
+
+function KindBadge({ children }: { children: ReactNode }) {
+  return (
+    <span className="shrink-0 rounded border border-brand-border px-1.5 py-px text-[11px] font-medium leading-4 text-brand-text-secondary">
+      {children}
+    </span>
+  )
+}
+
+export function MarketContextSelector({ current, options, onSelect, state, copy, onRetry, className }: MarketContextSelectorProps) {
+  const desktop = useIsDesktop()
+  const [open, setOpen] = useState(false)
+  const listRef = useRef<HTMLUListElement>(null)
+  const kindLabel = copy.kind[current.kind]
+  const labelId = useId()
+
+  const choose = (id: string) => {
+    const next = resolveContextSelection(options, id)
+    if (!next) return
+    setOpen(false)
+    if (next !== current.id) onSelect(next)
+  }
+
+  // Arrow/Home/End move focus between options; Tab still works as usual.
+  const onListKeyDown = (e: KeyboardEvent<HTMLUListElement>) => {
+    const items = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('button[data-context-option]') ?? [])
+    const at = items.indexOf(document.activeElement as HTMLButtonElement)
+    const to = e.key === 'ArrowDown' ? at + 1 : e.key === 'ArrowUp' ? at - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : null
+    if (to === null || items.length === 0) return
+    e.preventDefault()
+    items[(to + items.length) % items.length].focus()
+  }
+
+  const focusCurrent = (e: Event) => {
+    const target = listRef.current?.querySelector<HTMLButtonElement>('button[aria-current="true"]') ?? listRef.current?.querySelector<HTMLButtonElement>('button')
+    if (target) {
+      e.preventDefault()
+      target.focus()
+    }
+  }
+
+  // Full-width bordered control (never a chip): name + one-line subtitle, so it reads as a place, not a filter value.
+  const trigger = (
+    <button
+      type="button"
+      aria-labelledby={`${labelId} ${labelId}-current`}
+      className={cn(
+        'flex min-h-16 w-full items-center gap-3 rounded-xl border border-brand-border bg-brand-surface py-2.5 pl-2.5 pr-4 text-left shadow-sm transition-colors',
+        'hover:border-brand-border-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        className
+      )}
+    >
+      <KindTile kind={current.kind} />
+      <span id={`${labelId}-current`} className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-x-2 md:flex-nowrap">
+          <span className="font-display text-base font-semibold text-brand-text md:truncate md:text-lg">{current.name}</span>
+          {current.kind !== 'public' && <KindBadge>{kindLabel}</KindBadge>}
+        </span>
+        {current.description && <span className="block truncate text-sm text-brand-text-secondary">{current.description}</span>}
+      </span>
+      <ChevronsUpDown aria-hidden="true" className="h-5 w-5 shrink-0 text-brand-text-secondary" />
+    </button>
+  )
+
+  let body: ReactNode
+  if (state === 'loading') {
+    body = <ListSkeleton label={copy.loading} rows={3} rowClassName="h-14" />
+  } else if (state === 'unavailable') {
+    body = (
+      <div role="alert" className="px-3 py-4">
+        <p className="text-sm text-brand-text">{copy.loadError}</p>
+        {onRetry && (
+          <Button variant="outline" onClick={onRetry} className="mt-3 min-h-11 border-brand-border">
+            {copy.retry}
+          </Button>
+        )}
+      </div>
+    )
+  } else {
+    body = (
+      <>
+        <ul ref={listRef} role="list" aria-label={copy.listTitle} onKeyDown={onListKeyDown} className="flex flex-col gap-0.5">
+          {orderMarketContexts(options).map((o) => {
+            const selectable = isSelectableContext(o)
+            const isCurrent = o.id === current.id
+            const reasonId = `market-context-reason-${o.id}`
+            return (
+              <li key={o.id}>
+                <button
+                  type="button"
+                  data-context-option=""
+                  aria-current={isCurrent ? 'true' : undefined}
+                  aria-disabled={selectable ? undefined : 'true'}
+                  aria-describedby={!selectable && o.unavailableReason ? reasonId : undefined}
+                  onClick={() => choose(o.id)}
+                  className={cn(
+                    'flex min-h-14 w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    isCurrent ? 'bg-brand-elevated' : selectable ? 'hover:bg-brand-elevated' : 'cursor-not-allowed'
+                  )}
+                >
+                  <KindTile kind={o.kind} muted={!selectable} />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className={cn('font-medium', selectable ? 'text-brand-text' : 'text-brand-text-secondary')}>{o.name}</span>
+                      <KindBadge>{copy.kind[o.kind]}</KindBadge>
+                      {o.memberStatus && o.memberStatus !== 'none' && <span className="text-xs text-brand-text-secondary">{copy.member[o.memberStatus]}</span>}
+                    </span>
+                    {o.description && <span className="mt-0.5 block text-sm text-brand-text-secondary">{o.description}</span>}
+                    {!selectable && o.unavailableReason && (
+                      <span id={reasonId} className="mt-0.5 block text-sm text-brand-text-muted">{o.unavailableReason}</span>
+                    )}
+                  </span>
+                  {isCurrent && (
+                    <span className="mt-2.5 flex shrink-0 items-center text-brand-orange-accent">
+                      <Check aria-hidden="true" className="h-4 w-4" />
+                      <span className="sr-only">{copy.current}</span>
+                    </span>
+                  )}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+        {state === 'empty' && <p className="mt-2 border-t border-brand-border-subtle px-2 pt-3 pb-1 text-sm text-brand-text-secondary">{copy.empty}</p>}
+      </>
+    )
+  }
+
+  const sectionLabel = <span id={labelId} className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-brand-text-muted">{copy.label}</span>
+
+  if (desktop) {
+    return (
+      <div>
+        {sectionLabel}
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+          <PopoverContent
+            align="start"
+            aria-label={copy.listTitle}
+            onOpenAutoFocus={focusCurrent}
+            className="w-[var(--radix-popover-trigger-width)] max-w-[560px] border-brand-border bg-brand-surface p-1.5"
+          >
+            {body}
+          </PopoverContent>
+        </Popover>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      {sectionLabel}
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetTrigger asChild>{trigger}</SheetTrigger>
+        <SheetContent
+          side="bottom"
+          hideDefaultClose
+          aria-describedby={undefined}
+          onOpenAutoFocus={focusCurrent}
+          className="max-h-[85vh] gap-0 flex flex-col rounded-t-2xl border-brand-border-subtle bg-brand-surface p-0"
+        >
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-brand-border-subtle px-4 py-1">
+            <SheetTitle className="text-base">{copy.listTitle}</SheetTitle>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              aria-label={copy.close}
+              className="-mr-2 flex h-11 w-11 items-center justify-center rounded-md text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="overflow-y-auto px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">{body}</div>
+        </SheetContent>
+      </Sheet>
+    </div>
+  )
+}
