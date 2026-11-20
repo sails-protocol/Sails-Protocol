@@ -7,7 +7,9 @@ import { AlertTriangle, Receipt, Lock } from 'lucide-react'
 export function ChatMessage({ message, isMine }: { message: Message; isMine: boolean }) {
   if (message.type === 'SYSTEM') {
     return (
-      <div className="self-center text-center text-xs italic text-brand-text-muted bg-brand-elevated border border-brand-border rounded-full px-4 py-1.5 my-1">
+      // State changes this client observed (Trade.tsx), never counterparty text. No time: when it was observed is not when it happened.
+      <div role="status" className="self-center max-w-full text-center text-xs text-brand-text-secondary bg-brand-elevated border border-brand-border-subtle rounded-md px-3 py-1.5 my-1">
+        <span className="font-semibold">Atualização do trade · </span>
         {message.content}
       </div>
     )

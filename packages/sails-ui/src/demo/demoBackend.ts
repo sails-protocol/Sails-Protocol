@@ -12,10 +12,11 @@
  */
 import { SailsNotFoundError } from '@satsails/p2p-trading-sdk'
 import type {
-  ChatMessageEvent, CounterProposal, Dispute, DisputeRuling, Escrow, Intent, Message, Offer, Participant,
+  ChatMessageEvent, CounterProposal, Dispute, DisputeRuling, Escrow, Intent, IntentRiskAssessment, Message, Offer, Participant,
   PublicOfferDetail, ReputationScore, Trade, TradeIntentPayload, TradeProposal, Vouch, WebSocketChannel,
 } from '@satsails/p2p-trading-sdk'
 import { sailsClient } from '../lib/sailsClient'
+import type { DemoNoModelMarker } from '../lib/demoMarkers'
 
 const FLAG_KEY = 'sails_demo_mode'
 const STATE_KEY = 'sails_demo_state_v4'
@@ -392,9 +393,10 @@ function counterpartyStep(t: Trade, e: Escrow | undefined, viewer: string) {
   if (d) return disputeStep(d, t, viewer)
   if (t.status === 'COMPLETED' || t.status === 'CANCELLED') return null
   if (!e) return buyerView ? { label: 'Vendedor cria o escrow', run: () => createEscrow(t.id, t.sellerId) } : null
-  if (e.status === 'CREATED' && buyerView) return { label: 'Vendedor bloqueia os fundos', run: () => step(e.id, t.sellerId, 'lock') }
-  if (e.status === 'FUNDS_LOCKED' && !buyerView) return { label: 'Comprador marca o pagamento como enviado', run: () => step(e.id, t.buyerId, 'markPaymentSent') }
-  if (e.status === 'PAYMENT_PENDING' && buyerView) return { label: 'Vendedor libera os fundos', run: () => step(e.id, t.sellerId, 'release') }
+  // `frame`: the real server broadcasts ESCROW_STATUS_UPDATE for these (chat.routes.ts).
+  if (e.status === 'CREATED' && buyerView) return { label: 'Vendedor bloqueia os fundos', run: () => step(e.id, t.sellerId, 'lock'), frame: true }
+  if (e.status === 'FUNDS_LOCKED' && !buyerView) return { label: 'Comprador marca o pagamento como enviado', run: () => step(e.id, t.buyerId, 'markPaymentSent'), frame: true }
+  if (e.status === 'PAYMENT_PENDING' && buyerView) return { label: 'Vendedor libera os fundos', run: () => step(e.id, t.sellerId, 'release'), frame: true }
   return null
 }
 
@@ -408,14 +410,23 @@ export function viewTrade(tradeId: string): DemoTradeView | null {
   return { role: currentId === t.buyerId ? 'buyer' : 'seller', escrowStatus, nextCounterpartyStep: counterpartyStep(t, e, currentId)?.label ?? null }
 }
 
-/** Performs the other side's next permitted step; throws with a readable message when it cannot. */
-export function simulateCounterparty(tradeId: string): string {
+// Open chat channels' onEvent handlers, per trade, so a simulated step can push the same frame the real server would.
+const frameListeners = new Map<string, Set<(frame: { type: string; payload: unknown }) => void>>()
+
+/**
+ * Performs the other side's next permitted step; throws with a readable message when it cannot.
+ * `live`: an ESCROW_STATUS_UPDATE frame reached the open trade page (it refetches by itself);
+ * otherwise the caller reloads the page state.
+ */
+export function simulateCounterparty(tradeId: string): { label: string; live: boolean } {
   const t = findTrade(tradeId)
   const viewer = needMe()
   const next = counterpartyStep(t, t.escrowId ? findEscrow(t.escrowId) : undefined, viewer)
   if (!next) throw new Error('Não há ação pendente da outra parte agora.')
-  next.run()
-  return next.label
+  const e = next.run()
+  const listeners = 'frame' in next && next.frame ? frameListeners.get(tradeId) : undefined
+  listeners?.forEach((h) => h({ type: 'ESCROW_STATUS_UPDATE', payload: { tradeId, escrowId: (e as Escrow).id } }))
+  return { label: next.label, live: !!listeners?.size }
 }
 
 // ---------- Sails Agent (deterministic stand-ins; no model is consulted) ----------
@@ -539,7 +550,8 @@ export function installDemoBackend() {
   Object.assign(c.agents, {
     async generateTradeIntent(goal) { needMe(); return parseGoal(goal) },
     async assessIntentRisk() {
-      return { risk: 'low', recommendation: 'proceed', reasoning: 'Exemplo do modo demonstração — nenhum modelo foi consultado.' }
+      const out: IntentRiskAssessment & DemoNoModelMarker = { risk: 'low', recommendation: 'proceed', reasoning: 'Exemplo do modo demonstração — nenhum modelo foi consultado.', modelConsulted: false }
+      return out
     },
   } satisfies Partial<typeof c.agents>)
   Object.assign(intents, {
@@ -638,9 +650,16 @@ export function installDemoBackend() {
     // Local echo only: there is no counterparty on the other end in demo mode.
     chat(tradeId) {
       const handlers: ((m: ChatMessageEvent) => void)[] = []
+      const eventHandlers: ((frame: { type: string; payload: unknown }) => void)[] = []
       const channel = {
         onMessage: (h: (m: ChatMessageEvent) => void) => { handlers.push(h) },
-        onEvent: () => {}, leave: () => {}, close: () => {},
+        onEvent: (h: (frame: { type: string; payload: unknown }) => void) => {
+          if (!frameListeners.has(tradeId)) frameListeners.set(tradeId, new Set())
+          frameListeners.get(tradeId)!.add(h)
+          eventHandlers.push(h)
+        },
+        leave: () => {},
+        close: () => { eventHandlers.forEach((h) => frameListeners.get(tradeId)?.delete(h)) },
         send: ({ content, msgType = 'TEXT' }: { content: string; msgType?: string }) => {
           const m: Message = { id: crypto.randomUUID(), tradeId, senderId: needMe(), content, msgType, readAt: null, createdAt: now() }
           state.messages.push(m)

@@ -1,35 +1,40 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useNavigate, useLocation } from 'react-router'
 import { toast } from 'sonner'
-import type { Trade as SdkTrade, Escrow as SdkEscrow, WebSocketChannel, Dispute } from '@satsails/p2p-trading-sdk'
-import { encryptChatMessage } from '@satsails/p2p-trading-sdk'
-import type { EscrowStatus, Message, MessageType, User } from '../types'
+import type { Trade as SdkTrade, Escrow as SdkEscrow, EscrowPendingTransaction, WebSocketChannel, Dispute } from '@satsails/p2p-trading-sdk'
+import { encryptChatMessage, SigningIntentVerificationError, SailsNotFoundError } from '@satsails/p2p-trading-sdk'
+import type { EscrowStatus, Message, User } from '../types'
 import { useAuth, WrongPassphraseError } from '../context/AuthContext'
 import { useEscrowKey } from '../hooks/useEscrowKey'
-import { classifySigningWatchError } from '../lib/escrowErrorClassification'
+import { classifySigningWatchError, classifyPendingTransactionError } from '../lib/escrowErrorClassification'
+import { checkMultisigPending, MultisigSigningIntentError } from '../lib/multisigSigningIntent'
+import { deriveSigningRequest, roundSnapshotChanged, signingActionLabel, UNKNOWN_SIGNER, type RoundSnapshot, type SigningVerification } from '../lib/signingRequest'
 import { sailsClient } from '../lib/sailsClient'
 import { toUiMessage, toUiMessageFromEvent } from '../lib/tradeMessages'
-import { TradeStatusBadge, EscrowStatusBadge, ESCROW_STATUS_LABEL } from '../components/ui/StatusBadges'
-import { EscrowStateMachine } from '../components/trade/EscrowStateMachine'
+import { ESCROW_STATUS_LABEL } from '../components/ui/StatusBadges'
 import { EscrowCountdown } from '../components/trade/EscrowCountdown'
 import { CurrentActionCard } from '../components/trade/CurrentActionCard'
-import { deriveCurrentAction } from '../lib/currentAction'
+import { SigningRequestCard } from '../components/trade/SigningRequestCard'
+import { TradeHeader } from '../components/trade/TradeHeader'
+import { TradeAmountsStrip } from '../components/trade/TradeAmountsStrip'
+import { TradeTimeline } from '../components/trade/TradeTimeline'
+import { TradeSpecs, type SpecRow } from '../components/trade/TradeSpecs'
+import { PaymentInstructions } from '../components/trade/PaymentInstructions'
+import { PayoutAddressForm } from '../components/trade/PayoutAddressForm'
+import { FundingInstructionCard } from '../components/trade/FundingInstructionCard'
+import { deriveFundingInstruction, deriveFundingRecordRows, lockRefusalMessage } from '../lib/fundingInstruction'
+import { deriveTradeState } from '../lib/tradeState'
 import { TradeParties } from '../components/trade/TradeParties'
 import { TradeDisputePanel } from '../components/trade/TradeDisputePanel'
 import { ChatWindow } from '../components/chat/ChatWindow'
 import { AgentRiskCard } from '../components/agent/AgentRiskCard'
 import { Button } from '../components/ui/button'
-import { Card } from '../components/ui/card'
-import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
-import { CopyButton } from '../components/ui/CopyButton'
 import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
-import { SafetyNote } from '../components/ui/SafetyNote'
-import { Lock, Banknote, Unlock, ArrowLeft } from 'lucide-react'
-import { formatDateTime } from '../lib/format'
-import { formatByCurrency } from '../lib/currency'
+import { Lock, Banknote, ArrowLeft } from 'lucide-react'
+import { formatDateTime, formatUsdExact } from '../lib/format'
 import { detectRiskLocally } from '../lib/socialEngineering'
-import { ASSET_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
+import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
 
 // Sails Core Implementation Program M8-R2 (Destination Authority
 // Conformance, 2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md) —
@@ -81,6 +86,57 @@ function toParticipantUser(
   }
 }
 
+// Escrow types with a client-signed release/refund round (useEscrowKey.ts).
+const CLIENT_SIGNING_ESCROW_TYPES = new Set(['MULTISIG', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM'])
+// Client-signing types this interface cannot sign (no verify-then-sign yet): never start a round for them.
+const UNSIGNABLE_ESCROW_TYPES = new Set(['LIGHTNING_HODL', 'SAFE_GUARD_EVM'])
+const TERMINAL_ESCROW_STATUSES = new Set(['COMPLETED', 'REFUNDED', 'SPLIT'])
+const PENDING_POLL_MS = 15_000
+const ROUND_KINDS = new Set<string>(['release', 'refund', 'split'])
+
+// Chat system rows for escrow state changes this client observed (a WS frame
+// refetch or the viewer's own action) — composed from refetched state, never
+// counterparty text. Not persisted: a reload starts from the recorded state.
+const SYSTEM_TEXT: Record<EscrowStatus, string> = {
+  CREATED: 'Escrow criado',
+  FUNDS_LOCKED: 'Fundos registrados como bloqueados',
+  PAYMENT_PENDING: 'Pagamento marcado como enviado (não verificado pela plataforma)',
+  COMPLETED: 'Escrow marcado como concluído',
+  DISPUTED: 'Disputa aberta',
+  REFUNDED: 'Escrow marcado como reembolsado',
+  SPLIT: 'Escrow marcado como dividido entre as partes',
+  EXPIRED: 'Prazo do escrow encerrado',
+}
+
+// What a confirmation dialog was opened for. The dialog renders from this
+// snapshot and the confirm handler compares the re-read round against it.
+type RoundDialog = { kind: 'sign' | 'cancel'; round: RoundSnapshot; escrowStatus: string; summary: { label: string; value: string }[] }
+
+type PendingState =
+  | { status: 'none' }
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'ready'; tx: EscrowPendingTransaction }
+
+// Read-only: is a signing round in flight for this escrow? Never signs.
+async function readPending(e: SdkEscrow): Promise<PendingState> {
+  if (!CLIENT_SIGNING_ESCROW_TYPES.has(e.type)) return { status: 'none' }
+  try {
+    return { status: 'ready', tx: await sailsClient.settlement.getPendingTransaction(e.id) }
+  } catch (err) {
+    if (classifyPendingTransactionError(err) === 'absence') return { status: 'none' }
+    return { status: 'error' }
+  }
+}
+
+function signingErrorMessage(err: unknown): string {
+  if (err instanceof SigningIntentVerificationError) return 'A transação não corresponde ao que era esperado para este escrow — não assine.'
+  if (err instanceof MultisigSigningIntentError) return `Não foi possível conferir a transação: ${err.userMessage}`
+  if (err instanceof WrongPassphraseError) return err.message
+  // The server may store the signature before a later step fails, so never claim nothing was sent.
+  return 'Não foi possível concluir. Sua assinatura pode ter sido registrada — confira o estado abaixo.'
+}
+
 async function fetchParticipantUser(participantId: string): Promise<User> {
   const [p, rep] = await Promise.all([
     sailsClient.identity.get(participantId),
@@ -94,7 +150,7 @@ export function Trade() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, keypair, encryptionKey } = useAuth()
-  const { submitEscrowKeyIfNeeded, signAndSubmitPendingTransactionIfNeeded } = useEscrowKey(encryptionKey)
+  const { submitEscrowKeyIfNeeded, signVerifiedMultisigPending } = useEscrowKey(encryptionKey)
 
   // P3-F04 (Pre-M3 Reality Gate, 2026-09-13) — corrected. These two call
   // sites are speculative/idempotent background calls, and a genuine
@@ -139,7 +195,7 @@ export function Trade() {
         toast.error('Não foi possível verificar sua permissão para assinar este escrow.')
         break
       default:
-        toast.error('Não foi possível verificar se há uma assinatura pendente para você neste escrow — tente recarregar a página.')
+        toast.error('Não foi possível registrar sua chave neste escrow — tente recarregar a página.')
     }
   }
 
@@ -149,8 +205,12 @@ export function Trade() {
   const [seller, setSeller] = useState<User | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<'notFound' | 'failed' | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
   const [acting, setActing] = useState(false)
   const [confirmRelease, setConfirmRelease] = useState(false)
+  const [pending, setPending] = useState<PendingState>({ status: 'none' })
+  const [roundDialog, setRoundDialog] = useState<RoundDialog | null>(null)
   const [showDisputeForm, setShowDisputeForm] = useState(false)
   const [disputeReason, setDisputeReason] = useState('')
   // RFC-021 D6/D7/D8 — evidence/contest/appeal are real, trade-party-only
@@ -192,6 +252,14 @@ export function Trade() {
   const [payoutAddress, setPayoutAddress] = useState<{ address: string } | null | undefined>(undefined)
   const [payoutAddressInput, setPayoutAddressInput] = useState('')
   const [savingPayoutAddress, setSavingPayoutAddress] = useState(false)
+  // A failed check (network, 5xx, ...) is not "no address": the address stays unknown.
+  const [payoutCheckFailed, setPayoutCheckFailed] = useState(false)
+  const [payoutCheckRun, setPayoutCheckRun] = useState(0)
+  const [chatOpen, setChatOpen] = useState(false)
+  const disputeTriggerRef = useRef<HTMLButtonElement>(null)
+  const restoreDisputeFocusRef = useRef(false)
+  // Last escrow status seen; undefined until the first load settles (that load is the baseline, not a change).
+  const lastEscrowStatusRef = useRef<string | null | undefined>(undefined)
 
   // Real fetch — openp2p.getTrade() + identity.get() for both real
   // parties + settlement.get() for the real escrow (if one exists yet)
@@ -200,10 +268,22 @@ export function Trade() {
   // — no client-only mock construction left (buildTrade.ts, replaced).
   useEffect(() => {
     if (!id) return
+    // getTrade() needs a session; a logged-out visitor gets the connect prompt below, not an error.
+    if (!user) { setLoading(false); return }
     let cancelled = false
     setLoading(true)
+    setLoadError(null)
+    setPending({ status: 'none' })
+    lastEscrowStatusRef.current = undefined
     ;(async () => {
-      const t = await sailsClient.openp2p.getTrade(id)
+      let t: SdkTrade
+      try {
+        t = await sailsClient.openp2p.getTrade(id)
+      } catch (err) {
+        // A missing trade and a failed request are different situations; only the first is "não encontrado".
+        if (!cancelled) setLoadError(err instanceof SailsNotFoundError ? 'notFound' : 'failed')
+        return
+      }
       if (cancelled) return
       setTrade(t)
 
@@ -216,21 +296,18 @@ export function Trade() {
       setSeller(s)
 
       if (t.escrowId) {
-        let e = await sailsClient.settlement.get(t.escrowId)
+        const e = await sailsClient.settlement.get(t.escrowId)
         // Client-held-keys write path (MULTISIG/LIGHTNING_HODL only, see
         // useEscrowKey's own header comment) — submitting is idempotent
         // and requires an authenticated session, so only attempted for a
         // logged-in counterparty, not every visitor who opens this page.
         if (user && (user.id === t.buyerId || user.id === t.sellerId)) {
           await submitEscrowKeyIfNeeded(e.type, e.id).catch(ignoreExceptWrongPassphrase)
-          // Phase 2 (2026-07-27), MULTISIG only — if a release/refund
-          // signature round is already in flight and this user is one of
-          // its required signers, auto-sign and submit (useEscrowKey's
-          // own header comment on signAndSubmitPendingTransactionIfNeeded
-          // has the full "no dedicated screen, call speculatively" scope
-          // note). A safe no-op otherwise.
-          await signAndSubmitPendingTransactionIfNeeded(e.type, e.id, user.id).catch(ignoreExceptWrongPassphrase)
-          e = await sailsClient.settlement.get(t.escrowId)
+          // CTO 437 step 4 — never sign on page load. Only READ the
+          // pending round; signing needs the user's explicit review in
+          // SigningRequestCard + ConfirmActionDialog.
+          const ps = await readPending(e)
+          if (!cancelled) setPending(ps)
         }
         if (!cancelled) setEscrow(e)
       }
@@ -254,11 +331,28 @@ export function Trade() {
         // frames appended as they arrive, same channel used to send.
         const channel = sailsClient.openp2p.chat(t.id)
         channel.onMessage((m) => setMessages((prev) => [...prev, toUiMessageFromEvent(m, b, s, keypair, counterpartyPublicKeyHex)]))
-        // Real presence — USER_ONLINE/USER_OFFLINE are the only two frame
-        // types onEvent() needs to react to here; everything else
-        // (TRADE_STATUS_UPDATE/ESCROW_STATUS_UPDATE/...) is a separate,
-        // not-yet-built live-sync improvement, not attempted in this pass.
+        // Live sync (Lote B): a status frame only triggers a read-only refetch
+        // of the trade, its escrow and the pending round; the frame payload
+        // itself is never trusted as state.
+        const refetch = async () => {
+          const fresh = await sailsClient.openp2p.getTrade(t.id).catch(() => null)
+          if (cancelled || !fresh) return
+          setTrade(fresh)
+          if (!fresh.escrowId) return
+          const e = await sailsClient.settlement.get(fresh.escrowId).catch(() => null)
+          if (cancelled || !e) return
+          setEscrow(e)
+          if (user.id === fresh.buyerId || user.id === fresh.sellerId) {
+            const ps = await readPending(e)
+            if (!cancelled && ps.status !== 'error') setPending(ps)
+          }
+        }
+        // Real presence — USER_ONLINE/USER_OFFLINE for the counterparty.
         channel.onEvent((frame) => {
+          if (frame.type === 'TRADE_STATUS_UPDATE' || frame.type === 'ESCROW_STATUS_UPDATE') {
+            void refetch()
+            return
+          }
           if (frame.type !== 'USER_ONLINE' && frame.type !== 'USER_OFFLINE') return
           const payload = frame.payload as { participantId?: string }
           if (payload.participantId !== counterpartyId) return
@@ -266,14 +360,28 @@ export function Trade() {
         })
         channelRef.current = channel
       }
-    })().finally(() => { if (!cancelled) setLoading(false) })
+    })()
+      .catch(() => { if (!cancelled) setLoadError('failed') })
+      .finally(() => { if (!cancelled) setLoading(false) })
 
     return () => {
       cancelled = true
       channelRef.current?.close()
       channelRef.current = null
     }
-  }, [id, user, keypair])
+  }, [id, user, keypair, reloadKey])
+
+  useEffect(() => {
+    if (loading) return
+    const cur = escrow?.status ?? null
+    const prev = lastEscrowStatusRef.current
+    lastEscrowStatusRef.current = cur
+    if (prev === undefined || prev === cur || !cur) return
+    setMessages((m) => [...m, {
+      id: `system-${cur}-${Date.now()}`, senderId: null, sender: null, type: 'SYSTEM',
+      content: SYSTEM_TEXT[cur as EscrowStatus] ?? cur, createdAt: new Date().toISOString(),
+    }])
+  }, [escrow?.status, loading])
 
   const isBuyer = !!user && !!trade && user.id === trade.buyerId
   const isSeller = !!user && !!trade && user.id === trade.sellerId
@@ -283,19 +391,110 @@ export function Trade() {
   const counterpartyPublicKeyHex = isBuyer ? seller?.publicKey : isSeller ? buyer?.publicKey : undefined
   const counterpartyName = isBuyer ? seller?.displayName : isSeller ? buyer?.displayName : undefined
 
+  const pendingTx = pending.status === 'ready' ? pending.tx : null
+  // MULTISIG: verified against the trade terms before any sign button is
+  // shown. Other client-signing types have no verification -> never signable here.
+  const verification = useMemo<SigningVerification>(() => {
+    if (!pendingTx || !escrow || escrow.type !== 'MULTISIG') return { status: 'unsupported' }
+    try {
+      return checkMultisigPending(escrow, pendingTx)
+    } catch {
+      return { status: 'cannotVerify', reason: 'Não foi possível ler os dados da transação.' }
+    }
+  }, [escrow, pendingTx])
+  const signingView = useMemo(() => pendingTx && trade && escrow ? deriveSigningRequest({
+    pending: pendingTx,
+    viewerId: user?.id,
+    verification,
+    signerLabel: (pid) => pid === user?.id ? 'Você' : pid === trade.buyerId ? 'Comprador' : pid === trade.sellerId ? 'Vendedor' : UNKNOWN_SIGNER,
+    disputed: escrow.status === 'DISPUTED',
+    // Mirrors cancelPendingTransaction's server preconditions (seller, MULTISIG, non-disputed, non-terminal).
+    canCancel: isSeller && escrow.type === 'MULTISIG' && escrow.status !== 'DISPUTED' && !TERMINAL_ESCROW_STATUSES.has(escrow.status),
+    protocolFeeAddress: escrow.snapshotFeeCollectionAddress,
+  }) : null, [pendingTx, trade, escrow, user, isSeller, verification])
+
+  const refreshPending = async (e: SdkEscrow) => {
+    const next = await readPending(e)
+    setPending(next)
+    return next
+  }
+
+  // Light poll so a counterparty sees a new or updated round without reloading:
+  // only for trade parties of client-signing escrows, while a round exists or
+  // one can start (PAYMENT_PENDING), and only while the tab is visible.
+  const pollEnabled = !!escrow && (isBuyer || isSeller) && CLIENT_SIGNING_ESCROW_TYPES.has(escrow.type)
+    && (pending.status === 'ready' || escrow.status === 'PAYMENT_PENDING')
+  useEffect(() => {
+    if (!pollEnabled || !escrow || acting || roundDialog) return // paused while a confirmation dialog is open
+    let cancelled = false
+    const hadRound = pending.status === 'ready'
+    const timer = setInterval(async () => {
+      if (document.visibilityState !== 'visible') return
+      const next = await readPending(escrow)
+      if (cancelled || next.status === 'error') return // a failed background read keeps the last state; "Atualizar" reports errors
+      setPending(next)
+      if (hadRound && next.status === 'none') {
+        const e = await sailsClient.settlement.get(escrow.id).catch(() => null)
+        if (!cancelled && e) setEscrow(e)
+      }
+    }, PENDING_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [pollEnabled, escrow, acting, pending.status, roundDialog])
+
+  // A refresh replaced the round under an open dialog: close it rather than confirm a different round.
+  useEffect(() => {
+    if (!roundDialog || acting || !roundSnapshotChanged(roundDialog.round, pendingTx)) return
+    setRoundDialog(null)
+    toast.error('O estado do trade mudou — revise antes de continuar')
+  }, [roundDialog, acting, pendingTx])
+
+  const openRoundDialog = (kind: RoundDialog['kind']) => {
+    if (!pendingTx || !signingView || !escrow) return
+    const progress = { label: 'Assinaturas', value: signingView.progress.text }
+    const status = { label: 'Estado atual', value: ESCROW_STATUS_LABEL[escrow.status as EscrowStatus] ?? escrow.status }
+    setRoundDialog({
+      kind,
+      round: { id: pendingTx.id, unsignedPsbtBase64: pendingTx.unsignedPsbtBase64 },
+      escrowStatus: escrow.status,
+      summary: kind === 'sign'
+        ? [
+            { label: 'Ação', value: signingActionLabel(pendingTx.kind) },
+            // Full money flow from the verified transaction: each output and the network fee (labels are unique).
+            ...(signingView.check?.items ?? []).map((it) => ({ label: it.label, value: it.value })),
+            { label: 'Conferência', value: signingView.check?.title ?? '' },
+            progress,
+            status,
+          ]
+        : [{ label: 'Rodada', value: signingActionLabel(pendingTx.kind) }, progress, status],
+    })
+  }
+
   // M8-R2 — only the buyer needs to see/manage this (they're the
   // beneficiary of a release for this trade); re-checked whenever the
   // trade's asset or the logged-in user changes. A 404 (no PayoutAddress
   // registered for this participant/asset yet) is the normal, expected
-  // "not registered" state, not an error to surface.
+  // "not registered" state, not an error to surface. Any other failure
+  // leaves it unknown and is reported with a retry.
   useEffect(() => {
     if (!isBuyer || !user || !trade) return
     let cancelled = false
+    setPayoutCheckFailed(false)
     sailsClient.settlement.getPayoutAddress(user.id, trade.asset)
       .then((view) => { if (!cancelled) setPayoutAddress({ address: view.address }) })
-      .catch(() => { if (!cancelled) setPayoutAddress(null) })
+      .catch((err) => {
+        if (cancelled) return
+        if (err instanceof SailsNotFoundError) {
+          setPayoutAddress(null)
+        } else {
+          setPayoutAddress(undefined)
+          setPayoutCheckFailed(true)
+        }
+      })
     return () => { cancelled = true }
-  }, [isBuyer, user, trade])
+  }, [isBuyer, user, trade?.id, trade?.asset, payoutCheckRun])
 
   const handleSetPayoutAddress = async () => {
     if (!trade || !payoutAddressInput.trim()) return
@@ -311,14 +510,6 @@ export function Trade() {
       setSavingPayoutAddress(false)
     }
   }
-
-  const events = useMemo(() => {
-    if (!escrow) return []
-    // No dedicated escrow-history endpoint is wired into this SDK yet —
-    // deriving a single current-state entry from the real Escrow row
-    // rather than fabricating a full event log this UI can't fetch.
-    return [{ status: escrow.status as EscrowStatus, timestamp: escrow.updatedAt }]
-  }, [escrow])
 
   const withGuard = async (fn: () => Promise<void>) => {
     setActing(true)
@@ -338,7 +529,15 @@ export function Trade() {
   })
 
   const handleLockFunds = () => escrow && withGuard(async () => {
-    const e = await sailsClient.settlement.lock(escrow.id)
+    let e: SdkEscrow
+    try {
+      e = await sailsClient.settlement.lock(escrow.id)
+    } catch (err) {
+      const refusal = lockRefusalMessage(err)
+      if (!refusal) throw err
+      toast.error(refusal)
+      return
+    }
     setEscrow(e)
     toast.success('Escrow bloqueado', { icon: <Lock className="h-4 w-4" /> })
   })
@@ -347,6 +546,69 @@ export function Trade() {
     const e = await sailsClient.settlement.markPaymentSent(escrow.id)
     setEscrow(e)
     toast.success('Pagamento marcado como enviado', { icon: <Banknote className="h-4 w-4" /> })
+  })
+
+  // Explicit, user-confirmed signing (MULTISIG only). Re-reads the round
+  // and the escrow first; aborts if anything changed since the review.
+  const handleSignPending = (snap: RoundDialog) => escrow && user && withGuard(async () => {
+    if (!encryptionKey) {
+      toast.error('Sua chave de escrow está bloqueada — entre novamente com sua senha para assinar.')
+      return
+    }
+    const [freshEscrow, fresh] = await Promise.all([sailsClient.settlement.get(escrow.id), readPending(escrow)])
+    const freshTx = fresh.status === 'ready' ? fresh.tx : null
+    // Compared against the round the user reviewed (the snapshot), never the live state.
+    const changed = !freshTx || roundSnapshotChanged(snap.round, freshTx) || freshEscrow.status !== snap.escrowStatus
+      || !freshTx.requiredSigners.includes(user.id)
+      || (freshTx.signedBy ?? []).some((x) => x.participantId === user.id)
+    if (changed || !freshTx) {
+      setRoundDialog(null)
+      setEscrow(freshEscrow)
+      setPending(fresh)
+      toast.error('O estado do trade mudou — revise antes de continuar')
+      return
+    }
+    let signedOk = false
+    try {
+      await signVerifiedMultisigPending(freshEscrow, freshTx)
+      signedOk = true
+    } catch (err) {
+      toast.error(signingErrorMessage(err))
+    }
+    setRoundDialog(null) // before the refresh: the round may legitimately change now
+    const e = await sailsClient.settlement.get(escrow.id).catch(() => freshEscrow)
+    setEscrow(e)
+    await refreshPending(e)
+    if (signedOk) toast.success('Assinatura registrada')
+  })
+
+  const handleRefreshSigning = () => escrow && withGuard(async () => {
+    const e = await sailsClient.settlement.get(escrow.id)
+    setEscrow(e)
+    const next = await refreshPending(e)
+    if (next.status === 'error') toast.error('Não foi possível consultar se há uma assinatura pendente neste escrow.')
+  })
+
+  // Seller-only: retire a round this interface cannot sign (cancelPendingTransaction).
+  // Re-reads first; aborts if the round or the escrow changed since it was shown.
+  const handleCancelRound = (snap: RoundDialog) => escrow && user && withGuard(async () => {
+    const [freshEscrow, fresh] = await Promise.all([sailsClient.settlement.get(escrow.id), readPending(escrow)])
+    const freshTx = fresh.status === 'ready' ? fresh.tx : null
+    const signedCount = freshTx ? freshTx.requiredSigners.filter((id) => (freshTx.signedBy ?? []).some((x) => x.participantId === id)).length : 0
+    if (!freshTx || roundSnapshotChanged(snap.round, freshTx) || freshEscrow.status !== snap.escrowStatus || freshEscrow.status === 'DISPUTED'
+      || TERMINAL_ESCROW_STATUSES.has(freshEscrow.status) || signedCount >= freshTx.requiredSigners.length || user.id !== trade?.sellerId) {
+      setRoundDialog(null)
+      setEscrow(freshEscrow)
+      setPending(fresh)
+      toast.error('O estado do trade mudou — revise antes de continuar')
+      return
+    }
+    const result = await sailsClient.settlement.cancelPendingTransaction(escrow.id, freshTx.id)
+    setRoundDialog(null)
+    const e = await sailsClient.settlement.get(escrow.id).catch(() => freshEscrow)
+    setEscrow(e)
+    await refreshPending(e)
+    toast.success(result.outcome === 'CANCELLED' ? 'Rodada de assinatura encerrada' : 'Esta rodada de assinatura já não existe — estado atualizado')
   })
 
   const handleReleaseFunds = () => escrow && withGuard(async () => {
@@ -358,34 +620,36 @@ export function Trade() {
       toast.error('O estado do trade mudou — revise antes de continuar')
       return
     }
-    // Phase 2 (2026-07-27) — MULTISIG and LIGHTNING_HODL both use
-    // client-signature collection now, since buyer/seller keys are
-    // client-held. SAFE_GUARD_EVM joined this group 2026-08-02 (RFC-020) —
-    // its own releaseFunds() throws "not directly callable" for the same
-    // reason (escrow.service.ts's SIGNATURE_COLLECTION_PROVIDERS), so it
-    // must go through initiateRelease() too, not the plain release() call
-    // below. The seller (normal path) or assigned arbiter (disputed path)
-    // initiates the round here; if this user is also one of its required
-    // signers (the normal path), sign and submit immediately rather than
-    // requiring a second visit to this page — the other required party
-    // still needs to open the page once to trigger their own auto-sign
-    // (see the escrow-fetch effect above).
-    if (escrow.type === 'MULTISIG' || escrow.type === 'LIGHTNING_HODL' || escrow.type === 'SAFE_GUARD_EVM') {
+    // MULTISIG, LIGHTNING_HODL and SAFE_GUARD_EVM release through a client-
+    // signed round (initiateRelease(), never the plain release() below).
+    // CTO 437 step 4: this page never signs on its own — each required
+    // signer reviews and signs from SigningRequestCard. Only MULTISIG has a
+    // verify-then-sign path, so a round is never started for LIGHTNING_HODL /
+    // SAFE_GUARD_EVM: it could not be signed here and would block retries.
+    if (UNSIGNABLE_ESCROW_TYPES.has(escrow.type)) {
+      toast.error('Liberação indisponível nesta interface para este tipo de escrow')
+      return
+    }
+    if (escrow.type === 'MULTISIG') {
       // No toAddress passed — the server resolves the buyer's own
       // registered PayoutAddress (M8-R2, see this file's own header
       // comment above). If the buyer hasn't registered one yet, this
       // throws a clear error caught by withGuard() below, surfaced as a
       // toast — never a silent/guessed destination.
       await sailsClient.settlement.initiateRelease(escrow.id)
-      if (user) await signAndSubmitPendingTransactionIfNeeded(escrow.type, escrow.id, user.id).catch(ignoreExceptWrongPassphrase)
+      // No signing here: the round is only read; the seller reviews and
+      // signs it from SigningRequestCard.
       const e = await sailsClient.settlement.get(escrow.id)
       setEscrow(e)
+      const next = await refreshPending(e)
       // Reports the escrow status the server returned, not on-chain finality
       // (no broadcast/confirmation state is exposed to this UI yet).
+      const missing = next.status === 'ready' ? next.tx.requiredSigners.filter((id) => !(next.tx.signedBy ?? []).some((x) => x.participantId === id)) : []
       toast.success(
-        e.status === 'COMPLETED'
-          ? 'Escrow marcado como concluído pelo servidor'
-          : 'Liberação iniciada — aguardando as assinaturas necessárias'
+        e.status === 'COMPLETED' ? 'Escrow marcado como concluído pelo servidor'
+          : missing.includes(user.id) ? 'Liberação iniciada — revise e assine a transação abaixo.'
+          : missing.length === 1 && missing[0] === trade?.buyerId ? 'Liberação iniciada — aguardando a assinatura do comprador.'
+          : 'Liberação iniciada — a transação precisa das assinaturas necessárias.'
       )
       return
     }
@@ -393,6 +657,17 @@ export function Trade() {
     setEscrow(e)
     toast.success(e.status === 'COMPLETED' ? 'Escrow marcado como concluído pelo servidor' : 'Liberação solicitada')
   })
+
+  // Cancel returns focus to the "Abrir disputa" trigger (re-mounted with the action card).
+  const cancelDisputeForm = () => {
+    restoreDisputeFocusRef.current = true
+    setShowDisputeForm(false)
+  }
+  useEffect(() => {
+    if (showDisputeForm || !restoreDisputeFocusRef.current) return
+    restoreDisputeFocusRef.current = false
+    disputeTriggerRef.current?.focus()
+  }, [showDisputeForm])
 
   const handleOpenDispute = () => escrow && withGuard(async () => {
     if (!disputeReason.trim()) {
@@ -468,16 +743,6 @@ export function Trade() {
     }
   }
 
-  // No real media upload/storage endpoint exists yet (types.ts's own
-  // comment on MessageType) — stays client-local, never reaches the real
-  // chat channel, which only carries a plain-text `content` field today.
-  const handleSendMedia = (media: { url: string; fileName: string; type: MessageType }) => {
-    setMessages((m) => [
-      ...m,
-      { id: `m-${Date.now()}`, senderId: user?.id ?? null, sender: user, content: '', type: media.type, mediaUrl: media.url, mediaFileName: media.fileName, createdAt: new Date().toISOString() },
-    ])
-  }
-
   if (loading) {
     return <div className="text-center py-16 text-brand-text-muted">Carregando trade...</div>
   }
@@ -505,9 +770,18 @@ export function Trade() {
     )
   }
 
+  if (loadError === 'failed') {
+    return (
+      <div className="text-center py-16" role="alert">
+        <p className="text-brand-text-secondary mb-3">Não foi possível carregar este trade. Verifique sua conexão e tente novamente.</p>
+        <Button onClick={() => setReloadKey((k) => k + 1)} className="mx-auto min-h-11">Tentar novamente</Button>
+      </div>
+    )
+  }
+
   if (!trade || !buyer || !seller) {
     return (
-      <div className="text-center py-16">
+      <div className="text-center py-16" role="alert">
         <p className="text-brand-text-secondary">Trade não encontrado.</p>
         <Link to="/" className="text-sm text-brand-orange-accent underline mt-2 inline-block">Voltar ao Marketplace</Link>
       </div>
@@ -520,195 +794,254 @@ export function Trade() {
   // Prisma include shape, so this stays an array server-side.
   const dispute = escrow?.disputes?.[0] ?? null
   const amount = Number(trade.amount)
-  const totalUsd = Number(trade.totalUsd)
+
+  // One derivation for the chip, the timeline, the action card and the payment gating.
+  const state = deriveTradeState({
+    tradeStatus: trade.status,
+    escrowStatus: (escrow?.status as EscrowStatus | undefined) ?? null,
+    signingRoundKind: !pendingTx ? null : ROUND_KINDS.has(pendingTx.kind) ? pendingTx.kind : 'unknown',
+    isBuyer,
+    isSeller,
+    releaseUnavailable: !!escrow && UNSIGNABLE_ESCROW_TYPES.has(escrow.type),
+    payoutAddressMissing: payoutAddress === null,
+    payoutAddressCheckFailed: payoutCheckFailed,
+    createdAt: trade.createdAt,
+    escrowCreatedAt: escrow?.createdAt,
+    lockedAt: escrow?.lockedAt,
+    // The trade is not refetched after the viewer's own release; the escrow carries releasedAt.
+    completedAt: trade.completedAt ?? escrow?.releasedAt,
+    cancelledAt: trade.cancelledAt,
+  })
+
+  const short = ASSET_SHORT_LABELS[trade.asset]
+  const methodLabel = trade.offer ? PAYMENT_METHOD_LABELS[trade.offer.paymentMethod] : null
+  const counterparty = isBuyer ? seller : isSeller ? buyer : null
+  const title = isBuyer ? `Comprando ${trade.amount} ${short} de ${seller.displayName ?? 'contraparte'}`
+    : isSeller ? `Vendendo ${trade.amount} ${short} para ${buyer.displayName ?? 'contraparte'}`
+    : `Trade de ${trade.amount} ${short}`
+  const totalLabel = formatUsdExact(trade.totalUsd)
+  const totalSub = `Valor do trade em USD${methodLabel ? ` · ${methodLabel}` : ''}`
+  const partyLabel = (pid: string) => pid === user.id ? 'Você' : pid === trade.buyerId ? 'Comprador' : pid === trade.sellerId ? 'Vendedor'
+    : pid === dispute?.arbiterId ? 'Árbitro' : 'Participante não identificado'
+
+  const specs: SpecRow[] = [
+    { label: 'ID do trade', value: trade.id, mono: true, copy: trade.id },
+    { label: 'Aberto em', value: formatDateTime(trade.createdAt) },
+    { label: 'Moeda', value: ASSET_LABELS[trade.asset] },
+    { label: 'Quantidade', value: `${trade.amount} ${short}` },
+    { label: 'Preço unitário (USD)', value: formatUsdExact(trade.priceUsd) },
+    { label: 'Valor do trade (USD)', value: totalLabel },
+    { label: 'Forma de pagamento', value: methodLabel ?? 'Não informada' },
+    escrow
+      ? { label: 'ID do escrow', value: escrow.id, mono: true, copy: escrow.id }
+      : { label: 'Escrow', value: 'Ainda não criado' },
+    ...(escrow ? [
+      { label: 'Tipo de escrow', value: escrow.type, mono: true },
+      { label: 'Estado registrado do escrow', value: ESCROW_STATUS_LABEL[escrowStatus] ?? escrow.status },
+      { label: 'Última atualização do escrow', value: formatDateTime(escrow.updatedAt) },
+      ...deriveFundingRecordRows(escrow),
+    ] : []),
+    ...(trade.completedAt ? [{ label: 'Concluído em', value: formatDateTime(trade.completedAt) }] : []),
+    ...(trade.cancelledAt ? [{ label: 'Cancelado em', value: formatDateTime(trade.cancelledAt) }] : []),
+    ...(isBuyer && payoutAddress ? [{ label: 'Seu endereço de recebimento', value: payoutAddress.address, mono: true, copy: payoutAddress.address }] : []),
+  ]
+
+  const fundingView = escrow ? deriveFundingInstruction({ escrow, isBuyer, isSeller, assetLabel: ASSET_SHORT_LABELS[escrow.asset] }) : null
+
+  const payoutForm = (hasAddress: boolean) => (
+    <PayoutAddressForm
+      value={payoutAddressInput}
+      onChange={setPayoutAddressInput}
+      onSubmit={handleSetPayoutAddress}
+      saving={savingPayoutAddress}
+      hasAddress={hasAddress}
+      assetLabel={ASSET_LABELS[trade.asset]}
+    />
+  )
+  const priceItem = { label: 'Preço', value: `${formatUsdExact(trade.priceUsd)} / ${short}`, sub: 'Preço unitário do trade' }
 
   return (
-    <div>
-      <div className="flex items-center gap-3">
-        <Link to="/" className="p-2 -m-2 text-sm text-brand-text-secondary hover:text-brand-text"><ArrowLeft className="h-4 w-4" /></Link>
-        <span className="font-mono text-sm text-brand-text-muted">Trade #{id?.slice(0, 8)}</span>
-        <TradeStatusBadge status={trade.status} />
-      </div>
+    <div className="space-y-4">
+      <TradeHeader
+        title={title}
+        tradeId={trade.id}
+        createdAtLabel={formatDateTime(trade.createdAt)}
+        status={state.status}
+        leading={(
+          <Link to="/" className="inline-flex min-h-11 items-center gap-1.5 text-sm text-brand-text-secondary hover:text-brand-text">
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Voltar
+          </Link>
+        )}
+      />
 
-      <div className="mt-4 grid lg:grid-cols-[380px_1fr] gap-4">
-        <div>
-          <Card className="p-4 divide-y divide-brand-border">
-            <Row label="Ativo" value={ASSET_LABELS[trade.asset]} />
-            <Row label="Quantidade" value={String(amount)} />
-            <Row label="Total (USD)" value={formatByCurrency(totalUsd, 'USD')} />
-            <Row label="Status do escrow" value={<EscrowStatusBadge status={escrowStatus} />} />
-            {/* Real fields (Trade.completedAt/cancelledAt) that existed
-                on the SDK's own Trade type but were never rendered
-                anywhere in this UI before — found the same way as the
-                escrow timelock above (grepped for usages, found zero). */}
-            {trade.completedAt && <Row label="Concluído em" value={formatDateTime(trade.completedAt)} />}
-            {trade.cancelledAt && <Row label="Cancelado em" value={formatDateTime(trade.cancelledAt)} />}
-          </Card>
+      <TradeAmountsStrip
+        items={isBuyer ? [
+          { label: 'Você paga', value: totalLabel, sub: totalSub },
+          { label: 'Você recebe', value: `${trade.amount} ${short}`, sub: ASSET_LABELS[trade.asset] },
+          priceItem,
+          { label: 'Contraparte', value: seller.displayName ?? 'Nome não informado', sub: 'Vendedor' },
+        ] : isSeller ? [
+          { label: 'Você vende', value: `${trade.amount} ${short}`, sub: ASSET_LABELS[trade.asset] },
+          { label: 'Você recebe', value: totalLabel, sub: totalSub },
+          priceItem,
+          { label: 'Contraparte', value: buyer.displayName ?? 'Nome não informado', sub: 'Comprador' },
+        ] : [
+          { label: 'Quantidade', value: `${trade.amount} ${short}`, sub: ASSET_LABELS[trade.asset] },
+          { label: 'Valor do trade', value: totalLabel, sub: totalSub },
+          priceItem,
+          { label: 'Partes', value: `${buyer.displayName ?? '—'} / ${seller.displayName ?? '—'}`, sub: 'Comprador / vendedor' },
+        ]}
+      />
 
-          {isBuyer && trade.offer && (
-            // Found auditing this screen: paymentMethod/paymentDetails
-            // (where to actually send fiat) were fetched by OfferDetail
-            // but never carried into the Trade screen — a buyer who'd
-            // already left that page had no way to see it again once
-            // the trade was underway. trade.service.ts's getTrade() now
-            // includes the originating Offer specifically for this.
-            <Card className="p-4 mt-3 border border-brand-orange-accent/30">
-              <p className="text-xs font-semibold text-brand-text-muted mb-2">
-                Como pagar — {PAYMENT_METHOD_LABELS[trade.offer.paymentMethod]}
-              </p>
-              {trade.offer.paymentDetails ? (
-                <>
-                  <div className="flex items-start gap-2">
-                    <p className="flex-1 min-w-0 text-sm font-mono text-brand-text break-all">{trade.offer.paymentDetails}</p>
-                    <CopyButton value={trade.offer.paymentDetails} label="Copiar dados" className="shrink-0 min-h-11 px-3" />
-                  </div>
-                  <SafetyNote className="mt-3">
-                    Pague somente para estes dados, de uma conta no seu nome. Não aceite outros dados enviados por chat, e-mail ou telefone, nem pagamentos de terceiros.
-                  </SafetyNote>
-                </>
-              ) : (
-                <p className="text-xs text-brand-text-muted">
-                  O vendedor não informou os dados de pagamento aqui — combine pelo chat.
-                </p>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-4">
+          {/* An open dispute is the current state: its panel below replaces the action card instead of repeating it. */}
+          {escrowStatus === 'DISPUTED' && dispute ? null : !showDisputeForm ? (
+            <CurrentActionCard
+              view={state.action}
+              acting={acting}
+              onAction={(a) => ({ createEscrow: handleCreateEscrow, lock: handleLockFunds, markPaymentSent: handleMarkPaymentSent, release: () => setConfirmRelease(true) })[a]()}
+              onOpenDispute={() => setShowDisputeForm(true)}
+              disputeTriggerRef={disputeTriggerRef}
+            >
+              {fundingView && <FundingInstructionCard view={fundingView} />}
+              {state.payoutStep === 'checkFailed' && (
+                <div className="mt-4 flex flex-col gap-2 rounded-md border border-brand-border-subtle bg-brand-surface p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p role="status" className="text-sm text-brand-text-secondary">Não foi possível verificar seu endereço de recebimento.</p>
+                  <Button variant="outline" onClick={() => setPayoutCheckRun((n) => n + 1)} className="min-h-11 shrink-0 text-sm">Tentar novamente</Button>
+                </div>
               )}
-            </Card>
-          )}
-
-          {isBuyer && (
-            // M8-R2 (2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md)
-            // — this is the BENEFICIARY registering their OWN destination
-            // (sailsClient.settlement.setPayoutAddress()), never the seller
-            // choosing it. The seller has no UI to type or select this
-            // value anywhere in this page — see handleReleaseFunds()'s own
-            // comment above for why that's now a server-enforced rule, not
-            // just a UI convention.
-            <Card className="p-4 mt-3 border border-brand-orange-accent/30">
-              <p className="text-xs font-semibold text-brand-text-muted mb-2">
-                Seu endereço de recebimento — {ASSET_LABELS[trade.asset]}
-              </p>
-              {payoutAddress === undefined ? (
-                <p className="text-xs text-brand-text-muted">Verificando...</p>
-              ) : payoutAddress ? (
-                <p className="text-sm font-mono text-brand-text break-all mb-2">{payoutAddress.address}</p>
-              ) : (
-                <p className="text-xs text-brand-text-muted mb-2">
-                  Nenhum endereço registrado ainda — a liberação dos fundos vai falhar até você registrar um.
-                </p>
+              {state.payoutStep === 'missing' && (
+                // M8-R2 — the BENEFICIARY registers their OWN destination
+                // (setPayoutAddress()); the seller never chooses it. Release
+                // resolves this address server-side and fails without one.
+                <div className="mt-4 rounded-md border border-brand-border-subtle bg-brand-surface p-3">
+                  <p className="text-sm font-semibold text-brand-text">Cadastre seu endereço de recebimento</p>
+                  <p className="mt-0.5 text-sm text-brand-text-secondary">
+                    A liberação dos fundos para você falha enquanto não houver um endereço cadastrado para {ASSET_LABELS[trade.asset]}.
+                  </p>
+                  {payoutForm(false)}
+                </div>
               )}
-              <div className="flex gap-2">
-                <Input
-                  value={payoutAddressInput}
-                  onChange={(e) => setPayoutAddressInput(e.target.value)}
-                  placeholder={payoutAddress ? 'Atualizar endereço' : 'Seu endereço para receber'}
-                  className="text-sm"
-                />
-                <Button onClick={handleSetPayoutAddress} disabled={savingPayoutAddress || !payoutAddressInput.trim()} className="shrink-0 py-2 text-sm">
-                  {savingPayoutAddress ? 'Salvando...' : payoutAddress ? 'Atualizar' : 'Registrar'}
-                </Button>
+              {!isBuyer && !isSeller && (
+                <p className="mt-3 text-sm text-brand-text-secondary">Você não é parte deste trade — ações desabilitadas.</p>
+              )}
+            </CurrentActionCard>
+          ) : (
+            <section
+              aria-labelledby="dispute-form-title"
+              className="rounded-lg border border-brand-border bg-brand-elevated p-4"
+              onKeyDown={(e) => { if (e.key === 'Escape') cancelDisputeForm() }}
+            >
+              <h2 id="dispute-form-title" className="text-base font-semibold text-brand-text">Abrir disputa</h2>
+              <label htmlFor="dispute-reason" className="mt-2 block text-sm text-brand-text-secondary">Descreva o motivo da disputa</label>
+              <Textarea
+                id="dispute-reason"
+                autoFocus
+                value={disputeReason}
+                onChange={(e) => setDisputeReason(e.target.value)}
+                className="mt-1 w-full"
+                rows={3}
+              />
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <Button variant="destructive" onClick={handleOpenDispute} disabled={acting} className="min-h-11 text-sm">Confirmar disputa</Button>
+                <Button variant="outline" onClick={cancelDisputeForm} className="min-h-11 text-sm">Cancelar</Button>
               </div>
-            </Card>
+            </section>
           )}
+
+          {escrow && pending.status === 'loading' && <SigningRequestCard status="loading" label="Consultando assinaturas pendentes…" />}
+          {escrow && pending.status === 'error' && (
+            <SigningRequestCard
+              status="error"
+              message="Não foi possível consultar se há uma assinatura pendente neste escrow."
+              retryLabel="Tentar novamente"
+              onRetry={() => { setPending({ status: 'loading' }); void refreshPending(escrow) }}
+            />
+          )}
+          {signingView && (
+            <SigningRequestCard
+              status="ready"
+              view={signingView}
+              acting={acting}
+              onReview={() => openRoundDialog('sign')}
+              onCancel={() => openRoundDialog('cancel')}
+              onRefresh={handleRefreshSigning}
+            />
+          )}
+
+          {/* Escrow.disputes (2026-08-03) — getEscrow() surfaces the dispute
+              to both parties. Evidence/contest/appeal are real,
+              trade-party-only actions (dispute.service.ts's own 403 check). */}
+          {dispute && (
+            <TradeDisputePanel
+              dispute={dispute}
+              isBuyer={isBuyer}
+              isSeller={isSeller}
+              acting={acting}
+              evidenceNote={evidenceNote}
+              partyLabel={partyLabel}
+              onEvidenceNoteChange={setEvidenceNote}
+              onSubmitEvidence={handleSubmitEvidence}
+              onContestAutoResolution={handleContestAutoResolution}
+              onAppeal={handleAppeal}
+            />
+          )}
+
+          {(isBuyer || isSeller) && trade.offer && (
+            // paymentMethod/paymentDetails come from the originating Offer
+            // (getTrade() includes it so a buyer mid-trade can still see them).
+            // They are the seller's receiving details only when the seller
+            // published the offer; on a BUY offer they belong to the buyer.
+            <PaymentInstructions
+              viewer={isBuyer ? 'buyer' : 'seller'}
+              visibility={state.instructions}
+              methodLabel={PAYMENT_METHOD_LABELS[trade.offer.paymentMethod]}
+              details={trade.offer.userId === trade.sellerId ? trade.offer.paymentDetails : null}
+            />
+          )}
+
+          <TradeTimeline steps={state.steps}>
+            {escrow && <EscrowCountdown expiresAt={escrow.expiresAt} timelockHours={escrow.timelockHours} status={escrowStatus} />}
+          </TradeTimeline>
 
           <TradeParties buyer={buyer} seller={seller} currentUserId={user?.id} counterpartyOnline={counterpartyOnline} />
 
           <AgentRiskCard asset={trade.asset} side={isBuyer ? 'BUY' : 'SELL'} maxValue={Number(trade.totalUsd)} minValue={Number(trade.totalUsd)} />
-
-          <Card className="p-5 mt-3">
-            <EscrowStateMachine status={escrowStatus} />
-            {escrow && (
-              <EscrowCountdown expiresAt={escrow.expiresAt} timelockHours={escrow.timelockHours} status={escrowStatus} />
-            )}
-
-            {!escrow ? (
-              isSeller ? (
-                <Button onClick={handleCreateEscrow} disabled={acting} className="w-full py-2.5 text-sm mt-4">
-                  {acting ? (
-                    'Criando...'
-                  ) : (
-                    <>
-                      <Unlock className="h-4 w-4" />
-                      Criar Escrow
-                    </>
-                  )}
-                </Button>
-              ) : (
-                <p className="text-xs text-brand-text-muted mt-3">Aguardando o vendedor criar o escrow.</p>
-              )
-            ) : !showDisputeForm ? (
-              <CurrentActionCard
-                view={deriveCurrentAction({ status: escrowStatus, isBuyer, isSeller })}
-                acting={acting}
-                onAction={(a) => ({ lock: handleLockFunds, markPaymentSent: handleMarkPaymentSent, release: () => setConfirmRelease(true) })[a]()}
-                onOpenDispute={() => setShowDisputeForm(true)}
-              />
-            ) : (
-              <div className="mt-4">
-                <Textarea
-                  value={disputeReason}
-                  onChange={(e) => setDisputeReason(e.target.value)}
-                  placeholder="Descreva o motivo da disputa..."
-                  className="w-full"
-                  rows={3}
-                />
-                <div className="flex gap-2 mt-2">
-                  <button onClick={handleOpenDispute} disabled={acting} className="flex-1 bg-red-600 hover:bg-red-500 text-white rounded-lg py-2 text-sm font-semibold transition-colors">Confirmar Disputa</button>
-                  <Button variant="outline" onClick={() => setShowDisputeForm(false)} className="flex-1 py-2 text-sm">Cancelar</Button>
-                </div>
-              </div>
-            )}
-
-            {!isBuyer && !isSeller && user && (
-              <p className="text-xs text-brand-text-muted mt-3">Você não é parte deste trade — ações desabilitadas.</p>
-            )}
-
-            {/* Escrow.disputes (2026-08-03) — the only way a trade party
-                who didn't open the dispute could ever learn it existed
-                before was the opener's own POST response; getEscrow()
-                now surfaces it here too. Evidence/contest/appeal are all
-                real, trade-party-only actions (dispute.service.ts's own
-                403 check) — see Disputes.tsx's own comment for why the
-                arbiter console doesn't offer contest, and why it CAN
-                resolve directly instead of needing this same evidence step. */}
-            {dispute && (
-              <TradeDisputePanel
-                dispute={dispute}
-                isBuyer={isBuyer}
-                isSeller={isSeller}
-                acting={acting}
-                evidenceNote={evidenceNote}
-                onEvidenceNoteChange={setEvidenceNote}
-                onSubmitEvidence={handleSubmitEvidence}
-                onContestAutoResolution={handleContestAutoResolution}
-                onAppeal={handleAppeal}
-              />
-            )}
-          </Card>
-
-          <details className="mt-3 card p-4">
-            <summary className="text-xs font-semibold text-brand-text-muted cursor-pointer">Último estado registrado do escrow</summary>
-            <div className="mt-2 space-y-1.5">
-              {events.map((e, i) => (
-                <div key={i} className="flex gap-3 text-xs">
-                  <span className="w-1.5 h-1.5 rounded-full bg-brand-text-muted mt-1 shrink-0" />
-                  <span className="font-medium text-brand-text-secondary">{e.status}</span>
-                  <span className="text-brand-text-muted ml-auto">{formatDateTime(e.timestamp)}</span>
-                </div>
-              ))}
-            </div>
-          </details>
         </div>
 
-        <ChatWindow
-          messages={messages}
-          currentUserId={user?.id}
-          onSend={handleSend}
-          onSendMedia={handleSendMedia}
-          encryptionEnabled={encryptionEnabled}
-          onToggleEncryption={setEncryptionEnabled}
-          encryptionAvailable={!!keypair && !!counterpartyPublicKeyHex}
-          counterpartyName={counterpartyName ?? undefined}
-          counterpartyOnline={counterpartyOnline}
-        />
+        <aside className="flex min-w-0 flex-col gap-4" aria-label="Chat e detalhes do trade">
+          <Button
+            variant="outline"
+            onClick={() => setChatOpen((o) => !o)}
+            aria-expanded={chatOpen}
+            aria-controls="trade-chat"
+            className="min-h-11 w-full lg:hidden"
+          >
+            {chatOpen ? 'Ocultar chat' : `Chat${counterparty?.displayName ? ` com ${counterparty.displayName}` : ''} · ${messages.length} ${messages.length === 1 ? 'mensagem' : 'mensagens'}`}
+          </Button>
+          <div id="trade-chat" className={chatOpen ? '' : 'hidden lg:block'}>
+            <ChatWindow
+              messages={messages}
+              currentUserId={user?.id}
+              onSend={handleSend}
+              encryptionEnabled={encryptionEnabled}
+              onToggleEncryption={setEncryptionEnabled}
+              encryptionAvailable={!!keypair && !!counterpartyPublicKeyHex}
+              counterpartyName={counterpartyName ?? undefined}
+              counterpartyOnline={counterpartyOnline}
+            />
+          </div>
+
+          <TradeSpecs title="Detalhes do trade" rows={specs}>
+            {isBuyer && payoutAddress && (
+              <details className="mt-2">
+                <summary className="min-h-11 cursor-pointer flex items-center text-sm text-brand-text-secondary">Alterar endereço de recebimento</summary>
+                {payoutForm(true)}
+              </details>
+            )}
+          </TradeSpecs>
+        </aside>
       </div>
 
       <ConfirmActionDialog
@@ -717,6 +1050,7 @@ export function Trade() {
         title="Liberar os fundos ao comprador?"
         summary={[
           { label: 'Valor', value: `${amount} — ${ASSET_LABELS[trade.asset]}` },
+          { label: 'Valor do trade (USD)', value: formatUsdExact(trade.totalUsd) },
           { label: 'Comprador', value: buyer.displayName ?? 'Nome não informado' },
           { label: 'Estado atual', value: ESCROW_STATUS_LABEL[escrowStatus] },
         ]}
@@ -732,15 +1066,41 @@ export function Trade() {
           setConfirmRelease(false)
         }}
       />
-    </div>
-  )
-}
 
-function Row({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex justify-between items-center py-2.5 text-sm">
-      <span className="text-brand-text-muted">{label}</span>
-      <span className="font-medium text-brand-text">{value}</span>
+      {roundDialog?.kind === 'sign' && (
+        <ConfirmActionDialog
+          open
+          onOpenChange={(open) => { if (!open) setRoundDialog(null) }}
+          title="Assinar esta transação?"
+          summary={roundDialog.summary}
+          warnings={['O endereço de destino é o que o servidor informou para esta rodada — confira-o antes de assinar.']}
+          consequence="Sua assinatura autoriza esta transação. Com as assinaturas necessárias ela pode ser transmitida e não poderá ser desfeita."
+          confirmLabel="Assinar"
+          busy={acting}
+          onConfirm={async () => {
+            await handleSignPending(roundDialog)
+            setRoundDialog(null)
+          }}
+        />
+      )}
+
+      {roundDialog?.kind === 'cancel' && (
+        <ConfirmActionDialog
+          open
+          onOpenChange={(open) => { if (!open) setRoundDialog(null) }}
+          title="Cancelar esta rodada de assinatura?"
+          summary={roundDialog.summary}
+          consequence="Encerra esta rodada de assinatura. Assinaturas já entregues continuam válidas para esta mesma transação até o depósito ser gasto."
+          confirmLabel="Cancelar rodada"
+          cancelLabel="Voltar"
+          tone="danger"
+          busy={acting}
+          onConfirm={async () => {
+            await handleCancelRound(roundDialog)
+            setRoundDialog(null)
+          }}
+        />
+      )}
     </div>
   )
 }
