@@ -33,12 +33,12 @@ export function MobileFiltersSheet({ open, onOpenChange, triggerRef, title, clos
         }}
         className="max-h-[85vh] p-0 gap-0 flex flex-col rounded-t-2xl border-brand-border-subtle bg-brand-surface">
         <div className="flex items-center justify-between gap-3 px-4 py-1 border-b border-brand-border-subtle shrink-0">
-          <SheetTitle className="text-base">{title}</SheetTitle>
+          <SheetTitle className="text-heading">{title}</SheetTitle>
           <button
             type="button"
             onClick={() => onOpenChange(false)}
             aria-label={closeLabel}
-            className="-mr-2 h-11 w-11 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text hover:bg-brand-elevated"
+            className="-mr-2 h-11 w-11 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text state-layer"
           >
             <X className="h-5 w-5" />
           </button>
@@ -61,7 +61,7 @@ export function MobileField({ label, children }: { label: string; children: Reac
 
 export function CountBadge({ n }: { n: number }) {
   return (
-    <span aria-hidden="true" className="min-w-5 h-5 px-1 flex items-center justify-center bg-brand-orange text-primary-foreground text-xs font-semibold tabular-nums rounded-full">
+    <span aria-hidden="true" className="min-w-5 h-5 px-1 flex items-center justify-center bg-primary text-primary-foreground text-xs font-semibold tabular-nums rounded-full">
       {n}
     </span>
   )

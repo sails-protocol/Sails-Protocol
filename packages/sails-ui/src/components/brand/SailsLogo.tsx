@@ -19,7 +19,7 @@ export function SailsMark({ size = 24, className }: { size?: number; className?:
 /** Horizontal lockup: mark + "Sails Market" (Sails in text color, Market in the brand accent). */
 export function SailsLogo({ size = 'md', className }: { size?: 'sm' | 'md'; className?: string }) {
   return (
-    <span className={cn('inline-flex items-center gap-2 font-semibold tracking-tight text-brand-text whitespace-nowrap', size === 'md' ? 'text-lg' : 'text-base', className)}>
+    <span className={cn('inline-flex items-center gap-2 font-semibold tracking-tight text-brand-text whitespace-nowrap', size === 'md' ? 'text-headline' : 'text-heading', className)}>
       <SailsMark size={size === 'md' ? 28 : 24} />
       <span>Sails <span className="text-brand-orange-accent">Market</span></span>
     </span>

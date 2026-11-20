@@ -265,7 +265,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                     key={s}
                     onClick={() => setSide(s)}
                     className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-                      side === s ? 'bg-brand-surface shadow-sm font-medium text-brand-text' : 'text-brand-text-secondary'
+                      side === s ? 'bg-brand-surface font-medium text-brand-text' : 'text-brand-text-secondary'
                     }`}
                   >
                     {s === 'BUY' ? 'Quero comprar' : 'Quero vender'}
@@ -296,7 +296,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
           )}
 
           {result && proposal === undefined && (
-            <div className="rounded-xl border border-brand-orange-accent/20 bg-brand-orange-accent/[0.04] p-4">
+            <div className="rounded-lg border border-brand-orange-accent/20 bg-brand-orange-accent/[0.04] p-4">
               <div className="text-xs font-semibold text-brand-orange-accent mb-3">Intenção estruturada gerada</div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">
                 <Field label="Ativo" value={ASSET_LABELS[result.asset]} />
@@ -378,7 +378,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
           )}
 
           {result && proposal !== undefined && (
-            <div className="rounded-xl border border-brand-orange-accent/20 bg-brand-orange-accent/[0.04] p-4">
+            <div className="rounded-lg border border-brand-orange-accent/20 bg-brand-orange-accent/[0.04] p-4">
               {proposal ? (
                 <>
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-brand-orange-accent mb-2">

@@ -227,7 +227,7 @@ export function MarketContextPreview() {
                 onClick={() => pickScenario(s.id)}
                 className={cn(
                   'min-h-11 rounded-md px-2.5 font-mono text-xs',
-                  s.id === scenarioId ? 'bg-brand-text text-brand-bg' : 'text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text'
+                  s.id === scenarioId ? 'bg-brand-text text-brand-bg' : 'text-brand-text-secondary state-layer hover:text-brand-text'
                 )}
               >
                 {s.label}
@@ -287,7 +287,7 @@ export function MarketContextPreview() {
       )}
 
       {/* Sails Agent: a contextual action surface (§16.2) scoped to the selected context, before the manual filters. */}
-      <section aria-label={COPY.agentTitle} className="mt-2 rounded-xl border border-brand-border-subtle bg-brand-surface">
+      <section aria-label={COPY.agentTitle} className="mt-2 rounded-lg border border-brand-border-subtle bg-brand-surface">
         <button
           type="button"
           aria-expanded={scenario.offline ? undefined : agentOpen}
@@ -295,7 +295,7 @@ export function MarketContextPreview() {
           aria-describedby="agent-subtitle"
           aria-label={scenario.offline ? COPY.agentTitle : agentOpen ? COPY.agentClose : COPY.agentOpen}
           onClick={() => !scenario.offline && setAgentOpen((o) => !o)}
-          className={cn('flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 py-1 text-left', scenario.offline && 'cursor-not-allowed')}
+          className={cn('flex min-h-11 w-full items-center gap-2.5 rounded-lg px-2.5 py-1 text-left', scenario.offline && 'cursor-not-allowed')}
         >
           <span aria-hidden="true" className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-md', scenario.offline ? 'bg-brand-elevated text-brand-text-muted' : 'bg-brand-orange-accent/10 text-brand-orange-accent')}>
             <Bot className="h-4 w-4" />
@@ -309,7 +309,7 @@ export function MarketContextPreview() {
         {agentOpen && !scenario.offline && (
           <div className="border-t border-brand-border-subtle px-3 py-3">
             <div className="rounded-lg border border-dashed border-brand-border px-3 py-2.5">
-              <span className="rounded border border-brand-border px-1.5 text-caption font-medium uppercase tracking-wider text-brand-text-secondary">{COPY.agentDemo}</span>
+              <span className="rounded-sm border border-brand-border px-1.5 text-caption font-medium uppercase tracking-wider text-brand-text-secondary">{COPY.agentDemo}</span>
               <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-brand-text-secondary">
                 {COPY.agentSteps(current.name).map((step) => <li key={step}>{step}</li>)}
               </ol>
@@ -320,7 +320,7 @@ export function MarketContextPreview() {
       </section>
 
       {/* Desktop/tablet (md+): the real Market toolbar. */}
-      <div className="mt-3 hidden flex-wrap items-center gap-2 rounded-xl border border-brand-border-subtle bg-brand-surface px-3 py-2 md:flex">
+      <div className="mt-3 hidden flex-wrap items-center gap-2 rounded-lg border border-brand-border-subtle bg-brand-surface px-3 py-2 md:flex">
         <AssetPicker assets={ASSETS_FILTERABLE} value={asset} onChange={setAsset} />
         <CurrencyPicker value={currency} onChange={setCurrency} />
         <PaymentMethodPicker methods={PAYMENT_METHODS_FILTERABLE} value={payments} onChange={setPayments} />
@@ -343,7 +343,7 @@ export function MarketContextPreview() {
           aria-haspopup="dialog"
           aria-expanded={mobileFiltersOpen}
           aria-label={filterCount > 0 ? COPY.filtersActive(filterCount) : COPY.filters}
-          className="h-auto min-h-11 min-w-11 border-brand-border bg-brand-elevated px-3 text-sm hover:bg-brand-elevated"
+          className="h-auto min-h-11 min-w-11 border-brand-border bg-brand-elevated px-3 text-sm state-layer"
         >
           <SlidersHorizontal aria-hidden="true" />
           <span className="hidden min-[360px]:inline">{COPY.filters}</span>
@@ -375,7 +375,7 @@ export function MarketContextPreview() {
       </MobileFiltersSheet>
 
       {/* Fictional rows: capture clicks so the links never open a real offer route. */}
-      <div className="mt-3 overflow-hidden rounded-xl border border-brand-border-subtle" onClickCapture={(e) => e.preventDefault()}>
+      <div className="mt-3 overflow-hidden rounded-lg border border-brand-border-subtle" onClickCapture={(e) => e.preventDefault()}>
         {offers.length > 0 ? offers.map((o) => <OfferCard key={o.id} offer={o} />) : <p className="px-4 py-8 text-center text-sm text-brand-text-secondary">{scenario.offline ? COPY.offlineNotice : COPY.noOffers}</p>}
       </div>
     </div>

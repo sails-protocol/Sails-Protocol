@@ -39,7 +39,7 @@ export function OfferCard({ offer, own = false }: { offer: Offer; own?: boolean 
           <TrustLine items={items} className="text-xs text-brand-text-muted" />
         </div>
         <div className="mt-1 flex flex-wrap items-baseline gap-x-1.5">
-          <span data-price className="text-lg font-semibold text-brand-text tabular-nums leading-tight whitespace-nowrap">{price}</span>
+          <span data-price className="money-lg text-brand-text whitespace-nowrap">{price}</span>
           <span className="text-xs text-brand-text-muted">
             por {ASSET_LABELS[offer.asset]}
             {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}

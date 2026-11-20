@@ -27,8 +27,8 @@ export function OfferTable({ offers, isOwn }: { offers: Offer[]; isOwn?: (offer:
       {/* Fixed widths (narrower from 1024, full from 1280); only the seller column absorbs extra width. */}
       <colgroup>
         <col />
-        <col className="w-[9.5rem] xl:w-[11rem]" />
-        <col className="w-[10rem] xl:w-[12.5rem]" />
+        <col className="w-[11rem] xl:w-[12rem]" />
+        <col className="w-[9.5rem] xl:w-[12rem]" />
         <col className="w-[10rem] xl:w-[12rem]" />
         <col className="w-[8rem]" />
       </colgroup>
@@ -63,7 +63,7 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
   const label = `${action} ${ASSET_LABELS[offer.asset]} por ${price}, ${name ?? SELLER_FALLBACK}, ${PAYMENT_METHOD_LABELS[offer.paymentMethod]}, limites ${limits}`
 
   return (
-    <tr className="relative h-[4.25rem] border-t border-brand-border-subtle transition-colors hover:bg-brand-elevated/60">
+    <tr className="relative h-[4.25rem] border-t border-brand-border-subtle transition-colors state-layer">
       <td className="py-3 pl-5 pr-4">
         <div className="flex items-center gap-2.5 min-w-0">
           <UserAvatar user={{ id: offer.user.id, displayName: name ?? SELLER_FALLBACK }} size="sm" />
@@ -77,7 +77,7 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
         </div>
       </td>
       <td className="py-3 px-4">
-        <div data-price className="text-lg font-semibold text-brand-text tabular-nums leading-tight whitespace-nowrap">{price}</div>
+        <div data-price className="money-lg text-brand-text whitespace-nowrap">{price}</div>
         <div className="text-xs text-brand-text-muted whitespace-nowrap">por {ASSET_LABELS[offer.asset]}</div>
       </td>
       <td className="py-3 px-4 text-body-sm text-brand-text-secondary tabular-nums whitespace-nowrap">{limits}</td>

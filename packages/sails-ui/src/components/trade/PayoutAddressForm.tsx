@@ -23,7 +23,7 @@ export function PayoutAddressForm({ value, onChange, onSubmit, saving, hasAddres
         {hasAddress ? 'Novo endereço' : 'Seu endereço'} — {assetLabel}
       </label>
       <div className="mt-1 flex flex-col gap-2 sm:flex-row">
-        <Input id={id} value={value} onChange={(e) => onChange(e.target.value)} autoComplete="off" spellCheck={false} className="min-h-11 font-mono text-base sm:text-sm" />
+        <Input id={id} value={value} onChange={(e) => onChange(e.target.value)} autoComplete="off" spellCheck={false} className="min-h-11 font-mono text-field" />
         <Button type="submit" variant="outline" disabled={saving || !value.trim()} className="min-h-11 shrink-0 text-sm">
           {saving ? 'Salvando...' : hasAddress ? 'Atualizar' : 'Cadastrar endereço'}
         </Button>

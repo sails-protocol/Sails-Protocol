@@ -78,7 +78,7 @@ export function ConfirmActionDialog({
           <Button ref={cancelRef} variant="outline" onClick={() => onOpenChange(false)} disabled={busy} className="min-h-11">
             {cancelLabel}
           </Button>
-          <Button variant={tone === 'danger' ? 'destructive' : 'default'} onClick={onConfirm} disabled={busy} aria-busy={busy} className="min-h-11">
+          <Button variant={tone === 'danger' ? 'destructive' : 'default'} onClick={onConfirm} loading={busy} className="min-h-11">
             {confirmLabel}
           </Button>
         </DialogFooter>

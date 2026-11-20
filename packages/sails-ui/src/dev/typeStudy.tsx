@@ -44,12 +44,12 @@ function initialState(): State | null {
 function Switcher({ start }: { start: State }) {
   const [s, setS] = useState(start)
   const update = (next: State) => { setS(next); apply(next) }
-  const box = 'bg-brand-elevated text-brand-text border border-brand-border rounded px-1 py-0.5 field-focus'
+  const box = 'bg-brand-elevated text-brand-text border border-brand-border rounded-sm px-1 py-0.5 field-focus'
   return (
     <div
       data-type-study
       style={{ position: 'fixed', left: 8, bottom: 8, zIndex: 2147483000, fontFamily: 'system-ui, sans-serif', fontSize: 12 }}
-      className="flex flex-wrap items-center gap-2 rounded-md border border-brand-border bg-brand-surface/95 p-2 text-brand-text shadow-lg"
+      className="flex flex-wrap items-center gap-2 rounded-md border border-brand-border bg-brand-surface/95 p-2 text-brand-text shadow-elevation-2"
     >
       <label className="flex items-center gap-1">Font
         <select className={box} value={s.type} aria-label="Typography candidate"

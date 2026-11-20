@@ -222,7 +222,7 @@ export function PublishOffer() {
             const current = n === step
             return (
               <li key={label} aria-current={current ? 'step' : undefined} className="flex items-center gap-2 text-body-sm">
-                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${n <= step ? 'bg-brand-orange text-primary-foreground' : 'bg-brand-elevated text-brand-text-muted'}`}>
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${n <= step ? 'bg-primary text-primary-foreground' : 'bg-brand-elevated text-brand-text-muted'}`}>
                   {n}
                 </span>
                 <span className={current ? 'text-brand-text font-medium' : 'text-brand-text-muted'}>{label}</span>
@@ -242,7 +242,7 @@ export function PublishOffer() {
                     key={s}
                     onClick={() => setSide(s)}
                     aria-pressed={side === s}
-                    className={cn('flex-1 min-h-11 md:min-h-0 md:h-7', segmentItemClass(side === s))}
+                    className={cn('flex-1 h-8 touch:h-11', segmentItemClass(side === s))}
                   >
                     {s === 'SELL' ? 'Vender' : 'Comprar'}
                   </button>
@@ -298,7 +298,7 @@ export function PublishOffer() {
                     onChange={(e) => setPrice(e.target.value)}
                     type="number"
                     aria-label="Preço fixo"
-                    className="flex-1 min-w-0 bg-transparent text-center text-base font-medium tabular-nums outline-none text-brand-text [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="flex-1 min-w-0 bg-transparent text-center text-field font-medium tabular-nums outline-none text-brand-text [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     placeholder="0"
                   />
                   <button onClick={() => setPrice(String(Number(price || 0) + 1))} aria-label="Aumentar preço" className="h-full min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">+</button>

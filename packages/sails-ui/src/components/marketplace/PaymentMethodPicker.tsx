@@ -63,7 +63,7 @@ export function PaymentMethodPicker({ methods, value, onChange }: Props) {
                 key={m}
                 onClick={() => toggle(m)}
                 aria-pressed={checked}
-                className={`w-full flex items-center justify-between text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated focus-visible:-outline-offset-2 ${
+                className={`w-full flex items-center justify-between text-left px-3 py-2 rounded-lg text-sm state-layer focus-visible:-outline-offset-2 ${
                   checked ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'
                 }`}
               >
@@ -79,7 +79,7 @@ export function PaymentMethodPicker({ methods, value, onChange }: Props) {
         {value.length > 0 && (
           <button
             onClick={() => onChange([])}
-            className="w-full text-xs text-brand-text-muted hover:text-brand-text mt-1 pt-2 border-t border-brand-border-subtle rounded"
+            className="w-full text-xs text-brand-text-muted hover:text-brand-text mt-1 pt-2 border-t border-brand-border-subtle rounded-sm"
           >
             Limpar seleção
           </button>

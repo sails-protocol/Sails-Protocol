@@ -118,7 +118,7 @@ export function Sidebar() {
   }
 
   const toggleLabel = expanded ? 'Recolher menu' : 'Expandir menu'
-  const motion = 'transition-[width] duration-200 ease-out motion-reduce:transition-none'
+  const motion = 'transition-[width] duration-medium ease-standard motion-reduce:transition-none'
   const rowClass = 'flex h-9 w-full items-center gap-3 rounded-md px-[11px] text-sm whitespace-nowrap transition-colors'
 
   // Collapsed: the label shows as a tooltip and stays the accessible name.
@@ -138,7 +138,7 @@ export function Sidebar() {
         <div
           aria-hidden="true"
           onClick={() => { setOverlayOpen(false); toggleRef.current?.focus() }}
-          className="fixed inset-0 bg-black/50"
+          className="fixed inset-0 bg-scrim"
         />
       )}
       <aside
@@ -147,7 +147,7 @@ export function Sidebar() {
           'absolute inset-y-0 left-0 flex flex-col overflow-hidden border-r border-brand-border-subtle bg-brand-surface',
           motion,
           expanded ? 'w-56' : 'w-16',
-          overlay && 'shadow-xl'
+          overlay && 'shadow-elevation-3'
         )}
       >
         <div className={cn('h-14 flex items-center border-b border-brand-border-subtle shrink-0', expanded ? 'px-5' : 'justify-center')}>
@@ -169,7 +169,7 @@ export function Sidebar() {
                       rowClass,
                       // Active: orange tint + orange icon/text (orange is the one action accent).
                       'font-medium',
-                      isActive ? 'bg-brand-orange-accent/10 text-brand-orange-hover' : 'text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text'
+                      isActive ? 'bg-brand-orange-accent/10 text-brand-orange-hover' : 'text-brand-text-secondary state-layer hover:text-brand-text'
                     )}
                   >
                     <span className="flex w-6 shrink-0 justify-center"><NavIcon item={item} active={isActive} /></span>
@@ -188,7 +188,7 @@ export function Sidebar() {
               onClick={toggle}
               aria-expanded={expanded}
               aria-label={toggleLabel}
-              className={cn(rowClass, 'text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text')}
+              className={cn(rowClass, 'text-brand-text-secondary state-layer hover:text-brand-text')}
             >
               <span className="flex w-6 shrink-0 justify-center">
                 {expanded ? <PanelLeftClose className="h-[18px] w-[18px]" aria-hidden="true" /> : <PanelLeftOpen className="h-[18px] w-[18px]" aria-hidden="true" />}

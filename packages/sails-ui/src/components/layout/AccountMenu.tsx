@@ -44,13 +44,13 @@ export function AccountMenu({ user, compact = false }: { user: User; compact?: b
     disconnectWallet()
   }
 
-  const item = 'w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-sm text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text'
+  const item = 'w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-sm text-brand-text-secondary state-layer hover:text-brand-text'
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         aria-label="Menu da conta"
-        className="flex items-center gap-2 min-h-11 rounded-lg px-2 py-1.5 transition-colors hover:bg-brand-tonal active:bg-brand-tonal-hover"
+        className="flex items-center gap-2 min-h-11 rounded-lg px-2 py-1.5 transition-colors state-layer"
       >
         <UserAvatar user={user} size="sm" />
         {!compact && (

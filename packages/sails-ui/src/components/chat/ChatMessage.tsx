@@ -40,13 +40,13 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
         <span className="text-xs text-brand-text-muted mb-0.5 ml-1">{message.sender.displayName}</span>
       )}
       <div
-        className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${
+        className={`max-w-[75%] rounded-xl px-3.5 py-2 text-sm ${
           message.decryptionFailed
             ? 'bg-brand-elevated border border-dashed border-brand-border text-brand-text-muted italic'
             : isProof
               ? 'bg-brand-info-bg border border-brand-info-border text-brand-text'
               : isMine
-                ? 'bg-brand-orange text-primary-foreground rounded-br-sm'
+                ? 'bg-primary text-primary-foreground rounded-br-sm'
                 : 'bg-brand-elevated text-brand-text rounded-bl-sm'
         } ${isMedia ? 'p-1.5' : ''}`}
       >

@@ -66,7 +66,7 @@ export function OnboardingTour({ open, onOpenChange }: { open: boolean; onOpenCh
           <div className="w-14 h-14 rounded-full bg-brand-orange-accent/10 border border-brand-orange-accent/25 flex items-center justify-center mb-4">
             <current.icon className="h-6 w-6 text-brand-orange-accent" />
           </div>
-          <h2 className="text-lg font-display font-semibold text-brand-text">{current.title}</h2>
+          <h2 className="text-headline font-display text-brand-text">{current.title}</h2>
           <p className="text-sm text-brand-text-muted mt-2">{current.description}</p>
         </div>
 
@@ -77,7 +77,7 @@ export function OnboardingTour({ open, onOpenChange }: { open: boolean; onOpenCh
           {STEPS.map((_, i) => (
             <span
               key={i}
-              className={`h-1.5 rounded-full transition-all ${i === step ? 'w-6 bg-brand-orange-accent' : 'w-1.5 bg-brand-border'}`}
+              className={`h-1.5 rounded-full transition-[width,background-color] duration-medium ease-standard ${i === step ? 'w-6 bg-brand-orange-accent' : 'w-1.5 bg-brand-border'}`}
             />
           ))}
         </div>

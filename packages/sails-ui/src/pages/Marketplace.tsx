@@ -199,7 +199,7 @@ export function Marketplace() {
     setMobileFiltersOpen(true)
   }
   const filtersLabel = (n: number) => (n > 0 ? `Filtros, ${n} ${n === 1 ? 'ativo' : 'ativos'}` : 'Filtros')
-  const chipButton = 'h-11 md:h-9 px-3 text-sm border-brand-border bg-brand-elevated hover:bg-brand-elevated hover:border-brand-border-hover'
+  const chipButton = 'h-11 md:h-9 px-3 text-sm border-brand-border bg-brand-elevated state-layer hover:border-brand-border-hover'
 
   const sortSelect = (triggerClass: string) => (
     <Select value={filters.sortBy} onValueChange={(v) => setFilters({ ...filters, sortBy: v as MarketplaceFilters['sortBy'] })}>
@@ -226,7 +226,7 @@ export function Marketplace() {
         // Desktop: the side segment sits with the page title, which keeps every other filter plus sort and
         // search on one bar row at 1280. The one solid primary of the page is "Nova oferta".
         actions={<>
-          {sideSegment('hidden md:flex', 'h-7')}
+          {sideSegment('hidden md:flex', 'h-8 touch:h-11')}
           <Link to="/profile/new-offer" className={cn(buttonVariants({ className: 'shrink-0 min-h-11 md:min-h-10 px-4' }))}>
             <Plus aria-hidden="true" />
             Nova oferta
@@ -256,7 +256,7 @@ export function Marketplace() {
           control floating loose at equal weight against the page bg. */}
       {/* Mobile: one side segment + one Filtros button; everything else lives in the bottom sheet. */}
       <div className="md:hidden mt-4 flex gap-2">
-        {sideSegment('flex-1 min-w-0', 'flex-1 min-h-11 px-2')}
+        {sideSegment('flex-1 min-w-0', 'flex-1 h-8 touch:h-11 px-2')}
         <Button
           variant="outline"
           onClick={openMobileFilters}

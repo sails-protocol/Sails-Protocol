@@ -4,10 +4,12 @@
  * variables of BOTH themes (read from the loaded stylesheet), swatches render
  * in the current theme. Example data only; no SDK calls.
  */
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
+import { Checkbox } from '../../components/ui/checkbox'
+import { Switch } from '../../components/ui/switch'
 import { StateBlock } from '../../components/ui/StateBlock'
 import { ConfirmActionDialog } from '../../components/ui/ConfirmActionDialog'
 import { SegmentedControl } from '../../components/ui/SegmentedControl'
@@ -52,7 +54,7 @@ interface Role {
 
 // Static class strings so Tailwind generates them.
 const ROLES: Role[] = [
-  { name: 'Marca: laranja', use: 'Ação primária (um botão sólido por página), navegação ativa. Não é foco (foco = --color-focus). Não é status nem lado.', fg: '--color-orange-accent', base: '--color-orange', solid: ['--color-orange', '--primary-foreground'], text: 'text-brand-orange-accent', chip: 'border-brand-orange/25 bg-brand-orange/10 text-brand-text', solidClass: 'bg-primary text-primary-foreground' },
+  { name: 'Marca: laranja', use: 'Ação primária (um botão sólido por página), navegação ativa. Não é foco (foco = --color-focus). Não é status nem lado.', fg: '--color-orange-accent', base: '--color-orange', solid: ['--primary', '--primary-foreground'], text: 'text-brand-orange-accent', chip: 'border-brand-orange/25 bg-brand-orange/10 text-brand-text', solidClass: 'bg-primary text-primary-foreground' },
   { name: 'Marca: azul', use: 'Acento secundário da marca: links, seleção, gráficos, destaques. Não é info.', fg: '--color-brand-blue-fg', base: '--color-brand-blue', solid: ['--color-brand-blue-solid', '--color-on-brand-blue'], text: 'text-brand-blue-fg', chip: 'border-brand-blue-border bg-brand-blue-bg text-brand-blue-fg', solidClass: 'bg-brand-blue-solid text-brand-on-blue' },
   { name: 'Lado: compra', use: 'Somente lado do trade (Comprar). Nunca sucesso.', fg: '--color-buy-fg', base: '--color-buy', solid: ['--color-buy-solid', '--color-on-buy'], text: 'text-brand-buy-fg', chip: TONE_CLASS.buy, solidClass: 'bg-brand-buy-solid text-brand-on-buy' },
   { name: 'Lado: venda', use: 'Somente lado do trade (Vender). Nunca erro, nunca disputa.', fg: '--color-sell-fg', base: '--color-sell', solid: ['--color-sell-solid', '--color-on-sell'], text: 'text-brand-sell-fg', chip: TONE_CLASS.sell, solidClass: 'bg-brand-sell-solid text-brand-on-sell' },
@@ -66,7 +68,8 @@ const ROLES: Role[] = [
 const SURFACES = ['--color-bg', '--color-surface', '--color-elevated']
 
 function measure(v: Record<string, string>, role: Role) {
-  const get = (k: string): Rgb | null => parseTriplet(v[k] ?? '')
+  // Follows one var() alias (dark --primary = var(--color-orange)).
+  const get = (k: string): Rgb | null => parseTriplet(v[v[k]?.match(/^var\((--[\w-]+)\)$/)?.[1] ?? k] ?? '')
   const fg = get(role.fg), base = get(role.base)
   const surf = SURFACES.map(get).filter((x): x is Rgb => !!x)
   if (!fg || !base || surf.length !== 3) return null
@@ -114,11 +117,14 @@ function Ratio({ value, min }: { value: number | null; min: number }) {
 const TYPE = [
   ['text-display', 'display', '28 / 32', '1.15', '600', '-0.02em', 'Valor de destaque (raro)'],
   ['text-title', 'title (h1 da página)', '22 / 24', '1.25', '600', '-0.01em', 'Título da página'],
+  ['text-headline', 'headline (provisório)', '18 / 18', '1.3', '600', '-0.01em', 'Título de diálogo, sheet e card'],
   ['text-heading', 'heading (seção)', '16 / 16', '1.35', '600', '0', 'Título de seção'],
   ['text-subheading', 'subheading', '15 / 14', '1.4', '500', '0', 'Subtítulo, rótulo de grupo'],
   ['text-body', 'body (= text-sm)', '15 / 14', '1.5', '400', '0', 'Texto corrido e controles'],
   ['text-body-sm', 'body-sm', '13 / 13', '1.5', '400', '0', 'Texto secundário, células de tabela'],
   ['text-caption', 'caption (= text-xs, piso)', '12 / 12', '1.4', '400', '0', 'Metadados, legendas'],
+  ['text-control', 'control', '14 / 14', '1.25', '500', '0', 'Rótulo de botão e campo'],
+  ['text-field', 'field (provisório)', '16 / 14', '1.4', '400', '0', 'Texto digitado (16 no toque)'],
 ] as const
 
 const TRADE: TradeStatus[] = ['PENDING', 'ACTIVE', 'COMPLETED', 'DISPUTED', 'CANCELLED']
@@ -129,6 +135,12 @@ const TONES: Tone[] = ['neutral', 'info', 'success', 'warning', 'danger', 'buy',
 const SURFACE_SAMPLES = [['bg-brand-bg', 'Fundo da página'], ['bg-brand-surface', 'Superfície (card, diálogo)'], ['bg-brand-elevated', 'Elevado']] as const
 /** Static specimens of the two keyboard-focus treatments (screenshots without a keyboard). */
 const FOCUS_STATIC = 'outline-2 outline-offset-2 outline-brand-focus'
+/** Static hover/pressed specimen: the same layer color rule as the `state-layer` utility. */
+function layerStyle(v: 'default' | 'secondary' | 'ghost' | 'destructive', alpha: '--state-hover-a' | '--state-pressed-a') {
+  const layer = v === 'default' ? '255 255 255' : v === 'destructive' ? '0 0 0' : 'var(--color-text)'
+  const c = `rgb(var(--state-layer) / var(${alpha}))`
+  return { '--state-layer': layer, backgroundImage: `linear-gradient(${c}, ${c})` } as CSSProperties
+}
 const FIELD_FOCUS_STATIC = 'border-brand-focus shadow-[inset_0_0_0_1px_rgb(var(--color-focus))]'
 const SEG_OPTIONS = [{ value: 'all', label: 'Todos' }, { value: 'buy', label: 'Comprar' }, { value: 'sell', label: 'Vender' }] as const
 
@@ -225,11 +237,11 @@ export function DesignSystemPreview() {
               <tr className="border-t border-brand-border-subtle">
                 <td className="px-3 py-2 mono-id text-body-sm text-brand-text-secondary">money / tabular-nums</td>
                 <td className="px-3 py-2 text-brand-text">numérico</td>
-                <td className="px-3 py-2 tabular-nums">15 (hero 26 / 28)</td>
+                <td className="px-3 py-2 tabular-nums">15 (lg 18, hero 26 / 28)</td>
                 <td className="px-3 py-2 tabular-nums">1.3</td>
                 <td className="px-3 py-2 tabular-nums">600</td>
                 <td className="px-3 py-2 tabular-nums">0</td>
-                <td className="px-3 py-2 money text-brand-text">R$ 1.234,56</td>
+                <td className="px-3 py-2 text-brand-text"><span className="money">R$ 1.234,56</span> · <span className="money-lg">US$ 97.450,00</span></td>
               </tr>
               <tr className="border-t border-brand-border-subtle">
                 <td className="px-3 py-2 mono-id text-body-sm text-brand-text-secondary">mono-id</td>
@@ -285,12 +297,15 @@ export function DesignSystemPreview() {
           </div>
           <div className="rounded-lg border border-brand-border-subtle bg-brand-surface p-4 md:col-span-2">
             <h3 className="text-subheading text-brand-text">Elevação</h3>
-            <p className="text-caption text-brand-text-muted">Primeiro tonal (fundo → superfície → elevado); sombra só para camadas flutuantes.</p>
+            <p className="text-caption text-brand-text-muted">Primeiro tonal (fundo → superfície → elevado); sombra só para camadas flutuantes. Mapa por componente na seção 4.3 do DESIGN_SYSTEM.md.</p>
             <div className="mt-3 flex flex-wrap gap-4 text-caption text-brand-text-secondary">
-              <div className="h-16 w-32 rounded-lg bg-brand-bg p-2">bg</div>
-              <div className="h-16 w-32 rounded-lg bg-brand-surface p-2 border border-brand-border-subtle">surface</div>
-              <div className="h-16 w-32 rounded-lg bg-brand-elevated p-2">elevated</div>
-              {['shadow-elevation-1', 'shadow-elevation-2', 'shadow-elevation-3'].map((c) => <div key={c} className={`h-16 w-32 rounded-lg bg-brand-surface p-2 ${c}`}>{c}</div>)}
+              <div className="h-16 w-32 rounded-lg bg-brand-bg p-2">0 · bg (página)</div>
+              <div className="h-16 w-32 rounded-lg bg-brand-surface p-2 border border-brand-border-subtle">1 · surface (card)</div>
+              <div className="h-16 w-32 rounded-lg bg-brand-elevated p-2">elevated (grupo)</div>
+              <div className="h-16 w-32 rounded-lg bg-brand-floating p-2 shadow-elevation-2 border border-brand-border-subtle">2 · floating (popover, menu, select)</div>
+              <div className="h-16 w-32 rounded-sm bg-brand-inverse p-2 text-brand-on-inverse shadow-elevation-2">2 · inverse (tooltip)</div>
+              <div className="h-16 w-32 rounded-lg bg-brand-surface p-2 shadow-elevation-3 border border-brand-border-subtle">3 · surface (diálogo, sheet)</div>
+              <div className="relative h-16 w-32 overflow-hidden rounded-lg bg-brand-surface p-2"><span className="absolute inset-0 bg-scrim" aria-hidden="true" /><span className="relative text-brand-text">scrim</span></div>
             </div>
           </div>
         </div>
@@ -322,6 +337,48 @@ export function DesignSystemPreview() {
         </div>
       </Section>
 
+      <Section id="ds-state-layers" title="Camadas de estado, desativado e carregando">
+        <div className="overflow-x-auto">
+          <table className="text-body-sm">
+            <thead className="text-left text-brand-text-secondary">
+              <tr>{['Variante', 'Repouso', 'Hover (8 %)', 'Pressionado (12 %)', 'Foco pelo teclado', 'Desativado', 'Carregando'].map((h) => <th key={h} className="px-2 py-2 font-medium">{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {(['default', 'secondary', 'ghost', 'destructive'] as const).map((v) => (
+                <tr key={v}>
+                  <td className="px-2 py-2 mono-id text-caption text-brand-text-muted">{v}</td>
+                  <td className="px-2 py-2"><Button tabIndex={-1} variant={v}>Enviar</Button></td>
+                  <td className="px-2 py-2"><Button tabIndex={-1} variant={v} style={layerStyle(v, '--state-hover-a')}>Enviar</Button></td>
+                  <td className="px-2 py-2"><Button tabIndex={-1} variant={v} style={layerStyle(v, '--state-pressed-a')}>Enviar</Button></td>
+                  <td className="px-2 py-2"><Button tabIndex={-1} variant={v} className={FOCUS_STATIC}>Enviar</Button></td>
+                  <td className="px-2 py-2"><Button variant={v} disabled>Enviar</Button></td>
+                  <td className="px-2 py-2"><Button tabIndex={-1} variant={v} loading>Enviar</Button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Uma camada para tudo: cor do texto sobre fundos neutros; branca sobre sólidos de rótulo escuro (primário); preta sobre sólidos de rótulo branco (destrutivo), então o rótulo só ganha contraste. Hover só com ponteiro que tem hover; pressionado em todo lugar. Desativado = recipiente 12 % e conteúdo 38 % da cor do texto, sem laranja (isento de 1.4.3), com o atributo disabled. Carregando = mantém o visual e a largura, spinner no lugar do rótulo (que segue no nome acessível), aria-busy, cliques ignorados.</p>
+        <div className="mt-4 flex flex-wrap items-center gap-6 text-body-sm text-brand-text">
+          <label className="flex items-center gap-2"><Checkbox defaultChecked /> Marcado (azul da marca)</label>
+          <label className="flex items-center gap-2"><Checkbox /> Desmarcado</label>
+          <label className="flex items-center gap-2"><Switch defaultChecked aria-label="Ligado" /> Ligado</label>
+          <label className="flex items-center gap-2"><Switch aria-label="Desligado" /> Desligado</label>
+          <span className="rounded-sm bg-brand-inverse px-2 py-1 text-caption text-brand-on-inverse shadow-elevation-2">Tooltip (superfície inversa)</span>
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Marcado é azul da marca, nunca laranja: laranja = agir, azul = escolhido.</p>
+      </Section>
+
+      <Section id="ds-motion" title="Movimento">
+        <ul className="space-y-1 text-body-sm text-brand-text-secondary">
+          <li><span className="mono-id text-caption">--duration-short</span> 100 ms: cor, hover, pressionado, tooltip; saída de popover.</li>
+          <li><span className="mono-id text-caption">--duration-medium</span> 200 ms: entrada de popover, menu e select; largura da barra lateral; saída de diálogo e sheet.</li>
+          <li><span className="mono-id text-caption">--duration-long</span> 300 ms: entrada de diálogo e sheet.</li>
+          <li>Entrada desacelera (<span className="mono-id text-caption">--easing-decelerate</span>), saída acelera e é mais curta; com movimento reduzido tudo fica instantâneo.</li>
+        </ul>
+        <Button variant="secondary" className="mt-3" onClick={() => setConfirmOpen(true)}>Ver a entrada do diálogo</Button>
+      </Section>
+
       <Section id="ds-segmented" title="Controle segmentado">
         <div className="flex flex-wrap gap-3">
           {SURFACE_SAMPLES.map(([cls, name]) => (
@@ -340,7 +397,7 @@ export function DesignSystemPreview() {
             <Input className="mt-1" placeholder="0,00" inputMode="decimal" />
           </label>
           <label className="text-sm text-brand-text">Valor com erro
-            <Input className="mt-1 border-brand-danger" defaultValue="99999" aria-invalid="true" aria-describedby="ds-input-error" />
+            <Input className="mt-1" defaultValue="99999" aria-invalid="true" aria-describedby="ds-input-error" />
             <span id="ds-input-error" className="mt-1 block text-xs text-brand-danger-fg">Fora do limite: 10 – 500</span>
           </label>
           <label className="text-sm text-brand-text">Desativado
@@ -351,7 +408,7 @@ export function DesignSystemPreview() {
 
       <Section id="ds-badges" title="Badges e tons">
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2"><span className="w-24 text-caption text-brand-text-muted">Lado</span><SideBadge side="BUY" /><SideBadge side="SELL" /></div>
+          <div className="flex flex-wrap items-center gap-3"><span className="w-24 text-caption text-brand-text-muted">Lado (texto + seta)</span><SideBadge side="BUY" /><SideBadge side="SELL" /><span className="text-caption text-brand-text-muted">Status (pílula + ícone):</span><TradeStatusBadge status="DISPUTED" /></div>
           <div className="flex flex-wrap items-center gap-2"><span className="w-24 text-caption text-brand-text-muted">Trade</span>{TRADE.map((s) => <TradeStatusBadge key={s} status={s} />)}</div>
           <div className="flex flex-wrap items-center gap-2"><span className="w-24 text-caption text-brand-text-muted">Escrow</span>{ESCROW.map((s) => <EscrowStatusBadge key={s} status={s} />)}</div>
           <div className="flex flex-wrap items-center gap-2"><span className="w-24 text-caption text-brand-text-muted">Oferta</span>{OFFER.map((s) => <OfferStatusBadge key={s} status={s} />)}</div>

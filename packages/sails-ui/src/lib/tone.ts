@@ -7,7 +7,8 @@
 export type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger' | 'buy' | 'sell'
 
 export const TONE_CLASS: Record<Tone, string> = {
-  neutral: 'border-brand-border bg-brand-elevated text-brand-text-secondary',
+  // Subtle border like the other tones' base/25 (a full 3:1 border made neutral look heavier than danger).
+  neutral: 'border-brand-border-subtle bg-brand-elevated text-brand-text-secondary',
   info: 'border-brand-info-border bg-brand-info-bg text-brand-info-fg',
   success: 'border-brand-success-border bg-brand-success-bg text-brand-success-fg',
   warning: 'border-brand-warning-border bg-brand-warning-bg text-brand-warning-fg',

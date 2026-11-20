@@ -33,7 +33,7 @@ export function CurrencyPicker({ value, onChange }: Props) {
       <PopoverContent align="start" className="w-56 p-2 max-h-64 overflow-y-auto">
         <button
           onClick={() => select('Todas')}
-          className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated focus-visible:-outline-offset-2 ${value === 'Todas' ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
+          className={`w-full text-left px-3 py-2 rounded-lg text-sm state-layer focus-visible:-outline-offset-2 ${value === 'Todas' ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
         >
           Todas as moedas
         </button>
@@ -41,7 +41,7 @@ export function CurrencyPicker({ value, onChange }: Props) {
           <button
             key={c.code}
             onClick={() => select(c.code)}
-            className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated focus-visible:-outline-offset-2 flex justify-between ${value === c.code ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm state-layer focus-visible:-outline-offset-2 flex justify-between ${value === c.code ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
           >
             <span className="font-mono">{c.code}</span>
             <span className="text-brand-text-muted text-xs">{c.label}</span>

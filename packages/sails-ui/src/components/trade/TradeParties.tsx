@@ -34,7 +34,7 @@ function PartyRow({ user, role, isYou, online }: { user: User; role: string; isY
       <UserAvatar user={user} size="sm" showPresence online={online} />
       <div className="text-sm min-w-0">
         <span className="font-medium text-brand-text">{user.displayName}</span>
-        {isYou && <span className="ml-1.5 text-xs bg-brand-orange-accent/10 text-brand-orange-hover dark:text-brand-orange-accent rounded px-1.5 py-0.5">Você</span>}
+        {isYou && <span className="ml-1.5 text-xs bg-brand-orange-accent/10 text-brand-orange-hover dark:text-brand-orange-accent rounded-sm px-1.5 py-0.5">Você</span>}
         {/* Same trust line as the Market rows: server counters only, no derived percentage. */}
         {/* Inline (not flex) so the info button wraps with the text on narrow phones. */}
         <div className="text-xs text-brand-text-muted">

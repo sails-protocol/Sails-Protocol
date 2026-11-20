@@ -1,8 +1,7 @@
 import type { FiatCurrency } from '../types'
 
-// Locale used purely for Intl.NumberFormat's currency symbol/grouping —
-// not a claim about which country the currency "belongs to" beyond
-// picking a reasonable formatting convention.
+// `locale` is the currency's home convention, kept as data. Display uses one pt-BR
+// policy for every currency (lib/format.ts), so a row never mixes "," and "." decimals.
 export const FIAT_CURRENCIES: { code: FiatCurrency; label: string; locale: string }[] = [
   { code: 'BRL', label: 'Real Brasileiro', locale: 'pt-BR' },
   { code: 'USD', label: 'Dólar Americano', locale: 'en-US' },
@@ -44,11 +43,11 @@ export const AMOUNT_PRESETS: Record<FiatCurrency, number[]> = {
 
 export function formatByCurrency(value: number, currency: FiatCurrency): string {
   const meta = FIAT_CURRENCIES.find((c) => c.code === currency) ?? FIAT_CURRENCIES[0]
-  return value.toLocaleString(meta.locale, { style: 'currency', currency: meta.code })
+  return value.toLocaleString('pt-BR', { style: 'currency', currency: meta.code })
 }
 
 /** Unit price: never rounds away sub-cent digits (a 1.002 offer showed as "$1.00" while 100 units totalled $100.20). */
 export function formatPrice(value: number, currency: FiatCurrency): string {
   const meta = FIAT_CURRENCIES.find((c) => c.code === currency) ?? FIAT_CURRENCIES[0]
-  return value.toLocaleString(meta.locale, { style: 'currency', currency: meta.code, maximumFractionDigits: 8 })
+  return value.toLocaleString('pt-BR', { style: 'currency', currency: meta.code, maximumFractionDigits: 8 })
 }

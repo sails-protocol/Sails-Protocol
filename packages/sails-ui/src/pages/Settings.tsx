@@ -126,7 +126,7 @@ export function Settings() {
                 'flex items-center gap-3 min-h-11 md:min-h-9 rounded-md px-3 text-sm font-medium text-left transition-colors',
                 active === s.id
                   ? 'bg-brand-orange-accent/10 text-brand-orange-hover'
-                  : 'text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text'
+                  : 'text-brand-text-secondary state-layer hover:text-brand-text'
               )}
             >
               <s.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -192,7 +192,7 @@ export function Settings() {
                       key={o.value}
                       className={cn(
                         'flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-1.5 text-sm transition-colors field-focus-within',
-                        avatarStyle === o.value ? 'border-brand-orange-accent bg-brand-orange-accent/10 text-brand-text font-medium' : 'border-brand-border text-brand-text-secondary hover:bg-brand-elevated'
+                        avatarStyle === o.value ? 'border-brand-orange-accent bg-brand-orange-accent/10 text-brand-text font-medium' : 'border-brand-border text-brand-text-secondary state-layer'
                       )}
                     >
                       <input

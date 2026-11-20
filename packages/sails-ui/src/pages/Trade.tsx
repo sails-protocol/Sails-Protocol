@@ -971,7 +971,7 @@ export function Trade() {
               className="rounded-lg border border-brand-border-subtle bg-brand-elevated p-4"
               onKeyDown={(e) => { if (e.key === 'Escape') cancelDisputeForm() }}
             >
-              <h2 id="dispute-form-title" className="text-base font-semibold text-brand-text">Abrir disputa</h2>
+              <h2 id="dispute-form-title" className="text-heading text-brand-text">Abrir disputa</h2>
               <label htmlFor="dispute-reason" className="mt-2 block text-sm text-brand-text-secondary">Descreva o motivo da disputa</label>
               <Textarea
                 id="dispute-reason"

@@ -26,7 +26,7 @@ import { formatPrice } from '../lib/currency'
 import type { Offer, OfferStatus, User } from '../types'
 
 // Desktop columns for "Minhas ofertas", same table idiom as the Market: Lado | Ativo | Preço | Limites | Status | Criada em | Ações.
-const OFFER_COLS = 'xl:grid xl:grid-cols-[5.5rem_minmax(0,1fr)_8rem_10rem_6.5rem_6.5rem_11rem] xl:gap-4 xl:flex-nowrap'
+const OFFER_COLS = 'xl:grid xl:grid-cols-[5.5rem_minmax(0,1fr)_8rem_9rem_6.5rem_6.5rem_11rem] xl:gap-4 xl:flex-nowrap'
 
 // Real, persisted Offer rows (GET /v1/liquidity/offers/mine) — the
 // route doesn't join the `user` relation (a self-view never needs to
@@ -187,7 +187,7 @@ export function Profile() {
           className="mt-5 pt-4 border-t border-brand-border-subtle"
           items={[
             { label: 'Trades', value: user.totalTrades },
-            { label: 'Volume (BTC)', value: user.totalVolumeBtc.toFixed(2) },
+            { label: 'Volume (BTC)', value: formatAmount(user.totalVolumeBtc, 2) },
             { label: 'Taxa de disputa', value: formatAccountDisputeRate(user), info: ACCOUNT_DISPUTE_RATE_DEFINITION },
             { label: 'Reputação', value: <span className="inline-flex items-center gap-1.5">{user.reputationScore.toFixed(0)}<ExplanationPopover explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.title} /></span> },
           ]}
@@ -266,7 +266,7 @@ export function Profile() {
                               <Popover>
                                 <PopoverTrigger
                                   aria-label="Mais ações da oferta"
-                                  className="h-11 w-11 md:h-9 md:w-9 flex items-center justify-center rounded-md text-brand-text-muted hover:text-brand-text hover:bg-brand-elevated"
+                                  className="h-11 w-11 md:h-9 md:w-9 flex items-center justify-center rounded-md text-brand-text-muted hover:text-brand-text state-layer"
                                 >
                                   <MoreHorizontal className="h-4 w-4" />
                                 </PopoverTrigger>
@@ -274,7 +274,7 @@ export function Profile() {
                                   <button
                                     type="button"
                                     onClick={() => setConfirmingCancelId(o.id)}
-                                    className="w-full min-h-11 md:min-h-9 rounded-md px-2.5 py-2 text-left text-sm text-brand-danger-fg hover:bg-brand-elevated"
+                                    className="w-full min-h-11 md:min-h-9 rounded-md px-2.5 py-2 text-left text-sm text-brand-danger-fg state-layer"
                                   >
                                     Cancelar oferta
                                   </button>

@@ -38,18 +38,24 @@
      One scale (desktop refinement 2026-11-20): page title 24, section 16,
      body 14 (`text-sm`), secondary 13 (`text-body-sm`), meta 12 (`text-xs`,
      the floor). Weights 400/500/600 only; no 700 anywhere. */
-  --t-page: 22px;        --t-page-lh: 1.25;
-  --t-section: 16px;     --t-section-lh: 1.35;
-  --t-body: 15px;        --t-body-lh: 1.5;
-  --t-control: 14px;     /* buttons, form labels */
-  --t-meta: 12px;        --t-meta-lh: 1.4;   /* 13px pushed the OfferCard price out of a 375px row */
-  --t-mono: 14px;        /* IDs/keys; 15px wrapped a PIX key to 3 lines at 375px */
-  --t-money: 15px;
-  --t-money-hero: 26px;
+  /* rem (2026-11-20, provisório — ratificação pendente): same px at the
+     default 16px root, but a larger browser font size now enlarges text. */
+  --t-page: 1.375rem;    --t-page-lh: 1.25;     /* 22 */
+  --t-section: 1rem;     --t-section-lh: 1.35;  /* 16 */
+  --t-body: 0.9375rem;   --t-body-lh: 1.5;      /* 15 */
+  --t-control: 0.875rem; /* 14: buttons, form labels */
+  --t-meta: 0.75rem;     --t-meta-lh: 1.4;      /* 12; 13px pushed the OfferCard price out of a 375px row */
+  --t-mono: 0.875rem;    /* 14: IDs/keys; 15px wrapped a PIX key to 3 lines at 375px */
+  --t-money: 0.9375rem;  /* 15 */
+  --t-money-hero: 1.625rem; /* 26 */
   /* Design System scale names (DESIGN_SYSTEM.md): display / title (=page)
-     / heading (=section) / subheading / body / body-sm / caption (=meta). */
-  --t-display: 28px;     --t-display-lh: 1.15;
-  --t-body-sm: 13px;     --t-body-sm-lh: 1.5;
+     / headline / heading (=section) / subheading / body / body-sm / caption (=meta). */
+  --t-display: 1.75rem;  --t-display-lh: 1.15;  /* 28 */
+  --t-body-sm: 0.8125rem; --t-body-sm-lh: 1.5;  /* 13 */
+  /* headline 18 (dialog/sheet/card titles; also .money-lg row prices) and
+     input 16 on mobile (no iOS focus zoom) / 14 desktop. Provisório. */
+  --t-headline: 1.125rem; --t-headline-lh: 1.3;
+  --t-input: 1rem;
   --color-bg: 250 250 250;           /* #fafafa */
   --color-surface: 255 255 255;      /* #ffffff */
   --color-elevated: 245 245 245;     /* #f5f5f5 */
@@ -97,10 +103,14 @@
   --foreground: var(--color-text);
   --card: var(--color-surface);
   --card-foreground: var(--color-text);
-  --popover: var(--color-surface);
+  --popover: var(--color-floating);
   --popover-foreground: var(--color-text);
-  --primary: var(--color-orange);
-  --primary-foreground: 255 255 255;
+  /* Light primary (2026-11-20, provisório — ratificação pendente): dark text
+     on #ea580c, the same rule as dark ("dark text on orange"). Label 5.22:1;
+     fill vs bg/surface/elevated 3.41 / 3.56 / 3.26. --color-orange (#c2410c)
+     stays the orange for text and borders on light surfaces. */
+  --primary: 234 88 12;              /* #ea580c */
+  --primary-foreground: 17 19 24;    /* #111318 */
   --secondary: var(--color-elevated);
   --secondary-foreground: var(--color-text);
   --muted: var(--color-elevated);
@@ -181,11 +191,44 @@
   /* Tonal fill = text color at low alpha over its container (M3 state layer
      idea): one step off any surface. Label on it >= 13:1 here. */
   --tonal-a: 0.07;
-  --tonal-hover-a: 0.11;
-  --tonal-pressed-a: 0.15;
   /* Segmented-control thumb (raised): opaque white + shadow-elevation-1. */
   --raised-base: 255 255 255;
   --raised-a: 1;
+
+  /* Foundations (DESIGN_SYSTEM.md 5.2, 2026-11-20, provisório — ratificação
+     pendente). Contrast: ui-refs/ds-foundations-2026-11-20/contrast.cjs. */
+  /* State layers (M3 values), one system for every interactive element. The
+     layer moves away from the label color: text color on neutral fills,
+     white on solids with a dark label, black on solids with a white label. */
+  --state-hover-a: 0.08;
+  --state-focus-a: 0.12;
+  --state-pressed-a: 0.12;
+  --state-dragged-a: 0.16;
+  /* Disabled (M3): container 12 %, content 38 % of the text color, no brand
+     color. Exempt from 1.4.3/1.4.11 (inactive); semantics carry the state. */
+  --disabled-container-a: 0.12;
+  --disabled-content-a: 0.38;
+  /* Floating layers (popover, menu, select list): = surface in light, the
+     shadow separates it. Text 19.80, muted 5.92, focus 19.80. */
+  --color-floating: 255 255 255;
+  /* Inverse (tooltip; toast skin in phase 3): on-inverse 13.42:1. */
+  --color-inverse: 37 42 51;         /* #252a33 */
+  --color-on-inverse: 245 247 250;   /* #f5f7fa */
+  /* Scrim behind modal layers: 40 % (dialog surface vs scrimmed page 2.71+). */
+  --scrim: 10 10 10;
+  --scrim-a: 0.4;
+  /* Checked (checkbox, switch on): brand blue, never orange (orange = act).
+     Fill vs bg/surface/elevated 4.95 / 5.17 / 4.74; check mark 5.17. */
+  --color-checked: 37 99 235;        /* #2563eb */
+  --color-on-checked: 255 255 255;
+  /* Motion: three durations, enter decelerates, exit accelerates and is
+     shorter; reduced motion makes both instant (base layer below). */
+  --duration-short: 100ms;
+  --duration-medium: 200ms;
+  --duration-long: 300ms;
+  --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --easing-decelerate: cubic-bezier(0, 0, 0, 1);
+  --easing-accelerate: cubic-bezier(0.3, 0, 1, 1);
 
   /* Asset identity (AssetIcon monograms, decorative, aria-hidden). Same in
      both themes, never reused for meaning, not white-label brand tokens. */
@@ -258,7 +301,7 @@
   --foreground: var(--color-text);
   --card: var(--color-surface);
   --card-foreground: var(--color-text);
-  --popover: var(--color-surface);
+  --popover: var(--color-floating);
   --popover-foreground: var(--color-text);
   --primary: var(--color-orange);
   --primary-foreground: 17 19 24;   /* dark text on orange, see --color-orange */
@@ -313,8 +356,17 @@
   /* Focus = text #f5f7fa: 17.31 / 15.21 / 13.42 vs bg/surface/elevated. */
   --color-focus: 245 247 250;
   --tonal-a: 0.08;
-  --tonal-hover-a: 0.12;
-  --tonal-pressed-a: 0.16;
+  /* Foundations, dark (see :root). Floating #2b303a: 1.23 vs surface; text
+     12.33, secondary 6.07, muted 4.79, focus 12.33. Inverse 15.28. Scrim 60 %.
+     Checked #60a5fa with dark check: fill 7.31 / 6.42 / 5.67, check 7.31
+     (#2563eb measured only 2.79 vs elevated). */
+  --color-floating: 43 48 58;
+  --color-inverse: 230 233 239;      /* #e6e9ef */
+  --color-on-inverse: 17 19 24;
+  --scrim: 0 0 0;
+  --scrim-a: 0.6;
+  --color-checked: 96 165 250;       /* #60a5fa */
+  --color-on-checked: 17 19 24;
   /* Thumb = text at 14% over the track: always one step above it (1.5:1). */
   --raised-base: 245 247 250;      /* = --color-text */
   --raised-a: 0.14;
@@ -324,7 +376,11 @@
 }
 
 @media (min-width: 768px) {
-  :root { --t-display: 32px; --t-page: 24px; --t-body: 14px; --t-money-hero: 28px; }
+  :root { --t-display: 2rem; --t-page: 1.5rem; --t-body: 0.875rem; --t-money-hero: 1.75rem; --t-input: 0.875rem; }
+}
+/* Touch tablets keep 16px field text (iOS zooms into smaller fields on focus). */
+@media (pointer: coarse) {
+  :root { --t-input: 1rem; }
 }
 
 body {
@@ -332,7 +388,7 @@ body {
   font-family: var(--sails-font-ui);
   background-color: rgb(var(--color-bg));
   color: rgb(var(--color-text));
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: background-color var(--duration-medium) var(--easing-standard), color var(--duration-medium) var(--easing-standard);
 }
 
 /* One focus indicator for every interactive element (DESIGN_SYSTEM.md §5.1):
@@ -340,6 +396,76 @@ body {
    on any surface (page, card, dialog, popover). Base layer, so a utility such
    as `focus-visible:-outline-offset-2` (rows inside clipped lists) still wins.
    Never `outline-none` on a focusable element without a replacement. */
+/* `touch:` = coarse pointer (any width) or a phone-width window: 44px targets.
+   Fine pointer at >= 768px keeps the dense 36/40 controls. Provisório. */
+@custom-variant touch (@media (pointer: coarse), (max-width: 767.98px));
+
+/* Enter/exit motion for overlays (no plugin): the shadcn-style classes
+   animate-in/out, fade-*, zoom-*, slide-* set per-element variables these
+   two keyframes read. Variables do not inherit, so nested overlays start clean. */
+@property --enter-opacity { syntax: "*"; inherits: false; }
+@property --enter-scale { syntax: "*"; inherits: false; }
+@property --enter-x { syntax: "*"; inherits: false; }
+@property --enter-y { syntax: "*"; inherits: false; }
+@property --exit-opacity { syntax: "*"; inherits: false; }
+@property --exit-scale { syntax: "*"; inherits: false; }
+@property --exit-x { syntax: "*"; inherits: false; }
+@property --exit-y { syntax: "*"; inherits: false; }
+@keyframes sails-enter {
+  from {
+    opacity: var(--enter-opacity, 1);
+    transform: translate3d(var(--enter-x, 0), var(--enter-y, 0), 0) scale(var(--enter-scale, 1));
+  }
+}
+@keyframes sails-exit {
+  to {
+    opacity: var(--exit-opacity, 1);
+    transform: translate3d(var(--exit-x, 0), var(--exit-y, 0), 0) scale(var(--exit-scale, 1));
+  }
+}
+@utility animate-in {
+  animation: sails-enter var(--enter-duration, var(--duration-medium)) var(--easing-decelerate) both;
+}
+@utility animate-out {
+  animation: sails-exit var(--exit-duration, var(--duration-short)) var(--easing-accelerate) both;
+}
+@utility fade-in-0 { --enter-opacity: 0; }
+@utility fade-out-0 { --exit-opacity: 0; }
+@utility zoom-in-95 { --enter-scale: 0.96; }
+@utility zoom-out-95 { --exit-scale: 0.96; }
+@utility slide-in-from-top-2 { --enter-y: -0.5rem; }
+@utility slide-in-from-bottom-2 { --enter-y: 0.5rem; }
+@utility slide-in-from-left-2 { --enter-x: -0.5rem; }
+@utility slide-in-from-right-2 { --enter-x: 0.5rem; }
+@utility slide-in-from-top { --enter-y: -100%; }
+@utility slide-in-from-bottom { --enter-y: 100%; }
+@utility slide-in-from-left { --enter-x: -100%; }
+@utility slide-in-from-right { --enter-x: 100%; }
+@utility slide-out-to-top { --exit-y: -100%; }
+@utility slide-out-to-bottom { --exit-y: 100%; }
+@utility slide-out-to-left { --exit-x: -100%; }
+@utility slide-out-to-right { --exit-x: 100%; }
+/* Long/medium overlays (dialog, sheet) and short ones (tooltip). */
+@utility motion-overlay-long { --enter-duration: var(--duration-long); --exit-duration: var(--duration-medium); }
+@utility motion-overlay-short { --enter-duration: var(--duration-short); --exit-duration: var(--duration-short); }
+
+/* State layers (DESIGN_SYSTEM.md 5.2): an overlay on top of the fill, so the
+   fill token never changes per state. Hover only on hover-capable pointers
+   (no stuck hover after a tap); pressed everywhere; nothing when disabled. */
+@utility state-layer {
+  @media (hover: hover) {
+    &:hover:not(:disabled):not([aria-disabled="true"]) {
+      background-image: linear-gradient(rgb(var(--state-layer, var(--color-text)) / var(--state-hover-a)), rgb(var(--state-layer, var(--color-text)) / var(--state-hover-a)));
+    }
+  }
+  &:active:not(:disabled):not([aria-disabled="true"]) {
+    background-image: linear-gradient(rgb(var(--state-layer, var(--color-text)) / var(--state-pressed-a)), rgb(var(--state-layer, var(--color-text)) / var(--state-pressed-a)));
+  }
+}
+/* Layer color for solids: white over a dark label, black over a white label. */
+@utility state-layer-light { --state-layer: 255 255 255; }
+@utility state-layer-dark { --state-layer: 0 0 0; }
+
 @layer base {
   /* Native controls and scrollbars follow the theme (Windows dark mode). */
   :root { color-scheme: light; }
@@ -416,19 +542,8 @@ body {
      layering). Tonal contrast (bg-brand-surface against the page's
      bg-brand-bg) now does more of the separating work; the border is a
      quiet finishing line, not the main structural signal. */
-  .card {
-    @apply bg-brand-surface border border-brand-border-subtle rounded-lg;
-  }
-  /* Tailwind v4 (Dependabot major-version bump, 2026-07-19): @apply can
-     no longer chain through another custom @layer components class
-     (v3 allowed `@apply card`) — inlined .card's own utility list
-     directly rather than referencing it by name. */
-  .card-hover {
-    @apply bg-brand-surface border border-brand-border-subtle rounded-lg transition-colors;
-  }
-  .card-hover:hover {
-    border-color: var(--color-orange-border);
-  }
+  /* .card / .card-hover removed 2026-11-20 (unused; Card in ui/card.tsx is
+     the one card). */
   /* Dense list-row treatment (2026-07-28), replacing the floaty
      bordered-card-in-a-grid shape for listing screens (Marketplace's
      OfferCard) with a single hairline-divided list — the actual layout
@@ -438,7 +553,7 @@ body {
   /* Compact offer row (OfferCard), used below the desktop table (lg): cells folded into lines inside one
      row, action on the right, one hairline between rows. */
   .offer-row {
-    @apply flex items-center gap-3 border-b border-brand-border-subtle px-4 py-3 transition-colors hover:bg-brand-elevated/60 focus-visible:-outline-offset-2;
+    @apply flex items-center gap-3 border-b border-brand-border-subtle px-4 py-3 transition-colors state-layer focus-visible:-outline-offset-2;
   }
   .btn-dark {
     @apply bg-brand-text text-brand-bg hover:opacity-85 font-semibold rounded-lg transition-opacity;
@@ -447,7 +562,7 @@ body {
      unchanged. This IS the kind of interactive component boundary that
      rule protects. */
   .input-field {
-    @apply bg-brand-elevated border border-brand-border text-brand-text placeholder:text-brand-text-muted rounded-lg px-3 py-2 text-base md:text-sm transition-colors field-focus;
+    @apply bg-brand-elevated border border-brand-border text-brand-text placeholder:text-brand-text-muted rounded-lg px-3 py-2 text-field transition-colors field-focus;
   }
   /* UI-FOUNDATION-1-VISUAL-CORRECTION — toolbar chip: for a filter/sort
      TRIGGER (AssetPicker/CurrencyPicker/PaymentMethodPicker), not a form
@@ -464,7 +579,7 @@ body {
   /* One compact control height on desktop: 36px (h-9) for inputs, selects,
      toolbar chips and `sm` buttons; 44px on mobile for touch. */
   .toolbar-chip {
-    @apply h-11 md:h-9 bg-brand-elevated border border-brand-border text-brand-text rounded-md px-3 text-sm transition-colors hover:border-brand-border-hover field-focus;
+    @apply h-9 touch:h-11 bg-brand-elevated border border-brand-border text-brand-text rounded-md px-3 text-sm transition-colors state-layer field-focus;
   }
 
   /* UI-FOUNDATION-1 — typography hierarchy (docs/SAILS_MARKET_DESIGN_DIRECTION.md
@@ -506,6 +621,13 @@ body {
     @apply font-semibold tabular-nums;
     font-size: var(--t-money);
     line-height: 1.3;
+  }
+  /* Row/table price (provisório — ratificação pendente): 18, tabular. */
+  .money-lg {
+    @apply font-semibold tabular-nums;
+    font-size: var(--t-headline);
+    line-height: 1.2;
+    letter-spacing: -0.01em;
   }
   .money-hero {
     @apply font-semibold tabular-nums;

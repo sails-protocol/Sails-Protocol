@@ -30,7 +30,7 @@ export function TradeCard({ trade, onRelease }: TradeCardProps) {
         <TradeStatusBadge status={trade.status} />
       </CardHeader>
       <CardContent>
-        <p className="text-2xl font-semibold text-brand-text">
+        <p className="money-hero text-brand-text">
           {formatAmount(Number(trade.amount))} {ASSET_SHORT_LABELS[trade.asset]}
         </p>
         {/* Only offered mid-flow — releasing funds on a COMPLETED/DISPUTED/

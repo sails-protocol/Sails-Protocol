@@ -21,6 +21,13 @@ const RULES: { name: string; re: RegExp }[] = [
   // Old focus pattern: the offset band is painted with the page background, so a dark gap
   // shows on cards/dialogs. Focus is the global :focus-visible outline (DESIGN_SYSTEM.md 5.1).
   { name: 'ring-offset focus', re: /ring-offset-(?:background|\d)/ },
+  // Foundations (DESIGN_SYSTEM.md 3-5): named type steps, elevation tokens, the scrim token,
+  // the shape scale and motion tokens instead of raw Tailwind defaults.
+  { name: 'off-scale type size', re: /(?<![\w-])text-(?:base|lg|xl|[2-9]xl)(?![\w-])/ },
+  { name: 'raw shadow', re: /(?<![\w-])shadow-(?:sm|md|lg|xl|2xl|inner)(?![\w-])/ },
+  { name: 'raw scrim', re: /(?<![\w-])bg-(?:black|white)\/\d/ },
+  { name: 'off-scale radius', re: /(?<![\w-])rounded-(?:2xl|3xl)(?![\w-])/ },
+  { name: 'raw motion value', re: /(?<![\w-])(?:duration-\d+|ease-(?:in|out|in-out|linear))(?![\w-])/ },
 ]
 // Fixed artwork, not UI chrome: the identity-avatar SVG palette and the Sails
 // brand mark. Their hex values are art, never class names or themeable colors.
@@ -78,12 +85,16 @@ describe('design system guard', () => {
       'className="bg-[#fff]"', "style={{ color: '#f97316' }}", "style={{ background: 'rgba(0,0,0,.5)' }}",
       'className="text-[13px]"', 'className="text-[0.8rem]"', 'className="md:text-[length:12px]"',
       'className="ring-offset-background"', 'className="focus-visible:ring-offset-2"',
+      'className="text-lg"', 'className="md:text-base"', 'className="shadow-md"', 'className="bg-black/80"',
+      'className="rounded-2xl"', 'className="duration-200"', 'className="ease-out"',
     ]
     for (const line of bad) expect(violations('x.tsx', line).out).toHaveLength(1)
     const ok = [
       'className="text-brand-buy-fg bg-brand-sell/10"', 'className="text-body-sm"', "style={{ color: 'rgb(var(--color-text))' }}",
       '// Issue #303 - see PR #651', 'className="w-[13px]"', 'className="text-[length:var(--t-control)]"',
       'className="focus-visible:-outline-offset-2 outline-brand-focus"',
+      'className="text-headline money-lg shadow-elevation-2 bg-scrim rounded-xl duration-medium ease-standard"',
+      'className="text-brand-text-secondary text-field"',
     ]
     for (const line of ok) expect(violations('x.tsx', line).out).toHaveLength(0)
     expect(violations('x.tsx', 'className="text-red-500" // ds-allow: third-party mark').allowed).toHaveLength(1)

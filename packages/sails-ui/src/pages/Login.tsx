@@ -88,7 +88,7 @@ function Option({ icon: Icon, title, subtitle, trailing, onSelect }: {
         type="button"
         onClick={onSelect}
         disabled={disabled}
-        className="w-full min-h-14 flex items-center gap-3 rounded-lg bg-brand-tonal px-3 py-2.5 text-left transition-colors enabled:hover:bg-brand-tonal-hover enabled:active:bg-brand-tonal-pressed disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full min-h-14 flex items-center gap-3 rounded-lg bg-brand-tonal px-3 py-2.5 text-left transition-colors state-layer disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span className="w-9 h-9 rounded-lg bg-brand-elevated flex items-center justify-center shrink-0">
           <Icon className="h-4 w-4 text-brand-text-secondary" />
@@ -146,7 +146,7 @@ function LocalKeyStep({ onBack, onConnected }: { onBack: () => void; onConnected
           type="button"
           onClick={onBack}
           aria-label="Voltar para as opções"
-          className="-ml-1 mb-1 w-11 h-11 md:w-8 md:h-8 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text hover:bg-brand-elevated"
+          className="-ml-1 mb-1 w-11 h-11 md:w-8 md:h-8 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text state-layer"
         >
           <ArrowLeft className="h-4 w-4" />
         </button>

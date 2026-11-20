@@ -260,7 +260,7 @@ export function OfferDetail() {
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     type="number"
-                    className="w-full md:h-10 pr-16 text-base font-medium tabular-nums"
+                    className="w-full md:h-10 pr-16 text-field font-medium tabular-nums"
                     placeholder="0.00"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-body-sm text-brand-text-muted">{ASSET_SHORT_LABELS[offer.asset]}</span>
@@ -272,7 +272,7 @@ export function OfferDetail() {
 
               <div className="mt-4 pt-4 border-t border-brand-border-subtle">
                 <div className="text-xs text-brand-text-muted">Você {offer.side === 'SELL' ? 'paga' : 'recebe'}</div>
-                <div className="text-2xl font-semibold tabular-nums mt-1 text-brand-text">{formatByCurrency(totalFiat || 0, offer.fiatCurrency)}</div>
+                <div className="money-hero mt-1 text-brand-text">{formatByCurrency(totalFiat || 0, offer.fiatCurrency)}</div>
                 {/* Itemized from the only two inputs the total has: the offer carries no fee field. */}
                 {amountNum > 0 && (
                   <div className="text-xs text-brand-text-muted tabular-nums mt-1">

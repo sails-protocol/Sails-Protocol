@@ -11,10 +11,10 @@ export interface SegmentedOption<T extends string> {
  * fill + shadow-elevation-1, full text color, weight 500; unselected: secondary text.
  * Selection is carried by fill, elevation, text color and weight together, plus aria-pressed.
  */
-export const SEGMENT_TRACK = 'rounded-lg bg-brand-tonal p-1'
+export const SEGMENT_TRACK = 'rounded-lg bg-brand-tonal p-1' // radius 8 - padding 4 = thumb radius 4 (concentric)
 export function segmentItemClass(selected: boolean) {
   return cn(
-    'rounded-md text-body-sm transition-colors motion-reduce:transition-none',
+    'rounded-sm text-body-sm transition-colors duration-short state-layer',
     selected ? 'bg-brand-raised shadow-elevation-1 font-medium text-brand-text' : 'text-brand-text-secondary hover:text-brand-text'
   )
 }
@@ -36,7 +36,7 @@ export function SegmentedControl<T extends string>({ options, value, onChange, l
           type="button"
           aria-pressed={value === o.value}
           onClick={() => onChange(o.value)}
-          className={cn('shrink-0 whitespace-nowrap min-h-11 md:min-h-0 md:h-7 px-3', segmentItemClass(value === o.value))}
+          className={cn('shrink-0 whitespace-nowrap h-8 touch:h-11 px-3', segmentItemClass(value === o.value))}
         >
           {o.label}
         </button>

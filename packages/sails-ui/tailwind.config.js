@@ -60,9 +60,15 @@ export default {
           // per-theme alpha over any container), and the raised segmented thumb.
           focus: 'rgb(var(--color-focus) / <alpha-value>)',
           tonal: 'rgb(var(--color-text) / var(--tonal-a))',
-          'tonal-hover': 'rgb(var(--color-text) / var(--tonal-hover-a))',
-          'tonal-pressed': 'rgb(var(--color-text) / var(--tonal-pressed-a))',
           raised: 'rgb(var(--raised-base) / var(--raised-a))',
+          // Foundations (DESIGN_SYSTEM.md 5.2): floating layers, inverse, checked, disabled.
+          floating: 'rgb(var(--color-floating) / <alpha-value>)',
+          inverse: 'rgb(var(--color-inverse) / <alpha-value>)',
+          'on-inverse': 'rgb(var(--color-on-inverse) / <alpha-value>)',
+          checked: 'rgb(var(--color-checked) / <alpha-value>)',
+          'on-checked': 'rgb(var(--color-on-checked) / <alpha-value>)',
+          'disabled-container': 'rgb(var(--color-text) / var(--disabled-container-a))',
+          'disabled-content': 'rgb(var(--color-text) / var(--disabled-content-a))',
         },
         // Asset identity (AssetIcon only): bg-asset-btc/15 text-asset-btc.
         asset: Object.fromEntries(
@@ -104,6 +110,8 @@ export default {
           foreground: 'rgb(var(--destructive-foreground) / <alpha-value>)',
         },
         border: 'rgb(var(--border) / <alpha-value>)',
+        // Scrim behind dialogs, sheets and the sidebar overlay (40 % light / 60 % dark).
+        scrim: 'rgb(var(--scrim) / var(--scrim-a))',
         input: 'rgb(var(--input) / <alpha-value>)',
         ring: 'rgb(var(--ring) / <alpha-value>)',
       },
@@ -132,6 +140,10 @@ export default {
         subheading: ['var(--t-body)', { lineHeight: '1.4', fontWeight: '500' }],
         body: ['var(--t-body)', { lineHeight: 'var(--t-body-lh)' }],
         'body-sm': ['var(--t-body-sm)', { lineHeight: 'var(--t-body-sm-lh)' }],
+        headline: ['var(--t-headline)', { lineHeight: 'var(--t-headline-lh)', letterSpacing: '-0.01em', fontWeight: '600' }],
+        // Field text (16 touch / 14 desktop). Not `text-input`: `input` is a color (border-input).
+        field: ['var(--t-input)', { lineHeight: '1.4' }],
+        control: ['var(--t-control)', { lineHeight: '1.25' }],
         caption: ['var(--t-meta)', { lineHeight: 'var(--t-meta-lh)' }],
       },
       spacing: {
@@ -142,6 +154,9 @@ export default {
         icon: 'var(--icon-md)',
         'icon-lg': 'var(--icon-lg)',
       },
+      // Motion tokens (index.css): duration-short/medium/long, ease-standard/decelerate/accelerate.
+      transitionDuration: { short: 'var(--duration-short)', medium: 'var(--duration-medium)', long: 'var(--duration-long)' },
+      transitionTimingFunction: { standard: 'var(--easing-standard)', decelerate: 'var(--easing-decelerate)', accelerate: 'var(--easing-accelerate)' },
       boxShadow: {
         'elevation-1': 'var(--elevation-1)',
         'elevation-2': 'var(--elevation-2)',

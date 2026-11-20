@@ -135,7 +135,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
           <button
             onClick={cancelAndClose}
             aria-label="Voltar"
-            className="sm:hidden -ml-2.5 h-11 w-11 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text hover:bg-brand-elevated"
+            className="sm:hidden -ml-2.5 h-11 w-11 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text state-layer"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
@@ -143,7 +143,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
           <button
             onClick={cancelAndClose}
             aria-label="Fechar"
-            className="hidden sm:flex h-8 w-8 items-center justify-center rounded-sm opacity-70 hover:opacity-100"
+            className="hidden sm:flex h-8 w-8 items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text state-layer"
           >
             <X className="h-4 w-4" />
           </button>

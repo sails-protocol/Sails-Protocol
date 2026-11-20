@@ -19,7 +19,7 @@ const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-50 bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      "fixed inset-0 z-50 bg-scrim motion-overlay-long data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
       className
     )}
     {...props}
@@ -36,7 +36,7 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border border-brand-border-subtle bg-brand-surface p-6 shadow-elevation-3 duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
+        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border border-brand-border-subtle bg-brand-surface p-6 shadow-elevation-3 motion-overlay-long data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-lg",
         className
       )}
       {...props}
@@ -45,7 +45,7 @@ const DialogContent = React.forwardRef<
       {/* h-8 w-8 flex (2026-08-01): the icon alone is h-4 w-4 (16px), well
           under the ~44px minimum mobile touch target — real-device testing
           on this migration found it, not a hypothetical. */}
-      <DialogPrimitive.Close className="absolute right-2 top-2 h-11 w-11 md:right-4 md:top-4 md:h-8 md:w-8 flex items-center justify-center rounded-sm opacity-70 transition-opacity hover:opacity-100 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+      <DialogPrimitive.Close className="absolute right-2 top-2 md:right-4 md:top-4 h-8 w-8 touch:h-11 touch:w-11 flex items-center justify-center rounded-md text-brand-text-secondary transition-colors duration-short state-layer hover:text-brand-text disabled:pointer-events-none">
         <X className="h-4 w-4" />
         <span className="sr-only">Fechar</span>
       </DialogPrimitive.Close>
@@ -89,7 +89,7 @@ const DialogTitle = React.forwardRef<
   <DialogPrimitive.Title
     ref={ref}
     className={cn(
-      "text-lg font-semibold leading-none tracking-tight",
+      "text-headline text-brand-text",
       className
     )}
     {...props}

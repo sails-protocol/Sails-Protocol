@@ -8,11 +8,13 @@ const WIDTHS = {
   detail: 'max-w-6xl',
   /** Forms (Publicar oferta): one readable column, left-aligned with every other page. */
   form: 'max-w-2xl',
+  /** Long prose (explanations, dispute text): a 68-character reading measure. */
+  prose: 'max-w-[68ch]',
 } as const
 
 export type PageWidth = keyof typeof WIDTHS
 
-/** Page width wrapper. Left-aligned so every page's header starts on the same line. */
+/** Page width wrapper (DESIGN_SYSTEM.md 4.1 layout table). Left-aligned so every page's header starts on the same line. */
 export function Page({ width = 'list', className, children }: { width?: PageWidth; className?: string; children: ReactNode }) {
   return <div className={cn('w-full', WIDTHS[width], className)}>{children}</div>
 }

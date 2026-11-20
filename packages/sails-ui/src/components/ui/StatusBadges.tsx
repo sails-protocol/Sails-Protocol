@@ -12,7 +12,7 @@ import { badgeVariants } from './badge'
 import { cn } from '../../lib/utils'
 import { TONE_CLASS } from '../../lib/tone'
 import {
-  Clock, CheckCircle2, AlertTriangle, XCircle, Circle, Lock, RotateCcw, PauseCircle, Scissors, type LucideIcon,
+  Clock, CheckCircle2, AlertTriangle, XCircle, Circle, Lock, RotateCcw, PauseCircle, Scissors, ArrowDownLeft, ArrowUpRight, type LucideIcon,
 } from 'lucide-react'
 
 // Routes through badgeVariants' own base shape (shared with the generic
@@ -29,7 +29,7 @@ import {
 // dense trade/escrow lists, not a requirement this component lacked.
 function Pill({ children, className = '', title, icon: Icon }: { children: React.ReactNode; className?: string; title?: string; icon?: LucideIcon }) {
   return (
-    <span title={title} className={cn(badgeVariants({ variant: 'outline' }), 'inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5', className)}>
+    <span title={title} className={cn(badgeVariants({ variant: 'outline' }), 'inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-left', className)}>
       {Icon && <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />}
       {children}
     </span>
@@ -37,14 +37,22 @@ function Pill({ children, className = '', title, icon: Icon }: { children: React
 }
 
 export function AssetBadge({ asset }: { asset: AssetType }) {
-  return <Pill className="border-brand-border bg-brand-elevated text-brand-text-secondary" title={asset}>{ASSET_LABELS[asset]}</Pill>
+  return <Pill className={TONE_CLASS.neutral} title={asset}>{ASSET_LABELS[asset]}</Pill>
 }
 
+/**
+ * Trade side is a different shape from status (DESIGN_SYSTEM.md 2, provisório — ratificação
+ * pendente): colored text + direction arrow, never a tinted pill. Status = tinted pill + icon.
+ * Buy = asset comes in (arrow down-left), sell = asset goes out (arrow up-right).
+ */
 export function SideBadge({ side }: { side: TradeSide }) {
-  return side === 'BUY' ? (
-    <Pill className={TONE_CLASS.buy}>Comprar</Pill>
-  ) : (
-    <Pill className={TONE_CLASS.sell}>Vender</Pill>
+  const buy = side === 'BUY'
+  const Icon = buy ? ArrowDownLeft : ArrowUpRight
+  return (
+    <span className={cn('inline-flex items-center gap-1 whitespace-nowrap text-caption font-medium', buy ? 'text-brand-buy-fg' : 'text-brand-sell-fg')}>
+      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      {buy ? 'Comprar' : 'Vender'}
+    </span>
   )
 }
 
@@ -66,7 +74,7 @@ const TRADE_STATUS_COLOR: Record<TradeStatus, string> = {
   ACTIVE: TONE_CLASS.info,
   COMPLETED: TONE_CLASS.success,
   DISPUTED: TONE_CLASS.danger,
-  CANCELLED: 'border-brand-border bg-brand-elevated text-brand-text-muted',
+  CANCELLED: TONE_CLASS.neutral,
 }
 const TRADE_STATUS_ICON: Record<TradeStatus, LucideIcon> = {
   PENDING: Clock, ACTIVE: Circle, COMPLETED: CheckCircle2, DISPUTED: AlertTriangle, CANCELLED: XCircle,
@@ -90,12 +98,13 @@ export function TradeStatusBadge({ status }: { status: TradeStatus }) {
 // Trade Workspace L1: one name per escrow state everywhere, so this is an alias of tradeState's labels.
 export const ESCROW_STATUS_LABEL: Record<EscrowStatus, string> = ESCROW_STATE_LABEL
 const ESCROW_STATUS_COLOR: Record<EscrowStatus, string> = {
-  CREATED: 'border-brand-border bg-brand-elevated text-brand-text-secondary',
+  CREATED: TONE_CLASS.neutral,
   FUNDS_LOCKED: TONE_CLASS.info,
   PAYMENT_PENDING: TONE_CLASS.warning,
-  COMPLETED: TONE_CLASS.success,
+  // A recorded escrow status, not settlement finality (CTO 437): neutral, as tradeState's chip.
+  COMPLETED: TONE_CLASS.neutral,
   DISPUTED: TONE_CLASS.danger,
-  REFUNDED: 'border-brand-border bg-brand-elevated text-brand-text-muted',
+  REFUNDED: TONE_CLASS.neutral,
   // Role ambiguous, pending the Architect: ended without completion -> warning (was orange, the brand hue).
   EXPIRED: TONE_CLASS.warning,
   // Terminal ruling outcome with no severity of its own -> neutral (was violet, no token); label + icon carry it.
@@ -116,6 +125,6 @@ const OFFER_STATUS_ICON: Record<OfferStatus, LucideIcon> = {
   ACTIVE: Circle, PAUSED: PauseCircle, COMPLETED: CheckCircle2, CANCELLED: XCircle,
 }
 export function OfferStatusBadge({ status }: { status: OfferStatus }) {
-  const color = status === 'ACTIVE' ? TONE_CLASS.success : 'border-brand-border bg-brand-elevated text-brand-text-muted'
+  const color = status === 'ACTIVE' ? TONE_CLASS.success : TONE_CLASS.neutral
   return <Pill className={color} icon={OFFER_STATUS_ICON[status]}>{OFFER_STATUS_LABEL[status]}</Pill>
 }

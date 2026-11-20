@@ -18,7 +18,7 @@ export function TradeAmountsStrip({ items }: { items: AmountItem[] }) {
       {items.map((it, i) => (
         <div key={it.label} className={cn('min-w-0 bg-brand-surface p-3 sm:p-4', i > 1 && 'hidden sm:block')}>
           <dt className="text-xs font-medium text-brand-text-secondary">{it.label}</dt>
-          <dd className="mt-1 text-base font-semibold text-brand-text tabular-nums [overflow-wrap:anywhere] sm:text-lg">{it.value}</dd>
+          <dd className="mt-1 text-heading text-brand-text tabular-nums [overflow-wrap:anywhere] sm:text-headline">{it.value}</dd>
           {it.sub && <dd className="mt-0.5 text-xs text-brand-text-secondary [overflow-wrap:anywhere]">{it.sub}</dd>}
         </div>
       ))}

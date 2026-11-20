@@ -68,7 +68,7 @@ function KindTile({ kind, muted }: { kind: MarketContextKind; muted?: boolean })
 
 function KindBadge({ children }: { children: ReactNode }) {
   return (
-    <span className="shrink-0 rounded border border-brand-border px-1.5 py-px text-caption font-medium leading-4 text-brand-text-secondary">
+    <span className="shrink-0 rounded-sm border border-brand-border px-1.5 py-px text-caption font-medium leading-4 text-brand-text-secondary">
       {children}
     </span>
   )
@@ -112,7 +112,7 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
       type="button"
       aria-labelledby={`${labelId} ${labelId}-current`}
       className={cn(
-        'flex min-h-14 w-full items-center gap-3 rounded-xl border border-brand-border bg-brand-surface py-2 pl-2.5 pr-4 text-left shadow-sm transition-colors',
+        'flex min-h-14 w-full items-center gap-3 rounded-lg border border-brand-border bg-brand-surface py-2 pl-2.5 pr-4 text-left transition-colors',
         'hover:border-brand-border-hover field-focus',
         className
       )}
@@ -120,7 +120,7 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
       <KindTile kind={current.kind} />
       <span id={`${labelId}-current`} className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-x-2 md:flex-nowrap">
-          <span className="font-display text-base font-semibold text-brand-text md:truncate">{current.name}</span>
+          <span className="font-display text-heading text-brand-text md:truncate">{current.name}</span>
           {current.kind !== 'public' && <KindBadge>{kindLabel}</KindBadge>}
         </span>
         {current.description && <span className="block truncate text-body-sm leading-5 text-brand-text-secondary">{current.description}</span>}
@@ -167,7 +167,7 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
                         onClick={() => choose(o.id)}
                         className={cn(
                           'flex min-h-12 w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors focus-visible:-outline-offset-2',
-                          isCurrent ? 'bg-brand-elevated' : block ? 'cursor-not-allowed' : 'hover:bg-brand-elevated'
+                          isCurrent ? 'bg-brand-elevated' : block ? 'cursor-not-allowed' : 'state-layer'
                         )}
                       >
                         <KindTile kind={o.kind} muted={!!block} />
@@ -179,7 +179,7 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
                           {!block && o.description && <span className="block text-body-sm leading-5 text-brand-text-secondary">{o.description}</span>}
                           {block && BlockIcon && (
                             <span id={reasonId} className="mt-0.5 block text-body-sm leading-5 text-brand-text-muted">
-                              <span className="mr-1.5 inline-flex items-center gap-1 rounded border border-brand-border px-1.5 align-[1px] text-caption font-medium leading-4 text-brand-text-secondary">
+                              <span className="mr-1.5 inline-flex items-center gap-1 rounded-sm border border-brand-border px-1.5 align-[1px] text-caption font-medium leading-4 text-brand-text-secondary">
                                 <BlockIcon aria-hidden="true" className="h-3 w-3" />
                                 {copy.block[block]}
                               </span>
@@ -240,12 +240,12 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
           className="max-h-[85vh] gap-0 flex flex-col rounded-t-2xl border-brand-border-subtle bg-brand-surface p-0"
         >
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-brand-border-subtle px-4 py-1">
-            <SheetTitle className="text-base">{copy.listTitle}</SheetTitle>
+            <SheetTitle className="text-heading">{copy.listTitle}</SheetTitle>
             <button
               type="button"
               onClick={() => setOpen(false)}
               aria-label={copy.close}
-              className="-mr-2 flex h-11 w-11 items-center justify-center rounded-md text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text"
+              className="-mr-2 flex h-11 w-11 items-center justify-center rounded-md text-brand-text-secondary state-layer hover:text-brand-text"
             >
               <X className="h-5 w-5" />
             </button>

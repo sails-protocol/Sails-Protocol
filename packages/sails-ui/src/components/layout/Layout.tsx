@@ -75,7 +75,7 @@ export function Layout() {
             spanning edge-to-edge. A modest widen, not full-bleed —
             dense market/table content still benefits from a line-length
             cap, just a less conservative one now that a sidebar exists. */}
-        <main className="max-w-7xl mx-auto px-4 md:px-6 py-6 pb-20 md:pb-8">
+        <main className="max-w-7xl mx-auto px-4 md:px-6 xl:px-8 py-6 pb-20 md:pb-8">
           <Outlet context={{ replayTour: () => setTourOpen(true) } satisfies LayoutOutletContext} />
         </main>
       </div>
