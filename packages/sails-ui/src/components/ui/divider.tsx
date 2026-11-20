@@ -1,5 +1,5 @@
 /**
- * Layer A: divider (DESIGN_SYSTEM.md 5.9). A 1px `border-subtle` line inside
+ * Layer A: divider (DESIGN_SYSTEM.md 5.3). A 1px `border-subtle` line inside
  * one surface (menu groups, list sections); decorative by default. Pass
  * `semantic` for a real thematic break (role=separator). Never a box border.
  */

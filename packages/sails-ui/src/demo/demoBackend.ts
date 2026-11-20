@@ -108,12 +108,12 @@ function newDispute(tradeId: string, escrowId: string, openedBy: string, arbiter
 function seed(): DemoState {
   const g = 'demo-0a11', f = 'demo-0b22', m = 'demo-0c33', a = 'demo-0d44'
   const offers: DemoOffer[] = [
-    offer('demo-offer-1', g, { asset: 'BTC', side: 'SELL', priceUsd: '97450', minAmount: '0.001', maxAmount: '0.05', paymentMethod: 'PIX', demoPaymentMethods: ['PIX', 'TED', 'CASH'], paymentDetails: 'Chave PIX fictícia: gaivota@exemplo.invalid', description: 'Oferta de exemplo do modo demonstração.' }, 2),
+    offer('demo-offer-1', g, { asset: 'BTC', side: 'SELL', priceUsd: '97450', minAmount: '0.001', maxAmount: '0.05', paymentMethod: 'PIX', demoPaymentMethods: ['PIX', 'TED', 'BANK_TRANSFER'], paymentDetails: 'Chave PIX fictícia: gaivota@exemplo.invalid', description: 'Oferta de exemplo do modo demonstração.' }, 2),
     offer('demo-offer-2', f, { asset: 'BTC', side: 'BUY', priceUsd: '96900', minAmount: '0.005', maxAmount: '0.2', paymentMethod: 'BANK_TRANSFER', demoPaymentMethods: ['BANK_TRANSFER', 'PIX', 'TED', 'LIGHTNING_DIRECT', 'CRYPTO_DIRECT'], paymentDetails: null, description: 'Compro BTC — exemplo fictício.' }, 1),
     offer('demo-offer-3', m, { asset: 'USDT_TRC20', side: 'SELL', priceUsd: '1.002', minAmount: '50', maxAmount: '2000', paymentMethod: 'PIX', paymentDetails: 'Chave PIX fictícia: mare-mansa@exemplo.invalid', description: null }, 3),
-    offer('demo-offer-4', a, { asset: 'USDT_ERC20', side: 'BUY', priceUsd: '0.998', minAmount: '100', maxAmount: '5000', paymentMethod: 'TED', demoPaymentMethods: ['TED', 'PIX', 'BANK_TRANSFER', 'CASH'], paymentDetails: null, description: 'Compro USDT — exemplo fictício.' }, 5),
+    offer('demo-offer-4', a, { asset: 'USDT_ERC20', side: 'BUY', priceUsd: '0.998', minAmount: '100', maxAmount: '5000', paymentMethod: 'TED', demoPaymentMethods: ['TED', 'PIX', 'BANK_TRANSFER', 'LIGHTNING_DIRECT'], paymentDetails: null, description: 'Compro USDT — exemplo fictício.' }, 5),
     offer('demo-offer-5', a, { asset: 'BTC', side: 'SELL', priceUsd: '97800', minAmount: '0.0005', maxAmount: '0.01', paymentMethod: 'TED', paymentDetails: 'Banco Fictício 000, ag. 0001, conta 12345-6', description: null }, 4),
-    offer('demo-offer-6', g, { asset: 'USDT_LIQUID', side: 'SELL', priceUsd: '1.004', minAmount: '20', maxAmount: '1500', paymentMethod: 'CASH', paymentDetails: 'Encontro combinado pelo chat (exemplo).', description: null }, 6),
+    offer('demo-offer-6', g, { asset: 'USDT_LIQUID', side: 'SELL', priceUsd: '1.004', minAmount: '20', maxAmount: '1500', paymentMethod: 'BANK_TRANSFER', paymentDetails: 'Dados bancários fictícios combinados pelo chat (exemplo).', description: null }, 6),
     offer('demo-offer-me-1', ME, { asset: 'BTC', side: 'SELL', priceUsd: '97600', minAmount: '0.001', maxAmount: '0.02', paymentMethod: 'PIX', paymentDetails: 'Chave PIX fictícia: voce-demo@exemplo.invalid', description: 'Minha oferta de exemplo (modo demonstração).' }, 3),
     { ...offer('demo-offer-me-2', ME, { asset: 'USDT_TRC20', side: 'BUY', priceUsd: '0.999', minAmount: '100', maxAmount: '1000', paymentMethod: 'TED', paymentDetails: null, description: null }, 9), status: 'PAUSED' },
   ]
@@ -451,7 +451,7 @@ function parseGoal(goal: string) {
     maxValue: numbers[numbers.length - 1] ?? '1000',
     // Offers are priced in USD (discover() returns priceUsd only), so USD unless the goal names reais.
     currency: /\bbrl\b|r\$|reais|real\b/.test(g) ? 'BRL' : 'USD',
-    fiatMethod: /\bted\b/.test(g) ? 'TED' : /transfer/.test(g) ? 'BANK_TRANSFER' : /dinheiro|esp[eé]cie|cash/.test(g) ? 'CASH' : 'PIX',
+    fiatMethod: /\bted\b/.test(g) ? 'TED' : /transfer/.test(g) ? 'BANK_TRANSFER' : 'PIX',
   }
 }
 

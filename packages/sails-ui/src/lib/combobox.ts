@@ -1,5 +1,5 @@
 /**
- * Combobox logic (DESIGN_SYSTEM.md 5.11): search matching and active-option
+ * Combobox logic (DESIGN_SYSTEM.md 5.3): search matching and active-option
  * movement, pure so the pickers' filtering and keyboard behavior are tested.
  */
 

@@ -1,5 +1,5 @@
 /**
- * Layer A: table (DESIGN_SYSTEM.md 5.11). Real <table> parts for data shown as
+ * Layer A: table (DESIGN_SYSTEM.md 5.3). Real <table> parts for data shown as
  * a table at every width (OfferTable), and the same header/row look as class
  * strings for the responsive list-tables (Trades, Perfil, Disputas), which are
  * lists that fold into rows below lg/xl and keep their list semantics.

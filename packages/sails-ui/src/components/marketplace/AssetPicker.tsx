@@ -43,7 +43,7 @@ interface Props {
 
 const SOON_BADGE = cn(badgeVariants({ variant: 'outline' }), 'border-transparent bg-brand-tonal font-medium text-brand-text')
 
-// Combobox primitive (2026-11-20, DESIGN_SYSTEM.md 5.13): search (label, code, asset or network name), arrow keys and Enter.
+// Combobox primitive (2026-11-20, DESIGN_SYSTEM.md 5.3): search (label, code, asset or network name), arrow keys and Enter.
 export function AssetPicker({ value, onChange, allLabel = 'Todos os ativos', hideAllOption }: Props) {
   const options = useMemo<ComboboxOption<string>[]>(() => [
     ...(hideAllOption ? [] : [{ value: 'Todos', label: 'Todos os ativos' }]),

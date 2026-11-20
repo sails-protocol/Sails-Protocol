@@ -320,7 +320,7 @@ Diálogo, popover, select e tooltip: superfície + `border-brand-border-subtle` 
 | `default` | sólido laranja com texto escuro nos dois temas (claro #EA580C, provisório) | a ação primária, uma por tela |
 | `secondary` (= `outline`, alias mantido) | **tonal**: preenchido um passo acima da superfície onde está (`bg-brand-tonal`, cor do texto a 8% no escuro / 7% no claro), sem contorno, texto principal | ações de apoio: Voltar, Tentar de novo, Limpar |
 | `buy-tonal` / `sell-tonal` (fase 4A) | tint do lado a 10 % (`bg-brand-buy-bg` / `bg-brand-sell-bg`) + texto do lado (`-fg`), sem contorno; camada de estado `state-layer-buy/sell` | Comprar/Vender na linha do Market (OfferTable, OfferCard) |
-| `buy` / `sell` (fase 4A) | sólido do lado (`bg-brand-buy-solid` / `bg-brand-sell-solid`) + texto branco; camada preta | a ação primária do ticket da oferta ("Comprar BTC" / "Vender BTC"), no lugar do laranja |
+| `buy` / `sell` (fase 4A) | sólido do lado (`bg-brand-buy-solid` / `bg-brand-sell-solid`) + rótulo `on-buy` / `on-sell` (claro: branco com camada escura; escuro: grafite #111318 sobre preenchimento claro, com camada clara, a mesma regra do primário laranja) | a ação primária do ticket da oferta ("Comprar BTC" / "Vender BTC"), no lugar do laranja |
 | `ghost` | sem preenchimento até o hover | baixa ênfase: ações de toolbar, "Detalhes" |
 | `destructive` | sólido danger | ação destrutiva (sempre via `ConfirmActionDialog`) |
 | `link` | texto `brand-link` (azul da marca; 6.15+ claro, 5.67+ escuro) sublinhado no hover (era laranja: laranja = agir) | navegação dentro do texto |

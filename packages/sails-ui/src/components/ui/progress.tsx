@@ -1,5 +1,5 @@
 /**
- * Layer A: linear progress (DESIGN_SYSTEM.md 5.7). 4px track in border-subtle,
+ * Layer A: linear progress (DESIGN_SYSTEM.md 5.3). 4px track in border-subtle,
  * indicator in brand blue (4.74+:1 vs every surface). Determinate (`value`
  * 0-100, aria-valuenow) for real, measured progress only; indeterminate (no
  * value) for waits of unknown length. Never fake a percentage for a protocol

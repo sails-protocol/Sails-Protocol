@@ -1,5 +1,5 @@
 /**
- * Layer A: menu (DESIGN_SYSTEM.md 5.8), a list of commands opened from a button.
+ * Layer A: menu (DESIGN_SYSTEM.md 5.3), a list of commands opened from a button.
  * Built on the installed Radix Popover (positioning, Esc, outside click, focus
  * return to the trigger); the menu semantics are ours: role=menu/menuitem,
  * Arrow Up/Down, Home/End, typeahead, Tab closes. Opening from the keyboard

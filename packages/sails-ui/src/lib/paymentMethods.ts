@@ -1,5 +1,5 @@
 /**
- * Payment-method list helpers (DESIGN_SYSTEM.md 5.3, PaymentMethods). A real offer carries one
+ * Payment-method list helpers (DESIGN_SYSTEM.md 5.4, PaymentMethods). A real offer carries one
  * `paymentMethod`; only the dev demo fills `demoPaymentMethods` (lib/demoMarkers.ts). Multi-method offers
  * need a schema + SDK change (LOOSE_WIRES.multiPaymentMethods, issue #735).
  */

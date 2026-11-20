@@ -1,5 +1,5 @@
 /**
- * Layer A: inline alert (DESIGN_SYSTEM.md 5.5). Tint of its tone + leading icon
+ * Layer A: inline alert (DESIGN_SYSTEM.md 5.3). Tint of its tone + leading icon
  * in the tone's base color, no border (no box inside a box); text in the main
  * text color (15.36+:1 light, 10.80+:1 dark on every tint), so the tone is
  * carried by the icon and tint, never the text alone. Optional title and action.

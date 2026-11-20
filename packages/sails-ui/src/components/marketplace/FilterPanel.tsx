@@ -310,7 +310,7 @@ function PaymentMethodSection({
     return map
   }, [filteredRemaining])
 
-  // FilterChip (DESIGN_SYSTEM.md 5.12): applied methods are active chips with their own remove
+  // FilterChip (DESIGN_SYSTEM.md 5.3): applied methods are active chips with their own remove
   // button; every other method is a toggle chip. Selected = blue (chosen), never orange.
   // A plain render function, not a nested component: a component defined in render remounts every
   // chip on each update, which drops keyboard focus.

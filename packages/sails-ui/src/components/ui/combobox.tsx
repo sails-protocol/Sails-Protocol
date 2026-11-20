@@ -1,5 +1,5 @@
 /**
- * Layer A: combobox (DESIGN_SYSTEM.md 5.13), a searchable select for long
+ * Layer A: combobox (DESIGN_SYSTEM.md 5.3), a searchable select for long
  * lists (asset, currency, payment method). Trigger = toolbar chip (field
  * anatomy + chevron), aria-haspopup=listbox, its name says the current value.
  * Popup on the floating surface (installed Radix Popover: positioning, Esc,

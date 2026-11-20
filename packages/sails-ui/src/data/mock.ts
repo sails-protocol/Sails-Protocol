@@ -25,7 +25,7 @@ export { ENUM_ASSET_TYPES as ASSETS } from '../lib/assetCatalog'
 // by the friendly label (PAYMENT_METHOD_LABELS), matching what
 // PaymentMethodPicker/FilterPanel/PublishOffer's own <select> actually
 // render, not by this array's own raw key spelling.
-export const PAYMENT_METHODS = ['CRYPTO_DIRECT', 'CASH', 'LIGHTNING_DIRECT', 'OTHER', 'PIX', 'TED', 'BANK_TRANSFER'] as const
+export const PAYMENT_METHODS = ['CRYPTO_DIRECT', 'LIGHTNING_DIRECT', 'OTHER', 'PIX', 'TED', 'BANK_TRANSFER'] as const
 
 // Adds the UI-only payment methods (see types.ts's own comment for the
 // full per-platform sourcing) on top of the real list above, alphabetized
@@ -38,7 +38,7 @@ export const PAYMENT_METHODS = ['CRYPTO_DIRECT', 'CASH', 'LIGHTNING_DIRECT', 'OT
 // all of them.
 export const PAYMENT_METHODS_FILTERABLE = [
   'ADVCASH', 'BANCOLOMBIA', 'BOLETO', 'CREDIT_DEBIT_CARD', 'CASH_APP', 'CRYPTO_DIRECT',
-  'DEPIX', 'LOTERICA_DEPOSIT', 'CASH', 'MOBILE_MONEY', 'CASH_BY_MAIL', 'LIGHTNING_DIRECT',
+  'DEPIX', 'LOTERICA_DEPOSIT', 'MOBILE_MONEY', 'LIGHTNING_DIRECT',
   'MERCADO_PAGO', 'NETELLER', 'NEQUI', 'OTHER', 'PAYEER', 'PAYONEER', 'PAYPAL', 'PERFECT_MONEY',
   'PICPAY', 'PIX', 'PLIN', 'REVOLUT', 'SKRILL', 'TED', 'BANK_TRANSFER', 'GIFT_CARD', 'VENMO', 'WALLY',
   'WEBMONEY', 'WISE', 'YAPE', 'ZELLE', 'ZINLI',

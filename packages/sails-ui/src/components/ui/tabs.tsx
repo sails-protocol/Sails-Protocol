@@ -1,5 +1,5 @@
 /**
- * Layer A: tabs (DESIGN_SYSTEM.md 5.4). Two kinds, one look:
+ * Layer A: tabs (DESIGN_SYSTEM.md 5.3). Two kinds, one look:
  * - `Tabs`: in-page tabs that switch a panel without changing the URL.
  *   role=tablist/tab, aria-selected, aria-controls, roving tabindex, arrow keys
  *   (Left/Right, or Up/Down when vertical), Home/End; selection follows focus.

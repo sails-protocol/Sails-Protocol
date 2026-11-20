@@ -1,5 +1,5 @@
 /**
- * Layer A: filter chip (DESIGN_SYSTEM.md 5.12). Two uses, one look:
+ * Layer A: filter chip (DESIGN_SYSTEM.md 5.3). Two uses, one look:
  * - toggle (`onToggle`): one option of a multi-choice filter; aria-pressed.
  * - active filter (`onClear`): a filter that is applied; the label is plain
  *   text and the clear button (`clearLabel`, e.g. "Remover filtro Pix") is

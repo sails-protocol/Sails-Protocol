@@ -123,7 +123,7 @@ const OFFERS: Record<string, Offer[]> = {
     offer('o2', T2, 'USDT_LIQUID', 'SELL', 1.0, 'PIX', 50, 2000),
     offer('o3', T3, 'BTC', 'BUY', 97800, 'TED', 0.002, 0.1),
   ],
-  'c-sul': [offer('o4', T3, 'LIQUID_BTC', 'SELL', 98700, 'PIX', 0.001, 0.02), offer('o5', T1, 'BTC', 'BUY', 98000, 'CASH', 0.001, 0.01)],
+  'c-sul': [offer('o4', T3, 'LIQUID_BTC', 'SELL', 98700, 'PIX', 0.001, 0.02), offer('o5', T1, 'BTC', 'BUY', 98000, 'TED', 0.001, 0.01)],
   'c-norte': [offer('o6', T2, 'BTC', 'SELL', 98900, 'PIX', 0.001, 0.03)],
   'r-member': [offer('o7', T1, 'BTC', 'SELL', 98400, 'BANK_TRANSFER', 0.01, 0.2)],
 }

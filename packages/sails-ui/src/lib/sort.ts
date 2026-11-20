@@ -1,5 +1,5 @@
 /**
- * Table sorting (DESIGN_SYSTEM.md 5.6, Table). Pure helpers so the sort order
+ * Table sorting (DESIGN_SYSTEM.md 5.3, Table). Pure helpers so the sort order
  * and the header's aria-sort come from one place and are unit-tested.
  */
 export type SortDirection = 'ascending' | 'descending'

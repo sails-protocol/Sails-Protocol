@@ -1,5 +1,5 @@
 /**
- * Layer A: radio group (DESIGN_SYSTEM.md 5.6), one required choice among a few.
+ * Layer A: radio group (DESIGN_SYSTEM.md 5.3), one required choice among a few.
  * Native <input type="radio"> sharing one `name`, so arrow keys, Tab-in to the
  * checked option, form semantics and screen-reader "1 of 3" come from the
  * browser. Radio: 18px circle, 2px secondary-text ring (3:1 on tonal and selected fills too), checked = brand blue

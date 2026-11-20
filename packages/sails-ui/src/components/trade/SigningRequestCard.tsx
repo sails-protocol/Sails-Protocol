@@ -117,7 +117,7 @@ export function SigningRequestCard(props: Props) {
         <div
           role={check.tone === 'ok' ? undefined : 'alert'}
           className={cn(
-            // Alert look (DESIGN_SYSTEM.md 5.5): tint + icon, no border inside the card.
+            // Alert look (DESIGN_SYSTEM.md 5.3): tint + icon, no border inside the card.
             'mt-3 rounded-md p-3 text-sm',
             check.tone === 'ok' ? 'bg-brand-success-bg' : check.tone === 'danger' ? 'bg-brand-danger-bg' : 'bg-brand-warning-bg',
           )}

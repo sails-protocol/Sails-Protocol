@@ -1,5 +1,5 @@
 /**
- * Layer A: icon button (DESIGN_SYSTEM.md 5.10). An icon-only button must have a
+ * Layer A: icon button (DESIGN_SYSTEM.md 5.3). An icon-only button must have a
  * name: `label` is required and becomes both the aria-label and the tooltip
  * (shown on hover and keyboard focus; never `title=`). Visual 32px box on a
  * fine pointer (36 hit area), 44 on touch. Variants: ghost (default), tonal.

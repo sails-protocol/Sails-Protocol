@@ -36,7 +36,7 @@ export function AccountMenu({ user, compact = false }: { user: User; compact?: b
     }
   }
 
-  // Menu primitive (DESIGN_SYSTEM.md 5.8): role=menu, arrow keys, typeahead, Esc; picking an item closes it.
+  // Menu primitive (DESIGN_SYSTEM.md 5.3): role=menu, arrow keys, typeahead, Esc; picking an item closes it.
   return (
     <Menu>
       <MenuTrigger
