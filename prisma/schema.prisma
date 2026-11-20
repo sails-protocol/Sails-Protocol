@@ -2737,7 +2737,7 @@ model DeploymentMode {
   @@map("deployment_mode")
 }
 
-/// M-1b (migration 20261122120000): aggregate capacity of ONE logical Offer, shared by every revision (PK = identity).
+/// M-1b (migration 20261122130000): aggregate capacity of ONE logical Offer, shared by every revision (PK = identity).
 /// NULL capacityTotal = not configured = nothing executable (fail-closed). Raised/lowered only by an owner-signed declaration
 /// (service); the database keeps it for offline re-verification and enforces shape, monotonic capacityRevision and block rules.
 model OfferCapacity {
