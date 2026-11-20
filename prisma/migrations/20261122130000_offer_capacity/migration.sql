@@ -34,7 +34,7 @@ CREATE TABLE "offer_capacity" (
 
     CONSTRAINT "offer_capacity_pkey" PRIMARY KEY ("ownerPublicKey", "logicalOfferId"),
     CONSTRAINT "offer_capacity_owner_check" CHECK ("ownerPublicKey" ~ '^[0-9a-f]{64}$'),
-    CONSTRAINT "offer_capacity_revision_check" CHECK ("capacityRevision" >= 1),
+    CONSTRAINT "offer_capacity_revision_check" CHECK ("capacityRevision" >= 0), -- 0 = row created to take the lock, never declared (capacityTotal NULL)
     CONSTRAINT "offer_capacity_total_check" CHECK ("capacityTotal" IS NULL OR "capacityTotal" > 0),
     -- a configured capacity always carries its signed declaration (audit re-verifies it)
     CONSTRAINT "offer_capacity_declared_check" CHECK (

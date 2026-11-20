@@ -111,8 +111,23 @@ export async function createCommitmentFixture(prisma: any, opts: CommitmentFixtu
     return { pairId, makerSignatures: { trade: sign(cd, maker), arbitration: sign(ad, maker) }, signMaker: () => service.signPair({ participantId: makerId, idempotencyKey: randomUUID(), pairId, role: 'maker', tradeSignature: sign(cd, maker), arbitrationSignature: sign(ad, maker) }) }
   }
 
+  /**
+   * M-1b: a REAL owner-signed capacity declaration (sails-offer-capacity-v1, maker's key) stored for this fixture's logical Offer,
+   * once. Every COMMITTED transition reserves capacity, so a fixture that commits pairs declares a large one first (same SQL
+   * shape the service writes; the audit re-verifies it). No-op when the Offer already has a row (a suite may set its own).
+   */
+  async function declareCapacity(total = '1000000.00000000'): Promise<void> {
+    const cap = require('../../../src/modules/open-liquidity/offer-capacity-declaration')
+    const owner = hex(maker.publicKey)
+    const content = { ownerPublicKey: owner, logicalOfferId, asset, capacityTotal: total, capacityRevision: 1, networkId: 'testnet', issuedAt: iso(Date.now()) }
+    const signature = cap.signOfferCapacity(content, hex(maker.secretKey))
+    await prisma.$executeRaw`INSERT INTO "offer_capacity" ("ownerPublicKey","logicalOfferId","capacityTotal","capacityRevision","declaredAt","declaration","declarationSignature")
+      VALUES (${owner}, ${logicalOfferId}, ${total}::numeric, 1, ${new Date(content.issuedAt)}, ${JSON.stringify(content)}::jsonb, ${signature}) ON CONFLICT DO NOTHING`
+  }
+
   /** A real COMMITTED pair for `anchorRef` (taker proposes, maker signs; real signatures). */
   async function commitPair(anchorRef: string): Promise<string> {
+    await declareCapacity()
     const { pairId, signMaker } = await proposePartialPair(anchorRef)
     const committed = await signMaker()
     if (committed.state !== 'COMMITTED') throw new Error(`fixture: the pair did not reach COMMITTED (${committed.state})`)
@@ -121,7 +136,7 @@ export async function createCommitmentFixture(prisma: any, opts: CommitmentFixtu
 
   return {
     makerId, takerId, legacyOfferId: legacyOffer.id as string, feePolicyVersionId: fee.id as string, logicalOfferId, envelopeRow,
-    admitTrade, proposePartialPair,
+    admitTrade, proposePartialPair, declareCapacity,
     /** The COMMITTED pair of a trade that already exists and is admitted (its tradeIntentId is the anchor), e.g. one made by tradeService.createTrade. */
     async commitExistingTrade(tradeId: string): Promise<string> {
       const t = await prisma.trade.findUniqueOrThrow({ where: { id: tradeId } })

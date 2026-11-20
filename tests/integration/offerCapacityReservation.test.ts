@@ -1,7 +1,6 @@
 /**
  * M-1b slice 1 (CTO 28 Despachos 026-029): the aggregate capacity of ONE logical Offer and its atomic reservation, proven with real
- * Postgres sessions. The migration is ISOLATED (it does not attach the reservation trigger to commitment_pairs), so this suite attaches
- * the trigger itself, exactly as the wiring step will, and removes it afterwards.
+ * Postgres sessions. The reservation trigger is attached to commitment_pairs by migration 20261122131000_offer_capacity_wire.
  */
 import { spawn } from 'child_process'
 import path from 'path'
@@ -9,8 +8,6 @@ import { Client } from 'pg'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { createCommitmentFixture } from './helpers/committedPairFixture'
 
-const ATTACH = `CREATE TRIGGER commitment_pairs_reserve_capacity BEFORE UPDATE OF "state" ON "commitment_pairs" FOR EACH ROW
-  WHEN (OLD."state" <> 'COMMITTED' AND NEW."state" = 'COMMITTED') EXECUTE FUNCTION commitment_pairs_reserve_capacity()`
 const SIG = 'ab'.repeat(64)
 const DECL = JSON.stringify({ tag: 'sails-offer-capacity-v1' })
 
@@ -25,11 +22,9 @@ describe('M-1b offer capacity: atomic reservation (real PG sessions)', () => {
     if (!pg.isAvailable()) return
     ;({ prisma } = require('../../src/common/database'))
     db = new Client({ connectionString: process.env.DATABASE_URL }); await db.connect()
-    await db.query('DROP TRIGGER IF EXISTS commitment_pairs_reserve_capacity ON "commitment_pairs"')
-    await db.query(ATTACH)
   })
   afterAll(async () => {
-    if (db) { await db.query('DROP TRIGGER IF EXISTS commitment_pairs_reserve_capacity ON "commitment_pairs"').catch(() => undefined); await db.end().catch(() => undefined) }
+    if (db) await db.end().catch(() => undefined)
     if (prisma) await prisma.$disconnect()
   })
   const run = (name: string, fn: () => Promise<void>) => it(name, async () => { if (!pg.isAvailable()) return; await fn() })

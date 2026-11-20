@@ -53,8 +53,10 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
   /** D025: an E21-admitted trade (its OWN Intent in tradeIntentId); the maker sells (side SELL), the taker buys. Returns the anchor. */
   async function admitTrade(o: { sellerId?: string; buyerId?: string; asset?: string; amount?: string; status?: string } = {}): Promise<string> {
     const intent = await prisma.intent.create({ data: { type: 'TradeIntent', participantId: takerId, moduleId: 'openp2p', payload: {}, status: 'PENDING' } })
+    // M-1b: the COMMITTED transition resolves the Offer through trades.acceptedEnvelopeId (R1): the envelope this trade accepted.
+    const accepted = await prisma.offerEnvelope.findFirst({ where: { ownerPublicKey: hex(maker.publicKey), logicalOfferId, revision } })
     await prisma.trade.create({
-      data: { offerId: legacyOfferId, sellerId: o.sellerId ?? makerId, buyerId: o.buyerId ?? takerId, asset: o.asset ?? 'BTC', amount: o.amount ?? '0.005', status: o.status ?? 'PENDING', priceUsd: '65000', totalUsd: '325', tradeIntentId: intent.id },
+      data: { offerId: legacyOfferId, sellerId: o.sellerId ?? makerId, buyerId: o.buyerId ?? takerId, asset: o.asset ?? 'BTC', amount: o.amount ?? '0.005', status: o.status ?? 'PENDING', priceUsd: '65000', totalUsd: '325', tradeIntentId: intent.id, acceptedEnvelopeId: accepted?.id },
     })
     return intent.id
   }
@@ -74,6 +76,11 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     const r = await offerRepo.ingest({ ...content, signature })
     expect(r.accepted).toBe(true)
     envelopeDigest = envMod.hashOfferEnvelope(content).toString('hex')
+    // M-1b: every COMMITTED transition reserves capacity; this suite's Offer declares a large, REAL owner-signed one (once).
+    const capContent = { ownerPublicKey: hex(maker.publicKey), logicalOfferId, asset: 'BTC', capacityTotal: '1000000.00000000', capacityRevision: 1, networkId: 'testnet', issuedAt: iso(Date.now()) }
+    const capSig = require('../../src/modules/open-liquidity/offer-capacity-declaration').signOfferCapacity(capContent, hex(maker.secretKey))
+    await prisma.$executeRaw`INSERT INTO "offer_capacity" ("ownerPublicKey","logicalOfferId","capacityTotal","capacityRevision","declaredAt","declaration","declarationSignature")
+      VALUES (${capContent.ownerPublicKey}, ${logicalOfferId}, ${capContent.capacityTotal}::numeric, 1, ${new Date(capContent.issuedAt)}, ${JSON.stringify(capContent)}::jsonb, ${capSig}) ON CONFLICT DO NOTHING`
   }
 
   const POLICY: Record<string, any> = {
