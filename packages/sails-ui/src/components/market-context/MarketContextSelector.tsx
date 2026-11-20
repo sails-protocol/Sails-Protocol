@@ -2,19 +2,22 @@
  * Market Context Navigation selector (Layer A, NAVIGATION-FILTER-1 / docs/SAILS_DESIGN_LANGUAGE.md §16.6).
  * "Which market or community am I exploring?" — navigation, never a Screen Filter: it deliberately does not
  * use `.toolbar-chip` and must not be placed inside the filter toolbar. No data fetching, no routing; all copy
- * comes from the caller. Desktop opens a popover, mobile a bottom sheet (focus returns to the trigger on close).
+ * comes from the caller. From 768px (the app's md breakpoint, same as App.tsx MOBILE_QUERY) it opens a popover;
+ * below that, a bottom sheet. Focus returns to the trigger on close. Blocked contexts are listed disabled with
+ * their reason (access not granted vs market unavailable); there is no gate screen and no request-access flow.
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { Building2, Check, ChevronsUpDown, Globe, Users, X, type LucideIcon } from 'lucide-react'
+import { Check, ChevronsUpDown, CircleDashed, Globe, UserCheck, UserX, Users, X, type LucideIcon } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '../ui/sheet'
 import { ListSkeleton } from '../ui/skeleton'
 import { Button } from '../ui/button'
 import { cn } from '../../lib/utils'
 import {
-  orderMarketContexts,
-  isSelectableContext,
+  contextBlock,
+  groupMarketContexts,
   resolveContextSelection,
+  type MarketContextBlock,
   type MarketContextCopy,
   type MarketContextKind,
   type MarketContextListState,
@@ -32,7 +35,9 @@ export interface MarketContextSelectorProps {
   className?: string
 }
 
-const KIND_ICON: Record<MarketContextKind, LucideIcon> = { public: Globe, community: Users, private: Building2 }
+// Restricted = a group of admitted participants (UserCheck); deliberately no lock or shield (no security claim).
+const KIND_ICON: Record<MarketContextKind, LucideIcon> = { public: Globe, community: Users, restricted: UserCheck }
+const BLOCK_ICON: Record<MarketContextBlock, LucideIcon> = { 'not-granted': UserX, unavailable: CircleDashed }
 const DESKTOP_QUERY = '(min-width: 768px)'
 
 function useIsDesktop() {
@@ -52,11 +57,11 @@ function KindTile({ kind, muted }: { kind: MarketContextKind; muted?: boolean })
     <span
       aria-hidden="true"
       className={cn(
-        'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border',
+        'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border',
         muted ? 'border-brand-border-subtle bg-brand-elevated text-brand-text-muted' : 'border-brand-orange-accent/40 bg-brand-orange-accent/10 text-brand-orange-accent'
       )}
     >
-      <Icon className="h-5 w-5" />
+      <Icon className="h-[18px] w-[18px]" />
     </span>
   )
 }
@@ -107,7 +112,7 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
       type="button"
       aria-labelledby={`${labelId} ${labelId}-current`}
       className={cn(
-        'flex min-h-16 w-full items-center gap-3 rounded-xl border border-brand-border bg-brand-surface py-2.5 pl-2.5 pr-4 text-left shadow-sm transition-colors',
+        'flex min-h-14 w-full items-center gap-3 rounded-xl border border-brand-border bg-brand-surface py-2 pl-2.5 pr-4 text-left shadow-sm transition-colors',
         'hover:border-brand-border-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         className
       )}
@@ -115,10 +120,10 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
       <KindTile kind={current.kind} />
       <span id={`${labelId}-current`} className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-x-2 md:flex-nowrap">
-          <span className="font-display text-base font-semibold text-brand-text md:truncate md:text-lg">{current.name}</span>
+          <span className="font-display text-base font-semibold text-brand-text md:truncate">{current.name}</span>
           {current.kind !== 'public' && <KindBadge>{kindLabel}</KindBadge>}
         </span>
-        {current.description && <span className="block truncate text-sm text-brand-text-secondary">{current.description}</span>}
+        {current.description && <span className="block truncate text-[13px] leading-5 text-brand-text-secondary">{current.description}</span>}
       </span>
       <ChevronsUpDown aria-hidden="true" className="h-5 w-5 shrink-0 text-brand-text-secondary" />
     </button>
@@ -141,55 +146,68 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
   } else {
     body = (
       <>
-        <ul ref={listRef} role="list" aria-label={copy.listTitle} onKeyDown={onListKeyDown} className="flex flex-col gap-0.5">
-          {orderMarketContexts(options).map((o) => {
-            const selectable = isSelectableContext(o)
-            const isCurrent = o.id === current.id
-            const reasonId = `market-context-reason-${o.id}`
-            return (
-              <li key={o.id}>
-                <button
-                  type="button"
-                  data-context-option=""
-                  aria-current={isCurrent ? 'true' : undefined}
-                  aria-disabled={selectable ? undefined : 'true'}
-                  aria-describedby={!selectable && o.unavailableReason ? reasonId : undefined}
-                  onClick={() => choose(o.id)}
-                  className={cn(
-                    'flex min-h-14 w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    isCurrent ? 'bg-brand-elevated' : selectable ? 'hover:bg-brand-elevated' : 'cursor-not-allowed'
-                  )}
-                >
-                  <KindTile kind={o.kind} muted={!selectable} />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className={cn('font-medium', selectable ? 'text-brand-text' : 'text-brand-text-secondary')}>{o.name}</span>
-                      <KindBadge>{copy.kind[o.kind]}</KindBadge>
-                      {o.memberStatus && o.memberStatus !== 'none' && <span className="text-xs text-brand-text-secondary">{copy.member[o.memberStatus]}</span>}
-                    </span>
-                    {o.description && <span className="mt-0.5 block text-sm text-brand-text-secondary">{o.description}</span>}
-                    {!selectable && o.unavailableReason && (
-                      <span id={reasonId} className="mt-0.5 block text-sm text-brand-text-muted">{o.unavailableReason}</span>
-                    )}
-                  </span>
-                  {isCurrent && (
-                    <span className="mt-2.5 flex shrink-0 items-center text-brand-orange-accent">
-                      <Check aria-hidden="true" className="h-4 w-4" />
-                      <span className="sr-only">{copy.current}</span>
-                    </span>
-                  )}
-                </button>
-              </li>
-            )
-          })}
+        <ul ref={listRef} role="list" aria-label={copy.listTitle} onKeyDown={onListKeyDown} className="flex flex-col gap-1">
+          {groupMarketContexts(options).map((g) => (
+            <li key={g.kind}>
+              <div id={`${labelId}-group-${g.kind}`} className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-brand-text-muted">{copy.group[g.kind]}</div>
+              <ul role="list" aria-labelledby={`${labelId}-group-${g.kind}`} className="flex flex-col gap-0.5">
+                {g.items.map((o) => {
+                  const block = contextBlock(o)
+                  const isCurrent = o.id === current.id
+                  const reasonId = `${labelId}-reason-${o.id}`
+                  const BlockIcon = block ? BLOCK_ICON[block] : null
+                  return (
+                    <li key={o.id}>
+                      <button
+                        type="button"
+                        data-context-option=""
+                        aria-current={isCurrent ? 'true' : undefined}
+                        aria-disabled={block ? 'true' : undefined}
+                        aria-describedby={block ? reasonId : undefined}
+                        onClick={() => choose(o.id)}
+                        className={cn(
+                          'flex min-h-12 w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors',
+                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                          isCurrent ? 'bg-brand-elevated' : block ? 'cursor-not-allowed' : 'hover:bg-brand-elevated'
+                        )}
+                      >
+                        <KindTile kind={o.kind} muted={!!block} />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span className={cn('font-medium', block ? 'text-brand-text-secondary' : 'text-brand-text')}>{o.name}</span>
+                            {!block && o.memberStatus === 'member' && <span className="text-xs text-brand-text-secondary">{copy.member.member}</span>}
+                          </span>
+                          {!block && o.description && <span className="block text-[13px] leading-5 text-brand-text-secondary">{o.description}</span>}
+                          {block && BlockIcon && (
+                            <span id={reasonId} className="mt-0.5 block text-[13px] leading-5 text-brand-text-muted">
+                              <span className="mr-1.5 inline-flex items-center gap-1 rounded border border-brand-border px-1.5 align-[1px] text-[11px] font-medium leading-4 text-brand-text-secondary">
+                                <BlockIcon aria-hidden="true" className="h-3 w-3" />
+                                {copy.block[block]}
+                              </span>
+                              {o.unavailableReason}
+                            </span>
+                          )}
+                        </span>
+                        {isCurrent && (
+                          <span className="mt-2 flex shrink-0 items-center text-brand-orange-accent">
+                            <Check aria-hidden="true" className="h-4 w-4" />
+                            <span className="sr-only">{copy.current}</span>
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </li>
+          ))}
         </ul>
         {state === 'empty' && <p className="mt-2 border-t border-brand-border-subtle px-2 pt-3 pb-1 text-sm text-brand-text-secondary">{copy.empty}</p>}
       </>
     )
   }
 
-  const sectionLabel = <span id={labelId} className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-brand-text-muted">{copy.label}</span>
+  const sectionLabel = <span id={labelId} className="mb-1 block text-xs font-medium uppercase tracking-wider text-brand-text-muted">{copy.label}</span>
 
   if (desktop) {
     return (
