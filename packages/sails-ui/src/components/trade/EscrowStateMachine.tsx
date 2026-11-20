@@ -54,7 +54,7 @@ export function EscrowStateMachine({ status }: { status: EscrowStatus }) {
                 <div
                   className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold relative ${
                     state === 'done'
-                      ? 'bg-brand-orange text-white'
+                      ? 'bg-brand-orange text-primary-foreground'
                       : state === 'active'
                         ? 'border-2 border-brand-orange-accent text-brand-orange-accent'
                         : 'border-2 border-brand-border text-brand-text-muted'

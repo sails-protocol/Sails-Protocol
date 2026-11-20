@@ -216,7 +216,7 @@ export function PublishOffer() {
           return (
             <div key={label} className="flex items-center flex-1 last:flex-none">
               <div className="flex flex-col items-center gap-1.5">
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${active ? 'bg-brand-orange text-white' : 'bg-brand-elevated text-brand-text-muted'}`}>
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${active ? 'bg-brand-orange text-primary-foreground' : 'bg-brand-elevated text-brand-text-muted'}`}>
                   {n}
                 </div>
                 <span className={`text-[10px] text-center max-w-[70px] ${active ? 'text-brand-text font-medium' : 'text-brand-text-muted'}`}>{label}</span>
