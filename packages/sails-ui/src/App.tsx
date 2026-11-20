@@ -5,6 +5,7 @@ import { ThemeProvider, useTheme } from './context/ThemeContext'
 import { AuthProvider } from './context/AuthContext'
 import { TooltipProvider } from './components/ui/tooltip'
 import { Layout } from './components/layout/Layout'
+import { TradesTabs } from './components/layout/TradesTabs'
 import { SessionExpiryRedirect } from './components/auth/SessionExpiryRedirect'
 
 // Route-level code splitting (2026-08-11) — vite build's own warning
@@ -23,6 +24,7 @@ const Profile = lazy(() => import('./pages/Profile').then((m) => ({ default: m.P
 const PublishOffer = lazy(() => import('./pages/PublishOffer').then((m) => ({ default: m.PublishOffer })))
 const TradeHistory = lazy(() => import('./pages/TradeHistory').then((m) => ({ default: m.TradeHistory })))
 const ActiveTrades = lazy(() => import('./pages/ActiveTrades').then((m) => ({ default: m.ActiveTrades })))
+const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })))
 const Disputes = lazy(() => import('./pages/Disputes').then((m) => ({ default: m.Disputes })))
 // Dev-only preview: import.meta.env.DEV is statically false in production builds, so Rollup drops this chunk.
 const CurrentActionPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/CurrentActionPreview').then((m) => ({ default: m.CurrentActionPreview }))) : null
@@ -67,9 +69,12 @@ export default function App() {
                 <Route path="/offer/:id" element={<Suspense fallback={<RouteFallback />}><OfferDetail /></Suspense>} />
                 <Route path="/trade/:id" element={<Suspense fallback={<RouteFallback />}><Trade /></Suspense>} />
                 <Route path="/profile" element={<Suspense fallback={<RouteFallback />}><Profile /></Suspense>} />
-                <Route path="/profile/active" element={<Suspense fallback={<RouteFallback />}><ActiveTrades /></Suspense>} />
-                <Route path="/profile/history" element={<Suspense fallback={<RouteFallback />}><TradeHistory /></Suspense>} />
+                <Route element={<TradesTabs />}>
+                  <Route path="/profile/active" element={<Suspense fallback={<RouteFallback />}><ActiveTrades /></Suspense>} />
+                  <Route path="/profile/history" element={<Suspense fallback={<RouteFallback />}><TradeHistory /></Suspense>} />
+                </Route>
                 <Route path="/profile/new-offer" element={<Suspense fallback={<RouteFallback />}><PublishOffer /></Suspense>} />
+                <Route path="/settings" element={<Suspense fallback={<RouteFallback />}><Settings /></Suspense>} />
                 <Route path="/disputes" element={<Suspense fallback={<RouteFallback />}><Disputes /></Suspense>} />
                 {CurrentActionPreview && <Route path="/dev/current-action" element={<Suspense fallback={<RouteFallback />}><CurrentActionPreview /></Suspense>} />}
                 {SigningRequestPreview && <Route path="/dev/signing-request" element={<Suspense fallback={<RouteFallback />}><SigningRequestPreview /></Suspense>} />}

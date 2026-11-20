@@ -12,6 +12,11 @@ import { cn } from '../../lib/utils'
 import { HelpCircle } from 'lucide-react'
 import { hasSeenOnboarding, markOnboardingSeen } from '../../lib/onboarding'
 
+/** What Layout hands its pages via `useOutletContext` (Configurações' "Rever tour"). */
+export interface LayoutOutletContext {
+  replayTour: () => void
+}
+
 export function Layout() {
   // Real bug found in a cold-start UX walkthrough: on mobile, TopNav
   // (the only place login/wallet state was shown) is hidden entirely,
@@ -49,10 +54,11 @@ export function Layout() {
     <div className="min-h-screen bg-brand-bg md:flex">
       <Sidebar />
       <div className="flex-1 min-w-0">
-        <Topbar onReplayTour={() => setTourOpen(true)} />
+        <Topbar />
         {/* Mobile-only bar — desktop nav now lives in Sidebar/Topbar;
             mobile needs its own since BottomNav is reserved for primary
-            navigation. */}
+            navigation. Theme and "Rever tour" stay here on mobile until
+            the mobile lot; on desktop they live in Configurações. */}
         <header className="md:hidden h-14 flex items-center justify-between px-4 border-b border-brand-border-subtle sticky top-0 z-40 bg-brand-bg/90 backdrop-blur">
           <Link to="/" className="font-display font-bold text-brand-text tracking-tight">
             Sails <span className="text-brand-orange-accent">Market</span>
@@ -87,7 +93,7 @@ export function Layout() {
             dense market/table content still benefits from a line-length
             cap, just a less conservative one now that a sidebar exists. */}
         <main className="max-w-7xl mx-auto px-4 py-6 pb-20 md:pb-6">
-          <Outlet />
+          <Outlet context={{ replayTour: () => setTourOpen(true) } satisfies LayoutOutletContext} />
         </main>
       </div>
       <BottomNav />

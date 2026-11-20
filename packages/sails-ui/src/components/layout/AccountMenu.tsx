@@ -1,22 +1,32 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
-import { ChevronDown, Copy, LogOut, User as UserIcon } from 'lucide-react'
+import { ChevronDown, Copy, LogOut, Settings, User as UserIcon } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import type { User } from '../../types'
 import { UserAvatar } from '../ui/UserAvatar'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 
-const shortKey = (key: string) => (key.length > 12 ? `${key.slice(0, 6)}…${key.slice(-4)}` : key)
+export const shortKey = (key: string) => (key.length > 12 ? `${key.slice(0, 6)}…${key.slice(-4)}` : key)
+
+/** Disconnect flow shared by AccountMenu and Configurações: end the session, confirm, go to the Market. */
+export function useDisconnect() {
+  const { logout } = useAuth()
+  const navigate = useNavigate()
+  return () => {
+    logout()
+    toast.success('Wallet desconectada')
+    navigate('/')
+  }
+}
 
 /**
  * Connected-account chip + menu (common DeFi pattern): short identity on
- * the trigger; copy public key, profile, disconnect inside. `compact` shows
+ * the trigger; copy public key, profile, settings, disconnect inside. `compact` shows
  * only the avatar, for the mobile header.
  */
 export function AccountMenu({ user, compact = false }: { user: User; compact?: boolean }) {
-  const { logout } = useAuth()
-  const navigate = useNavigate()
+  const disconnectWallet = useDisconnect()
   const [open, setOpen] = useState(false)
 
   const copyKey = async () => {
@@ -31,9 +41,7 @@ export function AccountMenu({ user, compact = false }: { user: User; compact?: b
 
   const disconnect = () => {
     setOpen(false)
-    logout()
-    toast.success('Wallet desconectada')
-    navigate('/')
+    disconnectWallet()
   }
 
   const item = 'w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-sm text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text'
@@ -63,6 +71,9 @@ export function AccountMenu({ user, compact = false }: { user: User; compact?: b
         </button>
         <Link to="/profile" onClick={() => setOpen(false)} className={item}>
           <UserIcon className="h-4 w-4" /> Meu perfil
+        </Link>
+        <Link to="/settings" onClick={() => setOpen(false)} className={item}>
+          <Settings className="h-4 w-4" /> Configurações
         </Link>
         <button type="button" onClick={disconnect} className={item}>
           <LogOut className="h-4 w-4" /> Desconectar
