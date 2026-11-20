@@ -121,6 +121,30 @@ describe('F4 S1 - escrow commitment binding triggers (real PostgreSQL, raw SQL)'
     await fails(`UPDATE escrows SET "tradeId" = $2 WHERE id = $1`, [id, other.tradeId], /type and tradeId are immutable/)
   })
 
+  it('INSERT: a CANCELLED trade takes no new escrow even with its own COMMITTED pair (a parallel escrow must not consume released capacity)', async () => {
+    const { tradeId, anchor } = await newTrade()
+    const pair = await newPair(anchor, 'COMMITTED')
+    await db.query(`UPDATE trades SET status = 'CANCELLED' WHERE id = $1`, [tradeId])
+    await fails(`INSERT INTO escrows (id, "tradeId", "lockedAmount", asset, type, "commitmentPairId", "updatedAt") VALUES ($1,$2,0.005,'BTC','MULTISIG',$3,now())`, [randomUUID(), tradeId, pair], /is CANCELLED; no new escrow/)
+    await db.query(`UPDATE trades SET status = 'PENDING' WHERE id = $1`, [tradeId]) // the same insert passes once the trade is live: the check is the status, nothing else
+    expect((await insertEscrow(tradeId, pair)).rowCount).toBe(1)
+  })
+
+  it('PERSISTENCE of the omitted type (CTO Despacho 030): the schema default is what the database stores; the test follows the column default and is ready for the migration that removes it', async () => {
+    const { tradeId } = await newTrade()
+    const hasDefault = (await db.query(`SELECT column_default FROM information_schema.columns WHERE table_name = 'escrows' AND column_name = 'type'`)).rows[0].column_default !== null
+    const insertWithoutType = () => db.query(`INSERT INTO escrows (id, "tradeId", "lockedAmount", asset, "updatedAt") VALUES ($1,$2,0.005,'BTC',now()) RETURNING type`, [randomUUID(), tradeId])
+    if (hasDefault) {
+      // EXPECTED UNTIL THE MIGRATION that removes the default (Principal, separate Draft PR): an INSERT with no type stores MOCK, which is the
+      // ONE type exempt from the commitment binding. The application layers (repository guard, resolveEscrowType, #229 dispatch gate) are the
+      // defence meanwhile; this assertion documents the CURRENT database behaviour and fails loudly if it silently changes.
+      expect((await insertWithoutType()).rows[0].type).toBe('MOCK')
+    } else {
+      // FINAL FORM, active automatically once the default is gone: the database itself refuses an INSERT without a type.
+      await expect(insertWithoutType()).rejects.toMatchObject({ code: '23502' }) // not_null_violation
+    }
+  })
+
   it('commitmentPairId and both legacy marks are immutable', async () => {
     const { tradeId, anchor } = await newTrade()
     const pair = await newPair(anchor, 'COMMITTED')

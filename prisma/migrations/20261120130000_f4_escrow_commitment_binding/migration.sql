@@ -76,6 +76,7 @@ DECLARE
     pair_state text;
     pair_anchor text;
     trade_anchor text;
+    trade_status text;
 BEGIN
     IF NEW."legacyPreCommitmentAt" IS NOT NULL OR NEW."addressPresentAtCutAt" IS NOT NULL THEN
         RAISE EXCEPTION 'escrows: the legacy marks are written only by the cut migration (escrow id=%)', NEW."id"
@@ -93,9 +94,14 @@ BEGIN
         RAISE EXCEPTION 'escrows: the commitment pair % is not COMMITTED (state=%)', NEW."commitmentPairId", pair_state
             USING ERRCODE = 'check_violation';
     END IF;
-    SELECT t."tradeIntentId" INTO trade_anchor FROM "trades" t WHERE t."id" = NEW."tradeId";
+    SELECT t."tradeIntentId", t."status"::text INTO trade_anchor, trade_status FROM "trades" t WHERE t."id" = NEW."tradeId";
     IF trade_anchor IS DISTINCT FROM pair_anchor THEN
         RAISE EXCEPTION 'escrows: the commitment pair % is not the pair of trade % (anchor mismatch)', NEW."commitmentPairId", NEW."tradeId"
+            USING ERRCODE = 'check_violation';
+    END IF;
+    -- A cancelled trade has already given its capacity back (v4 §5): a parallel escrow must not consume it again.
+    IF trade_status = 'CANCELLED' THEN
+        RAISE EXCEPTION 'escrows: trade % is CANCELLED; no new escrow may be created for it', NEW."tradeId"
             USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;
