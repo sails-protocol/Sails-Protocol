@@ -30,6 +30,7 @@
 
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { createBoundTrade } from './helpers/committedPairFixture'
 
 describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2.2, real Postgres)', () => {
   jest.setTimeout(60_000)
@@ -166,14 +167,10 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
   it('Test E: an Escrow\'s fee-policy snapshot cannot change once set, via raw SQL', async () => {
     requirePostgres('Test E')
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-fee-snap-${suffix}` } })
-    const seller = await prisma.user.create({ data: { publicKey: `pk-seller-fee-snap-${suffix}` } })
-    const offer = await prisma.offer.create({
-      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' },
-    })
-    const trade = await prisma.trade.create({
-      data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.01', priceUsd: '65000', totalUsd: '650' },
-    })
+    const bound = await createBoundTrade(prisma) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+    const { buyer, seller, trade } = bound
+    const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
+    const boundPairId = await bound.commit()
     const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MOCK', asset: 'BTC', lockedAmount: '0.01' } })
 
     const policy = await prisma.feePolicyVersion.create({
@@ -211,15 +208,11 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
   it('Test F: an Escrow\'s frozen collection destination cannot change once set, via raw SQL (Fase 4.1)', async () => {
     requirePostgres('Test F')
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-fee-dest-${suffix}` } })
-    const seller = await prisma.user.create({ data: { publicKey: `pk-seller-fee-dest-${suffix}` } })
-    const offer = await prisma.offer.create({
-      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' },
-    })
-    const trade = await prisma.trade.create({
-      data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.01', priceUsd: '65000', totalUsd: '650' },
-    })
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.01' } })
+    const bound = await createBoundTrade(prisma) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+    const { buyer, seller, trade } = bound
+    const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
+    const boundPairId = await bound.commit()
+    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, commitmentPairId: boundPairId, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.01' } })
 
     const policy = await prisma.feePolicyVersion.create({
       data: { ...fixturePolicyData(), status: 'PUBLISHED', publishedAt: new Date() },
@@ -265,14 +258,10 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
   it('Test I (FK layer): a FeeObligation referencing a nonexistent FeePolicyVersion is rejected by Postgres', async () => {
     requirePostgres('Test I (FK layer)')
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-fk-${suffix}` } })
-    const seller = await prisma.user.create({ data: { publicKey: `pk-seller-fk-${suffix}` } })
-    const offer = await prisma.offer.create({
-      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' },
-    })
-    const trade = await prisma.trade.create({
-      data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.01', priceUsd: '65000', totalUsd: '650' },
-    })
+    const bound = await createBoundTrade(prisma) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+    const { buyer, seller, trade } = bound
+    const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
+    const boundPairId = await bound.commit()
     const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MOCK', asset: 'BTC', lockedAmount: '0.01' } })
 
     await expect(

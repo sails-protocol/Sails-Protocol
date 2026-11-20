@@ -16,6 +16,8 @@
 // isolation, per mission §37 ("Testability before authority").
 
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { createCommitmentFixture } from './helpers/committedPairFixture'
+import { legacyEscrowSeed } from './helpers/legacyEscrowSeed'
 import {
   createTransitionRecord,
   createInteractionId,
@@ -83,13 +85,11 @@ describe('Sails Core Implementation Program M3.5 — SemanticTransitionRecord at
   }
 
   async function fixtureFundsLockedMultisigEscrow() {
-    const s = suffix()
-    const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-str-${s}` } })
-    const seller = await prisma.user.create({ data: { publicKey: `pk-seller-str-${s}` } })
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
-    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    // F4 deny-by-default: an admitted trade and a REAL COMMITTED pair (real parties) bind the MULTISIG escrow.
+    const fx = await createCommitmentFixture(prisma, { asset: 'BTC', rail: 'MULTISIG', seed: 0x10 + Math.floor(Math.random() * 0xc0) })
+    const { tradeId, pairId } = await fx.committedPair()
     const escrow = await prisma.escrow.create({
-      data: { tradeId: trade.id, type: 'MULTISIG', status: 'FUNDS_LOCKED', asset: 'BTC', lockedAmount: '0.001', timelockHours: 1, expiresAt: new Date(Date.now() - 60_000) },
+      data: { tradeId, type: 'MULTISIG', status: 'FUNDS_LOCKED', asset: 'BTC', lockedAmount: '0.001', timelockHours: 1, expiresAt: new Date(Date.now() - 60_000), commitmentPairId: pairId },
     })
     return { escrow }
   }
@@ -243,9 +243,8 @@ describe('Sails Core Implementation Program M3.5 — SemanticTransitionRecord at
     const seller = await prisma.user.create({ data: { publicKey: `pk-seller-legacy-${s}` } })
     const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
     const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
-    const historicalEscrow = await prisma.escrow.create({
-      data: { tradeId: trade.id, type: 'MOCK', status: 'COMPLETED', asset: 'BTC', lockedAmount: '0.001' },
-    })
+    // A genuinely pre-cut (legacy) MULTISIG escrow, through the single legacy-seed helper (never MOCK as a stand-in).
+    const historicalEscrow = { id: await legacyEscrowSeed({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC', columns: { status: 'COMPLETED' } }) }
 
     const reread = await prisma.escrow.findUniqueOrThrow({ where: { id: historicalEscrow.id } })
     expect(reread.status).toBe('COMPLETED')

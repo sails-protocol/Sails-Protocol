@@ -145,6 +145,11 @@ export function createPostgresIntegrationHarness(): PostgresIntegrationHarness {
       try {
         await probeClient.$queryRaw`SELECT 1`
         available = true
+        // F4 gate 3 (CTO Despacho 030): the MOCK exemption of the escrow trigger exists only while deployment_mode has its row. A test database
+        // is a 'test' environment, so the harness (already guarded by SAILS_INTEGRATION_TEST_DB_CONFIRMED + the host/name allowlist above)
+        // writes it. As the restricted runtime role the INSERT is refused (SELECT only): CI then sets the row as ADMIN before it switches
+        // to the runtime (scripts/db/set-deployment-mode.js), and a failure here is deliberately ignored (also on a pre-F4 database).
+        await probeClient.$executeRaw`INSERT INTO deployment_mode (mode) VALUES ('test') ON CONFLICT (singleton) DO NOTHING`.catch(() => undefined)
       } catch {
         available = false
       } finally {

@@ -123,6 +123,8 @@ jobs:
           set -o pipefail
           node scripts/db/bootstrap-roles.js
           npx prisma db execute --file scripts/db/runtime-grants.sql
+          # F4 gate 3: the test database is a test environment; only the ADMIN may write the deployment_mode row (the runtime has SELECT only).
+          node scripts/db/set-deployment-mode.js test
           DATABASE_URL=postgresql://sails_runtime:ci-runtime-password@localhost:5432/sails_protocol DB_PRIVILEGE_CHECK=enforce \
             npx jest --runInBand \
               tests/integration/tradeProjectionMonotonicity.test.ts \
@@ -133,6 +135,7 @@ jobs:
               tests/integration/atomicDisputeOpening.test.ts \
               tests/integration/disputeSemanticProvenance.test.ts \
               tests/integration/capabilityAuthorityEnforced.test.ts \
+              tests/integration/tradeAcceptedEnvelope.test.ts \
               tests/integration/durableProjectionCompletion.test.ts \
               tests/integration/semanticTransitionRecordAtomicity.test.ts \
               tests/integration/settlementResultIntegrity.test.ts \
