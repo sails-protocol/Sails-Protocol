@@ -743,8 +743,8 @@ describe('E21 slice 1 — transactional, idempotent trade admission (real Postgr
     // M-1b (20261122131000 wire, then 20261122130000 tables) hangs trigger/FKs on commitment_pairs, so ITS documented reversals run first.
     const m1bReversal = (dir: string) => (require('fs').readFileSync(require('path').join(__dirname, `../../prisma/migrations/${dir}/migration.sql`), 'utf8') as string)
       .split(/\r?\n/).filter((l) => /^-- {3}DROP /.test(l)).flatMap((l) => l.replace(/^--\s+/, '').split(';').map((s) => s.trim()).filter(Boolean))
-    const m1bDependents = [...m1bReversal('20261122131000_offer_capacity_wire'), ...m1bReversal('20261122130000_offer_capacity')]
-    expect(m1bDependents.length).toBeGreaterThanOrEqual(7)
+    const m1bDependents = [...m1bReversal('20261122133000_offer_capacity_block_unblock'), ...m1bReversal('20261122132000_offer_capacity_release'), ...m1bReversal('20261122131000_offer_capacity_wire'), ...m1bReversal('20261122130000_offer_capacity')]
+    expect(m1bDependents.length).toBeGreaterThanOrEqual(15)
     const columnCount = async (q: { $queryRawUnsafe: PrismaClient['$queryRawUnsafe'] }) =>
       Number((await q.$queryRawUnsafe<Array<{ n: bigint }>>(`SELECT count(*) AS n FROM information_schema.columns WHERE table_name = 'trades' AND column_name = 'tradeIntentId'`))[0].n)
     await expect(prisma.$transaction(async (t) => {

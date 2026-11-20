@@ -1,7 +1,7 @@
 import nacl from 'tweetnacl'
 import {
   OFFER_CAPACITY_DOMAIN_TAG, canonicalizeOfferCapacity, signOfferCapacity, verifyOfferCapacity, validateOfferCapacityFields,
-  OfferCapacityDeclarationContent, SignedOfferCapacityDeclaration,
+  OfferCapacityDeclarationContent, SignedOfferCapacityDeclaration, signUnblockDecision, verifyUnblockDecision, OFFER_CAPACITY_UNBLOCK_DOMAIN_TAG,
 } from '../src/modules/open-liquidity/offer-capacity-declaration'
 import { signOfferEnvelope, OfferEnvelopeContent } from '../src/modules/open-liquidity/offer-envelope'
 
@@ -65,5 +65,18 @@ describe('sails-offer-capacity-v1 declaration', () => {
 
   it('a missing signature is refused', () => {
     expect(verifyOfferCapacity(content() as SignedOfferCapacityDeclaration, 'testnet').valid).toBe(false)
+  })
+
+  describe('reorg-unblock decision signature (decision A)', () => {
+    const digest = 'a1'.repeat(32)
+    it('a reviewer signature over the request digest verifies; another digest, another key or the capacity class do not', () => {
+      const sig = signUnblockDecision(digest, owner.sec)
+      expect(verifyUnblockDecision(digest, owner.pub, sig)).toEqual({ valid: true })
+      expect(verifyUnblockDecision('b2'.repeat(32), owner.pub, sig).valid).toBe(false) // replay on another request
+      expect(verifyUnblockDecision(digest, other.pub, sig).valid).toBe(false)
+      expect(verifyUnblockDecision(digest, owner.pub, signOfferCapacity(content(), owner.sec)).valid).toBe(false) // other message class
+      expect(verifyUnblockDecision(digest, owner.pub, 'xyz').valid).toBe(false)
+      expect(OFFER_CAPACITY_UNBLOCK_DOMAIN_TAG).not.toBe(OFFER_CAPACITY_DOMAIN_TAG)
+    })
   })
 })

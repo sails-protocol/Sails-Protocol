@@ -5,7 +5,7 @@
 //
 // usage: DATABASE_URL=... SAILS_NETWORK_ID=testnet ts-node scripts/audit-offer-capacity.ts
 import { Client } from 'pg'
-import { verifyOfferCapacity, SignedOfferCapacityDeclaration } from '../src/modules/open-liquidity/offer-capacity-declaration'
+import { verifyOfferCapacity, verifyUnblockDecision, SignedOfferCapacityDeclaration } from '../src/modules/open-liquidity/offer-capacity-declaration'
 
 export interface CapacityAuditFinding { ownerPublicKey: string; logicalOfferId: string; problem: string }
 
@@ -25,6 +25,14 @@ export async function auditOfferCapacity(client: Client, networkId: string): Pro
     if (declared.ownerPublicKey !== id.ownerPublicKey || declared.logicalOfferId !== id.logicalOfferId) findings.push({ ...id, problem: 'declaration names another identity' })
     if (Number(declared.capacityTotal) !== Number(r.total)) findings.push({ ...id, problem: `capacityTotal ${r.total} differs from the signed ${declared.capacityTotal}` })
     if (declared.capacityRevision !== r.capacityRevision) findings.push({ ...id, problem: `capacityRevision ${r.capacityRevision} differs from the signed ${declared.capacityRevision}` })
+  }
+  // every EXECUTED unblock must carry a reviewer signature that verifies over the request digest, by a key other than the requester's
+  const done = (await client.query(`SELECT "id","ownerPublicKey","logicalOfferId","digest","requesterKey","reviewerKey","reviewerSignature","requestedBySession","reviewerSession" FROM "offer_capacity_unblock_requests" WHERE "executedAt" IS NOT NULL`)).rows
+  for (const u of done) {
+    const id = { ownerPublicKey: u.ownerPublicKey as string, logicalOfferId: u.logicalOfferId as string }
+    const v = verifyUnblockDecision(u.digest, u.reviewerKey, u.reviewerSignature)
+    if (!v.valid) findings.push({ ...id, problem: `unblock ${u.id}: ${v.reason}` })
+    if (u.reviewerKey === u.requesterKey || u.reviewerSession === u.requestedBySession) findings.push({ ...id, problem: `unblock ${u.id}: requester and reviewer are the same principal` })
   }
   // an open reservation sum above the current total is only legal after a reduction (no retroactivity); report it, do not fail on it.
   return findings

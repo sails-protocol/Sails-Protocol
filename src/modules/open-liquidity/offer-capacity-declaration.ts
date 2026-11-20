@@ -88,3 +88,22 @@ export function verifyOfferCapacity(d: SignedOfferCapacityDeclaration, expectedN
   try { ok = nacl.sign.detached.verify(new Uint8Array(hashOfferCapacity(d)), sig, key) } catch { return { valid: false, reason: 'malformed signature or public key encoding' } }
   return ok ? { valid: true } : { valid: false, reason: "signature does not verify against the declaration's own ownerPublicKey" }
 }
+
+// --- Reorg-unblock decision (decision A, CTO 048): the reviewer's Ed25519 signature over the request digest the DATABASE computed. ---
+export const OFFER_CAPACITY_UNBLOCK_DOMAIN_TAG = 'sails-offer-capacity-unblock-decision-v1'
+
+/** The bytes the reviewer signs: sha256(domain \x1f requestDigest). Bound to the exact request (identity, block instant, evidence, requester). */
+export function hashUnblockDecision(requestDigestHex: string): Buffer {
+  return createHash('sha256').update([OFFER_CAPACITY_UNBLOCK_DOMAIN_TAG, requestDigestHex].join(FIELD_SEPARATOR), 'utf8').digest()
+}
+export function signUnblockDecision(requestDigestHex: string, reviewerSecretKeyHex: string): string {
+  return Buffer.from(nacl.sign.detached(new Uint8Array(hashUnblockDecision(requestDigestHex)), new Uint8Array(Buffer.from(reviewerSecretKeyHex, 'hex')))).toString('hex')
+}
+export function verifyUnblockDecision(requestDigestHex: string, reviewerPublicKeyHex: string, signatureHex: string): CapacityVerdict {
+  if (!HEX_64.test(requestDigestHex) || !HEX_64.test(reviewerPublicKeyHex) || !HEX_128.test(signatureHex)) return { valid: false, reason: 'digest/key (64 hex) and signature (128 hex) required' }
+  const sig = new Uint8Array(Buffer.from(signatureHex, 'hex')), key = new Uint8Array(Buffer.from(reviewerPublicKeyHex, 'hex'))
+  if (!isCanonicalEd25519Encoding(sig, key)) return { valid: false, reason: 'signature or public key is not canonically encoded' }
+  let ok = false
+  try { ok = nacl.sign.detached.verify(new Uint8Array(hashUnblockDecision(requestDigestHex)), sig, key) } catch { return { valid: false, reason: 'malformed signature or public key encoding' } }
+  return ok ? { valid: true } : { valid: false, reason: 'the reviewer signature does not verify over the request digest' }
+}

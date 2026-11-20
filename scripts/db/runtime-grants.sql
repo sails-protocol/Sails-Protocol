@@ -75,8 +75,9 @@ BEGIN
     ('custody_attestations', 'append'), -- + UPDATE (supersededAt) only, see runtime_column_update
     ('intent_events', 'append'),        -- + UPDATE (publishedAt) only: hash-chained history, publication marker
     ('deployment_mode', 'read'),        -- F4 gate 3: environment marker; the runtime may only READ it (the MOCK exemption of the escrow trigger depends on it)
-    ('offer_capacity', 'append'),       -- M-1b: + UPDATE of the declaration columns and the block-SET columns only (trigger guards the rest)
+    ('offer_capacity', 'append'),       -- M-1b: + UPDATE of the declaration columns only; the BLOCK columns are written solely by the SECURITY DEFINER evidence trigger and the reviewer function
     ('offer_capacity_reservations', 'read'), -- M-1b: the runtime only READS reservations; the reservation is written by the SECURITY DEFINER COMMITTED trigger function (GK B4), released by the slice-3 path
+    ('offer_capacity_unblock_requests', 'read'), -- M-1b: append-only trail written ONLY by the SECURITY DEFINER request/execute functions
     ('commitment_pairs', 'append'),     -- E25/E26 F3: + UPDATE of the signing/withdraw columns only; the pair itself is immutable (trigger)
     -- mutable state (write-once columns are still guarded by triggers)
     ('users', 'mutable'),
@@ -114,7 +115,6 @@ BEGIN
     -- signatures and its stamp once (NULL -> value), plus the state; the trigger refuses everything else.
     ('offer_capacity', 'capacityTotal'), ('offer_capacity', 'capacityRevision'), ('offer_capacity', 'declaredAt'),
     ('offer_capacity', 'declaration'), ('offer_capacity', 'declarationSignature'), ('offer_capacity', 'updatedAt'),
-    ('offer_capacity', 'blockedAt'), ('offer_capacity', 'blockReason'), ('offer_capacity', 'blockEvidence'),
     ('commitment_pairs', 'state'),
     ('commitment_pairs', 'committedAnchorRef'),
     ('commitment_pairs', 'makerTradeSig'),
