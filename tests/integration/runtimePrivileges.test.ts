@@ -175,23 +175,35 @@ describe('CTO 225 - runtime role cannot bypass write-once guarantees (disposable
     expect(mismatches).toEqual([])
     const { rows: [{ migrations }] } = await admin.query(`SELECT has_table_privilege('sails_runtime', 'public._prisma_migrations', 'SELECT') AS migrations`)
     expect(migrations).toBe(false)
-    // The only column-level grant: custody_attestations."supersededAt" (one-time NULL -> timestamp, trigger-guarded).
+    // The column-level grants: one-time NULL -> value columns the triggers guard (custody_attestations, intent_events),
+    // and the E25/E26 F3 signing/state columns of commitment_pairs (the pair itself is immutable by trigger).
     const { rows: writes } = await admin.query(
       `SELECT table_name, column_name, privilege_type FROM information_schema.column_privileges
         WHERE grantee = 'sails_runtime' AND table_schema = 'public' AND privilege_type IN ('UPDATE', 'DELETE', 'TRUNCATE')`)
     const columnGrants = writes.filter((w) => !CLASS_PRIVILEGES[classes.get(w.table_name)!].includes(w.privilege_type))
-    expect(columnGrants.sort((a, b) => a.table_name.localeCompare(b.table_name))).toEqual([
-      { table_name: 'custody_attestations', column_name: 'supersededAt', privilege_type: 'UPDATE' },
-      { table_name: 'intent_events', column_name: 'publishedAt', privilege_type: 'UPDATE' },
-    ])
+    // Order-independent: information_schema has no order and ORDER BY on mixed-case names depends on the collation.
+    const byName = (r: { table_name: string; column_name: string }) => `${r.table_name}.${r.column_name}`
+    const sorted = <T extends { table_name: string; column_name: string }>(rows: T[]) => [...rows].sort((a, b) => (byName(a) < byName(b) ? -1 : byName(a) > byName(b) ? 1 : 0))
+    const COLUMN_UPDATES = [
+      { table_name: 'custody_attestations', column_name: 'supersededAt' },
+      { table_name: 'intent_events', column_name: 'publishedAt' },
+      { table_name: 'commitment_pairs', column_name: 'state' },
+      { table_name: 'commitment_pairs', column_name: 'committedAnchorRef' },
+      { table_name: 'commitment_pairs', column_name: 'makerTradeSig' },
+      { table_name: 'commitment_pairs', column_name: 'makerArbitrationSig' },
+      { table_name: 'commitment_pairs', column_name: 'makerReceivedAt' },
+      { table_name: 'commitment_pairs', column_name: 'takerTradeSig' },
+      { table_name: 'commitment_pairs', column_name: 'takerArbitrationSig' },
+      { table_name: 'commitment_pairs', column_name: 'takerReceivedAt' },
+      { table_name: 'commitment_pairs', column_name: 'withdrawnBy' },
+      { table_name: 'commitment_pairs', column_name: 'withdrawProof' },
+    ]
+    expect(sorted(columnGrants)).toEqual(sorted(COLUMN_UPDATES.map((c) => ({ ...c, privilege_type: 'UPDATE' }))))
     // The one inventory the boot check reads (N1) is exactly the applied classification.
     const { rows: recorded } = await admin.query('SELECT table_name, class FROM sails_meta.runtime_table_class ORDER BY 1')
     expect(recorded).toEqual([...classes].sort(([a], [b]) => (a < b ? -1 : 1)).map(([table_name, cls]) => ({ table_name, class: cls })))
-    const { rows: recordedColumns } = await admin.query('SELECT table_name, column_name FROM sails_meta.runtime_column_update ORDER BY 1, 2')
-    expect(recordedColumns).toEqual([
-      { table_name: 'custody_attestations', column_name: 'supersededAt' },
-      { table_name: 'intent_events', column_name: 'publishedAt' },
-    ])
+    const { rows: recordedColumns } = await admin.query('SELECT table_name, column_name FROM sails_meta.runtime_column_update')
+    expect(sorted(recordedColumns)).toEqual(sorted(COLUMN_UPDATES))
   })
 
   it('N4: the runtime can read but never modify the sails_meta inventory, and the boot check refuses any grant that would let it', async () => {
