@@ -23,7 +23,9 @@ const WAITING = 'Aguardando a contraparte'
 
 // `releaseUnavailable`: the escrow type needs a signing round this interface cannot sign
 // (LIGHTNING_HODL / SAFE_GUARD_EVM), so no release is offered — it would dead-end.
-export function deriveCurrentAction({ status, isBuyer, isSeller, releaseUnavailable = false }: { status: EscrowStatus; isBuyer: boolean; isSeller: boolean; releaseUnavailable?: boolean }): CurrentAction {
+// `signingUnavailable`: a release signing round exists but this interface cannot offer the signature
+// (MULTISIG_SIGNING_HOLD, unverified terms): never ask the seller to "Liberar" next to a blocked round.
+export function deriveCurrentAction({ status, isBuyer, isSeller, releaseUnavailable = false, signingUnavailable = false }: { status: EscrowStatus; isBuyer: boolean; isSeller: boolean; releaseUnavailable?: boolean; signingUnavailable?: boolean }): CurrentAction {
   const canDispute = (isBuyer || isSeller) && status !== 'COMPLETED' && status !== 'DISPUTED' && status !== 'REFUNDED'
   const party = isBuyer || isSeller
 
@@ -37,6 +39,9 @@ export function deriveCurrentAction({ status, isBuyer, isSeller, releaseUnavaila
         ? { tone: 'action', actorLabel: 'Ação necessária — comprador', title: 'Marcar o pagamento como enviado', description: 'Avisa o vendedor de que você enviou o pagamento. Não libera os fundos — isso só acontece quando o vendedor liberar. Toque só depois de concluir a transferência no app do seu banco.', primary: { action: 'markPaymentSent', label: 'Marcar pagamento enviado' }, canDispute }
         : { tone: 'waiting', actorLabel: party ? WAITING : 'Acompanhamento', title: 'Aguardando o comprador marcar o pagamento como enviado', description: 'O servidor registrou o bloqueio dos fundos.', canDispute }
     case 'PAYMENT_PENDING':
+      if (party && signingUnavailable) {
+        return { tone: 'attention', actorLabel: isSeller ? 'Vendedor' : 'Comprador', title: 'Assinatura da liberação indisponível nesta interface', description: 'A rodada de assinaturas da liberação está aberta, mas esta interface não oferece a assinatura agora. Os detalhes estão na rodada abaixo.', canDispute }
+      }
       if (isSeller && releaseUnavailable) {
         return { tone: 'attention', actorLabel: 'Vendedor', title: 'Liberação indisponível nesta interface para este tipo de escrow', description: 'Esta interface ainda não confere os termos da transação deste tipo de escrow antes de assinar, por isso não inicia a liberação.', canDispute }
       }

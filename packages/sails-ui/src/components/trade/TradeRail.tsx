@@ -8,7 +8,7 @@
  */
 import { useId, useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
-import type { StatusTone, TradeStep } from '../../lib/tradeState'
+import type { Baton as BatonView, StatusTone, TradeStep } from '../../lib/tradeState'
 import { formatDateTime } from '../../lib/format'
 import { TONE_CLASS } from '../../lib/tone'
 import { cn } from '../../lib/utils'
@@ -22,14 +22,18 @@ const shortId = (v: string) => (v.length > 20 ? `${v.slice(0, 8)}…${v.slice(-6
 interface Props {
   steps: TradeStep[]
   status: { label: string; tone: StatusTone }
-  /** Bastão text for the current stage ("Sua vez", "Com o árbitro"); null shows no marker. */
-  baton: string | null
+  /** Bastão for the current stage ("Sua vez", "Com o árbitro"); null shows no marker. Neutral tone = a wait the viewer cannot act on here. */
+  baton: BatonView | null
   /** Accessible title of the rail. */
   title?: string
 }
 
-function Baton({ text }: { text: string }) {
-  return <span className="inline-flex w-fit items-center rounded-full bg-primary px-2.5 py-0.5 text-xs font-medium text-primary-foreground">{text}</span>
+function Baton({ baton }: { baton: BatonView }) {
+  return (
+    <span className={cn('inline-flex w-fit items-center rounded-full px-2.5 py-0.5 text-xs font-medium', baton.tone === 'brand' ? 'bg-primary text-primary-foreground' : cn('border', TONE_CLASS.neutral))}>
+      {baton.text}
+    </span>
+  )
 }
 
 export function TradeRail({ steps, status, baton, title = 'Andamento do trade' }: Props) {
@@ -46,7 +50,7 @@ export function TradeRail({ steps, status, baton, title = 'Andamento do trade' }
         <span role="status" className={cn('inline-flex w-fit items-center rounded-full border px-2.5 py-0.5 text-xs font-medium', TONE_CLASS[status.tone])}>
           {status.label}
         </span>
-        {baton && <span className="lg:hidden"><Baton text={baton} /></span>}
+        {baton && <span className="lg:hidden"><Baton baton={baton} /></span>}
         <Button
           variant="ghost"
           size="sm"
@@ -110,7 +114,7 @@ export function TradeRail({ steps, status, baton, title = 'Andamento do trade' }
                     {e.label}: <span translate={e.mono ? 'no' : undefined} className={cn('text-brand-text', e.mono && 'font-mono')}>{e.mono ? shortId(e.value) : e.value}</span>
                   </p>
                 ))}
-                {s.state === 'current' && baton && <span className="hidden lg:block"><Baton text={baton} /></span>}
+                {s.state === 'current' && baton && <span className="hidden lg:block"><Baton baton={baton} /></span>}
               </div>
             </li>
           )

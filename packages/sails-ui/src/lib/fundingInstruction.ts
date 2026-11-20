@@ -115,7 +115,7 @@ export function deriveFundingInstruction(i: { escrow: FundingEscrow; isBuyer: bo
 export function deriveFundingRecordRows(e: FundingEscrow): FundingFact[] {
   if (e.type !== 'MULTISIG' || !e.txLockId) return []
   return [
-    { label: 'Transação registrada pelo servidor', value: e.txLockId, mono: true, copy: e.txLockId },
+    { label: 'Depósito registrado pelo servidor', value: e.txLockId, mono: true, copy: e.txLockId },
     ...(e.txLockVout !== null && e.txLockVout !== undefined ? [{ label: 'Saída registrada (vout)', value: String(e.txLockVout), mono: true }] : []),
     // The provider writes the explorer's sats value here while other readers treat the column as BTC; never guess the unit.
     // fundedAmount is not shown: its unit is inconsistent in the backend (provider writes sats,

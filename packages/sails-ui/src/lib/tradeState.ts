@@ -35,6 +35,8 @@ export interface TradeStep {
   tone?: 'danger' | 'warning'
   /** Only on the current stage, and only when the records say who acts. */
   actors?: StepActor[]
+  /** The current stage's action cannot be done in this interface (signing not offered, release unavailable for this escrow type). */
+  blocked?: 'signing' | 'release'
   evidence?: StepEvidence[]
 }
 
@@ -80,7 +82,11 @@ export interface TradeStateInput {
   /** Escrow.txReleaseId: the payout transaction id the server recorded. */
   txReleaseId?: string | null
   round?: RoundSigners | null
-  dispute?: { status: DisputeStatus; arbiterId: string | null } | null
+  /** This interface cannot sign the pending round for anyone (not verified: MULTISIG_SIGNING_HOLD, mismatch, unsupported type; or disputed). */
+  signingUnavailable?: boolean
+  dispute?: { status: DisputeStatus; arbiterId: string | null; autoResolutionDeadline?: string | null } | null
+  /** Clock for deadline checks (ms); defaults to Date.now(). */
+  now?: number
 }
 
 export interface TradeState {
@@ -111,6 +117,23 @@ export const ESCROW_STATE_LABEL: Record<EscrowStatus, string> = {
   EXPIRED: 'Prazo do escrow encerrado',
 }
 const NO_ESCROW_LABEL = 'Escrow ainda não criado'
+
+/** Escrow.txReleaseId: the payout (release/refund/split) transaction the server recorded. Distinct from the deposit (txLockId). */
+export const PAYOUT_TX_LABEL = 'Transação de pagamento registrada pelo servidor'
+
+/**
+ * Escrow.custodyModel, as the server's providers declare it (getCustodyModelForType():
+ * multisig/lightning-hodl/safe-guard-evm/wdk-settlement providers), in plain words. Any
+ * other value or null is shown as not declared: never guessed as custodial or not.
+ */
+export const CUSTODY_MODEL_LABEL: Record<string, string> = {
+  'client-held-buyer-seller-keys-server-held-arbiter': 'Comprador e vendedor guardam as próprias chaves; a chave de árbitro fica com o servidor',
+  'client-held-buyer-seller-keys-server-held-kms-arbiter': 'Comprador e vendedor guardam as próprias chaves; a chave de árbitro fica com o servidor, num serviço de gestão de chaves (KMS)',
+  'server-custodial-reference-implementation': 'Custódia do servidor (implementação de referência)',
+}
+export function custodyModelLabel(model: string | null | undefined): string {
+  return (model && Object.prototype.hasOwnProperty.call(CUSTODY_MODEL_LABEL, model) ? CUSTODY_MODEL_LABEL[model] : null) ?? 'Não declarado pelo provedor'
+}
 const CANCELLED_LABEL = 'Trade cancelado'
 
 const ACTIVE_ESCROW = new Set<EscrowStatus>(['CREATED', 'FUNDS_LOCKED', 'PAYMENT_PENDING'])
@@ -162,21 +185,29 @@ function pendingSigners(i: TradeStateInput, r: RoundSigners): StepActor[] {
   return [...new Set(roles)]
 }
 
-// Who the current stage waits on. Gating mirrors currentAction.ts (seller creates/locks/releases, buyer marks payment).
-function currentActors(i: TradeStateInput, cancelled: boolean): StepActor[] {
+// Who the current stage waits on, and whether this interface can do that action.
+// Gating mirrors currentAction.ts (seller creates/locks/releases, buyer marks payment).
+function currentActors(i: TradeStateInput, cancelled: boolean, current: TradeStep['id']): { actors: StepActor[]; blocked?: TradeStep['blocked'] } {
   const s = i.escrowStatus
-  if (cancelled) return []
-  // A round in flight waits on its missing signatures, whatever the escrow status.
-  if (i.signingRoundKind && i.round && s && s !== 'COMPLETED' && s !== 'REFUNDED' && s !== 'SPLIT') return pendingSigners(i, i.round)
-  if (!s || s === 'CREATED' || s === 'PAYMENT_PENDING') return ['seller']
-  if (s === 'FUNDS_LOCKED') return ['buyer']
+  if (cancelled) return { actors: [] }
+  // A round waits on its missing signatures only where the rail shows it: the signatures stage or a disputed/expired outcome.
+  if (i.signingRoundKind && i.round && (current === 'signatures' || current === 'outcome')) {
+    return { actors: pendingSigners(i, i.round), ...(i.signingUnavailable ? { blocked: 'signing' as const } : {}) }
+  }
+  if (!s || s === 'CREATED') return { actors: ['seller'] }
+  if (s === 'PAYMENT_PENDING') return { actors: ['seller'], ...(i.releaseUnavailable ? { blocked: 'release' as const } : {}) }
+  if (s === 'FUNDS_LOCKED') return { actors: ['buyer'] }
   if (s === 'DISPUTED') {
     const d = i.dispute
-    if (!d || d.status === 'RESOLVED') return [] // a recorded ruling being executed: who acts next is not exposed
-    if (d.status === 'AUTO_PROPOSED') return ['parties']
-    return d.arbiterId ? ['arbiter'] : []
+    if (!d || d.status === 'RESOLVED') return { actors: [] } // a recorded ruling being executed: who acts next is not exposed
+    if (d.status === 'AUTO_PROPOSED') {
+      // Contesting is open only until the suggestion's deadline; after it (or without one) nobody is named.
+      const deadline = d.autoResolutionDeadline ? Date.parse(d.autoResolutionDeadline) : NaN
+      return { actors: Number.isFinite(deadline) && deadline > (i.now ?? Date.now()) ? ['parties'] : [] }
+    }
+    return { actors: d.arbiterId ? ['arbiter'] : [] }
   }
-  return [] // EXPIRED (no recovery action in this interface) and terminal statuses
+  return { actors: [] } // EXPIRED (no recovery action in this interface) and terminal statuses
 }
 
 function steps(i: TradeStateInput, cancelled: boolean, locked: boolean): TradeStep[] {
@@ -187,17 +218,18 @@ function steps(i: TradeStateInput, cancelled: boolean, locked: boolean): TradeSt
   // MULTISIG only: the seller deposits to the escrow address before the lock is recorded. Done = the lock recorded the outpoint.
   const outpoint = i.txLockId ? (i.txLockVout !== null && i.txLockVout !== undefined ? `${i.txLockId}:${i.txLockVout}` : i.txLockId) : null
   const deposit: TradeStep[] = s && i.escrowType === 'MULTISIG'
-    ? [{ id: 'deposit', label: 'Depósito no endereço do escrow', state: locked ? 'done' : 'upcoming', ...(outpoint ? { evidence: [{ label: 'Depósito registrado', value: outpoint, mono: true }] } : {}) }]
+    ? [{ id: 'deposit', label: 'Depósito registrado no endereço do escrow', state: locked ? 'done' : 'upcoming', ...(outpoint ? { evidence: [{ label: 'Saída registrada', value: outpoint, mono: true }] } : {}) }]
     : []
   const lockedStep: TradeStep = { id: 'locked', label: L.FUNDS_LOCKED, state: locked ? 'done' : 'upcoming', at: i.lockedAt }
   // Recorded by the server, never "confirmed": no confirmation depth is exposed.
   const transaction: TradeStep[] = i.txReleaseId
-    ? [{ id: 'transaction', label: 'Transação registrada pelo servidor', state: 'done', evidence: [{ label: 'ID da transação', value: i.txReleaseId, mono: true }] }]
+    ? [{ id: 'transaction', label: PAYOUT_TX_LABEL, state: 'done', evidence: [{ label: 'ID da transação', value: i.txReleaseId, mono: true }] }]
     : []
   const withActors = (list: TradeStep[]) => {
     const cur = list.find((x) => x.state === 'current')
-    const actors = currentActors(i, cancelled)
-    if (cur && actors.length) cur.actors = actors
+    if (!cur) return list
+    const { actors, blocked } = currentActors(i, cancelled, cur.id)
+    if (actors.length) Object.assign(cur, { actors }, blocked ? { blocked } : {})
     return list
   }
 
@@ -237,24 +269,40 @@ function steps(i: TradeStateInput, cancelled: boolean, locked: boolean): TradeSt
   return withActors(list)
 }
 
+export interface Baton {
+  text: string
+  /** 'brand' only when the named party can act in this interface; otherwise a neutral wait. */
+  tone: 'brand' | 'neutral'
+}
+
 /**
- * The bastão text for the current stage, from the viewer's side. null when the
- * records do not say who acts (no marker is shown then).
+ * The bastão for the current stage, from the viewer's side. null when the
+ * records do not say who acts (no marker is shown then). When this interface
+ * cannot do the stage's action (`step.blocked`), it never says "Sua vez" and
+ * never implies the other party can act here: it states a wait, in neutral.
  */
-export function batonLabel(actors: StepActor[] | undefined, viewer: 'buyer' | 'seller' | null, names: { buyer?: string | null; seller?: string | null } = {}): string | null {
+export function batonLabel(step: Pick<TradeStep, 'actors' | 'blocked'> | undefined, viewer: 'buyer' | 'seller' | null, names: { buyer?: string | null; seller?: string | null } = {}): Baton | null {
+  const actors = step?.actors
   if (!actors?.length) return null
-  if (viewer && actors.includes(viewer)) return 'Sua vez'
+  const blocked = step?.blocked
+  if (viewer && actors.includes(viewer)) {
+    if (!blocked) return { text: 'Sua vez', tone: 'brand' }
+    return { text: blocked === 'signing' ? 'Aguardando sua assinatura — indisponível nesta interface' : 'Aguardando sua liberação — indisponível nesta interface', tone: 'neutral' }
+  }
+  const tone = blocked ? 'neutral' : 'brand'
   if (actors.length === 1) {
     const a = actors[0]
-    if (a === 'arbiter') return 'Com o árbitro'
-    if (a === 'parties') return 'Partes podem contestar'
-    if (a === 'unknown') return 'Vez de participante não identificado'
+    if (a === 'arbiter') return { text: 'Com o árbitro', tone }
+    if (a === 'parties') return { text: 'Partes podem contestar até o prazo', tone }
+    if (a === 'unknown') return { text: blocked ? 'Aguardando participante não identificado' : 'Vez de participante não identificado', tone }
     const role = a === 'buyer' ? 'comprador' : 'vendedor'
     const name = names[a]
-    return name ? `Vez de ${name} (${role})` : `Vez do ${role}`
+    if (blocked) return { text: name ? `Aguardando ${name} (${role})` : `Aguardando o ${role}`, tone }
+    return { text: name ? `Vez de ${name} (${role})` : `Vez do ${role}`, tone }
   }
-  const known = actors.filter((a): a is 'buyer' | 'seller' => a === 'buyer' || a === 'seller')
-  return known.length === actors.length ? 'Vez do comprador e do vendedor' : 'Vez de mais de um participante'
+  const both = actors.every((a) => a === 'buyer' || a === 'seller')
+  if (blocked) return { text: both ? 'Aguardando o comprador e o vendedor' : 'Aguardando mais de um participante', tone }
+  return { text: both ? 'Vez do comprador e do vendedor' : 'Vez de mais de um participante', tone }
 }
 
 function action(i: TradeStateInput, cancelled: boolean): CurrentAction {
@@ -266,7 +314,7 @@ function action(i: TradeStateInput, cancelled: boolean): CurrentAction {
       ? { tone: 'action', actorLabel: 'Ação necessária — vendedor', title: 'Criar o escrow deste trade', description: 'Registra o escrow do trade no servidor. Não move fundos: depois você deposita e registra o bloqueio dos fundos.', primary: { action: 'createEscrow', label: 'Criar escrow' }, canDispute: false }
       : { tone: 'waiting', actorLabel: i.isBuyer ? 'Aguardando a contraparte' : 'Acompanhamento', title: 'Aguardando o vendedor criar o escrow', description: 'Não envie nenhum pagamento antes de os fundos estarem bloqueados no escrow.', canDispute: false }
   }
-  const view = deriveCurrentAction({ status: i.escrowStatus, isBuyer: i.isBuyer, isSeller: i.isSeller, releaseUnavailable: i.releaseUnavailable })
+  const view = deriveCurrentAction({ status: i.escrowStatus, isBuyer: i.isBuyer, isSeller: i.isSeller, releaseUnavailable: i.releaseUnavailable, signingUnavailable: i.signingUnavailable })
   // A resolved dispute can still be appealed (TradeDisputePanel): never say nothing is left to do next to that button.
   if (view.tone === 'terminal' && i.appealAvailable) {
     return { ...view, actorLabel: 'Disputa resolvida', description: 'A única ação ainda disponível neste trade é apelar da decisão da disputa, na seção da disputa.' }

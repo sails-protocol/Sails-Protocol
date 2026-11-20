@@ -9,7 +9,7 @@
  * rendered to a person changes.
  */
 import type { AssetType, PaymentMethod } from '../types'
-import type { DisputeRuling, DisputeStatus } from '@satsails/p2p-trading-sdk'
+import type { DisputeRuling, DisputeStatus, EscrowType } from '@satsails/p2p-trading-sdk'
 
 // VERTICAL-SLICE-1 (2026-09-12) — BTC was the one Bitcoin-family label
 // with no rail qualifier (every sibling below already has one), leaving
@@ -132,4 +132,14 @@ export const DISPUTE_STATUS_LABEL: Record<DisputeStatus, string> = {
   RESOLVED: 'Resolvida',
   APPEALED: 'Em apelação',
   AUTO_PROPOSED: 'Resolução automática proposta',
+}
+
+/** Escrow.type in words (the settlement rail of the escrow); the code stays the stored value. */
+export const ESCROW_TYPE_LABEL: Record<EscrowType, string> = {
+  MULTISIG: 'Multisig Bitcoin',
+  LIGHTNING_HODL: 'Lightning HODL',
+  LIQUID_COVENANT: 'Covenant na Liquid',
+  WDK_USDT_EVM: 'USDT em rede EVM (WDK)',
+  SAFE_GUARD_EVM: 'Safe com Guard (EVM)',
+  MOCK: 'Simulado (sem provedor real)',
 }

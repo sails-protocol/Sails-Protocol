@@ -37,6 +37,7 @@ export function TradeParties({
       <Card aria-label="Partes do trade" className="px-4 py-1.5 divide-y divide-brand-border-subtle">
         <PartyRow user={buyer} role="Comprador" isYou={false} online={null} />
         <PartyRow user={seller} role="Vendedor" isYou={false} online={null} />
+        {children && <div className="py-2.5">{children}</div>}
       </Card>
     )
   }

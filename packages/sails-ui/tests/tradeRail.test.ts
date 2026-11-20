@@ -1,4 +1,4 @@
-import { batonLabel, deriveTradeState, type TradeStateInput } from '../src/lib/tradeState'
+import { batonLabel, custodyModelLabel, deriveTradeState, PAYOUT_TX_LABEL, type StepActor, type TradeStateInput } from '../src/lib/tradeState'
 import type { EscrowStatus, TradeStatus } from '../src/types'
 
 // Trade rail (trade workspace L4): stages and the bastão come only from record fields.
@@ -18,6 +18,8 @@ function input(escrowStatus: EscrowStatus | null, patch: Partial<TradeStateInput
 }
 const ids = (i: TradeStateInput) => deriveTradeState(i).steps.map((s) => s.id)
 const current = (i: TradeStateInput) => deriveTradeState(i).steps.find((s) => s.state === 'current')
+const NOW = Date.parse('2026-11-20T12:00:00.000Z')
+const FUTURE = '2026-11-21T12:00:00.000Z', PAST = '2026-11-19T12:00:00.000Z'
 const round = (signed: string[]) => ({ requiredSigners: [S, B], signedBy: signed.map((participantId) => ({ participantId, submittedAt: '2026-11-02T00:00:00.000Z' })) })
 
 describe('trade rail stages', () => {
@@ -27,7 +29,7 @@ describe('trade rail stages', () => {
     expect(ids(created)).toEqual(['opened', 'escrow', 'deposit', 'locked', 'paymentSent', 'completed'])
     expect(current(created)?.id).toBe('deposit')
     const locked = deriveTradeState(input('FUNDS_LOCKED', { escrowType: 'MULTISIG', txLockId: 'abc', txLockVout: 1 })).steps.find((s) => s.id === 'deposit')
-    expect(locked).toMatchObject({ state: 'done', evidence: [{ label: 'Depósito registrado', value: 'abc:1', mono: true }] })
+    expect(locked).toMatchObject({ state: 'done', evidence: [{ label: 'Saída registrada', value: 'abc:1', mono: true }] })
     // No outpoint recorded: no evidence invented.
     expect(deriveTradeState(input('FUNDS_LOCKED', { escrowType: 'MULTISIG' })).steps.find((s) => s.id === 'deposit')?.evidence).toBeUndefined()
   })
@@ -50,7 +52,8 @@ describe('trade rail stages', () => {
     expect(ids(input('COMPLETED'))).not.toContain('transaction')
     const done = deriveTradeState(input('COMPLETED', { txReleaseId: 'tx-1' })).steps
     expect(done.map((s) => s.id).slice(-2)).toEqual(['completed', 'transaction'])
-    expect(done[done.length - 1]).toMatchObject({ state: 'done', label: 'Transação registrada pelo servidor', evidence: [{ value: 'tx-1' }] })
+    expect(done[done.length - 1]).toMatchObject({ state: 'done', label: 'Transação de pagamento registrada pelo servidor', evidence: [{ value: 'tx-1' }] })
+    expect(PAYOUT_TX_LABEL).toBe('Transação de pagamento registrada pelo servidor')
     expect(done[done.length - 1].label).not.toMatch(/confirmad|liquidad|finaliz/i)
     // Refund/split payouts carry the same field, after their outcome.
     expect(ids(input('REFUNDED', { txReleaseId: 'tx-2' })).slice(-2)).toEqual(['outcome', 'transaction'])
@@ -88,7 +91,7 @@ describe('trade rail actor (bastão)', () => {
   })
 
   it('in a dispute: the arbiter while it decides, the parties while a suggestion can be contested, nobody when unknown', () => {
-    const disputed = (status: 'OPENED' | 'EVIDENCE_SUBMITTED' | 'AUTO_PROPOSED' | 'RESOLVED' | 'APPEALED', arbiterId: string | null = ARB) => current(input('DISPUTED', { dispute: { status, arbiterId } }))?.actors
+    const disputed = (status: 'OPENED' | 'EVIDENCE_SUBMITTED' | 'AUTO_PROPOSED' | 'RESOLVED' | 'APPEALED', arbiterId: string | null = ARB) => current(input('DISPUTED', { now: NOW, dispute: { status, arbiterId, autoResolutionDeadline: FUTURE } }))?.actors
     expect(disputed('OPENED')).toEqual(['arbiter'])
     expect(disputed('EVIDENCE_SUBMITTED')).toEqual(['arbiter'])
     expect(disputed('APPEALED')).toEqual(['arbiter'])
@@ -114,17 +117,77 @@ describe('trade rail actor (bastão)', () => {
   })
 
   it('labels the bastão from the viewer side without inventing names', () => {
-    expect(batonLabel(undefined, 'buyer')).toBeNull()
-    expect(batonLabel([], 'buyer')).toBeNull()
-    expect(batonLabel(['buyer'], 'buyer')).toBe('Sua vez')
-    expect(batonLabel(['seller', 'buyer'], 'buyer')).toBe('Sua vez')
-    expect(batonLabel(['seller'], 'buyer', { seller: 'Bob' })).toBe('Vez de Bob (vendedor)')
-    expect(batonLabel(['seller'], 'buyer', { seller: null })).toBe('Vez do vendedor')
-    expect(batonLabel(['buyer'], null, { buyer: 'Erin' })).toBe('Vez de Erin (comprador)')
-    expect(batonLabel(['arbiter'], 'seller')).toBe('Com o árbitro')
-    expect(batonLabel(['parties'], 'seller')).toBe('Partes podem contestar')
-    expect(batonLabel(['unknown'], 'seller')).toBe('Vez de participante não identificado')
-    expect(batonLabel(['seller', 'buyer'], null)).toBe('Vez do comprador e do vendedor')
-    expect(batonLabel(['arbiter', 'seller'], 'buyer')).toBe('Vez de mais de um participante')
+    const t = (actors: StepActor[] | undefined, viewer: 'buyer' | 'seller' | null, names = {}) => batonLabel(actors ? { actors } : undefined, viewer, names)
+    expect(t(undefined, 'buyer')).toBeNull()
+    expect(t([], 'buyer')).toBeNull()
+    expect(t(['buyer'], 'buyer')).toEqual({ text: 'Sua vez', tone: 'brand' })
+    expect(t(['seller', 'buyer'], 'buyer')?.text).toBe('Sua vez')
+    expect(t(['seller'], 'buyer', { seller: 'Bob' })?.text).toBe('Vez de Bob (vendedor)')
+    expect(t(['seller'], 'buyer', { seller: null })?.text).toBe('Vez do vendedor')
+    expect(t(['buyer'], null, { buyer: 'Erin' })?.text).toBe('Vez de Erin (comprador)')
+    expect(t(['arbiter'], 'seller')?.text).toBe('Com o árbitro')
+    expect(t(['parties'], 'seller')?.text).toBe('Partes podem contestar até o prazo')
+    expect(t(['unknown'], 'seller')?.text).toBe('Vez de participante não identificado')
+    expect(t(['seller', 'buyer'], null)?.text).toBe('Vez do comprador e do vendedor')
+    expect(t(['arbiter', 'seller'], 'buyer')?.text).toBe('Vez de mais de um participante')
+  })
+})
+
+describe('trade rail: actions this interface cannot do (truth audit fixes)', () => {
+  const holdRound = (patch: Partial<TradeStateInput> = {}) => input('PAYMENT_PENDING', { isBuyer: false, isSeller: true, signingRoundKind: 'release', round: round([B]), signingUnavailable: true, ...patch })
+
+  it('never says Sua vez for a signing round this interface cannot sign (HOLD, mismatch, unsupported, disputed)', () => {
+    const step = current(holdRound())
+    expect(step).toMatchObject({ id: 'signatures', actors: ['seller'], blocked: 'signing' })
+    expect(batonLabel(step, 'seller')).toEqual({ text: 'Aguardando sua assinatura — indisponível nesta interface', tone: 'neutral' })
+    // The other side is a plain wait, not "Vez de", and neutral.
+    expect(batonLabel(step, 'buyer', { seller: 'Erin' })).toEqual({ text: 'Aguardando Erin (vendedor)', tone: 'neutral' })
+    // A signable round keeps the brand baton.
+    const ok = current(holdRound({ signingUnavailable: false }))
+    expect(ok?.blocked).toBeUndefined()
+    expect(batonLabel(ok, 'seller')).toEqual({ text: 'Sua vez', tone: 'brand' })
+  })
+
+  it('a ruling round on a disputed escrow is blocked when signing is unavailable', () => {
+    const step = current(input('DISPUTED', { signingRoundKind: 'refund', signingUnavailable: true, dispute: { status: 'RESOLVED', arbiterId: ARB }, round: { requiredSigners: [S], signedBy: [] } }))
+    expect(step).toMatchObject({ id: 'outcome', actors: ['seller'], blocked: 'signing' })
+    expect(batonLabel(step, 'buyer')).toEqual({ text: 'Aguardando o vendedor', tone: 'neutral' })
+  })
+
+  it('never names the seller as able to release when release is unavailable for the escrow type', () => {
+    const step = current(input('PAYMENT_PENDING', { isBuyer: false, isSeller: true, releaseUnavailable: true }))
+    expect(step).toMatchObject({ id: 'completed', actors: ['seller'], blocked: 'release' })
+    expect(batonLabel(step, 'seller')).toEqual({ text: 'Aguardando sua liberação — indisponível nesta interface', tone: 'neutral' })
+    expect(batonLabel(step, 'buyer', { seller: 'Bob' })).toEqual({ text: 'Aguardando Bob (vendedor)', tone: 'neutral' })
+    expect(current(input('PAYMENT_PENDING'))?.blocked).toBeUndefined()
+  })
+
+  it('attaches round actors only on the signatures or outcome stage; otherwise the escrow status decides', () => {
+    // A round reported while the escrow is CREATED or FUNDS_LOCKED is not a rail stage there.
+    const created = current(input('CREATED', { signingRoundKind: 'release', round: round([]) }))
+    expect(created).toMatchObject({ id: 'locked', actors: ['seller'] })
+    expect(created?.blocked).toBeUndefined()
+    const locked = current(input('FUNDS_LOCKED', { signingRoundKind: 'release', round: round([]), signingUnavailable: true }))
+    expect(locked).toMatchObject({ id: 'paymentSent', actors: ['buyer'] })
+    expect(locked?.blocked).toBeUndefined()
+  })
+
+  it('AUTO_PROPOSED names the parties only before the deadline', () => {
+    const at = (deadline: string | null) => current(input('DISPUTED', { now: NOW, dispute: { status: 'AUTO_PROPOSED', arbiterId: ARB, autoResolutionDeadline: deadline } }))?.actors
+    expect(at(FUTURE)).toEqual(['parties'])
+    expect(at(PAST)).toBeUndefined()
+    expect(at(null)).toBeUndefined()
+    expect(at('not-a-date')).toBeUndefined()
+  })
+
+  it('labels the deposit stage as recorded at the escrow address', () => {
+    expect(deriveTradeState(input('CREATED', { escrowType: 'MULTISIG' })).steps.find((s) => s.id === 'deposit')?.label).toBe('Depósito registrado no endereço do escrow')
+  })
+
+  it('maps declared custody models to words and anything else to not declared', () => {
+    expect(custodyModelLabel('client-held-buyer-seller-keys-server-held-arbiter')).toBe('Comprador e vendedor guardam as próprias chaves; a chave de árbitro fica com o servidor')
+    expect(custodyModelLabel('server-custodial-reference-implementation')).toMatch(/^Custódia do servidor/)
+    expect(custodyModelLabel('client-held-buyer-seller-keys-server-held-kms-arbiter')).toMatch(/KMS/)
+    for (const v of [null, undefined, '', 'something-new', 'toString']) expect(custodyModelLabel(v)).toBe('Não declarado pelo provedor')
   })
 })

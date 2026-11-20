@@ -64,4 +64,15 @@ describe('current action derivation (CTO 437)', () => {
     expect(v.title).toBe('Liberação indisponível nesta interface para este tipo de escrow')
     expect(v.canDispute).toBe(true)
   })
+
+  it('never offers "Liberar" next to a signing round this interface cannot sign (HOLD)', () => {
+    for (const r of [{ isBuyer: false, isSeller: true }, { isBuyer: true, isSeller: false }]) {
+      const v = deriveCurrentAction({ status: 'PAYMENT_PENDING', ...r, signingUnavailable: true })
+      expect(v.tone).toBe('attention')
+      expect(v.primary).toBeUndefined()
+      expect(v.actorLabel).not.toMatch(/Ação necessária/)
+      expect(v.canDispute).toBe(true)
+    }
+    expect(deriveCurrentAction({ status: 'PAYMENT_PENDING', isBuyer: false, isSeller: true }).primary?.action).toBe('release')
+  })
 })

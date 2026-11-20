@@ -22,7 +22,7 @@ import { PaymentInstructions } from '../components/trade/PaymentInstructions'
 import { PayoutAddressForm } from '../components/trade/PayoutAddressForm'
 import { FundingInstructionCard } from '../components/trade/FundingInstructionCard'
 import { deriveFundingInstruction, deriveFundingRecordRows, lockRefusalMessage } from '../lib/fundingInstruction'
-import { batonLabel, deriveTradeState, ESCROW_STATE_LABEL } from '../lib/tradeState'
+import { batonLabel, custodyModelLabel, deriveTradeState, ESCROW_STATE_LABEL, PAYOUT_TX_LABEL } from '../lib/tradeState'
 import { TradeParties } from '../components/trade/TradeParties'
 import { TradeDisputePanel } from '../components/trade/TradeDisputePanel'
 import { ChatWindow } from '../components/chat/ChatWindow'
@@ -35,7 +35,7 @@ import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
 import { Lock, Banknote, ArrowLeft, ChevronRight, MessageSquare } from 'lucide-react'
 import { formatDateTime, formatUsdExact } from '../lib/format'
 import { detectRiskLocally } from '../lib/socialEngineering'
-import { ASSET_LABELS, ASSET_SHORT_LABELS, DISPUTE_RULING_LABEL, PAYMENT_METHOD_LABELS } from '../lib/labels'
+import { ASSET_LABELS, ASSET_SHORT_LABELS, DISPUTE_RULING_LABEL, ESCROW_TYPE_LABEL, PAYMENT_METHOD_LABELS } from '../lib/labels'
 
 // Sails Core Implementation Program M8-R2 (Destination Authority
 // Conformance, 2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md) —
@@ -843,7 +843,9 @@ export function Trade() {
     txLockVout: escrow?.txLockVout ?? null,
     txReleaseId: escrow?.txReleaseId ?? null,
     round: pendingTx,
-    dispute: dispute ? { status: dispute.status, arbiterId: dispute.arbiterId } : null,
+    // This interface cannot sign the round for anyone: not verified (MULTISIG_SIGNING_HOLD, mismatch, unsupported type) or disputed.
+    signingUnavailable: !!pendingTx && (verification.status !== 'verified' || escrow?.status === 'DISPUTED' || signingView?.state === 'blocked'),
+    dispute: dispute ? { status: dispute.status, arbiterId: dispute.arbiterId, autoResolutionDeadline: dispute.autoResolutionDeadline } : null,
   })
 
   const short = ASSET_SHORT_LABELS[trade.asset]
@@ -858,7 +860,7 @@ export function Trade() {
 
   // custodyModel is only on getEscrow() reads (absent after a create/lock response): no row then, never a guess.
   const custodyRow: SpecRow[] = escrow && escrow.custodyModel !== undefined
-    ? [{ label: 'Modelo de custódia declarado', value: escrow.custodyModel ?? 'Não declarado pelo provedor', mono: !!escrow.custodyModel }]
+    ? [{ label: 'Modelo de custódia declarado', value: custodyModelLabel(escrow.custodyModel) }]
     : []
   // Registro: the recorded details grouped by the stage that produced them (rail = index, Registro = full values).
   const registro: SpecGroup[] = [
@@ -873,7 +875,7 @@ export function Trade() {
     ] },
     { title: 'Escrow', rows: escrow ? [
       { label: 'ID do escrow', value: escrow.id, mono: true, copy: escrow.id },
-      { label: 'Tipo de escrow', value: escrow.type, mono: true },
+      { label: 'Tipo de escrow', value: ESCROW_TYPE_LABEL[escrow.type] ?? escrow.type },
       ...custodyRow,
       { label: 'Estado registrado do escrow', value: ESCROW_STATE_LABEL[escrowStatus] ?? escrow.status },
       ...(escrow.lockedAt ? [{ label: 'Bloqueio registrado em', value: formatDateTime(escrow.lockedAt) }] : []),
@@ -885,7 +887,7 @@ export function Trade() {
       ...signingView.signers.map((sg) => ({ label: sg.label, value: sg.at ? `Assinou em ${formatDateTime(sg.at)}` : sg.statusText })),
     ] : [] },
     // Recorded by the server; no broadcast or confirmation state is exposed, so never "confirmada".
-    { title: 'Transação', rows: escrow?.txReleaseId ? [{ label: 'Transação registrada pelo servidor', value: escrow.txReleaseId, mono: true, copy: escrow.txReleaseId }] : [] },
+    { title: 'Transação', rows: escrow?.txReleaseId ? [{ label: PAYOUT_TX_LABEL, value: escrow.txReleaseId, mono: true, copy: escrow.txReleaseId }] : [] },
     { title: 'Encerramento', rows: [
       ...(trade.completedAt ? [{ label: 'Concluído em', value: formatDateTime(trade.completedAt) }] : []),
       ...(trade.cancelledAt ? [{ label: 'Cancelado em', value: formatDateTime(trade.cancelledAt) }] : []),
@@ -924,7 +926,7 @@ export function Trade() {
   const paymentInCard = actionCardShown && state.instructions === 'active'
 
   // The bastão: who the current stage waits on, from the viewer's side.
-  const baton = batonLabel(state.steps.find((s) => s.state === 'current')?.actors, isBuyer ? 'buyer' : isSeller ? 'seller' : null, { buyer: buyer.displayName, seller: seller.displayName })
+  const baton = batonLabel(state.steps.find((s) => s.state === 'current'), isBuyer ? 'buyer' : isSeller ? 'seller' : null, { buyer: buyer.displayName, seller: seller.displayName })
   // The timelock sits with the stage it limits.
   const countdown = escrow ? <EscrowCountdown expiresAt={escrow.expiresAt} timelockHours={escrow.timelockHours} status={escrowStatus} /> : null
   // The signing round is a sub-step of the current stage: rendered inside the stage card (or the dispute panel).
@@ -1060,7 +1062,7 @@ export function Trade() {
               onSubmitEvidence={handleSubmitEvidence}
               onContestAutoResolution={() => setConfirmStep('contest')}
               onAppeal={() => setConfirmStep('appeal')}
-              turnLabel={escrowStatus === 'DISPUTED' ? baton : null}
+              turnLabel={escrowStatus === 'DISPUTED' ? baton?.text : null}
             >
               {!actionCardShown && <>{countdown}{signing(true)}</>}
             </TradeDisputePanel>
