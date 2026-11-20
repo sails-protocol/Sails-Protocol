@@ -86,8 +86,8 @@ export async function createCommitmentFixture(prisma: any, opts: CommitmentFixtu
     return { tradeId: trade.id as string, anchorRef: intent.id as string }
   }
 
-  /** A real COMMITTED pair for `anchorRef` (taker proposes, maker signs; real signatures). */
-  async function commitPair(anchorRef: string): Promise<string> {
+  /** A real PARTIALLY_SIGNED pair for `anchorRef` (taker proposed) plus `signMaker()`, the maker's COMMITTED transition (one call, once). */
+  async function proposePartialPair(anchorRef: string) {
     const t = Date.now()
     const commitment = {
       anchorRef, offerEnvelopeDigest: envelopeDigest, offerLogicalId: logicalOfferId, offerRevision: revision,
@@ -107,14 +107,21 @@ export async function createCommitmentFixture(prisma: any, opts: CommitmentFixtu
       trade: { commitment, declaredDigest: cd, takerSignature: sign(cd, taker) },
       arbitration: { commitment: arbitration, declaredDigest: ad, policy, takerSignature: sign(ad, taker) },
     })
-    const committed = await service.signPair({ participantId: makerId, idempotencyKey: randomUUID(), pairId: proposed.pairId, role: 'maker', tradeSignature: sign(cd, maker), arbitrationSignature: sign(ad, maker) })
+    const pairId = proposed.pairId as string
+    return { pairId, makerSignatures: { trade: sign(cd, maker), arbitration: sign(ad, maker) }, signMaker: () => service.signPair({ participantId: makerId, idempotencyKey: randomUUID(), pairId, role: 'maker', tradeSignature: sign(cd, maker), arbitrationSignature: sign(ad, maker) }) }
+  }
+
+  /** A real COMMITTED pair for `anchorRef` (taker proposes, maker signs; real signatures). */
+  async function commitPair(anchorRef: string): Promise<string> {
+    const { pairId, signMaker } = await proposePartialPair(anchorRef)
+    const committed = await signMaker()
     if (committed.state !== 'COMMITTED') throw new Error(`fixture: the pair did not reach COMMITTED (${committed.state})`)
-    return proposed.pairId as string
+    return pairId
   }
 
   return {
     makerId, takerId, legacyOfferId: legacyOffer.id as string, feePolicyVersionId: fee.id as string, logicalOfferId, envelopeRow,
-    admitTrade,
+    admitTrade, proposePartialPair,
     /** The COMMITTED pair of a trade that already exists and is admitted (its tradeIntentId is the anchor), e.g. one made by tradeService.createTrade. */
     async commitExistingTrade(tradeId: string): Promise<string> {
       const t = await prisma.trade.findUniqueOrThrow({ where: { id: tradeId } })
