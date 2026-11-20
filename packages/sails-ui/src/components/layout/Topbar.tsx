@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router'
 import { useAuth } from '../../context/AuthContext'
-import { UserAvatar } from '../ui/UserAvatar'
+import { AccountMenu } from './AccountMenu'
 import { ThemeToggle } from '../ui/ThemeToggle'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
@@ -37,10 +37,7 @@ export function Topbar({ onReplayTour }: { onReplayTour: () => void }) {
       <ThemeToggle />
 
       {user ? (
-        <Link to="/profile" className="flex items-center gap-2">
-          <UserAvatar user={user} size="sm" />
-          <span className="text-sm font-medium text-brand-text">{user.displayName}</span>
-        </Link>
+        <AccountMenu user={user} />
       ) : (
         <Link to="/login" state={{ from: location.pathname }} className={cn(buttonVariants({ className: 'text-sm px-4 py-2' }))}>
           Conectar carteira

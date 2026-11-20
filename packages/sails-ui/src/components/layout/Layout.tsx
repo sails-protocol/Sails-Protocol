@@ -4,7 +4,7 @@ import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { BottomNav } from './BottomNav'
 import { ThemeToggle } from '../ui/ThemeToggle'
-import { UserAvatar } from '../ui/UserAvatar'
+import { AccountMenu } from './AccountMenu'
 import { OnboardingTour } from '../onboarding/OnboardingTour'
 import { useAuth } from '../../context/AuthContext'
 import { buttonVariants } from '../ui/button'
@@ -71,9 +71,7 @@ export function Layout() {
             )}
             <ThemeToggle />
             {user ? (
-              <Link to="/profile" className="flex items-center gap-1.5">
-                <UserAvatar user={user} size="sm" />
-              </Link>
+              <AccountMenu user={user} compact />
             ) : (
               <Link to="/login" state={{ from: location.pathname }} className={cn(buttonVariants({ className: 'text-xs px-3 py-1.5' }))}>
                 Conectar
