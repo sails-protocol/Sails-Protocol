@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Link, Outlet } from 'react-router'
+import { Link, Outlet, useLocation } from 'react-router'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { BottomNav } from './BottomNav'
 import { ThemeToggle } from '../ui/ThemeToggle'
-import { UserAvatar } from '../ui/UserAvatar'
+import { AccountMenu } from './AccountMenu'
 import { OnboardingTour } from '../onboarding/OnboardingTour'
 import { useAuth } from '../../context/AuthContext'
 import { buttonVariants } from '../ui/button'
@@ -20,6 +20,7 @@ export function Layout() {
   // Mirrors TopNav's own avatar+name / "Conectar" pattern so the same
   // signal exists on both breakpoints.
   const { user } = useAuth()
+  const location = useLocation()
 
   // First-time onboarding (2026-08-04) — owned here rather than inside
   // OnboardingTour itself, since Layout already knows `user` and wraps
@@ -27,7 +28,7 @@ export function Layout() {
   // render where a session exists and the flag hasn't been set yet —
   // not tied to the login action itself, so a session restored on page
   // load (AuthContext's own silent re-authenticate effect) triggers it
-  // exactly the same as a fresh "Conectar Carteira" click would.
+  // exactly the same as a fresh "Conectar wallet" click would.
   const [tourOpen, setTourOpen] = useState(false)
   useEffect(() => {
     if (user && !hasSeenOnboarding()) setTourOpen(true)
@@ -70,12 +71,10 @@ export function Layout() {
             )}
             <ThemeToggle />
             {user ? (
-              <Link to="/profile" className="flex items-center gap-1.5">
-                <UserAvatar user={user} size="sm" />
-              </Link>
+              <AccountMenu user={user} compact />
             ) : (
-              <Link to="/login" className={cn(buttonVariants({ className: 'text-xs px-3 py-1.5' }))}>
-                Conectar
+              <Link to="/login" state={{ from: location.pathname }} className={cn(buttonVariants({ className: 'text-xs px-3 py-1.5' }))}>
+                Conectar wallet
               </Link>
             )}
           </div>

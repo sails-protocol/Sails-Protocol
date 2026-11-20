@@ -67,7 +67,7 @@ export function AgentRiskCard({ asset, side, maxValue, minValue }: Props) {
       </div>
 
       {!user ? (
-        <p className="text-xs text-brand-text-muted">Conecte sua carteira para ver a avaliação de risco do agente.</p>
+        <p className="text-xs text-brand-text-muted">Conecte sua wallet para ver a avaliação de risco do agente.</p>
       ) : loading ? (
         <div className="flex items-center gap-2 text-xs text-brand-text-muted">
           <span className="w-1.5 h-1.5 rounded-full bg-brand-orange-accent animate-pulse" />

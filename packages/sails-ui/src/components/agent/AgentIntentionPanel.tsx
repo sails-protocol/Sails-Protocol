@@ -89,7 +89,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
     // Real inference call now (2026-08-09) — requires an active session,
     // same as any other real @satsails/p2p-trading-sdk write/compute call in this app.
     if (!user) {
-      toast.error('Conecte sua carteira para usar o Sails Agent')
+      toast.error('Conecte sua wallet para usar o Sails Agent')
       return
     }
     setLoading(true)

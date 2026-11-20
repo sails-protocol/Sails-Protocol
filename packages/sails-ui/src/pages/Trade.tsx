@@ -484,9 +484,9 @@ export function Trade() {
   if (!user) {
     return (
       <div className="text-center py-16">
-        <p className="text-brand-text-secondary mb-3">Conecte sua carteira para ver este trade.</p>
+        <p className="text-brand-text-secondary mb-3">Conecte sua wallet para ver este trade.</p>
         <Button onClick={() => navigate('/login', { state: { from: location.pathname } })} className="mx-auto">
-          Conectar Carteira
+          Conectar wallet
         </Button>
       </div>
     )
