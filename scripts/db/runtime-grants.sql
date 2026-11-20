@@ -76,7 +76,7 @@ BEGIN
     ('intent_events', 'append'),        -- + UPDATE (publishedAt) only: hash-chained history, publication marker
     ('deployment_mode', 'read'),        -- F4 gate 3: environment marker; the runtime may only READ it (the MOCK exemption of the escrow trigger depends on it)
     ('offer_capacity', 'append'),       -- M-1b: + UPDATE of the declaration columns and the block-SET columns only (trigger guards the rest)
-    ('offer_capacity_reservations', 'append'), -- M-1b: reservation written by the COMMITTED transition; release columns UPDATE only
+    ('offer_capacity_reservations', 'append'), -- M-1b: reservation written by the COMMITTED transition; NO UPDATE at all until the release path (slice 3) defines its proof rules (GK B2)
     ('commitment_pairs', 'append'),     -- E25/E26 F3: + UPDATE of the signing/withdraw columns only; the pair itself is immutable (trigger)
     -- mutable state (write-once columns are still guarded by triggers)
     ('users', 'mutable'),
@@ -115,8 +115,6 @@ BEGIN
     ('offer_capacity', 'capacityTotal'), ('offer_capacity', 'capacityRevision'), ('offer_capacity', 'declaredAt'),
     ('offer_capacity', 'declaration'), ('offer_capacity', 'declarationSignature'), ('offer_capacity', 'updatedAt'),
     ('offer_capacity', 'blockedAt'), ('offer_capacity', 'blockReason'), ('offer_capacity', 'blockEvidence'),
-    ('offer_capacity_reservations', 'state'), ('offer_capacity_reservations', 'releasedAt'),
-    ('offer_capacity_reservations', 'releaseKind'), ('offer_capacity_reservations', 'releaseProof'),
     ('commitment_pairs', 'state'),
     ('commitment_pairs', 'committedAnchorRef'),
     ('commitment_pairs', 'makerTradeSig'),
