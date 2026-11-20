@@ -13,11 +13,12 @@ const ICONS: Record<TrustKind, LucideIcon> = { reputation: Award, trades: ArrowL
 export function TrustLine({ items, className }: { items: TrustLineItem[]; className?: string }) {
   if (items.length === 0) return null
   return (
-    <span className={cn('inline-flex flex-wrap items-center gap-x-3 gap-y-0.5 tabular-nums', className)}>
+    <span className={cn('tabular-nums', className)}>
       {items.map((item, i) => {
         const Icon = ICONS[item.kind]
         return (
-          <span key={item.kind} className="whitespace-nowrap">
+          // Spacing lives on the items (not flex gap) so a caller's display class ("block") cannot remove it.
+          <span key={item.kind} className="inline-block whitespace-nowrap mr-3 last:mr-0">
             {i > 0 && <span className="sr-only">, </span>}
             <Icon aria-hidden="true" className="inline-block h-4 w-4 mr-1 align-[-4px]" />
             {item.srText ? <><span aria-hidden="true">{item.text}</span><span className="sr-only">{item.srText}</span></> : item.text}

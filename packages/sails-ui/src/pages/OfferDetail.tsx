@@ -4,6 +4,8 @@ import { toast } from '../components/ui/toast'
 import { PaymentMethods } from '../components/ui/PaymentMethods'
 import { PlannedItem } from '../components/ui/PlannedItem'
 import { LOOSE_WIRES } from '../lib/looseWires'
+import { offerPaymentMethods } from '../lib/paymentMethods'
+import { demoPaymentMethodsOf } from '../lib/demoMarkers'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { FavoriteButton } from '../components/ui/FavoriteButton'
 import { Button, buttonVariants } from '../components/ui/button'
@@ -50,6 +52,7 @@ interface OfferDetailView {
   minAmount: number
   maxAmount: number
   paymentMethod: PublicOfferDetail['paymentMethod']
+  demoPaymentMethods?: PublicOfferDetail['paymentMethod'][]
   network?: string
   description?: string
 }
@@ -69,6 +72,7 @@ function toOfferDetailView(raw: PublicOfferDetail): OfferDetailView {
     minAmount: Number(raw.minAmount),
     maxAmount: Number(raw.maxAmount),
     paymentMethod: raw.paymentMethod,
+    demoPaymentMethods: demoPaymentMethodsOf<PublicOfferDetail['paymentMethod']>(raw), // dev demo only
     network: raw.network ?? undefined,
     description: raw.description ?? undefined,
   }
@@ -232,8 +236,8 @@ export function OfferDetail() {
             <dl className="grid grid-cols-2 gap-x-6 gap-y-4 content-start">
               <Fact label="Ativo"><AssetNetworkLabel asset={offer.asset} size="md" /></Fact>
               {offer.network && <Fact label="Rede">{offer.network}</Fact>}
-              {/* Full list here (one method per offer today: LOOSE_WIRES.multiPaymentMethods). */}
-              <Fact label="Pagamento"><PaymentMethods labels={[offer.paymentMethod].map((m) => PAYMENT_METHOD_LABELS[m])} className="text-sm text-brand-text" /></Fact>
+              {/* Full list here. Real offers carry one method (LOOSE_WIRES.multiPaymentMethods); the method is not chosen at trade time yet (LOOSE_WIRES.tradePaymentMethodChoice). */}
+              <Fact label="Pagamento"><PaymentMethods labels={offerPaymentMethods(offer).map((m) => PAYMENT_METHOD_LABELS[m])} className="text-sm text-brand-text" /></Fact>
               <Fact label="Limites"><span className="tabular-nums">{formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)} {ASSET_SHORT_LABELS[offer.asset]}</span></Fact>
             </dl>
           </div>

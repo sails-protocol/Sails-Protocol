@@ -16,9 +16,10 @@ import type {
   PublicOfferDetail, ReputationScore, Trade, TradeIntentPayload, TradeProposal, Vouch, WebSocketChannel,
 } from '@satsails/p2p-trading-sdk'
 import { sailsClient } from '../lib/sailsClient'
-import type { DemoNoModelMarker } from '../lib/demoMarkers'
+import { DEMO_FLAG_KEY, type DemoNoModelMarker } from '../lib/demoMarkers'
+import { MAX_PAYMENT_METHODS } from '../lib/paymentMethods'
 
-const FLAG_KEY = 'sails_demo_mode'
+const FLAG_KEY = DEMO_FLAG_KEY
 const STATE_KEY = 'sails_demo_state_v4'
 // The encrypted identity/escrow keypairs AuthContext/useEscrowKey keep in
 // localStorage. In demo mode they are never stored or handed back, so every
@@ -38,7 +39,7 @@ const DEMO_SUGGESTION =
 
 interface DemoState {
   participants: Participant[]
-  offers: Offer[]
+  offers: DemoOffer[]
   trades: Trade[]
   escrows: Escrow[]
   messages: Message[]
@@ -50,6 +51,9 @@ interface DemoState {
   /** reputation.rate() records (informational, never part of reputationScore). Optional: older saved states lack it. */
   ratings?: { tradeId: string; raterId: string; ratedId: string; score: number; comment?: string; createdAt: string }[]
 }
+
+/** Demo-only: several payment methods per offer (fictional), read by lib/demoMarkers.ts. The real Offer has one until issue #735. */
+type DemoOffer = Offer & { demoPaymentMethods?: Offer['paymentMethod'][] }
 
 interface Evidence { type: string; uri?: string; note?: string; submittedBy: string; submittedAt: string }
 
@@ -65,7 +69,7 @@ function participant(id: string, displayName: string, reputationScore: number, t
   }
 }
 
-function offer(id: string, userId: string, o: Pick<Offer, 'asset' | 'side' | 'priceUsd' | 'minAmount' | 'maxAmount' | 'paymentMethod' | 'paymentDetails' | 'description'>, age: number): Offer {
+function offer(id: string, userId: string, o: Pick<DemoOffer, 'asset' | 'side' | 'priceUsd' | 'minAmount' | 'maxAmount' | 'paymentMethod' | 'paymentDetails' | 'description' | 'demoPaymentMethods'>, age: number): DemoOffer {
   return { id, userId, priceBrl: null, status: 'ACTIVE', network: null, createdAt: daysAgo(age), updatedAt: daysAgo(age), ...o }
 }
 
@@ -103,11 +107,11 @@ function newDispute(tradeId: string, escrowId: string, openedBy: string, arbiter
 // Obviously fictional traders, offers, trades and disputes; prices in USD like the real discover() route.
 function seed(): DemoState {
   const g = 'demo-0a11', f = 'demo-0b22', m = 'demo-0c33', a = 'demo-0d44'
-  const offers: Offer[] = [
-    offer('demo-offer-1', g, { asset: 'BTC', side: 'SELL', priceUsd: '97450', minAmount: '0.001', maxAmount: '0.05', paymentMethod: 'PIX', paymentDetails: 'Chave PIX fictícia: gaivota@exemplo.invalid', description: 'Oferta de exemplo do modo demonstração.' }, 2),
-    offer('demo-offer-2', f, { asset: 'BTC', side: 'BUY', priceUsd: '96900', minAmount: '0.005', maxAmount: '0.2', paymentMethod: 'BANK_TRANSFER', paymentDetails: null, description: 'Compro BTC — exemplo fictício.' }, 1),
+  const offers: DemoOffer[] = [
+    offer('demo-offer-1', g, { asset: 'BTC', side: 'SELL', priceUsd: '97450', minAmount: '0.001', maxAmount: '0.05', paymentMethod: 'PIX', demoPaymentMethods: ['PIX', 'TED', 'CASH'], paymentDetails: 'Chave PIX fictícia: gaivota@exemplo.invalid', description: 'Oferta de exemplo do modo demonstração.' }, 2),
+    offer('demo-offer-2', f, { asset: 'BTC', side: 'BUY', priceUsd: '96900', minAmount: '0.005', maxAmount: '0.2', paymentMethod: 'BANK_TRANSFER', demoPaymentMethods: ['BANK_TRANSFER', 'PIX', 'TED', 'LIGHTNING_DIRECT', 'CRYPTO_DIRECT'], paymentDetails: null, description: 'Compro BTC — exemplo fictício.' }, 1),
     offer('demo-offer-3', m, { asset: 'USDT_TRC20', side: 'SELL', priceUsd: '1.002', minAmount: '50', maxAmount: '2000', paymentMethod: 'PIX', paymentDetails: 'Chave PIX fictícia: mare-mansa@exemplo.invalid', description: null }, 3),
-    offer('demo-offer-4', a, { asset: 'USDT_ERC20', side: 'BUY', priceUsd: '0.998', minAmount: '100', maxAmount: '5000', paymentMethod: 'TED', paymentDetails: null, description: 'Compro USDT — exemplo fictício.' }, 5),
+    offer('demo-offer-4', a, { asset: 'USDT_ERC20', side: 'BUY', priceUsd: '0.998', minAmount: '100', maxAmount: '5000', paymentMethod: 'TED', demoPaymentMethods: ['TED', 'PIX', 'BANK_TRANSFER', 'CASH'], paymentDetails: null, description: 'Compro USDT — exemplo fictício.' }, 5),
     offer('demo-offer-5', a, { asset: 'BTC', side: 'SELL', priceUsd: '97800', minAmount: '0.0005', maxAmount: '0.01', paymentMethod: 'TED', paymentDetails: 'Banco Fictício 000, ag. 0001, conta 12345-6', description: null }, 4),
     offer('demo-offer-6', g, { asset: 'USDT_LIQUID', side: 'SELL', priceUsd: '1.004', minAmount: '20', maxAmount: '1500', paymentMethod: 'CASH', paymentDetails: 'Encontro combinado pelo chat (exemplo).', description: null }, 6),
     offer('demo-offer-me-1', ME, { asset: 'BTC', side: 'SELL', priceUsd: '97600', minAmount: '0.001', maxAmount: '0.02', paymentMethod: 'PIX', paymentDetails: 'Chave PIX fictícia: voce-demo@exemplo.invalid', description: 'Minha oferta de exemplo (modo demonstração).' }, 3),
@@ -603,7 +607,7 @@ export function installDemoBackend() {
       const all = state.offers.filter((o) => o.status === 'ACTIVE' && (!asset || o.asset === asset) && (!side || o.side === side))
       const offers = all.slice(offset, offset + limit).map((o) => ({
         id: o.id, source: 'internal', asset: o.asset, side: o.side, priceUsd: o.priceUsd, minAmount: o.minAmount,
-        maxAmount: o.maxAmount, paymentMethods: [o.paymentMethod], traderReputation: findParticipant(o.userId).reputationScore,
+        maxAmount: o.maxAmount, paymentMethods: [o.paymentMethod], demoPaymentMethods: o.demoPaymentMethods, traderReputation: findParticipant(o.userId).reputationScore,
         // LOOSE_WIRES preview: the real route does not return these yet (realOffers.ts SummaryWithMaker).
         traderDisplayName: findParticipant(o.userId).displayName, traderTotalTrades: findParticipant(o.userId).totalTrades,
         traderDisputeCount: findParticipant(o.userId).disputeCount,
@@ -622,11 +626,14 @@ export function installDemoBackend() {
       return detail
     },
     async publish(input) {
-      const o: Offer = {
+      // PublishOffer adds `demoPaymentMethods` only in demo mode; the real SDK input has no such field.
+      const methods = (input as { demoPaymentMethods?: Offer['paymentMethod'][] }).demoPaymentMethods
+      const o: DemoOffer = {
         id: crypto.randomUUID(), userId: needMe(), asset: input.asset, side: input.side, priceUsd: input.priceUsd,
         priceBrl: input.priceBrl ?? null, minAmount: input.minAmount, maxAmount: input.maxAmount, paymentMethod: input.paymentMethod,
         paymentDetails: input.paymentDetails ?? null, status: 'ACTIVE', network: input.network ?? null,
         description: input.description ?? null, createdAt: now(), updatedAt: now(),
+        ...(methods?.length ? { demoPaymentMethods: methods.slice(0, MAX_PAYMENT_METHODS) } : {}),
       }
       state.offers.push(o)
       save()

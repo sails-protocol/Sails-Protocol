@@ -2,6 +2,7 @@ import { Link } from 'react-router'
 import type { Offer } from '../../types'
 import { UserAvatar } from '../ui/UserAvatar'
 import { PaymentMethods } from '../ui/PaymentMethods'
+import { LIST_METHODS_MAX, LIST_METHODS_MAX_NARROW, offerPaymentMethods } from '../../lib/paymentMethods'
 import { buttonVariants } from '../ui/button'
 import { formatAmount } from '../../lib/format'
 import { formatPrice } from '../../lib/currency'
@@ -62,8 +63,8 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
   const action = own ? 'Sua oferta' : offer.side === 'SELL' ? 'Comprar' : 'Vender'
   const price = formatPrice(offer.priceFiat, offer.fiatCurrency)
   const limits = `${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}`
-  // One method per offer today (schema); the list component already handles several.
-  const methods = [offer.paymentMethod].map((m) => PAYMENT_METHOD_LABELS[m])
+  // Real offers carry one method; only the dev demo has several (offerPaymentMethods).
+  const methods = offerPaymentMethods(offer).map((m) => PAYMENT_METHOD_LABELS[m])
   const label = `${action} ${ASSET_LABELS[offer.asset]} por ${price}, ${name ?? SELLER_FALLBACK}, ${methods.join(', ')}, limites ${limits}`
 
   return (
@@ -86,7 +87,7 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
       </TableCell>
       <TableCell className="text-body-sm text-brand-text-secondary tabular-nums whitespace-nowrap">{limits}</TableCell>
       <TableCell>
-        <PaymentMethods labels={methods} max={2} />
+        <PaymentMethods labels={methods} max={LIST_METHODS_MAX} maxNarrow={LIST_METHODS_MAX_NARROW} />
       </TableCell>
       <TableCell className="pr-5 text-right">
         <Link

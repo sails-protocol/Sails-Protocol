@@ -31,7 +31,8 @@ export const LOOSE_WIRES = {
   readRatings: { label: 'Avaliações', icon: Star, contract: 'Ler avaliações (média, quantidade, comentários) — endpoint + SDK (only reputation.rate() exists)' },
   publicMemberSince: { label: 'Membro desde', icon: CalendarDays, contract: 'Data de cadastro (mês/ano) nos dados públicos do anunciante (PublicOfferSeller has no createdAt)' },
   assetCatalogPairs: { label: 'Pares do catálogo de ativos', icon: Coins, contract: 'Os 13 pares "Em breve" do catálogo (lib/assetCatalog.ts): modelo Asset + SettlementRail do ADR-002 (§12 itens 2 e 3) ligado ao SDK e um rail de liquidação apto a produção por par; hoje só BTC on-chain (MULTISIG)' },
-  multiPaymentMethods: { label: 'Vários métodos de pagamento', icon: CreditCard, contract: 'Oferta com vários métodos de pagamento (schema + SDK, decisão do CTO); PaymentMethods already renders a list' },
+  multiPaymentMethods: { label: 'Vários métodos de pagamento', icon: CreditCard, contract: 'Oferta com até 5 métodos de pagamento (MAX_PAYMENT_METHODS) validados no backend e no SDK (issue #735); PaymentMethods already renders a list, the demo already simulates it' },
+  tradePaymentMethodChoice: { label: 'Escolher o método no trade', icon: CreditCard, contract: 'Escolher um dos métodos da oferta ao abrir o trade e prender a escolha aos termos aceitos (issue #735, Despacho 039); openp2p.trade() has no method argument today' },
 } as const
 
 export type LooseWireId = keyof typeof LOOSE_WIRES

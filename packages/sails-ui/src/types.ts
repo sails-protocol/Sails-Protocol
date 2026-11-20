@@ -203,6 +203,8 @@ export interface Offer {
   minAmount: number
   maxAmount: number
   paymentMethod: PaymentMethod
+  // Dev demo only (demoPaymentMethodsOf): real offers carry one method until issue #735. Read through offerPaymentMethods().
+  demoPaymentMethods?: PaymentMethod[]
   paymentDetails?: string
   status: OfferStatus
   network?: string

@@ -1,6 +1,7 @@
 import { Link } from 'react-router'
 import type { Offer } from '../../types'
 import { PaymentMethods } from '../ui/PaymentMethods'
+import { LIST_METHODS_MAX, LIST_METHODS_MAX_NARROW, offerPaymentMethods } from '../../lib/paymentMethods'
 import { UserAvatar } from '../ui/UserAvatar'
 import { formatAmount } from '../../lib/format'
 import { formatPrice } from '../../lib/currency'
@@ -25,8 +26,8 @@ export function OfferCard({ offer, own = false }: { offer: Offer; own?: boolean 
   const { name, items } = sellerTrust(offer)
   const price = formatPrice(offer.priceFiat, offer.fiatCurrency)
   const limits = `${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}`
-  // One method per offer today (schema); the list component already handles several.
-  const methods = [offer.paymentMethod].map((m) => PAYMENT_METHOD_LABELS[m])
+  // Real offers carry one method; only the dev demo has several (offerPaymentMethods).
+  const methods = offerPaymentMethods(offer).map((m) => PAYMENT_METHOD_LABELS[m])
   // One concise accessible name instead of every cell's text read in a row (same wording as the table).
   const label = `${action}: ${ASSET_LABELS[offer.asset]} por ${price}, ${name ?? SELLER_FALLBACK}, ${methods.join(', ')}, limites ${limits}`
 
@@ -50,7 +51,7 @@ export function OfferCard({ offer, own = false }: { offer: Offer; own?: boolean 
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-brand-text-secondary tabular-nums">
           <span className="whitespace-nowrap"><span className="sr-only">Limites: </span>{limits}</span>
-          <PaymentMethods labels={methods} max={2} maxNarrow={1} className="text-xs" />
+          <PaymentMethods labels={methods} max={LIST_METHODS_MAX} maxNarrow={LIST_METHODS_MAX_NARROW} className="text-xs" />
         </div>
       </div>
       {own ? (

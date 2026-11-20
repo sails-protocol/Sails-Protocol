@@ -50,6 +50,8 @@ import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../components/ui/select'
+import { Combobox } from '../components/ui/combobox'
+import { PaymentMethods } from '../components/ui/PaymentMethods'
 import { ArrowLeft } from 'lucide-react'
 import { fetchOffers } from '../lib/realOffers'
 import { ASSETS, PAYMENT_METHODS, COUNTRIES } from '../data/mock'
@@ -57,6 +59,8 @@ import { formatByCurrency } from '../lib/currency'
 import { publicationPriceUsd } from '../lib/publicationPrice'
 import { PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { sailsClient } from '../lib/sailsClient'
+import { isDemoMode } from '../lib/demoMarkers'
+import { MAX_PAYMENT_METHODS } from '../lib/paymentMethods'
 import type { AssetType, FiatCurrency, TradeSide } from '../types'
 
 const STEPS = ['Tipo e preço', 'Valor e método', 'Condições']
@@ -95,6 +99,16 @@ export function PublishOffer() {
   // options use below) rather than hand-listing every UI-only value to
   // exclude — stays correct automatically if that list ever grows again.
   const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>('PIX')
+  // Dev demo only: up to MAX_PAYMENT_METHODS methods, stored by the demo backend. The real publish()
+  // takes ONE paymentMethod (multi-method contract: issue #735), so real mode keeps the single Select.
+  const [demo] = useState(isDemoMode)
+  const [demoMethods, setDemoMethods] = useState<(typeof PAYMENT_METHODS)[number][]>(['PIX'])
+  const method = demo ? demoMethods[0] : paymentMethod
+  const methodsAtLimit = demoMethods.length >= MAX_PAYMENT_METHODS
+  const toggleDemoMethod = (m: (typeof PAYMENT_METHODS)[number]) => {
+    if (demoMethods.includes(m)) setDemoMethods(demoMethods.filter((x) => x !== m))
+    else if (!methodsAtLimit) setDemoMethods([...demoMethods, m])
+  }
   const [paymentDetails, setPaymentDetails] = useState('')
 
   // Step 3
@@ -121,7 +135,7 @@ export function PublishOffer() {
   const offerIdempotencyKeyRef = useRef<string>(crypto.randomUUID())
   useEffect(() => {
     offerIdempotencyKeyRef.current = crypto.randomUUID()
-  }, [asset, side, price, currency, minAmount, maxAmount, paymentMethod])
+  }, [asset, side, price, currency, minAmount, maxAmount, paymentMethod, demoMethods])
 
   useEffect(() => {
     if (asset === 'Todos' || currency === 'Todas') {
@@ -148,7 +162,7 @@ export function PublishOffer() {
 
   const priceUsd = publicationPriceUsd(price, currency)
   const step1Valid = asset !== 'Todos' && priceType === 'FIXED' && priceUsd !== null
-  const step2Valid = Number(minAmount) > 0 && Number(maxAmount) > Number(minAmount) && paymentDetails.trim().length > 0
+  const step2Valid = Number(minAmount) > 0 && Number(maxAmount) > Number(minAmount) && method !== undefined && paymentDetails.trim().length > 0
 
   const goNext = () => {
     if (step === 1 && !step1Valid) {
@@ -156,7 +170,7 @@ export function PublishOffer() {
       return
     }
     if (step === 2 && !step2Valid) {
-      toast.error('Informe limites válidos e os detalhes do pagamento')
+      toast.error(method === undefined ? 'Escolha ao menos um método de pagamento' : 'Informe limites válidos e os detalhes do pagamento')
       return
     }
     setStep((s) => Math.min(s + 1, 3))
@@ -170,7 +184,7 @@ export function PublishOffer() {
       toast.error('Publicação disponível apenas com preço fixo em USD válido, sem conversão de câmbio.')
       return
     }
-    if (!step2Valid) {
+    if (!step2Valid || method === undefined) {
       toast.error('Informe limites válidos e os detalhes do pagamento')
       return
     }
@@ -187,7 +201,9 @@ export function PublishOffer() {
         priceUsd,
         minAmount: minAmount,
         maxAmount: maxAmount,
-        paymentMethod,
+        paymentMethod: method,
+        // Demo backend only; never part of a real request (the SDK input has no such field).
+        ...(demo ? { demoPaymentMethods: demoMethods } : {}),
         paymentDetails: paymentDetails.trim(),
         network: NETWORK_BY_ASSET[asset],
         description: description.trim() || undefined,
@@ -336,6 +352,33 @@ export function PublishOffer() {
               </div>
             </div>
 
+            {demo ? (
+            <div>
+              <span className="text-xs text-brand-text-muted mb-1.5 block" aria-hidden="true">Métodos de pagamento</span>
+              <Combobox
+                multiple
+                label="Métodos de pagamento"
+                valueText={`${demoMethods.length} de ${MAX_PAYMENT_METHODS}${demoMethods.length ? `, ${demoMethods.map((m) => PAYMENT_METHOD_LABELS[m]).join(', ')}` : ''}`}
+                options={PAYMENT_METHODS.map((m) => ({ value: m, label: PAYMENT_METHOD_LABELS[m], disabled: methodsAtLimit && !demoMethods.includes(m) }))}
+                selected={demoMethods}
+                onSelect={toggleDemoMethod}
+                triggerClassName="w-full"
+                contentClassName="w-[var(--radix-popover-trigger-width)]"
+                trigger={<span className="truncate">{demoMethods.length === 0 ? 'Selecione os métodos' : demoMethods.length === 1 ? PAYMENT_METHOD_LABELS[demoMethods[0]] : `${demoMethods.length} métodos`}</span>}
+                searchPlaceholder="Buscar método de pagamento…"
+                emptyText={() => 'Nenhum método encontrado com esse nome.'}
+                footer={methodsAtLimit ? () => (
+                  <p className="px-3 py-2 text-xs text-brand-text-secondary">Limite de {MAX_PAYMENT_METHODS} métodos atingido. Remova um para escolher outro.</p>
+                ) : undefined}
+              />
+              {demoMethods.length > 1 && <PaymentMethods labels={demoMethods.map((m) => PAYMENT_METHOD_LABELS[m])} className="mt-2" />}
+              <p role="status" className="text-xs text-brand-text-muted mt-1.5">
+                <span className="tabular-nums">{demoMethods.length} de {MAX_PAYMENT_METHODS}</span>
+                {demoMethods.length === 0 ? ' · Escolha ao menos um método.' : methodsAtLimit ? ` · Limite de ${MAX_PAYMENT_METHODS} métodos atingido.` : ''}
+              </p>
+              <p className="text-xs text-brand-text-muted mt-1">Modo demonstração: vários métodos existem só nesta simulação. Uma oferta real aceita um método.</p>
+            </div>
+            ) : (
             <div>
               <label className="text-xs text-brand-text-muted mb-1.5 block">Método de pagamento</label>
               <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as (typeof PAYMENT_METHODS)[number])}>
@@ -349,6 +392,7 @@ export function PublishOffer() {
                 </SelectContent>
               </Select>
             </div>
+            )}
 
             <div>
               <label className="text-xs text-brand-text-muted mb-1.5 block">
@@ -357,7 +401,7 @@ export function PublishOffer() {
                   value={paymentDetails}
                   onChange={(e) => setPaymentDetails(e.target.value)}
                   className="w-full mt-1.5"
-                  placeholder={paymentMethod === 'PIX' ? 'Sua chave PIX' : 'Dados para o comprador enviar o pagamento'}
+                  placeholder={method === 'PIX' ? 'Sua chave PIX' : 'Dados para o comprador enviar o pagamento'}
                 />
               </label>
             </div>
