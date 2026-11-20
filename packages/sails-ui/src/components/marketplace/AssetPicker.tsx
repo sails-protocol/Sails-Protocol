@@ -66,13 +66,13 @@ export function AssetPicker({ assets, value, onChange, allLabel = 'Todos os ativ
           autoFocus
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar ativo..."
+          placeholder="Buscar ativo…"
           className="w-full mb-2"
         />
         <div className="max-h-64 overflow-y-auto">
           {!hideAllOption && <button
             onClick={() => select('Todos')}
-            className={`w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${value === 'Todos' ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
+            className={`w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated focus-visible:-outline-offset-2 ${value === 'Todos' ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
           >
             Todos os ativos
           </button>}
@@ -81,7 +81,7 @@ export function AssetPicker({ assets, value, onChange, allLabel = 'Todos os ativ
               key={asset}
               onClick={() => select(asset)}
               title={asset}
-              className={`w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${value === asset ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
+              className={`w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated focus-visible:-outline-offset-2 ${value === asset ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
             >
               <AssetIcon asset={asset} />
               <span className="truncate">{ASSET_LABELS[asset]}</span>

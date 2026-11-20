@@ -5,6 +5,20 @@ export interface SegmentedOption<T extends string> {
   label: string
 }
 
+/**
+ * Shared look (DESIGN_SYSTEM.md 5.1), also used by the Market side switch and the
+ * publish-offer side picker. Track: tonal fill, no outline. Selected thumb: raised
+ * fill + shadow-elevation-1, full text color, weight 500; unselected: secondary text.
+ * Selection is carried by fill, elevation, text color and weight together, plus aria-pressed.
+ */
+export const SEGMENT_TRACK = 'rounded-lg bg-brand-tonal p-1'
+export function segmentItemClass(selected: boolean) {
+  return cn(
+    'rounded-md text-body-sm transition-colors motion-reduce:transition-none',
+    selected ? 'bg-brand-raised shadow-elevation-1 font-medium text-brand-text' : 'text-brand-text-secondary hover:text-brand-text'
+  )
+}
+
 /** Layer A: one exclusive choice among a few options (status filters), same look as the Market side switch. */
 export function SegmentedControl<T extends string>({ options, value, onChange, label, className }: {
   options: ReadonlyArray<SegmentedOption<T>>
@@ -15,18 +29,14 @@ export function SegmentedControl<T extends string>({ options, value, onChange, l
   className?: string
 }) {
   return (
-    <div role="group" aria-label={label} className={cn('inline-flex max-w-full gap-1 overflow-x-auto rounded-lg bg-brand-elevated p-1', className)}>
+    <div role="group" aria-label={label} className={cn('inline-flex max-w-full gap-1 overflow-x-auto', SEGMENT_TRACK, className)}>
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
           aria-pressed={value === o.value}
           onClick={() => onChange(o.value)}
-          className={cn(
-            'shrink-0 whitespace-nowrap min-h-11 md:min-h-0 md:h-7 rounded-md px-3 text-body-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            // Selected: surface fill + a control-strength outline (>= 3:1), not colour alone.
-            value === o.value ? 'bg-brand-surface font-medium text-brand-text ring-1 ring-brand-border' : 'text-brand-text-secondary hover:text-brand-text'
-          )}
+          className={cn('shrink-0 whitespace-nowrap min-h-11 md:min-h-0 md:h-7 px-3', segmentItemClass(value === o.value))}
         >
           {o.label}
         </button>

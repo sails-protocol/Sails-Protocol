@@ -25,7 +25,7 @@ export function BottomNav() {
             aria-current={isActive ? 'page' : undefined}
             className={cn(
               // Active: a top accent bar plus orange label, the same language as the Sidebar's tint.
-              'relative flex-auto min-w-0 min-h-14 px-1 flex flex-col items-center justify-center gap-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+              'relative flex-auto min-w-0 min-h-14 px-1 flex flex-col items-center justify-center gap-1 text-xs transition-colors focus-visible:-outline-offset-2',
               isActive ? 'text-brand-orange-hover font-semibold' : 'text-brand-text-secondary'
             )}
           >

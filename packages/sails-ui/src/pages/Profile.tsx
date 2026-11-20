@@ -266,7 +266,7 @@ export function Profile() {
                               <Popover>
                                 <PopoverTrigger
                                   aria-label="Mais ações da oferta"
-                                  className="h-11 w-11 md:h-9 md:w-9 flex items-center justify-center rounded-md text-brand-text-muted hover:text-brand-text hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  className="h-11 w-11 md:h-9 md:w-9 flex items-center justify-center rounded-md text-brand-text-muted hover:text-brand-text hover:bg-brand-elevated"
                                 >
                                   <MoreHorizontal className="h-4 w-4" />
                                 </PopoverTrigger>
@@ -285,7 +285,7 @@ export function Profile() {
                           <Link
                             to={`/offer/${o.id}`}
                             aria-label={`Ver oferta de ${ASSET_LABELS[o.asset]}`}
-                            className="min-h-11 md:min-h-9 px-2 -mr-2 text-body-sm text-brand-text-secondary hover:text-brand-text flex items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="min-h-11 md:min-h-9 px-2 -mr-2 text-body-sm text-brand-text-secondary hover:text-brand-text flex items-center rounded-md"
                           >
                             Ver <ChevronRight className="h-4 w-4" aria-hidden="true" />
                           </Link>

@@ -96,7 +96,7 @@ export function Settings() {
           <button
             type="button"
             onClick={() => setMobileOpen(false)}
-            className="md:hidden min-h-11 -my-2 inline-flex items-center gap-1 text-body-sm text-brand-text-secondary hover:text-brand-text rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="md:hidden min-h-11 -my-2 inline-flex items-center gap-1 text-body-sm text-brand-text-secondary hover:text-brand-text rounded-md"
           >
             <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Configurações
           </button>
@@ -123,7 +123,7 @@ export function Settings() {
               aria-controls={s.id}
               aria-current={active === s.id ? 'true' : undefined}
               className={cn(
-                'flex items-center gap-3 min-h-11 md:min-h-9 rounded-md px-3 text-sm font-medium text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange-accent',
+                'flex items-center gap-3 min-h-11 md:min-h-9 rounded-md px-3 text-sm font-medium text-left transition-colors',
                 active === s.id
                   ? 'bg-brand-orange-accent/10 text-brand-orange-hover'
                   : 'text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text'
@@ -191,7 +191,7 @@ export function Settings() {
                     <label
                       key={o.value}
                       className={cn(
-                        'flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-1.5 text-sm transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring',
+                        'flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-1.5 text-sm transition-colors field-focus-within',
                         avatarStyle === o.value ? 'border-brand-orange-accent bg-brand-orange-accent/10 text-brand-text font-medium' : 'border-brand-border text-brand-text-secondary hover:bg-brand-elevated'
                       )}
                     >
@@ -201,7 +201,7 @@ export function Settings() {
                         value={o.value}
                         checked={avatarStyle === o.value}
                         onChange={() => setAvatarStyle(o.value)}
-                        className="h-4 w-4 accent-brand-orange focus-visible:outline-none"
+                        className="h-4 w-4 accent-brand-orange"
                       />
                       <IdentityAvatar seed={user ? user.publicKey || user.id : SAMPLE_AVATAR_SEED} size={28} style={o.value} />
                       {o.label}

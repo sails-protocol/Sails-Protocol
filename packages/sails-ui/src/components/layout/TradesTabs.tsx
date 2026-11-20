@@ -19,7 +19,7 @@ export function TradesTabs() {
           to={tab.to}
           end
           className={({ isActive }: { isActive: boolean }) =>
-            `-mb-px h-11 md:h-10 inline-flex items-center px-3 text-sm font-medium border-b-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-orange-accent ${
+            `-mb-px h-11 md:h-10 inline-flex items-center px-3 text-sm font-medium border-b-2 transition-colors focus-visible:-outline-offset-2 ${
               isActive
                 ? 'border-brand-orange-accent text-brand-text'
                 : 'border-transparent text-brand-text-secondary hover:text-brand-text'

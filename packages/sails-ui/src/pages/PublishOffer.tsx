@@ -43,6 +43,8 @@ import { AssetPicker } from '../components/marketplace/AssetPicker'
 import { CurrencyPicker } from '../components/marketplace/CurrencyPicker'
 import { InfoTooltip } from '../components/ui/InfoTooltip'
 import { Button } from '../components/ui/button'
+import { SEGMENT_TRACK, segmentItemClass } from '../components/ui/SegmentedControl'
+import { cn } from '../lib/utils'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
@@ -234,13 +236,13 @@ export function PublishOffer() {
           <div className="space-y-4">
             <div>
               <label className="text-xs text-brand-text-muted mb-1.5 block" id="publish-side-label">Eu quero</label>
-              <div role="group" aria-labelledby="publish-side-label" className="flex gap-1 bg-brand-elevated rounded-lg p-1">
+              <div role="group" aria-labelledby="publish-side-label" className={cn('flex gap-1', SEGMENT_TRACK)}>
                 {(['SELL', 'BUY'] as TradeSide[]).map((s) => (
                   <button
                     key={s}
                     onClick={() => setSide(s)}
                     aria-pressed={side === s}
-                    className={`flex-1 rounded-md min-h-11 md:min-h-0 md:h-7 text-body-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${side === s ? 'bg-brand-surface ring-1 ring-brand-border font-medium text-brand-text' : 'text-brand-text-secondary hover:text-brand-text'}`}
+                    className={cn('flex-1 min-h-11 md:min-h-0 md:h-7', segmentItemClass(side === s))}
                   >
                     {s === 'SELL' ? 'Vender' : 'Comprar'}
                   </button>
@@ -289,8 +291,8 @@ export function PublishOffer() {
             {priceType === 'FIXED' ? (
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">Preço fixo</label>
-                <div className="flex items-center input-field !p-0 h-11 md:h-9">
-                  <button onClick={() => setPrice(String(Math.max(0, Number(price || 0) - 1)))} aria-label="Diminuir preço" className="h-full min-w-11 px-3 text-brand-text-secondary hover:text-brand-text">−</button>
+                <div className="flex items-center input-field field-focus-within !p-0 h-11 md:h-9">
+                  <button onClick={() => setPrice(String(Math.max(0, Number(price || 0) - 1)))} aria-label="Diminuir preço" className="h-full min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">−</button>
                   <input
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
@@ -299,10 +301,10 @@ export function PublishOffer() {
                     className="flex-1 min-w-0 bg-transparent text-center text-base font-medium tabular-nums outline-none text-brand-text [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     placeholder="0"
                   />
-                  <button onClick={() => setPrice(String(Number(price || 0) + 1))} aria-label="Aumentar preço" className="h-full min-w-11 px-3 text-brand-text-secondary hover:text-brand-text">+</button>
+                  <button onClick={() => setPrice(String(Number(price || 0) + 1))} aria-label="Aumentar preço" className="h-full min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">+</button>
                 </div>
                 {loadingSuggestedRange && (
-                  <p className="text-xs text-brand-text-muted mt-1.5">Buscando faixa de preço...</p>
+                  <p className="text-xs text-brand-text-muted mt-1.5">Buscando faixa de preço…</p>
                 )}
                 {!loadingSuggestedRange && suggestedRange && (
                   <p className="text-xs text-brand-text-muted mt-1.5">
@@ -386,7 +388,7 @@ export function PublishOffer() {
                 onChange={(e) => setDescription(e.target.value)}
                 className="w-full"
                 rows={3}
-                placeholder="Instruções extras para a contraparte..."
+                placeholder="Instruções extras para a contraparte…"
               />
             </div>
           </div>

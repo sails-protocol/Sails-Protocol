@@ -150,7 +150,7 @@ export function TradeHistory() {
                     <li key={t.id} className="border-b border-brand-border-subtle last:border-b-0">
                       <Link
                         to={`/trade/${t.id}`}
-                        className={cn('flex flex-col gap-1 px-4 py-3 transition-colors hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring', COLS)}
+                        className={cn('flex flex-col gap-1 px-4 py-3 transition-colors hover:bg-brand-elevated focus-visible:-outline-offset-2', COLS)}
                       >
                         <span className="flex items-center justify-between gap-3 lg:block">
                           <span className="money text-brand-text">{formatAmount(Number(t.amount))} {ASSET_SHORT_LABELS[t.asset]}</span>

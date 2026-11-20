@@ -5,18 +5,23 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-[length:var(--t-control)] font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-[length:var(--t-control)] font-medium transition-colors motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        default: "bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80",
         destructive:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        outline:
-          "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive/80",
+        // Tonal (DESIGN_SYSTEM.md 5.1): filled one step off whatever surface it sits on, no
+        // outline; hover/pressed are state layers. The text label identifies the button, so
+        // no 3:1 boundary is required (WCAG 1.4.11 Understanding).
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
+          "bg-brand-tonal text-brand-text hover:bg-brand-tonal-hover active:bg-brand-tonal-pressed",
+        // Alias of `secondary`, kept so existing callers keep working.
+        outline:
+          "bg-brand-tonal text-brand-text hover:bg-brand-tonal-hover active:bg-brand-tonal-pressed",
+        // Quiet, low-emphasis: no fill until hover.
+        ghost: "text-brand-text hover:bg-brand-tonal active:bg-brand-tonal-hover",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

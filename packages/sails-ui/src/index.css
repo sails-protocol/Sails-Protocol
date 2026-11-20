@@ -111,7 +111,7 @@
   --destructive-foreground: var(--color-on-danger);
   --border: var(--color-border);
   --input: var(--color-border);
-  --ring: var(--color-orange);
+  --ring: var(--color-focus);
   --radius: 0.5rem; /* rounded-lg — matches the 2026-07-28 sharper-corners redesign */
 
   /* UI-FOUNDATION-1 — semantic state tokens (docs/SAILS_MARKET_DESIGN_DIRECTION.md
@@ -170,6 +170,22 @@
   --color-brand-blue-fg: 29 78 216;  /* #1d4ed8 6.15:1, on tint 5.36:1 */
   --color-brand-blue-solid: 37 99 235;
   --color-on-brand-blue: 255 255 255; /* 5.17:1 */
+
+  /* Surfaces lot (2026-11-20, DESIGN_SYSTEM.md §5.1). Focus: its own token, not a
+     white-label brand token (accessibility is locked). = text color, so it never
+     reads as the orange primary, a selection or a status, and never clashes with
+     orange (no blue ring around an orange button). vs bg/surface/elevated
+     18.97 / 19.80 / 18.16. Buttons and rows: outline with a transparent 2px
+     offset; fields: their own border turns focus color, 2px inset. */
+  --color-focus: 10 10 10;           /* #0a0a0a = --color-text */
+  /* Tonal fill = text color at low alpha over its container (M3 state layer
+     idea): one step off any surface. Label on it >= 13:1 here. */
+  --tonal-a: 0.07;
+  --tonal-hover-a: 0.11;
+  --tonal-pressed-a: 0.15;
+  /* Segmented-control thumb (raised): opaque white + shadow-elevation-1. */
+  --raised-base: 255 255 255;
+  --raised-a: 1;
 
   /* Asset identity (AssetIcon monograms, decorative, aria-hidden). Same in
      both themes, never reused for meaning, not white-label brand tokens. */
@@ -256,7 +272,7 @@
   --destructive-foreground: var(--color-on-danger);
   --border: var(--color-border);
   --input: var(--color-border);
-  --ring: var(--color-orange);
+  --ring: var(--color-focus);
 
   /* UI-FOUNDATION-1 — dark-mode semantic state tokens, same "brighter
      shade against a near-black surface" methodology as
@@ -294,6 +310,14 @@
   --color-brand-blue-fg: 96 165 250; /* on tint 4.80:1 */
   --color-brand-blue-solid: 37 99 235; /* #2563eb */
   --color-on-brand-blue: 255 255 255;  /* 5.17:1 */
+  /* Focus = text #f5f7fa: 17.31 / 15.21 / 13.42 vs bg/surface/elevated. */
+  --color-focus: 245 247 250;
+  --tonal-a: 0.08;
+  --tonal-hover-a: 0.12;
+  --tonal-pressed-a: 0.16;
+  /* Thumb = text at 14% over the track: always one step above it (1.5:1). */
+  --raised-base: 245 247 250;      /* = --color-text */
+  --raised-a: 0.14;
   --elevation-1: 0 1px 2px 0 rgb(0 0 0 / 0.30);
   --elevation-2: 0 4px 12px -2px rgb(0 0 0 / 0.45);
   --elevation-3: 0 12px 32px -4px rgb(0 0 0 / 0.60);
@@ -309,6 +333,62 @@ body {
   background-color: rgb(var(--color-bg));
   color: rgb(var(--color-text));
   transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* One focus indicator for every interactive element (DESIGN_SYSTEM.md §5.1):
+   an outline, not a ring with a painted offset, so the 2px gap is transparent
+   on any surface (page, card, dialog, popover). Base layer, so a utility such
+   as `focus-visible:-outline-offset-2` (rows inside clipped lists) still wins.
+   Never `outline-none` on a focusable element without a replacement. */
+@layer base {
+  /* Native controls and scrollbars follow the theme (Windows dark mode). */
+  :root { color-scheme: light; }
+  :root.dark { color-scheme: dark; }
+  /* No double-tap zoom delay on controls. */
+  a, button, [role="button"], label, input, select, textarea { touch-action: manipulation; }
+  :focus-visible {
+    outline: 2px solid rgb(var(--color-focus));
+    outline-offset: 2px;
+  }
+  /* Reduced motion: transitions and enter/exit animations become instant (still
+     fire their end events, so Radix dialogs/sheets unmount normally). */
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* Fields (input, textarea, select, picker chips): one boundary only. No outer
+   outline; on focus the field's own 1px border turns focus color and an inset
+   1px shadow makes it 2px without shifting layout. Error = same, in danger. */
+@utility field-focus {
+  &:focus-visible {
+    outline: none;
+    border-color: rgb(var(--color-focus));
+    box-shadow: inset 0 0 0 1px rgb(var(--color-focus));
+  }
+  &[aria-invalid="true"] {
+    border-color: rgb(var(--color-danger));
+  }
+  &[aria-invalid="true"]:focus-visible {
+    border-color: rgb(var(--color-danger));
+    box-shadow: inset 0 0 0 1px rgb(var(--color-danger));
+  }
+}
+/* Same treatment for a bordered wrapper around an input (radio cards, the price
+   stepper): the wrapper's border shows focus, the inner input draws nothing. */
+@utility field-focus-within {
+  &:has(input:focus-visible) {
+    border-color: rgb(var(--color-focus));
+    box-shadow: inset 0 0 0 1px rgb(var(--color-focus));
+  }
+  & input:focus-visible {
+    outline: none;
+  }
 }
 
 /* Component classes — the same shapes the pasted design brief described
@@ -358,7 +438,7 @@ body {
   /* Compact offer row (OfferCard), used below the desktop table (lg): cells folded into lines inside one
      row, action on the right, one hairline between rows. */
   .offer-row {
-    @apply flex items-center gap-3 border-b border-brand-border-subtle px-4 py-3 transition-colors hover:bg-brand-elevated/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring;
+    @apply flex items-center gap-3 border-b border-brand-border-subtle px-4 py-3 transition-colors hover:bg-brand-elevated/60 focus-visible:-outline-offset-2;
   }
   .btn-dark {
     @apply bg-brand-text text-brand-bg hover:opacity-85 font-semibold rounded-lg transition-opacity;
@@ -367,7 +447,7 @@ body {
      unchanged. This IS the kind of interactive component boundary that
      rule protects. */
   .input-field {
-    @apply bg-brand-elevated border border-brand-border text-brand-text placeholder:text-brand-text-muted rounded-lg px-3 py-2 text-base md:text-sm focus:outline-none focus:border-brand-orange transition-colors;
+    @apply bg-brand-elevated border border-brand-border text-brand-text placeholder:text-brand-text-muted rounded-lg px-3 py-2 text-base md:text-sm transition-colors field-focus;
   }
   /* UI-FOUNDATION-1-VISUAL-CORRECTION — toolbar chip: for a filter/sort
      TRIGGER (AssetPicker/CurrencyPicker/PaymentMethodPicker), not a form
@@ -379,12 +459,12 @@ body {
   /* DESIGN-LANGUAGE-1 §2.4 — this class had no focus-visible treatment at
      all; a keyboard user tabbing through the Market toolbar got no visual
      signal which chip had focus (PopoverTrigger is a plain button with no
-     built-in ring). Same ring convention every other interactive
-     primitive here already uses (Input/Select/Checkbox/Switch). */
+     built-in ring). Since 2026-11-20 it focuses like a field (field-focus:
+     its own border turns focus color, 2px inset), never an outer outline. */
   /* One compact control height on desktop: 36px (h-9) for inputs, selects,
      toolbar chips and `sm` buttons; 44px on mobile for touch. */
   .toolbar-chip {
-    @apply h-11 md:h-9 bg-brand-elevated border border-brand-border text-brand-text rounded-md px-3 text-sm transition-colors hover:border-brand-border-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+    @apply h-11 md:h-9 bg-brand-elevated border border-brand-border text-brand-text rounded-md px-3 text-sm transition-colors hover:border-brand-border-hover field-focus;
   }
 
   /* UI-FOUNDATION-1 — typography hierarchy (docs/SAILS_MARKET_DESIGN_DIRECTION.md

@@ -88,7 +88,7 @@ function Option({ icon: Icon, title, subtitle, trailing, onSelect }: {
         type="button"
         onClick={onSelect}
         disabled={disabled}
-        className="w-full min-h-14 flex items-center gap-3 rounded-lg border border-brand-border-subtle bg-brand-elevated/40 px-3 py-2.5 text-left transition-colors enabled:hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange-accent disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full min-h-14 flex items-center gap-3 rounded-lg bg-brand-tonal px-3 py-2.5 text-left transition-colors enabled:hover:bg-brand-tonal-hover enabled:active:bg-brand-tonal-pressed disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span className="w-9 h-9 rounded-lg bg-brand-elevated flex items-center justify-center shrink-0">
           <Icon className="h-4 w-4 text-brand-text-secondary" />

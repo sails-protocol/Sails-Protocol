@@ -135,7 +135,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
           <button
             onClick={cancelAndClose}
             aria-label="Voltar"
-            className="sm:hidden -ml-2.5 h-11 w-11 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="sm:hidden -ml-2.5 h-11 w-11 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text hover:bg-brand-elevated"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
@@ -143,7 +143,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
           <button
             onClick={cancelAndClose}
             aria-label="Fechar"
-            className="hidden sm:flex h-8 w-8 items-center justify-center rounded-sm opacity-70 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="hidden sm:flex h-8 w-8 items-center justify-center rounded-sm opacity-70 hover:opacity-100"
           >
             <X className="h-4 w-4" />
           </button>
@@ -383,7 +383,7 @@ function PaymentMethodSection({
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar método de pagamento..."
+              placeholder="Buscar método de pagamento…"
               className="w-full pl-8"
             />
           </div>

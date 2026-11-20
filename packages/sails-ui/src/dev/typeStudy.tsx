@@ -44,7 +44,7 @@ function initialState(): State | null {
 function Switcher({ start }: { start: State }) {
   const [s, setS] = useState(start)
   const update = (next: State) => { setS(next); apply(next) }
-  const box = 'bg-brand-elevated text-brand-text border border-brand-border rounded px-1 py-0.5'
+  const box = 'bg-brand-elevated text-brand-text border border-brand-border rounded px-1 py-0.5 field-focus'
   return (
     <div
       data-type-study

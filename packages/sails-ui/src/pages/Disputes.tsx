@@ -489,7 +489,7 @@ function CaseFile({
             Você decide como árbitro designado.
           </SheetDescription>
         </div>
-        <SheetClose className="h-11 w-11 -mr-2 -mt-1 shrink-0 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <SheetClose className="h-11 w-11 -mr-2 -mt-1 shrink-0 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text hover:bg-brand-elevated">
           <X className="h-5 w-5" aria-hidden="true" />
           <span className="sr-only">Fechar caso</span>
         </SheetClose>
@@ -592,7 +592,7 @@ function CaseFile({
                       className={`flex items-center gap-3 min-h-11 px-3 py-2.5 rounded-lg border text-sm ${
                         o.unavailableReason
                           ? 'border-brand-border-subtle text-brand-text-secondary cursor-not-allowed'
-                          : 'border-brand-border text-brand-text cursor-pointer hover:bg-brand-elevated has-[:checked]:border-brand-text has-[:checked]:bg-brand-elevated has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring'
+                          : 'border-brand-border text-brand-text cursor-pointer hover:bg-brand-elevated has-[:checked]:border-brand-text has-[:checked]:bg-brand-elevated field-focus-within'
                       }`}
                     >
                       <input

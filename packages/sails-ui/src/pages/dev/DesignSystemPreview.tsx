@@ -10,6 +10,7 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { StateBlock } from '../../components/ui/StateBlock'
 import { ConfirmActionDialog } from '../../components/ui/ConfirmActionDialog'
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { UserAvatar } from '../../components/ui/UserAvatar'
 import { SideBadge, TradeStatusBadge, EscrowStatusBadge, OfferStatusBadge } from '../../components/ui/StatusBadges'
 import { TONE_CLASS, type Tone } from '../../lib/tone'
@@ -51,7 +52,7 @@ interface Role {
 
 // Static class strings so Tailwind generates them.
 const ROLES: Role[] = [
-  { name: 'Marca: laranja', use: 'Ação primária (um botão sólido por página), foco, navegação ativa. Não é status nem lado.', fg: '--color-orange-accent', base: '--color-orange', solid: ['--color-orange', '--primary-foreground'], text: 'text-brand-orange-accent', chip: 'border-brand-orange/25 bg-brand-orange/10 text-brand-text', solidClass: 'bg-primary text-primary-foreground' },
+  { name: 'Marca: laranja', use: 'Ação primária (um botão sólido por página), navegação ativa. Não é foco (foco = --color-focus). Não é status nem lado.', fg: '--color-orange-accent', base: '--color-orange', solid: ['--color-orange', '--primary-foreground'], text: 'text-brand-orange-accent', chip: 'border-brand-orange/25 bg-brand-orange/10 text-brand-text', solidClass: 'bg-primary text-primary-foreground' },
   { name: 'Marca: azul', use: 'Acento secundário da marca: links, seleção, gráficos, destaques. Não é info.', fg: '--color-brand-blue-fg', base: '--color-brand-blue', solid: ['--color-brand-blue-solid', '--color-on-brand-blue'], text: 'text-brand-blue-fg', chip: 'border-brand-blue-border bg-brand-blue-bg text-brand-blue-fg', solidClass: 'bg-brand-blue-solid text-brand-on-blue' },
   { name: 'Lado: compra', use: 'Somente lado do trade (Comprar). Nunca sucesso.', fg: '--color-buy-fg', base: '--color-buy', solid: ['--color-buy-solid', '--color-on-buy'], text: 'text-brand-buy-fg', chip: TONE_CLASS.buy, solidClass: 'bg-brand-buy-solid text-brand-on-buy' },
   { name: 'Lado: venda', use: 'Somente lado do trade (Vender). Nunca erro, nunca disputa.', fg: '--color-sell-fg', base: '--color-sell', solid: ['--color-sell-solid', '--color-on-sell'], text: 'text-brand-sell-fg', chip: TONE_CLASS.sell, solidClass: 'bg-brand-sell-solid text-brand-on-sell' },
@@ -79,6 +80,27 @@ function measure(v: Record<string, string>, role: Role) {
   }
 }
 
+/** Surfaces lot: focus outline and tonal/segmented fills, measured per container (bg, surface, elevated). */
+function measureSurfaces(v: Record<string, string>) {
+  const get = (k: string) => parseTriplet(v[k] ?? '')
+  const a = (k: string) => Number(v[k])
+  const text = get('--color-text'), sec = get('--color-text-secondary'), focus = get('--color-focus'), raised = get('--raised-base')
+  if (!text || !sec || !focus || !raised) return null
+  return SURFACES.map((k) => {
+    const c = get(k)!
+    const track = blend(text, c, a('--tonal-a'))
+    const thumb = blend(raised, track, a('--raised-a'))
+    return {
+      name: k.replace('--color-', ''),
+      focus: contrastRatio(focus, c),
+      tonalLabel: contrastRatio(text, track),
+      thumbVsTrack: contrastRatio(thumb, track),
+      selected: contrastRatio(text, thumb),
+      unselected: contrastRatio(sec, track),
+    }
+  })
+}
+
 function Ratio({ value, min }: { value: number | null; min: number }) {
   if (value === null) return <span className="text-brand-text-muted">—</span>
   const ok = value >= min
@@ -104,6 +126,11 @@ const ESCROW: EscrowStatus[] = ['CREATED', 'FUNDS_LOCKED', 'PAYMENT_PENDING', 'C
 const OFFER: OfferStatus[] = ['ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED']
 const VARIANTS = ['default', 'destructive', 'outline', 'secondary', 'ghost', 'link'] as const
 const TONES: Tone[] = ['neutral', 'info', 'success', 'warning', 'danger', 'buy', 'sell']
+const SURFACE_SAMPLES = [['bg-brand-bg', 'Fundo da página'], ['bg-brand-surface', 'Superfície (card, diálogo)'], ['bg-brand-elevated', 'Elevado']] as const
+/** Static specimens of the two keyboard-focus treatments (screenshots without a keyboard). */
+const FOCUS_STATIC = 'outline-2 outline-offset-2 outline-brand-focus'
+const FIELD_FOCUS_STATIC = 'border-brand-focus shadow-[inset_0_0_0_1px_rgb(var(--color-focus))]'
+const SEG_OPTIONS = [{ value: 'all', label: 'Todos' }, { value: 'buy', label: 'Comprar' }, { value: 'sell', label: 'Vender' }] as const
 
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
@@ -117,6 +144,7 @@ function Section({ id, title, children }: { id: string; title: string; children:
 export function DesignSystemPreview() {
   const [vars, setVars] = useState<Vars | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [seg, setSeg] = useState<(typeof SEG_OPTIONS)[number]['value']>('all')
   useEffect(() => setVars(readThemeVars()), [])
 
   return (
@@ -280,7 +308,30 @@ export function DesignSystemPreview() {
             </div>
           ))}
         </div>
-        <p className="mt-2 text-caption text-brand-text-muted">Um único botão sólido laranja (default) por tela. Carregando = desativado + aria-busy + spinner (respeita movimento reduzido).</p>
+        <p className="mt-2 text-caption text-brand-text-muted">default = a única ação primária (sólido laranja, um por tela). secondary (tonal; outline é alias) = ações de apoio: Voltar, Tentar de novo, Comprar/Vender na linha do Market. ghost = baixa ênfase, sem preenchimento até o hover. destructive = ação destrutiva. link = navegação no texto. Carregando = desativado + aria-busy + spinner (respeita movimento reduzido).</p>
+        <h3 className="mt-4 text-subheading text-brand-text">Tonal em cada superfície</h3>
+        <div className="mt-2 grid gap-3 md:grid-cols-3">
+          {SURFACE_SAMPLES.map(([cls, name]) => (
+            <div key={cls} className={`flex flex-wrap items-center gap-3 rounded-lg p-4 ${cls}`}>
+              <span className="w-full text-caption text-brand-text-muted">{name}</span>
+              <Button variant="secondary">Voltar</Button>
+              <Button variant="ghost">Detalhes</Button>
+              <Button variant="secondary" disabled>Desativado</Button>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section id="ds-segmented" title="Controle segmentado">
+        <div className="flex flex-wrap gap-3">
+          {SURFACE_SAMPLES.map(([cls, name]) => (
+            <div key={cls} className={`rounded-lg p-4 ${cls}`}>
+              <p className="mb-2 text-caption text-brand-text-muted">{name}</p>
+              <SegmentedControl label={`Exemplo de filtro, ${name}`} options={SEG_OPTIONS} value={seg} onChange={setSeg} />
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Trilho tonal sem contorno; item selecionado = superfície elevada + shadow-elevation-1 + texto principal em peso 500; não selecionado = texto secundário. A seleção nunca depende só da cor (preenchimento, elevação, cor e peso juntos, mais aria-pressed). Medidas na tabela de Foco e superfícies.</p>
       </Section>
 
       <Section id="ds-forms" title="Campos">
@@ -334,12 +385,43 @@ export function DesignSystemPreview() {
         <p className="mt-2 text-caption text-brand-text-muted">O foco começa em Voltar; Enter nunca confirma por acidente; Esc cancela.</p>
       </Section>
 
-      <Section id="ds-focus" title="Foco">
-        <div className="flex flex-wrap items-center gap-4">
-          <span className="inline-flex h-control items-center rounded-md border border-input bg-background px-4 text-sm ring-2 ring-ring ring-offset-2 ring-offset-background">Anel de foco (estático)</span>
-          <Button variant="outline">Use Tab para ver o foco real</Button>
+      <Section id="ds-focus" title="Foco e superfícies">
+        <div className="grid gap-3 md:grid-cols-3">
+          {SURFACE_SAMPLES.map(([cls, name]) => (
+            <div key={cls} className={`flex flex-wrap items-center gap-3 rounded-lg p-4 ${cls}`}>
+              <span className="w-full text-caption text-brand-text-muted">{name}</span>
+              {([['Normal', '', ''], ['Foco pelo teclado', FOCUS_STATIC, FIELD_FOCUS_STATIC]] as const).map(([state, btn, field]) => (
+                <div key={state} className="flex flex-wrap items-center gap-3">
+                  <span className="w-28 text-caption text-brand-text-secondary">{state}</span>
+                  <Button tabIndex={-1} className={btn}>Primário</Button>
+                  <Button tabIndex={-1} variant="secondary" className={btn}>Voltar</Button>
+                  <Input tabIndex={-1} readOnly className={`w-28 ${field}`} placeholder="Campo" aria-label={`Campo de exemplo, ${state}, ${name}`} />
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
-        <p className="mt-2 text-caption text-brand-text-muted">focus-visible: ring-2 ring-ring (laranja) + offset 2 na cor de fundo; nunca remover sem substituto.</p>
+        <p className="mt-2 text-caption text-brand-text-muted">"Foco pelo teclado" é um espécime estático (os controles reais só mostram foco com teclado, :focus-visible). Botões, links, abas, itens segmentados e linhas: outline 2px em --color-focus (cor do texto, nunca azul em volta do laranja) + vão transparente de 2px que mostra a superfície onde o controle está. Campos (input, textarea, select, seletores): sem outline; a própria borda vira a cor de foco e 2px por dentro (field-focus), erro igual em danger; cartões de rádio usam field-focus-within. Linhas em listas recortadas usam focus-visible:-outline-offset-2. Uma borda visível por elemento. Use Tab para ver o foco real.</p>
+        <div className="mt-3 overflow-x-auto rounded-lg border border-brand-border-subtle">
+          <table className="w-full min-w-[40rem] text-body-sm">
+            <thead className="bg-brand-elevated text-left text-brand-text-secondary">
+              <tr>{['Tema', 'Superfície', 'Foco', 'Rótulo no tonal', 'Thumb vs trilho', 'Selecionado', 'Não selecionado'].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {(['light', 'dark'] as const).flatMap((t) => (vars ? measureSurfaces(vars[t]) ?? [] : []).map((m) => (
+                <tr key={t + m.name} className="border-t border-brand-border-subtle tabular-nums">
+                  <td className="px-3 py-2">{t === 'light' ? 'Claro' : 'Escuro'}</td>
+                  <td className="px-3 py-2">{m.name}</td>
+                  <td className="px-3 py-2"><Ratio value={m.focus} min={3} /></td>
+                  <td className="px-3 py-2"><Ratio value={m.tonalLabel} min={4.5} /></td>
+                  <td className="px-3 py-2">{m.thumbVsTrack.toFixed(2)}:1 <span className="text-caption text-brand-text-muted">+ sombra, cor e peso</span></td>
+                  <td className="px-3 py-2"><Ratio value={m.selected} min={4.5} /></td>
+                  <td className="px-3 py-2"><Ratio value={m.unselected} min={4.5} /></td>
+                </tr>
+              )))}
+            </tbody>
+          </table>
+        </div>
       </Section>
     </div>
   )

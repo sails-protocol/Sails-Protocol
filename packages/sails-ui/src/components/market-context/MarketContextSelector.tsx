@@ -113,7 +113,7 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
       aria-labelledby={`${labelId} ${labelId}-current`}
       className={cn(
         'flex min-h-14 w-full items-center gap-3 rounded-xl border border-brand-border bg-brand-surface py-2 pl-2.5 pr-4 text-left shadow-sm transition-colors',
-        'hover:border-brand-border-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        'hover:border-brand-border-hover field-focus',
         className
       )}
     >
@@ -137,7 +137,7 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
       <div role="alert" className="px-3 py-4">
         <p className="text-sm text-brand-text">{copy.loadError}</p>
         {onRetry && (
-          <Button variant="outline" onClick={onRetry} className="mt-3 min-h-11 border-brand-border">
+          <Button variant="outline" onClick={onRetry} className="mt-3 min-h-11">
             {copy.retry}
           </Button>
         )}
@@ -166,8 +166,7 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
                         aria-describedby={block ? reasonId : undefined}
                         onClick={() => choose(o.id)}
                         className={cn(
-                          'flex min-h-12 w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors',
-                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                          'flex min-h-12 w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors focus-visible:-outline-offset-2',
                           isCurrent ? 'bg-brand-elevated' : block ? 'cursor-not-allowed' : 'hover:bg-brand-elevated'
                         )}
                       >
@@ -246,7 +245,7 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
               type="button"
               onClick={() => setOpen(false)}
               aria-label={copy.close}
-              className="-mr-2 flex h-11 w-11 items-center justify-center rounded-md text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="-mr-2 flex h-11 w-11 items-center justify-center rounded-md text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text"
             >
               <X className="h-5 w-5" />
             </button>

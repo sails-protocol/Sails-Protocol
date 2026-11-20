@@ -15,6 +15,7 @@ import { AgentIntentionPanel } from '../components/agent/AgentIntentionPanel'
 import { Button, buttonVariants } from '../components/ui/button'
 import { ListSkeleton } from '../components/ui/skeleton'
 import { cn } from '../lib/utils'
+import { SEGMENT_TRACK, segmentItemClass } from '../components/ui/SegmentedControl'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { StateBlock } from '../components/ui/StateBlock'
 import { Input } from '../components/ui/input'
@@ -177,19 +178,15 @@ export function Marketplace() {
   }, [allOffers, asset, currency, side, search, filters])
 
   const sideSegment = (wrapClass: string, buttonClass: string) => (
-    <div role="group" aria-label="Lado da oferta" className={cn('flex gap-1 bg-brand-elevated rounded-lg p-1', wrapClass)}>
+    <div role="group" aria-label="Lado da oferta" className={cn('flex gap-1', SEGMENT_TRACK, wrapClass)}>
       {SIDE_FILTERS.map((s) => (
         <button
           key={s.value}
           type="button"
           aria-pressed={side === s.value}
           onClick={() => setSide(s.value)}
-          className={cn(
-            'rounded-md px-3 text-body-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            buttonClass,
-            // Quiet selected state: the page's one solid orange is "Nova oferta".
-            side === s.value ? 'bg-brand-surface text-brand-text font-medium ring-1 ring-brand-border' : 'text-brand-text-secondary hover:text-brand-text'
-          )}
+          // Quiet selected state: the page's one solid orange is "Nova oferta".
+          className={cn('px-3', buttonClass, segmentItemClass(side === s.value))}
         >
           {s.label}
         </button>
@@ -315,7 +312,7 @@ export function Marketplace() {
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar por vendedor..."
+          placeholder="Buscar por vendedor…"
           aria-label="Buscar por vendedor"
           className="hidden lg:block flex-1 min-w-[7rem] max-w-[200px] bg-brand-elevated border-brand-border"
         />
@@ -354,7 +351,7 @@ export function Marketplace() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por vendedor..."
+            placeholder="Buscar por vendedor…"
             aria-label="Buscar por vendedor"
             className="w-full min-h-11 bg-brand-elevated border-brand-border"
           />
@@ -388,7 +385,7 @@ export function Marketplace() {
 
       {/* One surface; rows carry at most one hairline. lg+ is a real <table> (OfferTable); below lg the
           same cells fold into compact rows (OfferCard). */}
-      <div id="marketplace-offer-grid" tabIndex={-1} aria-label="Resultados" className="mt-3 rounded-lg border border-brand-border-subtle overflow-hidden bg-brand-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_li:last-child>a]:border-b-0">
+      <div id="marketplace-offer-grid" tabIndex={-1} aria-label="Resultados" className="mt-3 rounded-lg border border-brand-border-subtle overflow-hidden bg-brand-surface [&_li:last-child>a]:border-b-0">
         {loadingOffers ? (
           <ListSkeleton label="Carregando ofertas" rows={5} rowClassName="h-[5.75rem] lg:h-[4.25rem] lg:px-5" />
         ) : (

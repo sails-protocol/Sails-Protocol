@@ -147,14 +147,74 @@ Nada abaixo de 12px; nada de `text-[13px]`.
 
 | Componente | Faça | Não faça |
 |---|---|---|
-| `Button` (`ui/button.tsx`) | `default` = ação primária (uma por tela); `outline`/`secondary`/`ghost` para o resto; `destructive` só para ação destrutiva; carregando = `disabled` + `aria-busy` + spinner `motion-safe` | dois sólidos laranja lado a lado; cor manual em botão |
-| `Input` | rótulo visível; erro = `aria-invalid` + `border-brand-danger` + mensagem `text-brand-danger-fg` ligada por `aria-describedby` | placeholder no lugar de rótulo |
+| `Button` (`ui/button.tsx`) | `default` = ação primária (uma por tela); `secondary` (tonal; `outline` é alias) para ações de apoio; `ghost` para baixa ênfase; `destructive` só para ação destrutiva; carregando = `disabled` + `aria-busy` + spinner `motion-safe` (ver 5.1) | dois sólidos laranja lado a lado; cor manual em botão; contorno cinza em botão |
+| `Input` | rótulo visível; erro = `aria-invalid` (a borda fica danger via `field-focus`) + mensagem `text-brand-danger-fg` ligada por `aria-describedby` | placeholder no lugar de rótulo; outline em volta de campo |
 | Badges (`StatusBadges.tsx`) | `SideBadge` (buy/sell), `TradeStatusBadge`, `EscrowStatusBadge`, `OfferStatusBadge`: tom + rótulo + ícone | cor solta por tela; status só por cor |
 | `TONE_CLASS` (`lib/tone.ts`) | chips e avisos de status | reutilizar buy/sell como status |
 | `StateBlock` | loading / empty / error / signedOut em toda superfície de conteúdo | spinner solto, tela vazia sem saída |
 | `ConfirmActionDialog` | toda ação irreversível: resumo, consequência, avisos; foco inicial em Cancelar | confirmar com Enter por acidente |
 | `SegmentedControl`, `.toolbar-chip`, `Select`, `Popover`, `Sheet`, `Dialog` | seletores, menus, filtros, modais | criar variantes paralelas |
-| Foco | `focus-visible:ring-2 ring-ring ring-offset-2 ring-offset-background` | remover outline sem substituto |
+| Foco | automático: `:focus-visible` global (botões, links, linhas); `field-focus` em campos (ver 5.1) | `ring-offset-*`; `outline-none` sem substituto |
+
+### 5.1 Superfícies, botões e foco (2026-11-20)
+
+**Regra das bordas:** borda só onde carrega significado: campos (input, select,
+textarea, seletores), foco e divisórias. Superfícies se separam por tom e
+elevação (bg → superfície → elevado; sombra só em camadas flutuantes). Nunca uma
+caixa com borda dentro de um container com borda: dentro de diálogo, card ou
+popover, agrupar com **lista agrupada** (fundo elevado, linhas separadas por
+`divide-brand-border-subtle`, sem borda externa), como o resumo do
+`ConfirmActionDialog`. Avisos mantêm o tint, com borda no máximo sutil (base/25).
+Diálogo, popover, select e tooltip: superfície + `border-brand-border-subtle` +
+`shadow-elevation-2/3`.
+
+**Botões (variantes e quando usar):**
+
+| Variante | Visual | Uso |
+|---|---|---|
+| `default` | sólido laranja, texto escuro (escuro) / branco (claro) | a ação primária, uma por tela |
+| `secondary` (= `outline`, alias mantido) | **tonal**: preenchido um passo acima da superfície onde está (`bg-brand-tonal`, cor do texto a 8% no escuro / 7% no claro), sem contorno, texto principal | ações de apoio: Voltar, Tentar de novo, Limpar, Comprar/Vender na linha do Market |
+| `ghost` | sem preenchimento até o hover | baixa ênfase: ações de toolbar, "Detalhes" |
+| `destructive` | sólido danger | ação destrutiva (sempre via `ConfirmActionDialog`) |
+| `link` | texto laranja sublinhado no hover | navegação dentro do texto |
+
+Estados: hover e pressionado são **camadas de estado** (tonal 8 → 12 → 16% no
+escuro, 7 → 11 → 15% no claro; primário/destrutivo /90 → /80), sem mudar
+tamanho; desativado = `disabled` (fora do foco e do clique) + opacidade 0.5.
+Por que o tonal não precisa de borda 3:1: o botão é identificado pelo rótulo de
+texto (≥ 10.6:1 sobre o tonal em qualquer superfície); o WCAG 1.4.11
+(Understanding) não exige contraste da área do botão quando o texto basta para
+identificá-lo. Medido (tonal vs container): escuro 1.21–1.26, claro 1.16.
+
+**Controle segmentado** (`SegmentedControl`, `SEGMENT_TRACK`,
+`segmentItemClass`, usados também no seletor de lado do Market e do Publicar):
+trilho tonal sem contorno; item selecionado = `bg-brand-raised` (claro: branco
+opaco; escuro: texto a 14% sobre o trilho) + `shadow-elevation-1` + texto
+principal peso 500; não selecionado = texto secundário peso 400. Seleção por
+preenchimento, elevação, cor e peso juntos, mais `aria-pressed`. Medido
+(mín–máx entre fundo, superfície e elevado):
+
+| Tema | thumb vs trilho | selecionado (texto/thumb) | não selecionado (secundário/trilho) | texto sel. vs não sel. |
+|---|---|---|---|---|
+| Escuro | 1.51–1.54 | 7.05–9.37 | 5.22–7.03 | 2.03 |
+| Claro | 1.16–1.26 | 19.80 | 6.20–6.73 | 2.53 |
+
+**Foco:** token `--color-focus` = cor do texto (#F5F7FA escuro, #0A0A0A claro).
+Não é token de marca do white-label (acessibilidade é travada). Escolhido em vez
+de laranja (se confunde com o primário e a seleção) e de azul (anel azul em volta
+do botão laranja briga com a marca; azul vs laranja 1.0–1.1:1). Contraste com o
+fundo adjacente (o vão de 2px é transparente): escuro 17.31 / 15.21 / 13.42,
+claro 18.97 / 19.80 / 18.16 (bg / superfície / elevado); sobre o tonal ≥ 10.6.
+- Botões, links, abas, itens segmentados, linhas e gatilhos: `:focus-visible`
+  global em `index.css` = `outline: 2px solid` + `outline-offset: 2px` (só
+  teclado, nunca no clique). Linhas dentro de listas recortadas usam
+  `focus-visible:-outline-offset-2`.
+- Campos (`Input`, `Textarea`, `Select`, `.input-field`, `.toolbar-chip`, seletor
+  de contexto): **sem outline**. `field-focus` troca a própria borda pela cor de
+  foco e soma 1px por dentro (`box-shadow inset`), 2px sem deslocar o layout; com
+  `aria-invalid="true"` a borda é danger, e no foco danger 2px. Cartões de rádio e
+  o campo de preço com botões usam `field-focus-within`.
+- Uma borda visível por elemento em qualquer estado.
 
 ## 6. Guarda e exceções
 
@@ -164,7 +224,9 @@ Nada abaixo de 12px; nada de `text-[13px]`.
   stone, indigo, cyan, pink, fuchsia), com ou sem `/opacidade` e variantes;
 - cores cruas (hex/rgb/hsl) em nomes de classe ou literais de string (style props);
   `rgb(var(--token))` é permitido;
-- tamanhos de fonte arbitrários (`text-[13px]`, `text-[0.8rem]`).
+- tamanhos de fonte arbitrários (`text-[13px]`, `text-[0.8rem]`);
+- o foco antigo `ring-offset-background` / `ring-offset-N` (também em `index.css`);
+- `Input`/`Textarea`/`Select` sem `field-focus` ou com `focus:`/`focus-visible:` `outline-*`/`ring-*`.
 
 Exceção: comentário `ds-allow: <motivo>` na própria linha (`// ds-allow: ...`
 ou `{/* ds-allow: ... */}`). O teste limita o total a 2; aumentar exige
@@ -181,6 +243,8 @@ medido (`/dev/design-system` ou o script de contraste) ao Architect.
 - [ ] Só tokens: nenhuma cor de paleta, hex ou tamanho arbitrário (o guard passa sem `ds-allow`).
 - [ ] Cor com um significado: marca ≠ lado ≠ status; disputa = danger.
 - [ ] AA nos dois temas (texto 4.5:1, UI e texto grande 3:1).
+- [ ] Borda só onde carrega significado; nenhuma caixa com borda dentro de container com borda.
+- [ ] Foco: nada de `ring-offset`/`outline-none` sem substituto; campos usam `field-focus`.
 - [ ] Alvos de 44px no móvel; 36/40 no desktop.
 - [ ] Estados loading, empty e error completos (`StateBlock`).
 - [ ] Ação irreversível passa por `ConfirmActionDialog`.

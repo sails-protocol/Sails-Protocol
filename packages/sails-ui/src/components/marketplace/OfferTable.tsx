@@ -90,7 +90,7 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
           aria-label={label}
           className={cn(
             own
-              ? 'inline-flex min-h-9 items-center text-xs font-medium text-brand-text-secondary hover:text-brand-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md'
+              ? 'inline-flex min-h-9 items-center text-xs font-medium text-brand-text-secondary hover:text-brand-text rounded-md'
               : cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'min-w-[5.5rem]'),
             'after:absolute after:inset-0 after:content-[""]'
           )}

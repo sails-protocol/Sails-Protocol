@@ -64,7 +64,7 @@ export function CurrentActionCard({ view, acting, onAction, onOpenDispute, child
               type="button"
               onClick={onOpenDispute}
               disabled={acting}
-              className="min-h-11 px-1 text-sm text-brand-text-secondary underline underline-offset-4 hover:text-brand-text disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm sm:ml-auto"
+              className="min-h-11 px-1 text-sm text-brand-text-secondary underline underline-offset-4 hover:text-brand-text disabled:opacity-50 rounded-sm sm:ml-auto"
             >
               Abrir disputa
             </button>

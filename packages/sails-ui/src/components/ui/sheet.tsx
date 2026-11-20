@@ -75,9 +75,9 @@ const SheetContent = React.forwardRef<
           dialog.tsx's own Close (16px icon-only hit area, found testing
           this migration on an actual mobile viewport). */}
       {!hideDefaultClose && (
-        <SheetPrimitive.Close className="absolute right-4 top-4 h-8 w-8 flex items-center justify-center rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
+        <SheetPrimitive.Close className="absolute right-2 top-2 h-11 w-11 md:right-4 md:top-4 md:h-8 md:w-8 flex items-center justify-center rounded-sm opacity-70 transition-opacity hover:opacity-100 disabled:pointer-events-none data-[state=open]:bg-secondary">
           <X className="h-4 w-4" />
-          <span className="sr-only">Close</span>
+          <span className="sr-only">Fechar</span>
         </SheetPrimitive.Close>
       )}
     </SheetPrimitive.Content>

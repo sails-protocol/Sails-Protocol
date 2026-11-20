@@ -67,7 +67,7 @@ const COPY = {
   fieldSeller: 'Vendedor',
   sortPrefix: 'Ordenar: ',
   sortLabel: 'Ordenar por',
-  searchPlaceholder: 'Buscar por vendedor...',
+  searchPlaceholder: 'Buscar por vendedor…',
   searchLabel: 'Buscar por vendedor',
   // Sails Agent: contextual action surface (§16.2), under the context control and above the manual filters.
   agentTitle: 'Sails Agent',
@@ -185,7 +185,7 @@ export function MarketContextPreview() {
           aria-pressed={side === v}
           onClick={() => setSide(v)}
           className={cn(
-            'rounded-md px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'rounded-md px-3 text-sm transition-colors',
             buttonClass,
             side === v ? 'bg-primary font-medium text-primary-foreground' : 'text-brand-text-secondary hover:text-brand-text'
           )}
@@ -226,7 +226,7 @@ export function MarketContextPreview() {
                 aria-pressed={s.id === scenarioId}
                 onClick={() => pickScenario(s.id)}
                 className={cn(
-                  'min-h-11 rounded-md px-2.5 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  'min-h-11 rounded-md px-2.5 font-mono text-xs',
                   s.id === scenarioId ? 'bg-brand-text text-brand-bg' : 'text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text'
                 )}
               >
@@ -295,7 +295,7 @@ export function MarketContextPreview() {
           aria-describedby="agent-subtitle"
           aria-label={scenario.offline ? COPY.agentTitle : agentOpen ? COPY.agentClose : COPY.agentOpen}
           onClick={() => !scenario.offline && setAgentOpen((o) => !o)}
-          className={cn('flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', scenario.offline && 'cursor-not-allowed')}
+          className={cn('flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 py-1 text-left', scenario.offline && 'cursor-not-allowed')}
         >
           <span aria-hidden="true" className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-md', scenario.offline ? 'bg-brand-elevated text-brand-text-muted' : 'bg-brand-orange-accent/10 text-brand-orange-accent')}>
             <Bot className="h-4 w-4" />

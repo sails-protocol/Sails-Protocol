@@ -239,7 +239,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
           aria-expanded={open}
           aria-label={open ? 'Fechar Sails Agent' : 'Abrir Sails Agent'}
           aria-describedby="sails-agent-subtitle"
-          className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 py-1 text-left"
         >
           <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-brand-orange-accent/10 text-brand-orange-accent">
             <Bot className="h-4 w-4" />

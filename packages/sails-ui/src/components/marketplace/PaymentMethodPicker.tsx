@@ -51,7 +51,7 @@ export function PaymentMethodPicker({ methods, value, onChange }: Props) {
             autoFocus
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar método de pagamento..."
+            placeholder="Buscar método de pagamento…"
             className="w-full pl-8"
           />
         </div>
@@ -63,7 +63,7 @@ export function PaymentMethodPicker({ methods, value, onChange }: Props) {
                 key={m}
                 onClick={() => toggle(m)}
                 aria-pressed={checked}
-                className={`w-full flex items-center justify-between text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                className={`w-full flex items-center justify-between text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated focus-visible:-outline-offset-2 ${
                   checked ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'
                 }`}
               >
@@ -79,7 +79,7 @@ export function PaymentMethodPicker({ methods, value, onChange }: Props) {
         {value.length > 0 && (
           <button
             onClick={() => onChange([])}
-            className="w-full text-xs text-brand-text-muted hover:text-brand-text mt-1 pt-2 border-t border-brand-border-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+            className="w-full text-xs text-brand-text-muted hover:text-brand-text mt-1 pt-2 border-t border-brand-border-subtle rounded"
           >
             Limpar seleção
           </button>

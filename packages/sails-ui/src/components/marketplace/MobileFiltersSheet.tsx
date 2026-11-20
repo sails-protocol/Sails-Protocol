@@ -38,7 +38,7 @@ export function MobileFiltersSheet({ open, onOpenChange, triggerRef, title, clos
             type="button"
             onClick={() => onOpenChange(false)}
             aria-label={closeLabel}
-            className="-mr-2 h-11 w-11 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="-mr-2 h-11 w-11 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text hover:bg-brand-elevated"
           >
             <X className="h-5 w-5" />
           </button>

@@ -56,6 +56,13 @@ export default {
           // theme-aware base (was --destructive, the button fill).
           ...roles(['success', 'warning', 'danger', 'info', 'buy', 'sell', 'blue']),
           'border-subtle': 'rgb(var(--color-border-subtle) / <alpha-value>)',
+          // Surfaces lot (DESIGN_SYSTEM.md 5.1): focus outline, tonal fills (text color at a
+          // per-theme alpha over any container), and the raised segmented thumb.
+          focus: 'rgb(var(--color-focus) / <alpha-value>)',
+          tonal: 'rgb(var(--color-text) / var(--tonal-a))',
+          'tonal-hover': 'rgb(var(--color-text) / var(--tonal-hover-a))',
+          'tonal-pressed': 'rgb(var(--color-text) / var(--tonal-pressed-a))',
+          raised: 'rgb(var(--raised-base) / var(--raised-a))',
         },
         // Asset identity (AssetIcon only): bg-asset-btc/15 text-asset-btc.
         asset: Object.fromEntries(

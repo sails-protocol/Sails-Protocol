@@ -119,7 +119,7 @@ export function Sidebar() {
 
   const toggleLabel = expanded ? 'Recolher menu' : 'Expandir menu'
   const motion = 'transition-[width] duration-200 ease-out motion-reduce:transition-none'
-  const rowClass = 'flex h-9 w-full items-center gap-3 rounded-md px-[11px] text-sm whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+  const rowClass = 'flex h-9 w-full items-center gap-3 rounded-md px-[11px] text-sm whitespace-nowrap transition-colors'
 
   // Collapsed: the label shows as a tooltip and stays the accessible name.
   const withTooltip = (label: string, node: ReactElement) =>
@@ -151,7 +151,7 @@ export function Sidebar() {
         )}
       >
         <div className={cn('h-14 flex items-center border-b border-brand-border-subtle shrink-0', expanded ? 'px-5' : 'justify-center')}>
-          <NavLink to="/" className="font-display font-semibold tracking-tight text-brand-text whitespace-nowrap rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Sails Market">
+          <NavLink to="/" className="font-display font-semibold tracking-tight text-brand-text whitespace-nowrap rounded-md" aria-label="Sails Market">
             {expanded ? <SailsLogo /> : <SailsMark size={28} />}
           </NavLink>
         </div>

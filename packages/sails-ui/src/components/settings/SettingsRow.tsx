@@ -65,7 +65,7 @@ export function SettingsRow({ icon: Icon, label, description, value, control, on
     </>
   )
   const rowClass = 'w-full min-h-14 flex items-center gap-3 px-4 py-3 text-left'
-  const interactive = 'transition-colors hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-orange-accent'
+  const interactive = 'transition-colors hover:bg-brand-elevated focus-visible:-outline-offset-2'
 
   if (planned) {
     return (
