@@ -57,14 +57,14 @@ export function Layout() {
           <Link to="/" className="font-display font-bold text-brand-text tracking-tight">
             Sails <span className="text-brand-orange-accent">Market</span>
           </Link>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-5">
             {user && (
               <button
                 type="button"
                 onClick={() => setTourOpen(true)}
                 title="Rever tour de boas-vindas"
                 aria-label="Rever tour de boas-vindas"
-                className="p-2 -m-2 text-brand-text-secondary hover:text-brand-text"
+                className="p-3.5 -m-3.5 text-brand-text-secondary hover:text-brand-text"
               >
                 <HelpCircle className="h-4 w-4" />
               </button>

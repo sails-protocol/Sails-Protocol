@@ -36,11 +36,11 @@ export function PaymentMethodPicker({ methods, value, onChange }: Props) {
   }
 
   const label =
-    value.length === 0 ? 'Métodos de pagamento' : value.length === 1 ? PAYMENT_METHOD_LABELS[value[0]] : `${value.length} métodos`
+    value.length === 0 ? 'Todos os métodos' : value.length === 1 ? PAYMENT_METHOD_LABELS[value[0]] : `${value.length} métodos`
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger aria-label="Métodos de pagamento" className="toolbar-chip flex items-center gap-2 min-w-[170px] justify-between">
+      <PopoverTrigger aria-label="Métodos de pagamento" className="toolbar-chip flex items-center gap-2 min-w-[150px] justify-between">
         <span className={`truncate ${value.length > 0 ? 'font-medium text-brand-orange-accent' : ''}`}>{label}</span>
         <ChevronDown className="h-4 w-4 text-brand-text-muted shrink-0" />
       </PopoverTrigger>

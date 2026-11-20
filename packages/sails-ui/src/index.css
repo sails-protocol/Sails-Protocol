@@ -289,7 +289,7 @@ body {
      built-in ring). Same ring convention every other interactive
      primitive here already uses (Input/Select/Checkbox/Switch). */
   .toolbar-chip {
-    @apply bg-brand-elevated border border-brand-border-subtle text-brand-text rounded-lg px-3 py-2 text-sm transition-colors hover:border-brand-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+    @apply bg-brand-elevated border border-brand-border text-brand-text rounded-lg px-3 py-2 text-sm transition-colors hover:border-brand-border-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
   }
 
   /* UI-FOUNDATION-1 — typography hierarchy (docs/SAILS_MARKET_DESIGN_DIRECTION.md
