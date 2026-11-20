@@ -383,6 +383,7 @@ model Trade {
   messages         Message[]
   reputationEvents ReputationEvent[]
   disputes         Dispute[]
+  commitmentPairs  CommitmentPair[] // E25/E26 F3: pairs anchored on this trade's own Intent (tradeIntentId)
 
   @@index([buyerId])
   @@index([sellerId])
@@ -2683,10 +2684,11 @@ model EventProjectionClaim {
 /// E25/E26 F3 (CTO 28 Despacho 021) - the bilateral TradeCommitmentV1 + ArbitrationCommitmentV1 pair, one row per pair.
 /// Migration 20261120120000: every invariant (K1-K4, write-once signatures, the server-stamp window, transitions,
 /// append-only) is enforced by CHECKs and triggers in the database; see that migration. `executable` is not stored:
-/// it is state = 'COMMITTED'. anchorRef is an opaque uuid until #651 lands (no FK yet).
+/// it is state = 'COMMITTED'. anchorRef is the trade's OWN Intent (CTO 28 Despacho 025): FK to trades.tradeIntentId.
 model CommitmentPair {
   id                          String           @id @default(uuid())
   anchorRef                   String
+  anchorTrade                 Trade            @relation(fields: [anchorRef], references: [tradeIntentId], onDelete: Restrict, onUpdate: Restrict)
   /// = anchorRef while COMMITTED, NULL otherwise (CHECK): one COMMITTED pair per anchor (INV-5, C2).
   committedAnchorRef          String?          @unique
   commitmentDigest            String           @unique

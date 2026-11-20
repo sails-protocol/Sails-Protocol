@@ -1,7 +1,13 @@
 -- E25/E26 F3 (CTO 28 Despacho 021, P63) - persistence of the bilateral TradeCommitmentV1 + ArbitrationCommitmentV1 pair.
 -- One row per pair (design PRINCIPAL-P43-F3-desenho-v2.md, GK VERIFY): every invariant is a CHECK of the row itself,
 -- the pair is signed in ONE UPDATE per party, and the canonical objects never change. Additive: no existing table or
--- row is touched. anchorRef is an OPAQUE uuid here: the FK to trades("tradeIntentId") waits for #651 (CTO).
+-- row is touched except by reference. The anchor (CTO 28 Despacho 025) is the trade's OWN Intent: anchorRef is a
+-- FOREIGN KEY to trades("tradeIntentId") (UNIQUE, E21 migration 20261115120000, which already keeps an Offer's or a
+-- legacy trade's Intent out of that column), so a pair exists only after E21 admission, and the guard binds its
+-- parties (by role), asset and amount to that one trade, which must be PENDING or ACTIVE (the pair precedes escrow
+-- and dispute; COMPLETED, CANCELLED and DISPUTED are refused). One COMMITTED pair per trade:
+-- "committedAnchorRef" UNIQUE.
+-- Nota: editada em 2026-11-19 (D025) antes de qualquer aplicação persistente.
 --
 -- Reversal (not applied automatically; drop the guards first, they also block TRUNCATE):
 --   DROP TRIGGER commitment_pairs_no_truncate ON "commitment_pairs";
@@ -103,6 +109,7 @@ CREATE UNIQUE INDEX "commitment_pairs_committedAnchorRef_key" ON "commitment_pai
 CREATE INDEX "commitment_pairs_anchorRef_idx" ON "commitment_pairs"("anchorRef");
 
 ALTER TABLE "commitment_pairs" ADD CONSTRAINT "commitment_pairs_feePolicyVersionId_fkey" FOREIGN KEY ("feePolicyVersionId") REFERENCES "fee_policy_versions"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "commitment_pairs" ADD CONSTRAINT "commitment_pairs_anchorRef_fkey" FOREIGN KEY ("anchorRef") REFERENCES "trades"("tradeIntentId") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- B5 + B1/(A) + R2: the state machine, immutability and the server-stamp window, enforced by the database itself.
 CREATE OR REPLACE FUNCTION commitment_pairs_guard()
@@ -110,6 +117,7 @@ RETURNS TRIGGER AS $$
 DECLARE
   expires timestamptz := (NEW."trade"->>'expiresAt')::timestamptz;
   win_start timestamptz := date_trunc('milliseconds', transaction_timestamp());
+  anchor record;
 BEGIN
   IF TG_OP = 'INSERT' THEN
     -- T1: the taker signs first; a pair is born PROPOSED or PARTIALLY_SIGNED, never with the maker or a withdrawal.
@@ -118,6 +126,20 @@ BEGIN
     END IF;
     IF NEW."takerReceivedAt" IS NOT NULL AND NOT (NEW."takerReceivedAt" >= win_start AND NEW."takerReceivedAt" <= clock_timestamp() AND NEW."takerReceivedAt" < expires) THEN
       RAISE EXCEPTION 'commitment_pairs: takerReceivedAt must be this transaction''s database clock and before expiresAt' USING ERRCODE = 'check_violation';
+    END IF;
+    -- D025: the pair belongs to the trade that owns the anchor Intent. No such trade: the FOREIGN KEY refuses it.
+    -- Roles follow createTrade(): the offer's side is the maker's, so SELL makes the maker the seller.
+    SELECT t."buyerId", t."sellerId", t."asset"::text AS asset, t."amount", t."status"::text AS status INTO anchor FROM "trades" t WHERE t."tradeIntentId" = NEW."anchorRef";
+    -- IS NOT TRUE: an unknown key, side or amount (NULL) is a mismatch, never a pass.
+    IF FOUND AND (
+         (SELECT u."id" FROM "users" u WHERE u."publicKey" = NEW."trade"->>'makerPublicKey')
+           = (CASE NEW."trade"->>'side' WHEN 'SELL' THEN anchor."sellerId" WHEN 'BUY' THEN anchor."buyerId" END)
+     AND (SELECT u."id" FROM "users" u WHERE u."publicKey" = NEW."trade"->>'takerPublicKey')
+           = (CASE NEW."trade"->>'side' WHEN 'SELL' THEN anchor."buyerId" WHEN 'BUY' THEN anchor."sellerId" END)
+     AND anchor.asset = NEW."trade"->>'asset'
+     AND anchor."amount" = (NEW."trade"->>'amount')::numeric
+     AND anchor.status IN ('PENDING', 'ACTIVE')) IS NOT TRUE THEN
+      RAISE EXCEPTION 'commitment_pairs: anchor mismatch: parties, roles, asset, amount or state differ from the anchor trade' USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;
   END IF;
