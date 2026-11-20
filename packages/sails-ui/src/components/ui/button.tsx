@@ -26,6 +26,13 @@ const buttonVariants = cva(
         outline: cn("bg-brand-tonal text-brand-text state-layer", DISABLED_FILLED),
         // Quiet, low-emphasis: no fill until hover.
         ghost: cn("text-brand-text state-layer", DISABLED_QUIET),
+        // Trade side (DESIGN_SYSTEM.md 5.1): only for the action that IS a side ("Comprar" / "Vender"),
+        // never for status. Solid = the one primary on the offer ticket (replaces orange there);
+        // tonal = the row action in the Market list. Solid: white label + black layer (light), dark label + white layer (dark).
+        buy: cn("bg-brand-buy-solid text-brand-on-buy state-layer state-layer-dark dark:state-layer-light", DISABLED_FILLED),
+        sell: cn("bg-brand-sell-solid text-brand-on-sell state-layer state-layer-dark dark:state-layer-light", DISABLED_FILLED),
+        "buy-tonal": cn("bg-brand-buy-bg text-brand-buy-fg state-layer state-layer-buy", DISABLED_FILLED),
+        "sell-tonal": cn("bg-brand-sell-bg text-brand-sell-fg state-layer state-layer-sell", DISABLED_FILLED),
         // Brand link token (blue): orange means "act", never "go to" (DESIGN_SYSTEM.md 2).
         link: cn("text-brand-link underline-offset-4 hover:underline", DISABLED_QUIET),
       },

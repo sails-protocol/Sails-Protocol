@@ -37,7 +37,7 @@ export function deriveCurrentAction({ status, isBuyer, isSeller, releaseUnavaila
     case 'FUNDS_LOCKED':
       return isBuyer
         ? { tone: 'action', actorLabel: 'Ação necessária — comprador', title: 'Marcar o pagamento como enviado', description: 'Avisa o vendedor de que você enviou o pagamento. Não libera os fundos — isso só acontece quando o vendedor liberar. Toque só depois de concluir a transferência no app do seu banco.', primary: { action: 'markPaymentSent', label: 'Marcar pagamento enviado' }, canDispute }
-        : { tone: 'waiting', actorLabel: party ? WAITING : 'Acompanhamento', title: 'Aguardando o comprador marcar o pagamento como enviado', description: 'O servidor registrou o bloqueio dos fundos.', canDispute }
+        : { tone: 'waiting', actorLabel: party ? WAITING : 'Acompanhamento', title: 'Aguardando o comprador marcar o pagamento como enviado', description: 'O nó Sails registrou o bloqueio dos fundos.', canDispute }
     case 'PAYMENT_PENDING':
       if (party && signingUnavailable) {
         return { tone: 'attention', actorLabel: isSeller ? 'Vendedor' : 'Comprador', title: 'Assinatura da liberação indisponível nesta interface', description: 'A rodada de assinaturas da liberação está aberta, mas esta interface não oferece a assinatura agora. Os detalhes estão na rodada abaixo.', canDispute }

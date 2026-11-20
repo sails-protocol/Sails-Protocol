@@ -10,7 +10,7 @@
  * real; only the server round trips are fake. Every escrow is type MOCK
  * (single-call release, no PSBT, no escrow signatures).
  */
-import { SailsNotFoundError } from '@satsails/p2p-trading-sdk'
+import { SailsForbiddenError, SailsNotFoundError, SailsValidationError } from '@satsails/p2p-trading-sdk'
 import type {
   ChatMessageEvent, CounterProposal, Dispute, DisputeRuling, Escrow, Intent, IntentRiskAssessment, Message, Offer, Participant,
   PublicOfferDetail, ReputationScore, Trade, TradeIntentPayload, TradeProposal, Vouch, WebSocketChannel,
@@ -47,6 +47,8 @@ interface DemoState {
   intents: Intent<TradeIntentPayload>[]
   /** Dev fixture only: a signing round per escrow id, seeded by screenshot scripts through sessionStorage. Never set by the demo itself. */
   pendingTxs?: Record<string, unknown>
+  /** reputation.rate() records (informational, never part of reputationScore). Optional: older saved states lack it. */
+  ratings?: { tradeId: string; raterId: string; ratedId: string; score: number; comment?: string; createdAt: string }[]
 }
 
 interface Evidence { type: string; uri?: string; note?: string; submittedBy: string; submittedAt: string }
@@ -539,6 +541,22 @@ export function installDemoBackend() {
   Object.assign(c.capabilities, { async ensureCanonicalGrants() { return [] } } satisfies Partial<typeof c.capabilities>)
   Object.assign(c.reputation, {
     async get(id) { return reputationOf(findParticipant(id)) },
+    // Same checks and messages as reputation.service.ts rate(): parties only, rated = the other party, one per rater per trade.
+    async rate({ tradeId, ratedId, score, comment }) {
+      const me = needMe()
+      if (!Number.isInteger(score) || score < 1 || score > 5) throw new SailsValidationError(`score must be between 1 and 5, got ${score}`)
+      const t = state.trades.find((x) => x.id === tradeId)
+      if (!t) throw new SailsNotFoundError(`Trade not found: ${tradeId}`)
+      if (me !== t.buyerId && me !== t.sellerId) throw new SailsForbiddenError(`${me} is not a party to trade ${tradeId}`)
+      const expected = me === t.buyerId ? t.sellerId : t.buyerId
+      if (ratedId !== expected) throw new SailsValidationError(`ratedId must be the other party to trade ${tradeId} (expected ${expected})`)
+      const ratings = (state.ratings ??= [])
+      if (ratings.some((r) => r.tradeId === tradeId && r.raterId === me)) throw new SailsValidationError(`${me} has already rated trade ${tradeId}`)
+      const event = { tradeId, raterId: me, ratedId, score, comment, createdAt: now() }
+      ratings.push(event)
+      save()
+      return clone(event)
+    },
     async vouchFor(voucheeId) {
       const me = findParticipant(needMe())
       findParticipant(voucheeId)

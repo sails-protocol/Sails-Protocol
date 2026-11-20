@@ -42,7 +42,7 @@ Três eixos separados, que nunca se misturam:
 Regras:
 - **buy/sell nunca para status.** Um chip "Vender" não pode parecer erro; uma disputa usa danger, nunca sell.
 - **Laranja não é "compra"; verde não é necessariamente "compra"; vermelho não é "venda".**
-- **Um botão sólido laranja por tela** (a ação primária).
+- **Um botão sólido laranja por tela** (a ação primária). No ticket da oferta a ação primária é o próprio lado (sólido verde "Comprar" / sólido vermelho "Vender") e substitui o laranja ali; continua uma única ação primária.
 - **Azul da marca ≠ info.** Tokens diferentes mesmo quando o valor coincide (escuro: ambos #60A5FA no texto). O azul da marca é para links, seleção, gráficos e destaques; info é status.
 - A cor nunca é o único sinal: todo status tem rótulo (e, nas badges, ícone).
 - **Lado e status têm formas diferentes** (**provisório — ratificação pendente**). Na tela, compra ≈ sucesso
@@ -50,7 +50,9 @@ Regras:
   vermelho/verde eles colapsam. Então: **lado = texto colorido + seta**
   (`SideBadge`: `ArrowDownLeft` Comprar, o ativo entra; `ArrowUpRight` Vender, o
   ativo sai; sem pílula); **status = pílula com tint + ícone + rótulo**
-  (`TONE_CLASS`). Nunca só cor. Botão sólido buy/sell só na ação única do ticket.
+  (`TONE_CLASS`). Nunca só cor. Botão de lado (fase 4A): sólido `buy`/`sell` só na ação única do ticket da
+  oferta; tonal `buy-tonal`/`sell-tonal` na ação da linha do Market; "Sua oferta" fica neutra. O rótulo
+  ("Comprar"/"Vender") sempre acompanha a cor.
 - **Marcado ≠ ação.** Checkbox e switch ligados usam `--color-checked` (azul da
   marca), nunca laranja: laranja = agir, azul = escolhido. Navegação ativa
   (sidebar, bottom nav, abas) segue laranja ("você está aqui").
@@ -92,8 +94,8 @@ Medido pela página `/dev/design-system` a partir das variáveis carregadas.
 |---|---|---|---|---|---|---|
 | Laranja | #F97316 | 5.14 | 4.51 | 5.14 | #F97316 / #111318 | 6.63 |
 | Azul da marca | #60A5FA | 5.67 | 4.80 | 5.67 | #2563EB / branco | 5.17 |
-| Compra | #4CC79A | 6.82 | 5.63 | 6.82 | #0D8259 / branco | 4.82 |
-| Venda | #FB7185 | 5.35 | 4.64 | 5.35 | #B9384E / branco | 5.62 |
+| Compra | #4CC79A | 6.82 | 5.63 | 6.82 | #4CC79A / #111318 (fase 4A; era #0D8259 / branco 4.82) | 8.80 |
+| Venda | #FB7185 | 5.35 | 4.64 | 5.35 | #FB7185 / #111318 (fase 4A; era #B9384E / branco 5.62) | 6.90 |
 | Sucesso | #34D399 | 7.49 | 6.14 | 7.49 | #34D399 / #111318 | 9.67 |
 | Atenção | #FBBF24 | 8.63 | 6.95 | 8.63 | #FBBF24 / #111318 | 11.13 |
 | Perigo | #F87171 | 5.21 | 4.52 | 5.21 | #B91C1C / branco | 6.47 |
@@ -264,7 +266,7 @@ toda animação e transição fica instantânea (regra global), spinners só gir
 
 | Componente | Faça | Não faça |
 |---|---|---|
-| `Button` (`ui/button.tsx`) | `default` = ação primária (uma por tela); `secondary` (tonal; `outline` é alias) para ações de apoio; `ghost` para baixa ênfase; `destructive` só para ação destrutiva; carregando = prop `loading` (ver 5.2), indisponível = `disabled` | dois sólidos laranja lado a lado; cor manual em botão; contorno cinza em botão; `disabled` para "carregando" |
+| `Button` (`ui/button.tsx`) | `default` = ação primária (uma por tela); `secondary` (tonal; `outline` é alias) para ações de apoio; `ghost` para baixa ênfase; `destructive` só para ação destrutiva; `buy`/`sell`/`buy-tonal`/`sell-tonal` só para a ação que é o lado do trade (5.1); carregando = prop `loading` (ver 5.2), indisponível = `disabled` | dois sólidos laranja lado a lado; cor manual em botão; contorno cinza em botão; `disabled` para "carregando" |
 | `Input` | rótulo visível; erro = `aria-invalid` (a borda fica danger via `field-focus`) + mensagem `text-brand-danger-fg` ligada por `aria-describedby` | placeholder no lugar de rótulo; outline em volta de campo |
 | Badges (`StatusBadges.tsx`) | `SideBadge` (lado: texto + seta), `TradeStatusBadge`, `EscrowStatusBadge`, `OfferStatusBadge` (status: pílula + ícone + rótulo); rótulos longos quebram linha, nunca transbordam | cor solta por tela; status só por cor; lado em pílula |
 | `TONE_CLASS` (`lib/tone.ts`) | chips e avisos de status | reutilizar buy/sell como status |
@@ -291,10 +293,44 @@ Diálogo, popover, select e tooltip: superfície + `border-brand-border-subtle` 
 | Variante | Visual | Uso |
 |---|---|---|
 | `default` | sólido laranja com texto escuro nos dois temas (claro #EA580C, provisório) | a ação primária, uma por tela |
-| `secondary` (= `outline`, alias mantido) | **tonal**: preenchido um passo acima da superfície onde está (`bg-brand-tonal`, cor do texto a 8% no escuro / 7% no claro), sem contorno, texto principal | ações de apoio: Voltar, Tentar de novo, Limpar, Comprar/Vender na linha do Market |
+| `secondary` (= `outline`, alias mantido) | **tonal**: preenchido um passo acima da superfície onde está (`bg-brand-tonal`, cor do texto a 8% no escuro / 7% no claro), sem contorno, texto principal | ações de apoio: Voltar, Tentar de novo, Limpar |
+| `buy-tonal` / `sell-tonal` (fase 4A) | tint do lado a 10 % (`bg-brand-buy-bg` / `bg-brand-sell-bg`) + texto do lado (`-fg`), sem contorno; camada de estado `state-layer-buy/sell` | Comprar/Vender na linha do Market (OfferTable, OfferCard) |
+| `buy` / `sell` (fase 4A) | sólido do lado (`bg-brand-buy-solid` / `bg-brand-sell-solid`) + texto branco; camada preta | a ação primária do ticket da oferta ("Comprar BTC" / "Vender BTC"), no lugar do laranja |
 | `ghost` | sem preenchimento até o hover | baixa ênfase: ações de toolbar, "Detalhes" |
 | `destructive` | sólido danger | ação destrutiva (sempre via `ConfirmActionDialog`) |
 | `link` | texto `brand-link` (azul da marca; 6.15+ claro, 5.67+ escuro) sublinhado no hover (era laranja: laranja = agir) | navegação dentro do texto |
+
+**Botões de lado, medido** (rótulo vs preenchimento, mínimo entre fundo,
+superfície e elevado; ao vivo em `/dev/design-system`, seção "Botões de lado"):
+
+| Tema | Variante | repouso | hover | pressionado |
+|---|---|---|---|---|
+| Claro | `buy-tonal` | 5.29 | 4.82 | 4.60 |
+| Claro | `sell-tonal` | 5.36 | 4.80 | 4.57 |
+| Escuro | `buy-tonal` | 5.63 | 6.03 | 6.21 |
+| Escuro | `sell-tonal` | 4.64 | 4.94 | 5.08 |
+| Claro | `buy` (branco sobre #0D8259) | 4.82 | 5.49 | 5.95 |
+| Claro | `sell` (branco sobre #B9384E) | 5.62 | 6.38 | 6.81 |
+| Escuro | `buy` (#111318 sobre #4CC79A) | 8.80 | 9.29 | 9.63 |
+| Escuro | `sell` (#111318 sobre #FB7185) | 6.90 | 7.42 | 7.72 |
+
+Sólido vs superfície (≥ 3:1): claro compra 4.42–4.82, venda 5.15–5.62; escuro
+compra 6.82–8.80, venda 5.35–6.90. Foco (contorno 2 px) vs superfície: 18.16+
+claro, 13.42+ escuro. No escuro o sólido segue a regra do primário laranja
+(preenchimento claro + rótulo escuro): com branco sobre #0D8259 / #B9384E o
+botão media só 2.99 / 2.56 contra o elevado. Camada do sólido: preta no claro
+(rótulo branco), branca no escuro (rótulo escuro), `state-layer-dark
+dark:state-layer-light`. Estados lado a lado (repouso, hover, pressionado,
+foco, desativado, carregando, mais "Sua oferta") e a linha real do OfferTable
+estão em `/dev/design-system`, seção "Botões de lado".
+
+A camada dos tonais é a cor do lado no claro e preta no escuro (tokens
+`--state-layer-buy/sell`, utilitários `state-layer-buy/sell`): a camada padrão
+(cor do texto) baixaria o rótulo para 4.10 (compra, claro) e 3.23 (venda,
+escuro). Preenchimento vs container 1.13–1.21 (como o tonal: o rótulo identifica
+o botão). Tokens: dois de camada novos (`--state-layer-buy/sell`) e, no
+escuro, `--color-buy-solid`/`--color-sell-solid` e `--color-on-buy/sell`
+trocados (usados só pelos botões de lado e pela página dev).
 
 Estados: hover e pressionado são camadas de estado, desativado e carregando são
 distintos (ver 5.2). Tamanhos: 40 / `sm` 36 / `lg` 44 com ponteiro fino; `touch:`
@@ -533,6 +569,69 @@ Seleção e link seguem o azul da marca (white-label pode trocá-lo, com o
 contraste acima como piso); os `inverse-*` de status são travados como os
 outros status.
 
+### 5.4 Fase 4A (**provisório — ratificação pendente**, 2026-11-20)
+
+#### Configurações
+Seções (abas verticais md+, lista que abre a seção abaixo de md): **Nó Sails**
+(`Network`), **Wallet**, **Aparência** (`SunMoon`), **Idioma** (`Languages`),
+**Notificações** (`Bell`), **Segurança**, **Comunidades**, **Ajuda e Sobre**.
+"Aplicativo" saiu: tema e estilo dos avatares foram para Aparência (com Avatar
+público e Moeda de exibição, ainda "Em breve"); Idioma e Notificações viraram
+seções. Nenhuma linha foi removida. Itens planejados vêm de `LOOSE_WIRES`
+(`src/lib/looseWires.ts`, antes dentro de Settings.tsx), que também lista os
+fios de outras telas (avaliações, data de cadastro pública, vários métodos de
+pagamento).
+
+#### Aparência (`lib/themePreference.ts`, `ThemeContext`)
+Preferência `'system' | 'dark' | 'light'` em cartões de rádio (Padrão do
+sistema / Escuro / Claro). `system` segue `prefers-color-scheme` ao vivo
+(`matchMedia` + listener). Guardada em `sails_ui_theme` (mesma chave do antigo
+toggle: o "dark"/"light" salvo continua valendo como escolha explícita);
+leitura e escrita protegidas. Padrão continua **escuro** (dark-first) até o
+Architect decidir. `useTheme()` agora dá `{ theme, preference, setPreference }`.
+
+#### Idioma (`lib/locale.ts`)
+`RadioGroup` com Padrão do sistema, Português (Brasil), English, Español,
+Français, Deutsch (cada idioma no próprio nome, com `lang`). Guardado em
+`sails_ui_locale` para o lote B ler. Escolher um idioma que não é português
+mostra um `Alert` info: "Tradução em andamento". Não existe dicionário ainda.
+
+#### Notificações
+Sem sistema de notificações no SDK: três linhas "Em breve" (novos trades e
+mudanças de estado, mensagens do chat, disputas e prazos). Nada de switch que
+não faz nada.
+
+#### PaymentMethods (`ui/PaymentMethods.tsx`, Layer A)
+Recebe uma lista de rótulos. Linha do Market: até 2 e depois "+N" (`max`),
+1 + "+N" abaixo de `sm` (`maxNarrow`); oferta: lista completa. Mesmo visual do
+antigo `PaymentBadge` (texto secundário após um traço da marca). Leitor de tela
+ouve a lista inteira uma vez. Hoje a oferta tem um método só: todos passam
+`[offer.paymentMethod]`, a tela não muda. Filtro = "qualquer um" dos métodos
+escolhidos (`acceptsAnyMethod`). Vários métodos por oferta = schema + SDK
+(LOOSE_WIRES.multiPaymentMethods).
+
+#### Item planejado (`ui/PlannedItem.tsx`, Layer A)
+Rótulo + badge "Em breve" (o mesmo das linhas planejadas) + descrição + popover
+de explicação opcional. Nunca valor, número ou ação. Usado para **Avaliações**
+no Perfil e no bloco do anunciante da oferta (`RATINGS_EXPLANATION`: 1 a 5
+estrelas, só informativas, nunca entram na reputação). Não aparece nas linhas
+do Market. "Membro desde" no Perfil próprio = mês e ano (`formatMonthYear`,
+"nov. de 2026"); a data pública do anunciante não existe no SDK (fio solto).
+
+#### Avaliação da contraparte (`ui/star-rating.tsx`, `trade/RateCounterpartyCard.tsx`)
+- **Quando:** trade `COMPLETED`, só para as duas partes; "Avaliar <nome>".
+- **Estrelas:** `StarRating` sobre o `RadioGroup` (rádios nativos escondidos,
+  um rótulo por estrela "3 estrelas"; setas mudam a nota); 40 px fino / 44 toque;
+  escolhidas na cor de marcado (azul), nunca laranja; foco = outline no próprio
+  rótulo; o texto "3 de 5" é anunciado (polite).
+- **Comentário** opcional (vazio não é enviado). Enviar com `loading`. Sem nota
+  = erro no campo.
+- **Resultado:** sucesso = toast + uma linha "Você avaliou este trade" no lugar
+  do formulário; o 400 "already rated" do nó Sails = "Você já avaliou este
+  trade"; outro erro = mensagem sob o formulário. `sessionStorage`
+  (`sails_ui_rated:<tradeId>`) lembra só nesta aba, por conveniência.
+- **Texto:** a avaliação é informativa e não muda a reputação (RFC-007).
+
 ## 6. Guarda e exceções
 
 `tests/designSystemGuard.test.ts` varre `src/**/*.ts(x)` e falha em:
@@ -553,7 +652,11 @@ outros status.
   fora de `ui/tabs.tsx`; `type="radio"`/`role="radio(group)"` fora de
   `ui/radio-group.tsx`; `role="listbox"`/`combobox`/`option` fora de
   `ui/combobox.tsx`; `role="progressbar"` fora de `ui/progress.tsx`; import de
-  `sonner` fora de `ui/toast.tsx`; `title=` em `<button>`/`<Button>` (use `IconButton`).
+  `sonner` fora de `ui/toast.tsx`; `title=` em `<button>`/`<Button>` (use `IconButton`);
+- (fase 4A) tokens `brand-buy*`/`brand-sell*` fora das suas casas (`ui/button.tsx`,
+  `ui/StatusBadges.tsx`, `lib/tone.ts`, a página dev) e variante/tom `buy`/`sell`
+  (`-tonal`) ou `TONE_CLASS.buy/sell` numa linha que não escolhe a partir de um lado
+  do trade (`side`): verde e vermelho de lado nunca viram status.
 
 Exceção: comentário `ds-allow: <motivo>` na própria linha (`// ds-allow: ...`
 ou `{/* ds-allow: ... */}`). O teste limita o total a 2; aumentar exige
@@ -590,6 +693,12 @@ normaliza para ponto; só a exibição muda.
 Você; frases em caixa normal; botões começam pelo verbo; sem exclamação, sem
 emoji; rótulo de fechar em pt-BR ("Fechar").
 
+**Termos (fase 4A):** o serviço com que o app fala é o **nó Sails** ("Nó Sails"
+no início de frase ou como título), nunca "servidor": "Depósito registrado pelo
+nó Sails", "Transação de pagamento registrada pelo nó Sails", "O nó Sails pode
+recusar a apelação". O sentido não muda (é quem registra e responde); nomes de
+código (`server-custodial-…`, `sailsClient`) ficam como estão.
+
 ## 8. Checklist para agentes e builders
 
 - [ ] Reusei um componente existente antes de criar um novo.
@@ -602,6 +711,8 @@ emoji; rótulo de fechar em pt-BR ("Fechar").
 - [ ] Alvos de 44px no toque e no móvel (`touch:`); 36/40 com ponteiro fino.
 - [ ] Hover/pressionado com `state-layer`; carregando com `loading`, não `disabled`.
 - [ ] Lado = texto + seta; status = pílula + ícone; marcado = azul.
+- [ ] Botão de lado só para "Comprar"/"Vender" (`buy`/`sell` no ticket, `-tonal` na linha), escolhido a partir do `side`.
+- [ ] Recurso futuro = "Em breve" ligado a `LOOSE_WIRES` (`PlannedItem` ou linha planejada), sem número inventado.
 - [ ] Números pelo `lib/format.ts` (pt-BR).
 - [ ] Estados loading, empty e error completos (`StateBlock`).
 - [ ] Ação irreversível passa por `ConfirmActionDialog`.

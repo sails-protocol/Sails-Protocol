@@ -52,8 +52,8 @@ describe('trade rail stages', () => {
     expect(ids(input('COMPLETED'))).not.toContain('transaction')
     const done = deriveTradeState(input('COMPLETED', { txReleaseId: 'tx-1' })).steps
     expect(done.map((s) => s.id).slice(-2)).toEqual(['completed', 'transaction'])
-    expect(done[done.length - 1]).toMatchObject({ state: 'done', label: 'Transação de pagamento registrada pelo servidor', evidence: [{ value: 'tx-1' }] })
-    expect(PAYOUT_TX_LABEL).toBe('Transação de pagamento registrada pelo servidor')
+    expect(done[done.length - 1]).toMatchObject({ state: 'done', label: 'Transação de pagamento registrada pelo nó Sails', evidence: [{ value: 'tx-1' }] })
+    expect(PAYOUT_TX_LABEL).toBe('Transação de pagamento registrada pelo nó Sails')
     expect(done[done.length - 1].label).not.toMatch(/confirmad|liquidad|finaliz/i)
     // Refund/split payouts carry the same field, after their outcome.
     expect(ids(input('REFUNDED', { txReleaseId: 'tx-2' })).slice(-2)).toEqual(['outcome', 'transaction'])
@@ -185,8 +185,8 @@ describe('trade rail: actions this interface cannot do (truth audit fixes)', () 
   })
 
   it('maps declared custody models to words and anything else to not declared', () => {
-    expect(custodyModelLabel('client-held-buyer-seller-keys-server-held-arbiter')).toBe('Comprador e vendedor guardam as próprias chaves; a chave de árbitro fica com o servidor')
-    expect(custodyModelLabel('server-custodial-reference-implementation')).toMatch(/^Custódia do servidor/)
+    expect(custodyModelLabel('client-held-buyer-seller-keys-server-held-arbiter')).toBe('Comprador e vendedor guardam as próprias chaves; a chave de árbitro fica com o nó Sails')
+    expect(custodyModelLabel('server-custodial-reference-implementation')).toMatch(/^Custódia do nó Sails/)
     expect(custodyModelLabel('client-held-buyer-seller-keys-server-held-kms-arbiter')).toMatch(/KMS/)
     for (const v of [null, undefined, '', 'something-new', 'toString']) expect(custodyModelLabel(v)).toBe('Não declarado pelo provedor')
   })

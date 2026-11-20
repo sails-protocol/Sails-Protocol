@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Link, useOutletContext } from 'react-router'
 import {
-  Activity, Award, Bell, Globe, HelpCircle, Info, KeyRound, Languages, Link2, LifeBuoy, Lock, LogOut, MapPin,
-  Moon, Palette, Plug, Server, ServerCog, Shield, ShieldCheck, Users, Wallet, ArrowLeft, CircleUser, type LucideIcon,
+  Award, Bell, HelpCircle, KeyRound, Languages, LogOut, Monitor, Moon, Network, Server, Shield, ShieldCheck, Sun, SunMoon,
+  Users, Wallet, ArrowLeft, type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
@@ -10,7 +10,6 @@ import { shortKey, useDisconnect } from '../components/layout/AccountMenu'
 import type { LayoutOutletContext } from '../components/layout/Layout'
 import { SettingsGroup, SettingsRow } from '../components/settings/SettingsRow'
 import { CopyButton } from '../components/ui/CopyButton'
-import { Switch } from '../components/ui/switch'
 import { ListSkeleton } from '../components/ui/skeleton'
 import { buttonVariants } from '../components/ui/button'
 import { cn } from '../lib/utils'
@@ -23,6 +22,10 @@ import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import type { IdentityAvatarStyle } from '../lib/identityAvatar'
 import { Tabs } from '../components/ui/tabs'
 import { RadioCard, RadioGroup } from '../components/ui/radio-group'
+import { Alert } from '../components/ui/alert'
+import { LOOSE_WIRES, type LooseWireId } from '../lib/looseWires'
+import type { ThemePreference } from '../lib/themePreference'
+import { translationPending, useLocalePreference, type LocalePreference } from '../lib/locale'
 
 const AVATAR_STYLE_OPTIONS: ReadonlyArray<{ value: IdentityAvatarStyle; label: string }> = [
   { value: 'vela', label: 'Vela' },
@@ -32,39 +35,35 @@ const AVATAR_STYLE_OPTIONS: ReadonlyArray<{ value: IdentityAvatarStyle; label: s
 // Preview seed when no wallet is connected (a sample, not anyone's identity).
 const SAMPLE_AVATAR_SEED = 'sails-exemplo'
 
-/**
- * LOOSE_WIRES: every planned ("Em breve") row on this page and the contract
- * it needs before it can become real. Planned rows render from this list
- * only, disabled, with no value and no action.
- */
-const LOOSE_WIRES = {
-  publicPrivateServers: { label: 'Servidores públicos e privados', icon: Globe, contract: 'SDK/config: catalogue of selectable API endpoints + SailsClient re-init on switch' },
-  manualServer: { label: 'Servidor manual', icon: ServerCog, contract: 'validated user-supplied baseUrl, persisted, SailsClient rebuilt with it' },
-  connectionDiagnostics: { label: 'Diagnóstico de conexão', icon: Activity, contract: 'SDK health/latency call (none exposed today)' },
-  satsailsWallet: { label: 'Satsails Wallet', icon: Wallet, contract: 'Satsails Wallet WalletAdapter connector (same gap as the connect-wallet dialog)' },
-  walletConnect: { label: 'WalletConnect', icon: Link2, contract: 'WalletConnect WalletAdapter connector (same gap as the connect-wallet dialog)' },
-  defaultReceiveAddress: { label: 'Endereço de recebimento padrão', icon: MapPin, contract: 'per-asset payout address on the participant profile (SDK + backend field)' },
-  language: { label: 'Idioma', icon: Languages, contract: 'i18n layer + translation catalogue (sails-ui is pt-BR only today)' },
-  notifications: { label: 'Notificações', icon: Bell, contract: 'notification system/backend (none exists, PROJECT_CONTEXT §2E Future)' },
-  displayCurrency: { label: 'Moeda de exibição', icon: Info, contract: 'FX rate source in the SDK; priceUsd is the only real price unit today' },
-  keyBackup: { label: 'Backup e recuperação da chave', icon: KeyRound, contract: 'encrypted key export/import + recovery flow over AuthContext keypair' },
-  sessionLock: { label: 'Bloqueio da sessão', icon: Lock, contract: 'idle-lock policy over AuthContext session (re-prompt passphrase)' },
-  communities: { label: 'Comunidades', icon: Users, contract: 'community / restricted-market membership contract in the SDK (none today)' },
-  helpCenter: { label: 'Central de ajuda', icon: LifeBuoy, contract: 'help content destination (docs URL) owned by the product' },
-  publicAvatar: { label: 'Avatar público', icon: CircleUser, contract: 'Avatar público escolhido pelo usuário (visível para as contrapartes) needs a profile field on the server' },
-} as const
+const THEME_OPTIONS: ReadonlyArray<{ value: ThemePreference; label: string; icon: LucideIcon }> = [
+  { value: 'system', label: 'Padrão do sistema', icon: Monitor },
+  { value: 'dark', label: 'Escuro', icon: Moon },
+  { value: 'light', label: 'Claro', icon: Sun },
+]
+
+// Each language in its own name (how people find their language in a list).
+const LOCALE_OPTIONS: ReadonlyArray<{ value: LocalePreference; label: string; lang?: string }> = [
+  { value: 'system', label: 'Padrão do sistema' },
+  { value: 'pt-BR', label: 'Português (Brasil)', lang: 'pt-BR' },
+  { value: 'en', label: 'English', lang: 'en' },
+  { value: 'es', label: 'Español', lang: 'es' },
+  { value: 'fr', label: 'Français', lang: 'fr' },
+  { value: 'de', label: 'Deutsch', lang: 'de' },
+]
 
 const SOON = 'Em breve'
 
-function Planned({ id, description }: { id: keyof typeof LOOSE_WIRES; description?: string }) {
+function Planned({ id, description }: { id: LooseWireId; description?: string }) {
   const wire = LOOSE_WIRES[id]
   return <SettingsRow icon={wire.icon} label={wire.label} description={description} plannedLabel={SOON} />
 }
 
 const SECTIONS: ReadonlyArray<{ id: string; label: string; icon: LucideIcon }> = [
-  { id: 'conexao', label: 'Conexão', icon: Plug },
+  { id: 'no-sails', label: 'Nó Sails', icon: Network },
   { id: 'wallet', label: 'Wallet', icon: Wallet },
-  { id: 'aplicativo', label: 'Aplicativo', icon: Palette },
+  { id: 'aparencia', label: 'Aparência', icon: SunMoon },
+  { id: 'idioma', label: 'Idioma', icon: Languages },
+  { id: 'notificacoes', label: 'Notificações', icon: Bell },
   { id: 'seguranca', label: 'Segurança', icon: Shield },
   { id: 'comunidades', label: 'Comunidades', icon: Users },
   { id: 'ajuda', label: 'Ajuda e Sobre', icon: HelpCircle },
@@ -74,8 +73,8 @@ const SECTIONS: ReadonlyArray<{ id: string; label: string; icon: LucideIcon }> =
  * Configurações (/settings). md+: section list on the left, one section
  * on the right. Below md: a list of sections (native settings screen); a
  * section opens on its own with a back button to the list. Real rows
- * reuse existing logic (ThemeContext, AuthContext, AccountMenu's disconnect, Layout's tour); everything else is a planned
- * row from LOOSE_WIRES. No app version row: the build exposes none.
+ * reuse existing logic (ThemeContext, AuthContext, AccountMenu's disconnect, Layout's tour, the stored
+ * language preference); everything else is a planned row from LOOSE_WIRES (lib/looseWires.ts). No app version row: the build exposes none.
  */
 export function Settings() {
   const [active, setActive] = useState(SECTIONS[0].id)
@@ -83,7 +82,9 @@ export function Settings() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const activeLabel = SECTIONS.find((s) => s.id === active)?.label
   const { replayTour } = useOutletContext<LayoutOutletContext>()
-  const { theme, toggleTheme } = useTheme()
+  const { preference, setPreference } = useTheme()
+  const [locale, setLocale] = useLocalePreference()
+  const browserLanguage = typeof navigator === 'undefined' ? undefined : navigator.language
   const { user, loading: authLoading } = useAuth()
   const disconnect = useDisconnect()
   const [avatarStyle, setAvatarStyle] = useAvatarStyle()
@@ -130,9 +131,9 @@ export function Settings() {
         />
 
         <div className="min-w-0">
-          <SettingsGroup {...panel('conexao')} title="Conexão" icon={Plug}>
+          <SettingsGroup {...panel('no-sails')} title="Nó Sails" icon={Network}>
             {/* The app talks to one API base fixed by its build config (lib/sailsClient.ts); no live connection signal exists, so no status line. */}
-            <SettingsRow icon={Server} label="Servidor" description="Definido pela configuração deste app" value="Automático" />
+            <SettingsRow icon={Server} label="Nó Sails" description="Definido pela configuração deste app" value="Automático" />
             <Planned id="publicPrivateServers" />
             <Planned id="manualServer" />
             <Planned id="connectionDiagnostics" />
@@ -168,13 +169,17 @@ export function Settings() {
             <Planned id="defaultReceiveAddress" />
           </SettingsGroup>
 
-          <SettingsGroup {...panel('aplicativo')} title="Aplicativo" icon={Palette}>
-            <SettingsRow
-              icon={Moon}
-              label="Tema escuro"
-              value={theme === 'dark' ? 'Ativado' : 'Desativado'}
-              control={<Switch checked={theme === 'dark'} onCheckedChange={toggleTheme} aria-label="Tema escuro" className="relative shrink-0 after:absolute after:-inset-2.5 after:content-['']" />}
-            />
+          <SettingsGroup {...panel('aparencia')} title="Aparência" icon={SunMoon}>
+            <li className="px-4 py-3">
+              <RadioGroup legend="Tema" description="Padrão do sistema segue o tema claro ou escuro do seu aparelho." listClassName="flex flex-wrap gap-2">
+                {THEME_OPTIONS.map((o) => (
+                  <RadioCard key={o.value} name="theme" value={o.value} checked={preference === o.value} onChange={() => setPreference(o.value)} className="py-1.5">
+                    <o.icon className="h-4 w-4 text-brand-text-secondary" aria-hidden="true" />
+                    {o.label}
+                  </RadioCard>
+                ))}
+              </RadioGroup>
+            </li>
             {/* Viewer display preference: changes how every avatar looks to this viewer only. */}
             <li className="px-4 py-3">
               <RadioGroup
@@ -198,9 +203,32 @@ export function Settings() {
               </RadioGroup>
             </li>
             <Planned id="publicAvatar" description="Um avatar escolhido por você e visto pelas contrapartes" />
-            <Planned id="language" />
-            <Planned id="notifications" />
             <Planned id="displayCurrency" description="Os preços são exibidos em USD." />
+          </SettingsGroup>
+
+          {/* The choice is stored now (sails_ui_locale); the copy stays pt-BR until the translation lot (LOOSE_WIRES.language). */}
+          <SettingsGroup {...panel('idioma')} title="Idioma" icon={Languages}>
+            <li className="px-4 py-3">
+              <RadioGroup legend="Idioma da interface" listClassName="grid gap-2 sm:grid-cols-2">
+                {LOCALE_OPTIONS.map((o) => (
+                  <RadioCard key={o.value} name="locale" value={o.value} checked={locale === o.value} onChange={() => setLocale(o.value)}>
+                    <span lang={o.lang}>{o.label}</span>
+                  </RadioCard>
+                ))}
+              </RadioGroup>
+              {translationPending(locale, browserLanguage) && (
+                <Alert tone="info" size="sm" live className="mt-3">
+                  Tradução em andamento. Por enquanto a interface continua em português; sua escolha fica salva.
+                </Alert>
+              )}
+            </li>
+          </SettingsGroup>
+
+          {/* No notification system exists (LOOSE_WIRES notify*): planned rows only, no toggles that do nothing. */}
+          <SettingsGroup {...panel('notificacoes')} title="Notificações" icon={Bell}>
+            <Planned id="notifyTrades" />
+            <Planned id="notifyChat" />
+            <Planned id="notifyDisputes" />
           </SettingsGroup>
 
           <SettingsGroup {...panel('seguranca')} title="Segurança" icon={Shield}>

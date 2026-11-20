@@ -119,7 +119,7 @@ export const ESCROW_STATE_LABEL: Record<EscrowStatus, string> = {
 const NO_ESCROW_LABEL = 'Escrow ainda não criado'
 
 /** Escrow.txReleaseId: the payout (release/refund/split) transaction the server recorded. Distinct from the deposit (txLockId). */
-export const PAYOUT_TX_LABEL = 'Transação de pagamento registrada pelo servidor'
+export const PAYOUT_TX_LABEL = 'Transação de pagamento registrada pelo nó Sails'
 
 /**
  * Escrow.custodyModel, as the server's providers declare it (getCustodyModelForType():
@@ -127,9 +127,9 @@ export const PAYOUT_TX_LABEL = 'Transação de pagamento registrada pelo servido
  * other value or null is shown as not declared: never guessed as custodial or not.
  */
 export const CUSTODY_MODEL_LABEL: Record<string, string> = {
-  'client-held-buyer-seller-keys-server-held-arbiter': 'Comprador e vendedor guardam as próprias chaves; a chave de árbitro fica com o servidor',
-  'client-held-buyer-seller-keys-server-held-kms-arbiter': 'Comprador e vendedor guardam as próprias chaves; a chave de árbitro fica com o servidor, num serviço de gestão de chaves (KMS)',
-  'server-custodial-reference-implementation': 'Custódia do servidor (implementação de referência)',
+  'client-held-buyer-seller-keys-server-held-arbiter': 'Comprador e vendedor guardam as próprias chaves; a chave de árbitro fica com o nó Sails',
+  'client-held-buyer-seller-keys-server-held-kms-arbiter': 'Comprador e vendedor guardam as próprias chaves; a chave de árbitro fica com o nó Sails, num serviço de gestão de chaves (KMS)',
+  'server-custodial-reference-implementation': 'Custódia do nó Sails (implementação de referência)',
 }
 export function custodyModelLabel(model: string | null | undefined): string {
   return (model && Object.prototype.hasOwnProperty.call(CUSTODY_MODEL_LABEL, model) ? CUSTODY_MODEL_LABEL[model] : null) ?? 'Não declarado pelo provedor'
@@ -311,7 +311,7 @@ function action(i: TradeStateInput, cancelled: boolean): CurrentAction {
   }
   if (!i.escrowStatus) {
     return i.isSeller
-      ? { tone: 'action', actorLabel: 'Ação necessária — vendedor', title: 'Criar o escrow deste trade', description: 'Registra o escrow do trade no servidor. Não move fundos: depois você deposita e registra o bloqueio dos fundos.', primary: { action: 'createEscrow', label: 'Criar escrow' }, canDispute: false }
+      ? { tone: 'action', actorLabel: 'Ação necessária — vendedor', title: 'Criar o escrow deste trade', description: 'Registra o escrow do trade no nó Sails. Não move fundos: depois você deposita e registra o bloqueio dos fundos.', primary: { action: 'createEscrow', label: 'Criar escrow' }, canDispute: false }
       : { tone: 'waiting', actorLabel: i.isBuyer ? 'Aguardando a contraparte' : 'Acompanhamento', title: 'Aguardando o vendedor criar o escrow', description: 'Não envie nenhum pagamento antes de os fundos estarem bloqueados no escrow.', canDispute: false }
   }
   const view = deriveCurrentAction({ status: i.escrowStatus, isBuyer: i.isBuyer, isSeller: i.isSeller, releaseUnavailable: i.releaseUnavailable, signingUnavailable: i.signingUnavailable })

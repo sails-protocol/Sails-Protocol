@@ -75,3 +75,17 @@ export function trustItems(t: { reputationScore: number; totalTrades?: number; d
 export function trustParts(t: { reputationScore: number; totalTrades?: number; disputeCount?: number }): string[] {
   return trustItems(t).map((item) => item.text)
 }
+
+/**
+ * Star ratings (reputation.rate(), RFC-007): 1-5 per trade, informational only, never part of
+ * reputationScore. Reading them back has no endpoint yet (LOOSE_WIRES.readRatings), so screens show
+ * "Em breve" with this explanation and no number.
+ */
+export const RATINGS_EXPLANATION: Explanation = {
+  title: 'Sobre as avaliações',
+  lines: [
+    'De 1 a 5 estrelas, dadas pela contraparte ao fim de um trade',
+    'Só informativas: não mudam a reputação',
+    'A leitura das avaliações ainda não está disponível',
+  ],
+}

@@ -1,6 +1,6 @@
 import { Link } from 'react-router'
 import type { Offer } from '../../types'
-import { PaymentBadge } from '../ui/StatusBadges'
+import { PaymentMethods } from '../ui/PaymentMethods'
 import { UserAvatar } from '../ui/UserAvatar'
 import { formatAmount } from '../../lib/format'
 import { formatPrice } from '../../lib/currency'
@@ -24,8 +24,10 @@ export function OfferCard({ offer, own = false }: { offer: Offer; own?: boolean 
   const { name, items } = sellerTrust(offer)
   const price = formatPrice(offer.priceFiat, offer.fiatCurrency)
   const limits = `${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}`
+  // One method per offer today (schema); the list component already handles several.
+  const methods = [offer.paymentMethod].map((m) => PAYMENT_METHOD_LABELS[m])
   // One concise accessible name instead of every cell's text read in a row (same wording as the table).
-  const label = `${action}: ${ASSET_LABELS[offer.asset]} por ${price}, ${name ?? SELLER_FALLBACK}, ${PAYMENT_METHOD_LABELS[offer.paymentMethod]}, limites ${limits}`
+  const label = `${action}: ${ASSET_LABELS[offer.asset]} por ${price}, ${name ?? SELLER_FALLBACK}, ${methods.join(', ')}, limites ${limits}`
 
   return (
     <Link to={`/offer/${offer.id}`} aria-label={label} className="offer-row items-start">
@@ -47,13 +49,13 @@ export function OfferCard({ offer, own = false }: { offer: Offer; own?: boolean 
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-brand-text-secondary tabular-nums">
           <span className="whitespace-nowrap"><span className="sr-only">Limites: </span>{limits}</span>
-          <PaymentBadge method={offer.paymentMethod} className="text-xs" />
+          <PaymentMethods labels={methods} max={2} maxNarrow={1} className="text-xs" />
         </div>
       </div>
       {own ? (
         <span className="shrink-0 self-center text-xs font-medium text-brand-text-secondary">{action}</span>
       ) : (
-        <span aria-hidden="true" className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'shrink-0 self-center min-w-[5.5rem]')}>
+        <span aria-hidden="true" className={cn(buttonVariants({ variant: offer.side === 'SELL' ? 'buy-tonal' : 'sell-tonal', size: 'sm' }), 'shrink-0 self-center min-w-[5.5rem]')}>
           {action}
         </span>
       )}

@@ -1,4 +1,14 @@
-import { formatAmount, formatDateTime, formatUsdExact } from '../src/lib/format'
+import { formatAmount, formatDateTime, formatMonthYear, formatUsdExact } from '../src/lib/format'
+
+describe('formatMonthYear (Membro desde)', () => {
+  it('shows month and year in pt-BR', () => {
+    expect(formatMonthYear('2026-11-05T12:00:00Z')).toBe('nov. de 2026')
+    expect(formatMonthYear('2025-03-15T12:00:00Z')).toBe('mar. de 2025')
+  })
+  it('shows nothing for an unparseable date', () => {
+    expect(formatMonthYear('not-a-date')).toBe('')
+  })
+})
 import { formatPrice } from '../src/lib/currency'
 
 // Intl puts a no-break space between the symbol and the number.

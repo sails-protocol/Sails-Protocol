@@ -98,7 +98,7 @@ export function deriveFundingInstruction(i: { escrow: FundingEscrow; isBuyer: bo
     ...(rule === 'exactUnavailable'
       ? [`O valor exato é ${amount} mais a reserva máxima da taxa do protocolo, e esse total não é informado nesta tela. Não deposite sem conhecê-lo.`]
       : []),
-    'Aguarde as confirmações exigidas pelo servidor antes de registrar o bloqueio. O número exigido não é informado nesta tela.',
+    'Aguarde as confirmações exigidas pelo nó Sails antes de registrar o bloqueio. O número exigido não é informado nesta tela.',
   ]
 
   return {
@@ -106,7 +106,7 @@ export function deriveFundingInstruction(i: { escrow: FundingEscrow; isBuyer: bo
     title,
     facts: [amountFact, ...addressFacts(e)],
     requirements: e.multisigAddr ? requirements : ['O endereço é gerado depois que você e o comprador registrarem suas chaves no escrow. Não deposite antes de ele aparecer aqui.'],
-    note: 'Depois de enviar, toque em "Bloquear fundos": o servidor confere o depósito e recusa se ainda não o encontrar.',
+    note: 'Depois de enviar, toque em "Bloquear fundos": o nó Sails confere o depósito e recusa se ainda não o encontrar.',
     copyLabel: 'Copiar endereço',
   }
 }
@@ -115,7 +115,7 @@ export function deriveFundingInstruction(i: { escrow: FundingEscrow; isBuyer: bo
 export function deriveFundingRecordRows(e: FundingEscrow): FundingFact[] {
   if (e.type !== 'MULTISIG' || !e.txLockId) return []
   return [
-    { label: 'Depósito registrado pelo servidor', value: e.txLockId, mono: true, copy: e.txLockId },
+    { label: 'Depósito registrado pelo nó Sails', value: e.txLockId, mono: true, copy: e.txLockId },
     ...(e.txLockVout !== null && e.txLockVout !== undefined ? [{ label: 'Saída registrada (vout)', value: String(e.txLockVout), mono: true }] : []),
     // The provider writes the explorer's sats value here while other readers treat the column as BTC; never guess the unit.
     // fundedAmount is not shown: its unit is inconsistent in the backend (provider writes sats,
@@ -131,10 +131,10 @@ export function lockRefusalMessage(err: unknown): string | null {
   const { code, message } = (err ?? {}) as { code?: unknown; message?: unknown }
   if (code !== 'ESCROW_ERROR' || typeof message !== 'string') return null
   if (/^No funding UTXO/.test(message)) {
-    return 'O servidor ainda não encontrou o depósito exigido neste endereço. Confira o valor e aguarde as confirmações antes de tentar novamente.'
+    return 'O nó Sails ainda não encontrou o depósito exigido neste endereço. Confira o valor e aguarde as confirmações antes de tentar novamente.'
   }
   if (/confirmation\(s\)\. Refusing to lock funds/.test(message)) {
-    return 'O depósito encontrado neste endereço ainda não tem as confirmações exigidas pelo servidor. Tente novamente mais tarde.'
+    return 'O depósito encontrado neste endereço ainda não tem as confirmações exigidas pelo nó Sails. Tente novamente mais tarde.'
   }
   return null
 }

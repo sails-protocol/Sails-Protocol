@@ -1,23 +1,31 @@
-import React, { createContext, useContext, useState } from 'react'
-
-type Theme = 'light' | 'dark'
-const STORAGE_KEY = 'sails_ui_theme'
+import React, { createContext, useContext, useEffect, useState } from 'react'
+import { DEFAULT_THEME_PREFERENCE, readThemePreference, resolveTheme, saveThemePreference, type Theme, type ThemePreference } from '../lib/themePreference'
 
 interface ThemeContextType {
+  /** The theme actually shown (the preference resolved against the system setting). */
   theme: Theme
-  toggleTheme: () => void
+  /** What the viewer chose: follow the system, or a fixed theme. */
+  preference: ThemePreference
+  setPreference: (preference: ThemePreference) => void
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
+const DARK_QUERY = '(prefers-color-scheme: dark)'
 
-function resolveInitialTheme(): Theme {
-  const stored = localStorage.getItem(STORAGE_KEY)
-  if (stored === 'light' || stored === 'dark') return stored
-  // Dark is the official Satsails identity (2026-07-28 direction, same
-  // reasoning Login's brand panel already uses: "deliberately always
-  // dark") — defaults here regardless of system preference; light stays
-  // a fully supported, one-click opt-out via ThemeToggle.
-  return 'dark'
+function browserStore(): Storage | undefined {
+  try {
+    return typeof window === 'undefined' ? undefined : window.localStorage
+  } catch {
+    return undefined
+  }
+}
+
+function systemPrefersDark(): boolean {
+  try {
+    return window.matchMedia(DARK_QUERY).matches
+  } catch {
+    return true // no matchMedia: keep the dark-first identity
+  }
 }
 
 function applyTheme(theme: Theme) {
@@ -25,26 +33,35 @@ function applyTheme(theme: Theme) {
 }
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Lazy initializer applies the class synchronously on first render —
-  // same "don't do this in a useEffect" lesson AuthContext's own doc
-  // comment already documents (effect-ordering race found by manually
-  // testing in a browser), applied here before it could bite again.
-  const [theme, setTheme] = useState<Theme>(() => {
-    const initial = resolveInitialTheme()
-    applyTheme(initial)
+  const [systemDark, setSystemDark] = useState<boolean>(systemPrefersDark)
+  // Lazy initializer applies the class synchronously on first render (no flash, no effect-ordering
+  // race: the same lesson AuthContext's own doc comment records).
+  const [preference, setPreferenceState] = useState<ThemePreference>(() => {
+    const initial = readThemePreference(browserStore()) ?? DEFAULT_THEME_PREFERENCE
+    applyTheme(resolveTheme(initial, systemPrefersDark()))
     return initial
   })
+  const theme = resolveTheme(preference, systemDark)
 
-  const toggleTheme = () => {
-    setTheme((prev) => {
-      const next: Theme = prev === 'dark' ? 'light' : 'dark'
-      localStorage.setItem(STORAGE_KEY, next)
-      applyTheme(next)
-      return next
-    })
+  useEffect(() => { applyTheme(theme) }, [theme])
+
+  // Follow the OS setting live while the preference is "system".
+  useEffect(() => {
+    if (preference !== 'system') return
+    let mql: MediaQueryList
+    try { mql = window.matchMedia(DARK_QUERY) } catch { return }
+    const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches)
+    setSystemDark(mql.matches)
+    mql.addEventListener('change', onChange)
+    return () => mql.removeEventListener('change', onChange)
+  }, [preference])
+
+  const setPreference = (next: ThemePreference) => {
+    setPreferenceState(next)
+    saveThemePreference(browserStore(), next)
   }
 
-  return <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>
+  return <ThemeContext.Provider value={{ theme, preference, setPreference }}>{children}</ThemeContext.Provider>
 }
 
 export function useTheme(): ThemeContextType {

@@ -17,9 +17,11 @@ import { Page, PageHeader } from '../components/layout/PageHeader'
 import { cn } from '../lib/utils'
 import { Check, ChevronRight, MoreHorizontal, Plus } from 'lucide-react'
 import { sailsClient } from '../lib/sailsClient'
-import { formatAmount, formatDateTime } from '../lib/format'
+import { formatAmount, formatDateTime, formatMonthYear } from '../lib/format'
 import { ASSET_LABELS, ASSET_SHORT_LABELS } from '../lib/labels'
-import { ACCOUNT_DISPUTE_RATE_DEFINITION, formatAccountDisputeRate, REPUTATION_EXPLANATION } from '../lib/reputation'
+import { ACCOUNT_DISPUTE_RATE_DEFINITION, formatAccountDisputeRate, RATINGS_EXPLANATION, REPUTATION_EXPLANATION } from '../lib/reputation'
+import { PlannedItem } from '../components/ui/PlannedItem'
+import { LOOSE_WIRES } from '../lib/looseWires'
 import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import { errorMessage } from '../lib/errors'
 import { ListSkeleton } from '../components/ui/skeleton'
@@ -181,7 +183,7 @@ export function Profile() {
               <span className="mono-id text-body-sm text-brand-text-secondary truncate max-w-[16rem]">{user.publicKey}</span>
               <CopyButton value={user.publicKey} className="min-h-11 md:min-h-0 shrink-0" />
             </div>
-            <p className="text-xs text-brand-text-muted mt-1">Membro desde {new Date(user.createdAt).toLocaleDateString('pt-BR')}</p>
+            {formatMonthYear(user.createdAt) && <p className="text-xs text-brand-text-muted mt-1">Membro desde {formatMonthYear(user.createdAt)}</p>}
           </div>
         </div>
         <StatStrip
@@ -192,6 +194,15 @@ export function Profile() {
             { label: 'Taxa de disputa', value: formatAccountDisputeRate(user), info: ACCOUNT_DISPUTE_RATE_DEFINITION },
             { label: 'Reputação', value: <span className="inline-flex items-center gap-1.5">{user.reputationScore.toFixed(0)}<ExplanationPopover explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.title} /></span> },
           ]}
+        />
+        {/* Ratings exist (reputation.rate()) but cannot be read back yet: no number, only the planned item. */}
+        <PlannedItem
+          className="mt-4 pt-4 border-t border-brand-border-subtle"
+          icon={LOOSE_WIRES.readRatings.icon}
+          label={LOOSE_WIRES.readRatings.label}
+          soonLabel="Em breve"
+          description="Notas de 1 a 5 estrelas que as contrapartes dão ao fim de um trade. Não mudam a reputação."
+          explanation={RATINGS_EXPLANATION}
         />
       </Card>
 

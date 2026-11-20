@@ -37,3 +37,9 @@ export function formatUsdExact(decimal: string): string {
   if (!Number.isFinite(n)) return `US$ ${decimal}`
   return n.toLocaleString(LOCALE, { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 12 })
 }
+
+/** Month and year in pt-BR ("nov. de 2026") for "Membro desde"; empty for an unparseable date (never a guess). */
+export function formatMonthYear(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '' : new Intl.DateTimeFormat(LOCALE, { month: 'short', year: 'numeric' }).format(d)
+}

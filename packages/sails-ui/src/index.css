@@ -174,6 +174,11 @@
   --color-sell-fg: 163 50 74;        /* #a3324a 6.19:1, on tint 5.36:1 */
   --color-sell-solid: 185 56 78;
   --color-on-sell: 255 255 255;      /* 5.62:1 */
+  /* Tonal side buttons (buy-tonal / sell-tonal, DESIGN_SYSTEM.md 5.1): the
+     state layer is the side color here (label on hover/pressed: buy 4.82 / 4.60,
+     sell 4.80 / 4.57, min over bg/surface/elevated); in dark it is black. */
+  --state-layer-buy: var(--color-buy);
+  --state-layer-sell: var(--color-sell);
   /* Brand blue: secondary brand accent (links, selection, charts,
      highlights). Not info: separate tokens even where values coincide. */
   --color-brand-blue: 37 99 235;     /* #2563eb 4.74:1 */
@@ -360,12 +365,21 @@
   --color-on-info: 17 19 24;         /* 7.31:1 */
   --color-buy: 76 199 154;           /* #4cc79a 6.82:1 */
   --color-buy-fg: 76 199 154;        /* on tint 5.63:1 */
-  --color-buy-solid: 13 130 89;      /* #0d8259 */
-  --color-on-buy: 255 255 255;       /* 4.82:1 */
+  /* Side solids (phase 4A): light fill + dark label, the dark-theme rule of the
+     orange primary, so the ticket button clears 3:1 against every dark surface
+     (was #0d8259 / white: 2.99 vs elevated). Label 8.80, fill vs bg/surface/
+     elevated 8.80 / 7.73 / 6.82. */
+  --color-buy-solid: 76 199 154;     /* #4cc79a */
+  --color-on-buy: 17 19 24;          /* #111318 8.80:1 */
   --color-sell: 251 113 133;         /* #fb7185 5.35:1 */
   --color-sell-fg: 251 113 133;      /* on tint 4.64:1 */
-  --color-sell-solid: 185 56 78;     /* #b9384e */
-  --color-on-sell: 255 255 255;      /* 5.62:1 */
+  /* Label 6.90, fill 6.90 / 6.06 / 5.35 (was #b9384e / white: 2.56 vs elevated). */
+  --color-sell-solid: 251 113 133;   /* #fb7185 */
+  --color-on-sell: 17 19 24;         /* #111318 6.90:1 */
+  /* Black layer: a side-color or text layer would lower the light label
+     (sell hover 4.13); black raises it (buy 6.03 / 6.21, sell 4.94 / 5.08). */
+  --state-layer-buy: 0 0 0;
+  --state-layer-sell: 0 0 0;
   --color-brand-blue: 96 165 250;    /* #60a5fa 5.67:1 */
   --color-brand-blue-fg: 96 165 250; /* on tint 4.80:1 */
   --color-brand-blue-solid: 37 99 235; /* #2563eb */
@@ -495,6 +509,9 @@ body {
 /* Layer color for solids: white over a dark label, black over a white label. */
 @utility state-layer-light { --state-layer: 255 255 255; }
 @utility state-layer-dark { --state-layer: 0 0 0; }
+/* Tinted side buttons: a layer that never lowers the side-colored label (tokens above). */
+@utility state-layer-buy { --state-layer: var(--state-layer-buy); }
+@utility state-layer-sell { --state-layer: var(--state-layer-sell); }
 /* Focus inside a composite widget (menu item, listbox option): the 12 % focus
    layer replaces the outline, so the list never shows a box inside its box.
    `data-active` = the combobox option under aria-activedescendant. */

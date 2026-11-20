@@ -69,7 +69,7 @@ describe('recorded funding rows', () => {
   it('only from present fields, only for MULTISIG', () => {
     expect(deriveFundingRecordRows({ ...base, status: 'FUNDS_LOCKED' })).toEqual([])
     expect(deriveFundingRecordRows({ ...base, type: 'MOCK', status: 'FUNDS_LOCKED', txLockId: 'mock-tx' })).toEqual([])
-    expect(deriveFundingRecordRows({ ...base, status: 'FUNDS_LOCKED', txLockId: 'abc' }).map((r) => r.label)).toEqual(['Depósito registrado pelo servidor'])
+    expect(deriveFundingRecordRows({ ...base, status: 'FUNDS_LOCKED', txLockId: 'abc' }).map((r) => r.label)).toEqual(['Depósito registrado pelo nó Sails'])
     const full = deriveFundingRecordRows({ ...base, status: 'FUNDS_LOCKED', txLockId: 'abc', txLockVout: 0, fundedAmount: '1005000' })
     // fundedAmount is never rendered until its unit is canonical in the backend
     expect(full.map((r) => r.value)).toEqual(['abc', '0'])

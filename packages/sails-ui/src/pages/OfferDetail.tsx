@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { toast } from '../components/ui/toast'
-import { PaymentBadge } from '../components/ui/StatusBadges'
+import { PaymentMethods } from '../components/ui/PaymentMethods'
+import { PlannedItem } from '../components/ui/PlannedItem'
+import { LOOSE_WIRES } from '../lib/looseWires'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { FavoriteButton } from '../components/ui/FavoriteButton'
 import { Button, buttonVariants } from '../components/ui/button'
@@ -17,8 +19,8 @@ import { formatByCurrency, formatPrice } from '../lib/currency'
 import { sailsClient } from '../lib/sailsClient'
 import { errorMessage } from '../lib/errors'
 import { SailsNotFoundError, SailsTransportError, type PublicOfferDetail, type PublicOfferSeller } from '@satsails/p2p-trading-sdk'
-import { ASSET_LABELS, ASSET_SHORT_LABELS } from '../lib/labels'
-import { disputeRatePct, REPUTATION_EXPLANATION, trustItems } from '../lib/reputation'
+import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
+import { disputeRatePct, RATINGS_EXPLANATION, REPUTATION_EXPLANATION, trustItems } from '../lib/reputation'
 import { TrustLine } from '../components/ui/TrustLine'
 import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import { useAuth } from '../context/AuthContext'
@@ -229,7 +231,8 @@ export function OfferDetail() {
             <dl className="grid grid-cols-2 gap-x-6 gap-y-4 content-start">
               <Fact label="Ativo">{ASSET_LABELS[offer.asset]}</Fact>
               {offer.network && <Fact label="Rede">{offer.network}</Fact>}
-              <Fact label="Pagamento"><PaymentBadge method={offer.paymentMethod} className="text-sm text-brand-text" /></Fact>
+              {/* Full list here (one method per offer today: LOOSE_WIRES.multiPaymentMethods). */}
+              <Fact label="Pagamento"><PaymentMethods labels={[offer.paymentMethod].map((m) => PAYMENT_METHOD_LABELS[m])} className="text-sm text-brand-text" /></Fact>
               <Fact label="Limites"><span className="tabular-nums">{formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)} {ASSET_SHORT_LABELS[offer.asset]}</span></Fact>
             </dl>
           </div>
@@ -295,8 +298,9 @@ export function OfferDetail() {
                 </Alert>
               )}
 
-              <Button onClick={handleStartTrade} loading={startingTrade} className="mt-4 w-full min-h-10 touch:min-h-11">
-                {startingTrade ? 'Iniciando…' : 'Iniciar trade'}
+              {/* The ticket's one primary is the viewer's side (solid green buy / solid red sell), replacing orange here. */}
+              <Button onClick={handleStartTrade} loading={startingTrade} variant={offer.side === 'SELL' ? 'buy' : 'sell'} className="mt-4 w-full min-h-10 touch:min-h-11">
+                {startingTrade ? 'Iniciando…' : `${offer.side === 'SELL' ? 'Comprar' : 'Vender'} ${ASSET_SHORT_LABELS[offer.asset]}`}
               </Button>
             </Card>
           )}
@@ -321,6 +325,15 @@ export function OfferDetail() {
             </div>
             <FavoriteButton userId={offer.seller.id} />
           </div>
+          {/* No read endpoint for ratings yet (LOOSE_WIRES.readRatings): planned item, no number. */}
+          <PlannedItem
+            className="mt-4 pt-4 border-t border-brand-border-subtle"
+            icon={LOOSE_WIRES.readRatings.icon}
+            label={LOOSE_WIRES.readRatings.label}
+            soonLabel="Em breve"
+            description="Notas de 1 a 5 estrelas dadas pelas contrapartes. Só informativas: não mudam a reputação."
+            explanation={RATINGS_EXPLANATION}
+          />
         </Card>
       </div>
     </Page>

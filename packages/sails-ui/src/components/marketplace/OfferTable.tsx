@@ -1,7 +1,7 @@
 import { Link } from 'react-router'
 import type { Offer } from '../../types'
 import { UserAvatar } from '../ui/UserAvatar'
-import { PaymentBadge } from '../ui/StatusBadges'
+import { PaymentMethods } from '../ui/PaymentMethods'
 import { buttonVariants } from '../ui/button'
 import { formatAmount } from '../../lib/format'
 import { formatPrice } from '../../lib/currency'
@@ -61,7 +61,9 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
   const action = own ? 'Sua oferta' : offer.side === 'SELL' ? 'Comprar' : 'Vender'
   const price = formatPrice(offer.priceFiat, offer.fiatCurrency)
   const limits = `${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}`
-  const label = `${action} ${ASSET_LABELS[offer.asset]} por ${price}, ${name ?? SELLER_FALLBACK}, ${PAYMENT_METHOD_LABELS[offer.paymentMethod]}, limites ${limits}`
+  // One method per offer today (schema); the list component already handles several.
+  const methods = [offer.paymentMethod].map((m) => PAYMENT_METHOD_LABELS[m])
+  const label = `${action} ${ASSET_LABELS[offer.asset]} por ${price}, ${name ?? SELLER_FALLBACK}, ${methods.join(', ')}, limites ${limits}`
 
   return (
     <TableRow interactive className="relative h-[4.25rem]">
@@ -83,7 +85,7 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
       </TableCell>
       <TableCell className="text-body-sm text-brand-text-secondary tabular-nums whitespace-nowrap">{limits}</TableCell>
       <TableCell>
-        <PaymentBadge method={offer.paymentMethod} />
+        <PaymentMethods labels={methods} max={2} />
       </TableCell>
       <TableCell className="pr-5 text-right">
         <Link
@@ -92,7 +94,8 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
           className={cn(
             own
               ? 'inline-flex min-h-9 items-center text-xs font-medium text-brand-text-secondary hover:text-brand-text rounded-md'
-              : cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'min-w-[5.5rem]'),
+              // The row action IS the viewer's side: tonal green "Comprar" / tonal red "Vender".
+              : cn(buttonVariants({ variant: offer.side === 'SELL' ? 'buy-tonal' : 'sell-tonal', size: 'sm' }), 'min-w-[5.5rem]'),
             'after:absolute after:inset-0 after:content-[""]'
           )}
         >

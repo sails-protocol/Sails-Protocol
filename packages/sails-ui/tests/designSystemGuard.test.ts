@@ -100,6 +100,22 @@ function primitiveViolations(rel: string, text: string): string[] {
   return out
 }
 
+// Trade side colors (DESIGN_SYSTEM.md 2 and 5.1): buy/sell mean "Comprar"/"Vender" only. Raw side tokens live
+// in their homes (Button variants, SideBadge, TONE_CLASS, the dev page); anywhere else a side variant or
+// tone must be chosen from a trade side on the same line (`offer.side === 'SELL' ? 'buy' : 'sell'`).
+const SIDE_HOMES = new Set(['components/ui/button.tsx', 'components/ui/StatusBadges.tsx', 'lib/tone.ts', 'pages/dev/DesignSystemPreview.tsx'])
+function sideViolations(rel: string, text: string): string[] {
+  if (SIDE_HOMES.has(rel)) return []
+  const out: string[] = []
+  text.split('\n').forEach((line, i) => {
+    if (/brand-(?:on-)?(?:buy|sell)|--color-(?:on-)?(?:buy|sell)/.test(line)) out.push(`${rel}:${i + 1} raw buy/sell token outside its homes`)
+    if (/(?:variant|tone)\b.*['"](?:buy|sell)(?:-tonal)?['"]|TONE_CLASS\.(?:buy|sell)\b/.test(line) && !/\bside\b/i.test(line)) {
+      out.push(`${rel}:${i + 1} buy/sell variant not derived from a trade side`)
+    }
+  })
+  return out
+}
+
 describe('design system guard', () => {
   it('menus, tabs, radios, listboxes, progress bars and toasts come from their primitives; no title= on buttons', () => {
     const all = files(SRC).flatMap((p) => primitiveViolations(relative(SRC, p).replace(/\\/g, '/'), readFileSync(p, 'utf8')))
@@ -112,6 +128,16 @@ describe('design system guard', () => {
     expect(primitiveViolations('x.tsx', '<span title="Presença">')).toHaveLength(0)
     expect(primitiveViolations('x.tsx', '<button\n  // the page\'s one\n  className="a"\n>x</button><b title="y">')).toHaveLength(0)
     expect(primitiveViolations('components/ui/menu.tsx', 'role="menu"')).toHaveLength(0)
+  })
+
+  it('buy/sell colors are used only for the trade side', () => {
+    const all = files(SRC).flatMap((p) => sideViolations(relative(SRC, p).replace(/\\/g, '/'), readFileSync(p, 'utf8')))
+    expect(all).toEqual([])
+    expect(sideViolations('x.tsx', '<Button variant="buy">Concluído</Button>')).toHaveLength(1)
+    expect(sideViolations('x.tsx', "<Pill className={TONE_CLASS.sell}>Disputa</Pill>")).toHaveLength(1)
+    expect(sideViolations('x.tsx', 'className="text-brand-sell-fg"')).toHaveLength(1)
+    expect(sideViolations('x.tsx', "buttonVariants({ variant: offer.side === 'SELL' ? 'buy-tonal' : 'sell-tonal' })")).toHaveLength(0)
+    expect(sideViolations('components/ui/button.tsx', 'buy: cn("bg-brand-buy-solid")')).toHaveLength(0)
   })
 
   it('src uses tokens only (no raw palette classes, raw colors or arbitrary font sizes)', () => {

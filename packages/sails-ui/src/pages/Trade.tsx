@@ -27,6 +27,9 @@ import { TradeParties } from '../components/trade/TradeParties'
 import { TradeDisputePanel } from '../components/trade/TradeDisputePanel'
 import { ChatWindow } from '../components/chat/ChatWindow'
 import { AgentRiskCard } from '../components/agent/AgentRiskCard'
+import { RateCounterpartyCard, type RateCounterpartyCopy } from '../components/trade/RateCounterpartyCard'
+import { isAlreadyRatedError, readRated, saveRated, sessionStore, type RatedMemory, type RatingInput } from '../lib/rating'
+import { errorMessage } from '../lib/errors'
 import { Button, buttonVariants } from '../components/ui/button'
 import { StateBlock } from '../components/ui/StateBlock'
 import { cn } from '../lib/utils'
@@ -147,6 +150,12 @@ export function Trade() {
   const location = useLocation()
   const { user, keypair, encryptionKey } = useAuth()
   const { submitEscrowKeyIfNeeded, signVerifiedMultisigPending } = useEscrowKey(encryptionKey)
+  // Counterparty rating (reputation.rate()). `rated` is remembered for this tab only (lib/rating.ts);
+  // the server stays the judge ("already rated").
+  const [rated, setRated] = useState<RatedMemory | null>(() => (id ? readRated(sessionStore(), id) : null))
+  const [submittingRating, setSubmittingRating] = useState(false)
+  const [ratingError, setRatingError] = useState<string | null>(null)
+  useEffect(() => { setRated(id ? readRated(sessionStore(), id) : null); setRatingError(null) }, [id])
 
   // P3-F04 (Pre-M3 Reality Gate, 2026-09-13) — corrected. These two call
   // sites are speculative/idempotent background calls, and a genuine
@@ -652,7 +661,7 @@ export function Trade() {
       // (no broadcast/confirmation state is exposed to this UI yet).
       const missing = next.status === 'ready' ? next.tx.requiredSigners.filter((id) => !(next.tx.signedBy ?? []).some((x) => x.participantId === id)) : []
       toast.success(
-        e.status === 'COMPLETED' ? 'Escrow marcado como concluído pelo servidor'
+        e.status === 'COMPLETED' ? 'Escrow marcado como concluído pelo nó Sails'
           : missing.includes(user.id) ? 'Liberação iniciada — revise e assine a transação abaixo.'
           : missing.length === 1 && missing[0] === trade?.buyerId ? 'Liberação iniciada — aguardando a assinatura do comprador.'
           : 'Liberação iniciada — a transação precisa das assinaturas necessárias.'
@@ -661,7 +670,7 @@ export function Trade() {
     }
     const e = await sailsClient.settlement.release(escrow.id)
     setEscrow(e)
-    toast.success(e.status === 'COMPLETED' ? 'Escrow marcado como concluído pelo servidor' : 'Liberação solicitada')
+    toast.success(e.status === 'COMPLETED' ? 'Escrow marcado como concluído pelo nó Sails' : 'Liberação solicitada')
   })
 
   // Cancel returns focus to the "Abrir disputa" trigger (re-mounted with the action card).
@@ -953,6 +962,40 @@ export function Trade() {
       />
     ) : null
 
+  // A finished trade's party rates the other one; informational, never part of the reputation (RFC-007).
+  const rateTarget = trade.status === 'COMPLETED' && (isBuyer || isSeller) ? (isBuyer ? seller : buyer) : null
+  const rateName = rateTarget?.displayName ?? (isBuyer ? 'o vendedor' : 'o comprador')
+  const rateCopy: RateCounterpartyCopy = {
+    title: `Avaliar ${rateName}`,
+    description: 'De 1 a 5 estrelas, com um comentário se quiser. A avaliação é só informativa: não muda a reputação de ninguém. Uma por trade.',
+    legend: 'Nota',
+    starLabel: (n) => `${n} ${n === 1 ? 'estrela' : 'estrelas'}`,
+    valueText: (n) => (n ? `${n} de 5` : 'Escolha de 1 a 5'),
+    scoreError: 'Escolha uma nota de 1 a 5 estrelas.',
+    commentLabel: 'Comentário (opcional)',
+    submitLabel: 'Enviar avaliação',
+  }
+  const handleRate = async (input: RatingInput) => {
+    if (!rateTarget) return
+    setSubmittingRating(true)
+    setRatingError(null)
+    try {
+      await sailsClient.reputation.rate({ tradeId: trade.id, ratedId: rateTarget.id, ...input })
+      saveRated(sessionStore(), trade.id, 'rated')
+      setRated('rated')
+      toast.success('Avaliação enviada')
+    } catch (err) {
+      if (isAlreadyRatedError(err)) {
+        saveRated(sessionStore(), trade.id, 'already')
+        setRated('already')
+      } else {
+        setRatingError(errorMessage(err, 'Não foi possível enviar a avaliação. Tente novamente.'))
+      }
+    } finally {
+      setSubmittingRating(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <TradeHeader
@@ -1069,6 +1112,16 @@ export function Trade() {
           )}
           {/* Dispute form open (no dispute yet): the round stays visible on its own. */}
           {!actionCardShown && !dispute && signing(false)}
+
+          {rateTarget && (
+            <RateCounterpartyCard
+              copy={rateCopy}
+              doneText={rated === 'rated' ? 'Você avaliou este trade' : rated === 'already' ? 'Você já avaliou este trade' : null}
+              submitting={submittingRating}
+              error={ratingError}
+              onSubmit={handleRate}
+            />
+          )}
 
           {!paymentInCard && paymentInstructions}
         </div>
@@ -1201,7 +1254,7 @@ export function Trade() {
           ]}
           warnings={[
             'Uma taxa de apelação pode ser registrada para você. O valor não é informado nesta tela.',
-            'O servidor pode recusar a apelação, conforme o tipo de escrow e a configuração de arbitragem.',
+            'O nó Sails pode recusar a apelação, conforme o tipo de escrow e a configuração de arbitragem.',
           ]}
           consequence="Reabre a disputa para um novo árbitro decidir. A decisão atual passa a constar como decisão anterior. Esta interface não oferece como desfazer a apelação."
           confirmLabel="Apelar da decisão"
@@ -1219,7 +1272,7 @@ export function Trade() {
           onOpenChange={(open) => { if (!open) setRoundDialog(null) }}
           title="Assinar esta transação?"
           summary={roundDialog.summary}
-          warnings={['O endereço de destino é o que o servidor informou para esta rodada — confira-o antes de assinar.']}
+          warnings={['O endereço de destino é o que o nó Sails informou para esta rodada — confira-o antes de assinar.']}
           consequence="Sua assinatura autoriza esta transação. Com as assinaturas necessárias ela pode ser transmitida e não poderá ser desfeita."
           confirmLabel="Assinar"
           busy={acting}

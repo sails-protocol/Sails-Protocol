@@ -108,8 +108,8 @@ function checkFor(v: SigningVerification, destinations: { label: string; address
     case 'verified':
       return {
         tone: 'ok',
-        title: 'Conferido com a transação informada pelo servidor para este escrow',
-        note: 'Conferido: a transação gasta o depósito deste escrow e paga exatamente os destinos, valores e a taxa de rede abaixo. O endereço de destino é o que o servidor informou para esta rodada — confira-o.',
+        title: 'Conferido com a transação informada pelo nó Sails para este escrow',
+        note: 'Conferido: a transação gasta o depósito deste escrow e paga exatamente os destinos, valores e a taxa de rede abaixo. O endereço de destino é o que o nó Sails informou para esta rodada — confira-o.',
         items: uniqueLabels([
           ...v.outputs.map((o, i) => ({ label: outputLabel(o.address, i, destinations, protocolFeeAddress), value: `${formatSats(o.sats)} para ${o.address}`, mono: true })),
           { label: 'Taxa de rede', value: formatSats(v.minerFeeSats) },

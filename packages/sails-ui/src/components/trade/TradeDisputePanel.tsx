@@ -158,7 +158,7 @@ export function TradeDisputePanel({
           {isParty && (
             <>
               <p className="mt-2 text-xs text-brand-text-secondary">
-                Você ainda pode apelar: a apelação reabre a disputa para um novo árbitro. O servidor pode recusá-la conforme o tipo de escrow e a configuração de arbitragem.
+                Você ainda pode apelar: a apelação reabre a disputa para um novo árbitro. O nó Sails pode recusá-la conforme o tipo de escrow e a configuração de arbitragem.
               </p>
               <Button variant="outline" onClick={run('appeal', onAppeal)} {...busyProps(acting, running, 'appeal')} className="mt-2 min-h-11 text-sm">
                 Apelar da decisão

@@ -28,6 +28,7 @@ import type { AssetType, FiatCurrency, MarketplaceFilters, TradeSide } from '../
 import { DEFAULT_FILTERS } from '../types'
 import { REPUTATION_EXPLANATION } from '../lib/reputation'
 import { ExplanationPopover } from '../components/ui/ExplanationPopover'
+import { acceptsAnyMethod } from '../lib/paymentMethods'
 
 const SIDE_FILTERS: { value: TradeSide | 'Todos'; label: string }[] = [
   { value: 'Todos', label: 'Todos' },
@@ -168,7 +169,7 @@ export function Marketplace() {
       if (filters.negotiableOnly && o.blockedRelationship) return false
       if (filters.previouslyTradedOnly && !o.tradedWithCurrentUser) return false
       if (filters.country !== 'Todos' && o.country !== filters.country) return false
-      if (filters.paymentMethods.length > 0 && !filters.paymentMethods.includes(o.paymentMethod)) return false
+      if (!acceptsAnyMethod([o.paymentMethod], filters.paymentMethods)) return false
       if (!offerAcceptsUsdAmount(o, Number(filters.amount))) return false
       return true
     })

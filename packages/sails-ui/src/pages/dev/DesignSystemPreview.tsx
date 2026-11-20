@@ -30,6 +30,14 @@ import { IconButton } from '../../components/ui/icon-button'
 import { FilterChip } from '../../components/ui/filter-chip'
 import { Combobox } from '../../components/ui/combobox'
 import { nextSort, sortRows, type SortState } from '../../lib/sort'
+import { PaymentMethods } from '../../components/ui/PaymentMethods'
+import { OfferTable } from '../../components/marketplace/OfferTable'
+import { OfferCard } from '../../components/marketplace/OfferCard'
+import type { Offer } from '../../types'
+import { PlannedItem } from '../../components/ui/PlannedItem'
+import { StarRating } from '../../components/ui/star-rating'
+import { RateCounterpartyCard, type RateCounterpartyCopy } from '../../components/trade/RateCounterpartyCard'
+import { RATINGS_EXPLANATION } from '../../lib/reputation'
 
 type Theme = 'light' | 'dark'
 type Vars = Record<Theme, Record<string, string>>
@@ -154,6 +162,58 @@ function layerStyle(v: 'default' | 'secondary' | 'ghost' | 'destructive', alpha:
   return { '--state-layer': layer, backgroundImage: `linear-gradient(${c}, ${c})` } as CSSProperties
 }
 const FIELD_FOCUS_STATIC = 'border-brand-focus shadow-[inset_0_0_0_1px_rgb(var(--color-focus))]'
+/** Side buttons (phase 4A): every state, per surface (min over bg/surface/elevated). Tonal layer = --state-layer-{side}; solid layer = black (light) / white (dark). */
+function measureSide(v: Record<string, string>, theme: 'light' | 'dark') {
+  const res = (k: string): string => { const x = v[k] ?? ''; const m = x.match(/^var\((--[\w-]+)\)$/); return m ? res(m[1]) : x }
+  const get = (k: string) => parseTriplet(res(k))
+  const hover = Number(v['--state-hover-a'] ?? 0.08), pressed = Number(v['--state-pressed-a'] ?? 0.12)
+  const focus = get('--color-focus')
+  const solidLayer: Rgb = theme === 'dark' ? [255, 255, 255] : [0, 0, 0]
+  const surf = SURFACES.map((k) => get(k)).filter((x): x is Rgb => !!x)
+  const min = (xs: number[]) => Math.min(...xs)
+  return (['buy', 'sell'] as const).flatMap((side) => {
+    const base = get(`--color-${side}`), fg = get(`--color-${side}-fg`), layer = get(`--state-layer-${side}`)
+    const solid = get(`--color-${side}-solid`), on = get(`--color-on-${side}`)
+    if (!base || !fg || !layer || !solid || !on || !focus || surf.length !== 3) return []
+    const fill = surf.map((c) => blend(base, c, 0.1))
+    return [{
+      side,
+      rest: min(fill.map((f) => contrastRatio(fg, f))),
+      hover: min(fill.map((f) => contrastRatio(fg, blend(layer, f, hover)))),
+      pressed: min(fill.map((f) => contrastRatio(fg, blend(layer, f, pressed)))),
+      solid: contrastRatio(on, solid),
+      solidHover: contrastRatio(on, blend(solidLayer, solid, hover)),
+      solidPressed: contrastRatio(on, blend(solidLayer, solid, pressed)),
+      solidFill: min(surf.map((c) => contrastRatio(solid, c))),
+      focus: min(surf.map((c) => contrastRatio(focus, c))),
+    }]
+  })
+}
+/** Static state specimens (screenshots have no mouse or keyboard): the same layer the `state-layer` utility paints. */
+const layerBg = (alpha: '--state-hover-a' | '--state-pressed-a'): CSSProperties => {
+  const c = `rgb(var(--state-layer, var(--color-text)) / var(${alpha}))`
+  return { backgroundImage: `linear-gradient(${c}, ${c})` }
+}
+const SIDE_STATE_VARIANTS = [
+  ['buy-tonal', 'Comprar', 'sm'], ['sell-tonal', 'Vender', 'sm'], ['buy', 'Comprar BTC', 'default'], ['sell', 'Vender BTC', 'default'],
+] as const
+const OWN_OFFER_LINK = 'inline-flex min-h-9 items-center text-xs font-medium text-brand-text-secondary hover:text-brand-text rounded-md'
+const DEMO_TRADER = (id: string, displayName: string, reputationScore: number, totalTrades: number) => ({ id, publicKey: `pk-${id}`, displayName, peerId: null, reputationScore, totalTrades, disputeCount: 0, totalVolumeBtc: 0, verified: false, createdAt: '2026-01-01T00:00:00Z' })
+const DEMO_ROW = (id: string, name: string, side: Offer['side'], price: number): Offer => ({
+  id, userId: id, user: DEMO_TRADER(id, name, 96, 48), asset: 'BTC', side, priceUsd: price, fiatCurrency: 'USD', priceFiat: price,
+  minAmount: 0.001, maxAmount: 0.05, paymentMethod: 'PIX', status: 'ACTIVE', country: 'BR', tradedWithCurrentUser: false, blockedRelationship: false, createdAt: '2026-01-01T00:00:00Z',
+})
+const DEMO_ROWS: Offer[] = [DEMO_ROW('ds-row-sell', 'Exemplo (vende)', 'SELL', 97450), DEMO_ROW('ds-row-buy', 'Exemplo (compra)', 'BUY', 96900), DEMO_ROW('ds-row-own', 'Você (exemplo)', 'SELL', 97600)]
+const RATE_COPY: RateCounterpartyCopy = {
+  title: 'Avaliar Alice',
+  description: 'De 1 a 5 estrelas, com um comentário se quiser. A avaliação é só informativa: não muda a reputação de ninguém. Uma por trade.',
+  legend: 'Nota',
+  starLabel: (n) => `${n} ${n === 1 ? 'estrela' : 'estrelas'}`,
+  valueText: (n) => (n ? `${n} de 5` : 'Escolha de 1 a 5'),
+  scoreError: 'Escolha uma nota de 1 a 5 estrelas.',
+  commentLabel: 'Comentário (opcional)',
+  submitLabel: 'Enviar avaliação',
+}
 const SEG_OPTIONS = [{ value: 'all', label: 'Todos' }, { value: 'buy', label: 'Comprar' }, { value: 'sell', label: 'Vender' }] as const
 
 
@@ -215,6 +275,7 @@ export function DesignSystemPreview() {
   const [combo, setCombo] = useState<ComboValue>('BTC')
   const [comboMulti, setComboMulti] = useState<ComboValue[]>(['DEPIX'])
   const [fav, setFav] = useState(false)
+  const [stars, setStars] = useState<number | null>(4)
   const onSort = (c: TableKey) => setSort((x) => nextSort(x, c))
   useEffect(() => setVars(readThemeVars()), [])
 
@@ -380,7 +441,7 @@ export function DesignSystemPreview() {
             </div>
           ))}
         </div>
-        <p className="mt-2 text-caption text-brand-text-muted">default = a única ação primária (sólido laranja, um por tela). secondary (tonal; outline é alias) = ações de apoio: Voltar, Tentar de novo, Comprar/Vender na linha do Market. ghost = baixa ênfase, sem preenchimento até o hover. destructive = ação destrutiva. link = navegação no texto. Carregando = desativado + aria-busy + spinner (respeita movimento reduzido).</p>
+        <p className="mt-2 text-caption text-brand-text-muted">default = a única ação primária (sólido laranja, um por tela). secondary (tonal; outline é alias) = ações de apoio: Voltar, Tentar de novo, Limpar. buy/sell e buy-tonal/sell-tonal = só o lado do trade (seção abaixo). ghost = baixa ênfase, sem preenchimento até o hover. destructive = ação destrutiva. link = navegação no texto. Carregando = desativado + aria-busy + spinner (respeita movimento reduzido).</p>
         <h3 className="mt-4 text-subheading text-brand-text">Tonal em cada superfície</h3>
         <div className="mt-2 grid gap-3 md:grid-cols-3">
           {SURFACE_SAMPLES.map(([cls, name]) => (
@@ -392,6 +453,107 @@ export function DesignSystemPreview() {
             </div>
           ))}
         </div>
+      </Section>
+
+      <Section id="ds-side-buttons" title="Botões de lado: Comprar e Vender">
+        <div className="grid gap-3 md:grid-cols-3">
+          {SURFACE_SAMPLES.map(([cls, name]) => (
+            <div key={cls} className={`flex flex-wrap items-center gap-3 rounded-lg p-4 ${cls}`}>
+              <span className="w-full text-caption text-brand-text-muted">{name}</span>
+              <Button variant="buy-tonal" size="sm">Comprar</Button>
+              <Button variant="sell-tonal" size="sm">Vender</Button>
+              <Button variant="buy">Comprar BTC</Button>
+              <Button variant="sell">Vender BTC</Button>
+              <Button variant="buy-tonal" size="sm" disabled>Comprar</Button>
+              <Button variant="sell" loading>Vender BTC</Button>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 overflow-x-auto rounded-lg border border-brand-border-subtle">
+          <table className="w-full min-w-[36rem] text-body-sm">
+            <thead className="bg-brand-elevated text-left text-brand-text-secondary">
+              <tr>{['Tema', 'Lado', 'Tonal: rótulo', 'hover', 'pressionado', 'Sólido: rótulo', 'hover', 'pressionado', 'Sólido vs superfície', 'Foco vs superfície'].map((h, i) => <th key={h + i} className="px-3 py-2 font-medium">{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {(['light', 'dark'] as const).flatMap((t) => (vars ? measureSide({ ...vars.light, ...vars[t] }, t) : []).map((m) => (
+                <tr key={t + m.side} className="border-t border-brand-border-subtle tabular-nums">
+                  <td className="px-3 py-2">{t === 'light' ? 'Claro' : 'Escuro'}</td>
+                  <td className="px-3 py-2">{m.side === 'buy' ? 'Compra' : 'Venda'}</td>
+                  <td className="px-3 py-2"><Ratio value={m.rest} min={4.5} /></td>
+                  <td className="px-3 py-2"><Ratio value={m.hover} min={4.5} /></td>
+                  <td className="px-3 py-2"><Ratio value={m.pressed} min={4.5} /></td>
+                  <td className="px-3 py-2"><Ratio value={m.solid} min={4.5} /></td>
+                  <td className="px-3 py-2"><Ratio value={m.solidHover} min={4.5} /></td>
+                  <td className="px-3 py-2"><Ratio value={m.solidPressed} min={4.5} /></td>
+                  <td className="px-3 py-2"><Ratio value={m.solidFill} min={3} /></td>
+                  <td className="px-3 py-2"><Ratio value={m.focus} min={3} /></td>
+                </tr>
+              )))}
+            </tbody>
+          </table>
+        </div>
+        <h3 id="ds-botoes-estados" className="mt-4 text-subheading text-brand-text">Estados lado a lado</h3>
+        <div className="mt-2 overflow-x-auto rounded-lg bg-brand-surface p-4">
+          <table className="text-body-sm">
+            <thead className="text-left text-brand-text-secondary">
+              <tr>{['Variante', 'Repouso', 'Hover', 'Pressionado', 'Foco (teclado)', 'Desativado', 'Carregando'].map((h) => <th key={h} className="px-2 pb-2 font-medium">{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {SIDE_STATE_VARIANTS.map(([v, label, size]) => (
+                <tr key={v}>
+                  <td className="px-2 py-2 mono-id text-caption text-brand-text-muted">{v}</td>
+                  <td className="px-2 py-2"><Button variant={v} size={size}>{label}</Button></td>
+                  <td className="px-2 py-2"><Button variant={v} size={size} style={layerBg('--state-hover-a')}>{label}</Button></td>
+                  <td className="px-2 py-2"><Button variant={v} size={size} style={layerBg('--state-pressed-a')}>{label}</Button></td>
+                  <td className="px-2 py-2"><Button variant={v} size={size} className={FOCUS_STATIC + ' outline'}>{label}</Button></td>
+                  <td className="px-2 py-2"><Button variant={v} size={size} disabled>{label}</Button></td>
+                  <td className="px-2 py-2"><Button variant={v} size={size} loading>{label}</Button></td>
+                </tr>
+              ))}
+              <tr>
+                <td className="px-2 py-2 mono-id text-caption text-brand-text-muted">Sua oferta</td>
+                <td className="px-2 py-2"><span className={OWN_OFFER_LINK}>Sua oferta</span></td>
+                <td className="px-2 py-2"><span className={OWN_OFFER_LINK + ' text-brand-text'}>Sua oferta</span></td>
+                <td className="px-2 py-2 text-caption text-brand-text-muted">igual ao hover</td>
+                <td className="px-2 py-2"><span className={OWN_OFFER_LINK + ' outline ' + FOCUS_STATIC}>Sua oferta</span></td>
+                <td className="px-2 py-2 text-caption text-brand-text-muted">não se aplica</td>
+                <td className="px-2 py-2 text-caption text-brand-text-muted">não se aplica</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 className="mt-4 text-subheading text-brand-text">Na linha do Market (OfferTable; OfferCard abaixo de lg)</h3>
+        {/* Same split as the Market: the table from lg, the compact rows below it. */}
+        <div id="ds-botoes-linha" className="mt-2 overflow-hidden rounded-lg bg-brand-surface">
+          <div className="hidden lg:block"><OfferTable offers={DEMO_ROWS} isOwn={(o) => o.id === 'ds-row-own'} /></div>
+          <div className="lg:hidden">{DEMO_ROWS.map((o) => <OfferCard key={o.id} offer={o} own={o.id === 'ds-row-own'} />)}</div>
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Na tabela a ação é o único link da linha e seu ::after cobre a linha: passar o mouse em qualquer ponto da linha acende a camada da linha e a do botão; o foco pelo teclado desenha o contorno no botão. "Sua oferta" é texto secundário que vira principal no hover, sem preenchimento.</p>
+        <p className="mt-2 text-caption text-brand-text-muted">Só para a ação que é o lado do trade. Tonal (linha do Market): tint do lado a 10 % + texto do lado; a camada de estado é a cor do lado no claro e preta no escuro, para o rótulo nunca perder contraste (mínimo entre fundo, superfície e elevado). Sólido: a ação primária do ticket da oferta, no lugar do laranja. "Sua oferta" fica neutra. O guard só aceita essas variantes escolhidas a partir do lado do trade.</p>
+      </Section>
+
+      <Section id="ds-phase4a" title="Métodos de pagamento, item planejado e avaliação">
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="space-y-2 text-body-sm">
+            <p className="text-caption text-brand-text-muted">PaymentMethods: até 2 na linha (1 abaixo de sm), depois +N; lista completa na oferta.</p>
+            <div><PaymentMethods labels={['PIX']} max={2} maxNarrow={1} /></div>
+            <div><PaymentMethods labels={['PIX', 'TED', 'Dinheiro', 'Wise']} max={2} maxNarrow={1} /></div>
+            <div><PaymentMethods labels={['PIX', 'TED', 'Dinheiro', 'Wise']} className="text-sm text-brand-text" /></div>
+          </div>
+          <div className="space-y-4">
+            <PlannedItem label="Avaliações" soonLabel="Em breve" description="Notas de 1 a 5 estrelas dadas pelas contrapartes. Só informativas: não mudam a reputação." explanation={RATINGS_EXPLANATION} />
+            <StarRating legend="Estrelas (StarRating)" name="ds-stars" value={stars} onChange={setStars} starLabel={RATE_COPY.starLabel} valueText={RATE_COPY.valueText(stars)} />
+          </div>
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <RateCounterpartyCard copy={RATE_COPY} submitting={false} onSubmit={() => toast.success('Avaliação enviada')} />
+          <div className="space-y-4">
+            <RateCounterpartyCard copy={RATE_COPY} submitting={false} error="Não foi possível enviar a avaliação. Tente novamente." onSubmit={() => undefined} />
+            <RateCounterpartyCard copy={RATE_COPY} submitting={false} doneText="Você avaliou este trade" onSubmit={() => undefined} />
+            <RateCounterpartyCard copy={RATE_COPY} submitting={false} doneText="Você já avaliou este trade" onSubmit={() => undefined} />
+          </div>
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Estrelas = rádios nativos com rótulo por estrela (setas mudam a nota); escolhidas em azul de marcado, nunca laranja. A avaliação é informativa (RFC-007) e nunca aparece como número de reputação. Concluído = uma linha no lugar do formulário.</p>
       </Section>
 
       <Section id="ds-state-layers" title="Camadas de estado, desativado e carregando">
@@ -695,9 +857,9 @@ export function DesignSystemPreview() {
 
       <Section id="ds-states" title="Estados (StateBlock)">
         <div className="grid gap-4 md:grid-cols-2">
-          <StateBlock kind="loading" title="Carregando ofertas" description="Buscando no servidor configurado." />
+          <StateBlock kind="loading" title="Carregando ofertas" description="Buscando no nó Sails configurado." />
           <StateBlock kind="empty" title="Nenhuma oferta" description="Ajuste os filtros ou publique uma oferta." action={<Button size="sm">Publicar oferta</Button>} />
-          <StateBlock kind="error" title="Não foi possível carregar" description="O servidor não respondeu." action={<Button size="sm" variant="outline">Tentar de novo</Button>} />
+          <StateBlock kind="error" title="Não foi possível carregar" description="O nó Sails não respondeu." action={<Button size="sm" variant="outline">Tentar de novo</Button>} />
           <StateBlock kind="signedOut" title="Conecte sua carteira" description="Para ver seus trades." action={<Button size="sm">Conectar</Button>} />
         </div>
       </Section>

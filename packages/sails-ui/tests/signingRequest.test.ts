@@ -88,7 +88,7 @@ describe('signing request derivation (CTO 437 step 4)', () => {
 
   it('describes the check as against the server-provided transaction, never as the trade terms or a signer check', () => {
     const v = derive({}, 'seller')
-    expect(v.check?.title).toBe('Conferido com a transação informada pelo servidor para este escrow')
+    expect(v.check?.title).toBe('Conferido com a transação informada pelo nó Sails para este escrow')
     const text = JSON.stringify(v.check)
     expect(text).not.toMatch(/termos do trade|assinantes/i)
     expect(describeMismatches(['requiredSigners'])).toEqual(['Um campo da transação não confere com o esperado.'])
