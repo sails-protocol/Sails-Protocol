@@ -93,7 +93,10 @@ export default {
         // Display face for headlines/wordmark only — body text stays on
         // the fast, dense-legible system stack (see index.css's `body`
         // rule); this is the one place asked to carry brand personality.
-        display: ['"Space Grotesk"', '-apple-system', 'sans-serif'],
+        // Routed through CSS vars (defaults in index.css = today's stacks)
+        // so the dev-only typography study can swap families at runtime.
+        display: ['var(--sails-font-display)'],
+        mono: ['var(--sails-font-mono)'],
       },
     },
   },
