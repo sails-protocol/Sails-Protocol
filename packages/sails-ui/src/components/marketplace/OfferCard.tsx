@@ -5,7 +5,7 @@ import { UserAvatar } from '../ui/UserAvatar'
 import { formatAmount } from '../../lib/format'
 import { formatPrice } from '../../lib/currency'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
-import { formatReputation } from '../../lib/reputation'
+import { sellerTrust } from './offerList'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
 import { Check } from 'lucide-react'
@@ -21,8 +21,9 @@ export function OfferCard({ offer }: { offer: Offer }) {
   const sideAccent = offer.side === 'BUY' ? 'border-l-green-500' : 'border-l-red-500'
 
   const action = offer.side === 'SELL' ? 'Comprar' : 'Vender'
+  const { name, parts } = sellerTrust(offer)
   // One concise accessible name instead of every cell's text read in a row.
-  const label = `Oferta de ${ASSET_LABELS[offer.asset]} por ${formatPrice(offer.priceFiat, offer.fiatCurrency)}, ${offer.user.displayName ?? 'Anunciante'}, ${PAYMENT_METHOD_LABELS[offer.paymentMethod]}, limites ${formatAmount(offer.minAmount)} a ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}: ${action}`
+  const label = `Oferta de ${ASSET_LABELS[offer.asset]} por ${formatPrice(offer.priceFiat, offer.fiatCurrency)}, ${name ?? 'Anunciante'}, ${PAYMENT_METHOD_LABELS[offer.paymentMethod]}, limites ${formatAmount(offer.minAmount)} a ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}: ${action}`
 
   return (
     <Link to={`/offer/${offer.id}`} aria-label={label} className={`offer-row ${sideAccent}`}>
@@ -37,7 +38,7 @@ export function OfferCard({ offer }: { offer: Offer }) {
           order (payment now sits right after trader, not last). */}
       <div className="flex items-center justify-between gap-2 xl:contents">
         <div className="flex items-center gap-2 xl:order-1 xl:w-44 xl:shrink-0">
-          <UserAvatar user={offer.user} size="sm" />
+          <UserAvatar user={{ id: offer.user.id, displayName: name ?? 'Anunciante' }} size="sm" />
           <div className="min-w-0">
             <div className="flex items-center gap-1">
               {/* Impeccable critique P0 (2026-08-24): GET /v1/liquidity/offers
@@ -48,7 +49,7 @@ export function OfferCard({ offer }: { offer: Offer }) {
                   "0 trades" both read as actual data on a marketplace whose
                   whole trust model is evaluating the trader before sending
                   money; this is the honest placeholder instead. */}
-              <span className="text-sm font-medium text-brand-text truncate">{offer.user.displayName ?? 'Anunciante'}</span>
+              <span className="text-sm font-medium text-brand-text truncate">{name ?? 'Anunciante'}</span>
               {offer.user.verified && (
                 <span title="Verificado" className="shrink-0">
                   <Check className="h-3.5 w-3.5 text-brand-orange-accent" />
@@ -56,7 +57,7 @@ export function OfferCard({ offer }: { offer: Offer }) {
               )}
             </div>
             <div className="text-xs text-brand-text-muted tabular-nums">
-              {formatReputation(offer.user.reputationScore)} · {offer.user.id === 'unknown' ? '—' : `${offer.user.totalTrades} trades`}
+              {parts.join(' · ')}
             </div>
           </div>
         </div>
@@ -97,7 +98,7 @@ export function OfferCard({ offer }: { offer: Offer }) {
           <span className="sr-only">Limites: </span>
           {formatAmount(offer.minAmount)}–{formatAmount(offer.maxAmount)} {ASSET_SHORT_LABELS[offer.asset]}
         </div>
-        <span className={cn(buttonVariants({ className: 'xl:order-6 w-28 px-4 shrink-0' }))}>
+        <span className={cn(buttonVariants({ variant: 'outline', size: 'sm', className: 'xl:order-6 w-28 px-4 shrink-0' }))}>
           {action}
         </span>
       </div>

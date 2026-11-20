@@ -209,6 +209,8 @@ export interface Offer {
   description?: string
   country: string // ISO 3166-1 alpha-2 — UI-only field for the country/region filter, not in the real schema yet
   tradedWithCurrentUser: boolean // UI-only demonstration flag for the "already traded with" filter — a real version needs a real trade-history join
+  // Set only for offers mapped from the list route: a counter is undefined when the route did not return it (realOffers.ts LOOSE_WIRES).
+  makerStats?: { totalTrades?: number; disputeCount?: number }
   blockedRelationship: boolean // UI-only demonstration flag for "apenas anúncios negociáveis" — a real version needs a real block-list model, which doesn't exist in the backend yet either
   createdAt: string
 }
@@ -297,5 +299,5 @@ export const DEFAULT_FILTERS: MarketplaceFilters = {
   paymentTimeLimit: 'Todos',
   paymentMethods: [],
   country: 'Todos',
-  sortBy: 'price',
+  sortBy: 'reputation', // reputation is the one trust signal every listed offer carries; ties break on best price
 }

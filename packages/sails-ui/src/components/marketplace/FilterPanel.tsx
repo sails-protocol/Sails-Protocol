@@ -7,7 +7,7 @@
  * trade-history join, neither built in the backend yet.
  *
  * NAVIGATION-FILTER-1 §4.1 — reorganized into six labeled sections
- * (Qualidade do anunciante / Valor / Tempo de pagamento / País-Região /
+ * (Qualidade do anunciante / Valor / Tempo de pagamento [removed 2026-11-20] / País-Região /
  * Método de pagamento / Ordenação), was six blocks of equal visual
  * weight with no grouping signal beyond spacing. §4.6 — footer is now
  * sticky (outside the scrolling region) so mobile users don't have to
@@ -44,15 +44,6 @@ interface Props {
   onChange: (filters: MarketplaceFilters) => void
   currency: FiatCurrency
 }
-
-const TIME_LIMITS: { value: MarketplaceFilters['paymentTimeLimit']; label: string }[] = [
-  { value: 'Todos', label: 'Todos' },
-  { value: '15', label: '15 min' },
-  { value: '30', label: '30 min' },
-  { value: '45', label: '45 min' },
-  { value: '60', label: '60 min' },
-  { value: '24h', label: '24h' },
-]
 
 // NAVIGATION-FILTER-1 §4.4 — copy audit. `trades`/`reputation` are
 // correctly "best first" regardless of context (higher totalTrades/
@@ -207,11 +198,12 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
             />
           </Section>
 
-          <Section title="Valor" info="A quantidade que você costuma negociar — usada para destacar ofertas com limites compatíveis.">
+          <Section title="Valor (USD)" info="Mostra só ofertas cujos limites, convertidos pelo preço em USD da própria oferta, incluem este valor.">
             <Input
               value={draft.amount}
               onChange={(e) => set('amount', e.target.value)}
               type="number"
+              aria-label="Valor em USD"
               placeholder="0.00"
               className="w-full mb-2"
             />
@@ -230,21 +222,8 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
             </div>
           </Section>
 
-          <Section title="Tempo de pagamento" info="Tempo máximo (em minutos) que o comprador tem para confirmar o pagamento antes que a ordem expire.">
-            <div className="flex gap-1.5 flex-wrap">
-              {TIME_LIMITS.map((t) => (
-                <button
-                  key={t.value}
-                  type="button"
-                  aria-pressed={draft.paymentTimeLimit === t.value}
-                  onClick={() => set('paymentTimeLimit', t.value)}
-                  className={cn(badgeVariants({ variant: draft.paymentTimeLimit === t.value ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          </Section>
+          {/* "Tempo de pagamento" removed (CTO 437): it was never applied and described an order-expiry
+              deadline offers do not have. LOOSE_WIRES: offer payment-time window needs a contract. */}
 
           <Section title="País/Região">
             <Select value={draft.country} onValueChange={(v) => set('country', v)}>
@@ -260,7 +239,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
             </Select>
           </Section>
 
-          <Section title="Método de pagamento" info="Métodos populares indicados primeiro pelo país selecionado — os demais continuam disponíveis em 'Ver todos'. As moedas serão liberadas imediatamente após a confirmação do pagamento.">
+          <Section title="Método de pagamento" info="Métodos populares indicados primeiro pelo país selecionado — os demais continuam disponíveis em 'Ver todos'.">
             <PaymentMethodSection
               country={draft.country}
               value={draft.paymentMethods}

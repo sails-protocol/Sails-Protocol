@@ -4,6 +4,9 @@ import { ASSETS_FILTERABLE, HIGH_REPUTATION_THRESHOLD, PAYMENT_METHODS_FILTERABL
 import { fetchOffers } from '../lib/realOffers'
 import { countActiveFilters } from '../lib/filters'
 import { OfferCard } from '../components/marketplace/OfferCard'
+import { OfferTable } from '../components/marketplace/OfferTable'
+import { compareOffers, offerAcceptsUsdAmount } from '../components/marketplace/offerList'
+import { CountBadge, MobileField, MobileFiltersSheet } from '../components/marketplace/MobileFiltersSheet'
 import { AssetPicker } from '../components/marketplace/AssetPicker'
 import { CurrencyPicker } from '../components/marketplace/CurrencyPicker'
 import { PaymentMethodPicker } from '../components/marketplace/PaymentMethodPicker'
@@ -11,12 +14,10 @@ import { FilterPanel, SORT_OPTIONS } from '../components/marketplace/FilterPanel
 import { AgentIntentionPanel } from '../components/agent/AgentIntentionPanel'
 import { Button, buttonVariants } from '../components/ui/button'
 import { ListSkeleton } from '../components/ui/skeleton'
-import { Sheet, SheetContent, SheetTitle } from '../components/ui/sheet'
 import { cn } from '../lib/utils'
-import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../components/ui/select'
-import { SlidersHorizontal, AlertTriangle, SearchX, Plus, X } from 'lucide-react'
+import { SlidersHorizontal, AlertTriangle, SearchX, Plus } from 'lucide-react'
 import type { AssetType, FiatCurrency, MarketplaceFilters, TradeSide } from '../types'
 import { DEFAULT_FILTERS } from '../types'
 
@@ -118,7 +119,9 @@ export function Marketplace() {
   useEffect(() => {
     if (focusResultsRef.current !== 'now' || loadingOffers) return
     focusResultsRef.current = null
-    ;(document.querySelector<HTMLElement>('#marketplace-offer-grid li a') ?? document.getElementById('marketplace-offer-grid'))?.focus()
+    // Table (xl+) and compact list (<xl) are both in the DOM; focus the first link that is actually shown.
+    const firstVisible = [...document.querySelectorAll<HTMLElement>('#marketplace-offer-grid a')].find((a) => a.offsetParent !== null)
+    ;(firstVisible ?? document.getElementById('marketplace-offer-grid'))?.focus()
   })
 
   const offers = useMemo(() => {
@@ -140,16 +143,11 @@ export function Marketplace() {
       if (filters.previouslyTradedOnly && !o.tradedWithCurrentUser) return false
       if (filters.country !== 'Todos' && o.country !== filters.country) return false
       if (filters.paymentMethods.length > 0 && !filters.paymentMethods.includes(o.paymentMethod)) return false
-      const amountNum = Number(filters.amount)
-      if (amountNum > 0 && (amountNum < o.minAmount || amountNum > o.maxAmount)) return false
+      if (!offerAcceptsUsdAmount(o, Number(filters.amount))) return false
       return true
     })
 
-    result = [...result].sort((a, b) => {
-      if (filters.sortBy === 'trades') return b.user.totalTrades - a.user.totalTrades
-      if (filters.sortBy === 'reputation') return b.user.reputationScore - a.user.reputationScore
-      return a.priceUsd - b.priceUsd
-    })
+    result = [...result].sort(compareOffers(filters.sortBy))
 
     return result
   }, [allOffers, asset, currency, side, search, filters])
@@ -244,7 +242,8 @@ export function Marketplace() {
         </Button>
       </div>
 
-      <div className="hidden md:flex mt-4 flex-wrap gap-2 items-center rounded-xl border border-brand-border-subtle bg-brand-surface px-3 py-2.5">
+      {/* One compact control row on the page background; the table below is the only surface. */}
+      <div className="hidden md:flex mt-5 flex-wrap gap-2 items-center">
         <div className="flex flex-wrap gap-2 items-center">
           <AssetPicker assets={ASSETS_FILTERABLE} value={asset} onChange={setAsset} />
           <CurrencyPicker value={currency} onChange={setCurrency} />
@@ -264,91 +263,70 @@ export function Marketplace() {
             Filtros
             {activeFilterCount > 0 && <CountBadge n={activeFilterCount} />}
           </Button>
-        </div>
 
-        <div className="h-6 w-px bg-brand-border-subtle" aria-hidden="true" />
+          {/* Search sits with the filters it narrows; shrinks before it wraps at 1280. */}
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por vendedor..."
+            aria-label="Buscar por vendedor"
+            className="w-[200px] min-w-[9rem] shrink bg-brand-elevated border-brand-border"
+          />
+        </div>
 
         {/* Quick sort (2026-07-28): reference platforms (Binance P2P/
             Airtm/HodlHodl/El Dorado) all put sort directly on the main
             toolbar — burying it one click deep inside the Filtros drawer
             made it easy to miss. Same `filters.sortBy` FilterPanel's own
             drawer already edits, just exposed here too — not a second
-            source of truth. */}
-        {sortSelect('w-auto min-w-0')}
-
-        {/* flex-1 + min/max width: shrinks before it wraps, so at 1280 sort and search stay on the filter row. */}
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar por vendedor..."
-          aria-label="Buscar por vendedor"
-          className="ml-auto flex-1 min-w-[10rem] max-w-[220px] bg-brand-elevated border-brand-border"
-        />
+            source of truth. Right-aligned, apart from the filters. */}
+        {sortSelect('ml-auto w-auto min-w-0')}
       </div>
 
-      <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
-        <SheetContent
-          side="bottom"
-          hideDefaultClose
-          aria-describedby={undefined}
-          onCloseAutoFocus={(e) => {
-            // The trigger is a plain button (not SheetTrigger), so return focus to it explicitly.
-            e.preventDefault()
-            mobileFiltersTriggerRef.current?.focus()
+      <MobileFiltersSheet
+        open={mobileFiltersOpen}
+        onOpenChange={setMobileFiltersOpen}
+        triggerRef={mobileFiltersTriggerRef}
+        title="Filtros"
+        closeLabel="Fechar"
+        footer={<>
+          <Button variant="outline" onClick={() => clearAll()} disabled={!hasAnyFilter} className="flex-1 min-h-11 text-sm">Limpar</Button>
+          <Button onClick={() => setMobileFiltersOpen(false)} className="flex-1 min-h-11 text-sm">
+            {loadingOffers ? 'Ver ofertas' : `Ver ${offers.length} ${offers.length === 1 ? 'oferta' : 'ofertas'}`}
+          </Button>
+        </>}
+      >
+        <MobileField label="Ativo"><AssetPicker assets={ASSETS_FILTERABLE} value={asset} onChange={setAsset} /></MobileField>
+        <MobileField label="Moeda"><CurrencyPicker value={currency} onChange={setCurrency} /></MobileField>
+        <MobileField label="Pagamento">
+          <PaymentMethodPicker
+            methods={PAYMENT_METHODS_FILTERABLE}
+            value={filters.paymentMethods}
+            onChange={(paymentMethods) => setFilters({ ...filters, paymentMethods })}
+          />
+        </MobileField>
+        <MobileField label="Ordenar">{sortSelect('w-full min-h-11')}</MobileField>
+        <MobileField label="Vendedor">
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por vendedor..."
+            aria-label="Buscar por vendedor"
+            className="w-full min-h-11 bg-brand-elevated border-brand-border"
+          />
+        </MobileField>
+        <Button
+          variant="outline"
+          onClick={() => {
+            setMobileFiltersOpen(false)
+            setFilterPanelOpen(true)
           }}
-          className="max-h-[85vh] p-0 gap-0 flex flex-col rounded-t-2xl border-brand-border-subtle bg-brand-surface">
-          <div className="flex items-center justify-between gap-3 px-4 py-1 border-b border-brand-border-subtle shrink-0">
-            <SheetTitle className="text-base">Filtros</SheetTitle>
-            <button
-              type="button"
-              onClick={() => setMobileFiltersOpen(false)}
-              aria-label="Fechar"
-              className="-mr-2 h-11 w-11 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-          {/* Every control here applies immediately (no staged "Aplicar"); the footer only closes. */}
-          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 [&_.toolbar-chip]:w-full [&_.toolbar-chip]:min-h-11">
-            <MobileField label="Ativo"><AssetPicker assets={ASSETS_FILTERABLE} value={asset} onChange={setAsset} /></MobileField>
-            <MobileField label="Moeda"><CurrencyPicker value={currency} onChange={setCurrency} /></MobileField>
-            <MobileField label="Pagamento">
-              <PaymentMethodPicker
-                methods={PAYMENT_METHODS_FILTERABLE}
-                value={filters.paymentMethods}
-                onChange={(paymentMethods) => setFilters({ ...filters, paymentMethods })}
-              />
-            </MobileField>
-            <MobileField label="Ordenar">{sortSelect('w-full min-h-11')}</MobileField>
-            <MobileField label="Vendedor">
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por vendedor..."
-                aria-label="Buscar por vendedor"
-                className="w-full min-h-11 bg-brand-elevated border-brand-border"
-              />
-            </MobileField>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setMobileFiltersOpen(false)
-                setFilterPanelOpen(true)
-              }}
-              className="w-full min-h-11 h-auto justify-between text-sm border-brand-border"
-            >
-              <span className="flex items-center gap-2"><SlidersHorizontal aria-hidden="true" /> Filtros avançados</span>
-              {activeFilterCount > 0 && <CountBadge n={activeFilterCount} />}
-            </Button>
-          </div>
-          <div className="shrink-0 border-t border-brand-border-subtle p-4 flex gap-2">
-            <Button variant="outline" onClick={() => clearAll()} disabled={!hasAnyFilter} className="flex-1 min-h-11 text-sm">Limpar</Button>
-            <Button onClick={() => setMobileFiltersOpen(false)} className="flex-1 min-h-11 text-sm">
-              {loadingOffers ? 'Ver ofertas' : `Ver ${offers.length} ${offers.length === 1 ? 'oferta' : 'ofertas'}`}
-            </Button>
-          </div>
-        </SheetContent>
-      </Sheet>
+          className="w-full min-h-11 h-auto justify-between text-sm border-brand-border"
+        >
+          <span className="flex items-center gap-2"><SlidersHorizontal aria-hidden="true" /> Filtros avançados</span>
+          {activeFilterCount > 0 && <CountBadge n={activeFilterCount} />}
+        </Button>
+      </MobileFiltersSheet>
 
       {/* Single hairline-divided list (2026-07-28), not a card grid —
           matches the Binance P2P/Airtm/El Dorado density this screen is
@@ -364,34 +342,22 @@ export function Marketplace() {
         </div>
       )}
 
-      {/* border-brand-border-subtle overrides shadcn Card's own bare
-          "border" (card.tsx) — the wireframe look this mission targets
-          (§4.1) comes from that base border, not from the .card @layer
-          class already softened in index.css. */}
-      <Card id="marketplace-offer-grid" tabIndex={-1} aria-label="Resultados" className="mt-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring overflow-hidden border-brand-border-subtle bg-brand-surface [&_li:last-child>a]:border-b-0">
-        {/* Desktop-only column header (Binance P2P/HodlHodl/El Dorado all
-            label their offer-list columns) — hidden below `xl` since the
-            mobile/tablet layout groups fields into paired rows instead of
-            fixed columns, so column labels wouldn't line up with anything.
-            Widths mirror OfferCard's own `lg:w-*` values exactly. */}
-        <div aria-hidden="true" className="text-label hidden xl:flex items-center gap-4 px-5 py-2 border-b border-brand-border-subtle">
-          <span className="w-44 shrink-0">Anunciante</span>
-          <span className="w-36 shrink-0">Ativo</span>
-          <span className="flex-1">Preço</span>
-          <span className="w-36 shrink-0">Limites</span>
-          <span className="w-40 shrink-0">Pagamento</span>
-          <span className="w-28 shrink-0 text-right">Ação</span>
-        </div>
+      {/* Surface without an outline; rows carry at most one hairline. Desktop (xl+) is a real
+          <table> (OfferTable); below xl the compact OfferCard list stays. */}
+      <div id="marketplace-offer-grid" tabIndex={-1} aria-label="Resultados" className="mt-3 rounded-xl overflow-hidden bg-brand-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_li:last-child>a]:border-b-0">
         {loadingOffers ? (
-          <ListSkeleton label="Carregando ofertas" rows={5} rowClassName="h-[10.125rem] xl:h-[4.375rem] xl:px-5" />
+          <ListSkeleton label="Carregando ofertas" rows={5} rowClassName="h-[10.125rem] xl:h-[4.25rem] xl:px-5" />
         ) : (
           <>
             {offers.length > 0 && (
-              <ul aria-label="Ofertas">
-                {offers.map((offer) => (
-                  <li key={offer.id}><OfferCard offer={offer} /></li>
-                ))}
-              </ul>
+              <>
+                <div className="hidden xl:block"><OfferTable offers={offers} /></div>
+                <ul aria-label="Ofertas" className="xl:hidden">
+                  {offers.map((offer) => (
+                    <li key={offer.id}><OfferCard offer={offer} /></li>
+                  ))}
+                </ul>
+              </>
             )}
             {/* UI-FOUNDATION-1-VISUAL-CORRECTION §4.6 — was a single flat
                 line of muted text; a market with zero results deserves the
@@ -422,32 +388,15 @@ export function Marketplace() {
             )}
           </>
         )}
-      </Card>
+      </div>
 
       <FilterPanel
         open={filterPanelOpen}
         onClose={() => setFilterPanelOpen(false)}
         filters={filters}
         onChange={setFilters}
-        currency={currency === 'Todas' ? 'BRL' : currency}
+        currency="USD" // the amount filter compares in USD, the only unit list prices have (offerAcceptsUsdAmount)
       />
-    </div>
-  )
-}
-
-function CountBadge({ n }: { n: number }) {
-  return (
-    <span aria-hidden="true" className="min-w-5 h-5 px-1 flex items-center justify-center bg-brand-orange text-primary-foreground text-xs font-semibold tabular-nums rounded-full">
-      {n}
-    </span>
-  )
-}
-
-function MobileField({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="text-label mb-1.5">{label}</div>
-      {children}
     </div>
   )
 }

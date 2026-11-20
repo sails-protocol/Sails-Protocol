@@ -34,7 +34,16 @@ import { ASSETS } from '../data/mock'
 // yet regardless. Short-circuit instead of calling discover() at all.
 const REAL_ASSETS = new Set<string>(ASSETS)
 
-function summaryToOffer(s: LiquidityOfferSummary): Offer {
+// LOOSE_WIRES: offer summary needs maker displayName, totalTrades, disputeCount.
+// LiquidityOfferSummary carries only traderReputation; these optional fields are the
+// contract the list would need from the backend. Today only the demo backend fills them.
+type SummaryWithMaker = LiquidityOfferSummary & {
+  traderDisplayName?: string | null
+  traderTotalTrades?: number
+  traderDisputeCount?: number
+}
+
+function summaryToOffer(s: SummaryWithMaker): Offer {
   const price = Number(s.priceUsd)
   // GET /v1/liquidity/offers doesn't return the owning User row at all
   // (only traderReputation, mapOfferToLiquidityOffer() in
@@ -43,10 +52,10 @@ function summaryToOffer(s: LiquidityOfferSummary): Offer {
   const placeholderUser: User = {
     id: 'unknown',
     publicKey: '',
-    displayName: null,
+    displayName: s.traderDisplayName ?? null,
     peerId: null,
     reputationScore: s.traderReputation ?? 0,
-    totalTrades: 0,
+    totalTrades: s.traderTotalTrades ?? 0, // placeholder for the trades sort only; display reads makerStats
     disputeCount: 0,
     totalVolumeBtc: 0,
     verified: false,
@@ -69,6 +78,7 @@ function summaryToOffer(s: LiquidityOfferSummary): Offer {
     country: 'BR', // not returned by this route — no real country field exists on Offer yet, same gap types.ts's own header already discloses
     tradedWithCurrentUser: false, // needs a real trade-history join this route doesn't do — see types.ts's own comment on this field
     blockedRelationship: false, // no real block-list backend yet — same as above
+    makerStats: { totalTrades: s.traderTotalTrades, disputeCount: s.traderDisputeCount },
     createdAt: new Date().toISOString(), // not returned by this route
   }
 }

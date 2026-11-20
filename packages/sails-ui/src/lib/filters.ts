@@ -12,7 +12,6 @@ export function countActiveFilters(filters: MarketplaceFilters): number {
     filters.highReputationOnly,
     filters.previouslyTradedOnly,
     filters.amount !== '',
-    filters.paymentTimeLimit !== 'Todos',
     filters.paymentMethods.length > 0,
     filters.country !== 'Todos',
   ].filter(Boolean).length
