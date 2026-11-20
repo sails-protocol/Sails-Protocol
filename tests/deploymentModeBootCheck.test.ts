@@ -55,3 +55,43 @@ describe('scripts/db/set-deployment-mode.js', () => {
     expect(calls[calls.length - 1]).toBe('COMMIT')
   })
 })
+
+import { checkDeploymentModeTick, startDeploymentModeWatch } from '../src/common/database/deployment-mode'
+
+describe('periodic check and health (the boot check alone misses a row written later in a running production process)', () => {
+  it('tick: clean database => true and silent; row in production => false and an ERROR log naming the row', async () => {
+    const log = { error: jest.fn() }
+    expect(await checkDeploymentModeTick(log, true, rows([]))).toBe(true)
+    expect(log.error).not.toHaveBeenCalled()
+    expect(await checkDeploymentModeTick(log, true, rows([{ mode: 'test', created_by: 'postgres' }]))).toBe(false)
+    expect(log.error).toHaveBeenCalledTimes(1)
+    expect(String(log.error.mock.calls[0][0].err)).toMatch(/mode=test, created_by=postgres/)
+  })
+
+  it('tick never throws (a timer must not die) even when the query itself fails', async () => {
+    const log = { error: jest.fn() }
+    await expect(checkDeploymentModeTick(log, true, jest.fn(async () => { throw new Error('db down') }) as any)).resolves.toBe(false)
+    expect(log.error).toHaveBeenCalledTimes(1)
+  })
+
+  it('watch: starts only in production, runs the check on its interval, and is unref()ed', async () => {
+    jest.useFakeTimers()
+    try {
+      const log = { error: jest.fn() }
+      expect(startDeploymentModeWatch(log, 1000, false, rows([]))).toBeNull()
+      const q = rows([{ mode: 'test', created_by: 'postgres' }])
+      const timer = startDeploymentModeWatch(log, 1000, true, q)
+      expect(timer).not.toBeNull()
+      await jest.advanceTimersByTimeAsync(3100)
+      expect(q.mock.calls.length).toBeGreaterThanOrEqual(3)
+      expect(log.error).toHaveBeenCalled()
+      clearInterval(timer as NodeJS.Timeout)
+    } finally { jest.useRealTimers() }
+  })
+
+  it('app wiring: startServer starts the watch right after the boot check, and /health/ready checks deployment_mode and logs an error', () => {
+    const app = readFileSync(join(__dirname, '..', 'src', 'app.ts'), 'utf8')
+    expect(app).toMatch(/await assertNoDeploymentModeInProduction\(\)\n[^\n]*\n\s*startDeploymentModeWatch\(app\.log, config\.trade\.settlementReconcileIntervalMs\)/)
+    expect(app).toMatch(/await timed\('deployment_mode', async \(\) => \{\n\s+try \{ await assertNoDeploymentModeInProduction\(\) \} catch \(err\) \{\n\s+app\.log\.error/)
+  })
+})
