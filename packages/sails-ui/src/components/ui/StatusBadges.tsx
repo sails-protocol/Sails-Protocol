@@ -82,15 +82,15 @@ export function TradeStatusBadge({ status }: { status: TradeStatus }) {
 // status here, so this color is never ambiguous with an existing
 // meaning; the Scissors icon mirrors Disputes.tsx's own SPLIT action
 // button.
-const ESCROW_STATUS_LABEL: Record<EscrowStatus, string> = {
-  CREATED: 'Criado', FUNDS_LOCKED: 'Fundos travados', PAYMENT_PENDING: 'Aguardando pagamento',
+export const ESCROW_STATUS_LABEL: Record<EscrowStatus, string> = {
+  CREATED: 'Criado', FUNDS_LOCKED: 'Fundos travados', PAYMENT_PENDING: 'Pagamento marcado como enviado',
   COMPLETED: 'Concluído', DISPUTED: 'Em disputa', REFUNDED: 'Reembolsado', EXPIRED: 'Expirado',
   SPLIT: 'Dividido entre as partes',
 }
 const ESCROW_STATUS_COLOR: Record<EscrowStatus, string> = {
   CREATED: 'border-brand-border bg-brand-elevated text-brand-text-secondary',
   FUNDS_LOCKED: 'border-blue-500/25 bg-blue-500/10 text-blue-500',
-  PAYMENT_PENDING: 'border-yellow-500/25 bg-yellow-500/10 text-yellow-500',
+  PAYMENT_PENDING: 'border-yellow-500/25 bg-yellow-500/10 text-yellow-800 dark:text-yellow-500',
   COMPLETED: 'border-green-500/25 bg-green-500/10 text-green-500',
   DISPUTED: 'border-red-500/25 bg-red-500/10 text-red-500',
   REFUNDED: 'border-brand-border bg-brand-elevated text-brand-text-muted',

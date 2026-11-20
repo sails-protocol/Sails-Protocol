@@ -5,6 +5,7 @@ import { useAuth, hasStoredIdentity, WrongPassphraseError } from '../context/Aut
 import { InfoTooltip } from '../components/ui/InfoTooltip'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import { SafetyNote } from '../components/ui/SafetyNote'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { ArrowLeft, ChevronRight, KeyRound, Link2, ShieldCheck, Wallet, type LucideIcon } from 'lucide-react'
 
@@ -111,12 +112,17 @@ function LocalKeyStep({ onBack, onConnected }: { onBack: () => void; onConnected
   const [passphrase, setPassphrase] = useState('')
   // An existing encrypted keypair decides the copy ("crie" vs "digite").
   const [isReturning] = useState(() => hasStoredIdentity())
+  // New key only: a typo here would lock the key away for good.
+  const [confirmation, setConfirmation] = useState('')
+  const mismatch = !isReturning && confirmation !== '' && confirmation !== passphrase
+  const canConnect = !!passphrase && (isReturning || confirmation === passphrase)
 
   const handleConnect = async () => {
     if (!passphrase) {
       toast.error(isReturning ? 'Digite sua senha' : 'Crie uma senha para proteger sua chave')
       return
     }
+    if (!canConnect) return
     setConnecting(true)
     try {
       // Real Ed25519 challenge-response (packages/sails-sdk/src/modules/identity.ts).
@@ -168,7 +174,31 @@ function LocalKeyStep({ onBack, onConnected }: { onBack: () => void; onConnected
           autoFocus
         />
       </label>
-      <Button onClick={handleConnect} disabled={connecting || !passphrase} className="mt-3 w-full h-11">
+      {!isReturning && (
+        <>
+          <label className="mt-3 block">
+            <span className="text-label">Confirme a senha</span>
+            <Input
+              type="password"
+              value={confirmation}
+              onChange={(e) => setConfirmation(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && !connecting && handleConnect()}
+              placeholder="Digite a senha de novo"
+              className="w-full mt-1.5"
+              autoComplete="new-password"
+              aria-invalid={mismatch}
+              aria-describedby={mismatch ? 'passphrase-mismatch' : undefined}
+            />
+          </label>
+          {mismatch && (
+            <p id="passphrase-mismatch" role="alert" className="mt-1.5 text-xs text-red-700 dark:text-red-400">As senhas não coincidem</p>
+          )}
+          <SafetyNote tone="warning" className="mt-3">
+            Esta senha criptografa sua chave aqui no navegador. Guarde-a: se você perdê-la, não há como recuperar a chave.
+          </SafetyNote>
+        </>
+      )}
+      <Button onClick={handleConnect} disabled={connecting || !canConnect} className="mt-3 w-full h-11">
         {connecting ? 'Conectando...' : 'Conectar'}
       </Button>
       <p className="mt-3 flex gap-2 text-xs text-brand-text-secondary">

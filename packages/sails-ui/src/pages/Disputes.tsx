@@ -19,9 +19,10 @@ import { sailsClient } from '../lib/sailsClient'
 import type { Dispute, DisputeRuling, Escrow, EscrowType } from '@satsails/p2p-trading-sdk'
 import { AssetBadge } from '../components/ui/StatusBadges'
 import { formatAmount, formatDateTime } from '../lib/format'
-import { DISPUTE_RULING_LABEL } from '../lib/labels'
+import { ASSET_LABELS, DISPUTE_RULING_LABEL } from '../lib/labels'
 import { Button } from '../components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet'
+import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
 import { ArrowRight, Bot, ShieldCheck, Scissors } from 'lucide-react'
 
 // Sails Core Implementation Program M8-R2 (Destination Authority
@@ -51,6 +52,8 @@ const SPLIT_SUPPORTED: ReadonlySet<EscrowType> = new Set(['MOCK', 'WDK_USDT_EVM'
 // immediately, so the toast says so instead of implying it's instant.
 const SIGNATURE_COLLECTION_TYPES: ReadonlySet<EscrowType> = new Set(['MULTISIG', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM'])
 
+const RULING_DECISION: Record<DisputeRuling, string> = { RELEASE: 'Liberar ao comprador', REFUND: 'Devolver ao vendedor', SPLIT: 'Dividir 50/50' }
+
 interface Row {
   dispute: Dispute
   escrow: Escrow | null // null if this specific escrow fetch failed — row still shows, just without asset/amount/type-aware actions
@@ -63,6 +66,8 @@ export function Disputes() {
   const [error, setError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [acting, setActing] = useState(false)
+  // Every ruling button only asks; resolve() runs from the confirmation dialog.
+  const [pending, setPending] = useState<{ row: Row; ruling: DisputeRuling } | null>(null)
 
   // Real GET /v1/settlement/disputes (2026-08-03, closes the exact gap
   // this page was blocked on: every resolve/appeal/evidence/contest
@@ -169,6 +174,28 @@ export function Disputes() {
     }
   }
 
+  // The confirmation dialog may be stale: re-read the escrow (and its
+  // dispute) and rule only if the dispute is still open and assigned to
+  // this arbiter; otherwise refresh the list instead of executing.
+  const confirmRuling = async (row: Row, ruling: DisputeRuling) => {
+    setActing(true)
+    const fresh = await sailsClient.settlement.get(row.dispute.escrowId).catch(() => null)
+    setActing(false)
+    const dispute = fresh?.disputes?.find((d) => d.id === row.dispute.id)
+    if (!fresh) {
+      toast.error('Não foi possível confirmar o estado atual da disputa — tente novamente')
+    } else if (!dispute || dispute.status === 'RESOLVED' || dispute.arbiterId !== user?.id) {
+      toast.error('O estado do trade mudou — revise antes de continuar')
+      setPending(null)
+      setSelectedId(null)
+      load()
+      return
+    } else {
+      await resolve({ dispute, escrow: fresh }, ruling)
+    }
+    setPending(null)
+  }
+
   // RFC-021 D8 — accepting just applies the recommendation now instead
   // of waiting for autoResolutionDeadline to pass uncontested
   // (sweepExpiredAutoResolutions()'s own job). Note there is no
@@ -182,7 +209,7 @@ export function Disputes() {
   // contestedBy !== trade.sellerId` throws Forbidden) — see Trade.tsx's
   // own dispute section for where that button actually belongs.
   const acceptAutoResolution = (row: Row) => {
-    if (row.dispute.autoResolutionRecommendation) resolve(row, row.dispute.autoResolutionRecommendation)
+    if (row.dispute.autoResolutionRecommendation) setPending({ row, ruling: row.dispute.autoResolutionRecommendation })
   }
 
   if (authLoading || loading) {
@@ -273,30 +300,30 @@ export function Disputes() {
 
                 {d.status !== 'RESOLVED' && (
                   <div className="mt-3 flex gap-2 flex-wrap">
-                    <Button variant="outline" onClick={() => setSelectedId(d.id)} disabled={acting} className="text-xs px-3 py-1.5">Revisar</Button>
+                    <Button variant="outline" onClick={() => setSelectedId(d.id)} disabled={acting} className="text-xs px-3 py-1.5 min-h-11">Revisar</Button>
                     {/* Accepting the AI recommendation is a convenience
                         shortcut, never the only option — resolveDispute()
                         has no status guard against AUTO_PROPOSED, so the
                         arbiter can independently override with any ruling
                         below regardless of what QVAC proposed. */}
                     {d.status === 'AUTO_PROPOSED' && d.autoResolutionRecommendation && (
-                      <Button onClick={() => acceptAutoResolution(row)} disabled={acting} className="text-xs px-3 py-1.5">
+                      <Button onClick={() => acceptAutoResolution(row)} disabled={acting} className="text-xs px-3 py-1.5 min-h-11">
                         <ShieldCheck className="h-3.5 w-3.5" /> Aceitar recomendação
                       </Button>
                     )}
-                    <Button variant="outline" onClick={() => resolve(row, 'RELEASE')} disabled={acting} className="text-xs px-3 py-1.5">
+                    <Button variant="outline" onClick={() => setPending({ row, ruling: 'RELEASE' })} disabled={acting} className="text-xs px-3 py-1.5 min-h-11">
                       Resolver <ArrowRight className="h-3.5 w-3.5" /> Comprador
                     </Button>
-                    <Button variant="outline" onClick={() => resolve(row, 'REFUND')} disabled={acting} className="text-xs px-3 py-1.5">
+                    <Button variant="outline" onClick={() => setPending({ row, ruling: 'REFUND' })} disabled={acting} className="text-xs px-3 py-1.5 min-h-11">
                       Resolver <ArrowRight className="h-3.5 w-3.5" /> Vendedor
                     </Button>
                     {splitAllowed && (
                       <Button
                         variant="outline"
-                        onClick={() => resolve(row, 'SPLIT')}
+                        onClick={() => setPending({ row, ruling: 'SPLIT' })}
                         disabled={acting}
                         title="Divide 50/50 entre comprador e vendedor"
-                        className="text-xs px-3 py-1.5"
+                        className="text-xs px-3 py-1.5 min-h-11"
                       >
                         <Scissors className="h-3.5 w-3.5" /> Dividir 50/50
                       </Button>
@@ -358,18 +385,18 @@ export function Disputes() {
               {selected.dispute.status !== 'RESOLVED' && (
                 <div className="mt-4 flex gap-2 flex-wrap">
                   {selected.dispute.status === 'AUTO_PROPOSED' && selected.dispute.autoResolutionRecommendation && (
-                    <Button onClick={() => acceptAutoResolution(selected)} disabled={acting} className="flex-1 py-2 text-sm">
+                    <Button onClick={() => acceptAutoResolution(selected)} disabled={acting} className="flex-1 py-2 text-sm min-h-11">
                       <ShieldCheck className="h-4 w-4" /> Aceitar recomendação
                     </Button>
                   )}
-                  <Button variant="outline" onClick={() => resolve(selected, 'RELEASE')} disabled={acting} className="flex-1 py-2 text-sm">
+                  <Button variant="outline" onClick={() => setPending({ row: selected, ruling: 'RELEASE' })} disabled={acting} className="flex-1 py-2 text-sm min-h-11">
                     Liberar p/ Comprador
                   </Button>
-                  <Button variant="outline" onClick={() => resolve(selected, 'REFUND')} disabled={acting} className="flex-1 py-2 text-sm">
+                  <Button variant="outline" onClick={() => setPending({ row: selected, ruling: 'REFUND' })} disabled={acting} className="flex-1 py-2 text-sm min-h-11">
                     Reembolsar Vendedor
                   </Button>
                   {selected.escrow && SPLIT_SUPPORTED.has(selected.escrow.type) && (
-                    <Button variant="outline" onClick={() => resolve(selected, 'SPLIT')} disabled={acting} className="flex-1 py-2 text-sm">
+                    <Button variant="outline" onClick={() => setPending({ row: selected, ruling: 'SPLIT' })} disabled={acting} className="flex-1 py-2 text-sm min-h-11">
                       <Scissors className="h-4 w-4" /> Dividir 50/50
                     </Button>
                   )}
@@ -379,6 +406,29 @@ export function Disputes() {
           )}
         </SheetContent>
       </Sheet>
+
+      {pending && (
+        <ConfirmActionDialog
+          open
+          onOpenChange={(open) => !open && setPending(null)}
+          title="Confirmar decisão da disputa?"
+          summary={[
+            { label: 'Trade', value: `#${pending.row.dispute.tradeId.slice(0, 8)}` },
+            { label: 'Decisão', value: RULING_DECISION[pending.ruling] },
+            { label: 'Quem decide', value: 'Você, como árbitro designado' },
+            {
+              label: 'Valor em escrow',
+              value: pending.row.escrow
+                ? `${formatAmount(Number(pending.row.escrow.lockedAmount))} — ${ASSET_LABELS[pending.row.escrow.asset] ?? pending.row.escrow.asset}`
+                : 'Indisponível (escrow não carregado)',
+            },
+          ]}
+          consequence="Sua decisão é registrada pelo protocolo; a execução pode depender das assinaturas necessárias. Não pode ser desfeita por esta tela."
+          confirmLabel="Confirmar decisão"
+          busy={acting}
+          onConfirm={() => confirmRuling(pending.row, pending.ruling)}
+        />
+      )}
     </div>
   )
 }
