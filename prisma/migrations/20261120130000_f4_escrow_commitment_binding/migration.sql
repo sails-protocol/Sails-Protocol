@@ -20,6 +20,7 @@
 --   DROP TRIGGER escrows_f4_guard_insert ON "escrows";
 --   DROP FUNCTION escrows_f4_guard_lock(); DROP FUNCTION escrows_f4_guard_update(); DROP FUNCTION escrows_f4_guard_insert();
 --   DROP FUNCTION escrows_f4_pair_required("EscrowType");
+--   DROP TABLE "deployment_mode";
 --   ALTER TABLE "escrows" DROP CONSTRAINT "escrows_commitmentPairId_fkey", DROP COLUMN "addressPresentAtCutAt",
 --     DROP COLUMN "legacyPreCommitmentAt", DROP COLUMN "commitmentPairId";
 

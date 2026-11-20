@@ -44,6 +44,8 @@ export async function assertRuntimeCannotUseReplica(runtime: Queryable): Promise
 }
 
 export interface LegacySeedSpec {
+  /** Optional fixed id (a suite that derives other ids from it); default: a new UUID. */
+  id?: string
   tradeId: string
   /** The REAL type of the legacy escrow. MOCK is refused: it is exempt anyway and would only hide a missing real-type test. */
   type: string
@@ -101,7 +103,7 @@ export async function legacyEscrowSeed(spec: LegacySeedSpec): Promise<string> {
   try {
     const su = (await client.query(`SELECT rolsuper FROM pg_roles WHERE rolname = current_user`)).rows[0]?.rolsuper
     if (!su) throw new Error('legacyEscrowSeed needs a SUPERUSER connection (ADMIN_DATABASE_URL); the application runtime role can never create a legacy escrow')
-    const id = randomUUID()
+    const id = spec.id ?? randomUUID()
     const cut = (await client.query(`SELECT clock_timestamp() AS t`)).rows[0].t as Date // ONE instant, like the migration
     const addr = spec.multisigAddr ?? null
     const cols: Record<string, unknown> = { id, tradeId: spec.tradeId, type: spec.type, lockedAmount: spec.lockedAmount, asset: spec.asset, multisigAddr: addr, legacyPreCommitmentAt: cut, addressPresentAtCutAt: addr ? cut : null, ...(spec.columns ?? {}) }
@@ -144,4 +146,23 @@ export async function forceEscrowTypeForRailGateTest(escrowId: string, type: str
   } finally {
     await client.end()
   }
+}
+
+/** legacyEscrowSeed() and then the stored row, for suites that kept the old `prisma.escrow.create(...)` result shape (`escrow.id`, `escrow.status`, ...). */
+export async function legacyEscrowRow(prisma: { escrow: { findUniqueOrThrow(args: { where: { id: string } }): Promise<any> } }, spec: LegacySeedSpec): Promise<any> {
+  return prisma.escrow.findUniqueOrThrow({ where: { id: await legacyEscrowSeed(spec) } })
+}
+
+/**
+ * For suites whose cases run over several rails with the SAME fixture (`type` is a variable that includes MOCK): a MOCK case is created
+ * as before (MOCK is the one exempt rail), every other rail as a pre-cut legacy escrow (real type kept). The MOCK cases are pinned
+ * per suite by tests/migratedSuitesNoMock.test.ts, so a real-rail case cannot silently turn into MOCK.
+ */
+export async function escrowRowForType(
+  prisma: { escrow: { create(args: { data: any }): Promise<any>; findUniqueOrThrow(args: { where: { id: string } }): Promise<any> } },
+  spec: LegacySeedSpec
+): Promise<any> {
+  if (spec.type !== 'MOCK') return legacyEscrowRow(prisma, spec)
+  const { tradeId, type, lockedAmount, asset, columns } = spec
+  return prisma.escrow.create({ data: { tradeId, type, lockedAmount, asset, ...(columns ?? {}) } })
 }

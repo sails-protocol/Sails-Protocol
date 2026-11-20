@@ -42,6 +42,7 @@ import { tmpdir } from 'os'
 import path from 'path'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
+import { escrowRowForType, legacyEscrowSeed } from './helpers/legacyEscrowSeed'
 
 const ARBITER = 'k6-test-arbiter'
 
@@ -101,7 +102,7 @@ describe('D10 - a ruling that can still be rolled back is never finalized (real 
     await prisma.payoutAddress.create({ data: { participantId: seller.id, asset: 'USDT_ERC20', address: `seller-payout-${seller.id}` } })
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1', minAmount: '5', maxAmount: '5', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '5' })
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type, status: 'DISPUTED', lockedAmount: '5', asset: 'USDT_ERC20' } })
+    const escrow = await escrowRowForType(prisma, { tradeId: trade.id, type: type, lockedAmount: '5', asset: 'USDT_ERC20', columns: { status: 'DISPUTED' } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id, status: 'DISPUTED' } })
     const row = await prisma.dispute.create({ data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'd10', status: 'OPENED', arbiterId: ARBITER, ...dispute } })
     return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id, dispute: row }
@@ -551,7 +552,7 @@ describe('D10 - a ruling that can still be rolled back is never finalized (real 
       created.push(...ids)
       const { escrowStatus, ...dispute } = asCandidate(queue)
       await prisma.trade.createMany({ data: ids.map((id) => ({ id: `t${id}`, offerId, buyerId: host.buyerId, sellerId: host.sellerId, asset: 'USDT_ERC20' as const, amount: '5', priceUsd: '1', totalUsd: '5', status: 'DISPUTED' as const })) })
-      await prisma.escrow.createMany({ data: ids.map((id) => ({ id: `e${id}`, tradeId: `t${id}`, type: 'WDK_USDT_EVM' as const, status: escrowStatus as any, lockedAmount: '5', asset: 'USDT_ERC20' as const })) })
+      for (const id of ids) await legacyEscrowSeed({ id: `e${id}`, tradeId: `t${id}`, type: 'WDK_USDT_EVM', lockedAmount: '5', asset: 'USDT_ERC20', columns: { status: escrowStatus } }) // pre-cut legacy WDK escrows
       await prisma.dispute.createMany({ data: ids.map((id) => ({ id, tradeId: `t${id}`, escrowId: `e${id}`, openedBy: host.buyerId, reason: 'd13', resolvedAt: new Date('2000-01-01T00:00:00Z'), ...dispute })) })
       return ids
     }

@@ -5,6 +5,7 @@
  */
 import { prisma } from '../src/common/database'
 import { wdkTransferAttemptRepository } from '../src/modules/open-settlement/wdk-transfer-attempt-repository'
+import { legacyEscrowSeed } from './integration/helpers/legacyEscrowSeed'
 
 const escrowId = 'wdk-ownership-race-test'
 const operationType = 'RELEASE' as const
@@ -49,16 +50,8 @@ describe('WDK active generation ownership — PostgreSQL', () => {
         totalUsd: '1',
       },
     })
-    await prisma.escrow.create({
-      data: {
-        id: escrowId,
-        tradeId: `${escrowId}-trade`,
-        type: 'WDK_USDT_EVM',
-        status: 'FUNDS_LOCKED',
-        lockedAmount: '1',
-        asset: 'USDT_ERC20',
-      },
-    })
+    // pre-cut legacy WDK escrow (F4 deny-by-default: no new WDK escrow can exist), through the single legacy-seed helper
+    await legacyEscrowSeed({ id: escrowId, tradeId: `${escrowId}-trade`, type: 'WDK_USDT_EVM', lockedAmount: '1', asset: 'USDT_ERC20', columns: { status: 'FUNDS_LOCKED' } })
   })
 
   afterAll(async () => {

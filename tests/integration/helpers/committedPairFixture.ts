@@ -151,3 +151,23 @@ export async function commitTradePair(
   const fx = await createCommitmentFixture(prisma, { asset: opts.asset ?? 'BTC', rail: opts.rail ?? 'MULTISIG', amount: opts.amount ?? '0.00100000', maker: seller, taker: buyer })
   return fx.commitExistingTrade(tradeId)
 }
+
+/**
+ * For suites that used to build a raw trade between two throwaway users and then create an escrow on it: the same shape, but with real
+ * Ed25519 identities and an E21-admitted trade (own Intent, accepted envelope). `commit()` creates the COMMITTED pair of that trade (once)
+ * and returns its id: pass it as `commitmentPairId` of a raw escrow row, or call it before escrowService.createEscrow() (the service finds the pair by anchor).
+ */
+export async function createBoundTrade(prisma: any, opts: { asset?: string; rail?: string; amount?: string } = {}) {
+  const seller = nacl.sign.keyPair(), buyer = nacl.sign.keyPair()
+  const sellerUser = await prisma.user.create({ data: { publicKey: hex(seller.publicKey) } })
+  const buyerUser = await prisma.user.create({ data: { publicKey: hex(buyer.publicKey) } })
+  const sellerP = { id: sellerUser.id as string, secretKey: hex(seller.secretKey) }, buyerP = { id: buyerUser.id as string, secretKey: hex(buyer.secretKey) }
+  const fx = await createCommitmentFixture(prisma, { asset: opts.asset ?? 'BTC', rail: opts.rail ?? 'MULTISIG', amount: opts.amount ?? '0.00500000', maker: sellerP, taker: buyerP })
+  const { tradeId, anchorRef } = await fx.admitTrade('PENDING')
+  const trade = await prisma.trade.findUniqueOrThrow({ where: { id: tradeId } })
+  let pairId: string | null = null
+  return {
+    seller: sellerUser, buyer: buyerUser, trade, anchorRef,
+    async commit(): Promise<string> { return (pairId ??= await fx.commitExistingTrade(tradeId)) },
+  }
+}
