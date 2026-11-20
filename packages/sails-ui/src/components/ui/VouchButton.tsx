@@ -51,7 +51,7 @@ export function VouchButton({ voucheeId }: { voucheeId: string }) {
               : 'Requer pelo menos 3 trades e reputação positiva para avalizar alguém'
         }
         className={`p-2 -m-2 transition-colors disabled:cursor-not-allowed ${
-          vouched ? 'text-green-500' : eligible ? 'text-brand-text-muted hover:text-brand-orange-accent' : 'text-brand-text-muted/40'
+          vouched ? 'text-brand-success' : eligible ? 'text-brand-text-muted hover:text-brand-orange-accent' : 'text-brand-text-muted/40'
         }`}
       >
         {vouched ? <ShieldCheck className="h-4 w-4" /> : <ShieldPlus className="h-4 w-4" />}

@@ -1,18 +1,16 @@
 /**
- * Small badge/pill primitives. Semantic colors (green/red/yellow/blue)
- * are universal conventions, not brand decisions — the brand accent
- * (`--color-orange-accent`, primary actions/active nav) is a separate
- * role from `EXPIRED` below's plain `orange-500`, a narrow semantic use
- * for an expiry-shaped meaning (docs/SAILS_DESIGN_LANGUAGE.md §1/§2,
- * corrected `UI-GATE-CLOSE-1-R1` — an earlier version of this comment
- * claimed orange was never reused for a status meaning here, which this
- * file's own EXPIRED case already contradicted).
+ * Small badge/pill primitives. Colors come from the Design System tones
+ * (lib/tone.ts): trade side uses buy/sell, lifecycle status uses
+ * success/warning/danger/info/neutral, and brand orange is never a status
+ * (DESIGN_SYSTEM.md). EXPIRED was orange-500 and SPLIT violet-500 before
+ * the 2026-11-20 token migration; both are listed there for the Architect.
  */
 import type { AssetType, TradeSide, PaymentMethod, TradeStatus, EscrowStatus, OfferStatus } from '../../types'
 import { ASSET_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import { ESCROW_STATE_LABEL } from '../../lib/tradeState'
 import { badgeVariants } from './badge'
 import { cn } from '../../lib/utils'
+import { TONE_CLASS } from '../../lib/tone'
 import {
   Clock, CheckCircle2, AlertTriangle, XCircle, Circle, Lock, RotateCcw, PauseCircle, Scissors, type LucideIcon,
 } from 'lucide-react'
@@ -44,16 +42,16 @@ export function AssetBadge({ asset }: { asset: AssetType }) {
 
 export function SideBadge({ side }: { side: TradeSide }) {
   return side === 'BUY' ? (
-    <Pill className="border-green-500/25 bg-green-500/10 text-green-800 dark:text-green-300">Comprar</Pill>
+    <Pill className={TONE_CLASS.buy}>Comprar</Pill>
   ) : (
-    <Pill className="border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-300">Vender</Pill>
+    <Pill className={TONE_CLASS.sell}>Vender</Pill>
   )
 }
 
 /** Quiet payment method: secondary text after a thin brand tick (the Market table style), not a filled pill. */
 export function PaymentBadge({ method, className }: { method: PaymentMethod; className?: string }) {
   return (
-    <span className={cn('inline-flex items-center gap-1.5 text-[13px] text-brand-text-secondary whitespace-nowrap', className)}>
+    <span className={cn('inline-flex items-center gap-1.5 text-body-sm text-brand-text-secondary whitespace-nowrap', className)}>
       <span aria-hidden="true" className="h-3 w-0.5 rounded-full bg-brand-orange-accent" />
       {PAYMENT_METHOD_LABELS[method]}
     </span>
@@ -64,10 +62,10 @@ const TRADE_STATUS_LABEL: Record<TradeStatus, string> = {
   PENDING: 'Pendente', ACTIVE: 'Ativo', COMPLETED: 'Concluído', DISPUTED: 'Em disputa', CANCELLED: 'Cancelado',
 }
 const TRADE_STATUS_COLOR: Record<TradeStatus, string> = {
-  PENDING: 'border-yellow-500/25 bg-yellow-500/10 text-yellow-800 dark:text-yellow-300',
-  ACTIVE: 'border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300',
-  COMPLETED: 'border-green-500/25 bg-green-500/10 text-green-800 dark:text-green-300',
-  DISPUTED: 'border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-300',
+  PENDING: TONE_CLASS.warning,
+  ACTIVE: TONE_CLASS.info,
+  COMPLETED: TONE_CLASS.success,
+  DISPUTED: TONE_CLASS.danger,
   CANCELLED: 'border-brand-border bg-brand-elevated text-brand-text-muted',
 }
 const TRADE_STATUS_ICON: Record<TradeStatus, LucideIcon> = {
@@ -93,13 +91,15 @@ export function TradeStatusBadge({ status }: { status: TradeStatus }) {
 export const ESCROW_STATUS_LABEL: Record<EscrowStatus, string> = ESCROW_STATE_LABEL
 const ESCROW_STATUS_COLOR: Record<EscrowStatus, string> = {
   CREATED: 'border-brand-border bg-brand-elevated text-brand-text-secondary',
-  FUNDS_LOCKED: 'border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300',
-  PAYMENT_PENDING: 'border-yellow-500/25 bg-yellow-500/10 text-yellow-800 dark:text-yellow-300',
-  COMPLETED: 'border-green-500/25 bg-green-500/10 text-green-800 dark:text-green-300',
-  DISPUTED: 'border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-300',
+  FUNDS_LOCKED: TONE_CLASS.info,
+  PAYMENT_PENDING: TONE_CLASS.warning,
+  COMPLETED: TONE_CLASS.success,
+  DISPUTED: TONE_CLASS.danger,
   REFUNDED: 'border-brand-border bg-brand-elevated text-brand-text-muted',
-  EXPIRED: 'border-orange-500/25 bg-orange-500/10 text-orange-800 dark:text-orange-300',
-  SPLIT: 'border-violet-500/25 bg-violet-500/10 text-violet-700 dark:text-violet-300',
+  // Role ambiguous, pending the Architect: ended without completion -> warning (was orange, the brand hue).
+  EXPIRED: TONE_CLASS.warning,
+  // Terminal ruling outcome with no severity of its own -> neutral (was violet, no token); label + icon carry it.
+  SPLIT: TONE_CLASS.neutral,
 }
 const ESCROW_STATUS_ICON: Record<EscrowStatus, LucideIcon> = {
   CREATED: Circle, FUNDS_LOCKED: Lock, PAYMENT_PENDING: Clock, COMPLETED: CheckCircle2,
@@ -116,6 +116,6 @@ const OFFER_STATUS_ICON: Record<OfferStatus, LucideIcon> = {
   ACTIVE: Circle, PAUSED: PauseCircle, COMPLETED: CheckCircle2, CANCELLED: XCircle,
 }
 export function OfferStatusBadge({ status }: { status: OfferStatus }) {
-  const color = status === 'ACTIVE' ? 'border-green-500/25 bg-green-500/10 text-green-800 dark:text-green-300' : 'border-brand-border bg-brand-elevated text-brand-text-muted'
+  const color = status === 'ACTIVE' ? TONE_CLASS.success : 'border-brand-border bg-brand-elevated text-brand-text-muted'
   return <Pill className={color} icon={OFFER_STATUS_ICON[status]}>{OFFER_STATUS_LABEL[status]}</Pill>
 }

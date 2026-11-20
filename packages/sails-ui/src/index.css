@@ -36,7 +36,7 @@
      `text-sm`/`text-xs` read --t-body/--t-meta (tailwind.config.js), so
      responsive variants on the same element still win normally.
      One scale (desktop refinement 2026-11-20): page title 24, section 16,
-     body 14 (`text-sm`), secondary 13 (`text-[13px]`), meta 12 (`text-xs`,
+     body 14 (`text-sm`), secondary 13 (`text-body-sm`), meta 12 (`text-xs`,
      the floor). Weights 400/500/600 only; no 700 anywhere. */
   --t-page: 22px;        --t-page-lh: 1.25;
   --t-section: 16px;     --t-section-lh: 1.35;
@@ -46,6 +46,10 @@
   --t-mono: 14px;        /* IDs/keys; 15px wrapped a PIX key to 3 lines at 375px */
   --t-money: 15px;
   --t-money-hero: 26px;
+  /* Design System scale names (DESIGN_SYSTEM.md): display / title (=page)
+     / heading (=section) / subheading / body / body-sm / caption (=meta). */
+  --t-display: 28px;     --t-display-lh: 1.15;
+  --t-body-sm: 13px;     --t-body-sm-lh: 1.5;
   --color-bg: 250 250 250;           /* #fafafa */
   --color-surface: 255 255 255;      /* #ffffff */
   --color-elevated: 245 245 245;     /* #f5f5f5 */
@@ -103,8 +107,8 @@
   --muted-foreground: var(--color-text-muted);
   --accent: var(--color-elevated);
   --accent-foreground: var(--color-text);
-  --destructive: 185 28 28; /* red-700 — matches SideBadge's existing text-red-700 */
-  --destructive-foreground: 255 255 255;
+  --destructive: var(--color-danger-solid); /* alias, see Design System roles below */
+  --destructive-foreground: var(--color-on-danger);
   --border: var(--color-border);
   --input: var(--color-border);
   --ring: var(--color-orange);
@@ -119,8 +123,9 @@
      shade for light-mode text/icon-on-white (this repo's own established
      AA-safe pattern — see `--color-orange`'s comment above), not
      independently re-verified with AxeBuilder in this pass (disclosed,
-     not silently assumed). `--danger` intentionally reuses `--destructive`
-     above rather than a second red — one danger color, not two. */
+     not silently assumed). Re-measured 2026-11-20 (Design System roles
+     below); `--destructive` is now an alias of `--color-danger-solid`, one
+     danger color, not two. */
   --color-success: 21 128 61;   /* green-700, #15803d */
   --color-warning: 180 83 9;    /* amber-700, #b45309 */
   --color-info: 29 78 216;      /* blue-700, #1d4ed8 */
@@ -128,6 +133,70 @@
      (e.g. a table's internal row lines) where the full border weight
      would compete with the surface's own outer border. */
   --color-border-subtle: 225 225 225; /* #e1e1e1, light mode */
+
+  /* Sails Design System roles (DESIGN_SYSTEM.md, 2026-11-20). One meaning
+     per color: brand (orange, brand blue), trade side (buy/sell), status
+     (success/warning/danger/info/neutral). Per role: base (icons, functional
+     borders, tint source), -fg (text, >= 4.5:1 on bg/surface/elevated AND
+     on its own 10% tint), -solid + on- (filled controls). Tint = base/10,
+     chip border = base/25 (decorative: the label carries the meaning).
+     Measured contrast (min over bg/surface/elevated) in the comments;
+     script: ui-refs/design-system-2026-11-20/contrast.cjs. */
+  --color-success-fg: 22 101 52;     /* #166534 6.54:1, on tint 5.74:1 */
+  --color-success-solid: 21 128 61;  /* #15803d */
+  --color-on-success: 255 255 255;   /* 5.02:1 */
+  --color-warning-fg: 146 64 14;     /* #92400e 6.50:1, on tint 5.71:1 */
+  --color-warning-solid: 180 83 9;   /* #b45309 */
+  --color-on-warning: 255 255 255;   /* 5.02:1 */
+  --color-danger: 185 28 28;         /* #b91c1c 5.93:1 */
+  --color-danger-fg: 185 28 28;      /* on tint 5.02:1 */
+  --color-danger-solid: 185 28 28;
+  --color-on-danger: 255 255 255;    /* 6.47:1 */
+  --color-info-fg: 29 78 216;        /* #1d4ed8 6.15:1, on tint 5.27:1 */
+  --color-info-solid: 29 78 216;
+  --color-on-info: 255 255 255;      /* 6.70:1 */
+  /* Trade side, never status: a "Vender" chip must not read as an error. */
+  --color-buy: 13 130 89;            /* #0d8259 4.42:1 (icons/borders >= 3:1) */
+  --color-buy-fg: 10 107 73;         /* #0a6b49 6.00:1, on tint 5.29:1 */
+  --color-buy-solid: 13 130 89;
+  --color-on-buy: 255 255 255;       /* 4.82:1 */
+  --color-sell: 185 56 78;           /* #b9384e 5.15:1 */
+  --color-sell-fg: 163 50 74;        /* #a3324a 6.19:1, on tint 5.36:1 */
+  --color-sell-solid: 185 56 78;
+  --color-on-sell: 255 255 255;      /* 5.62:1 */
+  /* Brand blue: secondary brand accent (links, selection, charts,
+     highlights). Not info: separate tokens even where values coincide. */
+  --color-brand-blue: 37 99 235;     /* #2563eb 4.74:1 */
+  --color-brand-blue-fg: 29 78 216;  /* #1d4ed8 6.15:1, on tint 5.36:1 */
+  --color-brand-blue-solid: 37 99 235;
+  --color-on-brand-blue: 255 255 255; /* 5.17:1 */
+
+  /* Asset identity (AssetIcon monograms, decorative, aria-hidden). Same in
+     both themes, never reused for meaning, not white-label brand tokens. */
+  --color-asset-btc: 249 115 22;
+  --color-asset-usdt: 16 185 129;
+  --color-asset-usdc: 59 130 246;
+  --color-asset-depix: 22 163 74;
+  --color-asset-eth: 99 102 241;
+  --color-asset-bnb: 202 138 4;
+  --color-asset-sol: 168 85 247;
+  --color-asset-ltc: 148 163 184;
+  --color-asset-stx: 251 146 60;
+  --color-asset-spark: 245 158 11;
+
+  /* Sizes. Controls: 36 compact / 40 default on desktop, 44 touch on
+     mobile. Icons 16/20/24. Avatars (UserAvatar SIZES) 28/36/48/64. */
+  --control-h-sm: 36px;
+  --control-h: 40px;
+  --control-h-touch: 44px;
+  --icon-sm: 16px;
+  --icon-md: 20px;
+  --icon-lg: 24px;
+  /* Elevation: tonal first (bg -> surface -> elevated); shadow only for
+     layers that float (menus, popovers, dialogs). */
+  --elevation-1: 0 1px 2px 0 rgb(0 0 0 / 0.06);
+  --elevation-2: 0 4px 12px -2px rgb(0 0 0 / 0.12);
+  --elevation-3: 0 12px 32px -4px rgb(0 0 0 / 0.20);
 }
 
 :root.dark {
@@ -183,8 +252,8 @@
   --muted-foreground: var(--color-text-muted);
   --accent: var(--color-elevated);
   --accent-foreground: var(--color-text);
-  --destructive: 185 28 28;
-  --destructive-foreground: 255 255 255;
+  --destructive: var(--color-danger-solid);
+  --destructive-foreground: var(--color-on-danger);
   --border: var(--color-border);
   --input: var(--color-border);
   --ring: var(--color-orange);
@@ -196,10 +265,42 @@
   --color-warning: 251 191 36;  /* amber-400, #fbbf24 */
   --color-info: 96 165 250;     /* blue-400, #60a5fa */
   --color-border-subtle: 46 52 64; /* #2e3440, decorative dividers only */
+
+  /* Design System roles, dark (see :root). Light hues as text; solids keep
+     the decided fills (BUY #0d8259, SELL #b9384e, blue #2563eb) with white,
+     lighter solids take dark text like brand orange. */
+  --color-success-fg: 52 211 153;    /* #34d399 7.49:1, on tint 6.14:1 */
+  --color-success-solid: 52 211 153;
+  --color-on-success: 17 19 24;      /* 9.67:1 */
+  --color-warning-fg: 251 191 36;    /* #fbbf24 8.63:1, on tint 6.95:1 */
+  --color-warning-solid: 251 191 36;
+  --color-on-warning: 17 19 24;      /* 11.13:1 */
+  --color-danger: 248 113 113;       /* #f87171 5.21:1 */
+  --color-danger-fg: 248 113 113;    /* on tint 4.52:1 */
+  --color-danger-solid: 185 28 28;   /* #b91c1c, unchanged destructive fill */
+  --color-on-danger: 255 255 255;    /* 6.47:1 */
+  --color-info-fg: 96 165 250;       /* #60a5fa 5.67:1, on tint 4.80:1 */
+  --color-info-solid: 96 165 250;
+  --color-on-info: 17 19 24;         /* 7.31:1 */
+  --color-buy: 76 199 154;           /* #4cc79a 6.82:1 */
+  --color-buy-fg: 76 199 154;        /* on tint 5.63:1 */
+  --color-buy-solid: 13 130 89;      /* #0d8259 */
+  --color-on-buy: 255 255 255;       /* 4.82:1 */
+  --color-sell: 251 113 133;         /* #fb7185 5.35:1 */
+  --color-sell-fg: 251 113 133;      /* on tint 4.64:1 */
+  --color-sell-solid: 185 56 78;     /* #b9384e */
+  --color-on-sell: 255 255 255;      /* 5.62:1 */
+  --color-brand-blue: 96 165 250;    /* #60a5fa 5.67:1 */
+  --color-brand-blue-fg: 96 165 250; /* on tint 4.80:1 */
+  --color-brand-blue-solid: 37 99 235; /* #2563eb */
+  --color-on-brand-blue: 255 255 255;  /* 5.17:1 */
+  --elevation-1: 0 1px 2px 0 rgb(0 0 0 / 0.30);
+  --elevation-2: 0 4px 12px -2px rgb(0 0 0 / 0.45);
+  --elevation-3: 0 12px 32px -4px rgb(0 0 0 / 0.60);
 }
 
 @media (min-width: 768px) {
-  :root { --t-page: 24px; --t-body: 14px; --t-money-hero: 28px; }
+  :root { --t-display: 32px; --t-page: 24px; --t-body: 14px; --t-money-hero: 28px; }
 }
 
 body {

@@ -71,7 +71,7 @@ export function AgentRiskCard({ asset, side, maxValue, minValue }: Props) {
         ) : loading ? (
           <p className="text-sm text-brand-text-secondary">Consultando o agente...</p>
         ) : error ? (
-          <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+          <p className="text-sm text-brand-danger-fg">{error}</p>
         ) : assessment ? (
           <div className="text-sm">
             {isDemoNoModelOutput(assessment) ? (

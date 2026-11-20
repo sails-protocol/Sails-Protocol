@@ -68,7 +68,7 @@ function KindTile({ kind, muted }: { kind: MarketContextKind; muted?: boolean })
 
 function KindBadge({ children }: { children: ReactNode }) {
   return (
-    <span className="shrink-0 rounded border border-brand-border px-1.5 py-px text-[11px] font-medium leading-4 text-brand-text-secondary">
+    <span className="shrink-0 rounded border border-brand-border px-1.5 py-px text-caption font-medium leading-4 text-brand-text-secondary">
       {children}
     </span>
   )
@@ -123,7 +123,7 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
           <span className="font-display text-base font-semibold text-brand-text md:truncate">{current.name}</span>
           {current.kind !== 'public' && <KindBadge>{kindLabel}</KindBadge>}
         </span>
-        {current.description && <span className="block truncate text-[13px] leading-5 text-brand-text-secondary">{current.description}</span>}
+        {current.description && <span className="block truncate text-body-sm leading-5 text-brand-text-secondary">{current.description}</span>}
       </span>
       <ChevronsUpDown aria-hidden="true" className="h-5 w-5 shrink-0 text-brand-text-secondary" />
     </button>
@@ -149,7 +149,7 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
         <ul ref={listRef} role="list" aria-label={copy.listTitle} onKeyDown={onListKeyDown} className="flex flex-col gap-1">
           {groupMarketContexts(options).map((g) => (
             <li key={g.kind}>
-              <div id={`${labelId}-group-${g.kind}`} className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-brand-text-muted">{copy.group[g.kind]}</div>
+              <div id={`${labelId}-group-${g.kind}`} className="px-2 pb-1 pt-2 text-caption font-medium uppercase tracking-wider text-brand-text-muted">{copy.group[g.kind]}</div>
               <ul role="list" aria-labelledby={`${labelId}-group-${g.kind}`} className="flex flex-col gap-0.5">
                 {g.items.map((o) => {
                   const block = contextBlock(o)
@@ -177,10 +177,10 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
                             <span className={cn('font-medium', block ? 'text-brand-text-secondary' : 'text-brand-text')}>{o.name}</span>
                             {!block && o.memberStatus === 'member' && <span className="text-xs text-brand-text-secondary">{copy.member.member}</span>}
                           </span>
-                          {!block && o.description && <span className="block text-[13px] leading-5 text-brand-text-secondary">{o.description}</span>}
+                          {!block && o.description && <span className="block text-body-sm leading-5 text-brand-text-secondary">{o.description}</span>}
                           {block && BlockIcon && (
-                            <span id={reasonId} className="mt-0.5 block text-[13px] leading-5 text-brand-text-muted">
-                              <span className="mr-1.5 inline-flex items-center gap-1 rounded border border-brand-border px-1.5 align-[1px] text-[11px] font-medium leading-4 text-brand-text-secondary">
+                            <span id={reasonId} className="mt-0.5 block text-body-sm leading-5 text-brand-text-muted">
+                              <span className="mr-1.5 inline-flex items-center gap-1 rounded border border-brand-border px-1.5 align-[1px] text-caption font-medium leading-4 text-brand-text-secondary">
                                 <BlockIcon aria-hidden="true" className="h-3 w-3" />
                                 {copy.block[block]}
                               </span>

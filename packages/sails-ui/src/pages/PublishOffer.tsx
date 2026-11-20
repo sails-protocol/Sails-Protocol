@@ -205,7 +205,7 @@ export function PublishOffer() {
     <Page width="form">
       <PageHeader
         back={
-          <Link to="/profile" className="min-h-11 md:min-h-0 text-[13px] text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
+          <Link to="/profile" className="min-h-11 md:min-h-0 text-body-sm text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
             <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Perfil
           </Link>
         }
@@ -219,7 +219,7 @@ export function PublishOffer() {
             const n = i + 1
             const current = n === step
             return (
-              <li key={label} aria-current={current ? 'step' : undefined} className="flex items-center gap-2 text-[13px]">
+              <li key={label} aria-current={current ? 'step' : undefined} className="flex items-center gap-2 text-body-sm">
                 <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${n <= step ? 'bg-brand-orange text-primary-foreground' : 'bg-brand-elevated text-brand-text-muted'}`}>
                   {n}
                 </span>
@@ -240,7 +240,7 @@ export function PublishOffer() {
                     key={s}
                     onClick={() => setSide(s)}
                     aria-pressed={side === s}
-                    className={`flex-1 rounded-md min-h-11 md:min-h-0 md:h-7 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${side === s ? 'bg-brand-surface ring-1 ring-brand-border font-medium text-brand-text' : 'text-brand-text-secondary hover:text-brand-text'}`}
+                    className={`flex-1 rounded-md min-h-11 md:min-h-0 md:h-7 text-body-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${side === s ? 'bg-brand-surface ring-1 ring-brand-border font-medium text-brand-text' : 'text-brand-text-secondary hover:text-brand-text'}`}
                   >
                     {s === 'SELL' ? 'Vender' : 'Comprar'}
                   </button>

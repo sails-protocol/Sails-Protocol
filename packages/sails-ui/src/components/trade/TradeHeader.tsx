@@ -7,15 +7,15 @@ import type { ReactNode } from 'react'
 import type { StatusTone } from '../../lib/tradeState'
 import { CopyButton } from '../ui/CopyButton'
 import { cn } from '../../lib/utils'
+import { TONE_CLASS } from '../../lib/tone'
 
 export const STATUS_TONE_CLASS: Record<StatusTone, string> = {
-  neutral: 'border-brand-border bg-brand-elevated text-brand-text-secondary',
-  info: 'border-brand-info/70 bg-brand-info/10 text-brand-info',
-  // Light: one shade darker than the token so tinted chips keep >= 4.5:1.
-  warning: 'border-brand-warning bg-brand-warning/10 text-amber-800 dark:border-brand-warning/70 dark:text-brand-warning',
-  success: 'border-brand-success/70 bg-brand-success/10 text-green-800 dark:text-brand-success',
-  // --destructive is red-700 in both themes; on dark surfaces the text needs the lighter red.
-  danger: 'border-red-700/70 bg-brand-danger/10 text-red-700 dark:border-red-400/70 dark:text-red-400',
+  // The one status chip of the page: Design System tone with a stronger border.
+  neutral: TONE_CLASS.neutral,
+  info: cn(TONE_CLASS.info, 'border-brand-info/70'),
+  warning: cn(TONE_CLASS.warning, 'border-brand-warning/70'),
+  success: cn(TONE_CLASS.success, 'border-brand-success/70'),
+  danger: cn(TONE_CLASS.danger, 'border-brand-danger/70'),
 }
 
 interface Props {

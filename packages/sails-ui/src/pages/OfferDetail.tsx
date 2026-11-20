@@ -128,7 +128,7 @@ export function OfferDetail() {
   }, [id, reloadKey])
 
   const back = (
-    <Link to="/" className="min-h-11 md:min-h-0 text-[13px] text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
+    <Link to="/" className="min-h-11 md:min-h-0 text-body-sm text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
       <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Market
     </Link>
   )
@@ -220,7 +220,7 @@ export function OfferDetail() {
             <div>
               <div className="text-xs text-brand-text-muted">Preço</div>
               <div className="mt-1 money-hero text-brand-text">{formatPrice(offer.priceFiat, offer.fiatCurrency)}</div>
-              <div className="text-[13px] text-brand-text-muted mt-1">
+              <div className="text-body-sm text-brand-text-muted mt-1">
                 por {ASSET_LABELS[offer.asset]}
                 {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}
               </div>
@@ -238,7 +238,7 @@ export function OfferDetail() {
           {isOwnOffer ? (
             <Card className="p-5">
               <h2 className="text-section-title">Esta é a sua oferta</h2>
-              <p className="text-[13px] text-brand-text-secondary mt-2">
+              <p className="text-body-sm text-brand-text-secondary mt-2">
                 Você não pode iniciar uma negociação com o seu próprio anúncio.
                 Gerencie-o em "Minhas ofertas", no seu perfil.
               </p>
@@ -263,11 +263,11 @@ export function OfferDetail() {
                     className="w-full md:h-10 pr-16 text-base font-medium tabular-nums"
                     placeholder="0.00"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[13px] text-brand-text-muted">{ASSET_SHORT_LABELS[offer.asset]}</span>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-body-sm text-brand-text-muted">{ASSET_SHORT_LABELS[offer.asset]}</span>
                 </div>
               </label>
               {amount && !withinLimits && (
-                <p className="text-xs text-red-700 dark:text-red-300 mt-1">Fora do limite: {formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)}</p>
+                <p className="text-xs text-brand-danger-fg mt-1">Fora do limite: {formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)}</p>
               )}
 
               <div className="mt-4 pt-4 border-t border-brand-border-subtle">
@@ -289,7 +289,7 @@ export function OfferDetail() {
               {/* HodlHodl/Binance P2P both show this caution before a first trade with a brand-new
                   counterparty: real data (offer.seller.totalTrades), a real 0 means no completed trades yet. */}
               {offer.seller.totalTrades === 0 && (
-                <div className="mt-3 bg-yellow-500/10 rounded-md p-3 text-xs text-yellow-800 dark:text-yellow-300 flex items-start gap-2">
+                <div className="mt-3 bg-brand-warning-bg rounded-md p-3 text-xs text-brand-warning-fg flex items-start gap-2">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
                   <span>Este vendedor ainda não concluiu nenhum trade — negocie com cautela, especialmente em valores maiores.</span>
                 </div>

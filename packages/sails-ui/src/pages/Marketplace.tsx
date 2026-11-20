@@ -185,7 +185,7 @@ export function Marketplace() {
           aria-pressed={side === s.value}
           onClick={() => setSide(s.value)}
           className={cn(
-            'rounded-md px-3 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'rounded-md px-3 text-body-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             buttonClass,
             // Quiet selected state: the page's one solid orange is "Nova oferta".
             side === s.value ? 'bg-brand-surface text-brand-text font-medium ring-1 ring-brand-border' : 'text-brand-text-secondary hover:text-brand-text'

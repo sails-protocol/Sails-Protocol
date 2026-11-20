@@ -17,7 +17,7 @@ export function TradeTimeline({ steps, children }: { steps: TradeStep[]; childre
       <ol className="mt-3">
         {steps.map((s, i) => {
           const last = i === steps.length - 1
-          const currentTone = s.tone === 'danger' ? 'border-red-700 text-red-700 dark:border-red-400 dark:text-red-400'
+          const currentTone = s.tone === 'danger' ? 'border-brand-danger text-brand-danger-fg'
             : s.tone === 'warning' ? 'border-brand-warning text-brand-warning'
             : 'border-brand-orange-accent text-brand-orange-accent'
           return (

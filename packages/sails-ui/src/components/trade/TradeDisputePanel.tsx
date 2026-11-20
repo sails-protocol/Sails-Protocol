@@ -66,7 +66,7 @@ export function TradeDisputePanel({
         <p className="text-sm font-semibold text-brand-text">Disputa resolvida</p>
       ) : (
         <div role="alert" className="flex items-start gap-2 rounded-md border border-brand-danger/50 bg-brand-danger/10 px-3 py-2 text-sm text-brand-text">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-700 dark:text-red-400" aria-hidden="true" />
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-brand-danger" aria-hidden="true" />
           <span>
             Disputa aberta por <strong>{partyLabel(dispute.openedBy)}</strong> em {formatDateTime(dispute.createdAt)}. As ações normais do trade ficam suspensas até a resolução.
           </span>

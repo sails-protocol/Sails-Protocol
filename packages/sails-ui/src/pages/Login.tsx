@@ -192,7 +192,7 @@ function LocalKeyStep({ onBack, onConnected }: { onBack: () => void; onConnected
             />
           </label>
           {mismatch && (
-            <p id="passphrase-mismatch" role="alert" className="mt-1.5 text-xs text-red-700 dark:text-red-400">As senhas não coincidem</p>
+            <p id="passphrase-mismatch" role="alert" className="mt-1.5 text-xs text-brand-danger-fg">As senhas não coincidem</p>
           )}
           <SafetyNote tone="warning" className="mt-3">
             Esta senha criptografa sua chave aqui no navegador. Guarde-a: se você perdê-la, não há como recuperar a chave.

@@ -80,7 +80,7 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
         <div data-price className="text-lg font-semibold text-brand-text tabular-nums leading-tight whitespace-nowrap">{price}</div>
         <div className="text-xs text-brand-text-muted whitespace-nowrap">por {ASSET_LABELS[offer.asset]}</div>
       </td>
-      <td className="py-3 px-4 text-[13px] text-brand-text-secondary tabular-nums whitespace-nowrap">{limits}</td>
+      <td className="py-3 px-4 text-body-sm text-brand-text-secondary tabular-nums whitespace-nowrap">{limits}</td>
       <td className="py-3 px-4">
         <PaymentBadge method={offer.paymentMethod} />
       </td>

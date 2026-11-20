@@ -50,7 +50,7 @@ export function UserAvatar({
         <span
           title={dotTitle}
           className={`absolute -bottom-0.5 -right-0.5 ${DOT_SIZES[size]} rounded-full border-2 border-brand-surface ${
-            online === null ? 'bg-brand-text-muted/40' : online ? 'bg-green-500' : 'bg-brand-text-muted'
+            online === null ? 'bg-brand-text-muted/40' : online ? 'bg-brand-success' : 'bg-brand-text-muted'
           }`}
         />
       )}

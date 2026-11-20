@@ -90,7 +90,7 @@ export function ChatWindow({
           <span className="text-sm font-semibold text-brand-text">Chat P2P</span>
           <span
             className={`text-xs flex items-center gap-1 shrink-0 ${
-              counterpartyOnline === null ? 'text-brand-text-muted' : counterpartyOnline ? 'text-green-500' : 'text-brand-text-muted'
+              counterpartyOnline === null ? 'text-brand-text-muted' : counterpartyOnline ? 'text-brand-success-fg' : 'text-brand-text-muted'
             }`}
             title={
               counterpartyOnline === null
@@ -100,7 +100,7 @@ export function ChatWindow({
                   : `${counterpartyName ?? 'A contraparte'} não está no chat agora`
             }
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${counterpartyOnline ? 'bg-green-500' : 'bg-brand-text-muted/50'}`} />
+            <span className={`w-1.5 h-1.5 rounded-full ${counterpartyOnline ? 'bg-brand-success' : 'bg-brand-text-muted/50'}`} />
             <span>
               {counterpartyOnline === null ? 'Presença desconhecida' : counterpartyOnline ? `${counterpartyName ?? 'Contraparte'} online` : `${counterpartyName ?? 'Contraparte'} offline`}
             </span>

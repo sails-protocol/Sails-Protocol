@@ -96,7 +96,7 @@ export function Settings() {
           <button
             type="button"
             onClick={() => setMobileOpen(false)}
-            className="md:hidden min-h-11 -my-2 inline-flex items-center gap-1 text-[13px] text-brand-text-secondary hover:text-brand-text rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="md:hidden min-h-11 -my-2 inline-flex items-center gap-1 text-body-sm text-brand-text-secondary hover:text-brand-text rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Configurações
           </button>

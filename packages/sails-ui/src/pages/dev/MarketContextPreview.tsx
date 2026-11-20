@@ -262,7 +262,7 @@ export function MarketContextPreview() {
               {COPY.newOffer}
             </Button>
           </div>
-          <p id="publish-destination" className="max-w-[11rem] text-right text-[11px] leading-4 text-brand-text-muted sm:max-w-none">{COPY.publishTo(current.name)}</p>
+          <p id="publish-destination" className="max-w-[11rem] text-right text-caption leading-4 text-brand-text-muted sm:max-w-none">{COPY.publishTo(current.name)}</p>
         </div>
       </div>
 
@@ -309,7 +309,7 @@ export function MarketContextPreview() {
         {agentOpen && !scenario.offline && (
           <div className="border-t border-brand-border-subtle px-3 py-3">
             <div className="rounded-lg border border-dashed border-brand-border px-3 py-2.5">
-              <span className="rounded border border-brand-border px-1.5 text-[11px] font-medium uppercase tracking-wider text-brand-text-secondary">{COPY.agentDemo}</span>
+              <span className="rounded border border-brand-border px-1.5 text-caption font-medium uppercase tracking-wider text-brand-text-secondary">{COPY.agentDemo}</span>
               <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-brand-text-secondary">
                 {COPY.agentSteps(current.name).map((step) => <li key={step}>{step}</li>)}
               </ol>

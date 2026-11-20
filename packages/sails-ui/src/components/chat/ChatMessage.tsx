@@ -17,10 +17,10 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
 
   if (message.type === 'RISK_WARNING') {
     return (
-      <div className="self-stretch flex items-start gap-2 text-xs bg-red-500/10 border border-red-500/25 text-brand-text rounded-lg px-3.5 py-2.5 my-1">
+      <div className="self-stretch flex items-start gap-2 text-xs bg-brand-danger-bg border border-brand-danger-border text-brand-text rounded-lg px-3.5 py-2.5 my-1">
         <AlertTriangle className="h-4 w-4 shrink-0" />
         <div className="flex-1">
-          <div className="flex items-center gap-1.5 font-semibold text-red-500">
+          <div className="flex items-center gap-1.5 font-semibold text-brand-danger-fg">
             {message.riskPattern ? RISK_PATTERN_LABEL[message.riskPattern] : 'Sinal de risco detectado'}
             <InfoTooltip text="Aviso automático por palavras-chave, feito nesta interface. Pode errar para mais ou para menos e não verifica a mensagem nem a contraparte." />
           </div>
@@ -44,15 +44,16 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
           message.decryptionFailed
             ? 'bg-brand-elevated border border-dashed border-brand-border text-brand-text-muted italic'
             : isProof
-              ? 'bg-green-500/10 border border-green-500/25 text-brand-text'
+              ? 'bg-brand-info-bg border border-brand-info-border text-brand-text'
               : isMine
                 ? 'bg-brand-orange text-primary-foreground rounded-br-sm'
                 : 'bg-brand-elevated text-brand-text rounded-bl-sm'
         } ${isMedia ? 'p-1.5' : ''}`}
       >
+        {/* A proof is a party's claim, not a verified payment (CTO 437): info tone, never success. */}
         {isProof && (
-          <div className="text-xs font-semibold text-green-500 mb-1 flex items-center gap-1">
-            <Receipt className="h-3.5 w-3.5" /> Comprovante de Pagamento
+          <div className="text-xs font-semibold text-brand-info-fg mb-1 flex items-center gap-1">
+            <Receipt className="h-3.5 w-3.5" /> Comprovante enviado · não verificado
           </div>
         )}
         {message.type === 'IMAGE' && message.mediaUrl && (
@@ -68,7 +69,7 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
           </span>
         )}
         {isMedia && message.content && (
-          <div className={`text-xs px-1.5 pt-1 ${isMine ? 'text-white/80' : 'text-brand-text-muted'}`}>{message.content}</div>
+          <div className={`text-xs px-1.5 pt-1 ${isMine ? 'text-primary-foreground/80' : 'text-brand-text-muted'}`}>{message.content}</div>
         )}
       </div>
       <span className="text-xs text-brand-text-muted mt-0.5">{formatTime(message.createdAt)}</span>

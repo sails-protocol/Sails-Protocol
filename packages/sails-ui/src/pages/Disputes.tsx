@@ -35,6 +35,7 @@ import { cn } from '../lib/utils'
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetDescription } from '../components/ui/sheet'
 import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
 import { Bot, Info, X } from 'lucide-react'
+import { TONE_CLASS } from '../lib/tone'
 
 // Sails Core Implementation Program M8-R2 (Destination Authority
 // Conformance, disputed rails, 2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md)
@@ -79,8 +80,8 @@ const DISPUTE_COLS = 'xl:grid-cols-[8rem_8rem_10rem_minmax(0,1fr)_5.5rem_6.5rem_
 /** Same pill shape as the trade status badge: resolved reads green, everything else neutral (no invented severity). */
 function DisputeStatusBadge({ status }: { status: Dispute['status'] }) {
   const tone = status === 'RESOLVED'
-    ? 'border-green-500/25 bg-green-500/10 text-green-800 dark:text-green-300'
-    : 'border-brand-border bg-brand-elevated text-brand-text-secondary'
+    ? TONE_CLASS.success
+    : TONE_CLASS.neutral
   return (
     <span className={cn(badgeVariants({ variant: 'outline' }), 'whitespace-nowrap rounded-full px-2 py-0.5', tone)}>
       {DISPUTE_STATUS_LABEL[status] ?? status}
@@ -333,7 +334,7 @@ export function Disputes() {
                 // Below xl the same cells fold into a compact row: facts on the left, "Abrir caso" on the right.
                 <li key={d.id} className={cn('grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 px-4 py-3 border-b border-brand-border-subtle last:border-b-0 [&>*]:col-start-1 xl:[&>*]:col-start-auto', DISPUTE_COLS)}>
                   <div className="min-w-0">
-                    <span className="mono-id text-[13px] text-brand-text">#{shortId(d.tradeId)}</span>
+                    <span className="mono-id text-body-sm text-brand-text">#{shortId(d.tradeId)}</span>
                     {pendingSuggestion(d) && (
                       <p className="text-xs text-brand-text-muted flex items-center gap-1">
                         <Bot className="h-3.5 w-3.5" aria-hidden="true" /> Sugestão automática
@@ -347,7 +348,7 @@ export function Disputes() {
                         <span className="block text-xs text-brand-text-muted truncate">{ASSET_LABELS[row.escrow.asset] ?? row.escrow.asset}</span>
                       </>
                     ) : (
-                      <span className="text-[13px] text-brand-text-secondary">Valor indisponível (escrow não carregado)</span>
+                      <span className="text-body-sm text-brand-text-secondary">Valor indisponível (escrow não carregado)</span>
                     )}
                   </div>
                   <div className="min-w-0">
@@ -358,8 +359,8 @@ export function Disputes() {
                   </div>
                   {/* One quiet line below xl; three columns from xl (contents). */}
                   <div className="flex flex-wrap gap-x-2 text-xs text-brand-text-muted xl:contents">
-                    <span className="xl:text-[13px] xl:text-brand-text-secondary xl:truncate"><span className="xl:hidden">Aberta por </span>{personLabel(d.openedBy, row.escrow)}</span>
-                    <span className="xl:text-[13px] xl:text-brand-text-secondary tabular-nums"><span aria-hidden="true" className="xl:hidden">· </span>{countLabel(evidenceCount)}</span>
+                    <span className="xl:text-body-sm xl:text-brand-text-secondary xl:truncate"><span className="xl:hidden">Aberta por </span>{personLabel(d.openedBy, row.escrow)}</span>
+                    <span className="xl:text-body-sm xl:text-brand-text-secondary tabular-nums"><span aria-hidden="true" className="xl:hidden">· </span>{countLabel(evidenceCount)}</span>
                     <span className="tabular-nums"><span aria-hidden="true" className="xl:hidden">· </span>{formatDateTime(d.createdAt)}</span>
                   </div>
                   <Button

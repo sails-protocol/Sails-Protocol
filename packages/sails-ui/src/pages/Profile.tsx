@@ -177,7 +177,7 @@ export function Profile() {
                 Sua chave pública
                 <InfoTooltip text={KEY_EXPLAINER} />
               </span>
-              <span className="mono-id text-[13px] text-brand-text-secondary truncate max-w-[16rem]">{user.publicKey}</span>
+              <span className="mono-id text-body-sm text-brand-text-secondary truncate max-w-[16rem]">{user.publicKey}</span>
               <CopyButton value={user.publicKey} className="min-h-11 md:min-h-0 shrink-0" />
             </div>
             <p className="text-xs text-brand-text-muted mt-1">Membro desde {new Date(user.createdAt).toLocaleDateString('pt-BR')}</p>
@@ -242,7 +242,7 @@ export function Profile() {
                         <span className="text-sm text-brand-text-secondary truncate">{ASSET_LABELS[o.asset]}</span>
                         {/* priceUsd is a USD value: always formatted as USD, never with the offer's fiat symbol. */}
                         <span className="text-sm font-medium text-brand-text tabular-nums">{formatPrice(o.priceUsd, 'USD')}</span>
-                        <span className="text-[13px] text-brand-text-secondary tabular-nums">
+                        <span className="text-body-sm text-brand-text-secondary tabular-nums">
                           {formatAmount(o.minAmount)}–{formatAmount(o.maxAmount)} {ASSET_SHORT_LABELS[o.asset]}
                         </span>
                         <span><OfferStatusBadge status={o.status} /></span>
@@ -258,7 +258,7 @@ export function Profile() {
                                     ? applyStatus(o.id, 'PAUSED', 'Oferta pausada — não aparece mais no Market')
                                     : applyStatus(o.id, 'ACTIVE', 'Oferta reativada')
                                 }
-                                className="min-h-11 md:min-h-0 text-[13px]"
+                                className="min-h-11 md:min-h-0 text-body-sm"
                               >
                                 {o.status === 'ACTIVE' ? 'Pausar' : 'Ativar'}
                               </Button>
@@ -274,7 +274,7 @@ export function Profile() {
                                   <button
                                     type="button"
                                     onClick={() => setConfirmingCancelId(o.id)}
-                                    className="w-full min-h-11 md:min-h-9 rounded-md px-2.5 py-2 text-left text-sm text-red-700 dark:text-red-300 hover:bg-brand-elevated"
+                                    className="w-full min-h-11 md:min-h-9 rounded-md px-2.5 py-2 text-left text-sm text-brand-danger-fg hover:bg-brand-elevated"
                                   >
                                     Cancelar oferta
                                   </button>
@@ -285,7 +285,7 @@ export function Profile() {
                           <Link
                             to={`/offer/${o.id}`}
                             aria-label={`Ver oferta de ${ASSET_LABELS[o.asset]}`}
-                            className="min-h-11 md:min-h-9 px-2 -mr-2 text-[13px] text-brand-text-secondary hover:text-brand-text flex items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="min-h-11 md:min-h-9 px-2 -mr-2 text-body-sm text-brand-text-secondary hover:text-brand-text flex items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             Ver <ChevronRight className="h-4 w-4" aria-hidden="true" />
                           </Link>
@@ -293,15 +293,15 @@ export function Profile() {
                       </div>
 
                       {confirmingCancelId === o.id && (
-                        <div className="mt-3 rounded-md bg-red-500/5 px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
+                        <div className="mt-3 rounded-md bg-brand-danger/5 px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
                           <span className="text-xs text-brand-text-secondary">
                             Cancelar esta oferta? Ela sai do Market imediatamente e não pode ser reativada — publique uma nova se mudar de ideia.
                           </span>
                           <div className="flex gap-2 shrink-0">
-                            <Button variant="destructive" size="sm" onClick={() => applyStatus(o.id, 'CANCELLED', 'Oferta cancelada')} className="min-h-11 md:min-h-0 text-[13px]">
+                            <Button variant="destructive" size="sm" onClick={() => applyStatus(o.id, 'CANCELLED', 'Oferta cancelada')} className="min-h-11 md:min-h-0 text-body-sm">
                               Sim, cancelar
                             </Button>
-                            <Button variant="outline" size="sm" autoFocus onClick={() => setConfirmingCancelId(null)} className="min-h-11 md:min-h-0 text-[13px]">Voltar</Button>
+                            <Button variant="outline" size="sm" autoFocus onClick={() => setConfirmingCancelId(null)} className="min-h-11 md:min-h-0 text-body-sm">Voltar</Button>
                           </div>
                         </div>
                       )}

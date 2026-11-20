@@ -11,6 +11,19 @@
 // works — found while building this: a plain `var(--x)` string doesn't
 // support `<alpha-value>` substitution, `rgb(var(--x) / <alpha-value>)`
 // does.
+// One role -> base, -fg, -bg (tint), -border (decorative), -solid, on-*.
+// `blue` is the brand blue (--color-brand-blue*), not the info status.
+const roles = (names) => Object.fromEntries(names.flatMap((n) => {
+  const v = n === 'blue' ? 'brand-blue' : n
+  return [
+    [n, `rgb(var(--color-${v}) / <alpha-value>)`],
+    [`${n}-fg`, `rgb(var(--color-${v}-fg) / <alpha-value>)`],
+    [`${n}-bg`, `rgb(var(--color-${v}) / 0.1)`],
+    [`${n}-border`, `rgb(var(--color-${v}) / 0.25)`],
+    [`${n}-solid`, `rgb(var(--color-${v}-solid) / <alpha-value>)`],
+    [`on-${n}`, `rgb(var(--color-on-${v}) / <alpha-value>)`],
+  ]
+}))
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: 'class',
@@ -39,12 +52,15 @@ export default {
           // §3's success/warning/danger/info categories). `danger` reuses
           // the existing `--destructive` var rather than a second red —
           // see index.css's own comment.
-          success: 'rgb(var(--color-success) / <alpha-value>)',
-          warning: 'rgb(var(--color-warning) / <alpha-value>)',
-          danger: 'rgb(var(--destructive) / <alpha-value>)',
-          info: 'rgb(var(--color-info) / <alpha-value>)',
+          // Design System roles (DESIGN_SYSTEM.md): `danger` is now its own
+          // theme-aware base (was --destructive, the button fill).
+          ...roles(['success', 'warning', 'danger', 'info', 'buy', 'sell', 'blue']),
           'border-subtle': 'rgb(var(--color-border-subtle) / <alpha-value>)',
         },
+        // Asset identity (AssetIcon only): bg-asset-btc/15 text-asset-btc.
+        asset: Object.fromEntries(
+          ['btc', 'usdt', 'usdc', 'depix', 'eth', 'bnb', 'sol', 'ltc', 'stx', 'spark'].map((a) => [a, `rgb(var(--color-asset-${a}) / <alpha-value>)`]),
+        ),
         // shadcn/ui's expected token names (bg-background, bg-primary,
         // border-input, ring-ring, etc.) — aliased onto the same CSS vars
         // as `brand` above (see index.css's own comment) so components
@@ -98,9 +114,31 @@ export default {
       },
       // Responsive scale lives in index.css (--t-*); overriding the theme
       // keys keeps these real utilities, so `sm:text-base` etc. still win.
+      // Design System scale (DESIGN_SYSTEM.md); xs/sm stay as aliases of
+      // caption/body. Names must also be in lib/utils.ts's twMerge config.
       fontSize: {
         xs: ['var(--t-meta)', { lineHeight: 'var(--t-meta-lh)' }],
         sm: ['var(--t-body)', { lineHeight: 'var(--t-body-lh)' }],
+        display: ['var(--t-display)', { lineHeight: 'var(--t-display-lh)', letterSpacing: '-0.02em', fontWeight: '600' }],
+        title: ['var(--t-page)', { lineHeight: 'var(--t-page-lh)', letterSpacing: '-0.01em', fontWeight: '600' }],
+        heading: ['var(--t-section)', { lineHeight: 'var(--t-section-lh)', fontWeight: '600' }],
+        subheading: ['var(--t-body)', { lineHeight: '1.4', fontWeight: '500' }],
+        body: ['var(--t-body)', { lineHeight: 'var(--t-body-lh)' }],
+        'body-sm': ['var(--t-body-sm)', { lineHeight: 'var(--t-body-sm-lh)' }],
+        caption: ['var(--t-meta)', { lineHeight: 'var(--t-meta-lh)' }],
+      },
+      spacing: {
+        'control-sm': 'var(--control-h-sm)',
+        control: 'var(--control-h)',
+        'control-touch': 'var(--control-h-touch)',
+        'icon-sm': 'var(--icon-sm)',
+        icon: 'var(--icon-md)',
+        'icon-lg': 'var(--icon-lg)',
+      },
+      boxShadow: {
+        'elevation-1': 'var(--elevation-1)',
+        'elevation-2': 'var(--elevation-2)',
+        'elevation-3': 'var(--elevation-3)',
       },
     },
   },
