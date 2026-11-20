@@ -45,8 +45,9 @@ export default function App() {
             <ThemedToaster />
             <SessionExpiryRedirect />
             <Routes>
-              <Route path="/login" element={<Login />} />
               <Route element={<Layout />}>
+                {/* Connect-wallet dialog over the Market: the app stays open without a session */}
+                <Route path="/login" element={<><Suspense fallback={<RouteFallback />}><Marketplace /></Suspense><Login /></>} />
                 <Route path="/" element={<Suspense fallback={<RouteFallback />}><Marketplace /></Suspense>} />
                 <Route path="/offer/:id" element={<Suspense fallback={<RouteFallback />}><OfferDetail /></Suspense>} />
                 <Route path="/trade/:id" element={<Suspense fallback={<RouteFallback />}><Trade /></Suspense>} />

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, Outlet } from 'react-router'
+import { Link, Outlet, useLocation } from 'react-router'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { BottomNav } from './BottomNav'
@@ -20,6 +20,7 @@ export function Layout() {
   // Mirrors TopNav's own avatar+name / "Conectar" pattern so the same
   // signal exists on both breakpoints.
   const { user } = useAuth()
+  const location = useLocation()
 
   // First-time onboarding (2026-08-04) — owned here rather than inside
   // OnboardingTour itself, since Layout already knows `user` and wraps
@@ -74,7 +75,7 @@ export function Layout() {
                 <UserAvatar user={user} size="sm" />
               </Link>
             ) : (
-              <Link to="/login" className={cn(buttonVariants({ className: 'text-xs px-3 py-1.5' }))}>
+              <Link to="/login" state={{ from: location.pathname }} className={cn(buttonVariants({ className: 'text-xs px-3 py-1.5' }))}>
                 Conectar
               </Link>
             )}
