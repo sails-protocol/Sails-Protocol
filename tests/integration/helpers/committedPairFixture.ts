@@ -33,6 +33,9 @@ export interface CommitmentFixtureOptions {
   seed?: number
   /** Decimal strings in the Offer's min..max window. */
   amount?: string
+  /** Use EXISTING registered participants (id + 64-byte Ed25519 secret key, hex) instead of seed-derived users: the pair must be signed by the real parties. */
+  maker?: { id: string; secretKey: string }
+  taker?: { id: string; secretKey: string }
 }
 
 export async function createCommitmentFixture(prisma: any, opts: CommitmentFixtureOptions = {}) {
@@ -40,7 +43,8 @@ export async function createCommitmentFixture(prisma: any, opts: CommitmentFixtu
   const rail = opts.rail ?? 'MULTISIG'
   const amount = opts.amount ?? '0.00500000'
   const seed = opts.seed ?? 0x51
-  const maker = kp(seed), taker = kp(seed + 1), arbiter = kp(seed + 2)
+  const fromSecret = (h: string) => nacl.sign.keyPair.fromSecretKey(new Uint8Array(Buffer.from(h, 'hex')))
+  const maker = opts.maker ? fromSecret(opts.maker.secretKey) : kp(seed), taker = opts.taker ? fromSecret(opts.taker.secretKey) : kp(seed + 1), arbiter = kp(seed + 2)
   const RUN = randomUUID().slice(0, 8)
   const svcMod = require('../../../src/modules/open-p2p/commitment-pair.service')
   const envMod = require('../../../src/modules/open-liquidity/offer-envelope')
@@ -49,7 +53,7 @@ export async function createCommitmentFixture(prisma: any, opts: CommitmentFixtu
   const ac = require('../../../src/modules/open-p2p/arbitration-commitment')
 
   const upsertUser = async (k: nacl.SignKeyPair) => (await prisma.user.upsert({ where: { publicKey: hex(k.publicKey) }, update: {}, create: { publicKey: hex(k.publicKey), displayName: 'fixture' } })).id
-  const makerId = await upsertUser(maker), takerId = await upsertUser(taker)
+  const makerId = opts.maker?.id ?? await upsertUser(maker), takerId = opts.taker?.id ?? await upsertUser(taker)
 
   const fee = await prisma.feePolicyVersion.create({
     data: { label: `fx-fee-${RUN}`, railScope: `FX-${RUN}`, status: 'PUBLISHED', publishedAt: new Date(), protocolFeeRate: '0.004', payerModel: 'SELLER_PAYS', economicBasis: 'SELLER_DELIVERED_VALUE', requiredConfirmations: 2, createdBy: 'fixture' },
@@ -111,6 +115,12 @@ export async function createCommitmentFixture(prisma: any, opts: CommitmentFixtu
   return {
     makerId, takerId, legacyOfferId: legacyOffer.id as string, feePolicyVersionId: fee.id as string, logicalOfferId, envelopeRow,
     admitTrade,
+    /** The COMMITTED pair of a trade that already exists and is admitted (its tradeIntentId is the anchor), e.g. one made by tradeService.createTrade. */
+    async commitExistingTrade(tradeId: string): Promise<string> {
+      const t = await prisma.trade.findUniqueOrThrow({ where: { id: tradeId } })
+      if (!t.tradeIntentId) throw new Error('fixture: the trade is not admitted (no tradeIntentId)')
+      return commitPair(t.tradeIntentId)
+    },
     /** A new admitted trade with its COMMITTED pair. */
     async committedPair(status: 'PENDING' | 'ACTIVE' = 'PENDING') {
       const { tradeId, anchorRef } = await admitTrade(status)
@@ -125,4 +135,19 @@ export async function createCommitmentFixture(prisma: any, opts: CommitmentFixtu
       return prisma.escrow.create({ data: { lockedAmount: amount, asset, ...data, tradeId, commitmentPairId: pairId } })
     },
   }
+}
+
+/**
+ * For suites that build a trade through tradeService.createTrade and then call escrowService.createEscrow with a real rail (deny-by-default):
+ * commits the pair of that admitted trade with the REAL parties' keys (registerTestParticipantWithKey). Call it before createEscrow.
+ */
+export async function commitTradePair(
+  prisma: any,
+  tradeId: string,
+  seller: { id: string; secretKey: string },
+  buyer: { id: string; secretKey: string },
+  opts: { asset?: string; rail?: string; amount?: string } = {}
+): Promise<string> {
+  const fx = await createCommitmentFixture(prisma, { asset: opts.asset ?? 'BTC', rail: opts.rail ?? 'MULTISIG', amount: opts.amount ?? '0.00100000', maker: seller, taker: buyer })
+  return fx.commitExistingTrade(tradeId)
 }
