@@ -12,7 +12,8 @@ import { toUiMessage, toUiMessageFromEvent } from '../lib/tradeMessages'
 import { TradeStatusBadge, EscrowStatusBadge } from '../components/ui/StatusBadges'
 import { EscrowStateMachine } from '../components/trade/EscrowStateMachine'
 import { EscrowCountdown } from '../components/trade/EscrowCountdown'
-import { EscrowActions } from '../components/trade/EscrowActions'
+import { CurrentActionCard } from '../components/trade/CurrentActionCard'
+import { deriveCurrentAction } from '../lib/currentAction'
 import { TradeParties } from '../components/trade/TradeParties'
 import { TradeDisputePanel } from '../components/trade/TradeDisputePanel'
 import { ChatWindow } from '../components/chat/ChatWindow'
@@ -614,14 +615,10 @@ export function Trade() {
                 <p className="text-xs text-brand-text-muted mt-3">Aguardando o vendedor criar o escrow.</p>
               )
             ) : !showDisputeForm ? (
-              <EscrowActions
-                status={escrowStatus}
-                isBuyer={isBuyer}
-                isSeller={isSeller}
+              <CurrentActionCard
+                view={deriveCurrentAction({ status: escrowStatus, isBuyer, isSeller })}
                 acting={acting}
-                onLockFunds={handleLockFunds}
-                onMarkPaymentSent={handleMarkPaymentSent}
-                onReleaseFunds={handleReleaseFunds}
+                onAction={(a) => ({ lock: handleLockFunds, markPaymentSent: handleMarkPaymentSent, release: handleReleaseFunds })[a]()}
                 onOpenDispute={() => setShowDisputeForm(true)}
               />
             ) : (
