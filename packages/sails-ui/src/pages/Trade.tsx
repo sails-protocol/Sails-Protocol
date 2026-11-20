@@ -1,18 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useNavigate, useLocation } from 'react-router'
 import { toast } from 'sonner'
-import type { Trade as SdkTrade, Escrow as SdkEscrow, WebSocketChannel, Dispute } from '@satsails/p2p-trading-sdk'
-import { encryptChatMessage } from '@satsails/p2p-trading-sdk'
+import type { Trade as SdkTrade, Escrow as SdkEscrow, EscrowPendingTransaction, WebSocketChannel, Dispute } from '@satsails/p2p-trading-sdk'
+import { encryptChatMessage, SigningIntentVerificationError } from '@satsails/p2p-trading-sdk'
 import type { EscrowStatus, Message, MessageType, User } from '../types'
 import { useAuth, WrongPassphraseError } from '../context/AuthContext'
 import { useEscrowKey } from '../hooks/useEscrowKey'
-import { classifySigningWatchError } from '../lib/escrowErrorClassification'
+import { classifySigningWatchError, classifyPendingTransactionError } from '../lib/escrowErrorClassification'
+import { checkMultisigPending, MultisigSigningIntentError } from '../lib/multisigSigningIntent'
+import { deriveSigningRequest, roundSnapshotChanged, signingActionLabel, UNKNOWN_SIGNER, type RoundSnapshot, type SigningVerification } from '../lib/signingRequest'
 import { sailsClient } from '../lib/sailsClient'
 import { toUiMessage, toUiMessageFromEvent } from '../lib/tradeMessages'
 import { TradeStatusBadge, EscrowStatusBadge, ESCROW_STATUS_LABEL } from '../components/ui/StatusBadges'
 import { EscrowStateMachine } from '../components/trade/EscrowStateMachine'
 import { EscrowCountdown } from '../components/trade/EscrowCountdown'
 import { CurrentActionCard } from '../components/trade/CurrentActionCard'
+import { SigningRequestCard } from '../components/trade/SigningRequestCard'
 import { deriveCurrentAction } from '../lib/currentAction'
 import { TradeParties } from '../components/trade/TradeParties'
 import { TradeDisputePanel } from '../components/trade/TradeDisputePanel'
@@ -81,6 +84,42 @@ function toParticipantUser(
   }
 }
 
+// Escrow types with a client-signed release/refund round (useEscrowKey.ts).
+const CLIENT_SIGNING_ESCROW_TYPES = new Set(['MULTISIG', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM'])
+// Client-signing types this interface cannot sign (no verify-then-sign yet): never start a round for them.
+const UNSIGNABLE_ESCROW_TYPES = new Set(['LIGHTNING_HODL', 'SAFE_GUARD_EVM'])
+const TERMINAL_ESCROW_STATUSES = new Set(['COMPLETED', 'REFUNDED', 'SPLIT'])
+const PENDING_POLL_MS = 15_000
+
+// What a confirmation dialog was opened for. The dialog renders from this
+// snapshot and the confirm handler compares the re-read round against it.
+type RoundDialog = { kind: 'sign' | 'cancel'; round: RoundSnapshot; escrowStatus: string; summary: { label: string; value: string }[] }
+
+type PendingState =
+  | { status: 'none' }
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'ready'; tx: EscrowPendingTransaction }
+
+// Read-only: is a signing round in flight for this escrow? Never signs.
+async function readPending(e: SdkEscrow): Promise<PendingState> {
+  if (!CLIENT_SIGNING_ESCROW_TYPES.has(e.type)) return { status: 'none' }
+  try {
+    return { status: 'ready', tx: await sailsClient.settlement.getPendingTransaction(e.id) }
+  } catch (err) {
+    if (classifyPendingTransactionError(err) === 'absence') return { status: 'none' }
+    return { status: 'error' }
+  }
+}
+
+function signingErrorMessage(err: unknown): string {
+  if (err instanceof SigningIntentVerificationError) return 'A transação não corresponde ao que era esperado para este escrow — não assine.'
+  if (err instanceof MultisigSigningIntentError) return `Não foi possível conferir a transação: ${err.userMessage}`
+  if (err instanceof WrongPassphraseError) return err.message
+  // The server may store the signature before a later step fails, so never claim nothing was sent.
+  return 'Não foi possível concluir. Sua assinatura pode ter sido registrada — confira o estado abaixo.'
+}
+
 async function fetchParticipantUser(participantId: string): Promise<User> {
   const [p, rep] = await Promise.all([
     sailsClient.identity.get(participantId),
@@ -94,7 +133,7 @@ export function Trade() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, keypair, encryptionKey } = useAuth()
-  const { submitEscrowKeyIfNeeded, signAndSubmitPendingTransactionIfNeeded } = useEscrowKey(encryptionKey)
+  const { submitEscrowKeyIfNeeded, signVerifiedMultisigPending } = useEscrowKey(encryptionKey)
 
   // P3-F04 (Pre-M3 Reality Gate, 2026-09-13) — corrected. These two call
   // sites are speculative/idempotent background calls, and a genuine
@@ -139,7 +178,7 @@ export function Trade() {
         toast.error('Não foi possível verificar sua permissão para assinar este escrow.')
         break
       default:
-        toast.error('Não foi possível verificar se há uma assinatura pendente para você neste escrow — tente recarregar a página.')
+        toast.error('Não foi possível registrar sua chave neste escrow — tente recarregar a página.')
     }
   }
 
@@ -151,6 +190,8 @@ export function Trade() {
   const [loading, setLoading] = useState(true)
   const [acting, setActing] = useState(false)
   const [confirmRelease, setConfirmRelease] = useState(false)
+  const [pending, setPending] = useState<PendingState>({ status: 'none' })
+  const [roundDialog, setRoundDialog] = useState<RoundDialog | null>(null)
   const [showDisputeForm, setShowDisputeForm] = useState(false)
   const [disputeReason, setDisputeReason] = useState('')
   // RFC-021 D6/D7/D8 — evidence/contest/appeal are real, trade-party-only
@@ -202,6 +243,7 @@ export function Trade() {
     if (!id) return
     let cancelled = false
     setLoading(true)
+    setPending({ status: 'none' })
     ;(async () => {
       const t = await sailsClient.openp2p.getTrade(id)
       if (cancelled) return
@@ -216,21 +258,18 @@ export function Trade() {
       setSeller(s)
 
       if (t.escrowId) {
-        let e = await sailsClient.settlement.get(t.escrowId)
+        const e = await sailsClient.settlement.get(t.escrowId)
         // Client-held-keys write path (MULTISIG/LIGHTNING_HODL only, see
         // useEscrowKey's own header comment) — submitting is idempotent
         // and requires an authenticated session, so only attempted for a
         // logged-in counterparty, not every visitor who opens this page.
         if (user && (user.id === t.buyerId || user.id === t.sellerId)) {
           await submitEscrowKeyIfNeeded(e.type, e.id).catch(ignoreExceptWrongPassphrase)
-          // Phase 2 (2026-07-27), MULTISIG only — if a release/refund
-          // signature round is already in flight and this user is one of
-          // its required signers, auto-sign and submit (useEscrowKey's
-          // own header comment on signAndSubmitPendingTransactionIfNeeded
-          // has the full "no dedicated screen, call speculatively" scope
-          // note). A safe no-op otherwise.
-          await signAndSubmitPendingTransactionIfNeeded(e.type, e.id, user.id).catch(ignoreExceptWrongPassphrase)
-          e = await sailsClient.settlement.get(t.escrowId)
+          // CTO 437 step 4 — never sign on page load. Only READ the
+          // pending round; signing needs the user's explicit review in
+          // SigningRequestCard + ConfirmActionDialog.
+          const ps = await readPending(e)
+          if (!cancelled) setPending(ps)
         }
         if (!cancelled) setEscrow(e)
       }
@@ -282,6 +321,87 @@ export function Trade() {
   // finished loading and rendered a real chat compose box.
   const counterpartyPublicKeyHex = isBuyer ? seller?.publicKey : isSeller ? buyer?.publicKey : undefined
   const counterpartyName = isBuyer ? seller?.displayName : isSeller ? buyer?.displayName : undefined
+
+  const pendingTx = pending.status === 'ready' ? pending.tx : null
+  // MULTISIG: verified against the trade terms before any sign button is
+  // shown. Other client-signing types have no verification -> never signable here.
+  const verification = useMemo<SigningVerification>(() => {
+    if (!pendingTx || !escrow || escrow.type !== 'MULTISIG') return { status: 'unsupported' }
+    try {
+      return checkMultisigPending(escrow, pendingTx)
+    } catch {
+      return { status: 'cannotVerify', reason: 'Não foi possível ler os dados da transação.' }
+    }
+  }, [escrow, pendingTx])
+  const signingView = useMemo(() => pendingTx && trade && escrow ? deriveSigningRequest({
+    pending: pendingTx,
+    viewerId: user?.id,
+    verification,
+    signerLabel: (pid) => pid === user?.id ? 'Você' : pid === trade.buyerId ? 'Comprador' : pid === trade.sellerId ? 'Vendedor' : UNKNOWN_SIGNER,
+    disputed: escrow.status === 'DISPUTED',
+    // Mirrors cancelPendingTransaction's server preconditions (seller, MULTISIG, non-disputed, non-terminal).
+    canCancel: isSeller && escrow.type === 'MULTISIG' && escrow.status !== 'DISPUTED' && !TERMINAL_ESCROW_STATUSES.has(escrow.status),
+    protocolFeeAddress: escrow.snapshotFeeCollectionAddress,
+  }) : null, [pendingTx, trade, escrow, user, isSeller, verification])
+
+  const refreshPending = async (e: SdkEscrow) => {
+    const next = await readPending(e)
+    setPending(next)
+    return next
+  }
+
+  // Light poll so a counterparty sees a new or updated round without reloading:
+  // only for trade parties of client-signing escrows, while a round exists or
+  // one can start (PAYMENT_PENDING), and only while the tab is visible.
+  const pollEnabled = !!escrow && (isBuyer || isSeller) && CLIENT_SIGNING_ESCROW_TYPES.has(escrow.type)
+    && (pending.status === 'ready' || escrow.status === 'PAYMENT_PENDING')
+  useEffect(() => {
+    if (!pollEnabled || !escrow || acting || roundDialog) return // paused while a confirmation dialog is open
+    let cancelled = false
+    const hadRound = pending.status === 'ready'
+    const timer = setInterval(async () => {
+      if (document.visibilityState !== 'visible') return
+      const next = await readPending(escrow)
+      if (cancelled || next.status === 'error') return // a failed background read keeps the last state; "Atualizar" reports errors
+      setPending(next)
+      if (hadRound && next.status === 'none') {
+        const e = await sailsClient.settlement.get(escrow.id).catch(() => null)
+        if (!cancelled && e) setEscrow(e)
+      }
+    }, PENDING_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [pollEnabled, escrow, acting, pending.status, roundDialog])
+
+  // A refresh replaced the round under an open dialog: close it rather than confirm a different round.
+  useEffect(() => {
+    if (!roundDialog || acting || !roundSnapshotChanged(roundDialog.round, pendingTx)) return
+    setRoundDialog(null)
+    toast.error('O estado do trade mudou — revise antes de continuar')
+  }, [roundDialog, acting, pendingTx])
+
+  const openRoundDialog = (kind: RoundDialog['kind']) => {
+    if (!pendingTx || !signingView || !escrow) return
+    const progress = { label: 'Assinaturas', value: signingView.progress.text }
+    const status = { label: 'Estado atual', value: ESCROW_STATUS_LABEL[escrow.status as EscrowStatus] ?? escrow.status }
+    setRoundDialog({
+      kind,
+      round: { id: pendingTx.id, unsignedPsbtBase64: pendingTx.unsignedPsbtBase64 },
+      escrowStatus: escrow.status,
+      summary: kind === 'sign'
+        ? [
+            { label: 'Ação', value: signingActionLabel(pendingTx.kind) },
+            // Full money flow from the verified transaction: each output and the network fee (labels are unique).
+            ...(signingView.check?.items ?? []).map((it) => ({ label: it.label, value: it.value })),
+            { label: 'Conferência', value: signingView.check?.title ?? '' },
+            progress,
+            status,
+          ]
+        : [{ label: 'Rodada', value: signingActionLabel(pendingTx.kind) }, progress, status],
+    })
+  }
 
   // M8-R2 — only the buyer needs to see/manage this (they're the
   // beneficiary of a release for this trade); re-checked whenever the
@@ -349,6 +469,69 @@ export function Trade() {
     toast.success('Pagamento marcado como enviado', { icon: <Banknote className="h-4 w-4" /> })
   })
 
+  // Explicit, user-confirmed signing (MULTISIG only). Re-reads the round
+  // and the escrow first; aborts if anything changed since the review.
+  const handleSignPending = (snap: RoundDialog) => escrow && user && withGuard(async () => {
+    if (!encryptionKey) {
+      toast.error('Sua chave de escrow está bloqueada — entre novamente com sua senha para assinar.')
+      return
+    }
+    const [freshEscrow, fresh] = await Promise.all([sailsClient.settlement.get(escrow.id), readPending(escrow)])
+    const freshTx = fresh.status === 'ready' ? fresh.tx : null
+    // Compared against the round the user reviewed (the snapshot), never the live state.
+    const changed = !freshTx || roundSnapshotChanged(snap.round, freshTx) || freshEscrow.status !== snap.escrowStatus
+      || !freshTx.requiredSigners.includes(user.id)
+      || (freshTx.signedBy ?? []).some((x) => x.participantId === user.id)
+    if (changed || !freshTx) {
+      setRoundDialog(null)
+      setEscrow(freshEscrow)
+      setPending(fresh)
+      toast.error('O estado do trade mudou — revise antes de continuar')
+      return
+    }
+    let signedOk = false
+    try {
+      await signVerifiedMultisigPending(freshEscrow, freshTx)
+      signedOk = true
+    } catch (err) {
+      toast.error(signingErrorMessage(err))
+    }
+    setRoundDialog(null) // before the refresh: the round may legitimately change now
+    const e = await sailsClient.settlement.get(escrow.id).catch(() => freshEscrow)
+    setEscrow(e)
+    await refreshPending(e)
+    if (signedOk) toast.success('Assinatura registrada')
+  })
+
+  const handleRefreshSigning = () => escrow && withGuard(async () => {
+    const e = await sailsClient.settlement.get(escrow.id)
+    setEscrow(e)
+    const next = await refreshPending(e)
+    if (next.status === 'error') toast.error('Não foi possível consultar se há uma assinatura pendente neste escrow.')
+  })
+
+  // Seller-only: retire a round this interface cannot sign (cancelPendingTransaction).
+  // Re-reads first; aborts if the round or the escrow changed since it was shown.
+  const handleCancelRound = (snap: RoundDialog) => escrow && user && withGuard(async () => {
+    const [freshEscrow, fresh] = await Promise.all([sailsClient.settlement.get(escrow.id), readPending(escrow)])
+    const freshTx = fresh.status === 'ready' ? fresh.tx : null
+    const signedCount = freshTx ? freshTx.requiredSigners.filter((id) => (freshTx.signedBy ?? []).some((x) => x.participantId === id)).length : 0
+    if (!freshTx || roundSnapshotChanged(snap.round, freshTx) || freshEscrow.status !== snap.escrowStatus || freshEscrow.status === 'DISPUTED'
+      || TERMINAL_ESCROW_STATUSES.has(freshEscrow.status) || signedCount >= freshTx.requiredSigners.length || user.id !== trade?.sellerId) {
+      setRoundDialog(null)
+      setEscrow(freshEscrow)
+      setPending(fresh)
+      toast.error('O estado do trade mudou — revise antes de continuar')
+      return
+    }
+    const result = await sailsClient.settlement.cancelPendingTransaction(escrow.id, freshTx.id)
+    setRoundDialog(null)
+    const e = await sailsClient.settlement.get(escrow.id).catch(() => freshEscrow)
+    setEscrow(e)
+    await refreshPending(e)
+    toast.success(result.outcome === 'CANCELLED' ? 'Rodada de assinatura encerrada' : 'Esta rodada de assinatura já não existe — estado atualizado')
+  })
+
   const handleReleaseFunds = () => escrow && withGuard(async () => {
     // The confirmation dialog may be stale: re-read the escrow and release
     // only if it is still PAYMENT_PENDING and this viewer is still the seller.
@@ -358,34 +541,36 @@ export function Trade() {
       toast.error('O estado do trade mudou — revise antes de continuar')
       return
     }
-    // Phase 2 (2026-07-27) — MULTISIG and LIGHTNING_HODL both use
-    // client-signature collection now, since buyer/seller keys are
-    // client-held. SAFE_GUARD_EVM joined this group 2026-08-02 (RFC-020) —
-    // its own releaseFunds() throws "not directly callable" for the same
-    // reason (escrow.service.ts's SIGNATURE_COLLECTION_PROVIDERS), so it
-    // must go through initiateRelease() too, not the plain release() call
-    // below. The seller (normal path) or assigned arbiter (disputed path)
-    // initiates the round here; if this user is also one of its required
-    // signers (the normal path), sign and submit immediately rather than
-    // requiring a second visit to this page — the other required party
-    // still needs to open the page once to trigger their own auto-sign
-    // (see the escrow-fetch effect above).
-    if (escrow.type === 'MULTISIG' || escrow.type === 'LIGHTNING_HODL' || escrow.type === 'SAFE_GUARD_EVM') {
+    // MULTISIG, LIGHTNING_HODL and SAFE_GUARD_EVM release through a client-
+    // signed round (initiateRelease(), never the plain release() below).
+    // CTO 437 step 4: this page never signs on its own — each required
+    // signer reviews and signs from SigningRequestCard. Only MULTISIG has a
+    // verify-then-sign path, so a round is never started for LIGHTNING_HODL /
+    // SAFE_GUARD_EVM: it could not be signed here and would block retries.
+    if (UNSIGNABLE_ESCROW_TYPES.has(escrow.type)) {
+      toast.error('Liberação indisponível nesta interface para este tipo de escrow')
+      return
+    }
+    if (escrow.type === 'MULTISIG') {
       // No toAddress passed — the server resolves the buyer's own
       // registered PayoutAddress (M8-R2, see this file's own header
       // comment above). If the buyer hasn't registered one yet, this
       // throws a clear error caught by withGuard() below, surfaced as a
       // toast — never a silent/guessed destination.
       await sailsClient.settlement.initiateRelease(escrow.id)
-      if (user) await signAndSubmitPendingTransactionIfNeeded(escrow.type, escrow.id, user.id).catch(ignoreExceptWrongPassphrase)
+      // No signing here: the round is only read; the seller reviews and
+      // signs it from SigningRequestCard.
       const e = await sailsClient.settlement.get(escrow.id)
       setEscrow(e)
+      const next = await refreshPending(e)
       // Reports the escrow status the server returned, not on-chain finality
       // (no broadcast/confirmation state is exposed to this UI yet).
+      const missing = next.status === 'ready' ? next.tx.requiredSigners.filter((id) => !(next.tx.signedBy ?? []).some((x) => x.participantId === id)) : []
       toast.success(
-        e.status === 'COMPLETED'
-          ? 'Escrow marcado como concluído pelo servidor'
-          : 'Liberação iniciada — aguardando as assinaturas necessárias'
+        e.status === 'COMPLETED' ? 'Escrow marcado como concluído pelo servidor'
+          : missing.includes(user.id) ? 'Liberação iniciada — revise e assine a transação abaixo.'
+          : missing.length === 1 && missing[0] === trade?.buyerId ? 'Liberação iniciada — aguardando a assinatura do comprador.'
+          : 'Liberação iniciada — a transação precisa das assinaturas necessárias.'
       )
       return
     }
@@ -635,12 +820,34 @@ export function Trade() {
                 <p className="text-xs text-brand-text-muted mt-3">Aguardando o vendedor criar o escrow.</p>
               )
             ) : !showDisputeForm ? (
+              <>
+              {pending.status === 'loading' && <SigningRequestCard status="loading" label="Consultando assinaturas pendentes…" />}
+              {pending.status === 'error' && (
+                <SigningRequestCard
+                  status="error"
+                  message="Não foi possível consultar se há uma assinatura pendente neste escrow."
+                  retryLabel="Tentar novamente"
+                  onRetry={() => { setPending({ status: 'loading' }); void refreshPending(escrow) }}
+                />
+              )}
+              {signingView && (
+                <SigningRequestCard
+                  status="ready"
+                  view={signingView}
+                  acting={acting}
+                  onReview={() => openRoundDialog('sign')}
+                  onCancel={() => openRoundDialog('cancel')}
+                  onRefresh={handleRefreshSigning}
+                />
+              )}
               <CurrentActionCard
-                view={deriveCurrentAction({ status: escrowStatus, isBuyer, isSeller })}
+                // While a signing round exists, its card is the next step; never offer a second release.
+                view={((v) => pendingTx ? { ...v, primary: undefined } : v)(deriveCurrentAction({ status: escrowStatus, isBuyer, isSeller, releaseUnavailable: UNSIGNABLE_ESCROW_TYPES.has(escrow.type) }))}
                 acting={acting}
                 onAction={(a) => ({ lock: handleLockFunds, markPaymentSent: handleMarkPaymentSent, release: () => setConfirmRelease(true) })[a]()}
                 onOpenDispute={() => setShowDisputeForm(true)}
               />
+              </>
             ) : (
               <div className="mt-4">
                 <Textarea
@@ -732,6 +939,41 @@ export function Trade() {
           setConfirmRelease(false)
         }}
       />
+
+      {roundDialog?.kind === 'sign' && (
+        <ConfirmActionDialog
+          open
+          onOpenChange={(open) => { if (!open) setRoundDialog(null) }}
+          title="Assinar esta transação?"
+          summary={roundDialog.summary}
+          warnings={['O endereço de destino é o que o servidor informou para esta rodada — confira-o antes de assinar.']}
+          consequence="Sua assinatura autoriza esta transação. Com as assinaturas necessárias ela pode ser transmitida e não poderá ser desfeita."
+          confirmLabel="Assinar"
+          busy={acting}
+          onConfirm={async () => {
+            await handleSignPending(roundDialog)
+            setRoundDialog(null)
+          }}
+        />
+      )}
+
+      {roundDialog?.kind === 'cancel' && (
+        <ConfirmActionDialog
+          open
+          onOpenChange={(open) => { if (!open) setRoundDialog(null) }}
+          title="Cancelar esta rodada de assinatura?"
+          summary={roundDialog.summary}
+          consequence="Encerra esta rodada de assinatura. Assinaturas já entregues continuam válidas para esta mesma transação até o depósito ser gasto."
+          confirmLabel="Cancelar rodada"
+          cancelLabel="Voltar"
+          tone="danger"
+          busy={acting}
+          onConfirm={async () => {
+            await handleCancelRound(roundDialog)
+            setRoundDialog(null)
+          }}
+        />
+      )}
     </div>
   )
 }
