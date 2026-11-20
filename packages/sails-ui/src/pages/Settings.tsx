@@ -148,7 +148,7 @@ export function Settings() {
                   icon={ShieldCheck}
                   label="Chave pública"
                   value={<span className="font-mono text-xs">{shortKey(user.publicKey)}</span>}
-                  control={<CopyButton value={user.publicKey} className="min-h-11 md:min-h-9 px-3" />}
+                  control={<CopyButton value={user.publicKey} className="min-h-9 touch:min-h-11 px-3" />}
                 />
                 <SettingsRow icon={LogOut} label="Desconectar" onClick={disconnect} />
               </>
@@ -157,7 +157,7 @@ export function Settings() {
                 icon={Wallet}
                 label="Nenhuma wallet conectada"
                 control={
-                  <Link to="/login" state={{ from: '/settings' }} className={cn(buttonVariants({ className: 'min-h-11 md:min-h-9 px-4 text-sm shrink-0' }))}>
+                  <Link to="/login" state={{ from: '/settings' }} className={cn(buttonVariants({ className: 'min-h-9 touch:min-h-11 px-4 text-sm shrink-0' }))}>
                     Conectar wallet
                   </Link>
                 }

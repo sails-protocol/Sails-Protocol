@@ -291,7 +291,7 @@ export function PublishOffer() {
             {priceType === 'FIXED' ? (
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">Preço fixo</label>
-                <div className="flex items-center input-field field-focus-within !p-0 h-11 md:h-9">
+                <div className="flex items-center input-field field-focus-within !p-0 h-9 touch:h-11">
                   <button onClick={() => setPrice(String(Math.max(0, Number(price || 0) - 1)))} aria-label="Diminuir preço" className="h-full min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">−</button>
                   <input
                     value={price}
@@ -398,16 +398,16 @@ export function PublishOffer() {
       {/* Actions in the card footer: back on the left, the one primary on the right. */}
       <div className="flex items-center justify-between gap-2 px-5 py-3 border-t border-brand-border-subtle">
         {step > 1 ? (
-          <Button variant="ghost" onClick={() => setStep((s) => s - 1)} className="min-h-11 md:min-h-10">
+          <Button variant="ghost" onClick={() => setStep((s) => s - 1)} className="min-h-10 touch:min-h-11">
             Voltar
           </Button>
         ) : <span />}
         {step < 3 ? (
-          <Button onClick={goNext} disabled={step === 1 ? !step1Valid : !step2Valid} className="min-h-11 md:min-h-10 px-6">
+          <Button onClick={goNext} disabled={step === 1 ? !step1Valid : !step2Valid} className="min-h-10 touch:min-h-11 px-6">
             Próximo
           </Button>
         ) : (
-          <Button onClick={handlePublish} loading={publishing} disabled={!step1Valid || !step2Valid} className="min-h-11 md:min-h-10 px-6">
+          <Button onClick={handlePublish} loading={publishing} disabled={!step1Valid || !step2Valid} className="min-h-10 touch:min-h-11 px-6">
             {publishing ? 'Publicando…' : 'Publicar oferta'}
           </Button>
         )}

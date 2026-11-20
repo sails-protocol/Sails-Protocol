@@ -99,14 +99,14 @@ export function TradeHistory() {
           kind="signedOut"
           title="Conecte sua wallet"
           description="Conecte sua wallet para ver seu histórico de trades."
-          action={<Link to="/login" state={{ from: '/profile/history' }} className={cn(buttonVariants({ className: 'min-h-11 md:min-h-10 px-4' }))}>Conectar wallet</Link>}
+          action={<Link to="/login" state={{ from: '/profile/history' }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Conectar wallet</Link>}
         />
       ) : error ? (
         <StateBlock
           kind="error"
           title="Não foi possível carregar o histórico"
           description={error}
-          action={<Button variant="outline" onClick={load} className="min-h-11 md:min-h-9 px-4">Tentar novamente</Button>}
+          action={<Button variant="outline" onClick={load} className="min-h-9 touch:min-h-11 px-4">Tentar novamente</Button>}
         />
       ) : (
         <>
@@ -131,7 +131,7 @@ export function TradeHistory() {
               className="mt-4"
               title="Nenhum trade no histórico ainda"
               description="Trades concluídos, cancelados ou em disputa aparecem aqui."
-              action={<Link to="/" className={cn(buttonVariants({ className: 'min-h-11 md:min-h-10 px-4' }))}>Explorar Market</Link>}
+              action={<Link to="/" className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Explorar Market</Link>}
             />
           ) : (
             <Card className="mt-4 overflow-hidden">

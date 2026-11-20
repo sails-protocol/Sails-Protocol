@@ -26,7 +26,8 @@ export function SettingsGroup({ id, title, icon: Icon, children, className, pane
       aria-labelledby={`${id}-title`}
       className={className}
     >
-      <h2 id={`${id}-title`} className="text-section-title flex items-center gap-2 mb-3">
+      {/* Below md the page header already names the open section, so the heading stays for screen readers only. */}
+      <h2 id={`${id}-title`} className="text-section-title sr-only md:not-sr-only md:flex items-center gap-2 md:mb-3">
         <Icon className="h-4 w-4 text-brand-text-muted" aria-hidden="true" />
         {title}
       </h2>

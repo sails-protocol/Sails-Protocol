@@ -104,14 +104,14 @@ export function ActiveTrades() {
           kind="signedOut"
           title="Conecte sua wallet"
           description="Conecte sua wallet para ver seus trades ativos."
-          action={<Link to="/login" state={{ from: '/profile/active' }} className={cn(buttonVariants({ className: 'min-h-11 md:min-h-10 px-4' }))}>Conectar wallet</Link>}
+          action={<Link to="/login" state={{ from: '/profile/active' }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Conectar wallet</Link>}
         />
       ) : error ? (
         <StateBlock
           kind="error"
           title="Não foi possível carregar seus trades"
           description={error}
-          action={<Button variant="outline" onClick={load} className="min-h-11 md:min-h-9 px-4">Tentar novamente</Button>}
+          action={<Button variant="outline" onClick={load} className="min-h-9 touch:min-h-11 px-4">Tentar novamente</Button>}
         />
       ) : authLoading || loading ? (
         <Card className="overflow-hidden">
@@ -122,7 +122,7 @@ export function ActiveTrades() {
           kind="empty"
           title="Nenhum trade ativo"
           description="Quando você iniciar um trade a partir de uma oferta, ele aparece aqui com o próximo passo."
-          action={<Link to="/" className={cn(buttonVariants({ className: 'min-h-11 md:min-h-10 px-4' }))}>Explorar Market</Link>}
+          action={<Link to="/" className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Explorar Market</Link>}
         />
       ) : (
         <Card className="overflow-hidden">

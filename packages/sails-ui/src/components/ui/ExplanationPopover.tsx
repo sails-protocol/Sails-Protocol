@@ -26,7 +26,7 @@ export function ExplanationPopover({
             </span>
           </button>
         ) : (
-          <button type="button" className={cn('group inline-flex min-h-11 md:min-h-8 items-center gap-1.5 rounded-md text-xs font-medium text-brand-text-secondary hover:text-brand-text', className)}>
+          <button type="button" className={cn('group inline-flex min-h-8 touch:min-h-11 items-center gap-1.5 rounded-md text-xs font-medium text-brand-text-secondary hover:text-brand-text', className)}>
             <span aria-hidden="true" className="w-4 h-4 rounded-full border border-brand-border text-xs leading-none flex items-center justify-center group-hover:border-brand-orange-accent">i</span>
             {label}
           </button>

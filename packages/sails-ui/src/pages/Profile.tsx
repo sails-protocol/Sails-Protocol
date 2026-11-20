@@ -155,7 +155,7 @@ export function Profile() {
       <PageHeader
         title="Perfil"
         actions={
-          <Link to="/profile/new-offer" className={cn(buttonVariants({ className: 'shrink-0 min-h-11 md:min-h-10 px-4' }))}>
+          <Link to="/profile/new-offer" className={cn(buttonVariants({ className: 'shrink-0 min-h-10 touch:min-h-11 px-4' }))}>
             <Plus aria-hidden="true" />
             Nova oferta
           </Link>
@@ -207,7 +207,7 @@ export function Profile() {
             className="mt-3"
             title="Não foi possível carregar suas ofertas"
             description={offersError}
-            action={<Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-11 md:min-h-9 px-4">Tentar novamente</Button>}
+            action={<Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-9 touch:min-h-11 px-4">Tentar novamente</Button>}
           />
         ) : !loadingOffers && offers.length === 0 ? (
           <StateBlock
@@ -215,7 +215,7 @@ export function Profile() {
             className="mt-3"
             title="Nenhuma oferta publicada ainda"
             description="Publique uma oferta para aparecer no Market."
-            action={<Link to="/profile/new-offer" className={cn(buttonVariants({ variant: 'outline', className: 'min-h-11 md:min-h-9 px-4' }))}>Publicar oferta</Link>}
+            action={<Link to="/profile/new-offer" className={cn(buttonVariants({ variant: 'outline', className: 'min-h-9 touch:min-h-11 px-4' }))}>Publicar oferta</Link>}
           />
         ) : (
           <Card className="mt-3 overflow-hidden">
@@ -275,7 +275,7 @@ export function Profile() {
                                   <button
                                     type="button"
                                     onClick={() => setConfirmingCancelId(o.id)}
-                                    className="w-full min-h-11 md:min-h-9 rounded-md px-2.5 py-2 text-left text-sm text-brand-danger-fg state-layer"
+                                    className="w-full min-h-9 touch:min-h-11 rounded-md px-2.5 py-2 text-left text-sm text-brand-danger-fg state-layer"
                                   >
                                     Cancelar oferta
                                   </button>
@@ -286,7 +286,7 @@ export function Profile() {
                           <Link
                             to={`/offer/${o.id}`}
                             aria-label={`Ver oferta de ${ASSET_LABELS[o.asset]}`}
-                            className="min-h-11 md:min-h-9 px-2 -mr-2 text-body-sm text-brand-text-secondary hover:text-brand-text flex items-center rounded-md"
+                            className="min-h-9 touch:min-h-11 px-2 -mr-2 text-body-sm text-brand-text-secondary hover:text-brand-text flex items-center rounded-md"
                           >
                             Ver <ChevronRight className="h-4 w-4" aria-hidden="true" />
                           </Link>

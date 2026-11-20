@@ -302,14 +302,14 @@ export function Disputes() {
           kind="signedOut"
           title="Conecte sua wallet"
           description="Conecte sua wallet para ver disputas atribuídas a você."
-          action={<Link to="/login" state={{ from: '/disputes' }} className={cn(buttonVariants({ className: 'min-h-11 md:min-h-10 px-4' }))}>Conectar wallet</Link>}
+          action={<Link to="/login" state={{ from: '/disputes' }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Conectar wallet</Link>}
         />
       ) : error ? (
         <StateBlock
           kind="error"
           title="Não foi possível carregar as disputas"
           description={error}
-          action={<Button variant="outline" onClick={load} className="min-h-11 md:min-h-9 px-4">Tentar novamente</Button>}
+          action={<Button variant="outline" onClick={load} className="min-h-9 touch:min-h-11 px-4">Tentar novamente</Button>}
         />
       ) : authLoading || loading ? (
         <Card className="overflow-hidden">

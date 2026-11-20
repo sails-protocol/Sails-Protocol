@@ -147,8 +147,8 @@ export function OfferDetail() {
             title={fetchError ? 'Não foi possível carregar a oferta' : 'Oferta não encontrada'}
             description={fetchError ?? 'Ela não existe ou não está mais disponível.'}
             action={fetchError
-              ? <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-11 md:min-h-9 px-4">Tentar novamente</Button>
-              : <Link to="/" className={cn(buttonVariants({ className: 'min-h-11 md:min-h-10 px-4' }))}>Voltar ao Market</Link>}
+              ? <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-9 touch:min-h-11 px-4">Tentar novamente</Button>
+              : <Link to="/" className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Voltar ao Market</Link>}
           />
         )}
       </Page>
@@ -243,7 +243,7 @@ export function OfferDetail() {
                 Você não pode iniciar uma negociação com o seu próprio anúncio.
                 Gerencie-o em "Minhas ofertas", no seu perfil.
               </p>
-              <Link to="/profile" className={cn(buttonVariants({ variant: 'outline', className: 'mt-4 w-full min-h-11 md:min-h-10' }))}>
+              <Link to="/profile" className={cn(buttonVariants({ variant: 'outline', className: 'mt-4 w-full min-h-10 touch:min-h-11' }))}>
                 Ir para Minhas ofertas
               </Link>
             </Card>
@@ -295,7 +295,7 @@ export function OfferDetail() {
                 </Alert>
               )}
 
-              <Button onClick={handleStartTrade} loading={startingTrade} className="mt-4 w-full min-h-11 md:min-h-10">
+              <Button onClick={handleStartTrade} loading={startingTrade} className="mt-4 w-full min-h-10 touch:min-h-11">
                 {startingTrade ? 'Iniciando…' : 'Iniciar trade'}
               </Button>
             </Card>

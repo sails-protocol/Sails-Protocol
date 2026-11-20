@@ -312,11 +312,26 @@ function PaymentMethodSection({
 
   // FilterChip (DESIGN_SYSTEM.md 5.12): applied methods are active chips with their own remove
   // button; every other method is a toggle chip. Selected = blue (chosen), never orange.
-  const Chip = ({ m }: { m: PaymentMethod }) =>
+  // A plain render function, not a nested component: a component defined in render remounts every
+  // chip on each update, which drops keyboard focus.
+  const selectedRef = React.useRef<HTMLDivElement>(null)
+  const toggleRef = React.useRef<HTMLButtonElement>(null)
+  // Removing an applied filter unmounts its chip: move focus to the next applied filter, or to
+  // "Ver todos os métodos" when none is left (WCAG 2.4.3).
+  const clear = (m: PaymentMethod) => {
+    const i = value.indexOf(m)
+    onToggle(m)
+    requestAnimationFrame(() => {
+      const buttons = selectedRef.current?.querySelectorAll<HTMLButtonElement>('button')
+      const next = buttons?.[Math.min(i, buttons.length - 1)]
+      ;(next ?? toggleRef.current)?.focus()
+    })
+  }
+  const chip = (m: PaymentMethod) =>
     selectedSet.has(m) ? (
-      <FilterChip label={PAYMENT_METHOD_LABELS[m]} onClear={() => onToggle(m)} clearLabel={`Remover filtro ${PAYMENT_METHOD_LABELS[m]}`} />
+      <FilterChip key={m} label={PAYMENT_METHOD_LABELS[m]} onClear={() => clear(m)} clearLabel={`Remover filtro ${PAYMENT_METHOD_LABELS[m]}`} />
     ) : (
-      <FilterChip label={PAYMENT_METHOD_LABELS[m]} onToggle={() => onToggle(m)} />
+      <FilterChip key={m} label={PAYMENT_METHOD_LABELS[m]} onToggle={() => onToggle(m)} />
     )
 
   return (
@@ -324,8 +339,8 @@ function PaymentMethodSection({
       {value.length > 0 && (
         <div className="mb-2">
           <span className="text-xs text-brand-text-muted">Selecionados</span>
-          <div className="flex gap-1.5 flex-wrap mt-1">
-            {value.map((m) => <Chip key={m} m={m} />)}
+          <div ref={selectedRef} className="flex gap-1.5 flex-wrap mt-1">
+            {value.map(chip)}
           </div>
         </div>
       )}
@@ -336,25 +351,29 @@ function PaymentMethodSection({
             Sugeridos para {COUNTRIES.find((c) => c.code === country)?.label ?? country}
           </span>
           <div className="flex gap-1.5 flex-wrap mt-1">
-            {suggested.map((m) => <Chip key={m} m={m} />)}
+            {suggested.map(chip)}
           </div>
         </div>
       )}
 
       <button
+        ref={toggleRef}
+        type="button"
+        aria-expanded={expanded}
         onClick={() => setExpanded((e) => !e)}
         className="flex items-center gap-1 text-xs text-brand-text-secondary hover:text-brand-text mt-1"
       >
-        {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        {expanded ? <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />}
         {expanded ? 'Ocultar métodos' : 'Ver todos os métodos'}
       </button>
 
       {expanded && (
         <div className="mt-2">
           <div className="relative mb-2">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-brand-text-muted pointer-events-none" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-brand-text-muted pointer-events-none" aria-hidden="true" />
             <Input
               value={search}
+              aria-label="Buscar método de pagamento"
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar método de pagamento…"
               className="w-full pl-8"
@@ -365,7 +384,7 @@ function PaymentMethodSection({
               <div key={cat}>
                 <span className="text-xs text-brand-text-muted">{PAYMENT_METHOD_CATEGORY_LABELS[cat]}</span>
                 <div className="flex gap-1.5 flex-wrap mt-1">
-                  {grouped.get(cat)!.map((m) => <Chip key={m} m={m} />)}
+                  {grouped.get(cat)!.map(chip)}
                 </div>
               </div>
             ))}

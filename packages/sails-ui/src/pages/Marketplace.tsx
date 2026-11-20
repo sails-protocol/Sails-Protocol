@@ -200,7 +200,7 @@ export function Marketplace() {
     setMobileFiltersOpen(true)
   }
   const filtersLabel = (n: number) => (n > 0 ? `Filtros, ${n} ${n === 1 ? 'ativo' : 'ativos'}` : 'Filtros')
-  const chipButton = 'h-11 md:h-9 px-3 text-sm border-brand-border bg-brand-elevated state-layer hover:border-brand-border-hover'
+  const chipButton = 'h-9 touch:h-11 px-3 text-sm border-brand-border bg-brand-elevated state-layer hover:border-brand-border-hover'
 
   const sortSelect = (triggerClass: string) => (
     <Select value={filters.sortBy} onValueChange={(v) => setFilters({ ...filters, sortBy: v as MarketplaceFilters['sortBy'] })}>
@@ -228,7 +228,7 @@ export function Marketplace() {
         // search on one bar row at 1280. The one solid primary of the page is "Nova oferta".
         actions={<>
           {sideSegment('hidden md:flex', 'h-8 touch:h-11')}
-          <Link to="/profile/new-offer" className={cn(buttonVariants({ className: 'shrink-0 min-h-11 md:min-h-10 px-4' }))}>
+          <Link to="/profile/new-offer" className={cn(buttonVariants({ className: 'shrink-0 min-h-10 touch:min-h-11 px-4' }))}>
             <Plus aria-hidden="true" />
             Nova oferta
           </Link>
@@ -417,9 +417,9 @@ export function Marketplace() {
                 title={offersError ? 'Não foi possível carregar as ofertas' : 'Nenhuma oferta encontrada'}
                 description={offersError ? 'Verifique sua conexão e tente novamente.' : 'Ajuste os filtros ou o ativo selecionado para ver mais resultados.'}
                 action={offersError ? (
-                  <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-11 md:min-h-9 px-4">Tentar novamente</Button>
+                  <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-9 touch:min-h-11 px-4">Tentar novamente</Button>
                 ) : hasAnyFilter ? (
-                  <Button variant="outline" onClick={() => clearAll(true)} className="min-h-11 md:min-h-9 px-4">Limpar filtros</Button>
+                  <Button variant="outline" onClick={() => clearAll(true)} className="min-h-9 touch:min-h-11 px-4">Limpar filtros</Button>
                 ) : undefined}
               />
             )}
