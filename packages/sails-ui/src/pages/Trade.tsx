@@ -21,6 +21,8 @@ import { TradeTimeline } from '../components/trade/TradeTimeline'
 import { TradeSpecs, type SpecRow } from '../components/trade/TradeSpecs'
 import { PaymentInstructions } from '../components/trade/PaymentInstructions'
 import { PayoutAddressForm } from '../components/trade/PayoutAddressForm'
+import { FundingInstructionCard } from '../components/trade/FundingInstructionCard'
+import { deriveFundingInstruction, deriveFundingRecordRows, lockRefusalMessage } from '../lib/fundingInstruction'
 import { deriveTradeState } from '../lib/tradeState'
 import { TradeParties } from '../components/trade/TradeParties'
 import { TradeDisputePanel } from '../components/trade/TradeDisputePanel'
@@ -527,7 +529,15 @@ export function Trade() {
   })
 
   const handleLockFunds = () => escrow && withGuard(async () => {
-    const e = await sailsClient.settlement.lock(escrow.id)
+    let e: SdkEscrow
+    try {
+      e = await sailsClient.settlement.lock(escrow.id)
+    } catch (err) {
+      const refusal = lockRefusalMessage(err)
+      if (!refusal) throw err
+      toast.error(refusal)
+      return
+    }
     setEscrow(e)
     toast.success('Escrow bloqueado', { icon: <Lock className="h-4 w-4" /> })
   })
@@ -829,11 +839,14 @@ export function Trade() {
       { label: 'Tipo de escrow', value: escrow.type, mono: true },
       { label: 'Estado registrado do escrow', value: ESCROW_STATUS_LABEL[escrowStatus] ?? escrow.status },
       { label: 'Última atualização do escrow', value: formatDateTime(escrow.updatedAt) },
+      ...deriveFundingRecordRows(escrow),
     ] : []),
     ...(trade.completedAt ? [{ label: 'Concluído em', value: formatDateTime(trade.completedAt) }] : []),
     ...(trade.cancelledAt ? [{ label: 'Cancelado em', value: formatDateTime(trade.cancelledAt) }] : []),
     ...(isBuyer && payoutAddress ? [{ label: 'Seu endereço de recebimento', value: payoutAddress.address, mono: true, copy: payoutAddress.address }] : []),
   ]
+
+  const fundingView = escrow ? deriveFundingInstruction({ escrow, isBuyer, isSeller, assetLabel: ASSET_SHORT_LABELS[escrow.asset] }) : null
 
   const payoutForm = (hasAddress: boolean) => (
     <PayoutAddressForm
@@ -891,6 +904,7 @@ export function Trade() {
               onOpenDispute={() => setShowDisputeForm(true)}
               disputeTriggerRef={disputeTriggerRef}
             >
+              {fundingView && <FundingInstructionCard view={fundingView} />}
               {state.payoutStep === 'checkFailed' && (
                 <div className="mt-4 flex flex-col gap-2 rounded-md border border-brand-border-subtle bg-brand-surface p-3 sm:flex-row sm:items-center sm:justify-between">
                   <p role="status" className="text-sm text-brand-text-secondary">Não foi possível verificar seu endereço de recebimento.</p>
