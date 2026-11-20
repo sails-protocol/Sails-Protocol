@@ -76,12 +76,12 @@ export function Login() {
         <h1 className="text-4xl font-display font-bold tracking-tight leading-tight">
           O marketplace P2P para crypto soberana
         </h1>
-        <p className="text-neutral-400 text-lg mt-4">Sem custódia. Sem intermediários. Seus fundos, suas chaves.</p>
+        <p className="text-neutral-400 text-lg mt-4">Negocie direto com outras pessoas. Sua chave fica no seu dispositivo.</p>
 
         <ul className="mt-10 space-y-4 text-sm">
-          <Feature icon={Lock} title="Escrow não custodial" desc="Seus fundos bloqueados, nunca em posse nossa" />
-          <Feature icon={Zap} title="P2P direto" desc="Negocie direto com a contraparte via chat criptografado" />
-          <Feature icon={Globe} title="Multi-chain" desc="BTC, Lightning, Liquid, USDT e mais" />
+          <Feature icon={Lock} title="Escrow por trade" desc="Cada trade mostra o tipo de escrow e quem pode assinar a liberação" />
+          <Feature icon={Zap} title="P2P direto" desc="Negocie direto com a contraparte pelo chat do trade" />
+          <Feature icon={Globe} title="Vários ativos" desc="Os ativos e as redes disponíveis aparecem em cada oferta" />
         </ul>
 
         <p className="mt-16 text-xs text-neutral-500">Powered by Satsails</p>

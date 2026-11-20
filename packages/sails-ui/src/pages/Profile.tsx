@@ -193,17 +193,12 @@ export function Profile() {
         <Card className="p-5 flex flex-col items-center max-w-xs mx-auto">
           <div className="relative w-32 h-32 flex items-center justify-center">
             <svg className="w-32 h-32 -rotate-90">
+              {/* No progress arc: reputationScore is an unbounded +2/-5 sum, so any fill fraction would be invented */}
               <circle cx="64" cy="64" r="56" fill="none" stroke="rgb(var(--color-border))" strokeWidth="10" />
-              <circle
-                cx="64" cy="64" r="56" fill="none" stroke="rgb(var(--color-orange-accent))" strokeWidth="10"
-                strokeDasharray={2 * Math.PI * 56}
-                strokeDashoffset={2 * Math.PI * 56 * (1 - user.reputationScore / 100)}
-                strokeLinecap="round"
-              />
             </svg>
             <div className="absolute text-center">
               <div className="text-3xl font-display font-bold text-brand-text">{user.reputationScore.toFixed(0)}</div>
-              <div className="text-xs text-brand-text-muted">de 100</div>
+              <div className="text-xs text-brand-text-muted">pontos</div>
             </div>
           </div>
         </Card>

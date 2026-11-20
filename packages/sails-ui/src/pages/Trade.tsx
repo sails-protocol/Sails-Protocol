@@ -312,7 +312,7 @@ export function Trade() {
     // No dedicated escrow-history endpoint is wired into this SDK yet —
     // deriving a single current-state entry from the real Escrow row
     // rather than fabricating a full event log this UI can't fetch.
-    return [{ status: escrow.status as EscrowStatus, timestamp: escrow.updatedAt, actor: 'system' as const }]
+    return [{ status: escrow.status as EscrowStatus, timestamp: escrow.updatedAt }]
   }, [escrow])
 
   const withGuard = async (fn: () => Promise<void>) => {
@@ -367,16 +367,18 @@ export function Trade() {
       if (user) await signAndSubmitPendingTransactionIfNeeded(escrow.type, escrow.id, user.id).catch(ignoreExceptWrongPassphrase)
       const e = await sailsClient.settlement.get(escrow.id)
       setEscrow(e)
+      // Reports the escrow status the server returned, not on-chain finality
+      // (no broadcast/confirmation state is exposed to this UI yet).
       toast.success(
         e.status === 'COMPLETED'
-          ? 'Fundos liberados — trade concluído!'
-          : 'Liberação iniciada — aguardando assinatura da contraparte'
+          ? 'Escrow marcado como concluído pelo servidor'
+          : 'Liberação iniciada — aguardando as assinaturas necessárias'
       )
       return
     }
     const e = await sailsClient.settlement.release(escrow.id)
     setEscrow(e)
-    toast.success('Fundos liberados — trade concluído!')
+    toast.success(e.status === 'COMPLETED' ? 'Escrow marcado como concluído pelo servidor' : 'Liberação solicitada')
   })
 
   const handleOpenDispute = () => escrow && withGuard(async () => {
@@ -666,13 +668,12 @@ export function Trade() {
           </Card>
 
           <details className="mt-3 card p-4">
-            <summary className="text-xs font-semibold text-brand-text-muted cursor-pointer">Histórico de eventos</summary>
+            <summary className="text-xs font-semibold text-brand-text-muted cursor-pointer">Último estado registrado do escrow</summary>
             <div className="mt-2 space-y-1.5">
               {events.map((e, i) => (
                 <div key={i} className="flex gap-3 text-xs">
                   <span className="w-1.5 h-1.5 rounded-full bg-brand-text-muted mt-1 shrink-0" />
                   <span className="font-medium text-brand-text-secondary">{e.status}</span>
-                  <span className="text-brand-text-muted">{e.actor}</span>
                   <span className="text-brand-text-muted ml-auto">{formatDateTime(e.timestamp)}</span>
                 </div>
               ))}

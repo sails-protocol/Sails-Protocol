@@ -227,10 +227,8 @@ export function OfferDetail() {
             <div className="mt-4">
               <div className="flex justify-between text-xs text-brand-text-muted mb-1">
                 <span>Reputação</span>
-                <span className="font-semibold text-brand-text">{offer.seller.reputationScore.toFixed(1)} / 100</span>
-              </div>
-              <div className="h-1.5 bg-brand-elevated rounded-full">
-                <div className="h-1.5 bg-brand-orange-accent rounded-full" style={{ width: `${offer.seller.reputationScore}%` }} />
+                {/* reputationScore is an unbounded +2/-5 sum (lib/reputation.ts), never a 0-100 scale */}
+                <span className="font-semibold text-brand-text">{offer.seller.reputationScore.toFixed(1)} pontos</span>
               </div>
             </div>
 
@@ -302,7 +300,7 @@ export function OfferDetail() {
 
               <div className="mt-4 bg-brand-orange-accent/5 border border-brand-orange-accent/20 rounded-lg p-3 text-xs text-brand-text-secondary flex items-start gap-2">
                 <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                Escrow não custodial — fundos só liberados após confirmação de pagamento.
+                O tipo de escrow e as regras de liberação são definidos quando o trade é criado.
               </div>
 
               {/* HodlHodl/Binance P2P both show this exact caution before
