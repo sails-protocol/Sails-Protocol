@@ -9,7 +9,7 @@ import { useEscrowKey } from '../hooks/useEscrowKey'
 import { classifySigningWatchError } from '../lib/escrowErrorClassification'
 import { sailsClient } from '../lib/sailsClient'
 import { toUiMessage, toUiMessageFromEvent } from '../lib/tradeMessages'
-import { TradeStatusBadge, EscrowStatusBadge } from '../components/ui/StatusBadges'
+import { TradeStatusBadge, EscrowStatusBadge, ESCROW_STATUS_LABEL } from '../components/ui/StatusBadges'
 import { EscrowStateMachine } from '../components/trade/EscrowStateMachine'
 import { EscrowCountdown } from '../components/trade/EscrowCountdown'
 import { CurrentActionCard } from '../components/trade/CurrentActionCard'
@@ -22,6 +22,9 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
+import { CopyButton } from '../components/ui/CopyButton'
+import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
+import { SafetyNote } from '../components/ui/SafetyNote'
 import { Lock, Banknote, Unlock, ArrowLeft } from 'lucide-react'
 import { formatDateTime } from '../lib/format'
 import { formatByCurrency } from '../lib/currency'
@@ -147,6 +150,7 @@ export function Trade() {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
   const [acting, setActing] = useState(false)
+  const [confirmRelease, setConfirmRelease] = useState(false)
   const [showDisputeForm, setShowDisputeForm] = useState(false)
   const [disputeReason, setDisputeReason] = useState('')
   // RFC-021 D6/D7/D8 — evidence/contest/appeal are real, trade-party-only
@@ -346,6 +350,14 @@ export function Trade() {
   })
 
   const handleReleaseFunds = () => escrow && withGuard(async () => {
+    // The confirmation dialog may be stale: re-read the escrow and release
+    // only if it is still PAYMENT_PENDING and this viewer is still the seller.
+    const fresh = await sailsClient.settlement.get(escrow.id)
+    if (fresh.status !== 'PAYMENT_PENDING' || !user || user.id !== trade?.sellerId) {
+      setEscrow(fresh)
+      toast.error('O estado do trade mudou — revise antes de continuar')
+      return
+    }
     // Phase 2 (2026-07-27) — MULTISIG and LIGHTNING_HODL both use
     // client-signature collection now, since buyer/seller keys are
     // client-held. SAFE_GUARD_EVM joined this group 2026-08-02 (RFC-020) —
@@ -545,7 +557,15 @@ export function Trade() {
                 Como pagar — {PAYMENT_METHOD_LABELS[trade.offer.paymentMethod]}
               </p>
               {trade.offer.paymentDetails ? (
-                <p className="text-sm font-mono text-brand-text break-all">{trade.offer.paymentDetails}</p>
+                <>
+                  <div className="flex items-start gap-2">
+                    <p className="flex-1 min-w-0 text-sm font-mono text-brand-text break-all">{trade.offer.paymentDetails}</p>
+                    <CopyButton value={trade.offer.paymentDetails} label="Copiar dados" className="shrink-0 min-h-11 px-3" />
+                  </div>
+                  <SafetyNote className="mt-3">
+                    Pague somente para estes dados, de uma conta no seu nome. Não aceite outros dados enviados por chat, e-mail ou telefone, nem pagamentos de terceiros.
+                  </SafetyNote>
+                </>
               ) : (
                 <p className="text-xs text-brand-text-muted">
                   O vendedor não informou os dados de pagamento aqui — combine pelo chat.
@@ -618,7 +638,7 @@ export function Trade() {
               <CurrentActionCard
                 view={deriveCurrentAction({ status: escrowStatus, isBuyer, isSeller })}
                 acting={acting}
-                onAction={(a) => ({ lock: handleLockFunds, markPaymentSent: handleMarkPaymentSent, release: handleReleaseFunds })[a]()}
+                onAction={(a) => ({ lock: handleLockFunds, markPaymentSent: handleMarkPaymentSent, release: () => setConfirmRelease(true) })[a]()}
                 onOpenDispute={() => setShowDisputeForm(true)}
               />
             ) : (
@@ -690,6 +710,28 @@ export function Trade() {
           counterpartyOnline={counterpartyOnline}
         />
       </div>
+
+      <ConfirmActionDialog
+        open={confirmRelease}
+        onOpenChange={setConfirmRelease}
+        title="Liberar os fundos ao comprador?"
+        summary={[
+          { label: 'Valor', value: `${amount} — ${ASSET_LABELS[trade.asset]}` },
+          { label: 'Comprador', value: buyer.displayName ?? 'Nome não informado' },
+          { label: 'Estado atual', value: ESCROW_STATUS_LABEL[escrowStatus] },
+        ]}
+        warnings={[
+          'Confira o recebimento no app do seu banco — não confie em comprovantes, prints ou SMS.',
+          'Libere só se o valor certo já estiver na sua conta.',
+        ]}
+        consequence="Ao confirmar, a liberação dos fundos ao comprador é iniciada. Em alguns escrows ela só é concluída depois das assinaturas necessárias. Depois de concluída, não pode ser desfeita."
+        confirmLabel="Confirmar liberação"
+        busy={acting}
+        onConfirm={async () => {
+          await handleReleaseFunds()
+          setConfirmRelease(false)
+        }}
+      />
     </div>
   )
 }

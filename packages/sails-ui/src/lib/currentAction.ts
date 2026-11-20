@@ -32,7 +32,7 @@ export function deriveCurrentAction({ status, isBuyer, isSeller }: { status: Esc
         : { tone: 'waiting', actorLabel: party ? WAITING : 'Acompanhamento', title: 'Aguardando o vendedor bloquear os fundos', description: 'Não envie nenhum pagamento antes de os fundos estarem bloqueados no escrow.', canDispute }
     case 'FUNDS_LOCKED':
       return isBuyer
-        ? { tone: 'action', actorLabel: 'Ação necessária — comprador', title: 'Marcar o pagamento como enviado', description: 'Avisa o vendedor de que você enviou o pagamento. Não libera os fundos — isso só acontece quando o vendedor liberar.', primary: { action: 'markPaymentSent', label: 'Marcar Pagamento Enviado' }, canDispute }
+        ? { tone: 'action', actorLabel: 'Ação necessária — comprador', title: 'Marcar o pagamento como enviado', description: 'Avisa o vendedor de que você enviou o pagamento. Não libera os fundos — isso só acontece quando o vendedor liberar. Toque só depois de concluir a transferência no app do seu banco.', primary: { action: 'markPaymentSent', label: 'Marcar Pagamento Enviado' }, canDispute }
         : { tone: 'waiting', actorLabel: party ? WAITING : 'Acompanhamento', title: 'Aguardando o comprador marcar o pagamento como enviado', description: 'O servidor registrou o bloqueio dos fundos.', canDispute }
     case 'PAYMENT_PENDING':
       return isSeller
