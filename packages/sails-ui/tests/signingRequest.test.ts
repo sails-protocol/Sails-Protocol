@@ -41,12 +41,12 @@ describe('signing request derivation (CTO 437 step 4)', () => {
     expect(derive({ signedBy: [{ participantId: 'seller', submittedAt: '' }] }, 'seller').description).toBe('Aguardando assinatura de 1 participante(s).')
   })
 
-  it('counts progress from requiredSigners and signedBy only', () => {
-    const v = derive({ signedBy: [{ participantId: 'buyer', submittedAt: '' }, { participantId: 'stranger', submittedAt: '' }] }, 'seller')
+  it('counts progress from requiredSigners and signedBy only, keeping each signer recorded time', () => {
+    const v = derive({ signedBy: [{ participantId: 'buyer', submittedAt: '2026-11-20T04:12:00.000Z' }, { participantId: 'stranger', submittedAt: '' }] }, 'seller')
     expect(v.progress).toEqual({ signed: 1, required: 2, text: '1 de 2 assinaturas' })
     expect(v.signers).toEqual([
-      { label: 'seller', signed: false, statusText: 'Pendente' },
-      { label: 'buyer', signed: true, statusText: 'Assinou' },
+      { label: 'seller', signed: false, statusText: 'Pendente', at: null },
+      { label: 'buyer', signed: true, statusText: 'Assinou', at: '2026-11-20T04:12:00.000Z' },
     ])
   })
 

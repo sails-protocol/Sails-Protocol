@@ -7,19 +7,41 @@
  * patches the escrow after each action but does not refetch the trade, so
  * trade.status can lag behind), otherwise trade.status. Timestamps are only
  * the ones the records carry; no per-transition time is invented.
+ *
+ * Rail (trade workspace): every stage and its evidence come from a record
+ * field (Escrow.type for the deposit stage, the pending round for the
+ * signatures stage, Escrow.txReleaseId for the transaction stage). The actor
+ * of the current stage (the "bastão") is who the protocol waits on, from the
+ * same fields; when the records do not say, there is no actor.
  */
+import type { DisputeStatus } from '@satsails/p2p-trading-sdk'
 import type { EscrowStatus, TradeStatus } from '../types'
 import { deriveCurrentAction, type CurrentAction } from './currentAction'
 
 export type StatusTone = 'neutral' | 'info' | 'warning' | 'success' | 'danger'
 export type StepState = 'done' | 'current' | 'upcoming'
 
+/** Who the current stage waits on. 'parties': either party may act (contest an automatic suggestion). */
+export type StepActor = 'buyer' | 'seller' | 'arbiter' | 'parties' | 'unknown'
+
+/** A record field shown on a stage: label plus the value as the record carries it. */
+export interface StepEvidence { label: string; value: string; mono?: boolean }
+
 export interface TradeStep {
-  id: 'opened' | 'escrow' | 'locked' | 'paymentSent' | 'completed' | 'outcome'
+  id: 'opened' | 'escrow' | 'deposit' | 'locked' | 'paymentSent' | 'signatures' | 'completed' | 'outcome' | 'transaction'
   label: string
   state: StepState
   at?: string | null
   tone?: 'danger' | 'warning'
+  /** Only on the current stage, and only when the records say who acts. */
+  actors?: StepActor[]
+  evidence?: StepEvidence[]
+}
+
+/** The pending signing round's signers, as getPendingTransaction() returns them. */
+export interface RoundSigners {
+  requiredSigners: string[]
+  signedBy?: { participantId: string; submittedAt: string }[]
 }
 
 /** hidden: buyer, funds not yet recorded as locked. inactive: no longer an instruction to act on. */
@@ -46,6 +68,19 @@ export interface TradeStateInput {
   lockedAt?: string | null
   completedAt?: string | null
   cancelledAt?: string | null
+  // Rail inputs (all optional: without them the rail keeps the base stages and has no actor).
+  buyerId?: string
+  sellerId?: string
+  escrowId?: string | null
+  /** Escrow.type: the deposit stage exists only for MULTISIG (a real deposit address and rule). */
+  escrowType?: string | null
+  /** Escrow.txLockId (+ txLockVout): the funding outpoint the server recorded at lock. */
+  txLockId?: string | null
+  txLockVout?: number | null
+  /** Escrow.txReleaseId: the payout transaction id the server recorded. */
+  txReleaseId?: string | null
+  round?: RoundSigners | null
+  dispute?: { status: DisputeStatus; arbiterId: string | null } | null
 }
 
 export interface TradeState {
@@ -106,12 +141,65 @@ function statusChip(i: TradeStateInput, cancelled: boolean): TradeState['status'
   return { label: ESCROW_STATE_LABEL[i.escrowStatus], tone: CHIP_TONE[i.escrowStatus] }
 }
 
+const ROUND_EVIDENCE: Record<SigningRoundKind, string> = {
+  release: 'Rodada de liberação',
+  refund: 'Rodada de reembolso',
+  split: 'Rodada de divisão',
+  unknown: 'Rodada de assinatura',
+}
+
+/** "1 de 2 assinaturas", counting only required signers that signed. */
+function roundProgress(r: RoundSigners): string {
+  const signed = r.requiredSigners.filter((id) => (r.signedBy ?? []).some((x) => x.participantId === id)).length
+  return `${signed} de ${r.requiredSigners.length} assinaturas`
+}
+
+/** Required signers that have not signed, as roles; an id the trade does not identify stays 'unknown'. */
+function pendingSigners(i: TradeStateInput, r: RoundSigners): StepActor[] {
+  const roles = r.requiredSigners
+    .filter((id) => !(r.signedBy ?? []).some((x) => x.participantId === id))
+    .map((id): StepActor => id === i.buyerId ? 'buyer' : id === i.sellerId ? 'seller' : id === i.dispute?.arbiterId ? 'arbiter' : 'unknown')
+  return [...new Set(roles)]
+}
+
+// Who the current stage waits on. Gating mirrors currentAction.ts (seller creates/locks/releases, buyer marks payment).
+function currentActors(i: TradeStateInput, cancelled: boolean): StepActor[] {
+  const s = i.escrowStatus
+  if (cancelled) return []
+  // A round in flight waits on its missing signatures, whatever the escrow status.
+  if (i.signingRoundKind && i.round && s && s !== 'COMPLETED' && s !== 'REFUNDED' && s !== 'SPLIT') return pendingSigners(i, i.round)
+  if (!s || s === 'CREATED' || s === 'PAYMENT_PENDING') return ['seller']
+  if (s === 'FUNDS_LOCKED') return ['buyer']
+  if (s === 'DISPUTED') {
+    const d = i.dispute
+    if (!d || d.status === 'RESOLVED') return [] // a recorded ruling being executed: who acts next is not exposed
+    if (d.status === 'AUTO_PROPOSED') return ['parties']
+    return d.arbiterId ? ['arbiter'] : []
+  }
+  return [] // EXPIRED (no recovery action in this interface) and terminal statuses
+}
+
 function steps(i: TradeStateInput, cancelled: boolean, locked: boolean): TradeStep[] {
   const s = i.escrowStatus
   const L = ESCROW_STATE_LABEL
   const opened: TradeStep = { id: 'opened', label: 'Trade aberto', state: 'done', at: i.createdAt }
-  const escrow: TradeStep = { id: 'escrow', label: L.CREATED, state: s ? 'done' : 'upcoming', at: s ? i.escrowCreatedAt : null }
+  const escrow: TradeStep = { id: 'escrow', label: L.CREATED, state: s ? 'done' : 'upcoming', at: s ? i.escrowCreatedAt : null, ...(s && i.escrowId ? { evidence: [{ label: 'ID do escrow', value: i.escrowId, mono: true }] } : {}) }
+  // MULTISIG only: the seller deposits to the escrow address before the lock is recorded. Done = the lock recorded the outpoint.
+  const outpoint = i.txLockId ? (i.txLockVout !== null && i.txLockVout !== undefined ? `${i.txLockId}:${i.txLockVout}` : i.txLockId) : null
+  const deposit: TradeStep[] = s && i.escrowType === 'MULTISIG'
+    ? [{ id: 'deposit', label: 'Depósito no endereço do escrow', state: locked ? 'done' : 'upcoming', ...(outpoint ? { evidence: [{ label: 'Depósito registrado', value: outpoint, mono: true }] } : {}) }]
+    : []
   const lockedStep: TradeStep = { id: 'locked', label: L.FUNDS_LOCKED, state: locked ? 'done' : 'upcoming', at: i.lockedAt }
+  // Recorded by the server, never "confirmed": no confirmation depth is exposed.
+  const transaction: TradeStep[] = i.txReleaseId
+    ? [{ id: 'transaction', label: 'Transação registrada pelo servidor', state: 'done', evidence: [{ label: 'ID da transação', value: i.txReleaseId, mono: true }] }]
+    : []
+  const withActors = (list: TradeStep[]) => {
+    const cur = list.find((x) => x.state === 'current')
+    const actors = currentActors(i, cancelled)
+    if (cur && actors.length) cur.actors = actors
+    return list
+  }
 
   // Side branches: keep only what the records prove happened, then the outcome.
   // Whether payment was marked as sent before a dispute is not recorded, so that step is omitted.
@@ -122,19 +210,51 @@ function steps(i: TradeStateInput, cancelled: boolean, locked: boolean): TradeSt
     : s === 'SPLIT' ? { label: L.SPLIT, state: 'done', at: i.completedAt }
     : null
   if (outcome) {
-    return [opened, ...(s ? [escrow] : []), ...(locked ? [lockedStep] : []), { id: 'outcome', ...outcome }]
+    // A round on a disputed/expired escrow (ruling or refund) is evidence on the outcome, not a stage of the happy path.
+    const roundEvidence = i.round && i.signingRoundKind && (s === 'DISPUTED' || s === 'EXPIRED')
+      ? [{ label: ROUND_EVIDENCE[i.signingRoundKind], value: roundProgress(i.round) }]
+      : []
+    const end: TradeStep = { id: 'outcome', ...outcome, ...(roundEvidence.length ? { evidence: roundEvidence } : {}) }
+    const proven = [opened, ...(s ? [escrow] : []), ...(locked ? [...deposit, lockedStep] : []), end]
+    return withActors([...proven, ...(s === 'REFUNDED' || s === 'SPLIT' ? transaction : [])])
   }
 
   const paid = s === 'PAYMENT_PENDING' || s === 'COMPLETED'
   const done = s === 'COMPLETED'
+  // Only a round the server returned for this escrow; never assumed from the escrow type.
+  const signatures: TradeStep[] = s === 'PAYMENT_PENDING' && i.signingRoundKind && i.round
+    ? [{ id: 'signatures', label: i.signingRoundKind === 'release' ? 'Assinaturas da liberação' : ROUND_EVIDENCE[i.signingRoundKind], state: 'upcoming', evidence: [{ label: 'Assinaturas', value: roundProgress(i.round) }] }]
+    : []
   const list: TradeStep[] = [
-    opened, escrow, lockedStep,
+    opened, escrow, ...deposit, lockedStep,
     { id: 'paymentSent', label: L.PAYMENT_PENDING, state: paid ? 'done' : 'upcoming' },
+    ...signatures,
     { id: 'completed', label: L.COMPLETED, state: done ? 'done' : 'upcoming', at: done ? i.completedAt : null },
+    ...(done ? transaction : []),
   ]
   const next = list.find((x) => x.state === 'upcoming')
   if (next) next.state = 'current'
-  return list
+  return withActors(list)
+}
+
+/**
+ * The bastão text for the current stage, from the viewer's side. null when the
+ * records do not say who acts (no marker is shown then).
+ */
+export function batonLabel(actors: StepActor[] | undefined, viewer: 'buyer' | 'seller' | null, names: { buyer?: string | null; seller?: string | null } = {}): string | null {
+  if (!actors?.length) return null
+  if (viewer && actors.includes(viewer)) return 'Sua vez'
+  if (actors.length === 1) {
+    const a = actors[0]
+    if (a === 'arbiter') return 'Com o árbitro'
+    if (a === 'parties') return 'Partes podem contestar'
+    if (a === 'unknown') return 'Vez de participante não identificado'
+    const role = a === 'buyer' ? 'comprador' : 'vendedor'
+    const name = names[a]
+    return name ? `Vez de ${name} (${role})` : `Vez do ${role}`
+  }
+  const known = actors.filter((a): a is 'buyer' | 'seller' => a === 'buyer' || a === 'seller')
+  return known.length === actors.length ? 'Vez do comprador e do vendedor' : 'Vez de mais de um participante'
 }
 
 function action(i: TradeStateInput, cancelled: boolean): CurrentAction {

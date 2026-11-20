@@ -15,6 +15,8 @@ interface Props {
   visibility: InstructionsVisibility
   methodLabel: string
   details: string | null
+  /** Inside the current-stage card: a divided section, not a box in a box. */
+  embedded?: boolean
 }
 
 function Details({ viewer, details }: { viewer: Props['viewer']; details: string | null }) {
@@ -33,7 +35,7 @@ function Details({ viewer, details }: { viewer: Props['viewer']; details: string
   )
 }
 
-export function PaymentInstructions({ viewer, visibility, methodLabel, details }: Props) {
+export function PaymentInstructions({ viewer, visibility, methodLabel, details, embedded = false }: Props) {
   const title = viewer === 'buyer' ? `Como pagar — ${methodLabel}` : `Seus dados de pagamento — ${methodLabel}`
 
   if (visibility === 'inactive') {
@@ -48,7 +50,7 @@ export function PaymentInstructions({ viewer, visibility, methodLabel, details }
   }
 
   return (
-    <section aria-label={title} className="rounded-lg border border-brand-border-subtle bg-brand-surface p-4">
+    <section aria-label={title} className={embedded ? 'border-t border-brand-border-subtle pt-4' : 'rounded-lg border border-brand-border-subtle bg-brand-surface p-4'}>
       <h2 className="text-sm font-semibold text-brand-text">{title}</h2>
       <div className="mt-2">
         {visibility === 'hidden' ? (

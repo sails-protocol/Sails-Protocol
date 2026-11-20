@@ -22,6 +22,7 @@ import { DISPUTE_RULING_LABEL } from '../../lib/labels'
 import { busyProps } from '../../lib/busy'
 import { AlertTriangle } from 'lucide-react'
 import { Alert } from '../ui/alert'
+import { parseEvidence } from '../../lib/disputeCase'
 
 interface Props {
   dispute: Dispute
@@ -35,15 +36,11 @@ interface Props {
   onSubmitEvidence: () => void
   onContestAutoResolution: () => void
   onAppeal: () => void
+  /** Who the dispute waits on now (the rail's bastão text), e.g. "Com o árbitro"; omitted when the records do not say. */
+  turnLabel?: string | null
+  /** Host slot after the opening alert (the timelock, a ruling's signing round). */
+  children?: ReactNode
 }
-
-function readEvidence(e: unknown) {
-  const o = e && typeof e === 'object' ? (e as Record<string, unknown>) : {}
-  const str = (k: string) => (typeof o[k] === 'string' ? (o[k] as string) : undefined)
-  return { type: str('type'), note: str('note'), uri: str('uri') ?? str('url'), by: str('submittedBy'), at: str('submittedAt') }
-}
-
-const isHttpUrl = (u: string) => /^https?:\/\//i.test(u)
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -56,14 +53,15 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 export function TradeDisputePanel({
   dispute, isBuyer, isSeller, acting, evidenceNote, partyLabel,
-  onEvidenceNoteChange, onSubmitEvidence, onContestAutoResolution, onAppeal,
+  onEvidenceNoteChange, onSubmitEvidence, onContestAutoResolution, onAppeal, turnLabel, children,
 }: Props) {
   const isParty = isBuyer || isSeller
   // Shared `acting`: the clicked action shows loading, the others are blocked (lib/busy.ts).
   const [running, setRunning] = useState<string | null>(null)
   const run = (key: string, fn: () => void) => () => { setRunning(key); fn() }
   const resolved = dispute.status === 'RESOLVED'
-  const evidence = (dispute.evidence ?? []).map(readEvidence)
+  // One reading of Dispute.evidence for the trade page and the arbiter console (SDK descriptor field: `uri`).
+  const evidence = parseEvidence(dispute.evidence)
 
   return (
     <section aria-label="Disputa" className="rounded-lg border border-brand-border-subtle bg-brand-surface p-4 space-y-3">
@@ -74,6 +72,12 @@ export function TradeDisputePanel({
           Disputa aberta por <strong className="font-semibold">{partyLabel(dispute.openedBy)}</strong> em {formatDateTime(dispute.createdAt)}. As ações normais do trade ficam suspensas até a resolução.
         </Alert>
       )}
+      {turnLabel && (
+        <p className="text-sm text-brand-text-secondary">
+          Agora: <strong className="font-semibold text-brand-text">{turnLabel}</strong>
+        </p>
+      )}
+      {children}
 
       <Section title="Motivo">
         <p className="whitespace-pre-line [overflow-wrap:anywhere]">{dispute.reason}</p>
@@ -87,11 +91,11 @@ export function TradeDisputePanel({
             {evidence.map((ev, i) => (
               <li key={i} className="rounded-md bg-brand-elevated px-3 py-2">
                 <p className="text-xs text-brand-text-secondary">
-                  {[ev.type ? `Tipo: ${ev.type}` : null, ev.by ? `Enviada por ${partyLabel(ev.by)}` : null, ev.at ? formatDateTime(ev.at) : null].filter(Boolean).join(' · ') || 'Sem metadados'}
+                  {[`Tipo: ${ev.type}`, ev.submittedBy ? `Enviada por ${partyLabel(ev.submittedBy)}` : null, ev.submittedAt ? formatDateTime(ev.submittedAt) : null].filter(Boolean).join(' · ')}
                 </p>
                 {ev.note && <p className="mt-0.5 whitespace-pre-line [overflow-wrap:anywhere]">{ev.note}</p>}
-                {ev.uri && (isHttpUrl(ev.uri)
-                  ? <a href={ev.uri} target="_blank" rel="noopener noreferrer nofollow" className="mt-0.5 inline-block text-brand-orange-accent underline [overflow-wrap:anywhere]">{ev.uri}</a>
+                {ev.uri && (ev.href
+                  ? <a href={ev.href} target="_blank" rel="noopener noreferrer nofollow" className="mt-0.5 inline-block text-brand-link underline [overflow-wrap:anywhere]">{ev.uri}</a>
                   : <p className="mt-0.5 font-mono text-xs [overflow-wrap:anywhere]">{ev.uri}</p>)}
               </li>
             ))}

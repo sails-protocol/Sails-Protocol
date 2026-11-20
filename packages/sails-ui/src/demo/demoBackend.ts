@@ -45,6 +45,8 @@ interface DemoState {
   payoutAddresses: { participantId: string; asset: Trade['asset']; address: string }[]
   vouches: Vouch[]
   intents: Intent<TradeIntentPayload>[]
+  /** Dev fixture only: a signing round per escrow id, seeded by screenshot scripts through sessionStorage. Never set by the demo itself. */
+  pendingTxs?: Record<string, unknown>
 }
 
 interface Evidence { type: string; uri?: string; note?: string; submittedBy: string; submittedAt: string }
@@ -690,7 +692,11 @@ export function installDemoBackend() {
     async markPaymentSent(id) { return step(id, needMe(), 'markPaymentSent') },
     async release(id) { return step(id, needMe(), 'release') },
     // MOCK escrows have no signing round: the real "nothing pending" answer is a 404.
-    async getPendingTransaction() { throw notFound('Transação pendente', true) },
+    async getPendingTransaction(id) {
+      const fixture = state.pendingTxs?.[id]
+      if (fixture) return clone(fixture) as Awaited<ReturnType<typeof sailsClient.settlement.getPendingTransaction>>
+      throw notFound('Transação pendente', true)
+    },
     async dispute(id, reason, initialEvidence) {
       const me = needMe()
       const e = findEscrow(id)

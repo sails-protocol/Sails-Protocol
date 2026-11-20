@@ -14,7 +14,7 @@ export interface AmountItem {
 
 export function TradeAmountsStrip({ items }: { items: AmountItem[] }) {
   return (
-    <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-brand-border-subtle bg-brand-border-subtle lg:grid-cols-4">
+    <dl className={cn('grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-brand-border-subtle bg-brand-border-subtle', items.length === 3 ? 'sm:grid-cols-3' : 'lg:grid-cols-4')}>
       {items.map((it, i) => (
         <div key={it.label} className={cn('min-w-0 bg-brand-surface p-3 sm:p-4', i > 1 && 'hidden sm:block')}>
           <dt className="text-xs font-medium text-brand-text-secondary">{it.label}</dt>

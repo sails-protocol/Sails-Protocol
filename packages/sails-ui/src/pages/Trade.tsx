@@ -16,13 +16,13 @@ import { CurrentActionCard } from '../components/trade/CurrentActionCard'
 import { SigningRequestCard } from '../components/trade/SigningRequestCard'
 import { TradeHeader } from '../components/trade/TradeHeader'
 import { TradeAmountsStrip } from '../components/trade/TradeAmountsStrip'
-import { TradeTimeline } from '../components/trade/TradeTimeline'
-import { TradeSpecs, type SpecRow } from '../components/trade/TradeSpecs'
+import { TradeRail } from '../components/trade/TradeRail'
+import { TradeSpecs, type SpecGroup, type SpecRow } from '../components/trade/TradeSpecs'
 import { PaymentInstructions } from '../components/trade/PaymentInstructions'
 import { PayoutAddressForm } from '../components/trade/PayoutAddressForm'
 import { FundingInstructionCard } from '../components/trade/FundingInstructionCard'
 import { deriveFundingInstruction, deriveFundingRecordRows, lockRefusalMessage } from '../lib/fundingInstruction'
-import { deriveTradeState, ESCROW_STATE_LABEL } from '../lib/tradeState'
+import { batonLabel, deriveTradeState, ESCROW_STATE_LABEL } from '../lib/tradeState'
 import { TradeParties } from '../components/trade/TradeParties'
 import { TradeDisputePanel } from '../components/trade/TradeDisputePanel'
 import { ChatWindow } from '../components/chat/ChatWindow'
@@ -32,7 +32,7 @@ import { StateBlock } from '../components/ui/StateBlock'
 import { cn } from '../lib/utils'
 import { Textarea } from '../components/ui/textarea'
 import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
-import { Lock, Banknote, ArrowLeft } from 'lucide-react'
+import { Lock, Banknote, ArrowLeft, ChevronRight, MessageSquare } from 'lucide-react'
 import { formatDateTime, formatUsdExact } from '../lib/format'
 import { detectRiskLocally } from '../lib/socialEngineering'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, DISPUTE_RULING_LABEL, PAYMENT_METHOD_LABELS } from '../lib/labels'
@@ -404,7 +404,8 @@ export function Trade() {
     pending: pendingTx,
     viewerId: user?.id,
     verification,
-    signerLabel: (pid) => pid === user?.id ? 'Você' : pid === trade.buyerId ? 'Comprador' : pid === trade.sellerId ? 'Vendedor' : UNKNOWN_SIGNER,
+    // The viewer keeps their role: "Você (vendedor)".
+    signerLabel: (pid) => pid === user?.id ? (isBuyer ? 'Você (comprador)' : isSeller ? 'Você (vendedor)' : 'Você') : pid === trade.buyerId ? 'Comprador' : pid === trade.sellerId ? 'Vendedor' : UNKNOWN_SIGNER,
     disputed: escrow.status === 'DISPUTED',
     // Mirrors cancelPendingTransaction's server preconditions (seller, MULTISIG, non-disputed, non-terminal).
     canCancel: isSeller && escrow.type === 'MULTISIG' && escrow.status !== 'DISPUTED' && !TERMINAL_ESCROW_STATUSES.has(escrow.status),
@@ -784,7 +785,7 @@ export function Trade() {
         kind="signedOut"
         title="Conecte sua wallet"
         description="Conecte sua wallet para ver este trade."
-        action={<Button onClick={() => navigate('/login', { state: { from: location.pathname } })} className="min-h-11 md:min-h-10 px-4">Conectar wallet</Button>}
+        action={<Button onClick={() => navigate('/login', { state: { from: location.pathname } })} className="min-h-10 touch:min-h-11 px-4">Conectar wallet</Button>}
       />
     )
   }
@@ -795,7 +796,7 @@ export function Trade() {
         kind="error"
         title="Não foi possível carregar este trade"
         description="Verifique sua conexão e tente novamente."
-        action={<Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-11 md:min-h-9 px-4">Tentar novamente</Button>}
+        action={<Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-9 touch:min-h-11 px-4">Tentar novamente</Button>}
       />
     )
   }
@@ -805,7 +806,7 @@ export function Trade() {
       <StateBlock
         kind="empty"
         title="Trade não encontrado"
-        action={<Link to="/" className={cn(buttonVariants({ className: 'min-h-11 md:min-h-10 px-4' }))}>Voltar ao Market</Link>}
+        action={<Link to="/" className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Voltar ao Market</Link>}
       />
     )
   }
@@ -816,7 +817,7 @@ export function Trade() {
   // Prisma include shape, so this stays an array server-side.
   const dispute = escrow?.disputes?.[0] ?? null
 
-  // One derivation for the chip, the timeline, the action card and the payment gating.
+  // One derivation for the rail (stages, status line, bastão), the action card and the payment gating.
   const state = deriveTradeState({
     tradeStatus: trade.status,
     escrowStatus: (escrow?.status as EscrowStatus | undefined) ?? null,
@@ -833,11 +834,20 @@ export function Trade() {
     // The trade is not refetched after the viewer's own release; the escrow carries releasedAt.
     completedAt: trade.completedAt ?? escrow?.releasedAt,
     cancelledAt: trade.cancelledAt,
+    // Rail: stages and the bastão from the same records.
+    buyerId: trade.buyerId,
+    sellerId: trade.sellerId,
+    escrowId: escrow?.id ?? null,
+    escrowType: escrow?.type ?? null,
+    txLockId: escrow?.txLockId ?? null,
+    txLockVout: escrow?.txLockVout ?? null,
+    txReleaseId: escrow?.txReleaseId ?? null,
+    round: pendingTx,
+    dispute: dispute ? { status: dispute.status, arbiterId: dispute.arbiterId } : null,
   })
 
   const short = ASSET_SHORT_LABELS[trade.asset]
   const methodLabel = trade.offer ? PAYMENT_METHOD_LABELS[trade.offer.paymentMethod] : null
-  const counterparty = isBuyer ? seller : isSeller ? buyer : null
   const title = isBuyer ? `Comprando ${trade.amount} ${short} de ${seller.displayName ?? 'contraparte'}`
     : isSeller ? `Vendendo ${trade.amount} ${short} para ${buyer.displayName ?? 'contraparte'}`
     : `Trade de ${trade.amount} ${short}`
@@ -846,26 +856,41 @@ export function Trade() {
   const partyLabel = (pid: string) => pid === user.id ? 'Você' : pid === trade.buyerId ? 'Comprador' : pid === trade.sellerId ? 'Vendedor'
     : pid === dispute?.arbiterId ? 'Árbitro' : 'Participante não identificado'
 
-  const specs: SpecRow[] = [
-    { label: 'ID do trade', value: trade.id, mono: true, copy: trade.id },
-    { label: 'Aberto em', value: formatDateTime(trade.createdAt) },
-    { label: 'Moeda', value: ASSET_LABELS[trade.asset] },
-    { label: 'Quantidade', value: `${trade.amount} ${short}` },
-    { label: 'Preço unitário (USD)', value: formatUsdExact(trade.priceUsd) },
-    { label: 'Valor do trade (USD)', value: totalLabel },
-    { label: 'Forma de pagamento', value: methodLabel ?? 'Não informada' },
-    escrow
-      ? { label: 'ID do escrow', value: escrow.id, mono: true, copy: escrow.id }
-      : { label: 'Escrow', value: 'Ainda não criado' },
-    ...(escrow ? [
+  // custodyModel is only on getEscrow() reads (absent after a create/lock response): no row then, never a guess.
+  const custodyRow: SpecRow[] = escrow && escrow.custodyModel !== undefined
+    ? [{ label: 'Modelo de custódia declarado', value: escrow.custodyModel ?? 'Não declarado pelo provedor', mono: !!escrow.custodyModel }]
+    : []
+  // Registro: the recorded details grouped by the stage that produced them (rail = index, Registro = full values).
+  const registro: SpecGroup[] = [
+    { title: 'Trade', rows: [
+      { label: 'ID do trade', value: trade.id, mono: true, copy: trade.id },
+      { label: 'Aberto em', value: formatDateTime(trade.createdAt) },
+      { label: 'Moeda', value: ASSET_LABELS[trade.asset] },
+      { label: 'Quantidade', value: `${trade.amount} ${short}` },
+      { label: 'Preço unitário (USD)', value: formatUsdExact(trade.priceUsd) },
+      { label: 'Valor do trade (USD)', value: totalLabel },
+      { label: 'Forma de pagamento', value: methodLabel ?? 'Não informada' },
+    ] },
+    { title: 'Escrow', rows: escrow ? [
+      { label: 'ID do escrow', value: escrow.id, mono: true, copy: escrow.id },
       { label: 'Tipo de escrow', value: escrow.type, mono: true },
+      ...custodyRow,
       { label: 'Estado registrado do escrow', value: ESCROW_STATE_LABEL[escrowStatus] ?? escrow.status },
+      ...(escrow.lockedAt ? [{ label: 'Bloqueio registrado em', value: formatDateTime(escrow.lockedAt) }] : []),
       { label: 'Última atualização do escrow', value: formatDateTime(escrow.updatedAt) },
-      ...deriveFundingRecordRows(escrow),
-    ] : []),
-    ...(trade.completedAt ? [{ label: 'Concluído em', value: formatDateTime(trade.completedAt) }] : []),
-    ...(trade.cancelledAt ? [{ label: 'Cancelado em', value: formatDateTime(trade.cancelledAt) }] : []),
-    ...(isBuyer && payoutAddress ? [{ label: 'Seu endereço de recebimento', value: payoutAddress.address, mono: true, copy: payoutAddress.address }] : []),
+    ] : [{ label: 'Escrow', value: 'Ainda não criado' }] },
+    { title: 'Depósito', rows: escrow ? deriveFundingRecordRows(escrow) : [] },
+    { title: 'Assinaturas', rows: pendingTx && signingView ? [
+      { label: 'Rodada', value: signingActionLabel(pendingTx.kind) },
+      ...signingView.signers.map((sg) => ({ label: sg.label, value: sg.at ? `Assinou em ${formatDateTime(sg.at)}` : sg.statusText })),
+    ] : [] },
+    // Recorded by the server; no broadcast or confirmation state is exposed, so never "confirmada".
+    { title: 'Transação', rows: escrow?.txReleaseId ? [{ label: 'Transação registrada pelo servidor', value: escrow.txReleaseId, mono: true, copy: escrow.txReleaseId }] : [] },
+    { title: 'Encerramento', rows: [
+      ...(trade.completedAt ? [{ label: 'Concluído em', value: formatDateTime(trade.completedAt) }] : []),
+      ...(trade.cancelledAt ? [{ label: 'Cancelado em', value: formatDateTime(trade.cancelledAt) }] : []),
+    ] },
+    { title: 'Recebimento', rows: isBuyer && payoutAddress ? [{ label: 'Seu endereço de recebimento', value: payoutAddress.address, mono: true, copy: payoutAddress.address }] : [] },
   ]
 
   const fundingView = escrow ? deriveFundingInstruction({ escrow, isBuyer, isSeller, assetLabel: ASSET_SHORT_LABELS[escrow.asset] }) : null
@@ -888,14 +913,43 @@ export function Trade() {
     // They are the seller's receiving details only when the seller
     // published the offer; on a BUY offer they belong to the buyer.
     <PaymentInstructions
+      embedded={actionCardShown && state.instructions === 'active'}
       viewer={isBuyer ? 'buyer' : 'seller'}
       visibility={state.instructions}
       methodLabel={PAYMENT_METHOD_LABELS[trade.offer.paymentMethod]}
       details={trade.offer.userId === trade.sellerId ? trade.offer.paymentDetails : null}
     />
   ) : null
-  // Buyer: how to pay and the safety note sit inside the action card, before "Marcar pagamento enviado".
-  const paymentInCard = actionCardShown && isBuyer && state.instructions === 'active'
+  // While they are an instruction to act on, the payment details sit in the current stage, before its action.
+  const paymentInCard = actionCardShown && state.instructions === 'active'
+
+  // The bastão: who the current stage waits on, from the viewer's side.
+  const baton = batonLabel(state.steps.find((s) => s.state === 'current')?.actors, isBuyer ? 'buyer' : isSeller ? 'seller' : null, { buyer: buyer.displayName, seller: seller.displayName })
+  // The timelock sits with the stage it limits.
+  const countdown = escrow ? <EscrowCountdown expiresAt={escrow.expiresAt} timelockHours={escrow.timelockHours} status={escrowStatus} /> : null
+  // The signing round is a sub-step of the current stage: rendered inside the stage card (or the dispute panel).
+  const signing = (embedded: boolean) => !escrow ? null
+    : pending.status === 'loading' ? <SigningRequestCard embedded={embedded} status="loading" label="Consultando assinaturas pendentes…" />
+    : pending.status === 'error' ? (
+      <SigningRequestCard
+        embedded={embedded}
+        status="error"
+        message="Não foi possível consultar se há uma assinatura pendente neste escrow."
+        retryLabel="Tentar novamente"
+        onRetry={() => { setPending({ status: 'loading' }); void refreshPending(escrow) }}
+      />
+    )
+    : signingView ? (
+      <SigningRequestCard
+        embedded={embedded}
+        status="ready"
+        view={signingView}
+        acting={acting}
+        onReview={() => openRoundDialog('sign')}
+        onCancel={() => openRoundDialog('cancel')}
+        onRefresh={handleRefreshSigning}
+      />
+    ) : null
 
   return (
     <div className="space-y-4">
@@ -903,7 +957,6 @@ export function Trade() {
         title={title}
         tradeId={trade.id}
         createdAtLabel={formatDateTime(trade.createdAt)}
-        status={state.status}
         leading={(
           <Link to="/" className="inline-flex min-h-11 items-center gap-1.5 text-sm text-brand-text-secondary hover:text-brand-text">
             <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Voltar
@@ -911,27 +964,29 @@ export function Trade() {
         )}
       />
 
+      {/* The counterparty is in its own block (with presence and the chat), not in the amounts. */}
       <TradeAmountsStrip
         items={isBuyer ? [
           { label: 'Você paga', value: totalLabel, sub: totalSub },
           { label: 'Você recebe', value: `${trade.amount} ${short}`, sub: ASSET_LABELS[trade.asset] },
           priceItem,
-          { label: 'Contraparte', value: seller.displayName ?? 'Nome não informado', sub: 'Vendedor' },
         ] : isSeller ? [
           { label: 'Você vende', value: `${trade.amount} ${short}`, sub: ASSET_LABELS[trade.asset] },
           { label: 'Você recebe', value: totalLabel, sub: totalSub },
           priceItem,
-          { label: 'Contraparte', value: buyer.displayName ?? 'Nome não informado', sub: 'Comprador' },
         ] : [
           { label: 'Quantidade', value: `${trade.amount} ${short}`, sub: ASSET_LABELS[trade.asset] },
           { label: 'Valor do trade', value: totalLabel, sub: totalSub },
           priceItem,
-          { label: 'Partes', value: `${buyer.displayName ?? '—'} / ${seller.displayName ?? '—'}`, sub: 'Comprador / vendedor' },
         ]}
       />
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
-        <div className="flex min-w-0 flex-col gap-4">
+      <TradeRail steps={state.steps} status={state.status} baton={baton} />
+
+      {/* Desktop: stage, Registro and Ferramentas on the left, counterparty and chat on the right.
+          Phones (DOM order): stage -> counterparty and chat -> Registro -> Ferramentas. */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-[auto_auto_1fr] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-start-1 lg:row-start-1">
           {/* An open dispute is the current state: its panel below replaces the action card instead of repeating it. */}
           {escrowStatus === 'DISPUTED' && dispute ? null : actionCardShown ? (
             <CurrentActionCard
@@ -941,6 +996,7 @@ export function Trade() {
               onOpenDispute={() => setShowDisputeForm(true)}
               disputeTriggerRef={disputeTriggerRef}
             >
+              {countdown}
               {fundingView && <FundingInstructionCard view={fundingView} />}
               {state.payoutStep === 'checkFailed' && (
                 <div className="mt-4 pt-4 border-t border-brand-border-subtle flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -961,6 +1017,7 @@ export function Trade() {
                 </div>
               )}
               {paymentInCard && <div className="mt-4">{paymentInstructions}</div>}
+              {signing(true)}
               {!isBuyer && !isSeller && (
                 <p className="mt-3 text-sm text-brand-text-secondary">Você não é parte deste trade — ações desabilitadas.</p>
               )}
@@ -988,26 +1045,6 @@ export function Trade() {
             </section>
           )}
 
-          {escrow && pending.status === 'loading' && <SigningRequestCard status="loading" label="Consultando assinaturas pendentes…" />}
-          {escrow && pending.status === 'error' && (
-            <SigningRequestCard
-              status="error"
-              message="Não foi possível consultar se há uma assinatura pendente neste escrow."
-              retryLabel="Tentar novamente"
-              onRetry={() => { setPending({ status: 'loading' }); void refreshPending(escrow) }}
-            />
-          )}
-          {signingView && (
-            <SigningRequestCard
-              status="ready"
-              view={signingView}
-              acting={acting}
-              onReview={() => openRoundDialog('sign')}
-              onCancel={() => openRoundDialog('cancel')}
-              onRefresh={handleRefreshSigning}
-            />
-          )}
-
           {/* Escrow.disputes (2026-08-03) — getEscrow() surfaces the dispute
               to both parties. Evidence/contest/appeal are real,
               trade-party-only actions (dispute.service.ts's own 403 check). */}
@@ -1023,31 +1060,30 @@ export function Trade() {
               onSubmitEvidence={handleSubmitEvidence}
               onContestAutoResolution={() => setConfirmStep('contest')}
               onAppeal={() => setConfirmStep('appeal')}
-            />
+              turnLabel={escrowStatus === 'DISPUTED' ? baton : null}
+            >
+              {!actionCardShown && <>{countdown}{signing(true)}</>}
+            </TradeDisputePanel>
           )}
+          {/* Dispute form open (no dispute yet): the round stays visible on its own. */}
+          {!actionCardShown && !dispute && signing(false)}
 
           {!paymentInCard && paymentInstructions}
-
-          <TradeTimeline steps={state.steps}>
-            {escrow && <EscrowCountdown expiresAt={escrow.expiresAt} timelockHours={escrow.timelockHours} status={escrowStatus} />}
-          </TradeTimeline>
-
-          <TradeParties buyer={buyer} seller={seller} currentUserId={user?.id} counterpartyOnline={counterpartyOnline} />
-
-          {/* A pre-trade proceed/hold/reject read: nothing to act on once the escrow is terminal, disputed or expired. */}
-          {state.open && <AgentRiskCard asset={trade.asset} side={isBuyer ? 'BUY' : 'SELL'} maxValue={Number(trade.totalUsd)} minValue={Number(trade.totalUsd)} />}
         </div>
 
-        <aside className="flex min-w-0 flex-col gap-4" aria-label="Chat e detalhes do trade">
-          <Button
-            variant="outline"
-            onClick={() => setChatOpen((o) => !o)}
-            aria-expanded={chatOpen}
-            aria-controls="trade-chat"
-            className="min-h-11 w-full lg:hidden"
-          >
-            {chatOpen ? 'Ocultar chat' : `Chat${counterparty?.displayName ? ` com ${counterparty.displayName}` : ''} · ${messages.length} ${messages.length === 1 ? 'mensagem' : 'mensagens'}`}
-          </Button>
+        <aside className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-1 lg:row-span-3" aria-label="Contraparte e chat">
+          <TradeParties buyer={buyer} seller={seller} currentUserId={user?.id} counterpartyOnline={counterpartyOnline}>
+            <Button
+              variant="outline"
+              onClick={() => setChatOpen((o) => !o)}
+              aria-expanded={chatOpen}
+              aria-controls="trade-chat"
+              className="mt-1 w-full lg:hidden"
+            >
+              <MessageSquare className="size-icon-sm" aria-hidden="true" />
+              {chatOpen ? 'Ocultar chat' : `Abrir chat · ${messages.length} ${messages.length === 1 ? 'mensagem' : 'mensagens'}`}
+            </Button>
+          </TradeParties>
           <div id="trade-chat" className={chatOpen ? '' : 'hidden lg:block'}>
             <ChatWindow
               messages={messages}
@@ -1060,16 +1096,31 @@ export function Trade() {
               counterpartyOnline={counterpartyOnline}
             />
           </div>
+        </aside>
 
-          <TradeSpecs title="Detalhes do trade" rows={specs}>
+        <div className="min-w-0 lg:col-start-1 lg:row-start-2">
+          <TradeSpecs title="Registro" groups={registro} />
+        </div>
+
+        {/* Ferramentas: secondary tools, collapsed. Nothing here is a step of the trade. */}
+        <details className="group min-w-0 self-start lg:col-start-1 lg:row-start-3">
+          <summary className="flex min-h-9 touch:min-h-11 w-fit cursor-pointer items-center gap-2 rounded-md text-sm font-semibold text-brand-text underline-offset-4 hover:underline">
+            <ChevronRight className="size-icon-sm transition-transform duration-short ease-standard group-open:rotate-90" aria-hidden="true" />
+            Ferramentas
+          </summary>
+          <div className="mt-2 flex flex-col gap-3">
+            {/* A pre-trade proceed/hold/reject read: nothing to act on once the escrow is terminal, disputed or expired. */}
+            {state.open
+              ? <AgentRiskCard asset={trade.asset} side={isBuyer ? 'BUY' : 'SELL'} maxValue={Number(trade.totalUsd)} minValue={Number(trade.totalUsd)} />
+              : <p className="text-sm text-brand-text-secondary">A sugestão do Sails Agent fica disponível só enquanto o trade está aberto.</p>}
             {isBuyer && payoutAddress && (
-              <details className="mt-2">
-                <summary className="min-h-11 cursor-pointer flex items-center text-sm text-brand-text-secondary">Alterar endereço de recebimento</summary>
-                {payoutForm(true)}
+              <details className="rounded-lg border border-brand-border-subtle bg-brand-surface px-4">
+                <summary className="flex min-h-9 touch:min-h-11 cursor-pointer items-center text-sm font-semibold text-brand-text underline-offset-4 hover:underline">Alterar endereço de recebimento</summary>
+                <div className="pb-4">{payoutForm(true)}</div>
               </details>
             )}
-          </TradeSpecs>
-        </aside>
+          </div>
+        </details>
       </div>
 
       <ConfirmActionDialog

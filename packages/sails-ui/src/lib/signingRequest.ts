@@ -33,7 +33,8 @@ export interface SigningRequestView {
   description: string
   destinations: { label: string; address: string }[]
   progress: { signed: number; required: number; text: string }
-  signers: { label: string; signed: boolean; statusText: string }[]
+  /** `at`: the signer's submittedAt from the round record; null while pending. */
+  signers: { label: string; signed: boolean; statusText: string; at: string | null }[]
   check?: { tone: 'ok' | 'danger' | 'unavailable'; title: string; note?: string; items: { label: string; value: string; mono?: boolean }[] }
   primary?: { label: string }
   cancel?: { label: string }
@@ -144,8 +145,9 @@ export function deriveSigningRequest({ pending, viewerId, verification, signerLa
   canCancel?: boolean
   protocolFeeAddress?: string | null
 }): SigningRequestView {
-  const signedIds = new Set((pending.signedBy ?? []).map((s) => s.participantId))
-  const signers = pending.requiredSigners.map((id) => ({ label: signerLabel(id), signed: signedIds.has(id), statusText: signedIds.has(id) ? 'Assinou' : 'Pendente' }))
+  const signedAt = new Map((pending.signedBy ?? []).map((s) => [s.participantId, s.submittedAt]))
+  const signedIds = new Set(signedAt.keys())
+  const signers = pending.requiredSigners.map((id) => ({ label: signerLabel(id), signed: signedIds.has(id), statusText: signedIds.has(id) ? 'Assinou' : 'Pendente', at: signedAt.get(id) ?? null }))
   const signed = signers.filter((s) => s.signed).length
   const required = signers.length
   const remaining = signers.filter((s) => !s.signed)

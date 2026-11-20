@@ -58,8 +58,8 @@ export function FundingInstructionPreview() {
           <section key={c.title}>
             <h1 className="mb-2 text-xs font-mono text-brand-text-muted">{c.title}</h1>
             <TradeSpecs
-              title="Detalhes do trade"
-              rows={[{ label: 'Tipo de escrow', value: 'MULTISIG', mono: true }, ...deriveFundingRecordRows(c.escrow)]}
+              title="Registro"
+              groups={[{ title: 'Escrow', rows: [{ label: 'Tipo de escrow', value: 'MULTISIG', mono: true }] }, { title: 'Depósito', rows: deriveFundingRecordRows(c.escrow) }]}
             />
           </section>
         ))}

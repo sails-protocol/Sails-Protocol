@@ -11,7 +11,7 @@ import { cn } from '../../lib/utils'
 export function FundingInstructionCard({ view }: { view: FundingInstructionView }) {
   const titleId = useId()
   return (
-    <section aria-labelledby={titleId} className="mt-4 rounded-md border border-brand-border-subtle bg-brand-surface p-3">
+    <section aria-labelledby={titleId} className="mt-4 rounded-md bg-brand-surface p-3">
       <h3 id={titleId} className="text-sm font-semibold text-brand-text">{view.title}</h3>
       <dl className="mt-2 flex flex-col gap-2">
         {view.facts.map((f) => (
@@ -19,7 +19,7 @@ export function FundingInstructionCard({ view }: { view: FundingInstructionView 
             <dt className="text-xs text-brand-text-secondary">{f.label}</dt>
             <dd className="flex flex-col gap-2 sm:flex-row sm:items-start">
               <span className={cn('min-w-0 text-sm text-brand-text [overflow-wrap:anywhere]', f.mono && 'font-mono')}>{f.value}</span>
-              {f.copy && <CopyButton value={f.copy} label={view.copyLabel} className="min-h-11 shrink-0 self-start px-3 sm:min-h-0 sm:py-1" />}
+              {f.copy && <CopyButton value={f.copy} label={view.copyLabel} className="shrink-0 self-start px-3 py-1 touch:min-h-11" />}
             </dd>
           </div>
         ))}

@@ -5,6 +5,9 @@
  * deriveSigningRequest(), the copy for loading/error from the host page,
  * and nothing is signed or cancelled here — the buttons only ask the host
  * to open its confirmation step or to re-read the round.
+ *
+ * `embedded`: rendered inside the current-stage card (or the dispute panel),
+ * separated by a divider instead of its own box, heading one level down.
  */
 import { useId, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Circle, Hourglass, Info, Loader2, PenLine, RefreshCw, ShieldAlert, ShieldCheck, XCircle } from 'lucide-react'
@@ -13,22 +16,30 @@ import { Button } from '../ui/button'
 import { CopyButton } from '../ui/CopyButton'
 import { cn } from '../../lib/utils'
 import { busyProps } from '../../lib/busy'
+import { formatDateTime } from '../../lib/format'
 
-type Props =
+type Props = { embedded?: boolean } & (
   | { status: 'loading'; label: string }
   | { status: 'error'; message: string; retryLabel: string; onRetry: () => void }
   | { status: 'ready'; view: SigningRequestView; acting: boolean; onReview: () => void; onCancel: () => void; onRefresh: () => void }
+)
 
-const shell = 'mt-4 rounded-lg border border-brand-border-subtle bg-brand-elevated p-4 border-t-4'
+const boxed = 'mt-4 rounded-lg border border-brand-border-subtle bg-brand-elevated p-4 border-t-4'
+// One boundary per element: inside a card the round is a section under a divider, never a box in a box.
+const inCard = 'mt-4 border-t border-brand-border-subtle pt-4'
 
 export function SigningRequestCard(props: Props) {
   const titleId = useId()
   // Shared `acting`: the clicked action shows loading, the others are blocked (lib/busy.ts).
   const [running, setRunning] = useState<string | null>(null)
+  const shell = props.embedded ? inCard : boxed
+  // The top accent belongs to the boxed card only.
+  const accent = (c: string) => (props.embedded ? '' : c)
+  const Heading = props.embedded ? 'h3' : 'h2'
 
   if (props.status === 'loading') {
     return (
-      <section aria-busy="true" className={cn(shell, 'border-t-brand-border')}>
+      <section aria-busy="true" className={cn(shell, accent('border-t-brand-border'))}>
         <p role="status" className="flex items-center gap-2 text-sm text-brand-text-secondary">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           {props.label}
@@ -39,7 +50,7 @@ export function SigningRequestCard(props: Props) {
 
   if (props.status === 'error') {
     return (
-      <section className={cn(shell, 'border-t-brand-warning')}>
+      <section className={cn(shell, accent('border-t-brand-warning'))}>
         <p role="alert" className="flex items-start gap-2 text-sm text-brand-text">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-brand-warning" aria-hidden="true" />
           {props.message}
@@ -61,7 +72,7 @@ export function SigningRequestCard(props: Props) {
       aria-labelledby={titleId}
       className={cn(
         shell,
-        view.state === 'sign' ? 'border-t-brand-orange' : view.state === 'blocked' ? 'border-t-brand-danger' : 'border-t-brand-border',
+        accent(view.state === 'sign' ? 'border-t-brand-orange' : view.state === 'blocked' ? 'border-t-brand-danger' : 'border-t-brand-border'),
       )}
     >
       <p className={cn(
@@ -71,7 +82,7 @@ export function SigningRequestCard(props: Props) {
         <ActorIcon className="h-3.5 w-3.5" aria-hidden="true" />
         {view.actorLabel}
       </p>
-      <h2 id={titleId} className="mt-1.5 text-heading text-brand-text">{view.title}</h2>
+      <Heading id={titleId} className="mt-1.5 text-heading text-brand-text">{view.title}</Heading>
       <p role={view.state === 'waiting' || view.state === 'complete' ? 'status' : undefined} className="mt-1 text-sm text-brand-text-secondary">
         {view.description}
       </p>
@@ -82,7 +93,7 @@ export function SigningRequestCard(props: Props) {
             <dt className="text-xs text-brand-text-muted">{d.label}</dt>
             <dd className="mt-0.5 flex items-start gap-2">
               <span className="min-w-0 flex-1 break-all font-mono text-xs text-brand-text">{d.address}</span>
-              <CopyButton value={d.address} className="shrink-0 min-h-11 sm:min-h-0" />
+              <CopyButton value={d.address} className="shrink-0 touch:min-h-11" />
             </dd>
           </div>
         ))}
@@ -96,7 +107,7 @@ export function SigningRequestCard(props: Props) {
               {s.signed
                 ? <CheckCircle2 className="h-3.5 w-3.5 text-brand-success" aria-hidden="true" />
                 : <Circle className="h-3.5 w-3.5 text-brand-text-muted" aria-hidden="true" />}
-              <span>{s.label}: {s.statusText}</span>
+              <span>{s.label}: {s.statusText}{s.at && ` · ${formatDateTime(s.at)}`}</span>
             </li>
           ))}
         </ul>
