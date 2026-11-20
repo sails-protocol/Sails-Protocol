@@ -129,6 +129,8 @@ describe('F4 S1 - migration process (scratch database)', () => {
     expect(a.a).not.toBeNull()
     expect(a.a.getTime()).toBe(a.l.getTime())
     expect(b.a).toBeNull()
+    expect((await c.query(`SELECT count(*)::int AS n FROM deployment_mode`)).rows[0].n).toBe(0) // gate 3: the migration inserts NOTHING (no row = production)
+    await expect(c.query(`INSERT INTO deployment_mode (mode) VALUES ('production')`)).rejects.toMatchObject({ code: '23514' }) // there is no production value
   })
 
   it('5. after the migration the legacy rows keep their cycle (group B) but a legacy escrow without an address cannot be funded or addressed', async () => {

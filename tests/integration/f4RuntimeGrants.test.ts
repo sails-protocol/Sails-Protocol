@@ -130,4 +130,22 @@ describe('F4 S1 - runtime track (sails_runtime, column-level grants)', () => {
     expect(await code(rt.query(`SET session_replication_role = 'replica'`))).toBe('42501') // superuser-only: the trick the fixtures use
     expect(await code(rt.query(`ALTER TABLE escrows ADD COLUMN x int`))).toBe('42501')
   })
+
+  it('5. deployment_mode (gate 3): the runtime can only READ it; with no row MOCK needs a pair (as runtime); the ADMIN inserts the row and MOCK is then exempt (as runtime)', async () => {
+    const priv = async (p: string) => (await su.query(`SELECT has_table_privilege('sails_runtime','public.deployment_mode',$1) AS ok`, [p])).rows[0].ok
+    expect(await priv('SELECT')).toBe(true)
+    for (const p of ['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) expect([p, await priv(p)]).toEqual([p, false])
+    expect(await code(rt.query(`INSERT INTO deployment_mode (mode) VALUES ('test')`))).toBe('42501')
+    expect(await code(rt.query(`UPDATE deployment_mode SET mode = 'test'`))).toBe('42501')
+    expect(await code(rt.query(`DELETE FROM deployment_mode`))).toBe('42501')
+    expect((await rt.query('SELECT count(*)::int AS n FROM deployment_mode')).rows[0].n).toBe(0) // the migration inserted nothing
+    const mockEscrow = async () => {
+      const t = await tradeWithCommittedPair()
+      return rt.query(`INSERT INTO escrows (id,"tradeId","lockedAmount",asset,type,"updatedAt") VALUES ($1,$2,0.005,'BTC','MOCK',now())`, [randomUUID(), t.tradeId])
+    }
+    expect(await code(mockEscrow())).toBe('23514') // production (no row): MOCK needs a COMMITTED pair
+    await require(path.join(ROOT, 'scripts', 'db', 'set-deployment-mode.js')).setDeploymentMode(su, 'test') // the ADMIN step
+    expect(await code(mockEscrow())).toBe('OK') // the trigger reads the table AS the runtime role and MOCK is exempt
+    expect(await code(rt.query(`INSERT INTO deployment_mode (mode) VALUES ('development')`))).toBe('42501')
+  })
 })

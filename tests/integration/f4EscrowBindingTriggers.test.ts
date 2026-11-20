@@ -145,6 +145,32 @@ describe('F4 S1 - escrow commitment binding triggers (real PostgreSQL, raw SQL)'
     }
   })
 
+  it('deployment_mode (gate 3): NO ROW = PRODUCTION = MOCK needs a COMMITTED pair too; with the row MOCK is exempt; every other type is unaffected; the table is a strict singleton with no "production" value', async () => {
+    const mockInsert = async () => { const { tradeId } = await newTrade(); return { sql: `INSERT INTO escrows (id, "tradeId", "lockedAmount", asset, type, "updatedAt") VALUES ($1,$2,0.005,'BTC','MOCK',now())`, params: [randomUUID(), tradeId] } }
+    const hadRow = (await db.query(`SELECT count(*)::int AS n FROM deployment_mode`)).rows[0].n
+    try {
+      await db.query(`DELETE FROM deployment_mode`)
+      const m1 = await mockInsert()
+      await fails(m1.sql, m1.params, /needs a COMMITTED commitment pair/) // production: the exemption does not exist
+      expect((await db.query(`SELECT escrows_f4_pair_required('MOCK') AS r`)).rows[0].r).toBe(true)
+      await db.query(`INSERT INTO deployment_mode (mode) VALUES ('test')`)
+      const m2 = await mockInsert()
+      expect((await db.query(m2.sql, m2.params)).rowCount).toBe(1) // test/development: MOCK is exempt
+      expect((await db.query(`SELECT escrows_f4_pair_required('MOCK') AS r`)).rows[0].r).toBe(false)
+      expect((await db.query(`SELECT escrows_f4_pair_required('MULTISIG') AS r`)).rows[0].r).toBe(true) // never loosened for a real type
+      expect((await db.query(`SELECT created_by FROM deployment_mode`)).rows[0].created_by).toBe((await db.query(`SELECT current_user AS u`)).rows[0].u) // audited
+      // strict singleton, only the two values
+      await fails(`INSERT INTO deployment_mode (mode) VALUES ('development')`, [], /duplicate key|deployment_mode_pkey/i)
+      await fails(`INSERT INTO deployment_mode (singleton, mode) VALUES (false, 'test')`, [], /deployment_mode_singleton_check/)
+      await db.query(`DELETE FROM deployment_mode`)
+      await fails(`INSERT INTO deployment_mode (mode) VALUES ('production')`, [], /deployment_mode_mode_check/)
+      await fails(`INSERT INTO deployment_mode (mode) VALUES ('anything')`, [], /deployment_mode_mode_check/)
+    } finally {
+      await db.query(`DELETE FROM deployment_mode`)
+      if (hadRow > 0) await db.query(`INSERT INTO deployment_mode (mode) VALUES ('test')`)
+    }
+  })
+
   it('commitmentPairId and both legacy marks are immutable', async () => {
     const { tradeId, anchor } = await newTrade()
     const pair = await newPair(anchor, 'COMMITTED')

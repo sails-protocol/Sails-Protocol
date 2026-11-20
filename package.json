@@ -39,6 +39,7 @@
     "check:conformance": "ts-node scripts/run-conformance-harness.ts",
     "db:local:start": "node scripts/local-postgres.js start",
     "db:local:stop": "node scripts/local-postgres.js stop",
+    "db:mode:dev": "node scripts/db/set-deployment-mode.js development",
     "redis:local:start": "node scripts/local-redis.js start",
     "redis:local:stop": "node scripts/local-redis.js stop",
     "db:migrate": "sh scripts/migrate-deploy-safe.sh",

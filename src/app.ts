@@ -11,6 +11,7 @@ import { config } from './config'
 import { prisma } from './common/database'
 import { connectDatabase } from './common/database'
 import { assertRuntimeDatabasePrivileges } from './common/database/runtime-privileges'
+import { assertNoDeploymentModeInProduction } from './common/database/deployment-mode'
 import { redis } from './common/redis'
 import { connectRedis } from './common/redis'
 import { AppError, ERROR_DOCS_URL } from './common/errors'
@@ -449,6 +450,8 @@ export async function startServer() {
   await connectDatabase()
   // CTO 225 - in production, refuse to serve on a connection that could bypass the write-once triggers.
   await assertRuntimeDatabasePrivileges()
+  // F4 gate 3: a production database must not carry the deployment_mode row (it opens the MOCK exemption of the escrow trigger).
+  await assertNoDeploymentModeInProduction()
   await connectRedis()
 
   // Missão 08B — cross-instance event fan-out. Deliberately only wired

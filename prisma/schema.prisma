@@ -2723,3 +2723,16 @@ model CommitmentPair {
   @@index([anchorRef])
   @@map("commitment_pairs")
 }
+
+/// F4 / invariant 3b (CTO Despacho 030, gate 3): the environment marker that makes the MOCK exemption of the escrow commitment-pair
+/// trigger bound to the DATABASE. At most one row (singleton), mode 'development' | 'test' only: there is no 'production' value, the
+/// absence of the row IS production. The migration inserts nothing; only the database admin writes it (runtime: SELECT only);
+/// the production boot check refuses to start when the row exists.
+model DeploymentMode {
+  singleton Boolean  @id @default(true)
+  mode      String
+  createdBy String   @default(dbgenerated("current_user")) @map("created_by")
+  createdAt DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(3)
+
+  @@map("deployment_mode")
+}

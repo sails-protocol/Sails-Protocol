@@ -64,9 +64,26 @@ $cut$;
 -- production is NOT this trigger: the enabledRails configuration refuses MOCK outside dev/test (R-C) and the production runtime role is
 -- not granted anything that would let it create a MOCK escrow (see scripts/db/runtime-grants.sql and the R-C test). Authorizing MOCK here
 -- is not a deploy decision.
+--
+-- THE EXEMPTION IS ENVIRONMENT-BOUND IN THE DATABASE (CTO Despacho 030, gate 3; GK): MOCK is exempt ONLY while the table
+-- deployment_mode has its single row (development or test). The migration inserts NOTHING, so a database with no row is PRODUCTION
+-- and MOCK needs a COMMITTED pair there like every other type. There is no 'production' value to set: production is the absence.
+-- Only the database admin can insert the row (the runtime role has SELECT only, see scripts/db/runtime-grants.sql), and the production
+-- boot check refuses to start if the row exists (src/common/database/deployment-mode.ts). Risk, documented: an admin inserting 'test'
+-- in production is a trusted, audited action (created_by = current_user), not something the application can do.
+CREATE TABLE "deployment_mode" (
+    "singleton" BOOLEAN NOT NULL DEFAULT true,
+    "mode" TEXT NOT NULL,
+    "created_by" TEXT NOT NULL DEFAULT current_user,
+    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT clock_timestamp(),
+    CONSTRAINT "deployment_mode_pkey" PRIMARY KEY ("singleton"),
+    CONSTRAINT "deployment_mode_singleton_check" CHECK ("singleton"),
+    CONSTRAINT "deployment_mode_mode_check" CHECK ("mode" IN ('development', 'test'))
+);
+
 CREATE FUNCTION escrows_f4_pair_required("t" "EscrowType") RETURNS boolean
-LANGUAGE sql IMMUTABLE AS $$
-    SELECT "t" <> 'MOCK'
+LANGUAGE sql STABLE AS $$
+    SELECT NOT ("t" = 'MOCK' AND EXISTS (SELECT 1 FROM "deployment_mode"))
 $$;
 
 -- INSERT: the marks must be NULL (no new row is born legacy); a required type needs a COMMITTED pair whose anchor is the trade's.

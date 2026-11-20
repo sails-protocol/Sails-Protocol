@@ -972,3 +972,12 @@ sweep body; every other instance's tick is a fast no-op. Redis is already
 a hard dependency for this codebase (sessions, rate limiting, cross-
 instance pub/sub), so this adds no new infrastructure, only a small,
 well-understood locking primitive — not implemented in this phase.
+
+## 6.4 Database environment marker `deployment_mode` (F4, CTO Despacho 030 gate 3)
+
+The escrow commitment-pair trigger requires a COMMITTED pair for **every** escrow type. `MOCK` is exempt **only while the table `deployment_mode` has its single row** (`development` or `test`). The migration inserts **nothing**: a database with no row **is production**, and `MOCK` needs a COMMITTED pair there like any other type. There is no `production` value.
+
+- **Production:** never insert the row. The runtime role has `SELECT` only (`scripts/db/runtime-grants.sql`); only the database admin can write it. The server **refuses to start** in production if the row exists (`src/common/database/deployment-mode.ts`, called from `startServer`).
+- **Local development:** after `npm run db:local:start` and the migrations, set the row as the admin: `ADMIN_DATABASE_URL=postgresql://postgres:password@localhost:5432/sails_protocol npm run db:mode:dev`.
+- **Tests / CI:** the integration harness inserts `test` itself (guarded by `SAILS_INTEGRATION_TEST_DB_CONFIRMED` and the local host/name allowlist). The restricted-runtime CI lane runs `node scripts/db/set-deployment-mode.js test` as the admin before switching to `sails_runtime`.
+- **Residual risks (declared):** an admin inserting `test` into a production database is a trusted, audited action (`created_by = current_user`), and the boot check then stops the server; MOCK fixtures fail until the row is set, including the restricted-runtime lane.
