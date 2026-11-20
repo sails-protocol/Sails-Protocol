@@ -495,6 +495,11 @@ body {
    motion-safe; with reduced motion it rests as a static partial bar. */
 @keyframes sails-progress { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 @utility animate-progress { animation: sails-progress 1400ms var(--easing-standard) infinite; }
+/* Trade rail (DESIGN_SYSTEM.md 5.5): when the viewer's stage appears, a ring grows and fades out
+   twice (2 x 2 s; transform/opacity only). Stops before 5 s (WCAG 2.2.2, no pause control needed);
+   only under motion-safe, so reduced motion keeps the static ring. */
+@keyframes sails-rail-pulse { from { transform: scale(1); opacity: 0.5; } 70%, to { transform: scale(1.6); opacity: 0; } }
+@utility animate-rail-pulse { animation: sails-rail-pulse 2000ms var(--easing-decelerate) 2; }
 
 /* State layers (DESIGN_SYSTEM.md 5.2): an overlay on top of the fill, so the
    fill token never changes per state. Hover only on hover-capable pointers

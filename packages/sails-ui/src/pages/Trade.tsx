@@ -936,7 +936,8 @@ export function Trade() {
   const paymentInCard = actionCardShown && state.instructions === 'active'
 
   // The bastão: who the current stage waits on, from the viewer's side.
-  const baton = batonLabel(state.steps.find((s) => s.state === 'current'), isBuyer ? 'buyer' : isSeller ? 'seller' : null, { buyer: buyer.displayName, seller: seller.displayName })
+  const viewerSide = isBuyer ? 'buyer' : isSeller ? 'seller' : null
+  const baton = batonLabel(state.steps.find((s) => s.state === 'current'), viewerSide, { buyer: buyer.displayName, seller: seller.displayName })
   // The timelock sits with the stage it limits.
   const countdown = escrow ? <EscrowCountdown expiresAt={escrow.expiresAt} timelockHours={escrow.timelockHours} status={escrowStatus} /> : null
   // The signing round is a sub-step of the current stage: rendered inside the stage card (or the dispute panel).
@@ -1028,7 +1029,7 @@ export function Trade() {
         ]}
       />
 
-      <TradeRail steps={state.steps} status={state.status} baton={baton} />
+      <TradeRail steps={state.steps} status={state.status} baton={baton} viewer={viewerSide} />
 
       {/* Desktop: stage, Registro and Ferramentas on the left, counterparty and chat on the right.
           Phones (DOM order): stage -> counterparty and chat -> Registro -> Ferramentas. */}

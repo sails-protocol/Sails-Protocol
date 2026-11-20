@@ -32,7 +32,7 @@ export function OfferTable({ offers, isOwn }: { offers: Offer[]; isOwn?: (offer:
         <col />
         <col className="w-[11rem] xl:w-[12rem]" />
         <col className="w-[9.5rem] xl:w-[12rem]" />
-        <col className="w-[10rem] xl:w-[12rem]" />
+        <col className="w-[10rem] xl:w-[14rem]" />
         <col className="w-[8rem]" />
       </colgroup>
       <TableHeader>

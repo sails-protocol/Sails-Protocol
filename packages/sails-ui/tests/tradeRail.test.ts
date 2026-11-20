@@ -1,4 +1,4 @@
-import { batonLabel, custodyModelLabel, deriveTradeState, PAYOUT_TX_LABEL, type StepActor, type TradeStateInput } from '../src/lib/tradeState'
+import { batonLabel, custodyModelLabel, deriveTradeState, PAYOUT_TX_LABEL, stageTone, type StepActor, type TradeStateInput } from '../src/lib/tradeState'
 import type { EscrowStatus, TradeStatus } from '../src/types'
 
 // Trade rail (trade workspace L4): stages and the bastão come only from record fields.
@@ -139,7 +139,7 @@ describe('trade rail: actions this interface cannot do (truth audit fixes)', () 
   it('never says Sua vez for a signing round this interface cannot sign (HOLD, mismatch, unsupported, disputed)', () => {
     const step = current(holdRound())
     expect(step).toMatchObject({ id: 'signatures', actors: ['seller'], blocked: 'signing' })
-    expect(batonLabel(step, 'seller')).toEqual({ text: 'Aguardando sua assinatura — indisponível nesta interface', tone: 'neutral' })
+    expect(batonLabel(step, 'seller')).toEqual({ text: 'Assinatura indisponível aqui', tone: 'neutral' })
     // The other side is a plain wait, not "Vez de", and neutral.
     expect(batonLabel(step, 'buyer', { seller: 'Erin' })).toEqual({ text: 'Aguardando Erin (vendedor)', tone: 'neutral' })
     // A signable round keeps the brand baton.
@@ -157,7 +157,7 @@ describe('trade rail: actions this interface cannot do (truth audit fixes)', () 
   it('never names the seller as able to release when release is unavailable for the escrow type', () => {
     const step = current(input('PAYMENT_PENDING', { isBuyer: false, isSeller: true, releaseUnavailable: true }))
     expect(step).toMatchObject({ id: 'completed', actors: ['seller'], blocked: 'release' })
-    expect(batonLabel(step, 'seller')).toEqual({ text: 'Aguardando sua liberação — indisponível nesta interface', tone: 'neutral' })
+    expect(batonLabel(step, 'seller')).toEqual({ text: 'Liberação indisponível aqui', tone: 'neutral' })
     expect(batonLabel(step, 'buyer', { seller: 'Bob' })).toEqual({ text: 'Aguardando Bob (vendedor)', tone: 'neutral' })
     expect(current(input('PAYMENT_PENDING'))?.blocked).toBeUndefined()
   })
@@ -189,5 +189,37 @@ describe('trade rail: actions this interface cannot do (truth audit fixes)', () 
     expect(custodyModelLabel('server-custodial-reference-implementation')).toMatch(/^Custódia do nó Sails/)
     expect(custodyModelLabel('client-held-buyer-seller-keys-server-held-kms-arbiter')).toMatch(/KMS/)
     for (const v of [null, undefined, '', 'something-new', 'toString']) expect(custodyModelLabel(v)).toBe('Não declarado pelo provedor')
+  })
+})
+
+describe('trade rail colors (DECISIONS.md: O avanço do trade tem cor)', () => {
+  const tones = (i: TradeStateInput, viewer: 'buyer' | 'seller' | null) => deriveTradeState(i).steps.map((s) => stageTone(s, viewer))
+
+  it("done is blue, the viewer's actionable stage is yours, the other side waits, the rest is upcoming", () => {
+    // FUNDS_LOCKED: the buyer marks the payment.
+    expect(tones(input('FUNDS_LOCKED'), 'buyer')).toEqual(['done', 'done', 'done', 'yours', 'upcoming'])
+    expect(tones(input('FUNDS_LOCKED', { isBuyer: false, isSeller: true }), 'seller')).toEqual(['done', 'done', 'done', 'waiting', 'upcoming'])
+    // An observer never gets "yours".
+    expect(tones(input('FUNDS_LOCKED', { isBuyer: false }), null)).toEqual(['done', 'done', 'done', 'waiting', 'upcoming'])
+  })
+
+  it('yours agrees with the "Sua vez" baton', () => {
+    for (const s of ['CREATED', 'FUNDS_LOCKED', 'PAYMENT_PENDING'] as const) {
+      for (const viewer of ['buyer', 'seller'] as const) {
+        const step = current(input(s, { isBuyer: viewer === 'buyer', isSeller: viewer === 'seller' }))!
+        expect(stageTone(step, viewer) === 'yours').toBe(batonLabel(step, viewer)?.text === 'Sua vez')
+      }
+    }
+  })
+
+  it('blocked, disputed and expired stages are attention, even for the viewer', () => {
+    const blocked = current(input('PAYMENT_PENDING', { isBuyer: false, isSeller: true, releaseUnavailable: true }))!
+    expect(stageTone(blocked, 'seller')).toBe('attention')
+    expect(tones(input('DISPUTED', { dispute: { status: 'OPENED', arbiterId: ARB } }), 'buyer').slice(-1)[0]).toBe('attention')
+    expect(tones(input('EXPIRED'), 'buyer').slice(-1)[0]).toBe('attention')
+  })
+
+  it('a completed escrow is all done (blue), never a success tone', () => {
+    expect(tones(input('COMPLETED', { completedAt: '2026-11-02T00:00:00.000Z' }), 'buyer').every((t) => t === 'done')).toBe(true)
   })
 })

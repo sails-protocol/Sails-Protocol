@@ -287,7 +287,7 @@ export function batonLabel(step: Pick<TradeStep, 'actors' | 'blocked'> | undefin
   const blocked = step?.blocked
   if (viewer && actors.includes(viewer)) {
     if (!blocked) return { text: 'Sua vez', tone: 'brand' }
-    return { text: blocked === 'signing' ? 'Aguardando sua assinatura — indisponível nesta interface' : 'Aguardando sua liberação — indisponível nesta interface', tone: 'neutral' }
+    return { text: blocked === 'signing' ? 'Assinatura indisponível aqui' : 'Liberação indisponível aqui', tone: 'neutral' }
   }
   const tone = blocked ? 'neutral' : 'brand'
   if (actors.length === 1) {
@@ -303,6 +303,19 @@ export function batonLabel(step: Pick<TradeStep, 'actors' | 'blocked'> | undefin
   const both = actors.every((a) => a === 'buyer' || a === 'seller')
   if (blocked) return { text: both ? 'Aguardando o comprador e o vendedor' : 'Aguardando mais de um participante', tone }
   return { text: both ? 'Vez do comprador e do vendedor' : 'Vez de mais de um participante', tone }
+}
+
+/**
+ * Visual tone of a rail stage (DECISIONS.md, Trade: "O avanço do trade tem cor"). done = brand
+ * blue (recorded, never success green); current = 'yours' when the viewer can act here, 'waiting'
+ * on someone else, 'attention' when disputed, expired or blocked in this interface; upcoming = neutral.
+ * Same rule as batonLabel's "Sua vez", so the ring and the marker never disagree.
+ */
+export type StageTone = 'done' | 'yours' | 'waiting' | 'attention' | 'upcoming'
+export function stageTone(step: Pick<TradeStep, 'state' | 'tone' | 'actors' | 'blocked'>, viewer: 'buyer' | 'seller' | null): StageTone {
+  if (step.state !== 'current') return step.state
+  if (step.tone || step.blocked) return 'attention'
+  return viewer && step.actors?.includes(viewer) ? 'yours' : 'waiting'
 }
 
 function action(i: TradeStateInput, cancelled: boolean): CurrentAction {

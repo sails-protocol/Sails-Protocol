@@ -32,7 +32,8 @@ export function CurrentActionCard({ view, acting, onAction, onOpenDispute, child
       aria-labelledby={titleId}
       className={cn(
         'rounded-lg border border-brand-border-subtle bg-brand-elevated p-4 border-t-4',
-        view.tone === 'action' ? 'border-t-brand-orange' : view.tone === 'attention' ? 'border-t-brand-warning' : 'border-t-brand-border',
+        // Same code as the rail (DESIGN_SYSTEM.md 5.5): orange = your action, blue = waiting, amber = attention, neutral = closed.
+        view.tone === 'action' ? 'border-t-brand-orange' : view.tone === 'waiting' ? 'border-t-brand-blue' : view.tone === 'attention' ? 'border-t-brand-warning' : 'border-t-brand-border',
       )}
     >
       <p className={cn(

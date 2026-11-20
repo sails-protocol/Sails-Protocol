@@ -614,13 +614,30 @@ mudanças de estado, mensagens do chat, disputas e prazos). Nada de switch que
 não faz nada.
 
 #### PaymentMethods (`ui/PaymentMethods.tsx`, Layer A)
-Recebe uma lista de rótulos. Linha do Market: até 2 e depois "+N" (`max`),
-1 + "+N" abaixo de `sm` (`maxNarrow`); oferta: lista completa. Mesmo visual do
-antigo `PaymentBadge` (texto secundário após um traço da marca). Leitor de tela
-ouve a lista inteira uma vez. Hoje a oferta tem um método só: todos passam
-`[offer.paymentMethod]`, a tela não muda. Filtro = "qualquer um" dos métodos
-escolhidos (`acceptsAnyMethod`). Vários métodos por oferta = schema + SDK
-(LOOSE_WIRES.multiPaymentMethods).
+Recebe uma lista de rótulos. Mesmo visual do antigo `PaymentBadge` (texto
+secundário após um traço da marca). Dois layouts:
+- `stack` (tabela do Market, detalhe da oferta): um método por linha, o padrão
+  de mercado P2P. Nomes longos quebram a linha em vez de serem cortados, e o
+  "+N" segue o texto do último item.
+- `inline` (cartão do Market no celular): uma linha só, um traço, nomes
+  separados por vírgula e depois "+N". Quebra a linha se precisar, nunca corta.
+
+Lista (Market): até `LIST_METHODS_MAX` = 3 métodos e depois "+N". Abaixo de
+`sm`, até `LIST_METHODS_MAX_NARROW` = 2 e depois "+N". Detalhe da oferta:
+todos. Máximo por oferta: `MAX_PAYMENT_METHODS` = 5 (`lib/paymentMethods.ts`;
+vira regra de contrato na issue #735). O leitor de tela ouve a lista inteira uma
+vez.
+
+A UI lê os métodos só por `offerPaymentMethods(offer)`. Dado real = 1 método.
+`demoPaymentMethods` existe apenas no modo demonstração (build de
+desenvolvimento). Filtro = "qualquer um" dos métodos escolhidos
+(`acceptsAnyMethod`).
+
+Publicar:
+- modo real: um método (Select);
+- modo demonstração: multisseleção (Combobox `multiple`) com contador
+  "N de 5", opções desabilitadas e aviso ao chegar a 5, e uma nota de
+  demonstração permanente.
 
 #### Item planejado (`ui/PlannedItem.tsx`, Layer A)
 Rótulo + badge "Em breve" (o mesmo das linhas planejadas) + descrição + popover
@@ -643,6 +660,57 @@ do Market. "Membro desde" no Perfil próprio = mês e ano (`formatMonthYear`,
   trade"; outro erro = mensagem sob o formulário. `sessionStorage`
   (`sails_ui_rated:<tradeId>`) lembra só nesta aba, por conveniência.
 - **Texto:** a avaliação é informativa e não muda a reputação (RFC-007).
+
+### 5.5 Trilho do trade (`trade/TradeRail.tsx`, 2026-11-20, DECISIONS.md "O avanço do trade tem cor")
+
+Um tom por etapa, de `stageTone(step, viewer)` (`lib/tradeState.ts`, testado em
+`tests/tradeRail.test.ts`). A mesma regra do "Sua vez" do bastão: o anel e o
+marcador nunca discordam. Sem token novo.
+
+| Tom | Quando | Círculo | Linha até a próxima | Sinal que não é cor |
+|---|---|---|---|---|
+| `done` | etapa registrada | preenchido `brand-blue`, check `brand-surface` | 2 px `brand-blue` | ícone de check, "concluída" (leitor) |
+| `yours` | etapa atual e o viewer pode agir aqui | anel `orange-accent` + pulso | 1 px `border` | número, pílula "Sua vez" (`bg-primary`) |
+| `waiting` | etapa atual esperando outra pessoa (ou viewer observador) | anel `brand-blue`, número `blue-fg` | 1 px `border` | número, bastão "Vez de …" (chip azul) |
+| `attention` | `blocked`, disputa ou prazo encerrado | anel `warning`, número `warning-fg` | — (o trilho para ali) | número, bastão neutro ou âmbar, status |
+| `upcoming` | ainda não | contorno `border` | 1 px `border` | número, texto secundário |
+
+- **Nunca verde:** concluído é o estado do registro, não finalidade de
+  liquidação (CTO 437). `COMPLETED` = todas as etapas `done`, trilho todo azul,
+  sem comemoração. Era cinza (`text-secondary`).
+- **Disputa e prazo encerrado** pintam a etapa em âmbar no trilho; o chip de
+  status continua com o tom dele (§2: disputa = perigo).
+- **Pulso:** `motion-safe:animate-rail-pulse` (`@keyframes sails-rail-pulse`,
+  só `transform`/`opacity`): um anel que cresce e some, 2 vezes de 2 s quando a
+  etapa aparece, e para (menos de 5 s: WCAG 2.2.2 sem botão de pausa). Sem pulso
+  com `prefers-reduced-motion` (fica o anel parado). Só na etapa `yours`.
+- **Bastão:** laranja cheio só no "Sua vez" (também numa etapa em disputa, como
+  a rodada da decisão que o viewer assina: o anel fica âmbar); a vez de outra
+  parte numa etapa normal = chip azul da marca (era laranja); numa etapa em
+  disputa ou com prazo encerrado = chip âmbar; espera indisponível = neutro.
+- **Trilho compacto (< 1024):** mesmo código em pontos: `done` ponto azul
+  cheio 8 px; atual = anel 10 px na cor do tom; futuro = contorno neutro.
+- **Cartão da etapa atual** (`CurrentActionCard`): faixa de 4 px no topo pelo
+  `tone`: `action` laranja, `waiting` azul (era neutra), `attention` âmbar,
+  `terminal` neutra.
+
+Contraste medido (anel/preenchimento ≥ 3:1, WCAG 1.4.11; texto ≥ 4.5:1),
+superfície / elevado:
+
+| | Claro | Escuro |
+|---|---|---|
+| `brand-blue` (preenchimento, anel, linha, faixa) | 5.17 / 4.74 | 6.42 / 5.67 |
+| `orange-accent` (anel, número) / `orange` (faixa) | 5.18 / 4.75 | 5.82 / 5.14 |
+| `warning` (anel, faixa) | 5.02 / 4.61 | 9.78 / 8.63 |
+| `border` (contorno futuro) | 3.59 / 3.30 | 3.43 / 3.03 |
+| check `brand-surface` sobre `brand-blue` | 5.17 | 6.42 |
+| número `blue-fg` / `warning-fg` | 6.70 / 7.09 | 6.42 / 9.78 |
+| "Sua vez" `primary-foreground` sobre `primary` | 5.22 | 6.63 |
+| chip azul: `blue-fg` sobre tint | 5.82 | 5.45 |
+
+Azul e laranja têm a mesma luminância (1.00 / 1.10 entre si): a diferença
+entre `waiting` e `yours` é o matiz mais o pulso e a pílula "Sua vez", nunca
+só a cor. Specimen em `/dev/design-system` → "Trilho do trade".
 
 ## 6. Guarda e exceções
 

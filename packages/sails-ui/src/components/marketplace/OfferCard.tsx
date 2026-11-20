@@ -51,7 +51,7 @@ export function OfferCard({ offer, own = false }: { offer: Offer; own?: boolean 
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-brand-text-secondary tabular-nums">
           <span className="whitespace-nowrap"><span className="sr-only">Limites: </span>{limits}</span>
-          <PaymentMethods labels={methods} max={LIST_METHODS_MAX} maxNarrow={LIST_METHODS_MAX_NARROW} className="text-xs" />
+          <PaymentMethods labels={methods} max={LIST_METHODS_MAX} maxNarrow={LIST_METHODS_MAX_NARROW} layout="inline" className="text-xs" />
         </div>
       </div>
       {own ? (

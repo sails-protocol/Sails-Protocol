@@ -37,6 +37,8 @@ import { SOON_NOTE, pickerPairs } from '../../lib/assetCatalog'
 import type { AssetType } from '../../types'
 import { nextSort, sortRows, type SortState } from '../../lib/sort'
 import { PaymentMethods } from '../../components/ui/PaymentMethods'
+import { TradeRail } from '../../components/trade/TradeRail'
+import { batonLabel, deriveTradeState, type TradeStateInput } from '../../lib/tradeState'
 import { OfferTable } from '../../components/marketplace/OfferTable'
 import { OfferCard } from '../../components/marketplace/OfferCard'
 import type { Offer } from '../../types'
@@ -266,6 +268,35 @@ const STATIC_TOASTS = [
   ['warning', 'Algumas ofertas podem não ter carregado', 'text-brand-inverse-warning', AlertTriangle],
   ['danger', 'Não foi possível copiar', 'text-brand-inverse-danger', XCircle],
 ] as const
+
+// Trilho do trade (DESIGN_SYSTEM.md 5.5): one real derivation per stage tone, example data only.
+const RAIL_BASE: TradeStateInput = {
+  tradeStatus: 'ACTIVE', escrowStatus: 'FUNDS_LOCKED', signingRoundKind: null, isBuyer: true, isSeller: false,
+  buyerId: 'buyer-demo', sellerId: 'seller-demo', escrowId: 'esc-demo-0001', escrowType: 'MOCK',
+  createdAt: '2026-11-20T09:00:00.000Z', escrowCreatedAt: '2026-11-20T09:05:00.000Z', lockedAt: '2026-11-20T09:20:00.000Z', completedAt: null, cancelledAt: null,
+}
+const RAIL_CASES: { name: string; viewer: 'buyer' | 'seller' | null; input: Partial<TradeStateInput> }[] = [
+  { name: 'Sua vez (laranja, pulso)', viewer: 'buyer', input: {} },
+  { name: 'Esperando a outra parte (azul)', viewer: 'seller', input: { isBuyer: false, isSeller: true } },
+  { name: 'Bloqueada nesta interface (âmbar)', viewer: 'seller', input: { escrowStatus: 'PAYMENT_PENDING', isBuyer: false, isSeller: true, releaseUnavailable: true } },
+  { name: 'Em disputa (âmbar, o trilho para)', viewer: 'buyer', input: { tradeStatus: 'DISPUTED', escrowStatus: 'DISPUTED', dispute: { status: 'OPENED', arbiterId: 'arbiter-demo' } } },
+  { name: 'Prazo encerrado (âmbar, o trilho para)', viewer: 'buyer', input: { escrowStatus: 'EXPIRED' } },
+  { name: 'Escrow marcado como concluído (todo azul)', viewer: 'buyer', input: { tradeStatus: 'COMPLETED', escrowStatus: 'COMPLETED', completedAt: '2026-11-20T10:00:00.000Z' } },
+]
+function RailSpecimen({ theme, vars }: { theme: Theme; vars: Vars | null }) {
+  // The theme's own variables on the wrapper, so both themes render side by side.
+  const style = (vars ? { ...vars.light, ...vars[theme] } : {}) as CSSProperties
+  return (
+    <div style={style} className="flex min-w-0 flex-col gap-3 rounded-lg bg-brand-bg p-3 text-brand-text">
+      <p className="text-caption font-medium text-brand-text-secondary">{theme === 'light' ? 'Claro' : 'Escuro'}</p>
+      {RAIL_CASES.map((c) => {
+        const st = deriveTradeState({ ...RAIL_BASE, ...c.input })
+        const baton = batonLabel(st.steps.find((x) => x.state === 'current'), c.viewer, { buyer: 'Alice', seller: 'Bob' })
+        return <TradeRail key={c.name} title={c.name} steps={st.steps} status={st.status} baton={baton} viewer={c.viewer} />
+      })}
+    </div>
+  )
+}
 
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
@@ -1002,6 +1033,13 @@ export function DesignSystemPreview() {
               )))}
             </tbody>
           </table>
+        </div>
+      </Section>
+
+      <Section id="ds-trade-rail" title="Trilho do trade">
+        <p className="mb-3 text-body-sm text-brand-text-secondary">Concluída = azul com check (nunca verde: concluído não é finalidade de liquidação). Sua vez = anel laranja com pulso (parado com movimento reduzido). Esperando = anel azul. Atenção = âmbar. Futura = contorno neutro. Abaixo de 1024 px: pontos com o mesmo código.</p>
+        <div className="grid gap-4 xl:grid-cols-2">
+          {(['light', 'dark'] as const).map((t) => <RailSpecimen key={t} theme={t} vars={vars} />)}
         </div>
       </Section>
     </div>
