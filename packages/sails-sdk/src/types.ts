@@ -366,6 +366,24 @@ export interface Message {
   createdAt: string
 }
 
+// POST /v1/openp2p/trades/:id/reconcile's real response (reconciliation.service.ts's ReconciliationResult, as it arrives over
+// JSON: createdAt is an ISO string). The items are NOT `Message`: they carry no tradeId and no readAt.
+export interface ReconciledMessage {
+  id: string
+  senderId: string
+  content: string
+  msgType: string
+  createdAt: string
+}
+
+export interface ReconciliationResult {
+  tradeId: string
+  currentTradeStatus: string
+  currentEscrowStatus: string | null
+  /** Messages created after the cursor, oldest first, at most 100. */
+  missedMessages: ReconciledMessage[]
+}
+
 // GET /v1/openp2p/chat/:tradeId/messages's real pagination shape
 // (chat.routes.ts) — same convention as PaginatedTrades/PaginatedDisputes/
 // LeaderboardResult above, plus nextOffset for the same reason

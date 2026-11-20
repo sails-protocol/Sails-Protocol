@@ -109,7 +109,8 @@ async function main(): Promise<void> {
 
   if (role === 'recover') {
     const reports = []
-    for (let i = 0; i < 3; i++) reports.push(await reconcilePendingSettlements({ projectionGraceMs: 0 }))
+    // No external-spend watch: see the drain() comment in wdkUnresolvedAttemptGuard.test.ts.
+    for (let i = 0; i < 3; i++) reports.push(await reconcilePendingSettlements({ projectionGraceMs: 0, externalSpendMinIntervalMs: Number.POSITIVE_INFINITY }))
     if (process.env.RECOVER_ONLY) {
       process.stdout.write('D7_RESULT ' + JSON.stringify({ manualReview: reports.some((r) => r.requiresManualReview.some((m: { escrowId: string }) => m.escrowId === escrowId)) }) + '\n')
       await prisma.$disconnect()

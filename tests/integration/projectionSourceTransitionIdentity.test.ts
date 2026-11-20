@@ -137,7 +137,7 @@ describe('Issue #253 - economic effects keyed on the source transition (real Pos
       await prisma.dispute.create({ data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'duplicate', status: 'RESOLVED', ruling: spec.ruling, arbiterId: 'k6-test-arbiter', resolvedAt: new Date() } })
       await prisma.vouch.create({ data: { voucherId: voucher.id, voucheeId: spec.ruling === 'RELEASE' ? seller.id : buyer.id } })
     }
-    return { kind, spec, tradeId: trade.id, intentId: trade.intentId as string | null, escrowId: escrow.id, sellerId: seller.id, buyerId: buyer.id, voucherId: voucher.id }
+    return { kind, spec, tradeId: trade.id, intentId: (trade.tradeIntentId ?? trade.intentId) as string | null, escrowId: escrow.id, sellerId: seller.id, buyerId: buyer.id, voucherId: voucher.id }
   }
   type Scenario = Awaited<ReturnType<typeof build>>
 

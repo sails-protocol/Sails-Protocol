@@ -457,6 +457,189 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
   })
 
+  describe('DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS (#311 item 3 — positive integer)', () => {
+    const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
+    const K = 'DISPUTE_AUTO_RESOLUTION_SWEEP_INTERVAL_MS'
+
+    it.each(['1.5', '100abc', '0', '-1', 'abc', '', ' 5', '5 ', '+5', '1e3', '0x10', '007', ' 300', '300 ', '2147483648', '3000000000', '9007199254740993', '99999999999999999999'])('refuses %p', (v) => {
+      expect(loadConfig({ ...dev, [K]: v })).toThrow(new RegExp(K))
+    })
+
+    it('accepts strict positive integers and defaults to 300000', () => {
+      expect(loadConfig({ ...dev, [K]: '1000' })().trade.disputeAutoResolutionSweepIntervalMs).toBe(1000)
+      jest.resetModules()
+      expect(loadConfig({ ...dev, [K]: '300000' })().trade.disputeAutoResolutionSweepIntervalMs).toBe(300000)
+      jest.resetModules()
+      expect(loadConfig({ ...dev, [K]: '1' })().trade.disputeAutoResolutionSweepIntervalMs).toBe(1)
+      jest.resetModules()
+      expect(loadConfig({ ...dev, [K]: '2147483647' })().trade.disputeAutoResolutionSweepIntervalMs).toBe(2147483647)
+      jest.resetModules()
+      expect(loadConfig({ ...dev, [K]: undefined })().trade.disputeAutoResolutionSweepIntervalMs).toBe(300000)
+    })
+
+    it('.env.example and the config no longer claim that QVAC applies the recommendation', () => {
+      const fs = require('fs')
+      const text = ['.env.example', 'src/config/index.ts'].map((f) => fs.readFileSync(require('path').join(__dirname, '..', f), 'utf8')).join(' ')
+      expect(text).not.toMatch(/Applies every AUTO_PROPOSED/)
+      expect(text).not.toMatch(/recommendation only applies once/)
+      expect(text).not.toMatch(/sweepExpiredAutoResolutions\(\) applies it/)
+      expect(text).toMatch(/advisory-only/)
+    })
+  })
+
+  // CTO 420 phase 2 - class A (direct timers): the six sweep/reconcile intervals feed setInterval in app.ts and the two request timeouts feed
+  // setTimeout(abort) in bounded-rpc.ts. Node turns a delay of 0, a negative one or one above 2147483647 into ~1 ms, so an interval fires in a
+  // tight loop and a timeout aborts every call at once. requiredStrictPositiveInt() (#688) refuses all of that at boot. Defaults are unchanged.
+  describe('class A timer variables (CTO 420 phase 2) - strict positive integer <= 2147483647', () => {
+    const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
+    const TIMERS: Array<[string, string, string, number]> = [
+      ['ESCROW_TIMELOCK_SWEEP_INTERVAL_MS', 'trade', 'timelockSweepIntervalMs', 300000],
+      ['ESCROW_SETTLEMENT_RECONCILE_INTERVAL_MS', 'trade', 'settlementReconcileIntervalMs', 60000],
+      ['MULTISIG_FEE_CONFIRMATION_SWEEP_INTERVAL_MS', 'trade', 'multisigFeeConfirmationSweepIntervalMs', 300000],
+      ['MULTISIG_FEE_REORG_SWEEP_INTERVAL_MS', 'trade', 'multisigFeeReorgSweepIntervalMs', 300000],
+      ['MULTISIG_FUNDING_REORG_SWEEP_INTERVAL_MS', 'trade', 'multisigFundingReorgSweepIntervalMs', 300000],
+      ['MULTISIG_RELEASE_REORG_SWEEP_INTERVAL_MS', 'trade', 'multisigReleaseReorgSweepIntervalMs', 300000],
+      ['MULTISIG_EXPLORER_TIMEOUT_MS', 'multisig', 'explorerRequestTimeoutMs', 8000],
+      ['SAFE_GUARD_EVM_RPC_TIMEOUT_MS', 'safeGuardEvm', 'rpcRequestTimeoutMs', 8000],
+    ]
+    const BAD = ['0', '-1', '-5000', '1.5', '100abc', '1e3', '0x10', '007', ' 5', '5 ', '+5', '', 'abc', '2147483648', '3000000000', '99999999999999999999']
+    const read = (env: string, group: string, key: string, value: string | undefined) => {
+      jest.resetModules()
+      return loadConfig({ ...dev, [env]: value })()[group][key]
+    }
+
+    describe.each(TIMERS)('%s', (env, group, key, dflt) => {
+      it.each(BAD)('refuses %p at boot', (v) => {
+        jest.resetModules()
+        expect(loadConfig({ ...dev, [env]: v })).toThrow(new RegExp(env))
+      })
+
+      it('refuses the same values in production', () => {
+        jest.resetModules()
+        expect(loadConfig({ ...REQUIRED_PROD_ENV, [env]: '2147483648' })).toThrow(new RegExp(env))
+        jest.resetModules()
+        expect(loadConfig({ ...REQUIRED_PROD_ENV, [env]: '1.5' })).toThrow(new RegExp(env))
+      })
+
+      it('accepts the borders 1 and 2147483647, an ordinary value, and keeps its default', () => {
+        expect(read(env, group, key, '1')).toBe(1)
+        expect(read(env, group, key, '2147483647')).toBe(2147483647)
+        expect(read(env, group, key, '1000')).toBe(1000)
+        expect(read(env, group, key, undefined)).toBe(dflt)
+      })
+    })
+
+    it('the two request timeouts refuse 2147483648 at boot instead of letting every explorer / RPC call abort immediately', () => {
+      const both = ['MULTISIG_EXPLORER_TIMEOUT_MS', 'SAFE_GUARD_EVM_RPC_TIMEOUT_MS']
+      for (const env of both) {
+        jest.resetModules()
+        // loadConfig() leaves what it sets in process.env: clear the other variable so each iteration tests ONE variable
+        const only = Object.fromEntries(both.map((k) => [k, k === env ? '2147483648' : undefined]))
+        expect(loadConfig({ ...dev, ...only })).toThrow(new RegExp(`${env} must be a strictly positive integer`))
+      }
+    })
+  })
+
+  describe('QVAC auto-resolution numeric knobs (#330 — fail-closed, strict parse)', () => {
+    const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
+    const T = 'QVAC_AUTO_RESOLUTION_CONFIDENCE_THRESHOLD'
+    const W = 'QVAC_AUTO_RESOLUTION_WINDOW_HOURS'
+
+    it.each(['0,85', 'abc', '-1', '1.5', '', ' ', 'Infinity', 'NaN', '0.85abc', '1e0'])('refuses threshold %p', (v) => {
+      expect(loadConfig({ ...dev, [T]: v })).toThrow(new RegExp(T))
+    })
+
+    it.each(['0', 'NaN', 'Infinity', '-5', '721', '0,5', 'abc', ''])('refuses window %p', (v) => {
+      expect(loadConfig({ ...dev, [W]: v })).toThrow(new RegExp(W))
+    })
+
+    it('also refuses invalid values in production', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, [T]: '0,85' })).toThrow(new RegExp(T))
+    })
+
+    it('accepts valid values and the defaults; auto-resolution stays OFF by default', () => {
+      const d = loadConfig({ ...dev })().settlement
+      expect(d.qvacAutoResolutionEnabled).toBe(false)
+      expect(d.qvacAutoResolutionConfidenceThreshold).toBe(0.85)
+      expect(d.qvacAutoResolutionWindowHours).toBe(24)
+      jest.resetModules()
+      const v = loadConfig({ ...dev, [T]: '1', [W]: '720' })().settlement
+      expect(v.qvacAutoResolutionConfidenceThreshold).toBe(1)
+      expect(v.qvacAutoResolutionWindowHours).toBe(720)
+      jest.resetModules()
+      const lo = loadConfig({ ...dev, [T]: '0', [W]: '0.5' })().settlement
+      expect(lo.qvacAutoResolutionConfidenceThreshold).toBe(0)
+      expect(lo.qvacAutoResolutionWindowHours).toBe(0.5)
+    })
+  })
+
+  // CTO 421 (Classe B) — each of these, with 0 / a negative / a fraction / a unit suffix, silently disabled its
+  // protection (measured: breaker never opens, WS lets 1000/1000 through, suspicious-activity detects nothing,
+  // Redis PEXPIRE <= 0 deletes the rate-limit key). Strict positive integer, no timer cap, defaults unchanged.
+  describe('security windows and thresholds (CTO 421 — strict positive integer, no cap)', () => {
+    const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
+    const cases: Array<[string, (c: any) => number, number]> = [
+      ['RATE_LIMIT_AUTH_WINDOW_MS', (c) => c.rateLimit.authWindowMs, 60000],
+      ['RATE_LIMIT_CRITICAL_WINDOW_MS', (c) => c.rateLimit.criticalWindowMs, 60000],
+      ['RATE_LIMIT_WS_MESSAGE_WINDOW_MS', (c) => c.rateLimit.wsMessageWindowMs, 10000],
+      ['SUSPICIOUS_AUTH_FAILURE_MAX', (c) => c.suspiciousActivity.authFailureMax, 8],
+      ['SUSPICIOUS_AUTH_FAILURE_WINDOW_MS', (c) => c.suspiciousActivity.authFailureWindowMs, 300000],
+      ['SUSPICIOUS_NOT_FOUND_MAX', (c) => c.suspiciousActivity.notFoundClusterMax, 15],
+      ['SUSPICIOUS_NOT_FOUND_WINDOW_MS', (c) => c.suspiciousActivity.notFoundClusterWindowMs, 300000],
+      ['SUSPICIOUS_RATE_LIMITED_MAX', (c) => c.suspiciousActivity.rateLimitedMax, 3],
+      ['SUSPICIOUS_RATE_LIMITED_WINDOW_MS', (c) => c.suspiciousActivity.rateLimitedWindowMs, 300000],
+      ['ESCROW_BREAKER_WINDOW_MS', (c) => c.escrowCircuitBreaker.windowMs, 30000],
+      ['ESCROW_BREAKER_COOLDOWN_MS', (c) => c.escrowCircuitBreaker.cooldownMs, 120000],
+    ]
+    const refused = ['0', '-1', '-1000', '0.5', '1.5', '30s', '10000ms', '5m', '', ' ', 'abc', 'NaN', ' 5', '5 ', '+5', '1e3', '0x10', '007', '9007199254740993']
+
+    describe.each(cases)('%s', (K, read, fallback) => {
+      it.each(refused)('refuses %p at boot', (v) => {
+        expect(loadConfig({ ...dev, [K]: v })).toThrow(new RegExp(`${K} must be a strictly positive integer`))
+      })
+
+      it('accepts strict positive integers, with no timer cap, and keeps the default', () => {
+        for (const [v, expected] of [['1', 1], ['60000', 60000], ['2147483648', 2147483648], ['3000000000', 3000000000]] as const) {
+          jest.resetModules()
+          expect(read(loadConfig({ ...dev, [K]: v })())).toBe(expected)
+        }
+        jest.resetModules()
+        expect(read(loadConfig({ ...dev, [K]: undefined })())).toBe(fallback)
+      })
+    })
+
+    it('leaves the fail-closed-only knobs on their existing parser (ESCROW_BREAKER_FAILURE_THRESHOLD, RATE_LIMIT_WS_MESSAGE_MAX)', () => {
+      const c = loadConfig({ ...dev, ESCROW_BREAKER_FAILURE_THRESHOLD: '0', RATE_LIMIT_WS_MESSAGE_MAX: '0' })()
+      expect(c.escrowCircuitBreaker.failureThreshold).toBe(0)
+      expect(c.rateLimit.wsMessageMax).toBe(0)
+    })
+  })
+
+  describe('METRICS_ENABLED (CTO 429 — /metrics off by default in production, strict parse)', () => {
+    const dev = { NODE_ENV: 'development', DATABASE_URL: undefined, REDIS_URL: undefined, ENFORCE_CAPABILITIES: undefined, MOCK_ESCROW: undefined, MOCK_SETTLEMENT: undefined, MULTISIG_NETWORK: undefined }
+
+    it('defaults to OFF in production when unset', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, METRICS_ENABLED: undefined })().observability.metricsEnabled).toBe(false)
+    })
+
+    it('defaults to ON outside production when unset', () => {
+      expect(loadConfig({ ...dev, METRICS_ENABLED: undefined })().observability.metricsEnabled).toBe(true)
+    })
+
+    it('METRICS_ENABLED=true enables it in production (explicit opt-in)', () => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, METRICS_ENABLED: 'true' })().observability.metricsEnabled).toBe(true)
+    })
+
+    it('METRICS_ENABLED=false disables it outside production', () => {
+      expect(loadConfig({ ...dev, METRICS_ENABLED: 'false' })().observability.metricsEnabled).toBe(false)
+    })
+
+    it.each(['TRUE', 'False', '1', '0', 'yes', '', ' true', 'true '])('refuses to boot for the invalid value %p, in production and outside it', (v) => {
+      expect(loadConfig({ ...REQUIRED_PROD_ENV, METRICS_ENABLED: v })).toThrow(/METRICS_ENABLED/)
+      expect(loadConfig({ ...dev, METRICS_ENABLED: v })).toThrow(/METRICS_ENABLED/)
+    })
+  })
+
   describe('a fully correct production configuration boots cleanly', () => {
     it('every gate satisfied at once — no throw, all values reflect what was set', () => {
       const load = loadConfig(REQUIRED_PROD_ENV)

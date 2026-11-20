@@ -137,7 +137,7 @@ function bytesToBigIntLE(bytes: Uint8Array): bigint {
  * it is a pure range check on already-decoded integers, layered in
  * front of the existing, unmodified `nacl.sign.detached.verify()` call.
  */
-function isCanonicalEd25519Encoding(signatureBytes: Uint8Array, publicKeyBytes: Uint8Array): boolean {
+export function isCanonicalEd25519Encoding(signatureBytes: Uint8Array, publicKeyBytes: Uint8Array): boolean {
   if (signatureBytes.length !== 64 || publicKeyBytes.length !== 32) return false
   const yMask = (1n << 255n) - 1n // clears the sign bit (bit 255), leaving only the y-coordinate bits
 
