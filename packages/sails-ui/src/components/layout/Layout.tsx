@@ -60,7 +60,7 @@ export function Layout() {
             navigation. Theme and "Rever tour" stay here on mobile until
             the mobile lot; on desktop they live in Configurações. */}
         <header className="md:hidden h-14 flex items-center justify-between px-4 border-b border-brand-border-subtle sticky top-0 z-40 bg-brand-bg/90 backdrop-blur">
-          <Link to="/" className="font-display font-bold text-brand-text tracking-tight">
+          <Link to="/" className="font-display font-semibold text-brand-text tracking-tight">
             Sails <span className="text-brand-orange-accent">Market</span>
           </Link>
           <div className="flex items-center gap-5">
@@ -92,7 +92,7 @@ export function Layout() {
             spanning edge-to-edge. A modest widen, not full-bleed —
             dense market/table content still benefits from a line-length
             cap, just a less conservative one now that a sidebar exists. */}
-        <main className="max-w-7xl mx-auto px-4 py-6 pb-20 md:pb-6">
+        <main className="max-w-7xl mx-auto px-4 md:px-6 py-6 pb-20 md:pb-8">
           <Outlet context={{ replayTour: () => setTourOpen(true) } satisfies LayoutOutletContext} />
         </main>
       </div>

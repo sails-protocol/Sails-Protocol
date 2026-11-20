@@ -14,6 +14,7 @@ import { Switch } from '../components/ui/switch'
 import { ListSkeleton } from '../components/ui/skeleton'
 import { buttonVariants } from '../components/ui/button'
 import { cn } from '../lib/utils'
+import { Page, PageHeader } from '../components/layout/PageHeader'
 
 /**
  * LOOSE_WIRES: every planned ("Em breve") row on this page and the contract
@@ -69,9 +70,9 @@ export function Settings() {
   const groupClass = (id: string) => cn('mb-8 md:mb-0', active !== id && 'md:hidden')
 
   return (
-    <div>
-      <h1 className="text-page-title">Configurações</h1>
-      <div className="mt-6 md:grid md:grid-cols-[13rem_minmax(0,1fr)] md:gap-8 md:items-start">
+    <Page width="detail">
+      <PageHeader title="Configurações" />
+      <div className="md:grid md:grid-cols-[13rem_minmax(0,1fr)] md:gap-8 md:items-start">
         <nav aria-label="Seções de configurações" className="hidden md:flex md:flex-col gap-1 sticky top-20">
           {SECTIONS.map((s) => (
             <button
@@ -81,10 +82,10 @@ export function Settings() {
               aria-controls={s.id}
               aria-current={active === s.id ? 'true' : undefined}
               className={cn(
-                'flex items-center gap-3 min-h-11 rounded-lg border-l-2 px-3 text-sm font-medium text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange-accent',
+                'flex items-center gap-3 min-h-11 md:min-h-9 rounded-md px-3 text-sm font-medium text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange-accent',
                 active === s.id
-                  ? 'border-brand-orange-accent bg-brand-orange-accent/10 text-brand-orange-hover'
-                  : 'border-transparent text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text'
+                  ? 'bg-brand-orange-accent/10 text-brand-orange-hover'
+                  : 'text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text'
               )}
             >
               <s.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -159,6 +160,6 @@ export function Settings() {
           </SettingsGroup>
         </div>
       </div>
-    </div>
+    </Page>
   )
 }

@@ -9,7 +9,6 @@ import type { MarketplaceFilters } from '../types'
 export function countActiveFilters(filters: MarketplaceFilters): number {
   return [
     filters.negotiableOnly,
-    filters.highReputationOnly,
     filters.previouslyTradedOnly,
     filters.amount !== '',
     filters.paymentMethods.length > 0,

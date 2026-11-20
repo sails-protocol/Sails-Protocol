@@ -1,6 +1,7 @@
 import { Link } from 'react-router'
 import type { Offer } from '../../types'
 import { UserAvatar } from '../ui/UserAvatar'
+import { PaymentBadge } from '../ui/StatusBadges'
 import { buttonVariants } from '../ui/button'
 import { formatAmount } from '../../lib/format'
 import { formatPrice } from '../../lib/currency'
@@ -71,10 +72,7 @@ function OfferTableRow({ offer }: { offer: Offer }) {
       </td>
       <td className="py-3 px-4 text-[13px] text-brand-text-secondary tabular-nums whitespace-nowrap">{limits}</td>
       <td className="py-3 px-4">
-        <span className="inline-flex items-center gap-1.5 text-[13px] text-brand-text-secondary whitespace-nowrap">
-          <span aria-hidden="true" className="h-3 w-0.5 rounded-full bg-brand-orange-accent" />
-          {PAYMENT_METHOD_LABELS[offer.paymentMethod]}
-        </span>
+        <PaymentBadge method={offer.paymentMethod} />
       </td>
       <td className="py-3 pl-4 pr-5 text-right">
         <Link

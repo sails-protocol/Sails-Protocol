@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
-import { ASSETS_FILTERABLE, HIGH_REPUTATION_THRESHOLD, PAYMENT_METHODS_FILTERABLE } from '../data/mock'
+import { ASSETS_FILTERABLE, PAYMENT_METHODS_FILTERABLE } from '../data/mock'
 import { fetchOffers } from '../lib/realOffers'
 import { countActiveFilters } from '../lib/filters'
 import { OfferCard } from '../components/marketplace/OfferCard'
@@ -15,6 +15,8 @@ import { AgentIntentionPanel } from '../components/agent/AgentIntentionPanel'
 import { Button, buttonVariants } from '../components/ui/button'
 import { ListSkeleton } from '../components/ui/skeleton'
 import { cn } from '../lib/utils'
+import { Page, PageHeader } from '../components/layout/PageHeader'
+import { StateBlock } from '../components/ui/StateBlock'
 import { Input } from '../components/ui/input'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../components/ui/select'
 import { SlidersHorizontal, AlertTriangle, SearchX, Plus } from 'lucide-react'
@@ -139,7 +141,6 @@ export function Marketplace() {
       if (side !== 'Todos' && o.side !== side) return false
       if (search && !o.user.displayName?.toLowerCase().includes(search.toLowerCase())) return false
       if (filters.negotiableOnly && o.blockedRelationship) return false
-      if (filters.highReputationOnly && o.user.reputationScore < HIGH_REPUTATION_THRESHOLD) return false
       if (filters.previouslyTradedOnly && !o.tradedWithCurrentUser) return false
       if (filters.country !== 'Todos' && o.country !== filters.country) return false
       if (filters.paymentMethods.length > 0 && !filters.paymentMethods.includes(o.paymentMethod)) return false
@@ -161,9 +162,10 @@ export function Marketplace() {
           aria-pressed={side === s.value}
           onClick={() => setSide(s.value)}
           className={cn(
-            'rounded-md px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'rounded-md px-3 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             buttonClass,
-            side === s.value ? 'bg-primary text-primary-foreground font-medium' : 'text-brand-text-secondary hover:text-brand-text'
+            // Quiet selected state: the page's one solid orange is "Nova oferta".
+            side === s.value ? 'bg-brand-surface text-brand-text font-medium ring-1 ring-brand-border' : 'text-brand-text-secondary hover:text-brand-text'
           )}
         >
           {s.label}
@@ -186,25 +188,24 @@ export function Marketplace() {
   )
 
   return (
-    <div>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-page-title">Market</h1>
-          {/* Live region: announces the result count (including 0) as filters change. */}
-          <p className="text-metadata mt-1" role="status">{loadingOffers ? 'Carregando ofertas' : `${offers.length} ${offers.length === 1 ? 'oferta disponível' : 'ofertas disponíveis'}`} · Powered by Satsails</p>
-        </div>
-        {/* Desktop: the side segment sits with the page title (tabs above the filter bar), which keeps
-            every other filter plus sort and search on one bar row at 1280. */}
-        <div className="flex items-center gap-3 shrink-0">
-          {sideSegment('hidden md:flex', 'py-1.5')}
+    <Page>
+      <PageHeader
+        className="mb-4"
+        title="Market"
+        // Only the count is a live region (announced as filters change); the attribution is static.
+        meta={<><span role="status">{loadingOffers ? 'Carregando ofertas' : `${offers.length} ${offers.length === 1 ? 'oferta disponível' : 'ofertas disponíveis'}`}</span> · Powered by Satsails</>}
+        // Desktop: the side segment sits with the page title, which keeps every other filter plus sort and
+        // search on one bar row at 1280. The one solid primary of the page is "Nova oferta".
+        actions={<>
+          {sideSegment('hidden md:flex', 'h-7')}
           <Link to="/profile/new-offer" className={cn(buttonVariants({ className: 'shrink-0 min-h-11 md:min-h-10 px-4' }))}>
             <Plus aria-hidden="true" />
             Nova oferta
           </Link>
-        </div>
-      </div>
+        </>}
+      />
 
-      <div className="mt-4">
+      <div>
         <AgentIntentionPanel
           matchCount={offers.length}
           onIntentGenerated={(a, s, c) => {
@@ -243,7 +244,7 @@ export function Marketplace() {
       </div>
 
       {/* One compact control row on the page background; the table below is the only surface. */}
-      <div className="hidden md:flex mt-5 flex-wrap gap-2 items-center">
+      <div className="hidden md:flex mt-4 flex-wrap gap-2 items-center">
         <div className="flex flex-wrap gap-2 items-center">
           <AssetPicker assets={ASSETS_FILTERABLE} value={asset} onChange={setAsset} />
           <CurrencyPicker value={currency} onChange={setCurrency} />
@@ -257,7 +258,7 @@ export function Marketplace() {
             variant="outline"
             onClick={() => setFilterPanelOpen(true)}
             aria-label={activeFilterCount > 0 ? `Filtros, ${activeFilterCount} ${activeFilterCount === 1 ? 'ativo' : 'ativos'}` : 'Filtros'}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm relative border-brand-border bg-brand-elevated hover:bg-brand-elevated hover:border-brand-border-hover"
+            className="flex items-center gap-1.5 h-9 px-3 text-sm relative border-brand-border bg-brand-elevated hover:bg-brand-elevated hover:border-brand-border-hover"
           >
             <SlidersHorizontal className="h-4 w-4" />
             Filtros
@@ -344,7 +345,7 @@ export function Marketplace() {
 
       {/* Surface without an outline; rows carry at most one hairline. Desktop (xl+) is a real
           <table> (OfferTable); below xl the compact OfferCard list stays. */}
-      <div id="marketplace-offer-grid" tabIndex={-1} aria-label="Resultados" className="mt-3 rounded-xl overflow-hidden bg-brand-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_li:last-child>a]:border-b-0">
+      <div id="marketplace-offer-grid" tabIndex={-1} aria-label="Resultados" className="mt-3 rounded-lg border border-brand-border-subtle overflow-hidden bg-brand-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_li:last-child>a]:border-b-0">
         {loadingOffers ? (
           <ListSkeleton label="Carregando ofertas" rows={5} rowClassName="h-[10.125rem] xl:h-[4.25rem] xl:px-5" />
         ) : (
@@ -365,26 +366,18 @@ export function Marketplace() {
                 (icon + primary message + supporting detail), not something
                 that reads like an error the layout forgot to fill. */}
             {offers.length === 0 && (
-              <div className="flex flex-col items-center justify-center gap-3 py-16 px-6 text-center">
-                {offersError ? (
-                  <AlertTriangle className="h-8 w-8 text-brand-warning/70" aria-hidden="true" />
-                ) : (
-                  <SearchX className="h-8 w-8 text-brand-text-muted" aria-hidden="true" />
-                )}
-                <p className="text-section-title">
-                  {offersError ? 'Não foi possível carregar as ofertas' : 'Nenhuma oferta encontrada'}
-                </p>
-                <p className="text-metadata max-w-xs">
-                  {offersError
-                    ? 'Verifique sua conexão e tente novamente.'
-                    : 'Ajuste os filtros ou o ativo selecionado para ver mais resultados.'}
-                </p>
-                {offersError ? (
-                  <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-11 md:min-h-9 px-4 text-sm">Tentar novamente</Button>
-                ) : hasAnyFilter && (
-                  <Button variant="outline" onClick={() => clearAll(true)} className="min-h-11 md:min-h-9 px-4 text-sm">Limpar filtros</Button>
-                )}
-              </div>
+              <StateBlock
+                bare
+                kind={offersError ? 'error' : 'empty'}
+                icon={offersError ? AlertTriangle : SearchX}
+                title={offersError ? 'Não foi possível carregar as ofertas' : 'Nenhuma oferta encontrada'}
+                description={offersError ? 'Verifique sua conexão e tente novamente.' : 'Ajuste os filtros ou o ativo selecionado para ver mais resultados.'}
+                action={offersError ? (
+                  <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-11 md:min-h-9 px-4">Tentar novamente</Button>
+                ) : hasAnyFilter ? (
+                  <Button variant="outline" onClick={() => clearAll(true)} className="min-h-11 md:min-h-9 px-4">Limpar filtros</Button>
+                ) : undefined}
+              />
             )}
           </>
         )}
@@ -397,6 +390,6 @@ export function Marketplace() {
         onChange={setFilters}
         currency="USD" // the amount filter compares in USD, the only unit list prices have (offerAcceptsUsdAmount)
       />
-    </div>
+    </Page>
   )
 }

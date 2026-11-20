@@ -39,7 +39,7 @@ export function TradeHeader({ title, tradeId, createdAtLabel, status, leading }:
           {status.label}
         </span>
       </div>
-      <h1 className="mt-1 text-xl font-semibold text-brand-text [overflow-wrap:anywhere]">{title}</h1>
+      <h1 className="mt-1 text-page-title [overflow-wrap:anywhere]">{title}</h1>
       <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-brand-text-secondary">
         <span>Trade <span className="font-mono">#{tradeId.slice(0, 8)}</span></span>
         <CopyButton value={tradeId} label="Copiar" className="min-h-11 px-3 sm:min-h-0 sm:py-1" />

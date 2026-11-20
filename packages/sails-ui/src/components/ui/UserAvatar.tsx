@@ -42,7 +42,7 @@ export function UserAvatar({
         : 'Offline — saiu da sala de chat deste trade'
   return (
     <div className="relative shrink-0">
-      <div className={`${SIZES[size]} rounded-full bg-brand-orange-accent/15 border border-brand-orange-accent/25 text-brand-orange-hover font-bold flex items-center justify-center`}>
+      <div className={`${SIZES[size]} rounded-full bg-brand-orange-accent/15 border border-brand-orange-accent/25 text-brand-orange-hover font-semibold flex items-center justify-center`}>
         {initial}
       </div>
       {showPresence && (

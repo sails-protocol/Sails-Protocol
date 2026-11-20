@@ -30,14 +30,14 @@ export function TradeCard({ trade, onRelease }: TradeCardProps) {
         <TradeStatusBadge status={trade.status} />
       </CardHeader>
       <CardContent>
-        <p className="text-2xl font-bold text-brand-text">
+        <p className="text-2xl font-semibold text-brand-text">
           {formatAmount(Number(trade.amount))} {ASSET_SHORT_LABELS[trade.asset]}
         </p>
         {/* Only offered mid-flow — releasing funds on a COMPLETED/DISPUTED/
             CANCELLED trade isn't a valid action. */}
         {onRelease && trade.status === 'ACTIVE' && (
           <Button type="button" className="w-full mt-4" onClick={onRelease}>
-            Liberar Fundos
+            Liberar fundos
           </Button>
         )}
       </CardContent>

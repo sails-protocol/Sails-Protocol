@@ -27,7 +27,9 @@ import { TradeParties } from '../components/trade/TradeParties'
 import { TradeDisputePanel } from '../components/trade/TradeDisputePanel'
 import { ChatWindow } from '../components/chat/ChatWindow'
 import { AgentRiskCard } from '../components/agent/AgentRiskCard'
-import { Button } from '../components/ui/button'
+import { Button, buttonVariants } from '../components/ui/button'
+import { StateBlock } from '../components/ui/StateBlock'
+import { cn } from '../lib/utils'
 import { Textarea } from '../components/ui/textarea'
 import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
 import { Lock, Banknote, ArrowLeft } from 'lucide-react'
@@ -62,8 +64,8 @@ import { ASSET_LABELS, ASSET_SHORT_LABELS, DISPUTE_RULING_LABEL, PAYMENT_METHOD_
 // ReputationScore doesn't carry a BTC-volume figure — cumulativeFeesObserved
 // is a fee total, not a volume one); placeholders below are safe because
 // TradeParties.tsx's PartyRow never actually renders either field for a
-// trade's buyer/seller — only displayName, positiveFeedbackPct()'s
-// totalTrades/disputeCount, and verified matter there.
+// trade's buyer/seller — only displayName, the trust line's
+// reputationScore/totalTrades/disputeCount, and verified matter there.
 function toParticipantUser(
   p: Awaited<ReturnType<typeof sailsClient.identity.get>>,
   rep: Awaited<ReturnType<typeof sailsClient.reputation.get>>,
@@ -761,7 +763,7 @@ export function Trade() {
   }
 
   if (loading) {
-    return <div className="text-center py-16 text-brand-text-muted">Carregando trade...</div>
+    return <StateBlock kind="loading" title="Carregando trade" />
   }
 
   // Real gap found live (2026-08-15): getTrade() requires an authenticated
@@ -778,30 +780,33 @@ export function Trade() {
   // it back) — this mirrors that same established pattern.
   if (!user) {
     return (
-      <div className="text-center py-16">
-        <p className="text-brand-text-secondary mb-3">Conecte sua wallet para ver este trade.</p>
-        <Button onClick={() => navigate('/login', { state: { from: location.pathname } })} className="mx-auto">
-          Conectar wallet
-        </Button>
-      </div>
+      <StateBlock
+        kind="signedOut"
+        title="Conecte sua wallet"
+        description="Conecte sua wallet para ver este trade."
+        action={<Button onClick={() => navigate('/login', { state: { from: location.pathname } })} className="min-h-11 md:min-h-10 px-4">Conectar wallet</Button>}
+      />
     )
   }
 
   if (loadError === 'failed') {
     return (
-      <div className="text-center py-16" role="alert">
-        <p className="text-brand-text-secondary mb-3">Não foi possível carregar este trade. Verifique sua conexão e tente novamente.</p>
-        <Button onClick={() => setReloadKey((k) => k + 1)} className="mx-auto min-h-11">Tentar novamente</Button>
-      </div>
+      <StateBlock
+        kind="error"
+        title="Não foi possível carregar este trade"
+        description="Verifique sua conexão e tente novamente."
+        action={<Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-11 md:min-h-9 px-4">Tentar novamente</Button>}
+      />
     )
   }
 
   if (!trade || !buyer || !seller) {
     return (
-      <div className="text-center py-16" role="alert">
-        <p className="text-brand-text-secondary">Trade não encontrado.</p>
-        <Link to="/" className="text-sm text-brand-orange-accent underline mt-2 inline-block">Voltar ao Marketplace</Link>
-      </div>
+      <StateBlock
+        kind="empty"
+        title="Trade não encontrado"
+        action={<Link to="/" className={cn(buttonVariants({ className: 'min-h-11 md:min-h-10 px-4' }))}>Voltar ao Market</Link>}
+      />
     )
   }
 
@@ -938,7 +943,7 @@ export function Trade() {
             >
               {fundingView && <FundingInstructionCard view={fundingView} />}
               {state.payoutStep === 'checkFailed' && (
-                <div className="mt-4 flex flex-col gap-2 rounded-md border border-brand-border-subtle bg-brand-surface p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mt-4 pt-4 border-t border-brand-border-subtle flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <p role="status" className="text-sm text-brand-text-secondary">Não foi possível verificar seu endereço de recebimento.</p>
                   <Button variant="outline" onClick={() => setPayoutCheckRun((n) => n + 1)} className="min-h-11 shrink-0 text-sm">Tentar novamente</Button>
                 </div>
@@ -947,7 +952,7 @@ export function Trade() {
                 // M8-R2 — the BENEFICIARY registers their OWN destination
                 // (setPayoutAddress()); the seller never chooses it. Release
                 // resolves this address server-side and fails without one.
-                <div className="mt-4 rounded-md border border-brand-border-subtle bg-brand-surface p-3">
+                <div className="mt-4 pt-4 border-t border-brand-border-subtle">
                   <p className="text-sm font-semibold text-brand-text">Cadastre seu endereço de recebimento</p>
                   <p className="mt-0.5 text-sm text-brand-text-secondary">
                     A liberação dos fundos para você falha enquanto não houver um endereço cadastrado para {ASSET_LABELS[trade.asset]}.
@@ -963,7 +968,7 @@ export function Trade() {
           ) : (
             <section
               aria-labelledby="dispute-form-title"
-              className="rounded-lg border border-brand-border bg-brand-elevated p-4"
+              className="rounded-lg border border-brand-border-subtle bg-brand-elevated p-4"
               onKeyDown={(e) => { if (e.key === 'Escape') cancelDisputeForm() }}
             >
               <h2 id="dispute-form-title" className="text-base font-semibold text-brand-text">Abrir disputa</h2>

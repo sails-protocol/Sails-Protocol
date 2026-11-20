@@ -313,7 +313,3 @@ export const COUNTRIES: { code: string; label: string }[] = [
   { code: 'ZM', label: 'Zâmbia' },
   { code: 'ZW', label: 'Zimbábue' },
 ]
-
-// Threshold for the "somente comerciantes com alta reputação" filter —
-// illustrative, not derived from any real scoring rubric.
-export const HIGH_REPUTATION_THRESHOLD = 90

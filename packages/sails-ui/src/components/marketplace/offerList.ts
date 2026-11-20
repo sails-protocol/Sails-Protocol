@@ -1,4 +1,5 @@
 import type { MarketplaceSort, Offer } from '../../types'
+import { trustParts } from '../../lib/reputation'
 
 /**
  * Seller cell for the Market list: name plus one compact trust line.
@@ -10,9 +11,7 @@ export function sellerTrust(offer: Offer): { name: string | null; parts: string[
   // Real summaries carry `makerStats` (fields undefined when the route did not return them);
   // offers built from a full User (mock data) use that User's counters.
   const stats = offer.makerStats ?? offer.user
-  const parts = [`Reputação ${offer.user.reputationScore.toFixed(0)}`]
-  if (stats.totalTrades !== undefined) parts.push(`${stats.totalTrades} ${stats.totalTrades === 1 ? 'trade' : 'trades'}`)
-  if (stats.disputeCount !== undefined) parts.push(`${stats.disputeCount} ${stats.disputeCount === 1 ? 'disputa' : 'disputas'}`)
+  const parts = trustParts({ reputationScore: offer.user.reputationScore, totalTrades: stats.totalTrades, disputeCount: stats.disputeCount })
   return { name: offer.user.displayName || null, parts }
 }
 

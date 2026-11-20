@@ -274,14 +274,13 @@ export type PaymentTimeLimit = 'Todos' | '15' | '30' | '45' | '60' | '24h'
 export type MarketplaceSort = 'price' | 'trades' | 'reputation'
 
 // Advanced filter state — Binance P2P-style, requested directly.
-// negotiableOnly/highReputationOnly/previouslyTradedOnly filter against
+// negotiableOnly/previouslyTradedOnly filter against
 // the UI-only demonstration fields on Offer (see that type's own
 // comments) — a real implementation needs a real block-list and a real
 // trade-history join, neither of which exist in the backend yet.
 export interface MarketplaceFilters {
   saveForNext: boolean
   negotiableOnly: boolean
-  highReputationOnly: boolean
   previouslyTradedOnly: boolean
   amount: string
   paymentTimeLimit: PaymentTimeLimit
@@ -293,7 +292,6 @@ export interface MarketplaceFilters {
 export const DEFAULT_FILTERS: MarketplaceFilters = {
   saveForNext: false,
   negotiableOnly: false,
-  highReputationOnly: false,
   previouslyTradedOnly: false,
   amount: '',
   paymentTimeLimit: 'Todos',

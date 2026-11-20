@@ -13,20 +13,18 @@ import { Check } from 'lucide-react'
 // Dense list-row layout (2026-07-28 visual redesign) replacing the
 // bordered-card-in-a-grid shape — matches Marketplace.tsx's switch from
 // a card grid to a single hairline-divided list (Binance P2P/Airtm/El
-// Dorado's actual offer-listing layout). Side reads instantly off the
-// left accent border instead of only a badge; the fixed-width columns
+// Dorado's actual offer-listing layout). The CTA label names the side;
+// the fixed-width columns
 // below only take effect at md+ (mobile keeps the old stacked reading
 // order via .offer-row's own flex-col default).
 export function OfferCard({ offer }: { offer: Offer }) {
-  const sideAccent = offer.side === 'BUY' ? 'border-l-green-500' : 'border-l-red-500'
-
   const action = offer.side === 'SELL' ? 'Comprar' : 'Vender'
   const { name, parts } = sellerTrust(offer)
   // One concise accessible name instead of every cell's text read in a row.
   const label = `Oferta de ${ASSET_LABELS[offer.asset]} por ${formatPrice(offer.priceFiat, offer.fiatCurrency)}, ${name ?? 'Anunciante'}, ${PAYMENT_METHOD_LABELS[offer.paymentMethod]}, limites ${formatAmount(offer.minAmount)} a ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}: ${action}`
 
   return (
-    <Link to={`/offer/${offer.id}`} aria-label={label} className={`offer-row ${sideAccent}`}>
+    <Link to={`/offer/${offer.id}`} aria-label={label} className="offer-row">
       {/* Mobile: 2 paired rows (trader+payment, asset/side+price) instead of
           5 stacked full-width blocks — the original one-column-per-line
           layout was technically responsive but way too tall per offer once
@@ -68,13 +66,13 @@ export function OfferCard({ offer }: { offer: Offer }) {
 
       {/* No side badge: it named the advertiser's side ("COMPRAR") next to
           a CTA naming the viewer's action ("Vender"). The CTA alone says
-          what the viewer does; the left accent keeps the side colour. */}
+          what the viewer does. */}
       <div className="flex items-center justify-between gap-3 xl:contents">
         <div className="shrink-0 xl:order-2 xl:w-36">
           <AssetBadge asset={offer.asset} />
         </div>
         <div className="min-w-0 text-right xl:order-3 xl:text-left xl:flex-1">
-          <div className="text-xl font-bold text-brand-text tabular-nums leading-tight whitespace-nowrap">
+          <div className="text-lg font-semibold text-brand-text tabular-nums leading-tight whitespace-nowrap">
             {formatPrice(offer.priceFiat, offer.fiatCurrency)}
           </div>
           <div className="text-xs text-brand-text-muted">

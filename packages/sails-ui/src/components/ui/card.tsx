@@ -9,7 +9,8 @@ const Card = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      "rounded-lg border bg-card text-card-foreground shadow-sm",
+      // Subtle hairline on every card (no per-page overrides); tonal contrast with the page does the separating.
+      "rounded-lg border border-brand-border-subtle bg-card text-card-foreground",
       className
     )}
     {...props}

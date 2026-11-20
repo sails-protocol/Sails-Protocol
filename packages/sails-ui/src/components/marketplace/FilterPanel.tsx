@@ -1,7 +1,7 @@
 /**
  * Advanced filters drawer — Binance P2P-style, requested directly with
  * exact option wording and an "i" info icon per option explaining what
- * it does. `negotiableOnly`/`highReputationOnly`/`previouslyTradedOnly`
+ * it does. `negotiableOnly`/`previouslyTradedOnly`
  * filter against UI-only demonstration fields (see MarketplaceFilters'
  * own comment in types.ts) — real versions need a real block-list and
  * trade-history join, neither built in the backend yet.
@@ -182,12 +182,6 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
               info="Exclui usuários que você bloqueou ou que bloquearam você."
               checked={draft.negotiableOnly}
               onChange={(v) => set('negotiableOnly', v)}
-            />
-            <CheckRow
-              label="Somente comerciantes com alta reputação"
-              info="Mostra apenas comerciantes com excelentes pontuações e avaliações de alta reputação."
-              checked={draft.highReputationOnly}
-              onChange={(v) => set('highReputationOnly', v)}
             />
             <CheckRow
               label="Comerciantes com os quais você já negociou"

@@ -18,7 +18,7 @@ type Props =
   | { status: 'error'; message: string; retryLabel: string; onRetry: () => void }
   | { status: 'ready'; view: SigningRequestView; acting: boolean; onReview: () => void; onCancel: () => void; onRefresh: () => void }
 
-const shell = 'mt-4 rounded-lg border border-brand-border bg-brand-elevated p-4 border-t-4'
+const shell = 'mt-4 rounded-lg border border-brand-border-subtle bg-brand-elevated p-4 border-t-4'
 
 export function SigningRequestCard(props: Props) {
   const titleId = useId()
@@ -61,7 +61,7 @@ export function SigningRequestCard(props: Props) {
       )}
     >
       <p className={cn(
-        'flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide',
+        'flex items-center gap-1.5 text-xs font-medium',
         view.state === 'sign' ? 'text-brand-orange-accent' : view.state === 'blocked' ? 'text-red-700 dark:text-red-400' : 'text-brand-text-muted',
       )}>
         <ActorIcon className="h-3.5 w-3.5" aria-hidden="true" />

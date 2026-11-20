@@ -27,9 +27,13 @@ interface Props {
   assets: readonly AssetType[]
   value: AssetType | 'Todos'
   onChange: (asset: AssetType | 'Todos') => void
+  /** Trigger text while nothing specific is chosen (a form passes a "select" prompt). */
+  allLabel?: string
+  /** A form input, not a filter: no "all assets" option in the list. */
+  hideAllOption?: boolean
 }
 
-export function AssetPicker({ assets, value, onChange }: Props) {
+export function AssetPicker({ assets, value, onChange, allLabel = 'Todos os ativos', hideAllOption }: Props) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
 
@@ -53,7 +57,7 @@ export function AssetPicker({ assets, value, onChange }: Props) {
       <PopoverTrigger aria-label="Ativo" className="toolbar-chip flex items-center gap-2 min-w-[140px] justify-between">
         <span className="flex items-center gap-1.5 min-w-0">
           {value !== 'Todos' && <AssetIcon asset={value} />}
-          <span className="font-medium truncate">{value === 'Todos' ? 'Todos os ativos' : ASSET_LABELS[value]}</span>
+          <span className={value === 'Todos' && hideAllOption ? 'truncate text-brand-text-muted' : 'font-medium truncate'}>{value === 'Todos' ? allLabel : ASSET_LABELS[value]}</span>
         </span>
         <ChevronDown className="h-4 w-4 text-brand-text-muted shrink-0" />
       </PopoverTrigger>
@@ -66,12 +70,12 @@ export function AssetPicker({ assets, value, onChange }: Props) {
           className="w-full mb-2"
         />
         <div className="max-h-64 overflow-y-auto">
-          <button
+          {!hideAllOption && <button
             onClick={() => select('Todos')}
             className={`w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${value === 'Todos' ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
           >
             Todos os ativos
-          </button>
+          </button>}
           {filtered.map((asset) => (
             <button
               key={asset}

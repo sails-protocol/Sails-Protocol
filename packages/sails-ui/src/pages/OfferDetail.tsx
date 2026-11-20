@@ -1,21 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
-import { PaymentBadge, PowerTraderBadge } from '../components/ui/StatusBadges'
+import { PaymentBadge } from '../components/ui/StatusBadges'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { FavoriteButton } from '../components/ui/FavoriteButton'
 import { Button, buttonVariants } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { cn } from '../lib/utils'
-import { ArrowLeft, Check, Lock, AlertTriangle } from 'lucide-react'
+import { Page, PageHeader } from '../components/layout/PageHeader'
+import { StateBlock } from '../components/ui/StateBlock'
+import { ArrowLeft, Check, Lock, AlertTriangle, SearchX } from 'lucide-react'
 import { formatAmount } from '../lib/format'
 import { formatByCurrency, formatPrice } from '../lib/currency'
 import { sailsClient } from '../lib/sailsClient'
 import { errorMessage } from '../lib/errors'
 import { SailsNotFoundError, SailsTransportError, type PublicOfferDetail, type PublicOfferSeller } from '@satsails/p2p-trading-sdk'
-import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
-import { disputeRatePct, formatReputation, isPowerTraderFromCanonical } from '../lib/reputation'
+import { ASSET_LABELS, ASSET_SHORT_LABELS } from '../lib/labels'
+import { disputeRatePct, trustParts } from '../lib/reputation'
 import { useAuth } from '../context/AuthContext'
 import type { FiatCurrency } from '../types'
 
@@ -123,24 +125,30 @@ export function OfferDetail() {
     return () => { cancelled = true }
   }, [id, reloadKey])
 
-  if (loading) {
-    return <div className="text-center py-16 text-brand-text-muted">Carregando oferta...</div>
-  }
+  const back = (
+    <Link to="/" className="min-h-11 md:min-h-0 text-[13px] text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
+      <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Market
+    </Link>
+  )
 
-  if (!offer) {
+  if (loading || !offer) {
     return (
-      <div className="text-center py-16" role="alert">
-        <h1 className="text-section-title">{fetchError ? 'Não foi possível carregar a oferta' : 'Oferta não encontrada'}</h1>
-        <p className={cn('mt-1 text-sm', fetchError ? 'text-red-700 dark:text-red-300' : 'text-brand-text-secondary')}>
-          {fetchError ?? 'Ela não existe ou não está mais disponível.'}
-        </p>
-        <div className="mt-3 flex items-center justify-center gap-4">
-          {fetchError && (
-            <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-11 md:min-h-9 px-4 text-sm">Tentar novamente</Button>
-          )}
-          <Link to="/" className="text-sm text-brand-orange-accent underline inline-flex items-center min-h-11 md:min-h-0">Voltar ao Marketplace</Link>
-        </div>
-      </div>
+      <Page width="detail">
+        <div className="mb-4">{back}</div>
+        {loading ? (
+          <StateBlock kind="loading" title="Carregando oferta" />
+        ) : (
+          <StateBlock
+            kind={fetchError ? 'error' : 'empty'}
+            icon={fetchError ? undefined : SearchX}
+            title={fetchError ? 'Não foi possível carregar a oferta' : 'Oferta não encontrada'}
+            description={fetchError ?? 'Ela não existe ou não está mais disponível.'}
+            action={fetchError
+              ? <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-11 md:min-h-9 px-4">Tentar novamente</Button>
+              : <Link to="/" className={cn(buttonVariants({ className: 'min-h-11 md:min-h-10 px-4' }))}>Voltar ao Market</Link>}
+          />
+        )}
+      </Page>
     )
   }
 
@@ -195,111 +203,94 @@ export function OfferDetail() {
     }
   }
 
+  const sellerName = offer.seller.displayName
   return (
-    <div>
-      <Link to="/" className="min-h-11 md:min-h-0 text-sm text-brand-text-secondary hover:text-brand-text flex items-center gap-1 w-fit">
-        <ArrowLeft className="h-4 w-4" /> Voltar ao Marketplace
-      </Link>
+    <Page width="detail">
+      <PageHeader back={back} title={`Oferta de ${ASSET_LABELS[offer.asset]}`} meta={sellerName ? `Anunciada por ${sellerName}` : undefined} />
 
-      <div className="mt-4 grid lg:grid-cols-[1fr_360px] gap-6">
-        <div>
-          <Card className="p-6">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-section-title">Oferta de {ASSET_LABELS[offer.asset]}</h1>
-              <PaymentBadge method={offer.paymentMethod} />
-            </div>
-            <div className="mt-4 money-hero text-brand-text">{formatPrice(offer.priceFiat, offer.fiatCurrency)}</div>
-            <div className="text-sm text-brand-text-muted mt-1">
-              por {ASSET_LABELS[offer.asset]}
-              {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}
+      <div className="grid gap-6 lg:grid-cols-12 lg:items-start">
+        <div className="lg:col-span-8 flex flex-col gap-4">
+          {/* One card for the terms: price on the left, the facts on the right; each fact appears once. */}
+          <Card className="p-5">
+            <h2 className="text-section-title">Termos da oferta</h2>
+            <div className="mt-4 grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+              <div>
+                <div className="text-xs text-brand-text-muted">Preço</div>
+                <div className="mt-1 money-hero text-brand-text">{formatPrice(offer.priceFiat, offer.fiatCurrency)}</div>
+                <div className="text-[13px] text-brand-text-muted mt-1">
+                  por {ASSET_LABELS[offer.asset]}
+                  {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}
+                </div>
+              </div>
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-4 content-start">
+                <Fact label="Ativo">{ASSET_LABELS[offer.asset]}</Fact>
+                {offer.network && <Fact label="Rede">{offer.network}</Fact>}
+                <Fact label="Pagamento"><PaymentBadge method={offer.paymentMethod} className="text-sm text-brand-text" /></Fact>
+                <Fact label="Limites"><span className="tabular-nums">{formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)} {ASSET_SHORT_LABELS[offer.asset]}</span></Fact>
+              </dl>
             </div>
           </Card>
 
-          <Card className="mt-4 p-5">
-            <div className="flex items-center gap-3">
-              <UserAvatar user={offer.seller} size="lg" />
+          {/* Technical Debt #61: only the canonical public disclosure fields (trades, dispute rate,
+              reputation); raw disputeCount, volume and "member since" are not part of the public response. */}
+          <Card className="p-5">
+            <h2 className="text-section-title">Anunciante</h2>
+            <div className="mt-3 flex items-center gap-3">
+              <UserAvatar user={offer.seller} size="md" />
               <div className="min-w-0 flex-1">
-                <div className="font-semibold flex items-center gap-1.5 flex-wrap text-brand-text">
-                  {offer.seller.displayName}
-                  {offer.seller.verified && (
-                    <span title="Verificado">
-                      <Check className="h-4 w-4 text-brand-orange-accent" />
-                    </span>
-                  )}
-                  {isPowerTraderFromCanonical(offer.seller) && <PowerTraderBadge />}
+                <div className="text-sm font-medium flex items-center gap-1.5 text-brand-text">
+                  <span className="truncate">{sellerName}</span>
+                  {offer.seller.verified && <Check aria-label="Verificado" className="h-4 w-4 shrink-0 text-brand-orange-accent" />}
+                </div>
+                {/* reputationScore is an unbounded +2/-5 sum (lib/reputation.ts), never a 0-100 scale */}
+                <div className="text-xs text-brand-text-muted tabular-nums">
+                  {[...trustParts({ reputationScore: offer.seller.reputationScore, totalTrades: offer.seller.totalTrades }), `taxa de disputas ${disputeRatePct(offer.seller.disputeRate)}%`].join(' · ')}
                 </div>
               </div>
               <FavoriteButton userId={offer.seller.id} />
             </div>
-
-            {/* Technical Debt #61 — Total Trades / Dispute Rate / Reputation,
-                exactly the canonical public disclosure contract's own
-                fields (docs/TECHNICAL_DEBT_AUDIT.md #61); raw disputeCount,
-                totalVolumeBtc, and "member since" are no longer part of the
-                public response and are not reconstructed here. */}
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-              <div className="bg-brand-elevated rounded-lg p-2">
-                <div className="font-bold text-brand-text tabular-nums">{offer.seller.totalTrades}</div>
-                <div className="text-xs text-brand-text-muted">trades</div>
-              </div>
-              <div className="bg-brand-elevated rounded-lg p-2">
-                <div className="font-bold text-brand-text tabular-nums">{disputeRatePct(offer.seller.disputeRate)}%</div>
-                <div className="text-xs text-brand-text-muted">taxa de disputas</div>
-              </div>
-              <div className="bg-brand-elevated rounded-lg p-2">
-                {/* reputationScore is an unbounded +2/-5 sum (lib/reputation.ts), never a 0-100 scale */}
-                <div className="font-bold text-brand-text tabular-nums">{formatReputation(offer.seller.reputationScore)}</div>
-                <div className="text-xs text-brand-text-muted">reputação</div>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="mt-4 divide-y divide-brand-border">
-            {offer.network && <Row label="Rede" value={offer.network} />}
-            <Row label="Método de pagamento" value={PAYMENT_METHOD_LABELS[offer.paymentMethod]} />
-            <Row label="Limites" value={`${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}`} />
           </Card>
         </div>
 
-        <div className="lg:sticky lg:top-20 h-fit">
+        <div className="lg:col-span-4 lg:sticky lg:top-20">
           {isOwnOffer ? (
             <Card className="p-5">
-              <h2 className="font-semibold text-brand-text">Esta é a sua oferta</h2>
-              <p className="text-sm text-brand-text-muted mt-2">
+              <h2 className="text-section-title">Esta é a sua oferta</h2>
+              <p className="text-[13px] text-brand-text-secondary mt-2">
                 Você não pode iniciar uma negociação com o seu próprio anúncio.
-                Gerencie-o em "Minhas Ofertas", no seu perfil.
+                Gerencie-o em "Minhas ofertas", no seu perfil.
               </p>
-              <Link to="/profile" className={cn(buttonVariants({ variant: 'outline', className: 'mt-4 w-full py-3 text-sm text-center block' }))}>
-                Ir para Minhas Ofertas
+              <Link to="/profile" className={cn(buttonVariants({ variant: 'outline', className: 'mt-4 w-full min-h-11 md:min-h-10' }))}>
+                Ir para Minhas ofertas
               </Link>
             </Card>
           ) : (
             <Card className="p-5">
               {/* The viewer's own action, never the advertiser's side (a SELL offer means the viewer buys). */}
-              <h2 className="font-semibold text-brand-text">
+              <h2 className="text-section-title">
                 {offer.side === 'SELL' ? 'Você compra' : 'Você vende'} {ASSET_SHORT_LABELS[offer.asset]}
               </h2>
 
-              <label className="block text-xs text-brand-text-muted mt-4 mb-1">
+              <label className="block text-xs text-brand-text-muted mt-4">
                 Quanto você quer {offer.side === 'SELL' ? 'comprar' : 'vender'}?
-                <div className="relative">
+                <div className="relative mt-1.5">
                   <Input
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     type="number"
-                    className="w-full min-h-11 text-lg font-bold"
+                    className="w-full md:h-10 pr-16 text-base font-medium tabular-nums"
                     placeholder="0.00"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-brand-text-muted">{ASSET_SHORT_LABELS[offer.asset]}</span>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[13px] text-brand-text-muted">{ASSET_SHORT_LABELS[offer.asset]}</span>
                 </div>
               </label>
               {amount && !withinLimits && (
                 <p className="text-xs text-red-700 dark:text-red-300 mt-1">Fora do limite: {formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)}</p>
               )}
 
-              <div className="mt-4 pt-4 border-t border-brand-border">
+              <div className="mt-4 pt-4 border-t border-brand-border-subtle">
                 <div className="text-xs text-brand-text-muted">Você {offer.side === 'SELL' ? 'paga' : 'recebe'}</div>
-                <div className="text-2xl font-bold tabular-nums mt-1 text-brand-text">{formatByCurrency(totalFiat || 0, offer.fiatCurrency)}</div>
+                <div className="text-2xl font-semibold tabular-nums mt-1 text-brand-text">{formatByCurrency(totalFiat || 0, offer.fiatCurrency)}</div>
                 {/* Itemized from the only two inputs the total has: the offer carries no fee field. */}
                 {amountNum > 0 && (
                   <div className="text-xs text-brand-text-muted tabular-nums mt-1">
@@ -308,38 +299,36 @@ export function OfferDetail() {
                 )}
               </div>
 
-              <div className="mt-4 bg-brand-orange-accent/5 border border-brand-orange-accent/20 rounded-lg p-3 text-xs text-brand-text-secondary flex items-start gap-2">
-                <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <p className="mt-4 text-xs text-brand-text-secondary flex items-start gap-2">
+                <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
                 O tipo de escrow e as regras de liberação são definidos quando o trade é criado.
-              </div>
+              </p>
 
-              {/* HodlHodl/Binance P2P both show this exact caution before
-                  a first trade with a brand-new counterparty — real data
-                  (offer.seller.totalTrades), not mocked: a real 0 here means
-                  a real trader with no completed trades yet. */}
+              {/* HodlHodl/Binance P2P both show this caution before a first trade with a brand-new
+                  counterparty: real data (offer.seller.totalTrades), a real 0 means no completed trades yet. */}
               {offer.seller.totalTrades === 0 && (
-                <div className="mt-3 bg-yellow-500/10 border border-yellow-500/25 rounded-lg p-3 text-xs text-yellow-800 dark:text-yellow-300 flex items-start gap-2">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <div className="mt-3 bg-yellow-500/10 rounded-md p-3 text-xs text-yellow-800 dark:text-yellow-300 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
                   <span>Este vendedor ainda não concluiu nenhum trade — negocie com cautela, especialmente em valores maiores.</span>
                 </div>
               )}
 
-              <Button onClick={handleStartTrade} disabled={startingTrade} className="mt-4 w-full h-auto min-h-11 py-3">
-                {startingTrade ? 'Iniciando...' : 'Iniciar Trade'}
+              <Button onClick={handleStartTrade} disabled={startingTrade} className="mt-4 w-full min-h-11 md:min-h-10">
+                {startingTrade ? 'Iniciando...' : 'Iniciar trade'}
               </Button>
             </Card>
           )}
         </div>
       </div>
-    </div>
+    </Page>
   )
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex justify-between px-5 py-3 text-sm">
-      <span className="text-brand-text-muted">{label}</span>
-      <span className="font-medium text-brand-text">{value}</span>
+    <div className="min-w-0">
+      <dt className="text-xs text-brand-text-muted">{label}</dt>
+      <dd className="mt-0.5 text-sm text-brand-text">{children}</dd>
     </div>
   )
 }

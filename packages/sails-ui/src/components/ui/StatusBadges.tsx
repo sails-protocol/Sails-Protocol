@@ -14,7 +14,7 @@ import { ESCROW_STATE_LABEL } from '../../lib/tradeState'
 import { badgeVariants } from './badge'
 import { cn } from '../../lib/utils'
 import {
-  Zap, Clock, CheckCircle2, AlertTriangle, XCircle, Circle, Lock, RotateCcw, PauseCircle, Scissors, type LucideIcon,
+  Clock, CheckCircle2, AlertTriangle, XCircle, Circle, Lock, RotateCcw, PauseCircle, Scissors, type LucideIcon,
 } from 'lucide-react'
 
 // Routes through badgeVariants' own base shape (shared with the generic
@@ -31,7 +31,7 @@ import {
 // dense trade/escrow lists, not a requirement this component lacked.
 function Pill({ children, className = '', title, icon: Icon }: { children: React.ReactNode; className?: string; title?: string; icon?: LucideIcon }) {
   return (
-    <span title={title} className={cn(badgeVariants({ variant: 'outline' }), 'inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1', className)}>
+    <span title={title} className={cn(badgeVariants({ variant: 'outline' }), 'inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5', className)}>
       {Icon && <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />}
       {children}
     </span>
@@ -44,14 +44,20 @@ export function AssetBadge({ asset }: { asset: AssetType }) {
 
 export function SideBadge({ side }: { side: TradeSide }) {
   return side === 'BUY' ? (
-    <Pill className="border-green-500/25 bg-green-500/10 text-green-800 dark:text-green-300">COMPRAR</Pill>
+    <Pill className="border-green-500/25 bg-green-500/10 text-green-800 dark:text-green-300">Comprar</Pill>
   ) : (
-    <Pill className="border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-300">VENDER</Pill>
+    <Pill className="border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-300">Vender</Pill>
   )
 }
 
-export function PaymentBadge({ method }: { method: PaymentMethod }) {
-  return <Pill className="border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300">{PAYMENT_METHOD_LABELS[method]}</Pill>
+/** Quiet payment method: secondary text after a thin brand tick (the Market table style), not a filled pill. */
+export function PaymentBadge({ method, className }: { method: PaymentMethod; className?: string }) {
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 text-[13px] text-brand-text-secondary whitespace-nowrap', className)}>
+      <span aria-hidden="true" className="h-3 w-0.5 rounded-full bg-brand-orange-accent" />
+      {PAYMENT_METHOD_LABELS[method]}
+    </span>
+  )
 }
 
 const TRADE_STATUS_LABEL: Record<TradeStatus, string> = {
@@ -112,20 +118,4 @@ const OFFER_STATUS_ICON: Record<OfferStatus, LucideIcon> = {
 export function OfferStatusBadge({ status }: { status: OfferStatus }) {
   const color = status === 'ACTIVE' ? 'border-green-500/25 bg-green-500/10 text-green-800 dark:text-green-300' : 'border-brand-border bg-brand-elevated text-brand-text-muted'
   return <Pill className={color} icon={OFFER_STATUS_ICON[status]}>{OFFER_STATUS_LABEL[status]}</Pill>
-}
-
-// Noones-inspired tenure/volume badge (lib/reputation.ts's own comment
-// has the full threshold sourcing) — an achievement/brand highlight, not
-// a semantic status, so it uses the orange accent like other brand-
-// highlight marks in this UI (e.g. the "Verificado" checkmark), not a
-// universal-convention color the way Trade/Escrow/Offer status do above.
-export function PowerTraderBadge() {
-  return (
-    <Pill
-      className="border-brand-orange-accent/30 bg-brand-orange-accent/10 text-brand-orange-hover flex items-center gap-1"
-      title="Power Trader: alto volume de trades com alta taxa de trades sem disputa"
-    >
-      <Zap className="h-3 w-3" fill="currentColor" strokeWidth={0} /> Power Trader
-    </Pill>
-  )
 }

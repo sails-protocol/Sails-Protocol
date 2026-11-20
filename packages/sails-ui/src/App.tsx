@@ -5,7 +5,6 @@ import { ThemeProvider, useTheme } from './context/ThemeContext'
 import { AuthProvider } from './context/AuthContext'
 import { TooltipProvider } from './components/ui/tooltip'
 import { Layout } from './components/layout/Layout'
-import { TradesTabs } from './components/layout/TradesTabs'
 import { SessionExpiryRedirect } from './components/auth/SessionExpiryRedirect'
 
 // Route-level code splitting (2026-08-11) — vite build's own warning
@@ -69,10 +68,8 @@ export default function App() {
                 <Route path="/offer/:id" element={<Suspense fallback={<RouteFallback />}><OfferDetail /></Suspense>} />
                 <Route path="/trade/:id" element={<Suspense fallback={<RouteFallback />}><Trade /></Suspense>} />
                 <Route path="/profile" element={<Suspense fallback={<RouteFallback />}><Profile /></Suspense>} />
-                <Route element={<TradesTabs />}>
-                  <Route path="/profile/active" element={<Suspense fallback={<RouteFallback />}><ActiveTrades /></Suspense>} />
-                  <Route path="/profile/history" element={<Suspense fallback={<RouteFallback />}><TradeHistory /></Suspense>} />
-                </Route>
+                <Route path="/profile/active" element={<Suspense fallback={<RouteFallback />}><ActiveTrades /></Suspense>} />
+                <Route path="/profile/history" element={<Suspense fallback={<RouteFallback />}><TradeHistory /></Suspense>} />
                 <Route path="/profile/new-offer" element={<Suspense fallback={<RouteFallback />}><PublishOffer /></Suspense>} />
                 <Route path="/settings" element={<Suspense fallback={<RouteFallback />}><Settings /></Suspense>} />
                 <Route path="/disputes" element={<Suspense fallback={<RouteFallback />}><Disputes /></Suspense>} />
