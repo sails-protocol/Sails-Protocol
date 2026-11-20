@@ -2,7 +2,9 @@ import type { User } from '../../types'
 import { UserAvatar } from '../ui/UserAvatar'
 import { FavoriteButton } from '../ui/FavoriteButton'
 import { VouchButton } from '../ui/VouchButton'
-import { trustParts } from '../../lib/reputation'
+import { REPUTATION_EXPLANATION, trustItems } from '../../lib/reputation'
+import { TrustLine } from '../ui/TrustLine'
+import { ExplanationPopover } from '../ui/ExplanationPopover'
 import { Card } from '../ui/card'
 
 // counterpartyOnline (2026-08-02): real presence for whichever of
@@ -30,11 +32,15 @@ function PartyRow({ user, role, isYou, online }: { user: User; role: string; isY
   return (
     <div className="flex items-center gap-3 py-2.5">
       <UserAvatar user={user} size="sm" showPresence online={online} />
-      <div className="text-sm">
+      <div className="text-sm min-w-0">
         <span className="font-medium text-brand-text">{user.displayName}</span>
         {isYou && <span className="ml-1.5 text-xs bg-brand-orange-accent/10 text-brand-orange-hover dark:text-brand-orange-accent rounded px-1.5 py-0.5">Você</span>}
         {/* Same trust line as the Market rows: server counters only, no derived percentage. */}
-        <div className="text-xs text-brand-text-muted tabular-nums">{trustParts(user).join(' · ')}</div>
+        {/* Inline (not flex) so the info button wraps with the text on narrow phones. */}
+        <div className="text-xs text-brand-text-muted">
+          <TrustLine items={trustItems(user)} />
+          <ExplanationPopover explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.title} className="ml-1.5 align-middle" />
+        </div>
       </div>
       <span className="ml-auto text-xs text-brand-text-muted">{role}</span>
       {/* Only the other party — real `user.id` here comes from a real

@@ -24,6 +24,8 @@ import { useAuth } from '../context/AuthContext'
 import { sailsClient } from '../lib/sailsClient'
 import type { AssetType, FiatCurrency, MarketplaceFilters, TradeSide } from '../types'
 import { DEFAULT_FILTERS } from '../types'
+import { REPUTATION_EXPLANATION } from '../lib/reputation'
+import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 
 const SIDE_FILTERS: { value: TradeSide | 'Todos'; label: string }[] = [
   { value: 'Todos', label: 'Todos' },
@@ -394,6 +396,10 @@ export function Marketplace() {
             {offers.length > 0 && (
               <>
                 <div className="hidden lg:block"><OfferTable offers={offers} isOwn={isOwn} /></div>
+                {/* Compact rows are whole-row links, so the reputation explanation sits above them, not inside one. */}
+                <div className="lg:hidden flex justify-end border-b border-brand-border-subtle px-4">
+                  <ExplanationPopover variant="text" explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.trigger} />
+                </div>
                 <ul aria-label="Ofertas" className="lg:hidden">
                   {offers.map((offer) => (
                     <li key={offer.id}><OfferCard offer={offer} own={isOwn(offer)} /></li>

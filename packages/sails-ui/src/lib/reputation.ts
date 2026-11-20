@@ -7,6 +7,7 @@
  * thresholds this UI invented).
  */
 import type { User } from '../types'
+import type { Explanation, TrustLineItem } from '../components/ui/trustTypes'
 
 /** One definition of an account's dispute rate for Profile and Meus Trades: disputes opened ÷ completed trades (server counters). */
 export const ACCOUNT_DISPUTE_RATE_DEFINITION =
@@ -43,13 +44,34 @@ export function formatReputation(score: number): string {
 }
 
 /**
+ * The one copy source for how reputationScore is computed (reputation.service.ts:57-58, RFC-007, RFC-021 D7
+ * VOUCH_BURN_PENALTY). An unbounded sum: never shown as a fraction, percentage, stars or tier.
+ */
+export const REPUTATION_EXPLANATION: Explanation & { trigger: string } = {
+  title: 'Como a reputação é calculada',
+  lines: [
+    '+2 por trade concluído',
+    '−5 por disputa perdida',
+    '0 em cancelamento de comum acordo ou divisão',
+    '−5 para quem apadrinhou alguém que perde a primeira disputa',
+  ],
+  footer: 'É uma soma de pontos, sem valor máximo: 82 significa 82 pontos acumulados, não 82 de 100. Avaliações por estrelas não entram na conta.',
+  trigger: 'Como funciona a reputação',
+}
+
+/**
  * The one compact trader trust line ("Reputação 96 · 312 trades · 1 disputa"), shared by the Market rows,
  * the trade parties and the offer detail. Only the reputation is guaranteed; a count the source did not
  * return is left out instead of shown as "—" or a made-up 0.
  */
+export function trustItems(t: { reputationScore: number; totalTrades?: number; disputeCount?: number }): TrustLineItem[] {
+  const items: TrustLineItem[] = [{ kind: 'reputation', text: formatReputation(t.reputationScore), srText: `${formatReputation(t.reputationScore)} pontos` }]
+  if (t.totalTrades !== undefined) items.push({ kind: 'trades', text: `${t.totalTrades} ${t.totalTrades === 1 ? 'trade' : 'trades'}` })
+  if (t.disputeCount !== undefined) items.push({ kind: 'disputes', text: `${t.disputeCount} ${t.disputeCount === 1 ? 'disputa' : 'disputas'}` })
+  return items
+}
+
+/** The same trust line as plain strings, for accessible labels and text use. */
 export function trustParts(t: { reputationScore: number; totalTrades?: number; disputeCount?: number }): string[] {
-  const parts = [formatReputation(t.reputationScore)]
-  if (t.totalTrades !== undefined) parts.push(`${t.totalTrades} ${t.totalTrades === 1 ? 'trade' : 'trades'}`)
-  if (t.disputeCount !== undefined) parts.push(`${t.disputeCount} ${t.disputeCount === 1 ? 'disputa' : 'disputas'}`)
-  return parts
+  return trustItems(t).map((item) => item.text)
 }

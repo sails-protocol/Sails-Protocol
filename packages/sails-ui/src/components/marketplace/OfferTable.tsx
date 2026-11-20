@@ -9,6 +9,9 @@ import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../../l
 import { cn } from '../../lib/utils'
 import { Check } from 'lucide-react'
 import { sellerTrust } from './offerList'
+import { TrustLine } from '../ui/TrustLine'
+import { ExplanationPopover } from '../ui/ExplanationPopover'
+import { REPUTATION_EXPLANATION } from '../../lib/reputation'
 
 const SELLER_FALLBACK = 'Anunciante'
 
@@ -31,7 +34,13 @@ export function OfferTable({ offers, isOwn }: { offers: Offer[]; isOwn?: (offer:
       </colgroup>
       <thead>
         <tr className="text-xs font-medium text-brand-text-muted">
-          <th scope="col" className="font-medium py-2.5 pl-5 pr-4">Anunciante</th>
+          <th scope="col" className="font-medium py-2.5 pl-5 pr-4">
+            {/* The explanation sits in the header, not in a row: each row is already one stretched link. */}
+            <span className="inline-flex items-center gap-1.5">
+              Anunciante
+              <ExplanationPopover explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.title} />
+            </span>
+          </th>
           <th scope="col" className="font-medium py-2.5 px-4">Preço</th>
           <th scope="col" className="font-medium py-2.5 px-4">Limites</th>
           <th scope="col" className="font-medium py-2.5 px-4">Pagamento</th>
@@ -46,7 +55,7 @@ export function OfferTable({ offers, isOwn }: { offers: Offer[]; isOwn?: (offer:
 }
 
 function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
-  const { name, parts } = sellerTrust(offer)
+  const { name, items } = sellerTrust(offer)
   // The viewer's own offer gets no trade action, only a quiet link to the offer.
   const action = own ? 'Sua oferta' : offer.side === 'SELL' ? 'Comprar' : 'Vender'
   const price = formatPrice(offer.priceFiat, offer.fiatCurrency)
@@ -63,7 +72,7 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
               <span data-seller-name className="text-sm font-medium text-brand-text truncate">{name ?? SELLER_FALLBACK}</span>
               {offer.user.verified && <Check aria-label="Verificado" className="h-3.5 w-3.5 shrink-0 text-brand-orange-accent" />}
             </div>
-            <div className="text-xs text-brand-text-muted tabular-nums truncate">{parts.join(' · ')}</div>
+            <TrustLine items={items} className="block text-xs text-brand-text-muted" />
           </div>
         </div>
       </td>

@@ -6,6 +6,7 @@ import { formatAmount } from '../../lib/format'
 import { formatPrice } from '../../lib/currency'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import { sellerTrust } from './offerList'
+import { TrustLine } from '../ui/TrustLine'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
 import { Check } from 'lucide-react'
@@ -20,7 +21,7 @@ const SELLER_FALLBACK = 'Anunciante'
  */
 export function OfferCard({ offer, own = false }: { offer: Offer; own?: boolean }) {
   const action = own ? 'Sua oferta' : offer.side === 'SELL' ? 'Comprar' : 'Vender'
-  const { name, parts } = sellerTrust(offer)
+  const { name, items } = sellerTrust(offer)
   const price = formatPrice(offer.priceFiat, offer.fiatCurrency)
   const limits = `${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}`
   // One concise accessible name instead of every cell's text read in a row (same wording as the table).
@@ -35,7 +36,7 @@ export function OfferCard({ offer, own = false }: { offer: Offer; own?: boolean 
             <span data-seller-name className="text-sm font-medium text-brand-text">{name ?? SELLER_FALLBACK}</span>
             {offer.user.verified && <Check aria-label="Verificado" className="h-3.5 w-3.5 shrink-0 text-brand-orange-accent" />}
           </span>
-          {parts.length > 0 && <span className="text-xs text-brand-text-muted tabular-nums">{parts.join(' · ')}</span>}
+          <TrustLine items={items} className="text-xs text-brand-text-muted" />
         </div>
         <div className="mt-1 flex flex-wrap items-baseline gap-x-1.5">
           <span data-price className="text-lg font-semibold text-brand-text tabular-nums leading-tight whitespace-nowrap">{price}</span>
