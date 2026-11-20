@@ -12,6 +12,8 @@ import { PrismaClient } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
+import { commitTradePair } from './helpers/committedPairFixture'
+import nacl from 'tweetnacl'
 import type { ArbitrationProvider } from '../../src/modules/open-settlement/arbitration-provider'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -66,11 +68,16 @@ describe('Issue #238 - dispute opening is atomic with the escrow freeze (real Po
     ({ name: 'test-unstaffable', arbitrators: [], assign: jest.fn(async () => { throw new Error('no registered arbiter clears the eligibility threshold') }) }) as any
 
   async function makeLockedTrade(type: 'MOCK' | 'MULTISIG' = 'MOCK') {
-    const seller = await prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex') } })
-    const buyer = await prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex') } })
+    // Real Ed25519 identities: a MULTISIG escrow needs the COMMITTED pair of its trade (F4 deny-by-default), signed by the real parties.
+    const sellerKey = nacl.sign.keyPair(), buyerKey = nacl.sign.keyPair()
+    const seller = await prisma.user.create({ data: { publicKey: Buffer.from(sellerKey.publicKey).toString('hex') } })
+    const buyer = await prisma.user.create({ data: { publicKey: Buffer.from(buyerKey.publicKey).toString('hex') } })
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type, status: 'FUNDS_LOCKED', lockedAmount: '0.001', asset: 'BTC' } })
+    const commitmentPairId = type === 'MULTISIG'
+      ? await commitTradePair(prisma, trade.id, { id: seller.id, secretKey: Buffer.from(sellerKey.secretKey).toString('hex') }, { id: buyer.id, secretKey: Buffer.from(buyerKey.secretKey).toString('hex') })
+      : undefined
+    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type, status: 'FUNDS_LOCKED', lockedAmount: '0.001', asset: 'BTC', commitmentPairId } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id, status: 'ACTIVE' } })
     return { tradeId: trade.id, escrowId: escrow.id, sellerId: seller.id, buyerId: buyer.id }
   }

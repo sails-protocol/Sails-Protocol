@@ -28,6 +28,13 @@ DO $grants$
 DECLARE
   runtime_role constant text := 'sails_runtime';
   r record;
+  -- F4 (invariant 3b): columns of "escrows" that the runtime may NEVER write. The two legacy marks are written only by the cut
+  -- migration; commitmentPairId is set at INSERT and never updated. A table-level INSERT/UPDATE grant cannot carve a column out
+  -- (REVOKE of a column does nothing under a table-level grant), so "escrows" gets COLUMN-level INSERT and UPDATE below.
+  escrows_no_insert constant text[] := ARRAY['legacyPreCommitmentAt', 'addressPresentAtCutAt'];
+  escrows_no_update constant text[] := ARRAY['legacyPreCommitmentAt', 'addressPresentAtCutAt', 'commitmentPairId'];
+  escrows_insert_cols text;
+  escrows_update_cols text;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = runtime_role) THEN
     RAISE EXCEPTION 'role % does not exist: run scripts/db/bootstrap-roles.js before the runtime grants', runtime_role;
@@ -67,8 +74,8 @@ BEGIN
     ('verifications', 'append'),
     ('custody_attestations', 'append'), -- + UPDATE (supersededAt) only, see runtime_column_update
     ('intent_events', 'append'),        -- + UPDATE (publishedAt) only: hash-chained history, publication marker
-    ('commitment_pairs', 'append'),     -- E25/E26 F3: + UPDATE of the signing/withdraw columns only; the pair itself is immutable (trigger)
     ('deployment_mode', 'read'),        -- F4 gate 3: environment marker; the runtime may only READ it (the MOCK exemption of the escrow trigger depends on it)
+    ('commitment_pairs', 'append'),     -- E25/E26 F3: + UPDATE of the signing/withdraw columns only; the pair itself is immutable (trigger)
     -- mutable state (write-once columns are still guarded by triggers)
     ('users', 'mutable'),
     ('offers', 'mutable'),
@@ -152,6 +159,17 @@ BEGIN
   FOR r IN SELECT u.table_name, u.column_name FROM sails_meta.runtime_column_update u LOOP
     EXECUTE format('GRANT UPDATE (%I) ON public.%I TO %I', r.column_name, r.table_name, runtime_role);
   END LOOP;
+  -- F4: "escrows" keeps its class (mutable: SELECT, INSERT, UPDATE) but INSERT and UPDATE become COLUMN-level, minus the columns
+  -- above. The boot check only flags a privilege BEYOND the class, so this subset passes it unchanged. SELECT stays table-level.
+  SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum) INTO escrows_insert_cols
+    FROM pg_attribute a
+    WHERE a.attrelid = 'public.escrows'::regclass AND a.attnum > 0 AND NOT a.attisdropped AND a.attname <> ALL (escrows_no_insert);
+  SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum) INTO escrows_update_cols
+    FROM pg_attribute a
+    WHERE a.attrelid = 'public.escrows'::regclass AND a.attnum > 0 AND NOT a.attisdropped AND a.attname <> ALL (escrows_no_update);
+  EXECUTE format('REVOKE INSERT, UPDATE ON public.escrows FROM %I', runtime_role);
+  EXECUTE format('GRANT INSERT (%s) ON public.escrows TO %I', escrows_insert_cols, runtime_role);
+  EXECUTE format('GRANT UPDATE (%s) ON public.escrows TO %I', escrows_update_cols, runtime_role);
   -- Read-only for the runtime: the boot check reads the recorded classification.
   EXECUTE format('GRANT USAGE ON SCHEMA sails_meta TO %I', runtime_role);
   EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA sails_meta FROM %I', runtime_role);

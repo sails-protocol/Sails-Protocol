@@ -326,6 +326,12 @@ const mockTransaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) 
   })
 )
 
+// F4 A1: createEscrow() takes the pair lock. This in-memory flow has no commitment pairs and every escrow is MOCK: none is reported and MOCK proceeds
+// (the A1 behaviour itself is proven in tests/escrowCreateCommitmentPair.test.ts; the database trigger in the F4 integration suites).
+jest.mock('../src/modules/open-p2p/commitment-pair.service', () => ({
+  lockPairForEffect: jest.fn(async () => ({ row: null, readiness: { ok: false, code: 'E25_COMMITMENT_MISSING' }, t: new Date() })),
+}))
+
 jest.mock('../src/common/database', () => ({
   prisma: {
     user: users,

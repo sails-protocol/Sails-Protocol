@@ -60,6 +60,7 @@ import * as ecc from 'tiny-secp256k1'
 import { ECPairFactory } from 'ecpair'
 import { createHash } from 'crypto'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
+import { createBoundTrade } from './helpers/committedPairFixture'
 
 bitcoin.initEccLib(ecc)
 const ECPair = ECPairFactory(ecc)
@@ -94,15 +95,11 @@ describe('Escrow arbiter public-key commitment — real lifecycle + DB-native im
 
   async function fixtureTrade() {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-${suffix}` } })
-    const seller = await prisma.user.create({ data: { publicKey: `pk-seller-${suffix}` } })
-    const offer = await prisma.offer.create({
-      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '50000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' },
-    })
-    const trade = await prisma.trade.create({
-      data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '50000', totalUsd: '50' },
-    })
-    return { buyer, seller, trade }
+    const bound = await createBoundTrade(prisma) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+    const { buyer, seller, trade } = bound
+    const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
+    const boundPairId = await bound.commit()
+    return { buyer, seller, trade, boundPairId }
   }
 
   function keypair(seed: string) {
@@ -111,7 +108,7 @@ describe('Escrow arbiter public-key commitment — real lifecycle + DB-native im
 
   it('submitParticipantKey() persists the arbiter commitment end-to-end, and it reconstructs the exact stored multisigAddr', async () => {
     requirePostgres('persists + reconstructs')
-    const { buyer, seller, trade } = await fixtureTrade()
+    const { buyer, seller, trade, boundPairId } = await fixtureTrade()
     const buyerKey = keypair(`buyer-${trade.id}`)
     const sellerKey = keypair(`seller-${trade.id}`)
     const buyerPubkeyHex = Buffer.from(buyerKey.publicKey).toString('hex')
@@ -151,8 +148,8 @@ describe('Escrow arbiter public-key commitment — real lifecycle + DB-native im
 
   it('DB-native trigger rejects UPDATE and DELETE of an arbiter row, while a buyer row remains freely mutable', async () => {
     requirePostgres('DB trigger')
-    const { buyer, seller, trade } = await fixtureTrade()
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' } })
+    const { buyer, seller, trade, boundPairId } = await fixtureTrade()
+    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, commitmentPairId: boundPairId, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' } })
 
     const arbiterRow = await prisma.escrowParticipantKey.create({
       data: { escrowId: escrow.id, role: 'arbiter', participantId: 'arb-1', pubkey: `02${'aa'.repeat(32)}` },
@@ -222,15 +219,11 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
 
   async function fixtureTrade() {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-${suffix}` } })
-    const seller = await prisma.user.create({ data: { publicKey: `pk-seller-${suffix}` } })
-    const offer = await prisma.offer.create({
-      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '50000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' },
-    })
-    const trade = await prisma.trade.create({
-      data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '50000', totalUsd: '50' },
-    })
-    return { buyer, seller, trade }
+    const bound = await createBoundTrade(prisma) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+    const { buyer, seller, trade } = bound
+    const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
+    const boundPairId = await bound.commit()
+    return { buyer, seller, trade, boundPairId }
   }
 
   function keypair(seed: string) {
@@ -249,7 +242,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
   // then forced DISPUTED with a real funding txid recorded, ready for a
   // real disputed buildUnsignedRelease() call.
   async function fixtureDisputedEscrowWithCommitment(svc: typeof escrowService, arbiterIdForDispute: string) {
-    const { buyer, seller, trade } = await fixtureTrade()
+    const { buyer, seller, trade, boundPairId } = await fixtureTrade()
     const buyerKey = keypair(`buyer-${trade.id}`)
     const sellerKey = keypair(`seller-${trade.id}`)
     const buyerPubkeyHex = Buffer.from(buyerKey.publicKey).toString('hex')
@@ -328,7 +321,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     // what an uncommitted escrow's script means. This test now proves the
     // opposite of its original name: the legacy shape is REJECTED, not
     // preserved.
-    const { buyer, seller, trade } = await fixtureTrade()
+    const { buyer, seller, trade, boundPairId } = await fixtureTrade()
     const buyerKey = keypair(`legacy-buyer-${trade.id}`)
     const sellerKey = keypair(`legacy-seller-${trade.id}`)
     const buyerPubkeyHex = Buffer.from(buyerKey.publicKey).toString('hex')
@@ -336,7 +329,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     const txid = createHash('sha256').update(`legacy-${trade.id}`).digest('hex')
 
     const escrow = await prisma.escrow.create({
-      data: { tradeId: trade.id, type: 'MULTISIG', status: 'DISPUTED', lockedAmount: '0.001', asset: 'BTC', txLockId: txid, txLockVout: 0 },
+      data: { tradeId: trade.id, commitmentPairId: boundPairId, type: 'MULTISIG', status: 'DISPUTED', lockedAmount: '0.001', asset: 'BTC', txLockId: txid, txLockVout: 0 },
     })
     await prisma.escrowParticipantKey.create({ data: { escrowId: escrow.id, role: 'buyer', participantId: buyer.id, pubkey: buyerPubkeyHex } })
     await prisma.escrowParticipantKey.create({ data: { escrowId: escrow.id, role: 'seller', participantId: seller.id, pubkey: sellerPubkeyHex } })
@@ -356,7 +349,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
 
   it('6. happy path: non-disputed release (ordinary buyer+seller signing) is unaffected by the triggeredBy threading fix', async () => {
     requirePostgres('happy path unaffected')
-    const { buyer, seller, trade } = await fixtureTrade()
+    const { buyer, seller, trade, boundPairId } = await fixtureTrade()
     const buyerKey = keypair(`hp-buyer-${trade.id}`)
     const sellerKey = keypair(`hp-seller-${trade.id}`)
     const buyerPubkeyHex = Buffer.from(buyerKey.publicKey).toString('hex')

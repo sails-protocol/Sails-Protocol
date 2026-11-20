@@ -20,6 +20,7 @@ import os from 'os'
 import path from 'path'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
+import { legacyEscrowRow } from './helpers/legacyEscrowSeed'
 
 type Rail = 'LIGHTNING_HODL' | 'SAFE_GUARD_EVM'
 
@@ -127,7 +128,7 @@ describe('#341 requirement 1: disputed LIGHTNING_HODL/SAFE_GUARD_EVM provenance 
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
     createdTradeIds.push(trade.id)
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type, status: 'PAYMENT_PENDING', lockedAmount: '0.001', asset: 'BTC' } })
+    const escrow = await legacyEscrowRow(prisma, { tradeId: trade.id, type: type, lockedAmount: '0.001', asset: 'BTC', columns: { status: 'PAYMENT_PENDING' } })
     createdEscrowIds.push(escrow.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
 

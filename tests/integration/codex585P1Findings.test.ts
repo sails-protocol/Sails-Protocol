@@ -31,6 +31,7 @@ import { PrismaClient } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
+import { escrowRowForType } from './helpers/legacyEscrowSeed'
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const nacl = require('tweetnacl')
 
@@ -104,7 +105,7 @@ describe('#585 Codex P1 findings (real PostgreSQL)', () => {
     await prisma.payoutAddress.create({ data: { participantId: seller.id, asset: 'USDT_ERC20', address: `seller-payout-${seller.id}` } })
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1', minAmount: '5', maxAmount: '5', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '5' })
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type, status: 'DISPUTED', lockedAmount: '5', asset: 'USDT_ERC20' } })
+    const escrow = await escrowRowForType(prisma, { tradeId: trade.id, type: type, lockedAmount: '5', asset: 'USDT_ERC20', columns: { status: 'DISPUTED' } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id, status: 'DISPUTED' } })
     const dispute = await prisma.dispute.create({ data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'p1', status: 'OPENED', arbiterId: arbiter.id } })
     // One signed decision, as an arbiter client submits it: calling the result again resubmits the identical request.

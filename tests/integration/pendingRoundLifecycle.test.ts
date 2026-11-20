@@ -10,6 +10,7 @@
 // pg_locks). Only the explorer is simulated (pendingRoundLifecycleHarness.ts). T12 (two OS processes) lives in
 // pendingRoundLifecycleProcesses.test.ts.
 import { PrismaClient } from '@prisma/client'
+import { forceEscrowTypeForRailGateTest } from './helpers/legacyEscrowSeed'
 import { randomUUID } from 'crypto'
 import nacl from 'tweetnacl'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
@@ -362,7 +363,7 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     pg.requirePostgres('T14')
     for (const type of ['LIGHTNING_HODL', 'SAFE_GUARD_EVM'] as const) {
       const c = await cooperative(`t14-${type}`)
-      await prisma.escrow.update({ where: { id: c.escrow.id }, data: { type } })
+      await forceEscrowTypeForRailGateTest(c.escrow.id, type) // F4: type is immutable; a rail mismatch can only be forced by the test-only superuser helper
       await expect(escrowService.cancelPendingSignatureRound(c.escrow.id, c.round.id, asTrustedActor(c.seller.id))).rejects.toThrow(/does not support cancelling/)
       expect(dispatch.isSupersedableCooperativeRound({ ...c.round, signatures: [] })).toBe(true) // the round itself would be...
       const grant = dispatch.issueRulingSupersessionGrant({ id: 'x', appealRound: 0, arbiterId: ARBITER_ID, ruling: 'RELEASE', authoritySignature: 's', authorityIssuedAt: new Date(), status: 'RESOLVED' })
