@@ -4,7 +4,7 @@
  * below already used it BEFORE the F4 work (their own DB-invariant proofs, and the runtime-privilege boot check that reads the setting); they are
  * listed by name, so a NEW user anywhere else fails this test and an old one cannot be added silently.
  */
-import { readdirSync, readFileSync, statSync } from 'fs'
+import { readdirSync, readFileSync } from 'fs'
 import { join, relative, sep } from 'path'
 
 const ROOT = join(__dirname, '..')
@@ -31,10 +31,11 @@ export function findForceUsers(files: Record<string, string>): string[] {
 }
 
 function collect(dir: string, out: Record<string, string>): void {
-  for (const name of readdirSync(dir)) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) { // one directory read: no stat-then-read on the same path
+    const name = entry.name
     if (name === 'node_modules' || name === 'dist' || name === '.next') continue
     const full = join(dir, name)
-    if (statSync(full).isDirectory()) collect(full, out)
+    if (entry.isDirectory()) collect(full, out)
     else if (EXT.test(name)) out[relative(ROOT, full).split(sep).join('/')] = readFileSync(full, 'utf8')
   }
 }

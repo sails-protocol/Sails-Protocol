@@ -4,7 +4,7 @@
 // choke-point (escrow creation, deposit-address derivation/persistence, funding) is CALLED from a place nobody reviewed, and when a
 // reviewed call disappears (so the allow-list cannot age silently). The structural layer (triggers) is S1 of the F4 plan: a text
 // scan cannot see an alias, raw SQL built from parts, or another process.
-import { readdirSync, readFileSync, statSync } from 'fs'
+import { readdirSync, readFileSync } from 'fs'
 import { join, relative, sep } from 'path'
 import { CHOKE_RULES, scanChokePoints, stripComments, enclosingFunction } from './helpers/economicChokeScan'
 
@@ -13,11 +13,11 @@ const SCOPE = ['src', 'scripts']
 const EXT = /\.(ts|tsx|js|mjs|cjs|sql|sh)$/
 
 function collect(dir: string, out: Record<string, string>): void {
-  for (const name of readdirSync(dir)) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) { // one directory read: no stat-then-read on the same path
+    const name = entry.name
     if (name === 'node_modules' || name === 'dist' || name === '.next') continue
     const full = join(dir, name)
-    const st = statSync(full)
-    if (st.isDirectory()) collect(full, out)
+    if (entry.isDirectory()) collect(full, out)
     else if (EXT.test(name)) out[relative(ROOT, full).split(sep).join('/')] = readFileSync(full, 'utf8')
   }
 }

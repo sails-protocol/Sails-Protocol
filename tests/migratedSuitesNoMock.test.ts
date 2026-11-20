@@ -14,6 +14,7 @@ const MOCK_MENTIONS: Record<string, number> = {
   'tests/integration/capabilityAuthorityEnforced.test.ts': 1,
   'tests/integration/codex585P1Findings.test.ts': 4,
   'tests/integration/disputeOutcomeMultisigLive.test.ts': 0,
+  'tests/integration/disputedDispositionProductionPath.test.ts': 0,
   'tests/integration/distributionEntitlementFoundation.test.ts': 3,
   'tests/integration/escrowArbiterCommitmentIntegration.test.ts': 0,
   'tests/integration/escrowFundingConcurrency.test.ts': 0,
