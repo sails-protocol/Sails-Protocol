@@ -150,9 +150,14 @@ export function TradeDisputePanel({
             <p className="text-brand-text-secondary">Decisão não informada no registro.</p>
           )}
           {isParty && (
-            <Button variant="outline" onClick={onAppeal} disabled={acting} className="mt-2 min-h-11 text-sm">
-              Apelar da decisão
-            </Button>
+            <>
+              <p className="mt-2 text-xs text-brand-text-secondary">
+                Você ainda pode apelar: a apelação reabre a disputa para um novo árbitro. O servidor pode recusá-la conforme o tipo de escrow e a configuração de arbitragem.
+              </p>
+              <Button variant="outline" onClick={onAppeal} disabled={acting} className="mt-2 min-h-11 text-sm">
+                Apelar da decisão
+              </Button>
+            </>
           )}
         </Section>
       )}

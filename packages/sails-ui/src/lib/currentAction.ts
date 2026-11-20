@@ -46,12 +46,12 @@ export function deriveCurrentAction({ status, isBuyer, isSeller, releaseUnavaila
     case 'COMPLETED':
       return { tone: 'terminal', actorLabel: 'Encerrado', title: 'Escrow marcado como concluído', description: 'Não há mais ações disponíveis neste trade.', canDispute }
     case 'REFUNDED':
-      return { tone: 'terminal', actorLabel: 'Encerrado', title: 'Escrow reembolsado', description: 'O escrow foi marcado como reembolsado.', canDispute }
+      return { tone: 'terminal', actorLabel: 'Encerrado', title: 'Escrow marcado como reembolsado', description: 'Não há mais ações disponíveis neste trade.', canDispute }
     case 'SPLIT':
-      return { tone: 'terminal', actorLabel: 'Resultado do escrow', title: 'Escrow dividido entre as partes', description: 'O escrow foi marcado como dividido entre as partes por decisão da disputa.', canDispute }
+      return { tone: 'terminal', actorLabel: 'Resultado do escrow', title: 'Escrow marcado como dividido entre as partes', description: 'O escrow foi marcado como dividido entre as partes por decisão da disputa.', canDispute }
     case 'DISPUTED':
       return { tone: 'attention', actorLabel: 'Em disputa', title: 'Trade em disputa', description: 'As ações normais do trade estão suspensas. A resolução segue pela disputa.', canDispute }
     case 'EXPIRED':
-      return { tone: 'attention', actorLabel: 'Prazo encerrado', title: 'O prazo do escrow terminou', description: 'O escrow não está mais aberto para as etapas normais do trade.', canDispute }
+      return { tone: 'attention', actorLabel: 'Prazo encerrado', title: 'Prazo do escrow encerrado', description: 'O escrow não está mais aberto para as etapas normais do trade.', canDispute }
   }
 }

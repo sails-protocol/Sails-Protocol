@@ -18,9 +18,9 @@ export function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
-/** Exact USD decimal string from the record (e.g. "1.002"), never rounded to cents. */
+/** Exact USD decimal string from the record (e.g. "1.002"), never rounded to cents. Same en-US style as formatPrice/formatUsd on the Market. */
 export function formatUsdExact(decimal: string): string {
   const n = Number(decimal)
-  if (!Number.isFinite(n)) return `US$ ${decimal}`
-  return `US$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 12 })}`
+  if (!Number.isFinite(n)) return `$${decimal}`
+  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 12 })
 }

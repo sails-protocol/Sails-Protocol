@@ -11,7 +11,6 @@ import { checkMultisigPending, MultisigSigningIntentError } from '../lib/multisi
 import { deriveSigningRequest, roundSnapshotChanged, signingActionLabel, UNKNOWN_SIGNER, type RoundSnapshot, type SigningVerification } from '../lib/signingRequest'
 import { sailsClient } from '../lib/sailsClient'
 import { toUiMessage, toUiMessageFromEvent } from '../lib/tradeMessages'
-import { ESCROW_STATUS_LABEL } from '../components/ui/StatusBadges'
 import { EscrowCountdown } from '../components/trade/EscrowCountdown'
 import { CurrentActionCard } from '../components/trade/CurrentActionCard'
 import { SigningRequestCard } from '../components/trade/SigningRequestCard'
@@ -23,7 +22,7 @@ import { PaymentInstructions } from '../components/trade/PaymentInstructions'
 import { PayoutAddressForm } from '../components/trade/PayoutAddressForm'
 import { FundingInstructionCard } from '../components/trade/FundingInstructionCard'
 import { deriveFundingInstruction, deriveFundingRecordRows, lockRefusalMessage } from '../lib/fundingInstruction'
-import { deriveTradeState } from '../lib/tradeState'
+import { deriveTradeState, ESCROW_STATE_LABEL } from '../lib/tradeState'
 import { TradeParties } from '../components/trade/TradeParties'
 import { TradeDisputePanel } from '../components/trade/TradeDisputePanel'
 import { ChatWindow } from '../components/chat/ChatWindow'
@@ -34,7 +33,7 @@ import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
 import { Lock, Banknote, ArrowLeft } from 'lucide-react'
 import { formatDateTime, formatUsdExact } from '../lib/format'
 import { detectRiskLocally } from '../lib/socialEngineering'
-import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
+import { ASSET_LABELS, ASSET_SHORT_LABELS, DISPUTE_RULING_LABEL, PAYMENT_METHOD_LABELS } from '../lib/labels'
 
 // Sails Core Implementation Program M8-R2 (Destination Authority
 // Conformance, 2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md) —
@@ -98,14 +97,9 @@ const ROUND_KINDS = new Set<string>(['release', 'refund', 'split'])
 // refetch or the viewer's own action) — composed from refetched state, never
 // counterparty text. Not persisted: a reload starts from the recorded state.
 const SYSTEM_TEXT: Record<EscrowStatus, string> = {
-  CREATED: 'Escrow criado',
-  FUNDS_LOCKED: 'Fundos registrados como bloqueados',
-  PAYMENT_PENDING: 'Pagamento marcado como enviado (não verificado pela plataforma)',
-  COMPLETED: 'Escrow marcado como concluído',
+  ...ESCROW_STATE_LABEL,
+  PAYMENT_PENDING: `${ESCROW_STATE_LABEL.PAYMENT_PENDING} (não verificado pela plataforma)`,
   DISPUTED: 'Disputa aberta',
-  REFUNDED: 'Escrow marcado como reembolsado',
-  SPLIT: 'Escrow marcado como dividido entre as partes',
-  EXPIRED: 'Prazo do escrow encerrado',
 }
 
 // What a confirmation dialog was opened for. The dialog renders from this
@@ -209,6 +203,8 @@ export function Trade() {
   const [reloadKey, setReloadKey] = useState(0)
   const [acting, setActing] = useState(false)
   const [confirmRelease, setConfirmRelease] = useState(false)
+  // The other one-way steps with a confirmation (release has its own flag above).
+  const [confirmStep, setConfirmStep] = useState<'markPaid' | 'contest' | 'appeal' | null>(null)
   const [pending, setPending] = useState<PendingState>({ status: 'none' })
   const [roundDialog, setRoundDialog] = useState<RoundDialog | null>(null)
   const [showDisputeForm, setShowDisputeForm] = useState(false)
@@ -454,7 +450,7 @@ export function Trade() {
   const openRoundDialog = (kind: RoundDialog['kind']) => {
     if (!pendingTx || !signingView || !escrow) return
     const progress = { label: 'Assinaturas', value: signingView.progress.text }
-    const status = { label: 'Estado atual', value: ESCROW_STATUS_LABEL[escrow.status as EscrowStatus] ?? escrow.status }
+    const status = { label: 'Estado atual', value: ESCROW_STATE_LABEL[escrow.status as EscrowStatus] ?? escrow.status }
     setRoundDialog({
       kind,
       round: { id: pendingTx.id, unsignedPsbtBase64: pendingTx.unsignedPsbtBase64 },
@@ -543,6 +539,13 @@ export function Trade() {
   })
 
   const handleMarkPaymentSent = () => escrow && withGuard(async () => {
+    // The confirmation may be stale: mark only if the escrow still records the funds as locked and this viewer is the buyer.
+    const fresh = await sailsClient.settlement.get(escrow.id)
+    if (fresh.status !== 'FUNDS_LOCKED' || !user || user.id !== trade?.buyerId) {
+      setEscrow(fresh)
+      toast.error('O estado do trade mudou — revise antes de continuar')
+      return
+    }
     const e = await sailsClient.settlement.markPaymentSent(escrow.id)
     setEscrow(e)
     toast.success('Pagamento marcado como enviado', { icon: <Banknote className="h-4 w-4" /> })
@@ -704,16 +707,30 @@ export function Trade() {
     toast.success('Evidência enviada')
   })
 
+  // Re-reads the dispute before a confirmed step: proceeds only if it is still the one the user reviewed, in the expected status.
+  const freshDisputeStill = async (expected: Dispute['status']) => {
+    if (!escrow || !dispute) return false
+    const fresh = await sailsClient.settlement.get(escrow.id)
+    const d = fresh.disputes?.[0]
+    if (d && d.id === dispute.id && d.status === expected && d.appealRound === dispute.appealRound) return true
+    setEscrow(fresh)
+    toast.error('O estado do trade mudou — revise antes de continuar')
+    return false
+  }
+
   const handleContestAutoResolution = () => dispute && withGuard(async () => {
+    if (!(await freshDisputeStill('AUTO_PROPOSED'))) return
     const updated = await sailsClient.settlement.contestAutoResolution(dispute.id)
     patchDispute(updated)
     toast('Recomendação automática contestada — disputa voltou para revisão humana')
   })
 
   const handleAppeal = () => dispute && withGuard(async () => {
-    const { dispute: updated, appealFeeRequired } = await sailsClient.settlement.appealDispute(dispute.id)
+    if (!(await freshDisputeStill('RESOLVED'))) return
+    // appealFeeRequired is never printed: the contract gives it no unit (REVIEW LW-11).
+    const { dispute: updated } = await sailsClient.settlement.appealDispute(dispute.id)
     patchDispute(updated)
-    toast.success(`Apelação registrada — taxa de apelação: ${appealFeeRequired}`)
+    toast.success('Apelação registrada — a disputa foi reaberta para um novo árbitro')
   })
 
   const handleSend = (content: string) => {
@@ -793,7 +810,6 @@ export function Trade() {
   // most one entry in practice (Dispute.@@unique([tradeId])), but a real
   // Prisma include shape, so this stays an array server-side.
   const dispute = escrow?.disputes?.[0] ?? null
-  const amount = Number(trade.amount)
 
   // One derivation for the chip, the timeline, the action card and the payment gating.
   const state = deriveTradeState({
@@ -803,6 +819,7 @@ export function Trade() {
     isBuyer,
     isSeller,
     releaseUnavailable: !!escrow && UNSIGNABLE_ESCROW_TYPES.has(escrow.type),
+    appealAvailable: dispute?.status === 'RESOLVED' && (isBuyer || isSeller),
     payoutAddressMissing: payoutAddress === null,
     payoutAddressCheckFailed: payoutCheckFailed,
     createdAt: trade.createdAt,
@@ -837,7 +854,7 @@ export function Trade() {
       : { label: 'Escrow', value: 'Ainda não criado' },
     ...(escrow ? [
       { label: 'Tipo de escrow', value: escrow.type, mono: true },
-      { label: 'Estado registrado do escrow', value: ESCROW_STATUS_LABEL[escrowStatus] ?? escrow.status },
+      { label: 'Estado registrado do escrow', value: ESCROW_STATE_LABEL[escrowStatus] ?? escrow.status },
       { label: 'Última atualização do escrow', value: formatDateTime(escrow.updatedAt) },
       ...deriveFundingRecordRows(escrow),
     ] : []),
@@ -859,6 +876,21 @@ export function Trade() {
     />
   )
   const priceItem = { label: 'Preço', value: `${formatUsdExact(trade.priceUsd)} / ${short}`, sub: 'Preço unitário do trade' }
+  const actionCardShown = !(escrowStatus === 'DISPUTED' && dispute) && !showDisputeForm
+  const paymentInstructions = (isBuyer || isSeller) && trade.offer ? (
+    // paymentMethod/paymentDetails come from the originating Offer
+    // (getTrade() includes it so a buyer mid-trade can still see them).
+    // They are the seller's receiving details only when the seller
+    // published the offer; on a BUY offer they belong to the buyer.
+    <PaymentInstructions
+      viewer={isBuyer ? 'buyer' : 'seller'}
+      visibility={state.instructions}
+      methodLabel={PAYMENT_METHOD_LABELS[trade.offer.paymentMethod]}
+      details={trade.offer.userId === trade.sellerId ? trade.offer.paymentDetails : null}
+    />
+  ) : null
+  // Buyer: how to pay and the safety note sit inside the action card, before "Marcar pagamento enviado".
+  const paymentInCard = actionCardShown && isBuyer && state.instructions === 'active'
 
   return (
     <div className="space-y-4">
@@ -896,11 +928,11 @@ export function Trade() {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
         <div className="flex min-w-0 flex-col gap-4">
           {/* An open dispute is the current state: its panel below replaces the action card instead of repeating it. */}
-          {escrowStatus === 'DISPUTED' && dispute ? null : !showDisputeForm ? (
+          {escrowStatus === 'DISPUTED' && dispute ? null : actionCardShown ? (
             <CurrentActionCard
               view={state.action}
               acting={acting}
-              onAction={(a) => ({ createEscrow: handleCreateEscrow, lock: handleLockFunds, markPaymentSent: handleMarkPaymentSent, release: () => setConfirmRelease(true) })[a]()}
+              onAction={(a) => ({ createEscrow: handleCreateEscrow, lock: handleLockFunds, markPaymentSent: () => setConfirmStep('markPaid'), release: () => setConfirmRelease(true) })[a]()}
               onOpenDispute={() => setShowDisputeForm(true)}
               disputeTriggerRef={disputeTriggerRef}
             >
@@ -923,6 +955,7 @@ export function Trade() {
                   {payoutForm(false)}
                 </div>
               )}
+              {paymentInCard && <div className="mt-4">{paymentInstructions}</div>}
               {!isBuyer && !isSeller && (
                 <p className="mt-3 text-sm text-brand-text-secondary">Você não é parte deste trade — ações desabilitadas.</p>
               )}
@@ -983,23 +1016,12 @@ export function Trade() {
               partyLabel={partyLabel}
               onEvidenceNoteChange={setEvidenceNote}
               onSubmitEvidence={handleSubmitEvidence}
-              onContestAutoResolution={handleContestAutoResolution}
-              onAppeal={handleAppeal}
+              onContestAutoResolution={() => setConfirmStep('contest')}
+              onAppeal={() => setConfirmStep('appeal')}
             />
           )}
 
-          {(isBuyer || isSeller) && trade.offer && (
-            // paymentMethod/paymentDetails come from the originating Offer
-            // (getTrade() includes it so a buyer mid-trade can still see them).
-            // They are the seller's receiving details only when the seller
-            // published the offer; on a BUY offer they belong to the buyer.
-            <PaymentInstructions
-              viewer={isBuyer ? 'buyer' : 'seller'}
-              visibility={state.instructions}
-              methodLabel={PAYMENT_METHOD_LABELS[trade.offer.paymentMethod]}
-              details={trade.offer.userId === trade.sellerId ? trade.offer.paymentDetails : null}
-            />
-          )}
+          {!paymentInCard && paymentInstructions}
 
           <TradeTimeline steps={state.steps}>
             {escrow && <EscrowCountdown expiresAt={escrow.expiresAt} timelockHours={escrow.timelockHours} status={escrowStatus} />}
@@ -1007,7 +1029,8 @@ export function Trade() {
 
           <TradeParties buyer={buyer} seller={seller} currentUserId={user?.id} counterpartyOnline={counterpartyOnline} />
 
-          <AgentRiskCard asset={trade.asset} side={isBuyer ? 'BUY' : 'SELL'} maxValue={Number(trade.totalUsd)} minValue={Number(trade.totalUsd)} />
+          {/* A pre-trade proceed/hold/reject read: nothing to act on once the escrow is terminal, disputed or expired. */}
+          {state.open && <AgentRiskCard asset={trade.asset} side={isBuyer ? 'BUY' : 'SELL'} maxValue={Number(trade.totalUsd)} minValue={Number(trade.totalUsd)} />}
         </div>
 
         <aside className="flex min-w-0 flex-col gap-4" aria-label="Chat e detalhes do trade">
@@ -1049,10 +1072,10 @@ export function Trade() {
         onOpenChange={setConfirmRelease}
         title="Liberar os fundos ao comprador?"
         summary={[
-          { label: 'Valor', value: `${amount} — ${ASSET_LABELS[trade.asset]}` },
-          { label: 'Valor do trade (USD)', value: formatUsdExact(trade.totalUsd) },
+          { label: 'Valor', value: `${trade.amount} ${short} — ${ASSET_LABELS[trade.asset]}` },
+          { label: 'Valor do trade (USD)', value: totalLabel },
           { label: 'Comprador', value: buyer.displayName ?? 'Nome não informado' },
-          { label: 'Estado atual', value: ESCROW_STATUS_LABEL[escrowStatus] },
+          { label: 'Estado atual', value: ESCROW_STATE_LABEL[escrowStatus] },
         ]}
         warnings={[
           'Confira o recebimento no app do seu banco — não confie em comprovantes, prints ou SMS.',
@@ -1066,6 +1089,71 @@ export function Trade() {
           setConfirmRelease(false)
         }}
       />
+
+      <ConfirmActionDialog
+        open={confirmStep === 'markPaid'}
+        onOpenChange={(open) => { if (!open) setConfirmStep(null) }}
+        title="Marcar o pagamento como enviado?"
+        summary={[
+          { label: 'Valor a pagar (USD)', value: totalLabel },
+          { label: 'Forma de pagamento', value: methodLabel ?? 'Não informada' },
+          { label: 'Vendedor', value: seller.displayName ?? 'Nome não informado' },
+          { label: 'Estado atual', value: ESCROW_STATE_LABEL[escrowStatus] },
+        ]}
+        warnings={[
+          'Marque só depois de concluir a transferência no app do seu banco.',
+          'Pague de uma conta no seu nome, somente para os dados mostrados nesta tela.',
+        ]}
+        consequence="Registra no escrow que você enviou o pagamento. A plataforma não verifica o pagamento e isto não libera os fundos: o vendedor ainda precisa conferir o recebimento e liberar. Esta interface não oferece como desfazer a marcação."
+        confirmLabel="Marcar como enviado"
+        busy={acting}
+        onConfirm={async () => {
+          await handleMarkPaymentSent()
+          setConfirmStep(null)
+        }}
+      />
+
+      {dispute && (
+        <ConfirmActionDialog
+          open={confirmStep === 'contest'}
+          onOpenChange={(open) => { if (!open) setConfirmStep(null) }}
+          title="Contestar a sugestão automática?"
+          summary={[
+            ...(dispute.autoResolutionRecommendation ? [{ label: 'Sugestão', value: DISPUTE_RULING_LABEL[dispute.autoResolutionRecommendation] }] : []),
+            ...(dispute.autoResolutionDeadline ? [{ label: 'Aplica-se sem contestação em', value: formatDateTime(dispute.autoResolutionDeadline) }] : []),
+          ]}
+          consequence="A sugestão deixa de ser aplicada e a disputa volta para revisão humana, com as evidências enviadas. Esta interface não oferece como desfazer a contestação."
+          confirmLabel="Contestar sugestão"
+          busy={acting}
+          onConfirm={async () => {
+            await handleContestAutoResolution()
+            setConfirmStep(null)
+          }}
+        />
+      )}
+
+      {dispute && (
+        <ConfirmActionDialog
+          open={confirmStep === 'appeal'}
+          onOpenChange={(open) => { if (!open) setConfirmStep(null) }}
+          title="Apelar da decisão?"
+          summary={[
+            { label: 'Decisão registrada', value: dispute.ruling ? (DISPUTE_RULING_LABEL[dispute.ruling] ?? dispute.ruling) : 'Não informada no registro' },
+            { label: 'Rodada de apelação', value: String(dispute.appealRound + 1) },
+          ]}
+          warnings={[
+            'Uma taxa de apelação pode ser registrada para você. O valor não é informado nesta tela.',
+            'O servidor pode recusar a apelação, conforme o tipo de escrow e a configuração de arbitragem.',
+          ]}
+          consequence="Reabre a disputa para um novo árbitro decidir. A decisão atual passa a constar como decisão anterior. Esta interface não oferece como desfazer a apelação."
+          confirmLabel="Apelar da decisão"
+          busy={acting}
+          onConfirm={async () => {
+            await handleAppeal()
+            setConfirmStep(null)
+          }}
+        />
+      )}
 
       {roundDialog?.kind === 'sign' && (
         <ConfirmActionDialog

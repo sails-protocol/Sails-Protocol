@@ -10,6 +10,7 @@
  */
 import type { AssetType, TradeSide, PaymentMethod, TradeStatus, EscrowStatus, OfferStatus } from '../../types'
 import { ASSET_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
+import { ESCROW_STATE_LABEL } from '../../lib/tradeState'
 import { badgeVariants } from './badge'
 import { cn } from '../../lib/utils'
 import {
@@ -82,11 +83,8 @@ export function TradeStatusBadge({ status }: { status: TradeStatus }) {
 // status here, so this color is never ambiguous with an existing
 // meaning; the Scissors icon mirrors Disputes.tsx's own SPLIT action
 // button.
-export const ESCROW_STATUS_LABEL: Record<EscrowStatus, string> = {
-  CREATED: 'Criado', FUNDS_LOCKED: 'Fundos travados', PAYMENT_PENDING: 'Pagamento marcado como enviado',
-  COMPLETED: 'Concluído', DISPUTED: 'Em disputa', REFUNDED: 'Reembolsado', EXPIRED: 'Expirado',
-  SPLIT: 'Dividido entre as partes',
-}
+// Trade Workspace L1: one name per escrow state everywhere, so this is an alias of tradeState's labels.
+export const ESCROW_STATUS_LABEL: Record<EscrowStatus, string> = ESCROW_STATE_LABEL
 const ESCROW_STATUS_COLOR: Record<EscrowStatus, string> = {
   CREATED: 'border-brand-border bg-brand-elevated text-brand-text-secondary',
   FUNDS_LOCKED: 'border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300',
