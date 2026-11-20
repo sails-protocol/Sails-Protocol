@@ -68,6 +68,7 @@ BEGIN
     ('custody_attestations', 'append'), -- + UPDATE (supersededAt) only, see runtime_column_update
     ('intent_events', 'append'),        -- + UPDATE (publishedAt) only: hash-chained history, publication marker
     ('commitment_pairs', 'append'),     -- E25/E26 F3: + UPDATE of the signing/withdraw columns only; the pair itself is immutable (trigger)
+    ('deployment_mode', 'read'),        -- F4 gate 3: environment marker; the runtime may only READ it (the MOCK exemption of the escrow trigger depends on it)
     -- mutable state (write-once columns are still guarded by triggers)
     ('users', 'mutable'),
     ('offers', 'mutable'),
