@@ -58,7 +58,20 @@ export function checkMultisigPending(escrow: Escrow, pending: EscrowPendingTrans
  * safely sign this one," never as license to fall back to raw
  * `signEscrowPsbt()`.
  */
+// CTO 28 Despacho 033 (2026-11-20): fundedAmount's unit is inconsistent on main (provider persists sats,
+// this verifier reads BTC). MULTISIG signing that depends on it is on HOLD until the backend fix gets GK VERIFY.
+// shortcut: hard-coded flag, flip to false only with that VERIFY on record.
+export const MULTISIG_SIGNING_HOLD = true
+export const MULTISIG_SIGNING_HOLD_MESSAGE =
+  'Assinatura temporariamente indisponível: o valor depositado neste escrow está em verificação.'
+
 export function buildMultisigSigningIntent(escrow: Escrow, pending: EscrowPendingTransaction): ExpectedSigningIntent {
+  if (MULTISIG_SIGNING_HOLD) {
+    throw new MultisigSigningIntentError(
+      `MULTISIG signing on HOLD (fundedAmount unit, CTO 28 Despacho 033) — escrow ${escrow.id}.`,
+      MULTISIG_SIGNING_HOLD_MESSAGE
+    )
+  }
   if (pending.kind === 'split') {
     // A SPLIT's output construction (proportional buyerBps division plus
     // a three-way fee leg, multisig.provider.ts's own buildUnsignedSplit())
