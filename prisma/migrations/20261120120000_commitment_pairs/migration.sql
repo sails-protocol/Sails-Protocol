@@ -9,7 +9,8 @@
 -- "committedAnchorRef" UNIQUE.
 -- Nota: editada em 2026-11-19 (D025) antes de qualquer aplicação persistente.
 --
--- Reversal (not applied automatically; drop the guards first, they also block TRUNCATE):
+-- Reversal (not applied automatically; drop the guards first, they also block TRUNCATE). It must run BEFORE the
+-- reversal of 20261115120000 (E21), whose UNIQUE trades("tradeIntentId") index the anchor FOREIGN KEY depends on:
 --   DROP TRIGGER commitment_pairs_no_truncate ON "commitment_pairs";
 --   DROP TRIGGER commitment_pairs_no_delete ON "commitment_pairs";
 --   DROP TRIGGER commitment_pairs_guard_update ON "commitment_pairs";
