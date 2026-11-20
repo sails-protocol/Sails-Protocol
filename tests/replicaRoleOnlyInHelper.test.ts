@@ -23,6 +23,13 @@ export function findReplicaUsers(files: Record<string, string>): string[] {
   return Object.entries(files).filter(([p, s]) => p !== HELPER && s.toLowerCase().includes(NEEDLE)).map(([p]) => p).sort()
 }
 
+// The T14 rail-gate forcing helper (GK condition): only these files may mention it. The helper's own test is the second one.
+const FORCE_FN = 'forceEscrowType' + 'ForRailGateTest'
+const FORCE_ALLOWED = ['tests/integration/legacyEscrowSeed.test.ts', 'tests/integration/pendingRoundLifecycle.test.ts']
+export function findForceUsers(files: Record<string, string>): string[] {
+  return Object.entries(files).filter(([p, s]) => p !== HELPER && s.includes(FORCE_FN)).map(([p]) => p).sort()
+}
+
 function collect(dir: string, out: Record<string, string>): void {
   for (const name of readdirSync(dir)) {
     if (name === 'node_modules' || name === 'dist' || name === '.next') continue
@@ -47,6 +54,18 @@ describe('the replica role has ONE new user: the legacy-seed helper', () => {
     expect(files[HELPER]).toContain('GUC')
     expect(Object.keys(files).filter((p) => (p.startsWith('src/') || p.startsWith('scripts/')) && p.includes('legacyEscrowSeed'))).toEqual([])
     expect(Object.entries(files).filter(([p, s]) => !p.startsWith('tests/') && /legacyEscrowSeed/.test(s)).map(([p]) => p)).toEqual([]) // nothing outside tests imports it
+  })
+
+  it('the T14 rail-gate forcing helper is mentioned only by pendingRoundLifecycle and by the helper\'s own test (never src/, scripts/ or another suite)', () => {
+    expect(findForceUsers(real())).toEqual([...FORCE_ALLOWED].sort())
+  })
+
+  it.each([
+    ['another suite imports it', 'tests/integration/otherSuite.test.ts'],
+    ['a runtime source file', 'src/modules/open-settlement/x.ts'],
+    ['an operator script', 'scripts/seed.js'],
+  ])('MUTANT: %s is reported', (_n, path) => {
+    expect(findForceUsers({ [path]: `import { ${FORCE_FN} } from 'x'`, [HELPER]: FORCE_FN })).toEqual([path])
   })
 
   it.each([

@@ -7,7 +7,7 @@
 import { randomUUID } from 'crypto'
 import { Client } from 'pg'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
-import { legacyEscrowSeed, revalidateLegacySeed, withReplica } from './helpers/legacyEscrowSeed'
+import { legacyEscrowSeed, revalidateLegacySeed, withReplica, forceEscrowTypeForRailGateTest } from './helpers/legacyEscrowSeed'
 
 describe('legacyEscrowSeed (corpus helper for pre-cut WDK / LIGHTNING / ... escrows)', () => {
   jest.setTimeout(120_000)
@@ -127,5 +127,33 @@ describe('legacyEscrowSeed (corpus helper for pre-cut WDK / LIGHTNING / ... escr
     try { await expect(revalidateLegacySeed(db, id)).rejects.toThrow(/triggers are not enabled again: escrows_f4_guard_insert/) }
     finally { await db.query('ALTER TABLE escrows ENABLE TRIGGER escrows_f4_guard_insert') }
     await revalidateLegacySeed(db, id) // and passes again once enabled
+  })
+
+  it('forceEscrowTypeForRailGateTest (T14 only, never a seed): rewrites ONLY the type of ONE existing row, refuses MOCK/MULTISIG and a missing row, and verifies the F4 triggers afterwards', async () => {
+    const id = await legacyEscrowSeed({ tradeId: await newTrade(), type: 'WDK_USDT_EVM', lockedAmount: '5', asset: 'USDT_ERC20', multisigAddr: '0xf' })
+    const row = async () => (await db.query(`SELECT type::text AS type, "tradeId", "lockedAmount"::text AS la, "multisigAddr", "legacyPreCommitmentAt" AS l FROM escrows WHERE id = $1`, [id])).rows[0]
+    const before = await row()
+    await expect(forceEscrowTypeForRailGateTest(id, 'MOCK')).rejects.toThrow(/only a rail OTHER than MULTISIG\/MOCK/)
+    await expect(forceEscrowTypeForRailGateTest(id, 'MULTISIG')).rejects.toThrow(/only a rail OTHER than MULTISIG\/MOCK/)
+    await expect(forceEscrowTypeForRailGateTest(randomUUID(), 'LIGHTNING_HODL')).rejects.toThrow(/expected exactly 1 row, updated 0/)
+    expect(await row()).toEqual(before) // nothing moved
+    await forceEscrowTypeForRailGateTest(id, 'LIGHTNING_HODL')
+    expect(await row()).toEqual({ ...before, type: 'LIGHTNING_HODL' }) // the type and nothing else
+    // the F4 triggers are verified after the UPDATE: one left disabled is reported
+    await db.query('ALTER TABLE escrows DISABLE TRIGGER escrows_f4_guard_update')
+    try { await expect(forceEscrowTypeForRailGateTest(id, 'SAFE_GUARD_EVM')).rejects.toThrow(/F4 triggers are not enabled again: escrows_f4_guard_update/) }
+    finally { await db.query('ALTER TABLE escrows ENABLE TRIGGER escrows_f4_guard_update') }
+    // and a non-superuser connection is refused
+    const prev = process.env.ADMIN_DATABASE_URL
+    const role = 'f4_force_nosuper_' + randomUUID().slice(0, 6), pw = 'pw-' + randomUUID()
+    await db.query(`CREATE ROLE ${role} LOGIN NOSUPERUSER PASSWORD '${pw}'`)
+    try {
+      const u = new URL(process.env.DATABASE_URL as string); u.username = role; u.password = pw
+      process.env.ADMIN_DATABASE_URL = u.toString()
+      await expect(forceEscrowTypeForRailGateTest(id, 'SAFE_GUARD_EVM')).rejects.toThrow(/needs a SUPERUSER connection/)
+    } finally {
+      if (prev === undefined) delete process.env.ADMIN_DATABASE_URL; else process.env.ADMIN_DATABASE_URL = prev
+      await db.query(`DROP ROLE ${role}`)
+    }
   })
 })

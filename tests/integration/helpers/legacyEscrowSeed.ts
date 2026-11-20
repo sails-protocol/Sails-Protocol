@@ -78,6 +78,11 @@ export async function revalidateLegacySeed(db: Queryable, escrowId: string): Pro
   if (r.l === null) fail('the legacy mark is missing: this would be a NEW escrow written around the binding')
   if ((r.multisigAddr !== null) !== (r.a !== null)) fail('the address mark must exist exactly when the escrow already had an address at the cut')
   if (r.a !== null && r.a.getTime() !== r.l.getTime()) fail('the two marks must come from the same instant')
+  await assertF4TriggersEnabled(db, (why) => fail(why))
+}
+
+/** The 3 F4 triggers on escrows exist and are enabled (the replica role, or an ALTER TABLE, must not leave them off). */
+async function assertF4TriggersEnabled(db: Queryable, fail: (why: string) => never): Promise<void> {
   const off = (await db.query(`SELECT tgname FROM pg_trigger WHERE tgrelid = 'escrows'::regclass AND tgname LIKE 'escrows\\_f4\\_%' AND tgenabled <> 'O'`)).rows
   if (off.length) fail(`the F4 triggers are not enabled again: ${off.map((x) => x.tgname).join(', ')}`)
   const count = (await db.query(`SELECT count(*)::int AS n FROM pg_trigger WHERE tgrelid = 'escrows'::regclass AND tgname LIKE 'escrows\\_f4\\_%'`)).rows[0].n
@@ -110,6 +115,32 @@ export async function legacyEscrowSeed(spec: LegacySeedSpec): Promise<string> {
     } catch (e) { await client.query('ROLLBACK').catch(() => undefined); throw e }
     await revalidateLegacySeed(client, id)
     return id
+  } finally {
+    await client.end()
+  }
+}
+
+/**
+ * TEST-ONLY, NEVER A SEED. Forces an IMPOSSIBLE state (a pair-bound escrow whose `type` is a non-MULTISIG rail) on one existing row, only to prove
+ * that cancellation/supersession FAIL CLOSED when the rail is not MULTISIG. It is not a legacy escrow and must never be used to stand in for
+ * one (use legacyEscrowSeed). Guarantees: superuser connection only; refuses MOCK and MULTISIG; one UPDATE of the `type` column only, which
+ * must hit exactly 1 row (else rolled back); the F4 triggers are verified enabled afterwards. Importers are pinned by a static test
+ * (replicaRoleOnlyInHelper.test.ts): pendingRoundLifecycle.test.ts, plus this helper's own test.
+ */
+export async function forceEscrowTypeForRailGateTest(escrowId: string, type: string): Promise<void> {
+  if (type === 'MOCK' || type === 'MULTISIG') throw new Error('forceEscrowTypeForRailGateTest: only a rail OTHER than MULTISIG/MOCK (a mismatch) can be forced')
+  const client = new Client({ connectionString: adminUrl() })
+  await client.connect()
+  try {
+    const su = (await client.query(`SELECT rolsuper FROM pg_roles WHERE rolname = current_user`)).rows[0]?.rolsuper
+    if (!su) throw new Error('forceEscrowTypeForRailGateTest needs a SUPERUSER connection (ADMIN_DATABASE_URL)')
+    await client.query('BEGIN')
+    try {
+      const r = await withReplica(client, () => client.query(`UPDATE escrows SET "type" = $2::"EscrowType" WHERE id = $1`, [escrowId, type]))
+      if (r.rowCount !== 1) throw new Error(`forceEscrowTypeForRailGateTest: expected exactly 1 row, updated ${r.rowCount}`)
+      await client.query('COMMIT')
+    } catch (e) { await client.query('ROLLBACK').catch(() => undefined); throw e }
+    await assertF4TriggersEnabled(client, (why) => { throw new Error(`forceEscrowTypeForRailGateTest ${escrowId}: ${why}`) })
   } finally {
     await client.end()
   }
