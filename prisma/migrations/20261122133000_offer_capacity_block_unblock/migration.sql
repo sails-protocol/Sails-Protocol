@@ -33,18 +33,16 @@
 --   DROP FUNCTION offer_capacity_unblock_digest(text, text, text, text, timestamptz, jsonb, text);
 --   DROP TABLE "offer_capacity_unblock_requests";
 --   DROP TABLE "offer_capacity_blocks";
---   (the role sails_capacity_reviewer is cluster-level and is left in place)
+--   (the role sails_capacity_reviewer is cluster-level, created by bootstrap-roles.js, and is left in place)
 
 SET lock_timeout = '5s';
 
+-- The reviewer role MUST already exist (created by scripts/db/bootstrap-roles.js, the cluster administrator's step that runs before the
+-- migrations; GK). This migration never creates a cluster-level role: a missing role fails the migration closed.
 DO $roles$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sails_capacity_reviewer') THEN
-    BEGIN
-      CREATE ROLE sails_capacity_reviewer NOLOGIN;
-    EXCEPTION WHEN insufficient_privilege THEN
-      RAISE EXCEPTION 'the role sails_capacity_reviewer must be created by the cluster administrator before this migration (NOLOGIN; a separate login role holds the reviewer credential)';
-    END;
+    RAISE EXCEPTION 'the role sails_capacity_reviewer must exist before this migration (run scripts/db/bootstrap-roles.js as the cluster administrator)';
   END IF;
 END
 $roles$;

@@ -98,6 +98,10 @@ jobs:
         # was missing, not the Postgres service container.
         run: npm run db:generate
 
+      - name: Ensure the capacity reviewer role (M-1b migration requires it)
+        env:
+          ADMIN_DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+        run: node scripts/db/ensure-capacity-reviewer-role.js
       - name: Apply database migrations
         # Scoped to this step only — targets the ephemeral CI Postgres
         # service above, never a shared or production database.

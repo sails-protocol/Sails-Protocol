@@ -100,6 +100,10 @@ jobs:
         # (run 33352899462): 80 of 147 suites failed on
         # `TS2305: Module '@prisma/client' has no exported member ...`.
         run: npm run db:generate
+      - name: Ensure the capacity reviewer role (M-1b migration requires it)
+        env:
+          ADMIN_DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+        run: node scripts/db/ensure-capacity-reviewer-role.js
       - name: Apply database migrations
         run: npm run db:migrate
       - name: Run tests (capture output)
