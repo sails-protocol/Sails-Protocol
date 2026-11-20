@@ -43,7 +43,7 @@ export function DemoControls() {
   const simulate = () => {
     if (!tradeId) return
     try {
-      toast.success(`Contraparte simulada: ${simulateCounterparty(tradeId)}`)
+      toast.success(`Simulado: ${simulateCounterparty(tradeId)}`)
       refreshTradePage()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Falha na simulação')
@@ -64,10 +64,10 @@ export function DemoControls() {
               {view.escrowStatus ? <EscrowStatusBadge status={view.escrowStatus} /> : <span>ainda não criado</span>}
             </p>
             <Button onClick={simulate} disabled={!view.nextCounterpartyStep} className="w-full min-h-[44px] whitespace-normal">
-              Simular ação da contraparte
+              Simular próximo passo da outra parte
             </Button>
             <p className="text-xs text-brand-text-secondary">
-              {view.nextCounterpartyStep ? `Próximo passo: ${view.nextCounterpartyStep.toLowerCase()}.` : 'Nenhuma ação pendente da contraparte agora.'}
+              {view.nextCounterpartyStep ? `Próximo passo: ${view.nextCounterpartyStep.toLowerCase()}.` : 'Nenhuma ação pendente da outra parte agora.'}
             </p>
           </>
         ) : (
