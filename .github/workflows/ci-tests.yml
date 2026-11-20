@@ -134,6 +134,7 @@ jobs:
               tests/integration/atomicDisputeOpening.test.ts \
               tests/integration/disputeSemanticProvenance.test.ts \
               tests/integration/capabilityAuthorityEnforced.test.ts \
+              tests/integration/tradeAcceptedEnvelope.test.ts \
               tests/integration/durableProjectionCompletion.test.ts \
               tests/integration/semanticTransitionRecordAtomicity.test.ts \
               tests/integration/settlementResultIntegrity.test.ts \

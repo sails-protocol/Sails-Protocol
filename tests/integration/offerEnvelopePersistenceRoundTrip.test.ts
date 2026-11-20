@@ -810,7 +810,12 @@ describe('OfferEnvelope — C9 tombstone / revision regression against real Post
     await expect(prisma.$executeRaw`UPDATE offer_envelopes SET status = 'ACTIVE' WHERE "logicalOfferId" = ${id} AND revision = 2`).rejects.toThrow(/append-only/)
     await expect(prisma.$executeRaw`DELETE FROM offer_envelopes WHERE "logicalOfferId" = ${id} AND revision = 2`).rejects.toThrow(/append-only/)
     await expect(prisma.offerEnvelope.deleteMany({ where: { logicalOfferId: id } })).rejects.toThrow(/append-only/)
-    await expect(prisma.$executeRawUnsafe('TRUNCATE offer_envelopes')).rejects.toThrow(/append-only/)
+    // E21 R1: trades."acceptedEnvelopeId" references this table, so a plain TRUNCATE is refused by that foreign key
+    // before the guard runs; with CASCADE the guard itself refuses it (and nothing is truncated).
+    await expect(prisma.$executeRawUnsafe('TRUNCATE offer_envelopes')).rejects.toThrow(/append-only|Code: `0A000`/) // 0A000 = feature_not_supported: truncating a referenced table
+    const tradesBefore = await prisma.trade.count()
+    await expect(prisma.$executeRawUnsafe('TRUNCATE offer_envelopes CASCADE')).rejects.toThrow(/append-only/)
+    expect(await prisma.trade.count()).toBe(tradesBefore) // CASCADE would reach trades if the guard did not abort it
     expect(await prisma.offerEnvelope.findMany({ where: { ownerPublicKey: owner.publicKeyHex, logicalOfferId: id }, orderBy: { revision: 'asc' } })).toEqual(before)
     const triggers = await prisma.$queryRaw<Array<{ name: string; enabled: string }>>`
       SELECT t.tgname AS name, t.tgenabled::text AS enabled FROM pg_trigger t JOIN pg_class c ON t.tgrelid = c.oid
