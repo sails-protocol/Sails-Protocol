@@ -76,8 +76,8 @@ export function PublishOffer() {
   // Narrower than the UI's own `AssetType` on purpose — same reasoning
   // as `paymentMethod` below: this page submits straight to the real
   // `liquidity.publish()` call, which has no `DEPIX` (see types.ts's own
-  // comment). `ASSETS` (not `ASSETS_FILTERABLE`) already keeps it out of
-  // the picker's options; this keeps it out of the type too.
+  // comment). The picker offers only `available` catalog pairs (plus the
+  // dev test rail), all enum values; this keeps the rest out of the type too.
   const [asset, setAsset] = useState<(typeof ASSETS)[number] | 'Todos'>('Todos')
   const [currency, setCurrency] = useState<FiatCurrency | 'Todas'>('USD')
   const [priceType, setPriceType] = useState<'FIXED' | 'FLOATING'>('FIXED')
@@ -254,7 +254,6 @@ export function PublishOffer() {
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">Ativo</label>
                 <AssetPicker
-                  assets={ASSETS}
                   allLabel="Selecione o ativo"
                   hideAllOption
                   value={asset}

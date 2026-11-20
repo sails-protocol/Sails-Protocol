@@ -5,6 +5,7 @@ import { UserAvatar } from '../ui/UserAvatar'
 import { formatAmount } from '../../lib/format'
 import { formatPrice } from '../../lib/currency'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
+import { AssetNetworkLabel } from '../ui/AssetIcon'
 import { sellerTrust } from './offerList'
 import { TrustLine } from '../ui/TrustLine'
 import { buttonVariants } from '../ui/button'
@@ -42,8 +43,8 @@ export function OfferCard({ offer, own = false }: { offer: Offer; own?: boolean 
         </div>
         <div className="mt-1 flex flex-wrap items-baseline gap-x-1.5">
           <span data-price className="money-lg text-brand-text whitespace-nowrap">{price}</span>
-          <span className="text-xs text-brand-text-muted">
-            por {ASSET_LABELS[offer.asset]}
+          <span className="inline-flex flex-wrap items-center gap-x-1 text-xs text-brand-text-muted">
+            por <AssetNetworkLabel asset={offer.asset} />
             {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}
           </span>
         </div>

@@ -24,6 +24,16 @@ export function moveActive(index: number, count: number, key: 'ArrowDown' | 'Arr
   return index < 0 ? count - 1 : (index - 1 + count) % count
 }
 
+/** Like moveActive, but lands only on enabled options (disabled "Em breve" options stay visible, never active). -1 = none enabled. */
+export function moveActiveEnabled(index: number, disabled: readonly boolean[], key: 'ArrowDown' | 'ArrowUp'): number {
+  let i = index
+  for (let step = 0; step < disabled.length; step++) {
+    i = moveActive(i, disabled.length, key)
+    if (!disabled[i]) return i
+  }
+  return -1
+}
+
 /** Typeahead for menus: first item after `from` whose label starts with `query`, wrapping. -1 = none. */
 export function typeaheadIndex(labels: readonly string[], query: string, from: number): number {
   const q = normalize(query)

@@ -19,14 +19,19 @@ import type { DisputeRuling, DisputeStatus, EscrowType } from '@satsails/p2p-tra
 // {BTC, BITCOIN_L1} canonical scope this slice proves end-to-end —
 // not a general asset+rail selector (see ADR-002/PROJECT_CONTEXT.md §2C
 // for the still-open, separately-authorized full Day-0 selector work).
+//
+// Asset catalog (2026-11-20, DECISIONS.md): every value the official catalog maps renders as its pair
+// label, "asset · network" (lib/assetCatalog.ts; tests/assetCatalog.test.ts keeps them equal). LN_BTC
+// is Arkade on a test network, never "Lightning". USDT_LIQUID/RSK_BTC follow the same format for
+// existing data; the remaining values are kept only so old records still render.
 export const ASSET_LABELS: Record<AssetType, string> = {
-  BTC: 'Bitcoin (on-chain)',
-  LN_BTC: 'Bitcoin (Ark/Arkade)',
-  LIQUID_BTC: 'Bitcoin (Liquid)',
-  RSK_BTC: 'Bitcoin (RSK)',
-  USDT_ERC20: 'USDT (ERC-20)',
-  USDT_TRC20: 'USDT (TRC-20)',
-  USDT_LIQUID: 'USDT (Liquid)',
+  BTC: 'BTC · On-chain',
+  LN_BTC: 'BTC · Rede de teste',
+  LIQUID_BTC: 'BTC · Liquid',
+  RSK_BTC: 'BTC · RSK',
+  USDT_ERC20: 'USDT · Ethereum',
+  USDT_TRC20: 'USDT · Tron',
+  USDT_LIQUID: 'USDT · Liquid',
   USDT_LIGHTNING: 'USDT (Lightning)',
   SPARK: 'Spark',
   STACKS: 'Stacks (STX)',
@@ -137,7 +142,7 @@ export const DISPUTE_STATUS_LABEL: Record<DisputeStatus, string> = {
 /** Escrow.type in words (the settlement rail of the escrow); the code stays the stored value. */
 export const ESCROW_TYPE_LABEL: Record<EscrowType, string> = {
   MULTISIG: 'Multisig Bitcoin',
-  LIGHTNING_HODL: 'Lightning HODL',
+  LIGHTNING_HODL: 'Bitcoin via Arkade (rede de teste)',
   LIQUID_COVENANT: 'Covenant na Liquid',
   WDK_USDT_EVM: 'USDT em rede EVM (WDK)',
   SAFE_GUARD_EVM: 'Safe com Guard (EVM)',

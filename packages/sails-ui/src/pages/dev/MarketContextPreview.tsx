@@ -15,7 +15,7 @@ import { OfferCard } from '../../components/marketplace/OfferCard'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select'
-import { ASSETS_FILTERABLE, PAYMENT_METHODS_FILTERABLE } from '../../data/mock'
+import { PAYMENT_METHODS_FILTERABLE } from '../../data/mock'
 import type { MarketContextCopy, MarketContextListState, MarketContextView } from '../../lib/marketContext'
 import { cn } from '../../lib/utils'
 import type { AssetType, FiatCurrency, MarketplaceFilters, Offer, PaymentMethod, TradeSide } from '../../types'
@@ -321,7 +321,7 @@ export function MarketContextPreview() {
 
       {/* Desktop/tablet (md+): the real Market toolbar. */}
       <div className="mt-3 hidden flex-wrap items-center gap-2 rounded-lg border border-brand-border-subtle bg-brand-surface px-3 py-2 md:flex">
-        <AssetPicker assets={ASSETS_FILTERABLE} value={asset} onChange={setAsset} />
+        <AssetPicker value={asset} onChange={setAsset} />
         <CurrencyPicker value={currency} onChange={setCurrency} />
         <PaymentMethodPicker methods={PAYMENT_METHODS_FILTERABLE} value={payments} onChange={setPayments} />
         <button type="button" aria-disabled="true" aria-describedby="more-filters-note" className="toolbar-chip flex cursor-not-allowed items-center gap-1.5">
@@ -363,7 +363,7 @@ export function MarketContextPreview() {
           </>
         }
       >
-        <MobileField label={COPY.fieldAsset}><AssetPicker assets={ASSETS_FILTERABLE} value={asset} onChange={setAsset} /></MobileField>
+        <MobileField label={COPY.fieldAsset}><AssetPicker value={asset} onChange={setAsset} /></MobileField>
         <MobileField label={COPY.fieldCurrency}><CurrencyPicker value={currency} onChange={setCurrency} /></MobileField>
         <MobileField label={COPY.fieldPayment}><PaymentMethodPicker methods={PAYMENT_METHODS_FILTERABLE} value={payments} onChange={setPayments} /></MobileField>
         <MobileField label={COPY.fieldSort}>{sortSelect('min-h-11 w-full')}</MobileField>

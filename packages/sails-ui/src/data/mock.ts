@@ -1,6 +1,6 @@
 /**
  * Reference/seed data for real pickers and filters — not fake data
- * standing in for a real API. `ASSETS`/`ASSETS_FILTERABLE`,
+ * standing in for a real API. `ASSETS` (the enum, re-exported),
  * `PAYMENT_METHODS`/`PAYMENT_METHODS_FILTERABLE`, and `COUNTRIES` back
  * real UI pickers; PublishOffer.tsx submits against the real backend
  * (`lib/realOffers.ts`'s `discover()` fan-out), never anything from
@@ -13,37 +13,11 @@
  * anywhere — and removed 2026-08-11.
  */
 
-// The real AssetType enum (prisma/schema.prisma) — not a fictional
-// list. Alphabetical order (2026-07-29, requested directly) — by the
-// asset *code* itself, since AssetPicker renders the raw code, not
-// ASSET_LABELS' friendly name.
-//
-// USDT_ERC20 briefly removed from this list (2026-07-28) on a wrong
-// assumption that it had no multisig escrow path — reverted the same
-// day after checking settlement.routes.ts directly: `SAFE_GUARD_EVM`
-// (SailsEscrowSafe, RFC-020) is a real, registered EscrowType, a 2-of-3
-// Safe multisig (buyer + seller + KMS co-signer) that's asset-agnostic
-// within EVM, not restricted to native ETH — it covers USDT_ERC20 the
-// same as `MultisigProvider` covers the Bitcoin-family assets here.
-//
-// SPARK removed 2026-07-29 (requested directly, verified before acting
-// this time — see types.ts's own comment) — genuinely has zero
-// settlement-provider wiring anywhere in the real backend, unlike
-// USDT_ERC20's confirmed path above.
-export const ASSETS = ['BTC', 'LIQUID_BTC', 'LN_BTC', 'RSK_BTC', 'STACKS', 'USDT_ERC20', 'USDT_LIGHTNING', 'USDT_LIQUID', 'USDT_TRC20'] as const
-
-// Adds the UI-only assets (types.ts's own comment has the full sourcing)
-// on top of the real list above, alphabetically merged in (not
-// appended) — filter/display + Marketplace's own discover() fan-out
-// (lib/realOffers.ts), never PublishOffer.tsx's real submission (that
-// page deliberately keeps importing `ASSETS`, not this). Note
-// `LIQUID_BTC`/`USDT_LIQUID` above already are "L-BTC"/the real Liquid-
-// network USD stablecoin — no separate value was needed for those.
-export const ASSETS_FILTERABLE = [
-  'BNB', 'BTC', 'DEPIX', 'ETH', 'LIQUID_BTC', 'LN_BTC', 'LTC', 'RSK_BTC',
-  'SBTC_STACKS', 'SOL', 'STACKS', 'USDC_BASE', 'USDC_ERC20', 'USDC_POLYGON', 'USDCX_STACKS',
-  'USDT_ERC20', 'USDT_LIGHTNING', 'USDT_LIQUID', 'USDT_TRC20', 'WBTC',
-] as const
+// The real AssetType enum lives in lib/assetCatalog.ts with the official 14-pair catalog (the only
+// asset option list, DECISIONS.md "Catálogo de ativos"). Re-exported here for discover() fan-out
+// (lib/realOffers.ts) and the agent parser (lib/qvacAgent.ts), which need every enum value that
+// existing offers can carry, not what a picker offers.
+export { ENUM_ASSET_TYPES as ASSETS } from '../lib/assetCatalog'
 
 // The real backend `PaymentMethod` enum (prisma/schema.prisma) exactly —
 // used anywhere a value round-trips to a real @satsails/p2p-trading-sdk call

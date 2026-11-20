@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Link } from 'react-router'
-import { ASSETS_FILTERABLE, PAYMENT_METHODS_FILTERABLE } from '../data/mock'
+import { PAYMENT_METHODS_FILTERABLE } from '../data/mock'
 import { fetchOffers } from '../lib/realOffers'
 import { countActiveFilters } from '../lib/filters'
 import { OfferCard } from '../components/marketplace/OfferCard'
@@ -277,7 +277,7 @@ export function Marketplace() {
           search on the left, sort on the right; the search shrinks first. md: the main pickers, one
           Filtros button opening the same sheet as mobile (payment, search and the advanced filters), sort. */}
       <div className="hidden md:flex mt-4 gap-2 items-center">
-        <AssetPicker assets={ASSETS_FILTERABLE} value={asset} onChange={setAsset} />
+        <AssetPicker value={asset} onChange={setAsset} />
         <CurrencyPicker value={currency} onChange={setCurrency} />
         <div className="hidden lg:block">
           <PaymentMethodPicker
@@ -339,7 +339,7 @@ export function Marketplace() {
           </Button>
         </>}
       >
-        <MobileField label="Ativo"><AssetPicker assets={ASSETS_FILTERABLE} value={asset} onChange={setAsset} /></MobileField>
+        <MobileField label="Ativo"><AssetPicker value={asset} onChange={setAsset} /></MobileField>
         <MobileField label="Moeda"><CurrencyPicker value={currency} onChange={setCurrency} /></MobileField>
         <MobileField label="Pagamento">
           <PaymentMethodPicker

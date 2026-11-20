@@ -19,6 +19,7 @@ import { Check, ChevronRight, MoreHorizontal, Plus } from 'lucide-react'
 import { sailsClient } from '../lib/sailsClient'
 import { formatAmount, formatDateTime, formatMonthYear } from '../lib/format'
 import { ASSET_LABELS, ASSET_SHORT_LABELS } from '../lib/labels'
+import { AssetNetworkLabel } from '../components/ui/AssetIcon'
 import { ACCOUNT_DISPUTE_RATE_DEFINITION, formatAccountDisputeRate, RATINGS_EXPLANATION, REPUTATION_EXPLANATION } from '../lib/reputation'
 import { PlannedItem } from '../components/ui/PlannedItem'
 import { LOOSE_WIRES } from '../lib/looseWires'
@@ -251,7 +252,7 @@ export function Profile() {
                     <li key={o.id} className={cn(TABLE_ROW, 'px-4 py-3')}>
                       <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-2', OFFER_COLS)}>
                         <span><SideBadge side={o.side} /></span>
-                        <span className="text-sm text-brand-text-secondary truncate">{ASSET_LABELS[o.asset]}</span>
+                        <AssetNetworkLabel asset={o.asset} className="text-sm text-brand-text-secondary" />
                         {/* priceUsd is a USD value: always formatted as USD, never with the offer's fiat symbol. */}
                         <span className="text-sm font-medium text-brand-text tabular-nums">{formatPrice(o.priceUsd, 'USD')}</span>
                         <span className="text-body-sm text-brand-text-secondary tabular-nums">

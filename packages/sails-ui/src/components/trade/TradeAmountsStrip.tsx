@@ -4,12 +4,13 @@
  * only the first two items show (the rest repeat in the host's details),
  * so the current action stays in the first viewport.
  */
+import type { ReactNode } from 'react'
 import { cn } from '../../lib/utils'
 
 export interface AmountItem {
   label: string
   value: string
-  sub?: string
+  sub?: ReactNode
 }
 
 export function TradeAmountsStrip({ items }: { items: AmountItem[] }) {

@@ -1,6 +1,6 @@
 import {
   Activity, Bell, CircleUser, Globe, Info, KeyRound, Languages, LifeBuoy, Link2, Lock, MapPin, MessageSquare,
-  ServerCog, CalendarDays, CreditCard, Scale, Star, Users, Wallet,
+  ServerCog, CalendarDays, Coins, CreditCard, Scale, Star, Users, Wallet,
 } from 'lucide-react'
 
 /**
@@ -30,6 +30,7 @@ export const LOOSE_WIRES = {
   // Other screens.
   readRatings: { label: 'Avaliações', icon: Star, contract: 'Ler avaliações (média, quantidade, comentários) — endpoint + SDK (only reputation.rate() exists)' },
   publicMemberSince: { label: 'Membro desde', icon: CalendarDays, contract: 'Data de cadastro (mês/ano) nos dados públicos do anunciante (PublicOfferSeller has no createdAt)' },
+  assetCatalogPairs: { label: 'Pares do catálogo de ativos', icon: Coins, contract: 'Os 13 pares "Em breve" do catálogo (lib/assetCatalog.ts): modelo Asset + SettlementRail do ADR-002 (§12 itens 2 e 3) ligado ao SDK e um rail de liquidação apto a produção por par; hoje só BTC on-chain (MULTISIG)' },
   multiPaymentMethods: { label: 'Vários métodos de pagamento', icon: CreditCard, contract: 'Oferta com vários métodos de pagamento (schema + SDK, decisão do CTO); PaymentMethods already renders a list' },
 } as const
 

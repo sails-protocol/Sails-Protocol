@@ -6,6 +6,7 @@ import { buttonVariants } from '../ui/button'
 import { formatAmount } from '../../lib/format'
 import { formatPrice } from '../../lib/currency'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
+import { AssetNetworkLabel } from '../ui/AssetIcon'
 import { cn } from '../../lib/utils'
 import { Check } from 'lucide-react'
 import { sellerTrust } from './offerList'
@@ -81,7 +82,7 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
       </TableCell>
       <TableCell>
         <div data-price className="money-lg text-brand-text whitespace-nowrap">{price}</div>
-        <div className="text-xs text-brand-text-muted whitespace-nowrap">por {ASSET_LABELS[offer.asset]}</div>
+        <div className="flex items-center gap-1 text-xs text-brand-text-muted whitespace-nowrap">por <AssetNetworkLabel asset={offer.asset} /></div>
       </TableCell>
       <TableCell className="text-body-sm text-brand-text-secondary tabular-nums whitespace-nowrap">{limits}</TableCell>
       <TableCell>

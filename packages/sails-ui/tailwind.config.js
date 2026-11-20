@@ -81,7 +81,7 @@ export default {
         },
         // Asset identity (AssetIcon only): bg-asset-btc/15 text-asset-btc.
         asset: Object.fromEntries(
-          ['btc', 'usdt', 'usdc', 'depix', 'eth', 'bnb', 'sol', 'ltc', 'stx', 'spark'].map((a) => [a, `rgb(var(--color-asset-${a}) / <alpha-value>)`]),
+          ['btc', 'usdt', 'usdc', 'depix', 'eth', 'bnb', 'sol', 'ltc', 'stx', 'spark', 'chip'].map((a) => [a, `rgb(var(--color-asset-${a}) / <alpha-value>)`]),
         ),
         // shadcn/ui's expected token names (bg-background, bg-primary,
         // border-input, ring-ring, etc.) — aliased onto the same CSS vars

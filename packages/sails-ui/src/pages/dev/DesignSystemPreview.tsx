@@ -5,7 +5,7 @@
  * in the current theme. Example data only; no SDK calls.
  */
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
-import { AlertTriangle, CheckCircle2, Copy, Heart, Info, Loader2, LogOut, RefreshCw, Settings, Star, Trash2, User as UserIcon, XCircle } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle2, Copy, Heart, Info, Loader2, LogOut, RefreshCw, Settings, Star, Trash2, User as UserIcon, XCircle } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Checkbox } from '../../components/ui/checkbox'
@@ -29,6 +29,12 @@ import { Divider } from '../../components/ui/divider'
 import { IconButton } from '../../components/ui/icon-button'
 import { FilterChip } from '../../components/ui/filter-chip'
 import { Combobox } from '../../components/ui/combobox'
+import { AssetPicker } from '../../components/marketplace/AssetPicker'
+import { AssetPairIcon } from '../../components/ui/AssetIcon'
+import { cn } from '../../lib/utils'
+import { badgeVariants } from '../../components/ui/badge'
+import { SOON_NOTE, pickerPairs } from '../../lib/assetCatalog'
+import type { AssetType } from '../../types'
 import { nextSort, sortRows, type SortState } from '../../lib/sort'
 import { PaymentMethods } from '../../components/ui/PaymentMethods'
 import { OfferTable } from '../../components/marketplace/OfferTable'
@@ -237,14 +243,21 @@ const TABLE_ROWS = [
   { id: 'd', seller: 'Erin', price: 97600, trades: 3 },
 ] as const
 type TableKey = 'seller' | 'price' | 'trades'
+// Neutral sample data for the primitive; asset options live only in lib/assetCatalog.ts (section "Catálogo de ativos").
 const COMBO_OPTIONS = [
-  { value: 'BTC', label: 'Bitcoin (on-chain)', keywords: ['BTC'] },
-  { value: 'LN_BTC', label: 'Bitcoin (Lightning)', keywords: ['LN'] },
-  { value: 'USDT_LIQUID', label: 'USDT (Liquid)' },
-  { value: 'USDT_TRC20', label: 'USDT (TRC-20)' },
-  { value: 'DEPIX', label: 'DePix' },
+  { value: 'USD', label: 'Dólar americano', keywords: ['USD'] },
+  { value: 'BRL', label: 'Real', keywords: ['BRL'] },
+  { value: 'EUR', label: 'Euro', keywords: ['EUR'] },
+  { value: 'ARS', label: 'Peso argentino', keywords: ['ARS'] },
+  { value: 'PYG', label: 'Guarani', keywords: ['PYG'] },
 ] as const
 type ComboValue = (typeof COMBO_OPTIONS)[number]['value']
+// Option states for the catalog section: [state, pair id].
+const CATALOG_STATES = [
+  ['Repouso', 'btc-bitcoin'], ['Hover', 'btc-bitcoin'], ['Foco (teclado)', 'btc-bitcoin'], ['Selecionado', 'btc-bitcoin'], ['Desativado', 'btc-liquid'],
+] as const
+const CATALOG_ICON_SAMPLES: readonly string[] = ['btc-bitcoin', 'btc-liquid', 'usdt-tron', 'usdt-arbitrum', 'usdc-base', 'usdc-solana']
+const CATALOG_SOON_BADGE = cn(badgeVariants({ variant: 'outline' }), 'border-transparent bg-brand-tonal font-medium text-brand-text')
 const ALERT_TONES: AlertTone[] = ['info', 'success', 'warning', 'danger']
 const TONAL_TRIGGER = 'inline-flex h-10 touch:min-h-11 items-center rounded-md bg-brand-tonal px-4 text-control font-medium text-brand-text state-layer'
 const STATIC_TOASTS = [
@@ -272,8 +285,9 @@ export function DesignSystemPreview() {
   const [sort, setSort] = useState<SortState<TableKey> | null>({ key: 'price', direction: 'ascending' })
   const sortedRows = useMemo(() => sortRows(TABLE_ROWS, sort, (r, k) => r[k as TableKey]), [sort])
   const [chips, setChips] = useState<string[]>(['PIX'])
-  const [combo, setCombo] = useState<ComboValue>('BTC')
-  const [comboMulti, setComboMulti] = useState<ComboValue[]>(['DEPIX'])
+  const [combo, setCombo] = useState<ComboValue>('USD')
+  const [comboMulti, setComboMulti] = useState<ComboValue[]>(['BRL'])
+  const [catalogAsset, setCatalogAsset] = useState<AssetType | 'Todos'>('Todos')
   const [fav, setFav] = useState(false)
   const [stars, setStars] = useState<number | null>(4)
   const onSort = (c: TableKey) => setSort((x) => nextSort(x, c))
@@ -829,14 +843,14 @@ export function DesignSystemPreview() {
       <Section id="ds-combobox" title="Combobox (seleção com busca)">
         <div className="flex flex-wrap items-center gap-3">
           <Combobox
-            label="Ativo de exemplo"
+            label="Moeda de exemplo"
             valueText={COMBO_OPTIONS.find((o) => o.value === combo)!.label}
             options={COMBO_OPTIONS}
             selected={[combo]}
             onSelect={setCombo}
             trigger={<span className="font-medium">{COMBO_OPTIONS.find((o) => o.value === combo)!.label}</span>}
             triggerClassName="min-w-[12rem]"
-            searchPlaceholder="Buscar ativo…"
+            searchPlaceholder="Buscar moeda…"
             emptyText={(q) => `Nada encontrado para “${q}”`}
           />
           <Combobox
@@ -853,6 +867,77 @@ export function DesignSystemPreview() {
           />
         </div>
         <p className="mt-2 text-caption text-brand-text-muted">Gatilho = chip de campo + seta; o nome diz o valor ("Ativo: Bitcoin"). Lista no floating: busca com role=combobox que mantém o foco, setas movem a opção ativa (aria-activedescendant, camada de 12 %), Enter escolhe, Esc fecha. Busca ignora maiúsculas e acentos e acha pelo código. Escolha única fecha; múltipla fica aberta. Selecionado = preenchimento de seleção + check azul. Substitui os seletores de Ativo, Moeda e Pagamento.</p>
+      </Section>
+
+      <Section id="ds-asset-catalog" title="Catálogo de ativos">
+        <p className="text-body-sm text-brand-text-secondary">Os 14 pares oficiais (lib/assetCatalog.ts), uma opção por rede, agrupados pelo ativo. Só fica disponível o par com rail de liquidação apto a produção; os outros aparecem desativados, com “Em breve”. Logos oficiais sem alteração (public/brand/THIRD_PARTY_LOGOS.md); a rede fica numa pastilha clara no canto.</p>
+        <div className="mt-3 flex flex-wrap items-start gap-6">
+          <div>
+            <span className="mb-1.5 block text-caption text-brand-text-muted">Seletor real (filtro do Market)</span>
+            <AssetPicker value={catalogAsset} onChange={setCatalogAsset} />
+          </div>
+          {/* Static option specimens (screenshots have no mouse or keyboard): the classes the Combobox option uses. */}
+          <div className="w-80 max-w-full rounded-md border border-brand-border-subtle bg-popover p-1 shadow-elevation-2">
+            <div className="px-2 pb-1 pt-2 text-xs font-medium text-brand-text-muted">Bitcoin</div>
+            {CATALOG_STATES.map(([state, pairId]) => {
+              const p = pickerPairs(false).find((x) => x.id === pairId)!
+              const soon = p.availability === 'soon'
+              return (
+                <div key={state}>
+                  <span className="block px-2 pt-1 text-caption text-brand-text-muted">{state}</span>
+                  <div
+                    data-active={state === 'Foco (teclado)' || undefined}
+                    style={state === 'Hover' ? layerBg('--state-hover-a') : undefined}
+                    className={cn('flex min-h-8 touch:min-h-11 items-center gap-2 rounded-sm px-2 text-sm', p.note && !soon && 'py-1.5',
+                      soon ? 'cursor-not-allowed text-brand-text-secondary' : 'text-brand-text state-focus',
+                      state === 'Selecionado' && 'bg-brand-selected font-medium')}
+                  >
+                    <AssetPairIcon pair={p} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{p.label}</span>
+                      {p.note && p.note !== SOON_NOTE && <span className="block text-xs font-normal text-brand-text-muted">{p.note}</span>}
+                    </span>
+                    {soon && <span className="shrink-0 text-xs"><span className={CATALOG_SOON_BADGE}>{SOON_NOTE}</span></span>}
+                    <Check aria-hidden="true" className={cn('size-icon-sm shrink-0 text-brand-blue-fg', state !== 'Selecionado' && 'invisible')} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Repouso = texto principal. Hover = camada de 8 %. Foco pelo teclado = a busca mantém o foco e a opção ativa ganha a camada de 12 % (aria-activedescendant), sem contorno dentro da lista. Selecionado = seleção azul a 12 % + check. Desativado = texto secundário, aria-disabled, sem camada, ignorado pelas setas e pelo clique, com “Em breve” (badge tonal, sem borda) e o motivo quando há um.</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {SURFACE_SAMPLES.map(([cls, name]) => (
+            <div key={cls} className={`rounded-lg p-4 ${cls}`}>
+              <span className="block text-caption text-brand-text-muted">{name}: 16 / 20 / 24 px</span>
+              <div className="mt-2 grid gap-2">
+                {pickerPairs(false).filter((x) => CATALOG_ICON_SAMPLES.includes(x.id)).map((x) => (
+                  <div key={x.id} className="flex items-center gap-3 text-body-sm text-brand-text">
+                    {(['sm', 'md', 'lg'] as const).map((sz) => <AssetPairIcon key={sz} pair={x} size={sz} />)}
+                    <span>{x.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 overflow-x-auto rounded-lg border border-brand-border-subtle">
+          <table className="w-full min-w-[36rem] text-body-sm">
+            <thead className="bg-brand-elevated text-left text-brand-text-secondary">
+              <tr>{['Par', 'Enum (AssetType)', 'Estado', 'Motivo / aviso'].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {pickerPairs(true).map((x) => (
+                <tr key={x.id} className="border-t border-brand-border-subtle">
+                  <td className="px-3 py-2"><span className="inline-flex items-center gap-1.5"><AssetPairIcon pair={x} size="sm" />{x.label}</span></td>
+                  <td className="px-3 py-2">{x.assetType ? <span className="mono-id">{x.assetType}</span> : <span className="text-brand-text-muted">não existe</span>}</td>
+                  <td className="px-3 py-2">{x.testOnly ? 'Só em desenvolvimento' : x.availability === 'available' ? 'Disponível' : SOON_NOTE}</td>
+                  <td className="px-3 py-2 text-brand-text-secondary">{x.note || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </Section>
 
       <Section id="ds-states" title="Estados (StateBlock)">

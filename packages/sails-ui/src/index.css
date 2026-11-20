@@ -264,6 +264,9 @@
   --color-asset-ltc: 148 163 184;
   --color-asset-stx: 251 146 60;
   --color-asset-spark: 245 158 11;
+  /* Network badge chip under official logos (AssetIcon): neutral light in both themes so dark marks
+     (Arbitrum, Liquid) read on the dark surface; the logo itself is never recolored. */
+  --color-asset-chip: 255 255 255;
 
   /* Sizes. Controls: 36 compact / 40 default on desktop, 44 touch on
      mobile. Icons 16/20/24. Avatars (UserAvatar SIZES) 28/36/48/64. */

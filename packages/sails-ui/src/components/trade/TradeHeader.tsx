@@ -25,9 +25,11 @@ interface Props {
   status?: { label: string; tone: StatusTone }
   /** Host-provided element on the chip's row (e.g. a back link). */
   leading?: ReactNode
+  /** Host-rendered asset and network ("BTC · On-chain"), after the opening date. */
+  asset?: ReactNode
 }
 
-export function TradeHeader({ title, tradeId, createdAtLabel, status, leading }: Props) {
+export function TradeHeader({ title, tradeId, createdAtLabel, status, leading, asset }: Props) {
   return (
     <header>
       {/* Wraps instead of overlapping: a long status drops under the back link on narrow screens. */}
@@ -47,6 +49,7 @@ export function TradeHeader({ title, tradeId, createdAtLabel, status, leading }:
         <span>Trade <span className="font-mono">#{tradeId.slice(0, 8)}</span></span>
         <CopyButton value={tradeId} label="Copiar" className="px-3 py-1 touch:min-h-11" />
         <span>· Aberto em {createdAtLabel}</span>
+        {asset && <span className="inline-flex items-center gap-1">· {asset}</span>}
       </p>
     </header>
   )

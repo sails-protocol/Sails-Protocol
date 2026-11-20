@@ -14,6 +14,12 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 - Menu com 5 itens. A escolha do nó fica em Configurações (2026-11-20).
 - Desktop primeiro, denso e profissional. Uma única interface responsiva de 320 a 1440 px, sem perder a organização (2026-11-20).
 - Menu lateral recolhível no desktop. O item Perfil mostra o avatar da pessoa (2026-11-20).
+- **Posição do menu no desktop** (2026-11-20): em Configurações → Aparência, "Posição do menu: Lateral | Superior", com uma miniatura de cada opção. A escolha fica salva no navegador e não há botão de alternar na barra.
+  - O padrão é **lateral**, com o recolher e expandir de hoje.
+  - **Superior:** logo à esquerda, os 5 itens no centro, avatar e menu da conta à direita.
+  - Abaixo de 1024 px vale o layout de hoje.
+  - No celular a barra inferior continua igual, qualquer que seja a escolha.
+  - Os dois layouts são testados em todas as larguras e nos dois temas.
 - Configurações tem as seções: Nó Sails, Wallet, Aparência, Idioma, Notificações, Segurança, Comunidades e Ajuda e Sobre. O ícone de paleta ("Aplicativo") saiu (2026-11-20).
 
 ## Identidade
@@ -35,7 +41,9 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 - **Reputação** sempre explicada: "Reputação N" é uma soma sem teto (+2 por trade concluído, −5 por disputa perdida). Nunca "/100", porcentagem ou estrelas. Cada informação tem o seu ícone ao lado. A explicação também aparece em Configurações (2026-11-20).
 - **Avaliações** (1 a 5 estrelas) ficam separadas da reputação e nunca entram nela. Quando o dado existir, aparecem numa linha própria, mais discreta: "★ 4,8 · 37 avaliações · desde jan. de 2025". Enquanto não existir, mostram "Em breve" no detalhe e no Perfil, nunca na lista (2026-11-20, Despacho 039).
 - **"Membro desde"** aparece com mês e ano ("nov. de 2026"). É a data de cadastro, nunca a da oferta ou a da wallet (2026-11-20, Despacho 039).
-- **Métodos de pagamento:** na lista, até 2 métodos seguidos de "+N" (no celular, 1 + "+N"). No detalhe, todos. O método escolhido fica preso aos termos aceitos do trade (2026-11-20, Despacho 039).
+- **Métodos de pagamento:** na lista, até 3 métodos seguidos de "+N" (no celular, 2 + "+N"). No detalhe, todos. O método escolhido fica preso aos termos aceitos do trade (2026-11-20, revisado no mesmo dia; Despacho 039).
+- **Máximo de 5 métodos de pagamento por oferta** (decisão do Product Owner, 2026-11-20). A tela de publicar não deixa passar de 5, mas o limite precisa virar regra do contrato, validada no backend e no SDK (frente de vários métodos do Despacho 039, com o Principal; issue #735).
+- **Modo demonstração:** algumas ofertas simulam de 3 a 5 métodos para mostrar o "+N". Isso fica só na demonstração (dados fictícios). Os dados reais continuam com 1 método por oferta até o contrato existir (2026-11-20).
 - **Catálogo de ativos:** exatamente os **14 pares oficiais** (ADR-002 §5A): BTC em On-chain e Liquid; USDT em Ethereum, Polygon, Base, Arbitrum, TON, Tron e Solana; USDC em Ethereum, Polygon, Base, Arbitrum e Solana.
   - Cada rede é uma **opção separada**, agrupada pelo ativo, porque valores, limites e taxas mudam de rede para rede.
   - Ícone: a logo oficial do ativo, com uma bolinha no canto com a logo oficial da rede e o nome da rede ao lado.
@@ -46,6 +54,16 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 ## Trade
 - O "Trilho do trade" mostra as etapas e de quem é a vez. Só aparece etapa ou vez que um dado real sustente. Se a interface não pode agir, nunca diz "Sua vez" (2026-11-20, auditoria de verdade).
 - O Sails Agent e "Alterar endereço" ficam em "Ferramentas", sem sumir (2026-11-20).
+- **O avanço do trade tem cor** (2026-11-20). Nunca verde, porque "concluído" não é finalidade de liquidação (CTO 437):
+  - etapa concluída: círculo azul da marca com check, e a linha até a próxima etapa preenchida em azul;
+  - etapa atual com ação sua: anel laranja com pulso suave (parado quando o sistema pede menos movimento) e "Sua vez";
+  - etapa atual esperando a outra parte: anel azul, sem pulso;
+  - etapa atual bloqueada ou indisponível: âmbar de atenção;
+  - etapa futura: contorno neutro;
+  - em disputa ou com prazo encerrado: o trilho para naquela etapa, em âmbar;
+  - final ("Escrow marcado como concluído"): o trilho fica todo azul, sem verde e sem comemoração;
+  - o cartão da etapa atual tem uma faixa de cor no topo, com o mesmo código: laranja (sua ação), azul (esperando), âmbar (atenção), neutra (encerrado);
+  - o trilho compacto do celular usa as mesmas cores.
 
 ## Pendente de decisão (não tratar como fechado)
 - Formato do dólar: "US$ 97.800,00" (adotado) ou "$97,800.00". Aguarda o OK do Product Owner.

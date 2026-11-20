@@ -133,6 +133,14 @@ eth, bnb, sol, ltc, stx, spark): identidade do ativo no `AssetIcon`
 (monograma decorativo, `aria-hidden`). Iguais nos dois temas, não são tokens
 de marca do white-label e nunca carregam significado.
 
+**Catálogo de ativos** (2026-11-20, DECISIONS.md): os 14 pares oficiais vivem só
+em `src/lib/assetCatalog.ts`. `AssetIcon` mostra a logo oficial do ativo com a
+logo da rede numa pastilha `bg-asset-chip` (clara nos dois temas, anel de 1px
+da superfície) no canto; tamanhos `sm`/`md`/`lg` = 16/20/24. Logos em
+`public/brand/{assets,networks}`, sem alteração (`THIRD_PARTY_LOGOS.md`); o
+monograma fica só para valores sem marca oficial. `AssetNetworkLabel` = ícone +
+"BTC · On-chain", o único jeito de escrever um par na interface.
+
 ### 2.4 White-label
 
 Uma marca pode mudar: laranja (`--color-orange*`, `--primary*`), azul da marca
@@ -551,6 +559,10 @@ Contraste: `ui-refs/ds-primitives-2026-11-20/contrast.cjs`.
   gatilho abre. Busca sem caixa e sem acento, também pelo código
   (`lib/combobox.ts`, testado). Única fecha ao escolher; `multiple` fica aberta
   (`aria-multiselectable`).
+- **Grupos e desativados** (2026-11-20): opções com o mesmo `group` seguidas
+  ficam sob um cabeçalho (`role=group`); `disabled` = visível, `aria-disabled`,
+  texto secundário, sem camada, ignorada pelas setas e pelo clique. Usado no
+  AssetPicker ("Em breve" = badge tonal sem borda + motivo em segunda linha).
 - **Onde:** AssetPicker, CurrencyPicker (ganhou busca), PaymentMethodPicker.
   Mesmas opções, mesmos rótulos, mesmo "Todos". Valor ativo de filtro em azul
   (escolhido), não laranja.

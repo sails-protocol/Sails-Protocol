@@ -20,6 +20,7 @@ import { sailsClient } from '../lib/sailsClient'
 import { errorMessage } from '../lib/errors'
 import { SailsNotFoundError, SailsTransportError, type PublicOfferDetail, type PublicOfferSeller } from '@satsails/p2p-trading-sdk'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
+import { AssetNetworkLabel } from '../components/ui/AssetIcon'
 import { disputeRatePct, RATINGS_EXPLANATION, REPUTATION_EXPLANATION, trustItems } from '../lib/reputation'
 import { TrustLine } from '../components/ui/TrustLine'
 import { ExplanationPopover } from '../components/ui/ExplanationPopover'
@@ -229,7 +230,7 @@ export function OfferDetail() {
               </div>
             </div>
             <dl className="grid grid-cols-2 gap-x-6 gap-y-4 content-start">
-              <Fact label="Ativo">{ASSET_LABELS[offer.asset]}</Fact>
+              <Fact label="Ativo"><AssetNetworkLabel asset={offer.asset} size="md" /></Fact>
               {offer.network && <Fact label="Rede">{offer.network}</Fact>}
               {/* Full list here (one method per offer today: LOOSE_WIRES.multiPaymentMethods). */}
               <Fact label="Pagamento"><PaymentMethods labels={[offer.paymentMethod].map((m) => PAYMENT_METHOD_LABELS[m])} className="text-sm text-brand-text" /></Fact>

@@ -39,6 +39,7 @@ import { Lock, Banknote, ArrowLeft, ChevronRight, MessageSquare } from 'lucide-r
 import { formatDateTime, formatUsdExact } from '../lib/format'
 import { detectRiskLocally } from '../lib/socialEngineering'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, DISPUTE_RULING_LABEL, ESCROW_TYPE_LABEL, PAYMENT_METHOD_LABELS } from '../lib/labels'
+import { AssetNetworkLabel } from '../components/ui/AssetIcon'
 
 // Sails Core Implementation Program M8-R2 (Destination Authority
 // Conformance, 2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md) —
@@ -1002,6 +1003,7 @@ export function Trade() {
         title={title}
         tradeId={trade.id}
         createdAtLabel={formatDateTime(trade.createdAt)}
+        asset={<AssetNetworkLabel asset={trade.asset} />}
         leading={(
           <Link to="/" className="inline-flex min-h-11 items-center gap-1.5 text-sm text-brand-text-secondary hover:text-brand-text">
             <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Voltar
@@ -1013,14 +1015,14 @@ export function Trade() {
       <TradeAmountsStrip
         items={isBuyer ? [
           { label: 'Você paga', value: totalLabel, sub: totalSub },
-          { label: 'Você recebe', value: `${trade.amount} ${short}`, sub: ASSET_LABELS[trade.asset] },
+          { label: 'Você recebe', value: `${trade.amount} ${short}`, sub: <AssetNetworkLabel asset={trade.asset} /> },
           priceItem,
         ] : isSeller ? [
-          { label: 'Você vende', value: `${trade.amount} ${short}`, sub: ASSET_LABELS[trade.asset] },
+          { label: 'Você vende', value: `${trade.amount} ${short}`, sub: <AssetNetworkLabel asset={trade.asset} /> },
           { label: 'Você recebe', value: totalLabel, sub: totalSub },
           priceItem,
         ] : [
-          { label: 'Quantidade', value: `${trade.amount} ${short}`, sub: ASSET_LABELS[trade.asset] },
+          { label: 'Quantidade', value: `${trade.amount} ${short}`, sub: <AssetNetworkLabel asset={trade.asset} /> },
           { label: 'Valor do trade', value: totalLabel, sub: totalSub },
           priceItem,
         ]}
