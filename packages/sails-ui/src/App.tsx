@@ -23,6 +23,8 @@ const PublishOffer = lazy(() => import('./pages/PublishOffer').then((m) => ({ de
 const TradeHistory = lazy(() => import('./pages/TradeHistory').then((m) => ({ default: m.TradeHistory })))
 const ActiveTrades = lazy(() => import('./pages/ActiveTrades').then((m) => ({ default: m.ActiveTrades })))
 const Disputes = lazy(() => import('./pages/Disputes').then((m) => ({ default: m.Disputes })))
+// Dev-only preview: import.meta.env.DEV is statically false in production builds, so Rollup drops this chunk.
+const CurrentActionPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/CurrentActionPreview').then((m) => ({ default: m.CurrentActionPreview }))) : null
 
 function ThemedToaster() {
   const { theme } = useTheme()
@@ -56,6 +58,7 @@ export default function App() {
                 <Route path="/profile/history" element={<Suspense fallback={<RouteFallback />}><TradeHistory /></Suspense>} />
                 <Route path="/profile/new-offer" element={<Suspense fallback={<RouteFallback />}><PublishOffer /></Suspense>} />
                 <Route path="/disputes" element={<Suspense fallback={<RouteFallback />}><Disputes /></Suspense>} />
+                {CurrentActionPreview && <Route path="/dev/current-action" element={<Suspense fallback={<RouteFallback />}><CurrentActionPreview /></Suspense>} />}
               </Route>
             </Routes>
           </BrowserRouter>
