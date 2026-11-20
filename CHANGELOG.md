@@ -41,6 +41,11 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 
+- **D030: `escrows.type` has no default (CTO 28 Despacho 030).** Draft, pending Gatekeeper VERIFY; no route or API change.
+  - `Escrow.type` loses `@default(MOCK)`. An INSERT that omits the rail is refused by the database (NOT NULL, SQLSTATE `23502`) instead of silently becoming a MOCK escrow. Every writer in `src/` already passes `type` (`CreateEscrowData.type` is required).
+  - **Migration** `20261122120000_escrow_type_drop_default`: `ALTER COLUMN type DROP DEFAULT` (catalog only, existing rows untouched), `lock_timeout` 5 s; reversal (`SET DEFAULT 'MOCK'`) in its header.
+  - **Test** `escrowTypeNoDefault.test.ts`: `pg_attrdef` shows no default; a direct INSERT without type fails with 23502 and writes nothing, also as `sails_runtime` in the CI restricted step; the explicit type passes.
+
 - **E21 slice 1 — transactional, idempotent trade admission with a Trade Intent per trade (real PostgreSQL).** Draft, pending CTO and Gatekeeper review. Does not close E21/F28.
   - **One transaction:** the idempotency claim (written `COMPLETED`), the Offer re-validated under `SELECT ... FOR SHARE` (active, not your own, amount bounds, price and total), the trade's own Intent (`TradeIntent`, child of the Offer Intent, born `NEGOTIATING`), the Trade, `openp2p.trade.created` and the negotiation opening (`negotiation.opened`, `openp2p.trade.status_changed`) commit together or not at all. Lock order: claim, Offer row, event-store advisory lock.
   - **Contracts:** `POST /v1/openp2p/trades` answers 201 for every admitted trade (the second trade on an offer used to fail after being saved) and never fails for a post-commit dispatch error; the body gains read-only `tradeIntentId`. A legacy claim with no recorded outcome answers 409 `IDEMPOTENCY_OUTCOME_UNKNOWN` (non-authoritative hints, caller's own trades only). `GET /v1/openp2p/trades/by-intent/:intentId` is caller-scoped (409 `AMBIGUOUS_INTENT`, one 404 for strangers and unknown Intents). `DELETE /v1/intents/:id` answers 403 to a non-owner, then 409 `INTENT_BOUND` for an Intent an Offer or Trade references.

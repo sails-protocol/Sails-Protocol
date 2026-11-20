@@ -395,7 +395,7 @@ model Escrow {
   id                                    String            @id @default(uuid())
   tradeId                               String            @unique
   trade                                 Trade             @relation(fields: [tradeId], references: [id])
-  type                                  EscrowType        @default(MOCK)
+  type                                  EscrowType
   status                                EscrowStatus      @default(CREATED)
   lockedAmount                          Decimal           @db.Decimal(24, 8)
   asset                                 AssetType
