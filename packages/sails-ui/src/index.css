@@ -113,27 +113,31 @@
 }
 
 :root.dark {
-  --color-bg: 5 5 5;                 /* #050505 */
-  --color-surface: 15 15 15;         /* #0f0f0f */
-  --color-elevated: 22 22 22;        /* #161616 */
+  /* Palette 2026-11-19 (CTO 437 / PM): graphite surfaces, contrast-checked
+     (WCAG 2.1 AA: text >= 4.5:1, functional borders >= 3:1 on every surface). */
+  --color-bg: 17 19 24;              /* #111318 */
+  --color-surface: 28 32 40;         /* #1c2028 */
+  --color-elevated: 37 42 51;        /* #252a33 */
   /* Was 36 36 36 (#242424) — same real WCAG 1.4.11 violation as :root's
      own comment above, measured 1.23-1.31:1 against this theme's own
      surfaces. 100 100 100 gives ~3.2-3.4:1. */
-  --color-border: 100 100 100;       /* #646464 */
-  --color-border-hover: 130 130 130; /* #828282 */
-  --color-text: 250 250 250;         /* #fafafa */
-  --color-text-secondary: 163 163 163; /* #a3a3a3 */
+  --color-border: 107 115 133;       /* #6b7385, >= 3.0:1 on bg/surface/elevated */
+  --color-border-hover: 138 146 160; /* #8a92a0 */
+  --color-text: 245 247 250;         /* #f5f7fa */
+  --color-text-secondary: 169 176 188; /* #a9b0bc, 7.5:1 on surface */
   /* Was 82 82 82 (#525252) — same real contrast bug as light mode's
      --color-text-muted, just inverted (too dark against this near-black
      background instead of too light against white). 140 140 140 gives
      ~6.1:1 while staying dimmer than --color-text-secondary above. */
-  --color-text-muted: 140 140 140;   /* #8c8c8c */
+  --color-text-muted: 148 156 170;   /* #949caa, >= 4.6:1 on elevated */
 
   /* Same fix as :root above — dark mode's button text is still white
      (.btn-primary hardcodes text-white regardless of theme), so this
      needed the identical fix, not a theme-specific one. */
-  --color-orange: 194 65 12;        /* #c2410c */
-  --color-orange-hover: 154 52 18;  /* #9a3412 */
+  /* Brand orange behind DARK text (6.6:1). White on any orange tested fails AA
+     (#f97316 2.8:1, #ea580c 3.6:1), so dark mode flips the button text instead. */
+  --color-orange: 249 115 22;       /* #f97316 */
+  --color-orange-hover: 251 146 60; /* #fb923c, dark text 8.2:1 */
   /* orange-as-TEXT/icon/accent (2026-07-28 visual redesign, requested
      directly): the original vibrant #f97316 was only ever a contrast
      problem as white-text-on-orange (`--color-orange` above) or as text
@@ -154,7 +158,7 @@
   --popover: var(--color-surface);
   --popover-foreground: var(--color-text);
   --primary: var(--color-orange);
-  --primary-foreground: 255 255 255;
+  --primary-foreground: 17 19 24;   /* dark text on orange, see --color-orange */
   --secondary: var(--color-elevated);
   --secondary-foreground: var(--color-text);
   --muted: var(--color-elevated);
@@ -170,10 +174,10 @@
   /* UI-FOUNDATION-1 — dark-mode semantic state tokens, same "brighter
      shade against a near-black surface" methodology as
      `--color-orange-accent` above. */
-  --color-success: 74 222 128;  /* green-400, #4ade80 */
+  --color-success: 52 211 153;  /* #34d399, 8.5:1 on surface */
   --color-warning: 251 191 36;  /* amber-400, #fbbf24 */
   --color-info: 96 165 250;     /* blue-400, #60a5fa */
-  --color-border-subtle: 45 45 45; /* #2d2d2d, dark mode */
+  --color-border-subtle: 46 52 64; /* #2e3440, decorative dividers only */
 }
 
 body {

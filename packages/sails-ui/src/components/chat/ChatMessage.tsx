@@ -44,7 +44,7 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
             : isProof
               ? 'bg-green-500/10 border border-green-500/25 text-brand-text'
               : isMine
-                ? 'bg-brand-orange text-white rounded-br-sm'
+                ? 'bg-brand-orange text-primary-foreground rounded-br-sm'
                 : 'bg-brand-elevated text-brand-text rounded-bl-sm'
         } ${isMedia ? 'p-1.5' : ''}`}
       >
