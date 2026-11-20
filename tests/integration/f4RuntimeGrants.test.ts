@@ -9,6 +9,7 @@ import { readdirSync, readFileSync } from 'fs'
 import path from 'path'
 import { Client } from 'pg'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { assertRuntimeCannotUseReplica, legacyEscrowSeed, withReplica } from './helpers/legacyEscrowSeed'
 
 const ROOT = path.join(__dirname, '..', '..')
 const MIG_DIR = path.join(ROOT, 'prisma', 'migrations')
@@ -57,10 +58,7 @@ describe('F4 S1 - runtime track (sails_runtime, column-level grants)', () => {
     if (admin) { await admin.query(`DROP DATABASE IF EXISTS ${NAME} WITH (FORCE)`).catch(() => undefined); await admin.end() }
   })
 
-  async function replica<T>(fn: () => Promise<T>): Promise<T> {
-    await su.query("SET session_replication_role = 'replica'")
-    try { return await fn() } finally { await su.query("SET session_replication_role = 'origin'") }
-  }
+  const replica = <T,>(fn: () => Promise<T>): Promise<T> => withReplica(su, fn)
   async function tradeWithCommittedPair(): Promise<{ tradeId: string; pairId: string }> {
     const anchor = randomUUID(), tradeId = randomUUID(), pairId = randomUUID(), d = hex64()
     await su.query(`INSERT INTO intents (id,type,"participantId","moduleId",payload,status,"updatedAt") VALUES ($1,'TRADE',$2,'openp2p','{}'::jsonb,'CREATED',now())`, [anchor, userId])
@@ -127,7 +125,7 @@ describe('F4 S1 - runtime track (sails_runtime, column-level grants)', () => {
     expect(await code(rt.query(`ALTER TABLE escrows DISABLE TRIGGER ALL`))).toBe('42501') // not the owner
     expect(await code(rt.query(`ALTER TABLE escrows DISABLE TRIGGER escrows_f4_guard_insert`))).toBe('42501')
     expect(await code(rt.query(`DROP TRIGGER escrows_f4_guard_insert ON escrows`))).toBe('42501')
-    expect(await code(rt.query(`SET session_replication_role = 'replica'`))).toBe('42501') // superuser-only: the trick the fixtures use
+    await assertRuntimeCannotUseReplica(rt) // superuser-only: the trick the fixtures use is denied to the runtime (42501)
     expect(await code(rt.query(`ALTER TABLE escrows ADD COLUMN x int`))).toBe('42501')
   })
 
@@ -147,5 +145,20 @@ describe('F4 S1 - runtime track (sails_runtime, column-level grants)', () => {
     await require(path.join(ROOT, 'scripts', 'db', 'set-deployment-mode.js')).setDeploymentMode(su, 'test') // the ADMIN step
     expect(await code(mockEscrow())).toBe('OK') // the trigger reads the table AS the runtime role and MOCK is exempt
     expect(await code(rt.query(`INSERT INTO deployment_mode (mode) VALUES ('development')`))).toBe('42501')
+  })
+
+  it('6. a seeded LEGACY WDK escrow finishes its cycle AS RUNTIME (triggers on), while a NEW WDK escrow created by the runtime is still refused (the seed does not weaken deny-by-default)', async () => {
+    const t = await tradeWithCommittedPair()
+    const prev = process.env.ADMIN_DATABASE_URL
+    process.env.ADMIN_DATABASE_URL = urlFor(baseUrl.username, baseUrl.password) // the helper takes its OWN superuser connection to the scratch database
+    let id: string
+    try { id = await legacyEscrowSeed({ tradeId: t.tradeId, type: 'WDK_USDT_EVM', lockedAmount: '5', asset: 'USDT_ERC20', multisigAddr: '0xlegacy' }) } finally { if (prev === undefined) delete process.env.ADMIN_DATABASE_URL; else process.env.ADMIN_DATABASE_URL = prev }
+    expect((await rt.query("SELECT type::text AS type FROM escrows WHERE id = $1", [id])).rows[0].type).toBe('WDK_USDT_EVM')
+    expect((await rt.query("UPDATE escrows SET status='FUNDS_LOCKED', \"lockedAt\"=now() WHERE id=$1", [id])).rowCount).toBe(1)
+    expect((await rt.query("UPDATE escrows SET status='DISPUTED' WHERE id=$1", [id])).rowCount).toBe(1)
+    expect((await rt.query("UPDATE escrows SET status='COMPLETED', \"txReleaseId\"='tx', \"releasedAt\"=now() WHERE id=$1", [id])).rowCount).toBe(1)
+    const other = await tradeWithCommittedPair()
+    expect(await code(rt.query("INSERT INTO escrows (id,\"tradeId\",\"lockedAmount\",asset,type,\"updatedAt\") VALUES ($1,$2,5,'USDT_ERC20','WDK_USDT_EVM',now())", [randomUUID(), other.tradeId]))).toBe('23514')
+    expect(await code(rt.query("UPDATE escrows SET \"legacyPreCommitmentAt\" = now() WHERE id = $1", [id]))).toBe('42501')
   })
 })

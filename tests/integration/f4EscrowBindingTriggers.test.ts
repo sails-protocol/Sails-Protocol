@@ -1,11 +1,12 @@
 /**
  * F4 / invariant 3b, S1 (CTO Despacho 021, P63): the STRUCTURAL layer. Migration 20261120130000 binds every new escrow to a COMMITTED
  * commitment pair in the database itself. Real PostgreSQL, raw SQL only (no service): the point is that NO path avoids the triggers.
- * Fixtures are inserted with session_replication_role=replica (superuser, fixtures only); every assertion runs with triggers ON.
+ * Fixtures that the application can no longer create are inserted through the single replica helper (helpers/legacyEscrowSeed.ts, superuser, fixtures only); every assertion runs with triggers ON.
  */
 import { randomUUID } from 'crypto'
 import { Client } from 'pg'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { withReplica } from './helpers/legacyEscrowSeed'
 
 const hex64 = () => randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
 const hex128 = () => hex64() + hex64()
@@ -18,10 +19,7 @@ describe('F4 S1 - escrow commitment binding triggers (real PostgreSQL, raw SQL)'
   let makerId = '', takerId = '', offerId = ''
   const RUN = randomUUID().slice(0, 8)
 
-  async function replica<T>(fn: () => Promise<T>): Promise<T> {
-    await db.query("SET session_replication_role = 'replica'")
-    try { return await fn() } finally { await db.query("SET session_replication_role = 'origin'") }
-  }
+  const replica = <T,>(fn: () => Promise<T>): Promise<T> => withReplica(db, fn)
   const fails = async (sql: string, params: any[], needle: RegExp) => {
     await db.query('BEGIN')
     try { await db.query(sql, params); throw new Error('expected the statement to be refused') }
