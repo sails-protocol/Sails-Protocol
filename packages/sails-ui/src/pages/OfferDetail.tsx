@@ -17,7 +17,9 @@ import { sailsClient } from '../lib/sailsClient'
 import { errorMessage } from '../lib/errors'
 import { SailsNotFoundError, SailsTransportError, type PublicOfferDetail, type PublicOfferSeller } from '@satsails/p2p-trading-sdk'
 import { ASSET_LABELS, ASSET_SHORT_LABELS } from '../lib/labels'
-import { disputeRatePct, trustParts } from '../lib/reputation'
+import { disputeRatePct, REPUTATION_EXPLANATION, trustItems } from '../lib/reputation'
+import { TrustLine } from '../components/ui/TrustLine'
+import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import { useAuth } from '../context/AuthContext'
 import type { FiatCurrency } from '../types'
 
@@ -312,8 +314,9 @@ export function OfferDetail() {
                 {offer.seller.verified && <Check aria-label="Verificado" className="h-4 w-4 shrink-0 text-brand-orange-accent" />}
               </div>
               {/* reputationScore is an unbounded +2/-5 sum (lib/reputation.ts), never a 0-100 scale */}
-              <div className="text-xs text-brand-text-muted tabular-nums">
-                {[...trustParts({ reputationScore: offer.seller.reputationScore, totalTrades: offer.seller.totalTrades }), `taxa de disputas ${disputeRatePct(offer.seller.disputeRate)}%`].join(' · ')}
+              <div className="flex items-center gap-1.5 text-xs text-brand-text-muted">
+                <TrustLine items={[...trustItems({ reputationScore: offer.seller.reputationScore, totalTrades: offer.seller.totalTrades }), { kind: 'disputeRate', text: `taxa de disputas ${disputeRatePct(offer.seller.disputeRate)}%` }]} />
+                <ExplanationPopover explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.title} />
               </div>
             </div>
             <FavoriteButton userId={offer.seller.id} />

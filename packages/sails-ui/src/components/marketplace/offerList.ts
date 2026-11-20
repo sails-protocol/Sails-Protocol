@@ -1,5 +1,6 @@
 import type { MarketplaceSort, Offer } from '../../types'
-import { trustParts } from '../../lib/reputation'
+import { trustItems } from '../../lib/reputation'
+import type { TrustLineItem } from '../ui/trustTypes'
 
 /**
  * Seller cell for the Market list: name plus one compact trust line.
@@ -7,12 +8,12 @@ import { trustParts } from '../../lib/reputation'
  * name, trade count and dispute count appear only when the offer actually carries them,
  * so a missing value is left out instead of shown as "—" or a made-up 0.
  */
-export function sellerTrust(offer: Offer): { name: string | null; parts: string[] } {
+export function sellerTrust(offer: Offer): { name: string | null; items: TrustLineItem[] } {
   // Real summaries carry `makerStats` (fields undefined when the route did not return them);
   // offers built from a full User (mock data) use that User's counters.
   const stats = offer.makerStats ?? offer.user
-  const parts = trustParts({ reputationScore: offer.user.reputationScore, totalTrades: stats.totalTrades, disputeCount: stats.disputeCount })
-  return { name: offer.user.displayName || null, parts }
+  const items = trustItems({ reputationScore: offer.user.reputationScore, totalTrades: stats.totalTrades, disputeCount: stats.disputeCount })
+  return { name: offer.user.displayName || null, items }
 }
 
 // Best price for the visitor: buying from a SELL offer wants the lowest, selling to a BUY offer the highest.

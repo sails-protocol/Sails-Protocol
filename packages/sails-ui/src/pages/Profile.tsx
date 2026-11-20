@@ -18,7 +18,8 @@ import { Check, ChevronRight, MoreHorizontal, Plus } from 'lucide-react'
 import { sailsClient } from '../lib/sailsClient'
 import { formatAmount, formatDateTime } from '../lib/format'
 import { ASSET_LABELS, ASSET_SHORT_LABELS } from '../lib/labels'
-import { ACCOUNT_DISPUTE_RATE_DEFINITION, formatAccountDisputeRate } from '../lib/reputation'
+import { ACCOUNT_DISPUTE_RATE_DEFINITION, formatAccountDisputeRate, REPUTATION_EXPLANATION } from '../lib/reputation'
+import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import { errorMessage } from '../lib/errors'
 import { ListSkeleton } from '../components/ui/skeleton'
 import { formatPrice } from '../lib/currency'
@@ -188,7 +189,7 @@ export function Profile() {
             { label: 'Trades', value: user.totalTrades },
             { label: 'Volume (BTC)', value: user.totalVolumeBtc.toFixed(2) },
             { label: 'Taxa de disputa', value: formatAccountDisputeRate(user), info: ACCOUNT_DISPUTE_RATE_DEFINITION },
-            { label: 'Reputação', value: user.reputationScore.toFixed(0) },
+            { label: 'Reputação', value: <span className="inline-flex items-center gap-1.5">{user.reputationScore.toFixed(0)}<ExplanationPopover explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.title} /></span> },
           ]}
         />
       </Card>

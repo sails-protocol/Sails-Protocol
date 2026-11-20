@@ -157,13 +157,15 @@ function seed(): DemoState {
   const msg = (tradeId: string, senderId: string, content: string, at: string): Message => ({ id: `${tradeId}-${at}`, tradeId, senderId, content, msgType: 'TEXT', readAt: null, createdAt: at })
   return {
     participants: [
-      participant(g, 'Gaivota Demo', 92, 148, 1, true),
-      participant(f, 'Farol Norte Demo', 85, 63, 2, true),
-      participant(m, 'Maré Mansa Demo', 78, 21, 0, false),
-      participant(a, 'Âncora Demo', 96, 312, 3, true),
-      participant(JUDGE, 'Juíza Brisa Demo', 98, 40, 0, true),
-      participant(APPEAL_PANEL, 'Painel Recife Demo', 97, 55, 0, true),
-      { ...participant(ME, 'Você Demo', 74, 3, 1, false), totalVolumeBtc: '0.035' },
+      // Fictional people (Alice/Bob convention) and fictional companies. Scores follow the real rule
+      // (reputation.service.ts): +2 per completed trade, -5 per lost dispute; disputeCount includes won ones.
+      participant(g, 'Alice', 96, 48, 1, true), // 48*2, one dispute won
+      participant(f, 'Boreal OTC', 311, 158, 2, true), // 158*2 - 1 lost*5 = 311
+      participant(m, 'Bob', 42, 21, 0, false), // 21*2 = 42
+      participant(a, 'Kestrel Câmbio', 614, 312, 3, true), // 312*2 - 2 lost*5 = 614
+      participant(JUDGE, 'Frank', 80, 40, 0, true), // arbiter, 40*2
+      participant(APPEAL_PANEL, 'Mediare Arbitragem', 110, 55, 0, true), // appeal panel, 55*2
+      { ...participant(ME, 'Erin', 6, 3, 1, false), totalVolumeBtc: '0.035' }, // 3*2, one dispute won
     ],
     offers, trades, escrows, vouches: [], intents: [],
     // The demo user already bought BTC (history above), so a BTC payout address exists; other assets show the registration flow.

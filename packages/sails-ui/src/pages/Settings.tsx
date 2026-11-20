@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useOutletContext } from 'react-router'
 import {
-  Activity, Bell, Globe, HelpCircle, Info, KeyRound, Languages, Link2, LifeBuoy, Lock, LogOut, MapPin,
+  Activity, Award, Bell, Globe, HelpCircle, Info, KeyRound, Languages, Link2, LifeBuoy, Lock, LogOut, MapPin,
   Moon, Palette, Plug, Server, ServerCog, Shield, ShieldCheck, Users, Wallet, ArrowLeft, CircleUser, type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
@@ -18,6 +18,8 @@ import { Page, PageHeader } from '../components/layout/PageHeader'
 import { Card } from '../components/ui/card'
 import { IdentityAvatar } from '../components/ui/IdentityAvatar'
 import { useAvatarStyle } from '../lib/avatarStyle'
+import { REPUTATION_EXPLANATION } from '../lib/reputation'
+import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import type { IdentityAvatarStyle } from '../lib/identityAvatar'
 
 const AVATAR_STYLE_OPTIONS: ReadonlyArray<{ value: IdentityAvatarStyle; label: string }> = [
@@ -225,6 +227,12 @@ export function Settings() {
 
           <SettingsGroup id="ajuda" title="Ajuda e Sobre" icon={HelpCircle} className={groupClass('ajuda')}>
             <SettingsRow icon={HelpCircle} label="Rever tour" description="Tour de boas-vindas do Sails Market" onClick={replayTour} />
+            <SettingsRow
+              icon={Award}
+              label={REPUTATION_EXPLANATION.title}
+              description="Soma de pontos sem valor máximo: +2 por trade concluído, −5 por disputa perdida"
+              control={<ExplanationPopover explanation={REPUTATION_EXPLANATION} label="Ver detalhes" variant="text" className="shrink-0" />}
+            />
             <Planned id="helpCenter" />
           </SettingsGroup>
         </div>

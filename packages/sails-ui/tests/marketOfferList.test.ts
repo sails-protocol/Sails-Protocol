@@ -44,29 +44,33 @@ describe('Market default sort', () => {
 })
 
 describe('Market seller cell', () => {
+  // The cell's visible trust text; the icon kinds are checked once below.
+  const seller = (o: Offer) => { const t = sellerTrust(o); return { name: t.name, parts: t.items.map((i) => i.text) } }
+
   it('real list offer: no name, no counters -> reputation only, no placeholders', () => {
     const o = offer('x', { makerStats: { totalTrades: undefined, disputeCount: undefined } }, { reputationScore: 92 })
-    expect(sellerTrust(o)).toEqual({ name: null, parts: ['Reputação 92'] })
+    expect(seller(o)).toEqual({ name: null, parts: ['Reputação 92'] })
   })
 
   it('shows name and counters when the summary carries them', () => {
-    const o = offer('x', { makerStats: { totalTrades: 12, disputeCount: 1 } }, { displayName: 'Gaivota', reputationScore: 19 })
-    expect(sellerTrust(o)).toEqual({ name: 'Gaivota', parts: ['Reputação 19', '12 trades', '1 disputa'] })
+    const o = offer('x', { makerStats: { totalTrades: 12, disputeCount: 1 } }, { displayName: 'Carol', reputationScore: 19 })
+    expect(seller(o)).toEqual({ name: 'Carol', parts: ['Reputação 19', '12 trades', '1 disputa'] })
   })
 
   it('shows trade count without inventing a dispute count', () => {
     const o = offer('x', { makerStats: { totalTrades: 1 } }, { reputationScore: 2 })
-    expect(sellerTrust(o).parts).toEqual(['Reputação 2', '1 trade'])
+    expect(seller(o).parts).toEqual(['Reputação 2', '1 trade'])
   })
 
   it('name without counters keeps only the reputation line', () => {
     const o = offer('x', { makerStats: {} }, { displayName: 'Maré', reputationScore: 0 })
-    expect(sellerTrust(o)).toEqual({ name: 'Maré', parts: ['Reputação 0'] })
+    expect(seller(o)).toEqual({ name: 'Maré', parts: ['Reputação 0'] })
   })
 
   it('offers built from a full User use its counters', () => {
     const o = offer('x', {}, { displayName: 'Ana', reputationScore: 40, totalTrades: 20, disputeCount: 0 })
-    expect(sellerTrust(o).parts).toEqual(['Reputação 40', '20 trades', '0 disputas'])
+    expect(seller(o).parts).toEqual(['Reputação 40', '20 trades', '0 disputas'])
+    expect(sellerTrust(o).items.map((i) => i.kind)).toEqual(['reputation', 'trades', 'disputes'])
   })
 })
 
