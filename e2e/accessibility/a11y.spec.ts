@@ -55,7 +55,7 @@ test.describe('Accessibility — WCAG 2.1 AA', () => {
     await page.getByRole('button', { name: 'Nova Oferta' }).click()
     await page.getByRole('button', { name: 'Vender' }).click()
     await page.getByRole('button', { name: 'Ativo' }).click()
-    await page.getByRole('button', { name: 'USDT (ERC-20)', exact: true }).click()
+    await page.getByRole('option', { name: 'USDT (ERC-20)', exact: true }).click()
     // See e2e/flows/p2p-trade-happy-path.spec.ts's header comment on the
     // tiny-BRL-price → priceUsd=0.00 rounding bug this range avoids.
     await page.getByPlaceholder('0').fill((5 + Math.random() * 5).toFixed(4))
@@ -113,7 +113,7 @@ test.describe('Accessibility — keyboard navigation', () => {
     await expect(allAssetsButton).toBeFocused()
     await page.keyboard.press('Enter')
     // Opening the picker must expose at least one selectable asset option via keyboard.
-    await expect(page.getByRole('button', { name: 'USDT (ERC-20)', exact: true })).toBeVisible()
+    await expect(page.getByRole('option', { name: 'USDT (ERC-20)', exact: true })).toBeVisible()
   })
 })
 

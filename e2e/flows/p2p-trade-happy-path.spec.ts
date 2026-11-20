@@ -62,7 +62,7 @@ test('golden path: register, publish, discover, trade, chat, escrow, settle', as
 
     await seller.getByRole('button', { name: 'Vender' }).click()
     await seller.getByRole('button', { name: 'Ativo' }).click()
-    await seller.getByRole('button', { name: 'USDT (ERC-20)', exact: true }).click()
+    await seller.getByRole('option', { name: 'USDT (ERC-20)', exact: true }).click()
     await seller.getByPlaceholder('0').fill(priceBrl)
     await seller.getByRole('button', { name: 'Próximo' }).click()
 
