@@ -5,6 +5,7 @@
  * and the SECURITY DEFINER shape. The runtime-grant assertions live in f4RuntimeGrants (scratch database, grants applied).
  */
 import { Client } from 'pg'
+import { randomUUID } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { createCommitmentFixture } from './helpers/committedPairFixture'
 
@@ -91,5 +92,51 @@ describe('M-1b wiring: reservation trigger on COMMITTED (real catalog)', () => {
     await preInsert(p.pairId, anchorRef, fx.envelopeRow.ownerPublicKey, fx.logicalOfferId, '0.00000001')
     await expect(p.signMaker()).rejects.toMatchObject({ code: 'E25_OFFER_CAPACITY_ANCHOR_RESERVED', statusCode: 409 })
     expect((await db.query(`SELECT state FROM commitment_pairs WHERE id=$1`, [p.pairId])).rows[0].state).toBe('PARTIALLY_SIGNED')
+  })
+
+  run('B8: EXECUTE is not PUBLIC: the runtime may call only try_release and request_unblock; only the reviewer role may call execute_unblock; the internal functions are for no application role', async () => {
+    const can = async (role: string, fn: string) => (await db.query(`SELECT has_function_privilege($1, $2, 'EXECUTE') AS ok`, [role, fn])).rows[0].ok as boolean
+    expect(await can('sails_runtime', 'offer_capacity_try_release(text)')).toBe(true)
+    expect(await can('sails_runtime', 'offer_capacity_request_unblock(text, jsonb, text)')).toBe(true)
+    for (const fn of ['offer_capacity_settlement_proof(text)', 'offer_capacity_execute_unblock(text, text, text)', 'offer_capacity_block_on_evidence()',
+      'offer_capacity_unblock_digest(text, text, text, text, timestamptz, jsonb, text)', 'commitment_pairs_reserve_capacity()']) {
+      expect(await can('sails_runtime', fn)).toBe(false)
+    }
+    expect(await can('sails_capacity_reviewer', 'offer_capacity_execute_unblock(text, text, text)')).toBe(true)
+    expect(await can('sails_capacity_reviewer', 'offer_capacity_try_release(text)')).toBe(false)
+  })
+
+  run('B6 (three orders): the escrow guard reads the trade FOR SHARE, so a cancel cannot slip between the guard read and the FK; and the release (trade FOR UPDATE) and an escrow INSERT exclude each other', async () => {
+    const fx = await createCommitmentFixture(prisma, { seed: 0x86 })
+    const c = await fx.committedPair()
+    const db2 = new Client({ connectionString: process.env.DATABASE_URL }); await db2.connect()
+    try {
+      // order 1: the escrow INSERT is in flight (guard has read the trade) -> the cancel must WAIT (lock_timeout 55P03), not slip through
+      await db2.query('BEGIN')
+      await db2.query(`INSERT INTO escrows (id,"tradeId","lockedAmount",asset,type,"commitmentPairId","updatedAt") VALUES ($1,$2,0.005,'BTC','MULTISIG',$3,now())`, [randomUUID(), c.tradeId, c.pairId])
+      await db.query(`SET lock_timeout = '1s'`)
+      let cancelCode: string | null = null
+      try { await db.query(`UPDATE trades SET status='CANCELLED' WHERE id=$1`, [c.tradeId]) } catch (e: any) { cancelCode = e.code }
+      await db.query('RESET lock_timeout')
+      expect(cancelCode).toBe('55P03') // mutant "no FOR SHARE": the cancel would not wait and this would be null
+      await db2.query('COMMIT')
+      // after the escrow committed, the cancel goes through and the release sees the escrow: KEEP
+      await db.query(`UPDATE trades SET status='CANCELLED' WHERE id=$1`, [c.tradeId])
+      expect((await db.query(`SELECT offer_capacity_try_release($1) AS r`, [c.anchorRef])).rows[0].r).toBe('KEEP:escrow_not_terminal_CREATED')
+      // order 3: the release holds the trade row (FOR UPDATE) -> an escrow INSERT for another trade of the same kind waits, never slips in
+      const d = await fx.committedPair()
+      await db2.query('BEGIN')
+      await db2.query(`SELECT 1 FROM trades WHERE id=$1 FOR UPDATE`, [d.tradeId])
+      await db.query(`SET lock_timeout = '1s'`)
+      let insCode: string | null = null
+      try { await db.query(`INSERT INTO escrows (id,"tradeId","lockedAmount",asset,type,"commitmentPairId","updatedAt") VALUES ($1,$2,0.005,'BTC','MULTISIG',$3,now())`, [randomUUID(), d.tradeId, d.pairId]) } catch (e: any) { insCode = e.code }
+      await db.query('RESET lock_timeout')
+      await db2.query('ROLLBACK')
+      expect(insCode).toBe('55P03')
+      // order 2 (cancel committed first): the INSERT is refused for a CANCELLED trade
+      await db.query(`UPDATE trades SET status='CANCELLED' WHERE id=$1`, [d.tradeId])
+      await expect(db.query(`INSERT INTO escrows (id,"tradeId","lockedAmount",asset,type,"commitmentPairId","updatedAt") VALUES ($1,$2,0.005,'BTC','MULTISIG',$3,now())`, [randomUUID(), d.tradeId, d.pairId])).rejects.toThrow(/CANCELLED/)
+      expect((await db.query(`SELECT offer_capacity_try_release($1) AS r`, [d.anchorRef])).rows[0].r).toBe('RELEASED:L1_TRADE_CANCELLED_NO_ESCROW')
+    } finally { await db2.query('ROLLBACK').catch(() => undefined); await db2.end() }
   })
 })
