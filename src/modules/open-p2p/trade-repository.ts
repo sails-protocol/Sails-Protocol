@@ -14,7 +14,7 @@
  * for DisputeService's own constructor-injected dependency.
  *
  * Every method here is a verbatim move of an existing Prisma query — no
- * behavior change. findOfferById() bundles the one prisma.offer.* read
+ * behavior change. findOfferForAdmission() bundles the one prisma.offer.* read
  * createTrade() needs alongside prisma.trade.*, the same "one repository
  * per *consumer*, not strictly one per table" precedent IntentRepository
  * already set by bundling prisma.intentEvent.* alongside prisma.intent.*.
@@ -57,6 +57,8 @@ type TradeWithDetailsRow = Prisma.TradeGetPayload<{
 }>
 
 export interface CreateTradeData {
+  /** E21 slice 1 - set by the admission so its idempotency claim can name the trade inside the same transaction. */
+  id?: string
   offerId: string
   buyerId: string
   sellerId: string
@@ -66,13 +68,27 @@ export interface CreateTradeData {
   totalUsd: string
   network: string | null
   intentId: string | null
+  /** E21 slice 1 - the trade's own Intent; omitted only by legacy callers. */
+  tradeIntentId?: string
+}
+
+/** E21 slice 1 - what cancelling a LEGACY trade (no own Intent) needs to know about the Offer Intent it shares. */
+export interface LegacyIntentCancelContext {
+  tradeHasEscrow: boolean
+  liveSiblingTrades: number
+  intentStatus: string | null
 }
 
 export interface TradeRepository {
-  /** createTrade()'s own Offer existence check — see this file's header comment for why an Offer read lives on TradeRepository rather than a separate repository. */
-  findOfferById(offerId: string): Promise<OfferRow | null>
+  create(input: CreateTradeData, tx?: Prisma.TransactionClient): Promise<TradeRow>
 
-  create(input: CreateTradeData): Promise<TradeRow>
+  /**
+   * createTrade()'s Offer read (see this file's header comment for why an Offer read lives here).
+   * E21 slice 1 - the admission's Offer read, inside its transaction and under `SELECT ... FOR SHARE`: the only
+   * Offer status writer (liquidity.service.ts) then waits for the admission to commit, and a write that committed
+   * first is what this read returns. Concurrent admissions on the same Offer do not block each other.
+   */
+  findOfferForAdmission(tx: Prisma.TransactionClient, offerId: string): Promise<OfferRow | null>
 
   /** Bare row, no relations. Shared by updateStatus()'s ownership-check read, negotiationService.open()'s existence check, and TradeService.assertParticipant() — the one shape 4 separate lightweight auth-gate call sites go through. */
   findById(tradeId: string): Promise<TradeRow | null>
@@ -80,8 +96,16 @@ export interface TradeRepository {
   /** escrow + messages(createdAt asc) + offer — getTrade()'s full detail view. */
   findByIdWithDetails(tradeId: string): Promise<TradeWithDetailsRow | null>
 
-  /** escrow + offer, first match on intentId — getTradeByIntentId()'s own shape for @satsails/p2p-trading-sdk's dispute() facade. */
-  findByIntentId(intentId: string): Promise<TradeWithEscrowAndOfferRow | null>
+  /** escrow + offer, the trade that owns this Intent (E21 slice 1) — getTradeByIntentId()'s shape for @satsails/p2p-trading-sdk's dispute() facade. */
+  findByTradeIntentId(intentId: string): Promise<TradeWithEscrowAndOfferRow | null>
+
+  /** escrow + offer, EVERY trade carrying this Offer/legacy Intent in which participantId is buyer or seller (never anyone else's). */
+  findByIntentIdForParticipant(intentId: string, participantId: string): Promise<TradeWithEscrowAndOfferRow[]>
+
+  /** E21 slice 1 - the participant's own legacy trades on this offer created since `since`: UNVERIFIED hints only, never an attribution. */
+  findLegacyAdmissionCandidateIds(participantId: string, offerId: string, since: Date): Promise<string[]>
+
+  legacyIntentCancelContext(tradeId: string, intentId: string): Promise<LegacyIntentCancelContext>
 
   /** escrow only — reconciliationService.reconcileTrade()'s own shape. */
   findByIdWithEscrow(tradeId: string): Promise<TradeWithEscrowRow | null>
@@ -142,15 +166,14 @@ const TRADE_RANK: Record<string, number> = { PENDING: 0, ACTIVE: 1, DISPUTED: 2,
 const ESCROW_GOVERNED_STATUSES = new Set(['DISPUTED', 'COMPLETED', 'SPLIT', 'REFUNDED'])
 
 const ACTIVE_TRADE_STATUSES = ['PENDING', 'ACTIVE'] as const
+// A trade whose lifecycle has not ended (TradeStatus minus COMPLETED/CANCELLED).
+const LIVE_TRADE_STATUSES = ['PENDING', 'ACTIVE', 'DISPUTED'] as const
 
 class PrismaTradeRepository implements TradeRepository {
-  async findOfferById(offerId: string) {
-    return prisma.offer.findUnique({ where: { id: offerId } })
-  }
-
-  async create(input: CreateTradeData) {
-    return prisma.trade.create({
+  async create(input: CreateTradeData, tx: Prisma.TransactionClient = prisma) {
+    return tx.trade.create({
       data: {
+        id: input.id,
         offerId: input.offerId,
         buyerId: input.buyerId,
         sellerId: input.sellerId,
@@ -160,8 +183,14 @@ class PrismaTradeRepository implements TradeRepository {
         totalUsd: input.totalUsd,
         network: input.network,
         intentId: input.intentId,
+        tradeIntentId: input.tradeIntentId,
       },
     })
+  }
+
+  async findOfferForAdmission(tx: Prisma.TransactionClient, offerId: string) {
+    await tx.$executeRaw`SELECT 1 FROM "offers" WHERE "id" = ${offerId} FOR SHARE`
+    return tx.offer.findUnique({ where: { id: offerId } })
   }
 
   async findById(tradeId: string) {
@@ -175,11 +204,44 @@ class PrismaTradeRepository implements TradeRepository {
     })
   }
 
-  async findByIntentId(intentId: string) {
-    return prisma.trade.findFirst({
-      where: { intentId },
+  async findByTradeIntentId(intentId: string) {
+    return prisma.trade.findUnique({ where: { tradeIntentId: intentId }, include: { escrow: true, offer: true } })
+  }
+
+  async findByIntentIdForParticipant(intentId: string, participantId: string) {
+    return prisma.trade.findMany({
+      where: { intentId, OR: [{ buyerId: participantId }, { sellerId: participantId }] },
+      orderBy: { createdAt: 'asc' },
       include: { escrow: true, offer: true },
     })
+  }
+
+  async findLegacyAdmissionCandidateIds(participantId: string, offerId: string, since: Date) {
+    // Only trades the participant could have created as the taker (never as the offer's maker), and none that
+    // another claim already durably owns.
+    const rows = await prisma.trade.findMany({
+      where: {
+        offerId, tradeIntentId: null, createdAt: { gte: since },
+        offer: { userId: { not: participantId } },
+        OR: [{ buyerId: participantId }, { sellerId: participantId }],
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 20,
+      select: { id: true },
+    })
+    const ids = rows.map((r) => r.id)
+    if (ids.length === 0) return ids
+    const owned = await prisma.idempotencyKey.findMany({ where: { resultRef: { in: ids } }, select: { resultRef: true } })
+    return ids.filter((id) => !owned.some((o) => o.resultRef === id))
+  }
+
+  async legacyIntentCancelContext(tradeId: string, intentId: string) {
+    const [escrows, liveSiblingTrades, intent] = await Promise.all([
+      prisma.escrow.count({ where: { tradeId } }),
+      prisma.trade.count({ where: { intentId, id: { not: tradeId }, status: { in: [...LIVE_TRADE_STATUSES] } } }),
+      prisma.intent.findUnique({ where: { id: intentId }, select: { status: true } }),
+    ])
+    return { tradeHasEscrow: escrows > 0, liveSiblingTrades, intentStatus: intent?.status ?? null }
   }
 
   async findByIdWithEscrow(tradeId: string) {

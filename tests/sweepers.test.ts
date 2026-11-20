@@ -41,7 +41,7 @@ jest.mock('../src/config', () => ({
     return {
       features: { mockEscrow: mockEscrowFeatureFlag, enforceCapabilities, requireDualApprovalForRelease },
       trade: { defaultTimelockHours: 24 },
-      settlement: { trustedArbitrators: [], protocolFeeRate: 0 },
+      settlement: { trustedArbitrators: [] },
       arkade: { seed: '' },
       // M4 — assertCircuitClosed()/recordEscrowConflict() (escrow-circuit-breaker.ts)
       // are now on the target-slice's own atomic-commit path (the same

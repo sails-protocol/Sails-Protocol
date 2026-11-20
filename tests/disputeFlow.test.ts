@@ -90,6 +90,10 @@ const mockExecuteRaw = jest.fn().mockResolvedValue(0)
 const mockEventProjectionClaimCreateMany = jest.fn().mockResolvedValue({ count: 1 })
 // #308 / D-308 — the transition claim takes the dispute row lock (SELECT ... FOR UPDATE) before it reads the clock.
 const mockQueryRaw = jest.fn().mockResolvedValue([{ '?column?': 1 }])
+// #367 / CTO 343: evidence is one atomic `UPDATE "disputes" ... || jsonb_build_array($entry) ... RETURNING` ($queryRaw).
+const evidenceWrites = () => mockQueryRaw.mock.calls.filter((c: any[]) => Array.isArray(c[0]) && c[0].join('').includes('UPDATE "disputes"'))
+const answerEvidenceWrite = (rows: unknown[] | ((values: unknown[]) => unknown[])) => mockQueryRaw.mockImplementation(async (sql: any, ...values: unknown[]) =>
+  Array.isArray(sql) && sql.join('').includes('UPDATE "disputes"') ? (typeof rows === 'function' ? rows(values) : rows) : [{ '?column?': 1 }])
 // The text of a Prisma.sql fragment passed as a tagged-template value (the claim's decision instant).
 const sqlText = (fragment: unknown) => (fragment as { strings: string[] }).strings.join('')
 const mockOutboxCreate = jest.fn().mockResolvedValue({ id: 'outbox-1' })
@@ -128,6 +132,7 @@ const mockTransaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
 
 jest.mock('../src/common/database', () => ({
   prisma: {
+    $queryRaw: (...args: unknown[]) => mockQueryRaw(...args),
     trade: { findUnique: (...args: unknown[]) => mockTradeFindUnique(...args) },
     dispute: {
       create: (...args: unknown[]) => mockDisputeCreate(...args),
@@ -838,17 +843,18 @@ describe('DisputeService — submitEvidence() (RFC-021 D8)', () => {
       id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'OPENED', evidence: [],
     })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-    mockDisputeUpdate.mockResolvedValue({ id: 'dispute-1', status: 'EVIDENCE_SUBMITTED' })
+    answerEvidenceWrite((values) => [{ evidence: [JSON.parse(String(values[0]))], status: 'EVIDENCE_SUBMITTED', updatedAt: new Date() }])
 
     await service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt', note: 'bank confirmation' })
 
-    expect(mockDisputeUpdate).toHaveBeenCalledWith({
-      where: { id: 'dispute-1' },
-      data: {
-        evidence: [expect.objectContaining({ type: 'payment_receipt', note: 'bank confirmation', submittedBy: 'buyer-1' })],
-        status: 'EVIDENCE_SUBMITTED',
-      },
-    })
+    // #367 / CTO 343: one atomic, guarded append - never a blind write by id, never a read-modify-write of the array.
+    const [write] = evidenceWrites()
+    const sql = write[0].join('?')
+    expect(sql).toMatch(/SET "evidence" = COALESCE\("evidence", '\[\]'::jsonb\) \|\| jsonb_build_array\(\?::jsonb\)/)
+    expect(sql).toMatch(/WHERE "id" = \? AND "status" IN \('OPENED', 'EVIDENCE_SUBMITTED'\) AND "ruling" IS NULL/)
+    expect(JSON.parse(String(write[1]))).toMatchObject({ type: 'payment_receipt', note: 'bank confirmation', submittedBy: 'buyer-1' })
+    expect(write[3]).toBe('dispute-1')
+    expect(mockDisputeUpdateMany).not.toHaveBeenCalled()
     expect(mockEmit).toHaveBeenCalledWith(
       'dispute.evidence_submitted',
       expect.objectContaining({ disputeId: 'dispute-1', tradeId: 'trade-1', triggeredBy: 'buyer-1' }),
@@ -856,20 +862,20 @@ describe('DisputeService — submitEvidence() (RFC-021 D8)', () => {
     )
   })
 
-  it('appends to existing evidence rather than overwriting it', async () => {
+  it('appends to existing evidence rather than overwriting it: only the new entry is bound, the database concatenates it', async () => {
     mockDisputeFindUnique.mockResolvedValue({
       id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'EVIDENCE_SUBMITTED',
       evidence: [{ type: 'chat_log', submittedBy: 'seller-1', submittedAt: '2026-01-01T00:00:00.000Z' }],
     })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
-    mockDisputeUpdate.mockResolvedValue({})
+    answerEvidenceWrite((values) => [{ evidence: [{ type: 'chat_log' }, JSON.parse(String(values[0]))], status: 'EVIDENCE_SUBMITTED', updatedAt: new Date() }])
 
     await service.submitEvidence('dispute-1', 'seller-1', { type: 'payment_receipt' })
 
-    const call = mockDisputeUpdate.mock.calls[0][0]
-    expect(call.data.evidence).toHaveLength(2)
-    expect(call.data.evidence[0].type).toBe('chat_log')
-    expect(call.data.evidence[1].type).toBe('payment_receipt')
+    const [write] = evidenceWrites()
+    const bound = JSON.parse(String(write[1]))
+    expect(Array.isArray(bound)).toBe(false) // never the array it read: the existing entries stay in the row
+    expect(bound.type).toBe('payment_receipt')
   })
 
   it('rejects a submitter who is not a party to the trade', async () => {
@@ -878,6 +884,7 @@ describe('DisputeService — submitEvidence() (RFC-021 D8)', () => {
 
     await expect(service.submitEvidence('dispute-1', 'not-a-party', { type: 'payment_receipt' })).rejects.toThrow('is not a party to trade')
     expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    expect(mockDisputeUpdateMany).not.toHaveBeenCalled()
   })
 
   it('rejects new evidence once the dispute has moved past evidence-gathering (RESOLVED/APPEALED/AUTO_PROPOSED)', async () => {
@@ -885,6 +892,18 @@ describe('DisputeService — submitEvidence() (RFC-021 D8)', () => {
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
 
     await expect(service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt' })).rejects.toThrow('cannot accept new evidence')
+  })
+
+  it('CTO 119 (GK F1): the dispute changed after it was read (e.g. a ruling committed meanwhile): zero rows matched -> refused, nothing written by a blind update, no event', async () => {
+    mockDisputeFindUnique.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', escrowId: 'escrow-1', status: 'OPENED', evidence: [], updatedAt: new Date('2026-11-14T00:00:00Z') })
+    mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
+    answerEvidenceWrite([]) // the guarded UPDATE matched no row: status no longer accepts evidence or a ruling exists
+
+    await expect(service.submitEvidence('dispute-1', 'buyer-1', { type: 'payment_receipt' })).rejects.toThrow(/changed while this evidence was being validated/)
+    expect(evidenceWrites()).toHaveLength(1)
+    expect(mockDisputeUpdateMany).not.toHaveBeenCalled()
+    expect(mockDisputeUpdate).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalledWith('dispute.evidence_submitted', expect.anything(), expect.anything())
   })
 })
 

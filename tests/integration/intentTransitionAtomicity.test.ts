@@ -66,8 +66,10 @@ describe('Intent transition atomicity + recoverable publication (real PostgreSQL
     const buyer = await prisma.user.create({ data: { publicKey: randomBytes(32).toString('hex') } })
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
-    expect((await prisma.intent.findUnique({ where: { id: trade.intentId } }))!.status).toBe('NEGOTIATING')
-    return trade.intentId as string
+    // E21 slice 1 - the trade's own Intent is the one its lifecycle moves (the Offer's stays COORDINATED).
+    expect((await prisma.intent.findUnique({ where: { id: trade.tradeIntentId } }))!.status).toBe('NEGOTIATING')
+    expect((await prisma.intent.findUnique({ where: { id: offer.intentId } }))!.status).toBe('COORDINATED')
+    return trade.tradeIntentId as string
   }
 
   const commit = (engine: any, intentId: string, by = 'probe') =>

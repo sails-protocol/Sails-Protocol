@@ -29,6 +29,7 @@
  * race) rather than a boolean keeps the caller's own error message
  * ("was already transitioned by a concurrent request") unchanged.
  */
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../common/database'
 import type { IntentType } from '../common/types/intent'
 
@@ -72,6 +73,22 @@ export interface ApplyTransitionInput {
 
 export type OwedPublicationOutcome = 'PUBLISHED' | 'ALREADY_PUBLISHED' | 'SKIPPED'
 
+/** E21 slice 1 - an Intent born directly in `status`, with the genesis IntentEvent that owes `eventName`. */
+export interface CreateWithGenesisInput {
+  id: string
+  type: IntentType
+  participantId: string
+  parentIntentId: string | null
+  moduleId: string
+  payload: object
+  metadata: object
+  status: string
+  triggeredBy: string
+  entryHash: string
+  eventName: string
+  eventPayload: object
+}
+
 export interface IntentRepository {
   create(input: CreateIntentInput): Promise<IntentRow>
   findById(intentId: string): Promise<IntentRow | null>
@@ -98,6 +115,13 @@ export interface IntentRepository {
    * between publish and mark), otherwise calls `publish`. Two workers can never mint two durable events for it.
    */
   publishOwedEvent(intentEventId: string, publish: (row: IntentEventRow) => Promise<void>): Promise<OwedPublicationOutcome>
+  /**
+   * E21 slice 1 - writes the Intent and its genesis IntentEvent (prevHash 'genesis', owed publication pending) inside
+   * the CALLER's transaction: both exist only if that transaction commits. Returns the IntentEvent id.
+   */
+  createWithGenesisInTransaction(tx: Prisma.TransactionClient, input: CreateWithGenesisInput): Promise<string>
+  /** E21 slice 1 - true when an Offer, or a Trade (as its offer Intent or as its own Intent), references this Intent. */
+  isBound(intentId: string): Promise<boolean>
 }
 
 class PrismaIntentRepository implements IntentRepository {
@@ -185,6 +209,42 @@ class PrismaIntentRepository implements IntentRepository {
       await tx.intentEvent.update({ where: { id: row.id }, data: { publishedAt: new Date() } })
       return existing.length === 0 ? ('PUBLISHED' as const) : ('ALREADY_PUBLISHED' as const)
     }, { timeout: 30_000 })
+  }
+
+  async createWithGenesisInTransaction(tx: Prisma.TransactionClient, input: CreateWithGenesisInput): Promise<string> {
+    await tx.intent.create({
+      data: {
+        id: input.id,
+        type: input.type,
+        participantId: input.participantId,
+        parentIntentId: input.parentIntentId,
+        moduleId: input.moduleId,
+        payload: input.payload,
+        status: input.status,
+        metadata: input.metadata,
+      },
+    })
+    const event = await tx.intentEvent.create({
+      data: {
+        intentId: input.id,
+        fromStatus: null,
+        toStatus: input.status,
+        triggeredBy: input.triggeredBy,
+        prevHash: 'genesis',
+        entryHash: input.entryHash,
+        eventName: input.eventName,
+        eventPayload: input.eventPayload,
+      },
+    })
+    return event.id
+  }
+
+  async isBound(intentId: string): Promise<boolean> {
+    const [offers, trades] = await Promise.all([
+      prisma.offer.count({ where: { intentId } }),
+      prisma.trade.count({ where: { OR: [{ intentId }, { tradeIntentId: intentId }] } }),
+    ])
+    return offers > 0 || trades > 0
   }
 
   async createEvent(input: CreateIntentEventInput): Promise<void> {

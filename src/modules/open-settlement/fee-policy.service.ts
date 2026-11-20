@@ -48,10 +48,31 @@ import {
 } from './fee-policy-repository'
 import { assertRailCanActivateFeeCollection } from './escrow-providers'
 
+// CTO 413 (P1) — structural only, never a ceiling (an economic decision). DECIMAL(24,8) would store NaN
+// (and order it above every number) and round a 9th decimal place silently, so both are refused, never coerced.
+function assertValidProtocolFeeRate(value: Prisma.Decimal | string): void {
+  let rate: Prisma.Decimal
+  try {
+    rate = new Prisma.Decimal(value)
+  } catch {
+    throw new ValidationError('protocolFeeRate is not a decimal number', { protocolFeeRate: String(value) })
+  }
+  if (!rate.isFinite()) {
+    throw new ValidationError('protocolFeeRate must be finite (NaN and Infinity are refused)', { protocolFeeRate: rate.toString() })
+  }
+  if (rate.isNegative()) {
+    throw new ValidationError('protocolFeeRate must be >= 0', { protocolFeeRate: rate.toString() })
+  }
+  if (rate.decimalPlaces() > 8) {
+    throw new ValidationError('protocolFeeRate must have at most 8 decimal places (it is never rounded)', { protocolFeeRate: rate.toString() })
+  }
+}
+
 export class FeePolicyService {
   constructor(private readonly repo: FeePolicyVersionRepository = feePolicyVersionRepository) {}
 
   async createDraft(input: CreateDraftFeePolicyVersionData) {
+    assertValidProtocolFeeRate(input.protocolFeeRate)
     return this.repo.create(input)
   }
 
@@ -73,10 +94,7 @@ export class FeePolicyService {
       )
     }
 
-    const rate = new Prisma.Decimal(policy.protocolFeeRate)
-    if (rate.isNegative()) {
-      throw new ValidationError('protocolFeeRate must be >= 0', { protocolFeeRate: rate.toString() })
-    }
+    assertValidProtocolFeeRate(policy.protocolFeeRate)
 
     // Missão 11 Fase 5 §3 — structural validation only, same discipline as
     // the percentage-sum check above: a real confirmation depth is never

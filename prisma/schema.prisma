@@ -370,7 +370,11 @@ model Trade {
   // creation (createTrade()). Nullable, same rationale as Offer.intentId
   // above.
   intentId        String?
-  intent          Intent?     @relation(fields: [intentId], references: [id])
+  intent          Intent?     @relation("TradeOfferIntent", fields: [intentId], references: [id])
+  // E21 slice 1 (migration 20261115120000) - the trade's own Intent, created with the trade in one transaction.
+  // NULL for every trade admitted before it (legacy: those keep following the shared Offer Intent in `intentId`).
+  tradeIntentId   String?     @unique
+  tradeIntent     Intent?     @relation("TradeOwnIntent", fields: [tradeIntentId], references: [id], onDelete: Restrict)
   completedAt     DateTime?
   cancelledAt     DateTime?
   createdAt       DateTime    @default(now())
@@ -383,6 +387,7 @@ model Trade {
   @@index([buyerId])
   @@index([sellerId])
   @@index([status])
+  @@index([intentId])
   @@map("trades")
 }
 
@@ -578,10 +583,9 @@ model FeeDistribution {
 // and does NOT choose any real economic parameter (rate, bucket split,
 // confirmation depth) — every FeePolicyVersion this pass's own tests create
 // is an explicitly-labeled fixture, never a production value.
-// config.settlement.protocolFeeRate and chargeProtocolFee() (RFC-021 Phase 0,
-// escrow-lifecycle.ts) are UNCHANGED and remain the ONLY live fee mechanism
-// until a future, separately-authorized phase wires this foundation into a
-// real settlement flow. See Missão 11 Fase 1/1.1/1.2/2/2.1 for the full
+// (Corrected 2026-11-17: RFC-021 Phase 0's chargeProtocolFee() was retired in
+// Fase 6.5.2 and config.settlement.protocolFeeRate removed; neither is a live
+// fee mechanism any more.) See Missão 11 Fase 1/1.1/1.2/2/2.1 for the full
 // design rationale this implements.
 enum FeePolicyStatus {
   DRAFT
@@ -846,8 +850,8 @@ model FeePolicyVersion {
 
   // Structural validation only (Fase 2.1 §4 / Fase 2.2 §4): rate >= 0 —
   // enforced in fee-policy.service.ts, using Decimal arithmetic (never
-  // float, correcting the imprecision already flagged in
-  // config.settlement.protocolFeeRate's own live parseFloat typing). The
+  // float, correcting the parseFloat imprecision of the since-removed
+  // config.settlement.protocolFeeRate). The
   // ACTUAL rate is a governance decision explicitly NOT made in this
   // phase — every value used by this pass's own tests is a clearly-labeled
   // fixture.
@@ -979,6 +983,13 @@ model FeeCollectionEvidence {
   confirmedAtHeight Int?
   note              String?
   recordedAt        DateTime                  @default(now())
+  // CTO 239/245/246 — record order. "Latest evidence" = greatest seq among committed rows; every
+  // reader orders by seq alone. seq is nextval at INSERT (after the collectionStatus lock for
+  // BROADCAST), never updated (DB trigger). recordedAt is informational: it is not commit order
+  // (a lock-waiting writer can carry the smaller one) and it ties within a millisecond.
+  // Pre-existing rows keep the physical-order seq from migration 20261116120000 (not economic
+  // evidence; review per docs/DEPLOYMENT.md 6.5).
+  seq               Int                       @default(autoincrement())
 
   // Missão 11 Fase 7.2 — CTO-frozen decision: DistributionPolicyVersion
   // becomes economically binding at COLLECTED time, not at whenever an
@@ -1989,8 +2000,9 @@ model Intent {
   //   a composite-business-key uniqueness constraint on Trade creation
   //   for exactly this reason — see `src/common/idempotency.ts`'s own
   //   header).
-  offers Offer[]
-  trades Trade[]
+  offers     Offer[]
+  trades     Trade[] @relation("TradeOfferIntent")
+  ownerTrade Trade?  @relation("TradeOwnIntent")
 
   @@index([participantId])
   @@index([status])

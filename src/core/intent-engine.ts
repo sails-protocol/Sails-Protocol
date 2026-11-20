@@ -25,10 +25,11 @@
  * with the real `intentEngine` export's own call sites unchanged.
  */
 import { createHash } from 'crypto'
+import type { Prisma } from '@prisma/client'
 import { config } from '../config'
-import { ValidationError, NotFoundError, ForbiddenError } from '../common/errors'
+import { AppError, ValidationError, NotFoundError, ForbiddenError } from '../common/errors'
 import { eventBus } from '../common/events/event-bus'
-import type { SailsEventName, SailsEventMap } from '../common/events/event-bus'
+import type { SailsEventName, SailsEventMap, IntentCreatedEvent } from '../common/events/event-bus'
 import { assertValidTransition, isExpired, type IntentStatus } from './state-machine'
 import { validateFinancialSanity } from './policy-engine'
 import { coordinationEngine } from './coordination-engine'
@@ -75,7 +76,31 @@ export interface IntentEngine {
     eventPayload: SailsEventMap[K],
     note?: string
   ): Promise<Intent>
+  /**
+   * E21 slice 1 - a trade's own Intent (type TradeIntent, child of the Offer Intent, no expiresAt), born NEGOTIATING
+   * with its genesis IntentEvent inside the caller's admission transaction. The `intent.created` it owes is
+   * published by publishCommittedIntentEvent() after the commit, or by recoverUnpublishedIntentEvents() if the
+   * process dies first. It moves only through its trade's lifecycle, never through cancel() (INTENT_BOUND).
+   */
+  createTradeIntentInTransaction(tx: Prisma.TransactionClient, input: {
+    intentId: string
+    participantId: string
+    parentIntentId: string | null
+    payload: object
+    metadata: object
+  }): Promise<OwedIntentEvent>
+  /** Publishes the event an already-committed IntentEvent owes, then marks it published. */
+  publishCommittedIntentEvent(owed: OwedIntentEvent): Promise<void>
 }
+
+export interface OwedIntentEvent {
+  intentId: string
+  intentEventId: string
+  eventName: SailsEventName
+  eventPayload: object
+}
+
+export const TRADE_ADMISSION_TRIGGER = 'system:trade-admission'
 
 const handlers = new Map<IntentType, IntentHandler>()
 
@@ -119,6 +144,12 @@ export function createIntentEngine(repo: IntentRepository = intentRepository): I
     const last = await repo.findLastEvent(intentId)
     const prevHash = last?.entryHash ?? 'genesis'
     await repo.createEvent({ intentId, fromStatus, toStatus, triggeredBy, note, prevHash, entryHash: entryHashOf(fromStatus, toStatus, triggeredBy, prevHash) })
+  }
+
+  async function publishCommittedIntentEvent(owed: OwedIntentEvent): Promise<void> {
+    // correlationId = intentId (RFC-010); transitionId (the IntentEvent id) lets recovery recognise this event.
+    await eventBus.emit(owed.eventName, { ...owed.eventPayload, transitionId: owed.intentEventId } as never, owed.intentId)
+    await repo.markEventPublished(owed.intentEventId)
   }
 
   async function transition<K extends SailsEventName>(
@@ -177,9 +208,7 @@ export function createIntentEngine(repo: IntentRepository = intentRepository): I
     if (!applied) {
       throw new ValidationError(`Intent ${intentId} was already transitioned by a concurrent request (expected status ${currentStatus})`)
     }
-    // correlationId = intentId (RFC-010); transitionId (the IntentEvent id) lets recovery recognise this event.
-    await eventBus.emit(eventName, { ...eventPayload, transitionId: applied.intentEventId }, intentId)
-    await repo.markEventPublished(applied.intentEventId)
+    await publishCommittedIntentEvent({ intentId, intentEventId: applied.intentEventId, eventName, eventPayload: eventPayload as object })
 
     return applied.intent as unknown as Intent
   }
@@ -285,6 +314,12 @@ export function createIntentEngine(repo: IntentRepository = intentRepository): I
         throw new ForbiddenError(`${cancelledBy} does not own Intent ${intentId}`)
       }
 
+      // E21 slice 1 - checked only after ownership, so a non-owner never learns whether the Intent is bound. An
+      // Offer's or a trade's Intent moves with that Offer/trade, never through this generic cancellation.
+      if (await repo.isBound(intentId)) {
+        throw new AppError(`Intent ${intentId} is bound to an Offer or a Trade and cannot be cancelled directly`, 409, 'INTENT_BOUND')
+      }
+
       if (isExpired({ status: record.status as IntentStatus, expiresAt: record.expiresAt })) {
         await transition(intentId, 'EXPIRED', 'system:expiry-check', 'intent.expired', {
           intentId,
@@ -300,6 +335,33 @@ export function createIntentEngine(repo: IntentRepository = intentRepository): I
     },
 
     transition,
+
+    async createTradeIntentInTransaction(tx, input) {
+      const eventPayload: IntentCreatedEvent = {
+        intentId: input.intentId,
+        type: 'TradeIntent',
+        participantId: input.participantId,
+        moduleId: 'openp2p',
+        ...(input.parentIntentId ? { parentIntentId: input.parentIntentId } : {}),
+      }
+      const intentEventId = await repo.createWithGenesisInTransaction(tx, {
+        id: input.intentId,
+        type: 'TradeIntent',
+        participantId: input.participantId,
+        parentIntentId: input.parentIntentId,
+        moduleId: 'openp2p',
+        payload: input.payload,
+        metadata: input.metadata,
+        status: 'NEGOTIATING' satisfies IntentStatus,
+        triggeredBy: TRADE_ADMISSION_TRIGGER,
+        entryHash: entryHashOf(null, 'NEGOTIATING', TRADE_ADMISSION_TRIGGER, 'genesis'),
+        eventName: 'intent.created',
+        eventPayload,
+      })
+      return { intentId: input.intentId, intentEventId, eventName: 'intent.created', eventPayload }
+    },
+
+    publishCommittedIntentEvent,
   }
 }
 

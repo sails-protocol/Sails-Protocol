@@ -5,12 +5,16 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # CTO 403: automatic rebase of existing Dependabot PRs disabled (manual: update the branch, or `@dependabot recreate`).
+    rebase-strategy: disabled
     # Maintain SHA-pinned Actions via reviewed Dependabot PRs.
   - package-ecosystem: npm
     directory: "/"
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    # CTO 403: automatic rebase of existing Dependabot PRs disabled (manual: update the branch, or `@dependabot recreate`).
+    rebase-strategy: disabled
     # Mission 9.10 (docs/GITHUB_PROJECT.md §9) — replaces the previous
     # single catch-all `patterns: ["*"]` group, which is exactly how PR
     # #39 bundled 37 unrelated updates into one diff: a real
@@ -75,3 +79,14 @@ updates:
           - "autoprefixer"
           - "lucide-react"
           - "@radix-ui/*"
+
+  # Separate ecosystem: never mix Docker base-image updates into npm groups. GitHub Actions are
+  # covered by their own block (#433, #304); a second github-actions entry for "/" would be a
+  # duplicate update config, which Dependabot rejects.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    # CTO 403: automatic rebase of existing Dependabot PRs disabled (manual: update the branch, or `@dependabot recreate`).
+    rebase-strategy: disabled

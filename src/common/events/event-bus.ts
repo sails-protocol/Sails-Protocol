@@ -1,4 +1,4 @@
-import type { EventStore } from './event-store'
+import type { DurableEvent, EventStore, EventStoreTransaction } from './event-store'
 import { PostgresEventStore } from './event-store'
 
 /**
@@ -29,6 +29,15 @@ export interface OpenP2PTradeStatusChangedEvent {
   tradeId: string
   from: string
   to: string
+  triggeredBy: string
+}
+
+// E21 slice 1 - a LEGACY trade (no own Intent) was cancelled and the Offer Intent it shares was deliberately left as
+// it is: a sibling trade is still live, or the shared Intent is already terminal. Audit record, no state change.
+export interface OpenP2PTradeIntentUnchangedEvent {
+  tradeId: string
+  intentId: string
+  reason: 'SHARED_INTENT_SIBLING_TRADES_LIVE' | 'SHARED_INTENT_ALREADY_TERMINAL'
   triggeredBy: string
 }
 
@@ -404,6 +413,7 @@ export interface SailsEventMap {
   'openp2p.trade.completed': OpenP2PTradeStatusChangedEvent
   'openp2p.trade.disputed': OpenP2PTradeStatusChangedEvent
   'openp2p.trade.cancelled': OpenP2PTradeStatusChangedEvent
+  'openp2p.trade.intent_unchanged': OpenP2PTradeIntentUnchangedEvent
   'openp2p.message.sent': OpenP2PMessageSentEvent
 
   // Sails OpenSettlement — escrow lifecycle
@@ -508,6 +518,32 @@ export class SailsEventBus {
     correlationId: string
   ): Promise<void> {
     await this.store.publish(event, payload, correlationId)
+  }
+
+  /**
+   * E21 slice 1 - writes a durable event inside the caller's open database transaction (see
+   * PostgresEventStore.publishInTransaction()). Fails closed on any store that cannot join a PostgreSQL transaction:
+   * an in-memory or Redis store would make the event visible or lost independently of the caller's commit.
+   */
+  async publishInTransaction<K extends SailsEventName>(
+    tx: EventStoreTransaction,
+    event: K,
+    payload: SailsEventMap[K],
+    correlationId: string
+  ): Promise<DurableEvent<K>> {
+    return this.transactionalStore().publishInTransaction(tx, event, payload, correlationId)
+  }
+
+  /** Dispatches an event returned by publishInTransaction(), only once its transaction has committed. */
+  dispatchCommitted(event: DurableEvent): void {
+    this.transactionalStore().dispatchCommitted(event)
+  }
+
+  private transactionalStore(): PostgresEventStore {
+    if (!(this.store instanceof PostgresEventStore)) {
+      throw new Error(`Event store '${this.store.storeName}' cannot publish inside a database transaction (PostgreSQL store required)`)
+    }
+    return this.store
   }
 
   // Handler signature is unchanged from pre-RFC-010 (still receives the bare
