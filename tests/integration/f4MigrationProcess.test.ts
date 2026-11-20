@@ -140,3 +140,54 @@ describe('F4 S1 - migration process (scratch database)', () => {
     expect((await c.query(`UPDATE escrows SET status='FUNDS_LOCKED' WHERE id=$1`, [idWith])).rowCount).toBe(1) // legacy with address at the cut
   })
 })
+
+describe('F4 S1 - three sessions across the cut (own scratch database)', () => {
+  jest.setTimeout(240_000)
+  const pg = createPostgresIntegrationHarness()
+  const NAME = `sails_f4_3s_${randomUUID().slice(0, 8)}`
+  let admin: Client
+  const conns: Client[] = []
+  let url = ''
+  const open = async () => { const c = new Client({ connectionString: url }); await c.connect(); conns.push(c); return c }
+
+  beforeAll(async () => {
+    await pg.probe()
+    if (!pg.isAvailable()) return
+    const base = new URL(process.env.DATABASE_URL as string)
+    const au = new URL(base.toString()); au.pathname = '/postgres'
+    admin = new Client({ connectionString: au.toString() }); await admin.connect()
+    await admin.query(`CREATE DATABASE ${NAME}`)
+    base.pathname = '/' + NAME; url = base.toString()
+    const c = await open()
+    for (const d of readdirSync(MIG_DIR, { withFileTypes: true }).filter((x) => x.isDirectory() && x.name < F4).map((x) => x.name).sort()) await c.query(readFileSync(path.join(MIG_DIR, d, 'migration.sql'), 'utf8'))
+  }, 240_000)
+  afterAll(async () => {
+    for (const c of conns) await c.end().catch(() => undefined)
+    if (admin) { await admin.query(`DROP DATABASE IF EXISTS ${NAME} WITH (FORCE)`).catch(() => undefined); await admin.end() }
+  })
+
+  it('A runs the migration; B (new escrow) and C (funds a legacy escrow without address) both WAIT, then both run under the triggers and are refused; nothing is left unmarked', async () => {
+    const A = await open(), B = await open(), C = await open()
+    const u = (await A.query(`INSERT INTO users (id,"publicKey","updatedAt") VALUES ($1,$2,now()) RETURNING id`, [randomUUID(), randomUUID()])).rows[0].id
+    const o = (await A.query(`INSERT INTO offers (id,"userId",asset,side,"priceUsd","minAmount","maxAmount","paymentMethod","updatedAt") VALUES ($1,$2,'BTC','SELL',1,0.001,0.01,'PIX',now()) RETURNING id`, [randomUUID(), u])).rows[0].id
+    const mkTrade = async () => (await A.query(`INSERT INTO trades (id,"offerId","buyerId","sellerId",asset,amount,"priceUsd","totalUsd","updatedAt") VALUES ($1,$2,$3,$3,'BTC',0.005,1,1,now()) RETURNING id`, [randomUUID(), o, u])).rows[0].id
+    const legacyTrade = await mkTrade(), newTrade = await mkTrade()
+    const legacyId = (await A.query(`INSERT INTO escrows (id,"tradeId","lockedAmount",asset,type,"updatedAt") VALUES ($1,$2,0.005,'BTC','MULTISIG',now()) RETURNING id`, [randomUUID(), legacyTrade])).rows[0].id
+
+    await A.query('BEGIN')
+    await A.query(f4sqlText())
+    const done = { b: false, c: false }
+    const pb = B.query(`INSERT INTO escrows (id,"tradeId","lockedAmount",asset,type,"updatedAt") VALUES ($1,$2,0.005,'BTC','MULTISIG',now())`, [randomUUID(), newTrade]).then(() => 'inserted', (e) => String(e.message)).finally(() => { done.b = true })
+    const pc = C.query(`UPDATE escrows SET status='FUNDS_LOCKED' WHERE id=$1`, [legacyId]).then(() => 'funded', (e) => String(e.message)).finally(() => { done.c = true })
+    await new Promise((r) => setTimeout(r, 1500))
+    expect(done).toEqual({ b: false, c: false }) // both queued behind A's table lock
+    await A.query('COMMIT')
+    expect(await pb).toMatch(/needs a COMMITTED commitment pair/)
+    expect(await pc).toMatch(/funding is registered only under a COMMITTED/)
+    const unmarked = await A.query(`SELECT count(*)::int AS n FROM escrows WHERE "legacyPreCommitmentAt" IS NULL`)
+    expect(unmarked.rows[0].n).toBe(0)
+    expect((await A.query(`SELECT status FROM escrows WHERE id=$1`, [legacyId])).rows[0].status).toBe('CREATED')
+  })
+})
+
+function f4sqlText(): string { return readFileSync(path.join(MIG_DIR, F4, 'migration.sql'), 'utf8') }
