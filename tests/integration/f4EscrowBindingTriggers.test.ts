@@ -96,9 +96,29 @@ describe('F4 S1 - escrow commitment binding triggers (real PostgreSQL, raw SQL)'
     const r = await db.query(`SELECT t::text AS t, escrows_f4_pair_required(t) AS req FROM unnest(enum_range(NULL::"EscrowType")) AS t`)
     const required = r.rows.filter((x) => x.req).map((x) => x.t).sort()
     const exempt = r.rows.filter((x) => !x.req).map((x) => x.t).sort()
-    // PENDING DECISION (B): exempt is expected to be exactly ['MOCK'] under either polarity the CTO chooses.
+    // DECIDED (CTO Despacho 029, B): deny by default; the ONLY exemption is MOCK. MULTISIG and WDK_USDT_EVM are required.
     expect(exempt).toEqual(['MOCK'])
-    expect(required).toContain('MULTISIG')
+    expect(required).toEqual(expect.arrayContaining(['MULTISIG', 'WDK_USDT_EVM', 'LIGHTNING_HODL', 'LIQUID_COVENANT', 'SAFE_GUARD_EVM']))
+    expect(required.length + exempt.length).toBe(r.rows.length) // every enum value is classified: a future type is required by default
+  })
+
+  it('INSERT: EVERY non-MOCK type without a pair is refused (WDK_USDT_EVM and every enum value, not a hand-written list)', async () => {
+    const types = (await db.query(`SELECT t::text AS t FROM unnest(enum_range(NULL::"EscrowType")) AS t WHERE t::text <> 'MOCK'`)).rows.map((x) => x.t)
+    expect(types).toContain('WDK_USDT_EVM')
+    for (const type of types) {
+      const { tradeId } = await newTrade()
+      await fails(`INSERT INTO escrows (id, "tradeId", "lockedAmount", asset, type, "updatedAt") VALUES ($1,$2,0.005,'BTC',$3::"EscrowType",now())`, [randomUUID(), tradeId, type], /needs a COMMITTED commitment pair/)
+    }
+    const { tradeId } = await newTrade() // MOCK is the single explicit exemption
+    expect((await db.query(`INSERT INTO escrows (id, "tradeId", "lockedAmount", asset, type, "updatedAt") VALUES ($1,$2,0.005,'BTC','MOCK',now())`, [randomUUID(), tradeId])).rowCount).toBe(1)
+  })
+
+  it('the type and the trade link cannot be changed afterwards to get around the binding (MOCK -> MULTISIG, or moving the escrow to another trade)', async () => {
+    const { tradeId } = await newTrade()
+    const id = (await db.query(`INSERT INTO escrows (id, "tradeId", "lockedAmount", asset, type, "updatedAt") VALUES ($1,$2,0.005,'BTC','MOCK',now()) RETURNING id`, [randomUUID(), tradeId])).rows[0].id
+    await fails(`UPDATE escrows SET type = 'MULTISIG' WHERE id = $1`, [id], /type and tradeId are immutable/)
+    const other = await newTrade()
+    await fails(`UPDATE escrows SET "tradeId" = $2 WHERE id = $1`, [id, other.tradeId], /type and tradeId are immutable/)
   })
 
   it('commitmentPairId and both legacy marks are immutable', async () => {

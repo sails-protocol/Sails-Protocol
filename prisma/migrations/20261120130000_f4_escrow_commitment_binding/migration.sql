@@ -13,9 +13,7 @@
 -- migration fails closed (A1: the wrapping is proved in a disposable PostgreSQL by the S1 test; if it is not wrapped, the file gets
 -- explicit BEGIN/COMMIT instead).
 --
--- PENDING DECISIONS (written as explicit, isolated choices, not buried):
---   (B) the set of escrow types that REQUIRE a COMMITTED pair is the function escrows_f4_pair_required() below. MOCK is exempt
---       (option b): production protection for MOCK is the enabledRails configuration test (R-C). Awaiting GK/CTO.
+-- DECIDED (CTO Despacho 029, B): deny by default; the only exemption is MOCK (function escrows_f4_pair_required() below).
 --
 -- Reversal (not applied automatically):
 --   DROP TRIGGER escrows_f4_guard_lock ON "escrows"; DROP TRIGGER escrows_f4_guard_update ON "escrows";
@@ -61,11 +59,15 @@ $cut$;
 --    C4 and reconciler UPDATEs (status to COMPLETED/REFUNDED/SPLIT/DISPUTED, txReleaseId, ...) touch none of these columns and
 --    never run a function of this migration (proved with pg_stat_user_functions; a generic BEFORE UPDATE would fail that test).
 
--- The escrow types that must be bound to a COMMITTED pair. MOCK moves no real value and is exempt (PENDING DECISION (B)).
+-- DENY BY DEFAULT (CTO Despacho 029, decision B): EVERY escrow type needs a COMMITTED pair; the ONLY explicit exemption is MOCK. A type
+-- added to the enum later is required by default. MULTISIG and WDK_USDT_EVM are NOT exempt. MOCK moves no real value; its protection in
+-- production is NOT this trigger: the enabledRails configuration refuses MOCK outside dev/test (R-C) and the production runtime role is
+-- not granted anything that would let it create a MOCK escrow (see scripts/db/runtime-grants.sql and the R-C test). Authorizing MOCK here
+-- is not a deploy decision.
 CREATE FUNCTION escrows_f4_pair_required("t" "EscrowType") RETURNS boolean
-LANGUAGE sql IMMUTABLE AS $$
-    SELECT "t" IN ('MULTISIG', 'LIGHTNING_HODL', 'LIQUID_COVENANT', 'WDK_USDT_EVM', 'SAFE_GUARD_EVM')
-$$;
+LANGUAGE sql IMMUTABLE AS $
+    SELECT "t" <> 'MOCK'
+$;
 
 -- INSERT: the marks must be NULL (no new row is born legacy); a required type needs a COMMITTED pair whose anchor is the trade's.
 CREATE FUNCTION escrows_f4_guard_insert() RETURNS trigger
@@ -112,6 +114,9 @@ LANGUAGE plpgsql AS $$
 DECLARE
     pair_state text;
 BEGIN
+    IF NEW."type" IS DISTINCT FROM OLD."type" OR NEW."tradeId" IS DISTINCT FROM OLD."tradeId" THEN
+        RAISE EXCEPTION 'escrows: type and tradeId are immutable (escrow id=%)', OLD."id" USING ERRCODE = 'check_violation';
+    END IF;
     IF NEW."commitmentPairId" IS DISTINCT FROM OLD."commitmentPairId" THEN
         RAISE EXCEPTION 'escrows: commitmentPairId is immutable (escrow id=%)', OLD."id" USING ERRCODE = 'check_violation';
     END IF;
@@ -145,7 +150,7 @@ END
 $$;
 
 CREATE TRIGGER escrows_f4_guard_update
-    BEFORE UPDATE OF "commitmentPairId", "legacyPreCommitmentAt", "addressPresentAtCutAt", "multisigAddr", "expiresAt" ON "escrows"
+    BEFORE UPDATE OF "type", "tradeId", "commitmentPairId", "legacyPreCommitmentAt", "addressPresentAtCutAt", "multisigAddr", "expiresAt" ON "escrows"
     FOR EACH ROW EXECUTE FUNCTION escrows_f4_guard_update();
 
 -- CREATED -> FUNDS_LOCKED (A4): a COMMITTED pair, or the narrow legacy exception (BOTH marks, written only by the cut migration:
