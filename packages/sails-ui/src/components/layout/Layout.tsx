@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
 import { hasSeenOnboarding, markOnboardingSeen } from '../../lib/onboarding'
+import { SailsLogo } from '../brand/SailsLogo'
 
 /** What Layout hands its pages via `useOutletContext` (Configurações' "Rever tour"). */
 export interface LayoutOutletContext {
@@ -56,8 +57,8 @@ export function Layout() {
         {/* Mobile-only bar: logo + session, nothing else. Theme and "Rever tour" live in Configurações at
             every width (reachable from BottomNav). */}
         <header className="md:hidden h-14 flex items-center justify-between gap-3 px-4 border-b border-brand-border-subtle sticky top-0 z-40 bg-brand-bg/90 backdrop-blur">
-          <Link to="/" className="font-display font-semibold text-brand-text tracking-tight">
-            Sails <span className="text-brand-orange-accent">Market</span>
+          <Link to="/" aria-label="Sails Market, início" className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <SailsLogo size="sm" />
           </Link>
           {user ? (
             <AccountMenu user={user} compact />

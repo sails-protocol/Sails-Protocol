@@ -6,6 +6,7 @@ import { isNavActive } from './navMatch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { IdentityAvatar } from '../ui/IdentityAvatar'
 import { cn } from '../../lib/utils'
+import { SailsLogo, SailsMark } from '../brand/SailsLogo'
 
 /**
  * Product navigation, shared by the desktop Sidebar and the mobile BottomNav (same destinations, icons and
@@ -151,7 +152,7 @@ export function Sidebar() {
       >
         <div className={cn('h-14 flex items-center border-b border-brand-border-subtle shrink-0', expanded ? 'px-5' : 'justify-center')}>
           <NavLink to="/" className="font-display font-semibold tracking-tight text-brand-text whitespace-nowrap rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Sails Market">
-            {expanded ? <span className="text-lg">Sails <span className="text-brand-orange-accent">Market</span></span> : 'S'}
+            {expanded ? <SailsLogo /> : <SailsMark size={28} />}
           </NavLink>
         </div>
         <nav className="flex-1 py-3 flex flex-col gap-1 px-2">

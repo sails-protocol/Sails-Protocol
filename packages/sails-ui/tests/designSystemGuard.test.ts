@@ -19,9 +19,9 @@ const RULES: { name: string; re: RegExp }[] = [
   // `text-[13px]`, `text-[0.8rem]`, `text-[length:12px]`.
   { name: 'arbitrary font size', re: /text-\[(?:length:)?\d*\.?\d+(?:px|rem|em)\]/ },
 ]
-// Generated SVG art palette (identity avatars), not UI chrome: hex values
-// are drawn into an SVG string, never used as class names or style props.
-const HEX_EXEMPT = new Set(['lib/identityAvatar.ts'])
+// Fixed artwork, not UI chrome: the identity-avatar SVG palette and the Sails
+// brand mark. Their hex values are art, never class names or themeable colors.
+const HEX_EXEMPT = new Set(['lib/identityAvatar.ts', 'components/brand/SailsLogo.tsx'])
 const ALLOW = /ds-allow:\s*\S{3,}/
 
 function files(dir: string): string[] {
