@@ -310,7 +310,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                 </Button>
                 {loading && (
                   <span className="text-xs text-brand-text-muted flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-brand-orange-accent animate-pulse" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-brand-orange-accent motion-safe:animate-pulse" />
                     LLAMA_3_2_1B_INST_Q4_0 · inferência local
                   </span>
                 )}

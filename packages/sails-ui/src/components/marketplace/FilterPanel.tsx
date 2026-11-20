@@ -219,6 +219,8 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
               {AMOUNT_PRESETS[currency].map((preset) => (
                 <button
                   key={preset}
+                  type="button"
+                  aria-pressed={draft.amount === String(preset)}
                   onClick={() => set('amount', String(preset))}
                   className={cn(badgeVariants({ variant: draft.amount === String(preset) ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
                 >
@@ -233,6 +235,8 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
               {TIME_LIMITS.map((t) => (
                 <button
                   key={t.value}
+                  type="button"
+                  aria-pressed={draft.paymentTimeLimit === t.value}
                   onClick={() => set('paymentTimeLimit', t.value)}
                   className={cn(badgeVariants({ variant: draft.paymentTimeLimit === t.value ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
                 >
@@ -269,6 +273,8 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
               {SORT_OPTIONS.map((s) => (
                 <button
                   key={s.value}
+                  type="button"
+                  aria-pressed={draft.sortBy === s.value}
                   onClick={() => set('sortBy', s.value)}
                   className={cn(badgeVariants({ variant: draft.sortBy === s.value ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
                 >
@@ -357,6 +363,8 @@ function PaymentMethodSection({
 
   const Chip = ({ m }: { m: PaymentMethod }) => (
     <button
+      type="button"
+      aria-pressed={selectedSet.has(m)}
       onClick={() => onToggle(m)}
       className={cn(badgeVariants({ variant: selectedSet.has(m) ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
     >

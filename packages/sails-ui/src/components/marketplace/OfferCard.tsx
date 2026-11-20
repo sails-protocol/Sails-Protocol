@@ -4,7 +4,7 @@ import { AssetBadge, PaymentBadge } from '../ui/StatusBadges'
 import { UserAvatar } from '../ui/UserAvatar'
 import { formatAmount } from '../../lib/format'
 import { formatPrice } from '../../lib/currency'
-import { ASSET_LABELS, ASSET_SHORT_LABELS } from '../../lib/labels'
+import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import { formatReputation } from '../../lib/reputation'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
@@ -20,8 +20,12 @@ import { Check } from 'lucide-react'
 export function OfferCard({ offer }: { offer: Offer }) {
   const sideAccent = offer.side === 'BUY' ? 'border-l-green-500' : 'border-l-red-500'
 
+  const action = offer.side === 'SELL' ? 'Comprar' : 'Vender'
+  // One concise accessible name instead of every cell's text read in a row.
+  const label = `Oferta de ${ASSET_LABELS[offer.asset]} por ${formatPrice(offer.priceFiat, offer.fiatCurrency)}, ${offer.user.displayName ?? 'Anunciante'}, ${PAYMENT_METHOD_LABELS[offer.paymentMethod]}, limites ${formatAmount(offer.minAmount)} a ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}: ${action}`
+
   return (
-    <Link to={`/offer/${offer.id}`} className={`offer-row ${sideAccent}`}>
+    <Link to={`/offer/${offer.id}`} aria-label={label} className={`offer-row ${sideAccent}`}>
       {/* Mobile: 2 paired rows (trader+payment, asset/side+price) instead of
           5 stacked full-width blocks — the original one-column-per-line
           layout was technically responsive but way too tall per offer once
@@ -94,7 +98,7 @@ export function OfferCard({ offer }: { offer: Offer }) {
           {formatAmount(offer.minAmount)}–{formatAmount(offer.maxAmount)} {ASSET_SHORT_LABELS[offer.asset]}
         </div>
         <span className={cn(buttonVariants({ className: 'xl:order-6 w-28 px-4 shrink-0' }))}>
-          {offer.side === 'SELL' ? 'Comprar' : 'Vender'}
+          {action}
         </span>
       </div>
 

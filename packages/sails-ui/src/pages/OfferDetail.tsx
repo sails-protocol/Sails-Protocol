@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
-import { AssetBadge, SideBadge, PaymentBadge, PowerTraderBadge } from '../components/ui/StatusBadges'
+import { PaymentBadge, PowerTraderBadge } from '../components/ui/StatusBadges'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { FavoriteButton } from '../components/ui/FavoriteButton'
 import { Button, buttonVariants } from '../components/ui/button'
@@ -13,7 +13,7 @@ import { formatAmount } from '../lib/format'
 import { formatByCurrency, formatPrice } from '../lib/currency'
 import { sailsClient } from '../lib/sailsClient'
 import { errorMessage } from '../lib/errors'
-import { SailsTransportError, type PublicOfferDetail, type PublicOfferSeller } from '@satsails/p2p-trading-sdk'
+import { SailsNotFoundError, SailsTransportError, type PublicOfferDetail, type PublicOfferSeller } from '@satsails/p2p-trading-sdk'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { disputeRatePct, formatReputation, isPowerTraderFromCanonical } from '../lib/reputation'
 import { useAuth } from '../context/AuthContext'
@@ -80,7 +80,8 @@ export function OfferDetail() {
   // must not look identical). SailsTransportError carries a real
   // statusCode; only that specific 404 counts as "not found" — anything
   // else (500, timeout, offline) is a real, distinct error state.
-  const [fetchError, setFetchError] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
   // Prefilled when arriving back here after being bounced to /login mid
   // way through starting a trade (see handleStartTrade below) — without
   // this, a round trip through login silently dropped whatever amount
@@ -108,18 +109,19 @@ export function OfferDetail() {
     if (!id) return
     let cancelled = false
     setLoading(true)
-    setFetchError(false)
+    setFetchError(null)
     sailsClient.liquidity
       .getOffer(id)
       .then((raw) => { if (!cancelled) setOffer(toOfferDetailView(raw)) })
       .catch((err) => {
         if (cancelled) return
         setOffer(null)
-        if (!(err instanceof SailsTransportError) || err.statusCode !== 404) setFetchError(true)
+        const notFound = err instanceof SailsNotFoundError || (err instanceof SailsTransportError && err.statusCode === 404)
+        if (!notFound) setFetchError(errorMessage(err, 'Não foi possível carregar esta oferta agora.'))
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [id])
+  }, [id, reloadKey])
 
   if (loading) {
     return <div className="text-center py-16 text-brand-text-muted">Carregando oferta...</div>
@@ -127,11 +129,17 @@ export function OfferDetail() {
 
   if (!offer) {
     return (
-      <div className="text-center py-16">
-        <p className={fetchError ? 'text-red-500' : 'text-brand-text-secondary'}>
-          {fetchError ? 'Não foi possível carregar esta oferta agora — tente novamente.' : 'Oferta não encontrada.'}
+      <div className="text-center py-16" role="alert">
+        <h1 className="text-section-title">{fetchError ? 'Não foi possível carregar a oferta' : 'Oferta não encontrada'}</h1>
+        <p className={cn('mt-1 text-sm', fetchError ? 'text-red-700 dark:text-red-300' : 'text-brand-text-secondary')}>
+          {fetchError ?? 'Ela não existe ou não está mais disponível.'}
         </p>
-        <Link to="/" className="text-sm text-brand-orange-accent underline mt-2 inline-block">Voltar ao Marketplace</Link>
+        <div className="mt-3 flex items-center justify-center gap-4">
+          {fetchError && (
+            <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-11 md:min-h-9 px-4 text-sm">Tentar novamente</Button>
+          )}
+          <Link to="/" className="text-sm text-brand-orange-accent underline inline-flex items-center min-h-11 md:min-h-0">Voltar ao Marketplace</Link>
+        </div>
       </div>
     )
   }
@@ -189,16 +197,15 @@ export function OfferDetail() {
 
   return (
     <div>
-      <Link to="/" className="text-sm text-brand-text-secondary hover:text-brand-text flex items-center gap-1 w-fit">
+      <Link to="/" className="min-h-11 md:min-h-0 text-sm text-brand-text-secondary hover:text-brand-text flex items-center gap-1 w-fit">
         <ArrowLeft className="h-4 w-4" /> Voltar ao Marketplace
       </Link>
 
       <div className="mt-4 grid lg:grid-cols-[1fr_360px] gap-6">
         <div>
           <Card className="p-6">
-            <div className="flex gap-2">
-              <AssetBadge asset={offer.asset} />
-              <SideBadge side={offer.side} />
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-section-title">Oferta de {ASSET_LABELS[offer.asset]}</h1>
               <PaymentBadge method={offer.paymentMethod} />
             </div>
             <div className="mt-4 money-hero text-brand-text">{formatPrice(offer.priceFiat, offer.fiatCurrency)}</div>
@@ -257,7 +264,7 @@ export function OfferDetail() {
         <div className="lg:sticky lg:top-20 h-fit">
           {isOwnOffer ? (
             <Card className="p-5">
-              <h3 className="font-semibold text-brand-text">Esta é a sua oferta</h3>
+              <h2 className="font-semibold text-brand-text">Esta é a sua oferta</h2>
               <p className="text-sm text-brand-text-muted mt-2">
                 Você não pode iniciar uma negociação com o seu próprio anúncio.
                 Gerencie-o em "Minhas Ofertas", no seu perfil.
@@ -268,7 +275,10 @@ export function OfferDetail() {
             </Card>
           ) : (
             <Card className="p-5">
-              <h3 className="font-semibold text-brand-text">Iniciar negociação</h3>
+              {/* The viewer's own action, never the advertiser's side (a SELL offer means the viewer buys). */}
+              <h2 className="font-semibold text-brand-text">
+                {offer.side === 'SELL' ? 'Você compra' : 'Você vende'} {ASSET_SHORT_LABELS[offer.asset]}
+              </h2>
 
               <label className="block text-xs text-brand-text-muted mt-4 mb-1">
                 Quanto você quer {offer.side === 'SELL' ? 'comprar' : 'vender'}?
@@ -277,14 +287,14 @@ export function OfferDetail() {
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     type="number"
-                    className="w-full text-lg font-bold"
+                    className="w-full min-h-11 text-lg font-bold"
                     placeholder="0.00"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-brand-text-muted">{ASSET_SHORT_LABELS[offer.asset]}</span>
                 </div>
               </label>
               {amount && !withinLimits && (
-                <p className="text-xs text-red-500 mt-1">Fora do limite: {formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)}</p>
+                <p className="text-xs text-red-700 dark:text-red-300 mt-1">Fora do limite: {formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)}</p>
               )}
 
               <div className="mt-4 pt-4 border-t border-brand-border">
@@ -308,13 +318,13 @@ export function OfferDetail() {
                   (offer.seller.totalTrades), not mocked: a real 0 here means
                   a real trader with no completed trades yet. */}
               {offer.seller.totalTrades === 0 && (
-                <div className="mt-3 bg-yellow-500/10 border border-yellow-500/25 rounded-lg p-3 text-xs text-yellow-500 flex items-start gap-2">
+                <div className="mt-3 bg-yellow-500/10 border border-yellow-500/25 rounded-lg p-3 text-xs text-yellow-800 dark:text-yellow-300 flex items-start gap-2">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   <span>Este vendedor ainda não concluiu nenhum trade — negocie com cautela, especialmente em valores maiores.</span>
                 </div>
               )}
 
-              <Button onClick={handleStartTrade} disabled={startingTrade} className="mt-4 w-full py-3">
+              <Button onClick={handleStartTrade} disabled={startingTrade} className="mt-4 w-full h-auto min-h-11 py-3">
                 {startingTrade ? 'Iniciando...' : 'Iniciar Trade'}
               </Button>
             </Card>

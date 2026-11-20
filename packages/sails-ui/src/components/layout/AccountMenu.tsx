@@ -42,7 +42,7 @@ export function AccountMenu({ user, compact = false }: { user: User; compact?: b
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         aria-label="Menu da conta"
-        className="flex items-center gap-2 rounded-lg border border-brand-border-subtle px-2 py-1.5 hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange-accent"
+        className="flex items-center gap-2 min-h-11 rounded-lg border border-brand-border px-2 py-1.5 hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange-accent"
       >
         <UserAvatar user={user} size="sm" />
         {!compact && (

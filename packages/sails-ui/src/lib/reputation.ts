@@ -60,6 +60,20 @@ export function isPowerTrader(user: Pick<User, 'totalTrades' | 'disputeCount'>):
 // callers of positiveFeedbackPct()/isPowerTrader() above
 // (TradeParties.tsx, Profile.tsx, Trade.tsx) still read from the full,
 // authenticated `User` shape and are unaffected by any of this.
+/** One definition of an account's dispute rate for Profile and Meus Trades: disputes opened ÷ completed trades (server counters). */
+export const ACCOUNT_DISPUTE_RATE_DEFINITION =
+  'Trades seus que entraram em disputa ÷ trades concluídos, pelos contadores da sua conta (os mesmos da reputação). Trades reembolsados ou ainda em disputa entram só no numerador; quando a conta não fecha em uma porcentagem, mostramos o número de disputas.'
+
+// disputeCount rises on every dispute; totalTrades only on release/split (events/handlers.ts),
+// so refunded or open disputes can push the ratio past 100% or have no denominator at all.
+export function formatAccountDisputeRate(user: Pick<User, 'totalTrades' | 'disputeCount'>): string {
+  if (user.disputeCount === 0) return '0%'
+  if (user.totalTrades === 0 || user.disputeCount > user.totalTrades) {
+    return `${user.disputeCount} ${user.disputeCount === 1 ? 'disputa' : 'disputas'}`
+  }
+  return `${Math.round((user.disputeCount / user.totalTrades) * 100)}%`
+}
+
 export function disputeRatePct(disputeRate: number): number {
   return Math.round(disputeRate * 100)
 }

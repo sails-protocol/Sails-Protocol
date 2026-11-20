@@ -15,6 +15,7 @@ import { SessionExpiryRedirect } from './components/auth/SessionExpiryRedirect'
 // page an unauthenticated first visit always needs immediately, so
 // deferring it would just move the same waterfall one step earlier.
 import { Login } from './pages/Login'
+import { NotFound } from './pages/NotFound'
 const Marketplace = lazy(() => import('./pages/Marketplace').then((m) => ({ default: m.Marketplace })))
 const OfferDetail = lazy(() => import('./pages/OfferDetail').then((m) => ({ default: m.OfferDetail })))
 const Trade = lazy(() => import('./pages/Trade').then((m) => ({ default: m.Trade })))
@@ -59,6 +60,7 @@ export default function App() {
                 <Route path="/profile/new-offer" element={<Suspense fallback={<RouteFallback />}><PublishOffer /></Suspense>} />
                 <Route path="/disputes" element={<Suspense fallback={<RouteFallback />}><Disputes /></Suspense>} />
                 {CurrentActionPreview && <Route path="/dev/current-action" element={<Suspense fallback={<RouteFallback />}><CurrentActionPreview /></Suspense>} />}
+                <Route path="*" element={<NotFound />} />
               </Route>
             </Routes>
           </BrowserRouter>

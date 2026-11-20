@@ -43,24 +43,24 @@ export function AssetBadge({ asset }: { asset: AssetType }) {
 
 export function SideBadge({ side }: { side: TradeSide }) {
   return side === 'BUY' ? (
-    <Pill className="border-green-500/25 bg-green-500/10 text-green-500">COMPRAR</Pill>
+    <Pill className="border-green-500/25 bg-green-500/10 text-green-800 dark:text-green-300">COMPRAR</Pill>
   ) : (
-    <Pill className="border-red-500/25 bg-red-500/10 text-red-500">VENDER</Pill>
+    <Pill className="border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-300">VENDER</Pill>
   )
 }
 
 export function PaymentBadge({ method }: { method: PaymentMethod }) {
-  return <Pill className="border-blue-500/25 bg-blue-500/10 text-blue-500">{PAYMENT_METHOD_LABELS[method]}</Pill>
+  return <Pill className="border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300">{PAYMENT_METHOD_LABELS[method]}</Pill>
 }
 
 const TRADE_STATUS_LABEL: Record<TradeStatus, string> = {
   PENDING: 'Pendente', ACTIVE: 'Ativo', COMPLETED: 'Concluído', DISPUTED: 'Em disputa', CANCELLED: 'Cancelado',
 }
 const TRADE_STATUS_COLOR: Record<TradeStatus, string> = {
-  PENDING: 'border-yellow-500/25 bg-yellow-500/10 text-yellow-500',
-  ACTIVE: 'border-blue-500/25 bg-blue-500/10 text-blue-500',
-  COMPLETED: 'border-green-500/25 bg-green-500/10 text-green-500',
-  DISPUTED: 'border-red-500/25 bg-red-500/10 text-red-500',
+  PENDING: 'border-yellow-500/25 bg-yellow-500/10 text-yellow-800 dark:text-yellow-300',
+  ACTIVE: 'border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300',
+  COMPLETED: 'border-green-500/25 bg-green-500/10 text-green-800 dark:text-green-300',
+  DISPUTED: 'border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-300',
   CANCELLED: 'border-brand-border bg-brand-elevated text-brand-text-muted',
 }
 const TRADE_STATUS_ICON: Record<TradeStatus, LucideIcon> = {
@@ -89,13 +89,13 @@ export const ESCROW_STATUS_LABEL: Record<EscrowStatus, string> = {
 }
 const ESCROW_STATUS_COLOR: Record<EscrowStatus, string> = {
   CREATED: 'border-brand-border bg-brand-elevated text-brand-text-secondary',
-  FUNDS_LOCKED: 'border-blue-500/25 bg-blue-500/10 text-blue-500',
-  PAYMENT_PENDING: 'border-yellow-500/25 bg-yellow-500/10 text-yellow-800 dark:text-yellow-500',
-  COMPLETED: 'border-green-500/25 bg-green-500/10 text-green-500',
-  DISPUTED: 'border-red-500/25 bg-red-500/10 text-red-500',
+  FUNDS_LOCKED: 'border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300',
+  PAYMENT_PENDING: 'border-yellow-500/25 bg-yellow-500/10 text-yellow-800 dark:text-yellow-300',
+  COMPLETED: 'border-green-500/25 bg-green-500/10 text-green-800 dark:text-green-300',
+  DISPUTED: 'border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-300',
   REFUNDED: 'border-brand-border bg-brand-elevated text-brand-text-muted',
-  EXPIRED: 'border-orange-500/25 bg-orange-500/10 text-orange-500',
-  SPLIT: 'border-violet-500/25 bg-violet-500/10 text-violet-500',
+  EXPIRED: 'border-orange-500/25 bg-orange-500/10 text-orange-800 dark:text-orange-300',
+  SPLIT: 'border-violet-500/25 bg-violet-500/10 text-violet-700 dark:text-violet-300',
 }
 const ESCROW_STATUS_ICON: Record<EscrowStatus, LucideIcon> = {
   CREATED: Circle, FUNDS_LOCKED: Lock, PAYMENT_PENDING: Clock, COMPLETED: CheckCircle2,
@@ -112,7 +112,7 @@ const OFFER_STATUS_ICON: Record<OfferStatus, LucideIcon> = {
   ACTIVE: Circle, PAUSED: PauseCircle, COMPLETED: CheckCircle2, CANCELLED: XCircle,
 }
 export function OfferStatusBadge({ status }: { status: OfferStatus }) {
-  const color = status === 'ACTIVE' ? 'border-green-500/25 bg-green-500/10 text-green-500' : 'border-brand-border bg-brand-elevated text-brand-text-muted'
+  const color = status === 'ACTIVE' ? 'border-green-500/25 bg-green-500/10 text-green-800 dark:text-green-300' : 'border-brand-border bg-brand-elevated text-brand-text-muted'
   return <Pill className={color} icon={OFFER_STATUS_ICON[status]}>{OFFER_STATUS_LABEL[status]}</Pill>
 }
 
@@ -124,7 +124,7 @@ export function OfferStatusBadge({ status }: { status: OfferStatus }) {
 export function PowerTraderBadge() {
   return (
     <Pill
-      className="border-brand-orange-accent/30 bg-brand-orange-accent/10 text-brand-orange-accent flex items-center gap-1"
+      className="border-brand-orange-accent/30 bg-brand-orange-accent/10 text-brand-orange-hover flex items-center gap-1"
       title="Power Trader: alto volume de trades com alta taxa de trades sem disputa"
     >
       <Zap className="h-3 w-3" fill="currentColor" strokeWidth={0} /> Power Trader

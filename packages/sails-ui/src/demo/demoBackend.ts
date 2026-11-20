@@ -235,7 +235,7 @@ function shadowLocalStorage() {
 // ---------- lookups ----------
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
-const notFound = (what: string) => new SailsNotFoundError(`${what} não encontrado (modo demonstração)`)
+const notFound = (what: string, feminine = false) => new SailsNotFoundError(`${what} não ${feminine ? 'encontrada' : 'encontrado'} (modo demonstração)`)
 function needMe(): string {
   if (!currentId) throw new Error('Conecte sua wallet primeiro (modo demonstração)')
   return currentId
@@ -257,7 +257,7 @@ function findEscrow(id: string) {
 }
 function findDispute(id: string) {
   for (const e of state.escrows) for (const d of e.disputes ?? []) if (d.id === id) return d
-  throw notFound('Disputa')
+  throw notFound('Disputa', true)
 }
 const allDisputes = () => state.escrows.flatMap((e) => e.disputes ?? [])
 const isParty = (t: Trade, who: string) => who === t.buyerId || who === t.sellerId
@@ -554,12 +554,12 @@ export function installDemoBackend() {
     },
     async proposeTradeOutcome(intentId, amount) {
       const intent = state.intents.find((x) => x.id === intentId && x.participantId === needMe())
-      if (!intent) throw notFound('Intenção')
+      if (!intent) throw notFound('Intenção', true)
       return proposeForIntent(intent, amount)
     },
     async proposeTrade(intentId, amount) {
       const intent = state.intents.find((x) => x.id === intentId && x.participantId === needMe())
-      if (!intent) throw notFound('Intenção')
+      if (!intent) throw notFound('Intenção', true)
       return proposeForIntent(intent, amount).proposal
     },
   } satisfies Partial<Pick<typeof c, 'createIntent' | 'proposeTradeOutcome' | 'proposeTrade'>>)
@@ -575,7 +575,7 @@ export function installDemoBackend() {
     },
     async getOffer(id) {
       const o = state.offers.find((x) => x.id === id)
-      if (!o) throw notFound('Oferta')
+      if (!o) throw notFound('Oferta', true)
       const p = findParticipant(o.userId)
       const { userId: _u, paymentDetails: _d, ...rest } = o
       const detail: PublicOfferDetail = {
@@ -598,7 +598,7 @@ export function installDemoBackend() {
     async getMyOffers() { const me = needMe(); return clone(state.offers.filter((o) => o.userId === me)) },
     async updateStatus(id, status) {
       const o = state.offers.find((x) => x.id === id && x.userId === needMe())
-      if (!o) throw notFound('Oferta')
+      if (!o) throw notFound('Oferta', true)
       Object.assign(o, { status, updatedAt: now() })
       save()
       return clone(o)
@@ -609,7 +609,7 @@ export function installDemoBackend() {
     async trade(offerId, amount) {
       const me = needMe()
       const o = state.offers.find((x) => x.id === offerId)
-      if (!o) throw notFound('Oferta')
+      if (!o) throw notFound('Oferta', true)
       if (o.userId === me) throw new Error('Você não pode negociar com sua própria oferta')
       if (Number(amount) < Number(o.minAmount) || Number(amount) > Number(o.maxAmount)) throw new Error(`Quantidade fora dos limites da oferta (${o.minAmount}–${o.maxAmount})`)
       const [buyerId, sellerId] = o.side === 'SELL' ? [me, o.userId] : [o.userId, me]
@@ -666,7 +666,7 @@ export function installDemoBackend() {
     async markPaymentSent(id) { return step(id, needMe(), 'markPaymentSent') },
     async release(id) { return step(id, needMe(), 'release') },
     // MOCK escrows have no signing round: the real "nothing pending" answer is a 404.
-    async getPendingTransaction() { throw notFound('Transação pendente') },
+    async getPendingTransaction() { throw notFound('Transação pendente', true) },
     async dispute(id, reason, initialEvidence) {
       const me = needMe()
       const e = findEscrow(id)
@@ -685,7 +685,7 @@ export function installDemoBackend() {
     async getDispute(id) {
       const me = needMe()
       const d = findDispute(id)
-      if (d.arbiterId !== me && !isParty(findTrade(d.tradeId), me)) throw notFound('Disputa')
+      if (d.arbiterId !== me && !isParty(findTrade(d.tradeId), me)) throw notFound('Disputa', true)
       return clone(d)
     },
     // Reached through the real resolveDisputeWithWallet(), which signs the authority decision with the user's own key.

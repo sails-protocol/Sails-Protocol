@@ -15,7 +15,9 @@ import { Check, ChevronRight, MoreHorizontal } from 'lucide-react'
 import { sailsClient } from '../lib/sailsClient'
 import { formatDateTime } from '../lib/format'
 import { ASSET_SHORT_LABELS } from '../lib/labels'
-import { formatReputation, isPowerTrader } from '../lib/reputation'
+import { ACCOUNT_DISPUTE_RATE_DEFINITION, formatAccountDisputeRate, formatReputation, isPowerTrader } from '../lib/reputation'
+import { errorMessage } from '../lib/errors'
+import { ListSkeleton } from '../components/ui/skeleton'
 import { formatPrice } from '../lib/currency'
 import type { Offer, OfferStatus, User } from '../types'
 
@@ -82,7 +84,12 @@ export function Profile() {
   // offersError (2026-08-02) — a fetch failure used to silently become
   // `setOffers([])`, rendering identically to "you haven't published
   // anything yet" (SLC audit's 🟡 finding). Now a distinct message.
-  const [offersError, setOffersError] = useState(false)
+  const [offersError, setOffersError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
+  // The Disputas link is shown only to an assigned arbiter: a one-row
+  // listDisputes() read (scoped server-side to the caller). On a failed read
+  // the link stays visible rather than hiding real assigned disputes.
+  const [hasDisputes, setHasDisputes] = useState(false)
   const [statusFilter, setStatusFilter] = useState<OfferStatus | 'Todos'>('Todos')
   const [confirmingCancelId, setConfirmingCancelId] = useState<string | null>(null)
 
@@ -94,16 +101,26 @@ export function Profile() {
     if (!user) return
     let cancelled = false
     setLoadingOffers(true)
-    setOffersError(false)
+    setOffersError(null)
     sailsClient.liquidity
       .getMyOffers()
       .then((raw) => { if (!cancelled) setOffers(raw.map((o) => toOffer(o, user))) })
-      .catch(() => {
+      .catch((err) => {
         if (cancelled) return
         setOffers([])
-        setOffersError(true)
+        setOffersError(errorMessage(err, 'Não foi possível carregar suas ofertas agora.'))
       })
       .finally(() => { if (!cancelled) setLoadingOffers(false) })
+    return () => { cancelled = true }
+  }, [user, reloadKey])
+
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    sailsClient.settlement
+      .listDisputes({ limit: 1 })
+      .then((page) => { if (!cancelled) setHasDisputes(page.total > 0) })
+      .catch(() => { if (!cancelled) setHasDisputes(true) })
     return () => { cancelled = true }
   }, [user])
 
@@ -143,7 +160,7 @@ export function Profile() {
     <div>
       <div className="flex flex-col md:flex-row gap-6 items-start pb-6 border-b border-brand-border">
         <UserAvatar user={user} size="xl" />
-        <div>
+        <div className="min-w-0 max-w-full">
           <h1 className="text-page-title flex items-center gap-2 flex-wrap">
             {user.displayName}
             {user.verified && (
@@ -167,15 +184,15 @@ export function Profile() {
           </div>
           <div className="flex items-center gap-2 mt-1">
             <span className="mono-id text-brand-text-secondary truncate max-w-xs">{user.publicKey}</span>
-            <CopyButton value={user.publicKey} />
+            <CopyButton value={user.publicKey} className="min-h-11 md:min-h-0 shrink-0" />
           </div>
           <p className="text-xs text-brand-text-muted mt-1">Membro desde {new Date(user.createdAt).toLocaleDateString('pt-BR')}</p>
         </div>
 
-        <div className="grid grid-cols-4 gap-3 md:ml-auto w-full md:w-auto">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:ml-auto w-full md:w-auto">
           <Stat value={user.totalTrades} label="Trades" />
           <Stat value={user.totalVolumeBtc.toFixed(2)} label="Volume BTC" />
-          <Stat value={`${((user.disputeCount / Math.max(user.totalTrades, 1)) * 100).toFixed(0)}%`} label="Disputa" />
+          <Stat value={formatAccountDisputeRate(user)} label="Disputa" info={ACCOUNT_DISPUTE_RATE_DEFINITION} />
           <Stat value={formatReputation(user.reputationScore)} label="Reputação" />
         </div>
       </div>
@@ -183,15 +200,17 @@ export function Profile() {
       <div className="mt-6">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-brand-text">Minhas Ofertas</h3>
-          <Button onClick={() => navigate('/profile/new-offer')} className="text-xs px-3 py-1.5">Nova Oferta</Button>
+          <Button onClick={() => navigate('/profile/new-offer')} className="text-xs px-3 min-h-11 md:min-h-10">Nova Oferta</Button>
         </div>
 
-        <div className="mt-3 flex gap-2 flex-wrap">
+        <div className="mt-3 flex gap-2 flex-wrap" role="group" aria-label="Filtrar ofertas por status">
           {OFFER_FILTERS.map((f) => (
             <button
               key={f.value}
+              type="button"
+              aria-pressed={statusFilter === f.value}
               onClick={() => setStatusFilter(f.value)}
-              className={cn(badgeVariants({ variant: statusFilter === f.value ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
+              className={cn(badgeVariants({ variant: statusFilter === f.value ? 'default' : 'secondary' }), 'rounded-full px-3 min-h-11 md:min-h-8')}
             >
               {f.label}
             </button>
@@ -199,19 +218,33 @@ export function Profile() {
         </div>
 
         <div className="mt-3 space-y-2">
-          {loadingOffers && <p className="text-sm text-brand-text-muted">Carregando ofertas...</p>}
+          {loadingOffers && (
+            <ListSkeleton label="Carregando ofertas" rows={2} rowClassName="h-[8.625rem] md:h-[5.75rem] rounded-xl border border-brand-border-subtle last:border-b" className="space-y-2" />
+          )}
           {!loadingOffers && offersError && (
-            <p className="text-sm text-red-500">Não foi possível carregar suas ofertas agora — tente novamente.</p>
+            <div className="rounded-xl border border-brand-border-subtle px-4 py-6 text-center">
+              <p className="text-sm text-red-700 dark:text-red-300">{offersError}</p>
+              <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="mt-3 min-h-11 md:min-h-9 px-4 text-sm">Tentar novamente</Button>
+            </div>
           )}
           {!loadingOffers && !offersError && myOffers.length === 0 && (
-            <p className="text-sm text-brand-text-muted">
-              {statusFilter === 'Todos' ? 'Nenhuma oferta publicada ainda.' : `Nenhuma oferta com status "${OFFER_STATUS_LABEL[statusFilter]}".`}
-            </p>
+            statusFilter === 'Todos' ? (
+              <div className="rounded-xl border border-brand-border-subtle px-4 py-8 text-center">
+                <p className="text-sm text-brand-text">Nenhuma oferta publicada ainda.</p>
+                <p className="text-metadata mt-1">Publique uma oferta para aparecer no Market.</p>
+                <Button onClick={() => navigate('/profile/new-offer')} className="mt-3 min-h-11 md:min-h-10 px-4">Publicar oferta</Button>
+              </div>
+            ) : (
+              <p className="text-sm text-brand-text-muted">{`Nenhuma oferta com status "${OFFER_STATUS_LABEL[statusFilter]}".`}</p>
+            )
           )}
-          {!loadingOffers && myOffers.map((o) => {
+          {!loadingOffers && myOffers.length > 0 && (
+          <ul className="space-y-2">
+          {myOffers.map((o) => {
             const canManage = o.status === 'ACTIVE' || o.status === 'PAUSED'
             return (
-              <Card key={o.id} className="p-3">
+              <li key={o.id}>
+              <Card className="p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <SideBadge side={o.side} />
                   <AssetBadge asset={o.asset} />
@@ -249,7 +282,7 @@ export function Profile() {
                             <button
                               type="button"
                               onClick={() => setConfirmingCancelId(o.id)}
-                              className="w-full rounded-md px-2.5 py-2 text-left text-sm text-red-500 hover:bg-brand-elevated"
+                              className="w-full min-h-11 rounded-md px-2.5 py-2 text-left text-sm text-red-700 dark:text-red-300 hover:bg-brand-elevated"
                             >
                               Cancelar oferta
                             </button>
@@ -257,7 +290,7 @@ export function Profile() {
                         </Popover>
                       </>
                     )}
-                    <Link to={`/offer/${o.id}`} className="text-xs text-brand-text-muted hover:text-brand-text flex items-center">
+                    <Link to={`/offer/${o.id}`} className="min-h-11 md:min-h-8 px-2 -mr-2 text-xs text-brand-text-muted hover:text-brand-text flex items-center">
                       Ver <ChevronRight className="h-3.5 w-3.5" />
                     </Link>
                   </div>
@@ -271,41 +304,48 @@ export function Profile() {
                     <div className="flex gap-2 shrink-0">
                       <button
                         onClick={() => applyStatus(o.id, 'CANCELLED', 'Oferta cancelada')}
-                        className="text-xs bg-red-600 hover:bg-red-500 text-white rounded-md px-2.5 py-1 font-semibold transition-colors"
+                        className="min-h-11 md:min-h-8 text-xs bg-red-700 hover:bg-red-600 text-white rounded-md px-2.5 py-1 font-semibold transition-colors"
                       >
                         Sim, cancelar
                       </button>
-                      <Button variant="outline" autoFocus onClick={() => setConfirmingCancelId(null)} className="text-xs px-2.5 py-1">Voltar</Button>
+                      <Button variant="outline" autoFocus onClick={() => setConfirmingCancelId(null)} className="text-xs px-2.5 py-1 h-auto min-h-11 md:min-h-8">Voltar</Button>
                     </div>
                   </div>
                 )}
               </Card>
+              </li>
             )
           })}
+          </ul>
+          )}
         </div>
       </div>
 
       <div className="mt-8 flex flex-col gap-2">
-        <Link to="/profile/history" className="text-sm text-brand-orange-accent underline flex items-center gap-0.5">
+        <Link to="/profile/history" className="w-fit min-h-11 md:min-h-0 text-sm text-brand-orange-accent underline inline-flex items-center gap-0.5">
           Ver histórico completo de trades <ChevronRight className="h-4 w-4" />
         </Link>
         {/* Mobile parity — Sidebar (desktop-only) links here directly;
             BottomNav has no dedicated tab for this (a real, but
-            infrequent, arbiter-only feature — see Disputes.tsx's own
-            comment on why it has no client-side role gate either). */}
-        <Link to="/disputes" className="text-sm text-brand-orange-accent underline flex items-center gap-0.5">
-          Disputas atribuídas a você <ChevronRight className="h-4 w-4" />
-        </Link>
+            infrequent, arbiter-only feature), shown only when one is assigned. */}
+        {hasDisputes && (
+          <Link to="/disputes" className="w-fit min-h-11 md:min-h-0 text-sm text-brand-orange-accent underline inline-flex items-center gap-0.5">
+            Disputas atribuídas a você <ChevronRight className="h-4 w-4" />
+          </Link>
+        )}
       </div>
     </div>
   )
 }
 
-function Stat({ value, label }: { value: string | number; label: string }) {
+function Stat({ value, label, info }: { value: string | number; label: string; info?: string }) {
   return (
     <Card className="p-3 text-center">
       <div className="text-lg font-bold text-brand-text tabular-nums">{value}</div>
-      <div className="text-xs text-brand-text-muted">{label}</div>
+      <div className="text-xs text-brand-text-muted flex items-center justify-center gap-1">
+        {label}
+        {info && <InfoTooltip text={info} />}
+      </div>
     </Card>
   )
 }
