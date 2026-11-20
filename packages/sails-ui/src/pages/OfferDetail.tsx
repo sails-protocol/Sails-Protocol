@@ -148,7 +148,7 @@ export function OfferDetail() {
 
   const handleStartTrade = async () => {
     if (!user) {
-      toast.error('Conecte sua carteira primeiro')
+      toast.error('Conecte sua wallet primeiro')
       // Carrega para onde voltar e o valor já digitado — sem isso o
       // usuário conectava a carteira e caía no Marketplace, tendo que
       // reencontrar a oferta e digitar tudo de novo.

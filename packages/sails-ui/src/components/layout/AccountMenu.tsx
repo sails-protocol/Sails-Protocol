@@ -32,7 +32,7 @@ export function AccountMenu({ user, compact = false }: { user: User; compact?: b
   const disconnect = () => {
     setOpen(false)
     logout()
-    toast.success('Carteira desconectada')
+    toast.success('Wallet desconectada')
     navigate('/')
   }
 

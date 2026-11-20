@@ -65,7 +65,7 @@ export function ActiveTrades() {
   if (!user) {
     return (
       <div className="text-center py-16">
-        <p className="text-brand-text-secondary">Conecte sua carteira para ver seus trades ativos.</p>
+        <p className="text-brand-text-secondary">Conecte sua wallet para ver seus trades ativos.</p>
         <Link to="/login" className="text-sm text-brand-orange-accent underline mt-2 inline-block">Conectar</Link>
       </div>
     )

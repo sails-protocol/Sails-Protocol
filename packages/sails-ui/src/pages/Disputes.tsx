@@ -139,7 +139,7 @@ export function Disputes() {
       return
     }
     if (!wallet) {
-      toast.error('Nenhuma chave de assinatura disponível nesta sessão — reconecte sua carteira')
+      toast.error('Nenhuma chave de assinatura disponível nesta sessão — reconecte sua wallet')
       return
     }
     const needsSignature = SIGNATURE_COLLECTION_TYPES.has(row.escrow.type)
@@ -192,7 +192,7 @@ export function Disputes() {
   if (!user) {
     return (
       <div className="text-center py-16">
-        <p className="text-brand-text-secondary">Conecte sua carteira para ver disputas atribuídas a você.</p>
+        <p className="text-brand-text-secondary">Conecte sua wallet para ver disputas atribuídas a você.</p>
         <Link to="/login" className="text-sm text-brand-orange-accent underline mt-2 inline-block">Conectar</Link>
       </div>
     )

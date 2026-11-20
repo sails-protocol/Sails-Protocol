@@ -28,7 +28,7 @@ export function Layout() {
   // render where a session exists and the flag hasn't been set yet —
   // not tied to the login action itself, so a session restored on page
   // load (AuthContext's own silent re-authenticate effect) triggers it
-  // exactly the same as a fresh "Conectar Carteira" click would.
+  // exactly the same as a fresh "Conectar wallet" click would.
   const [tourOpen, setTourOpen] = useState(false)
   useEffect(() => {
     if (user && !hasSeenOnboarding()) setTourOpen(true)
@@ -74,7 +74,7 @@ export function Layout() {
               <AccountMenu user={user} compact />
             ) : (
               <Link to="/login" state={{ from: location.pathname }} className={cn(buttonVariants({ className: 'text-xs px-3 py-1.5' }))}>
-                Conectar
+                Conectar wallet
               </Link>
             )}
           </div>

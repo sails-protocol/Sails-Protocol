@@ -5,7 +5,7 @@
  *
  * Demo-only shortcut, disclosed rather than hidden: this reference UI
  * generates and stores the Ed25519 secret key in the browser's own
- * localStorage so "Conectar Carteira" has something to sign with without
+ * localStorage so "Conectar wallet" has something to sign with without
  * a real external wallet extension. A real wallet integration keeps that
  * key in the wallet's own secure storage/hardware and never lets a page
  * touch it — see CRYPTOGRAPHIC_MODEL.md. This is a demonstration of the

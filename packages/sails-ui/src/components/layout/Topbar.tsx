@@ -40,7 +40,7 @@ export function Topbar({ onReplayTour }: { onReplayTour: () => void }) {
         <AccountMenu user={user} />
       ) : (
         <Link to="/login" state={{ from: location.pathname }} className={cn(buttonVariants({ className: 'text-sm px-4 py-2' }))}>
-          Conectar carteira
+          Conectar wallet
         </Link>
       )}
     </header>

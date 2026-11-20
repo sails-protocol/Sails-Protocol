@@ -16,7 +16,7 @@ const PASSPHRASE_EXPLAINER =
 const isPublicPath = (path: string) => path === '/' || path.startsWith('/offer/')
 
 /**
- * "Conectar carteira" dialog, rendered at /login over the Market (App.tsx).
+ * "Conectar wallet" dialog, rendered at /login over the Market (App.tsx).
  * Follows the common DeFi pattern (e.g. Hyperliquid): a uniform list of
  * connection options; picking one opens its own step with a back button.
  * Every existing `navigate('/login', { state: { from, amount } })` caller
@@ -44,7 +44,7 @@ export function Login() {
         {step === 'list' ? (
           <>
             <DialogHeader>
-              <DialogTitle>Conectar carteira</DialogTitle>
+              <DialogTitle>Conectar wallet</DialogTitle>
               <DialogDescription>Escolha como você quer se conectar.</DialogDescription>
             </DialogHeader>
             <ul className="mt-2 space-y-2">
@@ -57,7 +57,7 @@ export function Login() {
                 onSelect={() => setStep('local')}
               />
             </ul>
-            <p className="mt-4 text-center text-xs text-brand-text-muted">Não tem carteira? A Satsails Wallet chega em breve.</p>
+            <p className="mt-4 text-center text-xs text-brand-text-muted">Não tem uma wallet? A Satsails Wallet chega em breve.</p>
           </>
         ) : (
           <LocalKeyStep
@@ -123,7 +123,7 @@ function LocalKeyStep({ onBack, onConnected }: { onBack: () => void; onConnected
       // `passphrase` never reaches the SDK/backend — AuthContext uses it only
       // locally, to derive the AES key that encrypts the stored keypair.
       await login(passphrase)
-      toast.success('Carteira conectada')
+      toast.success('Wallet conectada')
       onConnected()
     } catch (err) {
       toast.error(err instanceof WrongPassphraseError || err instanceof Error ? err.message : 'Falha ao conectar')
