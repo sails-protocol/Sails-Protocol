@@ -65,9 +65,9 @@ $cut$;
 -- not granted anything that would let it create a MOCK escrow (see scripts/db/runtime-grants.sql and the R-C test). Authorizing MOCK here
 -- is not a deploy decision.
 CREATE FUNCTION escrows_f4_pair_required("t" "EscrowType") RETURNS boolean
-LANGUAGE sql IMMUTABLE AS $
+LANGUAGE sql IMMUTABLE AS $$
     SELECT "t" <> 'MOCK'
-$;
+$$;
 
 -- INSERT: the marks must be NULL (no new row is born legacy); a required type needs a COMMITTED pair whose anchor is the trade's.
 CREATE FUNCTION escrows_f4_guard_insert() RETURNS trigger
