@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router'
 import { Toaster } from 'sonner'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
@@ -27,9 +27,18 @@ const Disputes = lazy(() => import('./pages/Disputes').then((m) => ({ default: m
 const CurrentActionPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/CurrentActionPreview').then((m) => ({ default: m.CurrentActionPreview }))) : null
 const SigningRequestPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/SigningRequestPreview').then((m) => ({ default: m.SigningRequestPreview }))) : null
 
+// Mobile: top, so a toast never covers the page's primary action or the bottom nav.
+const MOBILE_QUERY = '(max-width: 767px)'
 function ThemedToaster() {
   const { theme } = useTheme()
-  return <Toaster position="bottom-right" theme={theme} />
+  const [mobile, setMobile] = useState(() => window.matchMedia(MOBILE_QUERY).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_QUERY)
+    const onChange = () => setMobile(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return <Toaster position={mobile ? 'top-center' : 'bottom-right'} theme={theme} />
 }
 
 // Same loading copy/style Trade.tsx's own initial-load state already

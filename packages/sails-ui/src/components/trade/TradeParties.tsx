@@ -32,7 +32,7 @@ function PartyRow({ user, role, isYou, online }: { user: User; role: string; isY
       <UserAvatar user={user} size="sm" showPresence online={online} />
       <div className="text-sm">
         <span className="font-medium text-brand-text">{user.displayName}</span>
-        {isYou && <span className="ml-1.5 text-xs bg-brand-orange-accent/10 text-brand-orange-accent rounded px-1.5 py-0.5">Você</span>}
+        {isYou && <span className="ml-1.5 text-xs bg-brand-orange-accent/10 text-brand-orange-hover dark:text-brand-orange-accent rounded px-1.5 py-0.5">Você</span>}
         {/* positiveFeedbackPct() returns 100 for 0 trades, which would claim a track record that doesn't exist */}
         <div className="text-xs text-brand-text-muted">{user.totalTrades === 0 ? 'Sem trades concluídos' : `${positiveFeedbackPct(user)}% positivo`}</div>
       </div>

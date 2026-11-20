@@ -43,8 +43,9 @@ export function DemoControls() {
   const simulate = () => {
     if (!tradeId) return
     try {
-      toast.success(`Simulado: ${simulateCounterparty(tradeId)}`)
-      refreshTradePage()
+      const { label, live } = simulateCounterparty(tradeId)
+      toast.success(`Simulado: ${label}`)
+      if (!live) refreshTradePage()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Falha na simulação')
     }
@@ -53,9 +54,10 @@ export function DemoControls() {
   if (!tradeId) return null
 
   return (
-    <details open className="fixed z-50 left-4 bottom-20 md:bottom-4 w-[min(300px,calc(100vw-2rem))] rounded-lg border border-brand-border bg-brand-surface text-brand-text shadow-lg">
-      <summary className="cursor-pointer select-none px-3 min-h-[44px] flex items-center text-sm font-semibold">Controles da demonstração</summary>
-      <div className="px-3 pb-3 space-y-2 text-sm">
+    // In the page flow under the demo banner (not floating), collapsed by default: it never covers page content.
+    <details className="border-b border-brand-border bg-brand-surface text-brand-text">
+      <summary className="cursor-pointer select-none px-4 min-h-[44px] flex items-center text-sm font-semibold">Controles da demonstração</summary>
+      <div className="px-4 pb-3 space-y-2 text-sm max-w-md">
         {view ? (
           <>
             <p>{ROLE_LABEL[view.role]}</p>
