@@ -101,7 +101,7 @@ BEGIN
   RETURN 'FINAL:' || format('{"rule":"L3","escrowId":"%s","status":"%s","releaseEvidenceId":"%s","observedAtHeight":%s,"tipHeightAtObservation":%s,"required":%s}',
         e."id", e."status", rel."id", rel."observedAtHeight", rel."tipHeightAtObservation", need);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_catalog;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
 
 CREATE OR REPLACE FUNCTION offer_capacity_try_release(p_trade_intent_id text)
 RETURNS text AS $$
@@ -163,6 +163,6 @@ BEGIN
    WHERE "id" = r."id" AND "state" = 'RESERVED';
   RETURN 'RELEASED:' || kind;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_catalog;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
 
 RESET lock_timeout;

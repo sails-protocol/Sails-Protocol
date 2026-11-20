@@ -116,7 +116,7 @@ BEGIN
   END LOOP;
   RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_catalog;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
 
 CREATE TRIGGER offer_capacity_block_release_evidence AFTER INSERT ON "escrow_release_evidence"
   FOR EACH ROW WHEN (NEW."kind"::text IN ('REORGED_INVALIDATED', 'REPLACEMENT_OBSERVED', 'AMBIGUOUS')) EXECUTE FUNCTION offer_capacity_block_on_evidence();
@@ -142,7 +142,7 @@ BEGIN
             offer_capacity_unblock_digest(rid, p_owner, p_logical, cap."blockedAt", p_evidence, p_requester_key));
   RETURN rid;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_catalog;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
 
 -- B: the reviewer executes. Lock order: capacity row -> request row -> (settlement proof) escrow/disputes.
 CREATE OR REPLACE FUNCTION offer_capacity_execute_unblock(p_request_id text, p_reviewer_key text, p_signature text)
@@ -205,7 +205,7 @@ BEGIN
    WHERE "ownerPublicKey" = q."ownerPublicKey" AND "logicalOfferId" = q."logicalOfferId";
   RETURN 'EXECUTED';
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_catalog;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
 
 REVOKE ALL ON FUNCTION offer_capacity_execute_unblock(text, text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION offer_capacity_execute_unblock(text, text, text) TO sails_capacity_reviewer;
