@@ -4,7 +4,8 @@
 -- row is touched except by reference. The anchor (CTO 28 Despacho 025) is the trade's OWN Intent: anchorRef is a
 -- FOREIGN KEY to trades("tradeIntentId") (UNIQUE, E21 migration 20261115120000, which already keeps an Offer's or a
 -- legacy trade's Intent out of that column), so a pair exists only after E21 admission, and the guard binds its
--- parties (by role), asset and amount to that one trade, which must not be terminal. One COMMITTED pair per trade:
+-- parties (by role), asset and amount to that one trade, which must be PENDING or ACTIVE (the pair precedes escrow
+-- and dispute; COMPLETED, CANCELLED and DISPUTED are refused). One COMMITTED pair per trade:
 -- "committedAnchorRef" UNIQUE.
 -- Nota: editada em 2026-11-19 (D025) antes de qualquer aplicação persistente.
 --
@@ -137,7 +138,7 @@ BEGIN
            = (CASE NEW."trade"->>'side' WHEN 'SELL' THEN anchor."buyerId" WHEN 'BUY' THEN anchor."sellerId" END)
      AND anchor.asset = NEW."trade"->>'asset'
      AND anchor."amount" = (NEW."trade"->>'amount')::numeric
-     AND anchor.status NOT IN ('COMPLETED', 'CANCELLED')) IS NOT TRUE THEN
+     AND anchor.status IN ('PENDING', 'ACTIVE')) IS NOT TRUE THEN
       RAISE EXCEPTION 'commitment_pairs: anchor mismatch: parties, roles, asset, amount or state differ from the anchor trade' USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;

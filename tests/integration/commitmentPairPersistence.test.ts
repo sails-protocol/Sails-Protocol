@@ -470,7 +470,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
         ${feePolicyVersionId}, 'MULTISIG', 'FIXED_ARBITER_COMMITMENT', 'PROPOSED')`).rejects.toThrow(/commitment_pairs_anchorRef_fkey/)
   })
 
-  it('D025 anchor: the pair binds to THAT trade - another trade parties, swapped roles, another asset or amount, a terminal trade are refused (E25_ANCHOR_MISMATCH)', async () => {
+  it('D025 anchor: the pair binds to THAT trade - another trade parties, swapped roles, another asset or amount, a COMPLETED/CANCELLED/DISPUTED trade are refused (E25_ANCHOR_MISMATCH)', async () => {
     pg.requirePostgres('F3 anchor parties')
     const s = service()
     const others = [
@@ -481,6 +481,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
       await admitTrade({ amount: '0.00500001' }),               // numeric, not text: 8 decimals compared exactly
       await admitTrade({ status: 'CANCELLED' }),
       await admitTrade({ status: 'COMPLETED' }),
+      await admitTrade({ status: 'DISPUTED' }),                  // the pair precedes escrow and dispute
     ]
     for (const anchorRef of others) {
       const f = await fresh({ anchorRef })

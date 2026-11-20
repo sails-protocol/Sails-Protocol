@@ -139,8 +139,9 @@ export class CommitmentPairService {
         return view(row)
       })
     } catch (err) {
-      // D025: the anchor must be an admitted trade's own Intent (FK) owned by these parties in these roles, same asset and amount, not terminal (guard).
-      if ((err as { code?: unknown })?.code === 'P2003') throw new CommitmentPairRefused('E25_ANCHOR_NOT_ADMITTED')
+      // D025: the anchor must be an admitted trade's own Intent (FK) owned by these parties in these roles, same asset and amount, PENDING or ACTIVE (guard).
+      // Only THIS foreign key means "not admitted"; any other FK failure stays the raw error it is.
+      if ((err as { code?: unknown })?.code === 'P2003' && JSON.stringify(err, Object.getOwnPropertyNames(err)).includes('commitment_pairs_anchorRef_fkey')) throw new CommitmentPairRefused('E25_ANCHOR_NOT_ADMITTED')
       if (err instanceof Error && err.message.includes('commitment_pairs: anchor mismatch')) throw new CommitmentPairRefused('E25_ANCHOR_MISMATCH')
       if (!isUniqueConstraintError(err)) throw err
       // The loser of a race: the same key (replay), or the same pair digests already proposed (R3).
