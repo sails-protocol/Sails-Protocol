@@ -1,8 +1,9 @@
 /* DEV-ONLY typography study. Loaded only by src/dev/typeStudy.tsx, which
    main.tsx imports behind import.meta.env.DEV. Nothing here applies
-   unless <html> carries a data-type-* attribute, so "current" is today. */
+   unless <html> carries a data-type-* attribute, so "current" is the app
+   default (Inter + IBM Plex Mono + the responsive scale in index.css). */
 
-/* Families: titles use the same family as the UI (no Space Grotesk mix). */
+/* Families: titles use the same family as the UI (no display-face mix). */
 html[data-type-candidate="inter"] {
   --sails-font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
@@ -12,56 +13,14 @@ html[data-type-candidate="geist"] {
 html[data-type-candidate="plex"] {
   --sails-font-ui: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
-html[data-type-candidate="inter"],
-html[data-type-candidate="geist"],
-html[data-type-candidate="plex"] {
-  --sails-font-display: var(--sails-font-ui);
+/* Pre-2026-11-19 look, for before/after comparison: system UI + Space Grotesk titles. */
+html[data-type-candidate="legacy"] {
+  --sails-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --sails-font-display: "Space Grotesk", -apple-system, sans-serif;
+}
+html[data-type-mono="system"] {
+  --sails-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 html[data-type-mono="geist-mono"] {
   --sails-font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-html[data-type-mono="plex-mono"] {
-  --sails-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-/* Proposed responsive scale (study values, not tokens).
-   mobile <768 / tablet 768-1023 / desktop >=1024. */
-html[data-type-scale="proposed"] {
-  --t-page: 24px;   --t-page-lh: 1.2;
-  --t-section: 18px; --t-section-lh: 1.3;
-  --t-body: 15px;   --t-body-lh: 1.5;
-  /* meta stays 12px on mobile: 13px pushed the OfferCard price out of a 375px card. */
-  --t-meta: 12px;   --t-meta-lh: 1.4;
-}
-@media (min-width: 768px) {
-  html[data-type-scale="proposed"] { --t-page: 26px; --t-body: 14px; }
-}
-@media (min-width: 1024px) {
-  html[data-type-scale="proposed"] { --t-page: 28px; --t-section: 20px; }
-}
-
-/* Page titles: the named class plus the four pages that hand-roll it. */
-html[data-type-scale="proposed"] .text-page-title,
-html[data-type-scale="proposed"] h1.text-2xl.font-display {
-  font-size: var(--t-page);
-  line-height: var(--t-page-lh);
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-html[data-type-scale="proposed"] .text-section-title {
-  font-size: var(--t-section);
-  line-height: var(--t-section-lh);
-  font-weight: 600;
-  letter-spacing: 0;
-}
-/* shortcut: overrides the base utilities, so a responsive variant on the same
-   element (e.g. "text-xs sm:text-sm") loses at mobile; acceptable for a study. */
-html[data-type-scale="proposed"] .text-sm { font-size: var(--t-body); line-height: var(--t-body-lh); }
-html[data-type-scale="proposed"] .text-xs { font-size: var(--t-meta); line-height: var(--t-meta-lh); }
-/* Mono IDs/keys stay 14px: at 15px a PIX key wrapped to 3 lines at 375px. */
-html[data-type-scale="proposed"] .font-mono.text-sm { font-size: 14px; }
-/* 10/11px text is below the floor: lift to 12px. */
-html[data-type-scale="proposed"] .text-\[10px\],
-html[data-type-scale="proposed"] .text-\[11px\] { font-size: 12px; line-height: 1.35; }
-/* Money and aligned numbers always tabular. */
-html[data-type-scale="proposed"] .tabular-nums { font-variant-numeric: tabular-nums; }

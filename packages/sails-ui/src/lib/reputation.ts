@@ -82,3 +82,8 @@ const MIN_VOUCHER_TRADES = 3
 export function canVouch(user: Pick<User, 'totalTrades' | 'reputationScore'>): boolean {
   return user.totalTrades >= MIN_VOUCHER_TRADES && user.reputationScore > 0
 }
+
+/** The one display format for reputationScore everywhere ("96 pontos"): an unbounded +2/-5 sum, never a star rating. */
+export function formatReputation(score: number): string {
+  return `${score.toFixed(0)} pontos`
+}

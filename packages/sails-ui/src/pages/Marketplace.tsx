@@ -164,7 +164,7 @@ export function Marketplace() {
             <SlidersHorizontal className="h-4 w-4" />
             Filtros
             {activeFilterCount > 0 && (
-              <span className="w-4 h-4 flex items-center justify-center bg-brand-orange-accent text-white text-[10px] rounded-full">
+              <span className="min-w-5 h-5 px-1 flex items-center justify-center bg-brand-orange text-primary-foreground text-xs font-semibold tabular-nums rounded-full">
                 {activeFilterCount}
               </span>
             )}
@@ -241,16 +241,16 @@ export function Marketplace() {
           class already softened in index.css. */}
       <Card id="marketplace-offer-grid" className="mt-4 overflow-hidden border-brand-border-subtle bg-brand-surface [&>a:last-child]:border-b-0">
         {/* Desktop-only column header (Binance P2P/HodlHodl/El Dorado all
-            label their offer-list columns) — hidden below `lg` since the
+            label their offer-list columns) — hidden below `xl` since the
             mobile/tablet layout groups fields into paired rows instead of
             fixed columns, so column labels wouldn't line up with anything.
             Widths mirror OfferCard's own `lg:w-*` values exactly. */}
-        <div className="text-label hidden lg:flex items-center gap-6 px-5 py-2 border-b border-brand-border-subtle">
+        <div className="text-label hidden xl:flex items-center gap-4 px-5 py-2 border-b border-brand-border-subtle">
           <span className="w-44 shrink-0">Anunciante</span>
-          <span className="w-48 shrink-0">Ativo</span>
+          <span className="w-36 shrink-0">Ativo</span>
           <span className="flex-1">Preço</span>
-          <span className="w-40 shrink-0">Limites</span>
-          <span className="w-32 shrink-0">Pagamento</span>
+          <span className="w-36 shrink-0">Limites</span>
+          <span className="w-40 shrink-0">Pagamento</span>
           <span className="w-28 shrink-0 text-right">Ação</span>
         </div>
         {loadingOffers ? (

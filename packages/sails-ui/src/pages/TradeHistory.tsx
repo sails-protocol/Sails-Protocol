@@ -97,7 +97,7 @@ export function TradeHistory() {
 
   return (
     <div>
-      <h1 className="text-2xl font-display font-bold tracking-tight text-brand-text">Histórico de Trades</h1>
+      <h1 className="text-page-title">Histórico de Trades</h1>
 
       <div className="mt-4 grid grid-cols-3 gap-3">
         <SummaryStat value={formatUsd(totalVolume)} label="Volume total (USD)" />
@@ -122,7 +122,7 @@ export function TradeHistory() {
           <Card key={t.id} className="p-4 flex flex-col md:flex-row md:items-center gap-2">
             <div className="flex items-center gap-2">
               <AssetBadge asset={t.asset} />
-              <span className="font-medium text-sm text-brand-text">{formatAmount(Number(t.amount))}</span>
+              <span className="font-medium text-sm text-brand-text tabular-nums">{formatAmount(Number(t.amount))}</span>
             </div>
             <div className="flex items-center gap-2 md:ml-4">
               <span className={`text-xs px-2 py-0.5 rounded-full ${t.buyerId === user.id ? 'bg-blue-500/10 text-blue-500' : 'bg-green-500/10 text-green-500'}`}>
@@ -131,7 +131,7 @@ export function TradeHistory() {
               <span className="text-xs text-brand-text-muted">{formatDateTime(t.createdAt)}</span>
             </div>
             <div className="md:ml-auto flex items-center gap-3">
-              <span className="font-bold text-brand-text">{formatUsd(Number(t.totalUsd))} USD</span>
+              <span className="money text-brand-text">{formatUsd(Number(t.totalUsd))} USD</span>
               <TradeStatusBadge status={t.status} />
               <Link to={`/trade/${t.id}`} className="text-xs text-brand-text-muted hover:text-brand-text">Ver Trade</Link>
             </div>
@@ -146,7 +146,7 @@ export function TradeHistory() {
 function SummaryStat({ value, label }: { value: string | number; label: string }) {
   return (
     <Card className="p-3 text-center">
-      <div className="text-lg font-display font-bold text-brand-text">{value}</div>
+      <div className="text-lg font-bold text-brand-text tabular-nums">{value}</div>
       <div className="text-xs text-brand-text-muted">{label}</div>
     </Card>
   )

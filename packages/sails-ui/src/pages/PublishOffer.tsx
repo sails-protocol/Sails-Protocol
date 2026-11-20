@@ -206,7 +206,7 @@ export function PublishOffer() {
         <button onClick={() => (step === 1 ? navigate('/profile') : setStep((s) => s - 1))} className="p-2 -m-2 text-brand-text-secondary hover:text-brand-text">
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-lg font-display font-bold text-brand-text">Publicar Anúncio</h1>
+        <h1 className="text-page-title">Publicar Anúncio</h1>
       </div>
 
       <div className="flex items-center mb-8">
@@ -219,7 +219,7 @@ export function PublishOffer() {
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${active ? 'bg-brand-orange text-primary-foreground' : 'bg-brand-elevated text-brand-text-muted'}`}>
                   {n}
                 </div>
-                <span className={`text-[10px] text-center max-w-[70px] ${active ? 'text-brand-text font-medium' : 'text-brand-text-muted'}`}>{label}</span>
+                <span className={`text-xs text-center max-w-[70px] ${active ? 'text-brand-text font-medium' : 'text-brand-text-muted'}`}>{label}</span>
               </div>
               {n < STEPS.length && <div className={`flex-1 h-px mx-2 mb-4 ${step > n ? 'bg-brand-orange-accent' : 'bg-brand-border'}`} />}
             </div>

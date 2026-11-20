@@ -35,7 +35,7 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
   return (
     <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}>
       {!isMine && message.sender && (
-        <span className="text-[10px] text-brand-text-muted mb-0.5 ml-1">{message.sender.displayName}</span>
+        <span className="text-xs text-brand-text-muted mb-0.5 ml-1">{message.sender.displayName}</span>
       )}
       <div
         className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${
@@ -69,7 +69,7 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
           <div className={`text-xs px-1.5 pt-1 ${isMine ? 'text-white/80' : 'text-brand-text-muted'}`}>{message.content}</div>
         )}
       </div>
-      <span className="text-[10px] text-brand-text-muted mt-0.5">{formatTime(message.createdAt)}</span>
+      <span className="text-xs text-brand-text-muted mt-0.5">{formatTime(message.createdAt)}</span>
     </div>
   )
 }

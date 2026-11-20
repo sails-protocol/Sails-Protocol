@@ -1,13 +1,12 @@
-/* Display typeface (2026-07-28 visual redesign) — the one place asked
-   to carry brand personality (wordmark, page headlines); body text
-   stays on the system stack below for density/legibility on
-   info-heavy trading screens. Loaded via Google Fonts rather than a
-   bundled @fontsource package to avoid touching node_modules/
-   package-lock while another session has this workspace's dev server
-   open concurrently. Must precede every other rule (CSS requires all
-   `@import`s to come first) — `vite build` only warns and drops it
-   silently if it doesn't, it doesn't fail the build. */
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap');
+/* Typography (2026-11-19, provisional pending PM sign-off; study notes
+   outside the repo): Inter for UI and titles (one family, no display-face
+   mix), IBM Plex Mono only for IDs/keys/hashes/addresses. Must precede
+   every other rule (CSS requires all `@import`s first; `vite build` only
+   warns and drops it otherwise).
+   shortcut: loaded from Google Fonts like the Space Grotesk import it
+   replaces; self-host (Inter v4.1 from rsms/inter, Plex Mono, OFL texts
+   shipped alongside) before production, no third-party font requests. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 /* Tailwind v4 (Dependabot major-version bump, 2026-07-19) — the old
    `@tailwind base/components/utilities` directives are replaced by a
@@ -28,11 +27,23 @@
    syntax (bg-brand-orange/15) to work with a CSS-var-backed color, see
    tailwind.config.js's own comment. */
 :root {
-  /* Font stacks as vars (defaults = today's values) so the dev-only
-     typography study (src/dev/typeStudy) can swap them at runtime. */
-  --sails-font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --sails-font-display: "Space Grotesk", -apple-system, sans-serif;
-  --sails-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  /* Font stacks as vars so the dev-only typography study
+     (src/dev/typeStudy) can still swap them at runtime. */
+  --sails-font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --sails-font-display: var(--sails-font-ui);
+  --sails-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  /* Responsive type scale: mobile <768 / tablet 768-1023 / desktop >=1024.
+     `text-sm`/`text-xs` read --t-body/--t-meta (tailwind.config.js), so
+     responsive variants on the same element still win normally.
+     Floor: nothing under 12px. */
+  --t-page: 24px;        --t-page-lh: 1.2;
+  --t-section: 18px;     --t-section-lh: 1.3;
+  --t-body: 15px;        --t-body-lh: 1.5;
+  --t-control: 14px;     /* buttons, form labels */
+  --t-meta: 12px;        --t-meta-lh: 1.4;   /* 13px pushed the OfferCard price out of a 375px row */
+  --t-mono: 14px;        /* IDs/keys; 15px wrapped a PIX key to 3 lines at 375px */
+  --t-money: 15px;
+  --t-money-hero: 28px;
   --color-bg: 250 250 250;           /* #fafafa */
   --color-surface: 255 255 255;      /* #ffffff */
   --color-elevated: 245 245 245;     /* #f5f5f5 */
@@ -185,6 +196,13 @@
   --color-border-subtle: 46 52 64; /* #2e3440, decorative dividers only */
 }
 
+@media (min-width: 768px) {
+  :root { --t-page: 26px; --t-body: 14px; --t-money-hero: 32px; }
+}
+@media (min-width: 1024px) {
+  :root { --t-page: 28px; --t-section: 20px; --t-money-hero: 36px; }
+}
+
 body {
   margin: 0;
   font-family: var(--sails-font-ui);
@@ -239,13 +257,15 @@ body {
      set per-row via a `border-l-green-500`/`border-l-red-500` utility
      class at the call site rather than baked in here (this class has
      no opinion on side). */
-  /* lg (1024px), not md (768px): at tablet width the old md-breakpoint
+  /* xl (1280px) since 2026-11-19: with Inter the 6 columns left the price
+     column 0px wide at 1024px. Below xl the paired-row layout applies.
+     Earlier note: lg (1024px), not md (768px): at tablet width the old md-breakpoint
      single-line row didn't have enough space for all 5 columns (found
      by actually screenshotting at 768px — text wrapped and columns
      overlapped). Tablet now gets the same paired-row mobile layout,
      which scales cleanly since it has no fixed column widths. */
   .offer-row {
-    @apply flex flex-col gap-2 border-b border-brand-border-subtle border-l-2 px-3 py-3 transition-colors hover:bg-brand-elevated lg:flex-row lg:items-center lg:gap-6 lg:px-5 lg:py-3.5;
+    @apply flex flex-col gap-2 border-b border-brand-border-subtle border-l-2 px-3 py-3 transition-colors hover:bg-brand-elevated xl:flex-row xl:items-center xl:gap-4 xl:px-5 xl:py-3.5;
   }
   .btn-dark {
     @apply bg-brand-text text-brand-bg hover:opacity-85 font-semibold rounded-lg transition-opacity;
@@ -254,7 +274,7 @@ body {
      unchanged. This IS the kind of interactive component boundary that
      rule protects. */
   .input-field {
-    @apply bg-brand-elevated border border-brand-border text-brand-text placeholder:text-brand-text-muted rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-orange transition-colors;
+    @apply bg-brand-elevated border border-brand-border text-brand-text placeholder:text-brand-text-muted rounded-lg px-3 py-2 text-base md:text-sm focus:outline-none focus:border-brand-orange transition-colors;
   }
   /* UI-FOUNDATION-1-VISUAL-CORRECTION — toolbar chip: for a filter/sort
      TRIGGER (AssetPicker/CurrencyPicker/PaymentMethodPicker), not a form
@@ -280,10 +300,15 @@ body {
      (page/section title, label, metadata, tabular numeric emphasis),
      nothing speculative beyond that. */
   .text-page-title {
-    @apply font-display font-bold tracking-tight text-brand-text text-2xl;
+    @apply font-display font-bold text-brand-text;
+    font-size: var(--t-page);
+    line-height: var(--t-page-lh);
+    letter-spacing: -0.01em;
   }
   .text-section-title {
-    @apply font-display font-semibold tracking-tight text-brand-text text-base;
+    @apply font-display font-semibold text-brand-text;
+    font-size: var(--t-section);
+    line-height: var(--t-section-lh);
   }
   .text-label {
     @apply text-xs font-medium uppercase tracking-wider text-brand-text-muted;
@@ -297,6 +322,26 @@ body {
      reuse elsewhere without retyping the utility. */
   .text-numeric {
     @apply tabular-nums;
+  }
+  /* Money roles. Not `text-*` names on purpose: cn()/tailwind-merge would
+     read `text-money` as a text colour and drop it next to `text-brand-*`.
+     Component layer, so a size utility on the same element still wins. */
+  .money {
+    @apply font-semibold tabular-nums;
+    font-size: var(--t-money);
+    line-height: 1.3;
+  }
+  .money-hero {
+    @apply font-bold tabular-nums;
+    font-size: var(--t-money-hero);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+  }
+  /* Mono identifiers (IDs, keys, hashes, addresses) only, never prose. */
+  .mono-id {
+    @apply font-mono;
+    font-size: var(--t-mono);
+    line-height: 1.5;
   }
 }
 
