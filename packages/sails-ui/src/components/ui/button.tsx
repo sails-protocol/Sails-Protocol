@@ -26,8 +26,8 @@ const buttonVariants = cva(
         outline: cn("bg-brand-tonal text-brand-text state-layer", DISABLED_FILLED),
         // Quiet, low-emphasis: no fill until hover.
         ghost: cn("text-brand-text state-layer", DISABLED_QUIET),
-        // Orange text that stays AA on light surfaces (the light primary fill #ea580c is not a text color).
-        link: cn("text-brand-orange-accent underline-offset-4 hover:underline", DISABLED_QUIET),
+        // Brand link token (blue): orange means "act", never "go to" (DESIGN_SYSTEM.md 2).
+        link: cn("text-brand-link underline-offset-4 hover:underline", DISABLED_QUIET),
       },
       // Fine pointer: 40 / 36 / 44; `touch:` (coarse pointer or < 768 px) raises every size to 44.
       size: {

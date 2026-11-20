@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
-import { toast } from 'sonner'
+import { toast } from '../ui/toast'
 import type { TradeIntentPayload, TradeProposal, CounterProposal } from '@satsails/p2p-trading-sdk'
 import { useAuth } from '../../context/AuthContext'
 import { sailsClient } from '../../lib/sailsClient'
@@ -282,8 +282,8 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
               />
 
               <div className="flex items-center gap-3 mt-2">
-                <Button onClick={handleGenerate} disabled={loading} className="px-4 py-2 text-sm disabled:opacity-60">
-                  {loading ? 'Gerando...' : 'Gerar intenção'}
+                <Button onClick={handleGenerate} loading={loading} className="px-4 py-2 text-sm">
+                  {loading ? 'Gerando…' : 'Gerar intenção'}
                 </Button>
                 {loading && (
                   <span className="text-xs text-brand-text-muted flex items-center gap-1.5">
@@ -366,7 +366,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
               </div>
 
               <div className="flex gap-2">
-                <Button onClick={handleDelegate} disabled={proposing} className="px-3 py-1.5 text-xs disabled:opacity-60">
+                <Button onClick={handleDelegate} loading={proposing} className="px-3 py-1.5 text-xs">
                   <Bot className="h-3.5 w-3.5" />
                   {proposing ? 'Buscando oferta...' : 'Delegar para IA'}
                 </Button>
@@ -392,7 +392,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                     <Field label="Pagamento" value={proposal.paymentMethods.map((m) => PAYMENT_METHOD_LABELS[m as keyof typeof PAYMENT_METHOD_LABELS] ?? m).join(', ')} />
                   </div>
                   <div className="flex gap-2">
-                    <Button onClick={handleApprove} disabled={approving} className="px-3 py-1.5 text-xs disabled:opacity-60">
+                    <Button onClick={handleApprove} loading={approving} className="px-3 py-1.5 text-xs">
                       <CheckCircle2 className="h-3.5 w-3.5" />
                       {approving ? 'Iniciando trade...' : 'Aprovar e iniciar trade'}
                     </Button>

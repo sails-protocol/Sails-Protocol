@@ -17,7 +17,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
-import { toast } from 'sonner'
+import { toast } from '../components/ui/toast'
 import { useAuth } from '../context/AuthContext'
 import { sailsClient } from '../lib/sailsClient'
 import type { Dispute, DisputeRuling, Escrow, EscrowType } from '@satsails/p2p-trading-sdk'
@@ -30,12 +30,14 @@ import { badgeVariants } from '../components/ui/badge'
 import { Card } from '../components/ui/card'
 import { ListSkeleton } from '../components/ui/skeleton'
 import { StateBlock } from '../components/ui/StateBlock'
+import { TABLE_HEAD_ROW, TABLE_ROW } from '../components/ui/table'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { cn } from '../lib/utils'
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetDescription } from '../components/ui/sheet'
 import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
 import { Bot, Info, X } from 'lucide-react'
 import { TONE_CLASS } from '../lib/tone'
+import { RadioCard, RadioGroup } from '../components/ui/radio-group'
 
 // Sails Core Implementation Program M8-R2 (Destination Authority
 // Conformance, disputed rails, 2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md)
@@ -83,7 +85,7 @@ function DisputeStatusBadge({ status }: { status: Dispute['status'] }) {
     ? TONE_CLASS.success
     : TONE_CLASS.neutral
   return (
-    <span className={cn(badgeVariants({ variant: 'outline' }), 'whitespace-nowrap rounded-full px-2 py-0.5', tone)}>
+    <span className={cn(badgeVariants({ variant: 'outline' }), 'inline-flex max-w-full rounded-full px-2 py-0.5 text-left', tone)}>
       {DISPUTE_STATUS_LABEL[status] ?? status}
     </span>
   )
@@ -317,7 +319,7 @@ export function Disputes() {
         <StateBlock kind="empty" title="Nenhuma disputa atribuída a você" description="Quando você for designado árbitro de um trade, o caso aparece aqui." />
       ) : (
         <Card className="overflow-hidden">
-          <div aria-hidden="true" className={cn('text-label hidden xl:grid gap-x-4 px-4 py-2.5 border-b border-brand-border-subtle', DISPUTE_COLS)}>
+          <div aria-hidden="true" className={cn(TABLE_HEAD_ROW, 'hidden xl:grid gap-x-4', DISPUTE_COLS)}>
             <span>Trade</span>
             <span>Valor</span>
             <span>Status</span>
@@ -332,7 +334,7 @@ export function Disputes() {
               const evidenceCount = parseEvidence(d.evidence).length
               return (
                 // Below xl the same cells fold into a compact row: facts on the left, "Abrir caso" on the right.
-                <li key={d.id} className={cn('grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 px-4 py-3 border-b border-brand-border-subtle last:border-b-0 [&>*]:col-start-1 xl:[&>*]:col-start-auto', DISPUTE_COLS)}>
+                <li key={d.id} className={cn('grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 px-4 py-3 [&>*]:col-start-1 xl:[&>*]:col-start-auto', TABLE_ROW, DISPUTE_COLS)}>
                   <div className="min-w-0">
                     <span className="mono-id text-body-sm text-brand-text">#{shortId(d.tradeId)}</span>
                     {pendingSuggestion(d) && (
@@ -583,37 +585,25 @@ function CaseFile({
             </div>
           ) : (
             <>
-              <fieldset>
-                <legend className="sr-only">Escolha a decisão</legend>
-                <div className="space-y-2">
-                  {options.map((o) => (
-                    <label
-                      key={o.value}
-                      className={`flex items-center gap-3 min-h-11 px-3 py-2.5 rounded-lg border text-sm ${
-                        o.unavailableReason
-                          ? 'border-brand-border-subtle text-brand-text-secondary cursor-not-allowed'
-                          : 'border-brand-border text-brand-text cursor-pointer state-layer has-[:checked]:border-brand-text has-[:checked]:bg-brand-elevated field-focus-within'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name={`ruling-${d.id}`}
-                        value={o.value}
-                        checked={!o.unavailableReason && choice === o.value}
-                        disabled={!!o.unavailableReason}
-                        aria-describedby={o.unavailableReason ? `ruling-${d.id}-${o.value}-why` : undefined}
-                        onChange={() => onChoice(o.value)}
-                        className="h-4 w-4 shrink-0 accent-current"
-                      />
-                      <span className="min-w-0">
-                        {o.label}
-                        {o.detail && <span className="block text-brand-text-secondary">{o.detail}</span>}
-                        {o.unavailableReason && <span id={`ruling-${d.id}-${o.value}-why`} className="block text-brand-text-secondary">{o.unavailableReason}</span>}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
+              <RadioGroup legend="Escolha a decisão" legendHidden listClassName="space-y-2">
+                {options.map((o) => (
+                  <RadioCard
+                    key={o.value}
+                    name={`ruling-${d.id}`}
+                    value={o.value}
+                    checked={!o.unavailableReason && choice === o.value}
+                    disabled={!!o.unavailableReason}
+                    aria-describedby={o.unavailableReason ? `ruling-${d.id}-${o.value}-why` : undefined}
+                    onChange={() => onChoice(o.value)}
+                  >
+                    <span className="min-w-0 font-normal">
+                      <span className={!o.unavailableReason && choice === o.value ? 'font-medium' : undefined}>{o.label}</span>
+                      {o.detail && <span className="block text-brand-text-secondary">{o.detail}</span>}
+                      {o.unavailableReason && <span id={`ruling-${d.id}-${o.value}-why`} className="block text-brand-text-secondary">{o.unavailableReason}</span>}
+                    </span>
+                  </RadioCard>
+                ))}
+              </RadioGroup>
               <div className="mt-4 space-y-1.5 text-sm text-brand-text-secondary">
                 <p>Sua decisão é assinada com a chave de identidade desta sessão.</p>
                 {/* multisig.provider.ts: on a DISPUTED release/refund the server signs with the arbiter key it derives (MULTISIG_SEED); requiredSigners is the buyer (release) or the seller (refund). */}
@@ -631,7 +621,7 @@ function CaseFile({
 
       {canDecide && (
         <div className="border-t border-brand-border-subtle bg-background px-4 sm:px-6 py-3">
-          <Button onClick={onReview} disabled={!chosen || acting} className="min-h-11 w-full">
+          <Button onClick={onReview} loading={acting} disabled={!chosen} className="min-h-11 w-full">
             Revisar decisão
           </Button>
         </div>

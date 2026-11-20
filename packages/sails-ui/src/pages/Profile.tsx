@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router'
 import { useEffect, useMemo, useState } from 'react'
-import { toast } from 'sonner'
+import { toast } from '../components/ui/toast'
 import { useAuth } from '../context/AuthContext'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { CopyButton } from '../components/ui/CopyButton'
@@ -10,6 +10,7 @@ import { Button, buttonVariants } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover'
 import { StateBlock } from '../components/ui/StateBlock'
+import { TABLE_HEAD_ROW, TABLE_ROW } from '../components/ui/table'
 import { StatStrip } from '../components/ui/StatStrip'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { Page, PageHeader } from '../components/layout/PageHeader'
@@ -218,7 +219,7 @@ export function Profile() {
           />
         ) : (
           <Card className="mt-3 overflow-hidden">
-            <div aria-hidden="true" className={cn('text-label hidden px-4 py-2.5 border-b border-brand-border-subtle', OFFER_COLS)}>
+            <div aria-hidden="true" className={cn(TABLE_HEAD_ROW, 'hidden', OFFER_COLS)}>
               <span>Lado</span>
               <span>Ativo</span>
               <span>Preço (USD)</span>
@@ -236,7 +237,7 @@ export function Profile() {
                 {myOffers.map((o) => {
                   const canManage = o.status === 'ACTIVE' || o.status === 'PAUSED'
                   return (
-                    <li key={o.id} className="border-b border-brand-border-subtle last:border-b-0 px-4 py-3">
+                    <li key={o.id} className={cn(TABLE_ROW, 'px-4 py-3')}>
                       <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-2', OFFER_COLS)}>
                         <span><SideBadge side={o.side} /></span>
                         <span className="text-sm text-brand-text-secondary truncate">{ASSET_LABELS[o.asset]}</span>

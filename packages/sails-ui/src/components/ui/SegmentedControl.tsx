@@ -11,7 +11,8 @@ export interface SegmentedOption<T extends string> {
  * fill + shadow-elevation-1, full text color, weight 500; unselected: secondary text.
  * Selection is carried by fill, elevation, text color and weight together, plus aria-pressed.
  */
-export const SEGMENT_TRACK = 'rounded-lg bg-brand-tonal p-1' // radius 8 - padding 4 = thumb radius 4 (concentric)
+// radius 8 - padding 4 = thumb radius 4 (concentric). Own track tone: deeper than tonal in light (thumb 1.50+).
+export const SEGMENT_TRACK = 'rounded-lg bg-brand-segment-track p-1'
 export function segmentItemClass(selected: boolean) {
   return cn(
     'rounded-sm text-body-sm transition-colors duration-short state-layer',

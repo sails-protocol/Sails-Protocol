@@ -4,8 +4,8 @@
  * variables of BOTH themes (read from the loaded stylesheet), swatches render
  * in the current theme. Example data only; no SDK calls.
  */
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
-import { Loader2 } from 'lucide-react'
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { AlertTriangle, CheckCircle2, Copy, Heart, Info, Loader2, LogOut, RefreshCw, Settings, Star, Trash2, User as UserIcon, XCircle } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Checkbox } from '../../components/ui/checkbox'
@@ -18,6 +18,18 @@ import { SideBadge, TradeStatusBadge, EscrowStatusBadge, OfferStatusBadge } from
 import { TONE_CLASS, type Tone } from '../../lib/tone'
 import { blend, contrastRatio, parseTriplet, type Rgb } from '../../lib/contrast'
 import type { EscrowStatus, TradeStatus, OfferStatus } from '../../types'
+import { toast, TOAST_CLASS } from '../../components/ui/toast'
+import { Tabs, tabClass, tabPanelProps } from '../../components/ui/tabs'
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '../../components/ui/menu'
+import { Radio, RadioCard, RadioGroup } from '../../components/ui/radio-group'
+import { SortableTableHead, Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '../../components/ui/table'
+import { Alert, type AlertTone } from '../../components/ui/alert'
+import { Progress } from '../../components/ui/progress'
+import { Divider } from '../../components/ui/divider'
+import { IconButton } from '../../components/ui/icon-button'
+import { FilterChip } from '../../components/ui/filter-chip'
+import { Combobox } from '../../components/ui/combobox'
+import { nextSort, sortRows, type SortState } from '../../lib/sort'
 
 type Theme = 'light' | 'dark'
 type Vars = Record<Theme, Record<string, string>>
@@ -91,12 +103,12 @@ function measureSurfaces(v: Record<string, string>) {
   if (!text || !sec || !focus || !raised) return null
   return SURFACES.map((k) => {
     const c = get(k)!
-    const track = blend(text, c, a('--tonal-a'))
+    const track = blend(text, c, a('--segment-track-a'))
     const thumb = blend(raised, track, a('--raised-a'))
     return {
       name: k.replace('--color-', ''),
       focus: contrastRatio(focus, c),
-      tonalLabel: contrastRatio(text, track),
+      tonalLabel: contrastRatio(text, blend(text, c, a('--tonal-a'))),
       thumbVsTrack: contrastRatio(thumb, track),
       selected: contrastRatio(text, thumb),
       unselected: contrastRatio(sec, track),
@@ -144,6 +156,44 @@ function layerStyle(v: 'default' | 'secondary' | 'ghost' | 'destructive', alpha:
 const FIELD_FOCUS_STATIC = 'border-brand-focus shadow-[inset_0_0_0_1px_rgb(var(--color-focus))]'
 const SEG_OPTIONS = [{ value: 'all', label: 'Todos' }, { value: 'buy', label: 'Comprar' }, { value: 'sell', label: 'Vender' }] as const
 
+
+/** Phase 3 tokens (selected, link): measured per surface in both themes. */
+function measurePrimitives(v: Record<string, string>) {
+  const res = (k: string): string => { const x = v[k] ?? ''; const m = x.match(/^var\((--[\w-]+)\)$/); return m ? res(m[1]) : x }
+  const get = (k: string) => parseTriplet(res(k))
+  const text = get('--color-text'), sec = get('--color-text-secondary'), blue = get('--color-selected'), link = get('--color-link')
+  if (!text || !sec || !blue || !link) return null
+  return SURFACES.map((k) => {
+    const c = get(k)!
+    const sel = blend(blue, c, Number(v['--selected-a'] ?? 0.12))
+    return { name: k.replace('--color-', ''), selText: contrastRatio(text, sel), selSec: contrastRatio(sec, sel), link: contrastRatio(link, c) }
+  })
+}
+
+const TABLE_ROWS = [
+  { id: 'a', seller: 'Kestrel Câmbio', price: 97800, trades: 312 },
+  { id: 'b', seller: 'Álvaro', price: 96900, trades: 158 },
+  { id: 'c', seller: 'Bob', price: 97450, trades: 21 },
+  { id: 'd', seller: 'Erin', price: 97600, trades: 3 },
+] as const
+type TableKey = 'seller' | 'price' | 'trades'
+const COMBO_OPTIONS = [
+  { value: 'BTC', label: 'Bitcoin (on-chain)', keywords: ['BTC'] },
+  { value: 'LN_BTC', label: 'Bitcoin (Lightning)', keywords: ['LN'] },
+  { value: 'USDT_LIQUID', label: 'USDT (Liquid)' },
+  { value: 'USDT_TRC20', label: 'USDT (TRC-20)' },
+  { value: 'DEPIX', label: 'DePix' },
+] as const
+type ComboValue = (typeof COMBO_OPTIONS)[number]['value']
+const ALERT_TONES: AlertTone[] = ['info', 'success', 'warning', 'danger']
+const TONAL_TRIGGER = 'inline-flex h-10 touch:min-h-11 items-center rounded-md bg-brand-tonal px-4 text-control font-medium text-brand-text state-layer'
+const STATIC_TOASTS = [
+  ['success', 'Chave pública copiada', 'text-brand-inverse-success', CheckCircle2],
+  ['info', 'Oferta publicada', 'text-brand-inverse-info', Info],
+  ['warning', 'Algumas ofertas podem não ter carregado', 'text-brand-inverse-warning', AlertTriangle],
+  ['danger', 'Não foi possível copiar', 'text-brand-inverse-danger', XCircle],
+] as const
+
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
     <section aria-labelledby={id} className="mt-8">
@@ -157,13 +207,20 @@ export function DesignSystemPreview() {
   const [vars, setVars] = useState<Vars | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [seg, setSeg] = useState<(typeof SEG_OPTIONS)[number]['value']>('all')
+  const [tab, setTab] = useState<'resumo' | 'evidencias' | 'decisao'>('resumo')
+  const [radio, setRadio] = useState('release')
+  const [sort, setSort] = useState<SortState<TableKey> | null>({ key: 'price', direction: 'ascending' })
+  const sortedRows = useMemo(() => sortRows(TABLE_ROWS, sort, (r, k) => r[k as TableKey]), [sort])
+  const [chips, setChips] = useState<string[]>(['PIX'])
+  const [combo, setCombo] = useState<ComboValue>('BTC')
+  const [comboMulti, setComboMulti] = useState<ComboValue[]>(['DEPIX'])
+  const [fav, setFav] = useState(false)
+  const onSort = (c: TableKey) => setSort((x) => nextSort(x, c))
   useEffect(() => setVars(readThemeVars()), [])
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
-      <div role="note" className="rounded-lg border border-brand-warning-border bg-brand-warning-bg px-4 py-3 text-sm text-brand-warning-fg">
-        Pré-visualização de desenvolvimento: proposta do Design System, aguardando homologação.
-      </div>
+      <Alert tone="warning">Pré-visualização de desenvolvimento: proposta do Design System, aguardando homologação.</Alert>
       <h1 className="mt-4 text-title text-brand-text">Sails Design System</h1>
       <p className="mt-1 text-body-sm text-brand-text-secondary">Tokens em src/index.css e tailwind.config.js; regras em packages/sails-ui/DESIGN_SYSTEM.md; guarda em tests/designSystemGuard.test.ts.</p>
 
@@ -414,6 +471,226 @@ export function DesignSystemPreview() {
           <div className="flex flex-wrap items-center gap-2"><span className="w-24 text-caption text-brand-text-muted">Oferta</span>{OFFER.map((s) => <OfferStatusBadge key={s} status={s} />)}</div>
           <div className="flex flex-wrap items-center gap-2"><span className="w-24 text-caption text-brand-text-muted">TONE_CLASS</span>{TONES.map((t) => <span key={t} className={`rounded-full border px-2 py-0.5 text-xs font-medium ${TONE_CLASS[t]}`}>{t}</span>)}</div>
         </div>
+      </Section>
+
+      <Section id="ds-primitives-tokens" title="Tokens novos: seleção, link, trilho do segmentado">
+        <div className="flex flex-wrap items-center gap-3 text-body-sm">
+          <span className="rounded-sm bg-brand-selected px-3 py-2 text-brand-text">Linha selecionada (bg-brand-selected)</span>
+          <a href="#ds-primitives-tokens" className="text-brand-link underline underline-offset-4">Link (text-brand-link)</a>
+          <SegmentedControl label="Exemplo de trilho" options={SEG_OPTIONS} value={seg} onChange={setSeg} />
+        </div>
+        <div className="mt-3 overflow-x-auto rounded-lg border border-brand-border-subtle">
+          <table className="w-full min-w-[36rem] text-body-sm">
+            <thead className="bg-brand-elevated text-left text-brand-text-secondary">
+              <tr>{['Tema', 'Superfície', 'Texto na seleção', 'Secundário na seleção', 'Link'].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {(['light', 'dark'] as const).flatMap((t) => (vars ? measurePrimitives({ ...vars.light, ...vars[t] }) ?? [] : []).map((m) => (
+                <tr key={t + m.name} className="border-t border-brand-border-subtle tabular-nums">
+                  <td className="px-3 py-2">{t === 'light' ? 'Claro' : 'Escuro'}</td>
+                  <td className="px-3 py-2">{m.name}</td>
+                  <td className="px-3 py-2"><Ratio value={m.selText} min={4.5} /></td>
+                  <td className="px-3 py-2"><Ratio value={m.selSec} min={4.5} /></td>
+                  <td className="px-3 py-2"><Ratio value={m.link} min={4.5} /></td>
+                </tr>
+              )))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Seleção = azul da marca a 12 % + um sinal que não é cor (check, rádio marcado, texto "selecionada"). Link = azul da marca; laranja não é link. O trilho do segmentado tem tom próprio, mais fundo no claro: o thumb branco se separa pelo preenchimento (coluna "Thumb vs trilho" em Foco e superfícies), além da sombra.</p>
+      </Section>
+
+      <Section id="ds-toast" title="Toast">
+        <div className="flex flex-wrap gap-3">
+          <Button variant="secondary" onClick={() => toast.success('Chave pública copiada')}>Sucesso</Button>
+          <Button variant="secondary" onClick={() => toast.info('Oferta publicada')}>Info</Button>
+          <Button variant="secondary" onClick={() => toast.warning('Algumas ofertas podem não ter carregado')}>Atenção</Button>
+          <Button variant="secondary" onClick={() => toast.error('Não foi possível copiar')}>Erro</Button>
+          <Button variant="secondary" onClick={() => toast('Filtros limpos', { action: { label: 'Desfazer', onClick: () => undefined } })}>Com ação</Button>
+        </div>
+        <div className="mt-3 grid max-w-md gap-2" aria-hidden="true">
+          {STATIC_TOASTS.map(([k, msg, c, Icon]) => (
+            <div key={k} className={TOAST_CLASS}>
+              <Icon className={`size-icon shrink-0 ${c}`} />
+              <span className="flex-1 py-1 font-medium">{msg}</span>
+            </div>
+          ))}
+          <div className={TOAST_CLASS}><span className="flex-1 py-1 font-medium">Filtros limpos</span><span className="px-2 text-control font-medium text-brand-inverse-link">Desfazer</span></div>
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Superfície inversa, sem borda, ícone por tom em cor própria para o inverso (4.12+:1), ação em link inverso (5.51+:1). Duração: 4 s confirmação, 6 s atenção/erro, 8 s com ação; erro e ação têm botão Fechar. Região aria-live polida; nunca rouba o foco. Entra e sai com os tokens de movimento. Confirma uma ação local; nunca é o único registro de uma mudança de estado do protocolo (CTO 437). Espécimes estáticos acima; os botões disparam o toast real.</p>
+      </Section>
+
+      <Section id="ds-tabs" title="Abas">
+        <div className="grid gap-6 md:grid-cols-2">
+          <div>
+            <p className="mb-2 text-caption text-brand-text-muted">Abas na página (role=tablist, setas, Home/End)</p>
+            <Tabs label="Exemplo de abas" idBase="ds-tabs" items={[{ value: 'resumo', label: 'Resumo' }, { value: 'evidencias', label: 'Evidências' }, { value: 'decisao', label: 'Decisão' }]} value={tab} onChange={setTab} />
+            <div {...tabPanelProps('ds-tabs', tab)} className="py-3 text-body-sm text-brand-text-secondary">Painel: {tab}</div>
+          </div>
+          <div>
+            <p className="mb-2 text-caption text-brand-text-muted">Estados (estático): ativa, inativa, foco</p>
+            <div className="flex gap-1 border-b border-brand-border-subtle" aria-hidden="true">
+              <span className={tabClass(true)}>Ativa</span>
+              <span className={tabClass(false)}>Inativa</span>
+              <span className={`${tabClass(false)} ${FOCUS_STATIC}`}>Foco</span>
+            </div>
+            <p className="mt-3 mb-2 text-caption text-brand-text-muted">Vertical (Configurações, md+)</p>
+            <div className="w-52" aria-hidden="true"><span className={tabClass(true, 'vertical')}>Aplicativo</span><span className={tabClass(false, 'vertical')}>Segurança</span></div>
+          </div>
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Duas espécies, um visual. Tabs trocam o painel na mesma página (Configurações md+). TabLinks navegam entre rotas (Trades: Ativos | Histórico): links com aria-current, Tab passa por eles como links. Ativa = texto principal + indicador laranja de 2 px ("você está aqui"); 40 px fino, 44 no toque. Para filtros use o segmentado.</p>
+      </Section>
+
+      <Section id="ds-menu" title="Menu">
+        <Menu>
+          <MenuTrigger className={TONAL_TRIGGER}>Abrir menu de exemplo</MenuTrigger>
+          <MenuContent label="Menu de exemplo" align="start">
+            <MenuLabel><span className="text-body-sm font-medium text-brand-text">Satoshi</span></MenuLabel>
+            <MenuSeparator />
+            <MenuItem><Copy aria-hidden="true" /> Copiar chave pública</MenuItem>
+            <MenuItem><UserIcon aria-hidden="true" /> Meu perfil</MenuItem>
+            <MenuItem><Settings aria-hidden="true" /> Configurações</MenuItem>
+            <MenuSeparator />
+            <MenuItem><LogOut aria-hidden="true" /> Desconectar</MenuItem>
+            <MenuItem destructive><Trash2 aria-hidden="true" /> Excluir rascunho</MenuItem>
+          </MenuContent>
+        </Menu>
+        <p className="mt-2 text-caption text-brand-text-muted">role=menu sobre o Popover do Radix: Enter, Espaço ou seta abrem e focam o primeiro item (seta para cima: o último); setas, Home/End e letras (typeahead) navegam; Tab e Esc fecham, o foco volta ao gatilho. Itens 32 px fino / 44 toque, ícone 16, foco = camada de 12 % (sem caixa dentro do menu). Destrutivo em danger-fg. Sair fica separado da navegação.</p>
+      </Section>
+
+      <Section id="ds-radio" title="Rádio e cartões de rádio">
+        <div className="grid gap-6 md:grid-cols-2">
+          <RadioGroup legend="Decisão (cartões)" listClassName="space-y-2">
+            {([['release', 'Liberar ao comprador', false], ['refund', 'Devolver ao vendedor', false], ['split', 'Dividir 50/50', true]] as const).map(([v, l, off]) => (
+              <RadioCard key={v} name="ds-radio" value={v} checked={!off && radio === v} disabled={off} onChange={() => setRadio(v)}>
+                <span>{l}{off && <span className="block font-normal text-brand-text-secondary">Indisponível neste escrow</span>}</span>
+              </RadioCard>
+            ))}
+          </RadioGroup>
+          <RadioGroup legend="Rádio simples">
+            <div className="space-y-2 text-body-sm text-brand-text">
+              <label className="flex min-h-11 items-center gap-2"><Radio name="ds-radio-plain" defaultChecked /> Marcado</label>
+              <label className="flex min-h-11 items-center gap-2"><Radio name="ds-radio-plain" /> Desmarcado</label>
+              <label className="flex min-h-11 items-center gap-2 text-brand-text-secondary"><Radio name="ds-radio-off" disabled /> Desativado</label>
+            </div>
+          </RadioGroup>
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Rádio nativo (setas, foco no marcado, "1 de 3" vêm do navegador), anel na cor secundária, marcado = azul da marca (escolhido, nunca laranja). Cartão: o cartão inteiro é o rótulo (44 px+), tonal sem contorno; selecionado = preenchimento de seleção + rádio marcado; foco pelo teclado = a própria borda do cartão (2 px). Uma escolha obrigatória num formulário; para filtros use o segmentado.</p>
+      </Section>
+
+      <Section id="ds-table" title="Tabela">
+        <div className="max-h-56 overflow-y-auto rounded-lg border border-brand-border-subtle bg-brand-surface">
+          <Table sticky className="min-w-[32rem]">
+            <caption className="sr-only">Ofertas de exemplo, ordenáveis</caption>
+            <TableHeader>
+              <tr>
+                <SortableTableHead column="seller" sort={sort} onSort={onSort}>Anunciante</SortableTableHead>
+                <SortableTableHead column="price" sort={sort} onSort={onSort} numeric>Preço (US$)</SortableTableHead>
+                <SortableTableHead column="trades" sort={sort} onSort={onSort} numeric>Trades</SortableTableHead>
+                <TableHead>Status</TableHead>
+              </tr>
+            </TableHeader>
+            <TableBody>
+              {[...sortedRows, ...sortedRows].map((r, i) => (
+                <TableRow key={r.id + i} interactive className={i === 1 ? 'bg-brand-selected' : undefined}>
+                  <TableCell className="text-body-sm text-brand-text">{r.seller}{i === 1 && <span className="sr-only"> (selecionada)</span>}</TableCell>
+                  <TableCell numeric className="text-body-sm text-brand-text">{r.price.toLocaleString('pt-BR')}</TableCell>
+                  <TableCell numeric className="text-body-sm text-brand-text-secondary">{r.trades}</TableCell>
+                  <TableCell><TradeStatusBadge status={i % 2 ? 'COMPLETED' : 'ACTIVE'} /></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        <div className="mt-3 overflow-hidden rounded-lg border border-brand-border-subtle bg-brand-surface">
+          <Table>
+            <TableHeader><tr><TableHead>Anunciante</TableHead><TableHead numeric>Preço</TableHead></tr></TableHeader>
+            <TableBody><TableEmpty colSpan={2} kind="empty" title="Nenhuma oferta com estes filtros" /></TableBody>
+          </Table>
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Cabeçalho caption 500 em muted, frase normal; fixo opcional (superfície a 95 % + desfoque). Coluna ordenável = botão dentro do th, aria-sort no th, ícone de setas; um clique ordena crescente, outro inverte (pt-BR, vazios no fim, estável). Números à direita e tabulares. Linha: uma linha fina, camada de estado no hover; selecionada = bg-brand-selected + texto "selecionada". Vazio/erro = StateBlock sem borda numa linha cheia. Abaixo de lg a tabela do Market vira linhas; Trades, Perfil e Disputas são listas-tabela (mesmo cabeçalho e linha: TABLE_HEAD_ROW, TABLE_ROW).</p>
+      </Section>
+
+      <Section id="ds-alert" title="Aviso (Alert)">
+        <div className="grid gap-3 md:grid-cols-2">
+          {ALERT_TONES.map((t) => <Alert key={t} tone={t} title={`Aviso ${t}`}>Texto do aviso no tom {t}: tint e ícone carregam o tom, o texto fica na cor principal.</Alert>)}
+          <Alert tone="warning" size="sm">Nota compacta (SafetyNote): guarde a senha; se perdê-la, não há como recuperar a chave.</Alert>
+          <Alert tone="info" title="Com ação" action={<Button size="sm" variant="secondary">Tentar de novo</Button>}>Algumas ofertas podem não ter carregado.</Alert>
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Tint do tom (base a 10 %) + ícone na base do tom, sem borda (nada de caixa dentro de caixa). Texto principal: 15.36+:1 claro, 10.80+:1 escuro em todo tint. Papel: note (estático), status (aparece: info, sucesso, atenção) ou alert (só perigo novo). Substitui os avisos soltos e o visual do SafetyNote (texto mantido).</p>
+      </Section>
+
+      <Section id="ds-progress" title="Progresso">
+        <div className="grid max-w-xl gap-4 text-caption text-brand-text-secondary">
+          {[0, 40, 100].map((v) => <div key={v}><p className="mb-1">Determinado {v} %</p><Progress value={v} label={`Exemplo ${v} %`} /></div>)}
+          <div><p className="mb-1">Indeterminado</p><Progress label="Enviando comprovante" /></div>
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Trilho de 4 px em border-subtle, indicador azul da marca (3.95+:1 contra o trilho, 4.74+:1 contra as superfícies). Determinado só para progresso medido de verdade (envio de arquivo); nunca uma porcentagem inventada para uma espera do protocolo. Indeterminado: a barra corre; com movimento reduzido fica parada e o rótulo diz que está trabalhando. Animação só por transform.</p>
+      </Section>
+
+      <Section id="ds-divider" title="Divisória">
+        <div className="max-w-md rounded-lg bg-brand-surface py-2 text-body-sm text-brand-text">
+          <p className="px-4 py-2">Linha de lista</p>
+          <Divider inset />
+          <p className="px-4 py-2">Divisória recuada (inset)</p>
+          <Divider />
+          <div className="flex items-center gap-3 px-4 py-2">Esquerda <Divider orientation="vertical" className="h-5" /> Direita</div>
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">1 px em border-subtle dentro de uma superfície (grupos de menu, seções de lista); decorativa por padrão, role=separator quando é uma quebra de verdade. Nunca a borda de uma caixa.</p>
+      </Section>
+
+      <Section id="ds-icon-button" title="Botão de ícone">
+        <div className="flex flex-wrap items-center gap-3">
+          <IconButton label="Atualizar"><RefreshCw aria-hidden="true" /></IconButton>
+          <IconButton label="Atualizar (tonal)" variant="tonal"><RefreshCw aria-hidden="true" /></IconButton>
+          <IconButton label="Favoritar este vendedor" pressed={fav} onClick={() => setFav((f) => !f)}><Star aria-hidden="true" fill={fav ? 'currentColor' : 'none'} /></IconButton>
+          <IconButton label="Favorito (ligado)" pressed><Heart aria-hidden="true" fill="currentColor" /></IconButton>
+          <IconButton label="Indisponível: requer 3 trades" aria-disabled><Heart aria-hidden="true" /></IconButton>
+          <IconButton label="Enviando" loading><RefreshCw aria-hidden="true" /></IconButton>
+          <IconButton label="Pequeno" size="sm"><Copy aria-hidden="true" /></IconButton>
+          <span className={`inline-flex size-9 items-center justify-center rounded-md text-brand-text-secondary ${FOCUS_STATIC}`} aria-hidden="true"><RefreshCw className="size-icon" /></span>
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Rótulo obrigatório: vira o nome acessível e a dica (tooltip no hover e no foco; title= é proibido pelo guard). 36 px fino (sm 32), 44 no toque. Ghost ou tonal; alternância com aria-pressed, ligado = ícone azul (escolhido). Indisponível usa aria-disabled para manter a dica e o foco; carregando = spinner, aria-busy. O último é o foco estático.</p>
+      </Section>
+
+      <Section id="ds-chips" title="Chips de filtro">
+        <div className="flex flex-wrap items-center gap-2">
+          {['PIX', 'TED', 'Wise'].map((m) => (
+            <FilterChip key={m} label={m} selected={chips.includes(m)} onToggle={() => setChips((c) => (c.includes(m) ? c.filter((x) => x !== m) : [...c, m]))} />
+          ))}
+          <Divider orientation="vertical" className="h-6" />
+          {chips.map((m) => <FilterChip key={m} label={m} onClear={() => setChips((c) => c.filter((x) => x !== m))} clearLabel={`Remover filtro ${m}`} />)}
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Tonal, sem borda (é um gatilho, não um campo). Alternância (aria-pressed): selecionado = checked a 12 % + check + texto azul (5.21+:1 claro, 4.60+:1 escuro). Filtro aplicado: rótulo + botão próprio de remover ("Remover filtro PIX"). 32 px fino / 44 toque.</p>
+      </Section>
+
+      <Section id="ds-combobox" title="Combobox (seleção com busca)">
+        <div className="flex flex-wrap items-center gap-3">
+          <Combobox
+            label="Ativo de exemplo"
+            valueText={COMBO_OPTIONS.find((o) => o.value === combo)!.label}
+            options={COMBO_OPTIONS}
+            selected={[combo]}
+            onSelect={setCombo}
+            trigger={<span className="font-medium">{COMBO_OPTIONS.find((o) => o.value === combo)!.label}</span>}
+            triggerClassName="min-w-[12rem]"
+            searchPlaceholder="Buscar ativo…"
+            emptyText={(q) => `Nada encontrado para “${q}”`}
+          />
+          <Combobox
+            multiple
+            label="Vários de exemplo"
+            valueText={`${comboMulti.length} ${comboMulti.length === 1 ? 'selecionado' : 'selecionados'}`}
+            options={COMBO_OPTIONS}
+            selected={comboMulti}
+            onSelect={(v) => setComboMulti((c) => (c.includes(v) ? c.filter((x) => x !== v) : [...c, v]))}
+            trigger={<span className={comboMulti.length ? 'font-medium text-brand-blue-fg' : ''}>{comboMulti.length} {comboMulti.length === 1 ? 'selecionado' : 'selecionados'}</span>}
+            triggerClassName="min-w-[10rem]"
+            searchPlaceholder="Buscar…"
+            emptyText={(q) => `Nada encontrado para “${q}”`}
+          />
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Gatilho = chip de campo + seta; o nome diz o valor ("Ativo: Bitcoin"). Lista no floating: busca com role=combobox que mantém o foco, setas movem a opção ativa (aria-activedescendant, camada de 12 %), Enter escolhe, Esc fecha. Busca ignora maiúsculas e acentos e acha pelo código. Escolha única fecha; múltipla fica aberta. Selecionado = preenchimento de seleção + check azul. Substitui os seletores de Ativo, Moeda e Pagamento.</p>
       </Section>
 
       <Section id="ds-states" title="Estados (StateBlock)">

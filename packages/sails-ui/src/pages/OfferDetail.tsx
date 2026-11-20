@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
-import { toast } from 'sonner'
+import { toast } from '../components/ui/toast'
 import { PaymentBadge } from '../components/ui/StatusBadges'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { FavoriteButton } from '../components/ui/FavoriteButton'
@@ -10,7 +10,8 @@ import { Input } from '../components/ui/input'
 import { cn } from '../lib/utils'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { StateBlock } from '../components/ui/StateBlock'
-import { ArrowLeft, Check, Lock, AlertTriangle, SearchX } from 'lucide-react'
+import { ArrowLeft, Check, Lock, SearchX } from 'lucide-react'
+import { Alert } from '../components/ui/alert'
 import { formatAmount } from '../lib/format'
 import { formatByCurrency, formatPrice } from '../lib/currency'
 import { sailsClient } from '../lib/sailsClient'
@@ -289,14 +290,13 @@ export function OfferDetail() {
               {/* HodlHodl/Binance P2P both show this caution before a first trade with a brand-new
                   counterparty: real data (offer.seller.totalTrades), a real 0 means no completed trades yet. */}
               {offer.seller.totalTrades === 0 && (
-                <div className="mt-3 bg-brand-warning-bg rounded-md p-3 text-xs text-brand-warning-fg flex items-start gap-2">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
-                  <span>Este vendedor ainda não concluiu nenhum trade — negocie com cautela, especialmente em valores maiores.</span>
-                </div>
+                <Alert tone="warning" size="sm" className="mt-3">
+                  Este vendedor ainda não concluiu nenhum trade — negocie com cautela, especialmente em valores maiores.
+                </Alert>
               )}
 
-              <Button onClick={handleStartTrade} disabled={startingTrade} className="mt-4 w-full min-h-11 md:min-h-10">
-                {startingTrade ? 'Iniciando...' : 'Iniciar trade'}
+              <Button onClick={handleStartTrade} loading={startingTrade} className="mt-4 w-full min-h-11 md:min-h-10">
+                {startingTrade ? 'Iniciando…' : 'Iniciar trade'}
               </Button>
             </Card>
           )}

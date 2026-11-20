@@ -52,7 +52,7 @@ export function CurrentActionCard({ view, acting, onAction, onOpenDispute, child
       {(view.primary || view.canDispute) && (
         <div className="mt-4 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between">
           {view.primary && PrimaryIcon && (
-            <Button onClick={() => onAction(view.primary!.action)} disabled={acting} className="w-full sm:w-auto min-h-11 px-5 py-2.5 text-sm">
+            <Button onClick={() => onAction(view.primary!.action)} loading={acting} className="w-full sm:w-auto min-h-11 px-5 py-2.5 text-sm">
               <PrimaryIcon className="h-4 w-4" aria-hidden="true" />
               {view.primary.label}
             </Button>

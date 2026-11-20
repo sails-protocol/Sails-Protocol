@@ -69,6 +69,15 @@ export default {
           'on-checked': 'rgb(var(--color-on-checked) / <alpha-value>)',
           'disabled-container': 'rgb(var(--color-text) / var(--disabled-container-a))',
           'disabled-content': 'rgb(var(--color-text) / var(--disabled-content-a))',
+          // Primitives (DESIGN_SYSTEM.md 5.3+): selection, links, segmented track, toast.
+          selected: 'rgb(var(--color-selected) / var(--selected-a))',
+          link: 'rgb(var(--color-link) / <alpha-value>)',
+          'segment-track': 'rgb(var(--color-text) / var(--segment-track-a))',
+          'inverse-link': 'rgb(var(--color-inverse-link) / <alpha-value>)',
+          'inverse-success': 'rgb(var(--color-inverse-success) / <alpha-value>)',
+          'inverse-info': 'rgb(var(--color-inverse-info) / <alpha-value>)',
+          'inverse-warning': 'rgb(var(--color-inverse-warning) / <alpha-value>)',
+          'inverse-danger': 'rgb(var(--color-inverse-danger) / <alpha-value>)',
         },
         // Asset identity (AssetIcon only): bg-asset-btc/15 text-asset-btc.
         asset: Object.fromEntries(

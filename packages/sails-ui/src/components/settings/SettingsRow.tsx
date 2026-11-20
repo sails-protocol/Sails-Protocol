@@ -3,20 +3,29 @@ import { ChevronRight, type LucideIcon } from 'lucide-react'
 import { Badge } from '../ui/badge'
 import { Card } from '../ui/card'
 import { cn } from '../../lib/utils'
+import { tabPanelProps } from '../ui/tabs'
 
 /**
  * One settings group: heading + list of rows. All copy comes from the caller
  * (no hardcoded language); styled only through brand tokens.
  */
-export function SettingsGroup({ id, title, icon: Icon, children, className }: {
+export function SettingsGroup({ id, title, icon: Icon, children, className, panelOf }: {
   id: string
   title: string
   icon: LucideIcon
   children: ReactNode
   className?: string
+  /** idBase of the Tabs that switch this group: renders it as that tab's panel. */
+  panelOf?: string
 }) {
+  const panel = panelOf ? tabPanelProps(panelOf, id) : null
   return (
-    <section id={id} aria-labelledby={`${id}-title`} className={className}>
+    <section
+      id={panel?.id ?? id}
+      role={panel?.role}
+      aria-labelledby={`${id}-title`}
+      className={className}
+    >
       <h2 id={`${id}-title`} className="text-section-title flex items-center gap-2 mb-3">
         <Icon className="h-4 w-4 text-brand-text-muted" aria-hidden="true" />
         {title}

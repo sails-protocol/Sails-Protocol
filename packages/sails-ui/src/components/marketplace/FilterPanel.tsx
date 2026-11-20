@@ -27,13 +27,13 @@ import {
 import { countActiveFilters } from '../../lib/filters'
 import { InfoTooltip } from '../ui/InfoTooltip'
 import { Button } from '../ui/button'
-import { badgeVariants } from '../ui/badge'
 import { Input } from '../ui/input'
 import { Switch } from '../ui/switch'
 import { Checkbox } from '../ui/checkbox'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select'
-import { cn } from '../../lib/utils'
 import { Sheet, SheetContent, SheetTitle } from '../ui/sheet'
+import { IconButton } from '../ui/icon-button'
+import { FilterChip } from '../ui/filter-chip'
 import { Search, ChevronDown, ChevronUp, X, ArrowLeft, SlidersHorizontal } from 'lucide-react'
 import { DEFAULT_FILTERS } from '../../types'
 
@@ -132,21 +132,13 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
               target rule; the icon stays visually 20px, only the hit
               area grows. -ml-2.5 keeps the icon itself visually aligned
               with the content below despite the larger tap target. */}
-          <button
-            onClick={cancelAndClose}
-            aria-label="Voltar"
-            className="sm:hidden -ml-2.5 h-11 w-11 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text state-layer"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </button>
+          <IconButton label="Voltar" onClick={cancelAndClose} className="sm:hidden -ml-2.5">
+            <ArrowLeft aria-hidden="true" />
+          </IconButton>
           <SheetTitle className="flex-1">Filtros avançados</SheetTitle>
-          <button
-            onClick={cancelAndClose}
-            aria-label="Fechar"
-            className="hidden sm:flex h-8 w-8 items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text state-layer"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <IconButton label="Fechar" size="sm" onClick={cancelAndClose} className="hidden sm:inline-flex">
+            <X aria-hidden="true" />
+          </IconButton>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
@@ -163,7 +155,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
                 <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
                 {activeCount} {activeCount === 1 ? 'filtro ativo' : 'filtros ativos'}
               </span>
-              <button onClick={clearDraft} className="text-brand-orange-accent hover:underline font-medium">
+              <button type="button" onClick={clearDraft} className="text-brand-link hover:underline underline-offset-4 font-medium">
                 Limpar tudo
               </button>
             </div>
@@ -203,15 +195,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
             />
             <div className="flex gap-1.5 flex-wrap">
               {AMOUNT_PRESETS[currency].map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  aria-pressed={draft.amount === String(preset)}
-                  onClick={() => set('amount', String(preset))}
-                  className={cn(badgeVariants({ variant: draft.amount === String(preset) ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
-                >
-                  {formatByCurrency(preset, currency)}
-                </button>
+                <FilterChip key={preset} label={formatByCurrency(preset, currency)} selected={draft.amount === String(preset)} onToggle={() => set('amount', String(preset))} />
               ))}
             </div>
           </Section>
@@ -244,15 +228,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
           <Section title="Ordenação" last>
             <div className="flex gap-1.5 flex-wrap">
               {SORT_OPTIONS.map((s) => (
-                <button
-                  key={s.value}
-                  type="button"
-                  aria-pressed={draft.sortBy === s.value}
-                  onClick={() => set('sortBy', s.value)}
-                  className={cn(badgeVariants({ variant: draft.sortBy === s.value ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
-                >
-                  {s.label}
-                </button>
+                <FilterChip key={s.value} label={s.label} selected={draft.sortBy === s.value} onToggle={() => set('sortBy', s.value)} />
               ))}
             </div>
           </Section>
@@ -334,17 +310,14 @@ function PaymentMethodSection({
     return map
   }, [filteredRemaining])
 
-  const Chip = ({ m }: { m: PaymentMethod }) => (
-    <button
-      type="button"
-      aria-pressed={selectedSet.has(m)}
-      onClick={() => onToggle(m)}
-      className={cn(badgeVariants({ variant: selectedSet.has(m) ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
-    >
-      {PAYMENT_METHOD_LABELS[m]}
-      {selectedSet.has(m) && <X className="h-3 w-3" />}
-    </button>
-  )
+  // FilterChip (DESIGN_SYSTEM.md 5.12): applied methods are active chips with their own remove
+  // button; every other method is a toggle chip. Selected = blue (chosen), never orange.
+  const Chip = ({ m }: { m: PaymentMethod }) =>
+    selectedSet.has(m) ? (
+      <FilterChip label={PAYMENT_METHOD_LABELS[m]} onClear={() => onToggle(m)} clearLabel={`Remover filtro ${PAYMENT_METHOD_LABELS[m]}`} />
+    ) : (
+      <FilterChip label={PAYMENT_METHOD_LABELS[m]} onToggle={() => onToggle(m)} />
+    )
 
   return (
     <div>

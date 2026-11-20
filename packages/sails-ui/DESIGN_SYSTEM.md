@@ -57,6 +57,13 @@ Regras:
 - **Tons de escrow** (**provisório — ratificação pendente**): `COMPLETED` = neutro (CTO 437: escrow
   concluído ≠ finalidade de liquidação; igual ao chip de `tradeState`),
   `EXPIRED` = atenção, `SPLIT` = neutro. Neutro usa borda sutil, como os outros tons.
+- **Trade `COMPLETED` = neutro** (**provisório — ratificação pendente**, 2026-11-20, CTO 437):
+  igual ao escrow `COMPLETED`. "Concluído" é o estado do registro, não uma
+  afirmação de finalidade de liquidação, então não leva o verde de sucesso; o
+  ícone de check e o rótulo carregam o estado. Era sucesso (verde).
+- **Seleção ≠ marcado ≠ link** (fase 3): linha/opção selecionada = `bg-brand-selected`
+  (azul da marca a 12 %) + sinal que não é cor (check, rádio, texto); link =
+  `text-brand-link` (azul da marca). Laranja nunca é link nem seleção.
 
 ### 2.1 Estrutura de cada papel
 
@@ -218,7 +225,7 @@ interno maior que o do container. `rounded-2xl/3xl` saíram (guard).
 | 1 | `surface` | — | `border-subtle` só sobre `bg` | cards, sidebar, bottom nav, contêiner de tabela |
 | 1 fixo | `bg` 90 % + blur | — | hairline inferior | barra do topo |
 | 2 | `floating` (novo) | `elevation-2` | `border-subtle` | popover, menu, lista do select |
-| 2 inverso | `inverse` (novo) | `elevation-2` | — | tooltip (toast na fase 3) |
+| 2 inverso | `inverse` | `elevation-2` | — | tooltip, toast |
 | 3 | `surface` | `elevation-3` | `border-subtle` | diálogo, sheet, overlay da sidebar |
 | thumb | `raised` | `elevation-1` | — | thumb do segmentado e do switch |
 
@@ -264,6 +271,7 @@ toda animação e transição fica instantânea (regra global), spinners só gir
 | `StateBlock` | loading / empty / error / signedOut em toda superfície de conteúdo | spinner solto, tela vazia sem saída |
 | `ConfirmActionDialog` | toda ação irreversível: resumo, consequência, avisos; foco inicial em Cancelar | confirmar com Enter por acidente |
 | `SegmentedControl`, `.toolbar-chip`, `Select`, `Popover`, `Sheet`, `Dialog`, `Tooltip`, `Checkbox`, `Switch` | seletores, menus, filtros, modais; tooltip inverso; marcado em azul | criar variantes paralelas |
+| `Toast`, `Tabs`/`TabLinks`, `Menu`, `RadioGroup`/`RadioCard`, `Table`, `Alert`, `Progress`, `Divider`, `IconButton`, `FilterChip`, `Combobox` (5.3) | o primitivo correspondente | menu, abas, rádio, listbox ou toast feitos à mão; `title=` em botão |
 | Foco | automático: `:focus-visible` global (botões, links, linhas); `field-focus` em campos (ver 5.1) | `ring-offset-*`; `outline-none` sem substituto |
 
 ### 5.1 Superfícies, botões e foco (2026-11-20)
@@ -286,7 +294,7 @@ Diálogo, popover, select e tooltip: superfície + `border-brand-border-subtle` 
 | `secondary` (= `outline`, alias mantido) | **tonal**: preenchido um passo acima da superfície onde está (`bg-brand-tonal`, cor do texto a 8% no escuro / 7% no claro), sem contorno, texto principal | ações de apoio: Voltar, Tentar de novo, Limpar, Comprar/Vender na linha do Market |
 | `ghost` | sem preenchimento até o hover | baixa ênfase: ações de toolbar, "Detalhes" |
 | `destructive` | sólido danger | ação destrutiva (sempre via `ConfirmActionDialog`) |
-| `link` | texto `orange-accent` (AA no claro) sublinhado no hover | navegação dentro do texto |
+| `link` | texto `brand-link` (azul da marca; 6.15+ claro, 5.67+ escuro) sublinhado no hover (era laranja: laranja = agir) | navegação dentro do texto |
 
 Estados: hover e pressionado são camadas de estado, desativado e carregando são
 distintos (ver 5.2). Tamanhos: 40 / `sm` 36 / `lg` 44 com ponteiro fino; `touch:`
@@ -309,7 +317,13 @@ preenchimento, elevação, cor e peso juntos, mais `aria-pressed`. Medido
 | Tema | thumb vs trilho | selecionado (texto/thumb) | não selecionado (secundário/trilho) | texto sel. vs não sel. |
 |---|---|---|---|---|
 | Escuro | 1.51–1.54 | 7.05–9.37 | 5.22–7.03 | 2.03 |
-| Claro | 1.16–1.26 | 19.80 | 6.20–6.73 | 2.53 |
+| Claro | **1.50–1.62** (era 1.16–1.26) | 19.80 | 4.82–5.22 (era 6.20–6.73) | 2.53 |
+
+Trilho com tom próprio (fase 3): `bg-brand-segment-track` = texto a
+`--segment-track-a` (claro 0.18, escuro 0.08 = o tonal). No claro o thumb
+branco agora se separa pelo preenchimento (≥ 1.5) e mantém a sombra
+`elevation-1`; sem anel, sem caixa. Medido trilho vs container: claro
+1.49–1.50, escuro 1.21–1.26.
 
 **Foco:** token `--color-focus` = cor do texto (#F5F7FA escuro, #0A0A0A claro).
 Não é token de marca do white-label (acessibilidade é travada). Escolhido em vez
@@ -339,7 +353,7 @@ pressed` da fase 1).
 | Estado | Opacidade | Onde |
 |---|---|---|
 | hover | `--state-hover-a` 0.08 | só com ponteiro que tem hover (`@media (hover: hover)`: um toque não deixa hover preso) |
-| foco | `--state-focus-a` 0.12 | só dentro de widgets compostos sem outline (itens de listbox: `focus:bg-brand-tonal`) |
+| foco | `--state-focus-a` 0.12 | só dentro de widgets compostos sem outline: utilitário `state-focus` (item de menu em `:focus-visible`, opção ativa do combobox em `data-active`) |
 | pressionado | `--state-pressed-a` 0.12 | `:active`, todo elemento, inclusive sólidos |
 | arrastado | `--state-dragged-a` 0.16 | reservado (sem arrastar hoje) |
 
@@ -363,6 +377,161 @@ rótulo fica invisível mas segue no nome acessível; spinner `motion-safe` por
 cima), `aria-busy="true"`, cliques ignorados. Nunca parece desativado: num fluxo
 de protocolo a ação está **em andamento**, não recusada. O texto do rótulo, se
 mudar, usa o gerúndio do que está acontecendo, nunca diz que terminou (CTO 437).
+Com várias ações que compartilham um `acting` (cartão de assinatura, painel de
+disputa): o botão clicado fica `loading`, os outros ficam `disabled` enquanto
+isso (bloqueados, não em andamento): `busyProps(acting, running, key)` em
+`lib/busy.ts`. Cancelar de uma confirmação em andamento continua `disabled`.
+
+### 5.3 Primitivos (fase 3, **provisório — ratificação pendente**, 2026-11-20)
+
+Todos em `src/components/ui/`, texto só por props, só tokens, espécime com
+todos os estados em `/dev/design-system`. Sem dependência nova: Radix Popover
+(já instalado) dá posição, Esc, clique fora e volta do foco para Menu e
+Combobox; Tabs, RadioGroup, Table, Progress, Divider e Chip são HTML nativo.
+Contraste: `ui-refs/ds-primitives-2026-11-20/contrast.cjs`.
+
+#### Toast (`ui/toast.tsx`, sobre o sonner já usado)
+- **Anatomia:** superfície `inverse` + `elevation-2`, **sem borda**, raio 6;
+  ícone por tom (sucesso, info, atenção, erro) nas cores `inverse-*`; título
+  `text-body-sm` 500; ação opcional em `inverse-link`; botão Fechar.
+- **Tamanhos:** largura do sonner (356), ação e Fechar 36 fino / 44 toque.
+- **Comportamento:** `toast.success/info/warning/error(...)` importado de
+  `ui/toast` (o guard proíbe importar de `sonner`). Duração (`lib/toast.ts`):
+  4 s confirmação, 6 s atenção/erro, 8 s com ação; erro e ação têm Fechar. No
+  máximo 3 empilhados; topo no móvel, canto inferior direito no desktop.
+- **A11y:** região `aria-live="polite"`; nunca rouba o foco; Fechar em pt-BR.
+  Movimento: transform/opacity com `duration-medium` + `easing-decelerate`;
+  instantâneo com movimento reduzido.
+- **Contraste:** texto 13.42 (claro) / 15.28 (escuro); ícones no claro 5.21–8.63,
+  no escuro 4.12–5.51; link 5.67 / 5.51.
+- **Use** para confirmar uma ação local ("Chave pública copiada"). **Não use**
+  como único registro de mudança de estado do protocolo (CTO 437): ela aparece
+  na timeline/status; o toast diz o que foi registrado, nunca "Pago!".
+
+#### Abas (`ui/tabs.tsx`)
+- **Duas espécies, um visual:** `Tabs` (na página: `role=tablist/tab/tabpanel`,
+  `aria-selected`, `aria-controls`, tabindex rotativo, setas Esquerda/Direita
+  ou Cima/Baixo na vertical, Home/End, seleção segue o foco; `tabPanelProps`
+  liga o painel) e `TabLinks` (rotas: `nav` de links com `aria-current="page"`).
+- **Anatomia:** rótulo `text-control` 500; ativa = texto principal + indicador
+  laranja 2 px (horizontal: sublinhado; vertical: barra à esquerda + tint 10 %);
+  inativa = texto secundário; hairline `border-subtle` sob a faixa horizontal.
+- **Tamanhos:** 40 fino / 44 toque (vertical 36 / 44).
+- **Onde:** Configurações md+ = `Tabs` verticais (trocam a seção, a URL fica;
+  abaixo de md a mesma navegação é uma lista que abre a seção). Trades
+  (Ativos | Histórico) = `TabLinks` (cada aba é uma URL). **Não use** para
+  filtros (segmentado).
+
+#### Menu (`ui/menu.tsx`)
+- **Anatomia:** `floating`, `elevation-2`, borda sutil, raio 6, padding 4;
+  itens 32 fino / 44 toque com ícone 16 + rótulo; `MenuSeparator` (Divider),
+  `MenuLabel` (cabeçalho não interativo); item `destructive` em `danger-fg`.
+- **Teclado:** Enter/Espaço/seta abaixo abrem no primeiro item, seta acima no
+  último; setas, Home/End, typeahead (letras em 500 ms formam um prefixo); Tab e
+  Esc fecham, o foco volta ao gatilho. Item-link ativa também com Espaço.
+- **Estados:** hover 8 %, foco 12 % (`state-focus`, sem outline dentro do menu),
+  pressionado 12 %.
+- **Use** para comandos (AccountMenu). `role="menu"` fora do primitivo falha no
+  guard. **Não use** para navegação principal nem para escolher um valor
+  (Combobox/Select).
+
+#### RadioGroup e cartões de rádio (`ui/radio-group.tsx`)
+- **Anatomia:** `fieldset` + `legend` (pode ser sr-only) + descrição;
+  `Radio` = rádio nativo de 18 px, anel 2 px na cor secundária, marcado = anel e
+  ponto azul (`checked`, nunca laranja). `RadioCard` = o cartão inteiro é o
+  rótulo (≥ 44 px), tonal sem contorno; selecionado = `bg-brand-selected` +
+  rádio marcado (+ peso 500); desativado = recipiente 12 % e texto secundário,
+  com o motivo ligado por `aria-describedby`.
+- **A11y:** setas, Tab para o marcado e "1 de 3" vêm do navegador; foco pelo
+  teclado = a borda do próprio cartão (`field-focus-within`, 2 px).
+- **Onde:** estilo dos avatares (Configurações), decisão da disputa (Disputas).
+  **Não use** para filtros (segmentado) nem para ligar/desligar (Switch).
+
+#### Tabela (`ui/table.tsx`)
+- **Anatomia:** `Table`, `TableHeader` (fixo com `sticky`: superfície 95 % +
+  desfoque), `TableHead` (caption 500 muted, frase normal), `SortableTableHead`
+  (botão dentro do `th`, `aria-sort` no `th`, ícone ↕ / ↑ / ↓), `TableRow`
+  (hairline; `interactive` = camada de estado), `TableCell` (`numeric` = direita
+  + tabular), `TableEmpty` (StateBlock sem borda numa linha cheia).
+- **Ordenação:** `lib/sort.ts` (`nextSort`, `ariaSort`, `sortRows`: pt-BR,
+  numérica, estável, vazios no fim; testado).
+- **Listas-tabela:** Trades (Ativos/Histórico), Perfil (ofertas) e Disputas são
+  listas que viram linhas abaixo de lg/xl; mantêm semântica de lista e usam o
+  mesmo cabeçalho e linha (`TABLE_HEAD_ROW`, `TABLE_ROW`,
+  `TABLE_ROW_INTERACTIVE`). OfferTable (Market ≥ lg) é a `<table>` real.
+  Colunas e comportamento não mudaram; nenhuma tela ganhou ordenação nova.
+- **Não faça:** animação em linha, borda em volta de cada célula.
+
+#### Aviso inline (`ui/alert.tsx`, `Alert`)
+- **Anatomia:** tint do tom (base/10) + ícone 16 na base do tom, **sem borda**,
+  raio 6; título opcional 500; corpo na cor principal; ação opcional.
+  `size="sm"` = caption (notas em formulários e cartões).
+- **Tons:** info, success, warning, danger. Texto 15.36+ (claro) / 10.80+
+  (escuro) em todo tint; ícone 4.04+ / 4.52+.
+- **Papel:** `note` (estático), `live` = `status` (info/sucesso/atenção) ou
+  `alert` (perigo novo).
+- **Onde:** `SafetyNote` (agora um Alert `sm`, texto mantido), falha parcial do
+  Market, aviso de vendedor novo (Oferta), disputa aberta (Trade); os avisos do
+  `ConfirmActionDialog`, do cartão de assinatura e do chat perderam a borda.
+
+#### Progresso linear (`ui/progress.tsx`)
+- Trilho 4 px `border-subtle`, indicador azul da marca (3.95+ contra o trilho,
+  4.74+ contra as superfícies). Determinado (`value`, `aria-valuenow`) só para
+  progresso medido; indeterminado (sem `value`) para espera sem duração.
+  Movimento só por transform; com movimento reduzido a barra fica parada.
+  **Nunca** uma porcentagem inventada para espera do protocolo (CTO 437).
+
+#### Divisória (`ui/divider.tsx`)
+- 1 px `border-subtle`, horizontal, vertical ou recuada (`inset`); decorativa
+  (`role=none`) ou `semantic` (`role=separator`). Usada no Menu e no Combobox.
+  Nunca a borda de uma caixa.
+
+#### Botão de ícone (`ui/icon-button.tsx`)
+- **Regra:** `label` obrigatório = nome acessível **e** tooltip (hover e foco).
+  `title=` em botão falha no guard.
+- **Tamanhos:** `md` 36 (ícone 20), `sm` 32 (ícone 16), 44 no toque.
+- **Variantes:** ghost (padrão), tonal; alternância `pressed` (`aria-pressed`,
+  ligado = ícone azul); `loading` (spinner, `aria-busy`); indisponível com
+  `aria-disabled` (mantém foco e dica).
+- **Onde:** Favoritar, Avalizar (o motivo de indisponível agora é a dica, não
+  um `title`), fechar/voltar dos filtros.
+
+#### Chip de filtro (`ui/filter-chip.tsx`)
+- Tonal, sem borda, `rounded-full`, 32 fino / 44 toque. Alternância (`onToggle`,
+  `aria-pressed`): selecionado = `checked` a 12 % + check + texto `blue-fg`
+  (5.21+ claro, 4.60+ escuro). Filtro aplicado (`onClear`): rótulo + botão
+  próprio de remover (`clearLabel`, "Remover filtro PIX").
+- **Onde:** Filtros avançados do Market (métodos selecionados = chips com
+  remover; sugeridos, valores e ordenação = alternância). Era o badge laranja.
+
+#### Combobox (`ui/combobox.tsx`)
+- **Anatomia:** gatilho `.toolbar-chip` + seta, nome = rótulo + valor ("Ativo:
+  Bitcoin"), `aria-haspopup=listbox`; lista no `floating`: linha de busca sem
+  caixa própria (a borda do popup é a fronteira; Divider abaixo), opções 32 fino
+  / 44 toque com visual à esquerda, detalhe e check azul à direita; selecionada
+  = `bg-brand-selected`. Rodapé opcional ("Limpar seleção").
+- **Teclado:** a busca (`role=combobox`, `aria-activedescendant`) mantém o foco;
+  setas movem a opção ativa (camada 12 %), Enter escolhe, Esc fecha; seta no
+  gatilho abre. Busca sem caixa e sem acento, também pelo código
+  (`lib/combobox.ts`, testado). Única fecha ao escolher; `multiple` fica aberta
+  (`aria-multiselectable`).
+- **Onde:** AssetPicker, CurrencyPicker (ganhou busca), PaymentMethodPicker.
+  Mesmas opções, mesmos rótulos, mesmo "Todos". Valor ativo de filtro em azul
+  (escolhido), não laranja.
+
+#### Tokens novos
+
+| Token | Claro | Escuro | Medido |
+|---|---|---|---|
+| `--color-selected` / `bg-brand-selected` | azul da marca a 12 % | idem | texto 15.40–16.73 / 10.91–14.43; secundário 6.08–6.60 / 5.36–7.09 |
+| `--color-link` / `text-brand-link` | = `brand-blue-fg` #1D4ED8 | #60A5FA | 6.42 / 6.70 / 6.15 · 7.31 / 6.42 / 5.67 |
+| `--segment-track-a` / `bg-brand-segment-track` | 0.18 | 0.08 | thumb vs trilho 1.50–1.62 / 1.51–1.54 |
+| `--color-inverse-link` | #60A5FA | #1D4ED8 | 5.67 / 5.51 no inverso |
+| `--color-inverse-{success,info,warning,danger}` | tons do escuro | tons do claro | 5.21–8.63 / 4.12–5.51 no inverso |
+
+Seleção e link seguem o azul da marca (white-label pode trocá-lo, com o
+contraste acima como piso); os `inverse-*` de status são travados como os
+outros status.
 
 ## 6. Guarda e exceções
 
@@ -379,7 +548,12 @@ mudar, usa o gerúndio do que está acontecendo, nunca diz que terminou (CTO 437
 - sombras cruas `shadow-sm/md/lg/xl/2xl/inner` (use `shadow-elevation-1/2/3`);
 - scrims crus `bg-black/NN`, `bg-white/NN` (use `bg-scrim`);
 - raios `rounded-2xl/3xl`;
-- `duration-NNN` e `ease-in/out/in-out/linear` crus (use os tokens de movimento).
+- `duration-NNN` e `ease-in/out/in-out/linear` crus (use os tokens de movimento);
+- (fase 3) `role="menu"`/`menuitem` fora de `ui/menu.tsx`; `role="tablist"`/`tab`/`tabpanel`
+  fora de `ui/tabs.tsx`; `type="radio"`/`role="radio(group)"` fora de
+  `ui/radio-group.tsx`; `role="listbox"`/`combobox`/`option` fora de
+  `ui/combobox.tsx`; `role="progressbar"` fora de `ui/progress.tsx`; import de
+  `sonner` fora de `ui/toast.tsx`; `title=` em `<button>`/`<Button>` (use `IconButton`).
 
 Exceção: comentário `ds-allow: <motivo>` na própria linha (`// ds-allow: ...`
 ou `{/* ds-allow: ... */}`). O teste limita o total a 2; aumentar exige
@@ -419,6 +593,7 @@ emoji; rótulo de fechar em pt-BR ("Fechar").
 ## 8. Checklist para agentes e builders
 
 - [ ] Reusei um componente existente antes de criar um novo.
+- [ ] Menu, abas, rádio, tabela, aviso, combobox, chip, toast e botão de ícone vêm dos primitivos (5.3); nada de `title=` em botão.
 - [ ] Só tokens: nenhuma cor de paleta, hex ou tamanho arbitrário (o guard passa sem `ds-allow`).
 - [ ] Cor com um significado: marca ≠ lado ≠ status; disputa = danger.
 - [ ] AA nos dois temas (texto 4.5:1, UI e texto grande 3:1).

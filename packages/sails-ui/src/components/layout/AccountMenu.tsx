@@ -1,11 +1,10 @@
-import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { toast } from 'sonner'
+import { toast } from '../ui/toast'
 import { ChevronDown, Copy, LogOut, Settings, User as UserIcon } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import type { User } from '../../types'
 import { UserAvatar } from '../ui/UserAvatar'
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '../ui/menu'
 
 export const shortKey = (key: string) => (key.length > 12 ? `${key.slice(0, 6)}…${key.slice(-4)}` : key)
 
@@ -27,10 +26,8 @@ export function useDisconnect() {
  */
 export function AccountMenu({ user, compact = false }: { user: User; compact?: boolean }) {
   const disconnectWallet = useDisconnect()
-  const [open, setOpen] = useState(false)
 
   const copyKey = async () => {
-    setOpen(false)
     try {
       await navigator.clipboard.writeText(user.publicKey)
       toast.success('Chave pública copiada')
@@ -39,16 +36,10 @@ export function AccountMenu({ user, compact = false }: { user: User; compact?: b
     }
   }
 
-  const disconnect = () => {
-    setOpen(false)
-    disconnectWallet()
-  }
-
-  const item = 'w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-sm text-brand-text-secondary state-layer hover:text-brand-text'
-
+  // Menu primitive (DESIGN_SYSTEM.md 5.8): role=menu, arrow keys, typeahead, Esc; picking an item closes it.
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
+    <Menu>
+      <MenuTrigger
         aria-label="Menu da conta"
         className="flex items-center gap-2 min-h-11 rounded-lg px-2 py-1.5 transition-colors state-layer"
       >
@@ -56,29 +47,31 @@ export function AccountMenu({ user, compact = false }: { user: User; compact?: b
         {!compact && (
           <>
             <span className="text-sm font-medium text-brand-text tabular-nums">{shortKey(user.publicKey)}</span>
-            <ChevronDown className="h-3.5 w-3.5 text-brand-text-muted" />
+            <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 text-brand-text-muted" />
           </>
         )}
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-60 p-1.5">
-        <div className="px-2.5 py-2">
+      </MenuTrigger>
+      <MenuContent label="Menu da conta">
+        <MenuLabel>
           <div className="text-sm font-medium text-brand-text truncate">{user.displayName ?? 'Sem nome'}</div>
           <div className="text-xs text-brand-text-muted font-mono">{shortKey(user.publicKey)}</div>
-        </div>
-        <div className="my-1 h-px bg-brand-border-subtle" />
-        <button type="button" onClick={copyKey} className={item}>
-          <Copy className="h-4 w-4" /> Copiar chave pública
-        </button>
-        <Link to="/profile" onClick={() => setOpen(false)} className={item}>
-          <UserIcon className="h-4 w-4" /> Meu perfil
-        </Link>
-        <Link to="/settings" onClick={() => setOpen(false)} className={item}>
-          <Settings className="h-4 w-4" /> Configurações
-        </Link>
-        <button type="button" onClick={disconnect} className={item}>
-          <LogOut className="h-4 w-4" /> Desconectar
-        </button>
-      </PopoverContent>
-    </Popover>
+        </MenuLabel>
+        <MenuSeparator />
+        <MenuItem onSelect={copyKey}>
+          <Copy aria-hidden="true" /> Copiar chave pública
+        </MenuItem>
+        <MenuItem asChild>
+          <Link to="/profile"><UserIcon aria-hidden="true" /> Meu perfil</Link>
+        </MenuItem>
+        <MenuItem asChild>
+          <Link to="/settings"><Settings aria-hidden="true" /> Configurações</Link>
+        </MenuItem>
+        {/* Session exit kept apart from the navigation items. */}
+        <MenuSeparator />
+        <MenuItem onSelect={disconnectWallet}>
+          <LogOut aria-hidden="true" /> Desconectar
+        </MenuItem>
+      </MenuContent>
+    </Menu>
   )
 }

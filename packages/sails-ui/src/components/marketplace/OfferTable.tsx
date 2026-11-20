@@ -12,6 +12,7 @@ import { sellerTrust } from './offerList'
 import { TrustLine } from '../ui/TrustLine'
 import { ExplanationPopover } from '../ui/ExplanationPopover'
 import { REPUTATION_EXPLANATION } from '../../lib/reputation'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table'
 
 const SELLER_FALLBACK = 'Anunciante'
 
@@ -22,7 +23,7 @@ const SELLER_FALLBACK = 'Anunciante'
  */
 export function OfferTable({ offers, isOwn }: { offers: Offer[]; isOwn?: (offer: Offer) => boolean }) {
   return (
-    <table className="w-full table-fixed text-left border-collapse">
+    <Table className="table-fixed">
       <caption className="sr-only">Ofertas</caption>
       {/* Fixed widths (narrower from 1024, full from 1280); only the seller column absorbs extra width. */}
       <colgroup>
@@ -32,25 +33,25 @@ export function OfferTable({ offers, isOwn }: { offers: Offer[]; isOwn?: (offer:
         <col className="w-[10rem] xl:w-[12rem]" />
         <col className="w-[8rem]" />
       </colgroup>
-      <thead>
-        <tr className="text-xs font-medium text-brand-text-muted">
-          <th scope="col" className="font-medium py-2.5 pl-5 pr-4">
+      <TableHeader>
+        <tr>
+          <TableHead className="pl-5">
             {/* The explanation sits in the header, not in a row: each row is already one stretched link. */}
             <span className="inline-flex items-center gap-1.5">
               Anunciante
               <ExplanationPopover explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.title} />
             </span>
-          </th>
-          <th scope="col" className="font-medium py-2.5 px-4">Preço</th>
-          <th scope="col" className="font-medium py-2.5 px-4">Limites</th>
-          <th scope="col" className="font-medium py-2.5 px-4">Pagamento</th>
-          <th scope="col" className="py-2.5 pl-4 pr-5"><span className="sr-only">Ação</span></th>
+          </TableHead>
+          <TableHead>Preço</TableHead>
+          <TableHead>Limites</TableHead>
+          <TableHead>Pagamento</TableHead>
+          <TableHead className="pr-5"><span className="sr-only">Ação</span></TableHead>
         </tr>
-      </thead>
-      <tbody>
+      </TableHeader>
+      <TableBody>
         {offers.map((offer) => <OfferTableRow key={offer.id} offer={offer} own={!!isOwn?.(offer)} />)}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   )
 }
 
@@ -63,8 +64,8 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
   const label = `${action} ${ASSET_LABELS[offer.asset]} por ${price}, ${name ?? SELLER_FALLBACK}, ${PAYMENT_METHOD_LABELS[offer.paymentMethod]}, limites ${limits}`
 
   return (
-    <tr className="relative h-[4.25rem] border-t border-brand-border-subtle transition-colors state-layer">
-      <td className="py-3 pl-5 pr-4">
+    <TableRow interactive className="relative h-[4.25rem]">
+      <TableCell className="pl-5">
         <div className="flex items-center gap-2.5 min-w-0">
           <UserAvatar user={{ id: offer.user.id, displayName: name ?? SELLER_FALLBACK }} size="sm" />
           <div className="min-w-0">
@@ -75,16 +76,16 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
             <TrustLine items={items} className="block text-xs text-brand-text-muted" />
           </div>
         </div>
-      </td>
-      <td className="py-3 px-4">
+      </TableCell>
+      <TableCell>
         <div data-price className="money-lg text-brand-text whitespace-nowrap">{price}</div>
         <div className="text-xs text-brand-text-muted whitespace-nowrap">por {ASSET_LABELS[offer.asset]}</div>
-      </td>
-      <td className="py-3 px-4 text-body-sm text-brand-text-secondary tabular-nums whitespace-nowrap">{limits}</td>
-      <td className="py-3 px-4">
+      </TableCell>
+      <TableCell className="text-body-sm text-brand-text-secondary tabular-nums whitespace-nowrap">{limits}</TableCell>
+      <TableCell>
         <PaymentBadge method={offer.paymentMethod} />
-      </td>
-      <td className="py-3 pl-4 pr-5 text-right">
+      </TableCell>
+      <TableCell className="pr-5 text-right">
         <Link
           to={`/offer/${offer.id}`}
           aria-label={label}
@@ -97,7 +98,7 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
         >
           {action}
         </Link>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   )
 }

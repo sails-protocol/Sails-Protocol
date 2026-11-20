@@ -72,7 +72,9 @@ const TRADE_STATUS_LABEL: Record<TradeStatus, string> = {
 const TRADE_STATUS_COLOR: Record<TradeStatus, string> = {
   PENDING: TONE_CLASS.warning,
   ACTIVE: TONE_CLASS.info,
-  COMPLETED: TONE_CLASS.success,
+  // Neutral like escrow COMPLETED (CTO 437, provisório): "Concluído" is the record's state, not a
+  // settlement-finality claim, so it gets no success green. The check icon and label carry it.
+  COMPLETED: TONE_CLASS.neutral,
   DISPUTED: TONE_CLASS.danger,
   CANCELLED: TONE_CLASS.neutral,
 }

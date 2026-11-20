@@ -21,6 +21,8 @@ import { useAvatarStyle } from '../lib/avatarStyle'
 import { REPUTATION_EXPLANATION } from '../lib/reputation'
 import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import type { IdentityAvatarStyle } from '../lib/identityAvatar'
+import { Tabs } from '../components/ui/tabs'
+import { RadioCard, RadioGroup } from '../components/ui/radio-group'
 
 const AVATAR_STYLE_OPTIONS: ReadonlyArray<{ value: IdentityAvatarStyle; label: string }> = [
   { value: 'vela', label: 'Vela' },
@@ -87,6 +89,7 @@ export function Settings() {
   const [avatarStyle, setAvatarStyle] = useAvatarStyle()
 
   const groupClass = (id: string) => cn(active !== id ? 'hidden' : !mobileOpen && 'hidden md:block')
+  const panel = (id: string) => ({ id, className: groupClass(id), panelOf: 'settings' })
 
   return (
     <Page width="detail">
@@ -114,29 +117,20 @@ export function Settings() {
         </nav>
       )}
       <div className="md:grid md:grid-cols-[13rem_minmax(0,1fr)] md:gap-8 md:items-start">
-        <nav aria-label="Seções de configurações" className="hidden md:flex md:flex-col gap-1 sticky top-20">
-          {SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setActive(s.id)}
-              aria-controls={s.id}
-              aria-current={active === s.id ? 'true' : undefined}
-              className={cn(
-                'flex items-center gap-3 min-h-11 md:min-h-9 rounded-md px-3 text-sm font-medium text-left transition-colors',
-                active === s.id
-                  ? 'bg-brand-orange-accent/10 text-brand-orange-hover'
-                  : 'text-brand-text-secondary state-layer hover:text-brand-text'
-              )}
-            >
-              <s.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-              {s.label}
-            </button>
-          ))}
-        </nav>
+        {/* md+: in-page tabs (they switch the section shown, the URL stays). Below md the same sections are a
+            drill-down list (above), so this tab list is hidden there. */}
+        <Tabs
+          orientation="vertical"
+          label="Seções de configurações"
+          idBase="settings"
+          items={SECTIONS.map((s) => ({ value: s.id, label: s.label, icon: s.icon }))}
+          value={active}
+          onChange={setActive}
+          className="hidden md:flex sticky top-20"
+        />
 
         <div className="min-w-0">
-          <SettingsGroup id="conexao" title="Conexão" icon={Plug} className={groupClass('conexao')}>
+          <SettingsGroup {...panel('conexao')} title="Conexão" icon={Plug}>
             {/* The app talks to one API base fixed by its build config (lib/sailsClient.ts); no live connection signal exists, so no status line. */}
             <SettingsRow icon={Server} label="Servidor" description="Definido pela configuração deste app" value="Automático" />
             <Planned id="publicPrivateServers" />
@@ -144,7 +138,7 @@ export function Settings() {
             <Planned id="connectionDiagnostics" />
           </SettingsGroup>
 
-          <SettingsGroup id="wallet" title="Wallet" icon={Wallet} className={groupClass('wallet')}>
+          <SettingsGroup {...panel('wallet')} title="Wallet" icon={Wallet}>
             {authLoading ? (
               <li><ListSkeleton label="Verificando sessão" rows={2} rowClassName="h-14" /></li>
             ) : user ? (
@@ -174,7 +168,7 @@ export function Settings() {
             <Planned id="defaultReceiveAddress" />
           </SettingsGroup>
 
-          <SettingsGroup id="aplicativo" title="Aplicativo" icon={Palette} className={groupClass('aplicativo')}>
+          <SettingsGroup {...panel('aplicativo')} title="Aplicativo" icon={Palette}>
             <SettingsRow
               icon={Moon}
               label="Tema escuro"
@@ -183,32 +177,25 @@ export function Settings() {
             />
             {/* Viewer display preference: changes how every avatar looks to this viewer only. */}
             <li className="px-4 py-3">
-              <fieldset>
-                <legend className="text-sm font-medium text-brand-text">Estilo dos avatares</legend>
-                <p className="mt-0.5 text-xs text-brand-text-muted">Muda como você vê todos os avatares, o seu e os das contrapartes. Só você vê esta escolha.</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {AVATAR_STYLE_OPTIONS.map((o) => (
-                    <label
-                      key={o.value}
-                      className={cn(
-                        'flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-1.5 text-sm transition-colors field-focus-within',
-                        avatarStyle === o.value ? 'border-brand-orange-accent bg-brand-orange-accent/10 text-brand-text font-medium' : 'border-brand-border text-brand-text-secondary state-layer'
-                      )}
-                    >
-                      <input
-                        type="radio"
-                        name="avatar-style"
-                        value={o.value}
-                        checked={avatarStyle === o.value}
-                        onChange={() => setAvatarStyle(o.value)}
-                        className="h-4 w-4 accent-brand-orange"
-                      />
-                      <IdentityAvatar seed={user ? user.publicKey || user.id : SAMPLE_AVATAR_SEED} size={28} style={o.value} />
-                      {o.label}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
+              <RadioGroup
+                legend="Estilo dos avatares"
+                description="Muda como você vê todos os avatares, o seu e os das contrapartes. Só você vê esta escolha."
+                listClassName="flex flex-wrap gap-2"
+              >
+                {AVATAR_STYLE_OPTIONS.map((o) => (
+                  <RadioCard
+                    key={o.value}
+                    name="avatar-style"
+                    value={o.value}
+                    checked={avatarStyle === o.value}
+                    onChange={() => setAvatarStyle(o.value)}
+                    className="py-1.5"
+                  >
+                    <IdentityAvatar seed={user ? user.publicKey || user.id : SAMPLE_AVATAR_SEED} size={28} style={o.value} />
+                    {o.label}
+                  </RadioCard>
+                ))}
+              </RadioGroup>
             </li>
             <Planned id="publicAvatar" description="Um avatar escolhido por você e visto pelas contrapartes" />
             <Planned id="language" />
@@ -216,16 +203,16 @@ export function Settings() {
             <Planned id="displayCurrency" description="Os preços são exibidos em USD." />
           </SettingsGroup>
 
-          <SettingsGroup id="seguranca" title="Segurança" icon={Shield} className={groupClass('seguranca')}>
+          <SettingsGroup {...panel('seguranca')} title="Segurança" icon={Shield}>
             <Planned id="keyBackup" />
             <Planned id="sessionLock" />
           </SettingsGroup>
 
-          <SettingsGroup id="comunidades" title="Comunidades" icon={Users} className={groupClass('comunidades')}>
+          <SettingsGroup {...panel('comunidades')} title="Comunidades" icon={Users}>
             <Planned id="communities" description="Comunidades e mercados restritos de que você participa" />
           </SettingsGroup>
 
-          <SettingsGroup id="ajuda" title="Ajuda e Sobre" icon={HelpCircle} className={groupClass('ajuda')}>
+          <SettingsGroup {...panel('ajuda')} title="Ajuda e Sobre" icon={HelpCircle}>
             <SettingsRow icon={HelpCircle} label="Rever tour" description="Tour de boas-vindas do Sails Market" onClick={replayTour} />
             <SettingsRow
               icon={Award}

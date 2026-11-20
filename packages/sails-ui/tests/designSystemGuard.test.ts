@@ -57,7 +57,63 @@ function violations(rel: string, text: string) {
   return { out, allowed }
 }
 
+/** Opening JSX tags of `names` (e.g. button, Button), whole tag text, braces and strings respected. */
+function jsxTags(text: string, names: string[]): { tag: string; line: number }[] {
+  const out: { tag: string; line: number }[] = []
+  const re = new RegExp(`<(?:${names.join('|')})(?=[\\s>/])`, 'g')
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    let depth = 0, quote = '', i = m.index + 1
+    for (; i < text.length; i++) {
+      const c = text[i]
+      if (quote) { if (c === quote && text[i - 1] !== '\\') quote = ''; continue }
+      // Comments between attributes may hold apostrophes ("page's").
+      if (c === '/' && text[i + 1] === '/') { i = text.indexOf('\n', i); if (i < 0) break; continue }
+      if (c === '/' && text[i + 1] === '*') { i = text.indexOf('*/', i) + 1; if (i <= 0) break; continue }
+      if (c === '"' || c === "'" || c === '`') quote = c
+      else if (c === '{') depth++
+      else if (c === '}') depth--
+      else if (c === '>' && depth === 0) break
+    }
+    out.push({ tag: text.slice(m.index, i + 1), line: text.slice(0, m.index).split('\n').length })
+  }
+  return out
+}
+
+// Phase 3 primitives (DESIGN_SYSTEM.md 5.3-5.13): these roles/patterns live only in their primitive,
+// so a hand-rolled menu, tab list, radio, listbox, progress bar or raw toast cannot come back.
+const PRIMITIVE_ONLY: { name: string; re: RegExp; home: string }[] = [
+  { name: 'role="menu" outside the Menu primitive', re: /role=["'{]+menu(?:item)?["'}]/, home: 'components/ui/menu.tsx' },
+  { name: 'role="tablist"/"tab" outside the Tabs primitive', re: /role=["'{]+tab(?:list|panel)?["'}]/, home: 'components/ui/tabs.tsx' },
+  { name: 'native radio outside the RadioGroup primitive', re: /type=["']radio["']|role=["']radio(?:group)?["']/, home: 'components/ui/radio-group.tsx' },
+  { name: 'role="listbox"/"combobox" outside the Combobox primitive', re: /role=["'](?:listbox|combobox|option)["']/, home: 'components/ui/combobox.tsx' },
+  { name: 'role="progressbar" outside the Progress primitive', re: /role=["']progressbar["']/, home: 'components/ui/progress.tsx' },
+  { name: "toast imported from 'sonner' instead of ui/toast", re: /from ['"]sonner['"]/, home: 'components/ui/toast.tsx' },
+]
+
+function primitiveViolations(rel: string, text: string): string[] {
+  const out: string[] = []
+  text.split('\n').forEach((line, i) => {
+    for (const r of PRIMITIVE_ONLY) if (rel !== r.home && r.re.test(line)) out.push(`${rel}:${i + 1} ${r.name}`)
+  })
+  // Icon buttons get their name from aria-label and a Tooltip (IconButton), never title= (mouse-only, unreliable).
+  for (const t of jsxTags(text, ['button', 'Button'])) if (/\stitle=/.test(t.tag)) out.push(`${rel}:${t.line} title= on a button (use IconButton)`)
+  return out
+}
+
 describe('design system guard', () => {
+  it('menus, tabs, radios, listboxes, progress bars and toasts come from their primitives; no title= on buttons', () => {
+    const all = files(SRC).flatMap((p) => primitiveViolations(relative(SRC, p).replace(/\\/g, '/'), readFileSync(p, 'utf8')))
+    expect(all).toEqual([])
+    // The guard itself catches what it should.
+    expect(primitiveViolations('x.tsx', '<div role="menu">')).toHaveLength(1)
+    expect(primitiveViolations('x.tsx', '<input type="radio" />')).toHaveLength(1)
+    expect(primitiveViolations('x.tsx', "import { toast } from 'sonner'")).toHaveLength(1)
+    expect(primitiveViolations('x.tsx', '<button\n  onClick={() => f(a > b)}\n  title="Favoritar"\n>')).toHaveLength(1)
+    expect(primitiveViolations('x.tsx', '<span title="Presença">')).toHaveLength(0)
+    expect(primitiveViolations('x.tsx', '<button\n  // the page\'s one\n  className="a"\n>x</button><b title="y">')).toHaveLength(0)
+    expect(primitiveViolations('components/ui/menu.tsx', 'role="menu"')).toHaveLength(0)
+  })
+
   it('src uses tokens only (no raw palette classes, raw colors or arbitrary font sizes)', () => {
     const all = files(SRC).map((p) => violations(relative(SRC, p).replace(/\\/g, '/'), readFileSync(p, 'utf8')))
     expect(all.flatMap((v) => v.out)).toEqual([])

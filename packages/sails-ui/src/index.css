@@ -221,6 +221,23 @@
      Fill vs bg/surface/elevated 4.95 / 5.17 / 4.74; check mark 5.17. */
   --color-checked: 37 99 235;        /* #2563eb */
   --color-on-checked: 255 255 255;
+  /* Primitives (DESIGN_SYSTEM.md 5.3+, 2026-11-20, provisório). Contrast:
+     ui-refs/ds-primitives-2026-11-20/contrast.cjs (min-max over bg/surface/elevated). */
+  /* Selected (listbox option, list/table row): brand blue at 12 % + a check or
+     bar, never color alone. Text on it 15.40-16.73, secondary 6.08-6.60. */
+  --color-selected: var(--color-brand-blue);
+  --selected-a: 0.12;
+  /* Link: brand blue text, never orange (orange = act). 6.42 / 6.70 / 6.15. */
+  --color-link: var(--color-brand-blue-fg);
+  /* Segmented track: deeper than the tonal fill in light, so the white thumb
+     separates by fill (1.50-1.62, was 1.16-1.26); unselected label 4.82-5.22. */
+  --segment-track-a: 0.18;
+  /* Toast (inverse surface): action link 5.67, status icons 5.21-8.63. */
+  --color-inverse-link: 96 165 250;
+  --color-inverse-success: 52 211 153;
+  --color-inverse-info: 96 165 250;
+  --color-inverse-warning: 251 191 36;
+  --color-inverse-danger: 248 113 113;
   /* Motion: three durations, enter decelerates, exit accelerates and is
      shorter; reduced motion makes both instant (base layer below). */
   --duration-short: 100ms;
@@ -367,6 +384,15 @@
   --scrim-a: 0.6;
   --color-checked: 96 165 250;       /* #60a5fa */
   --color-on-checked: 17 19 24;
+  /* Primitives, dark (see :root). Selected: text 10.91-14.43, secondary
+     5.36-7.09. Link 7.31 / 6.42 / 5.67. Track = tonal (thumb 1.51-1.54).
+     Toast on the light inverse: link 5.51, icons 4.12-5.51. */
+  --segment-track-a: 0.08;
+  --color-inverse-link: 29 78 216;
+  --color-inverse-success: 21 128 61;
+  --color-inverse-info: 29 78 216;
+  --color-inverse-warning: 180 83 9;
+  --color-inverse-danger: 185 28 28;
   /* Thumb = text at 14% over the track: always one step above it (1.5:1). */
   --raised-base: 245 247 250;      /* = --color-text */
   --raised-a: 0.14;
@@ -448,6 +474,10 @@ body {
 /* Long/medium overlays (dialog, sheet) and short ones (tooltip). */
 @utility motion-overlay-long { --enter-duration: var(--duration-long); --exit-duration: var(--duration-medium); }
 @utility motion-overlay-short { --enter-duration: var(--duration-short); --exit-duration: var(--duration-short); }
+/* Indeterminate linear progress (ui/progress.tsx): one bar sweeping the track. Only under
+   motion-safe; with reduced motion it rests as a static partial bar. */
+@keyframes sails-progress { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@utility animate-progress { animation: sails-progress 1400ms var(--easing-standard) infinite; }
 
 /* State layers (DESIGN_SYSTEM.md 5.2): an overlay on top of the fill, so the
    fill token never changes per state. Hover only on hover-capable pointers
@@ -465,6 +495,37 @@ body {
 /* Layer color for solids: white over a dark label, black over a white label. */
 @utility state-layer-light { --state-layer: 255 255 255; }
 @utility state-layer-dark { --state-layer: 0 0 0; }
+/* Focus inside a composite widget (menu item, listbox option): the 12 % focus
+   layer replaces the outline, so the list never shows a box inside its box.
+   `data-active` = the combobox option under aria-activedescendant. */
+@utility state-focus {
+  &:focus-visible, &[data-active="true"] {
+    outline: none;
+    background-image: linear-gradient(rgb(var(--color-text) / var(--state-focus-a)), rgb(var(--color-text) / var(--state-focus-a)));
+  }
+}
+
+/* Toast (sonner, skinned in components/ui/toast.tsx): its own 400 ms transitions
+   move onto the motion tokens. Transform/opacity only; reduced motion = instant. */
+[data-sonner-toaster] [data-sonner-toast] {
+  transition: transform var(--duration-medium) var(--easing-decelerate), opacity var(--duration-medium) var(--easing-decelerate), height var(--duration-medium) var(--easing-standard);
+}
+/* sonner paints its close button (black disc in dark) with a `background`
+   shorthand at 4-5 attribute specificity; the repeated attribute outranks it so
+   the button stays a quiet icon on the inverse surface with its state layer. */
+[data-sonner-toaster] [data-sonner-toast] [data-close-button][data-close-button][data-close-button] {
+  background: transparent;
+  border: 0;
+  color: rgb(var(--color-on-inverse));
+}
+@media (hover: hover) {
+  [data-sonner-toaster] [data-sonner-toast] [data-close-button][data-close-button][data-close-button]:hover {
+    background: linear-gradient(rgb(var(--color-on-inverse) / var(--state-hover-a)), rgb(var(--color-on-inverse) / var(--state-hover-a)));
+  }
+}
+[data-sonner-toaster] [data-sonner-toast] [data-close-button][data-close-button][data-close-button]:active {
+  background: linear-gradient(rgb(var(--color-on-inverse) / var(--state-pressed-a)), rgb(var(--color-on-inverse) / var(--state-pressed-a)));
+}
 
 @layer base {
   /* Native controls and scrollbars follow the theme (Windows dark mode). */

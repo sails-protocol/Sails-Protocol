@@ -37,7 +37,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { toast } from 'sonner'
+import { toast } from '../components/ui/toast'
 import { useAuth } from '../context/AuthContext'
 import { AssetPicker } from '../components/marketplace/AssetPicker'
 import { CurrencyPicker } from '../components/marketplace/CurrencyPicker'
@@ -407,8 +407,8 @@ export function PublishOffer() {
             Próximo
           </Button>
         ) : (
-          <Button onClick={handlePublish} disabled={publishing || !step1Valid || !step2Valid} className="min-h-11 md:min-h-10 px-6">
-            {publishing ? 'Publicando...' : 'Publicar oferta'}
+          <Button onClick={handlePublish} loading={publishing} disabled={!step1Valid || !step2Valid} className="min-h-11 md:min-h-10 px-6">
+            {publishing ? 'Publicando…' : 'Publicar oferta'}
           </Button>
         )}
       </div>

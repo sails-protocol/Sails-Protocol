@@ -4,7 +4,7 @@
  * PM is only ever one of the two parties.
  */
 import { useEffect, useState } from 'react'
-import { toast } from 'sonner'
+import { toast } from '../components/ui/toast'
 import { Button } from '../components/ui/button'
 import { EscrowStatusBadge } from '../components/ui/StatusBadges'
 import { REFRESH_TRADE_ID, resetDemoAndReload, simulateCounterparty, viewTrade, type DemoTradeView } from './demoBackend'

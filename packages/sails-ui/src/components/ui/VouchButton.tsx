@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { toast } from 'sonner'
+import { toast } from './toast'
 import { useAuth } from '../../context/AuthContext'
 import { sailsClient } from '../../lib/sailsClient'
 import { canVouch } from '../../lib/reputation'
 import { InfoTooltip } from './InfoTooltip'
+import { IconButton } from './icon-button'
 import { ShieldPlus, ShieldCheck } from 'lucide-react'
 
 const VOUCH_EXPLAINER =
@@ -39,23 +40,23 @@ export function VouchButton({ voucheeId }: { voucheeId: string }) {
 
   return (
     <div className="flex items-center gap-1">
-      <button
-        type="button"
+      {/* IconButton: the reason is the name and the tooltip (no title=); unavailable stays focusable via aria-disabled. */}
+      <IconButton
+        size="sm"
         onClick={handleVouch}
-        disabled={!eligible || loading || vouched}
-        title={
+        loading={loading}
+        aria-disabled={!eligible || vouched || undefined}
+        label={
           vouched
             ? 'Você já avalizou esta pessoa'
             : eligible
               ? 'Avalizar esta pessoa com sua reputação'
               : 'Requer pelo menos 3 trades e reputação positiva para avalizar alguém'
         }
-        className={`p-2 -m-2 transition-colors disabled:cursor-not-allowed ${
-          vouched ? 'text-brand-success' : eligible ? 'text-brand-text-muted hover:text-brand-orange-accent' : 'text-brand-text-muted/40'
-        }`}
+        className={vouched ? 'aria-disabled:text-brand-success-fg' : undefined}
       >
-        {vouched ? <ShieldCheck className="h-4 w-4" /> : <ShieldPlus className="h-4 w-4" />}
-      </button>
+        {vouched ? <ShieldCheck aria-hidden="true" /> : <ShieldPlus aria-hidden="true" />}
+      </IconButton>
       <InfoTooltip text={VOUCH_EXPLAINER} />
     </div>
   )

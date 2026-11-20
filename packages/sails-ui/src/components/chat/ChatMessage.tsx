@@ -17,8 +17,8 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
 
   if (message.type === 'RISK_WARNING') {
     return (
-      <div className="self-stretch flex items-start gap-2 text-xs bg-brand-danger-bg border border-brand-danger-border text-brand-text rounded-lg px-3.5 py-2.5 my-1">
-        <AlertTriangle className="h-4 w-4 shrink-0" />
+      <div className="self-stretch flex items-start gap-2 text-xs bg-brand-danger-bg text-brand-text rounded-lg px-3.5 py-2.5 my-1">
+        <AlertTriangle aria-hidden="true" className="h-4 w-4 shrink-0 text-brand-danger" />
         <div className="flex-1">
           <div className="flex items-center gap-1.5 font-semibold text-brand-danger-fg">
             {message.riskPattern ? RISK_PATTERN_LABEL[message.riskPattern] : 'Sinal de risco detectado'}

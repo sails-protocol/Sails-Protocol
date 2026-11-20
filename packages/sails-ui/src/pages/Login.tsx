@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import { toast } from 'sonner'
+import { toast } from '../components/ui/toast'
 import { useAuth, hasStoredIdentity, WrongPassphraseError } from '../context/AuthContext'
 import { InfoTooltip } from '../components/ui/InfoTooltip'
 import { Button } from '../components/ui/button'
@@ -199,8 +199,8 @@ function LocalKeyStep({ onBack, onConnected }: { onBack: () => void; onConnected
           </SafetyNote>
         </>
       )}
-      <Button onClick={handleConnect} disabled={connecting || !canConnect} className="mt-3 w-full h-11">
-        {connecting ? 'Conectando...' : 'Conectar'}
+      <Button onClick={handleConnect} loading={connecting} disabled={!canConnect} className="mt-3 w-full h-11">
+        {connecting ? 'Conectando…' : 'Conectar'}
       </Button>
       <p className="mt-3 flex gap-2 text-xs text-brand-text-secondary">
         <ShieldCheck className="h-4 w-4 shrink-0" />

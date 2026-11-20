@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useNavigate, useLocation } from 'react-router'
-import { toast } from 'sonner'
+import { toast } from '../components/ui/toast'
 import type { Trade as SdkTrade, Escrow as SdkEscrow, EscrowPendingTransaction, WebSocketChannel, Dispute } from '@satsails/p2p-trading-sdk'
 import { encryptChatMessage, SigningIntentVerificationError, SailsNotFoundError } from '@satsails/p2p-trading-sdk'
 import type { EscrowStatus, Message, User } from '../types'
@@ -982,7 +982,7 @@ export function Trade() {
                 rows={3}
               />
               <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                <Button variant="destructive" onClick={handleOpenDispute} disabled={acting} className="min-h-11 text-sm">Confirmar disputa</Button>
+                <Button variant="destructive" onClick={handleOpenDispute} loading={acting} className="min-h-11 text-sm">Confirmar disputa</Button>
                 <Button variant="outline" onClick={cancelDisputeForm} className="min-h-11 text-sm">Cancelar</Button>
               </div>
             </section>

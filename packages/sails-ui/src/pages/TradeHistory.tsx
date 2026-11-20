@@ -16,6 +16,7 @@ import { cn } from '../lib/utils'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { TradesTabs } from '../components/layout/TradesTabs'
 import { StateBlock } from '../components/ui/StateBlock'
+import { TABLE_HEAD_ROW, TABLE_ROW, TABLE_ROW_INTERACTIVE } from '../components/ui/table'
 import { StatStrip } from '../components/ui/StatStrip'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import type { TradeStatus } from '../types'
@@ -134,7 +135,7 @@ export function TradeHistory() {
             />
           ) : (
             <Card className="mt-4 overflow-hidden">
-              <div aria-hidden="true" className={cn('text-label hidden px-4 py-2.5 border-b border-brand-border-subtle', COLS)}>
+              <div aria-hidden="true" className={cn(TABLE_HEAD_ROW, 'hidden', COLS)}>
                 <span>Valor</span>
                 <span>Papel</span>
                 <span>Status</span>
@@ -147,10 +148,10 @@ export function TradeHistory() {
               ) : (
                 <ul>
                   {filtered.map((t) => (
-                    <li key={t.id} className="border-b border-brand-border-subtle last:border-b-0">
+                    <li key={t.id} className={TABLE_ROW}>
                       <Link
                         to={`/trade/${t.id}`}
-                        className={cn('flex flex-col gap-1 px-4 py-3 transition-colors state-layer focus-visible:-outline-offset-2', COLS)}
+                        className={cn('flex flex-col gap-1 px-4 py-3', TABLE_ROW_INTERACTIVE, COLS)}
                       >
                         <span className="flex items-center justify-between gap-3 lg:block">
                           <span className="money text-brand-text">{formatAmount(Number(t.amount))} {ASSET_SHORT_LABELS[t.asset]}</span>

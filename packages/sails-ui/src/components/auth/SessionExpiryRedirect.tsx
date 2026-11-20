@@ -27,7 +27,7 @@
  */
 import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import { toast } from 'sonner'
+import { toast } from '../ui/toast'
 import { useAuth } from '../../context/AuthContext'
 
 export function SessionExpiryRedirect() {

@@ -15,13 +15,11 @@
  * only the raw code — the label is what's visible now, so it should be
  * searchable too.
  */
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import type { AssetType } from '../../types'
 import { ASSET_LABELS } from '../../lib/labels'
-import { Input } from '../ui/input'
-import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover'
+import { Combobox, type ComboboxOption } from '../ui/combobox'
 import { AssetIcon } from '../ui/AssetIcon'
-import { ChevronDown } from 'lucide-react'
 
 interface Props {
   assets: readonly AssetType[]
@@ -33,63 +31,31 @@ interface Props {
   hideAllOption?: boolean
 }
 
+// Combobox primitive (2026-11-20, DESIGN_SYSTEM.md 5.13): same options, search (label or raw code) and
+// single choice as the hand-rolled Popover list it replaces, plus arrow keys and Enter.
 export function AssetPicker({ assets, value, onChange, allLabel = 'Todos os ativos', hideAllOption }: Props) {
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState('')
-
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase()
-    return assets.filter((a) => a.toLowerCase().includes(q) || ASSET_LABELS[a].toLowerCase().includes(q))
-  }, [assets, search])
-
-  const select = (asset: AssetType | 'Todos') => {
-    onChange(asset)
-    setOpen(false)
-    setSearch('')
-  }
+  const options = useMemo<ComboboxOption<AssetType | 'Todos'>[]>(() => [
+    ...(hideAllOption ? [] : [{ value: 'Todos' as const, label: 'Todos os ativos' }]),
+    ...assets.map((a) => ({ value: a, label: ASSET_LABELS[a], keywords: [a], leading: <AssetIcon asset={a} /> })),
+  ], [assets, hideAllOption])
+  const valueText = value === 'Todos' ? allLabel : ASSET_LABELS[value]
 
   return (
-    // Real Radix Popover (2026-08-01) — replaces a hand-rolled
-    // `fixed inset-0` backdrop, which had no focus trap, no Escape-to-
-    // close, no ARIA. Trigger keeps its `.input-field` look (that part
-    // was never the problem); only the dropdown mechanics changed.
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger aria-label="Ativo" className="toolbar-chip flex items-center gap-2 min-w-[140px] justify-between">
+    <Combobox
+      label="Ativo"
+      valueText={valueText}
+      options={options}
+      selected={[value]}
+      onSelect={onChange}
+      triggerClassName="min-w-[140px]"
+      trigger={
         <span className="flex items-center gap-1.5 min-w-0">
           {value !== 'Todos' && <AssetIcon asset={value} />}
-          <span className={value === 'Todos' && hideAllOption ? 'truncate text-brand-text-muted' : 'font-medium truncate'}>{value === 'Todos' ? allLabel : ASSET_LABELS[value]}</span>
+          <span className={value === 'Todos' && hideAllOption ? 'truncate text-brand-text-muted' : 'font-medium truncate'}>{valueText}</span>
         </span>
-        <ChevronDown className="h-4 w-4 text-brand-text-muted shrink-0" />
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 p-2">
-        <Input
-          autoFocus
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar ativo…"
-          className="w-full mb-2"
-        />
-        <div className="max-h-64 overflow-y-auto">
-          {!hideAllOption && <button
-            onClick={() => select('Todos')}
-            className={`w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-sm state-layer focus-visible:-outline-offset-2 ${value === 'Todos' ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
-          >
-            Todos os ativos
-          </button>}
-          {filtered.map((asset) => (
-            <button
-              key={asset}
-              onClick={() => select(asset)}
-              title={asset}
-              className={`w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-sm state-layer focus-visible:-outline-offset-2 ${value === asset ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
-            >
-              <AssetIcon asset={asset} />
-              <span className="truncate">{ASSET_LABELS[asset]}</span>
-            </button>
-          ))}
-          {filtered.length === 0 && <p className="text-xs text-brand-text-muted px-3 py-2">Nenhum ativo encontrado.</p>}
-        </div>
-      </PopoverContent>
-    </Popover>
+      }
+      searchPlaceholder="Buscar ativo…"
+      emptyText={() => 'Nenhum ativo encontrado.'}
+    />
   )
 }

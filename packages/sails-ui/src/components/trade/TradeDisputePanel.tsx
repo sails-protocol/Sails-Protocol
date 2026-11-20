@@ -13,13 +13,15 @@
  * marked as verified. The automatic suggestion is labelled as a
  * suggestion, never a decision.
  */
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { Dispute } from '@satsails/p2p-trading-sdk'
 import { Button } from '../ui/button'
 import { Textarea } from '../ui/textarea'
 import { formatDateTime } from '../../lib/format'
 import { DISPUTE_RULING_LABEL } from '../../lib/labels'
+import { busyProps } from '../../lib/busy'
 import { AlertTriangle } from 'lucide-react'
+import { Alert } from '../ui/alert'
 
 interface Props {
   dispute: Dispute
@@ -57,6 +59,9 @@ export function TradeDisputePanel({
   onEvidenceNoteChange, onSubmitEvidence, onContestAutoResolution, onAppeal,
 }: Props) {
   const isParty = isBuyer || isSeller
+  // Shared `acting`: the clicked action shows loading, the others are blocked (lib/busy.ts).
+  const [running, setRunning] = useState<string | null>(null)
+  const run = (key: string, fn: () => void) => () => { setRunning(key); fn() }
   const resolved = dispute.status === 'RESOLVED'
   const evidence = (dispute.evidence ?? []).map(readEvidence)
 
@@ -65,12 +70,9 @@ export function TradeDisputePanel({
       {resolved ? (
         <p className="text-sm font-semibold text-brand-text">Disputa resolvida</p>
       ) : (
-        <div role="alert" className="flex items-start gap-2 rounded-md border border-brand-danger/50 bg-brand-danger/10 px-3 py-2 text-sm text-brand-text">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-brand-danger" aria-hidden="true" />
-          <span>
-            Disputa aberta por <strong>{partyLabel(dispute.openedBy)}</strong> em {formatDateTime(dispute.createdAt)}. As ações normais do trade ficam suspensas até a resolução.
-          </span>
-        </div>
+        <Alert tone="danger" live icon={AlertTriangle} className="text-sm">
+          Disputa aberta por <strong className="font-semibold">{partyLabel(dispute.openedBy)}</strong> em {formatDateTime(dispute.createdAt)}. As ações normais do trade ficam suspensas até a resolução.
+        </Alert>
       )}
 
       <Section title="Motivo">
@@ -106,7 +108,7 @@ export function TradeDisputePanel({
               className="mt-1 w-full"
               rows={2}
             />
-            <Button variant="outline" onClick={onSubmitEvidence} disabled={acting || !evidenceNote.trim()} className="mt-2 min-h-11 text-sm">
+            <Button variant="outline" onClick={run('evidence', onSubmitEvidence)} disabled={!evidenceNote.trim()} {...busyProps(acting, running, 'evidence')} className="mt-2 min-h-11 text-sm">
               Enviar evidência
             </Button>
           </div>
@@ -132,7 +134,7 @@ export function TradeDisputePanel({
             </p>
           )}
           {isParty && dispute.status === 'AUTO_PROPOSED' && (
-            <Button variant="outline" onClick={onContestAutoResolution} disabled={acting} className="mt-2 min-h-11 text-sm">
+            <Button variant="outline" onClick={run('contest', onContestAutoResolution)} {...busyProps(acting, running, 'contest')} className="mt-2 min-h-11 text-sm">
               Contestar sugestão
             </Button>
           )}
@@ -154,7 +156,7 @@ export function TradeDisputePanel({
               <p className="mt-2 text-xs text-brand-text-secondary">
                 Você ainda pode apelar: a apelação reabre a disputa para um novo árbitro. O servidor pode recusá-la conforme o tipo de escrow e a configuração de arbitragem.
               </p>
-              <Button variant="outline" onClick={onAppeal} disabled={acting} className="mt-2 min-h-11 text-sm">
+              <Button variant="outline" onClick={run('appeal', onAppeal)} {...busyProps(acting, running, 'appeal')} className="mt-2 min-h-11 text-sm">
                 Apelar da decisão
               </Button>
             </>

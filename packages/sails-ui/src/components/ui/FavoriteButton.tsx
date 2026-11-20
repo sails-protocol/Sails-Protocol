@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { isFavoriteTrader, toggleFavoriteTrader } from '../../lib/favorites'
 import { Star } from 'lucide-react'
+import { IconButton } from './icon-button'
 
 // Airtm-inspired (its own "pick a cashier you trust" pattern) —
 // lib/favorites.ts's own header comment has the full real-vs-UI-only
@@ -16,23 +17,18 @@ export function FavoriteButton({ userId }: { userId: string }) {
   const [isFav, setIsFav] = useState(() => isFavoriteTrader(userId))
 
   return (
-    <button
-      type="button"
+    <IconButton
+      size="sm"
       onClick={(e) => {
         e.preventDefault()
         e.stopPropagation()
         setIsFav(toggleFavoriteTrader(userId))
       }}
-      title={isFav ? 'Remover dos favoritos' : 'Favoritar este vendedor'}
-      aria-label="Favoritar este vendedor"
-      aria-pressed={isFav}
-      // p-3.5 -m-3.5: expands the tap target to 44px without
-      // shifting the visible icon or its layout position — the icon
-      // alone was a 16px hit area, well under mobile's ~44px minimum
-      // (found testing this same migration's other icon buttons live).
-      className={`p-3.5 -m-3.5 transition-colors ${isFav ? 'text-brand-orange-accent' : 'text-brand-text-muted hover:text-brand-text'}`}
+      // Constant name, the state is aria-pressed (on = brand blue: chosen, not orange: act).
+      label="Favoritar este vendedor"
+      pressed={isFav}
     >
-      <Star className="h-4 w-4" fill={isFav ? 'currentColor' : 'none'} />
-    </button>
+      <Star aria-hidden="true" fill={isFav ? 'currentColor' : 'none'} />
+    </IconButton>
   )
 }

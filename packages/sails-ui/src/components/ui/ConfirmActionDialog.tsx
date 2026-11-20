@@ -64,7 +64,7 @@ export function ConfirmActionDialog({
         )}
 
         {warnings && warnings.length > 0 && (
-          <ul className="space-y-2 rounded-lg border border-brand-warning/25 bg-brand-warning/10 p-3 text-sm text-brand-text">
+          <ul className="space-y-2 rounded-lg bg-brand-warning-bg p-3 text-sm text-brand-text">
             {warnings.map((w) => (
               <li key={w} className="flex gap-2">
                 <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-brand-warning" aria-hidden="true" />

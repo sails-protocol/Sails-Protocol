@@ -6,12 +6,13 @@
  * and nothing is signed or cancelled here — the buttons only ask the host
  * to open its confirmation step or to re-read the round.
  */
-import { useId } from 'react'
+import { useId, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Circle, Hourglass, Info, Loader2, PenLine, RefreshCw, ShieldAlert, ShieldCheck, XCircle } from 'lucide-react'
 import type { SigningRequestView } from '../../lib/signingRequest'
 import { Button } from '../ui/button'
 import { CopyButton } from '../ui/CopyButton'
 import { cn } from '../../lib/utils'
+import { busyProps } from '../../lib/busy'
 
 type Props =
   | { status: 'loading'; label: string }
@@ -22,6 +23,8 @@ const shell = 'mt-4 rounded-lg border border-brand-border-subtle bg-brand-elevat
 
 export function SigningRequestCard(props: Props) {
   const titleId = useId()
+  // Shared `acting`: the clicked action shows loading, the others are blocked (lib/busy.ts).
+  const [running, setRunning] = useState<string | null>(null)
 
   if (props.status === 'loading') {
     return (
@@ -49,6 +52,7 @@ export function SigningRequestCard(props: Props) {
   }
 
   const { view, acting, onReview, onCancel, onRefresh } = props
+  const run = (key: string, fn: () => void) => () => { setRunning(key); fn() }
   const ActorIcon = view.state === 'sign' ? PenLine : view.state === 'blocked' ? ShieldAlert : view.state === 'complete' ? CheckCircle2 : Hourglass
   const check = view.check
 
@@ -102,10 +106,9 @@ export function SigningRequestCard(props: Props) {
         <div
           role={check.tone === 'ok' ? undefined : 'alert'}
           className={cn(
-            'mt-3 rounded-md border p-3 text-sm',
-            check.tone === 'ok' ? 'border-brand-success/30 bg-brand-success/10'
-              : check.tone === 'danger' ? 'border-brand-danger/30 bg-brand-danger/10'
-              : 'border-brand-warning/25 bg-brand-warning/10',
+            // Alert look (DESIGN_SYSTEM.md 5.5): tint + icon, no border inside the card.
+            'mt-3 rounded-md p-3 text-sm',
+            check.tone === 'ok' ? 'bg-brand-success-bg' : check.tone === 'danger' ? 'bg-brand-danger-bg' : 'bg-brand-warning-bg',
           )}
         >
           <p className="flex items-start gap-2 font-medium text-brand-text">
@@ -132,7 +135,7 @@ export function SigningRequestCard(props: Props) {
 
       <div className="mt-4 flex flex-col gap-2">
         {view.primary && (
-          <Button onClick={onReview} disabled={acting} className="w-full min-h-11 py-2.5 text-sm">
+          <Button onClick={run('review', onReview)} {...busyProps(acting, running, 'review')} className="w-full min-h-11 py-2.5 text-sm">
             <PenLine className="h-4 w-4" aria-hidden="true" />
             {view.primary.label}
           </Button>
@@ -140,15 +143,15 @@ export function SigningRequestCard(props: Props) {
         {view.cancel && (
           <Button
             variant="outline"
-            onClick={onCancel}
-            disabled={acting}
+            onClick={run('cancel', onCancel)}
+            {...busyProps(acting, running, 'cancel')}
             className="w-full min-h-11 py-2 text-sm border-brand-danger/70 text-brand-danger-fg hover:bg-brand-danger/10 hover:text-brand-danger-fg"
           >
             <XCircle className="h-4 w-4" aria-hidden="true" />
             {view.cancel.label}
           </Button>
         )}
-        <Button variant="outline" onClick={onRefresh} disabled={acting} className="w-full min-h-11 py-2 text-sm">
+        <Button variant="outline" onClick={run('refresh', onRefresh)} {...busyProps(acting, running, 'refresh')} className="w-full min-h-11 py-2 text-sm">
           <RefreshCw className="h-4 w-4" aria-hidden="true" />
           {view.refreshLabel}
         </Button>

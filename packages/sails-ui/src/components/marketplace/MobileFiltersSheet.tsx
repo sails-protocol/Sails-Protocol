@@ -7,6 +7,7 @@
 import type { ReactNode, RefObject } from 'react'
 import { X } from 'lucide-react'
 import { Sheet, SheetContent, SheetTitle } from '../ui/sheet'
+import { IconButton } from '../ui/icon-button'
 
 export interface MobileFiltersSheetProps {
   open: boolean
@@ -34,14 +35,9 @@ export function MobileFiltersSheet({ open, onOpenChange, triggerRef, title, clos
         className="max-h-[85vh] p-0 gap-0 flex flex-col rounded-t-2xl border-brand-border-subtle bg-brand-surface">
         <div className="flex items-center justify-between gap-3 px-4 py-1 border-b border-brand-border-subtle shrink-0">
           <SheetTitle className="text-heading">{title}</SheetTitle>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            aria-label={closeLabel}
-            className="-mr-2 h-11 w-11 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text state-layer"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <IconButton label={closeLabel} onClick={() => onOpenChange(false)} className="-mr-2">
+            <X aria-hidden="true" />
+          </IconButton>
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 [&_.toolbar-chip]:w-full [&_.toolbar-chip]:min-h-11">{children}</div>
         <div className="shrink-0 border-t border-brand-border-subtle p-4 flex gap-2">{footer}</div>

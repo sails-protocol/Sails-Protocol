@@ -18,6 +18,7 @@ import { cn } from '../lib/utils'
 import { SEGMENT_TRACK, segmentItemClass } from '../components/ui/SegmentedControl'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { StateBlock } from '../components/ui/StateBlock'
+import { Alert } from '../components/ui/alert'
 import { Input } from '../components/ui/input'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../components/ui/select'
 import { SlidersHorizontal, AlertTriangle, SearchX, Plus, ArrowDownUp } from 'lucide-react'
@@ -377,10 +378,9 @@ export function Marketplace() {
           load successfully, since a total-outage message would be
           dishonest when some (asset, side) pairs actually succeeded. */}
       {!loadingOffers && offersError && offers.length > 0 && (
-        <div className="mt-4 flex items-center gap-2 bg-brand-warning/10 border border-brand-warning/25 text-brand-warning text-xs rounded-lg px-3.5 py-2.5">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
+        <Alert tone="warning" size="sm" live className="mt-4">
           Algumas ofertas podem não ter carregado — houve falha ao buscar parte do Marketplace.
-        </div>
+        </Alert>
       )}
 
       {/* One surface; rows carry at most one hairline. lg+ is a real <table> (OfferTable); below lg the

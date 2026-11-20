@@ -1,9 +1,9 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router'
-import { Toaster } from 'sonner'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
 import { AuthProvider } from './context/AuthContext'
 import { TooltipProvider } from './components/ui/tooltip'
+import { Toaster } from './components/ui/toast'
 import { Layout } from './components/layout/Layout'
 import { SessionExpiryRedirect } from './components/auth/SessionExpiryRedirect'
 
