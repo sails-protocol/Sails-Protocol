@@ -21,7 +21,9 @@ export interface CurrentAction {
 
 const WAITING = 'Aguardando a contraparte'
 
-export function deriveCurrentAction({ status, isBuyer, isSeller }: { status: EscrowStatus; isBuyer: boolean; isSeller: boolean }): CurrentAction {
+// `releaseUnavailable`: the escrow type needs a signing round this interface cannot sign
+// (LIGHTNING_HODL / SAFE_GUARD_EVM), so no release is offered — it would dead-end.
+export function deriveCurrentAction({ status, isBuyer, isSeller, releaseUnavailable = false }: { status: EscrowStatus; isBuyer: boolean; isSeller: boolean; releaseUnavailable?: boolean }): CurrentAction {
   const canDispute = (isBuyer || isSeller) && status !== 'COMPLETED' && status !== 'DISPUTED' && status !== 'REFUNDED'
   const party = isBuyer || isSeller
 
@@ -35,6 +37,9 @@ export function deriveCurrentAction({ status, isBuyer, isSeller }: { status: Esc
         ? { tone: 'action', actorLabel: 'Ação necessária — comprador', title: 'Marcar o pagamento como enviado', description: 'Avisa o vendedor de que você enviou o pagamento. Não libera os fundos — isso só acontece quando o vendedor liberar. Toque só depois de concluir a transferência no app do seu banco.', primary: { action: 'markPaymentSent', label: 'Marcar Pagamento Enviado' }, canDispute }
         : { tone: 'waiting', actorLabel: party ? WAITING : 'Acompanhamento', title: 'Aguardando o comprador marcar o pagamento como enviado', description: 'O servidor registrou o bloqueio dos fundos.', canDispute }
     case 'PAYMENT_PENDING':
+      if (isSeller && releaseUnavailable) {
+        return { tone: 'attention', actorLabel: 'Vendedor', title: 'Liberação indisponível nesta interface para este tipo de escrow', description: 'Esta interface ainda não confere os termos da transação deste tipo de escrow antes de assinar, por isso não inicia a liberação.', canDispute }
+      }
       return isSeller
         ? { tone: 'action', actorLabel: 'Ação necessária — vendedor', title: 'Liberar os fundos ao comprador', description: 'O comprador marcou o pagamento como enviado. Confira o recebimento na sua conta antes de liberar. Em alguns escrows, a liberação só é concluída depois das assinaturas necessárias.', primary: { action: 'release', label: 'Liberar Fundos' }, canDispute }
         : { tone: 'waiting', actorLabel: party ? WAITING : 'Acompanhamento', title: 'Aguardando o vendedor liberar', description: 'O pagamento foi marcado como enviado. O vendedor ainda precisa conferir o recebimento e liberar os fundos.', canDispute }

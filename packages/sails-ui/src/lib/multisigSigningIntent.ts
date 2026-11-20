@@ -19,11 +19,37 @@ import {
   type EscrowPendingTransaction,
   type ExpectedSigningIntent,
   buildExpectedFeeAwareReleaseOutputs,
+  verifySigningIntent,
   networkFromMultisigAddress,
   btcToSats,
 } from '@satsails/p2p-trading-sdk'
+import type { SigningVerification } from './signingRequest'
 
-export class MultisigSigningIntentError extends Error {}
+/** `userMessage`: the same refusal in plain Portuguese, for the signing card. */
+export class MultisigSigningIntentError extends Error {
+  constructor(message: string, public readonly userMessage: string) {
+    super(message)
+  }
+}
+
+/**
+ * Read-only: builds the expected intent and runs the SDK's own
+ * verifySigningIntent() (the same check verifyAndSignEscrowPsbt() runs
+ * before signing). Never signs; never throws for a refusal.
+ */
+export function checkMultisigPending(escrow: Escrow, pending: EscrowPendingTransaction): SigningVerification {
+  let expected: ExpectedSigningIntent
+  try {
+    expected = buildMultisigSigningIntent(escrow, pending)
+  } catch (err) {
+    if (err instanceof MultisigSigningIntentError) return { status: 'cannotVerify', reason: err.userMessage }
+    throw err
+  }
+  const result = verifySigningIntent(pending.unsignedPsbtBase64, expected, pending.requiredSigners)
+  return result.ok
+    ? { status: 'verified', outputs: expected.outputs.map((o) => ({ address: o.address, sats: o.value })), minerFeeSats: expected.minerFee }
+    : { status: 'mismatch', fields: result.mismatches.map((m) => m.field) }
+}
 
 /**
  * Throws MultisigSigningIntentError (never returns a partial/guessed
@@ -46,28 +72,30 @@ export function buildMultisigSigningIntent(escrow: Escrow, pending: EscrowPendin
     // fail-safe choice.
     throw new MultisigSigningIntentError(
       'Independent verification for a SPLIT pending transaction is not yet supported — refusing to sign blind. ' +
-      'This requires a shared, audited construction primitive (tracked in BACKLOG.md), not an independently-reimplemented one.'
+      'This requires a shared, audited construction primitive (tracked in BACKLOG.md), not an independently-reimplemented one.',
+      'A conferência de uma divisão (split) ainda não é suportada nesta interface.'
     )
   }
 
   if (!escrow.multisigAddr) {
-    throw new MultisigSigningIntentError(`Escrow ${escrow.id} has no known deposit address yet — cannot verify a signing intent against it.`)
+    throw new MultisigSigningIntentError(`Escrow ${escrow.id} has no known deposit address yet — cannot verify a signing intent against it.`, 'O endereço de depósito do escrow ainda não é conhecido.')
   }
   if (!escrow.txLockId || escrow.txLockVout === null || escrow.txLockVout === undefined) {
-    throw new MultisigSigningIntentError(`Escrow ${escrow.id} is missing its funding outpoint (txLockId/txLockVout) — cannot verify the PSBT's input.`)
+    throw new MultisigSigningIntentError(`Escrow ${escrow.id} is missing its funding outpoint (txLockId/txLockVout) — cannot verify the PSBT's input.`, 'O depósito do escrow (transação de bloqueio) não está registrado.')
   }
   if (!escrow.fundedAmount) {
-    throw new MultisigSigningIntentError(`Escrow ${escrow.id} has no recorded fundedAmount — cannot determine the expected input value.`)
+    throw new MultisigSigningIntentError(`Escrow ${escrow.id} has no recorded fundedAmount — cannot determine the expected input value.`, 'O valor depositado no escrow não está registrado.')
   }
   if (pending.minerFeeSats === null || pending.minerFeeSats === undefined) {
     throw new MultisigSigningIntentError(
       `Pending transaction for escrow ${escrow.id} has no recorded minerFeeSats — cannot reconstruct the expected outputs. ` +
-      'Refusing to sign blind rather than guessing a fee rate that would almost never match what the server actually built.'
+      'Refusing to sign blind rather than guessing a fee rate that would almost never match what the server actually built.',
+      'A taxa de rede desta transação não foi informada.'
     )
   }
   const participantPubkeys = escrow.participantKeys?.map((k) => k.publicKeyHex)
   if (!participantPubkeys || participantPubkeys.length < 2) {
-    throw new MultisigSigningIntentError(`Escrow ${escrow.id} has fewer than 2 registered participant keys — cannot verify the witness script.`)
+    throw new MultisigSigningIntentError(`Escrow ${escrow.id} has fewer than 2 registered participant keys — cannot verify the witness script.`, 'As chaves dos participantes do escrow não estão todas registradas.')
   }
 
   const network = networkFromMultisigAddress(escrow.multisigAddr)
@@ -111,7 +139,7 @@ function buildOutputsForKind(
     return [{ address: pending.toAddress, value: inputValueSats - minerFee }]
   }
   if (!escrow.snapshotFeeCollectionAddress) {
-    throw new MultisigSigningIntentError(`Escrow ${escrow.id} is fee-collectible but has no snapshotFeeCollectionAddress — cannot verify the fee output.`)
+    throw new MultisigSigningIntentError(`Escrow ${escrow.id} is fee-collectible but has no snapshotFeeCollectionAddress — cannot verify the fee output.`, 'O endereço da taxa do protocolo não está registrado.')
   }
   return buildExpectedFeeAwareReleaseOutputs({
     lockedAmountSats: inputValueSats,
