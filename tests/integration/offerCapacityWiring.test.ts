@@ -100,7 +100,7 @@ describe('M-1b wiring: reservation trigger on COMMITTED (real catalog)', () => {
     } finally { await db.query('ROLLBACK') }
     const def = (await db.query(`SELECT prosecdef, proconfig FROM pg_proc WHERE proname='commitment_pairs_reserve_capacity'`)).rows[0]
     expect(def.prosecdef).toBe(true)
-    expect((def.proconfig as string[]).join(',')).toContain('search_path=public, pg_catalog')
+    expect((def.proconfig as string[]).join(',')).toContain('search_path=pg_catalog, public')
   })
 
   run('B4 (b) MUTANT "idempotence without checking amount": a reservation pre-seeded (superuser) with a SMALLER amount for the same pair is refused as ANCHOR_RESERVED, never accepted as "already reserved"', async () => {

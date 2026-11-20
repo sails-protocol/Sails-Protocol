@@ -211,6 +211,6 @@ BEGIN
 END;
 -- SECURITY DEFINER (owner = the migration role) with a fixed search_path: the runtime has NO INSERT on offer_capacity_reservations
 -- (GK B4); only this function, run by the COMMITTED transition, creates a reservation.
-$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_catalog;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public;
 
 RESET lock_timeout;
