@@ -21,12 +21,12 @@ export function OfferTable({ offers }: { offers: Offer[] }) {
   return (
     <table className="w-full table-fixed text-left border-collapse">
       <caption className="sr-only">Ofertas</caption>
-      {/* Fixed widths: price and the rest keep their size; only the seller column absorbs extra width. */}
+      {/* Fixed widths (narrower from 1024, full from 1280); only the seller column absorbs extra width. */}
       <colgroup>
         <col />
-        <col className="w-[11rem]" />
-        <col className="w-[12.5rem]" />
-        <col className="w-[12rem]" />
+        <col className="w-[9.5rem] xl:w-[11rem]" />
+        <col className="w-[10rem] xl:w-[12.5rem]" />
+        <col className="w-[10rem] xl:w-[12rem]" />
         <col className="w-[8rem]" />
       </colgroup>
       <thead>

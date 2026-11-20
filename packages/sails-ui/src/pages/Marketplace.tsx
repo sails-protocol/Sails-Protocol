@@ -121,7 +121,7 @@ export function Marketplace() {
   useEffect(() => {
     if (focusResultsRef.current !== 'now' || loadingOffers) return
     focusResultsRef.current = null
-    // Table (xl+) and compact list (<xl) are both in the DOM; focus the first link that is actually shown.
+    // Table (lg+) and compact list (<lg) are both in the DOM; focus the first link that is actually shown.
     const firstVisible = [...document.querySelectorAll<HTMLElement>('#marketplace-offer-grid a')].find((a) => a.offsetParent !== null)
     ;(firstVisible ?? document.getElementById('marketplace-offer-grid'))?.focus()
   })
@@ -271,7 +271,7 @@ export function Marketplace() {
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar por vendedor..."
             aria-label="Buscar por vendedor"
-            className="w-[200px] min-w-[9rem] shrink bg-brand-elevated border-brand-border"
+            className="w-40 xl:w-[200px] min-w-[9rem] shrink bg-brand-elevated border-brand-border"
           />
         </div>
 
@@ -347,13 +347,13 @@ export function Marketplace() {
           <table> (OfferTable); below xl the compact OfferCard list stays. */}
       <div id="marketplace-offer-grid" tabIndex={-1} aria-label="Resultados" className="mt-3 rounded-lg border border-brand-border-subtle overflow-hidden bg-brand-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_li:last-child>a]:border-b-0">
         {loadingOffers ? (
-          <ListSkeleton label="Carregando ofertas" rows={5} rowClassName="h-[10.125rem] xl:h-[4.25rem] xl:px-5" />
+          <ListSkeleton label="Carregando ofertas" rows={5} rowClassName="h-[10.125rem] lg:h-[4.25rem] lg:px-5" />
         ) : (
           <>
             {offers.length > 0 && (
               <>
-                <div className="hidden xl:block"><OfferTable offers={offers} /></div>
-                <ul aria-label="Ofertas" className="xl:hidden">
+                <div className="hidden lg:block"><OfferTable offers={offers} /></div>
+                <ul aria-label="Ofertas" className="lg:hidden">
                   {offers.map((offer) => (
                     <li key={offer.id}><OfferCard offer={offer} /></li>
                   ))}

@@ -33,12 +33,12 @@ export function Sidebar() {
   return (
     <aside
       aria-label="Navegação principal"
-      className="hidden md:flex md:flex-col md:w-16 lg:w-56 shrink-0 border-r border-brand-border-subtle bg-brand-surface h-screen sticky top-0"
+      className="hidden md:flex md:flex-col md:w-16 xl:w-56 shrink-0 border-r border-brand-border-subtle bg-brand-surface h-screen sticky top-0"
     >
-      <div className="h-14 flex items-center justify-center lg:justify-start lg:px-5 border-b border-brand-border-subtle shrink-0">
-        <NavLink to="/" className="font-display font-semibold tracking-tight text-brand-text lg:text-lg" aria-label="Sails Market">
-          <span className="lg:hidden">S</span>
-          <span className="hidden lg:inline">Sails <span className="text-brand-orange-accent">Market</span></span>
+      <div className="h-14 flex items-center justify-center xl:justify-start xl:px-5 border-b border-brand-border-subtle shrink-0">
+        <NavLink to="/" className="font-display font-semibold tracking-tight text-brand-text xl:text-lg" aria-label="Sails Market">
+          <span className="xl:hidden">S</span>
+          <span className="hidden xl:inline">Sails <span className="text-brand-orange-accent">Market</span></span>
         </NavLink>
       </div>
       <nav className="flex-1 py-3 flex flex-col gap-1 px-2">
@@ -57,14 +57,14 @@ export function Sidebar() {
                 // sole primary brand/action accent (design direction §5), so
                 // the active item gets a tinted orange background + orange
                 // icon/text (no side rail since 2026-11-20: the tint already marks it).
-                `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors justify-center lg:justify-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors justify-center xl:justify-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                   isActive
                     ? 'bg-brand-orange-accent/10 text-brand-orange-hover'
                     : 'text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text'
                 }`}
             >
               <item.icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
-              <span className="hidden lg:inline">{item.label}</span>
+              <span className="hidden xl:inline">{item.label}</span>
             </Link>
           )
         })}
