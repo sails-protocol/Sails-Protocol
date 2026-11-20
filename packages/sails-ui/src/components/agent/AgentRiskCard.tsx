@@ -48,7 +48,7 @@ export function AgentRiskCard({ asset, side, maxValue, minValue }: Props) {
         if (!cancelled) setAssessment(result)
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Falha ao avaliar risco com o QVAC')
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Não foi possível obter a análise do agente')
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -62,8 +62,8 @@ export function AgentRiskCard({ asset, side, maxValue, minValue }: Props) {
     <Card className="p-4 mt-3">
       <div className="flex items-center gap-2 text-sm font-semibold text-brand-text mb-2">
         <Brain className="h-4 w-4 shrink-0" />
-        Avaliação de risco do Agente QVAC
-        <InfoTooltip text="Reflete o passo real de assessIntentRisk() do backend (QvacAgentProvider, LLM local via @qvac/sdk) que roda antes da coordenação de um Intent (RFC-012). Analisa apenas dados do ativo/trade — o agente é Crypto-Native (RFC-016), sem qualquer acesso a contas bancárias ou trilhos fiat. Chamada real, precisa de sessão ativa." />
+        Análise de risco do Sails Agent
+        <InfoTooltip text="Análise automática feita por um modelo de IA local, só com os dados do ativo e do trade. É uma sugestão, não uma decisão nem uma garantia de segurança. O agente não acessa contas bancárias." />
       </div>
 
       {!user ? (
@@ -71,7 +71,7 @@ export function AgentRiskCard({ asset, side, maxValue, minValue }: Props) {
       ) : loading ? (
         <div className="flex items-center gap-2 text-xs text-brand-text-muted">
           <span className="w-1.5 h-1.5 rounded-full bg-brand-orange-accent animate-pulse" />
-          Analisando negociação com QVAC...
+          Analisando a negociação...
         </div>
       ) : error ? (
         <p className="text-xs text-red-500">{error}</p>
@@ -82,7 +82,7 @@ export function AgentRiskCard({ asset, side, maxValue, minValue }: Props) {
           </div>
           <p className="text-sm text-brand-text-secondary mt-2">{assessment.reasoning}</p>
           <p className="text-xs text-brand-text-muted mt-1">
-            Recomendação: <span className="font-medium text-brand-text">{RECOMMENDATION_LABEL[assessment.recommendation]}</span>
+            Sugestão do agente: <span className="font-medium text-brand-text">{RECOMMENDATION_LABEL[assessment.recommendation]}</span>
           </p>
         </div>
       ) : null}

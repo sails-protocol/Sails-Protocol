@@ -124,7 +124,7 @@ export function Marketplace() {
   return (
     <div>
       <h1 className="text-page-title">Market</h1>
-      <p className="text-metadata mt-1">{offers.length} ofertas disponíveis · Non-custodial · Powered by Satsails</p>
+      <p className="text-metadata mt-1">{offers.length} ofertas disponíveis · Powered by Satsails</p>
 
       <div className="mt-4">
         <AgentIntentionPanel

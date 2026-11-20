@@ -49,7 +49,7 @@ export function EscrowCountdown({
     return (
       <div className="mt-3 flex items-center gap-1.5 text-xs text-brand-text-muted">
         <span>Timelock: {timelockHours}h após o bloqueio dos fundos</span>
-        <InfoTooltip text="Prazo real do escrow (Escrow.timelockHours) — só começa a contar quando os fundos forem bloqueados. Passado esse prazo, o script do escrow libera um caminho de reembolso ao vendedor — isso é aplicado pela própria rede (Bitcoin/Liquid), esta interface não executa nada automaticamente." />
+        <InfoTooltip text="Prazo do escrow. Só começa a contar quando os fundos forem bloqueados. Depois dele, o escrow prevê um caminho de reembolso ao vendedor. Esta interface não executa nada automaticamente." />
       </div>
     )
   }
@@ -66,7 +66,7 @@ export function EscrowCountdown({
           ? `Timelock expirado há ${formatRemaining(remainingMs)}`
           : `Timelock expira em ${formatRemaining(remainingMs)}`}
       </span>
-      <InfoTooltip text="Prazo real do escrow (Escrow.expiresAt = quando os fundos foram bloqueados + timelockHours). Passado esse prazo, o script do escrow libera um caminho de reembolso ao vendedor — isso é aplicado pela própria rede (Bitcoin/Liquid), esta interface não executa nada automaticamente." />
+      <InfoTooltip text="Prazo do escrow, contado a partir do bloqueio dos fundos. Depois dele, o escrow prevê um caminho de reembolso ao vendedor. Esta interface não executa nada automaticamente." />
     </div>
   )
 }

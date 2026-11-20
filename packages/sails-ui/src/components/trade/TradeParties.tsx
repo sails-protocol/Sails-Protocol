@@ -33,7 +33,8 @@ function PartyRow({ user, role, isYou, online }: { user: User; role: string; isY
       <div className="text-sm">
         <span className="font-medium text-brand-text">{user.displayName}</span>
         {isYou && <span className="ml-1.5 text-xs bg-brand-orange-accent/10 text-brand-orange-accent rounded px-1.5 py-0.5">Você</span>}
-        <div className="text-xs text-brand-text-muted">{positiveFeedbackPct(user)}% positivo</div>
+        {/* positiveFeedbackPct() returns 100 for 0 trades, which would claim a track record that doesn't exist */}
+        <div className="text-xs text-brand-text-muted">{user.totalTrades === 0 ? 'Sem trades concluídos' : `${positiveFeedbackPct(user)}% positivo`}</div>
       </div>
       <span className="ml-auto text-xs text-brand-text-muted">{role}</span>
       {/* Only the other party — real `user.id` here comes from a real
