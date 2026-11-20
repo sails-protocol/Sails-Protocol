@@ -3,13 +3,11 @@ import { Link, Outlet, useLocation } from 'react-router'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { BottomNav } from './BottomNav'
-import { ThemeToggle } from '../ui/ThemeToggle'
 import { AccountMenu } from './AccountMenu'
 import { OnboardingTour } from '../onboarding/OnboardingTour'
 import { useAuth } from '../../context/AuthContext'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
-import { HelpCircle } from 'lucide-react'
 import { hasSeenOnboarding, markOnboardingSeen } from '../../lib/onboarding'
 
 /** What Layout hands its pages via `useOutletContext` (Configurações' "Rever tour"). */
@@ -55,35 +53,19 @@ export function Layout() {
       <Sidebar />
       <div className="flex-1 min-w-0">
         <Topbar />
-        {/* Mobile-only bar — desktop nav now lives in Sidebar/Topbar;
-            mobile needs its own since BottomNav is reserved for primary
-            navigation. Theme and "Rever tour" stay here on mobile until
-            the mobile lot; on desktop they live in Configurações. */}
-        <header className="md:hidden h-14 flex items-center justify-between px-4 border-b border-brand-border-subtle sticky top-0 z-40 bg-brand-bg/90 backdrop-blur">
+        {/* Mobile-only bar: logo + session, nothing else. Theme and "Rever tour" live in Configurações at
+            every width (reachable from BottomNav). */}
+        <header className="md:hidden h-14 flex items-center justify-between gap-3 px-4 border-b border-brand-border-subtle sticky top-0 z-40 bg-brand-bg/90 backdrop-blur">
           <Link to="/" className="font-display font-semibold text-brand-text tracking-tight">
             Sails <span className="text-brand-orange-accent">Market</span>
           </Link>
-          <div className="flex items-center gap-5">
-            {user && (
-              <button
-                type="button"
-                onClick={() => setTourOpen(true)}
-                title="Rever tour de boas-vindas"
-                aria-label="Rever tour de boas-vindas"
-                className="p-3.5 -m-3.5 text-brand-text-secondary hover:text-brand-text"
-              >
-                <HelpCircle className="h-4 w-4" />
-              </button>
-            )}
-            <ThemeToggle />
-            {user ? (
-              <AccountMenu user={user} compact />
-            ) : (
-              <Link to="/login" state={{ from: location.pathname }} className={cn(buttonVariants({ className: 'text-xs px-3 py-1.5' }))}>
-                Conectar wallet
-              </Link>
-            )}
-          </div>
+          {user ? (
+            <AccountMenu user={user} compact />
+          ) : (
+            <Link to="/login" state={{ from: location.pathname }} className={cn(buttonVariants({ size: 'sm', className: 'min-h-11 px-3' }))}>
+              Conectar wallet
+            </Link>
+          )}
         </header>
         {/* UI-FOUNDATION-1 — max-w-6xl -> max-w-7xl: the sidebar now
             reserves its own width (Sidebar.tsx), so the old cap left a

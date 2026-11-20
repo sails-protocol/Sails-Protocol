@@ -15,7 +15,7 @@ export function SegmentedControl<T extends string>({ options, value, onChange, l
   className?: string
 }) {
   return (
-    <div role="group" aria-label={label} className={cn('inline-flex flex-wrap gap-1 rounded-lg bg-brand-elevated p-1', className)}>
+    <div role="group" aria-label={label} className={cn('inline-flex max-w-full gap-1 overflow-x-auto rounded-lg bg-brand-elevated p-1', className)}>
       {options.map((o) => (
         <button
           key={o.value}
@@ -23,7 +23,7 @@ export function SegmentedControl<T extends string>({ options, value, onChange, l
           aria-pressed={value === o.value}
           onClick={() => onChange(o.value)}
           className={cn(
-            'min-h-11 md:min-h-0 md:h-7 rounded-md px-3 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'shrink-0 whitespace-nowrap min-h-11 md:min-h-0 md:h-7 rounded-md px-3 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             // Selected: surface fill + a control-strength outline (>= 3:1), not colour alone.
             value === o.value ? 'bg-brand-surface font-medium text-brand-text ring-1 ring-brand-border' : 'text-brand-text-secondary hover:text-brand-text'
           )}

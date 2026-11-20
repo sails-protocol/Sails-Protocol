@@ -17,7 +17,7 @@ const SELLER_FALLBACK = 'Anunciante'
  * Rows are split by one hairline, no boxes. The action is the row's one real link
  * (keyboard reachable); its ::after stretches over the row so the whole row is clickable.
  */
-export function OfferTable({ offers }: { offers: Offer[] }) {
+export function OfferTable({ offers, isOwn }: { offers: Offer[]; isOwn?: (offer: Offer) => boolean }) {
   return (
     <table className="w-full table-fixed text-left border-collapse">
       <caption className="sr-only">Ofertas</caption>
@@ -39,15 +39,16 @@ export function OfferTable({ offers }: { offers: Offer[] }) {
         </tr>
       </thead>
       <tbody>
-        {offers.map((offer) => <OfferTableRow key={offer.id} offer={offer} />)}
+        {offers.map((offer) => <OfferTableRow key={offer.id} offer={offer} own={!!isOwn?.(offer)} />)}
       </tbody>
     </table>
   )
 }
 
-function OfferTableRow({ offer }: { offer: Offer }) {
+function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
   const { name, parts } = sellerTrust(offer)
-  const action = offer.side === 'SELL' ? 'Comprar' : 'Vender'
+  // The viewer's own offer gets no trade action, only a quiet link to the offer.
+  const action = own ? 'Sua oferta' : offer.side === 'SELL' ? 'Comprar' : 'Vender'
   const price = formatPrice(offer.priceFiat, offer.fiatCurrency)
   const limits = `${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}`
   const label = `${action} ${ASSET_LABELS[offer.asset]} por ${price}, ${name ?? SELLER_FALLBACK}, ${PAYMENT_METHOD_LABELS[offer.paymentMethod]}, limites ${limits}`
@@ -59,7 +60,7 @@ function OfferTableRow({ offer }: { offer: Offer }) {
           <UserAvatar user={{ id: offer.user.id, displayName: name ?? SELLER_FALLBACK }} size="sm" />
           <div className="min-w-0">
             <div className="flex items-center gap-1">
-              <span className="text-sm font-medium text-brand-text truncate">{name ?? SELLER_FALLBACK}</span>
+              <span data-seller-name className="text-sm font-medium text-brand-text truncate">{name ?? SELLER_FALLBACK}</span>
               {offer.user.verified && <Check aria-label="Verificado" className="h-3.5 w-3.5 shrink-0 text-brand-orange-accent" />}
             </div>
             <div className="text-xs text-brand-text-muted tabular-nums truncate">{parts.join(' · ')}</div>
@@ -67,7 +68,7 @@ function OfferTableRow({ offer }: { offer: Offer }) {
         </div>
       </td>
       <td className="py-3 px-4">
-        <div className="text-lg font-semibold text-brand-text tabular-nums leading-tight whitespace-nowrap">{price}</div>
+        <div data-price className="text-lg font-semibold text-brand-text tabular-nums leading-tight whitespace-nowrap">{price}</div>
         <div className="text-xs text-brand-text-muted whitespace-nowrap">por {ASSET_LABELS[offer.asset]}</div>
       </td>
       <td className="py-3 px-4 text-[13px] text-brand-text-secondary tabular-nums whitespace-nowrap">{limits}</td>
@@ -78,7 +79,12 @@ function OfferTableRow({ offer }: { offer: Offer }) {
         <Link
           to={`/offer/${offer.id}`}
           aria-label={label}
-          className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'min-w-[5.5rem] after:absolute after:inset-0 after:content-[""]')}
+          className={cn(
+            own
+              ? 'inline-flex min-h-9 items-center text-xs font-medium text-brand-text-secondary hover:text-brand-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md'
+              : cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'min-w-[5.5rem]'),
+            'after:absolute after:inset-0 after:content-[""]'
+          )}
         >
           {action}
         </Link>

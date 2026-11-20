@@ -208,51 +208,31 @@ export function OfferDetail() {
     <Page width="detail">
       <PageHeader back={back} title={`Oferta de ${ASSET_LABELS[offer.asset]}`} meta={sellerName ? `Anunciada por ${sellerName}` : undefined} />
 
-      <div className="grid gap-6 lg:grid-cols-12 lg:items-start">
-        <div className="lg:col-span-8 flex flex-col gap-4">
-          {/* One card for the terms: price on the left, the facts on the right; each fact appears once. */}
-          <Card className="p-5">
-            <h2 className="text-section-title">Termos da oferta</h2>
-            <div className="mt-4 grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-              <div>
-                <div className="text-xs text-brand-text-muted">Preço</div>
-                <div className="mt-1 money-hero text-brand-text">{formatPrice(offer.priceFiat, offer.fiatCurrency)}</div>
-                <div className="text-[13px] text-brand-text-muted mt-1">
-                  por {ASSET_LABELS[offer.asset]}
-                  {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}
-                </div>
+      {/* Below lg one column in reading order: terms, then the action card, then the seller. lg+: terms and
+          seller on the left (8), the sticky action card on the right (4). */}
+      <div className="grid gap-x-6 gap-y-4 lg:grid-cols-12 lg:items-start">
+        {/* One card for the terms: price on the left, the facts on the right; each fact appears once. */}
+        <Card className="p-5 lg:col-span-8">
+          <h2 className="text-section-title">Termos da oferta</h2>
+          <div className="mt-4 grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+            <div>
+              <div className="text-xs text-brand-text-muted">Preço</div>
+              <div className="mt-1 money-hero text-brand-text">{formatPrice(offer.priceFiat, offer.fiatCurrency)}</div>
+              <div className="text-[13px] text-brand-text-muted mt-1">
+                por {ASSET_LABELS[offer.asset]}
+                {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}
               </div>
-              <dl className="grid grid-cols-2 gap-x-6 gap-y-4 content-start">
-                <Fact label="Ativo">{ASSET_LABELS[offer.asset]}</Fact>
-                {offer.network && <Fact label="Rede">{offer.network}</Fact>}
-                <Fact label="Pagamento"><PaymentBadge method={offer.paymentMethod} className="text-sm text-brand-text" /></Fact>
-                <Fact label="Limites"><span className="tabular-nums">{formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)} {ASSET_SHORT_LABELS[offer.asset]}</span></Fact>
-              </dl>
             </div>
-          </Card>
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-4 content-start">
+              <Fact label="Ativo">{ASSET_LABELS[offer.asset]}</Fact>
+              {offer.network && <Fact label="Rede">{offer.network}</Fact>}
+              <Fact label="Pagamento"><PaymentBadge method={offer.paymentMethod} className="text-sm text-brand-text" /></Fact>
+              <Fact label="Limites"><span className="tabular-nums">{formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)} {ASSET_SHORT_LABELS[offer.asset]}</span></Fact>
+            </dl>
+          </div>
+        </Card>
 
-          {/* Technical Debt #61: only the canonical public disclosure fields (trades, dispute rate,
-              reputation); raw disputeCount, volume and "member since" are not part of the public response. */}
-          <Card className="p-5">
-            <h2 className="text-section-title">Anunciante</h2>
-            <div className="mt-3 flex items-center gap-3">
-              <UserAvatar user={offer.seller} size="md" />
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium flex items-center gap-1.5 text-brand-text">
-                  <span className="truncate">{sellerName}</span>
-                  {offer.seller.verified && <Check aria-label="Verificado" className="h-4 w-4 shrink-0 text-brand-orange-accent" />}
-                </div>
-                {/* reputationScore is an unbounded +2/-5 sum (lib/reputation.ts), never a 0-100 scale */}
-                <div className="text-xs text-brand-text-muted tabular-nums">
-                  {[...trustParts({ reputationScore: offer.seller.reputationScore, totalTrades: offer.seller.totalTrades }), `taxa de disputas ${disputeRatePct(offer.seller.disputeRate)}%`].join(' · ')}
-                </div>
-              </div>
-              <FavoriteButton userId={offer.seller.id} />
-            </div>
-          </Card>
-        </div>
-
-        <div className="lg:col-span-4 lg:sticky lg:top-20">
+        <div className="lg:col-span-4 lg:col-start-9 lg:row-start-1 lg:row-span-2 lg:sticky lg:top-20">
           {isOwnOffer ? (
             <Card className="p-5">
               <h2 className="text-section-title">Esta é a sua oferta</h2>
@@ -319,6 +299,26 @@ export function OfferDetail() {
             </Card>
           )}
         </div>
+
+        {/* Technical Debt #61: only the canonical public disclosure fields (trades, dispute rate,
+            reputation); raw disputeCount, volume and "member since" are not part of the public response. */}
+        <Card className="p-5 lg:col-span-8">
+          <h2 className="text-section-title">Anunciante</h2>
+          <div className="mt-3 flex items-center gap-3">
+            <UserAvatar user={offer.seller} size="md" />
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium flex items-center gap-1.5 text-brand-text">
+                <span className="truncate">{sellerName}</span>
+                {offer.seller.verified && <Check aria-label="Verificado" className="h-4 w-4 shrink-0 text-brand-orange-accent" />}
+              </div>
+              {/* reputationScore is an unbounded +2/-5 sum (lib/reputation.ts), never a 0-100 scale */}
+              <div className="text-xs text-brand-text-muted tabular-nums">
+                {[...trustParts({ reputationScore: offer.seller.reputationScore, totalTrades: offer.seller.totalTrades }), `taxa de disputas ${disputeRatePct(offer.seller.disputeRate)}%`].join(' · ')}
+              </div>
+            </div>
+            <FavoriteButton userId={offer.seller.id} />
+          </div>
+        </Card>
       </div>
     </Page>
   )

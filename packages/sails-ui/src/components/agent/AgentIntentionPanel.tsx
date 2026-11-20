@@ -248,7 +248,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
               intent is AI-generated; the offer search that follows is deterministic (BOUNDARY_TEXT). */}
           <span className="flex min-w-0 flex-1 items-baseline gap-x-2">
             <span className="shrink-0 text-sm font-semibold text-brand-text">Sails Agent</span>
-            <span id="sails-agent-subtitle" className="min-w-0 truncate text-metadata">Negociação no Market · Intenção gerada por IA, busca automática de oferta</span>
+            <span id="sails-agent-subtitle" className="hidden md:block min-w-0 truncate text-metadata">Negociação no Market · Intenção gerada por IA, busca automática de oferta</span>
           </span>
           {open ? <ChevronUp aria-hidden="true" className="h-4 w-4 shrink-0 text-brand-text-secondary" /> : <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-brand-text-secondary" />}
         </button>

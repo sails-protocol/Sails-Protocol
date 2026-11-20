@@ -248,7 +248,7 @@ export function PublishOffer() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 [&_.toolbar-chip]:w-full">
+            <div className="grid gap-3 sm:grid-cols-2 [&_.toolbar-chip]:w-full">
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">Ativo</label>
                 <AssetPicker

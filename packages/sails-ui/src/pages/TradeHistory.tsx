@@ -14,7 +14,7 @@ import { Card } from '../components/ui/card'
 import { Button, buttonVariants } from '../components/ui/button'
 import { cn } from '../lib/utils'
 import { Page, PageHeader } from '../components/layout/PageHeader'
-import { TradesTabs, TradesTitle } from '../components/layout/TradesTabs'
+import { TradesTabs } from '../components/layout/TradesTabs'
 import { StateBlock } from '../components/ui/StateBlock'
 import { StatStrip } from '../components/ui/StatStrip'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
@@ -36,7 +36,7 @@ const HISTORY_STATUSES: ReadonlyArray<TradeStatus> = ['COMPLETED', 'DISPUTED', '
 
 // Desktop column template, shared by the header and every row so they align.
 // Same columns as ActiveTrades (Valor | Papel | Status | 1fr | Data | ›), so the two tabs line up.
-const COLS = 'md:grid md:grid-cols-[10rem_6.5rem_8rem_minmax(0,1fr)_7rem_1rem] md:items-center md:gap-4'
+const COLS = 'lg:grid lg:grid-cols-[10rem_6.5rem_8rem_minmax(0,1fr)_7rem_1rem] lg:items-center lg:gap-4'
 
 export function TradeHistory() {
   const { user, loading: authLoading } = useAuth()
@@ -89,7 +89,7 @@ export function TradeHistory() {
 
   return (
     <Page>
-      <PageHeader title={<TradesTitle mobile="Meus trades" />}>
+      <PageHeader title="Trades">
         <TradesTabs />
       </PageHeader>
 
@@ -122,7 +122,7 @@ export function TradeHistory() {
 
           {busy ? (
             <Card className="mt-4 overflow-hidden">
-              <ListSkeleton label="Carregando histórico" rows={4} rowClassName="h-[4.4375rem] md:h-[3.125rem]" />
+              <ListSkeleton label="Carregando histórico" rows={4} rowClassName="h-[4.4375rem] lg:h-[3.125rem]" />
             </Card>
           ) : trades.length === 0 ? (
             <StateBlock
@@ -152,18 +152,18 @@ export function TradeHistory() {
                         to={`/trade/${t.id}`}
                         className={cn('flex flex-col gap-1 px-4 py-3 transition-colors hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring', COLS)}
                       >
-                        <span className="flex items-center justify-between gap-3 md:block">
+                        <span className="flex items-center justify-between gap-3 lg:block">
                           <span className="money text-brand-text">{formatAmount(Number(t.amount))} {ASSET_SHORT_LABELS[t.asset]}</span>
-                          <span className="md:hidden"><TradeStatusBadge status={t.status} /></span>
+                          <span className="lg:hidden"><TradeStatusBadge status={t.status} /></span>
                         </span>
-                        <span className="hidden md:block text-sm text-brand-text-secondary">{t.buyerId === user?.id ? 'Comprador' : 'Vendedor'}</span>
-                        <span className="hidden md:block"><TradeStatusBadge status={t.status} /></span>
-                        <span className="hidden md:block text-sm text-right text-brand-text tabular-nums">{formatUsd(Number(t.totalUsd))}</span>
-                        <span className="text-xs text-brand-text-muted tabular-nums md:text-right">
-                          <span className="md:hidden">{t.buyerId === user?.id ? 'Comprador' : 'Vendedor'} · {formatUsd(Number(t.totalUsd))} USD · </span>
+                        <span className="hidden lg:block text-sm text-brand-text-secondary">{t.buyerId === user?.id ? 'Comprador' : 'Vendedor'}</span>
+                        <span className="hidden lg:block"><TradeStatusBadge status={t.status} /></span>
+                        <span className="hidden lg:block text-sm text-right text-brand-text tabular-nums">{formatUsd(Number(t.totalUsd))}</span>
+                        <span className="text-xs text-brand-text-muted tabular-nums lg:text-right">
+                          <span className="lg:hidden">{t.buyerId === user?.id ? 'Comprador' : 'Vendedor'} · {formatUsd(Number(t.totalUsd))} USD · </span>
                           {formatDateTime(t.createdAt)}
                         </span>
-                        <ChevronRight className="hidden md:block h-4 w-4 text-brand-text-muted" aria-hidden="true" />
+                        <ChevronRight className="hidden lg:block h-4 w-4 text-brand-text-muted" aria-hidden="true" />
                       </Link>
                     </li>
                   ))}

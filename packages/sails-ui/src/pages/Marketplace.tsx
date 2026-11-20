@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Link } from 'react-router'
 import { ASSETS_FILTERABLE, PAYMENT_METHODS_FILTERABLE } from '../data/mock'
 import { fetchOffers } from '../lib/realOffers'
 import { countActiveFilters } from '../lib/filters'
 import { OfferCard } from '../components/marketplace/OfferCard'
 import { OfferTable } from '../components/marketplace/OfferTable'
-import { compareOffers, offerAcceptsUsdAmount } from '../components/marketplace/offerList'
+import { compareOffers, isOwnOffer, offerAcceptsUsdAmount } from '../components/marketplace/offerList'
 import { CountBadge, MobileField, MobileFiltersSheet } from '../components/marketplace/MobileFiltersSheet'
 import { AssetPicker } from '../components/marketplace/AssetPicker'
 import { CurrencyPicker } from '../components/marketplace/CurrencyPicker'
@@ -19,7 +19,9 @@ import { Page, PageHeader } from '../components/layout/PageHeader'
 import { StateBlock } from '../components/ui/StateBlock'
 import { Input } from '../components/ui/input'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../components/ui/select'
-import { SlidersHorizontal, AlertTriangle, SearchX, Plus } from 'lucide-react'
+import { SlidersHorizontal, AlertTriangle, SearchX, Plus, ArrowDownUp } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
+import { sailsClient } from '../lib/sailsClient'
 import type { AssetType, FiatCurrency, MarketplaceFilters, TradeSide } from '../types'
 import { DEFAULT_FILTERS } from '../types'
 
@@ -40,7 +42,8 @@ export function Marketplace() {
   // Mobile (<md): side segment + one "Filtros" button opening this bottom sheet.
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
-  const mobileFiltersTriggerRef = useRef<HTMLButtonElement>(null)
+  // Whichever "Filtros" button opened the sheet (mobile or tablet), so focus returns to it.
+  const mobileFiltersTriggerRef = useRef<HTMLButtonElement | null>(null)
   // After "Limpar filtros" in the empty state, focus moves to the results once they render
   // ('afterLoad' waits for the refetch that an asset/side reset triggers).
   const focusResultsRef = useRef<null | 'now' | 'afterLoad'>(null)
@@ -126,6 +129,24 @@ export function Marketplace() {
     ;(firstVisible ?? document.getElementById('marketplace-offer-grid'))?.focus()
   })
 
+  // The viewer's own offer ids (getMyOffers()): the public list carries no owner id, and an own offer
+  // shows "Sua oferta" instead of a trade action. A failed read leaves every row with its normal action.
+  const { user } = useAuth()
+  const [ownOfferIds, setOwnOfferIds] = useState<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    if (!user) {
+      setOwnOfferIds(new Set())
+      return
+    }
+    let cancelled = false
+    sailsClient.liquidity
+      .getMyOffers()
+      .then((mine) => { if (!cancelled) setOwnOfferIds(new Set(mine.map((o) => o.id))) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [user])
+  const isOwn = (o: import('../types').Offer) => isOwnOffer(o, ownOfferIds, user?.id)
+
   const offers = useMemo(() => {
     let result = allOffers.filter((o) => {
       // Real bug found live: a cancelled/paused offer (Profile.tsx's new
@@ -174,14 +195,23 @@ export function Marketplace() {
     </div>
   )
 
+  const openMobileFilters = (e: MouseEvent<HTMLButtonElement>) => {
+    mobileFiltersTriggerRef.current = e.currentTarget
+    setMobileFiltersOpen(true)
+  }
+  const filtersLabel = (n: number) => (n > 0 ? `Filtros, ${n} ${n === 1 ? 'ativo' : 'ativos'}` : 'Filtros')
+  const chipButton = 'h-11 md:h-9 px-3 text-sm border-brand-border bg-brand-elevated hover:bg-brand-elevated hover:border-brand-border-hover'
+
   const sortSelect = (triggerClass: string) => (
     <Select value={filters.sortBy} onValueChange={(v) => setFilters({ ...filters, sortBy: v as MarketplaceFilters['sortBy'] })}>
-      <SelectTrigger aria-label="Ordenar por" className={cn('text-sm bg-brand-elevated border-brand-border hover:border-brand-border-hover', triggerClass)}>
-        <SelectValue />
+      <SelectTrigger aria-label="Ordenar por" className={cn('gap-2 text-sm bg-brand-elevated border-brand-border hover:border-brand-border-hover', triggerClass)}>
+        {/* The icon and the accessible name say "Ordenar", so the value stays short enough for one toolbar row. */}
+        <ArrowDownUp aria-hidden="true" className="h-4 w-4 shrink-0 text-brand-text-muted" />
+        <span className="mr-auto"><SelectValue /></span>
       </SelectTrigger>
       <SelectContent>
         {SORT_OPTIONS.map((s) => (
-          <SelectItem key={s.value} value={s.value}>Ordenar: {s.label}</SelectItem>
+          <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
         ))}
       </SelectContent>
     </Select>
@@ -229,13 +259,12 @@ export function Marketplace() {
       <div className="md:hidden mt-4 flex gap-2">
         {sideSegment('flex-1 min-w-0', 'flex-1 min-h-11 px-2')}
         <Button
-          ref={mobileFiltersTriggerRef}
           variant="outline"
-          onClick={() => setMobileFiltersOpen(true)}
+          onClick={openMobileFilters}
           aria-haspopup="dialog"
           aria-expanded={mobileFiltersOpen}
-          aria-label={mobileFilterCount > 0 ? `Filtros, ${mobileFilterCount} ${mobileFilterCount === 1 ? 'ativo' : 'ativos'}` : 'Filtros'}
-          className="min-h-11 min-w-11 h-auto px-3 text-sm border-brand-border bg-brand-elevated hover:bg-brand-elevated"
+          aria-label={filtersLabel(mobileFilterCount)}
+          className={cn(chipButton, 'min-w-11')}
         >
           <SlidersHorizontal aria-hidden="true" />
           <span className="hidden min-[360px]:inline">Filtros</span>
@@ -243,45 +272,57 @@ export function Marketplace() {
         </Button>
       </div>
 
-      {/* One compact control row on the page background; the table below is the only surface. */}
-      <div className="hidden md:flex mt-4 flex-wrap gap-2 items-center">
-        <div className="flex flex-wrap gap-2 items-center">
-          <AssetPicker assets={ASSETS_FILTERABLE} value={asset} onChange={setAsset} />
-          <CurrencyPicker value={currency} onChange={setCurrency} />
+      {/* One control row on the page background, never wrapping. lg+: every picker, Filtros (drawer) and
+          search on the left, sort on the right; the search shrinks first. md: the main pickers, one
+          Filtros button opening the same sheet as mobile (payment, search and the advanced filters), sort. */}
+      <div className="hidden md:flex mt-4 gap-2 items-center">
+        <AssetPicker assets={ASSETS_FILTERABLE} value={asset} onChange={setAsset} />
+        <CurrencyPicker value={currency} onChange={setCurrency} />
+        <div className="hidden lg:block">
           <PaymentMethodPicker
             methods={PAYMENT_METHODS_FILTERABLE}
             value={filters.paymentMethods}
             onChange={(paymentMethods) => setFilters({ ...filters, paymentMethods })}
           />
-
-          <Button
-            variant="outline"
-            onClick={() => setFilterPanelOpen(true)}
-            aria-label={activeFilterCount > 0 ? `Filtros, ${activeFilterCount} ${activeFilterCount === 1 ? 'ativo' : 'ativos'}` : 'Filtros'}
-            className="flex items-center gap-1.5 h-9 px-3 text-sm relative border-brand-border bg-brand-elevated hover:bg-brand-elevated hover:border-brand-border-hover"
-          >
-            <SlidersHorizontal className="h-4 w-4" />
-            Filtros
-            {activeFilterCount > 0 && <CountBadge n={activeFilterCount} />}
-          </Button>
-
-          {/* Search sits with the filters it narrows; shrinks before it wraps at 1280. */}
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por vendedor..."
-            aria-label="Buscar por vendedor"
-            className="w-40 xl:w-[200px] min-w-[9rem] shrink bg-brand-elevated border-brand-border"
-          />
         </div>
+
+        <Button
+          variant="outline"
+          onClick={() => setFilterPanelOpen(true)}
+          aria-label={filtersLabel(activeFilterCount)}
+          className={cn(chipButton, 'hidden lg:inline-flex shrink-0')}
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          Filtros
+          {activeFilterCount > 0 && <CountBadge n={activeFilterCount} />}
+        </Button>
+        <Button
+          variant="outline"
+          onClick={openMobileFilters}
+          aria-haspopup="dialog"
+          aria-expanded={mobileFiltersOpen}
+          aria-label={filtersLabel(mobileFilterCount)}
+          className={cn(chipButton, 'lg:hidden shrink-0')}
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          Filtros
+          {mobileFilterCount > 0 && <CountBadge n={mobileFilterCount} />}
+        </Button>
+
+        {/* Search sits with the filters it narrows and shrinks before anything wraps. */}
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar por vendedor..."
+          aria-label="Buscar por vendedor"
+          className="hidden lg:block flex-1 min-w-[7rem] max-w-[200px] bg-brand-elevated border-brand-border"
+        />
 
         {/* Quick sort (2026-07-28): reference platforms (Binance P2P/
             Airtm/HodlHodl/El Dorado) all put sort directly on the main
-            toolbar — burying it one click deep inside the Filtros drawer
-            made it easy to miss. Same `filters.sortBy` FilterPanel's own
-            drawer already edits, just exposed here too — not a second
-            source of truth. Right-aligned, apart from the filters. */}
-        {sortSelect('ml-auto w-auto min-w-0')}
+            toolbar. Same `filters.sortBy` FilterPanel's own drawer edits,
+            not a second source of truth. Right-aligned, apart from the filters. */}
+        {sortSelect('ml-auto w-auto min-w-0 shrink-0')}
       </div>
 
       <MobileFiltersSheet
@@ -343,19 +384,19 @@ export function Marketplace() {
         </div>
       )}
 
-      {/* Surface without an outline; rows carry at most one hairline. Desktop (xl+) is a real
-          <table> (OfferTable); below xl the compact OfferCard list stays. */}
+      {/* One surface; rows carry at most one hairline. lg+ is a real <table> (OfferTable); below lg the
+          same cells fold into compact rows (OfferCard). */}
       <div id="marketplace-offer-grid" tabIndex={-1} aria-label="Resultados" className="mt-3 rounded-lg border border-brand-border-subtle overflow-hidden bg-brand-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_li:last-child>a]:border-b-0">
         {loadingOffers ? (
-          <ListSkeleton label="Carregando ofertas" rows={5} rowClassName="h-[10.125rem] lg:h-[4.25rem] lg:px-5" />
+          <ListSkeleton label="Carregando ofertas" rows={5} rowClassName="h-[5.75rem] lg:h-[4.25rem] lg:px-5" />
         ) : (
           <>
             {offers.length > 0 && (
               <>
-                <div className="hidden lg:block"><OfferTable offers={offers} /></div>
+                <div className="hidden lg:block"><OfferTable offers={offers} isOwn={isOwn} /></div>
                 <ul aria-label="Ofertas" className="lg:hidden">
                   {offers.map((offer) => (
-                    <li key={offer.id}><OfferCard offer={offer} /></li>
+                    <li key={offer.id}><OfferCard offer={offer} own={isOwn(offer)} /></li>
                   ))}
                 </ul>
               </>

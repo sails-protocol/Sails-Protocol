@@ -254,15 +254,10 @@ body {
      Binance P2P/Airtm/El Dorado use for offer listings, not a card
      grid. No side accent border (2026-11-20): the row's action label
      ("Comprar"/"Vender") already names the side. */
-  /* xl (1280px) since 2026-11-19: with Inter the 6 columns left the price
-     column 0px wide at 1024px. Below xl the paired-row layout applies.
-     Earlier note: lg (1024px), not md (768px): at tablet width the old md-breakpoint
-     single-line row didn't have enough space for all 5 columns (found
-     by actually screenshotting at 768px — text wrapped and columns
-     overlapped). Tablet now gets the same paired-row mobile layout,
-     which scales cleanly since it has no fixed column widths. */
+  /* Compact offer row (OfferCard), used below the desktop table (lg): cells folded into lines inside one
+     row, action on the right, one hairline between rows. */
   .offer-row {
-    @apply flex flex-col gap-2 border-b border-brand-border-subtle px-3 py-3 transition-colors hover:bg-brand-elevated xl:flex-row xl:items-center xl:gap-4 xl:px-5 xl:py-3.5;
+    @apply flex items-center gap-3 border-b border-brand-border-subtle px-4 py-3 transition-colors hover:bg-brand-elevated/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring;
   }
   .btn-dark {
     @apply bg-brand-text text-brand-bg hover:opacity-85 font-semibold rounded-lg transition-opacity;

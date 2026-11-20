@@ -32,3 +32,12 @@ export function offerAcceptsUsdAmount(offer: Offer, usd: number): boolean {
   if (!(usd > 0)) return true
   return usd >= offer.minAmount * offer.priceUsd && usd <= offer.maxAmount * offer.priceUsd
 }
+
+/**
+ * The viewer's own offer: matched by id against the viewer's own list (getMyOffers()), since the public
+ * list route returns no owner id; offers built from a full User (mock data) also match by owner id.
+ */
+export function isOwnOffer(offer: Offer, ownOfferIds: ReadonlySet<string>, userId?: string | null): boolean {
+  if (ownOfferIds.has(offer.id)) return true
+  return !!userId && offer.userId !== 'unknown' && offer.userId === userId
+}

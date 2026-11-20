@@ -9,10 +9,10 @@ export interface StatItem {
   info?: string
 }
 
-/** Layer A: a row of label/value stats with no boxes, left-aligned (replaces floating bordered stat cards). */
+/** Layer A: a row of label/value stats with no boxes, left-aligned; two per row on phones (2×2 for four). */
 export function StatStrip({ items, className }: { items: StatItem[]; className?: string }) {
   return (
-    <dl className={cn('flex flex-wrap gap-x-8 gap-y-3', className)}>
+    <dl className={cn('grid grid-cols-2 gap-x-8 gap-y-3 sm:flex sm:flex-wrap', className)}>
       {items.map((item) => (
         <div key={item.label} className="min-w-0">
           <dt className="flex items-center gap-1 text-xs text-brand-text-muted">

@@ -34,20 +34,21 @@ export interface PageHeaderProps {
 
 /**
  * Layer A page header: back link (optional), h1 on the left, actions on the right, meta line under the
- * title, optional tabs. All copy comes through props; styled only with tokens.
+ * title, optional tabs. One rule on phones (below sm): the actions move under the title, full width, so
+ * the primary action stays visible with its label. All copy comes through props; styled only with tokens.
  */
 export function PageHeader({ title, meta, metaLive, back, actions, children, className }: PageHeaderProps) {
   return (
     <header className={cn('mb-6', className)}>
       {back && <div className="mb-2">{back}</div>}
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-        <div className="min-w-0 flex-[1_1_12rem]">
+        <div className="min-w-0 basis-full sm:basis-auto sm:flex-[1_1_12rem]">
           <h1 className="text-page-title">{title}</h1>
           {meta !== undefined && (
             <p className="text-metadata mt-1" role={metaLive ? 'status' : undefined}>{meta}</p>
           )}
         </div>
-        {actions && <div className="flex items-center gap-3 shrink-0">{actions}</div>}
+        {actions && <div className="flex w-full items-center gap-3 sm:w-auto sm:shrink-0 max-sm:[&>*]:flex-1">{actions}</div>}
       </div>
       {children && <div className="mt-4">{children}</div>}
     </header>

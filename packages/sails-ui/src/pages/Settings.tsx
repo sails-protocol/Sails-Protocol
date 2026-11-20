@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useOutletContext } from 'react-router'
 import {
   Activity, Bell, Globe, HelpCircle, Info, KeyRound, Languages, Link2, LifeBuoy, Lock, LogOut, MapPin,
-  Moon, Palette, Plug, Server, ServerCog, Shield, ShieldCheck, Users, Wallet, type LucideIcon,
+  Moon, Palette, Plug, Server, ServerCog, Shield, ShieldCheck, Users, Wallet, ArrowLeft, CircleUser, type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
@@ -15,6 +15,18 @@ import { ListSkeleton } from '../components/ui/skeleton'
 import { buttonVariants } from '../components/ui/button'
 import { cn } from '../lib/utils'
 import { Page, PageHeader } from '../components/layout/PageHeader'
+import { Card } from '../components/ui/card'
+import { IdentityAvatar } from '../components/ui/IdentityAvatar'
+import { useAvatarStyle } from '../lib/avatarStyle'
+import type { IdentityAvatarStyle } from '../lib/identityAvatar'
+
+const AVATAR_STYLE_OPTIONS: ReadonlyArray<{ value: IdentityAvatarStyle; label: string }> = [
+  { value: 'vela', label: 'Vela' },
+  { value: 'mare', label: 'Maré' },
+  { value: 'grade', label: 'Grade' },
+]
+// Preview seed when no wallet is connected (a sample, not anyone's identity).
+const SAMPLE_AVATAR_SEED = 'sails-exemplo'
 
 /**
  * LOOSE_WIRES: every planned ("Em breve") row on this page and the contract
@@ -35,6 +47,7 @@ const LOOSE_WIRES = {
   sessionLock: { label: 'Bloqueio da sessão', icon: Lock, contract: 'idle-lock policy over AuthContext session (re-prompt passphrase)' },
   communities: { label: 'Comunidades', icon: Users, contract: 'community / restricted-market membership contract in the SDK (none today)' },
   helpCenter: { label: 'Central de ajuda', icon: LifeBuoy, contract: 'help content destination (docs URL) owned by the product' },
+  publicAvatar: { label: 'Avatar público', icon: CircleUser, contract: 'Avatar público escolhido pelo usuário (visível para as contrapartes) needs a profile field on the server' },
 } as const
 
 const SOON = 'Em breve'
@@ -54,24 +67,50 @@ const SECTIONS: ReadonlyArray<{ id: string; label: string; icon: LucideIcon }> =
 ]
 
 /**
- * Configurações (/settings). Desktop: section list on the left, one section
- * on the right. Mobile: every section stacked (the mobile lot revisits
- * this). Real rows reuse existing logic (ThemeContext, AuthContext,
- * AccountMenu's disconnect, Layout's tour); everything else is a planned
+ * Configurações (/settings). md+: section list on the left, one section
+ * on the right. Below md: a list of sections (native settings screen); a
+ * section opens on its own with a back button to the list. Real rows
+ * reuse existing logic (ThemeContext, AuthContext, AccountMenu's disconnect, Layout's tour); everything else is a planned
  * row from LOOSE_WIRES. No app version row: the build exposes none.
  */
 export function Settings() {
   const [active, setActive] = useState(SECTIONS[0].id)
+  // Below md only: whether a section is open (otherwise the section list shows).
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const activeLabel = SECTIONS.find((s) => s.id === active)?.label
   const { replayTour } = useOutletContext<LayoutOutletContext>()
   const { theme, toggleTheme } = useTheme()
   const { user, loading: authLoading } = useAuth()
   const disconnect = useDisconnect()
+  const [avatarStyle, setAvatarStyle] = useAvatarStyle()
 
-  const groupClass = (id: string) => cn('mb-8 md:mb-0', active !== id && 'md:hidden')
+  const groupClass = (id: string) => cn(active !== id ? 'hidden' : !mobileOpen && 'hidden md:block')
 
   return (
     <Page width="detail">
-      <PageHeader title="Configurações" />
+      <PageHeader
+        title={<><span className="md:hidden">{mobileOpen ? activeLabel : 'Configurações'}</span><span className="hidden md:inline">Configurações</span></>}
+        back={mobileOpen ? (
+          <button
+            type="button"
+            onClick={() => setMobileOpen(false)}
+            className="md:hidden min-h-11 -my-2 inline-flex items-center gap-1 text-[13px] text-brand-text-secondary hover:text-brand-text rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Configurações
+          </button>
+        ) : undefined}
+      />
+      {!mobileOpen && (
+        <nav aria-label="Seções de configurações" className="md:hidden">
+          <Card className="overflow-hidden border-brand-border-subtle bg-brand-surface">
+            <ul className="divide-y divide-brand-border-subtle">
+              {SECTIONS.map((s) => (
+                <SettingsRow key={s.id} icon={s.icon} label={s.label} onClick={() => { setActive(s.id); setMobileOpen(true) }} />
+              ))}
+            </ul>
+          </Card>
+        </nav>
+      )}
       <div className="md:grid md:grid-cols-[13rem_minmax(0,1fr)] md:gap-8 md:items-start">
         <nav aria-label="Seções de configurações" className="hidden md:flex md:flex-col gap-1 sticky top-20">
           {SECTIONS.map((s) => (
@@ -140,6 +179,36 @@ export function Settings() {
               value={theme === 'dark' ? 'Ativado' : 'Desativado'}
               control={<Switch checked={theme === 'dark'} onCheckedChange={toggleTheme} aria-label="Tema escuro" className="relative shrink-0 after:absolute after:-inset-2.5 after:content-['']" />}
             />
+            {/* Viewer display preference: changes how every avatar looks to this viewer only. */}
+            <li className="px-4 py-3">
+              <fieldset>
+                <legend className="text-sm font-medium text-brand-text">Estilo dos avatares</legend>
+                <p className="mt-0.5 text-xs text-brand-text-muted">Muda como você vê todos os avatares, o seu e os das contrapartes. Só você vê esta escolha.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {AVATAR_STYLE_OPTIONS.map((o) => (
+                    <label
+                      key={o.value}
+                      className={cn(
+                        'flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-1.5 text-sm transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring',
+                        avatarStyle === o.value ? 'border-brand-orange-accent bg-brand-orange-accent/10 text-brand-text font-medium' : 'border-brand-border text-brand-text-secondary hover:bg-brand-elevated'
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="avatar-style"
+                        value={o.value}
+                        checked={avatarStyle === o.value}
+                        onChange={() => setAvatarStyle(o.value)}
+                        className="h-4 w-4 accent-brand-orange focus-visible:outline-none"
+                      />
+                      <IdentityAvatar seed={user ? user.publicKey || user.id : SAMPLE_AVATAR_SEED} size={28} style={o.value} />
+                      {o.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            </li>
+            <Planned id="publicAvatar" description="Um avatar escolhido por você e visto pelas contrapartes" />
             <Planned id="language" />
             <Planned id="notifications" />
             <Planned id="displayCurrency" description="Os preços são exibidos em USD." />

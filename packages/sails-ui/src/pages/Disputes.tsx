@@ -74,7 +74,7 @@ const amountText = (e: Escrow) => `${formatAmount(Number(e.lockedAmount))} ${ASS
 const countLabel = (n: number) => (n === 1 ? '1 evidência' : `${n} evidências`)
 
 // Desktop table columns: Trade | Valor | Status | Aberta por | Evidências | Aberta em | action.
-const DISPUTE_COLS = 'md:grid md:grid-cols-[8.5rem_8.5rem_14rem_minmax(0,1fr)_6.5rem_7rem_7rem] md:items-center md:gap-4'
+const DISPUTE_COLS = 'xl:grid-cols-[8rem_8rem_10rem_minmax(0,1fr)_5.5rem_6.5rem_auto] xl:items-center xl:gap-y-0'
 
 /** Same pill shape as the trade status badge: resolved reads green, everything else neutral (no invented severity). */
 function DisputeStatusBadge({ status }: { status: Dispute['status'] }) {
@@ -310,13 +310,13 @@ export function Disputes() {
         />
       ) : authLoading || loading ? (
         <Card className="overflow-hidden">
-          <ListSkeleton label="Carregando disputas" rows={2} rowClassName="h-[9rem] md:h-16" />
+          <ListSkeleton label="Carregando disputas" rows={2} rowClassName="h-[6.5rem] xl:h-16" />
         </Card>
       ) : rows.length === 0 ? (
         <StateBlock kind="empty" title="Nenhuma disputa atribuída a você" description="Quando você for designado árbitro de um trade, o caso aparece aqui." />
       ) : (
         <Card className="overflow-hidden">
-          <div aria-hidden="true" className={cn('text-label hidden px-4 py-2.5 border-b border-brand-border-subtle', DISPUTE_COLS)}>
+          <div aria-hidden="true" className={cn('text-label hidden xl:grid gap-x-4 px-4 py-2.5 border-b border-brand-border-subtle', DISPUTE_COLS)}>
             <span>Trade</span>
             <span>Valor</span>
             <span>Status</span>
@@ -330,7 +330,8 @@ export function Disputes() {
               const d = row.dispute
               const evidenceCount = parseEvidence(d.evidence).length
               return (
-                <li key={d.id} className={cn('flex flex-col gap-2 px-4 py-3 border-b border-brand-border-subtle last:border-b-0', DISPUTE_COLS)}>
+                // Below xl the same cells fold into a compact row: facts on the left, "Abrir caso" on the right.
+                <li key={d.id} className={cn('grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 px-4 py-3 border-b border-brand-border-subtle last:border-b-0 [&>*]:col-start-1 xl:[&>*]:col-start-auto', DISPUTE_COLS)}>
                   <div className="min-w-0">
                     <span className="mono-id text-[13px] text-brand-text">#{shortId(d.tradeId)}</span>
                     {pendingSuggestion(d) && (
@@ -355,9 +356,12 @@ export function Disputes() {
                       <p className="mt-0.5 text-xs text-brand-text-muted">Decisão: {RULING_DECISION[d.ruling]}</p>
                     )}
                   </div>
-                  <span className="text-[13px] text-brand-text-secondary truncate"><span className="md:hidden">Aberta por </span>{personLabel(d.openedBy, row.escrow)}</span>
-                  <span className="text-[13px] text-brand-text-secondary tabular-nums">{countLabel(evidenceCount)}</span>
-                  <span className="text-xs text-brand-text-muted tabular-nums">{formatDateTime(d.createdAt)}</span>
+                  {/* One quiet line below xl; three columns from xl (contents). */}
+                  <div className="flex flex-wrap gap-x-2 text-xs text-brand-text-muted xl:contents">
+                    <span className="xl:text-[13px] xl:text-brand-text-secondary xl:truncate"><span className="xl:hidden">Aberta por </span>{personLabel(d.openedBy, row.escrow)}</span>
+                    <span className="xl:text-[13px] xl:text-brand-text-secondary tabular-nums"><span aria-hidden="true" className="xl:hidden">· </span>{countLabel(evidenceCount)}</span>
+                    <span className="tabular-nums"><span aria-hidden="true" className="xl:hidden">· </span>{formatDateTime(d.createdAt)}</span>
+                  </div>
                   <Button
                     ref={(el) => {
                       if (el) openButtons.current.set(d.id, el)
@@ -367,7 +371,7 @@ export function Disputes() {
                     size="sm"
                     onClick={() => openCase(d.id)}
                     aria-label={`Abrir caso do trade #${shortId(d.tradeId)}`}
-                    className="min-h-11 md:min-h-0 w-full md:w-auto justify-self-end"
+                    className="min-h-11 md:min-h-0 !col-start-2 row-start-1 row-span-4 self-center justify-self-end xl:!col-start-auto xl:row-start-auto xl:row-span-1"
                   >
                     Abrir caso
                   </Button>

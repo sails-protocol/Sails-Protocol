@@ -1,4 +1,4 @@
-import { compareOffers, offerAcceptsUsdAmount, sellerTrust } from '../src/components/marketplace/offerList'
+import { compareOffers, isOwnOffer, offerAcceptsUsdAmount, sellerTrust } from '../src/components/marketplace/offerList'
 import { DEFAULT_FILTERS } from '../src/types'
 import type { Offer, User } from '../src/types'
 
@@ -91,5 +91,17 @@ describe('Market amount filter (USD)', () => {
     expect(offerAcceptsUsdAmount(btc, 0)).toBe(true)
     expect(offerAcceptsUsdAmount(btc, Number(''))).toBe(true)
     expect(offerAcceptsUsdAmount(btc, NaN)).toBe(true)
+  })
+})
+
+describe('isOwnOffer', () => {
+  it('matches by id from the viewer own offer list (the public list has no owner id)', () => {
+    expect(isOwnOffer(offer('mine'), new Set(['mine']), 'me')).toBe(true)
+    expect(isOwnOffer(offer('theirs'), new Set(['mine']), 'me')).toBe(false)
+  })
+  it('matches by owner id only when the offer carries a real one', () => {
+    expect(isOwnOffer(offer('a', { userId: 'me' }), new Set(), 'me')).toBe(true)
+    expect(isOwnOffer(offer('a'), new Set(), 'unknown')).toBe(false)
+    expect(isOwnOffer(offer('a', { userId: 'me' }), new Set(), null)).toBe(false)
   })
 })

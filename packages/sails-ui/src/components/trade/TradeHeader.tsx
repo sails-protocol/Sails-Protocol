@@ -30,8 +30,9 @@ interface Props {
 export function TradeHeader({ title, tradeId, createdAtLabel, status, leading }: Props) {
   return (
     <header>
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">{leading}</div>
+      {/* Wraps instead of overlapping: a long status drops under the back link on narrow screens. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <div className="shrink-0">{leading}</div>
         <span
           role="status"
           className={cn('inline-flex w-fit shrink-0 items-center rounded-full border px-3 py-1 text-sm font-medium', STATUS_TONE_CLASS[status.tone])}

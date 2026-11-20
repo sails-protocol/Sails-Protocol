@@ -14,7 +14,7 @@ import { Button, buttonVariants } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { cn } from '../lib/utils'
 import { Page, PageHeader } from '../components/layout/PageHeader'
-import { TradesTabs, TradesTitle } from '../components/layout/TradesTabs'
+import { TradesTabs } from '../components/layout/TradesTabs'
 import { StateBlock } from '../components/ui/StateBlock'
 import type { EscrowStatus } from '../types'
 
@@ -32,7 +32,7 @@ interface Row {
 
 // Desktop column template, shared by the header and every row so they align.
 // Same columns as TradeHistory (Valor | Papel | Status | 1fr | Data | ›), so the two tabs line up.
-const COLS = 'md:grid md:grid-cols-[10rem_6.5rem_8rem_minmax(0,1fr)_7rem_1rem] md:items-center md:gap-4'
+const COLS = 'lg:grid lg:grid-cols-[10rem_6.5rem_8rem_minmax(0,1fr)_7rem_1rem] lg:items-center lg:gap-4'
 
 // GET /v1/openp2p/trades carries no escrow status, so each active trade's
 // escrow is read with settlement.get() (the same per-row read Disputes.tsx
@@ -94,7 +94,7 @@ export function ActiveTrades() {
 
   return (
     <Page>
-      <PageHeader title={<TradesTitle mobile="Trades ativos" />} meta={meta}>
+      <PageHeader title="Trades" meta={meta}>
         <TradesTabs />
       </PageHeader>
 
@@ -114,7 +114,7 @@ export function ActiveTrades() {
         />
       ) : authLoading || loading ? (
         <Card className="overflow-hidden">
-          <ListSkeleton label="Carregando trades ativos" rows={3} rowClassName="h-[6.125rem] md:h-[3.75rem]" />
+          <ListSkeleton label="Carregando trades ativos" rows={3} rowClassName="h-[6.125rem] lg:h-[3.75rem]" />
         </Card>
       ) : rows.length === 0 ? (
         <StateBlock
@@ -140,23 +140,23 @@ export function ActiveTrades() {
                   to={`/trade/${t.id}`}
                   className={cn('flex flex-col gap-1 px-4 py-3 transition-colors hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring', COLS)}
                 >
-                  <span className="flex items-center justify-between gap-3 md:block">
+                  <span className="flex items-center justify-between gap-3 lg:block">
                     <span className="min-w-0">
                       <span className="money block text-brand-text">{formatAmount(Number(t.amount))} {ASSET_SHORT_LABELS[t.asset]}</span>
-                      <span className="hidden md:block text-xs text-brand-text-muted tabular-nums">{formatUsd(Number(t.totalUsd))} USD</span>
+                      <span className="hidden lg:block text-xs text-brand-text-muted tabular-nums">{formatUsd(Number(t.totalUsd))} USD</span>
                     </span>
-                    <span className="md:hidden"><TradeStatusBadge status={t.status} /></span>
+                    <span className="lg:hidden"><TradeStatusBadge status={t.status} /></span>
                   </span>
-                  <span className="hidden md:block text-sm text-brand-text-secondary">{isBuyer ? 'Comprador' : 'Vendedor'}</span>
-                  <span className="hidden md:block"><TradeStatusBadge status={t.status} /></span>
-                  <span className={cn('text-sm md:truncate', next?.yourTurn ? 'font-medium text-brand-orange-accent' : 'text-brand-text-secondary')}>
+                  <span className="hidden lg:block text-sm text-brand-text-secondary">{isBuyer ? 'Comprador' : 'Vendedor'}</span>
+                  <span className="hidden lg:block"><TradeStatusBadge status={t.status} /></span>
+                  <span className={cn('text-sm', next?.yourTurn ? 'font-medium text-brand-orange-accent' : 'text-brand-text-secondary')}>
                     {next ? next.text : 'Próxima ação não disponível'}
                   </span>
-                  <span className="text-xs text-brand-text-muted tabular-nums md:text-right">
-                    <span className="md:hidden">{isBuyer ? 'Comprador' : 'Vendedor'} · {formatUsd(Number(t.totalUsd))} USD · </span>
+                  <span className="text-xs text-brand-text-muted tabular-nums lg:text-right">
+                    <span className="lg:hidden">{isBuyer ? 'Comprador' : 'Vendedor'} · {formatUsd(Number(t.totalUsd))} USD · </span>
                     {formatDateTime(t.updatedAt)}
                   </span>
-                  <ChevronRight className="hidden md:block h-4 w-4 text-brand-text-muted" aria-hidden="true" />
+                  <ChevronRight className="hidden lg:block h-4 w-4 text-brand-text-muted" aria-hidden="true" />
                 </Link>
               </li>
             ))}

@@ -25,7 +25,7 @@ import { formatPrice } from '../lib/currency'
 import type { Offer, OfferStatus, User } from '../types'
 
 // Desktop columns for "Minhas ofertas", same table idiom as the Market: Lado | Ativo | Preço | Limites | Status | Criada em | Ações.
-const OFFER_COLS = 'md:grid md:grid-cols-[5.5rem_minmax(0,1fr)_8rem_10rem_6.5rem_6.5rem_11rem] md:gap-4 md:flex-nowrap'
+const OFFER_COLS = 'xl:grid xl:grid-cols-[5.5rem_minmax(0,1fr)_8rem_10rem_6.5rem_6.5rem_11rem] xl:gap-4 xl:flex-nowrap'
 
 // Real, persisted Offer rows (GET /v1/liquidity/offers/mine) — the
 // route doesn't join the `user` relation (a self-view never needs to
@@ -92,10 +92,6 @@ export function Profile() {
   // anything yet" (SLC audit's 🟡 finding). Now a distinct message.
   const [offersError, setOffersError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
-  // The Disputas link is shown only to an assigned arbiter: a one-row
-  // listDisputes() read (scoped server-side to the caller). On a failed read
-  // the link stays visible rather than hiding real assigned disputes.
-  const [hasDisputes, setHasDisputes] = useState(false)
   const [statusFilter, setStatusFilter] = useState<OfferStatus | 'Todos'>('Todos')
   const [confirmingCancelId, setConfirmingCancelId] = useState<string | null>(null)
 
@@ -119,16 +115,6 @@ export function Profile() {
       .finally(() => { if (!cancelled) setLoadingOffers(false) })
     return () => { cancelled = true }
   }, [user, reloadKey])
-
-  useEffect(() => {
-    if (!user) return
-    let cancelled = false
-    sailsClient.settlement
-      .listDisputes({ limit: 1 })
-      .then((page) => { if (!cancelled) setHasDisputes(page.total > 0) })
-      .catch(() => { if (!cancelled) setHasDisputes(true) })
-    return () => { cancelled = true }
-  }, [user])
 
   // Real gap found directly by the owner: "Minhas Ordens" had no
   // date/time and no way to know what happened or remove an order —
@@ -175,7 +161,7 @@ export function Profile() {
       />
 
       <Card className="p-5">
-        <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
+        <div className="flex gap-4 items-start sm:items-center">
           <UserAvatar user={user} size="lg" />
           <div className="min-w-0">
             <h2 className="text-section-title flex items-center gap-1.5 flex-wrap">
@@ -241,7 +227,7 @@ export function Profile() {
               <span className="text-right">Ações</span>
             </div>
             {loadingOffers ? (
-              <ListSkeleton label="Carregando ofertas" rows={2} rowClassName="h-[7.5rem] md:h-14" />
+              <ListSkeleton label="Carregando ofertas" rows={2} rowClassName="h-[7.5rem] xl:h-14" />
             ) : myOffers.length === 0 ? (
               <StateBlock bare kind="empty" title={`Nenhuma oferta com status "${statusFilter === 'Todos' ? '' : OFFER_STATUS_LABEL[statusFilter]}"`} />
             ) : (
@@ -259,8 +245,8 @@ export function Profile() {
                           {formatAmount(o.minAmount)}–{formatAmount(o.maxAmount)} {ASSET_SHORT_LABELS[o.asset]}
                         </span>
                         <span><OfferStatusBadge status={o.status} /></span>
-                        <span className="text-xs text-brand-text-muted tabular-nums basis-full md:basis-auto"><span className="md:hidden">Criada em </span>{formatDateTime(o.createdAt)}</span>
-                        <span className="flex items-center gap-1 md:justify-end ml-auto md:ml-0">
+                        <span className="text-xs text-brand-text-muted tabular-nums basis-full xl:basis-auto"><span className="xl:hidden">Criada em </span>{formatDateTime(o.createdAt)}</span>
+                        <span className="flex items-center gap-1 xl:justify-end ml-auto xl:ml-0">
                           {canManage && confirmingCancelId !== o.id && (
                             <>
                               <Button
@@ -327,18 +313,6 @@ export function Profile() {
         )}
       </section>
 
-      {/* Mobile parity only: on desktop the sidebar already links to Trades and Disputas. BottomNav has no
-          dedicated Disputas tab (an infrequent, arbiter-only feature), shown only when one is assigned. */}
-      <div className="mt-8 flex flex-col gap-2 md:hidden">
-        <Link to="/profile/history" className="w-fit min-h-11 text-sm text-brand-orange-accent underline inline-flex items-center gap-0.5">
-          Ver histórico completo de trades <ChevronRight className="h-4 w-4" />
-        </Link>
-        {hasDisputes && (
-          <Link to="/disputes" className="w-fit min-h-11 text-sm text-brand-orange-accent underline inline-flex items-center gap-0.5">
-            Disputas atribuídas a você <ChevronRight className="h-4 w-4" />
-          </Link>
-        )}
-      </div>
     </Page>
   )
 }
