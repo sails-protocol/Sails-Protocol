@@ -41,6 +41,11 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 
+- **D030: `escrows.type` has no default (CTO 28 Despacho 030).** Draft, pending Gatekeeper VERIFY; no route or API change.
+  - `Escrow.type` loses `@default(MOCK)`. An INSERT that omits the rail is refused by the database (NOT NULL, SQLSTATE `23502`) instead of silently becoming a MOCK escrow. Every writer in `src/` already passes `type` (`CreateEscrowData.type` is required).
+  - **Migration** `20261122120000_escrow_type_drop_default`: `ALTER COLUMN type DROP DEFAULT` (catalog only, existing rows untouched), `lock_timeout` 5 s; reversal (`SET DEFAULT 'MOCK'`) in its header.
+  - **Test** `escrowTypeNoDefault.test.ts`: `pg_attrdef` shows no default; a direct INSERT without type fails with 23502 and writes nothing, also as `sails_runtime` in the CI restricted step; the explicit type passes.
+
 - **E21 R1 — a trade binds the exact offer-envelope revision it accepted (CTO 28 Despacho 029).** Draft, pending Gatekeeper VERIFY; no route change.
   - **Column** `trades.acceptedEnvelopeId`: FOREIGN KEY to `offer_envelopes.id` (append-only, write-once) `ON DELETE RESTRICT`, written by `createTrade({ acceptedEnvelopeId })` in the admission transaction and never after. Legacy trades stay NULL, no backfill.
   - **Guard** `trades_accepted_envelope_guard`: at the INSERT the revision must belong to the Offer owner, be resolved (no equivocating row at its revision, no later revision), `ACTIVE` and unexpired on the database clock, and carry the trade terms (asset, side, priceUsd as numeric, paymentMethod, amount within its inclusive limits, all numeric; stricter than the admission's `Number()` bounds check only in refusing). A refused revision fails the whole admission with `VALIDATION_ERROR`; callers that omit the field keep their exact idempotency request hash.
