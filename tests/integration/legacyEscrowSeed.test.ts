@@ -78,22 +78,27 @@ describe('legacyEscrowSeed (corpus helper for pre-cut WDK / LIGHTNING / ... escr
     await expect(legacyEscrowSeed({ tradeId, type: 'WDK_USDT_EVM', lockedAmount: '5', asset: 'USDT_ERC20', columns: { legacyPreCommitmentAt: new Date() } })).rejects.toThrow(/set by the helper itself/)
     await expect(legacyEscrowSeed({ tradeId, type: 'WDK_USDT_EVM', lockedAmount: '5', asset: 'USDT_ERC20', columns: { commitmentPairId: 'x' } })).rejects.toThrow(/set by the helper itself/)
     await expect(legacyEscrowSeed({ tradeId, type: 'WDK_USDT_EVM', lockedAmount: '5', asset: 'USDT_ERC20', columns: { 'status"; DROP TABLE escrows; --': 'x' } })).rejects.toThrow(/bad column name/)
-    const prev = process.env.ADMIN_DATABASE_URL, prevDb = process.env.DATABASE_URL
+    const prev = process.env.ADMIN_DATABASE_URL
+    const role = 'f4_seed_nosuper_' + randomUUID().slice(0, 6), pw = 'pw-' + randomUUID()
+    await db.query(`CREATE ROLE ${role} LOGIN NOSUPERUSER PASSWORD '${pw}'`)
     try {
-      const u = new URL(process.env.DATABASE_URL as string); u.username = 'sails_runtime'; u.password = 'nope'
+      const u = new URL(process.env.DATABASE_URL as string); u.username = role; u.password = pw
       process.env.ADMIN_DATABASE_URL = u.toString()
-      await expect(legacyEscrowSeed({ tradeId, type: 'WDK_USDT_EVM', lockedAmount: '5', asset: 'USDT_ERC20' })).rejects.toBeTruthy() // cannot even connect as the runtime: never a legacy escrow from there
-    } finally { if (prev === undefined) delete process.env.ADMIN_DATABASE_URL; else process.env.ADMIN_DATABASE_URL = prev; process.env.DATABASE_URL = prevDb }
+      await expect(legacyEscrowSeed({ tradeId, type: 'WDK_USDT_EVM', lockedAmount: '5', asset: 'USDT_ERC20' })).rejects.toThrow(/needs a SUPERUSER connection/) // connects fine, is refused for not being a superuser
+    } finally {
+      if (prev === undefined) delete process.env.ADMIN_DATABASE_URL; else process.env.ADMIN_DATABASE_URL = prev
+      await db.query(`DROP ROLE ${role}`)
+    }
   })
 
   it('the revalidation rejects every wrong seed: no marks (a NEW escrow written around the binding), an isolated mark, an address mark without an address, a pair, different instants, a missing trade, MOCK', async () => {
     const tradeId = await newTrade()
-    const insert = (cols: Record<string, unknown>) => withReplica(db, async () => {
-      const id = randomUUID(), c = { id, tradeId, "lockedAmount": 5, asset: 'USDT_ERC20', type: 'WDK_USDT_EVM', updatedAt: new Date(), ...cols }
+    const insert = async (cols: Record<string, unknown>) => { const tid = await newTrade(); return withReplica(db, async () => { // one trade per escrow (escrows.tradeId is UNIQUE)
+      const id = randomUUID(), c = { id, tradeId: tid, "lockedAmount": 5, asset: 'USDT_ERC20', type: 'WDK_USDT_EVM', updatedAt: new Date(), ...cols }
       const names = Object.keys(c)
       await db.query(`INSERT INTO escrows (${names.map((n) => `"${n}"`).join(',')}) VALUES (${names.map((n, i) => (n === 'type' ? `$${i + 1}::"EscrowType"` : `$${i + 1}`)).join(',')})`, names.map((n) => (c as any)[n]))
       return id
-    })
+    }) }
     const t0 = new Date(), t1 = new Date(t0.getTime() + 5)
     await expect(revalidateLegacySeed(db, await insert({}))).rejects.toThrow(/legacy mark is missing/)
     await expect(revalidateLegacySeed(db, await insert({ addressPresentAtCutAt: t0 }))).rejects.toThrow(/legacy mark is missing/)
@@ -106,5 +111,21 @@ describe('legacyEscrowSeed (corpus helper for pre-cut WDK / LIGHTNING / ... escr
     const ghost = await insert({ legacyPreCommitmentAt: t0, tradeId: randomUUID() }) // FK off under the replica role: a dangling trade
     await expect(revalidateLegacySeed(db, ghost)).rejects.toThrow(/its trade does not exist/)
     await db.query(`DELETE FROM escrows WHERE id = $1 OR "commitmentPairId" = 'dangling-pair'`, [ghost]) // leave no dangling rows behind
+  })
+
+  it('withReplica switches the role on for the fixture and ALWAYS back to origin, also when the fixture fails; the revalidation catches a trigger left disabled', async () => {
+    const GUC = 'session_' + 'replication_role'
+    const current = async () => (await db.query(`SELECT current_setting('${GUC}') AS v`)).rows[0].v
+    expect(await current()).toBe('origin')
+    await withReplica(db, async () => { expect(await current()).toBe('replica') })
+    expect(await current()).toBe('origin')
+    await expect(withReplica(db, async () => { throw new Error('fixture failed') })).rejects.toThrow(/fixture failed/)
+    expect(await current()).toBe('origin')
+    // a trigger left DISABLED after a seed is caught by the revalidation (the replica role is not the only way to weaken the binding)
+    const id = await legacyEscrowSeed({ tradeId: await newTrade(), type: 'WDK_USDT_EVM', lockedAmount: '5', asset: 'USDT_ERC20', multisigAddr: '0xz' })
+    await db.query('ALTER TABLE escrows DISABLE TRIGGER escrows_f4_guard_insert')
+    try { await expect(revalidateLegacySeed(db, id)).rejects.toThrow(/triggers are not enabled again: escrows_f4_guard_insert/) }
+    finally { await db.query('ALTER TABLE escrows ENABLE TRIGGER escrows_f4_guard_insert') }
+    await revalidateLegacySeed(db, id) // and passes again once enabled
   })
 })
