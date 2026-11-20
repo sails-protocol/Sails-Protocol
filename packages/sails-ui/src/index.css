@@ -556,6 +556,8 @@ body {
   /* Native controls and scrollbars follow the theme (Windows dark mode). */
   :root { color-scheme: light; }
   :root.dark { color-scheme: dark; }
+  /* The 56px sticky top bar (both menu layouts) must never cover a focused or anchored element. */
+  html { scroll-padding-top: 3.5rem; }
   /* No double-tap zoom delay on controls. */
   a, button, [role="button"], label, input, select, textarea { touch-action: manipulation; }
   :focus-visible {

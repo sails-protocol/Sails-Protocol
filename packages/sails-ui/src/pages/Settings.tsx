@@ -17,6 +17,8 @@ import { Page, PageHeader } from '../components/layout/PageHeader'
 import { Card } from '../components/ui/card'
 import { IdentityAvatar } from '../components/ui/IdentityAvatar'
 import { useAvatarStyle } from '../lib/avatarStyle'
+import { useNavPosition, type NavPosition } from '../lib/navPosition'
+import { NavPositionThumb } from '../components/layout/NavPositionThumb'
 import { REPUTATION_EXPLANATION } from '../lib/reputation'
 import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import type { IdentityAvatarStyle } from '../lib/identityAvatar'
@@ -39,6 +41,11 @@ const THEME_OPTIONS: ReadonlyArray<{ value: ThemePreference; label: string; icon
   { value: 'system', label: 'Padrão do sistema', icon: Monitor },
   { value: 'dark', label: 'Escuro', icon: Moon },
   { value: 'light', label: 'Claro', icon: Sun },
+]
+
+const NAV_POSITION_OPTIONS: ReadonlyArray<{ value: NavPosition; label: string }> = [
+  { value: 'side', label: 'Lateral' },
+  { value: 'top', label: 'Superior' },
 ]
 
 // Each language in its own name (how people find their language in a list).
@@ -88,6 +95,7 @@ export function Settings() {
   const { user, loading: authLoading } = useAuth()
   const disconnect = useDisconnect()
   const [avatarStyle, setAvatarStyle] = useAvatarStyle()
+  const [navPosition, setNavPosition] = useNavPosition()
 
   const groupClass = (id: string) => cn(active !== id ? 'hidden' : !mobileOpen && 'hidden md:block')
   const panel = (id: string) => ({ id, className: groupClass(id), panelOf: 'settings' })
@@ -175,6 +183,21 @@ export function Settings() {
                 {THEME_OPTIONS.map((o) => (
                   <RadioCard key={o.value} name="theme" value={o.value} checked={preference === o.value} onChange={() => setPreference(o.value)} className="py-1.5">
                     <o.icon className="h-4 w-4 text-brand-text-secondary" aria-hidden="true" />
+                    {o.label}
+                  </RadioCard>
+                ))}
+              </RadioGroup>
+            </li>
+            {/* DECISIONS.md "Posição do menu no desktop": saved in this browser, no toggle in the bar. */}
+            <li className="px-4 py-3">
+              <RadioGroup
+                legend="Posição do menu"
+                description="Vale para telas a partir de 1024 px. Em telas menores e no celular, o menu continua como está."
+                listClassName="flex flex-wrap gap-2"
+              >
+                {NAV_POSITION_OPTIONS.map((o) => (
+                  <RadioCard key={o.value} name="nav-position" value={o.value} checked={navPosition === o.value} onChange={() => setNavPosition(o.value)} className="py-1.5">
+                    <NavPositionThumb position={o.value} />
                     {o.label}
                   </RadioCard>
                 ))}

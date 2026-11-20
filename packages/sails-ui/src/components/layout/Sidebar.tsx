@@ -50,6 +50,12 @@ export function NavIcon({ item, active }: { item: NavItem; active: boolean }) {
   return <item.icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
 }
 
+/** Active/rest tone of a nav row, shared by the Sidebar and the top bar (one active-state language). */
+export function navItemTone(isActive: boolean): string {
+  // Active: orange tint + orange icon/text (orange is the one action accent).
+  return cn('font-medium', isActive ? 'bg-brand-orange-accent/10 text-brand-orange-hover' : 'text-brand-text-secondary state-layer hover:text-brand-text')
+}
+
 const STORAGE_KEY = 'sails_ui_sidebar_collapsed'
 const XL_QUERY = '(min-width: 1280px)'
 
@@ -78,7 +84,7 @@ function useIsXl(): boolean {
  * panel OVER the content (scrim; Esc or a click outside closes and returns focus to the toggle), so the
  * Market table is never squeezed. Collapsed items keep their label as tooltip and accessible name.
  */
-export function Sidebar() {
+export function Sidebar({ hideFromLg = false }: { hideFromLg?: boolean }) {
   const { user } = useAuth()
   const { pathname } = useLocation()
   const items = NAV_ITEMS.filter((item) => !item.requiresAuth || user)
@@ -133,7 +139,8 @@ export function Sidebar() {
   return (
     // The outer box reserves the layout width (64px, or 224px when expanded at xl); below xl the panel
     // inside is wider than it when open, so it covers the content instead of pushing it.
-    <div className={cn('hidden md:block shrink-0 sticky top-0 h-screen z-50', motion, isXl && expanded ? 'w-56' : 'w-16')}>
+    // hideFromLg: the viewer chose the top bar, which takes over from 1024 px (Layout.tsx).
+    <div className={cn('hidden md:block shrink-0', hideFromLg && 'lg:hidden', 'sticky top-0 h-screen z-50', motion, isXl && expanded ? 'w-56' : 'w-16')}>
       {overlay && (
         <div
           aria-hidden="true"
@@ -165,12 +172,7 @@ export function Sidebar() {
                     to={item.to}
                     aria-label={item.label}
                     aria-current={isActive ? 'page' : undefined}
-                    className={cn(
-                      rowClass,
-                      // Active: orange tint + orange icon/text (orange is the one action accent).
-                      'font-medium',
-                      isActive ? 'bg-brand-orange-accent/10 text-brand-orange-hover' : 'text-brand-text-secondary state-layer hover:text-brand-text'
-                    )}
+                    className={cn(rowClass, navItemTone(isActive))}
                   >
                     <span className="flex w-6 shrink-0 justify-center"><NavIcon item={item} active={isActive} /></span>
                     {expanded && <span>{item.label}</span>}

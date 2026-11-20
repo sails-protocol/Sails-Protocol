@@ -212,6 +212,23 @@ Margens no shell (`Layout`): `px-4 md:px-6 xl:px-8`. Larguras do `Page`
 672, `prose` 68ch (medida de leitura). Diálogo 448 (confirmação) / 560
 (formulário), popover 288. Abaixo de 1024 a tabela do Market vira linhas.
 
+**Posição do menu no desktop** (DECISIONS.md, 2026-11-20): Configurações →
+Aparência → "Posição do menu: Lateral | Superior", cartões de rádio com uma
+miniatura de cada layout (`layout/NavPositionThumb.tsx`, só tokens). Padrão
+**Lateral** (a barra lateral e o trilho acima, sem nenhuma mudança). Guardada em
+`sails_ui_nav_position` (`lib/navPosition.ts`, leitura e escrita protegidas;
+`useNavPosition()` no `Layout` e em Configurações). Não há botão de alternar na
+barra. **Superior**, só a partir de 1024 (`lg`): a barra do topo (56, nível 1
+fixo) vira três colunas, a logo (símbolo + "Sails Market") à esquerda, os 5
+itens de `NAV_ITEMS` no centro (ícone + rótulo, mesma ordem, rotas e
+`isNavActive`, tom ativo `navItemTone` igual ao da barra lateral,
+`aria-current="page"`, 36 com ponteiro fino / 44 no toque) e a conta à direita
+(`AccountMenu`, ou "Conectar wallet" sem sessão); a barra lateral some nessa
+largura e o conteúdo usa a largura toda (mesmas larguras de `Page`). Abaixo de
+1024 vale o layout de hoje qualquer que seja a escolha; no celular, a barra
+inferior não muda. Teclado: "Pular para o conteúdo" é a primeira parada (leva a
+`#main-content`), depois logo → itens → conta.
+
 ### 4.2 Forma
 
 | Token | Valor | Componentes |

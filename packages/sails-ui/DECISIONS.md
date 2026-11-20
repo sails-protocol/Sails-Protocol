@@ -39,7 +39,12 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 ## Market e ofertas
 - Ofertas ordenadas pela reputação Sails, em tabela no desktop e em lista no celular (2026-11-20).
 - **Reputação** sempre explicada: "Reputação N" é uma soma sem teto (+2 por trade concluído, −5 por disputa perdida). Nunca "/100", porcentagem ou estrelas. Cada informação tem o seu ícone ao lado. A explicação também aparece em Configurações (2026-11-20).
-- **Avaliações** (1 a 5 estrelas) ficam separadas da reputação e nunca entram nela. Quando o dado existir, aparecem numa linha própria, mais discreta: "★ 4,8 · 37 avaliações · desde jan. de 2025". Enquanto não existir, mostram "Em breve" no detalhe e no Perfil, nunca na lista (2026-11-20, Despacho 039).
+- **Avaliações** (1 a 5 estrelas) ficam separadas da reputação e nunca entram nela (2026-11-20, revisado no mesmo dia; Despacho 039).
+  - Quando o dado existir, aparecem já na **primeira vista, na lista do Market**, depois da reputação e mais discretas: "★ 4,8 (37)", com estrela, média e quantidade. Nunca "/5" nem número solto ao lado da reputação. No celular vão para a linha de baixo.
+  - No detalhe e no Perfil, a forma completa: "★ 4,8 · 37 avaliações · desde jan. de 2025".
+  - A explicação "Como a reputação é calculada" deixa claro que as estrelas são avaliações das pessoas e não entram na reputação.
+  - Enquanto o dado não existir, nada aparece na lista. No detalhe e no Perfil aparece "Em breve".
+- **Sem dinheiro em espécie:** o app não oferece "Dinheiro em espécie" como forma de pagamento. Ela sai do filtro, da tela de publicar e da demonstração. Ofertas antigas que já tenham esse método continuam mostrando o nome (2026-11-20).
 - **"Membro desde"** aparece com mês e ano ("nov. de 2026"). É a data de cadastro, nunca a da oferta ou a da wallet (2026-11-20, Despacho 039).
 - **Métodos de pagamento:** na lista, até 3 métodos seguidos de "+N" (no celular, 2 + "+N"). No detalhe, todos. O método escolhido fica preso aos termos aceitos do trade (2026-11-20, revisado no mesmo dia; Despacho 039).
 - **Máximo de 5 métodos de pagamento por oferta** (decisão do Product Owner, 2026-11-20). A tela de publicar não deixa passar de 5, mas o limite precisa virar regra do contrato, validada no backend e no SDK (frente de vários métodos do Despacho 039, com o Principal; issue #735).

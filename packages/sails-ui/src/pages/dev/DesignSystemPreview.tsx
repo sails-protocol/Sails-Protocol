@@ -46,6 +46,8 @@ import { PlannedItem } from '../../components/ui/PlannedItem'
 import { StarRating } from '../../components/ui/star-rating'
 import { RateCounterpartyCard, type RateCounterpartyCopy } from '../../components/trade/RateCounterpartyCard'
 import { RATINGS_EXPLANATION } from '../../lib/reputation'
+import { NavPositionThumb } from '../../components/layout/NavPositionThumb'
+import { NAV_ITEMS, NavIcon, navItemTone } from '../../components/layout/Sidebar'
 
 type Theme = 'light' | 'dark'
 type Vars = Record<Theme, Record<string, string>>
@@ -1041,6 +1043,24 @@ export function DesignSystemPreview() {
         <div className="grid gap-4 xl:grid-cols-2">
           {(['light', 'dark'] as const).map((t) => <RailSpecimen key={t} theme={t} vars={vars} />)}
         </div>
+      </Section>
+
+      <Section id="ds-nav-position" title="Posição do menu no desktop">
+        <div className="flex flex-wrap gap-6 rounded-lg bg-brand-surface p-3">
+          {([['side', 'Lateral (padrão)'], ['top', 'Superior']] as const).map(([p, l]) => (
+            <div key={p} className="flex items-center gap-3 text-body-sm text-brand-text"><NavPositionThumb position={p} className="h-14 w-24" />{l}</div>
+          ))}
+        </div>
+        {/* Static copy of the top bar's items (spans, not links: one navigation landmark per page). */}
+        <div className="mt-4 flex flex-wrap items-center gap-1 rounded-lg bg-brand-surface p-2">
+          {NAV_ITEMS.map((item, i) => (
+            <span key={item.to} className={cn('flex h-9 items-center gap-2 rounded-md px-3 text-sm whitespace-nowrap', navItemTone(i === 0))}>
+              <span className="flex w-6 shrink-0 justify-center"><NavIcon item={item} active={i === 0} /></span>
+              {item.label}
+            </span>
+          ))}
+        </div>
+        <p className="mt-2 text-caption text-brand-text-muted">Configurações → Aparência. Superior vale a partir de 1024 px: logo à esquerda, os 5 itens no centro, conta à direita; abaixo disso, o layout de hoje, e no celular a barra inferior. Item ativo = o mesmo tom laranja da barra lateral, com aria-current="page"; repouso = texto secundário com camada de estado no mouse. 36 px com ponteiro fino, 44 no toque.</p>
       </Section>
     </div>
   )
