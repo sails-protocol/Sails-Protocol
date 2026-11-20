@@ -45,6 +45,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
   - A explicação "Como a reputação é calculada" deixa claro que as estrelas são avaliações das pessoas e não entram na reputação.
   - Enquanto o dado não existir, nada aparece na lista. No detalhe e no Perfil aparece "Em breve".
 - **Sem dinheiro em espécie:** o app não oferece "Dinheiro em espécie" como forma de pagamento. Ela sai do filtro, da tela de publicar e da demonstração. Ofertas antigas que já tenham esse método continuam mostrando o nome (2026-11-20).
+  - Também saem "Dinheiro por correio" e "Depósito em lotérica". Para depósito, fica só o **boleto bancário** (2026-11-20).
 - **"Membro desde"** aparece com mês e ano ("nov. de 2026"). É a data de cadastro, nunca a da oferta ou a da wallet (2026-11-20, Despacho 039).
 - **Métodos de pagamento:** na lista, até 3 métodos seguidos de "+N" (no celular, 2 + "+N"). No detalhe, todos. O método escolhido fica preso aos termos aceitos do trade (2026-11-20, revisado no mesmo dia; Despacho 039).
 - **Máximo de 5 métodos de pagamento por oferta** (decisão do Product Owner, 2026-11-20). A tela de publicar não deixa passar de 5, mas o limite precisa virar regra do contrato, validada no backend e no SDK (frente de vários métodos do Despacho 039, com o Principal; issue #735).

@@ -65,7 +65,7 @@ export const PAYMENT_METHOD_CATEGORY: Record<PaymentMethod, PaymentMethodCategor
  * (no fabricated priority) rather than a gap papered over with a guess.
  */
 export const COUNTRY_PRIORITY_METHODS: Partial<Record<string, PaymentMethod[]>> = {
-  BR: ['PIX', 'TED', 'BANK_TRANSFER', 'MERCADO_PAGO', 'PICPAY', 'BOLETO', 'LOTERICA_DEPOSIT', 'DEPIX'],
+  BR: ['PIX', 'TED', 'BANK_TRANSFER', 'MERCADO_PAGO', 'PICPAY', 'BOLETO', 'DEPIX'],
   US: ['ZELLE', 'CASH_APP', 'VENMO', 'WISE', 'PAYPAL', 'CREDIT_DEBIT_CARD'],
   AR: ['MERCADO_PAGO', 'ASTROPAY', 'BANK_TRANSFER'],
   MX: ['MERCADO_PAGO', 'BANK_TRANSFER', 'PAYPAL'],
