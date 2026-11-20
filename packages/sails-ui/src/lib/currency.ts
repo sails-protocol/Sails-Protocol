@@ -46,3 +46,9 @@ export function formatByCurrency(value: number, currency: FiatCurrency): string 
   const meta = FIAT_CURRENCIES.find((c) => c.code === currency) ?? FIAT_CURRENCIES[0]
   return value.toLocaleString(meta.locale, { style: 'currency', currency: meta.code })
 }
+
+/** Unit price: never rounds away sub-cent digits (a 1.002 offer showed as "$1.00" while 100 units totalled $100.20). */
+export function formatPrice(value: number, currency: FiatCurrency): string {
+  const meta = FIAT_CURRENCIES.find((c) => c.code === currency) ?? FIAT_CURRENCIES[0]
+  return value.toLocaleString(meta.locale, { style: 'currency', currency: meta.code, maximumFractionDigits: 8 })
+}

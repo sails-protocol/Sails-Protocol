@@ -10,11 +10,12 @@ import { Input } from '../components/ui/input'
 import { cn } from '../lib/utils'
 import { ArrowLeft, Check, Lock, AlertTriangle } from 'lucide-react'
 import { formatAmount } from '../lib/format'
-import { formatByCurrency } from '../lib/currency'
+import { formatByCurrency, formatPrice } from '../lib/currency'
 import { sailsClient } from '../lib/sailsClient'
+import { errorMessage } from '../lib/errors'
 import { SailsTransportError, type PublicOfferDetail, type PublicOfferSeller } from '@satsails/p2p-trading-sdk'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
-import { disputeRatePct, isPowerTraderFromCanonical } from '../lib/reputation'
+import { disputeRatePct, formatReputation, isPowerTraderFromCanonical } from '../lib/reputation'
 import { useAuth } from '../context/AuthContext'
 import type { FiatCurrency } from '../types'
 
@@ -180,7 +181,7 @@ export function OfferDetail() {
       toast.success('Trade iniciado')
       navigate(`/trade/${trade.id}`, { state: { offer, amount: amountNum } })
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Falha ao iniciar trade')
+      toast.error(errorMessage(err, 'Falha ao iniciar trade'))
     } finally {
       setStartingTrade(false)
     }
@@ -200,7 +201,7 @@ export function OfferDetail() {
               <SideBadge side={offer.side} />
               <PaymentBadge method={offer.paymentMethod} />
             </div>
-            <div className="mt-4 text-4xl font-display font-bold tabular-nums text-brand-text">{formatByCurrency(offer.priceFiat, offer.fiatCurrency)}</div>
+            <div className="mt-4 money-hero text-brand-text">{formatPrice(offer.priceFiat, offer.fiatCurrency)}</div>
             <div className="text-sm text-brand-text-muted mt-1">
               por {ASSET_LABELS[offer.asset]}
               {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}
@@ -224,14 +225,6 @@ export function OfferDetail() {
               <FavoriteButton userId={offer.seller.id} />
             </div>
 
-            <div className="mt-4">
-              <div className="flex justify-between text-xs text-brand-text-muted mb-1">
-                <span>Reputação</span>
-                {/* reputationScore is an unbounded +2/-5 sum (lib/reputation.ts), never a 0-100 scale */}
-                <span className="font-semibold text-brand-text">{offer.seller.reputationScore.toFixed(1)} pontos</span>
-              </div>
-            </div>
-
             {/* Technical Debt #61 — Total Trades / Dispute Rate / Reputation,
                 exactly the canonical public disclosure contract's own
                 fields (docs/TECHNICAL_DEBT_AUDIT.md #61); raw disputeCount,
@@ -239,22 +232,23 @@ export function OfferDetail() {
                 public response and are not reconstructed here. */}
             <div className="mt-4 grid grid-cols-3 gap-2 text-center">
               <div className="bg-brand-elevated rounded-lg p-2">
-                <div className="font-bold text-brand-text">{offer.seller.totalTrades}</div>
+                <div className="font-bold text-brand-text tabular-nums">{offer.seller.totalTrades}</div>
                 <div className="text-xs text-brand-text-muted">trades</div>
               </div>
               <div className="bg-brand-elevated rounded-lg p-2">
-                <div className="font-bold text-brand-text">{disputeRatePct(offer.seller.disputeRate)}%</div>
+                <div className="font-bold text-brand-text tabular-nums">{disputeRatePct(offer.seller.disputeRate)}%</div>
                 <div className="text-xs text-brand-text-muted">taxa de disputas</div>
               </div>
               <div className="bg-brand-elevated rounded-lg p-2">
-                <div className="font-bold text-brand-text">{offer.seller.reputationScore.toFixed(1)}</div>
+                {/* reputationScore is an unbounded +2/-5 sum (lib/reputation.ts), never a 0-100 scale */}
+                <div className="font-bold text-brand-text tabular-nums">{formatReputation(offer.seller.reputationScore)}</div>
                 <div className="text-xs text-brand-text-muted">reputação</div>
               </div>
             </div>
           </Card>
 
           <Card className="mt-4 divide-y divide-brand-border">
-            <Row label="Rede" value={offer.network ?? '—'} />
+            {offer.network && <Row label="Rede" value={offer.network} />}
             <Row label="Método de pagamento" value={PAYMENT_METHOD_LABELS[offer.paymentMethod]} />
             <Row label="Limites" value={`${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}`} />
           </Card>
@@ -295,7 +289,13 @@ export function OfferDetail() {
 
               <div className="mt-4 pt-4 border-t border-brand-border">
                 <div className="text-xs text-brand-text-muted">Você {offer.side === 'SELL' ? 'paga' : 'recebe'}</div>
-                <div className="text-2xl font-display font-bold tabular-nums mt-1 text-brand-text">{formatByCurrency(totalFiat || 0, offer.fiatCurrency)}</div>
+                <div className="text-2xl font-bold tabular-nums mt-1 text-brand-text">{formatByCurrency(totalFiat || 0, offer.fiatCurrency)}</div>
+                {/* Itemized from the only two inputs the total has: the offer carries no fee field. */}
+                {amountNum > 0 && (
+                  <div className="text-xs text-brand-text-muted tabular-nums mt-1">
+                    {formatAmount(amountNum)} {ASSET_SHORT_LABELS[offer.asset]} × {formatPrice(offer.priceFiat, offer.fiatCurrency)}
+                  </div>
+                )}
               </div>
 
               <div className="mt-4 bg-brand-orange-accent/5 border border-brand-orange-accent/20 rounded-lg p-3 text-xs text-brand-text-secondary flex items-start gap-2">

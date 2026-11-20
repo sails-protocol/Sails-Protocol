@@ -1,0 +1,26 @@
+/* DEV-ONLY typography study. Loaded only by src/dev/typeStudy.tsx, which
+   main.tsx imports behind import.meta.env.DEV. Nothing here applies
+   unless <html> carries a data-type-* attribute, so "current" is the app
+   default (Inter + IBM Plex Mono + the responsive scale in index.css). */
+
+/* Families: titles use the same family as the UI (no display-face mix). */
+html[data-type-candidate="inter"] {
+  --sails-font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+html[data-type-candidate="geist"] {
+  --sails-font-ui: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+html[data-type-candidate="plex"] {
+  --sails-font-ui: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+/* Pre-2026-11-19 look, for before/after comparison: system UI + Space Grotesk titles. */
+html[data-type-candidate="legacy"] {
+  --sails-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --sails-font-display: "Space Grotesk", -apple-system, sans-serif;
+}
+html[data-type-mono="system"] {
+  --sails-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+html[data-type-mono="geist-mono"] {
+  --sails-font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

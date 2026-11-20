@@ -14,7 +14,7 @@ export function InfoTooltip({ text }: { text: string }) {
             box it was also a 16px tap target — real mobile-testing find,
             not hypothetical, same class of fix as FavoriteButton's own. */}
         <button type="button" aria-label="Mais informações" className="group p-2 -m-2 flex items-center justify-center">
-          <span className="w-4 h-4 rounded-full border border-brand-border text-brand-text-muted text-[10px] flex items-center justify-center transition-colors group-hover:border-brand-orange-accent group-hover:text-brand-orange-accent">
+          <span className="w-4 h-4 rounded-full border border-brand-border text-brand-text-muted text-xs flex items-center justify-center transition-colors group-hover:border-brand-orange-accent group-hover:text-brand-orange-accent">
             i
           </span>
         </button>

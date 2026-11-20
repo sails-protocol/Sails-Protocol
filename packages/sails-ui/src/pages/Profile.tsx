@@ -8,13 +8,15 @@ import { InfoTooltip } from '../components/ui/InfoTooltip'
 import { AssetBadge, SideBadge, OfferStatusBadge, OFFER_STATUS_LABEL, PowerTraderBadge } from '../components/ui/StatusBadges'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover'
 import { badgeVariants } from '../components/ui/badge'
 import { cn } from '../lib/utils'
-import { Check, ChevronRight } from 'lucide-react'
+import { Check, ChevronRight, MoreHorizontal } from 'lucide-react'
 import { sailsClient } from '../lib/sailsClient'
 import { formatDateTime } from '../lib/format'
 import { ASSET_SHORT_LABELS } from '../lib/labels'
-import { isPowerTrader } from '../lib/reputation'
+import { formatReputation, isPowerTrader } from '../lib/reputation'
+import { formatPrice } from '../lib/currency'
 import type { Offer, OfferStatus, User } from '../types'
 
 // Real, persisted Offer rows (GET /v1/liquidity/offers/mine) — the
@@ -59,7 +61,7 @@ const OFFER_FILTERS: { value: OfferStatus | 'Todos'; label: string }[] = [
 ]
 
 const KEY_EXPLAINER =
-  'Este é o identificador único da sua conta no Sails Protocol: a mesma chave Ed25519 usada para autenticar (assinar) suas ações E como sua chave de rede P2P (Pears/Holepunch) — o mesmo tipo de "Public Key" que apps como o Keet mostram. É segura para compartilhar; sua chave privada nunca sai do seu dispositivo.'
+  'Este é o identificador único da sua conta: a mesma chave assina suas ações e identifica você na conexão direta com outros usuários. É segura para compartilhar; sua chave privada nunca sai do seu dispositivo.'
 
 export function Profile() {
   const { user } = useAuth()
@@ -142,7 +144,7 @@ export function Profile() {
       <div className="flex flex-col md:flex-row gap-6 items-start pb-6 border-b border-brand-border">
         <UserAvatar user={user} size="xl" />
         <div>
-          <h1 className="text-2xl font-display font-bold flex items-center gap-2 flex-wrap text-brand-text">
+          <h1 className="text-page-title flex items-center gap-2 flex-wrap">
             {user.displayName}
             {user.verified && (
               <span title="Verificado">
@@ -160,11 +162,11 @@ export function Profile() {
               `getKeyPair()`) — one primitive, not two, so the explainer
               below says so plainly instead of inventing a distinction. */}
           <div className="flex items-center gap-1.5 mt-2">
-            <span className="text-xs text-brand-text-muted">Sua chave de identidade (Pears / P2P)</span>
+            <span className="text-xs text-brand-text-muted">Sua chave pública</span>
             <InfoTooltip text={KEY_EXPLAINER} />
           </div>
           <div className="flex items-center gap-2 mt-1">
-            <span className="font-mono text-xs text-brand-text-secondary truncate max-w-xs">{user.publicKey}</span>
+            <span className="mono-id text-brand-text-secondary truncate max-w-xs">{user.publicKey}</span>
             <CopyButton value={user.publicKey} />
           </div>
           <p className="text-xs text-brand-text-muted mt-1">Membro desde {new Date(user.createdAt).toLocaleDateString('pt-BR')}</p>
@@ -174,34 +176,8 @@ export function Profile() {
           <Stat value={user.totalTrades} label="Trades" />
           <Stat value={user.totalVolumeBtc.toFixed(2)} label="Volume BTC" />
           <Stat value={`${((user.disputeCount / Math.max(user.totalTrades, 1)) * 100).toFixed(0)}%`} label="Disputa" />
-          <Stat value={user.reputationScore.toFixed(0)} label="Reputação" />
+          <Stat value={formatReputation(user.reputationScore)} label="Reputação" />
         </div>
-      </div>
-
-      {/* Real bug found live: this used to be a 2-col grid with a second
-          "Avaliações recentes" card showing hardcoded 78/15/5/1/1% star
-          bars — identical for every user, no backend behind it at all.
-          reputation.service.ts's rate() is real (1-5 stars, POST
-          /v1/reputation/rate, see lib/reputation.ts's own header) but only
-          writes individual ReputationEvent rows — there's no GET that
-          aggregates them into a distribution for this UI to read. Removed
-          rather than left misleadingly mocked (feedback_no_platform_
-          operator_visibility's same "don't fake it" principle). A real
-          rating-breakdown card can come back once a real aggregation
-          route exists. */}
-      <div className="mt-6">
-        <Card className="p-5 flex flex-col items-center max-w-xs mx-auto">
-          <div className="relative w-32 h-32 flex items-center justify-center">
-            <svg className="w-32 h-32 -rotate-90">
-              {/* No progress arc: reputationScore is an unbounded +2/-5 sum, so any fill fraction would be invented */}
-              <circle cx="64" cy="64" r="56" fill="none" stroke="rgb(var(--color-border))" strokeWidth="10" />
-            </svg>
-            <div className="absolute text-center">
-              <div className="text-3xl font-display font-bold text-brand-text">{user.reputationScore.toFixed(0)}</div>
-              <div className="text-xs text-brand-text-muted">pontos</div>
-            </div>
-          </div>
-        </Card>
       </div>
 
       <div className="mt-6">
@@ -239,9 +215,9 @@ export function Profile() {
                 <div className="flex flex-wrap items-center gap-2">
                   <SideBadge side={o.side} />
                   <AssetBadge asset={o.asset} />
-                  <span className="font-medium text-sm text-brand-text">${o.priceUsd}</span>
+                  <span className="font-medium text-sm text-brand-text tabular-nums">{formatPrice(o.priceUsd, o.fiatCurrency)}</span>
                   <OfferStatusBadge status={o.status} />
-                  <span className="text-xs text-brand-text-muted ml-auto">
+                  <span className="text-xs text-brand-text-muted tabular-nums ml-auto">
                     {o.minAmount}–{o.maxAmount} {ASSET_SHORT_LABELS[o.asset]}
                   </span>
                 </div>
@@ -257,16 +233,28 @@ export function Profile() {
                               ? applyStatus(o.id, 'PAUSED', 'Oferta pausada — não aparece mais no Marketplace')
                               : applyStatus(o.id, 'ACTIVE', 'Oferta reativada')
                           }
-                          className="text-xs text-brand-text-muted hover:text-brand-text border border-brand-border rounded-md px-2 py-1 transition-colors"
+                          className="min-h-11 md:min-h-8 text-xs text-brand-text-muted hover:text-brand-text border border-brand-border rounded-md px-3 transition-colors"
                         >
                           {o.status === 'ACTIVE' ? 'Pausar' : 'Ativar'}
                         </button>
-                        <button
-                          onClick={() => setConfirmingCancelId(o.id)}
-                          className="text-xs text-red-500 hover:text-red-400 border border-red-500/25 rounded-md px-2 py-1 transition-colors"
-                        >
-                          Cancelar oferta
-                        </button>
+                        {/* Destructive action one step away (overflow), with the same confirmation below. */}
+                        <Popover>
+                          <PopoverTrigger
+                            aria-label="Mais ações da oferta"
+                            className="h-11 w-11 md:h-8 md:w-8 flex items-center justify-center rounded-md text-brand-text-muted hover:text-brand-text hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </PopoverTrigger>
+                          <PopoverContent align="end" className="w-48 p-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setConfirmingCancelId(o.id)}
+                              className="w-full rounded-md px-2.5 py-2 text-left text-sm text-red-500 hover:bg-brand-elevated"
+                            >
+                              Cancelar oferta
+                            </button>
+                          </PopoverContent>
+                        </Popover>
                       </>
                     )}
                     <Link to={`/offer/${o.id}`} className="text-xs text-brand-text-muted hover:text-brand-text flex items-center">
@@ -287,7 +275,7 @@ export function Profile() {
                       >
                         Sim, cancelar
                       </button>
-                      <Button variant="outline" onClick={() => setConfirmingCancelId(null)} className="text-xs px-2.5 py-1">Voltar</Button>
+                      <Button variant="outline" autoFocus onClick={() => setConfirmingCancelId(null)} className="text-xs px-2.5 py-1">Voltar</Button>
                     </div>
                   </div>
                 )}
@@ -316,7 +304,7 @@ export function Profile() {
 function Stat({ value, label }: { value: string | number; label: string }) {
   return (
     <Card className="p-3 text-center">
-      <div className="text-lg font-display font-bold text-brand-text">{value}</div>
+      <div className="text-lg font-bold text-brand-text tabular-nums">{value}</div>
       <div className="text-xs text-brand-text-muted">{label}</div>
     </Card>
   )

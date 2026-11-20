@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import type { TradeIntentPayload, TradeProposal, CounterProposal } from '@satsails/p2p-trading-sdk'
 import { useAuth } from '../../context/AuthContext'
 import { sailsClient } from '../../lib/sailsClient'
+import { errorMessage } from '../../lib/errors'
 import { generateIntentWithQvac, type AgentGeneratedIntent } from '../../lib/qvacAgent'
 import { InfoTooltip } from '../ui/InfoTooltip'
 import { Button } from '../ui/button'
@@ -25,7 +26,7 @@ const GOAL_PLACEHOLDER = 'Ex: quero comprar USDT pagando via PIX, tenho até R$ 
 // mechanism). QVAC never creates the trade or touches escrow itself: it
 // always returns a concrete proposal for you to approve first.
 const BOUNDARY_TEXT =
-  'QVAC roda um LLM local (llama.cpp, sem nuvem). É um agente Crypto-Native (RFC-016): só age sobre ativos digitais já na sua wallet — negociar, criar/aceitar ofertas, travar e liberar escrow via WDK. Ele nunca chama uma API bancária e nunca toca PIX ou qualquer trilho fiat — quem faz o PIX é sempre a contraparte humana, fora do protocolo. A geração da intenção e a busca por uma contraparte real dentro dos limites que você definir (preço, reputação mínima) já rodam de verdade — "negociar" aqui é encontrar a melhor oferta real dentro da sua política, não um vaivém de contrapropostas. O QVAC nunca cria o trade nem move fundos sozinho: ele sempre devolve uma proposta concreta para você aprovar antes de qualquer ação de escrow.'
+  'O Sails Agent usa um modelo de IA local, sem nuvem. Ele só lida com ativos digitais da sua carteira: buscar ofertas, preparar uma proposta. Ele nunca acessa seu banco nem faz PIX ou qualquer pagamento em dinheiro — o pagamento é sempre feito pela outra pessoa do trade, fora do protocolo. Gerar a intenção e buscar uma oferta real dentro dos limites que você definir (preço, reputação mínima) já funcionam de verdade: "negociar" aqui é encontrar a melhor oferta real dentro desses limites, não trocar contrapropostas. O Sails Agent nunca cria o trade nem move fundos sozinho: ele sempre devolve uma proposta para você aprovar antes de qualquer ação de escrow.'
 
 interface Props {
   // Real fix: this panel used to live disconnected from the offer grid
@@ -105,7 +106,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
       setMinReputationRating('')
       onIntentGenerated?.(intent.asset, intent.side, intent.currency)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Falha ao gerar intenção com o QVAC')
+      toast.error(errorMessage(err, 'Falha ao gerar a intenção'))
     } finally {
       setLoading(false)
     }
@@ -168,12 +169,12 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
       setProposal(found)
       setCounterProposal(counter)
       if (found) {
-        toast.success('QVAC encontrou uma proposta real dentro dos seus limites', { icon: <Bot className="h-4 w-4" /> })
+        toast.success('O Sails Agent encontrou uma proposta real dentro dos seus limites', { icon: <Bot className="h-4 w-4" /> })
       } else if (counter) {
-        toast.info('Nenhuma oferta dentro do limite, mas o QVAC sugere uma contraproposta', { icon: <Bot className="h-4 w-4" /> })
+        toast.info('Nenhuma oferta dentro do limite, mas o Sails Agent sugere uma contraproposta', { icon: <Bot className="h-4 w-4" /> })
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Falha ao negociar com o QVAC')
+      toast.error(errorMessage(err, 'Falha ao buscar uma oferta'))
     } finally {
       setProposing(false)
     }
@@ -197,7 +198,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
       toast.success('Trade iniciado')
       navigate(`/trade/${trade.id}`)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Falha ao iniciar trade')
+      toast.error(errorMessage(err, 'Falha ao iniciar trade'))
     } finally {
       setApproving(false)
     }
@@ -261,7 +262,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                 only the intent itself is AI-generated (real LLM call) —
                 the offer search/match that follows is deterministic, not
                 QVAC, per BOUNDARY_TEXT below. */}
-            <span className="block text-metadata truncate">Market Negotiation · Intenção gerada por IA, busca automática de oferta</span>
+            <span className="block text-metadata truncate">Negociação no Market · Intenção gerada por IA, busca automática de oferta</span>
           </span>
         </button>
         <div className="flex items-center gap-1 shrink-0 pl-2">
@@ -305,7 +306,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
 
               <div className="flex items-center gap-3 mt-2">
                 <Button onClick={handleGenerate} disabled={loading} className="px-4 py-2 text-sm disabled:opacity-60">
-                  {loading ? 'QVAC pensando...' : 'Gerar com QVAC'}
+                  {loading ? 'Gerando...' : 'Gerar intenção'}
                 </Button>
                 {loading && (
                   <span className="text-xs text-brand-text-muted flex items-center gap-1.5">
@@ -370,7 +371,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                       raw non-USD number here would filter against the
                       wrong currency. */}
                   {!isUsd && (
-                    <span className="block mt-1 text-[11px] text-brand-text-muted normal-case">
+                    <span className="block mt-1 text-xs text-brand-text-muted normal-case">
                       Limite de preço disponível apenas para moeda USD nesta versão
                     </span>
                   )}
@@ -390,7 +391,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
               <div className="flex gap-2">
                 <Button onClick={handleDelegate} disabled={proposing} className="px-3 py-1.5 text-xs disabled:opacity-60">
                   <Bot className="h-3.5 w-3.5" />
-                  {proposing ? 'QVAC negociando...' : 'Delegar para IA'}
+                  {proposing ? 'Buscando oferta...' : 'Delegar para IA'}
                 </Button>
                 <Button variant="outline" onClick={handleReset} disabled={proposing} className="px-3 py-1.5 text-xs">
                   Cancelar
@@ -434,7 +435,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                 <>
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-brand-orange-accent mb-2">
                     <Bot className="h-3.5 w-3.5" />
-                    Nenhuma oferta dentro do limite — contraproposta do QVAC
+                    Nenhuma oferta dentro do limite — contraproposta do Sails Agent
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">
                     <Field label={side === 'BUY' ? 'Seu limite (máximo)' : 'Seu limite (mínimo)'} value={`USD ${counterProposal.suggestedPriceUsd}`} />
@@ -452,7 +453,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                     Nenhuma oferta encontrada dentro dos seus limites
                   </div>
                   <p className="text-xs text-brand-text-secondary mb-3">
-                    O QVAC buscou entre as ofertas reais de {ASSET_LABELS[result.asset]} e nenhuma atendeu ao preço e/ou reputação mínima informados.
+                    O Sails Agent buscou entre as ofertas reais de {ASSET_LABELS[result.asset]} e nenhuma atendeu ao preço e/ou reputação mínima informados.
                   </p>
                   <Button variant="outline" onClick={handleAdjust} className="px-3 py-1.5 text-xs">
                     Ajustar mandato
@@ -460,7 +461,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                 </>
               )}
               {intentId && (
-                <p className="mt-3 text-[11px] text-brand-text-muted font-mono">Intent #{intentId.slice(0, 8)}</p>
+                <p className="mt-3 text-xs text-brand-text-muted font-mono">Intenção #{intentId.slice(0, 8)}</p>
               )}
             </div>
           )}

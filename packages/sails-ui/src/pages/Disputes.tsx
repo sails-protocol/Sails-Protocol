@@ -19,7 +19,7 @@ import { sailsClient } from '../lib/sailsClient'
 import type { Dispute, DisputeRuling, Escrow, EscrowType } from '@satsails/p2p-trading-sdk'
 import { AssetBadge } from '../components/ui/StatusBadges'
 import { formatAmount, formatDateTime } from '../lib/format'
-import { ASSET_LABELS, DISPUTE_RULING_LABEL } from '../lib/labels'
+import { ASSET_LABELS, ASSET_SHORT_LABELS, DISPUTE_RULING_LABEL, DISPUTE_STATUS_LABEL } from '../lib/labels'
 import { Button } from '../components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet'
 import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
@@ -239,7 +239,7 @@ export function Disputes() {
   return (
     <div>
       <div className="flex items-center gap-2">
-        <h1 className="text-2xl font-display font-bold tracking-tight text-brand-text">Disputas</h1>
+        <h1 className="text-page-title">Disputas</h1>
         {openCount > 0 && (
           <span className="bg-red-500/10 text-red-500 text-xs font-bold rounded-full px-2 py-0.5">{openCount}</span>
         )}
@@ -270,11 +270,11 @@ export function Disputes() {
                     }`}
                   >
                     {d.status === 'AUTO_PROPOSED' && <Bot className="h-3 w-3" />}
-                    {d.status === 'AUTO_PROPOSED' ? 'Resolução automática proposta' : d.status}
+                    {DISPUTE_STATUS_LABEL[d.status] ?? d.status}
                   </span>
                 </div>
                 {row.escrow && (
-                  <div className="mt-1.5 text-xs text-brand-text-muted">{formatAmount(Number(row.escrow.lockedAmount))} em escrow</div>
+                  <div className="mt-1.5 text-xs text-brand-text-muted tabular-nums">{formatAmount(Number(row.escrow.lockedAmount))} {ASSET_SHORT_LABELS[row.escrow.asset] ?? row.escrow.asset} em escrow</div>
                 )}
                 <p className="text-sm text-brand-text-muted mt-1 line-clamp-2">{d.reason}</p>
                 {d.status === 'RESOLVED' && d.ruling && (
@@ -355,8 +355,8 @@ export function Disputes() {
               <div className="mt-4 text-sm space-y-1">
                 {selected.escrow && (
                   <>
-                    <div><span className="text-brand-text-muted">Ativo:</span> <span className="text-brand-text">{selected.escrow.asset}</span></div>
-                    <div><span className="text-brand-text-muted">Valor:</span> <span className="text-brand-text">{formatAmount(Number(selected.escrow.lockedAmount))}</span></div>
+                    <div><span className="text-brand-text-muted">Ativo:</span> <span className="text-brand-text">{ASSET_LABELS[selected.escrow.asset] ?? selected.escrow.asset}</span></div>
+                    <div><span className="text-brand-text-muted">Valor:</span> <span className="text-brand-text tabular-nums">{formatAmount(Number(selected.escrow.lockedAmount))} {ASSET_SHORT_LABELS[selected.escrow.asset] ?? selected.escrow.asset}</span></div>
                   </>
                 )}
                 {selected.dispute.appealRound > 0 && (
@@ -373,7 +373,7 @@ export function Disputes() {
               {selected.dispute.status === 'AUTO_PROPOSED' && selected.dispute.autoResolutionRecommendation && (
                 <div className="mt-4 bg-purple-500/5 border border-purple-500/20 rounded-lg p-3 text-sm">
                   <div className="flex items-center gap-1.5 font-semibold text-purple-400">
-                    <Bot className="h-4 w-4" /> Recomendação da QVAC: {DISPUTE_RULING_LABEL[selected.dispute.autoResolutionRecommendation]}
+                    <Bot className="h-4 w-4" /> Recomendação automática: {DISPUTE_RULING_LABEL[selected.dispute.autoResolutionRecommendation]}
                   </div>
                   <p className="text-brand-text-secondary mt-1.5">{selected.dispute.autoResolutionReasoning}</p>
                   <p className="text-brand-text-muted mt-1.5 text-xs">

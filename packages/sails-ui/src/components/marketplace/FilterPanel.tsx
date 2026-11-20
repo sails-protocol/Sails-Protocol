@@ -369,7 +369,7 @@ function PaymentMethodSection({
     <div>
       {value.length > 0 && (
         <div className="mb-2">
-          <span className="text-[11px] text-brand-text-muted">Selecionados</span>
+          <span className="text-xs text-brand-text-muted">Selecionados</span>
           <div className="flex gap-1.5 flex-wrap mt-1">
             {value.map((m) => <Chip key={m} m={m} />)}
           </div>
@@ -378,7 +378,7 @@ function PaymentMethodSection({
 
       {suggested.length > 0 && (
         <div className="mb-2">
-          <span className="text-[11px] text-brand-text-muted">
+          <span className="text-xs text-brand-text-muted">
             Sugeridos para {COUNTRIES.find((c) => c.code === country)?.label ?? country}
           </span>
           <div className="flex gap-1.5 flex-wrap mt-1">
@@ -409,7 +409,7 @@ function PaymentMethodSection({
           <div className="max-h-72 overflow-y-auto pr-1 space-y-3">
             {PAYMENT_METHOD_CATEGORY_ORDER.filter((cat) => grouped.has(cat)).map((cat) => (
               <div key={cat}>
-                <span className="text-[11px] text-brand-text-muted">{PAYMENT_METHOD_CATEGORY_LABELS[cat]}</span>
+                <span className="text-xs text-brand-text-muted">{PAYMENT_METHOD_CATEGORY_LABELS[cat]}</span>
                 <div className="flex gap-1.5 flex-wrap mt-1">
                   {grouped.get(cat)!.map((m) => <Chip key={m} m={m} />)}
                 </div>

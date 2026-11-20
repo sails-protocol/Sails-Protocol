@@ -138,7 +138,9 @@ evidence gathered — disclosed, not fabricated.
 Source-verified against `StatusBadges.tsx`'s real, exhaustive
 (TypeScript-enforced) `EscrowStatus` mapping: `CREATED` → "Criado"
 (Circle icon, neutral), `FUNDS_LOCKED` → "Fundos travados" (Lock icon,
-blue), `PAYMENT_PENDING` → "Aguardando pagamento" (Clock icon, yellow),
+blue), `PAYMENT_PENDING` → "Aguardando pagamento" (Clock icon, yellow;
+*note 2026-11-19: label since renamed to "Pagamento marcado como enviado",
+Lote A — this audit records the label at its baseline*),
 `COMPLETED` → "Concluído" (CheckCircle2, green), `DISPUTED` → "Em
 disputa" (AlertTriangle, red), `REFUNDED` → "Reembolsado" (RotateCcw,
 neutral), `EXPIRED` → "Expirado" (XCircle, orange — a deliberate,

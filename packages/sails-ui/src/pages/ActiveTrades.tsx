@@ -82,7 +82,7 @@ export function ActiveTrades() {
 
   return (
     <div>
-      <h1 className="text-2xl font-display font-bold tracking-tight text-brand-text">Trades Ativos</h1>
+      <h1 className="text-page-title">Trades Ativos</h1>
 
       {trades.length === 0 ? (
         <p className="text-center text-brand-text-muted py-10">Nenhum trade ativo no momento.</p>

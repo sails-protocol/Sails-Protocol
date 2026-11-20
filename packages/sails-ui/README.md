@@ -139,7 +139,7 @@ acts on digital assets already in the wallet, via WDK. It never calls a
 banking API and never touches PIX or any other fiat rail; that
 conversion is a regulated on/off-ramp provider's job, entirely outside
 this protocol. The one negotiation step that names a fiat action
-("Aguardando pagamento") is always something the human counterparty
+("Pagamento marcado como enviado") is always something the human counterparty
 does — the agent only waits for and observes it.
 
 **Scam-prevention warnings (RFC-017,
