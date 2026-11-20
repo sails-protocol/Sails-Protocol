@@ -70,6 +70,8 @@ export interface CreateTradeData {
   intentId: string | null
   /** E21 slice 1 - the trade's own Intent; omitted only by legacy callers. */
   tradeIntentId?: string
+  /** E21 R1 - the exact offer-envelope revision accepted; omitted by legacy (Offer-only) admissions. */
+  acceptedEnvelopeId?: string
 }
 
 /** E21 slice 1 - what cancelling a LEGACY trade (no own Intent) needs to know about the Offer Intent it shares. */
@@ -184,6 +186,7 @@ class PrismaTradeRepository implements TradeRepository {
         network: input.network,
         intentId: input.intentId,
         tradeIntentId: input.tradeIntentId,
+        acceptedEnvelopeId: input.acceptedEnvelopeId,
       },
     })
   }
