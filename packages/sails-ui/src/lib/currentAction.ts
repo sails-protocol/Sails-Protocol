@@ -8,7 +8,7 @@
  */
 import type { EscrowStatus } from '../types'
 
-export type CurrentActionKind = 'lock' | 'markPaymentSent' | 'release'
+export type CurrentActionKind = 'createEscrow' | 'lock' | 'markPaymentSent' | 'release'
 
 export interface CurrentAction {
   tone: 'action' | 'waiting' | 'terminal' | 'attention'
