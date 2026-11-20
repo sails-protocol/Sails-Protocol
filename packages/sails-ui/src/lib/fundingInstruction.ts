@@ -118,7 +118,8 @@ export function deriveFundingRecordRows(e: FundingEscrow): FundingFact[] {
     { label: 'Transação registrada pelo servidor', value: e.txLockId, mono: true, copy: e.txLockId },
     ...(e.txLockVout !== null && e.txLockVout !== undefined ? [{ label: 'Saída registrada (vout)', value: String(e.txLockVout), mono: true }] : []),
     // The provider writes the explorer's sats value here while other readers treat the column as BTC; never guess the unit.
-    ...(e.fundedAmount ? [{ label: 'Valor registrado pelo servidor', value: `${e.fundedAmount} (unidade não informada)`, mono: true }] : []),
+    // fundedAmount is not shown: its unit is inconsistent in the backend (provider writes sats,
+    // reconciliation reads BTC), so any rendering could be read as a usable amount. Pending CTO.
   ]
 }
 
