@@ -646,7 +646,15 @@ export class SafeGuardEvmProvider implements SettlementProvider {
         `SAFE_GUARD_EVM provider: bundler rejected the UserOperation for sender ${userOp.sender}: ${body.error?.message ?? res.statusText}`
       )
     }
-    return { txId: body.result }
+    // #325: a success is evidence only when it names the UserOperation we sent; anything else fails closed
+    // (thrown, so finalizeBundle leaves SUBMISSION_UNKNOWN: the bundler may still have accepted it).
+    const expected = bytesToHex(getUserOpHash(userOp, config.safeGuardEvm.chainId, config.safeGuardEvm.entryPointAddress))
+    if (typeof body.result !== 'string' || body.result.replace(/^0x/i, '').toLowerCase() !== expected.toLowerCase()) {
+      throw new EscrowError(
+        `SAFE_GUARD_EVM provider: bundler response ${JSON.stringify(body.result) ?? 'undefined'} does not match the submitted UserOperation hash 0x${expected} for sender ${userOp.sender}`
+      )
+    }
+    return { txId: '0x' + expected.toLowerCase() }
   }
 
   async finalizeRelease(escrow: SafeGuardEvmEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[], pendingTxId?: string): Promise<{ txId: string }> {

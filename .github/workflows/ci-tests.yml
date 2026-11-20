@@ -5,6 +5,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+# CTO 403 - cancel only the OBSOLETE runs of the same pull request. A pull_request run belongs to the group "<workflow>-pr-<number>":
+# a newer run of the same PR replaces an older one still queued or running. Every other event (push to main, schedule, manual
+# dispatch) gets a group of its own per run (run_id), so it can never be cancelled, never cancels anything and never queues behind
+# another run. Different PRs have different numbers and never share a group. cancel-in-progress is true only for pull_request.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -49,6 +57,12 @@ jobs:
       # this service container is a fresh, disposable, CI-only Postgres,
       # never a shared or production database.
       SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
+      # CTO 230 - npm run db:migrate goes through scripts/migrate-deploy-safe.sh. These
+      # lanes deliberately migrate and test as the superuser (test setup needs
+      # privileged operations), so the legacy single credential is opted into
+      # explicitly; the role-segregated path is exercised by runtimePrivileges and
+      # by the restricted-runtime lane in ci-tests.yml.
+      SAILS_LEGACY_SINGLE_CREDENTIAL: "1"
       # M9.10-R root cause: TRUSTED_ARBITRATORS was never set anywhere in
       # this workflow. src/config/index.ts reads it once, at
       # module-import time; when empty, dispute.service.ts's lazy
@@ -63,8 +77,8 @@ jobs:
       # ambient environment, not on any one file.
       TRUSTED_ARBITRATORS: k6-test-arbiter
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           cache: 'npm'
@@ -92,9 +106,40 @@ jobs:
         run: |
           set -o pipefail
           npm test 2>&1 | tee jest-output.txt
+      - name: Critical flows as the restricted runtime role (CTO 225)
+        # Re-runs real-Postgres suites for trade, escrow, dispute, reconciliation,
+        # event store/projections, idempotency and capabilities with the
+        # application connected as sails_runtime (no superuser, owns nothing,
+        # least-privilege grants from scripts/db/runtime-grants.sql). Suites that
+        # need test-only privileges are left out: eventProjectionClaims (cleanup
+        # deleteMany), intentTransitionAtomicity (fault-injection triggers),
+        # economicDispositionCooperativeGate (deletes a Dispute row as the attack).
+        env:
+          ADMIN_DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+          SAILS_MIGRATOR_PASSWORD: ci-migrator-password
+          SAILS_RUNTIME_PASSWORD: ci-runtime-password
+          MIGRATION_DATABASE_URL: postgresql://sails_migrator:ci-migrator-password@localhost:5432/sails_protocol
+        run: |
+          set -o pipefail
+          node scripts/db/bootstrap-roles.js
+          npx prisma db execute --file scripts/db/runtime-grants.sql
+          DATABASE_URL=postgresql://sails_runtime:ci-runtime-password@localhost:5432/sails_protocol DB_PRIVILEGE_CHECK=enforce \
+            npx jest --runInBand \
+              tests/integration/tradeProjectionMonotonicity.test.ts \
+              tests/integration/offerIntentIdempotencyUniqueness.test.ts \
+              tests/integration/escrowFundingConcurrency.test.ts \
+              tests/integration/m9rClaimRecovery.test.ts \
+              tests/integration/m9rDispatchRecovery.test.ts \
+              tests/integration/atomicDisputeOpening.test.ts \
+              tests/integration/disputeSemanticProvenance.test.ts \
+              tests/integration/capabilityAuthorityEnforced.test.ts \
+              tests/integration/durableProjectionCompletion.test.ts \
+              tests/integration/semanticTransitionRecordAtomicity.test.ts \
+              tests/integration/settlementResultIntegrity.test.ts \
+              2>&1 | tee -a jest-output.txt
       - name: Upload test logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: jest-output
           path: jest-output.txt

@@ -88,6 +88,21 @@ silently as a side effect of tagging a release candidate.
 - `getPendingTransaction()` no longer returns `signatures` (the server stopped exposing other participants' signed
   PSBTs). The field stays in the type as optional and `@deprecated`; read `signedBy` instead. Code that counted
   `signatures.length` should count `signedBy.length`.
+- Dependency floor: `bitcoinjs-lib` is now `^7.0.5` (was `^7.0.1`), resolving GHSA-8vv3-6qpc-gpw6 (merkle node
+  duplication in block root computation, fixed in 7.0.2). The SDK does not call that code path (`Block`, merkle roots,
+  proof-of-work checks); the new floor keeps consumers from resolving the vulnerable 7.0.1. 7.0.4 also makes PSBT
+  signing and fee accounting resolve each input UTXO consistently: a `nonWitnessUtxo` that disagrees with the
+  `witnessUtxo` is rejected, and an input with no UTXO now fails fee accounting instead of counting as zero. The PSBTs
+  the SDK signs carry `witnessUtxo` only (built by the Sails server; wallet-verification requires it), so they are
+  unaffected.
+
+### Fixed
+- `openp2p.reconcileTrade()` was typed as returning `Message[]`, but the route has always returned an object,
+  `{ tradeId, currentTradeStatus, currentEscrowStatus, missedMessages }`, and the SDK hands it back unchanged. It is now
+  typed as the exported `ReconciliationResult` (its items as `ReconciledMessage`, which has no `tradeId`/`readAt`). No
+  runtime change. Code that compiled against `Message[]` will now fail to compile - and was already reading the wrong shape
+  at runtime (`.length`, iteration and `.map` never worked on the result). The method is not part of the frozen
+  `API_STABLE` contract.
 
 ## [0.2.0] - 2026-09-17
 

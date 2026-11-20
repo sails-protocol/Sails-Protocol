@@ -124,10 +124,8 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { intentId } = intentIdParamsSchema.parse(request.params)
     const participantId = (request as AuthenticatedRequest).participantId
-    const trade = await tradeService.getTradeByIntentId(intentId)
-    if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
-      throw new ForbiddenError(`${participantId} is not a party to trade ${trade.id}`)
-    }
+    // E21 slice 1 - caller-scoped resolution: a stranger and an unknown Intent get the same 404.
+    const trade = await tradeService.getTradeByIntentId(intentId, participantId)
     return reply.code(200).send({ success: true, data: trade })
   })
 

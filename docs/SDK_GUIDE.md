@@ -120,6 +120,11 @@ interface SailsClient {
   // negotiation/chat channel today.
   createIntent<T extends IntentPayload>(payload: T): Promise<Intent<T>>
   cancelIntent(intentId: string): Promise<void>
+  // DELETE /v1/intents/:id. 404 unknown Intent; 403 not your Intent (checked
+  // first). Additive 2026-11-15 (E21 slice 1, PR #651): 409 INTENT_BOUND for an
+  // Intent an Offer or a Trade references (an Offer's Intent, a trade's own
+  // tradeIntentId) — cancel the trade or the Offer instead
+  // (openp2p.updateTradeStatus / liquidity.updateStatus). See API_STABLE.md.
   negotiate(intentId: string, event: NegotiationEvent): Promise<void>
   // EXPERIMENTAL today: throws SailsNotImplementedError. The real negotiation
   // path is the persistent WebSocketChannel returned by openp2p.chat(tradeId).
@@ -147,6 +152,14 @@ interface SailsClient {
   // added 2026-07-19 (consolidation audit) after this file, alongside
   // three others, described it as already live.
   dispute(intentId: string, reason: string): Promise<Dispute>
+  // releaseAsset() and dispute() resolve the trade via GET
+  // /v1/openp2p/trades/by-intent/:intentId, caller-scoped since 2026-11-15
+  // (E21 slice 1, PR #651, additive): a trade's own tradeIntentId resolves for
+  // its buyer and seller; an Offer's Intent resolves to your only trade on it,
+  // 409 AMBIGUOUS_INTENT (details.tradeIds, your trades only) if you have
+  // several; a non-party gets 404 (was 403), same as an unknown Intent. Pass
+  // the trade's tradeIntentId, or use settlement.release/dispute(escrowId), to
+  // avoid the 409. See API_STABLE.md.
   // Escalation order (RFC-007 D4): Policy Engine → OpenAgents → a Trusted
   // Arbitrator via ArbitrationProvider → Settlement. Human arbitration is
   // the last stage, not the first — most disputes are expected to resolve
@@ -266,7 +279,7 @@ interface SailsClient {
     updateTradeStatus(tradeId: string, status: 'ACTIVE' | 'CANCELLED'): Promise<Trade>   // requires an active session
     chat(tradeId: string, options?: WebSocketChannelOptions): WebSocketChannel   // requires an active session — real reconnect-with-backoff by default (2026-08-02); onConnectionStateChange() reports 'open'/'reconnecting'/'closed'
     getMessages(tradeId: string): Promise<Message[]>   // requires an active session
-    reconcileTrade(tradeId: string, sinceMessageCreatedAt: Date | null): Promise<Message[]>   // requires an active session — RFC-011 client-side reconciliation, returns missed messages since the given timestamp
+    reconcileTrade(tradeId: string, sinceMessageCreatedAt: Date | null): Promise<ReconciliationResult>   // requires an active session — RFC-011 client-side reconciliation: { tradeId, currentTradeStatus, currentEscrowStatus, missedMessages[] } (an object, not an array; at most 100 messages, oldest first)
   }
 
   // Capability declaration/grants — RFC-005 (rfcs/RFC-005-capability-model.md),
