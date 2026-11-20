@@ -91,6 +91,12 @@ export const CHOKE_RULES: readonly ChokeRule[] = [
     allowed: [ROUTES, `${ORCHESTRATOR}::executeSettlement`],
   },
   {
+    id: 'LOCK_PAIR_FOR_EFFECT_CALL',
+    description: 'lockPairForEffect: lock order par first (F4_AUDITORIA_ORDEM_DE_LOCKS). Only the A1 entry may take the pair lock; a caller that already holds an escrow/economic lock (reconciler, C4, sweeps, dispute) must never call it',
+    pattern: /(?<!function\s+)\blockPairForEffect\s*\(/g,
+    allowed: [`${ESCROW_SERVICE}::createEscrow`],
+  },
+  {
     id: 'LOCK_FUNDS_CALL',
     description: 'lockFunds: the service call (A4 route, A2 orchestrator) and the provider call (only from the service lockFunds)',
     pattern: /\.lockFunds\s*\(/g,

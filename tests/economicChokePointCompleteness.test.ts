@@ -58,7 +58,7 @@ describe('economic choke-points: the guard itself is mutation-tested (synthetic 
   function compliant(): Record<string, string> {
     return {
       [REPO]: 'export class R {\n  async create(d) {\n    return prisma.escrow.create({ data: d })\n  }\n  async updateMultisigAddr(id, a) {\n    return prisma.escrow.update({ where: { id }, data: { multisigAddr: a } })\n  }\n  async updateLockResult(id, data: { multisigAddr: string; lockedAt: Date }) {\n    return prisma.escrow.update({ where: { id }, data })\n  }\n}\n',
-      [SERVICE]: 'export class S {\n  async createEscrow(i) {\n    return this.repo.create(i)\n  }\n  async submitParticipantKey(id) {\n    const x = await provider.getDepositAddress(id)\n    return this.repo.updateMultisigAddr(id, x)\n  }\n  async lockFunds(id) {\n    const r = await provider.lockFunds(id)\n    return this.repo.updateLockResult(id, { multisigAddr: r.address, lockedAt: new Date() })\n  }\n}\n',
+      [SERVICE]: 'export class S {\n  async createEscrow(i) {\n    await lockPairForEffect(tx, i)\n    return this.repo.create(i)\n  }\n  async submitParticipantKey(id) {\n    const x = await provider.getDepositAddress(id)\n    return this.repo.updateMultisigAddr(id, x)\n  }\n  async lockFunds(id) {\n    const r = await provider.lockFunds(id)\n    return this.repo.updateLockResult(id, { multisigAddr: r.address, lockedAt: new Date() })\n  }\n}\n',
       [ROUTES]: "export async function settlementRoutes(app) {\n  app.post('/x', async () => { await escrowService.createEscrow(b) })\n  app.post('/y', async () => { await escrowService.lockFunds(i) })\n}\n",
       [ORCH]: 'export async function executeSettlement(i) {\n  await escrowService.createEscrow(i)\n  await escrowService.lockFunds(i)\n}\n',
     }
@@ -88,6 +88,8 @@ describe('economic choke-points: the guard itself is mutation-tested (synthetic 
     ['provider.lockFunds in another file', 'scripts/rescue.ts', 'export function f() {\n  return multisigProvider.lockFunds(e)\n}\n'],
     ['escrowService.createEscrow in a new consumer', 'src/other/a.ts', 'export async function f() {\n  await escrowService.createEscrow(i)\n}\n'],
     ['escrowService.lockFunds in a new consumer', 'src/other/a.ts', 'export async function f() {\n  await escrowService.lockFunds(i)\n}\n'],
+    ['lockPairForEffect from the reconciler (it holds the escrow lock: would invert the lock order)', 'src/modules/open-settlement/escrow-settlement-reconciliation.service.ts', 'export async function f() {\n  await lockPairForEffect(tx, ref)\n}\n'],
+    ['lockPairForEffect from another function of escrow.service.ts', SERVICE, 'export class S {\n  async lockFundsX(i) {\n    await lockPairForEffect(tx, i)\n  }\n}\n'],
     ['escrowRepository.create anywhere', 'src/other/a.ts', 'export async function f() {\n  await escrowRepository.create(i)\n}\n'],
   ])('MUTANT: %s is reported as a violation', (_name, path, code) => {
     const r = scanChokePoints(mutate(path, code))
@@ -106,6 +108,7 @@ describe('economic choke-points: the guard itself is mutation-tested (synthetic 
     ['provider.lockFunds', SERVICE, /const r = await provider\.lockFunds\(id\)/, 'LOCK_FUNDS_CALL'],
     ['updateLockResult (the second multisigAddr writer, in the repository)', REPO, /return prisma\.escrow\.update\(\{ where: \{ id \}, data \}\)/, 'MULTISIG_ADDR_UPDATE_MODEL'],
     ['updateLockResult call in lockFunds', SERVICE, /return this\.repo\.updateLockResult\(id, \{ multisigAddr: r\.address, lockedAt: new Date\(\) \}\)/, 'DEPOSIT_ADDRESS_PERSIST_AT_LOCK'],
+    ['lockPairForEffect in createEscrow', SERVICE, /await lockPairForEffect\(tx, i\)\n    /, 'LOCK_PAIR_FOR_EFFECT_CALL'],
     ['createEscrow (orchestrator)', ORCH, /await escrowService\.createEscrow\(i\)/, 'CREATE_ESCROW_CALL'],
   ])('MUTANT: the reviewed %s call disappears -> the allow-list entry is reported stale', (_name, path, call, rule) => {
     const tree = compliant()

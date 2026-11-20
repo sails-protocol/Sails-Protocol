@@ -86,7 +86,8 @@ const mockCapabilityGrantTransaction = jest.fn(async (fn: (tx: unknown) => Promi
     // Issue #294 - TradeRepository.transitionManually() runs in one transaction: it checks the
     // trade's escrow (none by default here), CAS-updates the Trade status, then re-reads the row
     // (real Prisma's updateMany returns no row) - which is what mockTradeUpdate models below.
-    escrow: { findUnique: async () => null },
+    // F4 A1: createEscrow() inserts inside the transaction that takes the pair lock first.
+    escrow: { findUnique: async () => null, create: (...args: unknown[]) => mockEscrowCreate(...args) },
     trade: {
       updateMany: async () => ({ count: 1 }),
       findUnique: (...args: unknown[]) => mockTradeUpdate(...args),
@@ -145,6 +146,11 @@ const mockPaymentAccountCreate = jest.fn()
 const mockPaymentAccountUpdate = jest.fn()
 // Missão 11 Fase 9.3.4 — payout-address privacy-boundary route tests.
 const mockPayoutAddressFindUnique = jest.fn()
+
+// F4 A1: createEscrow() takes the pair lock; here the pair is always ready (A1 itself: tests/escrowCreateCommitmentPair.test.ts).
+jest.mock('../src/modules/open-p2p/commitment-pair.service', () => ({
+  lockPairForEffect: jest.fn(async () => ({ row: { id: 'pair-1' }, readiness: { ok: true }, t: new Date() })),
+}))
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -1416,7 +1422,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it('creates an escrow for an authenticated caller', async () => {
       const token = await authedSession('buyer-1')
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, tradeIntentId: 'anchor-1' })
       mockEscrowCreate.mockResolvedValueOnce({
         id: 'escrow-1', tradeId: 'trade-1', status: 'CREATED',
         type: 'MOCK', lockedAmount: '0.01', asset: 'BTC', // Decimal fields — same .toString() note as above
@@ -1479,7 +1485,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     // USDT_ERC20 pairing is now correctly rejected (new test below).
     it('accepts SAFE_GUARD_EVM as a real, schema-recognized escrow type for an asset with no canonical scope mapping (RFC-020)', async () => {
       const token = await authedSession('buyer-1')
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, tradeIntentId: 'anchor-1' })
       mockEscrowCreate.mockResolvedValueOnce({
         id: 'escrow-safe-guard-1', tradeId: 'trade-1', status: 'CREATED',
         type: 'SAFE_GUARD_EVM', lockedAmount: '1.5', asset: 'STACKS',

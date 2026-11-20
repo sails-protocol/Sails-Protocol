@@ -95,6 +95,11 @@ DECLARE
     trade_anchor text;
     trade_status text;
 BEGIN
+    -- A BEFORE ROW trigger runs before the NOT NULL check. With the schema default gone (D030) an INSERT without a type reaches here with a
+    -- NULL type: refuse it with the same code the NOT NULL would give, so the outcome is stable with or without the default.
+    IF NEW."type" IS NULL THEN
+        RAISE EXCEPTION 'escrows: type is required (escrow id=%)', NEW."id" USING ERRCODE = 'not_null_violation';
+    END IF;
     IF NEW."legacyPreCommitmentAt" IS NOT NULL OR NEW."addressPresentAtCutAt" IS NOT NULL THEN
         RAISE EXCEPTION 'escrows: the legacy marks are written only by the cut migration (escrow id=%)', NEW."id"
             USING ERRCODE = 'check_violation';

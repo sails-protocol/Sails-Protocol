@@ -41,7 +41,9 @@ describe('Escrow.type is required at every creation point (never the schema defa
   it('production path: createEscrow resolves a concrete type and hands it to the repository (it never leaves it to the default)', () => {
     const src = readFileSync(join(__dirname, '..', 'src', 'modules', 'open-settlement', 'escrow.service.ts'), 'utf8')
     expect(src).toMatch(/const type = resolveEscrowType\(input\.asset, input\.type\)/)
-    const call = src.slice(src.indexOf('const escrow = await this.repo.create({'), src.indexOf('const escrow = await this.repo.create({') + 200)
+    const at = src.indexOf('return this.repo.create({') // inside the A1 transaction
+    expect(at).toBeGreaterThan(0)
+    const call = src.slice(at, at + 200)
     expect(call).toMatch(/\n\s+type,\n/)
   })
 })
