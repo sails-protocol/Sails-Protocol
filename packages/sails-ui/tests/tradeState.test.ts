@@ -1,4 +1,4 @@
-import { deriveTradeState, type TradeStateInput } from '../src/lib/tradeState'
+import { deriveTradeState, ESCROW_STATE_LABEL, type TradeStateInput } from '../src/lib/tradeState'
 import { deriveCurrentAction } from '../src/lib/currentAction'
 import type { EscrowStatus, TradeStatus } from '../src/types'
 
@@ -36,7 +36,7 @@ describe('trade state derivation (single source for chip, timeline, action)', ()
     const s = deriveTradeState(input(null, BUYER))
     expect(stepIds(s, 'done')).toEqual(['opened'])
     expect(s.steps.find((x) => x.id === 'escrow')?.state).toBe('current')
-    expect(s.status.label).toBe('Aguardando escrow')
+    expect(s.status.label).toBe('Escrow ainda não criado')
   })
 
   it('marks the lock step done (not current) once funds are recorded as locked', () => {
@@ -86,11 +86,35 @@ describe('trade state derivation (single source for chip, timeline, action)', ()
     expect(deriveTradeState(input('DISPUTED', BUYER, { signingRoundKind: 'split' })).status.label).toBe('Em disputa')
   })
 
-  it('chip describes the current state, not the last completed step', () => {
+  it('gives each recorded escrow state one name: chip, timeline and the specs/dialog label agree', () => {
+    for (const status of STATUSES) for (const r of ROLES) {
+      const s = deriveTradeState(input(status, r))
+      expect(s.status.label).toBe(ESCROW_STATE_LABEL[status])
+      // The timeline step that records this state carries the same words.
+      expect(s.steps.map((x) => x.label)).toContain(ESCROW_STATE_LABEL[status])
+    }
+    // On the happy path the chip is the last step recorded as done.
     const s = deriveTradeState(input('PAYMENT_PENDING', BUYER))
-    const done = s.steps.filter((x) => x.state === 'done').map((x) => x.label)
-    expect(done).not.toContain(s.status.label)
-    expect(s.status.label).toBe('Aguardando liberação')
+    expect(s.steps.filter((x) => x.state === 'done').pop()?.label).toBe(s.status.label)
+  })
+
+  it('a resolved dispute that can be appealed never says nothing is left to do', () => {
+    for (const status of ['COMPLETED', 'REFUNDED', 'SPLIT'] as const) {
+      const a = deriveTradeState(input(status, BUYER, { appealAvailable: true })).action
+      expect(a.tone).toBe('terminal')
+      expect(a.description).not.toMatch(/não há mais ações/i)
+      expect(a.description).toMatch(/apelar/i)
+    }
+    expect(deriveTradeState(input('COMPLETED', BUYER)).action.description).toMatch(/não há mais ações/i)
+    // Only terminal cards change: an open trade keeps its action.
+    expect(deriveTradeState(input('FUNDS_LOCKED', BUYER, { appealAvailable: true })).action.primary?.action).toBe('markPaymentSent')
+  })
+
+  it('is open only while the normal trade steps can still happen', () => {
+    expect(deriveTradeState(input(null)).open).toBe(true)
+    for (const status of ['CREATED', 'FUNDS_LOCKED', 'PAYMENT_PENDING'] as const) expect(deriveTradeState(input(status)).open).toBe(true)
+    for (const status of ['COMPLETED', 'DISPUTED', 'REFUNDED', 'SPLIT', 'EXPIRED'] as const) expect(deriveTradeState(input(status)).open).toBe(false)
+    expect(deriveTradeState(input('FUNDS_LOCKED', BUYER, { tradeStatus: 'CANCELLED' })).open).toBe(false)
   })
 
   it('offers Criar Escrow only to the seller and no dispute before an escrow exists', () => {
@@ -101,9 +125,9 @@ describe('trade state derivation (single source for chip, timeline, action)', ()
 
   it('a cancelled trade without escrow is terminal, and a refund keeps the escrow outcome', () => {
     const c = deriveTradeState(input(null, BUYER, { tradeStatus: 'CANCELLED' }))
-    expect(c.status.label).toBe('Cancelado')
+    expect(c.status.label).toBe('Trade cancelado')
     expect(c.action.tone).toBe('terminal')
-    expect(deriveTradeState(input('REFUNDED')).status.label).toBe('Reembolsado')
+    expect(deriveTradeState(input('REFUNDED')).status.label).toBe('Escrow marcado como reembolsado')
   })
 
   it('gates the buyer payment instructions on the recorded lock; the seller always sees their own', () => {

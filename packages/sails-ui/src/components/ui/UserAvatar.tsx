@@ -1,4 +1,5 @@
 import type { User } from '../../types'
+import { IdentityAvatar } from './IdentityAvatar'
 
 // Technical Debt #61 (2026-09-10) — only `id`/`displayName` are ever
 // read below; loosened from the full `User` so callers with a narrower
@@ -6,9 +7,11 @@ import type { User } from '../../types'
 // legitimately has no disputeCount/totalVolumeBtc/createdAt) can pass
 // their seller object directly instead of padding out unused fields.
 // Every existing `User`-typed caller still satisfies this exactly.
-type AvatarUser = Pick<User, 'id' | 'displayName'>
+// The avatar is the identity avatar of the public key (else the user id); with neither (a list row whose
+// maker the API does not return, id 'unknown') a neutral placeholder.
+type AvatarUser = Pick<User, 'id' | 'displayName'> & { publicKey?: string | null }
 
-const SIZES = { sm: 'w-7 h-7 text-xs', md: 'w-9 h-9 text-sm', lg: 'w-12 h-12 text-base', xl: 'w-16 h-16 text-xl' } as const
+const SIZES = { sm: 28, md: 36, lg: 48, xl: 64 } as const
 const DOT_SIZES = { sm: 'w-2 h-2', md: 'w-2.5 h-2.5', lg: 'w-3 h-3', xl: 'w-3.5 h-3.5' } as const
 
 export function UserAvatar({
@@ -33,7 +36,7 @@ export function UserAvatar({
   showPresence?: boolean
   online?: boolean | null
 }) {
-  const initial = (user.displayName ?? user.id).charAt(0).toUpperCase()
+  const seed = user.publicKey || (user.id && user.id !== 'unknown' ? user.id : null)
   const dotTitle =
     online === null
       ? 'Presença ainda não observada nesta sessão'
@@ -42,9 +45,7 @@ export function UserAvatar({
         : 'Offline — saiu da sala de chat deste trade'
   return (
     <div className="relative shrink-0">
-      <div className={`${SIZES[size]} rounded-full bg-brand-orange-accent/15 border border-brand-orange-accent/25 text-brand-orange-hover font-bold flex items-center justify-center`}>
-        {initial}
-      </div>
+      <IdentityAvatar seed={seed} size={SIZES[size]} />
       {showPresence && (
         <span
           title={dotTitle}

@@ -6,7 +6,7 @@
    shortcut: loaded from Google Fonts like the Space Grotesk import it
    replaces; self-host (Inter v4.1 from rsms/inter, Plex Mono, OFL texts
    shipped alongside) before production, no third-party font requests. */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 /* Tailwind v4 (Dependabot major-version bump, 2026-07-19) — the old
    `@tailwind base/components/utilities` directives are replaced by a
@@ -32,18 +32,20 @@
   --sails-font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --sails-font-display: var(--sails-font-ui);
   --sails-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  /* Responsive type scale: mobile <768 / tablet 768-1023 / desktop >=1024.
+  /* Responsive type scale: mobile <768 / desktop >=768.
      `text-sm`/`text-xs` read --t-body/--t-meta (tailwind.config.js), so
      responsive variants on the same element still win normally.
-     Floor: nothing under 12px. */
-  --t-page: 24px;        --t-page-lh: 1.2;
-  --t-section: 18px;     --t-section-lh: 1.3;
+     One scale (desktop refinement 2026-11-20): page title 24, section 16,
+     body 14 (`text-sm`), secondary 13 (`text-[13px]`), meta 12 (`text-xs`,
+     the floor). Weights 400/500/600 only; no 700 anywhere. */
+  --t-page: 22px;        --t-page-lh: 1.25;
+  --t-section: 16px;     --t-section-lh: 1.35;
   --t-body: 15px;        --t-body-lh: 1.5;
   --t-control: 14px;     /* buttons, form labels */
   --t-meta: 12px;        --t-meta-lh: 1.4;   /* 13px pushed the OfferCard price out of a 375px row */
   --t-mono: 14px;        /* IDs/keys; 15px wrapped a PIX key to 3 lines at 375px */
   --t-money: 15px;
-  --t-money-hero: 28px;
+  --t-money-hero: 26px;
   --color-bg: 250 250 250;           /* #fafafa */
   --color-surface: 255 255 255;      /* #ffffff */
   --color-elevated: 245 245 245;     /* #f5f5f5 */
@@ -197,10 +199,7 @@
 }
 
 @media (min-width: 768px) {
-  :root { --t-page: 26px; --t-body: 14px; --t-money-hero: 32px; }
-}
-@media (min-width: 1024px) {
-  :root { --t-page: 28px; --t-section: 20px; --t-money-hero: 36px; }
+  :root { --t-page: 24px; --t-body: 14px; --t-money-hero: 28px; }
 }
 
 body {
@@ -253,19 +252,12 @@ body {
      bordered-card-in-a-grid shape for listing screens (Marketplace's
      OfferCard) with a single hairline-divided list — the actual layout
      Binance P2P/Airtm/El Dorado use for offer listings, not a card
-     grid. Side (buy/sell) reads instantly off the left accent border,
-     set per-row via a `border-l-green-500`/`border-l-red-500` utility
-     class at the call site rather than baked in here (this class has
-     no opinion on side). */
-  /* xl (1280px) since 2026-11-19: with Inter the 6 columns left the price
-     column 0px wide at 1024px. Below xl the paired-row layout applies.
-     Earlier note: lg (1024px), not md (768px): at tablet width the old md-breakpoint
-     single-line row didn't have enough space for all 5 columns (found
-     by actually screenshotting at 768px — text wrapped and columns
-     overlapped). Tablet now gets the same paired-row mobile layout,
-     which scales cleanly since it has no fixed column widths. */
+     grid. No side accent border (2026-11-20): the row's action label
+     ("Comprar"/"Vender") already names the side. */
+  /* Compact offer row (OfferCard), used below the desktop table (lg): cells folded into lines inside one
+     row, action on the right, one hairline between rows. */
   .offer-row {
-    @apply flex flex-col gap-2 border-b border-brand-border-subtle border-l-2 px-3 py-3 transition-colors hover:bg-brand-elevated xl:flex-row xl:items-center xl:gap-4 xl:px-5 xl:py-3.5;
+    @apply flex items-center gap-3 border-b border-brand-border-subtle px-4 py-3 transition-colors hover:bg-brand-elevated/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring;
   }
   .btn-dark {
     @apply bg-brand-text text-brand-bg hover:opacity-85 font-semibold rounded-lg transition-opacity;
@@ -288,8 +280,10 @@ body {
      signal which chip had focus (PopoverTrigger is a plain button with no
      built-in ring). Same ring convention every other interactive
      primitive here already uses (Input/Select/Checkbox/Switch). */
+  /* One compact control height on desktop: 36px (h-9) for inputs, selects,
+     toolbar chips and `sm` buttons; 44px on mobile for touch. */
   .toolbar-chip {
-    @apply bg-brand-elevated border border-brand-border text-brand-text rounded-lg px-3 py-2 text-sm transition-colors hover:border-brand-border-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+    @apply h-11 md:h-9 bg-brand-elevated border border-brand-border text-brand-text rounded-md px-3 text-sm transition-colors hover:border-brand-border-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
   }
 
   /* UI-FOUNDATION-1 — typography hierarchy (docs/SAILS_MARKET_DESIGN_DIRECTION.md
@@ -300,7 +294,7 @@ body {
      (page/section title, label, metadata, tabular numeric emphasis),
      nothing speculative beyond that. */
   .text-page-title {
-    @apply font-display font-bold text-brand-text;
+    @apply font-display font-semibold text-brand-text;
     font-size: var(--t-page);
     line-height: var(--t-page-lh);
     letter-spacing: -0.01em;
@@ -310,8 +304,9 @@ body {
     font-size: var(--t-section);
     line-height: var(--t-section-lh);
   }
+  /* Sentence case, like the Market table header: no uppercase/tracking. */
   .text-label {
-    @apply text-xs font-medium uppercase tracking-wider text-brand-text-muted;
+    @apply text-xs font-medium text-brand-text-muted;
   }
   .text-metadata {
     @apply text-xs text-brand-text-muted;
@@ -332,7 +327,7 @@ body {
     line-height: 1.3;
   }
   .money-hero {
-    @apply font-bold tabular-nums;
+    @apply font-semibold tabular-nums;
     font-size: var(--t-money-hero);
     line-height: 1.15;
     letter-spacing: -0.01em;

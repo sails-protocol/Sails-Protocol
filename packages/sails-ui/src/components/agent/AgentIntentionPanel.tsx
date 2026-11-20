@@ -230,56 +230,33 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
     // an orange-tinted icon badge + a two-line header (title/subtitle
     // instead of one long run-on label) signals this is the market's one
     // AI-assistance feature, not a generic bordered box.
-    <Card className="p-4 mb-4 border-brand-border-subtle bg-brand-surface">
-      <div className="w-full flex items-center justify-between text-left">
+    // Slim 44px band (D1 prototype): one toggle row, the boundary note beside it.
+    <Card>
+      <div className="flex min-h-11 items-center gap-1 pr-1.5">
         <button
+          type="button"
           onClick={() => setOpen((o) => !o)}
-          className="flex items-center gap-3 min-w-0 group"
           aria-expanded={open}
+          aria-label={open ? 'Fechar Sails Agent' : 'Abrir Sails Agent'}
+          aria-describedby="sails-agent-subtitle"
+          className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="flex items-center justify-center h-8 w-8 rounded-lg bg-brand-orange-accent/10 text-brand-orange-accent shrink-0">
-            <Bot className="h-4 w-4" aria-hidden="true" />
+          <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-brand-orange-accent/10 text-brand-orange-accent">
+            <Bot className="h-4 w-4" />
           </span>
-          <span className="min-w-0 text-left">
-            {/* DESIGN-LANGUAGE-1 §7 — "Sails Agent" is now the product-level
-                identity for AI/agent assistance across the Sails ecosystem
-                (docs/SAILS_DESIGN_LANGUAGE.md §7); this panel is one
-                composition of it, not the whole concept, hence "Market
-                Negotiation" rather than a flat rename. Renamed the visible
-                label only — component name, props, and the underlying
-                QVAC-backed intent/propose flow are unchanged.
-                UI-POLISH-2 §3.1 — was one `truncate`d line combining both
-                ("Sails Agent — Market Negotiati…"), so the identity itself
-                got clipped on narrow mobile widths. Product identity is
-                never truncated (Design Language's cross-platform
-                information-integrity rule): "Sails Agent" now stands alone
-                on its own line at full weight; the composition qualifier
-                moves into the secondary line below, which is genuinely
-                supplementary and safe to truncate. */}
-            <span className="block text-sm font-semibold text-brand-text">Sails Agent</span>
-            {/* Missão 07.3 — the previous subtitle ("negociação assistida
-                por IA (Agente QVAC)") attributed the whole flow to QVAC;
-                only the intent itself is AI-generated (real LLM call) —
-                the offer search/match that follows is deterministic, not
-                QVAC, per BOUNDARY_TEXT below. */}
-            <span className="block text-metadata truncate">Negociação no Market · Intenção gerada por IA, busca automática de oferta</span>
+          {/* "Sails Agent" is the product identity and is never truncated; the qualifier may be. Only the
+              intent is AI-generated; the offer search that follows is deterministic (BOUNDARY_TEXT). */}
+          <span className="flex min-w-0 flex-1 items-baseline gap-x-2">
+            <span className="shrink-0 text-sm font-semibold text-brand-text">Sails Agent</span>
+            <span id="sails-agent-subtitle" className="hidden md:block min-w-0 truncate text-metadata">Negociação no Market · Intenção gerada por IA, busca automática de oferta</span>
           </span>
+          {open ? <ChevronUp aria-hidden="true" className="h-4 w-4 shrink-0 text-brand-text-secondary" /> : <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-brand-text-secondary" />}
         </button>
-        <div className="flex items-center gap-1 shrink-0 pl-2">
-          <InfoTooltip text={BOUNDARY_TEXT} />
-          <button
-            onClick={() => setOpen((o) => !o)}
-            aria-label={open ? 'Fechar Sails Agent' : 'Abrir Sails Agent'}
-            aria-expanded={open}
-            className="flex items-center justify-center h-7 w-7 rounded-md text-brand-text-muted hover:bg-brand-elevated hover:text-brand-text transition-colors"
-          >
-            {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </button>
-        </div>
+        <InfoTooltip text={BOUNDARY_TEXT} />
       </div>
 
       {open && (
-        <div className="mt-4 pt-4 border-t border-brand-border-subtle">
+        <div className="px-4 pb-4 pt-4 border-t border-brand-border-subtle">
           {!result && (
             <>
               <div className="flex gap-1 bg-brand-elevated rounded-lg p-1 w-fit mb-2">

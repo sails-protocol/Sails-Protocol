@@ -2,7 +2,7 @@ import type { User } from '../../types'
 import { UserAvatar } from '../ui/UserAvatar'
 import { FavoriteButton } from '../ui/FavoriteButton'
 import { VouchButton } from '../ui/VouchButton'
-import { positiveFeedbackPct } from '../../lib/reputation'
+import { trustParts } from '../../lib/reputation'
 import { Card } from '../ui/card'
 
 // counterpartyOnline (2026-08-02): real presence for whichever of
@@ -19,7 +19,7 @@ export function TradeParties({
   counterpartyOnline?: boolean | null
 }) {
   return (
-    <Card className="p-4 mt-3 divide-y divide-brand-border">
+    <Card className="px-4 py-1.5 divide-y divide-brand-border-subtle">
       <PartyRow user={buyer} role="Comprador" isYou={buyer.id === currentUserId} online={buyer.id === currentUserId ? undefined : counterpartyOnline} />
       <PartyRow user={seller} role="Vendedor" isYou={seller.id === currentUserId} online={seller.id === currentUserId ? undefined : counterpartyOnline} />
     </Card>
@@ -33,8 +33,8 @@ function PartyRow({ user, role, isYou, online }: { user: User; role: string; isY
       <div className="text-sm">
         <span className="font-medium text-brand-text">{user.displayName}</span>
         {isYou && <span className="ml-1.5 text-xs bg-brand-orange-accent/10 text-brand-orange-hover dark:text-brand-orange-accent rounded px-1.5 py-0.5">Você</span>}
-        {/* positiveFeedbackPct() returns 100 for 0 trades, which would claim a track record that doesn't exist */}
-        <div className="text-xs text-brand-text-muted">{user.totalTrades === 0 ? 'Sem trades concluídos' : `${positiveFeedbackPct(user)}% positivo`}</div>
+        {/* Same trust line as the Market rows: server counters only, no derived percentage. */}
+        <div className="text-xs text-brand-text-muted tabular-nums">{trustParts(user).join(' · ')}</div>
       </div>
       <span className="ml-auto text-xs text-brand-text-muted">{role}</span>
       {/* Only the other party — real `user.id` here comes from a real

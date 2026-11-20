@@ -66,7 +66,7 @@ export function OnboardingTour({ open, onOpenChange }: { open: boolean; onOpenCh
           <div className="w-14 h-14 rounded-full bg-brand-orange-accent/10 border border-brand-orange-accent/25 flex items-center justify-center mb-4">
             <current.icon className="h-6 w-6 text-brand-orange-accent" />
           </div>
-          <h2 className="text-lg font-display font-bold text-brand-text">{current.title}</h2>
+          <h2 className="text-lg font-display font-semibold text-brand-text">{current.title}</h2>
           <p className="text-sm text-brand-text-muted mt-2">{current.description}</p>
         </div>
 

@@ -31,12 +31,12 @@ export function CurrentActionCard({ view, acting, onAction, onOpenDispute, child
     <section
       aria-labelledby={titleId}
       className={cn(
-        'rounded-lg border border-brand-border bg-brand-elevated p-4 border-t-4',
+        'rounded-lg border border-brand-border-subtle bg-brand-elevated p-4 border-t-4',
         view.tone === 'action' ? 'border-t-brand-orange' : view.tone === 'attention' ? 'border-t-brand-warning' : 'border-t-brand-border',
       )}
     >
       <p className={cn(
-        'flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide',
+        'flex items-center gap-1.5 text-xs font-medium',
         view.tone === 'action' ? 'text-brand-orange-accent' : view.tone === 'attention' ? 'text-brand-warning' : 'text-brand-text-muted',
       )}>
         <ActorIcon className="h-3.5 w-3.5" aria-hidden="true" />

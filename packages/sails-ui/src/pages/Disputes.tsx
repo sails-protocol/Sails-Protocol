@@ -25,7 +25,13 @@ import { ESCROW_STATUS_LABEL } from '../components/ui/StatusBadges'
 import { formatAmount, formatDateTime } from '../lib/format'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, DISPUTE_STATUS_LABEL } from '../lib/labels'
 import { decisionOptions, multisigPendingSigner, parseEvidence, partyIdFor, partyRole, pendingSuggestion, RULING_DECISION, selectableOption, splitUnavailableHere, type DecisionChoice } from '../lib/disputeCase'
-import { Button } from '../components/ui/button'
+import { Button, buttonVariants } from '../components/ui/button'
+import { badgeVariants } from '../components/ui/badge'
+import { Card } from '../components/ui/card'
+import { ListSkeleton } from '../components/ui/skeleton'
+import { StateBlock } from '../components/ui/StateBlock'
+import { Page, PageHeader } from '../components/layout/PageHeader'
+import { cn } from '../lib/utils'
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetDescription } from '../components/ui/sheet'
 import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
 import { Bot, Info, X } from 'lucide-react'
@@ -67,9 +73,19 @@ const shortId = (id: string) => id.slice(0, 8)
 const amountText = (e: Escrow) => `${formatAmount(Number(e.lockedAmount))} ${ASSET_SHORT_LABELS[e.asset] ?? e.asset}`
 const countLabel = (n: number) => (n === 1 ? '1 evidência' : `${n} evidências`)
 
-function statusTone(status: Dispute['status']): string {
-  if (status === 'RESOLVED') return 'text-green-800 dark:text-green-300'
-  return 'text-brand-text-secondary'
+// Desktop table columns: Trade | Valor | Status | Aberta por | Evidências | Aberta em | action.
+const DISPUTE_COLS = 'xl:grid-cols-[8rem_8rem_10rem_minmax(0,1fr)_5.5rem_6.5rem_auto] xl:items-center xl:gap-y-0'
+
+/** Same pill shape as the trade status badge: resolved reads green, everything else neutral (no invented severity). */
+function DisputeStatusBadge({ status }: { status: Dispute['status'] }) {
+  const tone = status === 'RESOLVED'
+    ? 'border-green-500/25 bg-green-500/10 text-green-800 dark:text-green-300'
+    : 'border-brand-border bg-brand-elevated text-brand-text-secondary'
+  return (
+    <span className={cn(badgeVariants({ variant: 'outline' }), 'whitespace-nowrap rounded-full px-2 py-0.5', tone)}>
+      {DISPUTE_STATUS_LABEL[status] ?? status}
+    </span>
+  )
 }
 
 export function Disputes() {
@@ -267,95 +283,109 @@ export function Disputes() {
     if (option) setPending({ row, ruling: option.ruling, viaSuggestion: option.value === 'SUGGESTION' })
   }
 
-  if (authLoading || loading) {
-    return <div className="text-center py-16 text-brand-text-muted">Carregando disputas...</div>
-  }
-
-  if (!user) {
-    return (
-      <div className="text-center py-16">
-        <p className="text-brand-text-secondary">Conecte sua wallet para ver disputas atribuídas a você.</p>
-        <Link to="/login" className="text-sm text-brand-orange-accent underline mt-2 inline-block">Conectar</Link>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-16">
-        <p className="text-red-500 text-sm">{error}</p>
-        <Button variant="outline" onClick={load} className="mt-3 text-xs px-3 py-1.5">Tentar novamente</Button>
-      </div>
-    )
-  }
-
   const openCount = rows.filter((r) => r.dispute.status !== 'RESOLVED').length
+  const signedOut = !authLoading && !user
+  const ready = !signedOut && !error && !authLoading && !loading
 
   return (
-    <div>
-      <div className="flex items-baseline gap-3">
-        <h1 className="text-page-title">Disputas</h1>
-        {openCount > 0 && <span className="text-sm text-brand-text-secondary tabular-nums">{openCount} em aberto</span>}
-      </div>
+    <Page>
+      <PageHeader
+        title="Disputas"
+        meta={ready ? `${openCount} em aberto · atribuídas a você como árbitro` : undefined}
+      />
 
-      {rows.length === 0 ? (
-        <p className="text-center text-brand-text-muted py-10">Nenhuma disputa atribuída a você.</p>
+      {signedOut ? (
+        <StateBlock
+          kind="signedOut"
+          title="Conecte sua wallet"
+          description="Conecte sua wallet para ver disputas atribuídas a você."
+          action={<Link to="/login" state={{ from: '/disputes' }} className={cn(buttonVariants({ className: 'min-h-11 md:min-h-10 px-4' }))}>Conectar wallet</Link>}
+        />
+      ) : error ? (
+        <StateBlock
+          kind="error"
+          title="Não foi possível carregar as disputas"
+          description={error}
+          action={<Button variant="outline" onClick={load} className="min-h-11 md:min-h-9 px-4">Tentar novamente</Button>}
+        />
+      ) : authLoading || loading ? (
+        <Card className="overflow-hidden">
+          <ListSkeleton label="Carregando disputas" rows={2} rowClassName="h-[6.5rem] xl:h-16" />
+        </Card>
+      ) : rows.length === 0 ? (
+        <StateBlock kind="empty" title="Nenhuma disputa atribuída a você" description="Quando você for designado árbitro de um trade, o caso aparece aqui." />
       ) : (
-        <ul className="mt-4 card divide-y divide-brand-border-subtle">
-          {rows.map((row) => {
-            const d = row.dispute
-            const evidenceCount = parseEvidence(d.evidence).length
-            return (
-              <li key={d.id} className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-6">
-                <div className="min-w-0 flex-1 space-y-1">
-                  <div className="flex items-baseline gap-x-3 gap-y-1 flex-wrap">
-                    <span className="font-mono text-sm text-brand-text">Trade #{shortId(d.tradeId)}</span>
-                    <span className={`text-sm font-medium ${statusTone(d.status)}`}>{DISPUTE_STATUS_LABEL[d.status] ?? d.status}</span>
-                  </div>
-                  <div className="text-sm text-brand-text">
-                    {row.escrow ? (
-                      <>
-                        <span className="money">{amountText(row.escrow)}</span>{' '}
-                        <span className="text-brand-text-secondary">· {ASSET_LABELS[row.escrow.asset] ?? row.escrow.asset}</span>
-                      </>
-                    ) : (
-                      <span className="text-brand-text-secondary">Valor indisponível (escrow não carregado)</span>
+        <Card className="overflow-hidden">
+          <div aria-hidden="true" className={cn('text-label hidden xl:grid gap-x-4 px-4 py-2.5 border-b border-brand-border-subtle', DISPUTE_COLS)}>
+            <span>Trade</span>
+            <span>Valor</span>
+            <span>Status</span>
+            <span>Aberta por</span>
+            <span>Evidências</span>
+            <span>Aberta em</span>
+            <span />
+          </div>
+          <ul>
+            {rows.map((row) => {
+              const d = row.dispute
+              const evidenceCount = parseEvidence(d.evidence).length
+              return (
+                // Below xl the same cells fold into a compact row: facts on the left, "Abrir caso" on the right.
+                <li key={d.id} className={cn('grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 px-4 py-3 border-b border-brand-border-subtle last:border-b-0 [&>*]:col-start-1 xl:[&>*]:col-start-auto', DISPUTE_COLS)}>
+                  <div className="min-w-0">
+                    <span className="mono-id text-[13px] text-brand-text">#{shortId(d.tradeId)}</span>
+                    {pendingSuggestion(d) && (
+                      <p className="text-xs text-brand-text-muted flex items-center gap-1">
+                        <Bot className="h-3.5 w-3.5" aria-hidden="true" /> Sugestão automática
+                      </p>
                     )}
                   </div>
-                  <p className="text-metadata">
-                    Aberta por {personLabel(d.openedBy, row.escrow)} · {formatDateTime(d.createdAt)} · {countLabel(evidenceCount)}
-                  </p>
-                  {d.status === 'RESOLVED' && d.ruling && (
-                    <p className="text-metadata">Decisão: {RULING_DECISION[d.ruling]}{d.resolvedAt && ` · ${formatDateTime(d.resolvedAt)}`}</p>
-                  )}
-                  {pendingSuggestion(d) && (
-                    <p className="text-metadata flex items-center gap-1.5">
-                      <Bot className="h-3.5 w-3.5" aria-hidden="true" /> Sugestão automática disponível
-                    </p>
-                  )}
-                </div>
-                <Button
-                  ref={(el) => {
-                    if (el) openButtons.current.set(d.id, el)
-                    else openButtons.current.delete(d.id)
-                  }}
-                  variant="outline"
-                  onClick={() => openCase(d.id)}
-                  aria-label={`Abrir caso do trade #${shortId(d.tradeId)}`}
-                  className="min-h-11 w-full sm:w-auto shrink-0"
-                >
-                  Abrir caso
-                </Button>
-              </li>
-            )
-          })}
-        </ul>
+                  <div className="text-sm text-brand-text min-w-0">
+                    {row.escrow ? (
+                      <>
+                        <span className="tabular-nums font-medium">{amountText(row.escrow)}</span>
+                        <span className="block text-xs text-brand-text-muted truncate">{ASSET_LABELS[row.escrow.asset] ?? row.escrow.asset}</span>
+                      </>
+                    ) : (
+                      <span className="text-[13px] text-brand-text-secondary">Valor indisponível (escrow não carregado)</span>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <DisputeStatusBadge status={d.status} />
+                    {d.status === 'RESOLVED' && d.ruling && (
+                      <p className="mt-0.5 text-xs text-brand-text-muted">Decisão: {RULING_DECISION[d.ruling]}</p>
+                    )}
+                  </div>
+                  {/* One quiet line below xl; three columns from xl (contents). */}
+                  <div className="flex flex-wrap gap-x-2 text-xs text-brand-text-muted xl:contents">
+                    <span className="xl:text-[13px] xl:text-brand-text-secondary xl:truncate"><span className="xl:hidden">Aberta por </span>{personLabel(d.openedBy, row.escrow)}</span>
+                    <span className="xl:text-[13px] xl:text-brand-text-secondary tabular-nums"><span aria-hidden="true" className="xl:hidden">· </span>{countLabel(evidenceCount)}</span>
+                    <span className="tabular-nums"><span aria-hidden="true" className="xl:hidden">· </span>{formatDateTime(d.createdAt)}</span>
+                  </div>
+                  <Button
+                    ref={(el) => {
+                      if (el) openButtons.current.set(d.id, el)
+                      else openButtons.current.delete(d.id)
+                    }}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openCase(d.id)}
+                    aria-label={`Abrir caso do trade #${shortId(d.tradeId)}`}
+                    className="min-h-11 md:min-h-0 !col-start-2 row-start-1 row-span-4 self-center justify-self-end xl:!col-start-auto xl:row-start-auto xl:row-span-1"
+                  >
+                    Abrir caso
+                  </Button>
+                </li>
+              )
+            })}
+          </ul>
+        </Card>
       )}
 
       <Sheet open={!!selected} onOpenChange={(open) => !open && setSelectedId(null)}>
         <SheetContent
           hideDefaultClose
-          className="w-full sm:max-w-xl p-0 gap-0 flex flex-col"
+          className="w-full sm:max-w-2xl p-0 gap-0 flex flex-col"
           onOpenAutoFocus={(e: Event) => {
             e.preventDefault()
             caseHeading.current?.focus()
@@ -405,7 +435,7 @@ export function Disputes() {
           onConfirm={() => confirmRuling(pending.row, pending.ruling, pending.viaSuggestion)}
         />
       )}
-    </div>
+    </Page>
   )
 }
 

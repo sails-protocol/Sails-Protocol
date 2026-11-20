@@ -41,7 +41,8 @@ export function Login() {
 
   return (
     <Dialog open onOpenChange={(open: boolean) => !open && close()}>
-      <DialogContent className="max-w-sm">
+      {/* Below md a full-height sheet (content from the top); a centered dialog from md. */}
+      <DialogContent className="max-w-sm max-md:inset-0 max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:content-start max-md:overflow-y-auto max-md:border-0">
         {step === 'list' ? (
           <>
             <DialogHeader>
@@ -145,7 +146,7 @@ function LocalKeyStep({ onBack, onConnected }: { onBack: () => void; onConnected
           type="button"
           onClick={onBack}
           aria-label="Voltar para as opções"
-          className="-ml-1 mb-1 w-8 h-8 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text hover:bg-brand-elevated"
+          className="-ml-1 mb-1 w-11 h-11 md:w-8 md:h-8 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text hover:bg-brand-elevated"
         >
           <ArrowLeft className="h-4 w-4" />
         </button>

@@ -582,6 +582,9 @@ export function installDemoBackend() {
       const offers = all.slice(offset, offset + limit).map((o) => ({
         id: o.id, source: 'internal', asset: o.asset, side: o.side, priceUsd: o.priceUsd, minAmount: o.minAmount,
         maxAmount: o.maxAmount, paymentMethods: [o.paymentMethod], traderReputation: findParticipant(o.userId).reputationScore,
+        // LOOSE_WIRES preview: the real route does not return these yet (realOffers.ts SummaryWithMaker).
+        traderDisplayName: findParticipant(o.userId).displayName, traderTotalTrades: findParticipant(o.userId).totalTrades,
+        traderDisputeCount: findParticipant(o.userId).disputeCount,
       }))
       return { offers, sources: ['internal'], total: all.length, hasMore: offset + limit < all.length }
     },

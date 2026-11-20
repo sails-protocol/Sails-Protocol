@@ -13,6 +13,9 @@ import { ListSkeleton } from '../components/ui/skeleton'
 import { Button, buttonVariants } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { cn } from '../lib/utils'
+import { Page, PageHeader } from '../components/layout/PageHeader'
+import { TradesTabs } from '../components/layout/TradesTabs'
+import { StateBlock } from '../components/ui/StateBlock'
 import type { EscrowStatus } from '../types'
 
 // Trades still awaiting resolution from this trader's own point of view —
@@ -28,7 +31,8 @@ interface Row {
 }
 
 // Desktop column template, shared by the header and every row so they align.
-const COLS = 'md:grid md:grid-cols-[10rem_6.5rem_7.5rem_minmax(0,1fr)_7rem_1rem] md:items-center md:gap-4'
+// Same columns as TradeHistory (Valor | Papel | Status | 1fr | Data | ›), so the two tabs line up.
+const COLS = 'lg:grid lg:grid-cols-[10rem_6.5rem_8rem_minmax(0,1fr)_7rem_1rem] lg:items-center lg:gap-4'
 
 // GET /v1/openp2p/trades carries no escrow status, so each active trade's
 // escrow is read with settlement.get() (the same per-row read Disputes.tsx
@@ -82,49 +86,46 @@ export function ActiveTrades() {
 
   useEffect(load, [user])
 
-  if (!authLoading && !user) {
-    return (
-      <div className="text-center py-16">
-        <p className="text-brand-text-secondary">Conecte sua wallet para ver seus trades ativos.</p>
-        <Link to="/login" className="text-sm text-brand-orange-accent underline mt-2 inline-block">Conectar</Link>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-16">
-        <p className="text-red-700 dark:text-red-300 text-sm">{error}</p>
-        <Button variant="outline" onClick={load} className="mt-3 min-h-11 md:min-h-9 px-4 text-sm">Tentar novamente</Button>
-      </div>
-    )
-  }
-
   const yourTurnCount = rows.filter((r) => r.next?.yourTurn).length
+  const signedOut = !authLoading && !user
+  const meta = !signedOut && !error && !loading && rows.length > 0
+    ? `${rows.length} ${rows.length === 1 ? 'trade em andamento' : 'trades em andamento'}${yourTurnCount > 0 ? ` · ${yourTurnCount} ${yourTurnCount === 1 ? 'aguarda' : 'aguardam'} você` : ''}`
+    : undefined
 
   return (
-    <div>
-      <h1 className="text-page-title">Trades Ativos</h1>
-      {!loading && rows.length > 0 && (
-        <p className="text-metadata mt-1">
-          {rows.length} {rows.length === 1 ? 'trade em andamento' : 'trades em andamento'}
-          {yourTurnCount > 0 && ` · ${yourTurnCount} ${yourTurnCount === 1 ? 'aguarda' : 'aguardam'} você`}
-        </p>
-      )}
+    <Page>
+      <PageHeader title="Trades" meta={meta}>
+        <TradesTabs />
+      </PageHeader>
 
-      {authLoading || loading ? (
-        <Card className="mt-4 overflow-hidden border-brand-border-subtle bg-brand-surface">
-          <ListSkeleton label="Carregando trades ativos" rows={3} rowClassName="h-[6.125rem] md:h-[3.75rem]" />
+      {signedOut ? (
+        <StateBlock
+          kind="signedOut"
+          title="Conecte sua wallet"
+          description="Conecte sua wallet para ver seus trades ativos."
+          action={<Link to="/login" state={{ from: '/profile/active' }} className={cn(buttonVariants({ className: 'min-h-11 md:min-h-10 px-4' }))}>Conectar wallet</Link>}
+        />
+      ) : error ? (
+        <StateBlock
+          kind="error"
+          title="Não foi possível carregar seus trades"
+          description={error}
+          action={<Button variant="outline" onClick={load} className="min-h-11 md:min-h-9 px-4">Tentar novamente</Button>}
+        />
+      ) : authLoading || loading ? (
+        <Card className="overflow-hidden">
+          <ListSkeleton label="Carregando trades ativos" rows={3} rowClassName="h-[6.125rem] lg:h-[3.75rem]" />
         </Card>
       ) : rows.length === 0 ? (
-        <div className="mt-4 flex flex-col items-center gap-3 rounded-xl border border-brand-border-subtle bg-brand-surface px-6 py-12 text-center">
-          <p className="text-section-title">Nenhum trade ativo</p>
-          <p className="text-metadata max-w-xs">Quando você iniciar um trade a partir de uma oferta, ele aparece aqui com o próximo passo.</p>
-          <Link to="/" className={cn(buttonVariants({ className: 'min-h-11 md:min-h-10 px-4' }))}>Explorar Market</Link>
-        </div>
+        <StateBlock
+          kind="empty"
+          title="Nenhum trade ativo"
+          description="Quando você iniciar um trade a partir de uma oferta, ele aparece aqui com o próximo passo."
+          action={<Link to="/" className={cn(buttonVariants({ className: 'min-h-11 md:min-h-10 px-4' }))}>Explorar Market</Link>}
+        />
       ) : (
-        <Card className="mt-4 overflow-hidden border-brand-border-subtle bg-brand-surface">
-          <div aria-hidden="true" className={cn('text-label hidden px-4 py-2 border-b border-brand-border-subtle', COLS)}>
+        <Card className="overflow-hidden">
+          <div aria-hidden="true" className={cn('text-label hidden px-4 py-2.5 border-b border-brand-border-subtle', COLS)}>
             <span>Valor</span>
             <span>Papel</span>
             <span>Status</span>
@@ -139,29 +140,29 @@ export function ActiveTrades() {
                   to={`/trade/${t.id}`}
                   className={cn('flex flex-col gap-1 px-4 py-3 transition-colors hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring', COLS)}
                 >
-                  <span className="flex items-center justify-between gap-3 md:block">
+                  <span className="flex items-center justify-between gap-3 lg:block">
                     <span className="min-w-0">
                       <span className="money block text-brand-text">{formatAmount(Number(t.amount))} {ASSET_SHORT_LABELS[t.asset]}</span>
-                      <span className="hidden md:block text-xs text-brand-text-muted tabular-nums">{formatUsd(Number(t.totalUsd))} USD</span>
+                      <span className="hidden lg:block text-xs text-brand-text-muted tabular-nums">{formatUsd(Number(t.totalUsd))} USD</span>
                     </span>
-                    <span className="md:hidden"><TradeStatusBadge status={t.status} /></span>
+                    <span className="lg:hidden"><TradeStatusBadge status={t.status} /></span>
                   </span>
-                  <span className="hidden md:block text-sm text-brand-text-secondary">{isBuyer ? 'Comprador' : 'Vendedor'}</span>
-                  <span className="hidden md:block"><TradeStatusBadge status={t.status} /></span>
-                  <span className={cn('text-sm md:truncate', next?.yourTurn ? 'font-medium text-brand-orange-accent' : 'text-brand-text-secondary')}>
+                  <span className="hidden lg:block text-sm text-brand-text-secondary">{isBuyer ? 'Comprador' : 'Vendedor'}</span>
+                  <span className="hidden lg:block"><TradeStatusBadge status={t.status} /></span>
+                  <span className={cn('text-sm', next?.yourTurn ? 'font-medium text-brand-orange-accent' : 'text-brand-text-secondary')}>
                     {next ? next.text : 'Próxima ação não disponível'}
                   </span>
-                  <span className="text-xs text-brand-text-muted tabular-nums md:text-right">
-                    <span className="md:hidden">{isBuyer ? 'Comprador' : 'Vendedor'} · {formatUsd(Number(t.totalUsd))} USD · </span>
+                  <span className="text-xs text-brand-text-muted tabular-nums lg:text-right">
+                    <span className="lg:hidden">{isBuyer ? 'Comprador' : 'Vendedor'} · {formatUsd(Number(t.totalUsd))} USD · </span>
                     {formatDateTime(t.updatedAt)}
                   </span>
-                  <ChevronRight className="hidden md:block h-4 w-4 text-brand-text-muted" aria-hidden="true" />
+                  <ChevronRight className="hidden lg:block h-4 w-4 text-brand-text-muted" aria-hidden="true" />
                 </Link>
               </li>
             ))}
           </ul>
         </Card>
       )}
-    </div>
+    </Page>
   )
 }

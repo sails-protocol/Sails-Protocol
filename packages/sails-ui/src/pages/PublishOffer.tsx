@@ -36,13 +36,14 @@
  * old mock filter, which ignored side entirely.
  */
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { useAuth } from '../context/AuthContext'
 import { AssetPicker } from '../components/marketplace/AssetPicker'
 import { CurrencyPicker } from '../components/marketplace/CurrencyPicker'
 import { InfoTooltip } from '../components/ui/InfoTooltip'
 import { Button } from '../components/ui/button'
+import { Page, PageHeader } from '../components/layout/PageHeader'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
@@ -56,7 +57,7 @@ import { PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { sailsClient } from '../lib/sailsClient'
 import type { AssetType, FiatCurrency, TradeSide } from '../types'
 
-const STEPS = ['Definir tipo e preço', 'Definir valor e método', 'Definir condições']
+const STEPS = ['Tipo e preço', 'Valor e método', 'Condições']
 
 const NETWORK_BY_ASSET: Partial<Record<AssetType, string>> = {
   BTC: 'bitcoin', LN_BTC: 'lightning', LIQUID_BTC: 'liquid',
@@ -191,43 +192,44 @@ export function PublishOffer() {
         idempotencyKey: offerIdempotencyKeyRef.current,
       })
       offerIdempotencyKeyRef.current = crypto.randomUUID() // this attempt is now settled — a new key for whatever comes next
-      toast.success('Anúncio publicado!')
+      toast.success('Oferta publicada')
       navigate('/profile')
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Falha ao publicar anúncio')
+      toast.error(err instanceof Error ? err.message : 'Falha ao publicar oferta')
     } finally {
       setPublishing(false)
     }
   }
 
   return (
-    <div className="max-w-lg mx-auto">
-      <div className="flex items-center gap-3 mb-6">
-        <button onClick={() => (step === 1 ? navigate('/profile') : setStep((s) => s - 1))} className="p-2 -m-2 text-brand-text-secondary hover:text-brand-text">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <h1 className="text-page-title">Publicar Anúncio</h1>
-      </div>
+    <Page width="form">
+      <PageHeader
+        back={
+          <Link to="/profile" className="min-h-11 md:min-h-0 text-[13px] text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Perfil
+          </Link>
+        }
+        title="Publicar oferta"
+      />
 
-      <div className="flex items-center mb-8">
-        {STEPS.map((label, i) => {
-          const n = i + 1
-          const active = n <= step
-          return (
-            <div key={label} className="flex items-center flex-1 last:flex-none">
-              <div className="flex flex-col items-center gap-1.5">
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${active ? 'bg-brand-orange text-primary-foreground' : 'bg-brand-elevated text-brand-text-muted'}`}>
+      <Card>
+        {/* One-line stepper in the card header. */}
+        <ol aria-label="Etapas" className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 border-b border-brand-border-subtle">
+          {STEPS.map((label, i) => {
+            const n = i + 1
+            const current = n === step
+            return (
+              <li key={label} aria-current={current ? 'step' : undefined} className="flex items-center gap-2 text-[13px]">
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${n <= step ? 'bg-brand-orange text-primary-foreground' : 'bg-brand-elevated text-brand-text-muted'}`}>
                   {n}
-                </div>
-                <span className={`text-xs text-center max-w-[70px] ${active ? 'text-brand-text font-medium' : 'text-brand-text-muted'}`}>{label}</span>
-              </div>
-              {n < STEPS.length && <div className={`flex-1 h-px mx-2 mb-4 ${step > n ? 'bg-brand-orange-accent' : 'bg-brand-border'}`} />}
-            </div>
-          )
-        })}
-      </div>
-
-      <Card className="p-5">
+                </span>
+                <span className={current ? 'text-brand-text font-medium' : 'text-brand-text-muted'}>{label}</span>
+                {n < STEPS.length && <span aria-hidden="true" className="w-6 h-px bg-brand-border-subtle" />}
+              </li>
+            )
+          })}
+        </ol>
+      <div className="p-5">
         {step === 1 && (
           <div className="space-y-4">
             <div>
@@ -238,7 +240,7 @@ export function PublishOffer() {
                     key={s}
                     onClick={() => setSide(s)}
                     aria-pressed={side === s}
-                    className={`flex-1 rounded-md py-2 text-sm transition-colors ${side === s ? 'bg-brand-surface shadow-sm font-medium text-brand-text' : 'text-brand-text-secondary'}`}
+                    className={`flex-1 rounded-md min-h-11 md:min-h-0 md:h-7 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${side === s ? 'bg-brand-surface ring-1 ring-brand-border font-medium text-brand-text' : 'text-brand-text-secondary hover:text-brand-text'}`}
                   >
                     {s === 'SELL' ? 'Vender' : 'Comprar'}
                   </button>
@@ -246,11 +248,13 @@ export function PublishOffer() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2 [&_.toolbar-chip]:w-full">
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">Ativo</label>
                 <AssetPicker
                   assets={ASSETS}
+                  allLabel="Selecione o ativo"
+                  hideAllOption
                   value={asset}
                   onChange={(a) => setAsset(a as (typeof ASSETS)[number] | 'Todos')}
                 />
@@ -268,11 +272,11 @@ export function PublishOffer() {
 
             <div>
               <label className="text-xs text-brand-text-muted mb-1.5 flex items-center gap-1">
-                Tipo de Preço
+                Tipo de preço
                 <InfoTooltip text="Flutuante (atrelado a uma cotação de mercado ao vivo) ainda não é suportado — não existe integração com uma fonte de câmbio em tempo real no backend hoje. Publicar sempre envia um preço fixo." />
               </label>
               <Select value={priceType} onValueChange={(v) => setPriceType(v as 'FIXED' | 'FLOATING')}>
-                <SelectTrigger aria-label="Tipo de Preço" className="w-full">
+                <SelectTrigger aria-label="Tipo de preço" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -285,17 +289,17 @@ export function PublishOffer() {
             {priceType === 'FIXED' ? (
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">Preço fixo</label>
-                <div className="flex items-center input-field !p-0">
-                  <button onClick={() => setPrice(String(Math.max(0, Number(price || 0) - 1)))} aria-label="Diminuir preço" className="px-4 py-3 text-brand-text-secondary hover:text-brand-text">−</button>
+                <div className="flex items-center input-field !p-0 h-11 md:h-9">
+                  <button onClick={() => setPrice(String(Math.max(0, Number(price || 0) - 1)))} aria-label="Diminuir preço" className="h-full min-w-11 px-3 text-brand-text-secondary hover:text-brand-text">−</button>
                   <input
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
                     type="number"
                     aria-label="Preço fixo"
-                    className="flex-1 bg-transparent text-center text-lg font-bold outline-none text-brand-text"
+                    className="flex-1 min-w-0 bg-transparent text-center text-base font-medium tabular-nums outline-none text-brand-text [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     placeholder="0"
                   />
-                  <button onClick={() => setPrice(String(Number(price || 0) + 1))} aria-label="Aumentar preço" className="px-4 py-3 text-brand-text-secondary hover:text-brand-text">+</button>
+                  <button onClick={() => setPrice(String(Number(price || 0) + 1))} aria-label="Aumentar preço" className="h-full min-w-11 px-3 text-brand-text-secondary hover:text-brand-text">+</button>
                 </div>
                 {loadingSuggestedRange && (
                   <p className="text-xs text-brand-text-muted mt-1.5">Buscando faixa de preço...</p>
@@ -307,7 +311,7 @@ export function PublishOffer() {
                 )}
               </div>
             ) : (
-              <div className="bg-brand-elevated border border-brand-border rounded-lg p-3 text-xs text-brand-text-muted">
+              <div className="bg-brand-elevated rounded-md p-3 text-xs text-brand-text-secondary">
                 Preço flutuante ainda não suportado neste protótipo — selecione "Fixo" para continuar.
               </div>
             )}
@@ -387,24 +391,26 @@ export function PublishOffer() {
             </div>
           </div>
         )}
-      </Card>
+      </div>
 
-      <div className="mt-6 flex gap-2">
-        {step > 1 && (
-          <Button variant="outline" onClick={() => setStep((s) => s - 1)} className="flex-1 py-3">
+      {/* Actions in the card footer: back on the left, the one primary on the right. */}
+      <div className="flex items-center justify-between gap-2 px-5 py-3 border-t border-brand-border-subtle">
+        {step > 1 ? (
+          <Button variant="ghost" onClick={() => setStep((s) => s - 1)} className="min-h-11 md:min-h-10">
             Voltar
           </Button>
-        )}
+        ) : <span />}
         {step < 3 ? (
-          <Button onClick={goNext} disabled={step === 1 ? !step1Valid : !step2Valid} className="flex-1 py-3">
+          <Button onClick={goNext} disabled={step === 1 ? !step1Valid : !step2Valid} className="min-h-11 md:min-h-10 px-6">
             Próximo
           </Button>
         ) : (
-          <Button onClick={handlePublish} disabled={publishing || !step1Valid || !step2Valid} className="flex-1 py-3">
-            {publishing ? 'Publicando...' : 'Publicar'}
+          <Button onClick={handlePublish} disabled={publishing || !step1Valid || !step2Valid} className="min-h-11 md:min-h-10 px-6">
+            {publishing ? 'Publicando...' : 'Publicar oferta'}
           </Button>
         )}
       </div>
-    </div>
+      </Card>
+    </Page>
   )
 }

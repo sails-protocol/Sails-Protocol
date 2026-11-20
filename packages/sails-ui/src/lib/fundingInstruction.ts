@@ -106,7 +106,7 @@ export function deriveFundingInstruction(i: { escrow: FundingEscrow; isBuyer: bo
     title,
     facts: [amountFact, ...addressFacts(e)],
     requirements: e.multisigAddr ? requirements : ['O endereço é gerado depois que você e o comprador registrarem suas chaves no escrow. Não deposite antes de ele aparecer aqui.'],
-    note: 'Depois de enviar, toque em "Bloquear Fundos": o servidor confere o depósito e recusa se ainda não o encontrar.',
+    note: 'Depois de enviar, toque em "Bloquear fundos": o servidor confere o depósito e recusa se ainda não o encontrar.',
     copyLabel: 'Copiar endereço',
   }
 }
