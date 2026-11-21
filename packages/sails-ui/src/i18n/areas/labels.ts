@@ -49,7 +49,7 @@ export default defineArea(
     'labels.escrowType.multisig': 'Bitcoin com 2 de 3 assinaturas (você, a contraparte e um árbitro)',
     'labels.escrowType.lightningHodl': 'Arkade (rede de teste, não disponível)',
     'labels.escrowType.liquidCovenant': 'Liquid (em breve)',
-    'labels.escrowType.wdkUsdtEvm': 'USDT sob custódia (rede de teste, não disponível)',
+    'labels.escrowType.wdkUsdtEvm': 'USDT sob custódia (não disponível)',
     'labels.escrowType.safeGuardEvm': 'USDT/EVM 2 de 3 (rede de teste, não disponível)',
     'labels.escrowType.mock': 'Simulado (sem provedor real)',
 
@@ -108,7 +108,7 @@ export default defineArea(
       'labels.escrowType.multisig': 'Bitcoin with 2 of 3 signatures (you, the counterparty and an arbitrator)',
       'labels.escrowType.lightningHodl': 'Arkade (test network, unavailable)',
       'labels.escrowType.liquidCovenant': 'Liquid (coming soon)',
-      'labels.escrowType.wdkUsdtEvm': 'Custodial USDT (test network, unavailable)',
+      'labels.escrowType.wdkUsdtEvm': 'Custodial USDT (unavailable)',
       'labels.escrowType.safeGuardEvm': 'USDT/EVM 2 of 3 (test network, unavailable)',
       'labels.escrowType.mock': 'Simulated (no real provider)',
 
@@ -166,7 +166,7 @@ export default defineArea(
       'labels.escrowType.multisig': 'Bitcoin con 2 de 3 firmas (tú, la contraparte y un árbitro)',
       'labels.escrowType.lightningHodl': 'Arkade (red de prueba, no disponible)',
       'labels.escrowType.liquidCovenant': 'Liquid (próximamente)',
-      'labels.escrowType.wdkUsdtEvm': 'USDT custodial (red de prueba, no disponible)',
+      'labels.escrowType.wdkUsdtEvm': 'USDT custodial (no disponible)',
       'labels.escrowType.safeGuardEvm': 'USDT/EVM 2 de 3 (red de prueba, no disponible)',
       'labels.escrowType.mock': 'Simulado (sin proveedor real)',
 
@@ -224,7 +224,7 @@ export default defineArea(
       'labels.escrowType.multisig': 'Bitcoin avec 2 signatures sur 3 (vous, la contrepartie et un arbitre)',
       'labels.escrowType.lightningHodl': 'Arkade (réseau de test, indisponible)',
       'labels.escrowType.liquidCovenant': 'Liquid (bientôt)',
-      'labels.escrowType.wdkUsdtEvm': 'USDT dépositaire (réseau de test, indisponible)',
+      'labels.escrowType.wdkUsdtEvm': 'USDT dépositaire (indisponible)',
       'labels.escrowType.safeGuardEvm': 'USDT/EVM 2 sur 3 (réseau de test, indisponible)',
       'labels.escrowType.mock': 'Simulé (sans fournisseur réel)',
 
@@ -282,7 +282,7 @@ export default defineArea(
       'labels.escrowType.multisig': 'Bitcoin mit 2 von 3 Signaturen (du, die Gegenpartei und eine Schiedsperson)',
       'labels.escrowType.lightningHodl': 'Arkade (Testnetz, nicht verfügbar)',
       'labels.escrowType.liquidCovenant': 'Liquid (demnächst)',
-      'labels.escrowType.wdkUsdtEvm': 'Verwahrtes USDT (Testnetz, nicht verfügbar)',
+      'labels.escrowType.wdkUsdtEvm': 'Verwahrtes USDT (nicht verfügbar)',
       'labels.escrowType.safeGuardEvm': 'USDT/EVM 2 von 3 (Testnetz, nicht verfügbar)',
       'labels.escrowType.mock': 'Simuliert (ohne echten Anbieter)',
 
