@@ -492,6 +492,8 @@ Origem: sessão de UI, branch `ui/design-system` (sem PR publicada), decisões d
   - Status separados: [ ] UX | [ ] Especificação | [ ] Implementação | [ ] Homologação.
   - Autorização: direção de produto aprovada; implementação, implantação e ativação em produção sujeitas aos gates técnicos existentes.
   - Regras de interface (UI): a lista de nós mostra o perfil (público ou privado); o selo "distribuição oficial" só aparece com verificação real; nunca autoriza operadores centralmente nem sugere que o Sails pode desligar mercados. Depende de UX-046 (propagação de estado) e UX-034 (visão do operador). A prioridade P2 é proposta do EPM e a decisão final é do CTO.
+  - **Especificação técnica rev2 (GO documental do GK; C1 a C4 conferidos):** https://github.com/sails-protocol/Sails-Protocol/issues/147#issuecomment-7056473176. Documento, não GO de implementação. O adendo "Nós e Mercados" (issuecomment-7056459120) é vigente e substitui a tabela de capacidades do §2. Em STOP: implementação, implantação e migrações; E2 (qualquer ferramenta de assinatura de release exige autorização do Alan); E6 (chaves econômicas no white-label); pré-requisitos §21(b)(d)(e) da ADR-001 (Node ID estável, propagação, convergência), que ainda não existem. Decisões E1 a E7 com o CTO.
+  - Status separados: [ ] UX | [x] Especificação documental (rev2, GO documental do GK) | [ ] Implementação | [ ] Homologação.
 
 ## Decisões pendentes do CTO (F)
 1. Destino de STACKS, RSK_BTC e SPARK no enum (UX-005).
