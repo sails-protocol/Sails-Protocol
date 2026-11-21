@@ -4,7 +4,7 @@ import type { Trade } from '@satsails/p2p-trading-sdk'
 import { useAuth } from '../context/AuthContext'
 import { sailsClient } from '../lib/sailsClient'
 import { AssetBadge, TradeStatusBadge } from '../components/ui/StatusBadges'
-import { formatBrl, formatAmount, formatDateTime } from '../lib/format'
+import { formatUsd, formatAmount, formatDateTime } from '../lib/format'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { badgeVariants } from '../components/ui/badge'
@@ -68,10 +68,7 @@ export function TradeHistory() {
     [trades, filter]
   )
 
-  // No real BRL conversion available from Trade (totalUsd only) — same
-  // simplification Trade.tsx's own comment already discloses for this
-  // exact field; kept consistent here rather than showing USD in this
-  // one screen while every other screen shows BRL for the same trades.
+  // The SDK exposes totalUsd; no FX conversion is available here.
   const totalVolume = trades.reduce((sum, t) => sum + Number(t.totalUsd), 0)
   const completed = trades.filter((t) => t.status === 'COMPLETED').length
   const disputeRate = trades.length === 0 ? 0 : Math.round((trades.filter((t) => t.status === 'DISPUTED').length / trades.length) * 100)
@@ -103,7 +100,7 @@ export function TradeHistory() {
       <h1 className="text-2xl font-display font-bold tracking-tight text-brand-text">Histórico de Trades</h1>
 
       <div className="mt-4 grid grid-cols-3 gap-3">
-        <SummaryStat value={formatBrl(totalVolume)} label="Volume total" />
+        <SummaryStat value={formatUsd(totalVolume)} label="Volume total (USD)" />
         <SummaryStat value={completed} label="Concluídos" />
         <SummaryStat value={`${disputeRate}%`} label="Taxa de disputa" />
       </div>
@@ -134,7 +131,7 @@ export function TradeHistory() {
               <span className="text-xs text-brand-text-muted">{formatDateTime(t.createdAt)}</span>
             </div>
             <div className="md:ml-auto flex items-center gap-3">
-              <span className="font-bold text-brand-text">{formatBrl(Number(t.totalUsd))}</span>
+              <span className="font-bold text-brand-text">{formatUsd(Number(t.totalUsd))} USD</span>
               <TradeStatusBadge status={t.status} />
               <Link to={`/trade/${t.id}`} className="text-xs text-brand-text-muted hover:text-brand-text">Ver Trade</Link>
             </div>

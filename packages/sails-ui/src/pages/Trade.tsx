@@ -505,7 +505,7 @@ export function Trade() {
   // Prisma include shape, so this stays an array server-side.
   const dispute = escrow?.disputes?.[0] ?? null
   const amount = Number(trade.amount)
-  const totalBrl = Number(trade.totalUsd) // no real BRL conversion available from Trade — see OfferDetail's own comment on this same gap
+  const totalUsd = Number(trade.totalUsd)
 
   return (
     <div>
@@ -520,7 +520,7 @@ export function Trade() {
           <Card className="p-4 divide-y divide-brand-border">
             <Row label="Ativo" value={ASSET_LABELS[trade.asset]} />
             <Row label="Quantidade" value={String(amount)} />
-            <Row label="Total" value={formatByCurrency(totalBrl, 'BRL')} />
+            <Row label="Total (USD)" value={formatByCurrency(totalUsd, 'USD')} />
             <Row label="Status do escrow" value={<EscrowStatusBadge status={escrowStatus} />} />
             {/* Real fields (Trade.completedAt/cancelledAt) that existed
                 on the SDK's own Trade type but were never rendered

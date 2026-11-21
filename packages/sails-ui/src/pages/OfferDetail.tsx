@@ -47,15 +47,16 @@ interface OfferDetailView {
 
 function toOfferDetailView(raw: PublicOfferDetail): OfferDetailView {
   const priceUsd = Number(raw.priceUsd)
-  const priceBrl = raw.priceBrl ? Number(raw.priceBrl) : priceUsd
   return {
     id: raw.id,
     seller: raw.seller,
     asset: raw.asset,
     side: raw.side,
     priceUsd,
-    fiatCurrency: 'BRL', // real Offer only ever models a BRL fiat price (priceBrl) — see types.ts's own header comment
-    priceFiat: priceBrl,
+    // CTO 118: match discovery and Trade.totalUsd; do not infer a quote
+    // currency or exchange rate from the optional legacy priceBrl field.
+    fiatCurrency: 'USD',
+    priceFiat: priceUsd,
     minAmount: Number(raw.minAmount),
     maxAmount: Number(raw.maxAmount),
     paymentMethod: raw.paymentMethod,

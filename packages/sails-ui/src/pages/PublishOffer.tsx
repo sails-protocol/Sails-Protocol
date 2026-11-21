@@ -20,11 +20,9 @@
  *    `AMOUNT_PRESETS` comment already flags this same gap). Selectable
  *    in the UI for fidelity to the reference screenshot, but disabled
  *    with an explanatory tooltip — publishing always sends a fixed price.
- * 2. `priceUsd` itself, when the user prices in a non-USD currency —
- *    derived from `lib/currency.ts`'s `ILLUSTRATIVE_FX_TO_USD`, the same
- *    "illustrative, not a live rate" honesty boundary `AMOUNT_PRESETS`
- *    already uses, since `CreateOfferInput.priceUsd` is mandatory on the
- *    real backend regardless of which fiat the user prices in.
+ * 2. Non-USD publication is blocked (CTO 118): no validated FX or
+ *    multi-fiat contract exists. The entered USD decimal is submitted
+ *    unchanged, never calculated from an illustrative rate.
  *
  * `handlePublish()` calls the real `sailsClient.liquidity.publish()`
  * (`POST /v1/liquidity/offers`) directly (corrected 2026-08-04 — this
@@ -52,7 +50,8 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '.
 import { ArrowLeft } from 'lucide-react'
 import { fetchOffers } from '../lib/realOffers'
 import { ASSETS, PAYMENT_METHODS, COUNTRIES } from '../data/mock'
-import { ILLUSTRATIVE_FX_TO_USD, formatByCurrency } from '../lib/currency'
+import { formatByCurrency } from '../lib/currency'
+import { publicationPriceUsd } from '../lib/publicationPrice'
 import { PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { sailsClient } from '../lib/sailsClient'
 import type { AssetType, FiatCurrency, TradeSide } from '../types'
@@ -77,7 +76,7 @@ export function PublishOffer() {
   // comment). `ASSETS` (not `ASSETS_FILTERABLE`) already keeps it out of
   // the picker's options; this keeps it out of the type too.
   const [asset, setAsset] = useState<(typeof ASSETS)[number] | 'Todos'>('Todos')
-  const [currency, setCurrency] = useState<FiatCurrency | 'Todas'>('BRL')
+  const [currency, setCurrency] = useState<FiatCurrency | 'Todas'>('USD')
   const [priceType, setPriceType] = useState<'FIXED' | 'FLOATING'>('FIXED')
   const [price, setPrice] = useState('')
 
@@ -144,7 +143,8 @@ export function PublishOffer() {
     return () => { cancelled = true }
   }, [asset, side, currency])
 
-  const step1Valid = asset !== 'Todos' && currency !== 'Todas' && Number(price) > 0
+  const priceUsd = publicationPriceUsd(price, currency)
+  const step1Valid = asset !== 'Todos' && priceType === 'FIXED' && priceUsd !== null
   const step2Valid = Number(minAmount) > 0 && Number(maxAmount) > Number(minAmount) && paymentDetails.trim().length > 0
 
   const goNext = () => {
@@ -162,25 +162,13 @@ export function PublishOffer() {
   const [publishing, setPublishing] = useState(false)
 
   const handlePublish = async () => {
-    if (!user || asset === 'Todos' || currency === 'Todas') return
-
-    const priceFiat = Number(price)
-    // Real CreateOfferInput.priceUsd is mandatory regardless of which
-    // fiat the offer is priced in — see this file's own doc comment for
-    // why this conversion is illustrative, not live.
-    //
-    // Bug fixed here (found by e2e/flows/*.spec.ts using small BRL test
-    // prices): this used to round to 2 decimals with `.toFixed(2)`
-    // *before* the `.toFixed(8)` decimal-string conversion below — any
-    // BRL price whose USD equivalent was under half a cent silently
-    // became priceUsd="0.00000000", a real, live, non-obvious offer
-    // with a free price. Kept at full precision here; `.toFixed(8)`
-    // below is the only rounding step now, matching the column's real
-    // Decimal(24,8) precision (RFC-009).
-    const priceUsd = currency === 'USD' ? priceFiat : priceFiat * ILLUSTRATIVE_FX_TO_USD[currency]
-
-    if (priceUsd <= 0) {
-      toast.error('O preço convertido para USD ficou zerado — informe um preço mais alto')
+    if (!user || asset === 'Todos') return
+    if (priceUsd === null || priceType !== 'FIXED') {
+      toast.error('Publicação disponível apenas com preço fixo em USD válido, sem conversão de câmbio.')
+      return
+    }
+    if (!step2Valid) {
+      toast.error('Informe limites válidos e os detalhes do pagamento')
       return
     }
 
@@ -193,8 +181,7 @@ export function PublishOffer() {
       await sailsClient.liquidity.publish({
         asset,
         side,
-        priceUsd: priceUsd.toFixed(8),
-        priceBrl: currency === 'BRL' ? priceFiat.toFixed(8) : undefined,
+        priceUsd,
         minAmount: minAmount,
         maxAmount: maxAmount,
         paymentMethod,
@@ -271,6 +258,11 @@ export function PublishOffer() {
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">com moeda fiduciária</label>
                 <CurrencyPicker value={currency} onChange={setCurrency} />
+                <p className="text-xs text-brand-text-muted mt-1.5" role="status">
+                  {currency === 'USD'
+                    ? 'Preço informado em USD, sem conversão de câmbio.'
+                    : 'Publicação nesta moeda indisponível. Selecione USD; conversão de câmbio ainda não habilitada.'}
+                </p>
               </div>
             </div>
 
@@ -285,7 +277,7 @@ export function PublishOffer() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="FIXED">Fixo</SelectItem>
-                  <SelectItem value="FLOATING">Flutuante (em breve)</SelectItem>
+                  <SelectItem value="FLOATING" disabled>Flutuante (em breve)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -404,11 +396,11 @@ export function PublishOffer() {
           </Button>
         )}
         {step < 3 ? (
-          <Button onClick={goNext} className="flex-1 py-3">
+          <Button onClick={goNext} disabled={step === 1 ? !step1Valid : !step2Valid} className="flex-1 py-3">
             Próximo
           </Button>
         ) : (
-          <Button onClick={handlePublish} disabled={publishing} className="flex-1 py-3">
+          <Button onClick={handlePublish} disabled={publishing || !step1Valid || !step2Valid} className="flex-1 py-3">
             {publishing ? 'Publicando...' : 'Publicar'}
           </Button>
         )}
