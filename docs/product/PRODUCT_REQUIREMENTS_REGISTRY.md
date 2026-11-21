@@ -16,7 +16,7 @@ Origem: `ui-backend-gaps-2026-11-20.md`, o Despacho 039, o Despacho 051 com o Co
   - **Solução proposta:** existe proposta técnica, ainda não aprovada.
   - **Implementado:** está na interface e/ou no backend.
 - **Responsável inicial:** "EPM (a distribuir)", até o EPM atribuir.
-- **Indicadores (recomendação do CTO):** 46 requisitos descobertos (UX-001 a UX-046), 0 homologados.
+- **Indicadores (recomendação do CTO):** 47 requisitos descobertos (UX-001 a UX-047), 0 homologados.
 
 ---
 
@@ -477,6 +477,15 @@ Origem: sessão de UI, branch `ui/design-system` (sem PR publicada), decisões d
   - Regra para a interface: nunca afirmar sincronização que não existe (fio solto `nodeStateSync`).
   - Prioridade: a decidir pelo CTO.
   - Estado: levantado, não aprovado.
+
+- [ ] **UX-047: Sails Node, distribuições oficiais pré-configuradas (white-label), perfis público e privado**
+  - Origem: CTO 28, Complemento ao Despacho 055 (texto colado pelo Alan; também registrado na #147, atualizada em 2026-11-21T02:52Z). Fonte canônica: #147; esta entrada só vincula. Ligado a UX-034 (operador de nó), UX-043 (seletor de nó), UX-045 (mercados privados) e UX-046 (estado entre nós).
+  - Direção aprovada: o Sails oferece distribuições oficiais e pré-configuradas do Sails Node, com suporte a white-label. Um núcleo de software comum e dois perfis de implantação: **Public Node** (integra a rede pública Sails, operada por múltiplos mantenedores independentes) e **Private Node** (empresas e comunidades hospedam mercados privados). Mercados privados também podem usar nós públicos compartilhados que ofereçam essa capacidade, para não obrigar pequenas comunidades a manter uma VPS. Um único software de nó com perfis oficiais, não dois códigos separados.
+  - O que o Sails controla: qualidade da distribuição oficial (configuração inicial segura, instalação simplificada e atualizações verificáveis, compatibilidade de versões e protocolos, identificação criptográfica dos nós, diagnósticos e observabilidade, testes de conformidade, templates de implantação para VPS e infraestrutura própria). **Princípio inegociável:** distribuição oficial não significa infraestrutura centralizada, autorização central de operadores nem controle dos mercados pelo Sails; a equipe Sails não pode desligar mercados independentes; usar a distribuição oficial não é um portão de aprovação.
+  - Responsabilidades: Principal especifica arquitetura, configuração, descoberta P2P via stack Pears, segurança, isolamento e atualização das distribuições (com o GK para privacidade, autorização e isolamento); Sails UI representa Rede Sails, Adicionar Nó e Criar ou Entrar em Mercado Privado como experiências distintas; EPM registra e acompanha aqui e no Project #3.
+  - Prioridade: a decidir pelo CTO (P2 proposta).
+  - Status separados: [ ] UX | [ ] Especificação | [ ] Implementação | [ ] Homologação.
+  - Autorização: direção de produto aprovada; implementação, implantação e ativação em produção sujeitas aos gates técnicos existentes.
 
 ## Decisões pendentes do CTO (F)
 1. Destino de STACKS, RSK_BTC e SPARK no enum (UX-005).
