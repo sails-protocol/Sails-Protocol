@@ -52,6 +52,16 @@ export const NETWORK_LOGO: Record<CatalogNetwork, string> = {
   ton: '/brand/networks/ton.svg', tron: '/brand/networks/tron.svg', solana: '/brand/networks/solana.svg',
 }
 
+/**
+ * Network logo for the chip on an asset logo, or null when it would repeat the asset's own logo (BTC on the
+ * Bitcoin network). The network name stays written next to the logo (DECISIONS.md, PO 2026-11-21, item 13).
+ */
+const NATIVE_NETWORK: Partial<Record<CatalogAsset, CatalogNetwork>> = { BTC: 'bitcoin' }
+export function networkChipLogo(asset: CatalogAsset, network: CatalogNetwork | null | undefined): string | null {
+  if (!network || NATIVE_NETWORK[asset] === network) return null
+  return NETWORK_LOGO[network]
+}
+
 const PRODUCTION_ELIGIBLE: ReadonlySet<EscrowType> = new Set(['MULTISIG'])
 // Notes are read through getters (`note`, below) so they follow the interface language; these give the current text.
 export const soonNote = () => t('common.soon')

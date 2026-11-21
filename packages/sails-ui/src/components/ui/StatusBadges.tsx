@@ -73,11 +73,11 @@ export const SIDE_SEGMENT_SELECTED: Record<TradeSide, string> = {
   SELL: 'bg-brand-raised shadow-elevation-1 font-semibold text-brand-sell-fg',
 }
 
-/** Quiet payment method: secondary text after a thin brand tick (the Market table style), not a filled pill. */
+/** Quiet payment method: secondary text after a thin neutral tick (the Market table style), not a filled pill. Orange is never decoration. */
 export function PaymentBadge({ method, className }: { method: PaymentMethod; className?: string }) {
   return (
     <span className={cn('inline-flex items-center gap-1.5 text-body-sm text-brand-text-secondary whitespace-nowrap', className)}>
-      <span aria-hidden="true" className="h-3 w-0.5 rounded-full bg-brand-orange-accent" />
+      <span aria-hidden="true" className="h-3 w-0.5 rounded-full bg-brand-border" />
       {PAYMENT_METHOD_LABELS[method]}
     </span>
   )
@@ -152,6 +152,6 @@ const OFFER_STATUS_ICON: Record<OfferStatus, LucideIcon> = {
   ACTIVE: Circle, PAUSED: PauseCircle, COMPLETED: CheckCircle2, CANCELLED: XCircle,
 }
 export function OfferStatusBadge({ status }: { status: OfferStatus }) {
-  const color = status === 'ACTIVE' ? TONE_CLASS.success : TONE_CLASS.neutral
+  const color = status === 'ACTIVE' ? TONE_CLASS.info : TONE_CLASS.neutral
   return <Pill className={color} icon={OFFER_STATUS_ICON[status]}>{OFFER_STATUS_LABEL[status]}</Pill>
 }

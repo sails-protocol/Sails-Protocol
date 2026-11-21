@@ -194,7 +194,7 @@ function ExploreView() {
             <div className="mt-auto">
               {m.relation === 'default'
                 ? <Link to="/" className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'touch:min-h-11')}>{t('markets.explore.open')}<span className="sr-only"> {m.name}</span></Link>
-                : <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{soon}</Badge>}
+                : <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text-secondary">{soon}</Badge>}
             </div>
           </li>
         ))}

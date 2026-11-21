@@ -56,7 +56,7 @@ describe('escrowDeadlineView', () => {
     if (v?.kind === 'active') expect(v.deadlineText).toMatch(/^até \d\d\/\d\d, \d\d:\d\d$/)
   })
   it('attention near the end, no bar without a total', () => {
-    expect(escrowDeadlineView({ expiresAt: at(8 * MIN), timelockHours: 72, status: 'PAYMENT_PENDING' }, NOW)).toMatchObject({ tone: 'attention', remainingText: '8\u00a0min 00\u00a0s' })
+    expect(escrowDeadlineView({ expiresAt: at(8 * MIN), timelockHours: 72, status: 'FUNDS_LOCKED' }, NOW)).toMatchObject({ tone: 'attention', remainingText: '8\u00a0min 00\u00a0s' })
     expect(escrowDeadlineView({ expiresAt: at(5 * H), timelockHours: 0, status: 'FUNDS_LOCKED' }, NOW)).toMatchObject({ tone: 'neutral', progress: null })
   })
   it('past deadline: "Encerrado", never negative', () => {
@@ -69,6 +69,17 @@ describe('escrowDeadlineView', () => {
     expect(escrowDeadlineView({ expiresAt: null, timelockHours: 72, status: 'FUNDS_LOCKED' }, NOW)).toMatchObject({ kind: 'unavailable' })
     expect(escrowDeadlineView({ expiresAt: 'not-a-date', timelockHours: 72, status: 'FUNDS_LOCKED' }, NOW)).toMatchObject({ kind: 'unavailable' })
     expect(escrowDeadlineView({ expiresAt: null, timelockHours: undefined, status: 'CREATED' }, NOW)).toMatchObject({ kind: 'unavailable' })
+  })
+  it('PAYMENT_PENDING and DISPUTED: a static date, no countdown, attention or bar (the deadline does not close the escrow there)', () => {
+    for (const status of ['PAYMENT_PENDING', 'DISPUTED'] as const) {
+      for (const ms of [8 * MIN, -3 * H, 36 * H]) {
+        const v = escrowDeadlineView({ expiresAt: at(ms), timelockHours: 72, status }, NOW)
+        expect(v?.kind).toBe('informational')
+        expect(v).not.toHaveProperty('tone')
+        expect(v).not.toHaveProperty('progress')
+        if (v?.kind === 'informational') expect(v.text).toMatch(/^Até \d\d\/\d\d, \d\d:\d\d\. Neste estado, este prazo não encerra o escrow\.$/)
+      }
+    }
   })
   it('never in terminal states or EXPIRED', () => {
     for (const status of ['COMPLETED', 'REFUNDED', 'SPLIT', 'EXPIRED'] as const) {

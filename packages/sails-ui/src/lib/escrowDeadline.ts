@@ -6,7 +6,9 @@
  * What the deadline does, from the backend (escrow.service.ts sweepExpiredEscrows, escrow-lifecycle.ts):
  * the sweeper only looks at FUNDS_LOCKED escrows past expiresAt and either refunds the seller (rails that
  * can) or moves them to EXPIRED (MULTISIG / LIGHTNING_HODL / SAFE_GUARD_EVM, recovery by dispute).
- * PAYMENT_PENDING and DISPUTED never expire by this deadline. The copy below says only that.
+ * PAYMENT_PENDING and DISPUTED never expire by this deadline. The copy below says only that, and there the
+ * view is a static date (no countdown, attention, bar or announcements): a running clock would be invented
+ * urgency in a money flow (Architect 2026-11-21, item 29).
  */
 import type { EscrowStatus } from '../types'
 import type { Explanation } from '../components/ui/trustTypes'
@@ -66,6 +68,8 @@ export function remainingAnnouncement(remainingText: string, tone: DeadlineTone)
 
 export type EscrowDeadlineView =
   | { kind: 'pending'; text: string; explanation: Explanation }
+  /** PAYMENT_PENDING / DISPUTED: the recorded date, shown as plain text; the deadline does not close the escrow there. */
+  | { kind: 'informational'; text: string; explanation: Explanation }
   | { kind: 'unavailable'; text: string; explanation: Explanation }
   | {
       kind: 'active'
@@ -104,6 +108,9 @@ export function escrowDeadlineView(
     // expiresAt is only set at lock: before it, the total is the whole story.
     if (i.status === 'CREATED' && !i.expiresAt && hours) return { kind: 'pending', text: t('escrow.deadline.pending', { hours }), explanation: why }
     return { kind: 'unavailable', text: t('escrow.deadline.unavailable'), explanation: why }
+  }
+  if (i.status === 'PAYMENT_PENDING' || i.status === 'DISPUTED') {
+    return { kind: 'informational', text: t('escrow.deadline.informational', { date: formatDateTime(i.expiresAt!, new Date(now)) }), explanation: why }
   }
   const remainingMs = exp - now
   const totalMs = hours ? hours * HOUR : null

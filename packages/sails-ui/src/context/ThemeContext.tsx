@@ -10,7 +10,8 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
-const DARK_QUERY = '(prefers-color-scheme: dark)'
+// Ask for light, not dark: a system that states no preference (or no matchMedia) then opens dark.
+const LIGHT_QUERY = '(prefers-color-scheme: light)'
 
 function browserStore(): Storage | undefined {
   try {
@@ -22,7 +23,7 @@ function browserStore(): Storage | undefined {
 
 function systemPrefersDark(): boolean {
   try {
-    return window.matchMedia(DARK_QUERY).matches
+    return !window.matchMedia(LIGHT_QUERY).matches
   } catch {
     return true // no matchMedia: keep the dark-first identity
   }
@@ -49,9 +50,9 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     if (preference !== 'system') return
     let mql: MediaQueryList
-    try { mql = window.matchMedia(DARK_QUERY) } catch { return }
-    const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches)
-    setSystemDark(mql.matches)
+    try { mql = window.matchMedia(LIGHT_QUERY) } catch { return }
+    const onChange = (e: MediaQueryListEvent) => setSystemDark(!e.matches)
+    setSystemDark(!mql.matches)
     mql.addEventListener('change', onChange)
     return () => mql.removeEventListener('change', onChange)
   }, [preference])

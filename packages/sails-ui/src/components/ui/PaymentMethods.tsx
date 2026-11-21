@@ -2,7 +2,7 @@ import { cn } from '../../lib/utils'
 import { splitOverflow } from '../../lib/paymentMethods'
 
 /**
- * Layer A: the payment methods an offer accepts. Two layouts, one look (thin brand tick + quiet text):
+ * Layer A: the payment methods an offer accepts. Two layouts, one look (thin neutral tick + quiet text):
  * - `stack` (Market table, offer detail): one method per line, the P2P-market pattern, so long names
  *   ("Transferência bancária") never mix lines with short ones; "+N" sits on the last line.
  * - `inline` (Market card / phone): one line, a single tick, names joined by commas, then "+N".
@@ -22,7 +22,7 @@ export function PaymentMethods({ labels, max, maxNarrow, listLabel, layout = 'st
   const narrow = splitOverflow(labels, Math.min(maxNarrow ?? wide.shown.length, wide.shown.length))
   const narrowOnly = narrow.more !== wide.more
   const hiddenNarrow = (i: number) => i >= narrow.shown.length
-  const tick = <span aria-hidden="true" className="h-3 w-0.5 shrink-0 self-center rounded-full bg-brand-orange-accent" />
+  const tick = <span aria-hidden="true" className="h-3 w-0.5 shrink-0 self-center rounded-full bg-brand-border" />
   const moreWide = wide.more > 0 && <span className={cn('ml-1.5 whitespace-nowrap tabular-nums text-brand-text-muted', narrowOnly && 'hidden sm:inline')}>+{wide.more}</span>
   const moreNarrow = narrowOnly && <span className="ml-1.5 whitespace-nowrap tabular-nums text-brand-text-muted sm:hidden">+{narrow.more}</span>
 

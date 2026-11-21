@@ -2,13 +2,14 @@
  * Appearance preference (DESIGN_SYSTEM.md 5.4): follow the system, or a fixed dark/light theme.
  * Stored per viewer in localStorage under the key the old dark/light toggle used, so a value saved
  * by the old toggle ('dark' | 'light') is already a valid explicit choice and carries over as is.
- * Default stays dark (dark-first identity) until the Design System Architect decides otherwise.
+ * Default follows the system (Architect 2026-11-21, item 43); when the system does not say light, the app
+ * opens dark (ThemeContext), so dark-first stays the fallback.
  */
 export type Theme = 'light' | 'dark'
 export type ThemePreference = 'system' | Theme
 
 export const THEME_STORAGE_KEY = 'sails_ui_theme'
-export const DEFAULT_THEME_PREFERENCE: ThemePreference = 'dark'
+export const DEFAULT_THEME_PREFERENCE: ThemePreference = 'system'
 const PREFERENCES: readonly ThemePreference[] = ['system', 'dark', 'light']
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>

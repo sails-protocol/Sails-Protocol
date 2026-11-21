@@ -102,7 +102,7 @@ describe('formatting per language (USD stays the price unit)', () => {
     ['en', '$97,800.00', '0.0015', 'Nov 2026'],
     ['es', '97.800,00 US$', '0,0015', 'nov 2026'],
     ['fr', '97 800,00 $US', '0,0015', 'nov. 2026'],
-    ['de', '97.800,00 $', '0,0015', 'Nov. 2026'],
+    ['de', '97.800,00 USD', '0,0015', 'Nov. 2026'],
   ]
   it.each(rows)('%s', (locale, usd, btc, monthYear) => {
     inLocale(locale, () => {

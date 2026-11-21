@@ -1,4 +1,4 @@
-import { readThemePreference, resolveTheme, saveThemePreference, THEME_STORAGE_KEY } from '../src/lib/themePreference'
+import { DEFAULT_THEME_PREFERENCE, readThemePreference, resolveTheme, saveThemePreference, THEME_STORAGE_KEY } from '../src/lib/themePreference'
 import { LOCALE_STORAGE_KEY, readLocale, saveLocale } from '../src/lib/locale'
 
 const memoryStore = (initial: Record<string, string> = {}) => {
@@ -18,7 +18,10 @@ describe('theme preference', () => {
     expect(readThemePreference(memoryStore({ [THEME_STORAGE_KEY]: 'light' }))).toBe('light')
     expect(readThemePreference(memoryStore({ [THEME_STORAGE_KEY]: 'dark' }))).toBe('dark')
   })
-  it('returns null (the caller then uses the dark default) for nothing, junk or blocked storage', () => {
+  it('defaults to following the system (Architect 2026-11-21, item 43)', () => {
+    expect(DEFAULT_THEME_PREFERENCE).toBe('system')
+  })
+  it('returns null (the caller then uses the system default) for nothing, junk or blocked storage', () => {
     expect(readThemePreference(memoryStore())).toBeNull()
     expect(readThemePreference(memoryStore({ [THEME_STORAGE_KEY]: 'sepia' }))).toBeNull()
     expect(readThemePreference(throwing)).toBeNull()

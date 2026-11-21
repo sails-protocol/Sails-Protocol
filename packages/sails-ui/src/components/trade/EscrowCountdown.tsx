@@ -4,6 +4,8 @@
  * no invented deadline). Ticks every second under 1 h, every 30 s otherwise, stops when the tab is
  * hidden and resyncs on return. The ticking number is aria-hidden; a polite status announces only the
  * key moments (attention, 10 min, 1 min, expiry). No blinking; the bar moves only by transform.
+ * PAYMENT_PENDING / DISPUTED get a static date (the `informational` view): no ticking, amber or bar.
+ * Flat inside the stage card: no surface of its own, so no box inside a box.
  */
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Clock } from 'lucide-react'
@@ -53,7 +55,7 @@ export function EscrowCountdown({
   const attention = view.kind === 'active' && view.tone !== 'neutral'
   const Icon = attention ? AlertTriangle : Clock
   return (
-    <div className="mt-4 rounded-md bg-brand-surface p-3">
+    <div className="mt-4">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <p className={cn('flex items-center gap-1.5 text-caption font-medium', attention ? 'text-brand-warning-fg' : 'text-brand-text-secondary')}>
           <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -70,7 +72,7 @@ export function EscrowCountdown({
             <span className="sr-only">{view.tone === 'expired' ? MILESTONE_ANNOUNCEMENT[4] : t(view.tone === 'attention' ? 'trade.countdown.remainingSoon' : 'trade.countdown.remaining', { time: view.remainingText })}</span>
           </p>
           {view.progress !== null && view.tone !== 'expired' && (
-            <Progress value={view.progress} label={t('trade.countdown.progress')} className="mt-2" />
+            <Progress value={view.progress} label={t('trade.countdown.progress')} tone={attention ? 'warning' : 'brand'} className="mt-2" />
           )}
         </>
       ) : (

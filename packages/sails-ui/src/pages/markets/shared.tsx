@@ -24,7 +24,7 @@ import { t } from '../../i18n'
 export function WireNote({ ids }: { ids: readonly LooseWireId[] }) {
   return (
     <p className="text-caption text-brand-text-secondary">
-      <Badge variant="outline" className="mr-1.5 border-transparent bg-brand-tonal font-medium text-brand-text">{t('common.soon')}</Badge>
+      <Badge variant="outline" className="mr-1.5 border-transparent bg-brand-tonal font-medium text-brand-text-secondary">{t('common.soon')}</Badge>
       {t('markets.wireNote', { wires: ids.map((id) => LOOSE_WIRES[id].label).join(', ') })}
     </p>
   )

@@ -67,7 +67,7 @@ export function SettingsRow({ icon: Icon, label, description, value, control, on
         {description && <span className="block text-xs text-brand-text-muted mt-0.5">{description}</span>}
       </span>
       {planned ? (
-        <Badge variant="outline" className="shrink-0 border-transparent bg-brand-tonal font-medium text-brand-text">{plannedLabel}</Badge>
+        <Badge variant="outline" className="shrink-0 border-transparent bg-brand-tonal font-medium text-brand-text-secondary">{plannedLabel}</Badge>
       ) : (
         <>
           {value !== undefined && <span className="text-sm text-brand-text-secondary text-right shrink-0 max-w-[50%] truncate">{value}</span>}

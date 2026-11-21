@@ -67,11 +67,11 @@ export function DemoControls() {
               <span className="text-brand-text-secondary">{t('shell.demo.escrowLabel')}</span>
               {view.escrowStatus ? <EscrowStatusBadge status={view.escrowStatus} /> : <span>{t('shell.demo.escrowNotCreated')}</span>}
             </p>
-            <Button onClick={simulate} disabled={!view.nextCounterpartyStep} className="w-full min-h-[44px] whitespace-normal">
+            <Button variant="secondary" onClick={simulate} disabled={!view.nextCounterpartyStep} className="w-full min-h-[44px] whitespace-normal">
               {t('shell.demo.simulate')}
             </Button>
             <p className="text-xs text-brand-text-secondary">
-              {view.nextCounterpartyStep ? t('shell.demo.nextStep', { step: view.nextCounterpartyStep.toLowerCase() }) : t('shell.demo.noPending')}
+              {view.nextCounterpartyStep ? t('shell.demo.nextStep', { step: view.nextCounterpartyStep }) : t('shell.demo.noPending')}
             </p>
           </>
         ) : (

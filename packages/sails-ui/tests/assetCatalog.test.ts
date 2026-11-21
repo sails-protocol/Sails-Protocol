@@ -97,3 +97,13 @@ describe('asset option list guard', () => {
     expect(offenders('x.ts', "const A = ['BTC']")).toHaveLength(0)
   })
 })
+
+describe('network chip on the asset logo (PO 2026-11-21, item 13)', () => {
+  it('is hidden only when it repeats the asset logo', () => {
+    const { networkChipLogo } = require('../src/lib/assetCatalog')
+    expect(networkChipLogo('BTC', 'bitcoin')).toBeNull()
+    expect(networkChipLogo('BTC', 'liquid')).toMatch(/liquid/)
+    expect(networkChipLogo('USDT', 'tron')).toMatch(/tron/)
+    expect(networkChipLogo('USDC', null)).toBeNull()
+  })
+})

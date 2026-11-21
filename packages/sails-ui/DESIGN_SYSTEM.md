@@ -67,7 +67,7 @@ comentários de `src/index.css` e das medições já registradas neste documento
 |---|---|---|---|
 | Laranja da marca | a ação primária da tela (um sólido só); "você está aqui": item ativo da navegação, aba ativa, etapa `yours` do trilho, "Sua vez" | link, seleção, marcado, foco, status, lado do trade, decoração, selo de confiança | `Button` padrão, Sidebar e BottomNav ativos, indicador de `Tabs`, anel `yours` do `TradeRail`, faixa `action` do `CurrentActionCard` |
 | Azul da marca | o que foi escolhido: checkbox, switch, rádio, chip de filtro, opção do combobox, `IconButton` ligado, favorito; linha selecionada (`bg-brand-selected` + check); link; progresso; etapa concluída e "esperando" no trilho | status ou feedback (isso é info), ação primária, lado | `Checkbox`, `Switch`, `Radio`, `FilterChip`, `Combobox`, `IconButton pressed`, `Progress`, `button variant="link"`, `TradeRail` `done`/`waiting` |
-| Info | estado informativo do ciclo de vida (trade ativo, fundos bloqueados); aviso informativo; comprovante no chat (tint + rótulo); os seus balões no chat (sólido) | link, seleção, marcado (são azul da marca); confirmar pagamento (comprovante é alegação de uma parte, CTO 437) | `TONE_CLASS.info` (trade `ACTIVE`, escrow `FUNDS_LOCKED`), `Alert tone="info"`, `ChatMessage`, `toast.info` |
+| Info | estado informativo do ciclo de vida (trade ativo, fundos bloqueados); aviso informativo; comprovante no chat (tint + rótulo); os seus balões no chat (sólido) | link, seleção, marcado (são azul da marca); confirmar pagamento (comprovante é alegação de uma parte, CTO 437) | `TONE_CLASS.info` (trade `ACTIVE`, oferta `ACTIVE`, escrow `FUNDS_LOCKED`; oferta ativa era sucesso, ratificado pelo Architect 2026-11-21, N2: o mesmo estado tem uma cor, e o verde fica para confirmações), `Alert tone="info"`, `ChatMessage`, `toast.info` |
 | Sucesso | resultado positivo de uma ação local ou de uma checagem (chave copiada, endereço salvo, checagem do destino OK); presença online | concluído (CTO 437); liberado, decisão registrada, pagamento enviado (provisório, ver regras abaixo); compra | `toast.success` de ações locais, `Alert tone="success"`, checagem `ok` do `SigningRequestCard` |
 | Atenção | prazos e o que pede cuidado: contagem do escrow perto do fim, etapa bloqueada, em disputa ou com prazo encerrado no trilho, escrow `PAYMENT_PENDING`/`EXPIRED`, rodada de assinatura aberta, consequências numa confirmação | erro; o chip de status de uma disputa (é perigo) | `EscrowCountdown`, `TradeRail` `attention`, `ConfirmActionDialog`, `Alert tone="warning"` |
 | Perigo | disputa (chip e aviso), erro, campo inválido, ação destrutiva, alerta de risco no chat | venda: uma disputa nunca usa o vermelho de venda, e "Vender" nunca usa perigo | `TONE_CLASS.danger` (`DISPUTED`), `Alert tone="danger"`, borda de `aria-invalid`, `variant="destructive"`, item `destructive` do `Menu` |
@@ -105,6 +105,13 @@ Regras:
   `text-brand-link` (azul da marca). Laranja nunca é link nem seleção.
 
 Regras de aplicação (2026-11-21; consolidam as regras acima e o `DECISIONS.md`):
+- **Ferramenta de demonstração nunca é laranja** (ratificado pelo Architect 2026-11-21, item 27): o "Simular"
+  do `DemoControls` é `secondary`, porque a ação da etapa do trade é o único sólido.
+- **Selo "Verificado" (escondido até existir critério, DECISIONS.md).** Receita
+  para quando voltar (ratificado pelo Architect 2026-11-21, N1): pílula `TONE_CLASS.info` com `BadgeCheck`
+  (`size-icon-xs`), rótulo visível "Verificado" e `ExplanationPopover` com o
+  critério (verificado por quem, o quê). Nunca laranja, nunca sucesso, nunca só
+  ícone. Texto de info no tint: 5.44 escuro / 5.74 claro.
 - **Um só laranja sólido por tela** (Product Owner, 2026-11-21). Sem sessão, o
   sólido é o "Conectar wallet" do topo, porque destrava todas as ações: o "Nova
   oferta" do Market e os "Conectar wallet" dentro das páginas ficam tonais. Com
@@ -221,7 +228,8 @@ de marca do white-label e nunca carregam significado.
 **Catálogo de ativos** (2026-11-20, DECISIONS.md): os 14 pares oficiais vivem só
 em `src/lib/assetCatalog.ts`. `AssetIcon` mostra a logo oficial do ativo com a
 logo da rede numa pastilha `bg-asset-chip` (clara nos dois temas, anel de 1px
-da superfície) no canto; tamanhos `sm`/`md`/`lg` = 16/20/24. Logos em
+`border-subtle` no claro, onde o anel da superfície sumia no branco, e da superfície
+no escuro; ratificado pelo Architect 2026-11-21, item 9) no canto; tamanhos `sm`/`md`/`lg` = 16/20/24. Logos em
 `public/brand/{assets,networks}`, sem alteração (`THIRD_PARTY_LOGOS.md`); o
 monograma fica só para valores sem marca oficial. `AssetNetworkLabel` = ícone +
 "BTC · On-chain", o único jeito de escrever um par na interface.
@@ -251,7 +259,7 @@ Pesos 400/500/600 apenas. Móvel < 768px, desktop ≥ 768px.
 | `text-control` | rótulo de botão e campo | 14 / 14 | 1.25 | 500 | 0 | `--t-control` |
 | `text-field` (provisório) | texto digitado em campo | 16 / 14 (16 no toque) | 1.4 | 400 | 0 | `--t-input` |
 | `.money` / `tabular-nums` | numérico | 15 | 1.3 | 600 | 0 | `--t-money` |
-| `.money-lg` (provisório) | preço em linha/tabela | 18 / 18 | 1.2 | 600 | -0.01em | `--t-headline` |
+| `.money-lg` (provisório) | preço em linha/tabela | 18 / 18 | 1.2 | 600 | -0.01em | `--t-money-lg` (variável própria, mesmo valor: mudar o título não move o preço; ratificado pelo Architect 2026-11-21, item 11) |
 | `.money-hero` | valor principal do trade | 26 / 28 | 1.15 | 600 | -0.01em | `--t-money-hero` |
 | `.mono-id` | mono, só IDs | 14 | 1.5 | 400 | 0 | `--t-mono` |
 
@@ -382,6 +390,10 @@ contexto atrás de uma confirmação continua reconhecível. `shadow-sm/md/lg/xl
 
 ### 4.4 Movimento (**provisório — ratificação pendente**)
 
+Tempos e curvas adotados pelo Sails, inspirados no M3 (as curvas são as do M3;
+os tempos ficam dentro das faixas short / medium / long do M3, mas não são "os
+valores do M3"; ratificado pelo Architect 2026-11-21, item 41).
+
 | Token | Valor | Uso |
 |---|---|---|
 | `--duration-short` / `duration-short` | 100 ms | cor, hover, pressionado, tooltip; saídas curtas |
@@ -447,8 +459,8 @@ superfície e elevado; ao vivo em `/dev/design-system`, seção "Botões de lado
 |---|---|---|---|---|
 | Claro | `buy-tonal` | 5.29 | 4.82 | 4.60 |
 | Claro | `sell-tonal` | 5.36 | 4.80 | 4.57 |
-| Escuro | `buy-tonal` | 5.63 | 6.03 | 6.21 |
-| Escuro | `sell-tonal` | 4.64 | 4.94 | 5.08 |
+| Escuro | `buy-tonal` | 5.63 | 6.42 | 6.82 |
+| Escuro | `sell-tonal` | 4.64 | 5.21 | 5.51 |
 | Claro | `buy` (branco sobre #0D8259) | 4.82 | 5.49 | 5.95 |
 | Claro | `sell` (branco sobre #B9384E) | 5.62 | 6.38 | 6.81 |
 | Escuro | `buy` (#111318 sobre #4CC79A) | 8.80 | 9.29 | 9.63 |
@@ -520,7 +532,7 @@ claro 18.97 / 19.80 / 18.16 (bg / superfície / elevado); sobre o tonal ≥ 10.6
 
 ### 5.2 Estados: camadas, desativado e carregando (**provisório — ratificação pendente**)
 
-**Camadas de estado** (valores M3), um sistema para todo elemento interativo,
+**Camadas de estado** (valores adotados pelo Sails, inspirados no M3; ratificado pelo Architect 2026-11-21), um sistema para todo elemento interativo,
 utilitário `state-layer` em `index.css`. Substituiu os cinco estilos soltos
 (`hover:bg-brand-elevated` em 28 lugares, `hover:bg-brand-elevated/60` nas
 linhas, `hover:bg-primary/90`, `opacity-70 → 100` nos fechar, `tonal-hover/
@@ -540,6 +552,13 @@ de rótulo branco (`state-layer-dark`: destrutivo). Medido: primário claro 5.22
 5.71 (hover) → 6.00 (pressionado); escuro 6.63 → 7.12 → 7.44; destrutivo 6.47 →
 7.31 → 7.75; rótulo no tonal ≥ 11.83 (claro) e ≥ 7.19 (escuro, sobre elevado).
 Sem mudança de tamanho no pressionado.
+
+**Tonal de lado no escuro** (ratificado pelo Architect 2026-11-21, item 6): `buy-tonal`/`sell-tonal` usam
+`--state-hover-a-side` 0.16 e `--state-pressed-a-side` 0.24 (camada preta), porque
+os 8 / 12 % comuns mudavam o preenchimento só 1.03–1.10:1. Com 16 / 24 % ele muda
+1.06–1.14 / 1.09–1.21, na faixa do claro, e o rótulo só ganha contraste. No claro
+as variáveis ficam 0.08 / 0.12 (nada muda). Uma camada na cor do rótulo foi
+recusada: derrubava o rótulo de venda para 4.11 (hover) e 3.87 (pressionado).
 
 **Desativado** (atributo `disabled` ou `aria-disabled="true"`): recipiente 12 %
 e conteúdo 38 % da cor do texto (`bg-brand-disabled-container`,
@@ -652,7 +671,9 @@ Contraste: `ui-refs/ds-primitives-2026-11-20/contrast.cjs`.
 
 #### Progresso linear (`ui/progress.tsx`)
 - Trilho 4 px `border-subtle`, indicador azul da marca (3.95+ contra o trilho,
-  4.74+ contra as superfícies). Determinado (`value`, `aria-valuenow`) só para
+  4.74+ contra as superfícies). `tone="warning"` (âmbar, `bg-brand-warning`: 7.48
+  escuro / 3.84 claro contra o trilho) quando o texto ao lado já está em atenção,
+  para um estado ter um sinal só; nunca perigo para prazo (ratificado pelo Architect 2026-11-21, item 30). Determinado (`value`, `aria-valuenow`) só para
   progresso medido; indeterminado (sem `value`) para espera sem duração.
   Movimento só por transform; com movimento reduzido a barra fica parada.
   **Nunca** uma porcentagem inventada para espera do protocolo (CTO 437).
@@ -719,7 +740,7 @@ outros status.
 Seções (abas verticais md+, lista que abre a seção abaixo de md), em ordem de
 uso: **Wallet**, **Aparência** (`SunMoon`), **Idioma** (`Languages`),
 **Notificações** (`Bell`), **Segurança**, **Rede e nós** (`Network`, antes "Nó Sails"),
-**Mercados** (antes Comunidades; o id `comunidades` continua, para `?section=` não quebrar: mercado que abre por padrão, convites recebidos, privacidade da participação "Em breve" e atalhos para Meus mercados e Entrar com convite), **Ajuda e Sobre**.
+**Mercados** (antes Comunidades; ícone `LayoutGrid`, porque `Store` é o do mercado público com marca, ratificado pelo Architect 2026-11-21, item 35; o id `comunidades` continua, para `?section=` não quebrar: mercado que abre por padrão, convites recebidos, privacidade da participação "Em breve" e atalhos para Meus mercados e Entrar com convite), **Ajuda e Sobre**.
 "Aplicativo" saiu: tema e estilo dos avatares foram para Aparência (com Avatar
 público e Moeda de exibição, ainda "Em breve"); Idioma e Notificações viraram
 seções. Nenhuma linha foi removida. Itens planejados vêm de `LOOSE_WIRES`
@@ -732,8 +753,11 @@ Preferência `'system' | 'dark' | 'light'` em cartões de rádio (Padrão do
 sistema / Escuro / Claro). `system` segue `prefers-color-scheme` ao vivo
 (`matchMedia` + listener). Guardada em `sails_ui_theme` (mesma chave do antigo
 toggle: o "dark"/"light" salvo continua valendo como escolha explícita);
-leitura e escrita protegidas. Padrão continua **escuro** (dark-first) até o
-Architect decidir. `useTheme()` agora dá `{ theme, preference, setPreference }`.
+leitura e escrita protegidas. Padrão = **Padrão do sistema** (ratificado pelo Architect 2026-11-21, item 43:
+a HIG pede respeitar a aparência escolhida, e uma wallet white-label espera isso);
+quando o sistema não informa claro, abre no escuro (`ThemeContext` pergunta por
+`prefers-color-scheme: light`). Dark-first continua como postura de projeto:
+desenhar e medir primeiro no escuro. `useTheme()` agora dá `{ theme, preference, setPreference }`.
 
 #### Idioma (`lib/locale.ts`)
 `RadioGroup` com Padrão do sistema, Português (Brasil), English, Español,
@@ -748,7 +772,8 @@ não faz nada.
 
 #### PaymentMethods (`ui/PaymentMethods.tsx`, Layer A)
 Recebe uma lista de rótulos. Mesmo visual do antigo `PaymentBadge` (texto
-secundário após um traço da marca). Dois layouts:
+secundário após um traço neutro `bg-brand-border`; era laranja, e laranja nunca
+é decoração: ratificado pelo Architect 2026-11-21, achado fora dos 43). Dois layouts:
 - `stack` (tabela do Market, detalhe da oferta): um método por linha, o padrão
   de mercado P2P. Nomes longos quebram a linha em vez de serem cortados, e o
   "+N" segue o texto do último item.
@@ -773,7 +798,8 @@ Publicar:
   demonstração permanente.
 
 #### Item planejado (`ui/PlannedItem.tsx`, Layer A)
-Rótulo + badge "Em breve" (o mesmo das linhas planejadas) + descrição + popover
+Rótulo + badge "Em breve" (o mesmo das linhas planejadas: tonal sem borda,
+texto `text-secondary`, a receita do selo de mercado ilustrativo; ratificado pelo Architect 2026-11-21, item 34) + descrição + popover
 de explicação opcional. Nunca valor, número ou ação. Usado para **Avaliações**
 no Perfil e no bloco do anunciante da oferta (`RATINGS_EXPLANATION`: 1 a 5
 estrelas, só informativas, nunca entram na reputação). Não aparece nas linhas
@@ -795,8 +821,10 @@ só por `offerRatings(offer)` / `sellerRatings(seller)` / `sellerMemberSince(sel
   `PlannedItem`, estrela + "4,8 · 126 avaliações" + "· desde jan. de 2025"
   (só no anunciante, só se houver data). Explicação `RATINGS_DEMO_EXPLANATION`
   (diz que os números são fictícios). Sem dado: o `PlannedItem` "Em breve".
-- **Cor:** estrela preenchida em `brand-checked` (o mesmo azul do
-  `StarRating`), nunca amarelo; texto no tom da linha.
+- **Cor:** estrela de exibição (TrustLine e `RatingSummaryLine`) preenchida em
+  `text-brand-text-secondary` (7.48 escuro / 7.81 claro), nunca amarelo; o azul
+  `brand-checked` fica só na estrela escolhida do `StarRating`, porque exibição não
+  é seleção e azul na lista pareceria link (ratificado pelo Architect 2026-11-21, item 7). Texto no tom da linha.
 - A explicação da reputação diz que as estrelas são avaliações entre pessoas,
   só informativas, e nunca mudam a reputação.
 
@@ -884,15 +912,20 @@ automático e prazos de liberação/apelação não existem no contrato (UX-012,
 | atenção | falta < 1 h **ou** < 10 % do total (estritos: 1 h e 10 % exatos ainda são normais) | ícone de alerta (sinal que não é cor), rótulo e número `warning-fg` |
 | encerrado | `expiresAt` já passou e o status ainda é ativo | "Encerrado" (nunca número negativo), "em dd/MM, HH:mm", sem barra |
 | antes do bloqueio | `CREATED` sem `expiresAt` | "72 h a partir do bloqueio dos fundos", sem barra |
-| indisponível | `expiresAt` ausente ou inválido fora de `CREATED` | "Prazo do escrow indisponível" |
+| indisponível | `expiresAt` ausente ou inválido fora de `CREATED` | "Prazo do escrow não disponível" |
+| informativo | `PAYMENT_PENDING` e `DISPUTED` com `expiresAt` | data fixa em texto: "Até 22/11, 14:30. Neste estado, este prazo não encerra o escrow." Sem contagem, sem âmbar, sem barra, sem aviso ao leitor de tela e sem atualizar (ratificado pelo Architect 2026-11-21, item 29) |
 
 - **Formato:** "39 h 05 min" a partir de 1 h; "12 min 05 s" / "42 s" abaixo de 1 h
   (segundos só abaixo de 1 h); espaço inseparável entre número e unidade;
   `tabular-nums`. Ao lado, o prazo absoluto local: "até 22/11, 14:30" (`formatDateTime`).
 - **Barra:** `Progress` determinado com o tempo **decorrido** sobre o total
-  (`timelockHours`). Sem total, sem barra: nunca uma porcentagem inventada.
-- **Onde:** `CREATED`, `FUNDS_LOCKED`, `PAYMENT_PENDING` e `DISPUTED` (no painel
-  da disputa, como já era). Nunca em `COMPLETED`, `REFUNDED`, `SPLIT` nem
+  (`timelockHours`), âmbar (`tone="warning"`) em atenção. Sem total, sem barra:
+  nunca uma porcentagem inventada. Só aparece em `CREATED` e `FUNDS_LOCKED`.
+- **Superfície:** plano dentro do cartão da etapa (só `mt-4`, sem fundo nem raio
+  próprios): um poço `surface` dentro do cartão `elevated` era caixa dentro de caixa
+  (ratificado pelo Architect 2026-11-21, item 31).
+- **Onde:** contagem em `CREATED` e `FUNDS_LOCKED`; data fixa (informativo) em
+  `PAYMENT_PENDING` e `DISPUTED` (no painel da disputa, como já era). Nunca em `COMPLETED`, `REFUNDED`, `SPLIT` nem
   `EXPIRED` (o cartão da etapa e a faixa âmbar já dizem "Prazo do escrow encerrado").
 - **Explicação** (`ExplanationPopover`), tirada do backend (`sweepExpiredEscrows`,
   `VALID_TRANSITIONS`): só `FUNDS_LOCKED` expira por este prazo; em
@@ -1006,8 +1039,10 @@ cliente) e podem usar `t()`.
 
 **Formatação** (`lib/format.ts`, `lib/currency.ts`): números, moedas e datas no
 idioma da interface. USD continua a única unidade de preço: pt-BR
-"US$ 97.800,00" (formato do dólar em pt ainda pendente do PO), en
-"$97,800.00", es "97.800,00 US$", fr "97 800,00 $US", de "97.800,00 $".
+"US$ 97.800,00" (formato do dólar decidido pelo Product Owner, 2026-11-21, DECISIONS.md), en
+"$97,800.00", es "97.800,00 US$", fr "97 800,00 $US", de "97.800,00 USD"
+(`currencyDisplay: 'code'` só para USD em de, porque o `Intl` escreve só "$";
+ratificado pelo Architect 2026-11-21, item 38).
 Nomes de moeda e de país vêm do `Intl.DisplayNames` fora do pt-BR.
 
 **Fica em pt-BR:** as páginas `/dev/*`, os dados fictícios da demonstração

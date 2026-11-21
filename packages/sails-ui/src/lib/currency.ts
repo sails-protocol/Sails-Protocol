@@ -1,4 +1,5 @@
 import { getLocale } from './locale'
+import { currencyDisplay } from './format'
 import type { FiatCurrency } from '../types'
 
 // `locale` is the currency's home convention, kept as data. Display follows the interface language for
@@ -45,13 +46,13 @@ export const AMOUNT_PRESETS: Record<FiatCurrency, number[]> = {
 
 export function formatByCurrency(value: number, currency: FiatCurrency): string {
   const meta = FIAT_CURRENCIES.find((c) => c.code === currency) ?? FIAT_CURRENCIES[0]
-  return value.toLocaleString(getLocale(), { style: 'currency', currency: meta.code })
+  return value.toLocaleString(getLocale(), { style: 'currency', currency: meta.code, currencyDisplay: currencyDisplay(meta.code) })
 }
 
 /** Unit price: never rounds away sub-cent digits (a 1.002 offer showed as "$1.00" while 100 units totalled $100.20). */
 export function formatPrice(value: number, currency: FiatCurrency): string {
   const meta = FIAT_CURRENCIES.find((c) => c.code === currency) ?? FIAT_CURRENCIES[0]
-  return value.toLocaleString(getLocale(), { style: 'currency', currency: meta.code, maximumFractionDigits: 8 })
+  return value.toLocaleString(getLocale(), { style: 'currency', currency: meta.code, currencyDisplay: currencyDisplay(meta.code), maximumFractionDigits: 8 })
 }
 
 /** Currency name in the interface language: the pt-BR label as written here, Intl.DisplayNames elsewhere. */

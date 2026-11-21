@@ -52,9 +52,11 @@
      / headline / heading (=section) / subheading / body / body-sm / caption (=meta). */
   --t-display: 1.75rem;  --t-display-lh: 1.15;  /* 28 */
   --t-body-sm: 0.8125rem; --t-body-sm-lh: 1.5;  /* 13 */
-  /* headline 18 (dialog/sheet/card titles; also .money-lg row prices) and
-     input 16 on mobile (no iOS focus zoom) / 14 desktop. Provisório. */
+  /* headline 18 (dialog/sheet/card titles) and input 16 on mobile (no iOS
+     focus zoom) / 14 desktop. Provisório. money-lg 18 (row prices) is its own
+     token, so a title change never moves prices (Architect 2026-11-21, item 11). */
   --t-headline: 1.125rem; --t-headline-lh: 1.3;
+  --t-money-lg: 1.125rem;
   --t-input: 1rem;
   --color-bg: 250 250 250;           /* #fafafa */
   --color-surface: 255 255 255;      /* #ffffff */
@@ -179,6 +181,8 @@
      sell 4.80 / 4.57, min over bg/surface/elevated); in dark it is black. */
   --state-layer-buy: var(--color-buy);
   --state-layer-sell: var(--color-sell);
+  --state-hover-a-side: 0.08;
+  --state-pressed-a-side: 0.12;
   /* Brand blue: secondary brand accent (links, selection, charts,
      highlights). Not info: separate tokens even where values coincide. */
   --color-brand-blue: 37 99 235;     /* #2563eb 4.74:1 */
@@ -202,7 +206,7 @@
 
   /* Foundations (DESIGN_SYSTEM.md 5.2, 2026-11-20, provisório — ratificação
      pendente). Contrast: ui-refs/ds-foundations-2026-11-20/contrast.cjs. */
-  /* State layers (M3 values), one system for every interactive element. The
+  /* State layers (Sails values, inspired by M3), one system for every interactive element. The
      layer moves away from the label color: text color on neutral fills,
      white on solids with a dark label, black on solids with a white label. */
   --state-hover-a: 0.08;
@@ -381,9 +385,13 @@
   --color-sell-solid: 251 113 133;   /* #fb7185 */
   --color-on-sell: 17 19 24;         /* #111318 6.90:1 */
   /* Black layer: a side-color or text layer would lower the light label
-     (sell hover 4.13); black raises it (buy 6.03 / 6.21, sell 4.94 / 5.08). */
+     (sell hover 4.13); black raises it. Stronger than the shared 8 / 12 % so the
+     fill visibly moves (1.06-1.14 hover, 1.09-1.21 pressed, as in light); label
+     buy 6.42-8.23, sell 5.21-6.59 (Architect 2026-11-21, item 6). */
   --state-layer-buy: 0 0 0;
   --state-layer-sell: 0 0 0;
+  --state-hover-a-side: 0.16;
+  --state-pressed-a-side: 0.24;
   --color-brand-blue: 96 165 250;    /* #60a5fa 5.67:1 */
   --color-brand-blue-fg: 96 165 250; /* on tint 4.80:1 */
   --color-brand-blue-solid: 37 99 235; /* #2563eb */
@@ -519,8 +527,8 @@ body {
 @utility state-layer-light { --state-layer: 255 255 255; }
 @utility state-layer-dark { --state-layer: 0 0 0; }
 /* Tinted side buttons: a layer that never lowers the side-colored label (tokens above). */
-@utility state-layer-buy { --state-layer: var(--state-layer-buy); }
-@utility state-layer-sell { --state-layer: var(--state-layer-sell); }
+@utility state-layer-buy { --state-layer: var(--state-layer-buy); --state-hover-a: var(--state-hover-a-side); --state-pressed-a: var(--state-pressed-a-side); }
+@utility state-layer-sell { --state-layer: var(--state-layer-sell); --state-hover-a: var(--state-hover-a-side); --state-pressed-a: var(--state-pressed-a-side); }
 /* Focus inside a composite widget (menu item, listbox option): the 12 % focus
    layer replaces the outline, so the list never shows a box inside its box.
    `data-active` = the combobox option under aria-activedescendant. */
@@ -714,7 +722,7 @@ body {
   /* Row/table price (provisório — ratificação pendente): 18, tabular. */
   .money-lg {
     @apply font-semibold tabular-nums;
-    font-size: var(--t-headline);
+    font-size: var(--t-money-lg);
     line-height: 1.2;
     letter-spacing: -0.01em;
   }

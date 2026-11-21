@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useOutletContext, useSearchParams } from 'react-router'
 import {
   Award, Bell, HelpCircle, KeyRound, Languages, LogOut, Monitor, Moon, Network, Server, Shield, ShieldCheck, Sun, SunMoon,
-  Globe, Store, Ticket, UsersRound, Wallet, ArrowLeft, type LucideIcon,
+  Globe, LayoutGrid, Ticket, UsersRound, Wallet, ArrowLeft, type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
@@ -154,7 +154,7 @@ const sections = (): ReadonlyArray<{ id: string; label: string; icon: LucideIcon
   // Renamed "Rede e nós" (CTO final correction for plan 1.4); the id stays so ?section=no-sails keeps working.
   { id: 'no-sails', label: t('settings.section.network'), icon: Network },
   // Renamed "Mercados" (DECISIONS.md "Configurações → Mercados"); the id stays so ?section=comunidades keeps working.
-  { id: 'comunidades', label: t('settings.section.markets'), icon: Store },
+  { id: 'comunidades', label: t('settings.section.markets'), icon: LayoutGrid },
   { id: 'ajuda', label: t('settings.section.help'), icon: HelpCircle },
 ]
 
@@ -342,7 +342,7 @@ export function Settings() {
 
           {/* Preferences about markets, not the markets: those live in the Market area. The old "Comunidades" planned row
               (communities wire) is covered by "Meus mercados" below and the marketMembership wire. */}
-          <SettingsGroup {...panel('comunidades')} title={t('settings.section.markets')} icon={Store}>
+          <SettingsGroup {...panel('comunidades')} title={t('settings.section.markets')} icon={LayoutGrid}>
             <PreferenceItem icon={Globe}><DefaultMarketChoice /></PreferenceItem>
             <PreferenceItem icon={Ticket}><ReceivedInvites /></PreferenceItem>
             <Planned id="marketParticipationPrivacy" description={t('settings.markets.privacyDescription')} />

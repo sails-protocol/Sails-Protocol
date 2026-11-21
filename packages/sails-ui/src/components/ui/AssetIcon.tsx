@@ -27,7 +27,7 @@
  */
 import type { AssetType } from '../../types'
 import { ASSET_LABELS, ASSET_SHORT_LABELS } from '../../lib/labels'
-import { ASSET_LOGO, LEGACY_LOGOS, NETWORK_LOGO, pairForAssetType, type AssetPair } from '../../lib/assetCatalog'
+import { ASSET_LOGO, LEGACY_LOGOS, networkChipLogo, pairForAssetType, type AssetPair } from '../../lib/assetCatalog'
 import { cn } from '../../lib/utils'
 
 interface AssetAccent {
@@ -82,7 +82,7 @@ export function AssetLogo({ assetSrc, networkSrc, size = 'md', className }: { as
     <span aria-hidden="true" className={cn('relative inline-flex shrink-0', s.box, className)}>
       <img src={assetSrc} alt="" width={s.px} height={s.px} className="size-full" draggable={false} />
       {networkSrc && (
-        <span className={cn('absolute inline-flex items-center justify-center rounded-full bg-asset-chip ring-1 ring-brand-surface', s.chip)}>
+        <span className={cn('absolute inline-flex items-center justify-center rounded-full bg-asset-chip ring-1 ring-brand-border-subtle dark:ring-brand-surface', s.chip)}>
           <img src={networkSrc} alt="" width={s.px / 2} height={s.px / 2} className="size-full" draggable={false} />
         </span>
       )}
@@ -92,14 +92,14 @@ export function AssetLogo({ assetSrc, networkSrc, size = 'md', className }: { as
 
 /** A catalog pair's icon (pickers show pairs that have no enum value yet). */
 export function AssetPairIcon({ pair, size = 'md', className }: { pair: AssetPair; size?: AssetIconSize; className?: string }) {
-  return <AssetLogo assetSrc={ASSET_LOGO[pair.asset]} networkSrc={pair.network ? NETWORK_LOGO[pair.network] : null} size={size} className={className} />
+  return <AssetLogo assetSrc={ASSET_LOGO[pair.asset]} networkSrc={networkChipLogo(pair.asset, pair.network)} size={size} className={className} />
 }
 
 export function AssetIcon({ asset, size = 'md', className }: { asset: AssetType; size?: AssetIconSize; className?: string }) {
   const pair = pairForAssetType(asset)
   if (pair) return <AssetPairIcon pair={pair} size={size} className={className} />
   const legacy = LEGACY_LOGOS[asset]
-  if (legacy) return <AssetLogo assetSrc={ASSET_LOGO[legacy.asset]} networkSrc={legacy.network ? NETWORK_LOGO[legacy.network] : null} size={size} className={className} />
+  if (legacy) return <AssetLogo assetSrc={ASSET_LOGO[legacy.asset]} networkSrc={networkChipLogo(legacy.asset, legacy.network)} size={size} className={className} />
   const accent = ASSET_ACCENTS[asset]
   const glyph = accent?.glyph ?? ASSET_SHORT_LABELS[asset]?.[0] ?? '?'
   return (

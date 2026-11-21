@@ -2,12 +2,17 @@
  * One number/money/date policy (DESIGN_SYSTEM.md 7.1, provisório — ratificação pendente):
  * every number follows the interface language (lib/locale.ts), whatever the currency, so BRL, USD and
  * crypto amounts in the same row read the same way. USD stays the price unit in every language
- * (pt-BR "US$ 97.800,00", en "$97,800.00", es/fr/de as Intl writes them).
+ * (pt-BR "US$ 97.800,00", en "$97,800.00", es/fr as Intl writes them, de "97.800,00 USD").
  * Dates show the year only when it is not the current year.
  */
 import { getLocale } from './locale'
 
 const LOCALE = () => getLocale()
+
+/** German Intl writes a bare "$" for USD; the code says which dollar (Architect 2026-11-21, item 38). */
+export function currencyDisplay(code: string): 'code' | 'symbol' {
+  return code === 'USD' && getLocale() === 'de' ? 'code' : 'symbol'
+}
 
 export function formatBrl(value: number): string {
   return value.toLocaleString(LOCALE(), { style: 'currency', currency: 'BRL' })
@@ -15,7 +20,7 @@ export function formatBrl(value: number): string {
 
 /** US$ 1.234,56 */
 export function formatUsd(value: number): string {
-  return value.toLocaleString(LOCALE(), { style: 'currency', currency: 'USD' })
+  return value.toLocaleString(LOCALE(), { style: 'currency', currency: 'USD', currencyDisplay: currencyDisplay('USD') })
 }
 
 /** Crypto amount: trailing zeros trimmed, at most `decimals` places (0,0015). */
@@ -38,7 +43,7 @@ export function formatTime(iso: string): string {
 export function formatUsdExact(decimal: string): string {
   const n = Number(decimal)
   if (!Number.isFinite(n)) return getLocale() === 'pt-BR' ? `US$ ${decimal}` : `${decimal} USD`
-  return n.toLocaleString(LOCALE(), { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 12 })
+  return n.toLocaleString(LOCALE(), { style: 'currency', currency: 'USD', currencyDisplay: currencyDisplay('USD'), minimumFractionDigits: 2, maximumFractionDigits: 12 })
 }
 
 /** Month and year (pt-BR "nov. de 2026", en "Nov 2026") for "Membro desde"; empty for an unparseable date (never a guess). */
