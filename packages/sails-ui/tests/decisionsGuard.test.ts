@@ -32,6 +32,8 @@ describe('decisions guard: copy (DECISIONS.md "Textos honestos" and copy audit)'
     expect(hits(ALL.filter((e) => e.key.startsWith('agent.')), /0\s?[–-]\s?5|0 e 5|0 and 5/)).toEqual([])
     expect(code('components/agent/AgentIntentionPanel.tsx')).not.toMatch(/max="5"/)
   })
+  it('an automatic suggestion is never said to take effect by itself (it goes back to the human arbitrator)', () =>
+    expect(hits(ALL, /passa a valer|takes effect|entra en vigor|prend effet|, gilt er/i)).toEqual([]))
   it('pt-BR stays in the neutral register (no "pra", "pro", "tá")', () => expect(hits(PT, /\b(?:pra|pro|tá)\b/i)).toEqual([]))
 })
 
