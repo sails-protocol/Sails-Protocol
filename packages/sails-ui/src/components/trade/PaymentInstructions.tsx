@@ -8,6 +8,7 @@
  */
 import { CopyButton } from '../ui/CopyButton'
 import { SafetyNote } from '../ui/SafetyNote'
+import { Alert } from '../ui/alert'
 import type { InstructionsVisibility } from '../../lib/tradeState'
 import { t } from '../../i18n'
 
@@ -22,10 +23,11 @@ interface Props {
 
 function Details({ viewer, details }: { viewer: Props['viewer']; details: string | null }) {
   if (!details) {
+    // A safety warning (no details means no paying), not plain body text.
     return (
-      <p className="text-sm text-brand-text-secondary">
+      <Alert tone="warning">
         {t(viewer === 'buyer' ? 'trade.payment.noDetailsBuyer' : 'trade.payment.noDetailsSeller')}
-      </p>
+      </Alert>
     )
   }
   return (

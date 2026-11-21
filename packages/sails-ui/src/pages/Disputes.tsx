@@ -38,7 +38,7 @@ import { TradesTabs } from '../components/layout/TradesTabs'
 import { cn } from '../lib/utils'
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetDescription } from '../components/ui/sheet'
 import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
-import { Bot, ChevronRight, Info, X } from 'lucide-react'
+import { Bot, CheckCircle2, ChevronRight, Info, X } from 'lucide-react'
 import { TONE_CLASS } from '../lib/tone'
 import { RadioCard, RadioGroup } from '../components/ui/radio-group'
 import { t, type MessageKey } from '../i18n'
@@ -88,13 +88,14 @@ const signerText = (ruling: DisputeRuling) => (multisigPendingSigner(ruling) ? t
 // Desktop table columns: Trade | Valor | Status | Aberta por | Evidências | Aberta em | action.
 const DISPUTE_COLS = 'xl:grid-cols-[8rem_8rem_10rem_minmax(0,1fr)_5.5rem_6.5rem_auto] xl:items-center xl:gap-y-0'
 
-/** Same pill shape as the trade status badge: resolved reads green, everything else neutral (no invented severity). */
+/**
+ * Same pill shape as the trade status badge, neutral throughout (no invented severity). RESOLVED is
+ * "Decisão registrada": a record that may still wait on signatures, not finality (CTO 437), so no green.
+ */
 function DisputeStatusBadge({ status }: { status: Dispute['status'] }) {
-  const tone = status === 'RESOLVED'
-    ? TONE_CLASS.success
-    : TONE_CLASS.neutral
   return (
-    <span className={cn(badgeVariants({ variant: 'outline' }), 'inline-flex max-w-full rounded-full px-2 py-0.5 text-left', tone)}>
+    <span className={cn(badgeVariants({ variant: 'outline' }), 'inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-left', TONE_CLASS.neutral)}>
+      {status === 'RESOLVED' && <CheckCircle2 className="size-icon-xs shrink-0" aria-hidden="true" />}
       {DISPUTE_STATUS_LABEL[status] ?? status}
     </span>
   )
@@ -342,16 +343,16 @@ function ArbiterCases() {
         // No destination passed — the buyer's own registered PayoutAddress
         // governs (server-enforced for every rail, not just MULTISIG).
         await sailsClient.settlement.resolveDisputeWithWallet(row.dispute.id, 'RELEASE', wallet)
-        toast.success(ruled(t('disputes.ruled.release'), needsSignature))
+        toast.info(ruled(t('disputes.ruled.release'), needsSignature))
       } else if (ruling === 'REFUND') {
         await sailsClient.settlement.resolveDisputeWithWallet(row.dispute.id, 'REFUND', wallet)
-        toast.success(ruled(t('disputes.ruled.refund'), false))
+        toast.info(ruled(t('disputes.ruled.refund'), false))
       } else {
         // Same reasoning as RELEASE above — buyer's and seller's own
         // registered PayoutAddresses govern independently, never a value
         // supplied here.
         await sailsClient.settlement.resolveDisputeWithWallet(row.dispute.id, 'SPLIT', wallet, undefined, undefined, 5000)
-        toast.success(ruled(t('disputes.ruled.split'), needsSignature))
+        toast.info(ruled(t('disputes.ruled.split'), needsSignature))
       }
       setSelectedId(null)
       load()

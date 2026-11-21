@@ -8,7 +8,7 @@ import { errorMessage } from '../lib/errors'
 import { formatAmount, formatDateTime, formatUsd } from '../lib/format'
 import { ASSET_SHORT_LABELS } from '../lib/labels'
 import { tradeNextStep, type TradeNextStep } from '../lib/tradeNextStep'
-import { TradeStatusBadge } from '../components/ui/StatusBadges'
+import { SideBadge, TradeStatusBadge } from '../components/ui/StatusBadges'
 import { ListSkeleton } from '../components/ui/skeleton'
 import { Button, buttonVariants } from '../components/ui/button'
 import { Card } from '../components/ui/card'
@@ -150,13 +150,13 @@ export function ActiveTrades() {
                     </span>
                     <span className="lg:hidden"><TradeStatusBadge status={tr.status} /></span>
                   </span>
-                  <span className="hidden lg:block text-sm text-brand-text-secondary">{t(isBuyer ? 'trades.role.buyer' : 'trades.role.seller')}</span>
+                  <span className="hidden lg:block"><SideBadge side={isBuyer ? 'BUY' : 'SELL'} label={t(isBuyer ? 'trades.role.buyer' : 'trades.role.seller')} /></span>
                   <span className="hidden lg:block"><TradeStatusBadge status={tr.status} /></span>
                   <span className={cn('text-sm', next?.yourTurn ? 'font-medium text-brand-orange-accent' : 'text-brand-text-secondary')}>
                     {next ? next.text : t('trades.active.noNext')}
                   </span>
                   <span className="text-xs text-brand-text-muted tabular-nums lg:text-right">
-                    <span className="lg:hidden">{t(isBuyer ? 'trades.role.buyer' : 'trades.role.seller')} · {formatUsd(Number(tr.totalUsd))} USD · </span>
+                    <span className="lg:hidden"><SideBadge side={isBuyer ? 'BUY' : 'SELL'} label={t(isBuyer ? 'trades.role.buyer' : 'trades.role.seller')} /> · {formatUsd(Number(tr.totalUsd))} USD · </span>
                     {formatDateTime(tr.updatedAt)}
                   </span>
                   <ChevronRight className="hidden lg:block h-4 w-4 text-brand-text-muted" aria-hidden="true" />

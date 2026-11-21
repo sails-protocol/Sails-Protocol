@@ -86,14 +86,15 @@ function Option({ icon: Icon, title, subtitle, trailing, onSelect }: {
         type="button"
         onClick={onSelect}
         disabled={disabled}
-        className="w-full min-h-14 flex items-center gap-3 rounded-lg bg-brand-tonal px-3 py-2.5 text-left transition-colors state-layer disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full min-h-14 flex items-center gap-3 rounded-lg bg-brand-tonal px-3 py-2.5 text-left transition-colors state-layer disabled:cursor-not-allowed disabled:bg-brand-disabled-container"
       >
         <span className="w-9 h-9 rounded-lg bg-brand-elevated flex items-center justify-center shrink-0">
-          <Icon className="h-4 w-4 text-brand-text-secondary" />
+          <Icon className={`h-4 w-4 ${disabled ? 'text-brand-disabled-content' : 'text-brand-text-secondary'}`} />
         </span>
         <span className="flex-1 min-w-0">
-          <span className="block text-sm font-medium text-brand-text">{title}</span>
-          {subtitle && <span className="block text-xs text-brand-text-muted">{subtitle}</span>}
+          {/* Disabled tokens (DESIGN_SYSTEM.md 5.2), not opacity; the trailing "Em breve" label stays legible. */}
+          <span className={`block text-sm font-medium ${disabled ? 'text-brand-disabled-content' : 'text-brand-text'}`}>{title}</span>
+          {subtitle && <span className={`block text-xs ${disabled ? 'text-brand-disabled-content' : 'text-brand-text-muted'}`}>{subtitle}</span>}
         </span>
         {trailing ? (
           <span className="text-xs font-medium text-brand-text-muted shrink-0">{trailing}</span>

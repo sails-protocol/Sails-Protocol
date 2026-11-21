@@ -51,7 +51,7 @@ export function VouchButton({ voucheeId }: { voucheeId: string }) {
               ? t('reputation.vouch.action')
               : t('reputation.vouch.ineligible')
         }
-        className={vouched ? 'aria-disabled:text-brand-success-fg' : undefined}
+        className={vouched ? 'aria-disabled:text-brand-blue-fg' : undefined}
       >
         {vouched ? <ShieldCheck aria-hidden="true" /> : <ShieldPlus aria-hidden="true" />}
       </IconButton>

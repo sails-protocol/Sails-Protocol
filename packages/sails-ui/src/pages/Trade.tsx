@@ -550,7 +550,7 @@ export function Trade() {
       return
     }
     setEscrow(e)
-    toast.success(t('trade.toast.escrowLocked'), { icon: <Lock aria-hidden="true" className="size-icon shrink-0 text-brand-inverse-success" /> })
+    toast.info(t('trade.toast.escrowLocked'), { icon: <Lock aria-hidden="true" className="size-icon shrink-0 text-brand-inverse-info" /> })
   })
 
   const handleMarkPaymentSent = () => escrow && withGuard(async () => {
@@ -563,7 +563,7 @@ export function Trade() {
     }
     const e = await sailsClient.settlement.markPaymentSent(escrow.id)
     setEscrow(e)
-    toast.success(t('trade.toast.paymentMarkedSent'), { icon: <Banknote aria-hidden="true" className="size-icon shrink-0 text-brand-inverse-success" /> })
+    toast.info(t('trade.toast.paymentMarkedSent'), { icon: <Banknote aria-hidden="true" className="size-icon shrink-0 text-brand-inverse-info" /> })
   })
 
   // Explicit, user-confirmed signing (MULTISIG only). Re-reads the round
@@ -626,7 +626,7 @@ export function Trade() {
     const e = await sailsClient.settlement.get(escrow.id).catch(() => freshEscrow)
     setEscrow(e)
     await refreshPending(e)
-    toast.success(t(result.outcome === 'CANCELLED' ? 'trade.toast.roundCancelled' : 'trade.toast.roundGone'))
+    toast.info(t(result.outcome === 'CANCELLED' ? 'trade.toast.roundCancelled' : 'trade.toast.roundGone'))
   })
 
   const handleReleaseFunds = () => escrow && withGuard(async () => {
@@ -663,7 +663,7 @@ export function Trade() {
       // Reports the escrow status the server returned, not on-chain finality
       // (no broadcast/confirmation state is exposed to this UI yet).
       const missing = next.status === 'ready' ? next.tx.requiredSigners.filter((id) => !(next.tx.signedBy ?? []).some((x) => x.participantId === id)) : []
-      toast.success(
+      toast.info(
         t(e.status === 'COMPLETED' ? 'trade.toast.escrowCompleted'
           : missing.includes(user.id) ? 'trade.toast.releaseStartedSign'
           : missing.length === 1 && missing[0] === trade?.buyerId ? 'trade.toast.releaseStartedBuyer'
@@ -673,7 +673,7 @@ export function Trade() {
     }
     const e = await sailsClient.settlement.release(escrow.id)
     setEscrow(e)
-    toast.success(t(e.status === 'COMPLETED' ? 'trade.toast.escrowCompleted' : 'trade.toast.releaseRequested'))
+    toast.info(t(e.status === 'COMPLETED' ? 'trade.toast.escrowCompleted' : 'trade.toast.releaseRequested'))
   })
 
   // Cancel returns focus to the "Abrir disputa" trigger (re-mounted with the action card).

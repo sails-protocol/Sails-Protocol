@@ -15,6 +15,9 @@ import { Bot, ArrowDown, ChevronUp, ChevronDown, CheckCircle2, SearchX } from 'l
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import type { AssetType, FiatCurrency, TradeSide } from '../../types'
 import { useT } from '../../i18n'
+import { SEGMENT_TRACK, segmentItemClass } from '../ui/SegmentedControl'
+import { SideArrow } from '../ui/StatusBadges'
+import { cn } from '../../lib/utils'
 
 // Corrected 2026-08-15 (RFC-023) — "a negociação automática... ainda é
 // uma simulação" was true when this copy was written; POST
@@ -258,15 +261,17 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
         <div className="px-4 pb-4 pt-4 border-t border-brand-border-subtle">
           {!result && (
             <>
-              <div className="flex gap-1 bg-brand-elevated rounded-lg p-1 w-fit mb-2">
+              {/* Same side picker as PublishOffer: side-colored thumb + arrow (DECISIONS "Comprar e Vender coloridos"). */}
+              <div role="group" aria-label={t('agent.intent.side')} className={cn('flex w-fit gap-1 mb-2', SEGMENT_TRACK)}>
                 {(['BUY', 'SELL'] as TradeSide[]).map((s) => (
                   <button
                     key={s}
+                    type="button"
+                    aria-pressed={side === s}
                     onClick={() => setSide(s)}
-                    className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-                      side === s ? 'bg-brand-surface font-medium text-brand-text' : 'text-brand-text-secondary'
-                    }`}
+                    className={cn('h-8 touch:h-11 px-3 inline-flex items-center justify-center gap-1', segmentItemClass(side === s, s))}
                   >
+                    <SideArrow side={s} />
                     {t(s === 'BUY' ? 'agent.side.buy' : 'agent.side.sell')}
                   </button>
                 ))}
@@ -281,7 +286,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
               />
 
               <div className="flex items-center gap-3 mt-2">
-                <Button onClick={handleGenerate} loading={loading} className="px-4 py-2 text-sm">
+                <Button variant="secondary" onClick={handleGenerate} loading={loading} className="px-4 py-2 text-sm">
                   {t(loading ? 'agent.generating' : 'agent.generate')}
                 </Button>
                 {loading && (
@@ -308,17 +313,18 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
               {matchCount !== undefined && (
                 matchCount > 0 ? (
                   <button
+                    type="button"
                     onClick={() => document.getElementById('marketplace-offer-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                    className="text-xs text-brand-orange-accent underline mb-3 flex items-center gap-1"
+                    className="text-xs text-brand-link underline underline-offset-4 hover:decoration-2 mb-3 flex items-center gap-1"
                   >
                     {t('agent.matches', { count: matchCount })}
-                    <ArrowDown className="size-icon-xs" />
+                    <ArrowDown className="size-icon-xs" aria-hidden="true" />
                   </button>
                 ) : (
                   <div className="mb-3 rounded-md bg-brand-elevated border border-brand-border-subtle px-3 py-2 text-xs text-brand-text-secondary">
                     {t('agent.noMatches', { currency: result.currency, asset: ASSET_LABELS[result.asset] })}
                     {onResetFilters && (
-                      <button onClick={onResetFilters} className="ml-2 text-brand-orange-accent underline whitespace-nowrap">
+                      <button type="button" onClick={onResetFilters} className="ml-2 text-brand-link underline underline-offset-4 hover:decoration-2 whitespace-nowrap">
                         {t('agent.resetFilters')}
                       </button>
                     )}
@@ -365,7 +371,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
               </div>
 
               <div className="flex gap-2">
-                <Button onClick={handleDelegate} loading={proposing} className="px-3 py-1.5 text-xs">
+                <Button variant="secondary" onClick={handleDelegate} loading={proposing} className="px-3 py-1.5 text-xs">
                   <Bot className="size-icon-xs" />
                   {t(proposing ? 'agent.searching' : 'agent.delegate')}
                 </Button>
@@ -391,7 +397,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                     <Field label={t('agent.proposal.payment')} value={proposal.paymentMethods.map((m) => PAYMENT_METHOD_LABELS[m as keyof typeof PAYMENT_METHOD_LABELS] ?? m).join(', ')} />
                   </div>
                   <div className="flex gap-2">
-                    <Button onClick={handleApprove} loading={approving} className="px-3 py-1.5 text-xs">
+                    <Button variant="secondary" onClick={handleApprove} loading={approving} className="px-3 py-1.5 text-xs">
                       <CheckCircle2 className="size-icon-xs" />
                       {t(approving ? 'agent.starting' : 'agent.approve')}
                     </Button>

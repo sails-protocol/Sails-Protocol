@@ -41,7 +41,7 @@ export function StateBlock({ kind, title, description, action, secondaryAction, 
     >
       <Icon
         aria-hidden="true"
-        className={cn('h-5 w-5', kind === 'loading' && 'motion-safe:animate-spin', kind === 'error' ? 'text-brand-warning' : 'text-brand-text-muted')}
+        className={cn('h-5 w-5', kind === 'loading' && 'motion-safe:animate-spin', kind === 'error' ? 'text-brand-danger' : 'text-brand-text-muted')}
       />
       <p className="text-section-title">{title}</p>
       {description && <p className="text-body-sm text-brand-text-secondary max-w-sm">{description}</p>}

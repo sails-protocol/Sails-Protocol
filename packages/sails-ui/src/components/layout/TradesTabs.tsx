@@ -51,7 +51,7 @@ export function TradesTabs({ openDisputes }: { openDisputes?: number | null }) {
         <>
           {t('shell.tradesTabs.disputes')}
           {count ? (
-            <span className={cn('rounded-full border px-1.5 text-caption tabular-nums', TONE_CLASS.warning)}>
+            <span className={cn('rounded-full border px-1.5 text-caption tabular-nums', TONE_CLASS.danger)}>
               {count}<span className="sr-only">{` ${t('shell.tradesTabs.inDispute')}`}</span>
             </span>
           ) : null}

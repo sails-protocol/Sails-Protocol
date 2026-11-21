@@ -189,7 +189,7 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
                           )}
                         </span>
                         {isCurrent && (
-                          <span className="mt-2 flex shrink-0 items-center text-brand-orange-accent">
+                          <span className="mt-2 flex shrink-0 items-center text-brand-checked">
                             <Check aria-hidden="true" className="h-4 w-4" />
                             <span className="sr-only">{copy.current}</span>
                           </span>

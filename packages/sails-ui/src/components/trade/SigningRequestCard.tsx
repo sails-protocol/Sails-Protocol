@@ -72,12 +72,12 @@ export function SigningRequestCard(props: Props) {
       aria-labelledby={titleId}
       className={cn(
         shell,
-        accent(view.state === 'sign' ? 'border-t-brand-orange' : view.state === 'blocked' ? 'border-t-brand-danger' : 'border-t-brand-border'),
+        accent(view.state === 'sign' ? 'border-t-brand-orange' : view.state === 'blocked' ? 'border-t-brand-warning' : 'border-t-brand-border'),
       )}
     >
       <p className={cn(
         'flex items-center gap-1.5 text-xs font-medium',
-        view.state === 'sign' ? 'text-brand-orange-accent' : view.state === 'blocked' ? 'text-brand-danger-fg' : 'text-brand-text-muted',
+        view.state === 'sign' ? 'text-brand-orange-accent' : view.state === 'blocked' ? 'text-brand-warning-fg' : 'text-brand-text-muted',
       )}>
         <ActorIcon className="size-icon-xs" aria-hidden="true" />
         {view.actorLabel}
@@ -105,7 +105,7 @@ export function SigningRequestCard(props: Props) {
           {view.signers.map((s, i) => (
             <li key={i} className="flex items-center gap-1.5 text-xs text-brand-text-secondary">
               {s.signed
-                ? <CheckCircle2 className="size-icon-xs text-brand-success" aria-hidden="true" />
+                ? <CheckCircle2 className="size-icon-xs text-brand-checked" aria-hidden="true" />
                 : <Circle className="size-icon-xs text-brand-text-muted" aria-hidden="true" />}
               <span>{s.label}: {s.statusText}{s.at && ` · ${formatDateTime(s.at)}`}</span>
             </li>

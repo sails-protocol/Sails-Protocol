@@ -53,7 +53,7 @@ import { Textarea } from '../components/ui/textarea'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../components/ui/select'
 import { Combobox } from '../components/ui/combobox'
 import { PaymentMethods } from '../components/ui/PaymentMethods'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Check } from 'lucide-react'
 import { SideArrow } from '../components/ui/StatusBadges'
 import { fetchOffers } from '../lib/realOffers'
 import { ASSETS, PAYMENT_METHODS, COUNTRIES, countryLabel } from '../data/mock'
@@ -240,12 +240,14 @@ export function PublishOffer() {
           {steps().map((label, i, all) => {
             const n = i + 1
             const current = n === step
+            const done = n < step
             return (
               <li key={label} aria-current={current ? 'step' : undefined} className="flex items-center gap-2 text-body-sm">
-                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${n <= step ? 'bg-primary text-primary-foreground' : 'bg-brand-elevated text-brand-text-muted'}`}>
-                  {n}
+                {/* Done = brand blue + check (as the trade rail); current = orange, "você está aqui". */}
+                <span className={cn('w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium shrink-0', done ? 'bg-brand-checked text-brand-on-checked' : current ? 'bg-primary text-primary-foreground' : 'bg-brand-elevated text-brand-text-muted')}>
+                  {done ? <Check className="size-icon-xs" aria-hidden="true" /> : n}
                 </span>
-                <span className={current ? 'text-brand-text font-medium' : 'text-brand-text-muted'}>{label}</span>
+                <span className={current ? 'text-brand-text font-medium' : 'text-brand-text-muted'}>{label}{done && <span className="sr-only">, {t('publish.stepDone')}</span>}</span>
                 {n < all.length && <span aria-hidden="true" className="w-6 h-px bg-brand-border-subtle" />}
               </li>
             )

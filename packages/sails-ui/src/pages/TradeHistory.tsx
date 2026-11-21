@@ -5,7 +5,7 @@ import { ChevronRight } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { sailsClient } from '../lib/sailsClient'
 import { errorMessage } from '../lib/errors'
-import { TradeStatusBadge } from '../components/ui/StatusBadges'
+import { SideBadge, TradeStatusBadge } from '../components/ui/StatusBadges'
 import { ListSkeleton } from '../components/ui/skeleton'
 import { formatUsd, formatAmount, formatDateTime } from '../lib/format'
 import { ASSET_SHORT_LABELS } from '../lib/labels'
@@ -160,11 +160,11 @@ export function TradeHistory() {
                           <span className="money text-brand-text">{formatAmount(Number(tr.amount))} {ASSET_SHORT_LABELS[tr.asset]}</span>
                           <span className="lg:hidden"><TradeStatusBadge status={tr.status} /></span>
                         </span>
-                        <span className="hidden lg:block text-sm text-brand-text-secondary">{t(tr.buyerId === user?.id ? 'trades.role.buyer' : 'trades.role.seller')}</span>
+                        <span className="hidden lg:block"><SideBadge side={tr.buyerId === user?.id ? 'BUY' : 'SELL'} label={t(tr.buyerId === user?.id ? 'trades.role.buyer' : 'trades.role.seller')} /></span>
                         <span className="hidden lg:block"><TradeStatusBadge status={tr.status} /></span>
                         <span className="hidden lg:block text-sm text-right text-brand-text tabular-nums">{formatUsd(Number(tr.totalUsd))}</span>
                         <span className="text-xs text-brand-text-muted tabular-nums lg:text-right">
-                          <span className="lg:hidden">{t(tr.buyerId === user?.id ? 'trades.role.buyer' : 'trades.role.seller')} · {formatUsd(Number(tr.totalUsd))} USD · </span>
+                          <span className="lg:hidden"><SideBadge side={tr.buyerId === user?.id ? 'BUY' : 'SELL'} label={t(tr.buyerId === user?.id ? 'trades.role.buyer' : 'trades.role.seller')} /> · {formatUsd(Number(tr.totalUsd))} USD · </span>
                           {formatDateTime(tr.createdAt)}
                         </span>
                         <ChevronRight className="hidden lg:block h-4 w-4 text-brand-text-muted" aria-hidden="true" />

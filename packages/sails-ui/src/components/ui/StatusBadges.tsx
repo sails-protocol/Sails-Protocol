@@ -45,14 +45,15 @@ export function AssetBadge({ asset }: { asset: AssetType }) {
  * Trade side is a different shape from status (DESIGN_SYSTEM.md 2, provisório — ratificação
  * pendente): colored text + direction arrow, never a tinted pill. Status = tinted pill + icon.
  * Buy = asset comes in (arrow down-left), sell = asset goes out (arrow up-right).
+ * `label` replaces the default "Compra"/"Venda" text (e.g. the viewer's role "Comprador"/"Vendedor").
  */
-export function SideBadge({ side }: { side: TradeSide }) {
+export function SideBadge({ side, label }: { side: TradeSide; label?: string }) {
   const buy = side === 'BUY'
   const Icon = buy ? ArrowDownLeft : ArrowUpRight
   return (
     <span className={cn('inline-flex items-center gap-1 whitespace-nowrap text-caption font-medium', buy ? 'text-brand-buy-fg' : 'text-brand-sell-fg')}>
       <Icon className="size-icon-xs shrink-0" aria-hidden="true" />
-      {buy ? t('labels.side.buy') : t('labels.side.sell')}
+      {label ?? (buy ? t('labels.side.buy') : t('labels.side.sell'))}
     </span>
   )
 }
