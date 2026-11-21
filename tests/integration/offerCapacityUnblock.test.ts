@@ -196,14 +196,20 @@ describe('M-1b reorg block + two-role unblock (real PG, real login roles)', () =
   })
 
   // GK M11: the stored digest is re-verified at execution; only a superuser bypassing the immutability trigger can break it.
-  run('DIGEST (E2516): a request whose stored digest was tampered (trigger bypassed with session_replication_role=replica) is refused and the block stays in force', async () => {
+  run('DIGEST (E2516): a request whose stored digest was tampered (immutability trigger disabled for one statement) is refused and the block stays in force', async () => {
     const s = await blocked(0xc7)
     await s.ev('r', 'RECONFIRMED', 100, 101, T(5)) // evidence is final: only the digest can stop the reviewer
     const [b] = await s.openBlocks()
     const id = await request(op, b.id, s.esc.id)
-    await admin.query(`SET session_replication_role = replica`)
-    try { await admin.query(`UPDATE offer_capacity_unblock_requests SET digest=$1 WHERE id=$2`, ['0'.repeat(64), id]) }
-    finally { await admin.query(`RESET session_replication_role`) }
+    // the replica role is reserved by tests/replicaRoleOnlyInHelper.test.ts: the immutability trigger is switched off for ONE statement inside a
+    // transaction instead (DDL is transactional, the trigger is back before COMMIT, never production)
+    await admin.query('BEGIN')
+    try {
+      await admin.query(`ALTER TABLE offer_capacity_unblock_requests DISABLE TRIGGER USER`)
+      await admin.query(`UPDATE offer_capacity_unblock_requests SET digest=$1 WHERE id=$2`, ['0'.repeat(64), id])
+      await admin.query(`ALTER TABLE offer_capacity_unblock_requests ENABLE TRIGGER USER`)
+      await admin.query('COMMIT')
+    } catch (e) { await admin.query('ROLLBACK'); throw e }
     expect(await code(execute(rev1, id, K('b')))).toBe('E2516')
     expect(await s.openBlocks()).toHaveLength(1)
   })
