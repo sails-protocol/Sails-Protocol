@@ -75,6 +75,8 @@ BEGIN
     ('custody_attestations', 'append'), -- + UPDATE (supersededAt) only, see runtime_column_update
     ('intent_events', 'append'),        -- + UPDATE (publishedAt) only: hash-chained history, publication marker
     ('deployment_mode', 'read'),        -- F4 gate 3: environment marker; the runtime may only READ it (the MOCK exemption of the escrow trigger depends on it)
+    ('offer_capacity', 'append'),       -- M-1b: + UPDATE of the declaration columns and the block-SET columns only (trigger guards the rest)
+    ('offer_capacity_reservations', 'read'), -- M-1b: the runtime only READS reservations; the reservation is written by the SECURITY DEFINER COMMITTED trigger function (GK B4), released by the slice-3 path
     ('commitment_pairs', 'append'),     -- E25/E26 F3: + UPDATE of the signing/withdraw columns only; the pair itself is immutable (trigger)
     -- mutable state (write-once columns are still guarded by triggers)
     ('users', 'mutable'),
@@ -110,6 +112,9 @@ BEGIN
     ('intent_events', 'publishedAt'),         -- intent-repository.ts markEventPublished()/publishOwedEvent()
     -- E25/E26 F3 (commitment-pair.service.ts signPair()/withdrawPair()): one UPDATE per party writes its two
     -- signatures and its stamp once (NULL -> value), plus the state; the trigger refuses everything else.
+    ('offer_capacity', 'capacityTotal'), ('offer_capacity', 'capacityRevision'), ('offer_capacity', 'declaredAt'),
+    ('offer_capacity', 'declaration'), ('offer_capacity', 'declarationSignature'), ('offer_capacity', 'updatedAt'),
+    ('offer_capacity', 'blockedAt'), ('offer_capacity', 'blockReason'), ('offer_capacity', 'blockEvidence'),
     ('commitment_pairs', 'state'),
     ('commitment_pairs', 'committedAnchorRef'),
     ('commitment_pairs', 'makerTradeSig'),
