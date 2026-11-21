@@ -64,7 +64,7 @@ describe('trade rail stages', () => {
   it('puts a round on a disputed or expired escrow as evidence on the outcome, not as a happy-path stage', () => {
     const d = deriveTradeState(input('EXPIRED', { signingRoundKind: 'refund', round: round([]) }))
     expect(d.steps.map((s) => s.id)).not.toContain('signatures')
-    expect(d.steps[d.steps.length - 1].evidence).toEqual([{ label: 'Rodada de reembolso', value: '0 de 2 assinaturas' }])
+    expect(d.steps[d.steps.length - 1].evidence).toEqual([{ label: 'Rodada de devolução', value: '0 de 2 assinaturas' }])
   })
 
   it('shows the escrow id as evidence only once an escrow exists', () => {
@@ -139,7 +139,7 @@ describe('trade rail: actions this interface cannot do (truth audit fixes)', () 
   it('never says Sua vez for a signing round this interface cannot sign (HOLD, mismatch, unsupported, disputed)', () => {
     const step = current(holdRound())
     expect(step).toMatchObject({ id: 'signatures', actors: ['seller'], blocked: 'signing' })
-    expect(batonLabel(step, 'seller')).toEqual({ text: 'Assinatura indisponível aqui', tone: 'neutral' })
+    expect(batonLabel(step, 'seller')).toEqual({ text: 'Assinatura não disponível aqui', tone: 'neutral' })
     // The other side is a plain wait, not "Vez de", and neutral.
     expect(batonLabel(step, 'buyer', { seller: 'Erin' })).toEqual({ text: 'Aguardando Erin (vendedor)', tone: 'neutral' })
     // A signable round keeps the brand baton.
@@ -157,7 +157,7 @@ describe('trade rail: actions this interface cannot do (truth audit fixes)', () 
   it('never names the seller as able to release when release is unavailable for the escrow type', () => {
     const step = current(input('PAYMENT_PENDING', { isBuyer: false, isSeller: true, releaseUnavailable: true }))
     expect(step).toMatchObject({ id: 'completed', actors: ['seller'], blocked: 'release' })
-    expect(batonLabel(step, 'seller')).toEqual({ text: 'Liberação indisponível aqui', tone: 'neutral' })
+    expect(batonLabel(step, 'seller')).toEqual({ text: 'Liberação não disponível aqui', tone: 'neutral' })
     expect(batonLabel(step, 'buyer', { seller: 'Bob' })).toEqual({ text: 'Aguardando Bob (vendedor)', tone: 'neutral' })
     expect(current(input('PAYMENT_PENDING'))?.blocked).toBeUndefined()
   })
@@ -186,9 +186,9 @@ describe('trade rail: actions this interface cannot do (truth audit fixes)', () 
 
   it('maps declared custody models to words and anything else to not declared', () => {
     expect(custodyModelLabel('client-held-buyer-seller-keys-server-held-arbiter')).toBe('Comprador e vendedor guardam as próprias chaves. A chave que o árbitro usa para movimentar os fundos numa disputa fica com o nó Sails')
-    expect(custodyModelLabel('server-custodial-reference-implementation')).toMatch(/^Custódia do nó Sails/)
-    expect(custodyModelLabel('client-held-buyer-seller-keys-server-held-kms-arbiter')).toMatch(/KMS/)
-    for (const v of [null, undefined, '', 'something-new', 'toString']) expect(custodyModelLabel(v)).toBe('Não declarado pelo provedor')
+    expect(custodyModelLabel('server-custodial-reference-implementation')).toMatch(/^O nó Sails guarda os fundos/)
+    expect(custodyModelLabel('client-held-buyer-seller-keys-server-held-kms-arbiter')).toMatch(/serviço de gestão de chaves/)
+    for (const v of [null, undefined, '', 'something-new', 'toString']) expect(custodyModelLabel(v)).toBe('Modelo de custódia não informado')
   })
 })
 

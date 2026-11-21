@@ -31,7 +31,7 @@ describe('reputation display', () => {
     expect(all).not.toMatch(/\/\s*100|%/)
     expect(all).not.toMatch(/\d+\s*estrelas?|estrelas?\s+de\s+\d/i)
     expect(REPUTATION_EXPLANATION.footer).toContain('sem valor máximo')
-    expect(REPUTATION_EXPLANATION.lines).toEqual(['+2 por trade concluído', '−5 por disputa perdida', '0 em cancelamento de comum acordo ou divisão', '−5 para quem apadrinhou alguém que perde a primeira disputa'])
+    expect(REPUTATION_EXPLANATION.lines).toEqual(['+2 por trade concluído', '−5 por disputa perdida', '0 pontos quando a disputa termina em divisão ou o trade é cancelado de comum acordo', '−5 para quem avalizou uma pessoa que perde a primeira disputa'])
   })
 
   it('no longer exposes UI-invented trust metrics (CTO Despacho 033)', () => {

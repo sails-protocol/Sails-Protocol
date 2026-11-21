@@ -1,4 +1,6 @@
 import { cn } from '../../lib/utils'
+import type { TradeSide } from '../../types'
+import { SIDE_SEGMENT_SELECTED } from './StatusBadges'
 
 export interface SegmentedOption<T extends string> {
   value: T
@@ -13,10 +15,11 @@ export interface SegmentedOption<T extends string> {
  */
 // radius 8 - padding 4 = thumb radius 4 (concentric). Own track tone: deeper than tonal in light (thumb 1.50+).
 export const SEGMENT_TRACK = 'rounded-lg bg-brand-segment-track p-1'
-export function segmentItemClass(selected: boolean) {
+/** `side` colors the selected thumb with the trade side (SIDE_SEGMENT_SELECTED, StatusBadges.tsx). */
+export function segmentItemClass(selected: boolean, side?: TradeSide) {
   return cn(
     'rounded-sm text-body-sm transition-colors duration-short state-layer',
-    selected ? 'bg-brand-raised shadow-elevation-1 font-medium text-brand-text' : 'text-brand-text-secondary hover:text-brand-text'
+    selected ? (side ? SIDE_SEGMENT_SELECTED[side] : 'bg-brand-raised shadow-elevation-1 font-medium text-brand-text') : 'text-brand-text-secondary hover:text-brand-text'
   )
 }
 

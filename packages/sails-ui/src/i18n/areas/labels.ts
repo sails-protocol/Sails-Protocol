@@ -12,7 +12,7 @@ export default defineArea(
 
     'labels.network.test': 'Rede de teste',
     'labels.asset.referenceNote': 'Implementação de referência',
-    'labels.asset.signingHoldNote': 'Assinatura pela interface temporariamente indisponível',
+    'labels.asset.signingHoldNote': 'Assinatura pela interface não disponível por enquanto',
     'labels.asset.devTestNote': 'Arkade em rede de teste, só em desenvolvimento',
 
     'labels.payment.bankTransfer': 'Transferência bancária',
@@ -21,7 +21,7 @@ export default defineArea(
     'labels.payment.other': 'Outro',
     'labels.payment.card': 'Cartão de crédito/débito',
     'labels.payment.giftCard': 'Vale-presente',
-    'labels.payment.mobileMoney': 'Dinheiro móvel (M-Pesa etc.)',
+    'labels.payment.mobileMoney': 'Dinheiro móvel (por exemplo, M-Pesa)',
     'labels.payment.boleto': 'Boleto bancário',
     'labels.payment.upi': 'UPI (Índia)',
     'labels.legacy.cash': 'Dinheiro em espécie',
@@ -36,7 +36,7 @@ export default defineArea(
     'labels.paymentCategory.other': 'Outros',
 
     'labels.disputeRuling.release': 'liberar para o comprador',
-    'labels.disputeRuling.refund': 'reembolsar o vendedor',
+    'labels.disputeRuling.refund': 'devolver os fundos ao vendedor',
     'labels.disputeRuling.split': 'dividir entre as partes',
 
     'labels.disputeStatus.opened': 'Aberta',
@@ -44,7 +44,7 @@ export default defineArea(
     'labels.disputeStatus.arbitrated': 'Decisão do árbitro',
     'labels.disputeStatus.resolved': 'Decisão registrada',
     'labels.disputeStatus.appealed': 'Em apelação',
-    'labels.disputeStatus.autoProposed': 'Resolução automática proposta',
+    'labels.disputeStatus.autoProposed': 'Sugestão automática',
 
     'labels.escrowType.multisig': 'Multisig Bitcoin',
     'labels.escrowType.lightningHodl': 'Bitcoin via Arkade (rede de teste)',
@@ -71,7 +71,7 @@ export default defineArea(
 
       'labels.network.test': 'Test network',
       'labels.asset.referenceNote': 'Reference implementation',
-      'labels.asset.signingHoldNote': 'Signing in the app is temporarily unavailable',
+      'labels.asset.signingHoldNote': 'Signing in the app not available for now',
       'labels.asset.devTestNote': 'Arkade on a test network, development only',
 
       'labels.payment.bankTransfer': 'Bank transfer',
@@ -80,7 +80,7 @@ export default defineArea(
       'labels.payment.other': 'Other',
       'labels.payment.card': 'Credit/debit card',
       'labels.payment.giftCard': 'Gift card',
-      'labels.payment.mobileMoney': 'Mobile money (M-Pesa etc.)',
+      'labels.payment.mobileMoney': 'Mobile money (for example, M-Pesa)',
       'labels.payment.boleto': 'Boleto',
       'labels.payment.upi': 'UPI (India)',
       'labels.legacy.cash': 'Cash',
@@ -95,7 +95,7 @@ export default defineArea(
       'labels.paymentCategory.other': 'Other',
 
       'labels.disputeRuling.release': 'release to the buyer',
-      'labels.disputeRuling.refund': 'refund the seller',
+      'labels.disputeRuling.refund': 'return the funds to the seller',
       'labels.disputeRuling.split': 'split between the parties',
 
       'labels.disputeStatus.opened': 'Open',
@@ -103,7 +103,7 @@ export default defineArea(
       'labels.disputeStatus.arbitrated': 'Arbitrator’s decision',
       'labels.disputeStatus.resolved': 'Decision recorded',
       'labels.disputeStatus.appealed': 'Under appeal',
-      'labels.disputeStatus.autoProposed': 'Automatic resolution proposed',
+      'labels.disputeStatus.autoProposed': 'Automatic suggestion',
 
       'labels.escrowType.multisig': 'Bitcoin multisig',
       'labels.escrowType.lightningHodl': 'Bitcoin via Arkade (test network)',
@@ -129,7 +129,7 @@ export default defineArea(
 
       'labels.network.test': 'Red de prueba',
       'labels.asset.referenceNote': 'Implementación de referencia',
-      'labels.asset.signingHoldNote': 'Firma desde la interfaz no disponible temporalmente',
+      'labels.asset.signingHoldNote': 'Firma desde la interfaz no disponible por ahora',
       'labels.asset.devTestNote': 'Arkade en red de prueba, solo en desarrollo',
 
       'labels.payment.bankTransfer': 'Transferencia bancaria',
@@ -138,7 +138,7 @@ export default defineArea(
       'labels.payment.other': 'Otro',
       'labels.payment.card': 'Tarjeta de crédito/débito',
       'labels.payment.giftCard': 'Tarjeta regalo',
-      'labels.payment.mobileMoney': 'Dinero móvil (M-Pesa, etc.)',
+      'labels.payment.mobileMoney': 'Dinero móvil (por ejemplo, M-Pesa)',
       'labels.payment.boleto': 'Boleto bancario',
       'labels.payment.upi': 'UPI (India)',
       'labels.legacy.cash': 'Efectivo',
@@ -153,7 +153,7 @@ export default defineArea(
       'labels.paymentCategory.other': 'Otros',
 
       'labels.disputeRuling.release': 'liberar al comprador',
-      'labels.disputeRuling.refund': 'reembolsar al vendedor',
+      'labels.disputeRuling.refund': 'devolver los fondos al vendedor',
       'labels.disputeRuling.split': 'dividir entre las partes',
 
       'labels.disputeStatus.opened': 'Abierta',
@@ -161,7 +161,7 @@ export default defineArea(
       'labels.disputeStatus.arbitrated': 'Decisión del árbitro',
       'labels.disputeStatus.resolved': 'Decisión registrada',
       'labels.disputeStatus.appealed': 'En apelación',
-      'labels.disputeStatus.autoProposed': 'Resolución automática propuesta',
+      'labels.disputeStatus.autoProposed': 'Sugerencia automática',
 
       'labels.escrowType.multisig': 'Multisig de Bitcoin',
       'labels.escrowType.lightningHodl': 'Bitcoin vía Arkade (red de prueba)',
@@ -187,7 +187,7 @@ export default defineArea(
 
       'labels.network.test': 'Réseau de test',
       'labels.asset.referenceNote': 'Implémentation de référence',
-      'labels.asset.signingHoldNote': 'Signature depuis l’interface temporairement indisponible',
+      'labels.asset.signingHoldNote': 'Signature depuis l’interface non disponible pour le moment',
       'labels.asset.devTestNote': 'Arkade sur réseau de test, en développement uniquement',
 
       'labels.payment.bankTransfer': 'Virement bancaire',
@@ -196,7 +196,7 @@ export default defineArea(
       'labels.payment.other': 'Autre',
       'labels.payment.card': 'Carte de crédit/débit',
       'labels.payment.giftCard': 'Carte cadeau',
-      'labels.payment.mobileMoney': 'Mobile money (M-Pesa, etc.)',
+      'labels.payment.mobileMoney': 'Mobile money (par exemple, M-Pesa)',
       'labels.payment.boleto': 'Boleto bancaire',
       'labels.payment.upi': 'UPI (Inde)',
       'labels.legacy.cash': 'Espèces',
@@ -211,7 +211,7 @@ export default defineArea(
       'labels.paymentCategory.other': 'Autres',
 
       'labels.disputeRuling.release': 'libérer à l’acheteur',
-      'labels.disputeRuling.refund': 'rembourser le vendeur',
+      'labels.disputeRuling.refund': 'rendre les fonds au vendeur',
       'labels.disputeRuling.split': 'partager entre les parties',
 
       'labels.disputeStatus.opened': 'Ouvert',
@@ -219,7 +219,7 @@ export default defineArea(
       'labels.disputeStatus.arbitrated': 'Décision de l’arbitre',
       'labels.disputeStatus.resolved': 'Décision enregistrée',
       'labels.disputeStatus.appealed': 'En appel',
-      'labels.disputeStatus.autoProposed': 'Résolution automatique proposée',
+      'labels.disputeStatus.autoProposed': 'Suggestion automatique',
 
       'labels.escrowType.multisig': 'Multisig Bitcoin',
       'labels.escrowType.lightningHodl': 'Bitcoin via Arkade (réseau de test)',
@@ -245,7 +245,7 @@ export default defineArea(
 
       'labels.network.test': 'Testnetz',
       'labels.asset.referenceNote': 'Referenzimplementierung',
-      'labels.asset.signingHoldNote': 'Signieren über die Oberfläche vorübergehend nicht verfügbar',
+      'labels.asset.signingHoldNote': 'Signieren über die Oberfläche vorerst nicht verfügbar',
       'labels.asset.devTestNote': 'Arkade im Testnetz, nur in der Entwicklung',
 
       'labels.payment.bankTransfer': 'Banküberweisung',
@@ -254,7 +254,7 @@ export default defineArea(
       'labels.payment.other': 'Sonstige',
       'labels.payment.card': 'Kredit-/Debitkarte',
       'labels.payment.giftCard': 'Geschenkkarte',
-      'labels.payment.mobileMoney': 'Mobile Money (M-Pesa usw.)',
+      'labels.payment.mobileMoney': 'Mobile Money (zum Beispiel M-Pesa)',
       'labels.payment.boleto': 'Boleto',
       'labels.payment.upi': 'UPI (Indien)',
       'labels.legacy.cash': 'Bargeld',
@@ -269,7 +269,7 @@ export default defineArea(
       'labels.paymentCategory.other': 'Sonstige',
 
       'labels.disputeRuling.release': 'an den Käufer freigeben',
-      'labels.disputeRuling.refund': 'dem Verkäufer erstatten',
+      'labels.disputeRuling.refund': 'die Mittel an den Verkäufer zurückgeben',
       'labels.disputeRuling.split': 'zwischen den Parteien aufteilen',
 
       'labels.disputeStatus.opened': 'Offen',
@@ -277,7 +277,7 @@ export default defineArea(
       'labels.disputeStatus.arbitrated': 'Entscheidung der Schiedsperson',
       'labels.disputeStatus.resolved': 'Entscheidung erfasst',
       'labels.disputeStatus.appealed': 'In Berufung',
-      'labels.disputeStatus.autoProposed': 'Automatische Lösung vorgeschlagen',
+      'labels.disputeStatus.autoProposed': 'Automatischer Vorschlag',
 
       'labels.escrowType.multisig': 'Bitcoin-Multisig',
       'labels.escrowType.lightningHodl': 'Bitcoin über Arkade (Testnetz)',

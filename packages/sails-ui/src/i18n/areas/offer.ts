@@ -15,7 +15,7 @@ export default defineArea(
     'offer.ticket.methodNotAvailable': 'A forma de pagamento desta oferta ainda não está disponível para negociar.',
     'offer.toast.outOfLimits': 'Informe uma quantidade dentro do limite da oferta',
     'offer.toast.started': 'Trade iniciado',
-    'offer.toast.startFailed': 'Falha ao iniciar trade',
+    'offer.toast.startFailed': 'Não foi possível iniciar o trade. Tente novamente.',
 
     'offer.title': 'Oferta de {asset}',
     'offer.postedBy': 'Anunciada por {name}',
@@ -24,7 +24,7 @@ export default defineArea(
     'offer.network': 'Rede',
 
     'offer.own.title': 'Esta é a sua oferta',
-    'offer.own.body': 'Você não pode iniciar uma negociação com o seu próprio anúncio. Gerencie-o em Trades, "Minhas ofertas".',
+    'offer.own.body': 'Você não pode iniciar um trade com a sua própria oferta. Gerencie-a em Trades, aba Minhas ofertas.',
     'offer.own.link': 'Ir para Minhas ofertas',
 
     'offer.ticket.youBuy': 'Você compra {asset}',
@@ -35,7 +35,7 @@ export default defineArea(
     'offer.ticket.youPay': 'Você paga',
     'offer.ticket.youReceive': 'Você recebe',
     'offer.ticket.escrowNote': 'O tipo de escrow e as regras de liberação são definidos quando o trade é criado.',
-    'offer.ticket.newSeller': 'Este vendedor ainda não concluiu nenhum trade — negocie com cautela, especialmente em valores maiores.',
+    'offer.ticket.newSeller': 'Este anunciante ainda não tem trades concluídos. Negocie com cautela, principalmente em valores maiores.',
     'offer.ticket.starting': 'Iniciando…',
     'offer.ticket.buy': 'Comprar {asset}',
     'offer.ticket.sell': 'Vender {asset}',
@@ -57,7 +57,7 @@ export default defineArea(
       'offer.ticket.methodNotAvailable': 'This offer’s payment method is not available for trading yet.',
       'offer.toast.outOfLimits': 'Enter an amount within the offer’s limits',
       'offer.toast.started': 'Trade started',
-      'offer.toast.startFailed': 'Could not start the trade',
+      'offer.toast.startFailed': 'Could not start the trade. Try again.',
 
       'offer.title': '{asset} offer',
       'offer.postedBy': 'Posted by {name}',
@@ -66,7 +66,7 @@ export default defineArea(
       'offer.network': 'Network',
 
       'offer.own.title': 'This is your offer',
-      'offer.own.body': 'You cannot start a trade on your own ad. Manage it in Trades, “My offers”.',
+      'offer.own.body': 'You cannot start a trade on your own offer. Manage it in Trades, My offers tab.',
       'offer.own.link': 'Go to My offers',
 
       'offer.ticket.youBuy': 'You buy {asset}',
@@ -77,7 +77,7 @@ export default defineArea(
       'offer.ticket.youPay': 'You pay',
       'offer.ticket.youReceive': 'You receive',
       'offer.ticket.escrowNote': 'The escrow type and the release rules are set when the trade is created.',
-      'offer.ticket.newSeller': 'This seller has not completed any trade yet — trade with care, especially for larger amounts.',
+      'offer.ticket.newSeller': 'This advertiser has no completed trades yet. Trade with care, especially for larger amounts.',
       'offer.ticket.starting': 'Starting…',
       'offer.ticket.buy': 'Buy {asset}',
       'offer.ticket.sell': 'Sell {asset}',
@@ -98,7 +98,7 @@ export default defineArea(
       'offer.ticket.methodNotAvailable': 'La forma de pago de esta oferta aún no está disponible para negociar.',
       'offer.toast.outOfLimits': 'Ingresa una cantidad dentro del límite de la oferta',
       'offer.toast.started': 'Trade iniciado',
-      'offer.toast.startFailed': 'No se pudo iniciar el trade',
+      'offer.toast.startFailed': 'No se pudo iniciar el trade. Inténtalo de nuevo.',
 
       'offer.title': 'Oferta de {asset}',
       'offer.postedBy': 'Publicada por {name}',
@@ -107,7 +107,7 @@ export default defineArea(
       'offer.network': 'Red',
 
       'offer.own.title': 'Esta es tu oferta',
-      'offer.own.body': 'No puedes iniciar una negociación con tu propio anuncio. Gestiónalo en Trades, «Mis ofertas».',
+      'offer.own.body': 'No puedes iniciar un trade con tu propia oferta. Gestiónala en Trades, pestaña Mis ofertas.',
       'offer.own.link': 'Ir a Mis ofertas',
 
       'offer.ticket.youBuy': 'Compras {asset}',
@@ -118,7 +118,7 @@ export default defineArea(
       'offer.ticket.youPay': 'Pagas',
       'offer.ticket.youReceive': 'Recibes',
       'offer.ticket.escrowNote': 'El tipo de escrow y las reglas de liberación se definen cuando se crea el trade.',
-      'offer.ticket.newSeller': 'Este vendedor aún no ha completado ningún trade — negocia con cautela, sobre todo en montos mayores.',
+      'offer.ticket.newSeller': 'Este anunciante aún no tiene trades completados. Negocia con cautela, sobre todo en montos mayores.',
       'offer.ticket.starting': 'Iniciando…',
       'offer.ticket.buy': 'Comprar {asset}',
       'offer.ticket.sell': 'Vender {asset}',
@@ -139,7 +139,7 @@ export default defineArea(
       'offer.ticket.methodNotAvailable': 'Le moyen de paiement de cette offre n’est pas encore disponible pour négocier.',
       'offer.toast.outOfLimits': 'Saisissez une quantité dans les limites de l’offre',
       'offer.toast.started': 'Trade lancé',
-      'offer.toast.startFailed': 'Impossible de lancer le trade',
+      'offer.toast.startFailed': 'Impossible de lancer le trade. Réessayez.',
 
       'offer.title': 'Offre de {asset}',
       'offer.postedBy': 'Publiée par {name}',
@@ -148,7 +148,7 @@ export default defineArea(
       'offer.network': 'Réseau',
 
       'offer.own.title': 'C’est votre offre',
-      'offer.own.body': 'Vous ne pouvez pas lancer une négociation sur votre propre annonce. Gérez-la dans Trades, « Mes offres ».',
+      'offer.own.body': 'Vous ne pouvez pas lancer un trade sur votre propre offre. Gérez-la dans Trades, onglet Mes offres.',
       'offer.own.link': 'Aller à Mes offres',
 
       'offer.ticket.youBuy': 'Vous achetez {asset}',
@@ -159,7 +159,7 @@ export default defineArea(
       'offer.ticket.youPay': 'Vous payez',
       'offer.ticket.youReceive': 'Vous recevez',
       'offer.ticket.escrowNote': 'Le type d’escrow et les règles de libération sont définis à la création du trade.',
-      'offer.ticket.newSeller': 'Ce vendeur n’a encore terminé aucun trade — négociez avec prudence, surtout pour des montants élevés.',
+      'offer.ticket.newSeller': 'Cet annonceur n’a encore aucun trade terminé. Soyez prudent, surtout pour des montants élevés.',
       'offer.ticket.starting': 'Lancement…',
       'offer.ticket.buy': 'Acheter {asset}',
       'offer.ticket.sell': 'Vendre {asset}',
@@ -180,7 +180,7 @@ export default defineArea(
       'offer.ticket.methodNotAvailable': 'Die Zahlungsart dieses Angebots ist für den Handel noch nicht verfügbar.',
       'offer.toast.outOfLimits': 'Gib eine Menge innerhalb des Angebotslimits ein',
       'offer.toast.started': 'Trade gestartet',
-      'offer.toast.startFailed': 'Trade konnte nicht gestartet werden',
+      'offer.toast.startFailed': 'Der Trade konnte nicht gestartet werden. Versuch es noch einmal.',
 
       'offer.title': 'Angebot für {asset}',
       'offer.postedBy': 'Veröffentlicht von {name}',
@@ -189,7 +189,7 @@ export default defineArea(
       'offer.network': 'Netz',
 
       'offer.own.title': 'Das ist dein Angebot',
-      'offer.own.body': 'Du kannst keinen Handel mit deiner eigenen Anzeige starten. Verwalte sie unter Trades, „Meine Angebote“.',
+      'offer.own.body': 'Du kannst keinen Trade mit deinem eigenen Angebot starten. Verwalte es unter Trades, Tab Meine Angebote.',
       'offer.own.link': 'Zu Meine Angebote',
 
       'offer.ticket.youBuy': 'Du kaufst {asset}',
@@ -200,7 +200,7 @@ export default defineArea(
       'offer.ticket.youPay': 'Du zahlst',
       'offer.ticket.youReceive': 'Du erhältst',
       'offer.ticket.escrowNote': 'Escrow-Typ und Freigaberegeln werden beim Erstellen des Trades festgelegt.',
-      'offer.ticket.newSeller': 'Dieser Verkäufer hat noch keinen Trade abgeschlossen — handle vorsichtig, besonders bei größeren Beträgen.',
+      'offer.ticket.newSeller': 'Dieser Anbieter hat noch keine abgeschlossenen Trades. Handle vorsichtig, besonders bei größeren Beträgen.',
       'offer.ticket.starting': 'Wird gestartet…',
       'offer.ticket.buy': '{asset} kaufen',
       'offer.ticket.sell': '{asset} verkaufen',

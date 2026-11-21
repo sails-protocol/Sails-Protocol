@@ -43,7 +43,7 @@ describe('arbiter decision options', () => {
   })
   it('adds the automatic suggestion only while it is pending', () => {
     const auto = decisionOptions(dispute({ status: 'AUTO_PROPOSED', autoResolutionRecommendation: 'REFUND' }), 'MOCK')
-    expect(auto[auto.length - 1]).toEqual({ value: 'SUGGESTION', ruling: 'REFUND', label: 'Aceitar a sugestão automática', detail: 'Devolver ao vendedor' })
+    expect(auto[auto.length - 1]).toEqual({ value: 'SUGGESTION', ruling: 'REFUND', label: 'Aceitar a sugestão automática', detail: 'Devolver os fundos ao vendedor' })
     expect(decisionOptions(dispute({ status: 'EVIDENCE_SUBMITTED', autoResolutionRecommendation: 'REFUND' }), 'MOCK').some((o) => o.value === 'SUGGESTION')).toBe(false)
   })
   it('offers nothing once resolved', () => {
@@ -80,7 +80,7 @@ describe('evidence', () => {
     expect(items).toHaveLength(3)
     expect(items[0]).toMatchObject({ type: 'text', note: 'n', submittedBy: 'u', href: null, uri: null })
     expect(items[1]).toMatchObject({ uri: 'javascript:x', href: null })
-    expect(items[2]).toMatchObject({ type: 'desconhecido', referenceId: 'ref1' })
+    expect(items[2]).toMatchObject({ type: 'tipo não informado', referenceId: 'ref1' })
     expect(parseEvidence(undefined)).toEqual([])
   })
 })

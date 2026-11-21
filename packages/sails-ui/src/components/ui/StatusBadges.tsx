@@ -57,6 +57,21 @@ export function SideBadge({ side }: { side: TradeSide }) {
   )
 }
 
+/** Side arrow alone, in the side color (icon base tone, >= 3:1): for side pickers, next to their own label. */
+export function SideArrow({ side }: { side: TradeSide }) {
+  const Icon = side === 'BUY' ? ArrowDownLeft : ArrowUpRight
+  return <Icon className={cn('size-icon-sm shrink-0', side === 'BUY' ? 'text-brand-buy' : 'text-brand-sell')} aria-hidden="true" />
+}
+
+/**
+ * Selected side in a segmented picker (DECISIONS.md "Comprar e Vender coloridos"): raised thumb, side-colored
+ * semibold text. No tint: 10% over the gray track washed out in light.
+ */
+export const SIDE_SEGMENT_SELECTED: Record<TradeSide, string> = {
+  BUY: 'bg-brand-raised shadow-elevation-1 font-semibold text-brand-buy-fg',
+  SELL: 'bg-brand-raised shadow-elevation-1 font-semibold text-brand-sell-fg',
+}
+
 /** Quiet payment method: secondary text after a thin brand tick (the Market table style), not a filled pill. */
 export function PaymentBadge({ method, className }: { method: PaymentMethod; className?: string }) {
   return (

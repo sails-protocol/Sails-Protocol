@@ -76,12 +76,12 @@ describe('trade state derivation (single source for chip, timeline, action)', ()
   it('labels a signing round only from its real kind and removes the primary action', () => {
     const label = (kind: 'release' | 'refund' | 'split' | 'unknown') => deriveTradeState(input('PAYMENT_PENDING', SELLER, { signingRoundKind: kind }))
     expect(label('release').status.label).toBe('Liberação em andamento')
-    expect(label('refund').status.label).toBe('Reembolso em andamento')
+    expect(label('refund').status.label).toBe('Devolução em andamento')
     expect(label('split').status.label).toBe('Divisão em andamento')
     expect(label('unknown').status).toEqual({ label: 'Rodada de assinatura em andamento', tone: 'neutral' })
     for (const k of ['release', 'refund', 'split', 'unknown'] as const) expect(label(k).action.primary).toBeUndefined()
     // A refund round on an expired escrow is never called a release.
-    expect(deriveTradeState(input('EXPIRED', SELLER, { signingRoundKind: 'refund' })).status.label).toBe('Reembolso em andamento')
+    expect(deriveTradeState(input('EXPIRED', SELLER, { signingRoundKind: 'refund' })).status.label).toBe('Devolução em andamento')
     // The dispute stays the headline while a ruling round exists.
     expect(deriveTradeState(input('DISPUTED', BUYER, { signingRoundKind: 'split' })).status.label).toBe('Em disputa')
   })
@@ -127,7 +127,7 @@ describe('trade state derivation (single source for chip, timeline, action)', ()
     const c = deriveTradeState(input(null, BUYER, { tradeStatus: 'CANCELLED' }))
     expect(c.status.label).toBe('Trade cancelado')
     expect(c.action.tone).toBe('terminal')
-    expect(deriveTradeState(input('REFUNDED')).status.label).toBe('Escrow marcado como reembolsado')
+    expect(deriveTradeState(input('REFUNDED')).status.label).toBe('Escrow marcado como devolvido ao vendedor')
   })
 
   it('gates the buyer payment instructions on the recorded lock; the seller always sees their own', () => {

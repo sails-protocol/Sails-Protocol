@@ -13,14 +13,13 @@ export default defineArea(
     'reputation.tradesZero': '0 trades',
     'reputation.disputes': { one: '{count} disputa', other: '{count} disputas' },
     'reputation.disputesZero': '0 disputas',
-    'reputation.disputeRateDefinition':
-      'Trades seus que entraram em disputa ÷ trades concluídos, pelos contadores da sua conta (os mesmos da reputação). Trades reembolsados ou ainda em disputa entram só no numerador; quando a conta não fecha em uma porcentagem, mostramos o número de disputas.',
+    'reputation.disputeRateDefinition': 'Parte dos seus trades que teve disputa, em relação aos trades concluídos, pelos contadores da sua conta (os mesmos da reputação). Trades devolvidos ao vendedor ou ainda em disputa contam só entre as disputas. Quando a conta não dá uma porcentagem, mostramos só o número de disputas.',
 
     'reputation.explanation.title': 'Como a reputação é calculada',
     'reputation.explanation.completed': '+2 por trade concluído',
     'reputation.explanation.disputeLost': '−5 por disputa perdida',
-    'reputation.explanation.neutral': '0 em cancelamento de comum acordo ou divisão',
-    'reputation.explanation.vouchBurn': '−5 para quem apadrinhou alguém que perde a primeira disputa',
+    'reputation.explanation.neutral': '0 pontos quando a disputa termina em divisão ou o trade é cancelado de comum acordo',
+    'reputation.explanation.vouchBurn': '−5 para quem avalizou uma pessoa que perde a primeira disputa',
     'reputation.explanation.footer':
       'É uma soma de pontos, sem valor máximo: 82 significa 82 pontos acumulados, não 82 de 100. As estrelas são avaliações que as pessoas dão umas às outras depois de um trade: só informativas, nunca mudam a reputação.',
     'reputation.explanation.trigger': 'Como funciona a reputação',
@@ -36,11 +35,11 @@ export default defineArea(
 
     'reputation.vouch.explainer':
       'Avalizar usa a sua reputação como garantia. Não é verificação de identidade. Se esta pessoa perder a primeira disputa dela enquanto o aval estiver ativo, sua reputação perde 5 pontos.',
-    'reputation.vouch.success': 'Aval registrado — sua reputação agora respalda esta pessoa',
+    'reputation.vouch.success': 'Aval registrado. Sua reputação agora respalda esta pessoa.',
     'reputation.vouch.failed': 'Não foi possível registrar o aval',
     'reputation.vouch.already': 'Você já avalizou esta pessoa',
     'reputation.vouch.action': 'Avalizar esta pessoa com sua reputação',
-    'reputation.vouch.ineligible': 'Requer pelo menos 3 trades e reputação positiva para avalizar alguém',
+    'reputation.vouch.ineligible': 'Para avalizar, você precisa de pelo menos 3 trades concluídos e reputação acima de zero.',
   },
   {
     en: {
@@ -50,14 +49,13 @@ export default defineArea(
       'reputation.tradesZero': '0 trades',
       'reputation.disputes': { one: '{count} dispute', other: '{count} disputes' },
       'reputation.disputesZero': '0 disputes',
-      'reputation.disputeRateDefinition':
-        'Your trades that went into dispute ÷ completed trades, from your account counters (the same ones reputation uses). Refunded trades and trades still in dispute count only in the numerator; when the numbers do not give a percentage, we show the number of disputes.',
+      'reputation.disputeRateDefinition': 'The share of your trades that had a dispute, compared with completed trades, from your account counters (the same ones reputation uses). Trades returned to the seller or still in dispute count only among the disputes. When the numbers do not give a percentage, we show only the number of disputes.',
 
       'reputation.explanation.title': 'How reputation is calculated',
       'reputation.explanation.completed': '+2 per completed trade',
       'reputation.explanation.disputeLost': '−5 per dispute lost',
-      'reputation.explanation.neutral': '0 for a cancellation by mutual agreement or a split',
-      'reputation.explanation.vouchBurn': '−5 for whoever vouched for someone who loses their first dispute',
+      'reputation.explanation.neutral': '0 points when the dispute ends in a split or the trade is cancelled by mutual agreement',
+      'reputation.explanation.vouchBurn': '−5 for whoever vouched for a person who loses their first dispute',
       'reputation.explanation.footer':
         'It is a sum of points with no maximum: 82 means 82 points earned, not 82 out of 100. Stars are ratings people give each other after a trade: for information only, they never change reputation.',
       'reputation.explanation.trigger': 'How reputation works',
@@ -73,11 +71,11 @@ export default defineArea(
 
       'reputation.vouch.explainer':
         'Vouching uses your reputation as a guarantee. It is not identity verification. If this person loses their first dispute while the vouch is active, your reputation loses 5 points.',
-      'reputation.vouch.success': 'Vouch recorded — your reputation now backs this person',
+      'reputation.vouch.success': 'Vouch recorded. Your reputation now backs this person.',
       'reputation.vouch.failed': 'Could not record the vouch',
       'reputation.vouch.already': 'You already vouched for this person',
       'reputation.vouch.action': 'Vouch for this person with your reputation',
-      'reputation.vouch.ineligible': 'Vouching for someone requires at least 3 trades and a positive reputation',
+      'reputation.vouch.ineligible': 'To vouch, you need at least 3 completed trades and a reputation above zero.',
     },
     es: {
       'reputation.score': 'Reputación {score}',
@@ -86,14 +84,13 @@ export default defineArea(
       'reputation.tradesZero': '0 trades',
       'reputation.disputes': { one: '{count} disputa', other: '{count} disputas' },
       'reputation.disputesZero': '0 disputas',
-      'reputation.disputeRateDefinition':
-        'Tus trades que entraron en disputa ÷ trades completados, según los contadores de tu cuenta (los mismos de la reputación). Los trades reembolsados o aún en disputa solo cuentan en el numerador; cuando la cuenta no da un porcentaje, mostramos el número de disputas.',
+      'reputation.disputeRateDefinition': 'La parte de tus trades que tuvo disputa, en relación con los trades completados, según los contadores de tu cuenta (los mismos de la reputación). Los trades devueltos al vendedor o aún en disputa solo cuentan entre las disputas. Cuando la cuenta no da un porcentaje, mostramos solo el número de disputas.',
 
       'reputation.explanation.title': 'Cómo se calcula la reputación',
       'reputation.explanation.completed': '+2 por trade completado',
       'reputation.explanation.disputeLost': '−5 por disputa perdida',
-      'reputation.explanation.neutral': '0 por cancelación de mutuo acuerdo o división',
-      'reputation.explanation.vouchBurn': '−5 para quien avaló a alguien que pierde su primera disputa',
+      'reputation.explanation.neutral': '0 puntos cuando la disputa termina en división o el trade se cancela de mutuo acuerdo',
+      'reputation.explanation.vouchBurn': '−5 para quien avaló a una persona que pierde su primera disputa',
       'reputation.explanation.footer':
         'Es una suma de puntos, sin valor máximo: 82 significa 82 puntos acumulados, no 82 de 100. Las estrellas son valoraciones que las personas se dan entre sí después de un trade: solo informativas, nunca cambian la reputación.',
       'reputation.explanation.trigger': 'Cómo funciona la reputación',
@@ -109,11 +106,11 @@ export default defineArea(
 
       'reputation.vouch.explainer':
         'Avalar usa tu reputación como garantía. No es verificación de identidad. Si esta persona pierde su primera disputa mientras el aval está activo, tu reputación pierde 5 puntos.',
-      'reputation.vouch.success': 'Aval registrado — tu reputación ahora respalda a esta persona',
+      'reputation.vouch.success': 'Aval registrado. Tu reputación ahora respalda a esta persona.',
       'reputation.vouch.failed': 'No se pudo registrar el aval',
       'reputation.vouch.already': 'Ya avalaste a esta persona',
       'reputation.vouch.action': 'Avalar a esta persona con tu reputación',
-      'reputation.vouch.ineligible': 'Se necesitan al menos 3 trades y reputación positiva para avalar a alguien',
+      'reputation.vouch.ineligible': 'Para avalar, necesitas al menos 3 trades completados y una reputación mayor que cero.',
     },
     fr: {
       'reputation.score': 'Réputation {score}',
@@ -122,13 +119,12 @@ export default defineArea(
       'reputation.tradesZero': '0 trade',
       'reputation.disputes': { one: '{count} litige', other: '{count} litiges' },
       'reputation.disputesZero': '0 litige',
-      'reputation.disputeRateDefinition':
-        'Vos trades passés en litige ÷ trades terminés, d’après les compteurs de votre compte (les mêmes que pour la réputation). Les trades remboursés ou encore en litige ne comptent qu’au numérateur ; quand le calcul ne donne pas de pourcentage, nous affichons le nombre de litiges.',
+      'reputation.disputeRateDefinition': 'La part de vos trades qui ont eu un litige, par rapport aux trades terminés, d’après les compteurs de votre compte (les mêmes que pour la réputation). Les trades rendus au vendeur ou encore en litige ne comptent que parmi les litiges. Quand le calcul ne donne pas de pourcentage, nous affichons seulement le nombre de litiges.',
 
       'reputation.explanation.title': 'Comment la réputation est calculée',
       'reputation.explanation.completed': '+2 par trade terminé',
       'reputation.explanation.disputeLost': '−5 par litige perdu',
-      'reputation.explanation.neutral': '0 en cas d’annulation d’un commun accord ou de partage',
+      'reputation.explanation.neutral': '0 point quand le litige se termine par un partage ou que le trade est annulé d’un commun accord',
       'reputation.explanation.vouchBurn': '−5 pour qui s’est porté garant d’une personne qui perd son premier litige',
       'reputation.explanation.footer':
         'C’est une somme de points, sans maximum : 82 signifie 82 points cumulés, pas 82 sur 100. Les étoiles sont des évaluations que les personnes se donnent après un trade : à titre informatif, elles ne changent jamais la réputation.',
@@ -145,11 +141,11 @@ export default defineArea(
 
       'reputation.vouch.explainer':
         'Se porter garant engage votre réputation comme garantie. Ce n’est pas une vérification d’identité. Si cette personne perd son premier litige pendant que la garantie est active, votre réputation perd 5 points.',
-      'reputation.vouch.success': 'Garantie enregistrée — votre réputation soutient désormais cette personne',
+      'reputation.vouch.success': 'Garantie enregistrée. Votre réputation soutient désormais cette personne.',
       'reputation.vouch.failed': 'Impossible d’enregistrer la garantie',
       'reputation.vouch.already': 'Vous vous êtes déjà porté garant de cette personne',
       'reputation.vouch.action': 'Se porter garant de cette personne avec votre réputation',
-      'reputation.vouch.ineligible': 'Il faut au moins 3 trades et une réputation positive pour se porter garant',
+      'reputation.vouch.ineligible': 'Pour vous porter garant, il vous faut au moins 3 trades terminés et une réputation supérieure à zéro.',
     },
     de: {
       'reputation.score': 'Reputation {score}',
@@ -158,14 +154,13 @@ export default defineArea(
       'reputation.tradesZero': '0 Trades',
       'reputation.disputes': { one: '{count} Streitfall', other: '{count} Streitfälle' },
       'reputation.disputesZero': '0 Streitfälle',
-      'reputation.disputeRateDefinition':
-        'Deine Trades mit Streitfall ÷ abgeschlossene Trades, laut den Zählern deines Kontos (dieselben wie für die Reputation). Erstattete Trades und Trades, die noch im Streitfall sind, zählen nur im Zähler; ergibt die Rechnung keinen Prozentwert, zeigen wir die Anzahl der Streitfälle.',
+      'reputation.disputeRateDefinition': 'Der Anteil deiner Trades mit Streitfall im Verhältnis zu den abgeschlossenen Trades, laut den Zählern deines Kontos (dieselben wie für die Reputation). Trades, die an den Verkäufer zurückgingen oder noch im Streitfall sind, zählen nur bei den Streitfällen. Ergibt die Rechnung keinen Prozentwert, zeigen wir nur die Anzahl der Streitfälle.',
 
       'reputation.explanation.title': 'So wird die Reputation berechnet',
       'reputation.explanation.completed': '+2 pro abgeschlossenem Trade',
       'reputation.explanation.disputeLost': '−5 pro verlorenem Streitfall',
-      'reputation.explanation.neutral': '0 bei einvernehmlicher Stornierung oder Aufteilung',
-      'reputation.explanation.vouchBurn': '−5 für alle, die für jemanden gebürgt haben, der seinen ersten Streitfall verliert',
+      'reputation.explanation.neutral': '0 Punkte, wenn der Streitfall mit einer Aufteilung endet oder der Trade einvernehmlich storniert wird',
+      'reputation.explanation.vouchBurn': '−5 für alle, die für eine Person gebürgt haben, die ihren ersten Streitfall verliert',
       'reputation.explanation.footer':
         'Es ist eine Punktesumme ohne Höchstwert: 82 bedeutet 82 gesammelte Punkte, nicht 82 von 100. Die Sterne sind Bewertungen, die sich Personen nach einem Trade gegenseitig geben: nur zur Information, sie ändern die Reputation nie.',
       'reputation.explanation.trigger': 'So funktioniert die Reputation',
@@ -181,11 +176,11 @@ export default defineArea(
 
       'reputation.vouch.explainer':
         'Eine Bürgschaft setzt deine Reputation als Sicherheit ein. Sie ist keine Identitätsprüfung. Verliert diese Person ihren ersten Streitfall, solange die Bürgschaft aktiv ist, verliert deine Reputation 5 Punkte.',
-      'reputation.vouch.success': 'Bürgschaft gespeichert — deine Reputation steht jetzt hinter dieser Person',
+      'reputation.vouch.success': 'Bürgschaft gespeichert. Deine Reputation steht jetzt hinter dieser Person.',
       'reputation.vouch.failed': 'Bürgschaft konnte nicht gespeichert werden',
       'reputation.vouch.already': 'Du hast bereits für diese Person gebürgt',
       'reputation.vouch.action': 'Mit deiner Reputation für diese Person bürgen',
-      'reputation.vouch.ineligible': 'Zum Bürgen brauchst du mindestens 3 Trades und eine positive Reputation',
+      'reputation.vouch.ineligible': 'Um zu bürgen, brauchst du mindestens 3 abgeschlossene Trades und eine Reputation über null.',
     },
   },
   {

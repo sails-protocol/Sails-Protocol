@@ -23,6 +23,7 @@ import { Alert } from '../components/ui/alert'
 import { Input } from '../components/ui/input'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../components/ui/select'
 import { SlidersHorizontal, AlertTriangle, SearchX, Plus, ArrowDownUp } from 'lucide-react'
+import { SideArrow } from '../components/ui/StatusBadges'
 import { useAuth } from '../context/AuthContext'
 import { sailsClient } from '../lib/sailsClient'
 import type { AssetType, FiatCurrency, MarketplaceFilters, TradeSide } from '../types'
@@ -191,8 +192,9 @@ export function Marketplace() {
           aria-pressed={side === s.value}
           onClick={() => setSide(s.value)}
           // Quiet selected state: the page's one solid orange is "Nova oferta".
-          className={cn('px-3', buttonClass, segmentItemClass(side === s.value))}
+          className={cn('px-3 inline-flex items-center justify-center gap-1', buttonClass, segmentItemClass(side === s.value, s.value === 'Todos' ? undefined : s.value))}
         >
+          {s.value !== 'Todos' && <SideArrow side={s.value} />}
           {s.label()}
         </button>
       ))}

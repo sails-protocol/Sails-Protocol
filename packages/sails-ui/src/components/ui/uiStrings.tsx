@@ -26,14 +26,14 @@ export const DEFAULT_UI_STRINGS: UiStrings = {
   close: 'Fechar',
   cancel: 'Cancelar',
   copy: 'Copiar',
-  copied: 'Copiado!',
+  copied: 'Copiado',
   copyFailed: 'Não foi possível copiar',
   notifications: 'Notificações',
   moreInfo: 'Mais informações',
-  favoriteSeller: 'Favoritar este vendedor',
+  favoriteSeller: 'Favoritar este anunciante',
   presenceUnknown: 'Presença ainda não observada nesta sessão',
-  presenceOnline: 'Online agora — visto na sala de chat deste trade',
-  presenceOffline: 'Offline — saiu da sala de chat deste trade',
+  presenceOnline: 'Online agora: visto na sala de chat deste trade',
+  presenceOffline: 'Offline: saiu da sala de chat deste trade',
 }
 
 const UiStringsContext = createContext<UiStrings>(DEFAULT_UI_STRINGS)

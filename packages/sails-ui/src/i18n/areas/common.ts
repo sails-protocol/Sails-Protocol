@@ -9,7 +9,7 @@ export default defineArea(
     'common.soon': 'Em breve',
     'common.copy': 'Copiar',
     'common.copied': 'Copiado',
-    'common.copyFailed': 'Não foi possível copiar',
+    'common.copyFailed': 'Não foi possível copiar. Selecione o texto e copie manualmente.',
     'common.notifications': 'Notificações',
   },
   {
@@ -20,7 +20,7 @@ export default defineArea(
       'common.soon': 'Coming soon',
       'common.copy': 'Copy',
       'common.copied': 'Copied',
-      'common.copyFailed': 'Could not copy',
+      'common.copyFailed': 'Could not copy. Select the text and copy it manually.',
       'common.notifications': 'Notifications',
     },
     es: {
@@ -30,7 +30,7 @@ export default defineArea(
       'common.soon': 'Próximamente',
       'common.copy': 'Copiar',
       'common.copied': 'Copiado',
-      'common.copyFailed': 'No se pudo copiar',
+      'common.copyFailed': 'No se pudo copiar. Selecciona el texto y cópialo manualmente.',
       'common.notifications': 'Notificaciones',
     },
     fr: {
@@ -40,7 +40,7 @@ export default defineArea(
       'common.soon': 'Bientôt',
       'common.copy': 'Copier',
       'common.copied': 'Copié',
-      'common.copyFailed': 'Impossible de copier',
+      'common.copyFailed': 'Impossible de copier. Sélectionnez le texte et copiez-le manuellement.',
       'common.notifications': 'Notifications',
     },
     de: {
@@ -50,7 +50,7 @@ export default defineArea(
       'common.soon': 'Demnächst',
       'common.copy': 'Kopieren',
       'common.copied': 'Kopiert',
-      'common.copyFailed': 'Kopieren nicht möglich',
+      'common.copyFailed': 'Kopieren nicht möglich. Markiere den Text und kopiere ihn von Hand.',
       'common.notifications': 'Benachrichtigungen',
     },
   },

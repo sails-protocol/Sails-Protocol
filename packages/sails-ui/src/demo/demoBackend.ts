@@ -579,7 +579,7 @@ export function installDemoBackend() {
       const me = findParticipant(needMe())
       findParticipant(voucheeId)
       if (voucheeId === me.id) throw new Error('Você não pode avalizar a si mesmo')
-      if (me.totalTrades < 3 || me.reputationScore <= 0) throw new Error('Requer pelo menos 3 trades e reputação positiva para avalizar alguém')
+      if (me.totalTrades < 3 || me.reputationScore <= 0) throw new Error('Para avalizar alguém, você precisa de pelo menos 3 trades concluídos e reputação positiva.')
       if (state.vouches.some((v) => v.voucherId === me.id && v.voucheeId === voucheeId && !v.burnedAt)) throw new Error('Você já avalizou esta pessoa')
       const v: Vouch = { id: crypto.randomUUID(), voucherId: me.id, voucheeId, createdAt: now(), burnedAt: null }
       state.vouches.push(v)

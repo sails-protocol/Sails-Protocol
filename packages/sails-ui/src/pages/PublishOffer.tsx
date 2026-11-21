@@ -54,6 +54,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '.
 import { Combobox } from '../components/ui/combobox'
 import { PaymentMethods } from '../components/ui/PaymentMethods'
 import { ArrowLeft } from 'lucide-react'
+import { SideArrow } from '../components/ui/StatusBadges'
 import { fetchOffers } from '../lib/realOffers'
 import { ASSETS, PAYMENT_METHODS, COUNTRIES, countryLabel } from '../data/mock'
 import { formatByCurrency } from '../lib/currency'
@@ -261,15 +262,17 @@ export function PublishOffer() {
                     key={s}
                     onClick={() => setSide(s)}
                     aria-pressed={side === s}
-                    className={cn('flex-1 h-8 touch:h-11', segmentItemClass(side === s))}
+                    className={cn('flex-1 h-8 touch:h-11 inline-flex items-center justify-center gap-1', segmentItemClass(side === s, s))}
                   >
+                    <SideArrow side={s} />
                     {t(s === 'SELL' ? 'publish.sell' : 'publish.buy')}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 [&_.toolbar-chip]:w-full">
+            {/* In a form, the pickers look like the other fields (bordered, field background), not like toolbar chips. */}
+            <div className="grid gap-3 sm:grid-cols-2 [&_.toolbar-chip]:w-full [&_.toolbar-chip]:bg-background [&_.toolbar-chip]:border-input">
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">{t('trades.offers.col.asset')}</label>
                 <AssetPicker

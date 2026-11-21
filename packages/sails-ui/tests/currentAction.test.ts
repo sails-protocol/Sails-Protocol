@@ -61,7 +61,7 @@ describe('current action derivation (CTO 437)', () => {
   it('never offers a release the interface cannot complete (releaseUnavailable)', () => {
     const v = deriveCurrentAction({ status: 'PAYMENT_PENDING', isBuyer: false, isSeller: true, releaseUnavailable: true })
     expect(v.primary).toBeUndefined()
-    expect(v.title).toBe('Liberação indisponível nesta interface para este tipo de escrow')
+    expect(v.title).toBe('Liberação não disponível nesta interface para este tipo de escrow')
     expect(v.canDispute).toBe(true)
   })
 
