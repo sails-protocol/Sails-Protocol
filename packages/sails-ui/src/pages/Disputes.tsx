@@ -20,9 +20,10 @@ import { Link } from 'react-router'
 import { toast } from '../components/ui/toast'
 import { useAuth } from '../context/AuthContext'
 import { sailsClient } from '../lib/sailsClient'
-import type { Dispute, DisputeRuling, Escrow, EscrowType } from '@satsails/p2p-trading-sdk'
-import { ESCROW_STATUS_LABEL } from '../components/ui/StatusBadges'
-import { formatAmount, formatDateTime } from '../lib/format'
+import type { Dispute, DisputeRuling, Escrow, EscrowType, Trade } from '@satsails/p2p-trading-sdk'
+import { ESCROW_STATUS_LABEL, TradeStatusBadge } from '../components/ui/StatusBadges'
+import { formatAmount, formatDateTime, formatUsd } from '../lib/format'
+import { errorMessage } from '../lib/errors'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, DISPUTE_STATUS_LABEL } from '../lib/labels'
 import { decisionOptions, multisigPendingSigner, parseEvidence, partyIdFor, partyRole, pendingSuggestion, RULING_DECISION, selectableOption, splitUnavailableHere, type DecisionChoice } from '../lib/disputeCase'
 import { Button, buttonVariants } from '../components/ui/button'
@@ -30,12 +31,14 @@ import { badgeVariants } from '../components/ui/badge'
 import { Card } from '../components/ui/card'
 import { ListSkeleton } from '../components/ui/skeleton'
 import { StateBlock } from '../components/ui/StateBlock'
-import { TABLE_HEAD_ROW, TABLE_ROW } from '../components/ui/table'
+import { TABLE_HEAD_ROW, TABLE_ROW, TABLE_ROW_INTERACTIVE } from '../components/ui/table'
 import { Page, PageHeader } from '../components/layout/PageHeader'
+import { TRADES_ROUTES } from '../components/layout/navMatch'
+import { TradesTabs } from '../components/layout/TradesTabs'
 import { cn } from '../lib/utils'
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetDescription } from '../components/ui/sheet'
 import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
-import { Bot, Info, X } from 'lucide-react'
+import { Bot, ChevronRight, Info, X } from 'lucide-react'
 import { TONE_CLASS } from '../lib/tone'
 import { RadioCard, RadioGroup } from '../components/ui/radio-group'
 
@@ -91,7 +94,117 @@ function DisputeStatusBadge({ status }: { status: Dispute['status'] }) {
   )
 }
 
+// Same columns as Ativos/Histórico (Valor | Papel | Status | 1fr | Data | ›), so the tabs line up.
+const MY_COLS = 'lg:grid lg:grid-cols-[10rem_6.5rem_8rem_minmax(0,1fr)_7rem_1rem] lg:items-center lg:gap-4'
+
+/**
+ * Trades → Disputas (/trades/disputes; /disputes redirects here). Main list: the viewer's OWN trades in
+ * dispute (getTrades(), the same source as Ativos/Histórico, status DISPUTED); each row opens its trade,
+ * where the dispute panel lives. Below it, only for arbiters, the caseload assigned to them (ArbiterCases).
+ */
 export function Disputes() {
+  const { user, loading: authLoading } = useAuth()
+  const [trades, setTrades] = useState<Trade[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = () => {
+    if (!user) {
+      setLoading(false)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    sailsClient.openp2p
+      .getTrades({ limit: 50 })
+      .then((page) => {
+        if (!cancelled) setTrades(page.trades.filter((t) => t.status === 'DISPUTED').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)))
+      })
+      .catch((err) => { if (!cancelled) setError(errorMessage(err, 'Falha ao carregar trades')) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }
+  useEffect(load, [user])
+
+  const signedOut = !authLoading && !user
+  const ready = !!user && !error && !authLoading && !loading
+
+  return (
+    <Page>
+      <PageHeader
+        title="Trades"
+        meta={ready && trades.length > 0 ? `${trades.length} ${trades.length === 1 ? 'trade seu em disputa' : 'trades seus em disputa'}` : undefined}
+      >
+        <TradesTabs openDisputes={ready ? trades.length : null} />
+      </PageHeader>
+
+      {signedOut ? (
+        <StateBlock
+          kind="signedOut"
+          title="Conecte sua wallet"
+          description="Conecte sua wallet para ver seus trades em disputa."
+          action={<Link to="/login" state={{ from: TRADES_ROUTES.disputes }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Conectar wallet</Link>}
+        />
+      ) : error ? (
+        <StateBlock
+          kind="error"
+          title="Não foi possível carregar seus trades em disputa"
+          description={error}
+          action={<Button variant="outline" onClick={load} className="min-h-9 touch:min-h-11 px-4">Tentar novamente</Button>}
+        />
+      ) : authLoading || loading ? (
+        <Card className="overflow-hidden">
+          <ListSkeleton label="Carregando trades em disputa" rows={2} rowClassName="h-[5.5rem] lg:h-[3.75rem]" />
+        </Card>
+      ) : trades.length === 0 ? (
+        <StateBlock kind="empty" title="Nenhum trade seu em disputa" description="Se você abrir uma disputa num trade, ou a outra parte abrir, ele aparece aqui." />
+      ) : (
+        <Card className="overflow-hidden">
+          <div aria-hidden="true" className={cn(TABLE_HEAD_ROW, 'hidden', MY_COLS)}>
+            <span>Valor</span>
+            <span>Papel</span>
+            <span>Status</span>
+            <span>Onde acompanhar</span>
+            <span className="text-right">Atualizado</span>
+            <span />
+          </div>
+          <ul>
+            {trades.map((t) => {
+              const role = t.buyerId === user?.id ? 'Comprador' : 'Vendedor'
+              return (
+                <li key={t.id} className={TABLE_ROW}>
+                  <Link to={`/trade/${t.id}`} className={cn('flex flex-col gap-1 px-4 py-3', TABLE_ROW_INTERACTIVE, MY_COLS)}>
+                    <span className="flex items-center justify-between gap-3 lg:block">
+                      <span className="min-w-0">
+                        <span className="money block text-brand-text">{formatAmount(Number(t.amount))} {ASSET_SHORT_LABELS[t.asset]}</span>
+                        <span className="hidden lg:block text-xs text-brand-text-muted tabular-nums">{formatUsd(Number(t.totalUsd))} USD</span>
+                      </span>
+                      <span className="lg:hidden"><TradeStatusBadge status={t.status} /></span>
+                    </span>
+                    <span className="hidden lg:block text-sm text-brand-text-secondary">{role}</span>
+                    <span className="hidden lg:block"><TradeStatusBadge status={t.status} /></span>
+                    <span className="text-sm text-brand-text-secondary">Acompanhe a disputa na página do trade</span>
+                    <span className="text-xs text-brand-text-muted tabular-nums lg:text-right">
+                      <span className="lg:hidden">{role} · {formatUsd(Number(t.totalUsd))} USD · </span>
+                      {formatDateTime(t.updatedAt)}
+                    </span>
+                    <ChevronRight className="hidden lg:block h-4 w-4 text-brand-text-muted" aria-hidden="true" />
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        </Card>
+      )}
+
+      {user && <ArbiterCases />}
+    </Page>
+  )
+}
+
+/** Arbiter caseload (listDisputes(), scoped server-side to the caller as arbiter): list + case file + ruling. Unchanged. */
+function ArbiterCases() {
   const { user, wallet, loading: authLoading } = useAuth()
   const [rows, setRows] = useState<Row[]>([])
   const [names, setNames] = useState<Record<string, string>>({})
@@ -290,33 +403,21 @@ export function Disputes() {
   const signedOut = !authLoading && !user
   const ready = !signedOut && !error && !authLoading && !loading
 
-  return (
-    <Page>
-      <PageHeader
-        title="Disputas"
-        meta={ready ? `${openCount} em aberto · atribuídas a você como árbitro` : undefined}
-      />
+  // Only arbiters see this section: hidden while loading and when the caseload is empty (every normal user).
+  if (signedOut || authLoading || loading || (!error && rows.length === 0)) return null
 
-      {signedOut ? (
-        <StateBlock
-          kind="signedOut"
-          title="Conecte sua wallet"
-          description="Conecte sua wallet para ver disputas atribuídas a você."
-          action={<Link to="/login" state={{ from: '/disputes' }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Conectar wallet</Link>}
-        />
-      ) : error ? (
+  return (
+    <section aria-labelledby="arbiter-cases-title" className="mt-8">
+      <h2 id="arbiter-cases-title" className="text-section-title">Casos atribuídos a você como árbitro</h2>
+      {ready && <p className="text-metadata mt-1 mb-3">{openCount} em aberto</p>}
+      {error ? (
         <StateBlock
           kind="error"
-          title="Não foi possível carregar as disputas"
+          className="mt-3"
+          title="Não foi possível carregar os casos de arbitragem"
           description={error}
           action={<Button variant="outline" onClick={load} className="min-h-9 touch:min-h-11 px-4">Tentar novamente</Button>}
         />
-      ) : authLoading || loading ? (
-        <Card className="overflow-hidden">
-          <ListSkeleton label="Carregando disputas" rows={2} rowClassName="h-[6.5rem] xl:h-16" />
-        </Card>
-      ) : rows.length === 0 ? (
-        <StateBlock kind="empty" title="Nenhuma disputa atribuída a você" description="Quando você for designado árbitro de um trade, o caso aparece aqui." />
       ) : (
         <Card className="overflow-hidden">
           <div aria-hidden="true" className={cn(TABLE_HEAD_ROW, 'hidden xl:grid gap-x-4', DISPUTE_COLS)}>
@@ -438,7 +539,7 @@ export function Disputes() {
           onConfirm={() => confirmRuling(pending.row, pending.ruling, pending.viaSuggestion)}
         />
       )}
-    </Page>
+    </section>
   )
 }
 

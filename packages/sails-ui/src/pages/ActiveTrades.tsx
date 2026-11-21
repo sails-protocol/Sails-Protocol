@@ -15,6 +15,7 @@ import { Card } from '../components/ui/card'
 import { cn } from '../lib/utils'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { TradesTabs } from '../components/layout/TradesTabs'
+import { TRADES_ROUTES } from '../components/layout/navMatch'
 import { StateBlock } from '../components/ui/StateBlock'
 import { TABLE_HEAD_ROW, TABLE_ROW, TABLE_ROW_INTERACTIVE } from '../components/ui/table'
 import type { EscrowStatus } from '../types'
@@ -104,7 +105,7 @@ export function ActiveTrades() {
           kind="signedOut"
           title="Conecte sua wallet"
           description="Conecte sua wallet para ver seus trades ativos."
-          action={<Link to="/login" state={{ from: '/profile/active' }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Conectar wallet</Link>}
+          action={<Link to="/login" state={{ from: TRADES_ROUTES.active }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Conectar wallet</Link>}
         />
       ) : error ? (
         <StateBlock

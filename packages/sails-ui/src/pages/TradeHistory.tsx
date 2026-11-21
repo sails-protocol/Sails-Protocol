@@ -15,6 +15,7 @@ import { Button, buttonVariants } from '../components/ui/button'
 import { cn } from '../lib/utils'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { TradesTabs } from '../components/layout/TradesTabs'
+import { TRADES_ROUTES } from '../components/layout/navMatch'
 import { StateBlock } from '../components/ui/StateBlock'
 import { TABLE_HEAD_ROW, TABLE_ROW, TABLE_ROW_INTERACTIVE } from '../components/ui/table'
 import { StatStrip } from '../components/ui/StatStrip'
@@ -99,7 +100,7 @@ export function TradeHistory() {
           kind="signedOut"
           title="Conecte sua wallet"
           description="Conecte sua wallet para ver seu histórico de trades."
-          action={<Link to="/login" state={{ from: '/profile/history' }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Conectar wallet</Link>}
+          action={<Link to="/login" state={{ from: TRADES_ROUTES.history }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Conectar wallet</Link>}
         />
       ) : error ? (
         <StateBlock

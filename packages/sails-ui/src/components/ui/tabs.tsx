@@ -9,8 +9,8 @@
  * rest of navigation); inactive = secondary text. Height 40 fine / 44 touch.
  * Not for filters (use SegmentedControl).
  */
-import { useRef, type KeyboardEvent, type ReactNode } from 'react'
-import { NavLink } from 'react-router'
+import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { NavLink, useLocation } from 'react-router'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { moveActive } from '../../lib/combobox'
@@ -90,14 +90,22 @@ export function tabPanelProps(idBase: string, value: string) {
   return { role: 'tabpanel' as const, id: `${idBase}-panel-${value}`, 'aria-labelledby': `${idBase}-tab-${value}`, tabIndex: 0 }
 }
 
-/** Route tabs: links, not ARIA tabs (each one is a URL). */
+/** Route tabs: links, not ARIA tabs (each one is a URL). When the strip scrolls sideways (caller's
+ *  overflow-x-auto), the current tab is brought into view. */
 export function TabLinks({ items, label, className }: {
   items: ReadonlyArray<{ to: string; label: ReactNode }>
   label: string
   className?: string
 }) {
+  const navRef = useRef<HTMLElement>(null)
+  const { pathname } = useLocation()
+  useEffect(() => {
+    const nav = navRef.current
+    const active = nav?.querySelector<HTMLElement>('[aria-current="page"]')
+    if (nav && active && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2
+  }, [pathname])
   return (
-    <nav aria-label={label} className={cn(LIST.horizontal, className)}>
+    <nav ref={navRef} aria-label={label} className={cn(LIST.horizontal, 'relative', className)}>
       {items.map((t) => (
         <NavLink key={t.to} to={t.to} end className={({ isActive }: { isActive: boolean }) => tabClass(isActive)}>
           {t.label}

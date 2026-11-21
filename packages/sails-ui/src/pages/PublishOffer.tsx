@@ -46,6 +46,7 @@ import { Button } from '../components/ui/button'
 import { SEGMENT_TRACK, segmentItemClass } from '../components/ui/SegmentedControl'
 import { cn } from '../lib/utils'
 import { Page, PageHeader } from '../components/layout/PageHeader'
+import { TRADES_ROUTES } from '../components/layout/navMatch'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
@@ -211,7 +212,7 @@ export function PublishOffer() {
       })
       offerIdempotencyKeyRef.current = crypto.randomUUID() // this attempt is now settled — a new key for whatever comes next
       toast.success('Oferta publicada')
-      navigate('/profile')
+      navigate(TRADES_ROUTES.offers)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Falha ao publicar oferta')
     } finally {
@@ -223,8 +224,8 @@ export function PublishOffer() {
     <Page width="form">
       <PageHeader
         back={
-          <Link to="/profile" className="min-h-11 md:min-h-0 text-body-sm text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Perfil
+          <Link to={TRADES_ROUTES.offers} className="min-h-11 md:min-h-0 text-body-sm text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Minhas ofertas
           </Link>
         }
         title="Publicar oferta"

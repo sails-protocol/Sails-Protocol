@@ -1,11 +1,12 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
 import { AuthProvider } from './context/AuthContext'
 import { TooltipProvider } from './components/ui/tooltip'
 import { Toaster } from './components/ui/toast'
 import { Layout } from './components/layout/Layout'
 import { SessionExpiryRedirect } from './components/auth/SessionExpiryRedirect'
+import { LEGACY_REDIRECTS, legacyRedirect, TRADES_ROUTES } from './components/layout/navMatch'
 
 // Route-level code splitting (2026-08-11) — vite build's own warning
 // (a single ~2.6MB chunk) was every page in one bundle regardless of
@@ -25,6 +26,7 @@ const TradeHistory = lazy(() => import('./pages/TradeHistory').then((m) => ({ de
 const ActiveTrades = lazy(() => import('./pages/ActiveTrades').then((m) => ({ default: m.ActiveTrades })))
 const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })))
 const Disputes = lazy(() => import('./pages/Disputes').then((m) => ({ default: m.Disputes })))
+const MyOffers = lazy(() => import('./pages/MyOffers').then((m) => ({ default: m.MyOffers })))
 // Dev-only preview: import.meta.env.DEV is statically false in production builds, so Rollup drops this chunk.
 const CurrentActionPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/CurrentActionPreview').then((m) => ({ default: m.CurrentActionPreview }))) : null
 const SigningRequestPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/SigningRequestPreview').then((m) => ({ default: m.SigningRequestPreview }))) : null
@@ -50,7 +52,15 @@ function ThemedToaster() {
 // uses — one consistent "carregando" look across the app, not a new one
 // invented just for route transitions.
 function RouteFallback() {
-  return <div className="text-center py-16 text-brand-text-muted">Carregando...</div>
+  return <div className="text-center py-16 text-brand-text-muted">Carregando…</div>
+}
+
+// Old address -> its new home (navMatch.ts LEGACY_REDIRECTS), replacing the history entry and keeping
+// query, hash and router state (e.g. Login's `from`).
+function LegacyRedirect() {
+  const location = useLocation()
+  const to = legacyRedirect(location)
+  return to ? <Navigate replace to={to} state={location.state} /> : <NotFound />
 }
 
 export default function App() {
@@ -69,11 +79,13 @@ export default function App() {
                 <Route path="/offer/:id" element={<Suspense fallback={<RouteFallback />}><OfferDetail /></Suspense>} />
                 <Route path="/trade/:id" element={<Suspense fallback={<RouteFallback />}><Trade /></Suspense>} />
                 <Route path="/profile" element={<Suspense fallback={<RouteFallback />}><Profile /></Suspense>} />
-                <Route path="/profile/active" element={<Suspense fallback={<RouteFallback />}><ActiveTrades /></Suspense>} />
-                <Route path="/profile/history" element={<Suspense fallback={<RouteFallback />}><TradeHistory /></Suspense>} />
-                <Route path="/profile/new-offer" element={<Suspense fallback={<RouteFallback />}><PublishOffer /></Suspense>} />
+                <Route path={TRADES_ROUTES.active} element={<Suspense fallback={<RouteFallback />}><ActiveTrades /></Suspense>} />
+                <Route path={TRADES_ROUTES.history} element={<Suspense fallback={<RouteFallback />}><TradeHistory /></Suspense>} />
+                <Route path={TRADES_ROUTES.offers} element={<Suspense fallback={<RouteFallback />}><MyOffers /></Suspense>} />
+                <Route path={TRADES_ROUTES.newOffer} element={<Suspense fallback={<RouteFallback />}><PublishOffer /></Suspense>} />
+                <Route path={TRADES_ROUTES.disputes} element={<Suspense fallback={<RouteFallback />}><Disputes /></Suspense>} />
                 <Route path="/settings" element={<Suspense fallback={<RouteFallback />}><Settings /></Suspense>} />
-                <Route path="/disputes" element={<Suspense fallback={<RouteFallback />}><Disputes /></Suspense>} />
+                {Object.keys(LEGACY_REDIRECTS).map((from) => <Route key={from} path={from} element={<LegacyRedirect />} />)}
                 {CurrentActionPreview && <Route path="/dev/current-action" element={<Suspense fallback={<RouteFallback />}><CurrentActionPreview /></Suspense>} />}
                 {SigningRequestPreview && <Route path="/dev/signing-request" element={<Suspense fallback={<RouteFallback />}><SigningRequestPreview /></Suspense>} />}
                 {FundingInstructionPreview && <Route path="/dev/funding-instruction" element={<Suspense fallback={<RouteFallback />}><FundingInstructionPreview /></Suspense>} />}

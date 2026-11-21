@@ -5,6 +5,13 @@ Registro das decisões que o Product Owner (Alan) fechou, mais as ordens do CTO 
 O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. Este arquivo guarda o "o quê", depois de decidido. Quando um item do `DESIGN_SYSTEM.md` ainda está marcado como provisório (aguardando o Design System Architect), ele continua provisório. Este arquivo não o homologa.
 
 ## Regras de trabalho
+- **Modo consolidação** (2026-11-20): nenhuma funcionalidade nova até a visão do usuário fechar no modelo ideal. O trabalho segue o plano de consolidação, nesta ordem:
+  1. fechar o que está aberto;
+  2. ratificar o Design System com o Architect;
+  3. verificar fora das capturas (versão de produção, testes de ponta a ponta, acessibilidade manual, aparelho real, backend real);
+  4. criar travas executáveis para que nenhum agente erre;
+  5. publicar em Draft.
+  - Descobertas novas vão para o registro de requisitos, não para a tela.
 - **Refinar, nunca refazer.** O que já foi aprovado fica como está. Muda só o que foi pedido. Nenhuma funcionalidade some da tela: se mudar de lugar, é reencaixada (2026-11-20).
 - **Verdade antes de visual (CTO 437).** Nada inventado: nenhum estado, prazo, taxa, contador, escala de reputação ou custódia que o protocolo não tenha. "Pagamento enviado" não é "pagamento verificado". "Concluído" não é finalidade de liquidação. USD é a única unidade real de preço. `fundedAmount` nunca aparece. Nenhum texto genérico de "não custodial".
 - **Funcionalidade futura aparece como "Em breve"**, desabilitada e ligada à lista de fios soltos (`LOOSE_WIRES` em `lib/looseWires.ts`, issue #729), nunca com dado falso (2026-11-20).
@@ -43,6 +50,56 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
   - Abaixo de 1024 px vale o layout de hoje.
   - No celular a barra inferior continua igual, qualquer que seja a escolha.
   - Os dois layouts são testados em todas as larguras e nos dois temas.
+- **Nó não é mercado** (2026-11-20; ADR-001 e issues #147 e #361):
+  - O nó Sails mantém a rede: é infraestrutura e serviço. O mercado público é da rede inteira, e trocar de nó nunca troca as ofertas.
+  - Mercado privado (grupo, empresa, família, OTC) é um conceito separado. Pode rodar num nó compartilhado ou num nó próprio, porque "quem hospeda o nó não define quem pertence ao mercado".
+  - Na interface, o **seletor de nó** fica em Configurações → Nó Sails. O **seletor de mercado** fica no topo do Market (protótipo D1, PR #727), e a gestão dos mercados em Configurações → Comunidades.
+  - O nome oficial de mercados e servidores públicos e privados ainda está em aberto no backlog. Até decidir, a tela usa "Mercado público" e o nome dado pelo grupo.
+  - **Orientação do CTO (2026-11-20, issue #147):**
+    - nó privado **não é obrigatório** para um mercado fechado, e os dois modelos continuam (nó compartilhado ou próprio);
+    - a experiência prioriza a combinação natural nó privado + mercado fechado: o nó privado aparece junto dos mercados que hospeda;
+    - "o mercado define a comunidade e suas permissões; o nó fornece comunicação, descoberta e disponibilidade".
+  - **Garantias que a tela nunca pode contradizer:**
+    - os participantes continuam controlando suas chaves e seus fundos;
+    - hospedar o mercado não dá acesso às chaves nem autoridade unilateral sobre a liquidação;
+    - o administrador pode remover alguém do mercado sem apagar a identidade portátil nem a reputação global da pessoa;
+    - o operador do nó não pode falsificar a autorização de membros nem acessar fundos;
+    - as permissões são verificadas no backend e no protocolo, não só escondidas na tela.
+  - **Fluxo previsto na interface ("Meus mercados"):** criar mercado, escolher quem participa, configurar regras, escolher a infraestrutura e gerar convites. O participante entra com a identidade portátil e vê só as ofertas a que tem acesso.
+  - Requisito preservado no registro e no Project #3, ligado à #147. **Ainda sem autorização de implementação.**
+  - **Princípios definitivos (CTO, 2026-11-20, registrados na #147):**
+    1. **Autonomia dos mercados:** quem cria o mercado escolhe as regras de participação e de publicação. Pode ser só a empresa publicando, membros negociando entre si ou outro formato.
+    2. **Neutralidade do Sails:** o protocolo fornece capacidades técnicas e não controla os negócios. As permissões são configuráveis e verificadas no backend e no protocolo, nunca só na tela.
+    3. **Soberania dos usuários:** o administrador pode revogar o acesso ao próprio mercado, mas não apaga a identidade, a reputação global nem toma fundos.
+    4. **Infraestrutura independente:** o mercado fechado usa nó privado ou compartilhado.
+  - **Modelos iniciais de experiência (reforço do CTO, 2026-11-20, #147).** São atalhos opcionais para configurar permissões verificáveis, **não limitações do protocolo nem modelos comerciais impostos**. Ninguém é obrigado a usá-los:
+
+    | Modelo | Quem publica ofertas | Quem negocia |
+    |---|---|---|
+    | **Vitrine** | Administrador ou participantes autorizados | Clientes e membros autorizados |
+    | **Comunidade** | Todos os membros autorizados | Todos os membros autorizados |
+    | **Personalizado** (futuro) | Conforme as permissões configuradas | Conforme as permissões configuradas |
+
+    O Principal especifica o modelo técnico de permissões, e o GK valida os limites de autoridade antes da implementação. Nenhum GO de implementação ou de ativação econômica está implícito.
+- **Nós e mercados privados: identidade e convites próprios do Sails** (diretriz do CTO para a Sails UI e Complemento ao Despacho 055, 2026-11-20, issue #147).
+  - **Sem Nostr.** Nada de `npub`, chave Nostr, relays ou convites geridos por serviço externo. A experiência é própria do Sails, e não copia a Mostro.
+  - **Três elementos**, com os formatos a especificar pelo Principal:
+    - **Sails Node ID:** identifica o nó;
+    - **Sails Market ID:** identifica o mercado, independente do nó que o hospeda;
+    - **Sails Market Invite:** credencial verificável, nativa do protocolo (OpenP2P com OpenIdentity).
+  - **Quem faz o quê:** Pubky e Pears fazem parte da stack planejada, para identidade e descoberta, mas não recebem a autoridade dos mercados. O Sails Node hospeda o mercado sem autoridade econômica. **Uma chave pública, sozinha, nunca é autorização de acesso.**
+  - **A interface nunca inventa** prefixo, chave ou formato definitivo, nunca usa senha compartilhada como autorização e nunca cria formato criptográfico próprio.
+  - **Dois fluxos separados:**
+    - **Adicionar nó Sails:** nó público, privado ou hospedado; campo "Endereço ou identificador do nó Sails"; nome local opcional; informações de conexão e avisos de privacidade. Conectar ao nó não dá acesso aos mercados hospedados nele.
+    - **Entrar em mercado privado:** ação independente; informar o convite ou credencial Sails; preparado para convite compartilhável e QR Code; estados validando, autorização pendente, acesso concedido, expirado e revogado. Conhecer um identificador público não basta.
+  - **Casos de uso visíveis:**
+    - comunidade: amigos ou conhecidos que negociam entre si;
+    - empresa: mercado restrito para clientes, parceiros ou distribuidores;
+    - mercado hospedado: comunidade que usa a infraestrutura de um operador independente.
+  - **Vitrine e Comunidade** como configurações iniciais (ver acima).
+  - **Portabilidade:** estados preparados para reconhecer os mercados ligados à identidade portátil, mesmo depois de trocar de aplicativo ou de nó, quando houver suporte verificável. Nunca prometer recuperação automática antes da especificação.
+  - **Entregável da UI:** telas de adicionar nó, entrar em mercado privado, ver os mercados autorizados e os estados de convite e acesso, com as dependências de backend explícitas. Os controles que dependem do backend ficam "Em breve" ou indisponíveis até os contratos existirem.
+  - **Autorizado:** layouts, componentes, textos, estados e protótipos. Implementação e ativação seguem os gates técnicos e de segurança.
 - Configurações tem as seções: Nó Sails, Wallet, Aparência, Idioma, Notificações, Segurança, Comunidades e Ajuda e Sobre. O ícone de paleta ("Aplicativo") saiu (2026-11-20).
 
 ## Identidade

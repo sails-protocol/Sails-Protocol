@@ -14,6 +14,7 @@ import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { cn } from '../lib/utils'
 import { Page, PageHeader } from '../components/layout/PageHeader'
+import { TRADES_ROUTES } from '../components/layout/navMatch'
 import { StateBlock } from '../components/ui/StateBlock'
 import { ArrowLeft, Check, Lock, SearchX } from 'lucide-react'
 import { Alert } from '../components/ui/alert'
@@ -254,9 +255,9 @@ export function OfferDetail() {
               <h2 className="text-section-title">Esta é a sua oferta</h2>
               <p className="text-body-sm text-brand-text-secondary mt-2">
                 Você não pode iniciar uma negociação com o seu próprio anúncio.
-                Gerencie-o em "Minhas ofertas", no seu perfil.
+                Gerencie-o em Trades, "Minhas ofertas".
               </p>
-              <Link to="/profile" className={cn(buttonVariants({ variant: 'outline', className: 'mt-4 w-full min-h-10 touch:min-h-11' }))}>
+              <Link to={TRADES_ROUTES.offers} className={cn(buttonVariants({ variant: 'outline', className: 'mt-4 w-full min-h-10 touch:min-h-11' }))}>
                 Ir para Minhas ofertas
               </Link>
             </Card>

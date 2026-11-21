@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useOutletContext } from 'react-router'
+import { Link, useOutletContext, useSearchParams } from 'react-router'
 import {
   Award, Bell, HelpCircle, KeyRound, Languages, LogOut, Monitor, Moon, Network, Server, Shield, ShieldCheck, Sun, SunMoon,
   Users, Wallet, ArrowLeft, type LucideIcon,
@@ -28,6 +28,7 @@ import { Alert } from '../components/ui/alert'
 import { LOOSE_WIRES, type LooseWireId } from '../lib/looseWires'
 import type { ThemePreference } from '../lib/themePreference'
 import { translationPending, useLocalePreference, type LocalePreference } from '../lib/locale'
+import { sectionFromSearch } from '../lib/settingsSection'
 
 const AVATAR_STYLE_OPTIONS: ReadonlyArray<{ value: IdentityAvatarStyle; label: string }> = [
   { value: 'vela', label: 'Vela' },
@@ -65,13 +66,14 @@ function Planned({ id, description }: { id: LooseWireId; description?: string })
   return <SettingsRow icon={wire.icon} label={wire.label} description={description} plannedLabel={SOON} />
 }
 
+// Order by use (DECISIONS.md "Reorganização pela visão do usuário"); the ids are unchanged.
 const SECTIONS: ReadonlyArray<{ id: string; label: string; icon: LucideIcon }> = [
-  { id: 'no-sails', label: 'Nó Sails', icon: Network },
   { id: 'wallet', label: 'Wallet', icon: Wallet },
   { id: 'aparencia', label: 'Aparência', icon: SunMoon },
   { id: 'idioma', label: 'Idioma', icon: Languages },
   { id: 'notificacoes', label: 'Notificações', icon: Bell },
   { id: 'seguranca', label: 'Segurança', icon: Shield },
+  { id: 'no-sails', label: 'Nó Sails', icon: Network },
   { id: 'comunidades', label: 'Comunidades', icon: Users },
   { id: 'ajuda', label: 'Ajuda e Sobre', icon: HelpCircle },
 ]
@@ -84,9 +86,12 @@ const SECTIONS: ReadonlyArray<{ id: string; label: string; icon: LucideIcon }> =
  * language preference); everything else is a planned row from LOOSE_WIRES (lib/looseWires.ts). No app version row: the build exposes none.
  */
 export function Settings() {
-  const [active, setActive] = useState(SECTIONS[0].id)
-  // Below md only: whether a section is open (otherwise the section list shows).
-  const [mobileOpen, setMobileOpen] = useState(false)
+  // The open section lives in the URL (?section=<id>, replaced, not pushed) so each one is deep-linkable.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { id: active, fromUrl } = sectionFromSearch(searchParams, SECTIONS.map((s) => s.id))
+  const setActive = (id: string) => setSearchParams((prev) => { prev.set('section', id); return prev }, { replace: true })
+  // Below md only: whether a section is open (otherwise the section list shows); a deep link opens it.
+  const [mobileOpen, setMobileOpen] = useState(fromUrl)
   const activeLabel = SECTIONS.find((s) => s.id === active)?.label
   const { replayTour } = useOutletContext<LayoutOutletContext>()
   const { preference, setPreference } = useTheme()
@@ -149,7 +154,7 @@ export function Settings() {
 
           <SettingsGroup {...panel('wallet')} title="Wallet" icon={Wallet}>
             {authLoading ? (
-              <li><ListSkeleton label="Verificando sessão" rows={2} rowClassName="h-14" /></li>
+              <li><ListSkeleton label="Verificando sessão…" rows={2} rowClassName="h-14" /></li>
             ) : user ? (
               <>
                 <SettingsRow icon={KeyRound} label="Wallet conectada" description="Guardada neste navegador" value="Chave local" />

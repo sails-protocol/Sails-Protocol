@@ -219,8 +219,8 @@ miniatura de cada layout (`layout/NavPositionThumb.tsx`, só tokens). Padrão
 `sails_ui_nav_position` (`lib/navPosition.ts`, leitura e escrita protegidas;
 `useNavPosition()` no `Layout` e em Configurações). Não há botão de alternar na
 barra. **Superior**, só a partir de 1024 (`lg`): a barra do topo (56, nível 1
-fixo) vira três colunas, a logo (símbolo + "Sails Market") à esquerda, os 5
-itens de `NAV_ITEMS` no centro (ícone + rótulo, mesma ordem, rotas e
+fixo) vira três colunas, a logo (símbolo + "Sails Market") à esquerda, os
+itens de `NAV_ITEMS` no centro (4) (ícone + rótulo, mesma ordem, rotas e
 `isNavActive`, tom ativo `navItemTone` igual ao da barra lateral,
 `aria-current="page"`, 36 com ponteiro fino / 44 no toque) e a conta à direita
 (`AccountMenu`, ou "Conectar wallet" sem sessão); a barra lateral some nessa
@@ -228,6 +228,36 @@ largura e o conteúdo usa a largura toda (mesmas larguras de `Page`). Abaixo de
 1024 vale o layout de hoje qualquer que seja a escolha; no celular, a barra
 inferior não muda. Teclado: "Pular para o conteúdo" é a primeira parada (leva a
 `#main-content`), depois logo → itens → conta.
+
+**Navegação pela visão do usuário** (DECISIONS.md "Reorganização pela visão do
+usuário", UX-031, 2026-11-20). Menu principal = `NAV_ITEMS`
+(`layout/Sidebar.tsx`), o mesmo na barra lateral, na barra superior e na barra
+inferior do celular (4 itens): **Market** `/` · **Trades** `/trades` · **Perfil**
+`/profile` (avatar) · **Configurações** `/settings`. Disputas saiu do menu e
+virou aba. Trades acende em qualquer `/trades/*` e na página do trade
+`/trade/:id` (`isNavActive` com `also`, `layout/navMatch.ts`). Abas de Trades
+(`layout/TradesTabs.tsx`, `TabLinks`, uma URL por aba): **Ativos** `/trades` ·
+**Histórico** `/trades/history` · **Minhas ofertas** `/trades/offers` (lista com
+pausar, ativar e cancelar; "Nova oferta" em `/trades/offers/new`) · **Disputas**
+`/trades/disputes`. A aba Disputas mostra primeiro **os trades da própria
+pessoa em disputa** (`getTrades()`, a mesma fonte de Ativos e Histórico, status
+`DISPUTED`); cada linha abre o trade, onde fica o painel da disputa. Abaixo, só
+para árbitros, a seção "Casos atribuídos a você como árbitro" (`listDisputes()`,
+com o caso no painel lateral, sem mudança), que só aparece quando há pelo menos
+um caso. Contador da aba Disputas: o número de trades da pessoa em disputa, só
+com o dado carregado; pílula âmbar (`TONE_CLASS.warning`) com "em disputa" para
+leitor de tela; sem dado, sem número. Abaixo de ~430 px (as quatro abas somam
+398 px) a faixa rola na horizontal dentro dela mesma, com a aba atual trazida à
+vista. Endereços antigos redirecionam com `replace`, mantendo query, hash e
+`state` (`LEGACY_REDIRECTS`): `/profile/active` → `/trades`, `/profile/history`
+→ `/trades/history`, `/profile/new-offer` → `/trades/offers/new`, `/disputes` →
+`/trades/disputes`. O Perfil continua com a vitrine (identidade, reputação,
+avaliações) e com a mesma seção "Minhas ofertas" (`MyOffersSection`,
+compartilhada com a aba). Configurações, em ordem de uso: Wallet, Aparência,
+Idioma, Notificações, Segurança, Nó Sails, Comunidades, Ajuda e Sobre. A seção
+aberta fica na URL, `?section=<id>` (substitui o histórico, não empilha; sem o
+parâmetro ou com id desconhecido abre Wallet; `lib/settingsSection.ts`); no
+celular um link direto já abre a seção.
 
 ### 4.2 Forma
 
@@ -480,7 +510,7 @@ Contraste: `ui-refs/ds-primitives-2026-11-20/contrast.cjs`.
 - **Tamanhos:** 40 fino / 44 toque (vertical 36 / 44).
 - **Onde:** Configurações md+ = `Tabs` verticais (trocam a seção, a URL fica;
   abaixo de md a mesma navegação é uma lista que abre a seção). Trades
-  (Ativos | Histórico) = `TabLinks` (cada aba é uma URL). **Não use** para
+  (Ativos | Histórico | Minhas ofertas | Disputas) = `TabLinks` (cada aba é uma URL). **Não use** para
   filtros (segmentado).
 
 #### Menu (`ui/menu.tsx`)
@@ -516,7 +546,7 @@ Contraste: `ui-refs/ds-primitives-2026-11-20/contrast.cjs`.
   + tabular), `TableEmpty` (StateBlock sem borda numa linha cheia).
 - **Ordenação:** `lib/sort.ts` (`nextSort`, `ariaSort`, `sortRows`: pt-BR,
   numérica, estável, vazios no fim; testado).
-- **Listas-tabela:** Trades (Ativos/Histórico), Perfil (ofertas) e Disputas são
+- **Listas-tabela:** Trades (Ativos/Histórico/Minhas ofertas/Disputas) e Perfil (ofertas) são
   listas que viram linhas abaixo de lg/xl; mantêm semântica de lista e usam o
   mesmo cabeçalho e linha (`TABLE_HEAD_ROW`, `TABLE_ROW`,
   `TABLE_ROW_INTERACTIVE`). OfferTable (Market ≥ lg) é a `<table>` real.
@@ -601,9 +631,10 @@ outros status.
 ### 5.4 Fase 4A (**provisório — ratificação pendente**, 2026-11-20)
 
 #### Configurações
-Seções (abas verticais md+, lista que abre a seção abaixo de md): **Nó Sails**
-(`Network`), **Wallet**, **Aparência** (`SunMoon`), **Idioma** (`Languages`),
-**Notificações** (`Bell`), **Segurança**, **Comunidades**, **Ajuda e Sobre**.
+Seções (abas verticais md+, lista que abre a seção abaixo de md), em ordem de
+uso: **Wallet**, **Aparência** (`SunMoon`), **Idioma** (`Languages`),
+**Notificações** (`Bell`), **Segurança**, **Nó Sails** (`Network`),
+**Comunidades**, **Ajuda e Sobre**.
 "Aplicativo" saiu: tema e estilo dos avatares foram para Aparência (com Avatar
 público e Moeda de exibição, ainda "Em breve"); Idioma e Notificações viraram
 seções. Nenhuma linha foi removida. Itens planejados vêm de `LOOSE_WIRES`

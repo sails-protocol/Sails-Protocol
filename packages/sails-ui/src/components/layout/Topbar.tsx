@@ -16,7 +16,7 @@ import { cn } from '../../lib/utils'
  * unavailable capability as available.
  *
  * `withNav` (the viewer chose "Posição do menu: Superior"): from 1024 px the bar also carries the logo on
- * the left and the Sidebar's five destinations in the center (same items, order, routes and active tone);
+ * the left and the Sidebar's four destinations in the center (same items, order, routes and active tone);
  * the Sidebar hides at that width. Below 1024 px the bar is exactly the session-only bar above.
  */
 export function Topbar({ withNav = false }: { withNav?: boolean }) {

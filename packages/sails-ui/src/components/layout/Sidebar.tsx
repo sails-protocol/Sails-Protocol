@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { Link, NavLink, useLocation } from 'react-router'
-import { ShoppingCart, ArrowLeftRight, User, Scale, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { ShoppingCart, ArrowLeftRight, User, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { isNavActive } from './navMatch'
+import { isNavActive, TRADES_ROUTES } from './navMatch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { IdentityAvatar } from '../ui/IdentityAvatar'
 import { cn } from '../../lib/utils'
@@ -10,19 +10,18 @@ import { SailsLogo, SailsMark } from '../brand/SailsLogo'
 
 /**
  * Product navigation, shared by the desktop Sidebar and the mobile BottomNav (same destinations, icons and
- * labels at every width). Five real destinations: Market, Trades, Disputas, Perfil, Configurações. No
- * "coming soon" entries: an item appears only when its route exists. Planned capabilities are disabled
- * rows INSIDE Configurações (pages/Settings.tsx), never menu entries.
+ * labels at every width). Four real destinations: Market, Trades, Perfil, Configurações (DECISIONS.md
+ * "Reorganização pela visão do usuário"). No "coming soon" entries: an item appears only when its route
+ * exists. Planned capabilities are disabled rows INSIDE Configurações (pages/Settings.tsx), never menu entries.
  *
- * "Trades" opens /profile/active and stays active on /profile/history too (`also`): both pages remain
- * separate, linked by a shared tab header (TradesTabs.tsx). `Perfil` is exact-match (`end`) so it does
- * not light up on its /profile/* children. `Disputas` keeps its session guard (no admin/operator gate
- * exists; a signed-out visitor just doesn't see it). Perfil draws the viewer's avatar (ProfileNavIcon).
+ * "Trades" opens /trades and stays active on every /trades/* tab (Ativos, Histórico, Minhas ofertas,
+ * Disputas: TradesTabs.tsx) and on a trade page (/trade/:id, `also`); Disputas left the main menu for
+ * that tab. `Perfil` is exact-match (`end`).
+ * Perfil draws the viewer's avatar (ProfileNavIcon).
  */
 export const NAV_ITEMS = [
   { to: '/', label: 'Market', icon: ShoppingCart, end: true, requiresAuth: false },
-  { to: '/profile/active', also: ['/profile/history'], label: 'Trades', icon: ArrowLeftRight, end: false, requiresAuth: false },
-  { to: '/disputes', label: 'Disputas', icon: Scale, end: false, requiresAuth: true },
+  { to: TRADES_ROUTES.active, also: ['/trade'], label: 'Trades', icon: ArrowLeftRight, end: false, requiresAuth: false },
   { to: '/profile', label: 'Perfil', icon: User, end: true, requiresAuth: false },
   { to: '/settings', label: 'Configurações', icon: Settings, end: false, requiresAuth: false },
 ] as const

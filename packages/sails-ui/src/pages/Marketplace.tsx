@@ -17,6 +17,7 @@ import { ListSkeleton } from '../components/ui/skeleton'
 import { cn } from '../lib/utils'
 import { SEGMENT_TRACK, segmentItemClass } from '../components/ui/SegmentedControl'
 import { Page, PageHeader } from '../components/layout/PageHeader'
+import { TRADES_ROUTES } from '../components/layout/navMatch'
 import { StateBlock } from '../components/ui/StateBlock'
 import { Alert } from '../components/ui/alert'
 import { Input } from '../components/ui/input'
@@ -229,7 +230,7 @@ export function Marketplace() {
         // search on one bar row at 1280. The one solid primary of the page is "Nova oferta".
         actions={<>
           {sideSegment('hidden md:flex', 'h-8 touch:h-11')}
-          <Link to="/profile/new-offer" className={cn(buttonVariants({ className: 'shrink-0 min-h-10 touch:min-h-11 px-4' }))}>
+          <Link to={TRADES_ROUTES.newOffer} className={cn(buttonVariants({ className: 'shrink-0 min-h-10 touch:min-h-11 px-4' }))}>
             <Plus aria-hidden="true" />
             Nova oferta
           </Link>

@@ -788,7 +788,7 @@ export function DesignSystemPreview() {
             <div className="w-52" aria-hidden="true"><span className={tabClass(true, 'vertical')}>Aplicativo</span><span className={tabClass(false, 'vertical')}>Segurança</span></div>
           </div>
         </div>
-        <p className="mt-2 text-caption text-brand-text-muted">Duas espécies, um visual. Tabs trocam o painel na mesma página (Configurações md+). TabLinks navegam entre rotas (Trades: Ativos | Histórico): links com aria-current, Tab passa por eles como links. Ativa = texto principal + indicador laranja de 2 px ("você está aqui"); 40 px fino, 44 no toque. Para filtros use o segmentado.</p>
+        <p className="mt-2 text-caption text-brand-text-muted">Duas espécies, um visual. Tabs trocam o painel na mesma página (Configurações md+). TabLinks navegam entre rotas (Trades: Ativos | Histórico | Minhas ofertas | Disputas, com contador âmbar dos seus trades em disputa): links com aria-current, Tab passa por eles como links. Ativa = texto principal + indicador laranja de 2 px ("você está aqui"); 40 px fino, 44 no toque. Para filtros use o segmentado.</p>
       </Section>
 
       <Section id="ds-menu" title="Menu">
@@ -858,7 +858,7 @@ export function DesignSystemPreview() {
             <TableBody><TableEmpty colSpan={2} kind="empty" title="Nenhuma oferta com estes filtros" /></TableBody>
           </Table>
         </div>
-        <p className="mt-2 text-caption text-brand-text-muted">Cabeçalho caption 500 em muted, frase normal; fixo opcional (superfície a 95 % + desfoque). Coluna ordenável = botão dentro do th, aria-sort no th, ícone de setas; um clique ordena crescente, outro inverte (pt-BR, vazios no fim, estável). Números à direita e tabulares. Linha: uma linha fina, camada de estado no hover; selecionada = bg-brand-selected + texto "selecionada". Vazio/erro = StateBlock sem borda numa linha cheia. Abaixo de lg a tabela do Market vira linhas; Trades, Perfil e Disputas são listas-tabela (mesmo cabeçalho e linha: TABLE_HEAD_ROW, TABLE_ROW).</p>
+        <p className="mt-2 text-caption text-brand-text-muted">Cabeçalho caption 500 em muted, frase normal; fixo opcional (superfície a 95 % + desfoque). Coluna ordenável = botão dentro do th, aria-sort no th, ícone de setas; um clique ordena crescente, outro inverte (pt-BR, vazios no fim, estável). Números à direita e tabulares. Linha: uma linha fina, camada de estado no hover; selecionada = bg-brand-selected + texto "selecionada". Vazio/erro = StateBlock sem borda numa linha cheia. Abaixo de lg a tabela do Market vira linhas; Trades (Ativos, Histórico, Minhas ofertas, Disputas) e Perfil são listas-tabela (mesmo cabeçalho e linha: TABLE_HEAD_ROW, TABLE_ROW).</p>
       </Section>
 
       <Section id="ds-alert" title="Aviso (Alert)">
@@ -1108,7 +1108,7 @@ export function DesignSystemPreview() {
             </span>
           ))}
         </div>
-        <p className="mt-2 text-caption text-brand-text-muted">Configurações → Aparência. Superior vale a partir de 1024 px: logo à esquerda, os 5 itens no centro, conta à direita; abaixo disso, o layout de hoje, e no celular a barra inferior. Item ativo = o mesmo tom laranja da barra lateral, com aria-current="page"; repouso = texto secundário com camada de estado no mouse. 36 px com ponteiro fino, 44 no toque.</p>
+        <p className="mt-2 text-caption text-brand-text-muted">Configurações → Aparência. Superior vale a partir de 1024 px: logo à esquerda, os 4 itens (Market, Trades, Perfil, Configurações) no centro, conta à direita; abaixo disso, o layout de hoje, e no celular a barra inferior. Item ativo = o mesmo tom laranja da barra lateral, com aria-current="page"; repouso = texto secundário com camada de estado no mouse. 36 px com ponteiro fino, 44 no toque.</p>
       </Section>
     </div>
   )
