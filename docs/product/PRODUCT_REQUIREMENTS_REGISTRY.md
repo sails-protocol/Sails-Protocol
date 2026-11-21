@@ -16,7 +16,7 @@ Origem: `ui-backend-gaps-2026-11-20.md`, o Despacho 039, o Despacho 051 com o Co
   - **Solução proposta:** existe proposta técnica, ainda não aprovada.
   - **Implementado:** está na interface e/ou no backend.
 - **Responsável inicial:** "EPM (a distribuir)", até o EPM atribuir.
-- **Indicadores (recomendação do CTO):** 43 requisitos descobertos (UX-001 a UX-043), 0 homologados.
+- **Indicadores (recomendação do CTO):** 44 requisitos descobertos (UX-001 a UX-044), 0 homologados.
 
 ---
 
@@ -432,6 +432,14 @@ Origem: sessão de UI, branch `ui/design-system` (sem PR publicada), decisões d
   - Contrato a levantar: catálogo e descoberta de nós (ADR-001 §6), metadados e identidade do nó. Ligado a UX-034 (E2).
   - Prioridade: P2.
   - Estado: interface prevista como item 1.4 do plano #746, com dados simulados e marcados na demonstração.
+
+- [ ] **UX-044: Consultar "minhas disputas como parte" e a contagem de abertas**
+  - Origem: UI, descoberto na reorganização da navegação (UX-031). Módulo: OpenSettlement e SDK.
+  - Contrato (reportado, a verificar): `listDisputes()` devolve só a fila do árbitro; não há consulta das disputas em que o usuário é comprador ou vendedor, nem contagem de abertas (`total` inclui resolvidas e a página é limitada a 50).
+  - Proposta: consulta paginada das disputas do participante e contagem das abertas no SDK.
+  - Contorno na UI: a aba Disputas lista os próprios trades com status DISPUTED (dado real) e mostra a fila do árbitro numa seção separada só quando existir.
+  - Prioridade: P2.
+  - Estado: levantado pela UI, não aprovado.
 
 ## Decisões pendentes do CTO (F)
 1. Destino de STACKS, RSK_BTC e SPARK no enum (UX-005).
