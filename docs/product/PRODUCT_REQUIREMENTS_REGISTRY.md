@@ -16,7 +16,7 @@ Origem: `ui-backend-gaps-2026-11-20.md`, o Despacho 039, o Despacho 051 com o Co
   - **Solução proposta:** existe proposta técnica, ainda não aprovada.
   - **Implementado:** está na interface e/ou no backend.
 - **Responsável inicial:** "EPM (a distribuir)", até o EPM atribuir.
-- **Indicadores (recomendação do CTO):** 25 requisitos descobertos, 0 homologados nesta proposta.
+- **Indicadores (recomendação do CTO):** 30 requisitos descobertos (UX-001 a UX-030), 0 homologados.
 
 ---
 
@@ -54,7 +54,7 @@ Origem: `ui-backend-gaps-2026-11-20.md`, o Despacho 039, o Despacho 051 com o Co
   - Prioridade: P1. Depende de UX-020.
   - Estado:
     - Requisito aprovado (051-A).
-    - Interface implementada: o cartão "Avaliar" no fim do trade já usa a escrita real. O limite de 280 caracteres e o contador estão em implementação.
+    - Interface implementada: o cartão "Avaliar" no fim do trade já usa a escrita real. O limite de 280 caracteres e o contador já estão aplicados no cartão "Avaliar" (50bc33f6).
   - Issue: a criar.
   - Decisão: Complemento 051-A.
   - Aceite:
@@ -328,6 +328,34 @@ Origem: `ui-backend-gaps-2026-11-20.md`, o Despacho 039, o Despacho 051 com o Co
 - E4: comunidades (`communities`);
 - tradução da interface (em implementação na UI, `language`);
 - central de ajuda (`helpCenter`).
+
+## Interface (descobertas resolvidas só na UI; sem contrato novo, exceto UX-030)
+
+Origem: sessão de UI, branch `ui/design-system` (sem PR publicada), decisões do Product Owner em `packages/sails-ui/DECISIONS.md`. Registradas aqui para rastreabilidade.
+
+- [ ] **UX-026: Posição do menu no desktop (lateral ou superior), em Aparência**
+  - Origem: UI. Módulo: interface. Contrato: nenhum.
+  - Estado: implementado na interface (64cc664a); auditoria 264/264. Não homologado.
+  - Aceite: a preferência persiste por usuário e funciona em todas as larguras.
+
+- [ ] **UX-027: Aparência: padrão do sistema, escuro ou claro**
+  - Origem: UI. Módulo: interface. Contrato: nenhum.
+  - Estado: implementado (eb4e11b0). Não homologado.
+
+- [ ] **UX-028: Interface em 5 idiomas (pt-BR, en, es, fr, de)**
+  - Origem: UI. Módulo: interface. Contrato: nenhum. Fio solto: `language`.
+  - Estado: escolha de idioma implementada; tradução em andamento. Precisa de revisão nativa dos textos de dinheiro e de disputa.
+  - Aceite: nenhum texto de dinheiro ou disputa é publicado sem revisão nativa.
+
+- [ ] **UX-029: Temporizador do prazo real do escrow (`escrow.expiresAt`) no cartão da etapa**
+  - Origem: UI, inspirado na Binance P2P. Módulo: interface. Contrato: usa só o prazo que já existe.
+  - Estado: em implementação. A janela de pagamento completa é UX-012 (#740), que é regra de protocolo e depende de decisão do CTO e do GK.
+  - Aceite: mostra apenas prazos reais do servidor.
+
+- [ ] **UX-030: Sem pagamento em dinheiro físico (decisão do Product Owner)**
+  - Origem: UI e Product Owner. CASH, CASH_BY_MAIL e LOTERICA_DEPOSIT saem da publicação, do filtro e da demonstração; o boleto é o único depósito. Módulo: interface e, se o PO quiser, backend.
+  - Estado: implementado na interface (1f0d6ab1, 9eb13d1a). **Pergunta aberta ao Principal e ao CTO:** o backend deve recusar esses métodos em ofertas novas? Hoje seguem no enum para dados antigos. Relacionado a #735 (vários métodos por oferta).
+  - Aceite (se aprovado): publicação com esses métodos recusada no backend e no SDK, sem apagar dados antigos.
 
 ## Decisões pendentes do CTO (F)
 1. Destino de STACKS, RSK_BTC e SPARK no enum (UX-005).
