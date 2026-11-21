@@ -360,19 +360,23 @@ Origem: sessão de UI, branch `ui/design-system` (sem PR publicada), decisões d
 - [ ] **UX-031: Reorganização da navegação pela visão do usuário**
   - Origem: UI e Product Owner. Módulo: interface. Contrato: nenhum.
   - Proposta: menu Market, Trades, Perfil e Configurações. Trades com abas Ativos, Histórico, Minhas ofertas (criar, pausar e cancelar) e Disputas (sai do menu principal e vira aba com contador). Configurações por ordem de uso: Wallet, Aparência, Idioma, Notificações, Segurança, Nó Sails, Comunidades e Ajuda. As rotas antigas redirecionam.
+  - Prioridade: P2 (definida pelo Product Owner; em execução logo após o temporizador UX-029).
   - Estado: aprovado pelo Product Owner, a implementar. Não homologado.
 
 - [ ] **UX-032: Visão do árbitro (lista de arbitragem e condução dos casos)**
   - Origem: UI. Módulo: OpenSettlement / arbitragem. Fase futura, depois de concluir a visão do usuário.
-  - Estado: contrato a levantar. Prioridade a definir.
+  - Prioridade: P3 (fase futura).
+  - Estado: contrato a levantar. 
 
 - [ ] **UX-033: Visão white-label (wallet integradora com a própria marca)**
   - Origem: UI. Módulo: interface e `@satsails/sdk-react`. Tokens e logo por marca. Fase futura.
-  - Estado: contrato a levantar. Prioridade a definir.
+  - Prioridade: P3 (fase futura).
+  - Estado: contrato a levantar. 
 
 - [ ] **UX-034: Visão do operador de nó Sails (saúde, configuração e métricas do servidor)**
   - Origem: UI. Módulo: plataforma. Equipe que mantém um servidor do protocolo. Fase futura.
-  - Estado: contrato a levantar. Prioridade a definir.
+  - Prioridade: P3 (fase futura).
+  - Estado: contrato a levantar. 
 
 ## Decisões pendentes do CTO (F)
 1. Destino de STACKS, RSK_BTC e SPARK no enum (UX-005).
