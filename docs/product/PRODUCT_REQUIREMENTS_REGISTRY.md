@@ -16,7 +16,7 @@ Origem: `ui-backend-gaps-2026-11-20.md`, o Despacho 039, o Despacho 051 com o Co
   - **Solução proposta:** existe proposta técnica, ainda não aprovada.
   - **Implementado:** está na interface e/ou no backend.
 - **Responsável inicial:** "EPM (a distribuir)", até o EPM atribuir.
-- **Indicadores (recomendação do CTO):** 37 requisitos descobertos (UX-001 a UX-037), 0 homologados.
+- **Indicadores (recomendação do CTO):** 43 requisitos descobertos (UX-001 a UX-043), 0 homologados.
 
 ---
 
@@ -399,6 +399,39 @@ Origem: sessão de UI, branch `ui/design-system` (sem PR publicada), decisões d
   - Contrato (reportado, a verificar): depois do prazo não existe caminho de reembolso unilateral, só a varredura do servidor.
   - Estado: observação de segurança levantada pela UI, a verificar pelo Principal e pelo GK; nenhuma decisão. A UI não promete reembolso (frase sem lastro removida em cad602d6).
   - Prioridade: P2.
+
+- [ ] **UX-038: Ícone de notificações na barra (sino com contador e lista)**
+  - Origem: UI e Product Owner. Módulo: interface. Depende de UX-025 (E1, #743).
+  - Prioridade: P2.
+  - Estado: levantado; sem contador inventado até existir o sistema de notificações.
+
+- [ ] **UX-039: "Novidades" (notas de versão do produto com indicador de não lido)**
+  - Origem: UI e Product Owner. Módulo: interface e conteúdo. Botão visível na tela principal.
+  - Prioridade: P3.
+  - Estado: levantado. Pendência: quem escreve e publica as notas.
+
+- [ ] **UX-040: Anexar arquivo (comprovante no chat do trade e evidência de disputa)**
+  - Origem: UI e Product Owner. Módulo: SDK, backend, OpenProof. Revisão de segurança do GK.
+  - Contrato: hoje a disputa aceita só `uri`; falta upload no SDK, armazenamento com privacidade e limites de tipo e tamanho.
+  - Prioridade: P2.
+  - Estado: levantado, não aprovado.
+
+- [ ] **UX-041: Lista de moedas fiduciárias**
+  - Origem: UI e Product Owner. Comparar Binance P2P, Airtm, El Dorado e Hodl Hodl e completar o que o backend aceita. Ligado a UX-008 (B3) e #623.
+  - Prioridade: P2.
+  - Estado: levantado.
+
+- [ ] **UX-042: Métodos de pagamento conforme a moeda**
+  - Origem: UI e Product Owner. Mapa moeda para métodos (ex.: PIX só BRL; EUR e USD com muitos métodos; sentido aceita e envia). O Principal avalia a validação no backend. Ligado a UX-004 (#735) e UX-030.
+  - Prioridade: P2.
+  - Estado: levantado, não aprovado.
+
+- [ ] **UX-043: Seletor de nó Sails em Configurações**
+  - Origem: UI e Product Owner, com inspiração Mostro: lista de nós (operador, região, status, taxa, limites, custódia declarada) e "adicionar seu próprio nó" com aviso.
+  - Regra Sails que muda a referência: ADR-001 "Node choice must not define market membership" e #361 (nenhum nó é autoridade obrigatória); a tela não sugere livro de ofertas por nó.
+  - Contrato a levantar: catálogo e descoberta de nós (ADR-001 §6), metadados e identidade do nó. Ligado a UX-034 (E2).
+  - Prioridade: P2.
+  - Estado: interface prevista como item 1.4 do plano #746, com dados simulados e marcados na demonstração.
 
 ## Decisões pendentes do CTO (F)
 1. Destino de STACKS, RSK_BTC e SPARK no enum (UX-005).
