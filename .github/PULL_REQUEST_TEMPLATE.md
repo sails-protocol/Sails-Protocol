@@ -63,6 +63,16 @@ leave them blank without saying why.
      Economic-Security-Critical work (docs/ENGINEERING_GOVERNANCE.md §4).
      Mark N/A for Reversible / Shared-Semantics work. -->
 
+### Merge Tier (docs/governance/MERGE_AUTONOMY_POLICY.md; proposed by the EPM, confirmed or raised by the GK)
+
+- **Proposed Tier (1-4) and why (real effect, not title):**
+- **GK confirmation:** (comment link, head SHA)
+- **Files that need explicit diff review (workflows, scripts, package.json):** None / list
+- [ ] Tier 3/4 only: CTO despacho for this exact head linked: ___
+- [ ] Merge does not authorize migration, deploy or economic activation.
+
+---
+
 ### Sacrifice Check (required for significant architecture/security/protocol work)
 
 1. What property did we gain?
