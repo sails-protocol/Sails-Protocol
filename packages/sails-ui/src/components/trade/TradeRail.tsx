@@ -52,9 +52,12 @@ interface Props {
 type BatonLook = 'yours' | 'attention' | 'other'
 
 function Baton({ baton, look }: { baton: BatonView; look: BatonLook }) {
-  // Orange only for "Sua vez"; amber on a disputed/expired stage; someone else's turn is brand blue; a wait is neutral.
+  // "Sua vez" = neutral chip with an orange dot (status-dot pattern): the step action stays the screen's one solid
+  // orange (DECISIONS.md 2026-11-21), and orange text on an orange tint fails AA in light (4.13). Amber on a
+  // disputed/expired stage; someone else's turn is brand blue; a wait is neutral.
   return (
-    <span className={cn('inline-flex w-fit max-w-full items-center rounded-md px-2 py-0.5 text-xs font-medium text-balance', baton.tone === 'neutral' ? cn('border', TONE_CLASS.neutral) : look === 'yours' ? 'bg-primary text-primary-foreground' : look === 'attention' ? cn('border', TONE_CLASS.warning) : 'border border-brand-blue-border bg-brand-blue-bg text-brand-blue-fg')}>
+    <span className={cn('inline-flex w-fit max-w-full items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium text-balance', baton.tone === 'neutral' ? cn('border', TONE_CLASS.neutral) : look === 'yours' ? 'border border-brand-border bg-brand-elevated text-brand-text' : look === 'attention' ? cn('border', TONE_CLASS.warning) : 'border border-brand-blue-border bg-brand-blue-bg text-brand-blue-fg')}>
+      {look === 'yours' && baton.tone !== 'neutral' && <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-primary" />}
       {baton.text}
     </span>
   )

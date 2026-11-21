@@ -828,7 +828,7 @@ marcador nunca discordam. Sem token novo.
 | Tom | Quando | Círculo | Linha até a próxima | Sinal que não é cor |
 |---|---|---|---|---|
 | `done` | etapa registrada | preenchido `brand-blue`, check `brand-surface` | 2 px `brand-blue` | ícone de check, "concluída" (leitor) |
-| `yours` | etapa atual e o viewer pode agir aqui | anel `orange-accent` + pulso | 1 px `border` | número, pílula "Sua vez" (`bg-primary`) |
+| `yours` | etapa atual e o viewer pode agir aqui | anel `orange-accent` + pulso | 1 px `border` | número, pílula "Sua vez" neutra com ponto laranja (2026-11-21) |
 | `waiting` | etapa atual esperando outra pessoa (ou viewer observador) | anel `brand-blue`, número `blue-fg` | 1 px `border` | número, bastão "Vez de …" (chip azul) |
 | `attention` | `blocked`, disputa ou prazo encerrado | anel `warning`, número `warning-fg` | — (o trilho para ali) | número, bastão neutro ou âmbar, status |
 | `upcoming` | ainda não | contorno `border` | 1 px `border` | número, texto secundário |
@@ -842,7 +842,7 @@ marcador nunca discordam. Sem token novo.
   só `transform`/`opacity`): um anel que cresce e some, 2 vezes de 2 s quando a
   etapa aparece, e para (menos de 5 s: WCAG 2.2.2 sem botão de pausa). Sem pulso
   com `prefers-reduced-motion` (fica o anel parado). Só na etapa `yours`.
-- **Bastão:** laranja cheio só no "Sua vez" (também numa etapa em disputa, como
+- **Bastão:** "Sua vez" = chip neutro com ponto laranja desde 2026-11-21 (antes laranja cheio) (também numa etapa em disputa, como
   a rodada da decisão que o viewer assina: o anel fica âmbar); a vez de outra
   parte numa etapa normal = chip azul da marca (era laranja); numa etapa em
   disputa ou com prazo encerrado = chip âmbar; espera indisponível = neutro.
@@ -863,7 +863,7 @@ superfície / elevado:
 | `border` (contorno futuro) | 3.59 / 3.30 | 3.43 / 3.03 |
 | check `brand-surface` sobre `brand-blue` | 5.17 | 6.42 |
 | número `blue-fg` / `warning-fg` | 6.70 / 7.09 | 6.42 / 9.78 |
-| "Sua vez" `primary-foreground` sobre `primary` | 5.22 | 6.63 |
+| "Sua vez" `text` sobre `elevated` (ponto laranja decorativo, 2026-11-21) | 18.16 | 13.42 |
 | chip azul: `blue-fg` sobre tint | 5.82 | 5.45 |
 
 Azul e laranja têm a mesma luminância (1.00 / 1.10 entre si): a diferença

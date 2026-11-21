@@ -244,6 +244,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 - **O avanço do trade tem cor** (2026-11-20). Nunca verde, porque "concluído" não é finalidade de liquidação (CTO 437):
   - etapa concluída: círculo azul da marca com check, e a linha até a próxima etapa preenchida em azul;
   - etapa atual com ação sua: anel laranja com pulso suave (parado quando o sistema pede menos movimento) e "Sua vez";
+    - o selo "Sua vez" é neutro, com um ponto laranja, padrão de status de mercado; o laranja sólido da tela fica só no botão da etapa (Product Owner, 2026-11-21).
   - etapa atual esperando a outra parte: anel azul, sem pulso;
   - etapa atual bloqueada ou indisponível: âmbar de atenção;
   - etapa futura: contorno neutro;
