@@ -44,7 +44,7 @@ const MOCK_MENTIONS: Record<string, number> = {
   'tests/integration/wdkSplitRestartConvergence.test.ts': 0,
   'tests/integration/wdkTerminalRestartConvergence.test.ts': 0,
   'tests/integration/wdkUnresolvedAttemptGuard.test.ts': 0,
-  'tests/wdkTransferAttemptConcurrency.postgres.test.ts': 0,
+  'tests/integration/wdkTransferAttemptConcurrency.test.ts': 0,
 }
 
 export function countMockMentions(source: string): number {
