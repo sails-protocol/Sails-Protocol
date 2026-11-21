@@ -18,9 +18,10 @@ import type {
 import { sailsClient } from '../lib/sailsClient'
 import { DEMO_FLAG_KEY, type DemoNoModelMarker } from '../lib/demoMarkers'
 import { MAX_PAYMENT_METHODS } from '../lib/paymentMethods'
+import type { DisputeAppealView } from '../lib/disputeAppeal'
 
 const FLAG_KEY = DEMO_FLAG_KEY
-const STATE_KEY = 'sails_demo_state_v4'
+const STATE_KEY = 'sails_demo_state_v5'
 // The encrypted identity/escrow keypairs AuthContext/useEscrowKey keep in
 // localStorage. In demo mode they are never stored or handed back, so every
 // login generates a fresh key and any passphrase works. Every other
@@ -162,6 +163,25 @@ function seed(): DemoState {
       autoResolutionRecommendation: 'RELEASE', autoResolutionConfidence: 0.62, autoResolutionReasoning: DEMO_SUGGESTION, autoResolutionDeadline: daysAhead(1),
     }),
   ])
+  // C12 contest of the decision (fictional rules, DEMO_APPEAL_RULES): open with a demo deadline, sent, decided.
+  // h5 above stays "not available", like every Day 0 rail.
+  add(seedTrade('6f3b9a27-demo-h6', o('demo-offer-5'), ME, a, '0.004', daysAgo(1), 'DISPUTED'), 'DISPUTED', (eid) => [
+    newDispute('6f3b9a27-demo-h6', eid, ME, JUDGE, 'O vendedor diz que o pagamento chegou incompleto (exemplo fictício).', daysAgo(1), {
+      status: 'RESOLVED', ruling: 'REFUND', resolvedAt: daysAgo(0.25),
+      evidence: [evidence(ME, 'Comprovante do valor total (exemplo).', daysAgo(1))],
+    }),
+  ])
+  add(seedTrade('3c7d1e58-demo-h7', o('demo-offer-1'), ME, g, '0.006', daysAgo(4), 'DISPUTED'), 'DISPUTED', (eid) => [
+    newDispute('3c7d1e58-demo-h7', eid, ME, JUDGE, 'O vendedor não reconheceu o PIX (exemplo fictício).', daysAgo(4), {
+      status: 'APPEALED', appealRound: 1, previousRuling: 'REFUND', previousArbiterId: JUDGE, arbiterId: APPEAL_PANEL,
+      evidence: [evidence(ME, 'Comprovante PIX de exemplo, id E111-DEMO.', daysAgo(4))],
+    }),
+  ])
+  add(seedTrade('0b9e4f72-demo-h8', o('demo-offer-2'), f, ME, '0.01', daysAgo(15), 'COMPLETED'), 'SPLIT', (eid) => [
+    newDispute('0b9e4f72-demo-h8', eid, f, JUDGE, 'O comprador diz que pagou duas vezes (exemplo fictício).', daysAgo(16), {
+      status: 'RESOLVED', ruling: 'SPLIT', resolvedAt: daysAgo(15), appealRound: 1, previousRuling: 'RELEASE', previousArbiterId: JUDGE, arbiterId: APPEAL_PANEL,
+    }),
+  ])
   // Disputes between other fictional parties, assigned to the demo user as arbiter.
   add(seedTrade('b62f0a49-demo-x1', o('demo-offer-1'), f, g, '0.03', daysAgo(1), 'DISPUTED'), 'DISPUTED', (eid) => [
     newDispute('b62f0a49-demo-x1', eid, f, ME, 'Paguei via PIX e o vendedor não liberou os fundos (exemplo fictício).', daysAgo(1), {
@@ -288,7 +308,7 @@ const allDisputes = () => state.escrows.flatMap((e) => e.disputes ?? [])
 const isParty = (t: Trade, who: string) => who === t.buyerId || who === t.sellerId
 function requireParty(d: Dispute) {
   const me = needMe()
-  if (!isParty(findTrade(d.tradeId), me)) throw new Error('Somente as partes do trade podem fazer isto (modo demonstração)')
+  if (!isParty(findTrade(d.tradeId), me)) throw new SailsForbiddenError('Somente as partes do trade podem fazer isto (modo demonstração)')
   return me
 }
 function reputationOf(p: Participant): ReputationScore {
@@ -362,6 +382,43 @@ function step(escrowId: string, actorId: string, action: 'lock' | 'markPaymentSe
 }
 
 // ---------- dispute lifecycle (same status transitions as dispute.service.ts) ----------
+
+/**
+ * Demo-only contest rules per dispute (fictional): the real ones live on the backend and no route exposes them
+ * yet (LOOSE_WIRES.disputeAppealView). `windowHours` is a fictional deadline counted from the decision; the
+ * real contract has none today (appealDeadlineAt is always null, gap G1). Disputes not listed get no view.
+ */
+const DEMO_APPEAL_RULES: Record<string, { supported: boolean; windowHours: number | null }> = {
+  '4a8f2d60-demo-h5-dispute': { supported: false, windowHours: null },
+  '6f3b9a27-demo-h6-dispute': { supported: true, windowHours: 48 },
+  '3c7d1e58-demo-h7-dispute': { supported: true, windowHours: 48 },
+  '0b9e4f72-demo-h8-dispute': { supported: true, windowHours: 48 },
+}
+
+/** The DisputeAppealView the proposed endpoint would return for `viewer`, read by lib/demoMarkers.ts only. */
+function demoAppealViewFor(d: Dispute, viewer: string): DisputeAppealView | undefined {
+  const rules = DEMO_APPEAL_RULES[d.id]
+  if (!rules) return undefined
+  const party = isParty(findTrade(d.tradeId), viewer)
+  const deadline = rules.windowHours && d.resolvedAt ? new Date(Date.parse(d.resolvedAt) + rules.windowHours * 3_600_000).toISOString() : null
+  const appealStatus: DisputeAppealView['appealStatus'] = !rules.supported ? 'not_available'
+    : d.status === 'APPEALED' ? 'submitted'
+    : d.status === 'RESOLVED' && d.appealRound > 0 ? 'resolved'
+    : d.status === 'RESOLVED' ? (deadline && Date.parse(deadline) < Date.now() ? 'expired' : 'open')
+    : 'not_available'
+  return {
+    disputeId: d.id, appealSupported: rules.supported, appealStatus,
+    appealDeadlineAt: appealStatus === 'open' ? deadline : null,
+    canCurrentUserAppeal: appealStatus === 'open' && party,
+    decisionFinalAt: null,
+  }
+}
+
+/** The dispute (already a clone) for `viewer`, carrying the demo view as a demo-only field guarded by demoMarkers. */
+function withDemoAppealView(d: Dispute, viewer: string): Dispute {
+  const view = demoAppealViewFor(d, viewer)
+  return view ? Object.assign(d, { demoAppealView: view }) : d
+}
 
 function touch(d: Dispute, patch: Partial<Dispute>) {
   Object.assign(d, patch, { updatedAt: now() })
@@ -726,7 +783,9 @@ export function installDemoBackend() {
       const e = findEscrow(id)
       // Trade parties and the dispute's assigned arbiter, like the real route.
       if (!isParty(findTrade(e.tradeId), me) && !(e.disputes ?? []).some((d) => d.arbiterId === me)) throw notFound('Escrow')
-      return clone(e)
+      const out = clone(e)
+      out.disputes = out.disputes?.map((d) => withDemoAppealView(d, me))
+      return out
     },
     async lock(id) { return step(id, needMe(), 'lock') },
     async markPaymentSent(id) { return step(id, needMe(), 'markPaymentSent') },
@@ -774,20 +833,23 @@ export function installDemoBackend() {
     async contestAutoResolution(id) {
       const d = findDispute(id)
       requireParty(d)
-      if (d.status !== 'AUTO_PROPOSED') throw new Error(`Não há sugestão automática pendente para contestar (status: ${d.status})`)
-      if (d.autoResolutionDeadline && Date.parse(d.autoResolutionDeadline) < Date.now()) throw new Error('O prazo para contestar já terminou')
-      return touch(d, { status: 'EVIDENCE_SUBMITTED' })
+      if (d.status !== 'AUTO_PROPOSED') throw new SailsValidationError(`Não há sugestão automática pendente para contestar (status: ${d.status})`)
+      if (d.autoResolutionDeadline && Date.parse(d.autoResolutionDeadline) < Date.now()) throw new SailsValidationError('O prazo para contestar já terminou')
+      // Like the real claim: a contest clears the recommendation and the deadline.
+      return touch(d, { status: 'EVIDENCE_SUBMITTED', autoResolutionRecommendation: null, autoResolutionConfidence: null, autoResolutionReasoning: null, autoResolutionDeadline: null })
     },
     async appealDispute(id) {
       const d = findDispute(id)
       requireParty(d)
-      if (d.status !== 'RESOLVED') throw new Error(`Só uma disputa resolvida pode ser apelada (status: ${d.status})`)
+      if (d.status !== 'RESOLVED') throw new SailsValidationError(`Só uma disputa com decisão registrada pode ser contestada (status: ${d.status})`)
+      // Same refusal as the real route when the rules do not allow it (Day 0 rails, trusted-list mode).
+      if (demoAppealViewFor(d, needMe())?.canCurrentUserAppeal !== true) throw new SailsValidationError('A contestação desta decisão não está disponível neste trade (modo demonstração)')
       const dispute = touch(d, {
         status: 'APPEALED', appealRound: d.appealRound + 1, previousRuling: d.ruling, previousArbiterId: d.arbiterId,
         arbiterId: APPEAL_PANEL, ruling: null, resolvedAt: null,
       })
       // MOCK escrows charge no fee, so the informational appeal fee is zero.
-      return { dispute, appealFeeRequired: '0.00000000' }
+      return { dispute: withDemoAppealView(dispute, needMe()), appealFeeRequired: '0.00000000' }
     },
     async getPayoutAddress(participantId, asset) {
       const a = state.payoutAddresses.find((x) => x.participantId === participantId && x.asset === asset)

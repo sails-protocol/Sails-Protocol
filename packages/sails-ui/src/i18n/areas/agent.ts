@@ -152,7 +152,7 @@ export default defineArea(
       'agent.risk.unsupportedAsset': 'Sails Agent does not assess the risk of {asset} yet.',
     },
     es: {
-      'agent.goalPlaceholder': 'Ej.: quiero comprar USDT con PIX, hasta 100 US$',
+      'agent.goalPlaceholder': 'Ej.: quiero comprar USDT con PIX, hasta US$ 100',
       'agent.boundary': 'Sails Agent usa un modelo de IA local. Busca ofertas reales dentro de los límites que definas (precio, reputación mínima) y prepara una propuesta. No accede a tu cuenta bancaria ni hace pagos: el pago en moneda fiat lo hace quien compra, fuera del protocolo. No crea el trade ni mueve fondos: tú apruebas la propuesta antes de cualquier acción de escrow.',
       'agent.toast.describeGoal': 'Describe lo que quieres negociar',
       'agent.toast.connectWallet': 'Conecta tu wallet para usar Sails Agent',

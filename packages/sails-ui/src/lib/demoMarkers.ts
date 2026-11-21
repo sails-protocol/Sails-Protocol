@@ -9,6 +9,7 @@ import { ratingSummaryOf, type RatingSummary } from './ratings'
 import type { NodeView } from './sailsNode'
 import type { MarketView } from './myMarkets'
 import { DEMO_MARKETS, DEMO_NODES } from '../demo/nodesMarkets'
+import { parseAppealView, type DisputeAppealView } from './disputeAppeal'
 
 export interface DemoNoModelMarker {
   modelConsulted: false
@@ -45,6 +46,15 @@ export function demoMemberSinceOf(raw: unknown): string | undefined {
   if (!isDemoMode()) return undefined
   const v = (raw as { demoMemberSince?: unknown } | null)?.demoMemberSince
   return typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : undefined
+}
+
+/**
+ * Demo-only contest view on a raw dispute from the demo backend (no endpoint yet, LOOSE_WIRES.disputeAppealView);
+ * undefined for real data, so real mode never sees a fictional deadline or permission.
+ */
+export function demoAppealViewOf(raw: unknown): DisputeAppealView | undefined {
+  if (!isDemoMode()) return undefined
+  return parseAppealView((raw as { demoAppealView?: unknown } | null)?.demoAppealView) ?? undefined
 }
 
 /** Demo-only node list (no node catalogue yet, LOOSE_WIRES.nodeCatalog); empty for real data. */

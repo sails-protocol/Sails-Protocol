@@ -11,7 +11,15 @@
  * port (src/config/index.ts's PORT default, 3000).
  */
 import { SailsClient } from '@satsails/p2p-trading-sdk'
+import { recordServerDate } from './serverClock'
 
 export const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
 
-export const sailsClient = new SailsClient({ baseUrl: BASE_URL })
+// Records each response's Date header for deadline displays (lib/serverClock.ts); the response is untouched.
+const fetchWithServerDate: typeof fetch = async (input, init) => {
+  const response = await fetch(input, init)
+  recordServerDate(response.headers.get('date'))
+  return response
+}
+
+export const sailsClient = new SailsClient({ baseUrl: BASE_URL, fetchImpl: fetchWithServerDate })

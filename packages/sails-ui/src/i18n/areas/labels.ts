@@ -13,7 +13,7 @@ export default defineArea(
     'labels.network.test': 'Rede de teste',
     'labels.asset.referenceNote': 'Implementação de referência',
     'labels.asset.signingHoldNote': 'Assinatura pela interface não disponível por enquanto',
-    'labels.asset.devTestNote': 'Arkade em rede de teste, só em desenvolvimento',
+    'labels.asset.devTestNote': 'Arkade em rede de teste, fechado no Day 0',
 
     'labels.payment.bankTransfer': 'Transferência bancária',
     'labels.payment.cryptoDirect': 'Cripto direto',
@@ -43,7 +43,7 @@ export default defineArea(
     'labels.disputeStatus.evidenceSubmitted': 'Evidências enviadas',
     'labels.disputeStatus.arbitrated': 'Decisão do árbitro',
     'labels.disputeStatus.resolved': 'Decisão registrada',
-    'labels.disputeStatus.appealed': 'Em apelação',
+    'labels.disputeStatus.appealed': 'Em contestação',
     'labels.disputeStatus.autoProposed': 'Sugestão automática',
 
     'labels.escrowType.multisig': 'Bitcoin com 2 de 3 assinaturas (você, a contraparte e um árbitro)',
@@ -71,8 +71,8 @@ export default defineArea(
 
       'labels.network.test': 'Test network',
       'labels.asset.referenceNote': 'Reference implementation',
-      'labels.asset.signingHoldNote': 'Signing in the app not available for now',
-      'labels.asset.devTestNote': 'Arkade on a test network, development only',
+      'labels.asset.signingHoldNote': 'Signing in this interface not available for now',
+      'labels.asset.devTestNote': 'Arkade on a test network, closed for Day 0',
 
       'labels.payment.bankTransfer': 'Bank transfer',
       'labels.payment.cryptoDirect': 'Direct crypto',
@@ -100,8 +100,8 @@ export default defineArea(
 
       'labels.disputeStatus.opened': 'Open',
       'labels.disputeStatus.evidenceSubmitted': 'Evidence submitted',
-      'labels.disputeStatus.arbitrated': 'Arbitrator’s decision',
-      'labels.disputeStatus.resolved': 'Decision recorded',
+      'labels.disputeStatus.arbitrated': 'Arbitrator’s ruling',
+      'labels.disputeStatus.resolved': 'Ruling recorded',
       'labels.disputeStatus.appealed': 'Under appeal',
       'labels.disputeStatus.autoProposed': 'Automatic suggestion',
 
@@ -130,20 +130,20 @@ export default defineArea(
       'labels.network.test': 'Red de prueba',
       'labels.asset.referenceNote': 'Implementación de referencia',
       'labels.asset.signingHoldNote': 'Firma desde la interfaz no disponible por ahora',
-      'labels.asset.devTestNote': 'Arkade en red de prueba, solo en desarrollo',
+      'labels.asset.devTestNote': 'Arkade en red de prueba, cerrado para el Day 0',
 
       'labels.payment.bankTransfer': 'Transferencia bancaria',
       'labels.payment.cryptoDirect': 'Cripto directo',
       'labels.payment.lightningDirect': 'Lightning directo',
       'labels.payment.other': 'Otro',
       'labels.payment.card': 'Tarjeta de crédito/débito',
-      'labels.payment.giftCard': 'Tarjeta regalo',
+      'labels.payment.giftCard': 'Tarjeta de regalo',
       'labels.payment.mobileMoney': 'Dinero móvil (por ejemplo, M-Pesa)',
       'labels.payment.boleto': 'Boleto bancario',
       'labels.payment.upi': 'UPI (India)',
       'labels.legacy.cash': 'Efectivo',
       'labels.legacy.cashByMail': 'Efectivo por correo',
-      'labels.legacy.lotericaDeposit': 'Depósito en lotería o cajero automático',
+      'labels.legacy.lotericaDeposit': 'Depósito en casa lotérica o cajero automático',
 
       'labels.paymentCategory.bank': 'Transferencia bancaria',
       'labels.paymentCategory.wallet': 'Billeteras digitales',
@@ -166,7 +166,7 @@ export default defineArea(
       'labels.escrowType.multisig': 'Bitcoin con 2 de 3 firmas (tú, la contraparte y un árbitro)',
       'labels.escrowType.lightningHodl': 'Arkade (red de prueba, no disponible)',
       'labels.escrowType.liquidCovenant': 'Liquid (próximamente)',
-      'labels.escrowType.wdkUsdtEvm': 'USDT custodial (no disponible)',
+      'labels.escrowType.wdkUsdtEvm': 'USDT en custodia (no disponible)',
       'labels.escrowType.safeGuardEvm': 'USDT/EVM 2 de 3 (red de prueba, no disponible)',
       'labels.escrowType.mock': 'Simulado (sin proveedor real)',
 
@@ -188,7 +188,7 @@ export default defineArea(
       'labels.network.test': 'Réseau de test',
       'labels.asset.referenceNote': 'Implémentation de référence',
       'labels.asset.signingHoldNote': 'Signature depuis l’interface non disponible pour le moment',
-      'labels.asset.devTestNote': 'Arkade sur réseau de test, en développement uniquement',
+      'labels.asset.devTestNote': 'Arkade sur réseau de test, fermé pour le Day 0',
 
       'labels.payment.bankTransfer': 'Virement bancaire',
       'labels.payment.cryptoDirect': 'Crypto direct',
@@ -211,7 +211,7 @@ export default defineArea(
       'labels.paymentCategory.other': 'Autres',
 
       'labels.disputeRuling.release': 'libérer à l’acheteur',
-      'labels.disputeRuling.refund': 'rendre les fonds au vendeur',
+      'labels.disputeRuling.refund': 'restituer les fonds au vendeur',
       'labels.disputeRuling.split': 'partager entre les parties',
 
       'labels.disputeStatus.opened': 'Ouvert',
@@ -224,7 +224,7 @@ export default defineArea(
       'labels.escrowType.multisig': 'Bitcoin avec 2 signatures sur 3 (vous, la contrepartie et un arbitre)',
       'labels.escrowType.lightningHodl': 'Arkade (réseau de test, indisponible)',
       'labels.escrowType.liquidCovenant': 'Liquid (bientôt)',
-      'labels.escrowType.wdkUsdtEvm': 'USDT dépositaire (indisponible)',
+      'labels.escrowType.wdkUsdtEvm': 'USDT en conservation (indisponible)',
       'labels.escrowType.safeGuardEvm': 'USDT/EVM 2 sur 3 (réseau de test, indisponible)',
       'labels.escrowType.mock': 'Simulé (sans fournisseur réel)',
 
@@ -246,7 +246,7 @@ export default defineArea(
       'labels.network.test': 'Testnetz',
       'labels.asset.referenceNote': 'Referenzimplementierung',
       'labels.asset.signingHoldNote': 'Signieren über die Oberfläche vorerst nicht verfügbar',
-      'labels.asset.devTestNote': 'Arkade im Testnetz, nur in der Entwicklung',
+      'labels.asset.devTestNote': 'Arkade im Testnetz, für Day 0 geschlossen',
 
       'labels.payment.bankTransfer': 'Banküberweisung',
       'labels.payment.cryptoDirect': 'Krypto direkt',
@@ -276,7 +276,7 @@ export default defineArea(
       'labels.disputeStatus.evidenceSubmitted': 'Nachweise eingereicht',
       'labels.disputeStatus.arbitrated': 'Entscheidung der Schiedsperson',
       'labels.disputeStatus.resolved': 'Entscheidung erfasst',
-      'labels.disputeStatus.appealed': 'In Berufung',
+      'labels.disputeStatus.appealed': 'Einspruch eingelegt',
       'labels.disputeStatus.autoProposed': 'Automatischer Vorschlag',
 
       'labels.escrowType.multisig': 'Bitcoin mit 2 von 3 Signaturen (du, die Gegenpartei und eine Schiedsperson)',

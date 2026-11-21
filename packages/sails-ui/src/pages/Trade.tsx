@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useNavigate, useLocation } from 'react-router'
 import { toast } from '../components/ui/toast'
 import type { Trade as SdkTrade, Escrow as SdkEscrow, EscrowPendingTransaction, WebSocketChannel, Dispute } from '@satsails/p2p-trading-sdk'
@@ -25,6 +25,9 @@ import { deriveFundingInstruction, deriveFundingRecordRows, lockRefusalMessage }
 import { batonLabel, custodyModelLabel, deriveTradeState, ESCROW_STATE_LABEL, payoutTxLabel } from '../lib/tradeState'
 import { TradeParties } from '../components/trade/TradeParties'
 import { TradeDisputePanel } from '../components/trade/TradeDisputePanel'
+import type { DisputeNotice } from '../components/trade/DisputeAppealBlock'
+import { deriveAppealBlock, parseAppealView, submitFailure, type AppealViewState } from '../lib/disputeAppeal'
+import { demoAppealViewOf, isDemoMode } from '../lib/demoMarkers'
 import { ChatWindow } from '../components/chat/ChatWindow'
 import { AgentRiskCard } from '../components/agent/AgentRiskCard'
 import { RateCounterpartyCard, type RateCounterpartyCopy } from '../components/trade/RateCounterpartyCard'
@@ -242,6 +245,31 @@ export function Trade() {
   useEffect(() => {
     evidenceIdempotencyKeyRef.current = crypto.randomUUID()
   }, [evidenceNote])
+  // C12 contest view (lib/disputeAppeal.ts). Demo: the demo backend's fixture, through demoMarkers. Real: read only
+  // if the SDK ever exposes getAppealView (LOOSE_WIRES.disputeAppealView); today it does not, so the view is null
+  // and the page never infers the rules.
+  const [appealViewRead, setAppealViewRead] = useState<AppealViewState>(null)
+  const [appealViewKey, setAppealViewKey] = useState(0)
+  const [disputeNotice, setDisputeNotice] = useState<DisputeNotice | null>(null)
+  const currentDispute = escrow?.disputes?.[0] ?? null
+  const demoAppealView = demoAppealViewOf(currentDispute)
+  useEffect(() => {
+    const read = (sailsClient.settlement as { getAppealView?: (disputeId: string) => Promise<unknown> }).getAppealView
+    if (!currentDispute || !read) { setAppealViewRead(null); return }
+    let cancelled = false
+    setAppealViewRead('loading')
+    read.call(sailsClient.settlement, currentDispute.id)
+      .then((raw) => { if (!cancelled) setAppealViewRead(parseAppealView(raw) ?? 'error') })
+      .catch(() => { if (!cancelled) setAppealViewRead('error') })
+    return () => { cancelled = true }
+  }, [currentDispute?.id, currentDispute?.status, currentDispute?.appealRound, appealViewKey])
+  const appealView: AppealViewState = demoAppealView ?? appealViewRead
+  // A shown deadline reached zero with the screen open: re-read silently (the backend decides; this only refreshes).
+  const escrowId = escrow?.id
+  const rereadOnDeadline = useCallback(() => {
+    if (!escrowId) return
+    sailsClient.settlement.get(escrowId).then((e) => { setEscrow(e); setAppealViewKey((k) => k + 1) }).catch(() => {})
+  }, [escrowId])
   // Opt-in per BACKLOG.md's own note on chat-encryption.ts — encrypting
   // by default would silently change behaviour for every existing
   // plaintext history, so this starts off and only the sender's own new
@@ -733,20 +761,49 @@ export function Trade() {
     return false
   }
 
-  const handleContestAutoResolution = () => dispute && withGuard(async () => {
-    if (!(await freshDisputeStill('AUTO_PROPOSED'))) return
-    const updated = await sailsClient.settlement.contestAutoResolution(dispute.id)
-    patchDispute(updated)
-    toast(t('trade.toast.contested'))
-  })
+  // C12: a refused or unconfirmed contest never retries by itself. Every failure re-reads the dispute and shows
+  // the new state; a network failure is "we do not know", and no new send is possible until the re-read ends.
+  const refreshDispute = async (block: DisputeNotice['block'], kind: DisputeNotice['kind']) => {
+    if (!escrow) return
+    setDisputeNotice({ block, kind, refreshing: true })
+    try {
+      setEscrow(await sailsClient.settlement.get(escrow.id))
+      setAppealViewKey((k) => k + 1)
+      setDisputeNotice({ block, kind, refreshing: false })
+    } catch {
+      setDisputeNotice({ block, kind: 'refreshFailed', refreshing: false, cause: kind === 'refreshFailed' ? undefined : kind })
+    }
+  }
 
-  const handleAppeal = () => dispute && withGuard(async () => {
-    if (!(await freshDisputeStill('RESOLVED'))) return
-    // appealFeeRequired is never printed: the contract gives it no unit (REVIEW LW-11).
-    const { dispute: updated } = await sailsClient.settlement.appealDispute(dispute.id)
-    patchDispute(updated)
-    toast.success(t('trade.toast.appealed'))
-  })
+  const runDisputeAction = async (block: DisputeNotice['block'], expected: Dispute['status'], send: () => Promise<Dispute>, done: () => void) => {
+    if (!dispute) return
+    setActing(true)
+    setDisputeNotice(null)
+    try {
+      // Nothing is sent yet: a failed pre-read is a plain failure, not an unknown outcome.
+      let still: boolean
+      try { still = await freshDisputeStill(expected) } catch { toast.error(t('trade.toast.actionFailed')); return }
+      if (!still) return
+      try {
+        patchDispute(await send())
+        setAppealViewKey((k) => k + 1)
+        done()
+      } catch (err) {
+        await refreshDispute(block, submitFailure(err))
+      }
+    } finally {
+      setActing(false)
+    }
+  }
+
+  const handleContestAutoResolution = () => dispute && runDisputeAction('contest', 'AUTO_PROPOSED',
+    () => sailsClient.settlement.contestAutoResolution(dispute.id),
+    () => toast(t('trade.toast.contested')))
+
+  // appealFeeRequired is never printed: it is recorded, never collected (PRINCIPAL-C12 G3), and has no unit.
+  const handleAppeal = () => dispute && runDisputeAction('appeal', 'RESOLVED',
+    async () => (await sailsClient.settlement.appealDispute(dispute.id)).dispute,
+    () => toast.success(t('trade.toast.appealed')))
 
   const handleSend = (content: string) => {
     if (encryptionEnabled && keypair && counterpartyPublicKeyHex) {
@@ -838,7 +895,8 @@ export function Trade() {
     isBuyer,
     isSeller,
     releaseUnavailable: !!escrow && UNSIGNABLE_ESCROW_TYPES.has(escrow.type),
-    appealAvailable: dispute?.status === 'RESOLVED' && (isBuyer || isSeller),
+    // Only the backend's permission (C12 view); without the view nothing is offered.
+    appealAvailable: (() => { const a = dispute ? deriveAppealBlock(dispute, appealView, Date.now()) : null; return a?.kind === 'open' && a.canAppeal })(),
     payoutAddressMissing: payoutAddress === null,
     payoutAddressCheckFailed: payoutCheckFailed,
     createdAt: trade.createdAt,
@@ -1114,6 +1172,13 @@ export function Trade() {
               onSubmitEvidence={handleSubmitEvidence}
               onContestAutoResolution={() => setConfirmStep('contest')}
               onAppeal={() => setConfirmStep('appeal')}
+              appealView={appealView}
+              demo={isDemoMode()}
+              notice={disputeNotice}
+              escrowStatus={escrowStatus}
+              onDeadlinePassed={rereadOnDeadline}
+              onRetryAppealView={() => setAppealViewKey((k) => k + 1)}
+              onRetryRefresh={() => { if (disputeNotice) void refreshDispute(disputeNotice.block, disputeNotice.cause ?? 'unknown') }}
               turnLabel={escrowStatus === 'DISPUTED' ? baton?.text : null}
             >
               {!actionCardShown && <>{countdown}{signing(true)}</>}
@@ -1242,7 +1307,7 @@ export function Trade() {
           title={t('trade.confirm.contest.title')}
           summary={[
             ...(dispute.autoResolutionRecommendation ? [{ label: t('trade.confirm.contest.suggestion'), value: DISPUTE_RULING_LABEL[dispute.autoResolutionRecommendation] }] : []),
-            ...(dispute.autoResolutionDeadline ? [{ label: t('trade.confirm.contest.appliesAt'), value: formatDateTime(dispute.autoResolutionDeadline) }] : []),
+            ...(dispute.autoResolutionDeadline ? [{ label: t('trade.dispute.contestDeadline'), value: formatDateTime(dispute.autoResolutionDeadline) }] : []),
           ]}
           consequence={t('trade.confirm.contest.consequence')}
           confirmLabel={t('trade.dispute.contest')}
@@ -1263,10 +1328,7 @@ export function Trade() {
             { label: t('trade.confirm.appeal.ruling'), value: dispute.ruling ? (DISPUTE_RULING_LABEL[dispute.ruling] ?? dispute.ruling) : t('trade.confirm.appeal.rulingMissing') },
             { label: t('trade.confirm.appeal.round'), value: String(dispute.appealRound + 1) },
           ]}
-          warnings={[
-            t('trade.confirm.appeal.warnFee'),
-            t('trade.confirm.appeal.warnRefuse'),
-          ]}
+          warnings={[t('trade.confirm.appeal.warnRefuse')]}
           consequence={t('trade.confirm.appeal.consequence')}
           confirmLabel={t('trade.dispute.appealAction')}
           busy={acting}

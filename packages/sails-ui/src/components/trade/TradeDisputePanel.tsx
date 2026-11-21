@@ -12,18 +12,26 @@
  * rendered as given (untyped `unknown[]` on the record): nothing here is
  * marked as verified. The automatic suggestion is labelled as a
  * suggestion, never a decision.
+ *
+ * C12 (2026-11-21): the contest blocks (decision and automatic suggestion) live in DisputeAppealBlock, driven
+ * only by backend data. The appeal button no longer shows for any party on a decided dispute: without the
+ * backend's appeal view it is never offered (on Day 0 the nó Sails refuses it). The ruling shows only its
+ * result and date; no justification field exists.
  */
 import { useState, type ReactNode } from 'react'
 import type { Dispute } from '@satsails/p2p-trading-sdk'
 import { Button } from '../ui/button'
 import { Textarea } from '../ui/textarea'
 import { formatDateTime } from '../../lib/format'
-import { DISPUTE_RULING_LABEL } from '../../lib/labels'
+import { DISPUTE_RULING_LABEL, DISPUTE_STATUS_LABEL } from '../../lib/labels'
 import { busyProps } from '../../lib/busy'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Scale } from 'lucide-react'
 import { Alert } from '../ui/alert'
 import { parseEvidence } from '../../lib/disputeCase'
-import { t } from '../../i18n'
+import { t, type MessageKey } from '../../i18n'
+import { DisputeAppealBlock, type DisputeNotice } from './DisputeAppealBlock'
+import type { AppealViewState } from '../../lib/disputeAppeal'
+import type { EscrowStatus } from '../../types'
 
 interface Props {
   dispute: Dispute
@@ -37,10 +45,27 @@ interface Props {
   onSubmitEvidence: () => void
   onContestAutoResolution: () => void
   onAppeal: () => void
+  /** C12 contest view: null when no endpoint exists (production today); see lib/disputeAppeal.ts. */
+  appealView: AppealViewState
+  /** Demo mode: the contest states are fictional and badged. */
+  demo: boolean
+  notice: DisputeNotice | null
+  /** The escrow's status as read, to say when it is already terminal (never "final"). */
+  escrowStatus?: EscrowStatus | null
+  onDeadlinePassed: () => void
+  onRetryAppealView: () => void
+  onRetryRefresh: () => void
   /** Who the dispute waits on now (the rail's bastão text), e.g. "Com o árbitro"; omitted when the records do not say. */
   turnLabel?: string | null
   /** Host slot after the opening alert (the timelock, a ruling's signing round). */
   children?: ReactNode
+}
+
+// Escrow terminal states as recorded (CTO 437: a terminal status, not settlement finality).
+const ESCROW_TERMINAL: Partial<Record<EscrowStatus, MessageKey>> = {
+  COMPLETED: 'escrow.state.completed',
+  REFUNDED: 'escrow.state.refunded',
+  SPLIT: 'escrow.state.split',
 }
 
 /** `text` with `slot` (a placeholder t() left unfilled) replaced by `value` in bold. */
@@ -61,6 +86,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 export function TradeDisputePanel({
   dispute, isBuyer, isSeller, acting, evidenceNote, partyLabel,
   onEvidenceNoteChange, onSubmitEvidence, onContestAutoResolution, onAppeal, turnLabel, children,
+  appealView, demo, notice, escrowStatus, onDeadlinePassed, onRetryAppealView, onRetryRefresh,
 }: Props) {
   const isParty = isBuyer || isSeller
   // Shared `acting`: the clicked action shows loading, the others are blocked (lib/busy.ts).
@@ -69,6 +95,7 @@ export function TradeDisputePanel({
   const resolved = dispute.status === 'RESOLVED'
   // One reading of Dispute.evidence for the trade page and the arbiter console (SDK descriptor field: `uri`).
   const evidence = parseEvidence(dispute.evidence)
+  const terminal = escrowStatus ? ESCROW_TERMINAL[escrowStatus] : undefined
 
   return (
     <section aria-label={t('trade.dispute.label')} className="rounded-lg border border-brand-border-subtle bg-brand-surface p-4 space-y-3">
@@ -79,6 +106,14 @@ export function TradeDisputePanel({
           {withStrong(t('trade.dispute.openedBy', { date: formatDateTime(dispute.createdAt) }), '{party}', partyLabel(dispute.openedBy))}
         </Alert>
       )}
+      <p className="flex flex-wrap items-center gap-2 text-caption text-brand-text-secondary">
+        {t('trade.dispute.stage')}
+        <span className="inline-flex items-center gap-1 rounded-full bg-brand-elevated px-2 py-0.5 font-medium text-brand-text">
+          <Scale aria-hidden="true" className="size-icon-xs shrink-0" />
+          {DISPUTE_STATUS_LABEL[dispute.status] ?? dispute.status}
+        </span>
+        {terminal && <span>{t(terminal)}</span>}
+      </p>
       {turnLabel && (
         <p className="text-sm text-brand-text-secondary">
           {withStrong(t('trade.dispute.now'), '{turn}', turnLabel, 'font-semibold text-brand-text')}
@@ -140,16 +175,6 @@ export function TradeDisputePanel({
         <Section title={t('trade.dispute.autoTitle')}>
           <p>{t('trade.dispute.autoSuggests', { ruling: DISPUTE_RULING_LABEL[dispute.autoResolutionRecommendation] })}</p>
           {dispute.autoResolutionReasoning && <p className="mt-1 text-brand-text-secondary">{dispute.autoResolutionReasoning}</p>}
-          {dispute.status === 'AUTO_PROPOSED' && dispute.autoResolutionDeadline && (
-            <p className="mt-1 text-xs text-brand-text-secondary">
-              {t('trade.dispute.autoApplies', { date: formatDateTime(dispute.autoResolutionDeadline) })}
-            </p>
-          )}
-          {isParty && dispute.status === 'AUTO_PROPOSED' && (
-            <Button variant="outline" onClick={run('contest', onContestAutoResolution)} {...busyProps(acting, running, 'contest')} className="mt-2 min-h-11 text-sm">
-              {t('trade.dispute.contest')}
-            </Button>
-          )}
         </Section>
       )}
 
@@ -157,24 +182,29 @@ export function TradeDisputePanel({
         <Section title={t('trade.dispute.ruling')}>
           {dispute.ruling ? (
             <p>
-              {DISPUTE_RULING_LABEL[dispute.ruling] ?? dispute.ruling}
-              {dispute.resolvedAt && ` — ${formatDateTime(dispute.resolvedAt)}`}
+              {dispute.resolvedAt
+                ? t('trade.dispute.rulingWithDate', { ruling: DISPUTE_RULING_LABEL[dispute.ruling] ?? dispute.ruling, date: formatDateTime(dispute.resolvedAt) })
+                : (DISPUTE_RULING_LABEL[dispute.ruling] ?? dispute.ruling)}
             </p>
           ) : (
             <p className="text-brand-text-secondary">{t('trade.dispute.rulingMissing')}</p>
           )}
-          {isParty && (
-            <>
-              <p className="mt-2 text-xs text-brand-text-secondary">
-                {t('trade.dispute.appealNote')}
-              </p>
-              <Button variant="outline" onClick={run('appeal', onAppeal)} {...busyProps(acting, running, 'appeal')} className="mt-2 min-h-11 text-sm">
-                {t('trade.dispute.appealAction')}
-              </Button>
-            </>
-          )}
         </Section>
       )}
+
+      <DisputeAppealBlock
+        dispute={dispute}
+        isParty={isParty}
+        view={appealView}
+        demo={demo}
+        acting={acting}
+        notice={notice}
+        onAppeal={onAppeal}
+        onContest={onContestAutoResolution}
+        onDeadlinePassed={onDeadlinePassed}
+        onRetryView={onRetryAppealView}
+        onRetryRefresh={onRetryRefresh}
+      />
     </section>
   )
 }

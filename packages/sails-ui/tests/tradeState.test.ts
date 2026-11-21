@@ -103,7 +103,7 @@ describe('trade state derivation (single source for chip, timeline, action)', ()
       const a = deriveTradeState(input(status, BUYER, { appealAvailable: true })).action
       expect(a.tone).toBe('terminal')
       expect(a.description).not.toMatch(/não há mais ações/i)
-      expect(a.description).toMatch(/apelar/i)
+      expect(a.description).toMatch(/contestar a decisão/i)
     }
     expect(deriveTradeState(input('COMPLETED', BUYER)).action.description).toMatch(/não há mais ações/i)
     // Only terminal cards change: an open trade keeps its action.

@@ -48,7 +48,7 @@ describe('asset catalog (ADR-002 §5A, DECISIONS.md "Catálogo de ativos")', () 
 
   it('publish and filter can choose only available pairs (plus the dev test rail)', () => {
     expect(selectablePairs(false).map((p) => p.assetType)).toEqual(['BTC'])
-    expect(selectablePairs(true).map((p) => p.assetType)).toEqual(['BTC', 'LN_BTC'])
+    expect(selectablePairs(true).map((p) => p.assetType)).toEqual(['BTC'])
   })
 
   it('existing offers and trades render with the pair label (network always shown)', () => {

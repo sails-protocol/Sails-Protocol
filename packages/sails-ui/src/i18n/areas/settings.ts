@@ -250,7 +250,7 @@ export default defineArea(
 
       'settings.wallet.checking': 'Vérification de la session…',
       'settings.wallet.connected': 'Wallet connecté',
-      'settings.wallet.storedHere': 'Enregistré dans ce navigateur',
+      'settings.wallet.storedHere': 'Enregistrée dans ce navigateur',
       'settings.wallet.localKey': 'Clé locale',
       'settings.wallet.publicKey': 'Clé publique',
       'settings.wallet.disconnect': 'Se déconnecter',

@@ -159,7 +159,7 @@ export default defineArea(
       'offer.ticket.youPay': 'Vous payez',
       'offer.ticket.youReceive': 'Vous recevez',
       'offer.ticket.escrowNote': 'Le type d’escrow et les règles de libération sont définis à la création du trade.',
-      'offer.ticket.newSeller': 'Cet annonceur n’a encore aucun trade terminé. Soyez prudent, surtout pour des montants élevés.',
+      'offer.ticket.newSeller': 'Cet annonceur n’a encore aucun trade terminé. Faites preuve de prudence, surtout pour des montants élevés.',
       'offer.ticket.starting': 'Lancement…',
       'offer.ticket.buy': 'Acheter {asset}',
       'offer.ticket.sell': 'Vendre {asset}',

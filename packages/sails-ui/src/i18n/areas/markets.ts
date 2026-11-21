@@ -516,7 +516,7 @@ export default defineArea(
       'markets.invite.granted.title': 'Acceso concedido',
       'markets.invite.granted.description': 'El mercado aparece en tu selector de mercados, después del Mercado abierto.',
       'markets.invite.expired.title': 'Invitación vencida',
-      'markets.invite.expired.description': 'Esta invitación pasó su plazo. Pide una nueva a quien administra el mercado.',
+      'markets.invite.expired.description': 'Esta invitación venció. Pide una nueva a quien administra el mercado.',
       'markets.invite.revoked.title': 'Acceso revocado',
       'markets.invite.revoked.description': 'El administrador retiró este acceso. Tu identidad y tu reputación global siguen iguales.',
       'markets.invite.qrPlanned': 'Para leer una invitación con la cámara del dispositivo.',
@@ -606,7 +606,7 @@ export default defineArea(
       'markets.explore.discoveryPlanned': 'Les marchés publics de communautés et d’entreprises apparaissent ici, avec marque, description et participants, pour que vous les suiviez.',
 
       'markets.mine.membershipPlanned': 'Les marchés publics que vous suivez ou administrez et les marchés privés auxquels vous participez apparaissent ici.',
-      'markets.mine.portabilityPlanned': 'Reconnaître vos marchés après un changement d’application ou de nœud, lorsqu’un support vérifiable existera. Ce n’est pas une récupération automatique.',
+      'markets.mine.portabilityPlanned': 'Reconnaître vos marchés après un changement d’application ou de nœud, lorsqu’une prise en charge vérifiable existera. Ce n’est pas une récupération automatique.',
 
       'markets.create.demoTitle': 'Démonstration : marché fictif',
       'markets.create.demoBody': '« {name} » a été créé uniquement dans cette démonstration. Rien n’a été envoyé au protocole.',
@@ -680,7 +680,7 @@ export default defineArea(
 
       'markets.guarantees.title': 'Garanties',
       'markets.guarantees.keys': 'Chaque trade indique qui détient chaque clé et qui peut signer la libération.',
-      'markets.guarantees.host': 'Celui qui héberge le marché ne reçoit pas les clés de signature des parties.',
+      'markets.guarantees.host': 'La personne qui héberge le marché ne reçoit pas les clés de signature des parties.',
       'markets.guarantees.admin': 'Bientôt : l’administrateur pourra retirer quelqu’un du marché sans effacer son identité portable ni sa réputation globale.',
       'markets.guarantees.permissions': 'Bientôt : des permissions vérifiées par le protocole, pas seulement masquées à l’écran.',
       'markets.identifiers.title': 'Comment Sails identifie chaque partie',
@@ -720,7 +720,7 @@ export default defineArea(
       'markets.node.field.status': 'Statut',
       'markets.node.field.fee': 'Frais',
       'markets.node.field.limits': 'Limites',
-      'markets.node.field.custody': 'Modèle de garde déclaré',
+      'markets.node.field.custody': 'Modèle de conservation déclaré',
       'markets.node.current': 'Utilisé',
       'markets.node.automatic': 'Automatique',
       'markets.node.network.unknown': 'Pour l’instant, cette application ne connaît que le nœud défini par sa configuration. Le nombre de nœuds actifs et leurs opérateurs apparaîtront quand le réseau publiera ces informations.',

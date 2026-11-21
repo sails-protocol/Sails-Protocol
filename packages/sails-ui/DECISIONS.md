@@ -265,6 +265,26 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
   - Selo "Verificado" (N1): continua escondido; quando houver critério, volta como pílula de informação com ícone, rótulo visível e explicação do critério.
   - **Rótulos dos tipos de escrow (item 32)**, com as garantias confirmadas pelo Principal na main 979bb78b: "Bitcoin com 2 de 3 assinaturas (você, a contraparte e um árbitro)" (único disponível); "Arkade (rede de teste, não disponível)"; "Liquid (em breve)"; "USDT sob custódia (não disponível)"; "USDT/EVM 2 de 3 (rede de teste, não disponível)". Nenhum promete reembolso automático no prazo; "Lightning", "Covenant", "WDK" e "Guard" não aparecem como promessa.
 
+- **Contestação de disputa (C12, CTO e Principal, 2026-11-21):** dois blocos separados.
+  - "Contestar a decisão do árbitro": o botão só aparece quando o backend diz que a pessoa pode contestar (`canCurrentUserAppeal`). Sem esse dado (Day 0, nenhuma rota), aparece só "A decisão do árbitro está registrada. A contestação desta decisão não está disponível neste trade.", sem prazo, contagem ou botão. O antigo botão "Apelar", que aparecia para qualquer parte e no MULTISIG terminava em erro, saiu. Sem rótulo de "justificativa" (o campo não existe). Em português, "contestação" substitui "apelação".
+  - "Contestar a sugestão automática": só quando a disputa está em sugestão automática com prazo vindo do backend; contagem pelo relógio do servidor (header Date), âmbar com menos de 1 h; ao zerar, o botão desliga e a tela relê. O chip do trilho "Partes podem contestar até o prazo" só aparece nesse caso, com prazo real (antes pendente; resolvido).
+  - Erros 400/403/404 ou falha de rede: a tela relê a disputa e mostra o estado novo, nunca reenvia sozinha; falha depois do envio diz "Não sabemos se a contestação foi registrada. Atualizando…".
+  - Estados disponível, enviada, expirada e resolvida só na demonstração, com selo "Demonstração". Especificação: `EPM-registros/ESPEC_COMPARTILHADA_C12_CONTESTACAO.md`.
+- **Revisão de idioma por IA** (Product Owner, 2026-11-21; pacote `ui-revisao-nativa-2026-11-21/`): os 607 textos sensíveis revisados em en, es, fr e de com os termos públicos de plataformas P2P; 134 correções aplicadas. Exemplos: "passphrase" em inglês, "ruling" para a decisão do árbitro, "Quantity" para a cripto; "hasta el" (inclui a data) e "monto" em espanhol; "conservation" para custódia em francês. A revisão humana nativa continua desejável antes de cada língua ir para produção.
+- **Trilho de teste do Arkade** no seletor de ativo (desenvolvimento): visível só para ler dados antigos, nunca escolhível ("fechado no Day 0"; GK, D064).
+- **Termos da negociação, versionados (diretriz do CTO, C12/#740, 2026-11-21):** o Sails começa pelas práticas consolidadas do mercado P2P, com parâmetros configuráveis e versionados, e cada trade guarda os termos com que nasceu.
+  - A interface nunca fixa valores no código (janelas de 15/30/45/60 min, prazos, regras de disputa): lê sempre o que o backend informa no trade ou na oferta, incluindo a versão da política.
+  - A tela mostra os **termos desta negociação**, não "as regras atuais da plataforma"; um trade antigo pode ter termos diferentes de um novo.
+  - A escolha da janela de pagamento no anúncio lista só as opções que o backend permitir.
+  - Trade sem política ou versão (legado) aparece com os termos legados, sem inventar prazo.
+  - Os dados de demonstração são parametrizados por versão.
+  - **Despacho 065 do CTO (#740):** v1 de referência definida (pagamento 15/30/45/60 min, liberação padrão 30 min, disputa imediata, tolerância de reconfirmação 5 min), mas a migração e a publicação da v1 estão em HOLD. Em produção só aparece o que o backend confirma; estados e contadores da v1 só na demonstração, com selo.
+    - Depósito em confirmação: estado em que o prazo fica **suspenso** (nada expira), mostrado só quando o backend sinalizar a incerteza.
+    - Oferta v0: aviso "publique de novo para novas negociações" só quando o backend informar.
+    - "Decisão definitiva" só quando o backend registrar liquidação terminal confirmada.
+    - Nenhuma penalidade de reputação aparece como automática por causa do timer; só depois de decisão confirmada.
+    - Sem via rápida para quem não aparece: a recuperação continua a existente, com coassinatura; nenhum prazo assume fundos (árbitro indisponível tratado na #293).
+  - Contestação (C12) e negociação completa (#740): sem o campo do backend, nada de prazo, janela ou ação presumida; um temporizador nunca move fundos; "Marquei como pago" não comprova o recebimento nem libera nada; no MULTISIG, "Cancelar e devolver" só inicia a rodada de assinaturas ("Devolução iniciada, aguardando a assinatura do comprador"), e "Devolvido" só aparece com o escrow REFUNDED.
+
 ## Pendente de decisão (não tratar como fechado)
 - Itens do `DESIGN_SYSTEM.md` ainda marcados como provisórios e que não entraram no pacote de 21/11 seguem provisórios.
-- "Partes podem contestar até o prazo" (uma das 7 perguntas do Trade Workspace; as outras 6 e os rótulos de escrow foram resolvidos na avaliação de 21/11): depende do contrato da janela de contestação, sem dado real hoje. Fica pendente até o contrato existir.

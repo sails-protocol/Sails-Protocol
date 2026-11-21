@@ -113,7 +113,8 @@ export const DEV_TEST_PAIR: AssetPair = {
   id: 'btc-test', asset: 'BTC', network: null,
   get networkLabel() { return t('labels.network.test') },
   get label() { return `BTC · ${t('labels.network.test')}` },
-  assetType: 'LN_BTC', availability: 'available',
+  // Closed for Day 0 (CTO 28 / Despacho 062, D064 Arkade block): shown so old test data reads honestly, never offered to create.
+  assetType: 'LN_BTC', availability: 'soon',
   get note() { return t('labels.asset.devTestNote') },
   testOnly: true,
 }

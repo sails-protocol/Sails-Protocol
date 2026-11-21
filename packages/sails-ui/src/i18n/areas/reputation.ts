@@ -64,8 +64,8 @@ export default defineArea(
       'reputation.ratings.scale': '1 to 5 stars, given by the counterparty at the end of a trade',
       'reputation.ratings.informational': 'For information only: they do not change reputation',
       'reputation.ratings.unavailable': 'Reading ratings is not available yet',
-      'reputation.ratings.demoUnavailable': 'Fictional numbers from demo mode: reading real ratings is not available yet',
-      'reputation.ratings.description': 'Scores of 1 to 5 stars given by counterparties. For information only: they do not change reputation.',
+      'reputation.ratings.demoUnavailable': 'Sample numbers from demo mode: real ratings are not available yet',
+      'reputation.ratings.description': 'Ratings from 1 to 5 stars given by counterparties. For information only: they do not change reputation.',
       'reputation.ratings.count': { one: '{count} rating', other: '{count} ratings' },
       'reputation.ratings.sr': 'Average rating {average} out of 5, {ratings}',
 
@@ -100,7 +100,7 @@ export default defineArea(
       'reputation.ratings.informational': 'Solo informativas: no cambian la reputación',
       'reputation.ratings.unavailable': 'La lectura de valoraciones aún no está disponible',
       'reputation.ratings.demoUnavailable': 'Números ficticios del modo demostración: la lectura real de valoraciones aún no está disponible',
-      'reputation.ratings.description': 'Notas de 1 a 5 estrellas dadas por las contrapartes. Solo informativas: no cambian la reputación.',
+      'reputation.ratings.description': 'Valoraciones de 1 a 5 estrellas dadas por las contrapartes. Solo informativas: no cambian la reputación.',
       'reputation.ratings.count': { one: '{count} valoración', other: '{count} valoraciones' },
       'reputation.ratings.sr': 'Valoración media {average} de 5, {ratings}',
 
@@ -119,13 +119,13 @@ export default defineArea(
       'reputation.tradesZero': '0 trade',
       'reputation.disputes': { one: '{count} litige', other: '{count} litiges' },
       'reputation.disputesZero': '0 litige',
-      'reputation.disputeRateDefinition': 'La part de vos trades qui ont eu un litige, par rapport aux trades terminés, d’après les compteurs de votre compte (les mêmes que pour la réputation). Les trades rendus au vendeur ou encore en litige ne comptent que parmi les litiges. Quand le calcul ne donne pas de pourcentage, nous affichons seulement le nombre de litiges.',
+      'reputation.disputeRateDefinition': 'La part de vos trades qui ont eu un litige, par rapport aux trades terminés, d’après les compteurs de votre compte (les mêmes que pour la réputation). Les trades restitués au vendeur ou encore en litige ne comptent que parmi les litiges. Quand le calcul ne donne pas de pourcentage, nous affichons seulement le nombre de litiges.',
 
       'reputation.explanation.title': 'Comment la réputation est calculée',
       'reputation.explanation.completed': '+2 par trade terminé',
       'reputation.explanation.disputeLost': '−5 par litige perdu',
       'reputation.explanation.neutral': '0 point quand le litige se termine par un partage ou que le trade est annulé d’un commun accord',
-      'reputation.explanation.vouchBurn': '−5 pour qui s’est porté garant d’une personne qui perd son premier litige',
+      'reputation.explanation.vouchBurn': '−5 pour le garant d’une personne qui perd son premier litige',
       'reputation.explanation.footer':
         'C’est une somme de points, sans maximum : 82 signifie 82 points cumulés, pas 82 sur 100. Les étoiles sont des évaluations que les personnes se donnent après un trade : à titre informatif, elles ne changent jamais la réputation.',
       'reputation.explanation.trigger': 'Fonctionnement de la réputation',
@@ -142,7 +142,7 @@ export default defineArea(
       'reputation.vouch.explainer':
         'Se porter garant engage votre réputation comme garantie. Ce n’est pas une vérification d’identité. Si cette personne perd son premier litige pendant que la garantie est active, votre réputation perd 5 points.',
       'reputation.vouch.success': 'Garantie enregistrée. Votre réputation soutient désormais cette personne.',
-      'reputation.vouch.failed': 'Impossible d’enregistrer la garantie',
+      'reputation.vouch.failed': 'Impossible d’enregistrer la garantie de réputation',
       'reputation.vouch.already': 'Vous vous êtes déjà porté garant de cette personne',
       'reputation.vouch.action': 'Se porter garant de cette personne avec votre réputation',
       'reputation.vouch.ineligible': 'Pour vous porter garant, il vous faut au moins 3 trades terminés et une réputation supérieure à zéro.',
@@ -170,7 +170,7 @@ export default defineArea(
       'reputation.ratings.informational': 'Nur zur Information: Sie ändern die Reputation nicht',
       'reputation.ratings.unavailable': 'Bewertungen lassen sich noch nicht abrufen',
       'reputation.ratings.demoUnavailable': 'Fiktive Zahlen aus dem Demomodus: Echte Bewertungen lassen sich noch nicht abrufen',
-      'reputation.ratings.description': 'Noten von 1 bis 5 Sternen, vergeben von Gegenparteien. Nur zur Information: Sie ändern die Reputation nicht.',
+      'reputation.ratings.description': 'Bewertungen von 1 bis 5 Sternen, vergeben von Gegenparteien. Nur zur Information: Sie ändern die Reputation nicht.',
       'reputation.ratings.count': { one: '{count} Bewertung', other: '{count} Bewertungen' },
       'reputation.ratings.sr': 'Durchschnittliche Bewertung {average} von 5, {ratings}',
 

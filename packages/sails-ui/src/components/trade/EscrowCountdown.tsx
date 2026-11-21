@@ -7,13 +7,13 @@
  * PAYMENT_PENDING / DISPUTED get a static date (the `informational` view): no ticking, amber or bar.
  * Flat inside the stage card: no surface of its own, so no box inside a box.
  */
-import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Clock } from 'lucide-react'
 import { ExplanationPopover } from '../ui/ExplanationPopover'
 import { Progress } from '../ui/progress'
 import { cn } from '../../lib/utils'
 import { t } from '../../i18n'
 import { deadlineMilestone, escrowDeadlineView, MILESTONE_ANNOUNCEMENT } from '../../lib/escrowDeadline'
+import { useMilestoneAnnouncement, useTickingNow } from './useDeadlineClock'
 import type { EscrowStatus } from '../../types'
 
 export function EscrowCountdown({
@@ -25,30 +25,14 @@ export function EscrowCountdown({
   timelockHours: number
   status: EscrowStatus
 }) {
-  const [now, setNow] = useState(() => Date.now())
+  // The view's kind does not depend on the time; only an active one ticks.
+  const active = escrowDeadlineView({ expiresAt, timelockHours, status }, 0)?.kind === 'active'
+  const now = useTickingNow(active && expiresAt ? Date.parse(expiresAt) : null)
   const view = escrowDeadlineView({ expiresAt, timelockHours, status }, now)
-  const remaining = view?.kind === 'active' ? view.remainingMs : null
-  const running = remaining !== null && remaining > 0
-  const fast = running && remaining < 3_600_000
-
-  useEffect(() => {
-    if (!running) return
-    let id: number | undefined
-    const start = () => { setNow(Date.now()); id = window.setInterval(() => setNow(Date.now()), fast ? 1000 : 30_000) }
-    const onVisibility = () => { window.clearInterval(id); if (!document.hidden) start() }
-    if (!document.hidden) start()
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => { window.clearInterval(id); document.removeEventListener('visibilitychange', onVisibility) }
-  }, [running, fast])
 
   // Announce only when a later milestone is reached while the page is open (never on load).
   const milestone = view?.kind === 'active' ? deadlineMilestone(view.remainingMs, view.tone) : 0
-  const seen = useRef(milestone)
-  const [announcement, setAnnouncement] = useState('')
-  useEffect(() => {
-    if (milestone > seen.current) setAnnouncement(MILESTONE_ANNOUNCEMENT[milestone as 1 | 2 | 3 | 4])
-    seen.current = milestone
-  }, [milestone])
+  const announcement = useMilestoneAnnouncement(milestone)
 
   if (!view) return null
 

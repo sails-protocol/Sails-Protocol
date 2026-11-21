@@ -174,7 +174,7 @@ describe('structure guard: one home for each decision', () => {
   it('demo-only fields are filled by the demoMarkers guards and read only by their single readers', () => {
     // Writers: the demo backend and lib/demoMarkers.ts. Readers: offerPaymentMethods() and lib/ratings.ts.
     const HOMES = new Set(['lib/demoMarkers.ts', 'lib/paymentMethods.ts', 'lib/ratings.ts'])
-    const readers = SOURCES.filter((f) => !HOMES.has(f.path) && !f.path.startsWith('demo/') && /\.demo(?:PaymentMethods|Ratings|MemberSince)\b/.test(f.code)).map((f) => f.path)
+    const readers = SOURCES.filter((f) => !HOMES.has(f.path) && !f.path.startsWith('demo/') && /\.demo(?:PaymentMethods|Ratings|MemberSince|AppealView)\b/.test(f.code)).map((f) => f.path)
     expect(readers).toEqual([])
   })
 })
@@ -186,7 +186,7 @@ describe('nodes and private markets guard', () => {
   })
 
   it('every new backend dependency is a loose wire with a contract', () => {
-    for (const id of ['nodeCatalog', 'nodeStateSync', 'marketInvite', 'marketInviteQr', 'marketMembership', 'marketPortability', 'createMarket', 'marketDiscovery', 'marketBranding'] as const) {
+    for (const id of ['disputeAppealView', 'nodeCatalog', 'nodeStateSync', 'marketInvite', 'marketInviteQr', 'marketMembership', 'marketPortability', 'createMarket', 'marketDiscovery', 'marketBranding'] as const) {
       expect(LOOSE_WIRES[id].contract.length).toBeGreaterThan(20)
     }
   })
