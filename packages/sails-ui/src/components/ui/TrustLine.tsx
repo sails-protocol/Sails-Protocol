@@ -5,8 +5,11 @@ import type { TrustKind, TrustLineItem } from './trustTypes'
 // Neutral icons only: never a shield or check, which would read as a guarantee.
 const ICONS: Record<TrustKind, LucideIcon> = { reputation: Award, trades: ArrowLeftRight, disputes: Scale, disputeRate: Scale, rating: Star }
 // Rating stars use the same checked blue as the StarRating input (one meaning: a chosen/filled star), never yellow.
-// A filled star reads heavier than the outline icons at the same size, so it is drawn smaller (12px).
-const ICON_TONE: Partial<Record<TrustKind, string>> = { rating: 'fill-current text-brand-checked size-icon-xs ml-0.5 mr-1.5 align-[-1px]' }
+// A filled star reads heavier than the outline icons at the same size, so it is drawn smaller: 12px, the one
+// documented exception to the 14/16/20/24 scale (DESIGN_SYSTEM.md 4). Its classes replace the base ones instead of
+// being merged with them: `cn` cannot tell that a size token overrides h-4/w-4, and both ended up applied.
+const ICON_CLASS: Partial<Record<TrustKind, string>> = { rating: 'inline-block size-3 fill-current text-brand-checked ml-0.5 mr-1.5 align-[-1px]' }
+const BASE_ICON = 'inline-block h-4 w-4 mr-1 align-[-4px]'
 
 /**
  * Layer A: a compact trust line, each item an icon plus its text. Items are spaced, not joined by a
@@ -23,7 +26,7 @@ export function TrustLine({ items, className }: { items: TrustLineItem[]; classN
           // Spacing lives on the items (not flex gap) so a caller's display class ("block") cannot remove it.
           <span key={item.kind} className="inline-block whitespace-nowrap mr-3 last:mr-0">
             {i > 0 && <span className="sr-only">, </span>}
-            <Icon aria-hidden="true" className={cn('inline-block h-4 w-4 mr-1 align-[-4px]', ICON_TONE[item.kind])} />
+            <Icon aria-hidden="true" className={ICON_CLASS[item.kind] ?? BASE_ICON} />
             {item.srText ? <><span aria-hidden="true">{item.text}</span><span className="sr-only">{item.srText}</span></> : item.text}
           </span>
         )
