@@ -41,6 +41,7 @@ import { detectRiskLocally } from '../lib/socialEngineering'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, DISPUTE_RULING_LABEL, ESCROW_TYPE_LABEL, PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { AssetNetworkLabel } from '../components/ui/AssetIcon'
 import { t } from '../i18n'
+import { AsideResizer, useTradeAsideWidth } from '../components/trade/AsideResizer'
 
 // Sails Core Implementation Program M8-R2 (Destination Authority
 // Conformance, 2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md) —
@@ -220,6 +221,7 @@ export function Trade() {
   const [pending, setPending] = useState<PendingState>({ status: 'none' })
   const [roundDialog, setRoundDialog] = useState<RoundDialog | null>(null)
   const [showDisputeForm, setShowDisputeForm] = useState(false)
+  const aside = useTradeAsideWidth()
   const [disputeReason, setDisputeReason] = useState('')
   // RFC-021 D6/D7/D8 — evidence/contest/appeal are real, trade-party-only
   // actions (dispute.service.ts rejects anyone whose id isn't
@@ -1036,7 +1038,8 @@ export function Trade() {
 
       {/* Desktop: stage, Registro and Ferramentas on the left, counterparty and chat on the right.
           Phones (DOM order): stage -> counterparty and chat -> Registro -> Ferramentas. */}
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-[auto_auto_1fr] lg:items-start">
+      {/* The aside width is the viewer's, set with the divider (AsideResizer); 400 px by default. */}
+      <div ref={aside.gridRef} style={aside.style} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_var(--trade-aside-w)] lg:grid-rows-[auto_auto_1fr] lg:items-start">
         <div className="flex min-w-0 flex-col gap-4 lg:col-start-1 lg:row-start-1">
           {/* An open dispute is the current state: its panel below replaces the action card instead of repeating it. */}
           {escrowStatus === 'DISPUTED' && dispute ? null : actionCardShown ? (
@@ -1132,7 +1135,8 @@ export function Trade() {
           {!paymentInCard && paymentInstructions}
         </div>
 
-        <aside className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-1 lg:row-span-3" aria-label={t('trade.page.asideLabel')}>
+        <aside id="trade-aside" className="relative flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-1 lg:row-span-3" aria-label={t('trade.page.asideLabel')}>
+          <AsideResizer width={aside.width} max={aside.max} onChange={aside.set} controls="trade-aside" />
           <TradeParties buyer={buyer} seller={seller} currentUserId={user?.id} counterpartyOnline={counterpartyOnline}>
             <Button
               variant="outline"
