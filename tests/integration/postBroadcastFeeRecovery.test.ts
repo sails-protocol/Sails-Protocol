@@ -21,6 +21,7 @@ jest.mock('../../src/common/events/event-bus', () => ({
 
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { createBoundTrade } from './helpers/committedPairFixture'
 
 describe('post-broadcast fee recovery (Issue #245 Phase 2, real Postgres)', () => {
   jest.setTimeout(120_000)
@@ -54,15 +55,15 @@ describe('post-broadcast fee recovery (Issue #245 Phase 2, real Postgres)', () =
   async function afterBroadcastWithFailedAccounting(opts: { emitted?: boolean; noObligation?: boolean; noFeeAddress?: boolean } = {}) {
     const s = suffix()
     const txid = require('crypto').createHash('sha256').update(s).digest('hex')
-    const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-245p2-${s}` } })
-    const seller = await prisma.user.create({ data: { publicKey: `pk-seller-245p2-${s}` } })
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
-    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const bound = await createBoundTrade(prisma) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+    const { buyer, seller, trade } = bound
+    const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
+    const boundPairId = await bound.commit()
     const feePolicy = await prisma.feePolicyVersion.create({
       data: { label: `fp-245p2-${s}`, railScope: `FIXTURE_RAIL_245P2-${s}`, status: 'PUBLISHED', publishedAt: new Date(), protocolFeeRate: '0.004', payerModel: 'SELLER_PAYS', economicBasis: 'SELLER_DELIVERED_VALUE', requiredConfirmations: 1, createdBy: 'issue-245-p2-test' },
     })
     const escrow = await prisma.escrow.create({
-      data: { tradeId: trade.id, type: 'MULTISIG', status: 'COMPLETED', asset: 'BTC', lockedAmount: '0.001', txReleaseId: txid, snapshotFeeCollectionAddress: opts.noFeeAddress ? null : 'tb1qfeeaddress245p2' },
+      data: { tradeId: trade.id, commitmentPairId: boundPairId, type: 'MULTISIG', status: 'COMPLETED', asset: 'BTC', lockedAmount: '0.001', txReleaseId: txid, snapshotFeeCollectionAddress: opts.noFeeAddress ? null : 'tb1qfeeaddress245p2' },
     })
     const obligationData = { escrowId: escrow.id, feePolicyVersionId: feePolicy.id, economicDetermination: 'OWED' as const, collectionStatus: 'PENDING_COLLECTION' as const, basisAmount: '0.001', computedFee: '0.00000500', asset: 'BTC' as const }
     const obligation = opts.noObligation ? { id: 'none' } : await prisma.feeObligation.create({ data: obligationData })

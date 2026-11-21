@@ -168,6 +168,13 @@ describe('CTO 225 - runtime role cannot bypass write-once guarantees (disposable
     const mismatches: string[] = []
     for (const [table, cls] of classes) {
       for (const privilege of PRIVILEGES) {
+        // F4: escrows INSERT/UPDATE are COLUMN-level (the binding columns are carved out); proved column by column in f4RuntimeGrants.test.ts.
+        if (table === 'escrows' && (privilege === 'INSERT' || privilege === 'UPDATE')) {
+          const carved = privilege === 'INSERT' ? 'legacyPreCommitmentAt' : 'commitmentPairId' // INSERT carves out the two marks (the service sets commitmentPairId itself); UPDATE also the pair
+          const { rows: [{ ok, bound }] } = await admin.query(`SELECT has_column_privilege('sails_runtime', 'public.escrows', 'status', $1) AS ok, has_column_privilege('sails_runtime', 'public.escrows', '${carved}', $1) AS bound`, [privilege])
+          if (!ok || bound) mismatches.push(`escrows.${privilege} column-level carve-out wrong (status=${ok}, ${carved}=${bound})`)
+          continue
+        }
         const { rows: [{ has }] } = await admin.query(`SELECT has_table_privilege('sails_runtime', $1, $2) AS has`, [`public.${table}`, privilege])
         if (has !== CLASS_PRIVILEGES[cls].includes(privilege)) mismatches.push(`${table}.${privilege}=${has} (class ${cls})`)
       }

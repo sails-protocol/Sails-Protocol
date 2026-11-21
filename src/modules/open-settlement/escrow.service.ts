@@ -60,6 +60,7 @@ import { evaluateExpiryAuthority } from './expiry-authority'
 import { commitAuthoritativeEscrowTimelockExpiry } from './semantic-transition-record'
 import { escrowRepository, type EscrowRepository } from './escrow-repository'
 import { tradeRepository } from '../open-p2p/trade-repository'
+import { lockPairForEffect } from '../open-p2p/commitment-pair.service'
 import { feeObligationService } from './fee-obligation.service'
 import { escrowFeeSnapshotService } from './escrow-fee-snapshot.service'
 import { escrowFundingEvidenceRepository } from './escrow-funding-evidence-repository'
@@ -450,14 +451,29 @@ export class EscrowService {
     // genuinely cannot be derived yet at creation time, only once both
     // parties have submitted their pubkey via submitParticipantKey()
     // below. Escrow.multisigAddr stays null until then.
-    const escrow = await this.repo.create({
-      tradeId: input.tradeId,
-      type,
-      lockedAmount: input.lockedAmount,
-      asset: input.asset,
-      network: input.network,
-      timelockHours: input.timelockHours ?? config.trade.defaultTimelockHours,
-      ...(feeSnapshot ? { feeSnapshot } : {}),
+    // F4 / invariant 3b, A1 (CTO Despacho 021): the new escrow is bound to the COMMITTED commitment pair of the trade's OWN Intent
+    // (trades.tradeIntentId is the anchor), created in the same transaction that takes the pair lock FIRST (lock order: pair before
+    // anything else, F4_AUDITORIA_ORDEM_DE_LOCKS). Every type but MOCK refuses without a ready pair; MOCK (exempt only where the database
+    // has its deployment_mode row) takes the pair when there is one and otherwise leaves the decision to the database trigger.
+    const escrow = await prisma.$transaction(async (tx) => {
+      let commitmentPairId: string | undefined
+      if (trade.tradeIntentId) {
+        const { row, readiness } = await lockPairForEffect(tx, { anchorRef: trade.tradeIntentId })
+        if (readiness.ok && row) commitmentPairId = row.id
+        else if (type !== 'MOCK') throw new EscrowError(`escrow refused: the trade has no executable commitment pair (${readiness.ok ? 'E25_COMMITMENT_MISSING' : readiness.code})`)
+      } else if (type !== 'MOCK') {
+        throw new EscrowError('escrow refused: the trade has no commitment anchor (E25_COMMITMENT_MISSING)')
+      }
+      return this.repo.create({
+        tradeId: input.tradeId,
+        type,
+        lockedAmount: input.lockedAmount,
+        asset: input.asset,
+        network: input.network,
+        timelockHours: input.timelockHours ?? config.trade.defaultTimelockHours,
+        ...(commitmentPairId ? { commitmentPairId } : {}),
+        ...(feeSnapshot ? { feeSnapshot } : {}),
+      }, tx)
     })
 
     await eventBus.emit('settlement.escrow.created', {

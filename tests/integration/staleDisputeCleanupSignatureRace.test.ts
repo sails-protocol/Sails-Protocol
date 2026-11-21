@@ -11,6 +11,8 @@ import { PrismaClient } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
+import { createCommitmentFixture } from './helpers/committedPairFixture'
+import nacl from 'tweetnacl'
 
 // Issue #239 - this suite proves lock interleaving, not Bitcoin signatures: its rounds carry placeholder PSBTs, so the
 // PSBT check is stubbed here (it is proven with real PSBTs in tests/integration/pendingRoundLifecycle.test.ts).
@@ -68,14 +70,17 @@ describe('Issue #244 - stale dispute-pending cleanup vs a concurrent signature (
 
   /** A MULTISIG escrow with a RESOLVED dispute (no durable Outcome) and a zero-signature round older than the margin. */
   async function fixture(requiredSigners: 'both' | 'buyer' = 'both') {
-    const [buyer, seller, arbiter] = await Promise.all([newUser(), newUser(), newUser()])
-    const offer = await prisma.offer.create({
-      data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' },
-    })
-    const trade = await prisma.trade.create({
-      data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.01', priceUsd: '65000', totalUsd: '650' },
-    })
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001', status: 'DISPUTED' } })
+    // F4 deny-by-default: the trade is E21-admitted and its MULTISIG escrow is bound to a REAL COMMITTED pair signed by the real parties.
+    const sellerKey = nacl.sign.keyPair(), buyerKey = nacl.sign.keyPair()
+    const [buyer, seller, arbiter] = await Promise.all([
+      prisma.user.create({ data: { publicKey: Buffer.from(buyerKey.publicKey).toString('hex') } }),
+      prisma.user.create({ data: { publicKey: Buffer.from(sellerKey.publicKey).toString('hex') } }),
+      newUser(),
+    ])
+    const fx = await createCommitmentFixture(prisma, { asset: 'BTC', rail: 'MULTISIG', maker: { id: seller.id, secretKey: Buffer.from(sellerKey.secretKey).toString('hex') }, taker: { id: buyer.id, secretKey: Buffer.from(buyerKey.secretKey).toString('hex') } })
+    const { tradeId, pairId } = await fx.committedPair()
+    const trade = { id: tradeId }
+    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', asset: 'BTC', lockedAmount: '0.001', status: 'DISPUTED', commitmentPairId: pairId } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
     const dispute = await prisma.dispute.create({
       data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: '#244', arbiterId: arbiter.id, status: 'RESOLVED', ruling: 'RELEASE', resolvedAt: new Date() },

@@ -510,6 +510,14 @@ model Escrow {
   createdAt                             DateTime          @default(now())
   updatedAt                             DateTime          @updatedAt
 
+  // F4 / invariant 3b (migration 20261122122000_f4_escrow_commitment_binding). A NEW escrow of an executable type is bound to a
+  // COMMITTED commitment pair, in the database (trigger), and the binding never changes. The two marks exist ONLY on rows that
+  // existed at the economic cut: written once by that migration, never by the runtime (no grant, trigger-immutable).
+  commitmentPairId                      String?
+  commitmentPair                        CommitmentPair?   @relation(fields: [commitmentPairId], references: [id], onDelete: Restrict)
+  legacyPreCommitmentAt                 DateTime?         @db.Timestamptz(3)
+  addressPresentAtCutAt                 DateTime?         @db.Timestamptz(3)
+
   events             EscrowEvent[]
   disputes           Dispute[]
   feeDistribution    FeeDistribution?
@@ -2708,6 +2716,9 @@ model CommitmentPair {
   withdrawnBy                 String?
   withdrawProof               String?
   createdAt                   DateTime         @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(3)
+
+  /// F4: the escrows bound to this pair (inverse side of Escrow.commitmentPairId; no column here).
+  escrows                     Escrow[]
 
   @@index([anchorRef])
   @@map("commitment_pairs")
