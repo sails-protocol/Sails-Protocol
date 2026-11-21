@@ -94,14 +94,13 @@ describe('M-1b wiring: reservation trigger on COMMITTED (real catalog)', () => {
     expect((await db.query(`SELECT state FROM commitment_pairs WHERE id=$1`, [p.pairId])).rows[0].state).toBe('PARTIALLY_SIGNED')
   })
 
-  run('B8: EXECUTE is not PUBLIC: the runtime may call only try_release and request_unblock; only the reviewer role may call execute_unblock; the internal functions are for no application role', async () => {
-    const can = async (role: string, fn: string) => (await db.query(`SELECT has_function_privilege($1, $2, 'EXECUTE') AS ok`, [role, fn])).rows[0].ok as boolean
-    expect(await can('sails_runtime', 'offer_capacity_try_release(text)')).toBe(true)
-    expect(await can('sails_runtime', 'offer_capacity_request_unblock(text, jsonb, text)')).toBe(true)
-    for (const fn of ['offer_capacity_settlement_proof(text)', 'offer_capacity_execute_unblock(text, text, text)', 'offer_capacity_block_on_evidence()',
-      'offer_capacity_unblock_digest(text, text, text, text, timestamptz, jsonb, text)', 'commitment_pairs_reserve_capacity()']) {
-      expect(await can('sails_runtime', fn)).toBe(false)
+  run('B8 (migration part): EXECUTE is not PUBLIC on any M-1b function; the reviewer role (required by the migration) may call execute_unblock only. The sails_runtime grants are asserted in f4RuntimeGrants test 7 (the grants file does not run in the legacy single-credential lane)', async () => {
+    const fns = ['offer_capacity_try_release', 'offer_capacity_request_unblock', 'offer_capacity_settlement_proof', 'offer_capacity_execute_unblock', 'offer_capacity_block_on_evidence', 'offer_capacity_unblock_digest', 'commitment_pairs_reserve_capacity']
+    for (const fn of fns) {
+      const publicCan = (await db.query(`SELECT EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a WHERE p.proname = $1 AND a.grantee = 0 AND a.privilege_type = 'EXECUTE') AS ok`, [fn])).rows[0].ok as boolean
+      expect([fn, publicCan]).toEqual([fn, false])
     }
+    const can = async (role: string, fn: string) => (await db.query(`SELECT has_function_privilege($1, $2, 'EXECUTE') AS ok`, [role, fn])).rows[0].ok as boolean
     expect(await can('sails_capacity_reviewer', 'offer_capacity_execute_unblock(text, text, text)')).toBe(true)
     expect(await can('sails_capacity_reviewer', 'offer_capacity_try_release(text)')).toBe(false)
   })
