@@ -191,6 +191,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
   - "Volume" do Perfil mostra "Em breve": o total somava ativos diferentes, sem unidade;
   - os filtros de bloqueio e de "já negociei" dizem que, por enquanto, só funcionam na demonstração;
   - sem nomes internos (RFC-021, MULTISIG, AES-256-GCM, "o serviço") nem caixa alta para ênfase.
+- **Dados de pagamento no trade** (EPM, verificado pelo Principal na main 37dcd0d1, 2026-11-21): as listas públicas e a proposta do Sails Agent não expõem `paymentDetails`, e só comprador e vendedor do trade os veem. Dentro do trade os dados chegam ao vivo e o vendedor ainda pode editá-los, porque o snapshot e o congelamento estão em STOP (#735 §14.3). A tela nunca diz que os dados de pagamento ficam fixos ou verificados, e a ajuda do PIX não promete nada além do que a tela mostra.
 - **"Conectar wallet" dentro das páginas é tonal** (2026-11-21): com sessão vazia, o laranja sólido é o do topo; os botões de conexão no meio de Trades, Histórico, Ofertas, Disputas, Configurações e da página de um trade ficam tonais.
 - **Chave pública no Perfil:** começo e fim sempre visíveis ("5be90dfe1d…b50ee0e9"), com o botão "Ver chave completa" que abre a chave inteira no lugar, em qualquer tela (o toque não depende de tooltip). O "Copiar" continua ao lado (Product Owner, 2026-11-21).
 
