@@ -63,7 +63,23 @@ describe('M-1b offer capacity: atomic reservation (real PG sessions)', () => {
   run('N=5 concurrent COMMITTED over a capacity of 2 slots: exactly 2 succeed, the sum never exceeds the total', async () => {
     const a = await offerWithPairs(5, 0x62)
     await declare(a.owner, a.offer, '0.01200000') // 2 x 0.005 = 0.010 <= 0.012 < 0.015
-    const out = await Promise.all(a.pairs.map((p) => settle(p.signMaker())))
+    // DETERMINISTIC barrier (GK #736): a session holds SHARE on the reservations table, so every reservation INSERT queues. Correct code:
+    // one transition holds the capacity row (FOR UPDATE) and waits on the table, the other four wait on that row. Without FOR UPDATE all five
+    // read an empty sum and all five queue on the table, then all five pass: the assertions below fail by construction, not by timing.
+    const barrier = new Client({ connectionString: process.env.DATABASE_URL }); await barrier.connect()
+    let out: Array<{ ok: boolean; msg: string }>
+    try {
+      await barrier.query('BEGIN'); await barrier.query('LOCK TABLE offer_capacity_reservations IN SHARE MODE')
+      const fired = a.pairs.map((p) => settle(p.signMaker()))
+      let waiting = 0
+      for (let i = 0; i < 600 && waiting < 5; i++) { // 30 s, explicit
+        waiting = Number((await db.query(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND pid <> $1 AND wait_event_type = 'Lock'`, [(await barrier.query('SELECT pg_backend_pid() AS p')).rows[0].p])).rows[0].n)
+        if (waiting < 5) await new Promise((r) => setTimeout(r, 50))
+      }
+      if (waiting < 5) throw new Error(`barrier not real: only ${waiting} of 5 backends waiting on a lock after 30 s`)
+      await barrier.query('COMMIT')
+      out = await Promise.all(fired)
+    } finally { await barrier.query('ROLLBACK').catch(() => undefined); await barrier.end().catch(() => undefined) }
     expect(out.filter((o) => o.ok)).toHaveLength(2)
     for (const o of out.filter((x) => !x.ok)) expect(o.msg).toContain('E25_OFFER_CAPACITY_EXCEEDED')
     const res = await reservations(a.offer)
