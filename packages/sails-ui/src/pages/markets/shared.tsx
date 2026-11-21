@@ -153,11 +153,13 @@ export function JoinMarketPanel() {
 /** Each prototype screen and the loose wires it waits for (rendered on /dev/design-system). */
 export const NODES_MARKETS_SCREENS: readonly { screen: string; where: string; wires: readonly LooseWireId[] }[] = [
   { screen: 'Portal de mercados', where: 'Market (ao lado do título)', wires: ['marketDiscovery', 'marketMembership'] },
-  { screen: 'Cartão de descoberta e chamadas', where: 'Market, lista vazia, Perfil, Configurações → Comunidades', wires: ['marketDiscovery', 'createMarket'] },
+  { screen: 'Cartão de descoberta e chamadas', where: 'Market, lista vazia, Perfil, Configurações → Mercados', wires: ['marketDiscovery', 'createMarket'] },
   { screen: 'Explorar mercados', where: 'Market → Mercados (/markets)', wires: ['marketDiscovery'] },
   { screen: 'Meus mercados', where: 'Market → Mercados (/markets/mine)', wires: ['marketMembership', 'marketPortability'] },
   { screen: 'Criar mercado', where: 'Market → Mercados (/markets/new)', wires: ['createMarket', 'marketBranding', 'marketInvite'] },
+  { screen: 'Prévia do mercado criado (e convites, nos privados)', where: 'Market → Mercados (/markets/new, último passo)', wires: ['createMarket', 'marketBranding', 'marketMembership', 'marketInvite'] },
   { screen: 'Entrar com convite', where: 'Market → Mercados (/markets/join)', wires: ['marketInvite', 'marketInviteQr', 'marketMembership'] },
+  { screen: 'Preferências de mercados (padrão, convites recebidos, privacidade)', where: 'Configurações → Mercados', wires: ['marketMembership', 'marketInvite', 'marketParticipationPrivacy'] },
   { screen: 'Rede Sails e conexão', where: 'Configurações → Rede e nós', wires: ['nodeCatalog'] },
   { screen: 'Adicionar nó manualmente', where: 'Configurações → Rede e nós', wires: ['nodeCatalog', 'manualServer'] },
   { screen: 'Avançado: nós, operadores e diagnóstico', where: 'Configurações → Rede e nós', wires: ['nodeCatalog', 'nodeStateSync', 'connectionDiagnostics'] },

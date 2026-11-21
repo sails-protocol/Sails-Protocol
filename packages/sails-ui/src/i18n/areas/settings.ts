@@ -11,7 +11,7 @@ export default defineArea(
     'settings.section.notifications': 'Notificações',
     'settings.section.security': 'Segurança',
     'settings.section.network': 'Rede e nós',
-    'settings.section.communities': 'Comunidades',
+    'settings.section.markets': 'Mercados',
     'settings.section.help': 'Ajuda e Sobre',
     'settings.systemDefault': 'Padrão do sistema',
 
@@ -58,8 +58,16 @@ export default defineArea(
 
     'settings.language.legend': 'Idioma da interface',
 
-    'settings.communities.description': 'Comunidades e mercados restritos de que você participa',
     'settings.communities.myMarketsDescription': 'Mercados públicos que você segue e privados de que você participa',
+    'settings.markets.defaultLegend': 'Mercado que abre por padrão',
+    'settings.markets.defaultHelp': 'O Market abre neste mercado.',
+    'settings.markets.othersLater': 'Quando você participar de outros mercados, eles aparecem aqui para escolher.',
+    'settings.markets.invitesTitle': 'Convites recebidos',
+    'settings.markets.invitesEmpty': 'Nenhum convite pendente',
+    'settings.markets.invitesEmptyHelp': 'Os convites Sails que você receber aparecem aqui, quando o protocolo tiver convites.',
+    'settings.markets.inviteFrom': 'Convite de {from}',
+    'settings.markets.openInvite': 'Abrir convite',
+    'settings.markets.privacyDescription': 'Quem pode ver de quais mercados você participa, quando o protocolo definir.',
 
     'settings.help.tour': 'Rever tour',
     'settings.help.tourDescription': 'Tour de boas-vindas do Sails Market',
@@ -76,7 +84,7 @@ export default defineArea(
       'settings.section.notifications': 'Notifications',
       'settings.section.security': 'Security',
       'settings.section.network': 'Network and nodes',
-      'settings.section.communities': 'Communities',
+      'settings.section.markets': 'Markets',
       'settings.section.help': 'Help and about',
       'settings.systemDefault': 'System default',
 
@@ -123,8 +131,16 @@ export default defineArea(
 
       'settings.language.legend': 'Interface language',
 
-      'settings.communities.description': 'Communities and restricted markets you take part in',
       'settings.communities.myMarketsDescription': 'Public markets you follow and private ones you take part in',
+      'settings.markets.defaultLegend': 'Market that opens by default',
+      'settings.markets.defaultHelp': 'The Market opens on this market.',
+      'settings.markets.othersLater': 'When you take part in other markets, they show up here to choose from.',
+      'settings.markets.invitesTitle': 'Invites received',
+      'settings.markets.invitesEmpty': 'No pending invites',
+      'settings.markets.invitesEmptyHelp': 'The Sails invites you receive show up here, once the protocol has invites.',
+      'settings.markets.inviteFrom': 'Invite from {from}',
+      'settings.markets.openInvite': 'Open invite',
+      'settings.markets.privacyDescription': 'Who can see which markets you take part in, once the protocol defines it.',
 
       'settings.help.tour': 'Replay tour',
       'settings.help.tourDescription': 'Sails Market welcome tour',
@@ -140,7 +156,7 @@ export default defineArea(
       'settings.section.notifications': 'Notificaciones',
       'settings.section.security': 'Seguridad',
       'settings.section.network': 'Red y nodos',
-      'settings.section.communities': 'Comunidades',
+      'settings.section.markets': 'Mercados',
       'settings.section.help': 'Ayuda e información',
       'settings.systemDefault': 'Predeterminado del sistema',
 
@@ -187,8 +203,16 @@ export default defineArea(
 
       'settings.language.legend': 'Idioma de la interfaz',
 
-      'settings.communities.description': 'Comunidades y mercados restringidos en los que participas',
       'settings.communities.myMarketsDescription': 'Mercados públicos que sigues y privados en los que participas',
+      'settings.markets.defaultLegend': 'Mercado que se abre por defecto',
+      'settings.markets.defaultHelp': 'El Market se abre en este mercado.',
+      'settings.markets.othersLater': 'Cuando participes en otros mercados, aparecerán aquí para elegir.',
+      'settings.markets.invitesTitle': 'Invitaciones recibidas',
+      'settings.markets.invitesEmpty': 'No hay invitaciones pendientes',
+      'settings.markets.invitesEmptyHelp': 'Las invitaciones Sails que recibas aparecerán aquí, cuando el protocolo tenga invitaciones.',
+      'settings.markets.inviteFrom': 'Invitación de {from}',
+      'settings.markets.openInvite': 'Abrir invitación',
+      'settings.markets.privacyDescription': 'Quién puede ver en qué mercados participas, cuando el protocolo lo defina.',
 
       'settings.help.tour': 'Repetir el tour',
       'settings.help.tourDescription': 'Tour de bienvenida de Sails Market',
@@ -204,7 +228,7 @@ export default defineArea(
       'settings.section.notifications': 'Notifications',
       'settings.section.security': 'Sécurité',
       'settings.section.network': 'Réseau et nœuds',
-      'settings.section.communities': 'Communautés',
+      'settings.section.markets': 'Marchés',
       'settings.section.help': 'Aide et à propos',
       'settings.systemDefault': 'Par défaut du système',
 
@@ -251,8 +275,16 @@ export default defineArea(
 
       'settings.language.legend': 'Langue de l’interface',
 
-      'settings.communities.description': 'Communautés et marchés restreints auxquels vous participez',
       'settings.communities.myMarketsDescription': 'Marchés publics que vous suivez et privés auxquels vous participez',
+      'settings.markets.defaultLegend': 'Marché ouvert par défaut',
+      'settings.markets.defaultHelp': 'Le Market s’ouvre sur ce marché.',
+      'settings.markets.othersLater': 'Quand vous participerez à d’autres marchés, ils apparaîtront ici pour les choisir.',
+      'settings.markets.invitesTitle': 'Invitations reçues',
+      'settings.markets.invitesEmpty': 'Aucune invitation en attente',
+      'settings.markets.invitesEmptyHelp': 'Les invitations Sails que vous recevez apparaîtront ici, quand le protocole aura des invitations.',
+      'settings.markets.inviteFrom': 'Invitation de {from}',
+      'settings.markets.openInvite': 'Ouvrir l’invitation',
+      'settings.markets.privacyDescription': 'Qui peut voir à quels marchés vous participez, quand le protocole l’aura défini.',
 
       'settings.help.tour': 'Revoir la visite',
       'settings.help.tourDescription': 'Visite d’accueil de Sails Market',
@@ -268,7 +300,7 @@ export default defineArea(
       'settings.section.notifications': 'Benachrichtigungen',
       'settings.section.security': 'Sicherheit',
       'settings.section.network': 'Netzwerk und Knoten',
-      'settings.section.communities': 'Communitys',
+      'settings.section.markets': 'Märkte',
       'settings.section.help': 'Hilfe und Info',
       'settings.systemDefault': 'Systemstandard',
 
@@ -315,8 +347,16 @@ export default defineArea(
 
       'settings.language.legend': 'Sprache der Oberfläche',
 
-      'settings.communities.description': 'Communitys und eingeschränkte Märkte, an denen du teilnimmst',
       'settings.communities.myMarketsDescription': 'Öffentliche Märkte, denen du folgst, und private, an denen du teilnimmst',
+      'settings.markets.defaultLegend': 'Markt, der standardmäßig geöffnet wird',
+      'settings.markets.defaultHelp': 'Der Market öffnet diesen Markt.',
+      'settings.markets.othersLater': 'Wenn du an anderen Märkten teilnimmst, erscheinen sie hier zur Auswahl.',
+      'settings.markets.invitesTitle': 'Erhaltene Einladungen',
+      'settings.markets.invitesEmpty': 'Keine ausstehenden Einladungen',
+      'settings.markets.invitesEmptyHelp': 'Die Sails-Einladungen, die du bekommst, erscheinen hier, sobald das Protokoll Einladungen hat.',
+      'settings.markets.inviteFrom': 'Einladung von {from}',
+      'settings.markets.openInvite': 'Einladung öffnen',
+      'settings.markets.privacyDescription': 'Wer sehen kann, an welchen Märkten du teilnimmst, sobald das Protokoll es festlegt.',
 
       'settings.help.tour': 'Tour wiederholen',
       'settings.help.tourDescription': 'Willkommenstour von Sails Market',

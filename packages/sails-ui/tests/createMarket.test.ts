@@ -1,4 +1,4 @@
-import { EMPTY_DRAFT, MARKET_NAME_MAX, canAdvance, canReach, createSteps, type MarketDraft } from '../src/lib/createMarket'
+import { EMPTY_DRAFT, MARKET_NAME_MAX, PARTICIPANTS_MAX, addParticipant, canAdvance, canReach, createSteps, marketPreview, type MarketDraft } from '../src/lib/createMarket'
 
 const draft = (over: Partial<MarketDraft>): MarketDraft => ({ ...EMPTY_DRAFT, ...over })
 
@@ -32,5 +32,39 @@ describe('Criar mercado steps', () => {
     expect(canReach('review', draft({ name: 'Loja', visibility: 'public', preset: 'vitrine' }))).toBe(true)
     expect(canReach('invites', draft({ name: 'Loja', visibility: 'public', preset: 'vitrine' }))).toBe(false)
     expect(canReach('invites', draft({ name: 'Amigos', visibility: 'private', preset: 'comunidade' }))).toBe(true)
+  })
+})
+
+describe('Prévia do mercado criado', () => {
+  const pub = draft({ name: '  Loja Boreal ', description: ' ', visibility: 'public', preset: 'vitrine' })
+
+  it('needs a complete draft', () => {
+    expect(marketPreview(EMPTY_DRAFT)).toBeNull()
+    expect(marketPreview(draft({ name: 'Loja', visibility: 'public' }))).toBeNull()
+    expect(marketPreview(draft({ name: 'Loja', visibility: 'public', preset: 'personalizado' }))).toBeNull()
+  })
+
+  it('public: trimmed copy, no id, no offers, no invites screen, three dependencies', () => {
+    expect(marketPreview(pub)).toEqual({
+      name: 'Loja Boreal', description: null, visibility: 'public', preset: 'vitrine', infrastructure: 'network',
+      marketId: null, offers: [], invites: null, dependsOn: ['createMarket', 'marketBranding', 'marketMembership'],
+    })
+  })
+
+  it('private: one pending invite per participant and the invite dependency', () => {
+    const p = marketPreview(draft({ name: 'Amigos', visibility: 'private', preset: 'comunidade', infrastructure: 'own', participants: ['alice', 'bob'] }))
+    expect(p?.invites).toEqual([{ identifier: 'alice', state: 'pending' }, { identifier: 'bob', state: 'pending' }])
+    expect(p?.dependsOn).toContain('marketInvite')
+    expect(p?.infrastructure).toBe('own')
+    expect(marketPreview(draft({ name: 'Amigos', visibility: 'private', preset: 'comunidade' }))?.invites).toEqual([])
+  })
+
+  it('adds each trimmed identifier once, up to the cap', () => {
+    expect(addParticipant([], '  alice ')).toEqual(['alice'])
+    const one = ['alice']
+    expect(addParticipant(one, 'alice')).toBe(one)
+    expect(addParticipant(one, '   ')).toBe(one)
+    const full = Array.from({ length: PARTICIPANTS_MAX }, (_, i) => `p${i}`)
+    expect(addParticipant(full, 'extra')).toBe(full)
   })
 })

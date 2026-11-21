@@ -5,7 +5,7 @@
  * contract exists, so real mode shows only the default public market and every backend action is "Em breve"; demo
  * mode (?demo=1) adds fictional markets and lets the create and invite flows be walked, clearly marked.
  */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router'
 import { ArrowLeft, UsersRound } from 'lucide-react'
 import { Page, PageHeader } from '../components/layout/PageHeader'
@@ -13,11 +13,14 @@ import { MARKETS_ROUTES } from '../components/layout/navMatch'
 import { TabLinks } from '../components/ui/tabs'
 import { Card } from '../components/ui/card'
 import { Alert } from '../components/ui/alert'
+import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
 import { Badge } from '../components/ui/badge'
 import { buttonVariants } from '../components/ui/button'
 import { MarketList } from '../components/markets/MarketList'
 import { FactList } from '../components/markets/FactList'
 import { CreateMarketWizard, type CreateMarketCopy } from '../components/markets/CreateMarketWizard'
+import { MarketPreview, type MarketPreviewCopy } from '../components/markets/MarketPreview'
+import { marketPreview, type MarketPreviewModel } from '../lib/createMarket'
 import { isDemoMode } from '../lib/demoMarkers'
 import { cn } from '../lib/utils'
 import { guarantees, identifiers, JoinMarketPanel, marketListCopy, marketsValueLine, WireNote, WirePlanned, useVisibleMarkets } from './markets/shared'
@@ -74,10 +77,67 @@ function createCopy(): CreateMarketCopy {
       name: t('markets.create.review.name'), description: t('markets.create.description'), visibility: steps.visibility,
       participation: t('markets.create.review.participation'), infrastructure: steps.infrastructure, empty: t('markets.create.review.empty'),
     },
+    invites: {
+      identifier: t('markets.create.invites.identifier'),
+      identifierHelp: t('markets.create.invites.identifierHelp'),
+      identifierPlaceholder: t('markets.formatPending'),
+      generate: t('markets.create.invites.generate'),
+      listLabel: t('markets.create.invites.listLabel'),
+      empty: t('markets.create.invites.empty'),
+      pending: t('markets.create.invites.pending'),
+      remove: (identifier) => t('markets.create.invites.remove', { identifier }),
+    },
     back: t('markets.create.back'),
     next: t('markets.create.next'),
-    create: t('markets.action.create'),
+    create: t('markets.create.previewAction'),
   }
+}
+
+const SHOWN_INVITE_STATES = ['pending', 'granted', 'expired', 'revoked'] as const
+
+function previewCopy(): MarketPreviewCopy {
+  const list = marketListCopy()
+  const members = t('markets.preview.rules.members')
+  return {
+    title: t('markets.preview.title'),
+    visibility: list.visibility,
+    noDescription: t('markets.preview.noDescription'),
+    facts: {
+      marketId: 'Sails Market ID', marketIdPending: t('markets.formatPending'),
+      brand: t('markets.preview.brand'), brandPending: t('markets.preview.brandPending'),
+      participation: t('markets.create.review.participation'),
+      publishes: t('markets.preview.publishes'), trades: t('markets.preview.trades'),
+      infrastructure: t('markets.create.step.infrastructure'),
+    },
+    preset: {
+      vitrine: { label: list.preset.vitrine, publishes: t('markets.preview.rules.vitrinePublishes'), trades: t('markets.preview.rules.vitrineTrades') },
+      comunidade: { label: list.preset.comunidade, publishes: members, trades: members },
+    },
+    infrastructure: { network: 'Rede Sails', own: t('markets.create.infrastructure.ownLabel') },
+    offersTitle: t('markets.preview.offersTitle'),
+    offersEmptyTitle: t('markets.preview.offersEmptyTitle'),
+    offersEmptyBody: t('markets.preview.offersEmptyBody'),
+    invitesTitle: t('markets.preview.invitesTitle'),
+    invitesLead: t('markets.preview.invitesLead'),
+    invitesEmpty: t('markets.create.invites.empty'),
+    pending: t('markets.create.invites.pending'),
+    statesTitle: t('markets.preview.statesTitle'),
+    states: SHOWN_INVITE_STATES.map((s) => ({ key: s, title: t(`markets.invite.${s}.title`), description: t(`markets.invite.${s}.description`) })),
+    edit: t('markets.preview.edit'),
+    discard: t('markets.preview.discard'),
+  }
+}
+
+/** The preview's persistent label: real mode names the contracts it waits for; demo mode marks the market fictional. */
+function PreviewBanner({ preview, demo }: { preview: MarketPreviewModel; demo: boolean }) {
+  return demo ? (
+    <Alert tone="info" title={t('markets.create.demoTitle')}>{t('markets.create.demoBody', { name: preview.name })}</Alert>
+  ) : (
+    <Alert tone="info" title={t('markets.preview.bannerTitle')}>
+      <p>{t('markets.preview.bannerBody')}</p>
+      <div className="mt-2"><WireNote ids={preview.dependsOn} /></div>
+    </Alert>
+  )
 }
 
 // The 2×2 of visibility × infrastructure (CTO final correction): one example each, all independent choices.
@@ -157,24 +217,51 @@ function MineView() {
 
 function CreateView() {
   const demo = isDemoMode()
-  const [created, setCreated] = useState<string | null>(null)
+  // DECISIONS.md "Criar mercado, fluxo completo com dados reais": the final step opens a preview, never a created market.
+  const [preview, setPreview] = useState<MarketPreviewModel | null>(null)
+  // Bumped by "Descartar prévia" to start the wizard over with an empty draft.
+  const [draftKey, setDraftKey] = useState(0)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const wizardRef = useRef<HTMLDivElement>(null)
+  const backToWizard = () => {
+    setPreview(null)
+    // The wizard stayed mounted (hidden), so its draft and step are kept; put focus back on its step heading.
+    requestAnimationFrame(() => wizardRef.current?.querySelector<HTMLElement>('h2')?.focus())
+  }
   return (
     <div className="space-y-6">
       <Card className={SURFACE}>
-        {created ? (
-          <Alert tone="info" live title={t('markets.create.demoTitle')}>
-            {t('markets.create.demoBody', { name: created })}
-          </Alert>
-        ) : (
+        <div ref={wizardRef} hidden={preview !== null}>
           <CreateMarketWizard
+            key={draftKey}
             copy={createCopy()}
             brandingSlot={<WirePlanned id="marketBranding" description={t('markets.create.brandingPlanned')} />}
             invitesSlot={<WirePlanned id="marketInvite" label={t('markets.create.invitesLabel')} description={t('markets.create.invitesPlanned')} />}
             createAvailable={demo}
             unavailableNote={<WireNote ids={['createMarket']} />}
-            onCreate={(d) => setCreated(d.name.trim())}
+            participantsAvailable={demo}
+            participantsUnavailableNote={<WireNote ids={['marketInvite']} />}
+            onCreate={(d) => setPreview(marketPreview(d))}
+          />
+        </div>
+        {preview && (
+          <MarketPreview
+            preview={preview}
+            copy={previewCopy()}
+            banner={<PreviewBanner preview={preview} demo={demo} />}
+            onEdit={backToWizard}
+            onDiscard={() => setConfirmDiscard(true)}
           />
         )}
+        {/* The draft lives only in memory: discarding it cannot be undone, so it is confirmed first. */}
+        <ConfirmActionDialog
+          open={confirmDiscard}
+          onOpenChange={setConfirmDiscard}
+          title={t('markets.preview.discardTitle')}
+          consequence={t('markets.preview.discardConsequence')}
+          confirmLabel={t('markets.preview.discard')}
+          onConfirm={() => { setConfirmDiscard(false); setDraftKey((k) => k + 1); backToWizard() }}
+        />
       </Card>
       <section aria-labelledby="markets-examples">
         <h2 id="markets-examples" className="text-section-title">{t('markets.create.examplesTitle')}</h2>

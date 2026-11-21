@@ -1,17 +1,20 @@
 /**
  * Layer A: "Criar mercado", one step at a time (lib/createMarket.ts): identity, visibility, participation,
  * infrastructure (secondary), review and, for a private market, participants and invites. Visibility, participation
- * and infrastructure are separate choices. `createAvailable` false = the final action stays disabled with
- * `unavailableNote`; nothing is ever sent from here. Copy from props, tokens only.
+ * and infrastructure are separate choices. The final action always hands the draft to `onCreate` (the caller shows a
+ * preview); `createAvailable` false only adds `unavailableNote` under it. `participantsAvailable` false = the
+ * participant field and "generate invite" stay disabled with `participantsUnavailableNote`. Nothing is ever sent from
+ * here. Copy from props, tokens only.
  */
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, ArrowRight } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Ticket, X } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Textarea } from '../ui/textarea'
 import { Progress } from '../ui/progress'
+import { IconButton } from '../ui/icon-button'
 import { RadioCard, RadioGroup } from '../ui/radio-group'
-import { EMPTY_DRAFT, MARKET_NAME_MAX, canAdvance, createSteps, type CreateStep, type MarketDraft } from '../../lib/createMarket'
+import { EMPTY_DRAFT, MARKET_NAME_MAX, addParticipant, canAdvance, createSteps, type CreateStep, type MarketDraft } from '../../lib/createMarket'
 import type { MarketInfrastructure, MarketVisibility, ParticipationPreset } from '../../lib/myMarkets'
 
 type Option<T extends string> = { value: T; label: string; description: string; disabled?: boolean }
@@ -30,6 +33,16 @@ export interface CreateMarketCopy {
   infrastructure: Option<MarketInfrastructure>[]
   infrastructureNote: string
   review: { name: string; description: string; visibility: string; participation: string; infrastructure: string; empty: string }
+  invites: {
+    identifier: string
+    identifierHelp: string
+    identifierPlaceholder: string
+    generate: string
+    listLabel: string
+    empty: string
+    pending: string
+    remove: (identifier: string) => string
+  }
   back: string
   next: string
   create: string
@@ -57,7 +70,7 @@ function Choice<T extends string>({ legend, name, options, value, onChange, note
   )
 }
 
-export function CreateMarketWizard({ copy, brandingSlot, invitesSlot, createAvailable, unavailableNote, onCreate }: {
+export function CreateMarketWizard({ copy, brandingSlot, invitesSlot, createAvailable, unavailableNote, participantsAvailable, participantsUnavailableNote, onCreate }: {
   copy: CreateMarketCopy
   /** Logo and colors (planned item until branding exists). */
   brandingSlot?: ReactNode
@@ -65,11 +78,14 @@ export function CreateMarketWizard({ copy, brandingSlot, invitesSlot, createAvai
   invitesSlot?: ReactNode
   createAvailable: boolean
   unavailableNote?: ReactNode
+  participantsAvailable: boolean
+  participantsUnavailableNote?: ReactNode
   onCreate?: (draft: MarketDraft) => void
 }) {
   const id = useId()
   const [draft, setDraft] = useState<MarketDraft>(EMPTY_DRAFT)
   const [index, setIndex] = useState(0)
+  const [participant, setParticipant] = useState('')
   const headingRef = useRef<HTMLHeadingElement>(null)
   const steps = createSteps(draft.visibility)
   const step = steps[Math.min(index, steps.length - 1)]
@@ -128,9 +144,49 @@ export function CreateMarketWizard({ copy, brandingSlot, invitesSlot, createAvai
         </dl>
       )
       break
-    case 'invites':
-      body = invitesSlot
+    case 'invites': {
+      const add = () => { set('participants', addParticipant(draft.participants, participant)); setParticipant('') }
+      body = (
+        <div className="space-y-4">
+          <form className="space-y-1" onSubmit={(e) => { e.preventDefault(); if (participantsAvailable) add() }}>
+            <label htmlFor={`${id}-participant`} className="text-sm font-medium text-brand-text">{copy.invites.identifier}</label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                id={`${id}-participant`} name="market-participant" className="min-w-0 sm:flex-1" value={participant} autoComplete="off" spellCheck={false}
+                placeholder={copy.invites.identifierPlaceholder} disabled={!participantsAvailable}
+                aria-describedby={`${id}-participant-help${!participantsAvailable && participantsUnavailableNote ? ` ${id}-participants-unavailable` : ''}`}
+                onChange={(e) => setParticipant(e.target.value)}
+              />
+              <Button type="submit" variant="secondary" disabled={!participantsAvailable || !participant.trim()} className="shrink-0 touch:min-h-11">
+                <Ticket aria-hidden="true" />{copy.invites.generate}
+              </Button>
+            </div>
+            <p id={`${id}-participant-help`} className="text-caption text-brand-text-muted">{copy.invites.identifierHelp}</p>
+          </form>
+          {!participantsAvailable && participantsUnavailableNote && <div id={`${id}-participants-unavailable`}>{participantsUnavailableNote}</div>}
+          <div>
+            <h3 className="text-sm font-medium text-brand-text">{copy.invites.listLabel}</h3>
+            {draft.participants.length === 0 ? (
+              <p className="mt-1 text-body-sm text-brand-text-secondary">{copy.invites.empty}</p>
+            ) : (
+              <ul aria-label={copy.invites.listLabel} className="mt-2 divide-y divide-brand-border-subtle rounded-lg bg-brand-elevated">
+                {draft.participants.map((p) => (
+                  <li key={p} className="flex items-center gap-3 px-3 py-1.5">
+                    <span translate="no" className="min-w-0 flex-1 break-all font-mono text-caption text-brand-text">{p}</span>
+                    <span className="shrink-0 text-caption text-brand-text-secondary">{copy.invites.pending}</span>
+                    <IconButton label={copy.invites.remove(p)} size="sm" onClick={() => set('participants', draft.participants.filter((x) => x !== p))}>
+                      <X aria-hidden="true" />
+                    </IconButton>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {invitesSlot}
+        </div>
+      )
       break
+    }
   }
 
   const finalAction = (step === 'review' && draft.visibility !== 'private') || step === 'invites'
@@ -148,7 +204,7 @@ export function CreateMarketWizard({ copy, brandingSlot, invitesSlot, createAvai
           <ArrowLeft aria-hidden="true" />{copy.back}
         </Button>
         {finalAction ? (
-          <Button type="button" disabled={!createAvailable} aria-describedby={!createAvailable && unavailableNote ? `${id}-unavailable` : undefined} onClick={() => onCreate?.(draft)} className="touch:min-h-11">
+          <Button type="button" aria-describedby={!createAvailable && unavailableNote ? `${id}-unavailable` : undefined} onClick={() => onCreate?.(draft)} className="touch:min-h-11">
             {copy.create}
           </Button>
         ) : (

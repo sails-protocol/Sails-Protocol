@@ -1,6 +1,6 @@
 import {
   Activity, Bell, CircleUser, Globe, Info, KeyRound, Languages, LifeBuoy, Link2, Lock, MapPin, MessageSquare,
-  ServerCog, CalendarDays, Coins, CreditCard, Scale, Star, Users, Wallet, Network, Ticket, QrCode, UserCheck, Fingerprint, PlusCircle, Compass, Palette,
+  ServerCog, CalendarDays, Coins, CreditCard, Scale, Star, Users, Wallet, Network, Ticket, QrCode, UserCheck, Fingerprint, PlusCircle, Compass, Palette, EyeOff,
 } from 'lucide-react'
 import { t } from '../i18n'
 
@@ -26,6 +26,7 @@ export const LOOSE_WIRES = {
   displayCurrency: { get label() { return t('looseWires.displayCurrency') }, icon: Info, contract: 'FX rate source in the SDK; priceUsd is the only real price unit today' },
   keyBackup: { get label() { return t('looseWires.keyBackup') }, icon: KeyRound, contract: 'encrypted key export/import + recovery flow over AuthContext keypair' },
   sessionLock: { get label() { return t('looseWires.sessionLock') }, icon: Lock, contract: 'idle-lock policy over AuthContext session (re-prompt passphrase)' },
+  // Superseded on screen by marketMembership (Configurações → Mercados → Meus mercados, plan 1.5); the id stays so references keep working.
   communities: { get label() { return t('looseWires.communities') }, icon: Users, contract: 'community / restricted-market membership contract in the SDK (none today)' },
   helpCenter: { get label() { return t('looseWires.helpCenter') }, icon: LifeBuoy, contract: 'help content destination (docs URL) owned by the product' },
   publicAvatar: { get label() { return t('looseWires.publicAvatar') }, icon: CircleUser, contract: 'Avatar público escolhido pelo usuário (visível para as contrapartes) needs a profile field on the server' },
@@ -39,6 +40,7 @@ export const LOOSE_WIRES = {
   marketPortability: { get label() { return t('looseWires.marketPortability') }, icon: Fingerprint, contract: 'Membership bound to the portable identity (Pubky planned as infrastructure, never market authority) and recognized after switching app or node, with verifiable support; no automatic recovery is promised. Issue #147, ADR-001 §10' },
   createMarket: { get label() { return t('looseWires.createMarket') }, icon: PlusCircle, contract: 'Create a market: name/description/branding, visibility (public or private), participation and permissions (Vitrine/Comunidade presets, Personalizado later; visibility never decides who publishes), infrastructure (Rede Sails hosting when supported, or own node), review; for private markets, participants and Sails Market Invites. Permission model by the Principal, authority limits validated by GK before implementation. Issue #147' },
   marketDiscovery: { get label() { return t('looseWires.marketDiscovery') }, icon: Compass, contract: 'Discovery of public markets on Rede Sails (several public markets allowed, e.g. a company storefront without own infrastructure) + follow/unfollow, read through the SDK; Sails Market ID format by the Principal. Issue #147, ADR-001 §6/§14' },
+  marketParticipationPrivacy: { get label() { return t('looseWires.marketParticipationPrivacy') }, icon: EyeOff, contract: 'Who can see which markets a person belongs to (membership visibility to other members, admins, nodes): unspecified until the #147 permission/privacy spec by the Principal; GK validates the limits. Issue #147' },
   marketBranding: { get label() { return t('looseWires.marketBranding') }, icon: Palette, contract: 'Market name, description, logo/colors stored with the Sails Market and read through the SDK (white-label storefront); no field exists today. Issue #147' },
   // Other screens.
   readRatings: { get label() { return t('looseWires.readRatings') }, icon: Star, contract: 'Ler avaliações (média, quantidade, comentários) — endpoint + SDK (only reputation.rate() exists)' },

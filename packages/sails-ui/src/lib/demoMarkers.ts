@@ -79,3 +79,15 @@ export function setDemoInviteGranted(granted: boolean): void {
   demoSnapshot = granted ? [...DEMO_MARKETS, DEMO_INVITED] : DEMO_MARKETS
   demoListeners.forEach((l) => l())
 }
+
+/** A received market invite as Configurações → Mercados lists it (no contract yet, LOOSE_WIRES.marketInvite). */
+export interface ReceivedInviteView { id: string; market: string; from: string }
+const NO_INVITES: readonly ReceivedInviteView[] = []
+// Fictional names from DECISIONS.md "Identidade" (Alice); the market is the same fictional one the join flow grants.
+const DEMO_RECEIVED: readonly ReceivedInviteView[] = [{ id: 'demo-invite-1', market: DEMO_INVITED.name, from: 'Alice' }]
+
+/** Demo-only pending invite; empty for real data (no invite can be read yet). */
+export function demoReceivedInvites(): readonly ReceivedInviteView[] {
+  if (!import.meta.env.DEV || !isDemoMode()) return NO_INVITES
+  return DEMO_RECEIVED
+}

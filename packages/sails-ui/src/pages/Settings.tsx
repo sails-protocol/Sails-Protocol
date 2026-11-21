@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useOutletContext, useSearchParams } from 'react-router'
 import {
   Award, Bell, HelpCircle, KeyRound, Languages, LogOut, Monitor, Moon, Network, Server, Shield, ShieldCheck, Sun, SunMoon,
-  Ticket, Users, Wallet, ArrowLeft, type LucideIcon,
+  Globe, Ticket, Users, Wallet, ArrowLeft, type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
@@ -30,6 +30,11 @@ import { useLocalePreference, type LocalePreference } from '../lib/locale'
 import { sectionFromSearch } from '../lib/settingsSection'
 import { NetworkRow, NetworkSettingsRows } from '../components/settings/NetworkSettings'
 import { MARKETS_ROUTES } from '../components/layout/navMatch'
+import { Badge } from '../components/ui/badge'
+import { MarketIcon } from '../components/markets/MarketIcon'
+import { useVisibleMarkets } from './markets/shared'
+import { ownMarkets } from '../lib/myMarkets'
+import { demoReceivedInvites, isDemoMode } from '../lib/demoMarkers'
 import { t } from '../i18n'
 
 // Option lists are built at render so their labels follow the interface language.
@@ -67,6 +72,78 @@ function Planned({ id, description }: { id: LooseWireId; description?: string })
   return <SettingsRow icon={wire.icon} label={wire.label} description={description} plannedLabel={t('common.soon')} />
 }
 
+const SOON_TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text'
+
+/** A preference row with its own content (radio list, list) under the same icon tile as SettingsRow. */
+function PreferenceItem({ icon: Icon, children }: { icon: LucideIcon; children: React.ReactNode }) {
+  return (
+    <li className="flex items-start gap-3 px-4 py-3">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-elevated">
+        <Icon className="h-4 w-4 text-brand-text-secondary" aria-hidden="true" />
+      </span>
+      <div className="min-w-0 flex-1">{children}</div>
+    </li>
+  )
+}
+
+/**
+ * "Mercado que abre por padrão" (DECISIONS.md "Configurações → Mercados"). Only Mercado aberto can open today: market
+ * offers do not exist in the protocol (LOOSE_WIRES.marketMembership), so every other market is listed but disabled.
+ */
+function DefaultMarketChoice() {
+  const markets = ownMarkets(useVisibleMarkets())
+  const soon = t('common.soon')
+  return (
+    <RadioGroup legend={t('settings.markets.defaultLegend')} description={t('settings.markets.defaultHelp')} listClassName="grid gap-2">
+      {markets.map((m) => {
+        const selectable = m.relation === 'default'
+        return (
+          <RadioCard key={m.id} name="default-market" value={m.id} checked={selectable} disabled={!selectable} onChange={() => undefined} className="items-start">
+            <MarketIcon market={m} size="sm" />
+            <span className="min-w-0">
+              <span className="block break-words">{m.name}</span>
+              <span className="flex flex-wrap items-center gap-1.5 text-caption font-normal text-brand-text-secondary">
+                {selectable ? t('markets.default.description') : <>{m.illustrative && <span>{t('markets.fictionalExample')}</span>}<Badge variant="outline" className={SOON_TAG}>{soon}</Badge></>}
+              </span>
+            </span>
+          </RadioCard>
+        )
+      })}
+      {markets.length === 1 && <p className="text-caption text-brand-text-muted">{t('settings.markets.othersLater')}</p>}
+    </RadioGroup>
+  )
+}
+
+/** "Convites recebidos": no invite can be read yet (LOOSE_WIRES.marketInvite); demo mode lists one fictional invite. */
+function ReceivedInvites() {
+  const invites = isDemoMode() ? demoReceivedInvites() : []
+  return (
+    <>
+      <h3 className="text-sm font-medium text-brand-text">{t('settings.markets.invitesTitle')}</h3>
+      {invites.length === 0 ? (
+        <>
+          <p className="mt-0.5 text-body-sm text-brand-text-secondary">{t('settings.markets.invitesEmpty')}</p>
+          <p className="mt-0.5 text-caption text-brand-text-muted">{t('settings.markets.invitesEmptyHelp')}</p>
+        </>
+      ) : (
+        <ul className="mt-2 divide-y divide-brand-border-subtle rounded-lg bg-brand-elevated">
+          {invites.map((i) => (
+            <li key={i.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
+              <span className="min-w-0 flex-1 basis-40">
+                <span className="block break-words text-sm text-brand-text">{i.market}</span>
+                <span className="block text-caption text-brand-text-secondary">{t('settings.markets.inviteFrom', { from: i.from })} · {t('markets.fictionalExample')}</span>
+              </span>
+              <Link to={MARKETS_ROUTES.join} className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'shrink-0 touch:min-h-11')}>
+                {t('settings.markets.openInvite')}<span className="sr-only">: {i.market}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  )
+}
+
 // Order by use (DECISIONS.md "Reorganização pela visão do usuário"); the ids are unchanged.
 const sections = (): ReadonlyArray<{ id: string; label: string; icon: LucideIcon }> => [
   { id: 'wallet', label: t('settings.section.wallet'), icon: Wallet },
@@ -76,7 +153,8 @@ const sections = (): ReadonlyArray<{ id: string; label: string; icon: LucideIcon
   { id: 'seguranca', label: t('settings.section.security'), icon: Shield },
   // Renamed "Rede e nós" (CTO final correction for plan 1.4); the id stays so ?section=no-sails keeps working.
   { id: 'no-sails', label: t('settings.section.network'), icon: Network },
-  { id: 'comunidades', label: t('settings.section.communities'), icon: Users },
+  // Renamed "Mercados" (DECISIONS.md "Configurações → Mercados"); the id stays so ?section=comunidades keeps working.
+  { id: 'comunidades', label: t('settings.section.markets'), icon: Users },
   { id: 'ajuda', label: t('settings.section.help'), icon: HelpCircle },
 ]
 
@@ -262,8 +340,12 @@ export function Settings() {
             <Planned id="sessionLock" />
           </SettingsGroup>
 
-          <SettingsGroup {...panel('comunidades')} title={t('settings.section.communities')} icon={Users}>
-            <Planned id="communities" description={t('settings.communities.description')} />
+          {/* Preferences about markets, not the markets: those live in the Market area. The old "Comunidades" planned row
+              (communities wire) is covered by "Meus mercados" below and the marketMembership wire. */}
+          <SettingsGroup {...panel('comunidades')} title={t('settings.section.markets')} icon={Users}>
+            <PreferenceItem icon={Globe}><DefaultMarketChoice /></PreferenceItem>
+            <PreferenceItem icon={Ticket}><ReceivedInvites /></PreferenceItem>
+            <Planned id="marketParticipationPrivacy" description={t('settings.markets.privacyDescription')} />
             {/* Markets live in the Market area (CTO final correction for plan 1.4); these rows only lead there. */}
             <SettingsRow icon={Users} label={t('markets.action.mine')} description={t('settings.communities.myMarketsDescription')} to={MARKETS_ROUTES.mine} />
             <SettingsRow icon={Ticket} label={t('markets.action.join')} description={t('markets.action.joinDescription')} to={MARKETS_ROUTES.join} />

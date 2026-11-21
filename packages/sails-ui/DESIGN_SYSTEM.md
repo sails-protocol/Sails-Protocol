@@ -634,7 +634,7 @@ outros status.
 Seções (abas verticais md+, lista que abre a seção abaixo de md), em ordem de
 uso: **Wallet**, **Aparência** (`SunMoon`), **Idioma** (`Languages`),
 **Notificações** (`Bell`), **Segurança**, **Nó Sails** (`Network`),
-**Comunidades**, **Ajuda e Sobre**.
+**Mercados** (antes Comunidades; o id `comunidades` continua, para `?section=` não quebrar: mercado que abre por padrão, convites recebidos, privacidade da participação "Em breve" e atalhos para Meus mercados e Entrar com convite), **Ajuda e Sobre**.
 "Aplicativo" saiu: tema e estilo dos avatares foram para Aparência (com Avatar
 público e Moeda de exibição, ainda "Em breve"); Idioma e Notificações viraram
 seções. Nenhuma linha foi removida. Itens planejados vêm de `LOOSE_WIRES`
