@@ -486,6 +486,7 @@ Origem: sessão de UI, branch `ui/design-system` (sem PR publicada), decisões d
   - Prioridade: a decidir pelo CTO (P2 proposta).
   - Status separados: [ ] UX | [ ] Especificação | [ ] Implementação | [ ] Homologação.
   - Autorização: direção de produto aprovada; implementação, implantação e ativação em produção sujeitas aos gates técnicos existentes.
+  - Regras de interface (UI): a lista de nós mostra o perfil (público ou privado); o selo "distribuição oficial" só aparece com verificação real; nunca autoriza operadores centralmente nem sugere que o Sails pode desligar mercados. Depende de UX-046 (propagação de estado) e UX-034 (visão do operador). A prioridade P2 é proposta do EPM e a decisão final é do CTO.
 
 ## Decisões pendentes do CTO (F)
 1. Destino de STACKS, RSK_BTC e SPARK no enum (UX-005).
