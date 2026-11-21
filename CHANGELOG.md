@@ -32,6 +32,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **#748: integration suites that simulate a restart now get a new database client (tests only).**
+  - **Cause:** `src/common/database/index.ts` reuses `global.__prisma` across `jest.resetModules()`. The restarted modules paired a new `@prisma/client` (their `Prisma.sql` fragments) with the old client, which sent the D13 `SWEEP_KEY` fragment as a value (PG 22007). The ruling-recovery sweep failed in `postBroadcastFeeRecovery`, and the failure was hidden because the suite filtered `report.failed` by the case's own escrow.
+  - **Change:** `postBroadcastFeeRecovery`, `economicDispositionAuthorityConcurrency`, `escrowFundingConcurrency` and `escrowFundingUncertainty` disconnect and clear `global.__prisma` before each `jest.resetModules()`, and close the restarted client in `afterAll`.
+  - **Assertions:** `postBroadcastFeeRecovery` fails on any sweep-level failure (`dispute:*`, `dispute:<id>`, `…:*`) and on any failure of an escrow it created; failures of other suites' escrows are printed.
+  - **Not changed:** production code, including `SWEEP_KEY`.
 - **CTO 239/245/246 — "latest" fee collection evidence follows record order (real PostgreSQL).** Local commits, pending review.
   - **Cause:** readers used `ORDER BY "recordedAt" DESC LIMIT 1`. `recordedAt` is `timestamp(3)`, so rows of one obligation often tie within a millisecond (200-run probe: 79 ties, 2 misses; CI run 43748566359). It is also not commit order: a DB-default insert carries its transaction's start, so a writer that begins first, waits for the obligation's row lock and commits last has the smaller `recordedAt` (CTO 246 lock-wait inversion, reproduced on fee evidence; a `(recordedAt, seq)` order still picked the wrong row). Prisma Client fills `@default(now())` itself, with the app clock at insert time.
   - **Fix:** migration `20261116120000_fee_collection_evidence_seq` adds `seq` (`SERIAL`, nextval at insert) and every reader orders by `seq` alone: the four fee reconciliation checks, `listForObligation()` (last BROADCAST for `recognizeConfirmation()` and the confirmation job, last CONFIRMED for the reorg sweep), `allocate()`, `findCollectedNotYetAllocated()`, `findReorgedGenerationsNotReversed()` ("recorded after" = higher `seq`) and the escrow detail reads. `recordedAt` is informational.

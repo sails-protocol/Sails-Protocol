@@ -70,6 +70,7 @@ describe('Escrow funding uncertainty — real Postgres (Missão 11 Fase 9.1)', (
   afterAll(async () => {
     if (dbAvailable) {
       await prisma.$disconnect()
+      await (global as any).__prisma?.$disconnect() // #748: the client the last restart created
       await closeTestRedis()
     }
   })
@@ -121,6 +122,10 @@ describe('Escrow funding uncertainty — real Postgres (Missão 11 Fase 9.1)', (
     // module reads the SAME row back from Postgres — proving this is real,
     // persisted history, not in-process state that a restart would lose.
     preserveTestRedis() // keep ONE Redis client across resetModules() so afterAll can close it
+    await (global as any).__prisma?.$disconnect()
+    // #748: database/index.ts reuses global.__prisma across jest.resetModules(); without clearing it the restarted modules
+    // pair a NEW @prisma/client (their Prisma.sql fragments) with the OLD client, and nested fragments are sent as values.
+    ;(global as any).__prisma = undefined
     jest.resetModules()
     const freshRepo = require('../../src/modules/open-settlement/escrow-funding-evidence-repository').escrowFundingEvidenceRepository
     const afterRestart = await freshRepo.listForEscrow(escrowId)
