@@ -268,7 +268,7 @@ discovery actually does today.
 top-level delegate, **not** part of the original six-verb facade above
 (RFC-023, `rfcs/RFC-023-qvac-negotiated-trade-proposal.md`). Given a
 persisted TradeIntent's own declared `maxPriceUsd`/`minPriceUsd`/
-`minReputationRating`, finds a real matching `Offer` and returns it for
+`minReputationScore` (UX-048; `minReputationRating` is its deprecated alias), finds a real matching `Offer` and returns it for
 the caller to approve — `null` is a legitimate "nothing matched within
 your limits" outcome, not an error. Never creates a `Trade` and has no
 authority over escrow/settlement; approve a returned proposal by calling
@@ -276,6 +276,15 @@ the existing, unmodified `openp2p.trade(proposal.offerId, amount)`
 directly. **This method's return type is frozen as-is** — it cannot
 represent a `counterProposal` without a breaking change, which is exactly
 why the method below exists instead of extending this one in place.
+
+➕ **ADDITIVE (UX-048, 2026-11-21)** — `TradeIntentPayload.minReputationScore?: number`: the minimum canonical
+OpenReputation score (cumulative, no ceiling, may be negative; a finite number with |value| <= 1e9). It filters the
+offers `proposeTrade`/`proposeTradeOutcome` return and nothing else; trade creation does not read it.
+`minReputationRating` stays accepted forever as a deprecated alias: the same number against the same score, never
+rescaled, still validated as 0-5, and still counting an unknown reputation as 0. Sending both with different values
+is a 400. **Behavior of the new field (fail closed):** with `minReputationScore`, an offer whose trader reputation is
+unknown is excluded instead of being counted as 0. With no threshold, nothing changes (offers with a negative score are
+still not proposed).
 
 ➕ **ADDITIVE** — `proposeTradeOutcome(intentId, amount)` → `{ proposal, counterProposal }`
 — an 8th delegate, added Missão 02.5 (2026-08-15), calling the exact same
