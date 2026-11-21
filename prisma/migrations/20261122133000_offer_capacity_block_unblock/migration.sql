@@ -146,6 +146,7 @@ BEGIN
       JOIN "escrows" e ON e."tradeId" = t."id"
      WHERE e."id" = NEW."escrowId" AND r."state" = 'RELEASED' AND r."releaseKind" IN ('L2_NEVER_FUNDED_REFUND', 'L3_FINALIZED_SETTLEMENT')
   LOOP
+    PERFORM 1 FROM "offer_capacity" c WHERE c."ownerPublicKey" = cap."ownerPublicKey" AND c."logicalOfferId" = cap."logicalOfferId" FOR UPDATE;
     INSERT INTO "offer_capacity_blocks" ("id", "ownerPublicKey", "logicalOfferId", "escrowId", "reason")
       VALUES (gen_random_uuid()::text, cap."ownerPublicKey", cap."logicalOfferId", NEW."escrowId", 'EVIDENCE_' || NEW."kind"::text)
       ON CONFLICT ("ownerPublicKey", "logicalOfferId", "escrowId") WHERE "clearedAt" IS NULL DO NOTHING;
