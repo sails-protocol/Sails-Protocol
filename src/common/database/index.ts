@@ -23,8 +23,8 @@ declare global {
 // same connection string this always used (config.database.url).
 const adapter = new PrismaPg({ connectionString: config.database.url })
 
-// Reuse the client across hot-reloads in dev (ts-node-dev) instead of
-// opening a new connection pool on every file change.
+// Reuse the client across in-process hot-reloads instead of opening a new connection pool on every file change
+// (`npm run dev` uses node --watch, which restarts the whole process, so there this is a no-op).
 export const prisma: PrismaClient =
   global.__prisma ??
   new PrismaClient({
