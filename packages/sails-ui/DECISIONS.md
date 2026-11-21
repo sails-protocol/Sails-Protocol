@@ -228,7 +228,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
   - Ícone: a logo oficial do ativo, com uma bolinha no canto com a logo oficial da rede e o nome da rede ao lado.
   - Só fica disponível o que tem rail de liquidação real. O resto aparece como "Em breve".
   - **Lightning fica fora, sem exceção**, até entrar no compromisso (EPM, 2026-11-20).
-  - **CTO 28 (2026-11-21, issues #734 e #588):** Lightning nativo, Spark/Lightning e Arkade ficam no roadmap, sem ativação no Day 0 e sem data prometida.
+  - **CTO 28 e Despacho 062 (2026-11-21, issues #734, #588 e #147 comentário 7065257657):** Lightning nativo, Spark/Lightning e Arkade ficam no roadmap, sem ativação no Day 0 e sem data prometida.
     - "Lightning direto" como forma de pagamento aparece como "Em breve" na tela de publicar e nunca pode ser escolhido; sai do filtro e da demonstração. O Sails Agent nunca o propõe. Uma oferta cujo único método é futuro não abre trade: o botão fica desativado, com aviso.
     - O escrow `LIGHTNING_HODL` (que usa Arkade por dentro) nunca aparece como disponível ou homologado; quando o backend o informa num trade, o rótulo continua "Bitcoin via Arkade (rede de teste)".
     - A categoria de pagamento passa a se chamar "Cripto" (era "Cripto / Lightning").
@@ -256,6 +256,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
   - No desktop, a coluna fica fixa na tela ao rolar (abaixo da barra do topo) e o chat ocupa toda a altura que sobra abaixo da contraparte, com mínimo de 352 px (2026-11-21).
 
 ## Pendente de decisão (não tratar como fechado)
+- **Pacote de ratificação do Design System Architect** (Despacho 062, 2026-11-21): pendente de encaminhamento e avaliação pelo Architect. A existência do pacote não aprova nenhuma implementação; as decisões do Product Owner de 21/11 entram como insumo. Até a resposta, a UI segue o Design System aprovado, a Apple HIG e o Material 3.
 - Formato do dólar: "US$ 97.800,00" (adotado) ou "$97,800.00". Aguarda o OK do Product Owner.
 - As decisões provisórias do Design System listadas no `DESIGN_SYSTEM.md` e no README do artefato aguardam o Design System Architect.
 - As 7 perguntas do Trade Workspace (cor do marcador de vez, "Partes podem contestar até o prazo", etapas concluídas em cinza, trilho compacto no tablet, Ferramentas em dois cliques, recurso de teste no modo demonstração, sua própria linha no bloco da contraparte) e os rótulos dos tipos de escrow aguardam o Architect.
