@@ -16,7 +16,7 @@ Origem: `ui-backend-gaps-2026-11-20.md`, o Despacho 039, o Despacho 051 com o Co
   - **Solução proposta:** existe proposta técnica, ainda não aprovada.
   - **Implementado:** está na interface e/ou no backend.
 - **Responsável inicial:** "EPM (a distribuir)", até o EPM atribuir.
-- **Indicadores (recomendação do CTO):** 34 requisitos descobertos (UX-001 a UX-034), 0 homologados.
+- **Indicadores (recomendação do CTO):** 37 requisitos descobertos (UX-001 a UX-037), 0 homologados.
 
 ---
 
@@ -377,6 +377,28 @@ Origem: sessão de UI, branch `ui/design-system` (sem PR publicada), decisões d
   - Origem: UI. Módulo: plataforma. Equipe que mantém um servidor do protocolo. Fase futura.
   - Prioridade: P3 (fase futura).
   - Estado: contrato a levantar. 
+
+- [ ] **UX-035: Janela entre o fim do prazo do escrow e o encerramento registrado pelo nó**
+  - Origem: UI, ao construir o temporizador (UX-029, cad602d6). Fonte reportada: `escrow.service.ts` `sweepExpiredEscrows()` e `escrow-lifecycle.ts` (a confirmar pelo Principal).
+  - Módulo: OpenSettlement. Ligado a UX-012 (C12, #740).
+  - Contrato: entre `escrow.expiresAt` e a próxima varredura o escrow segue FUNDS_LOCKED; o horário da varredura não é exposto e não está definido se `markPaymentSent` é aceito depois de `expiresAt`.
+  - Proposta: regra de contrato para ações depois de `expiresAt`, ou um campo `expiryEnforcedAt`.
+  - Prioridade: P1.
+  - Estado: requisito levantado pela UI, não aprovado. Interface já corrigida (83eecc91): nessa janela o cartão mostra "Prazo do escrow encerrado" e não pede pagamento.
+  - Issue: comentário na #740.
+
+- [ ] **UX-036: Desfecho declarado do fim do prazo (reembolso automático ou EXPIRED com recuperação por disputa)**
+  - Origem: UI. Módulo: OpenSettlement. Ligado a UX-017 (C8) e UX-012.
+  - Contrato: o escrow não declara se o fim do prazo leva a reembolso automático ou a EXPIRED com recuperação por disputa; a UI teria de deduzir pelo tipo.
+  - Proposta: campo declarado, por exemplo `expiryOutcome`: `auto_refund` ou `expired_dispute_recovery`.
+  - Prioridade: P2.
+  - Estado: requisito levantado pela UI, não aprovado.
+
+- [ ] **UX-037: Sem timelock on-chain no script MULTISIG: depois do prazo não há reembolso unilateral**
+  - Origem: UI. Módulo: OpenSettlement (MULTISIG). Para UX-012 (C12, #740) e revisão do GK.
+  - Contrato (reportado, a verificar): depois do prazo não existe caminho de reembolso unilateral, só a varredura do servidor.
+  - Estado: observação de segurança levantada pela UI, a verificar pelo Principal e pelo GK; nenhuma decisão. A UI não promete reembolso (frase sem lastro removida em cad602d6).
+  - Prioridade: P2.
 
 ## Decisões pendentes do CTO (F)
 1. Destino de STACKS, RSK_BTC e SPARK no enum (UX-005).
