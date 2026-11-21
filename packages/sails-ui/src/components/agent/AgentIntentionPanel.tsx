@@ -168,9 +168,9 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
       setProposal(found)
       setCounterProposal(counter)
       if (found) {
-        toast.success(t('agent.toast.found'), { icon: <Bot className="h-4 w-4" /> })
+        toast.success(t('agent.toast.found'), { icon: <Bot aria-hidden="true" className="size-icon shrink-0 text-brand-inverse-success" /> })
       } else if (counter) {
-        toast.info(t('agent.toast.counter'), { icon: <Bot className="h-4 w-4" /> })
+        toast.info(t('agent.toast.counter'), { icon: <Bot aria-hidden="true" className="size-icon shrink-0 text-brand-inverse-info" /> })
       }
     } catch (err) {
       toast.error(errorMessage(err, t('agent.toast.searchFailed')))

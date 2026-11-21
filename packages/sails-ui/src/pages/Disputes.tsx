@@ -483,7 +483,7 @@ function ArbiterCases() {
                     size="sm"
                     onClick={() => openCase(d.id)}
                     aria-label={t('disputes.openCaseAria', { id: shortId(d.tradeId) })}
-                    className="min-h-11 md:min-h-0 !col-start-2 row-start-1 row-span-4 self-center justify-self-end xl:!col-start-auto xl:row-start-auto xl:row-span-1"
+                    className="touch:min-h-11 !col-start-2 row-start-1 row-span-4 self-center justify-self-end xl:!col-start-auto xl:row-start-auto xl:row-span-1"
                   >
                     {t('disputes.openCase')}
                   </Button>

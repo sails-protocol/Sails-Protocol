@@ -14,7 +14,7 @@
  * it doesn't know or care why it's open.
  */
 import { useState } from 'react'
-import { Dialog, DialogContent } from '../ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../ui/dialog'
 import { Button } from '../ui/button'
 import { ShoppingCart, Lock, MessageCircle, KeyRound, type LucideIcon } from 'lucide-react'
 import { t, type MessageKey } from '../../i18n'
@@ -49,11 +49,11 @@ export function OnboardingTour({ open, onOpenChange }: { open: boolean; onOpenCh
     <Dialog open={open} onOpenChange={(o) => !o && close()}>
       <DialogContent className="sm:max-w-md">
         <div className="flex flex-col items-center text-center pt-2">
-          <div className="w-14 h-14 rounded-full bg-brand-orange-accent/10 border border-brand-orange-accent/25 flex items-center justify-center mb-4">
-            <current.icon className="h-6 w-6 text-brand-orange-accent" />
+          <div aria-hidden="true" className="w-14 h-14 rounded-full bg-brand-orange-accent/10 flex items-center justify-center mb-4">
+            <current.icon className="size-icon-lg text-brand-orange-accent" />
           </div>
-          <h2 className="text-headline font-display text-brand-text">{t(current.title)}</h2>
-          <p className="text-sm text-brand-text-muted mt-2">{t(current.description)}</p>
+          <DialogTitle className="font-display">{t(current.title)}</DialogTitle>
+          <DialogDescription className="text-brand-text-muted mt-2">{t(current.description)}</DialogDescription>
         </div>
 
         {/* Step-dot progress — same visual language as PublishOffer.tsx's

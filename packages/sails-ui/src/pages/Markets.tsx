@@ -307,7 +307,7 @@ export function Markets() {
         title={t('markets.title')}
         meta={t('markets.meta')}
         back={
-          <Link to="/" className="inline-flex min-h-11 items-center gap-1 text-body-sm text-brand-text-secondary hover:text-brand-text md:min-h-0">
+          <Link to="/" className="inline-flex touch:min-h-11 items-center gap-1 text-body-sm text-brand-text-secondary hover:text-brand-text">
             <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Market
           </Link>
         }

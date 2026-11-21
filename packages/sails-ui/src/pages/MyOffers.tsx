@@ -185,7 +185,7 @@ export function MyOffersSection({ user, className }: { user: User; className?: s
                       {/* priceUsd is a USD value: always formatted as USD, never with the offer's fiat symbol. */}
                       <span className="text-sm font-medium text-brand-text tabular-nums">{formatPrice(o.priceUsd, 'USD')}</span>
                       <span className="text-body-sm text-brand-text-secondary tabular-nums">
-                        {formatAmount(o.minAmount)}–{formatAmount(o.maxAmount)} {ASSET_SHORT_LABELS[o.asset]}
+                        {formatAmount(o.minAmount)} – {formatAmount(o.maxAmount)} {ASSET_SHORT_LABELS[o.asset]}
                       </span>
                       <span><OfferStatusBadge status={o.status} /></span>
                       <span className="text-xs text-brand-text-muted tabular-nums basis-full xl:basis-auto"><span className="xl:hidden">{t('trades.offers.col.created')} </span>{formatDateTime(o.createdAt)}</span>
@@ -200,7 +200,7 @@ export function MyOffersSection({ user, className }: { user: User; className?: s
                                   ? applyStatus(o.id, 'PAUSED', t('trades.offers.paused'))
                                   : applyStatus(o.id, 'ACTIVE', t('trades.offers.reactivated'))
                               }
-                              className="min-h-11 md:min-h-0 text-body-sm"
+                              className="touch:min-h-11 text-body-sm"
                             >
                               {t(o.status === 'ACTIVE' ? 'trades.offers.pause' : 'trades.offers.activate')}
                             </Button>
@@ -208,7 +208,7 @@ export function MyOffersSection({ user, className }: { user: User; className?: s
                             <Popover>
                               <PopoverTrigger
                                 aria-label={t('trades.offers.moreActions')}
-                                className="h-11 w-11 md:h-9 md:w-9 flex items-center justify-center rounded-md text-brand-text-muted hover:text-brand-text state-layer"
+                                className="h-9 w-9 touch:h-11 touch:w-11 flex items-center justify-center rounded-md text-brand-text-muted hover:text-brand-text state-layer"
                               >
                                 <MoreHorizontal className="h-4 w-4" />
                               </PopoverTrigger>
@@ -240,10 +240,10 @@ export function MyOffersSection({ user, className }: { user: User; className?: s
                           {t('trades.offers.confirmCancel')}
                         </span>
                         <div className="flex gap-2 shrink-0">
-                          <Button variant="destructive" size="sm" onClick={() => applyStatus(o.id, 'CANCELLED', t('trades.offers.cancelled'))} className="min-h-11 md:min-h-0 text-body-sm">
+                          <Button variant="destructive" size="sm" onClick={() => applyStatus(o.id, 'CANCELLED', t('trades.offers.cancelled'))} className="touch:min-h-11 text-body-sm">
                             {t('trades.offers.yesCancel')}
                           </Button>
-                          <Button variant="outline" size="sm" autoFocus onClick={() => setConfirmingCancelId(null)} className="min-h-11 md:min-h-0 text-body-sm">{t('trades.back')}</Button>
+                          <Button variant="outline" size="sm" autoFocus onClick={() => setConfirmingCancelId(null)} className="touch:min-h-11 text-body-sm">{t('trades.back')}</Button>
                         </div>
                       </div>
                     )}

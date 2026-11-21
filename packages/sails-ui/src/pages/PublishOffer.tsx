@@ -226,7 +226,7 @@ export function PublishOffer() {
     <Page width="form">
       <PageHeader
         back={
-          <Link to={TRADES_ROUTES.offers} className="min-h-11 md:min-h-0 text-body-sm text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
+          <Link to={TRADES_ROUTES.offers} className="touch:min-h-11 text-body-sm text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
             <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {t('trades.offers.title')}
           </Link>
         }

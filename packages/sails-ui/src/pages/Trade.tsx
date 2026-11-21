@@ -548,7 +548,7 @@ export function Trade() {
       return
     }
     setEscrow(e)
-    toast.success(t('trade.toast.escrowLocked'), { icon: <Lock className="h-4 w-4" /> })
+    toast.success(t('trade.toast.escrowLocked'), { icon: <Lock aria-hidden="true" className="size-icon shrink-0 text-brand-inverse-success" /> })
   })
 
   const handleMarkPaymentSent = () => escrow && withGuard(async () => {
@@ -561,7 +561,7 @@ export function Trade() {
     }
     const e = await sailsClient.settlement.markPaymentSent(escrow.id)
     setEscrow(e)
-    toast.success(t('trade.toast.paymentMarkedSent'), { icon: <Banknote className="h-4 w-4" /> })
+    toast.success(t('trade.toast.paymentMarkedSent'), { icon: <Banknote aria-hidden="true" className="size-icon shrink-0 text-brand-inverse-success" /> })
   })
 
   // Explicit, user-confirmed signing (MULTISIG only). Re-reads the round

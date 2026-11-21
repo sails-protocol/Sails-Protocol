@@ -47,7 +47,7 @@ async function signInDemo(page) {
     const pw = page.locator('input[type=password]')
     // Fixed demo passphrase: demo mode runs only in development and sends nothing to a Sails node.
     for (let i = 0; i < await pw.count(); i++) await pw.nth(i).fill('demo-audit-pass')
-    await page.locator('form button[type=submit], button:has-text("Conectar"), button:has-text("Connect")').last().click()
+    await page.locator('form button[type=submit], button:has-text("Conectar"), button:has-text("Connect"), button:has-text("Verbinden")').last().click()
     await sleep(1500)
   }
   for (let i = 0; i < 3; i++) { await page.keyboard.press('Escape'); await sleep(120) }

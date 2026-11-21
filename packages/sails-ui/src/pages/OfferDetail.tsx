@@ -141,7 +141,7 @@ export function OfferDetail() {
   }, [id, reloadKey])
 
   const back = (
-    <Link to="/" className="min-h-11 md:min-h-0 text-body-sm text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
+    <Link to="/" className="touch:min-h-11 text-body-sm text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
       <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Market
     </Link>
   )

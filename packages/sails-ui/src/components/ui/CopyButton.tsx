@@ -24,9 +24,9 @@ export function CopyButton({ value, label, className }: { value: string; label?:
     <button
       type="button"
       onClick={handleCopy}
-      className={cn("text-xs text-brand-text-secondary hover:text-brand-text border border-brand-border rounded-md px-2 py-1 transition-colors", className)}
+      className={cn("inline-flex items-center justify-center rounded-md bg-brand-tonal px-2 py-1 text-xs font-medium text-brand-text state-layer", className)}
     >
-      {copied ? <><Check className="h-3.5 w-3.5 inline" aria-hidden="true" /><span className="sr-only">{strings.copied}</span></> : label ?? strings.copy}
+      {copied ? <><Check className="size-icon-sm" aria-hidden="true" /><span className="sr-only">{strings.copied}</span></> : label ?? strings.copy}
     </button>
   )
 }

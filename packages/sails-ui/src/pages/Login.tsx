@@ -144,7 +144,7 @@ function LocalKeyStep({ onBack, onConnected }: { onBack: () => void; onConnected
           type="button"
           onClick={onBack}
           aria-label={t('auth.local.back')}
-          className="-ml-1 mb-1 w-11 h-11 md:w-8 md:h-8 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text state-layer"
+          className="-ml-1 mb-1 h-8 w-8 touch:h-11 touch:w-11 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text state-layer"
         >
           <ArrowLeft className="h-4 w-4" />
         </button>

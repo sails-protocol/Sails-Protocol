@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { CopyButton } from '../components/ui/CopyButton'
 import { InfoTooltip } from '../components/ui/InfoTooltip'
+import { Tooltip, TooltipTrigger, TooltipContent } from '../components/ui/tooltip'
 import { buttonVariants } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { StatStrip } from '../components/ui/StatStrip'
@@ -70,8 +71,14 @@ export function Profile() {
                 {t('profile.publicKey')}
                 <InfoTooltip text={t('profile.keyExplainer')} />
               </span>
-              <span className="mono-id text-body-sm text-brand-text-secondary truncate max-w-[16rem]">{user.publicKey}</span>
-              <CopyButton value={user.publicKey} className="min-h-11 md:min-h-0 shrink-0" />
+              {/* Truncated on screen; the full key opens on hover and keyboard focus, and the DOM text stays whole for screen readers. */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0} translate="no" className="mono-id text-body-sm text-brand-text-secondary truncate max-w-[16rem] rounded-sm">{user.publicKey}</span>
+                </TooltipTrigger>
+                <TooltipContent translate="no" className="max-w-72 break-all font-mono">{user.publicKey}</TooltipContent>
+              </Tooltip>
+              <CopyButton value={user.publicKey} className="min-h-9 touch:min-h-11 px-3 shrink-0" />
             </div>
             {formatMonthYear(user.createdAt) && <p className="text-xs text-brand-text-muted mt-1">{t('profile.memberSince', { date: formatMonthYear(user.createdAt) })}</p>}
           </div>

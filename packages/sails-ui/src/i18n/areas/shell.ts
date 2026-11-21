@@ -28,7 +28,7 @@ export default defineArea(
 
     'shell.onboarding.marketplace.title': 'Marketplace P2P com escrow',
     'shell.onboarding.marketplace.description': 'Compre e venda cripto direto com outra pessoa. Cada trade mostra o tipo de escrow e quem pode assinar a liberação; em uma disputa, um árbitro designado também pode assinar.',
-    'shell.onboarding.escrow.title': 'Escrow protege os dois lados',
+    'shell.onboarding.escrow.title': 'O escrow registra o bloqueio dos fundos durante o trade, até a liberação ou a disputa',
     'shell.onboarding.escrow.description': 'Ao negociar, os fundos ficam bloqueados num escrow até o vendedor liberar, depois que o comprador marca o pagamento como enviado. Em caso de problema, um árbitro real pode intervir na disputa.',
     'shell.onboarding.chat.title': 'Chat direto, com criptografia opcional',
     'shell.onboarding.chat.description': 'Combine os detalhes do pagamento pelo chat da negociação. Dá pra ativar criptografia de ponta a ponta a qualquer momento, direto no cabeçalho do chat.',
@@ -93,7 +93,7 @@ export default defineArea(
 
       'shell.onboarding.marketplace.title': 'P2P marketplace with escrow',
       'shell.onboarding.marketplace.description': 'Buy and sell crypto directly with another person. Each trade shows the escrow type and who can sign the release; in a dispute, an assigned arbitrator can also sign.',
-      'shell.onboarding.escrow.title': 'Escrow protects both sides',
+      'shell.onboarding.escrow.title': 'The escrow records the funds lock during the trade, until release or a dispute',
       'shell.onboarding.escrow.description': 'When you trade, the funds stay locked in an escrow until the seller releases them, after the buyer marks the payment as sent. If something goes wrong, a real arbitrator can step into the dispute.',
       'shell.onboarding.chat.title': 'Direct chat, with optional encryption',
       'shell.onboarding.chat.description': 'Agree on the payment details in the trade chat. You can turn on end-to-end encryption at any time, right from the chat header.',
@@ -157,7 +157,7 @@ export default defineArea(
 
       'shell.onboarding.marketplace.title': 'Mercado P2P con escrow',
       'shell.onboarding.marketplace.description': 'Compra y vende cripto directamente con otra persona. Cada trade muestra el tipo de escrow y quién puede firmar la liberación; en una disputa, un árbitro designado también puede firmar.',
-      'shell.onboarding.escrow.title': 'El escrow protege a ambas partes',
+      'shell.onboarding.escrow.title': 'El escrow registra el bloqueo de los fondos durante el trade, hasta la liberación o la disputa',
       'shell.onboarding.escrow.description': 'Al negociar, los fondos quedan bloqueados en un escrow hasta que el vendedor los libere, después de que el comprador marque el pago como enviado. Si hay un problema, un árbitro real puede intervenir en la disputa.',
       'shell.onboarding.chat.title': 'Chat directo, con cifrado opcional',
       'shell.onboarding.chat.description': 'Acuerda los detalles del pago en el chat del trade. Puedes activar el cifrado de extremo a extremo en cualquier momento, desde la cabecera del chat.',
@@ -221,7 +221,7 @@ export default defineArea(
 
       'shell.onboarding.marketplace.title': 'Place de marché P2P avec escrow',
       'shell.onboarding.marketplace.description': "Achetez et vendez des cryptos directement avec une autre personne. Chaque trade indique le type d'escrow et qui peut signer la libération ; en cas de litige, un arbitre désigné peut aussi signer.",
-      'shell.onboarding.escrow.title': "L'escrow protège les deux parties",
+      'shell.onboarding.escrow.title': "L'escrow enregistre le blocage des fonds pendant le trade, jusqu'à la libération ou au litige",
       'shell.onboarding.escrow.description': "Pendant un trade, les fonds restent bloqués dans un escrow jusqu'à ce que le vendeur les libère, après que l'acheteur a marqué le paiement comme envoyé. En cas de problème, un véritable arbitre peut intervenir dans le litige.",
       'shell.onboarding.chat.title': 'Chat direct, avec chiffrement facultatif',
       'shell.onboarding.chat.description': "Convenez des détails du paiement dans le chat du trade. Vous pouvez activer le chiffrement de bout en bout à tout moment, depuis l'en-tête du chat.",
@@ -285,7 +285,7 @@ export default defineArea(
 
       'shell.onboarding.marketplace.title': 'P2P-Marktplatz mit Escrow',
       'shell.onboarding.marketplace.description': 'Kaufe und verkaufe Krypto direkt mit einer anderen Person. Jeder Trade zeigt den Escrow-Typ und wer die Freigabe signieren kann; in einem Streitfall kann auch eine zugewiesene Schiedsperson signieren.',
-      'shell.onboarding.escrow.title': 'Escrow schützt beide Seiten',
+      'shell.onboarding.escrow.title': 'Der Escrow erfasst die Sperrung der Mittel während des Trades, bis zur Freigabe oder zum Streitfall',
       'shell.onboarding.escrow.description': 'Beim Handeln bleiben die Mittel in einem Escrow gesperrt, bis der Verkäufer sie freigibt, nachdem der Käufer die Zahlung als gesendet markiert hat. Bei einem Problem kann eine echte Schiedsperson in den Streitfall eingreifen.',
       'shell.onboarding.chat.title': 'Direkter Chat mit optionaler Verschlüsselung',
       'shell.onboarding.chat.description': 'Kläre die Zahlungsdetails im Chat des Trades. Du kannst die Ende-zu-Ende-Verschlüsselung jederzeit direkt im Chat-Kopf aktivieren.',
@@ -336,6 +336,7 @@ export default defineArea(
     ],
     dispute: [
       'shell.onboarding.marketplace.description',
+      'shell.onboarding.escrow.title',
       'shell.onboarding.escrow.description',
       'shell.tradesTabs.disputes',
       'shell.tradesTabs.inDispute',
