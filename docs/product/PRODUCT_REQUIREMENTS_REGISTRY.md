@@ -16,7 +16,7 @@ Origem: `ui-backend-gaps-2026-11-20.md`, o Despacho 039, o Despacho 051 com o Co
   - **Solução proposta:** existe proposta técnica, ainda não aprovada.
   - **Implementado:** está na interface e/ou no backend.
 - **Responsável inicial:** "EPM (a distribuir)", até o EPM atribuir.
-- **Indicadores (recomendação do CTO):** 47 requisitos descobertos (UX-001 a UX-047), 0 homologados.
+- **Indicadores (recomendação do CTO):** 48 requisitos descobertos (UX-001 a UX-048), 0 homologados.
 
 ---
 
@@ -500,6 +500,14 @@ Origem: sessão de UI, branch `ui/design-system` (sem PR publicada), decisões d
   - **Especificação técnica rev2 (GO documental do GK; C1 a C4 conferidos):** https://github.com/sails-protocol/Sails-Protocol/issues/147#issuecomment-7056473176. Documento, não GO de implementação. O adendo "Nós e Mercados" (issuecomment-7056459120) é vigente e substitui a tabela de capacidades do §2. Em STOP: implementação, implantação e migrações; E2 (qualquer ferramenta de assinatura de release exige autorização do Alan); E6 (chaves econômicas no white-label); pré-requisitos §21(b)(d)(e) da ADR-001 (Node ID estável, propagação, convergência), que ainda não existem. Decisões E1 a E7 com o CTO.
   - Status separados: [ ] UX | [x] Especificação documental (rev2, GO documental do GK) | [ ] Implementação | [ ] Homologação.
   - **CTO Despacho 056 (E1 a E7):** E1, perfil `private` com participação no mercado público desligada por padrão (o operador pode habilitar); E2, preferência por assinaturas de release verificáveis offline e quórum k-de-n, nenhuma ferramenta autorizada, exigir proposta de gestão, rotação e recuperação de chaves; E3, atualização automática desligada por padrão, se ligada exige assinatura válida e atraso configurável e nunca aplica migrações; E4, bootstrap com múltiplos operadores independentes e lista substituível; E5, nenhuma telemetria automática à Sails; E6, STOP (endereços de cobrança, árbitros e políticas de taxa fora do white-label); E7, HOLD (manter a imagem base aprovada; distroless na frente de imagem). Os perfis `public` e `private` não definem a natureza de um mercado. **Dependência:** o UX-046 precede o UX-047; a documentação das distribuições avança em paralelo, mas não se apresenta rede compartilhada funcional antes de comprovar descoberta, propagação e convergência. Prioridade P2.
+
+- [ ] **UX-048: Reputação mínima da contraparte do Sails Agent: escala incoerente com o modelo de reputação**
+  - Origem: UI, ao traduzir o painel do Sails Agent. Módulo: Sails Agent, SDK e OpenReputation.
+  - Contrato (conferido pelo EPM na `main` 09caf3b1): `packages/sails-sdk/src/types.ts:497` define `minReputationRating?: number // 0-5, mirrors ReputationScore's scale`, e o painel do Sails Agent mostra "Reputação mínima da contraparte (0–5)". A reputação real é uma soma sem teto (+2 por trade concluído, −5 por disputa perdida, segundo a UI e o serviço de reputação), logo a escala de 0 a 5 não corresponde ao modelo. A avaliação por estrelas (`rate()`) é informativa e nunca entra na reputação.
+  - Proposta: decisão do CTO e do Principal: usar a reputação real (com nome e unidade claros) ou outra métrica nomeada; não apresentar o número como nota de 0 a 5 nem como porcentagem.
+  - Prioridade: P2.
+  - Estado: levantado, não aprovado. A UI não deve inventar escala até haver decisão.
+  - Também para revisão de verdade (pacote do Design System Architect): o texto de onboarding "Escrow protege os dois lados", por ser afirmação de garantia.
 
 ## Decisões pendentes do CTO (F)
 1. Destino de STACKS, RSK_BTC e SPARK no enum (UX-005).
