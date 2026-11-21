@@ -176,4 +176,33 @@ describe('M-1b reorg block + two-role unblock (real PG, real login roles)', () =
     expect(await code(execute(op, id, K('b')))).toBe('42501')
     expect(await s.openBlocks()).toHaveLength(1)
   })
+
+  // GK M10: the function's own reviewer-role check is defence in depth behind the EXECUTE grant; it must hold on its own.
+  run('DEFENCE IN DEPTH (E2512): a role that was GRANTED execute but is NOT a reviewer member is refused by the function itself', async () => {
+    const nonRev = `m1b_nonrev_${RUN}`
+    await admin.query(`CREATE ROLE ${nonRev} LOGIN PASSWORD 'p'`)
+    await admin.query(`GRANT EXECUTE ON FUNCTION offer_capacity_execute_unblock(text, text, text) TO ${nonRev}`)
+    const c = new Client({ connectionString: urlFor(nonRev, 'p') })
+    try {
+      await c.connect()
+      expect(await code(execute(c, 'any-request'))).toBe('E2512')
+    } finally {
+      await c.end().catch(() => undefined)
+      await admin.query(`REVOKE EXECUTE ON FUNCTION offer_capacity_execute_unblock(text, text, text) FROM ${nonRev}`)
+      await admin.query(`DROP ROLE IF EXISTS ${nonRev}`)
+    }
+  })
+
+  // GK M11: the stored digest is re-verified at execution; only a superuser bypassing the immutability trigger can break it.
+  run('DIGEST (E2516): a request whose stored digest was tampered (trigger bypassed with session_replication_role=replica) is refused and the block stays in force', async () => {
+    const s = await blocked(0xc7)
+    await s.ev('r', 'RECONFIRMED', 100, 101, T(5)) // evidence is final: only the digest can stop the reviewer
+    const [b] = await s.openBlocks()
+    const id = await request(op, b.id, s.esc.id)
+    await admin.query(`SET session_replication_role = replica`)
+    try { await admin.query(`UPDATE offer_capacity_unblock_requests SET digest=$1 WHERE id=$2`, ['0'.repeat(64), id]) }
+    finally { await admin.query(`RESET session_replication_role`) }
+    expect(await code(execute(rev1, id, K('b')))).toBe('E2516')
+    expect(await s.openBlocks()).toHaveLength(1)
+  })
 })
