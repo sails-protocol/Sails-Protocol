@@ -6,7 +6,7 @@ import type { TrustKind, TrustLineItem } from './trustTypes'
 const ICONS: Record<TrustKind, LucideIcon> = { reputation: Award, trades: ArrowLeftRight, disputes: Scale, disputeRate: Scale, rating: Star }
 // Rating stars use the same checked blue as the StarRating input (one meaning: a chosen/filled star), never yellow.
 // A filled star reads heavier than the outline icons at the same size, so it is drawn smaller (12px).
-const ICON_TONE: Partial<Record<TrustKind, string>> = { rating: 'fill-current text-brand-checked h-3 w-3 ml-0.5 mr-1.5 align-[-1px]' }
+const ICON_TONE: Partial<Record<TrustKind, string>> = { rating: 'fill-current text-brand-checked size-icon-xs ml-0.5 mr-1.5 align-[-1px]' }
 
 /**
  * Layer A: a compact trust line, each item an icon plus its text. Items are spaced, not joined by a

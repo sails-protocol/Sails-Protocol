@@ -269,10 +269,11 @@
   --color-asset-chip: 255 255 255;
 
   /* Sizes. Controls: 36 compact / 40 default on desktop, 44 touch on
-     mobile. Icons 16/20/24. Avatars (UserAvatar SIZES) 28/36/48/64. */
+     mobile. Icons 14/16/20/24 (14 only beside 12px text: badges, chips, meta lines). Avatars (UserAvatar SIZES) 28/36/48/64. */
   --control-h-sm: 36px;
   --control-h: 40px;
   --control-h-touch: 44px;
+  --icon-xs: 14px;
   --icon-sm: 16px;
   --icon-md: 20px;
   --icon-lg: 24px;

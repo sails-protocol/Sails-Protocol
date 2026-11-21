@@ -79,7 +79,7 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
           <div className="min-w-0">
             <div className="flex items-center gap-1">
               <span data-seller-name className="text-sm font-medium text-brand-text truncate">{seller}</span>
-              {offer.user.verified && <Check aria-label={t('market.offer.verified')} className="h-3.5 w-3.5 shrink-0 text-brand-orange-accent" />}
+              {offer.user.verified && <Check aria-label={t('market.offer.verified')} className="size-icon-xs shrink-0 text-brand-orange-accent" />}
             </div>
             <TrustLine items={rating ? [...items, rating] : items} className="block text-xs text-brand-text-muted" />
           </div>

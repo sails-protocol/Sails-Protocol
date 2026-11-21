@@ -448,7 +448,7 @@ function ArbiterCases() {
                     <span className="mono-id text-body-sm text-brand-text">#{shortId(d.tradeId)}</span>
                     {pendingSuggestion(d) && (
                       <p className="text-xs text-brand-text-muted flex items-center gap-1">
-                        <Bot className="h-3.5 w-3.5" aria-hidden="true" /> {t('disputes.autoSuggestion')}
+                        <Bot className="size-icon-xs" aria-hidden="true" /> {t('disputes.autoSuggestion')}
                       </p>
                     )}
                   </div>

@@ -159,6 +159,7 @@ export default {
         'control-sm': 'var(--control-h-sm)',
         control: 'var(--control-h)',
         'control-touch': 'var(--control-h-touch)',
+        'icon-xs': 'var(--icon-xs)',
         'icon-sm': 'var(--icon-sm)',
         icon: 'var(--icon-md)',
         'icon-lg': 'var(--icon-lg)',

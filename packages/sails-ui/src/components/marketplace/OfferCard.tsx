@@ -42,7 +42,7 @@ export function OfferCard({ offer, own = false }: { offer: Offer; own?: boolean 
         <div className="flex flex-wrap items-baseline gap-x-2">
           <span className="flex items-center gap-1 min-w-0">
             <span data-seller-name className="text-sm font-medium text-brand-text">{seller}</span>
-            {offer.user.verified && <Check aria-label={t('market.offer.verified')} className="h-3.5 w-3.5 shrink-0 text-brand-orange-accent" />}
+            {offer.user.verified && <Check aria-label={t('market.offer.verified')} className="size-icon-xs shrink-0 text-brand-orange-accent" />}
           </span>
           <TrustLine items={items} className="text-xs text-brand-text-muted" />
         </div>

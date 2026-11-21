@@ -297,7 +297,7 @@ export function OfferDetail() {
               </div>
 
               <p className="mt-4 text-xs text-brand-text-secondary flex items-start gap-2">
-                <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+                <Lock className="size-icon-xs shrink-0 mt-0.5" aria-hidden="true" />
                 {t('offer.ticket.escrowNote')}
               </p>
 

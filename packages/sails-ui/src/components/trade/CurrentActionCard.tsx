@@ -41,7 +41,7 @@ export function CurrentActionCard({ view, acting, onAction, onOpenDispute, child
         'flex items-center gap-1.5 text-xs font-medium',
         view.tone === 'action' ? 'text-brand-orange-accent' : view.tone === 'attention' ? 'text-brand-warning' : 'text-brand-text-muted',
       )}>
-        <ActorIcon className="h-3.5 w-3.5" aria-hidden="true" />
+        <ActorIcon className="size-icon-xs" aria-hidden="true" />
         {view.actorLabel}
       </p>
       <h2 id={titleId} className="mt-1.5 text-heading text-brand-text">{view.title}</h2>

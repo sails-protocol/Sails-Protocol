@@ -22,7 +22,7 @@ export function RatingSummaryLine({ text, srText, meta, description, explanation
 }) {
   return (
     <div className={cn('flex items-start gap-2 text-sm', className)}>
-      <Star className="mt-1 h-3.5 w-3.5 shrink-0 fill-current text-brand-checked" aria-hidden="true" />
+      <Star className="mt-1 size-icon-xs shrink-0 fill-current text-brand-checked" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 tabular-nums">
           <span className="font-medium text-brand-text whitespace-nowrap">

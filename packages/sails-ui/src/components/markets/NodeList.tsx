@@ -61,7 +61,7 @@ export function NodeList({ nodes, copy, className }: { nodes: readonly NodeView[
                 unavailable={copy.unavailable}
                 value={status && n.status ? (
                   <Badge variant="outline" className={cn('gap-1', TONE_CLASS[status.tone])}>
-                    <status.Icon aria-hidden="true" className="h-3 w-3" />
+                    <status.Icon aria-hidden="true" className="size-icon-xs" />
                     {copy.status[n.status]}
                   </Badge>
                 ) : undefined}

@@ -189,7 +189,7 @@ Nada abaixo de 12px; nada de `text-[13px]`.
 | Espaçamento | escala de 4px do Tailwind; passos preferidos 1, 2, 3, 4, 6, 8 (4–32px) |
 | Raios | ver 4.2 |
 | Controles | por ponteiro (**provisório — ratificação pendente**): ponteiro fino 36 (`sm`, campos, chips) / 40 (botão padrão) / 32 (segmentado); variante `touch:` (ponteiro grosso em qualquer largura **ou** janela < 768px) leva tudo a 44. Tokens `h-control-sm`/`h-control`/`h-control-touch` = `h-9`/`h-10`/`h-11` |
-| Ícones | `size-icon-sm` 16, `size-icon` 20, `size-icon-lg` 24 |
+| Ícones | `size-icon-xs` 14 (só ao lado de texto de 12 px: selos, chips, linhas de meta), `size-icon-sm` 16, `size-icon` 20, `size-icon-lg` 24 |
 | Avatares | `UserAvatar` sm 28, md 36, lg 48, xl 64 |
 | Elevação | ver 4.3 |
 

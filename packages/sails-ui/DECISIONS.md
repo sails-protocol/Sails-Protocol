@@ -177,6 +177,13 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 - **Idiomas:** padrão do sistema, Português (Brasil), English, Español, Français e Deutsch. Números, moedas e datas seguem o idioma escolhido (2026-11-20).
   - **Textos de dinheiro e de disputa sem revisão nativa ficam fora da publicação** (2026-11-21). As chaves de dinheiro, disputa, prazo, reputação, custódia e confirmação em inglês, espanhol, francês e alemão só vão para produção depois de um falante nativo revisar (lista `NEEDS_NATIVE_REVIEW`, DESIGN_SYSTEM.md §7.3).
 - Referências de qualidade: Apple HIG, Material 3 e WCAG 2.2 AA. Para padrões de mercado P2P: Binance P2P e Hodl Hodl. Nunca copiar nenhuma delas (2026-11-20).
+- **Um só laranja sólido por tela** (Product Owner, 2026-11-21). Sem sessão, o laranja sólido é o "Conectar wallet" do topo, porque ele destrava todas as ações; o "Nova oferta" do Market fica tonal até a pessoa entrar e volta a ser laranja sólido com sessão.
+- **Ícone de 14 px oficial** (`size-icon-xs`), só ao lado de texto de 12 px: selos, chips e linhas de meta. A escala fica 14/16/20/24 (Product Owner, 2026-11-21; aplicado, o Architect pode ajustar na ratificação).
+- **Textos honestos, com o tom do Sails** (Product Owner, 2026-11-21):
+  - nenhuma promessa que o protocolo não garante (árbitro "sempre", prazo, reembolso); quando a regra depende do tipo de escrow, o texto diz que cada trade mostra a regra;
+  - sem comparação com outros produtos ("igual ao Keet") e sem linguagem informal ("pra", "dá pra");
+  - entrar com a chave é como nas wallets de DeFi: o texto diz o que a assinatura faz e o que não faz ("não move fundos nem aprova nenhum trade") e o que o nó Sails recebe (assinatura e chave pública), em vez de afirmações absolutas como "nunca sai do seu dispositivo".
+- **Chave pública no Perfil:** começo e fim sempre visíveis ("5be90dfe1d…b50ee0e9"), com o botão "Ver chave completa" que abre a chave inteira no lugar, em qualquer tela (o toque não depende de tooltip). O "Copiar" continua ao lado (Product Owner, 2026-11-21).
 
 ## Market e ofertas
 - Ofertas ordenadas pela reputação Sails, em tabela no desktop e em lista no celular (2026-11-20).
@@ -221,6 +228,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
   - final ("Escrow marcado como concluído"): o trilho fica todo azul, sem verde e sem comemoração;
   - o cartão da etapa atual tem uma faixa de cor no topo, com o mesmo código: laranja (sua ação), azul (esperando), âmbar (atenção), neutra (encerrado);
   - o trilho compacto do celular usa as mesmas cores.
+- **Chat do trade** (Product Owner, 2026-11-21): a ação da etapa ("Marcar pagamento enviado") é o único laranja sólido da tela; o "Enviar" do chat é tonal. Os seus balões são azuis sólidos (azul de informação, 6,7:1 no claro e 7,3:1 no escuro), porque laranja é a cor de ação; os da outra parte ficam neutros. O comprovante continua com o fundo suave de informação e o rótulo, e nunca usa verde.
 
 ## Pendente de decisão (não tratar como fechado)
 - Formato do dólar: "US$ 97.800,00" (adotado) ou "$97,800.00". Aguarda o OK do Product Owner.

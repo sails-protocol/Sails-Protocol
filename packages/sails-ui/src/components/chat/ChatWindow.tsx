@@ -109,7 +109,7 @@ export function ChatWindow({
         </div>
         {/* The label states what is true now; the switch is the action. */}
         <div className="flex items-center gap-1.5 text-xs text-brand-text-secondary">
-          {encryptionEnabled ? <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : <LockOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+          {encryptionEnabled ? <Lock className="size-icon-xs shrink-0" aria-hidden="true" /> : <LockOpen className="size-icon-xs shrink-0" aria-hidden="true" />}
           <span>{t(encryptionEnabled ? 'trade.chat.encrypted' : 'trade.chat.notEncrypted')}</span>
           <InfoTooltip text={t('trade.chat.encryptionHelp')} />
           <label htmlFor={switchId} className="flex min-h-11 cursor-pointer items-center gap-1.5 pl-1">
@@ -144,7 +144,8 @@ export function ChatWindow({
           aria-label={t('trade.chat.messageLabel')}
           className="flex-1 min-h-11"
         />
-        <Button onClick={handleSend} className="min-h-11 px-4 text-sm">
+        {/* Tonal: the trade step action is the screen's one solid primary. */}
+        <Button variant="secondary" onClick={handleSend} className="min-h-11 px-4 text-sm">
           {t('trade.chat.send')}
         </Button>
       </div>

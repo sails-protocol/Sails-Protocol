@@ -312,7 +312,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                     className="text-xs text-brand-orange-accent underline mb-3 flex items-center gap-1"
                   >
                     {t('agent.matches', { count: matchCount })}
-                    <ArrowDown className="h-3 w-3" />
+                    <ArrowDown className="size-icon-xs" />
                   </button>
                 ) : (
                   <div className="mb-3 rounded-md bg-brand-elevated border border-brand-border-subtle px-3 py-2 text-xs text-brand-text-secondary">
@@ -366,7 +366,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
 
               <div className="flex gap-2">
                 <Button onClick={handleDelegate} loading={proposing} className="px-3 py-1.5 text-xs">
-                  <Bot className="h-3.5 w-3.5" />
+                  <Bot className="size-icon-xs" />
                   {t(proposing ? 'agent.searching' : 'agent.delegate')}
                 </Button>
                 <Button variant="outline" onClick={handleReset} disabled={proposing} className="px-3 py-1.5 text-xs">
@@ -381,7 +381,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
               {proposal ? (
                 <>
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-brand-orange-accent mb-2">
-                    <Bot className="h-3.5 w-3.5" />
+                    <Bot className="size-icon-xs" />
                     {t('agent.proposal.title')}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">
@@ -392,7 +392,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                   </div>
                   <div className="flex gap-2">
                     <Button onClick={handleApprove} loading={approving} className="px-3 py-1.5 text-xs">
-                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      <CheckCircle2 className="size-icon-xs" />
                       {t(approving ? 'agent.starting' : 'agent.approve')}
                     </Button>
                     <Button variant="outline" onClick={handleAdjust} disabled={approving} className="px-3 py-1.5 text-xs">
@@ -410,7 +410,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                 // true-nothing-found case below.
                 <>
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-brand-orange-accent mb-2">
-                    <Bot className="h-3.5 w-3.5" />
+                    <Bot className="size-icon-xs" />
                     {t('agent.counter.title')}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">
@@ -425,7 +425,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
               ) : (
                 <>
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-brand-text-secondary mb-2">
-                    <SearchX className="h-3.5 w-3.5" />
+                    <SearchX className="size-icon-xs" />
                     {t('agent.none.title')}
                   </div>
                   <p className="text-xs text-brand-text-secondary mb-3">

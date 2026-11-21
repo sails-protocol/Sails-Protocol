@@ -46,15 +46,16 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
             ? 'bg-brand-elevated border border-dashed border-brand-border text-brand-text-muted italic'
             : isProof
               ? 'bg-brand-info-bg border border-brand-info-border text-brand-text'
+              // Own bubbles are solid blue (DECISIONS.md, 2026-11-21): orange is reserved for actions.
               : isMine
-                ? 'bg-primary text-primary-foreground rounded-br-sm'
+                ? 'bg-brand-info-solid text-brand-on-info rounded-br-sm'
                 : 'bg-brand-elevated text-brand-text rounded-bl-sm'
         } ${isMedia ? 'p-1.5' : ''}`}
       >
         {/* A proof is a party's claim, not a verified payment (CTO 437): info tone, never success. */}
         {isProof && (
           <div className="text-xs font-semibold text-brand-info-fg mb-1 flex items-center gap-1">
-            <Receipt className="h-3.5 w-3.5" /> {t('trade.chat.proof')}
+            <Receipt className="size-icon-xs" /> {t('trade.chat.proof')}
           </div>
         )}
         {message.type === 'IMAGE' && message.mediaUrl && (
@@ -65,12 +66,12 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
         )}
         {!isMedia && (
           <span className="inline-flex items-start gap-1">
-            {isEncrypted && !message.decryptionFailed && <Lock className="h-3 w-3 mt-0.5 shrink-0 opacity-70" />}
+            {isEncrypted && !message.decryptionFailed && <Lock className="size-icon-xs mt-0.5 shrink-0 opacity-70" />}
             <span>{message.content}</span>
           </span>
         )}
         {isMedia && message.content && (
-          <div className={`text-xs px-1.5 pt-1 ${isMine ? 'text-primary-foreground/80' : 'text-brand-text-muted'}`}>{message.content}</div>
+          <div className={`text-xs px-1.5 pt-1 ${isMine ? 'text-brand-on-info/80' : 'text-brand-text-muted'}`}>{message.content}</div>
         )}
       </div>
       <span className="text-xs text-brand-text-muted mt-0.5">{formatTime(message.createdAt)}</span>

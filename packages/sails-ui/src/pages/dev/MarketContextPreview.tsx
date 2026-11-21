@@ -216,7 +216,7 @@ export function MarketContextPreview() {
         <details>
           <summary className="flex min-h-8 cursor-pointer list-none flex-wrap items-center justify-between gap-x-3 gap-y-1 [&::-webkit-details-marker]:hidden">
             <span>{COPY.banner}</span>
-            <span className="inline-flex items-center gap-1 font-mono text-brand-text-secondary">{COPY.scenario}: {scenario.label}<ChevronDown aria-hidden="true" className="h-3.5 w-3.5" /></span>
+            <span className="inline-flex items-center gap-1 font-mono text-brand-text-secondary">{COPY.scenario}: {scenario.label}<ChevronDown aria-hidden="true" className="size-icon-xs" /></span>
           </summary>
           <div className="flex flex-wrap gap-1 border-t border-brand-warning/20 py-1.5">
             {SCENARIOS.map((s) => (
@@ -245,7 +245,7 @@ export function MarketContextPreview() {
             <span role="status">{scenario.offline ? COPY.offlineCount : COPY.offersCount(offers.length)} · {COPY.inContext(current.name)}</span>
             <span aria-hidden="true" className="max-sm:hidden">·</span>
             <span className="inline-flex items-center gap-1 max-sm:basis-full">
-              {scenario.offline ? <WifiOff aria-hidden="true" className="h-3.5 w-3.5 text-brand-warning" /> : <CircleDot aria-hidden="true" className="h-3.5 w-3.5 text-brand-success" />}
+              {scenario.offline ? <WifiOff aria-hidden="true" className="size-icon-xs text-brand-warning" /> : <CircleDot aria-hidden="true" className="size-icon-xs text-brand-success" />}
               {scenario.offline ? COPY.connectionFailed : COPY.connected}
             </span>
             <span aria-hidden="true" className="max-sm:hidden">·</span>

@@ -48,7 +48,7 @@ export function AccountMenu({ user, compact = false }: { user: User; compact?: b
         {!compact && (
           <>
             <span className="text-sm font-medium text-brand-text tabular-nums">{shortKey(user.publicKey)}</span>
-            <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 text-brand-text-muted" />
+            <ChevronDown aria-hidden="true" className="size-icon-xs text-brand-text-muted" />
           </>
         )}
       </MenuTrigger>

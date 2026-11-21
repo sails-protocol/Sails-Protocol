@@ -232,10 +232,11 @@ export function Marketplace() {
         // Only the count is a live region (announced as filters change); the attribution is static.
         meta={<><span role="status">{loadingOffers ? t('market.results.loading') : offers.length === 0 ? t('market.results.countZero') : t('market.results.count', { count: countOf(offers.length) })}</span> · Powered by Satsails</>}
         // Desktop: the side segment sits with the page title, which keeps every other filter plus sort and
-        // search on one bar row at 1280. The one solid primary of the page is "Nova oferta".
+        // search on one bar row at 1280. One solid primary per screen: signed out, that is the topbar's
+        // "Conectar wallet" (it unlocks every action), so "Nova oferta" goes tonal until there is a session.
         actions={<>
           {sideSegment('hidden md:flex', 'h-8 touch:h-11')}
-          <Link to={TRADES_ROUTES.newOffer} className={cn(buttonVariants({ className: 'shrink-0 min-h-10 touch:min-h-11 px-4' }))}>
+          <Link to={TRADES_ROUTES.newOffer} className={cn(buttonVariants({ variant: user ? 'default' : 'secondary', className: 'shrink-0 min-h-10 touch:min-h-11 px-4' }))}>
             <Plus aria-hidden="true" />
             {t('market.newOffer')}
           </Link>

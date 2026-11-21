@@ -31,7 +31,7 @@ import {
 function Pill({ children, className = '', title, icon: Icon }: { children: React.ReactNode; className?: string; title?: string; icon?: LucideIcon }) {
   return (
     <span title={title} className={cn(badgeVariants({ variant: 'outline' }), 'inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-left', className)}>
-      {Icon && <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />}
+      {Icon && <Icon className="size-icon-xs shrink-0" aria-hidden="true" />}
       {children}
     </span>
   )
@@ -51,7 +51,7 @@ export function SideBadge({ side }: { side: TradeSide }) {
   const Icon = buy ? ArrowDownLeft : ArrowUpRight
   return (
     <span className={cn('inline-flex items-center gap-1 whitespace-nowrap text-caption font-medium', buy ? 'text-brand-buy-fg' : 'text-brand-sell-fg')}>
-      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <Icon className="size-icon-xs shrink-0" aria-hidden="true" />
       {buy ? t('labels.side.buy') : t('labels.side.sell')}
     </span>
   )

@@ -154,7 +154,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
                   reads as "the same thing, staged" at a glance rather
                   than a disconnected line of text. */}
               <span className="flex items-center gap-1.5 text-brand-text-secondary">
-                <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+                <SlidersHorizontal className="size-icon-xs" aria-hidden="true" />
                 {t('market.filters.activeCount', { count: String(activeCount) })}
               </span>
               <button type="button" onClick={clearDraft} className="text-brand-link hover:underline underline-offset-4 font-medium">
@@ -365,7 +365,7 @@ function PaymentMethodSection({
         onClick={() => setExpanded((e) => !e)}
         className="flex items-center gap-1 text-xs text-brand-text-secondary hover:text-brand-text mt-1"
       >
-        {expanded ? <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />}
+        {expanded ? <ChevronUp className="size-icon-xs" aria-hidden="true" /> : <ChevronDown className="size-icon-xs" aria-hidden="true" />}
         {expanded ? t('market.filters.hideMethods') : t('market.filters.showAllMethods')}
       </button>
 

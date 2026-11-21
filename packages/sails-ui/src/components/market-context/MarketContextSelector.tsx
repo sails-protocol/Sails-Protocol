@@ -181,7 +181,7 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
                           {block && BlockIcon && (
                             <span id={reasonId} className="mt-0.5 block text-body-sm leading-5 text-brand-text-muted">
                               <span className="mr-1.5 inline-flex items-center gap-1 rounded-sm bg-brand-tonal px-1.5 align-[1px] text-caption font-medium leading-4 text-brand-text-secondary">
-                                <BlockIcon aria-hidden="true" className="h-3 w-3" />
+                                <BlockIcon aria-hidden="true" className="size-icon-xs" />
                                 {copy.block[block]}
                               </span>
                               {o.unavailableReason}

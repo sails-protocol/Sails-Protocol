@@ -1,11 +1,10 @@
 import { Link, useNavigate } from 'react-router'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { CopyButton } from '../components/ui/CopyButton'
 import { InfoTooltip } from '../components/ui/InfoTooltip'
-import { Tooltip, TooltipTrigger, TooltipContent } from '../components/ui/tooltip'
-import { buttonVariants } from '../components/ui/button'
+import { Button, buttonVariants } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { StatStrip } from '../components/ui/StatStrip'
 import { Page, PageHeader } from '../components/layout/PageHeader'
@@ -27,6 +26,7 @@ import { t } from '../i18n'
 
 export function Profile() {
   const { user } = useAuth()
+  const [keyOpen, setKeyOpen] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -71,13 +71,16 @@ export function Profile() {
                 {t('profile.publicKey')}
                 <InfoTooltip text={t('profile.keyExplainer')} />
               </span>
-              {/* Truncated on screen; the full key opens on hover and keyboard focus, and the DOM text stays whole for screen readers. */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span tabIndex={0} translate="no" className="mono-id text-body-sm text-brand-text-secondary truncate max-w-[16rem] rounded-sm">{user.publicKey}</span>
-                </TooltipTrigger>
-                <TooltipContent translate="no" className="max-w-72 break-all font-mono">{user.publicKey}</TooltipContent>
-              </Tooltip>
+              {/* Start and end of the key always visible (how wallets show addresses); the full key expands in
+                  place on any pointer, touch included. Collapsed, screen readers still get the whole key. */}
+              <span id="profile-public-key" translate="no" className={cn('mono-id text-body-sm text-brand-text-secondary', keyOpen ? 'basis-full break-all order-last' : 'whitespace-nowrap')}>
+                {keyOpen || user.publicKey.length <= 20 ? user.publicKey : <><span aria-hidden="true">{user.publicKey.slice(0, 10)}…{user.publicKey.slice(-8)}</span><span className="sr-only">{user.publicKey}</span></>}
+              </span>
+              {user.publicKey.length > 20 && (
+                <Button variant="ghost" size="sm" aria-expanded={keyOpen} aria-controls="profile-public-key" onClick={() => setKeyOpen((v) => !v)} className="min-h-9 touch:min-h-11 px-2">
+                  {t(keyOpen ? 'profile.key.collapse' : 'profile.key.showFull')}
+                </Button>
+              )}
               <CopyButton value={user.publicKey} className="min-h-9 touch:min-h-11 px-3 shrink-0" />
             </div>
             {formatMonthYear(user.createdAt) && <p className="text-xs text-brand-text-muted mt-1">{t('profile.memberSince', { date: formatMonthYear(user.createdAt) })}</p>}
