@@ -92,8 +92,8 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - name: Install dependencies
-        # Despacho 061: same install as today (npm ci only after an equivalence proof, not in this PR).
-        run: npm install --no-audit --no-fund
+        # Despacho 066 (PR-A): the strict lockfile install ci.yml's `build` job used to give the test run.
+        run: npm ci
       - name: Build workspace packages
         # TECHNICAL_DEBT_AUDIT.md #49: ts-jest's diagnostic pass resolves the SDK's "types" from dist/.
         run: npm run build -w @sails/core -w @satsails/p2p-schemas -w @satsails/p2p-trading-sdk
@@ -157,8 +157,8 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - name: Install dependencies
-        # Despacho 061: same install as today (npm ci only after an equivalence proof, not in this PR).
-        run: npm install --no-audit --no-fund
+        # Despacho 066 (PR-A): the strict lockfile install ci.yml's `build` job used to give the test run.
+        run: npm ci
       - name: Build workspace packages
         # TECHNICAL_DEBT_AUDIT.md #49: ts-jest's diagnostic pass resolves the SDK's "types" from dist/.
         run: npm run build -w @sails/core -w @satsails/p2p-schemas -w @satsails/p2p-trading-sdk
@@ -220,8 +220,8 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - name: Install dependencies
-        # Despacho 061: same install as today (npm ci only after an equivalence proof, not in this PR).
-        run: npm install --no-audit --no-fund
+        # Despacho 066 (PR-A): the strict lockfile install ci.yml's `build` job used to give the test run.
+        run: npm ci
       - name: Build workspace packages
         # TECHNICAL_DEBT_AUDIT.md #49: ts-jest's diagnostic pass resolves the SDK's "types" from dist/.
         run: npm run build -w @sails/core -w @satsails/p2p-schemas -w @satsails/p2p-trading-sdk
