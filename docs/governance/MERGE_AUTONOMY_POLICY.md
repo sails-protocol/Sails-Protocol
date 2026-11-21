@@ -69,6 +69,7 @@ The CTO receives consolidated executive reports (proven progress, real blockers,
 ## 9. Adoption checklist (the delegation is NOT active before all items are done)
 - [ ] Policy merged in this repository through the normal PR flow, with GK review and Principal technical review.
 - [ ] Owner's written approval, given directly by the owner and never relayed by another session, that the owner-reserved, SHA-specific merge authorization of the solo-maintainer procedure is delegated to the EPM for Tier 1 and 2 under this policy.
+- [ ] `docs/ENGINEERING_GOVERNANCE.md` §7 and the solo-maintainer step 4 reconciled by the dated amendments of §11 (original text kept, Tier 3 and 4 preserved; owner approval: PR #751 comments 7064405778 and 7064419354).
 - [ ] GitHub controls read back and compatible (see §10), with before/after evidence.
 - [ ] PR template updated with the Tier fields.
 - [ ] EPM procedure and checklist updated.
