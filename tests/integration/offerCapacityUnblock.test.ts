@@ -33,6 +33,8 @@ describe('M-1b reorg block + two-role unblock (real PG, real login roles)', () =
     // the CI PG lane runs with the legacy single credential, so runtime-grants.sql is not applied: grant the runtime's one EXECUTE explicitly (as runtime-grants.sql does)
     await admin.query(`GRANT EXECUTE ON FUNCTION offer_capacity_request_unblock(text, jsonb, text) TO ${roles.op}`)
     await admin.query(`CREATE ROLE ${roles.rev1} LOGIN PASSWORD 'p' IN ROLE sails_capacity_reviewer`)
+    // rev1 also files a request itself in the A = B test (one principal holding both EXECUTEs): the independence check must refuse it. In production the reviewer has no request EXECUTE.
+    await admin.query(`GRANT EXECUTE ON FUNCTION offer_capacity_request_unblock(text, jsonb, text) TO ${roles.rev1}`)
     await admin.query(`CREATE ROLE ${roles.rev2} LOGIN PASSWORD 'p' IN ROLE sails_capacity_reviewer`)
     ;[op, rev1, rev2] = [roles.op, roles.rev1, roles.rev2].map((r) => new Client({ connectionString: urlFor(r, 'p') }))
     await Promise.all([op.connect(), rev1.connect(), rev2.connect()])
@@ -205,9 +207,9 @@ describe('M-1b reorg block + two-role unblock (real PG, real login roles)', () =
     // transaction instead (DDL is transactional, the trigger is back before COMMIT, never production)
     await admin.query('BEGIN')
     try {
-      await admin.query(`ALTER TABLE offer_capacity_unblock_requests DISABLE TRIGGER USER`)
+      await admin.query(`ALTER TABLE offer_capacity_unblock_requests DISABLE TRIGGER offer_capacity_unblock_requests_guard`)
       await admin.query(`UPDATE offer_capacity_unblock_requests SET digest=$1 WHERE id=$2`, ['0'.repeat(64), id])
-      await admin.query(`ALTER TABLE offer_capacity_unblock_requests ENABLE TRIGGER USER`)
+      await admin.query(`ALTER TABLE offer_capacity_unblock_requests ENABLE TRIGGER offer_capacity_unblock_requests_guard`)
       await admin.query('COMMIT')
     } catch (e) { await admin.query('ROLLBACK'); throw e }
     expect(await code(execute(rev1, id, K('b')))).toBe('E2516')
