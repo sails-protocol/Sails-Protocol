@@ -57,13 +57,7 @@ leave them blank without saying why.
 <!-- If none, say "None." If any, it must be registered in
      docs/TECHNICAL_DEBT_AUDIT.md in this same PR, not left implicit. -->
 
----
-
-<!-- The two sections below are REQUIRED for Protocol-Sensitive /
-     Economic-Security-Critical work (docs/ENGINEERING_GOVERNANCE.md §4).
-     Mark N/A for Reversible / Shared-Semantics work. -->
-
-### Merge Tier (docs/governance/MERGE_AUTONOMY_POLICY.md; proposed by the EPM, confirmed or raised by the GK)
+### Merge Tier (REQUIRED on every PR; docs/governance/MERGE_AUTONOMY_POLICY.md; proposed by the EPM, confirmed or raised by the GK)
 
 - **Proposed Tier (1-4) and why (real effect, not title):**
 - **GK confirmation:** (comment link, head SHA)
@@ -71,7 +65,12 @@ leave them blank without saying why.
 - [ ] Tier 3/4 only: CTO despacho for this exact head linked: ___
 - [ ] Merge does not authorize migration, deploy or economic activation.
 
+
 ---
+
+<!-- The two sections below are REQUIRED for Protocol-Sensitive /
+     Economic-Security-Critical work (docs/ENGINEERING_GOVERNANCE.md §4).
+     Mark N/A for Reversible / Shared-Semantics work. -->
 
 ### Sacrifice Check (required for significant architecture/security/protocol work)
 

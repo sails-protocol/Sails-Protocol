@@ -32,7 +32,7 @@ Tier 2 only for **additive** changes. Removing or skipping a job or step, renami
 
 ## 3. Gates required for every merge (any Tier)
 - Branch protection stays on: required checks `build`, `test`, `Analyze (javascript-typescript)`, branch up to date (`strict`), admins included. Nobody bypasses it.
-- CI 4/4 green on the exact head SHA; the head and base are the ones reviewed.
+- CI 4/4 green on the exact head SHA (the four checks: `build`, `test`, `Analyze (javascript-typescript)`, `CodeQL`); the head and base are the ones reviewed.
 - Every PR comment, review and inline comment read before merge.
 - The diff matches the authorized scope; no conflicts.
 - One merge at a time; `main` CI green before the next merge.
@@ -41,9 +41,11 @@ Tier 2 only for **additive** changes. Removing or skipping a job or step, renami
 - Tier 3 and 4: an express CTO despacho for the exact head. It is transferred to a new head only if the original despacho foresaw it.
 
 ## 4. A new head is not a new scope
+(This section applies to Tier 1 and 2. For Tier 3 and 4 the CTO despacho rule of §3 governs.)
+
 A branch update is **mechanical** when the base moved only by changes that do not touch the PR files. The approval for the previous head stays valid when all hold:
 - the tree of the new head equals the predicted merge tree, and its parents are the old head and the current `main`;
-- the diff against the new `main` equals the reviewed diff;
+- the diff against the new `main` equals the reviewed diff, checked by patch-id or `git range-diff` (lesson of #747: a base that added a guard referencing a moved file is not mechanical even if the diff text looks the same);
 - the GK confirms there is no relevant semantic change;
 - CI is 4/4 green again on the new head;
 - comments were read.
@@ -76,7 +78,14 @@ The CTO receives consolidated executive reports (proven progress, real blockers,
 - `main` protection: required checks `Analyze (javascript-typescript)`, `build`, `test`; `strict` true; `enforce_admins` true; force pushes and deletions blocked; required approving reviews 0 (the temporary solo-maintainer exception, unchanged); no rulesets.
 - Consequence: GitHub does not enforce independent review in this repository today. Independent review is enforced by procedure: the GK verdict on the exact head and, for Tier 3 and 4, the CTO despacho. This policy neither lowers nor raises that protection. Raising it (for example requiring a second approving human) needs administrative authorization and is a CTO decision.
 - `CODEOWNERS` routes review only; it is not authority.
+- Provenance of this read-back: made by the EPM session with the owner's authenticated GitHub CLI on 2026-11-21, endpoints `GET repos/sails-protocol/Sails-Protocol/branches/main/protection` and `GET repos/sails-protocol/Sails-Protocol/rulesets`, saved in the EPM record `EPM_EVIDENCIA_PROTECOES_MAIN_2026-11-21.md`. The CTO's own connection received 403 on that endpoint, so the EPM read-back is the factual condition and must be repeated and compared at activation.
 
-## 11. Relation to existing documents
-- `docs/ENGINEERING_GOVERNANCE.md` §4 (consequence classes) classifies *how* to build by consequence; this policy classifies *who may merge*. The two do not conflict: Financial-authority work is Tier 3 or 4.
-- §7 and the solo-maintainer transition: this policy only adds the delegation in §9 once the owner approves it; until then the owner's SHA-specific authorization stays reserved.
+## 11. Relation to existing documents and amendment (GK/Principal R1)
+This policy **conflicts** with two binding texts and therefore amends them, expressly and dated, when it enters into force:
+- `docs/ENGINEERING_GOVERNANCE.md` §7 says AI sessions do not acquire merge authority and every merge needs the owner's written, SHA-specific authorization.
+- `docs/governance/SOLO_MAINTAINER_TRANSITION_PROPOSAL.md`, step 4, says AI agents cannot approve or authorize a merge.
+
+Amendment (dated 2026-11-21, owner approval recorded in this PR and acknowledged in CTO Despacho 059): for **Tier 1 and Tier 2 only**, the owner delegates the merge authorization to the EPM, under all gates of §3 and the stops of §7 of this policy. The Principal and the GK keep the technical review; Tier 3 and 4 keep the owner/CTO authorization. The delegation is revocable by the owner at any time. Both documents carry a pointer to this amendment (added in this PR). Until the CTO declares the policy in force, the original text of both documents applies unchanged.
+
+Other relations:
+- `docs/ENGINEERING_GOVERNANCE.md` §4 (consequence classes) says *how* to build by consequence; this policy says *who may merge*. Financial-authority work is Tier 3 or 4.
