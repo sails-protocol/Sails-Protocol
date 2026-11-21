@@ -43,7 +43,10 @@ describe('ADR-005 Economic Disposition Commit Gate — real Postgres concurrency
   })
 
   afterAll(async () => {
-    if (dbAvailable) await prisma.$disconnect()
+    if (dbAvailable) {
+      await prisma.$disconnect()
+      await (global as any).__prisma?.$disconnect() // #748: the client the cold reload created
+    }
   })
 
   function requirePostgres(name: string): void {
@@ -233,6 +236,9 @@ describe('ADR-005 Economic Disposition Commit Gate — real Postgres concurrency
       // newly-created Prisma connection pool, with only durable Postgres
       // rows carrying authority across the boundary.
       await prisma.$disconnect()
+      // #748: database/index.ts reuses global.__prisma across jest.resetModules(); without clearing it the restarted modules
+      // pair a NEW @prisma/client (their Prisma.sql fragments) with the OLD client, and nested fragments are sent as values.
+      ;(global as any).__prisma = undefined
       jest.resetModules()
       const { prisma: restartedPrisma } = require('../../src/common/database') as typeof import('../../src/common/database')
       const { authorizeDisputedPendingExecution: restartedAuthorize } =
