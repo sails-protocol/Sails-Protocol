@@ -253,7 +253,7 @@ export function Settings() {
                 icon={Wallet}
                 label={t('settings.wallet.none')}
                 control={
-                  <Link to="/login" state={{ from: '/settings' }} className={cn(buttonVariants({ className: 'min-h-9 touch:min-h-11 px-4 text-sm shrink-0' }))}>
+                  <Link to="/login" state={{ from: '/settings' }} className={cn(buttonVariants({ variant: 'secondary', className: 'min-h-9 touch:min-h-11 px-4 text-sm shrink-0' }))}>
                     {t('settings.wallet.connect')}
                   </Link>
                 }

@@ -150,7 +150,7 @@ export function Disputes() {
           kind="signedOut"
           title={t('trades.connectTitle')}
           description={t('disputes.signedOutDescription')}
-          action={<Link to="/login" state={{ from: TRADES_ROUTES.disputes }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>{t('trades.connect')}</Link>}
+          action={<Link to="/login" state={{ from: TRADES_ROUTES.disputes }} className={cn(buttonVariants({ variant: 'secondary', className: 'min-h-10 touch:min-h-11 px-4' }))}>{t('trades.connect')}</Link>}
         />
       ) : error ? (
         <StateBlock

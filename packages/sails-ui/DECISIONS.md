@@ -69,6 +69,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
     - o administrador pode remover alguém do mercado sem apagar a identidade portátil nem a reputação global da pessoa;
     - o operador do nó não pode falsificar a autorização de membros nem acessar fundos;
     - as permissões são verificadas no backend e no protocolo, não só escondidas na tela.
+    - **Como a tela diz isso** (Product Owner, 2026-11-21, auditoria de copy): estas garantias são metas do modelo de mercados (#147), e a tela não as afirma de forma genérica. O nó pode guardar a chave do árbitro e, na implementação de referência, ter custódia (CTO 437). Por isso a tela diz "Cada trade mostra quem guarda cada chave e quem pode assinar a liberação." e "Quem hospeda o mercado não recebe as chaves de assinatura das partes."; as permissões verificadas aparecem como "Em breve" até existirem.
   - **Fluxo previsto na interface ("Meus mercados"):** criar mercado, escolher quem participa, configurar regras, escolher a infraestrutura e gerar convites. O participante entra com a identidade portátil e vê só as ofertas a que tem acesso.
   - Requisito preservado no registro e no Project #3, ligado à #147. **Ainda sem autorização de implementação.**
   - **Princípios definitivos (CTO, 2026-11-20, registrados na #147):**
@@ -183,6 +184,14 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
   - nenhuma promessa que o protocolo não garante (árbitro "sempre", prazo, reembolso); quando a regra depende do tipo de escrow, o texto diz que cada trade mostra a regra;
   - sem comparação com outros produtos ("igual ao Keet") e sem linguagem informal ("pra", "dá pra");
   - entrar com a chave é como nas wallets de DeFi: o texto diz o que a assinatura faz e o que não faz ("não move fundos nem aprova nenhum trade") e o que o nó Sails recebe (assinatura e chave pública), em vez de afirmações absolutas como "nunca sai do seu dispositivo".
+- **Auditoria de copy, itens graves** (Product Owner, 2026-11-21; relatório `ui-auditoria-copy-2026-11-21.md`):
+  - sem pagamento: a tela diz "Não pague até os dados aparecerem aqui" em vez de "combine pelo chat", que contradizia o aviso de segurança;
+  - disputa: "Decisão registrada" em vez de "resolvida", porque a liberação pode ainda depender de assinaturas; divisão "entre as partes", nunca "50/50", porque o contrato aceita qualquer proporção;
+  - selo "Verificado" escondido, inclusive na demonstração, até existir um critério de verificação (o backend nunca marca `verified`); o código do selo continua;
+  - "Volume" do Perfil mostra "Em breve": o total somava ativos diferentes, sem unidade;
+  - os filtros de bloqueio e de "já negociei" dizem que, por enquanto, só funcionam na demonstração;
+  - sem nomes internos (RFC-021, MULTISIG, AES-256-GCM, "o serviço") nem caixa alta para ênfase.
+- **"Conectar wallet" dentro das páginas é tonal** (2026-11-21): com sessão vazia, o laranja sólido é o do topo; os botões de conexão no meio de Trades, Histórico, Ofertas, Disputas, Configurações e da página de um trade ficam tonais.
 - **Chave pública no Perfil:** começo e fim sempre visíveis ("5be90dfe1d…b50ee0e9"), com o botão "Ver chave completa" que abre a chave inteira no lugar, em qualquer tela (o toque não depende de tooltip). O "Copiar" continua ao lado (Product Owner, 2026-11-21).
 
 ## Market e ofertas

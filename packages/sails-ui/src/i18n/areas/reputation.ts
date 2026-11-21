@@ -35,7 +35,7 @@ export default defineArea(
     'reputation.ratings.sr': 'Avaliação média {average} de 5, {ratings}',
 
     'reputation.vouch.explainer':
-      'Vouching (RFC-021) usa a SUA reputação como aval — não é KYC nem verificação de identidade. Se a pessoa que você avalizar perder a primeira disputa dela enquanto o aval estiver ativo, sua própria reputação sofre uma penalidade real.',
+      'Avalizar usa a sua reputação como garantia. Não é verificação de identidade. Se esta pessoa perder a primeira disputa dela enquanto o aval estiver ativo, sua reputação perde 5 pontos.',
     'reputation.vouch.success': 'Aval registrado — sua reputação agora respalda esta pessoa',
     'reputation.vouch.failed': 'Não foi possível registrar o aval',
     'reputation.vouch.already': 'Você já avalizou esta pessoa',
@@ -72,7 +72,7 @@ export default defineArea(
       'reputation.ratings.sr': 'Average rating {average} out of 5, {ratings}',
 
       'reputation.vouch.explainer':
-        'Vouching (RFC-021) puts YOUR reputation behind someone — it is not KYC or identity verification. If the person you vouch for loses their first dispute while your vouch is active, your own reputation takes a real penalty.',
+        'Vouching uses your reputation as a guarantee. It is not identity verification. If this person loses their first dispute while the vouch is active, your reputation loses 5 points.',
       'reputation.vouch.success': 'Vouch recorded — your reputation now backs this person',
       'reputation.vouch.failed': 'Could not record the vouch',
       'reputation.vouch.already': 'You already vouched for this person',
@@ -108,7 +108,7 @@ export default defineArea(
       'reputation.ratings.sr': 'Valoración media {average} de 5, {ratings}',
 
       'reputation.vouch.explainer':
-        'Avalar (RFC-021) usa TU reputación como aval — no es KYC ni verificación de identidad. Si la persona que avalas pierde su primera disputa mientras el aval está activo, tu propia reputación sufre una penalización real.',
+        'Avalar usa tu reputación como garantía. No es verificación de identidad. Si esta persona pierde su primera disputa mientras el aval está activo, tu reputación pierde 5 puntos.',
       'reputation.vouch.success': 'Aval registrado — tu reputación ahora respalda a esta persona',
       'reputation.vouch.failed': 'No se pudo registrar el aval',
       'reputation.vouch.already': 'Ya avalaste a esta persona',
@@ -144,7 +144,7 @@ export default defineArea(
       'reputation.ratings.sr': 'Note moyenne {average} sur 5, {ratings}',
 
       'reputation.vouch.explainer':
-        'Se porter garant (RFC-021) engage VOTRE réputation — ce n’est ni du KYC ni une vérification d’identité. Si la personne dont vous vous portez garant perd son premier litige pendant que votre garantie est active, votre propre réputation subit une pénalité réelle.',
+        'Se porter garant engage votre réputation comme garantie. Ce n’est pas une vérification d’identité. Si cette personne perd son premier litige pendant que la garantie est active, votre réputation perd 5 points.',
       'reputation.vouch.success': 'Garantie enregistrée — votre réputation soutient désormais cette personne',
       'reputation.vouch.failed': 'Impossible d’enregistrer la garantie',
       'reputation.vouch.already': 'Vous vous êtes déjà porté garant de cette personne',
@@ -180,7 +180,7 @@ export default defineArea(
       'reputation.ratings.sr': 'Durchschnittliche Bewertung {average} von 5, {ratings}',
 
       'reputation.vouch.explainer':
-        'Bürgen (RFC-021) setzt DEINE Reputation ein — es ist kein KYC und keine Identitätsprüfung. Verliert die Person, für die du bürgst, ihren ersten Streitfall, während deine Bürgschaft aktiv ist, erhält deine eigene Reputation eine echte Strafe.',
+        'Eine Bürgschaft setzt deine Reputation als Sicherheit ein. Sie ist keine Identitätsprüfung. Verliert diese Person ihren ersten Streitfall, solange die Bürgschaft aktiv ist, verliert deine Reputation 5 Punkte.',
       'reputation.vouch.success': 'Bürgschaft gespeichert — deine Reputation steht jetzt hinter dieser Person',
       'reputation.vouch.failed': 'Bürgschaft konnte nicht gespeichert werden',
       'reputation.vouch.already': 'Du hast bereits für diese Person gebürgt',

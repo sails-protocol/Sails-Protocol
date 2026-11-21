@@ -10,7 +10,7 @@ import { StatStrip } from '../components/ui/StatStrip'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { cn } from '../lib/utils'
 import { Check, Plus } from 'lucide-react'
-import { formatAmount, formatMonthYear } from '../lib/format'
+import { formatMonthYear } from '../lib/format'
 import { accountDisputeRateDefinition, formatAccountDisputeRate, RATINGS_DEMO_EXPLANATION, RATINGS_EXPLANATION, REPUTATION_EXPLANATION } from '../lib/reputation'
 import { ratingFullText, ratingSrText, sellerRatings } from '../lib/ratings'
 import { demoRatingsOf } from '../lib/demoMarkers'
@@ -90,7 +90,8 @@ export function Profile() {
           className="mt-5 pt-4 border-t border-brand-border-subtle"
           items={[
             { label: t('profile.stat.trades'), value: user.totalTrades },
-            { label: t('profile.stat.volume'), value: formatAmount(user.totalVolumeBtc, 2) },
+            // totalVolumeBtc adds up trades in different assets, so it has no unit to show (CTO 437): planned until a USD total exists.
+            { label: t('profile.stat.volume'), value: <span className="text-body-sm font-normal text-brand-text-muted">{t('common.soon')}</span> },
             { label: t('trades.history.stat.disputeRate'), value: formatAccountDisputeRate(user), info: accountDisputeRateDefinition() },
             { label: t('profile.stat.reputation'), value: <span className="inline-flex items-center gap-1.5">{user.reputationScore.toFixed(0)}<ExplanationPopover explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.title} /></span> },
           ]}

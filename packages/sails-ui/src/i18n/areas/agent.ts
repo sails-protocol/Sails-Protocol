@@ -4,7 +4,7 @@ import { defineArea } from '../define'
 export default defineArea(
   {
     'agent.goalPlaceholder': 'Ex: quero comprar USDT pagando via PIX, tenho até R$ 500 disponíveis',
-    'agent.boundary': 'O Sails Agent usa um modelo de IA local, sem nuvem. Ele só lida com ativos digitais da sua carteira: buscar ofertas, preparar uma proposta. Ele nunca acessa seu banco nem faz PIX ou qualquer pagamento em dinheiro — o pagamento é sempre feito pela outra pessoa do trade, fora do protocolo. Gerar a intenção e buscar uma oferta real dentro dos limites que você definir (preço, reputação mínima) já funcionam de verdade: "negociar" aqui é encontrar a melhor oferta real dentro desses limites, não trocar contrapropostas. O Sails Agent nunca cria o trade nem move fundos sozinho: ele sempre devolve uma proposta para você aprovar antes de qualquer ação de escrow.',
+    'agent.boundary': 'O Sails Agent usa um modelo de IA local. Ele busca ofertas reais dentro dos limites que você definir (preço, reputação mínima) e prepara uma proposta. Ele não acessa sua conta bancária e não faz pagamentos: o pagamento em dinheiro é feito por quem compra, fora do protocolo. Ele não cria o trade nem move fundos: você aprova a proposta antes de qualquer ação de escrow.',
     'agent.toast.describeGoal': 'Descreva o que você quer negociar',
     'agent.toast.connectWallet': 'Conecte sua wallet para usar o Sails Agent',
     'agent.toast.generateFailed': 'Falha ao gerar a intenção',
@@ -79,7 +79,7 @@ export default defineArea(
   {
     en: {
       'agent.goalPlaceholder': 'E.g. I want to buy USDT paying via PIX, I have up to R$ 500 available',
-      'agent.boundary': 'Sails Agent uses a local AI model, with no cloud. It only handles digital assets in your wallet: searching offers, preparing a proposal. It never accesses your bank or makes a PIX or any other fiat payment — the payment is always made by the other person in the trade, outside the protocol. Generating the intent and searching for a real offer within the limits you set (price, minimum reputation) already work for real: “negotiating” here means finding the best real offer within those limits, not exchanging counteroffers. Sails Agent never creates the trade or moves funds on its own: it always returns a proposal for you to approve before any escrow action.',
+      'agent.boundary': 'Sails Agent uses a local AI model. It searches for real offers within the limits you set (price, minimum reputation) and prepares a proposal. It does not access your bank account and makes no payments: the fiat payment is made by the buyer, outside the protocol. It does not create the trade or move funds: you approve the proposal before any escrow action.',
       'agent.toast.describeGoal': 'Describe what you want to trade',
       'agent.toast.connectWallet': 'Connect your wallet to use Sails Agent',
       'agent.toast.generateFailed': 'Could not generate the intent',
@@ -153,7 +153,7 @@ export default defineArea(
     },
     es: {
       'agent.goalPlaceholder': 'Ej.: quiero comprar USDT pagando por PIX, tengo hasta R$ 500 disponibles',
-      'agent.boundary': 'Sails Agent usa un modelo de IA local, sin nube. Solo maneja activos digitales de tu wallet: buscar ofertas, preparar una propuesta. Nunca accede a tu banco ni hace PIX ni ningún otro pago en moneda fiat — el pago siempre lo hace la otra persona del trade, fuera del protocolo. Generar la intención y buscar una oferta real dentro de los límites que definas (precio, reputación mínima) ya funcionan de verdad: “negociar” aquí es encontrar la mejor oferta real dentro de esos límites, no intercambiar contrapropuestas. Sails Agent nunca crea el trade ni mueve fondos por su cuenta: siempre te devuelve una propuesta para que la apruebes antes de cualquier acción de escrow.',
+      'agent.boundary': 'Sails Agent usa un modelo de IA local. Busca ofertas reales dentro de los límites que definas (precio, reputación mínima) y prepara una propuesta. No accede a tu cuenta bancaria ni hace pagos: el pago en moneda fiat lo hace quien compra, fuera del protocolo. No crea el trade ni mueve fondos: tú apruebas la propuesta antes de cualquier acción de escrow.',
       'agent.toast.describeGoal': 'Describe lo que quieres negociar',
       'agent.toast.connectWallet': 'Conecta tu wallet para usar Sails Agent',
       'agent.toast.generateFailed': 'No se pudo generar la intención',
@@ -227,7 +227,7 @@ export default defineArea(
     },
     fr: {
       'agent.goalPlaceholder': 'Ex. : je veux acheter de l’USDT en payant par PIX, j’ai jusqu’à 500 R$ disponibles',
-      'agent.boundary': 'Sails Agent utilise un modèle d’IA local, sans cloud. Il ne gère que les actifs numériques de votre wallet : chercher des offres, préparer une proposition. Il n’accède jamais à votre banque et n’effectue ni PIX ni aucun autre paiement en monnaie fiduciaire — le paiement est toujours effectué par l’autre personne du trade, hors du protocole. Générer l’intention et chercher une offre réelle dans les limites que vous fixez (prix, réputation minimale) fonctionnent déjà réellement : « négocier » signifie ici trouver la meilleure offre réelle dans ces limites, pas échanger des contre-propositions. Sails Agent ne crée jamais le trade et ne déplace jamais de fonds de lui-même : il vous renvoie toujours une proposition à approuver avant toute action d’escrow.',
+      'agent.boundary': 'Sails Agent utilise un modèle d’IA local. Il cherche des offres réelles dans les limites que vous fixez (prix, réputation minimale) et prépare une proposition. Il n’accède pas à votre compte bancaire et n’effectue aucun paiement : le paiement en monnaie fiduciaire est effectué par l’acheteur, hors du protocole. Il ne crée pas le trade et ne déplace pas de fonds : vous approuvez la proposition avant toute action d’escrow.',
       'agent.toast.describeGoal': 'Décrivez ce que vous voulez négocier',
       'agent.toast.connectWallet': 'Connectez votre wallet pour utiliser Sails Agent',
       'agent.toast.generateFailed': 'Impossible de générer l’intention',
@@ -301,7 +301,7 @@ export default defineArea(
     },
     de: {
       'agent.goalPlaceholder': 'Z. B.: Ich möchte USDT per PIX kaufen, ich habe bis zu 500 R$ verfügbar',
-      'agent.boundary': 'Sails Agent nutzt ein lokales KI-Modell, ohne Cloud. Er verwaltet nur digitale Assets in deiner Wallet: Angebote suchen, einen Vorschlag vorbereiten. Er greift nie auf deine Bank zu und führt weder PIX noch eine andere Fiat-Zahlung aus — die Zahlung leistet immer die andere Person im Trade, außerhalb des Protokolls. Die Absicht erzeugen und ein echtes Angebot innerhalb deiner Grenzen (Preis, Mindestreputation) suchen funktioniert bereits wirklich: „Verhandeln“ heißt hier, das beste echte Angebot innerhalb dieser Grenzen zu finden, nicht Gegenangebote auszutauschen. Sails Agent erstellt nie selbst den Trade und bewegt nie selbst Mittel: Er gibt dir immer einen Vorschlag zurück, den du vor jeder Escrow-Aktion genehmigst.',
+      'agent.boundary': 'Sails Agent nutzt ein lokales KI-Modell. Er sucht echte Angebote innerhalb der Grenzen, die du festlegst (Preis, Mindestreputation), und bereitet einen Vorschlag vor. Er greift nicht auf dein Bankkonto zu und führt keine Zahlungen aus: Die Fiat-Zahlung leistet der Käufer, außerhalb des Protokolls. Er erstellt den Trade nicht und bewegt keine Mittel: Du genehmigst den Vorschlag vor jeder Escrow-Aktion.',
       'agent.toast.describeGoal': 'Beschreibe, was du handeln möchtest',
       'agent.toast.connectWallet': 'Verbinde deine Wallet, um Sails Agent zu nutzen',
       'agent.toast.generateFailed': 'Absicht konnte nicht erzeugt werden',

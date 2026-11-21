@@ -61,10 +61,12 @@ const now = () => new Date().toISOString()
 const daysAgo = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString()
 const daysAhead = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString()
 
-function participant(id: string, displayName: string, reputationScore: number, totalTrades: number, disputeCount: number, verified: boolean): Participant {
+// `verified` stays false for everyone: the backend never sets it and no verification criterion exists
+// (DECISIONS.md, 2026-11-21), so the demo does not show a "Verificado" seal either.
+function participant(id: string, displayName: string, reputationScore: number, totalTrades: number, disputeCount: number, _verified: boolean): Participant {
   return {
     id, publicKey: id.replace(/[^0-9a-f]/g, '').padEnd(64, '0'), displayName, peerId: null,
-    reputationScore, totalTrades, disputeCount, totalVolumeBtc: '0', verified,
+    reputationScore, totalTrades, disputeCount, totalVolumeBtc: '0', verified: false,
     createdAt: daysAgo(400), updatedAt: daysAgo(1),
   }
 }

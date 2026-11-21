@@ -283,7 +283,7 @@ export function MyOffers() {
           kind="signedOut"
           title={t('trades.connectTitle')}
           description={t('trades.offers.signedOutDescription')}
-          action={<Link to="/login" state={{ from: TRADES_ROUTES.offers }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>{t('trades.connect')}</Link>}
+          action={<Link to="/login" state={{ from: TRADES_ROUTES.offers }} className={cn(buttonVariants({ variant: 'secondary', className: 'min-h-10 touch:min-h-11 px-4' }))}>{t('trades.connect')}</Link>}
         />
       )}
     </Page>

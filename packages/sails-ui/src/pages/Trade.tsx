@@ -797,7 +797,7 @@ export function Trade() {
         kind="signedOut"
         title={t('trade.page.signedOutTitle')}
         description={t('trade.page.signedOutDescription')}
-        action={<Button onClick={() => navigate('/login', { state: { from: location.pathname } })} className="min-h-10 touch:min-h-11 px-4">{t('trade.page.connect')}</Button>}
+        action={<Button variant="secondary" onClick={() => navigate('/login', { state: { from: location.pathname } })} className="min-h-10 touch:min-h-11 px-4">{t('trade.page.connect')}</Button>}
       />
     )
   }

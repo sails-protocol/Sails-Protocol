@@ -42,7 +42,7 @@ export default defineArea(
     'labels.disputeStatus.opened': 'Aberta',
     'labels.disputeStatus.evidenceSubmitted': 'Evidências enviadas',
     'labels.disputeStatus.arbitrated': 'Decisão do árbitro',
-    'labels.disputeStatus.resolved': 'Resolvida',
+    'labels.disputeStatus.resolved': 'Decisão registrada',
     'labels.disputeStatus.appealed': 'Em apelação',
     'labels.disputeStatus.autoProposed': 'Resolução automática proposta',
 
@@ -101,7 +101,7 @@ export default defineArea(
       'labels.disputeStatus.opened': 'Open',
       'labels.disputeStatus.evidenceSubmitted': 'Evidence submitted',
       'labels.disputeStatus.arbitrated': 'Arbitrator’s decision',
-      'labels.disputeStatus.resolved': 'Resolved',
+      'labels.disputeStatus.resolved': 'Decision recorded',
       'labels.disputeStatus.appealed': 'Under appeal',
       'labels.disputeStatus.autoProposed': 'Automatic resolution proposed',
 
@@ -159,7 +159,7 @@ export default defineArea(
       'labels.disputeStatus.opened': 'Abierta',
       'labels.disputeStatus.evidenceSubmitted': 'Pruebas enviadas',
       'labels.disputeStatus.arbitrated': 'Decisión del árbitro',
-      'labels.disputeStatus.resolved': 'Resuelta',
+      'labels.disputeStatus.resolved': 'Decisión registrada',
       'labels.disputeStatus.appealed': 'En apelación',
       'labels.disputeStatus.autoProposed': 'Resolución automática propuesta',
 
@@ -217,7 +217,7 @@ export default defineArea(
       'labels.disputeStatus.opened': 'Ouvert',
       'labels.disputeStatus.evidenceSubmitted': 'Preuves envoyées',
       'labels.disputeStatus.arbitrated': 'Décision de l’arbitre',
-      'labels.disputeStatus.resolved': 'Résolu',
+      'labels.disputeStatus.resolved': 'Décision enregistrée',
       'labels.disputeStatus.appealed': 'En appel',
       'labels.disputeStatus.autoProposed': 'Résolution automatique proposée',
 
@@ -275,7 +275,7 @@ export default defineArea(
       'labels.disputeStatus.opened': 'Offen',
       'labels.disputeStatus.evidenceSubmitted': 'Nachweise eingereicht',
       'labels.disputeStatus.arbitrated': 'Entscheidung der Schiedsperson',
-      'labels.disputeStatus.resolved': 'Gelöst',
+      'labels.disputeStatus.resolved': 'Entscheidung erfasst',
       'labels.disputeStatus.appealed': 'In Berufung',
       'labels.disputeStatus.autoProposed': 'Automatische Lösung vorgeschlagen',
 

@@ -185,7 +185,7 @@ describe('trade rail: actions this interface cannot do (truth audit fixes)', () 
   })
 
   it('maps declared custody models to words and anything else to not declared', () => {
-    expect(custodyModelLabel('client-held-buyer-seller-keys-server-held-arbiter')).toBe('Comprador e vendedor guardam as próprias chaves; a chave de árbitro fica com o nó Sails')
+    expect(custodyModelLabel('client-held-buyer-seller-keys-server-held-arbiter')).toBe('Comprador e vendedor guardam as próprias chaves. A chave que o árbitro usa para movimentar os fundos numa disputa fica com o nó Sails')
     expect(custodyModelLabel('server-custodial-reference-implementation')).toMatch(/^Custódia do nó Sails/)
     expect(custodyModelLabel('client-held-buyer-seller-keys-server-held-kms-arbiter')).toMatch(/KMS/)
     for (const v of [null, undefined, '', 'something-new', 'toString']) expect(custodyModelLabel(v)).toBe('Não declarado pelo provedor')
