@@ -1004,7 +1004,9 @@ model FeeCollectionEvidence {
   // (a lock-waiting writer can carry the smaller one) and it ties within a millisecond.
   // Pre-existing rows keep the physical-order seq from migration 20261116120000 (not economic
   // evidence; review per docs/DEPLOYMENT.md 6.5).
-  seq               Int                       @default(autoincrement())
+  // The DB default is the constant 0 and a SECURITY DEFINER trigger always assigns the real value, so the
+  // runtime role needs no privilege on the sequence (CTO 295/296, migration 20261116200000).
+  seq               Int                       @default(0)
 
   // Missão 11 Fase 7.2 — CTO-frozen decision: DistributionPolicyVersion
   // becomes economically binding at COLLECTED time, not at whenever an

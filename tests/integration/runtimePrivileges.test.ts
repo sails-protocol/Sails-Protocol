@@ -354,6 +354,51 @@ describe('CTO 225 - runtime role cannot bypass write-once guarantees (disposable
     expect(enabled).toBe('O')
   })
 
+  it('CTO 295/296: the runtime inserts fee evidence (the trigger draws seq) but cannot touch the sequence itself', async () => {
+    const obligationId = `fo-seq-${randomUUID()}`
+    // Fixture only (the parent chain is irrelevant here): the administrator inserts one obligation with FKs off.
+    await admin.query('BEGIN')
+    await admin.query('SET LOCAL session_replication_role = replica')
+    await admin.query(
+      `INSERT INTO fee_obligations (id, "escrowId", "feePolicyVersionId", "economicDetermination", "collectionStatus", "updatedAt")
+       VALUES ($1, $1, 'fpv', 'OWED', 'IN_PROGRESS', now())`, [obligationId])
+    await admin.query('COMMIT')
+    const insert = async (id: string, explicitSeq?: number) => (await runtime.query(
+      explicitSeq === undefined
+        ? `INSERT INTO fee_collection_evidence (id, "feeObligationId", kind) VALUES ($1, $2, 'BROADCAST') RETURNING seq`
+        : `INSERT INTO fee_collection_evidence (id, "feeObligationId", kind, seq) VALUES ($1, $2, 'BROADCAST', $3) RETURNING seq`,
+      explicitSeq === undefined ? [id, obligationId] : [id, obligationId, explicitSeq])).rows[0].seq as number
+    const first = await insert(`${obligationId}-a`)
+    expect(first).toBeGreaterThan(0)
+    expect(await insert(`${obligationId}-b`, 2147483000)).toBe(first + 1) // explicit value replaced; one value per insert
+    expect(await insert(`${obligationId}-c`, -1)).toBe(first + 2)
+
+    for (const sql of [
+      `SELECT nextval('public.fee_collection_evidence_seq_seq')`,
+      `SELECT setval('public.fee_collection_evidence_seq_seq', 2147483000)`,
+      `SELECT last_value FROM public.fee_collection_evidence_seq_seq`,
+      'SELECT public.fee_collection_evidence_assign_seq()',
+      'ALTER FUNCTION public.fee_collection_evidence_assign_seq() SECURITY INVOKER',
+      'ALTER TABLE fee_collection_evidence DISABLE TRIGGER fee_collection_evidence_seq_assign',
+      `ALTER TABLE fee_collection_evidence ALTER COLUMN seq SET DEFAULT nextval('public.fee_collection_evidence_seq_seq')`,
+    ]) await expectSqlError(runtime, sql)
+    const privileges = `SELECT has_sequence_privilege('sails_runtime', 'public.fee_collection_evidence_seq_seq', 'USAGE, SELECT, UPDATE') AS seq,
+                               has_function_privilege('public', 'public.fee_collection_evidence_assign_seq()', 'EXECUTE') AS pub`
+    expect((await admin.query(privileges)).rows[0]).toEqual({ seq: false, pub: false })
+    const { rows: [fn] } = await admin.query(
+      `SELECT p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner) AS owner, pg_get_expr(d.adbin, d.adrelid) AS column_default
+       FROM pg_proc p, pg_attrdef d JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+       WHERE p.oid = 'public.fee_collection_evidence_assign_seq()'::regprocedure
+         AND d.adrelid = 'public.fee_collection_evidence'::regclass AND a.attname = 'seq'`)
+    expect(fn).toEqual({ prosecdef: true, proconfig: ['search_path=pg_catalog, pg_temp'], owner: 'sails_migrator', column_default: '0' })
+
+    // The grant step re-grants USAGE ON ALL SEQUENCES, then revokes this one: re-running it keeps the runtime out.
+    grant({ MIGRATION_DATABASE_URL: migratorUrl })
+    expect((await admin.query(privileges)).rows[0]).toEqual({ seq: false, pub: false })
+    expect(await insert(`${obligationId}-d`)).toBe(first + 3)
+    expect(await app.privileges.inspectRuntimePrivileges()).toEqual([])
+  })
+
   it('after every attempt the tombstone still wins and the revisions are intact and verified', async () => {
     const { owner, logicalOfferId } = await offerWithTombstone()
     await runtime.query(`DELETE FROM offer_envelopes WHERE "logicalOfferId" = $1 AND revision = 2`, [logicalOfferId]).catch(() => {})
