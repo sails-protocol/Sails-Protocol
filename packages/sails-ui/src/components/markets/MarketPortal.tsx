@@ -82,14 +82,13 @@ export function MarketPortal({ current, markets, isSelectable, onSelect, actions
         {markets.map((m) => {
           const selectable = isSelectable(m)
           const isCurrent = m.id === current.id
-          const reasonId = `${id}-reason-${m.id}`
           return (
             <li key={m.id}>
               <button
                 type="button"
                 aria-current={isCurrent ? 'true' : undefined}
                 aria-disabled={selectable ? undefined : 'true'}
-                aria-describedby={selectable ? undefined : reasonId}
+                aria-describedby={selectable ? undefined : `${id}-reason`}
                 onClick={() => { if (!selectable) return; close(); if (!isCurrent) onSelect(m.id) }}
                 className={cn(ROW, isCurrent ? 'bg-brand-selected' : selectable ? 'state-layer' : 'cursor-not-allowed')}
               >
@@ -101,7 +100,6 @@ export function MarketPortal({ current, markets, isSelectable, onSelect, actions
                     {m.illustrative && <span className={TAG}>{copy.illustrative}</span>}
                   </span>
                   <span className="block text-caption text-brand-text-secondary">{copy.marketLine(m)}</span>
-                  {!selectable && <span id={reasonId} className="block text-caption text-brand-text-muted">{copy.unavailableReason(m)}</span>}
                 </span>
                 {isCurrent && (
                   <span className="shrink-0 text-brand-checked">
@@ -114,6 +112,8 @@ export function MarketPortal({ current, markets, isSelectable, onSelect, actions
           )
         })}
       </ul>
+      {/* One shared reason for every unavailable market (not repeated on each row). */}
+      {markets.some((m) => !isSelectable(m)) && <p id={`${id}-reason`} className="px-3 pb-1 pt-0.5 text-caption text-brand-text-muted">{copy.unavailableReason(markets.find((m) => !isSelectable(m))!)}</p>}
       <Divider className="my-1" />
       <p id={`${id}-actions`} className="sr-only">{copy.actionsTitle}</p>
       <ul aria-labelledby={`${id}-actions`} className="flex flex-col gap-0.5">
