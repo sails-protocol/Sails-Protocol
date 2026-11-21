@@ -101,3 +101,57 @@ describe('liquidityRouter.proposeForIntent() — Missão 02 Fase 4', () => {
     expect(first.match?.id).toBe('offer-b') // cheapest SELL offer, deterministically
   })
 })
+
+// UX-048 (CTO, GK): minReputationScore is a canonical score threshold (cumulative, may be negative) and fails closed: an
+// offer whose trader reputation is unknown is excluded. The legacy path (no threshold, or the deprecated alias passed
+// as minReputation) is unchanged: unknown counts as 0 and the default floor is 0.
+describe('liquidityRouter.proposeForIntent(): reputation threshold (UX-048)', () => {
+  beforeEach(() => {
+    mockOfferFindMany.mockReset()
+  })
+  const propose = (minReputationScore?: number) =>
+    liquidityRouter.proposeForIntent('BTC', 'BUY', '0.1', minReputationScore === undefined ? {} : { minReputationScore })
+  const proposeLegacy = (minReputation: number) => liquidityRouter.proposeForIntent('BTC', 'BUY', '0.1', { minReputation })
+
+  it('a negative threshold admits a negative score at or above it, and refuses one below it', async () => {
+    mockOfferFindMany.mockResolvedValueOnce([sellOffer({ user: { reputationScore: -3 } })])
+    expect((await propose(-5)).match?.id).toBe('offer-1')
+    mockOfferFindMany.mockResolvedValueOnce([sellOffer({ user: { reputationScore: -6 } })])
+    expect((await propose(-5)).match).toBeNull()
+  })
+
+  it('a threshold of -5: an unknown reputation is excluded, a score of 0 is included', async () => {
+    mockOfferFindMany.mockResolvedValueOnce([sellOffer({ user: {} })])
+    expect((await propose(-5)).match).toBeNull()
+    mockOfferFindMany.mockResolvedValueOnce([sellOffer({ user: { reputationScore: 0 } })])
+    expect((await propose(-5)).match?.id).toBe('offer-1')
+  })
+
+  it('a threshold of 0: score 0 passes, unknown does not', async () => {
+    mockOfferFindMany.mockResolvedValueOnce([sellOffer({ user: { reputationScore: 0 } })])
+    expect((await propose(0)).match?.id).toBe('offer-1')
+    mockOfferFindMany.mockResolvedValueOnce([sellOffer({ user: {} })])
+    expect((await propose(0)).match).toBeNull()
+  })
+
+  it('no threshold keeps the historical floor of 0: unknown and 0 pass, a negative score does not', async () => {
+    mockOfferFindMany.mockResolvedValueOnce([sellOffer({ user: {} })])
+    expect((await propose()).match?.id).toBe('offer-1')
+    mockOfferFindMany.mockResolvedValueOnce([sellOffer({ user: { reputationScore: 0 } })])
+    expect((await propose()).match?.id).toBe('offer-1')
+    mockOfferFindMany.mockResolvedValueOnce([sellOffer({ user: { reputationScore: -1 } })])
+    expect((await propose()).match).toBeNull()
+  })
+
+  it('the deprecated alias is unchanged: an unknown reputation with a threshold of 0 is included', async () => {
+    mockOfferFindMany.mockResolvedValueOnce([sellOffer({ user: {} })])
+    expect((await proposeLegacy(0)).match?.id).toBe('offer-1')
+    mockOfferFindMany.mockResolvedValueOnce([sellOffer({ user: { reputationScore: 3 } })])
+    expect((await proposeLegacy(4)).match).toBeNull()
+  })
+
+  it('a threshold above 5 works on the cumulative score (no 0-5 ceiling)', async () => {
+    mockOfferFindMany.mockResolvedValueOnce([sellOffer({ user: { reputationScore: 120 } })])
+    expect((await propose(100)).match?.id).toBe('offer-1')
+  })
+})
