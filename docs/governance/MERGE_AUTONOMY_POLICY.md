@@ -12,16 +12,22 @@ Classification uses the **real effect** of the change, not the PR title or size.
 
 | Tier | Real effect of the change | Who authorizes the merge |
 |---|---|---|
-| 1 | Documentation that does not change an invariant; isolated UI; tests with no change to production behavior | EPM |
-| 2 | Isolated feature, SDK, non-critical API, CI/lane infrastructure with no security effect | EPM, after the applicable technical approvals of the Principal and the GK |
+| 1 | Documentation that does not change an invariant; isolated UI; tests that prove no Tier 3/4 property and change no production behavior | EPM |
+| 2 | Isolated feature, SDK, non-critical API, additive CI/lane changes (see 1.2), tests that prove a Tier 3/4 property without weakening any proof (see 1.1) | EPM, after the applicable technical approvals of the Principal and the GK |
 | 3 | Escrow, funds, signatures, authorization, economic concurrency, critical migrations, security controls | CTO + GK |
 | 4 | Economic activation, production deploy, protocol change, fundamental invariant | CTO with formal GK homologation |
 
 Authorization, funds, escrow, migrations, protocol invariants and security controls are never Tier 1 or 2.
 
+### 1.1 Tests that prove a Tier 3/4 property (GK C1)
+A test that proves a Tier 3/4 property (concurrency barrier, grant assertion, restricted-lane case, mutant kill) is at least Tier 2, and the GK must check that **no proof is weakened**. Removing or loosening an assertion of such a test, or dropping a case from the restricted lane, is Tier 3.
+
+### 1.2 CI/lane changes: objective line (GK C2)
+Tier 2 only for **additive** changes. Removing or skipping a job or step, renaming a required check, changing the restricted-lane environment or the unit-lane wrapper, or touching `migrate-deploy-safe`, `runtime-grants` or `bootstrap-roles` is **Tier 3**.
+
 ## 2. Who classifies
 1. The EPM proposes the Tier in the PR description.
-2. The GK confirms or raises it. A Tier can be lowered only with a written reason on the PR.
+2. The GK confirms or raises it. Only the GK (with a written reason on the PR) or the CTO can lower a Tier; the EPM never lowers it alone on a PR it will merge (GK C4).
 3. Any disagreement, or any doubt, goes to the CTO (**fail closed**). Never reclassify a PR to speed it up.
 
 ## 3. Gates required for every merge (any Tier)
@@ -42,6 +48,8 @@ A branch update is **mechanical** when the base moved only by changes that do no
 - CI is 4/4 green again on the new head;
 - comments were read.
 
+If the base advanced with a migration, a guard or trigger, a grant, or any Tier 3/4 change, the update is **not** mechanical even when the merge tree is clean (D030 x F4b lesson): the PR returns to review of the interaction slice (GK C3).
+
 Any other head change voids the approval and returns the PR to review. This never waives checks, GitHub protections or the review of a material change. A decision is made once and reused while its assumptions hold.
 
 ## 5. Architecture decisions and their merge
@@ -58,7 +66,7 @@ The CTO receives consolidated executive reports (proven progress, real blockers,
 
 ## 9. Adoption checklist (the delegation is NOT active before all items are done)
 - [ ] Policy merged in this repository through the normal PR flow, with GK review and Principal technical review.
-- [ ] Owner's written approval that the owner-reserved, SHA-specific merge authorization of the solo-maintainer procedure is delegated to the EPM for Tier 1 and 2 under this policy.
+- [ ] Owner's written approval, given directly by the owner and never relayed by another session, that the owner-reserved, SHA-specific merge authorization of the solo-maintainer procedure is delegated to the EPM for Tier 1 and 2 under this policy.
 - [ ] GitHub controls read back and compatible (see §10), with before/after evidence.
 - [ ] PR template updated with the Tier fields.
 - [ ] EPM procedure and checklist updated.
