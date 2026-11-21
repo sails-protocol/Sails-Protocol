@@ -75,4 +75,13 @@ describe('current action derivation (CTO 437)', () => {
     }
     expect(deriveCurrentAction({ status: 'PAYMENT_PENDING', isBuyer: false, isSeller: true }).primary?.action).toBe('release')
   })
+
+  it('never urges a payment once the escrow deadline passed but the node has not recorded the expiry (UX-035)', () => {
+    const buyer = deriveCurrentAction({ status: 'FUNDS_LOCKED', isBuyer: true, isSeller: false, deadlinePassed: true })
+    expect(buyer.tone).toBe('attention')
+    expect(buyer.primary).toBeUndefined()
+    expect(buyer.title).toBe('Prazo do escrow encerrado')
+    expect(deriveCurrentAction({ status: 'FUNDS_LOCKED', isBuyer: false, isSeller: true, deadlinePassed: true }).tone).toBe('attention')
+    expect(deriveCurrentAction({ status: 'FUNDS_LOCKED', isBuyer: true, isSeller: false }).primary?.action).toBe('markPaymentSent')
+  })
 })

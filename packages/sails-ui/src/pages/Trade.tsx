@@ -831,6 +831,7 @@ export function Trade() {
   const state = deriveTradeState({
     tradeStatus: trade.status,
     escrowStatus: (escrow?.status as EscrowStatus | undefined) ?? null,
+    escrowExpiresAt: escrow?.expiresAt ?? null,
     signingRoundKind: !pendingTx ? null : ROUND_KINDS.has(pendingTx.kind) ? pendingTx.kind : 'unknown',
     isBuyer,
     isSeller,

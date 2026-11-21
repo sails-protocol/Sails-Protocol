@@ -1,4 +1,4 @@
-import { batonLabel, custodyModelLabel, deriveTradeState, PAYOUT_TX_LABEL, stageTone, type StepActor, type TradeStateInput } from '../src/lib/tradeState'
+import { batonLabel, custodyModelLabel, deriveTradeState, escrowDeadlinePassed, PAYOUT_TX_LABEL, stageTone, type StepActor, type TradeStateInput } from '../src/lib/tradeState'
 import type { EscrowStatus, TradeStatus } from '../src/types'
 
 // Trade rail (trade workspace L4): stages and the bastão come only from record fields.
@@ -221,5 +221,17 @@ describe('trade rail colors (DECISIONS.md: O avanço do trade tem cor)', () => {
 
   it('a completed escrow is all done (blue), never a success tone', () => {
     expect(tones(input('COMPLETED', { completedAt: '2026-11-02T00:00:00.000Z' }), 'buyer').every((t) => t === 'done')).toBe(true)
+  })
+})
+
+describe('escrow deadline passed before the node enforces it (UX-035)', () => {
+  it('detects only FUNDS_LOCKED past expiresAt, and the baton never says "Sua vez"', () => {
+    const now = Date.parse('2026-11-20T12:00:00Z')
+    expect(escrowDeadlinePassed({ escrowStatus: 'FUNDS_LOCKED', escrowExpiresAt: '2026-11-20T11:59:00Z', now })).toBe(true)
+    expect(escrowDeadlinePassed({ escrowStatus: 'FUNDS_LOCKED', escrowExpiresAt: '2026-11-20T12:01:00Z', now })).toBe(false)
+    expect(escrowDeadlinePassed({ escrowStatus: 'PAYMENT_PENDING', escrowExpiresAt: '2026-11-20T11:00:00Z', now })).toBe(false)
+    expect(escrowDeadlinePassed({ escrowStatus: 'FUNDS_LOCKED', escrowExpiresAt: null, now })).toBe(false)
+    expect(batonLabel({ actors: ['buyer'], blocked: 'deadline' }, 'buyer')).toEqual({ text: 'Prazo do escrow encerrado', tone: 'neutral' })
+    expect(batonLabel({ actors: ['buyer'], blocked: 'deadline' }, 'seller')).toEqual({ text: 'Prazo do escrow encerrado', tone: 'neutral' })
   })
 })

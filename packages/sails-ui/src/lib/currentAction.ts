@@ -25,7 +25,8 @@ const WAITING = 'Aguardando a contraparte'
 // (LIGHTNING_HODL / SAFE_GUARD_EVM), so no release is offered — it would dead-end.
 // `signingUnavailable`: a release signing round exists but this interface cannot offer the signature
 // (MULTISIG_SIGNING_HOLD, unverified terms): never ask the seller to "Liberar" next to a blocked round.
-export function deriveCurrentAction({ status, isBuyer, isSeller, releaseUnavailable = false, signingUnavailable = false }: { status: EscrowStatus; isBuyer: boolean; isSeller: boolean; releaseUnavailable?: boolean; signingUnavailable?: boolean }): CurrentAction {
+// `deadlinePassed`: FUNDS_LOCKED past escrow.expiresAt but the node has not recorded the expiry yet; never urge a payment then.
+export function deriveCurrentAction({ status, isBuyer, isSeller, releaseUnavailable = false, signingUnavailable = false, deadlinePassed = false }: { status: EscrowStatus; isBuyer: boolean; isSeller: boolean; releaseUnavailable?: boolean; signingUnavailable?: boolean; deadlinePassed?: boolean }): CurrentAction {
   const canDispute = (isBuyer || isSeller) && status !== 'COMPLETED' && status !== 'DISPUTED' && status !== 'REFUNDED'
   const party = isBuyer || isSeller
 
@@ -35,6 +36,11 @@ export function deriveCurrentAction({ status, isBuyer, isSeller, releaseUnavaila
         ? { tone: 'action', actorLabel: 'Ação necessária — vendedor', title: 'Bloquear os fundos no escrow', description: 'Registra o bloqueio dos fundos que você já depositou no escrow. Se o depósito ainda não for aceito, a ação será recusada. Não libera nada ao comprador.', primary: { action: 'lock', label: 'Bloquear fundos' }, canDispute }
         : { tone: 'waiting', actorLabel: party ? WAITING : 'Acompanhamento', title: 'Aguardando o vendedor bloquear os fundos', description: 'Não envie nenhum pagamento antes de os fundos estarem bloqueados no escrow.', canDispute }
     case 'FUNDS_LOCKED':
+      if (party && deadlinePassed) {
+        return isBuyer
+          ? { tone: 'attention', actorLabel: 'Comprador', title: 'Prazo do escrow encerrado', description: 'O prazo terminou antes de o pagamento ser marcado como enviado, e o nó Sails ainda não registrou o encerramento. Não envie o pagamento agora. Se já enviou, fale com o vendedor pelo chat ou abra uma disputa.', canDispute }
+          : { tone: 'attention', actorLabel: 'Vendedor', title: 'Prazo do escrow encerrado', description: 'O prazo terminou com os fundos bloqueados e o pagamento ainda não marcado como enviado. O nó Sails ainda não registrou o encerramento do escrow.', canDispute }
+      }
       return isBuyer
         ? { tone: 'action', actorLabel: 'Ação necessária — comprador', title: 'Marcar o pagamento como enviado', description: 'Avisa o vendedor de que você enviou o pagamento. Não libera os fundos — isso só acontece quando o vendedor liberar. Toque só depois de concluir a transferência no app do seu banco.', primary: { action: 'markPaymentSent', label: 'Marcar pagamento enviado' }, canDispute }
         : { tone: 'waiting', actorLabel: party ? WAITING : 'Acompanhamento', title: 'Aguardando o comprador marcar o pagamento como enviado', description: 'O nó Sails registrou o bloqueio dos fundos.', canDispute }

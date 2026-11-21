@@ -36,7 +36,8 @@ export interface TradeStep {
   /** Only on the current stage, and only when the records say who acts. */
   actors?: StepActor[]
   /** The current stage's action cannot be done in this interface (signing not offered, release unavailable for this escrow type). */
-  blocked?: 'signing' | 'release'
+  /** 'deadline': FUNDS_LOCKED past escrow.expiresAt, before the node records the expiry (UX-035). */
+  blocked?: 'signing' | 'release' | 'deadline'
   evidence?: StepEvidence[]
 }
 
@@ -84,6 +85,8 @@ export interface TradeStateInput {
   round?: RoundSigners | null
   /** This interface cannot sign the pending round for anyone (not verified: MULTISIG_SIGNING_HOLD, mismatch, unsupported type; or disputed). */
   signingUnavailable?: boolean
+  /** Escrow.expiresAt (server value); only used to detect a passed deadline the node has not enforced yet. */
+  escrowExpiresAt?: string | null
   dispute?: { status: DisputeStatus; arbiterId: string | null; autoResolutionDeadline?: string | null } | null
   /** Clock for deadline checks (ms); defaults to Date.now(). */
   now?: number
@@ -187,6 +190,13 @@ function pendingSigners(i: TradeStateInput, r: RoundSigners): StepActor[] {
 
 // Who the current stage waits on, and whether this interface can do that action.
 // Gating mirrors currentAction.ts (seller creates/locks/releases, buyer marks payment).
+/** FUNDS_LOCKED and the server's expiresAt is already behind us, but the node has not recorded the expiry yet. */
+export function escrowDeadlinePassed(i: Pick<TradeStateInput, 'escrowStatus' | 'escrowExpiresAt' | 'now'>): boolean {
+  if (i.escrowStatus !== 'FUNDS_LOCKED' || !i.escrowExpiresAt) return false
+  const t = Date.parse(i.escrowExpiresAt)
+  return Number.isFinite(t) && t <= (i.now ?? Date.now())
+}
+
 function currentActors(i: TradeStateInput, cancelled: boolean, current: TradeStep['id']): { actors: StepActor[]; blocked?: TradeStep['blocked'] } {
   const s = i.escrowStatus
   if (cancelled) return { actors: [] }
@@ -196,7 +206,7 @@ function currentActors(i: TradeStateInput, cancelled: boolean, current: TradeSte
   }
   if (!s || s === 'CREATED') return { actors: ['seller'] }
   if (s === 'PAYMENT_PENDING') return { actors: ['seller'], ...(i.releaseUnavailable ? { blocked: 'release' as const } : {}) }
-  if (s === 'FUNDS_LOCKED') return { actors: ['buyer'] }
+  if (s === 'FUNDS_LOCKED') return { actors: ['buyer'], ...(escrowDeadlinePassed(i) ? { blocked: 'deadline' as const } : {}) }
   if (s === 'DISPUTED') {
     const d = i.dispute
     if (!d || d.status === 'RESOLVED') return { actors: [] } // a recorded ruling being executed: who acts next is not exposed
@@ -287,8 +297,10 @@ export function batonLabel(step: Pick<TradeStep, 'actors' | 'blocked'> | undefin
   const blocked = step?.blocked
   if (viewer && actors.includes(viewer)) {
     if (!blocked) return { text: 'Sua vez', tone: 'brand' }
+    if (blocked === 'deadline') return { text: 'Prazo do escrow encerrado', tone: 'neutral' }
     return { text: blocked === 'signing' ? 'Assinatura indisponível aqui' : 'Liberação indisponível aqui', tone: 'neutral' }
   }
+  if (blocked === 'deadline') return { text: 'Prazo do escrow encerrado', tone: 'neutral' }
   const tone = blocked ? 'neutral' : 'brand'
   if (actors.length === 1) {
     const a = actors[0]
@@ -327,7 +339,7 @@ function action(i: TradeStateInput, cancelled: boolean): CurrentAction {
       ? { tone: 'action', actorLabel: 'Ação necessária — vendedor', title: 'Criar o escrow deste trade', description: 'Registra o escrow do trade no nó Sails. Não move fundos: depois você deposita e registra o bloqueio dos fundos.', primary: { action: 'createEscrow', label: 'Criar escrow' }, canDispute: false }
       : { tone: 'waiting', actorLabel: i.isBuyer ? 'Aguardando a contraparte' : 'Acompanhamento', title: 'Aguardando o vendedor criar o escrow', description: 'Não envie nenhum pagamento antes de os fundos estarem bloqueados no escrow.', canDispute: false }
   }
-  const view = deriveCurrentAction({ status: i.escrowStatus, isBuyer: i.isBuyer, isSeller: i.isSeller, releaseUnavailable: i.releaseUnavailable, signingUnavailable: i.signingUnavailable })
+  const view = deriveCurrentAction({ status: i.escrowStatus, isBuyer: i.isBuyer, isSeller: i.isSeller, releaseUnavailable: i.releaseUnavailable, signingUnavailable: i.signingUnavailable, deadlinePassed: escrowDeadlinePassed(i) })
   // A resolved dispute can still be appealed (TradeDisputePanel): never say nothing is left to do next to that button.
   if (view.tone === 'terminal' && i.appealAvailable) {
     return { ...view, actorLabel: 'Disputa resolvida', description: 'A única ação ainda disponível neste trade é apelar da decisão da disputa, na seção da disputa.' }
