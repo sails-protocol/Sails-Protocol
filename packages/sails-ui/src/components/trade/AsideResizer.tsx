@@ -71,7 +71,7 @@ export function AsideResizer({ width, max, onChange, controls }: { width: number
     >
       {/* Line appears on hover, focus and drag; the grip stays visible so the affordance is discoverable. */}
       <span aria-hidden="true" className="h-full w-0.5 rounded-full bg-transparent transition-colors duration-short ease-standard group-hover/resizer:bg-brand-border group-focus-visible/resizer:bg-primary group-data-[dragging]/resizer:bg-primary" />
-      <span aria-hidden="true" className="absolute top-24 h-10 w-1 rounded-full bg-brand-text-muted/40 transition-colors duration-short ease-standard group-hover/resizer:bg-brand-text-muted group-focus-visible/resizer:bg-primary group-data-[dragging]/resizer:bg-primary" />
+      <span aria-hidden="true" className="absolute top-24 h-10 w-1 rounded-full bg-brand-text-muted/60 transition-colors duration-short ease-standard group-hover/resizer:bg-brand-text-muted group-focus-visible/resizer:bg-primary group-data-[dragging]/resizer:bg-primary" />
     </div>
   )
 }

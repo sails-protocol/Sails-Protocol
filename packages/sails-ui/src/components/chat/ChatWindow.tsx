@@ -85,7 +85,7 @@ export function ChatWindow({
   }
 
   return (
-    <Card className="flex flex-col h-[520px] overflow-hidden">
+    <Card className="flex flex-col h-[520px] lg:h-full lg:min-h-[22rem] overflow-hidden">
       <div className="px-4 py-2 border-b border-brand-border">
         <div className="flex items-center justify-between gap-2">
           <span className="text-sm font-semibold text-brand-text">{t('trade.chat.title')}</span>

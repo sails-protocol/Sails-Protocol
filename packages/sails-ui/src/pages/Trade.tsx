@@ -1135,7 +1135,8 @@ export function Trade() {
           {!paymentInCard && paymentInstructions}
         </div>
 
-        <aside id="trade-aside" className="relative flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-1 lg:row-span-3" aria-label={t('trade.page.asideLabel')}>
+        {/* Desktop: the aside stays in view under the 56px top bar and the chat takes the height left below the counterparty. */}
+        <aside id="trade-aside" className="relative flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-1 lg:row-span-3 lg:sticky lg:top-[4.5rem] lg:h-[calc(100dvh-5.5rem)]" aria-label={t('trade.page.asideLabel')}>
           <AsideResizer width={aside.width} max={aside.max} onChange={aside.set} controls="trade-aside" />
           <TradeParties buyer={buyer} seller={seller} currentUserId={user?.id} counterpartyOnline={counterpartyOnline}>
             <Button
@@ -1149,7 +1150,7 @@ export function Trade() {
               {chatOpen ? t('trade.chat.toggleHide') : t('trade.chat.toggleOpen', { count: messages.length })}
             </Button>
           </TradeParties>
-          <div id="trade-chat" className={chatOpen ? '' : 'hidden lg:block'}>
+          <div id="trade-chat" className={cn('lg:min-h-0 lg:flex-1', chatOpen ? '' : 'hidden lg:block')}>
             <ChatWindow
               messages={messages}
               currentUserId={user?.id}

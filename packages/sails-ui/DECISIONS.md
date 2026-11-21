@@ -244,6 +244,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
   - o trilho compacto do celular usa as mesmas cores.
 - **Chat do trade** (Product Owner, 2026-11-21): a ação da etapa ("Marcar pagamento enviado") é o único laranja sólido da tela; o "Enviar" do chat é tonal. Os seus balões são azuis sólidos (azul de informação, 6,7:1 no claro e 7,3:1 no escuro), porque laranja é a cor de ação; os da outra parte ficam neutros. O comprovante continua com o fundo suave de informação e o rótulo, e nunca usa verde.
 - **Coluna da contraparte e do chat com largura ajustável, só no desktop** (Product Owner, 2026-11-21). Um divisor entre as colunas, arrastável, de 320 a 640 px, sem deixar a coluna do trade abaixo de 520 px. O padrão é 400 px (era fixo em 360). Funciona pelo teclado (setas de 16 px, Home e End, Enter volta ao padrão) e com duplo clique, e cada pessoa guarda a sua largura neste navegador. No celular e no tablet nada muda.
+  - No desktop, a coluna fica fixa na tela ao rolar (abaixo da barra do topo) e o chat ocupa toda a altura que sobra abaixo da contraparte, com mínimo de 352 px (2026-11-21).
 
 ## Pendente de decisão (não tratar como fechado)
 - Formato do dólar: "US$ 97.800,00" (adotado) ou "$97,800.00". Aguarda o OK do Product Owner.
