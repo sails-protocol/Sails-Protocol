@@ -447,14 +447,13 @@ Origem: sessão de UI, branch `ui/design-system` (sem PR publicada), decisões d
   - Proposta de interface: seletor de mercado no topo do Market ("Mercado público" e os mercados de que a pessoa participa), retomando o protótipo D1 da PR #727; gestão em Configurações, Comunidades (fio solto `communities`); cada mercado mostra em que nó está hospedado só como informação.
   - Prioridade: P3 ou a decidir pelo CTO. Nome oficial em aberto (BACKLOG: Public/Private Markets/Servers).
   - Estado: levantado, não aprovado. Relacionado a UX-043, UX-034 e UX-005.
-  - Resposta do CTO ao Product Owner (relatada pela sessão de UI; o texto original está com o Alan, não lido pelo EPM), vinculada à #147, SEM autorização de implementação:
-    - Os dois modelos da #147 se mantêm (nó compartilhado ou próprio); nó privado não é obrigatório; a experiência prioriza a combinação nó privado mais mercado fechado.
-    - "O mercado define a comunidade e suas permissões; o nó fornece comunicação, descoberta e disponibilidade."
-    - Casos: comunidade (por exemplo, 30 amigos que negociam pelo WhatsApp) e empresa (clientes, distribuidores e parceiros).
-    - Fluxo "Meus mercados": criar mercado, definir quem participa, regras, infraestrutura e convites. O participante entra com a identidade portátil e vê só as ofertas a que tem acesso.
-    - Critérios: os participantes controlam chaves e fundos; o host não acessa chaves nem tem autoridade unilateral sobre a liquidação; remover um membro não apaga a identidade portátil nem a reputação global; o operador de nó não falsifica autorização nem acessa fundos; as permissões são verificáveis no backend e no protocolo.
-    - Pendentes na #147: associação, isolamento, convites, privacidade e portabilidade.
-    - Pergunta aberta do CTO ao Product Owner: no mercado de empresa, só a empresa publica ou os clientes negociam entre si (define papéis e permissões).
+  - **Fonte canônica: #147** (Institutional Memory: Private Market ≠ Private Infrastructure), editada diretamente pelo CTO em 2026-11-21. Esta entrada só vincula; não duplica a issue.
+  - Princípios definitivos registrados na #147: (1) autonomia dos mercados (o Sails não controla, aprova, cura nem prescreve o comportamento comercial de mercados operados de forma independente); (2) neutralidade do Sails (permissões configuráveis; casos de uso são exemplos, nunca modelos de negócio predefinidos nem padrões); (3) soberania dos usuários (o administrador revoga o acesso ao próprio mercado, mas não apaga a identidade portátil nem a reputação global, nem toma fundos); (4) infraestrutura independente (nó privado ou compartilhado; mercado privado não exige infraestrutura privada).
+  - Pergunta "só a empresa publica ou os clientes negociam entre si?": resolvida pelo CTO: o protocolo não decide; cada mercado escolhe.
+  - Especificação aberta (checklist de 10 itens na #147): identidade, governança e papéis do mercado; convites (emissão, aceitação, revogação, expiração, recuperação); modelo de autorização neutro e configurável; autorização nas camadas de API, SDK e eventos, não só na UI; descoberta nó-mercado sem vazar membros nem ofertas; isolamento multi-mercado e fronteiras de confiança do operador; portabilidade e migração de nó; contratos de UX e testes de aceitação; vínculo a este registro e ao Project #3 sem issues canônicas duplicadas; revisão de projeto e segurança por Principal, GK e CTO antes de qualquer implementação.
+  - Fronteiras: operador de nó, administrador de mercado e participante são papéis distintos; hospedar um nó não dá autoridade para adicionar ou remover membros, assinar pelos usuários, tomar fundos, arbitrar ou liquidar. Mercado privado não é automaticamente privado de ponta a ponta (metadados visíveis ao operador exigem modelo de ameaça).
+  - Interface (UI): permissões configuráveis e apenas exemplos de casos de uso, nunca presets impostos.
+  - Autorização: nenhuma implementação, migração, deploy ou ativação (gate documental da #147).
 
 ## Decisões pendentes do CTO (F)
 1. Destino de STACKS, RSK_BTC e SPARK no enum (UX-005).
