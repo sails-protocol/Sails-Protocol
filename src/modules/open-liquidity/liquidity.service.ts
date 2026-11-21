@@ -11,6 +11,7 @@ import type { Prisma } from '@prisma/client'
 import { config } from '../../config'
 import { qvacDetectionInvocationsTotal, qvacDetectionFailuresTotal } from '../../common/metrics'
 import { withIdempotency, isUniqueConstraintError } from '../../common/idempotency'
+import { assertRailOpen } from '../../common/day0-closed-rails'
 
 const log = childLogger('liquidity')
 
@@ -422,6 +423,7 @@ export class LiquidityRouter {
   }
 
   async createOffer(input: CreateOfferInput) {
+    assertRailOpen({ asset: input.asset }) // Despacho 064: LN_BTC is closed for Day 0 in every environment
     return withIdempotency(
       {
         scope: 'liquidity.offer.create',

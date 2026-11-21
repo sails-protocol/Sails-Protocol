@@ -309,13 +309,15 @@ describe('createEscrow() — asset-aware default type (multisig-coverage-per-ass
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MULTISIG' }) }))
   })
 
-  it('defaults an omitted type to LIGHTNING_HODL for an LN_BTC trade', async () => {
+  // Despacho 064 (expectation changed on purpose, declared in the PR): LN_BTC used to default to LIGHTNING_HODL here; the
+  // rail is now closed for Day 0 in every environment, so no escrow is created.
+  it('refuses an omitted-type LN_BTC escrow with RAIL_CLOSED (Despacho 064) and creates nothing', async () => {
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-2', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, tradeIntentId: 'anchor-1' })
-    mockEscrowCreate.mockResolvedValue({ id: 'escrow-2', tradeId: 'trade-2', type: 'LIGHTNING_HODL', asset: 'LN_BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-2', lockedAmount: '0.001', asset: 'LN_BTC' as any }, 'buyer-1')
+    await expect(escrowService.createEscrow({ tradeId: 'trade-2', lockedAmount: '0.001', asset: 'LN_BTC' as any }, 'buyer-1'))
+      .rejects.toMatchObject({ code: 'RAIL_CLOSED', statusCode: 409 })
 
-    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'LIGHTNING_HODL' }) }))
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
 
   it('defaults an omitted type to WDK_USDT_EVM for a USDT_ERC20 trade', async () => {
@@ -719,12 +721,16 @@ describe('getSettlementProvider() / escrow.service.ts economic methods — persi
     // The concrete #220 finding: with no explicit type, production used to
     // route LN_BTC to LIGHTNING_HODL (RECOMMENDED_ESCROW_TYPE) — a rail its own
     // provider declares testnet-only. Creation now fails closed instead.
-    it('production creation with NO explicit type refuses LN_BTC (default-routed to LIGHTNING_HODL) instead of silently selecting a testnet-only rail (Issue #220)', () => {
+    // Despacho 064 (expectation changed on purpose, declared in the PR): #220 refused LN_BTC only in production and still
+    // routed it to LIGHTNING_HODL elsewhere. Now it is refused in production AND outside it, before any provider is
+    // resolved. The #220 production gate for LIGHTNING_HODL itself stays proven by the it.each above.
+    const thrownCode = (fn: () => unknown): unknown => { try { fn(); return undefined } catch (e) { return (e as { code?: unknown }).code } }
+    it('creation with NO explicit type refuses LN_BTC with RAIL_CLOSED in production and outside it (Issue #220, Despacho 064)', () => {
       mockEscrowFeatureFlag = false
       isProductionFlag = true
-      expect(() => resolveEscrowType('LN_BTC' as any, undefined)).toThrow(/testnet \(mutinynet\) only/)
+      expect(thrownCode(() => resolveEscrowType('LN_BTC' as any, undefined))).toBe('RAIL_CLOSED')
       isProductionFlag = false
-      expect(resolveEscrowType('LN_BTC' as any, undefined)).toBe('LIGHTNING_HODL')
+      expect(thrownCode(() => resolveEscrowType('LN_BTC' as any, undefined))).toBe('RAIL_CLOSED')
     })
   })
 })
@@ -771,13 +777,15 @@ describe('createEscrow() — resolved via canonical SettlementScope/Provider reg
     expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'MOCK' }) }))
   })
 
-  it('does not affect LN_BTC resolution — no canonical mapping is authorized for it (ADR-002 §11, deliberately ambiguous)', async () => {
+  // Despacho 064 (expectation changed on purpose, declared in the PR): LN_BTC still has no canonical mapping (ADR-002
+  // §11), and the rail is now closed for Day 0, so the escrow is refused before any resolution.
+  it('LN_BTC has no canonical mapping and is refused with RAIL_CLOSED (ADR-002 §11, Despacho 064)', async () => {
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-btc-5', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, tradeIntentId: 'anchor-1' })
-    mockEscrowCreate.mockResolvedValue({ id: 'escrow-btc-5', tradeId: 'trade-btc-5', type: 'LIGHTNING_HODL', asset: 'LN_BTC', lockedAmount: '0.001' })
 
-    await escrowService.createEscrow({ tradeId: 'trade-btc-5', lockedAmount: '0.001', asset: 'LN_BTC' as any }, 'buyer-1')
+    await expect(escrowService.createEscrow({ tradeId: 'trade-btc-5', lockedAmount: '0.001', asset: 'LN_BTC' as any }, 'buyer-1'))
+      .rejects.toMatchObject({ code: 'RAIL_CLOSED' })
 
-    expect(mockEscrowCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'LIGHTNING_HODL' }) }))
+    expect(mockEscrowCreate).not.toHaveBeenCalled()
   })
 
   // Mission 4 (2026-09-14) — generalizes the canonical-registry path from
