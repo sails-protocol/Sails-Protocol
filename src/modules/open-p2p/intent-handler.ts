@@ -27,6 +27,9 @@
  */
 import type { IntentHandler, IntentPayload, Intent, TradeIntentPayload } from '../../common/types/intent'
 
+// UX-048: sanity bound for a reputation threshold (the score itself has no ceiling).
+const MAX_REPUTATION_THRESHOLD = 1e9
+
 // ─── CISO Byzantine Rule, now module-local: reject malformed
 // TradeIntents at the entry boundary — identical checks previously
 // inlined in core/intent-engine.ts's validateStructure(). ────────────────
@@ -40,15 +43,25 @@ function validate(payload: IntentPayload): { valid: boolean; errors?: string[] }
   // RFC-023 — same decimal-string convention as maxValue/minValue above.
   if (p.maxPriceUsd !== undefined && typeof p.maxPriceUsd !== 'string') errors.push('maxPriceUsd must be a decimal string, not a number (RFC-009)')
   if (p.minPriceUsd !== undefined && typeof p.minPriceUsd !== 'string') errors.push('minPriceUsd must be a decimal string, not a number (RFC-009)')
-  // RFC-013 — minReputationRating mirrors ReputationScore's 0-5 scale
-  // (reputation.service.ts), not a decimal string: it's a threshold, not
-  // a transferred amount, so RFC-009's decimal-string rule doesn't apply.
+  // UX-048 (CTO): the threshold is compared with the canonical OpenReputation score (users.reputationScore), which is
+  // cumulative, has no ceiling and can be negative. A number, not a decimal string (a threshold, not an amount).
+  if (p.minReputationScore !== undefined) {
+    if (typeof p.minReputationScore !== 'number' || !Number.isFinite(p.minReputationScore)) {
+      errors.push('minReputationScore must be a finite number')
+    } else if (Math.abs(p.minReputationScore) > MAX_REPUTATION_THRESHOLD) {
+      errors.push(`minReputationScore must be between -${MAX_REPUTATION_THRESHOLD} and ${MAX_REPUTATION_THRESHOLD}`)
+    }
+  }
+  // Deprecated alias, unchanged for existing clients: the same number against the same score (never rescaled), 0-5.
   if (p.minReputationRating !== undefined) {
     if (typeof p.minReputationRating !== 'number' || !Number.isFinite(p.minReputationRating)) {
       errors.push('minReputationRating must be a finite number')
     } else if (p.minReputationRating < 0 || p.minReputationRating > 5) {
       errors.push('minReputationRating must be between 0 and 5')
     }
+  }
+  if (p.minReputationScore !== undefined && p.minReputationRating !== undefined && p.minReputationScore !== p.minReputationRating) {
+    errors.push('minReputationScore and minReputationRating (deprecated alias) must be equal when both are sent')
   }
   return errors.length === 0 ? { valid: true } : { valid: false, errors }
 }

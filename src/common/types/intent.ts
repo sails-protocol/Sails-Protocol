@@ -95,6 +95,10 @@ export interface TradeIntentPayload extends IntentPayload {
   // a field literally named "kycRequired" existing in the canonical
   // Intent type, even unenforced, undercut that positioning. See
   // RFC-013's own dated correction for the full removal note.
+  // UX-048 (CTO): minimum canonical OpenReputation score (users.reputationScore: cumulative, no ceiling, can be
+  // negative). It filters proposals only (liquidityRouter.proposeForIntent()), never trade admission.
+  minReputationScore?: number
+  /** @deprecated UX-048: use minReputationScore. The same number against the same score (never rescaled), 0-5 only. */
   minReputationRating?: number
   // RFC-023 (rfcs/RFC-023-qvac-negotiated-trade-proposal.md) — this is the
   // "OpenLiquidity reading this during matching" follow-up RFC-013's own
