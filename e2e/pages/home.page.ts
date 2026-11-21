@@ -25,13 +25,19 @@ export class HomePage {
   }
 
   /**
-   * The asset list is the Combobox primitive (2026-11-20): options are
-   * role="option" named by `ASSET_LABELS[asset]`, and each carries the raw
-   * `AssetType` code as `data-value`, the stable hook this helper's callers
-   * want (OfferCard badges never carry it).
+   * `title` alone isn't enough: AssetPicker.tsx's own option buttons
+   * render `ASSET_LABELS[asset]` as visible text/accessible name (e.g.
+   * "USDT (ERC-20)"), not the raw `AssetType` code this method takes —
+   * but each option button also carries `title={asset}` (the raw code),
+   * which is the stable hook this helper's callers actually want.
+   * However every OfferCard row on the SAME page also renders a
+   * `<span title={asset}>` asset badge (inside an `<a>`, not a
+   * `<button>`) — matching on `title` alone hits both and throws a
+   * strict-mode violation. `.and()` narrows to elements satisfying both
+   * conditions on the same node, which only the real dropdown option is.
    */
   assetButton(asset: string): Locator {
-    return this.page.locator(`[role="option"][data-value="${asset}"]`)
+    return this.page.getByRole('button').and(this.page.getByTitle(asset, { exact: true }))
   }
 
   async filterByAsset(asset: string): Promise<void> {

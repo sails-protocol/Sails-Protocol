@@ -359,7 +359,7 @@ only, disclosed as a separate role from brand orange — `UI-GATE-CLOSE-1-R1`).
 | Runtime/Protocol Truth | Product State (`TradeState`) | User Copy (`sails-ui`, PT-BR) |
 |---|---|---|
 | `Escrow.status = FUNDS_LOCKED` | `open` | "Fundos travados" |
-| `Escrow.status = PAYMENT_PENDING` | `payment_sent` | "Pagamento marcado como enviado" (was "Aguardando pagamento" until 2026-11-19, Lote A) |
+| `Escrow.status = PAYMENT_PENDING` | `payment_sent` | "Aguardando pagamento" |
 | `Escrow.status = COMPLETED` | `escrow_released` | "Concluído" |
 | `Escrow.status = REFUNDED` | `cancelled` | "Reembolsado" |
 | `Escrow.status = EXPIRED` | `open` (explicit decision, §7) | "Expirado" (own badge exists, distinct orange) |
