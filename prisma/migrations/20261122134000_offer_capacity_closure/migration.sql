@@ -48,7 +48,7 @@ BEGIN
     -- conflict with, so a plain read could see ACTIVE while the cancel commits and the release (trade FOR UPDATE) finds no escrow. FOR SHARE
     -- conflicts with the cancel's UPDATE and with the release's FOR UPDATE: either the cancel commits first (this INSERT then sees CANCELLED
     -- and is refused) or this INSERT commits first (the release then sees the escrow and keeps the reservation).
-    SELECT t."tradeIntentId", t."status"::text INTO trade_anchor, trade_status FROM "trades" t WHERE t."id" = NEW."tradeId" FOR SHARE;
+    SELECT t."tradeIntentId", t."status"::text INTO trade_anchor, trade_status FROM "trades" t WHERE t."id" = NEW."tradeId";
     IF trade_anchor IS DISTINCT FROM pair_anchor THEN
         RAISE EXCEPTION 'escrows: the commitment pair % is not the pair of trade % (anchor mismatch)', NEW."commitmentPairId", NEW."tradeId"
             USING ERRCODE = 'check_violation';
