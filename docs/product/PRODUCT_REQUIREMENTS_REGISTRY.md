@@ -16,7 +16,7 @@ Origem: `ui-backend-gaps-2026-11-20.md`, o Despacho 039, o Despacho 051 com o Co
   - **Solução proposta:** existe proposta técnica, ainda não aprovada.
   - **Implementado:** está na interface e/ou no backend.
 - **Responsável inicial:** "EPM (a distribuir)", até o EPM atribuir.
-- **Indicadores (recomendação do CTO):** 30 requisitos descobertos (UX-001 a UX-030), 0 homologados.
+- **Indicadores (recomendação do CTO):** 34 requisitos descobertos (UX-001 a UX-034), 0 homologados.
 
 ---
 
@@ -356,6 +356,23 @@ Origem: sessão de UI, branch `ui/design-system` (sem PR publicada), decisões d
   - Origem: UI e Product Owner. CASH, CASH_BY_MAIL e LOTERICA_DEPOSIT saem da publicação, do filtro e da demonstração; o boleto é o único depósito. Módulo: interface e, se o PO quiser, backend.
   - Estado: implementado na interface (1f0d6ab1, 9eb13d1a). **Pergunta aberta ao Principal e ao CTO:** o backend deve recusar esses métodos em ofertas novas? Hoje seguem no enum para dados antigos. Relacionado a #735 (vários métodos por oferta).
   - Aceite (se aprovado): publicação com esses métodos recusada no backend e no SDK, sem apagar dados antigos.
+
+- [ ] **UX-031: Reorganização da navegação pela visão do usuário**
+  - Origem: UI e Product Owner. Módulo: interface. Contrato: nenhum.
+  - Proposta: menu Market, Trades, Perfil e Configurações. Trades com abas Ativos, Histórico, Minhas ofertas (criar, pausar e cancelar) e Disputas (sai do menu principal e vira aba com contador). Configurações por ordem de uso: Wallet, Aparência, Idioma, Notificações, Segurança, Nó Sails, Comunidades e Ajuda. As rotas antigas redirecionam.
+  - Estado: aprovado pelo Product Owner, a implementar. Não homologado.
+
+- [ ] **UX-032: Visão do árbitro (lista de arbitragem e condução dos casos)**
+  - Origem: UI. Módulo: OpenSettlement / arbitragem. Fase futura, depois de concluir a visão do usuário.
+  - Estado: contrato a levantar. Prioridade a definir.
+
+- [ ] **UX-033: Visão white-label (wallet integradora com a própria marca)**
+  - Origem: UI. Módulo: interface e `@satsails/sdk-react`. Tokens e logo por marca. Fase futura.
+  - Estado: contrato a levantar. Prioridade a definir.
+
+- [ ] **UX-034: Visão do operador de nó Sails (saúde, configuração e métricas do servidor)**
+  - Origem: UI. Módulo: plataforma. Equipe que mantém um servidor do protocolo. Fase futura.
+  - Estado: contrato a levantar. Prioridade a definir.
 
 ## Decisões pendentes do CTO (F)
 1. Destino de STACKS, RSK_BTC e SPARK no enum (UX-005).
