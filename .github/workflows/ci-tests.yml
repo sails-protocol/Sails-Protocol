@@ -131,6 +131,7 @@ jobs:
               tests/integration/offerIntentIdempotencyUniqueness.test.ts \
               tests/integration/escrowFundingConcurrency.test.ts \
               tests/integration/escrowTypeNoDefault.test.ts \
+              tests/integration/wdkTransferAttemptConcurrency.test.ts \
               tests/integration/m9rClaimRecovery.test.ts \
               tests/integration/m9rDispatchRecovery.test.ts \
               tests/integration/atomicDisputeOpening.test.ts \
