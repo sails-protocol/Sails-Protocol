@@ -252,3 +252,15 @@ describe('Determinism', () => {
     expect(new Set(results).size).toBe(1)
   })
 })
+
+describe('TranslationGuardError - error contract (GK-M9R-D R2, CTO 25 item 1)', () => {
+  it('is a classified 409 AppError whose details carry the mismatches, so app.ts maps it like any other expected refusal', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { AppError } = require('../src/common/errors')
+    const err = new TranslationGuardError(['output 0 pays 8500 sats, expected 7000'])
+    expect(err).toBeInstanceOf(AppError)
+    expect(err.statusCode).toBe(409)
+    expect(err.toResponse()).toMatchObject({ success: false, error: 'TRANSLATION_GUARD_MISMATCH', details: ['output 0 pays 8500 sats, expected 7000'] })
+    expect(err.mismatches).toEqual(['output 0 pays 8500 sats, expected 7000'])
+  })
+})
