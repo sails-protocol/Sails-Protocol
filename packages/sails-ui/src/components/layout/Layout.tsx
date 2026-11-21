@@ -69,7 +69,7 @@ export function Layout() {
         {/* Mobile-only bar: logo + session, nothing else. Theme and "Rever tour" live in Configurações at
             every width (reachable from BottomNav). */}
         <header className="md:hidden h-14 flex items-center justify-between gap-3 px-4 border-b border-brand-border-subtle sticky top-0 z-40 bg-brand-bg/90 backdrop-blur">
-          <Link to="/" aria-label={t('shell.nav.home')} className="rounded-md">
+          <Link to="/" aria-label={t('shell.nav.home')} className="inline-flex items-center rounded-md touch:min-h-11">
             <SailsLogo size="sm" />
           </Link>
           {user ? (

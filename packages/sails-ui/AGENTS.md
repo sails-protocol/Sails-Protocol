@@ -19,7 +19,7 @@
 - [ ] Read `DECISIONS.md` and checked your change against it.
 - [ ] TypeScript: `cd packages/sails-ui && node ../../node_modules/typescript/bin/tsc --noEmit -p .` returns 0 errors.
 - [ ] Full Jest passes, including `tests/designSystemGuard.test.ts`, with no new `ds-allow`.
-- [ ] Layout checked at 320–1440 px, dark and light, both menu positions: no horizontal scroll, truncation or overlap.
+- [ ] Layout checked at 320–1440 px, dark and light, both menu positions: no horizontal scroll, truncation or overlap. With the dev server running: `node packages/sails-ui/scripts/layout-audit.mjs --base <dev url>` (add `--locales` for all five languages, `--quick` for four widths). It must exit 0.
 - [ ] Keyboard and screen-reader basics checked: names, focus, live regions only where needed.
 - [ ] [Vercel Web Interface Guidelines](https://github.com/vercel-labs/web-interface-guidelines) reviewed, with findings listed as file:line.
 - [ ] LF line endings only.
