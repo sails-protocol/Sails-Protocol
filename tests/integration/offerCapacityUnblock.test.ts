@@ -30,6 +30,8 @@ describe('M-1b reorg block + two-role unblock (real PG, real login roles)', () =
     admin = new Client({ connectionString: process.env.DATABASE_URL }); await admin.connect()
     admin2 = new Client({ connectionString: process.env.DATABASE_URL }); await admin2.connect()
     await admin.query(`CREATE ROLE ${roles.op} LOGIN PASSWORD 'p' IN ROLE sails_runtime`)
+    // the CI PG lane runs with the legacy single credential, so runtime-grants.sql is not applied: grant the runtime's one EXECUTE explicitly (as runtime-grants.sql does)
+    await admin.query(`GRANT EXECUTE ON FUNCTION offer_capacity_request_unblock(text, jsonb, text) TO ${roles.op}`)
     await admin.query(`CREATE ROLE ${roles.rev1} LOGIN PASSWORD 'p' IN ROLE sails_capacity_reviewer`)
     await admin.query(`CREATE ROLE ${roles.rev2} LOGIN PASSWORD 'p' IN ROLE sails_capacity_reviewer`)
     ;[op, rev1, rev2] = [roles.op, roles.rev1, roles.rev2].map((r) => new Client({ connectionString: urlFor(r, 'p') }))
