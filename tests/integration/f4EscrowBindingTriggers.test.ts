@@ -171,17 +171,20 @@ describe('F4 S1 - escrow commitment binding triggers (real PostgreSQL, raw SQL)'
 
   it('D030 composition: with the schema default dropped, the GUARD itself refuses an omitted type with 23502 (a BEFORE ROW trigger runs before the NOT NULL), restored afterwards', async () => {
     const { tradeId } = await newTrade()
-    await db.query(`ALTER TABLE escrows ALTER COLUMN type DROP DEFAULT`)
+    // DDL is transactional in PostgreSQL: the DROP DEFAULT lives INSIDE the transaction and the ROLLBACK undoes it, so nothing is ever
+    // restored by hand (putting the old default back by hand would re-create a default the D030 migration removed and break escrowTypeNoDefault).
+    // On a database where D030 already dropped the default, the DROP is a no-op.
+    await db.query('BEGIN')
     try {
-      await db.query('BEGIN')
+      await db.query(`ALTER TABLE escrows ALTER COLUMN type DROP DEFAULT`)
       try {
         await db.query(`INSERT INTO escrows (id, "tradeId", "lockedAmount", asset, "updatedAt") VALUES ($1,$2,0.005,'BTC',now())`, [randomUUID(), tradeId])
         throw new Error('expected the statement to be refused')
       } catch (e: any) {
         expect(e.code).toBe('23502')
         expect(String(e.message)).toMatch(/escrows: type is required/) // the guard's own message, not the native NOT NULL one
-      } finally { await db.query('ROLLBACK') }
-    } finally { await db.query(`ALTER TABLE escrows ALTER COLUMN type SET DEFAULT 'MOCK'`) }
+      }
+    } finally { await db.query('ROLLBACK') }
   })
 
   it('commitmentPairId and both legacy marks are immutable', async () => {
