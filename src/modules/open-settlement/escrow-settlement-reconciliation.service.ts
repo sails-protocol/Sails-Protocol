@@ -435,12 +435,29 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
   }
 }
 
+// Issue #474 - converging a persisted result (txReleaseId and the completion effects after it) is economic
+// bookkeeping, so it obeys the same deployment-eligibility policy as dispatch: in production a persisted escrow of
+// an ineligible rail (MOCK, WDK_USDT_EVM, ...; e.g. a promoted staging database) is held for an operator, never
+// converged. Several of these paths never touch the provider registry where that policy is otherwise enforced.
+// Required lazily, like dispute.service below: escrow-providers loads every provider.
+function heldAsDeploymentIneligible(escrow: { id: string; type: string }, report: ReconciliationReport): boolean {
+  const { assertDeploymentEligible } = require('./escrow-providers') // eslint-disable-line @typescript-eslint/no-var-requires
+  try {
+    assertDeploymentEligible(escrow.type)
+    return false
+  } catch (err) {
+    report.requiresManualReview.push({ escrowId: escrow.id, reason: err instanceof Error ? err.message : String(err) })
+    return true
+  }
+}
+
 // PASS 1 (Fase 9.6) — MULTISIG only. Determines whether the real fund
 // movement happened (asking the chain, never guessing — see
 // multisig.provider.ts's reconcilePendingSettlement() for the full
 // on-chain-truth procedure) and, once known, runs the shared downstream
 // completion effects above.
 async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, report: ReconciliationReport): Promise<void> {
+  if (heldAsDeploymentIneligible(escrow, report)) return
   if (escrow.type === 'WDK_USDT_EVM') {
     await reconcileWdkTerminalTransfer(escrow, report)
     return
@@ -898,6 +915,7 @@ async function reconcileSignatureCollectionTerminalTransfer(escrow: NonNullable<
 // authoritative check inside the real write" shape this codebase
 // already uses for the funding-reorg sweep.
 async function reconcileMissingCompletionEffects(escrow: NonNullable<Awaited<ReturnType<typeof escrowRepository.findById>>>, report: ReconciliationReport): Promise<void> {
+  if (heldAsDeploymentIneligible(escrow, report)) return
   const alreadyEmitted = await prisma.escrowEvent.findFirst({ where: { escrowId: escrow.id, toStatus: escrow.status as any } })
 
   // Sails Core Implementation Program M9 (Recovery) — closes crash window
