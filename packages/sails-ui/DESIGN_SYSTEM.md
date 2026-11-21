@@ -754,6 +754,50 @@ Azul e laranja têm a mesma luminância (1.00 / 1.10 entre si): a diferença
 entre `waiting` e `yours` é o matiz mais o pulso e a pílula "Sua vez", nunca
 só a cor. Specimen em `/dev/design-system` → "Trilho do trade".
 
+### 5.6 Prazo do escrow (`trade/EscrowCountdown.tsx`, UX-029, 2026-11-20, DECISIONS.md "Temporizador no fluxo do trade")
+
+Contagem regressiva no cartão da etapa atual, **só** de `escrow.expiresAt` (valor
+do nó Sails, `lockedAt + timelockHours`). Janela de pagamento, cancelamento
+automático e prazos de liberação/apelação não existem no contrato (UX-012, issue
+#740) e não aparecem. Regras puras em `lib/escrowDeadline.ts`, testadas em
+`tests/escrowDeadline.test.ts`. Sem token novo.
+
+| Estado | Quando | Visual |
+|---|---|---|
+| normal | falta ≥ 1 h e ≥ 10 % do total | relógio, rótulo `text-secondary`, número `.money-lg` `text` |
+| atenção | falta < 1 h **ou** < 10 % do total (estritos: 1 h e 10 % exatos ainda são normais) | ícone de alerta (sinal que não é cor), rótulo e número `warning-fg` |
+| encerrado | `expiresAt` já passou e o status ainda é ativo | "Encerrado" (nunca número negativo), "em dd/MM, HH:mm", sem barra |
+| antes do bloqueio | `CREATED` sem `expiresAt` | "72 h a partir do bloqueio dos fundos", sem barra |
+| indisponível | `expiresAt` ausente ou inválido fora de `CREATED` | "Prazo do escrow indisponível" |
+
+- **Formato:** "39 h 05 min" a partir de 1 h; "12 min 05 s" / "42 s" abaixo de 1 h
+  (segundos só abaixo de 1 h); espaço inseparável entre número e unidade;
+  `tabular-nums`. Ao lado, o prazo absoluto local: "até 22/11, 14:30" (`formatDateTime`).
+- **Barra:** `Progress` determinado com o tempo **decorrido** sobre o total
+  (`timelockHours`). Sem total, sem barra: nunca uma porcentagem inventada.
+- **Onde:** `CREATED`, `FUNDS_LOCKED`, `PAYMENT_PENDING` e `DISPUTED` (no painel
+  da disputa, como já era). Nunca em `COMPLETED`, `REFUNDED`, `SPLIT` nem
+  `EXPIRED` (o cartão da etapa e a faixa âmbar já dizem "Prazo do escrow encerrado").
+- **Explicação** (`ExplanationPopover`), tirada do backend (`sweepExpiredEscrows`,
+  `VALID_TRANSITIONS`): só `FUNDS_LOCKED` expira por este prazo; em
+  `PAYMENT_PENDING` e em disputa o nó Sails não encerra o escrow por ele. Nada de
+  "caminho de reembolso on-chain" (não há timelock no script MULTISIG do código).
+- **Ritmo:** atualiza a cada 1 s abaixo de 1 h, a cada 30 s acima; para com a aba
+  escondida (`visibilitychange`) e ressincroniza ao voltar; para no encerramento.
+- **Leitor de tela:** o número que muda é `aria-hidden`, com uma cópia `sr-only`
+  silenciosa. Um `role="status"` `aria-live="polite"` fala só nos marcos, quando
+  são cruzados com a página aberta (nunca ao carregar): entrar em atenção, 10 min,
+  1 min e encerramento. Nada por segundo.
+- **Movimento:** nada pisca; a barra anda só por `transform` e fica parada com
+  movimento reduzido (regra global).
+- **Demonstração:** os trades perto do fim são semeados só por script
+  (`sessionStorage`, como os demais scripts do trade); os dados da demo e os
+  reais não mudam.
+
+Contraste: `warning-fg` 7.09 (claro) / 9.78 (escuro), o mesmo do número do trilho (5.5); barra
+como em 5.3. Specimen em `/dev/design-system` → "Prazo do escrow" (normal,
+atenção, encerrado, sem total; claro e escuro).
+
 ## 6. Guarda e exceções
 
 `tests/designSystemGuard.test.ts` varre `src/**/*.ts(x)` e falha em:

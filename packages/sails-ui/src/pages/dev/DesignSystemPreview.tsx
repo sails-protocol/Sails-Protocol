@@ -38,6 +38,7 @@ import type { AssetType } from '../../types'
 import { nextSort, sortRows, type SortState } from '../../lib/sort'
 import { PaymentMethods } from '../../components/ui/PaymentMethods'
 import { TradeRail } from '../../components/trade/TradeRail'
+import { EscrowCountdown } from '../../components/trade/EscrowCountdown'
 import { batonLabel, deriveTradeState, type TradeStateInput } from '../../lib/tradeState'
 import { OfferTable } from '../../components/marketplace/OfferTable'
 import { OfferCard } from '../../components/marketplace/OfferCard'
@@ -304,6 +305,30 @@ function RailSpecimen({ theme, vars }: { theme: Theme; vars: Vars | null }) {
         const baton = batonLabel(st.steps.find((x) => x.state === 'current'), c.viewer, { buyer: 'Alice', seller: 'Bob' })
         return <TradeRail key={c.name} title={c.name} steps={st.steps} status={st.status} baton={baton} viewer={c.viewer} />
       })}
+    </div>
+  )
+}
+
+// Escrow deadline timer (DESIGN_SYSTEM.md 5.6): deadlines relative to when the page opens, so the states stay put.
+const TIMER_CASES = [
+  { name: 'Normal', ms: (39 * 60 + 59) * 60_000, hours: 72 },
+  { name: 'Atenção (menos de 1 h)', ms: 8 * 60_000, hours: 72 },
+  { name: 'Encerrado', ms: -2 * 3_600_000, hours: 72 },
+  { name: 'Sem total (sem barra)', ms: 20 * 3_600_000, hours: 0 },
+] as const
+
+function TimerSpecimen({ theme, vars }: { theme: Theme; vars: Vars | null }) {
+  const style = (vars ? { ...vars.light, ...vars[theme] } : {}) as CSSProperties
+  const [base] = useState(() => Date.now())
+  return (
+    <div style={style} className="flex min-w-0 flex-col gap-3 rounded-lg bg-brand-bg p-3 text-brand-text">
+      <p className="text-caption font-medium text-brand-text-secondary">{theme === 'light' ? 'Claro' : 'Escuro'}</p>
+      {TIMER_CASES.map((c) => (
+        <div key={c.name} className="rounded-lg bg-brand-elevated p-3">
+          <p className="text-caption text-brand-text-muted">{c.name}</p>
+          <EscrowCountdown expiresAt={new Date(base + c.ms).toISOString()} timelockHours={c.hours} status="FUNDS_LOCKED" />
+        </div>
+      ))}
     </div>
   )
 }
@@ -1058,6 +1083,13 @@ export function DesignSystemPreview() {
         <p className="mb-3 text-body-sm text-brand-text-secondary">Concluída = azul com check (nunca verde: concluído não é finalidade de liquidação). Sua vez = anel laranja com pulso (parado com movimento reduzido). Esperando = anel azul. Atenção = âmbar. Futura = contorno neutro. Abaixo de 1024 px: pontos com o mesmo código.</p>
         <div className="grid gap-4 xl:grid-cols-2">
           {(['light', 'dark'] as const).map((t) => <RailSpecimen key={t} theme={t} vars={vars} />)}
+        </div>
+      </Section>
+
+      <Section id="ds-escrow-timer" title="Prazo do escrow">
+        <p className="mb-3 text-body-sm text-brand-text-secondary">Só de escrow.expiresAt. Normal = texto neutro; atenção (menos de 1 h ou menos de 10 % do total) = âmbar com ícone de alerta; encerrado = sem números negativos. A barra mostra o tempo decorrido e só aparece quando o total (timelockHours) existe. Segundos só abaixo de 1 h.</p>
+        <div className="grid gap-4 xl:grid-cols-2">
+          {(['light', 'dark'] as const).map((t) => <TimerSpecimen key={t} theme={t} vars={vars} />)}
         </div>
       </Section>
 

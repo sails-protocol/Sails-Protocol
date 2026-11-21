@@ -12,7 +12,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 - **Publicação no GitHub** só com inspeção e OK do EPM, sempre como Draft. Merge de mudança econômica, migração e produção: HOLD (Despachos 033, 037 e 039).
 
 ## Ordens do CTO sobre lacunas da interface (Despacho 051 e Complemento 051-A, 2026-11-20)
-- **Nenhuma funcionalidade levantada pela interface é descartada** só porque o backend ou o SDK ainda não a suportam. Cada uma fica registrada e rastreável, com prioridade, dependências, proposta de contrato e situação, na lista de fios soltos (`lib/looseWires.ts`, issue #729) e na lista de lacunas do backend (`ui-backend-gaps-2026-11-20.md`). O EPM coordena esse backlog.
+- **Nenhuma funcionalidade levantada pela interface é descartada** só porque o backend ou o SDK ainda não a suportam. Cada uma fica registrada e rastreável, com prioridade, dependências, proposta de contrato e situação, na lista de fios soltos (`lib/looseWires.ts`, issue #729) e no registro de requisitos `docs/product/PRODUCT_REQUIREMENTS_REGISTRY.md` (PR #744, índice na issue #745, rótulo `product-ux` no Project #3). O EPM coordena esse backlog.
 - **A experiência do usuário orienta a evolução dos módulos**, respeitando segurança, descentralização, portabilidade e autocustódia.
 - **Frentes em especificação:**
   - Trade P1: horários das transições (C1), dados de recebimento do vendedor (C2), broadcast e próximo ator (C3), janela de pagamento, prazos, cancelamento e apelação (C12);
@@ -24,6 +24,17 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 
 ## Navegação e layout
 - Menu com 5 itens. A escolha do nó fica em Configurações (2026-11-20).
+- **Reorganização pela visão do usuário** (2026-11-20, substitui o item acima quando implementada). Nada sai da tela e as rotas antigas redirecionam para o lugar novo.
+  - **Menu:** Market · Trades · Perfil · Configurações. No celular a barra inferior fica com 4 itens.
+  - **Trades:** Ativos · Histórico · Minhas ofertas · Disputas. Disputas sai do menu principal e vira aba, com um contador quando há disputa aberta. "Minhas ofertas" reúne criar, pausar e cancelar as próprias ofertas. O Perfil continua sendo a vitrine pública.
+  - **Configurações, em ordem de uso:** Wallet, Aparência, Idioma, Notificações, Segurança, Nó Sails, Comunidades, Ajuda e Sobre.
+  - **Árbitros:** o item próprio "Arbitragem" entra na fase da visão do árbitro (ver "Visões por papel"). Até lá, a lista de casos continua acessível pelo mesmo endereço.
+- **Visões por papel** (2026-11-20): primeiro fecha-se toda a interface da visão do usuário. Depois vêm, em fases separadas:
+  - a **visão do árbitro**, com a lista de arbitragem e a condução dos casos;
+  - a **visão white-label**, para uma wallet integrar a Sails UI com a sua marca;
+  - a **visão do operador de nó Sails**, para a equipe que mantém um dos servidores do protocolo;
+  - outras visões que surgirem.
+  - Cada visão nova segue este registro e o Design System.
 - Desktop primeiro, denso e profissional. Uma única interface responsiva de 320 a 1440 px, sem perder a organização (2026-11-20).
 - Menu lateral recolhível no desktop. O item Perfil mostra o avatar da pessoa (2026-11-20).
 - **Posição do menu no desktop** (2026-11-20): em Configurações → Aparência, "Posição do menu: Lateral | Superior", com uma miniatura de cada opção. A escolha fica salva no navegador e não há botão de alternar na barra.
