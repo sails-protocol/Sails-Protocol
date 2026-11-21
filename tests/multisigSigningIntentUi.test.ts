@@ -29,7 +29,7 @@ import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from '@bitcoinerlab/secp256k1'
 import { secp256k1 } from '@noble/curves/secp256k1.js'
 import { verifyAndSignEscrowPsbt, SigningIntentVerificationError, type Escrow, type EscrowPendingTransaction } from '../packages/sails-sdk/src/index'
-import { buildMultisigSigningIntent, MultisigSigningIntentError } from '../packages/sails-ui/src/lib/multisigSigningIntent'
+import { buildMultisigSigningIntent, checkMultisigPending, MultisigSigningIntentError, MULTISIG_SIGNING_HOLD, multisigSigningHoldMessage } from '../packages/sails-ui/src/lib/multisigSigningIntent'
 
 bitcoin.initEccLib(ecc)
 const network = bitcoin.networks.testnet
@@ -217,6 +217,15 @@ describe('sails-ui end-to-end: real PSBT verification through buildMultisigSigni
   })
 })
 
+describe('Despacho 033 HOLD gate (assertMultisigSigningAllowed)', () => {
+  it('with the HOLD on, checkMultisigPending refuses even a correctly built PSBT (cannotVerify + hold reason)', () => {
+    expect(MULTISIG_SIGNING_HOLD).toBe(true)
+    const escrow = baseEscrow()
+    const pending = basePending()
+    expect(checkMultisigPending(escrow, pending)).toEqual({ status: 'cannotVerify', reason: multisigSigningHoldMessage() })
+  })
+})
+
 describe('useEscrowKey.ts cannot silently fall back to raw signing (structural proof)', () => {
   it('no longer imports or calls the raw, unverified signEscrowPsbt() for MULTISIG', () => {
     const source = fs.readFileSync(
@@ -236,5 +245,17 @@ describe('useEscrowKey.ts cannot silently fall back to raw signing (structural p
     expect(codeOnly).not.toMatch(/\bsignEscrowPsbt\(/)
     expect(importLine).toMatch(/\bverifyAndSignEscrowPsbt\b/)
     expect(codeOnly).toMatch(/\bverifyAndSignEscrowPsbt\(/)
+  })
+
+  it('the HOLD gate runs inside signVerifiedMultisigPending before any key is decrypted or anything is signed', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'packages', 'sails-ui', 'src', 'hooks', 'useEscrowKey.ts'), 'utf8')
+    const codeOnly = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    const start = codeOnly.indexOf('const signVerifiedMultisigPending')
+    expect(start).toBeGreaterThan(-1)
+    const body = codeOnly.slice(start)
+    const gate = body.indexOf('assertMultisigSigningAllowed(')
+    expect(gate).toBeGreaterThan(-1)
+    expect(gate).toBeLessThan(body.indexOf('loadOrCreateEscrowKeypair('))
+    expect(gate).toBeLessThan(body.indexOf('verifyAndSignEscrowPsbt('))
   })
 })

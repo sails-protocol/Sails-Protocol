@@ -29,7 +29,7 @@ import type { Escrow, EscrowPendingTransaction } from '@satsails/p2p-trading-sdk
 import { sailsClient } from '../lib/sailsClient'
 import { encryptBytes, decryptBytes } from '../lib/keyEncryption'
 import { WrongPassphraseError } from '../context/AuthContext'
-import { buildMultisigSigningIntent } from '../lib/multisigSigningIntent'
+import { buildMultisigSigningIntent, assertMultisigSigningAllowed } from '../lib/multisigSigningIntent'
 import { t } from '../i18n'
 
 const ESCROW_KEY_STORAGE_KEY = 'sails_ui_escrow_keypair'
@@ -140,6 +140,8 @@ export function useEscrowKey(encryptionKey: CryptoKey | null) {
   // former speculative auto-sign, which raw-signed both, was removed).
   const signVerifiedMultisigPending = async (escrow: Escrow, pending: EscrowPendingTransaction) => {
     if (escrow.type !== 'MULTISIG') throw new Error('Only MULTISIG pending transactions can be signed from this interface')
+    // Despacho 033 HOLD: refuse before the escrow key is decrypted.
+    assertMultisigSigningAllowed(escrow)
     if (!encryptionKey) throw new Error('No encryption key available — user is not authenticated')
     const { privateKeyHex } = await loadOrCreateEscrowKeypair(encryptionKey)
     const expected = buildMultisigSigningIntent(escrow, pending)

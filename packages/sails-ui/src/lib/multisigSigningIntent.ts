@@ -41,6 +41,7 @@ export class MultisigSigningIntentError extends Error {
 export function checkMultisigPending(escrow: Escrow, pending: EscrowPendingTransaction): SigningVerification {
   let expected: ExpectedSigningIntent
   try {
+    assertMultisigSigningAllowed(escrow)
     expected = buildMultisigSigningIntent(escrow, pending)
   } catch (err) {
     if (err instanceof MultisigSigningIntentError) return { status: 'cannotVerify', reason: err.userMessage }
@@ -65,13 +66,22 @@ export function checkMultisigPending(escrow: Escrow, pending: EscrowPendingTrans
 export const MULTISIG_SIGNING_HOLD = true
 export const multisigSigningHoldMessage = () => t('escrow.multisig.hold')
 
-export function buildMultisigSigningIntent(escrow: Escrow, pending: EscrowPendingTransaction): ExpectedSigningIntent {
+/**
+ * The one HOLD gate (Despacho 033). Every MULTISIG signing path calls it first: checkMultisigPending() and
+ * useEscrowKey's signVerifiedMultisigPending(), before any key is decrypted. The builder below stays pure, so its
+ * real-crypto tests keep proving that a tampered PSBT is refused while the HOLD lasts. No parameter or env var
+ * bypasses it.
+ */
+export function assertMultisigSigningAllowed(escrow: Pick<Escrow, 'id'>): void {
   if (MULTISIG_SIGNING_HOLD) {
     throw new MultisigSigningIntentError(
       `MULTISIG signing on HOLD (fundedAmount unit, CTO 28 Despacho 033) — escrow ${escrow.id}.`,
       multisigSigningHoldMessage()
     )
   }
+}
+
+export function buildMultisigSigningIntent(escrow: Escrow, pending: EscrowPendingTransaction): ExpectedSigningIntent {
   if (pending.kind === 'split') {
     // A SPLIT's output construction (proportional buyerBps division plus
     // a three-way fee leg, multisig.provider.ts's own buildUnsignedSplit())
