@@ -30,6 +30,7 @@ import { DEFAULT_FILTERS } from '../types'
 import { REPUTATION_EXPLANATION } from '../lib/reputation'
 import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import { acceptsAnyMethod, offerPaymentMethods } from '../lib/paymentMethods'
+import { MarketPortalButton, MarketsCallToAction, MarketsDiscoveryCard } from './markets/MarketsEntry'
 
 const SIDE_FILTERS: { value: TradeSide | 'Todos'; label: string }[] = [
   { value: 'Todos', label: 'Todos' },
@@ -224,6 +225,8 @@ export function Marketplace() {
       <PageHeader
         className="mb-4"
         title="Market"
+        // The market portal (DECISIONS.md "Modelo mundo aberto"): discreet, next to the title; Mercado aberto is the default.
+        titleAside={<MarketPortalButton />}
         // Only the count is a live region (announced as filters change); the attribution is static.
         meta={<><span role="status">{loadingOffers ? 'Carregando ofertas' : `${offers.length} ${offers.length === 1 ? 'oferta disponível' : 'ofertas disponíveis'}`}</span> · Powered by Satsails</>}
         // Desktop: the side segment sits with the page title, which keeps every other filter plus sort and
@@ -236,6 +239,9 @@ export function Marketplace() {
           </Link>
         </>}
       />
+
+      {/* Discovery at the right moment: dismissible, back after 30 days (lib/discoveryCard.ts). */}
+      <MarketsDiscoveryCard className="mb-4" />
 
       <div>
         <AgentIntentionPanel
@@ -423,6 +429,7 @@ export function Marketplace() {
                 ) : hasAnyFilter ? (
                   <Button variant="outline" onClick={() => clearAll(true)} className="min-h-9 touch:min-h-11 px-4">Limpar filtros</Button>
                 ) : undefined}
+                secondaryAction={offersError ? undefined : <MarketsCallToAction />}
               />
             )}
           </>

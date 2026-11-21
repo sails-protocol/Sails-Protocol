@@ -38,6 +38,8 @@ import type { AssetType } from '../../types'
 import { nextSort, sortRows, type SortState } from '../../lib/sort'
 import { PaymentMethods } from '../../components/ui/PaymentMethods'
 import { TradeRail } from '../../components/trade/TradeRail'
+import { InviteStateGallery, NODES_MARKETS_SCREENS } from '../markets/shared'
+import { LOOSE_WIRES } from '../../lib/looseWires'
 import { EscrowCountdown } from '../../components/trade/EscrowCountdown'
 import { batonLabel, deriveTradeState, type TradeStateInput } from '../../lib/tradeState'
 import { OfferTable } from '../../components/marketplace/OfferTable'
@@ -1109,6 +1111,34 @@ export function DesignSystemPreview() {
           ))}
         </div>
         <p className="mt-2 text-caption text-brand-text-muted">Configurações → Aparência. Superior vale a partir de 1024 px: logo à esquerda, os 4 itens (Market, Trades, Perfil, Configurações) no centro, conta à direita; abaixo disso, o layout de hoje, e no celular a barra inferior. Item ativo = o mesmo tom laranja da barra lateral, com aria-current="page"; repouso = texto secundário com camada de estado no mouse. 36 px com ponteiro fino, 44 no toque.</p>
+      </Section>
+
+      <Section id="ds-nodes-markets" title="Nós e mercados privados: protótipos e dependências">
+        <p className="mb-3 text-body-sm text-brand-text-secondary">DECISIONS.md "Nós e mercados privados" e correção final do CTO (issue #147, issue #361, ADR-001). Mercados ficam no Market (/markets); nós ficam em Configurações → Rede e nós. Cada tela é protótipo: os controles que dependem do backend ficam "Em breve" até o contrato existir. Com ?demo=1 aparecem nós e mercados fictícios, e os fluxos de criar e de convite podem ser percorridos.</p>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Tela</TableHead>
+              <TableHead>Onde</TableHead>
+              <TableHead>Fio solto e contrato</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {NODES_MARKETS_SCREENS.map((s) => (
+              <TableRow key={s.screen}>
+                <TableCell className="align-top font-medium">{s.screen}</TableCell>
+                <TableCell className="align-top">{s.where}</TableCell>
+                <TableCell className="align-top">
+                  <ul className="space-y-1">
+                    {s.wires.map((w) => <li key={w}><code className="text-caption">{w}</code> <span className="text-caption text-brand-text-secondary">{LOOSE_WIRES[w].contract}</span></li>)}
+                  </ul>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        <h3 className="mt-4 text-subheading text-brand-text">Estados do convite</h3>
+        <div className="mt-2"><InviteStateGallery /></div>
       </Section>
     </div>
   )

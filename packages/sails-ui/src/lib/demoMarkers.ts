@@ -6,6 +6,9 @@
  * can never change what production renders.
  */
 import { ratingSummaryOf, type RatingSummary } from './ratings'
+import type { NodeView } from './sailsNode'
+import type { MarketView } from './myMarkets'
+import { DEMO_MARKETS, DEMO_NODES } from '../demo/nodesMarkets'
 
 export interface DemoNoModelMarker {
   modelConsulted: false
@@ -42,4 +45,37 @@ export function demoMemberSinceOf(raw: unknown): string | undefined {
   if (!isDemoMode()) return undefined
   const v = (raw as { demoMemberSince?: unknown } | null)?.demoMemberSince
   return typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : undefined
+}
+
+/** Demo-only node list (no node catalogue yet, LOOSE_WIRES.nodeCatalog); empty for real data. */
+export function demoNodes(): readonly NodeView[] {
+  if (!import.meta.env.DEV || !isDemoMode()) return []
+  return DEMO_NODES
+}
+
+const NO_MARKETS: readonly MarketView[] = []
+// Demo-only: the market an invite just granted (fictional), so the portal can list it right after the default one.
+const DEMO_INVITED: MarketView = { id: 'demo-market-convite', name: 'Mercado do convite', visibility: 'private', relation: 'member', infrastructure: 'network', preset: 'comunidade', joinedByInvite: true, illustrative: true }
+let demoSnapshot: readonly MarketView[] = DEMO_MARKETS
+const demoListeners = new Set<() => void>()
+
+/**
+ * Demo-only markets besides the default one (no discovery or membership yet, LOOSE_WIRES.marketDiscovery /
+ * marketMembership); empty for real data. Returns a stable array (safe for useSyncExternalStore).
+ */
+export function demoMarkets(): readonly MarketView[] {
+  if (!import.meta.env.DEV || !isDemoMode()) return NO_MARKETS
+  return demoSnapshot
+}
+
+export function subscribeDemoMarkets(listener: () => void): () => void {
+  demoListeners.add(listener)
+  return () => { demoListeners.delete(listener) }
+}
+
+/** Demo only: a fictional invite was granted (true) or revoked (false). In memory, gone on reload; no-op for real data. */
+export function setDemoInviteGranted(granted: boolean): void {
+  if (!import.meta.env.DEV || !isDemoMode()) return
+  demoSnapshot = granted ? [...DEMO_MARKETS, DEMO_INVITED] : DEMO_MARKETS
+  demoListeners.forEach((l) => l())
 }

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Link } from 'react-router'
 import { ChevronRight, type LucideIcon } from 'lucide-react'
 import { Badge } from '../ui/badge'
 import { Card } from '../ui/card'
@@ -47,12 +48,14 @@ interface SettingsRowProps {
   /** Trailing control (switch, button) instead of a chevron. */
   control?: ReactNode
   onClick?: () => void
+  /** Navigates to this route (a real link: Cmd/Ctrl+click, middle-click). Takes the chevron like `onClick`. */
+  to?: string
   /** Marks the row as planned: disabled, no value, no action, shows this badge text. */
   plannedLabel?: string
 }
 
 /** Icon + label + value right-aligned + chevron/control (mobile P2P app pattern). */
-export function SettingsRow({ icon: Icon, label, description, value, control, onClick, plannedLabel }: SettingsRowProps) {
+export function SettingsRow({ icon: Icon, label, description, value, control, onClick, to, plannedLabel }: SettingsRowProps) {
   const planned = !!plannedLabel
   const body = (
     <>
@@ -69,7 +72,7 @@ export function SettingsRow({ icon: Icon, label, description, value, control, on
         <>
           {value !== undefined && <span className="text-sm text-brand-text-secondary text-right shrink-0 max-w-[50%] truncate">{value}</span>}
           {control}
-          {onClick && !control && <ChevronRight className="h-4 w-4 text-brand-text-muted shrink-0" aria-hidden="true" />}
+          {(onClick || to) && !control && <ChevronRight className="h-4 w-4 text-brand-text-muted shrink-0" aria-hidden="true" />}
         </>
       )}
     </>
@@ -81,6 +84,13 @@ export function SettingsRow({ icon: Icon, label, description, value, control, on
     return (
       <li aria-disabled="true" className={cn(rowClass, 'cursor-not-allowed')}>
         {body}
+      </li>
+    )
+  }
+  if (to) {
+    return (
+      <li>
+        <Link to={to} className={cn(rowClass, interactive)}>{body}</Link>
       </li>
     )
   }

@@ -20,6 +20,8 @@ import { LOOSE_WIRES } from '../lib/looseWires'
 import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import { TRADES_ROUTES } from '../components/layout/navMatch'
 import { MyOffersSection } from './MyOffers'
+import { MarketsCallToAction } from './markets/MarketsEntry'
+import { MARKETS_VALUE_LINE } from './markets/shared'
 
 const KEY_EXPLAINER =
   'Este é o identificador único da sua conta: a mesma chave assina suas ações e identifica você na conexão direta com outros usuários. É segura para compartilhar; sua chave privada nunca sai do seu dispositivo.'
@@ -108,6 +110,13 @@ export function Profile() {
       </Card>
 
       <MyOffersSection user={user} className="mt-8" />
+
+      {/* Markets invitation in a natural place (DECISIONS.md "Modelo mundo aberto"). */}
+      <section aria-labelledby="profile-markets" className="mt-8">
+        <h2 id="profile-markets" className="text-section-title">Mercados</h2>
+        <p className="mt-1 text-body-sm text-brand-text-secondary">{MARKETS_VALUE_LINE}</p>
+        <MarketsCallToAction className="mt-2 -ml-3 justify-start" />
+      </section>
 
     </Page>
   )

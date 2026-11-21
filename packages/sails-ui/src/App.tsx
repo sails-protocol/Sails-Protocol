@@ -6,7 +6,7 @@ import { TooltipProvider } from './components/ui/tooltip'
 import { Toaster } from './components/ui/toast'
 import { Layout } from './components/layout/Layout'
 import { SessionExpiryRedirect } from './components/auth/SessionExpiryRedirect'
-import { LEGACY_REDIRECTS, legacyRedirect, TRADES_ROUTES } from './components/layout/navMatch'
+import { LEGACY_REDIRECTS, legacyRedirect, MARKETS_ROUTES, TRADES_ROUTES } from './components/layout/navMatch'
 
 // Route-level code splitting (2026-08-11) — vite build's own warning
 // (a single ~2.6MB chunk) was every page in one bundle regardless of
@@ -25,6 +25,7 @@ const PublishOffer = lazy(() => import('./pages/PublishOffer').then((m) => ({ de
 const TradeHistory = lazy(() => import('./pages/TradeHistory').then((m) => ({ default: m.TradeHistory })))
 const ActiveTrades = lazy(() => import('./pages/ActiveTrades').then((m) => ({ default: m.ActiveTrades })))
 const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })))
+const Markets = lazy(() => import('./pages/Markets').then((m) => ({ default: m.Markets })))
 const Disputes = lazy(() => import('./pages/Disputes').then((m) => ({ default: m.Disputes })))
 const MyOffers = lazy(() => import('./pages/MyOffers').then((m) => ({ default: m.MyOffers })))
 // Dev-only preview: import.meta.env.DEV is statically false in production builds, so Rollup drops this chunk.
@@ -85,6 +86,7 @@ export default function App() {
                 <Route path={TRADES_ROUTES.newOffer} element={<Suspense fallback={<RouteFallback />}><PublishOffer /></Suspense>} />
                 <Route path={TRADES_ROUTES.disputes} element={<Suspense fallback={<RouteFallback />}><Disputes /></Suspense>} />
                 <Route path="/settings" element={<Suspense fallback={<RouteFallback />}><Settings /></Suspense>} />
+                {Object.values(MARKETS_ROUTES).map((path) => <Route key={path} path={path} element={<Suspense fallback={<RouteFallback />}><Markets /></Suspense>} />)}
                 {Object.keys(LEGACY_REDIRECTS).map((from) => <Route key={from} path={from} element={<LegacyRedirect />} />)}
                 {CurrentActionPreview && <Route path="/dev/current-action" element={<Suspense fallback={<RouteFallback />}><CurrentActionPreview /></Suspense>} />}
                 {SigningRequestPreview && <Route path="/dev/signing-request" element={<Suspense fallback={<RouteFallback />}><SigningRequestPreview /></Suspense>} />}

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { Link, NavLink, useLocation } from 'react-router'
 import { ShoppingCart, ArrowLeftRight, User, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { isNavActive, TRADES_ROUTES } from './navMatch'
+import { isNavActive, MARKETS_ROUTES, TRADES_ROUTES } from './navMatch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { IdentityAvatar } from '../ui/IdentityAvatar'
 import { cn } from '../../lib/utils'
@@ -20,7 +20,7 @@ import { SailsLogo, SailsMark } from '../brand/SailsLogo'
  * Perfil draws the viewer's avatar (ProfileNavIcon).
  */
 export const NAV_ITEMS = [
-  { to: '/', label: 'Market', icon: ShoppingCart, end: true, requiresAuth: false },
+  { to: '/', also: [MARKETS_ROUTES.explore], label: 'Market', icon: ShoppingCart, end: true, requiresAuth: false },
   { to: TRADES_ROUTES.active, also: ['/trade'], label: 'Trades', icon: ArrowLeftRight, end: false, requiresAuth: false },
   { to: '/profile', label: 'Perfil', icon: User, end: true, requiresAuth: false },
   { to: '/settings', label: 'Configurações', icon: Settings, end: false, requiresAuth: false },

@@ -40,7 +40,8 @@ const KIND_ICON: Record<MarketContextKind, LucideIcon> = { public: Globe, commun
 const BLOCK_ICON: Record<MarketContextBlock, LucideIcon> = { 'not-granted': UserX, unavailable: CircleDashed }
 const DESKTOP_QUERY = '(min-width: 768px)'
 
-function useIsDesktop() {
+/** md+ (768px, same as App.tsx MOBILE_QUERY): popover; below: bottom sheet. Shared with the market portal. */
+export function useIsDesktop() {
   const [desktop, setDesktop] = useState(() => window.matchMedia(DESKTOP_QUERY).matches)
   useEffect(() => {
     const mq = window.matchMedia(DESKTOP_QUERY)
@@ -68,7 +69,7 @@ function KindTile({ kind, muted }: { kind: MarketContextKind; muted?: boolean })
 
 function KindBadge({ children }: { children: ReactNode }) {
   return (
-    <span className="shrink-0 rounded-sm border border-brand-border px-1.5 py-px text-caption font-medium leading-4 text-brand-text-secondary">
+    <span className="shrink-0 rounded-sm bg-brand-tonal px-1.5 py-px text-caption font-medium leading-4 text-brand-text-secondary">
       {children}
     </span>
   )
@@ -179,7 +180,7 @@ export function MarketContextSelector({ current, options, onSelect, state, copy,
                           {!block && o.description && <span className="block text-body-sm leading-5 text-brand-text-secondary">{o.description}</span>}
                           {block && BlockIcon && (
                             <span id={reasonId} className="mt-0.5 block text-body-sm leading-5 text-brand-text-muted">
-                              <span className="mr-1.5 inline-flex items-center gap-1 rounded-sm border border-brand-border px-1.5 align-[1px] text-caption font-medium leading-4 text-brand-text-secondary">
+                              <span className="mr-1.5 inline-flex items-center gap-1 rounded-sm bg-brand-tonal px-1.5 align-[1px] text-caption font-medium leading-4 text-brand-text-secondary">
                                 <BlockIcon aria-hidden="true" className="h-3 w-3" />
                                 {copy.block[block]}
                               </span>

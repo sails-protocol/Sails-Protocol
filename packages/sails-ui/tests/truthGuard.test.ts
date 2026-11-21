@@ -10,6 +10,7 @@ import { ASSET_CATALOG } from '../src/lib/assetCatalog'
 import { PAYMENT_METHODS, PAYMENT_METHODS_FILTERABLE } from '../src/data/mock'
 import { COUNTRY_PRIORITY_METHODS } from '../src/lib/paymentMethodMeta'
 import { MULTISIG_SIGNING_HOLD } from '../src/lib/multisigSigningIntent'
+import { LOOSE_WIRES } from '../src/lib/looseWires'
 
 const SRC = join(__dirname, '..', 'src')
 
@@ -57,6 +58,8 @@ const COPY_RULES: { name: string; re: RegExp; skip?: Set<string> }[] = [
   { name: 'reputation as a fraction', re: /(?:\d|\})\s?\/\s?100\b/ },
   { name: 'invented reputation metric', re: /%\s*positivo|Power Trader|Alta reputação/i },
   { name: 'misleading rail label', re: /Lightning HODL/ },
+  // DECISIONS.md "Nós e mercados privados": the experience is Sails' own, no Nostr keys, relays or invites.
+  { name: 'Nostr copy (npub, Nostr keys or relays)', re: /npub|nostr/i },
   { name: 'cash payment copy outside legacy labels', re: /Dinheiro em espécie|Dinheiro por correio|Depósito em lotérica/i, skip: LEGACY_LABEL_FILES },
 ]
 
@@ -97,6 +100,19 @@ describe('structure guard: one home for each decision', () => {
     const HOMES = new Set(['lib/demoMarkers.ts', 'lib/paymentMethods.ts', 'lib/ratings.ts'])
     const readers = SOURCES.filter((f) => !HOMES.has(f.path) && !f.path.startsWith('demo/') && /\.demo(?:PaymentMethods|Ratings|MemberSince)\b/.test(f.code)).map((f) => f.path)
     expect(readers).toEqual([])
+  })
+})
+
+describe('nodes and private markets guard', () => {
+  it('the demo nodes and markets fixtures are read only through lib/demoMarkers.ts', () => {
+    const readers = SOURCES.filter((f) => f.path !== 'lib/demoMarkers.ts' && /demo\/nodesMarkets['"]/.test(f.code)).map((f) => f.path)
+    expect(readers).toEqual([])
+  })
+
+  it('every new backend dependency is a loose wire with a contract', () => {
+    for (const id of ['nodeCatalog', 'nodeStateSync', 'marketInvite', 'marketInviteQr', 'marketMembership', 'marketPortability', 'createMarket', 'marketDiscovery', 'marketBranding'] as const) {
+      expect(LOOSE_WIRES[id].contract.length).toBeGreaterThan(20)
+    }
   })
 })
 

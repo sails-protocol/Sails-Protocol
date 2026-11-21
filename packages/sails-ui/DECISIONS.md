@@ -34,7 +34,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 - **Reorganização pela visão do usuário** (2026-11-20, substitui o item acima quando implementada). Nada sai da tela e as rotas antigas redirecionam para o lugar novo.
   - **Menu:** Market · Trades · Perfil · Configurações. No celular a barra inferior fica com 4 itens.
   - **Trades:** Ativos · Histórico · Minhas ofertas · Disputas. Disputas sai do menu principal e vira aba, com um contador quando há disputa aberta. "Minhas ofertas" reúne criar, pausar e cancelar as próprias ofertas. O Perfil continua sendo a vitrine pública.
-  - **Configurações, em ordem de uso:** Wallet, Aparência, Idioma, Notificações, Segurança, Nó Sails, Comunidades, Ajuda e Sobre.
+  - **Configurações, em ordem de uso:** Wallet, Aparência, Idioma, Notificações, Segurança, Rede e nós (antes "Nó Sails"), Comunidades, Ajuda e Sobre.
   - **Árbitros:** o item próprio "Arbitragem" entra na fase da visão do árbitro (ver "Visões por papel"). Até lá, a lista de casos continua acessível pelo mesmo endereço.
 - **Visões por papel** (2026-11-20): primeiro fecha-se toda a interface da visão do usuário. Depois vêm, em fases separadas:
   - a **visão do árbitro**, com a lista de arbitragem e a condução dos casos;
@@ -53,7 +53,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 - **Nó não é mercado** (2026-11-20; ADR-001 e issues #147 e #361):
   - O nó Sails mantém a rede: é infraestrutura e serviço. O mercado público é da rede inteira, e trocar de nó nunca troca as ofertas.
   - Mercado privado (grupo, empresa, família, OTC) é um conceito separado. Pode rodar num nó compartilhado ou num nó próprio, porque "quem hospeda o nó não define quem pertence ao mercado".
-  - Na interface, o **seletor de nó** fica em Configurações → Nó Sails. O **seletor de mercado** fica no topo do Market (protótipo D1, PR #727), e a gestão dos mercados em Configurações → Comunidades.
+  - Na interface (versão final, 2026-11-21): os nós ficam em Configurações → Rede e nós, com a lista na área Avançado. Os mercados ficam no Market: seletor no topo (protótipo D1, PR #727), Explorar mercados, Meus mercados, Criar mercado e Entrar com convite. Ver "Decisão final" abaixo.
   - O nome oficial de mercados e servidores públicos e privados ainda está em aberto no backlog. Até decidir, a tela usa "Mercado público" e o nome dado pelo grupo.
   - **Orientação do CTO (2026-11-20, issue #147):**
     - nó privado **não é obrigatório** para um mercado fechado, e os dois modelos continuam (nó compartilhado ou próprio);
@@ -89,18 +89,68 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
     - **Sails Market Invite:** credencial verificável, nativa do protocolo (OpenP2P com OpenIdentity).
   - **Quem faz o quê:** Pubky e Pears fazem parte da stack planejada, para identidade e descoberta, mas não recebem a autoridade dos mercados. O Sails Node hospeda o mercado sem autoridade econômica. **Uma chave pública, sozinha, nunca é autorização de acesso.**
   - **A interface nunca inventa** prefixo, chave ou formato definitivo, nunca usa senha compartilhada como autorização e nunca cria formato criptográfico próprio.
-  - **Dois fluxos separados:**
-    - **Adicionar nó Sails:** nó público, privado ou hospedado; campo "Endereço ou identificador do nó Sails"; nome local opcional; informações de conexão e avisos de privacidade. Conectar ao nó não dá acesso aos mercados hospedados nele.
-    - **Entrar em mercado privado:** ação independente; informar o convite ou credencial Sails; preparado para convite compartilhável e QR Code; estados validando, autorização pendente, acesso concedido, expirado e revogado. Conhecer um identificador público não basta.
-  - **Casos de uso visíveis:**
-    - comunidade: amigos ou conhecidos que negociam entre si;
-    - empresa: mercado restrito para clientes, parceiros ou distribuidores;
-    - mercado hospedado: comunidade que usa a infraestrutura de um operador independente.
-  - **Vitrine e Comunidade** como configurações iniciais (ver acima).
-  - **Portabilidade:** estados preparados para reconhecer os mercados ligados à identidade portátil, mesmo depois de trocar de aplicativo ou de nó, quando houver suporte verificável. Nunca prometer recuperação automática antes da especificação.
-  - **Entregável da UI:** telas de adicionar nó, entrar em mercado privado, ver os mercados autorizados e os estados de convite e acesso, com as dependências de backend explícitas. Os controles que dependem do backend ficam "Em breve" ou indisponíveis até os contratos existirem.
+  - **Decisão final: a experiência gira em torno dos mercados, não dos nós** (CTO 28, ajustes finais, 2026-11-21, issue #147). Substitui as versões anteriores desta seção, que eram centradas no nó.
+    - **O princípio:**
+      - Sails Node = infraestrutura;
+      - Sails Market = produto;
+      - público ou privado = visibilidade **do mercado**;
+      - Rede Sails ou nó próprio = escolha de infraestrutura.
+      - O usuário comum interage com mercados. A gestão de nós fica nas configurações avançadas e, no futuro, na visão do operador.
+    - **Rede Sails nos bastidores:** é a experiência padrão. Escolher nó nunca é etapa obrigatória para usar o mercado público.
+    - **Configurações → Rede e nós** (antes "Nó Sails"):
+      - mostra o estado da conexão, as informações verificadas dos operadores e "Adicionar nó manualmente" (campo "Endereço ou identificador do nó Sails", com aviso de privacidade). Conectar a um nó não dá acesso aos mercados hospedados nele;
+      - a lista de nós, os operadores e o diagnóstico ficam numa área **Avançado**;
+      - Public Node e Private Node são perfis de implantação da infraestrutura, **nunca tipos de mercado**. Se aparecerem, é só nos detalhes avançados do nó.
+    - **Mercados no centro, dentro do Market** (o menu principal não muda): quatro ações ou visões:
+      - **Explorar mercados**;
+      - **Meus mercados**;
+      - **Criar mercado**;
+      - **Entrar com convite**.
+    - **Mercado público:** acessível publicamente, com marca própria, vitrine e regras de publicação do criador. **Pode haver vários mercados públicos.** Uma empresa cria o seu, com marca e regras, sem operar infraestrutura.
+    - **Mercado privado:** acesso restrito a participantes autorizados, para grupos, comunidades, empresas e parceiros.
+    - **A visibilidade não define quem publica ofertas.** São configurações separadas.
+    - **Criar mercado, nesta ordem:**
+      1. nome, descrição e identidade visual;
+      2. visibilidade: Público ou Privado;
+      3. participação e permissões: Vitrine, Comunidade ou Personalizado;
+      4. infraestrutura, como configuração secundária: Rede Sails (padrão, quando houver suporte de hospedagem) ou nó próprio. Só essas duas opções: o nó público compartilhado faz parte da Rede Sails;
+      5. revisão e criação;
+      6. para mercados privados, a gestão de participantes e convites Sails.
+    - **Exemplos das quatro combinações:**
+
+      | Mercado | Hospedagem | Exemplo |
+      |---|---|---|
+      | Público | Rede Sails | Empresa com vitrine e marca própria |
+      | Público | Nó próprio | Operador com mercado aberto independente |
+      | Privado | Rede Sails | Grupo de amigos ou comunidade fechada |
+      | Privado | Nó próprio | Empresa com mercado exclusivo para parceiros |
+
+    - **Entrar com convite:** o fluxo do Sails Market Invite, com convite verificável, QR Code e os estados validando, autorização pendente, acesso concedido, expirado e revogado. Sem Nostr e sem credencial improvisada. Conhecer um identificador público não basta.
+    - **Modelo "mundo aberto"** (aprovado pelo Product Owner, 2026-11-21):
+      - **O mercado aberto é o padrão, sem atrito:** o app abre direto nele, ninguém escolhe nada e o menu principal continua com 4 itens. A maior parte dos usuários fica aqui.
+      - **O portal:** no topo do Market, ao lado do título, um botão discreto com ícone, "Mercado aberto ▾". Ele abre um painel com:
+        - os mercados da pessoa (públicos que acompanha e privados de que participa), em primeiro;
+        - Explorar mercados;
+        - Entrar com convite;
+        - Criar mercado.
+        - Quem só usa o mercado aberto nunca é incomodado. Quem participa de comunidades troca de mercado em dois toques.
+      - **A vitrine "Explorar mercados":** uma página com os mercados públicos em destaque (marca, descrição, participantes, Vitrine ou Comunidade), com endereço próprio para compartilhar. É o marketing da abordagem do Sails: "crie o mercado da sua comunidade ou empresa, sem precisar de servidor".
+      - **Descoberta na hora certa:** um cartão discreto que dá para fechar e aparece de vez em quando no Market. Os mesmos convites aparecem nos lugares naturais: lista vazia, Perfil e Comunidades. Um mercado privado em que a pessoa entrou por convite passa a aparecer logo depois do "Mercado aberto", que continua sempre em primeiro.
+      - **Ícones obrigatórios:** cada tipo de mercado e cada ação do portal tem o seu ícone (lucide, dos tokens): mercado aberto, mercado público com marca, mercado privado, explorar, convite e criar. A marca de um mercado público, quando existir, substitui o ícone genérico.
+      - **Promoção futura:** se os mercados específicos virarem hábito, "Mercados" pode subir para o menu principal. Por enquanto fica no portal, para não haver mudança brusca.
+      - **Nome:** "**Mercado aberto**" é a proposta do Product Owner para o mercado público padrão do Sails, junto com "sala privada". O nome oficial ainda está em aberto; a tela já usa "Mercado aberto".
+    - **Seletor de mercados, no topo do Market:**
+      - o mercado público padrão do Sails ("Mercado aberto"), primeiro;
+      - outros mercados públicos que a pessoa acompanha ou administra;
+      - os mercados privados dos quais participa.
+      - O nó que hospeda cada mercado aparece só nos detalhes técnicos.
+    - **Sem exagero:** "nós independentes" ou "descentralizada" só com o dado de operadores independentes (issue #361). Nada afirma sincronização entre nós, disponibilidade ou garantias de segurança não homologadas. A sincronização entre nós ainda não foi especificada (Pears, UX-046).
+    - **Distribuições oficiais do Sails Node:** um só software com os perfis Public Node e Private Node, pré-configurado e white-label. O Sails controla instalação, atualizações verificáveis, compatibilidade, identificação, diagnóstico e templates, mas nunca autoriza operadores centralmente nem desliga mercados (UX-047). Selo de "distribuição oficial" só com verificação real.
+    - **Nome:** "sala privada" é a proposta do Product Owner. O nome oficial ainda está em aberto; até lá, a tela usa "mercado privado".
+    - **Portabilidade:** estados preparados para reconhecer os mercados ligados à identidade portátil, mesmo depois de trocar de aplicativo ou de nó, quando houver suporte verificável. Nunca prometer recuperação automática antes da especificação.
+    - **Entregável da UI:** Explorar mercados, Meus mercados, Criar mercado (fluxo completo) e Entrar com convite (estados), mais Configurações → Rede e nós (estado, adicionar manualmente, Avançado). Tudo com as dependências de backend explícitas e os controles "Em breve" até os contratos existirem; dados de demonstração marcados como fictícios.
   - **Autorizado:** layouts, componentes, textos, estados e protótipos. Implementação e ativação seguem os gates técnicos e de segurança.
-- Configurações tem as seções: Nó Sails, Wallet, Aparência, Idioma, Notificações, Segurança, Comunidades e Ajuda e Sobre. O ícone de paleta ("Aplicativo") saiu (2026-11-20).
+- Configurações (versão de 2026-11-20, substituída pela "Reorganização pela visão do usuário" acima): o ícone de paleta ("Aplicativo") saiu, e a seção "Nó Sails" virou "Rede e nós" em 2026-11-21. A ordem válida é a da reorganização: Wallet, Aparência, Idioma, Notificações, Segurança, Rede e nós, Comunidades, Ajuda e Sobre.
 
 ## Identidade
 - Logo: direção A, "Vela dupla" (vela laranja, bujarrona azul, linha d'água). Assinatura com o símbolo e o nome "Sails Market" na horizontal. "Conectar wallet" não faz parte da logo (2026-11-20).

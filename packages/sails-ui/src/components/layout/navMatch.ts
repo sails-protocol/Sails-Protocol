@@ -16,6 +16,14 @@ export const TRADES_ROUTES = {
   disputes: '/trades/disputes',
 } as const
 
+/** Market hub routes (CTO final correction for plan 1.4): markets live inside the Market area; the offer list stays at '/'. */
+export const MARKETS_ROUTES = {
+  explore: '/markets',
+  mine: '/markets/mine',
+  create: '/markets/new',
+  join: '/markets/join',
+} as const
+
 /** Old addresses that keep working: each one redirects (replace) to its new home. */
 export const LEGACY_REDIRECTS: Readonly<Record<string, string>> = {
   '/profile/active': TRADES_ROUTES.active,

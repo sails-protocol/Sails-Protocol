@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useOutletContext, useSearchParams } from 'react-router'
 import {
   Award, Bell, HelpCircle, KeyRound, Languages, LogOut, Monitor, Moon, Network, Server, Shield, ShieldCheck, Sun, SunMoon,
-  Users, Wallet, ArrowLeft, type LucideIcon,
+  Ticket, Users, Wallet, ArrowLeft, type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
@@ -29,6 +29,8 @@ import { LOOSE_WIRES, type LooseWireId } from '../lib/looseWires'
 import type { ThemePreference } from '../lib/themePreference'
 import { translationPending, useLocalePreference, type LocalePreference } from '../lib/locale'
 import { sectionFromSearch } from '../lib/settingsSection'
+import { NetworkRow, NetworkSettingsRows } from '../components/settings/NetworkSettings'
+import { MARKETS_ROUTES } from '../components/layout/navMatch'
 
 const AVATAR_STYLE_OPTIONS: ReadonlyArray<{ value: IdentityAvatarStyle; label: string }> = [
   { value: 'vela', label: 'Vela' },
@@ -73,7 +75,8 @@ const SECTIONS: ReadonlyArray<{ id: string; label: string; icon: LucideIcon }> =
   { id: 'idioma', label: 'Idioma', icon: Languages },
   { id: 'notificacoes', label: 'Notificações', icon: Bell },
   { id: 'seguranca', label: 'Segurança', icon: Shield },
-  { id: 'no-sails', label: 'Nó Sails', icon: Network },
+  // Renamed "Rede e nós" (CTO final correction for plan 1.4); the id stays so ?section=no-sails keeps working.
+  { id: 'no-sails', label: 'Rede e nós', icon: Network },
   { id: 'comunidades', label: 'Comunidades', icon: Users },
   { id: 'ajuda', label: 'Ajuda e Sobre', icon: HelpCircle },
 ]
@@ -144,12 +147,17 @@ export function Settings() {
         />
 
         <div className="min-w-0">
-          <SettingsGroup {...panel('no-sails')} title="Nó Sails" icon={Network}>
+          <SettingsGroup {...panel('no-sails')} title="Rede e nós" icon={Network}>
+            {/* Rede Sails is the default and works behind the scenes; markets live in the Market area, not here. */}
+            <NetworkRow />
             {/* The app talks to one API base fixed by its build config (lib/sailsClient.ts); no live connection signal exists, so no status line. */}
             <SettingsRow icon={Server} label="Nó Sails" description="Definido pela configuração deste app" value="Automático" />
-            <Planned id="publicPrivateServers" />
-            <Planned id="manualServer" />
-            <Planned id="connectionDiagnostics" />
+            {/* The planned rows stay, re-homed under "Avançado". */}
+            <NetworkSettingsRows advanced={<>
+              <Planned id="publicPrivateServers" />
+              <Planned id="manualServer" />
+              <Planned id="connectionDiagnostics" />
+            </>} />
           </SettingsGroup>
 
           <SettingsGroup {...panel('wallet')} title="Wallet" icon={Wallet}>
@@ -266,6 +274,9 @@ export function Settings() {
 
           <SettingsGroup {...panel('comunidades')} title="Comunidades" icon={Users}>
             <Planned id="communities" description="Comunidades e mercados restritos de que você participa" />
+            {/* Markets live in the Market area (CTO final correction for plan 1.4); these rows only lead there. */}
+            <SettingsRow icon={Users} label="Meus mercados" description="Mercados públicos que você segue e privados de que você participa" to={MARKETS_ROUTES.mine} />
+            <SettingsRow icon={Ticket} label="Entrar com convite" description="Num mercado privado, com um convite Sails" to={MARKETS_ROUTES.join} />
           </SettingsGroup>
 
           <SettingsGroup {...panel('ajuda')} title="Ajuda e Sobre" icon={HelpCircle}>

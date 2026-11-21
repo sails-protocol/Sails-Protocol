@@ -1,6 +1,6 @@
 import {
   Activity, Bell, CircleUser, Globe, Info, KeyRound, Languages, LifeBuoy, Link2, Lock, MapPin, MessageSquare,
-  ServerCog, CalendarDays, Coins, CreditCard, Scale, Star, Users, Wallet,
+  ServerCog, CalendarDays, Coins, CreditCard, Scale, Star, Users, Wallet, Network, Ticket, QrCode, UserCheck, Fingerprint, PlusCircle, Compass, Palette,
 } from 'lucide-react'
 
 /**
@@ -27,6 +27,17 @@ export const LOOSE_WIRES = {
   communities: { label: 'Comunidades', icon: Users, contract: 'community / restricted-market membership contract in the SDK (none today)' },
   helpCenter: { label: 'Central de ajuda', icon: LifeBuoy, contract: 'help content destination (docs URL) owned by the product' },
   publicAvatar: { label: 'Avatar público', icon: CircleUser, contract: 'Avatar público escolhido pelo usuário (visível para as contrapartes) needs a profile field on the server' },
+  // Nodes and private markets (DECISIONS.md "Nós e mercados privados", issue #147, issue #361, ADR-001). Formats of the
+  // three identifiers are pending the Principal; the UI never invents a prefix, key format or definitive identifier.
+  nodeCatalog: { label: 'Catálogo de nós Sails', icon: Network, contract: 'Node catalogue/discovery (ADR-001 §6 bootstrap, §26.2 discoverability) + per-node metadata (operator, region, status, fee, limits, declared custody model) + Sails Node ID format (Principal); adding a node also needs manualServer (validated endpoint, SailsClient rebuilt). Issue #361' },
+  nodeStateSync: { label: 'Sincronização entre nós', icon: Network, contract: 'How offers, discovery and updates are distributed or synchronized between Sails nodes (ADR-001 §4 propagation / §5 convergence, Pears planned): unspecified; the UI never claims nodes share the same state. CTO gap, issues #361 and #147' },
+  marketInvite: { label: 'Entrar com convite Sails', icon: Ticket, contract: 'Sails Market Invite: verifiable credential native to the protocol (OpenP2P + OpenIdentity), SDK call to validate it and report pending/granted/expired/revoked; a public key alone is never authorization. Issue #147' },
+  marketInviteQr: { label: 'Ler convite por QR Code', icon: QrCode, contract: 'QR encoding of the Sails Market Invite (same credential as marketInvite) + camera permission flow in the app; no camera code exists. Issue #147' },
+  marketMembership: { label: 'Mercados privados', icon: UserCheck, contract: 'Sails Market ID (independent of the hosting node) + membership and permissions read through the SDK, verified in backend and protocol (not only hidden on screen); the market selector and "Meus mercados" list only the default public market until then. Issue #147, ADR-001 §1' },
+  marketPortability: { label: 'Mercados ligados à sua identidade', icon: Fingerprint, contract: 'Membership bound to the portable identity (Pubky planned as infrastructure, never market authority) and recognized after switching app or node, with verifiable support; no automatic recovery is promised. Issue #147, ADR-001 §10' },
+  createMarket: { label: 'Criar mercado', icon: PlusCircle, contract: 'Create a market: name/description/branding, visibility (public or private), participation and permissions (Vitrine/Comunidade presets, Personalizado later; visibility never decides who publishes), infrastructure (Rede Sails hosting when supported, or own node), review; for private markets, participants and Sails Market Invites. Permission model by the Principal, authority limits validated by GK before implementation. Issue #147' },
+  marketDiscovery: { label: 'Explorar mercados', icon: Compass, contract: 'Discovery of public markets on Rede Sails (several public markets allowed, e.g. a company storefront without own infrastructure) + follow/unfollow, read through the SDK; Sails Market ID format by the Principal. Issue #147, ADR-001 §6/§14' },
+  marketBranding: { label: 'Identidade visual do mercado', icon: Palette, contract: 'Market name, description, logo/colors stored with the Sails Market and read through the SDK (white-label storefront); no field exists today. Issue #147' },
   // Other screens.
   readRatings: { label: 'Avaliações', icon: Star, contract: 'Ler avaliações (média, quantidade, comentários) — endpoint + SDK (only reputation.rate() exists)' },
   publicMemberSince: { label: 'Membro desde', icon: CalendarDays, contract: 'Data de cadastro (mês/ano) nos dados públicos do anunciante (PublicOfferSeller has no createdAt)' },
