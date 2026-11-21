@@ -56,7 +56,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     // M-1b: the COMMITTED transition resolves the Offer through trades.acceptedEnvelopeId (R1): the envelope this trade accepted.
     const accepted = await prisma.offerEnvelope.findFirst({ where: { ownerPublicKey: hex(maker.publicKey), logicalOfferId, revision } })
     await prisma.trade.create({
-      data: { offerId: legacyOfferId, sellerId: o.sellerId ?? makerId, buyerId: o.buyerId ?? takerId, asset: o.asset ?? 'BTC', amount: o.amount ?? '0.005', status: o.status ?? 'PENDING', priceUsd: '65000', totalUsd: '325', tradeIntentId: intent.id, acceptedEnvelopeId: accepted?.id },
+      data: { offerId: legacyOfferId, sellerId: o.sellerId ?? makerId, buyerId: o.buyerId ?? takerId, asset: o.asset ?? 'BTC', amount: o.amount ?? '0.005', status: o.status ?? 'PENDING', priceUsd: '65000', totalUsd: '325', tradeIntentId: intent.id, acceptedEnvelopeId: (o.asset ?? 'BTC') === 'BTC' ? accepted?.id : undefined }, // R1 refuses an envelope whose asset differs from the trade's: that mismatching trade stays unbound (the F3 guard refuses it first)
     })
     return intent.id
   }
@@ -392,7 +392,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     }
   }
 
-  it('C2 with a real barrier: session A holds its uncommitted COMMITTED UPDATE; session B, same anchor, is seen WAITING on it; A commits and B loses with E25_ANCHOR_ALREADY_COMMITTED', async () => {
+  it('C2 with a real barrier: session A holds its uncommitted COMMITTED UPDATE; session B, same anchor, is seen WAITING on it; A commits and B loses (M-1b reservation: E25_OFFER_CAPACITY_ANCHOR_RESERVED, before the F3 unique index)', async () => {
     pg.requirePostgres('F3 C2 barrier')
     const s = service(); const anchorRef = await admitTrade()
     const a = await fresh({ anchorRef }), b = await fresh({ anchorRef, ttlMs: 1_700_000 }) // two pairs, different digests, one anchor
@@ -411,7 +411,9 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
 `)
     expect(waiting).toBe(true)
     expect(ra).toMatchObject({ ok: true, view: { state: 'COMMITTED' } })
-    expect(rb).toEqual({ ok: false, code: 'E25_ANCHOR_ALREADY_COMMITTED' })
+    // M-1b: the capacity reservation (unique per trade anchor) is taken inside the same BEFORE UPDATE chain, ahead of the committedAnchorRef unique index,
+    // so the loser now meets E25_OFFER_CAPACITY_ANCHOR_RESERVED. The anchor still ends with exactly ONE COMMITTED pair (asserted below).
+    expect(rb).toEqual({ ok: false, code: 'E25_OFFER_CAPACITY_ANCHOR_RESERVED' })
     expect(await prisma.commitmentPair.count({ where: { anchorRef, state: 'COMMITTED' } })).toBe(1)
   })
 

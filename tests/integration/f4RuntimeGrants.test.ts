@@ -1,7 +1,7 @@
 /**
  * F4 / invariant 3b, S1 - the RUNTIME track. As the restricted application role (sails_runtime), real SQL: the two legacy marks and
  * commitmentPairId cannot be written (column-level grants), the group-B lifecycle still works, and the runtime cannot switch the
- * triggers off. Scratch database built from every migration through F4, roles from scripts/db/bootstrap-roles.js, grants from
+ * triggers off. Scratch database built from every migration, roles from scripts/db/bootstrap-roles.js, grants from
  * scripts/db/runtime-grants.sql (the file that ships), then every assertion runs AS sails_runtime. Not superuser-only proofs.
  */
 import { randomUUID } from 'crypto'
@@ -13,7 +13,6 @@ import { assertRuntimeCannotUseReplica, legacyEscrowSeed, withReplica } from './
 
 const ROOT = path.join(__dirname, '..', '..')
 const MIG_DIR = path.join(ROOT, 'prisma', 'migrations')
-const F4 = '20261122122000_f4_escrow_commitment_binding'
 const hex64 = () => randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '')
 const hex128 = () => hex64() + hex64()
 
@@ -36,7 +35,7 @@ describe('F4 S1 - runtime track (sails_runtime, column-level grants)', () => {
     admin = new Client({ connectionString: adminUrl.toString() }); await admin.connect()
     await admin.query(`CREATE DATABASE ${NAME}`)
     su = new Client({ connectionString: urlFor(baseUrl.username, baseUrl.password) }); await su.connect(); conns.push(su)
-    const dirs = readdirSync(MIG_DIR, { withFileTypes: true }).filter((d) => d.isDirectory() && d.name <= F4).map((d) => d.name).sort()
+    const dirs = readdirSync(MIG_DIR, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort()
     for (const d of dirs) await su.query(readFileSync(path.join(MIG_DIR, d, 'migration.sql'), 'utf8'))
     // fixtures first (superuser), THEN the roles and grants, exactly as the deploy order does after migrations
     userId = (await su.query(`INSERT INTO users (id,"publicKey","updatedAt") VALUES ($1,$2,now()) RETURNING id`, [randomUUID(), randomUUID()])).rows[0].id
@@ -160,5 +159,17 @@ describe('F4 S1 - runtime track (sails_runtime, column-level grants)', () => {
     const other = await tradeWithCommittedPair()
     expect(await code(rt.query("INSERT INTO escrows (id,\"tradeId\",\"lockedAmount\",asset,type,\"updatedAt\") VALUES ($1,$2,5,'USDT_ERC20','WDK_USDT_EVM',now())", [randomUUID(), other.tradeId]))).toBe('23514')
     expect(await code(rt.query("UPDATE escrows SET \"legacyPreCommitmentAt\" = now() WHERE id = $1", [id]))).toBe('42501')
+  })
+  it('7. M-1b (GK B2/B4a): the runtime only READS reservations (no INSERT, UPDATE or DELETE, even a direct INSERT is permission denied) and cannot write the unblock proof; it keeps the declaration columns the service updates', async () => {
+    const colUpdate = async (t: string, c: string) => (await su.query(`SELECT has_column_privilege('sails_runtime', $1, $2, 'UPDATE') AS ok`, [`public.${t}`, c])).rows[0].ok as boolean
+    for (const c of ['state', 'releasedAt', 'releaseKind', 'releaseProof', 'amount', 'commitmentPairId']) expect([c, await colUpdate('offer_capacity_reservations', c)]).toEqual([c, false])
+    const tbl = async (p: string) => (await su.query(`SELECT has_table_privilege('sails_runtime', 'public.offer_capacity_reservations', $1) AS ok`, [p])).rows[0].ok as boolean
+    expect(await tbl('SELECT')).toBe(true)
+    for (const p of ['INSERT', 'UPDATE', 'DELETE']) expect([p, await tbl(p)]).toEqual([p, false])
+    expect(await colUpdate('offer_capacity', 'unblockProof')).toBe(false)
+    for (const c of ['capacityTotal', 'capacityRevision', 'declaration', 'declarationSignature']) expect([c, await colUpdate('offer_capacity', c)]).toEqual([c, true])
+    // the privilege check precedes any constraint: a direct INSERT as the runtime is refused outright
+    expect(await code(rt.query(`INSERT INTO offer_capacity_reservations ("id","ownerPublicKey","logicalOfferId","tradeIntentId","commitmentPairId","amount","capacityRevisionObserved","capacityTotalAtReservation","offerRevision","offerEnvelopeDigest")
+      VALUES (gen_random_uuid()::text,'o','l','a','p',0.00000001,1,1000000,1,'x')`))).toBe('42501')
   })
 })

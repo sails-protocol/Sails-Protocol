@@ -77,6 +77,10 @@ export async function createCommitmentFixture(prisma: any, opts: CommitmentFixtu
 
   const service = new svcMod.CommitmentPairService({ enabledRails: () => new Set([rail]) })
 
+  // The Offer envelope the NEXT pair names. Defaults to this fixture's own envelope; commitExistingTrade() points it at the envelope the
+  // trade really accepted (trades.acceptedEnvelopeId, R1), because the COMMITTED transition reserves capacity of THAT logical Offer (M-1b).
+  const env = { logicalOfferId, revision, digest: envelopeDigest, side: 'SELL', priceUsd: '65000.00000000', paymentMethod: 'PIX' }
+
   /** An E21-admitted trade: its OWN Intent, bound to the exact envelope it accepted (R1). Returns { tradeId, anchorRef }. */
   async function admitTrade(status: 'PENDING' | 'ACTIVE' = 'PENDING') {
     const intent = await prisma.intent.create({ data: { type: 'TradeIntent', participantId: takerId, moduleId: 'openp2p', payload: {}, status } })
@@ -90,9 +94,9 @@ export async function createCommitmentFixture(prisma: any, opts: CommitmentFixtu
   async function proposePartialPair(anchorRef: string) {
     const t = Date.now()
     const commitment = {
-      anchorRef, offerEnvelopeDigest: envelopeDigest, offerLogicalId: logicalOfferId, offerRevision: revision,
-      makerPublicKey: hex(maker.publicKey), takerPublicKey: hex(taker.publicKey), side: 'SELL', asset, rail, network: 'bitcoin-testnet',
-      amount, priceUsd: '65000.00000000', paymentMethod: 'PIX', feePolicyVersionId: fee.id, feePolicyDigest,
+      anchorRef, offerEnvelopeDigest: env.digest, offerLogicalId: env.logicalOfferId, offerRevision: env.revision,
+      makerPublicKey: hex(maker.publicKey), takerPublicKey: hex(taker.publicKey), side: env.side, asset, rail, network: 'bitcoin-testnet',
+      amount, priceUsd: env.priceUsd, paymentMethod: env.paymentMethod, feePolicyVersionId: fee.id, feePolicyDigest,
       proposedAt: iso(t - 5_000), expiresAt: iso(t + 1_800_000),
     }
     const policy = { policyVersion: '1', capability: 'FIXED_ARBITER_COMMITMENT', rail, hosting: 'PARTIES_HOLD_COPIES_HOST_CONVENIENCE_FAILOVER_OPEN', mode: 'trusted-list', arbiterSelection: 'fixed', appeal: 'NONE_SCRIPT_FIXED', liveness: 'NONE_UNDER_CURRENT_SCRIPT' }
@@ -119,10 +123,10 @@ export async function createCommitmentFixture(prisma: any, opts: CommitmentFixtu
   async function declareCapacity(total = '1000000.00000000'): Promise<void> {
     const cap = require('../../../src/modules/open-liquidity/offer-capacity-declaration')
     const owner = hex(maker.publicKey)
-    const content = { ownerPublicKey: owner, logicalOfferId, asset, capacityTotal: total, capacityRevision: 1, networkId: 'testnet', issuedAt: iso(Date.now()) }
+    const content = { ownerPublicKey: owner, logicalOfferId: env.logicalOfferId, asset, capacityTotal: total, capacityRevision: 1, networkId: 'testnet', issuedAt: iso(Date.now()) }
     const signature = cap.signOfferCapacity(content, hex(maker.secretKey))
     await prisma.$executeRaw`INSERT INTO "offer_capacity" ("ownerPublicKey","logicalOfferId","capacityTotal","capacityRevision","declaredAt","declaration","declarationSignature")
-      VALUES (${owner}, ${logicalOfferId}, ${total}::numeric, 1, ${new Date(content.issuedAt)}, ${JSON.stringify(content)}::jsonb, ${signature}) ON CONFLICT DO NOTHING`
+      VALUES (${owner}, ${env.logicalOfferId}, ${total}::numeric, 1, ${new Date(content.issuedAt)}, ${JSON.stringify(content)}::jsonb, ${signature}) ON CONFLICT DO NOTHING`
   }
 
   /** A real COMMITTED pair for `anchorRef` (taker proposes, maker signs; real signatures). */
@@ -141,6 +145,10 @@ export async function createCommitmentFixture(prisma: any, opts: CommitmentFixtu
     async commitExistingTrade(tradeId: string): Promise<string> {
       const t = await prisma.trade.findUniqueOrThrow({ where: { id: tradeId } })
       if (!t.tradeIntentId) throw new Error('fixture: the trade is not admitted (no tradeIntentId)')
+      // CTO Despacho 050: a trade with acceptedEnvelopeId NULL cannot originate an executable escrow. Create it with acceptedEnvelopeFor().
+      if (!t.acceptedEnvelopeId) throw new Error('fixture: the trade has no acceptedEnvelopeId (pass acceptedEnvelopeFor(prisma, seller, offer) to tradeService.createTrade)')
+      const e = await prisma.offerEnvelope.findUniqueOrThrow({ where: { id: t.acceptedEnvelopeId } })
+      Object.assign(env, { logicalOfferId: e.logicalOfferId, revision: e.revision, digest: e.contentDigest, side: String(e.side), priceUsd: Number(e.priceUsd).toFixed(8), paymentMethod: String(e.paymentMethod) })
       return commitPair(t.tradeIntentId)
     },
     /** A new admitted trade with its COMMITTED pair. */
@@ -157,6 +165,29 @@ export async function createCommitmentFixture(prisma: any, opts: CommitmentFixtu
       return prisma.escrow.create({ data: { lockedAmount: amount, asset, ...data, tradeId, commitmentPairId: pairId } })
     },
   }
+}
+
+/**
+ * A signed ACTIVE Offer envelope that mirrors a legacy Offer row exactly (owner = the seller's own key, same asset/side/price/payment
+ * method, same amount window), for suites that build the trade through tradeService.createTrade: pass the returned id as
+ * `acceptedEnvelopeId` so the trade names the revision it accepted (R1) and its COMMITTED pair can reserve capacity (M-1b).
+ */
+export async function acceptedEnvelopeFor(prisma: any, seller: { id: string; secretKey: string }, offer: any): Promise<string> {
+  const envMod = require('../../../src/modules/open-liquidity/offer-envelope')
+  const { offerEnvelopeRepository } = require('../../../src/modules/open-liquidity/offer-envelope-repository')
+  const kpSeller = nacl.sign.keyPair.fromSecretKey(new Uint8Array(Buffer.from(seller.secretKey, 'hex')))
+  const dp8 = (v: unknown) => Number(String(v)).toFixed(8)
+  const now = Date.now()
+  const content = {
+    logicalOfferId: `acc-${offer.id}`, ownerPublicKey: hex(kpSeller.publicKey), asset: String(offer.asset), side: String(offer.side), priceUsd: dp8(offer.priceUsd),
+    minAmount: dp8(offer.minAmount), maxAmount: dp8(offer.maxAmount), paymentMethod: String(offer.paymentMethod), revision: 1,
+    createdAt: iso(now - 120_000), revisedAt: iso(now - 60_000), expiresAt: iso(now + 86_400_000), status: 'ACTIVE',
+  }
+  const ingest = await offerEnvelopeRepository.ingest({ ...content, signature: envMod.signOfferEnvelope(content, hex(kpSeller.secretKey)) })
+  if (!ingest.accepted) throw new Error(`acceptedEnvelopeFor: the envelope was not accepted (${JSON.stringify(ingest)})`)
+  const row = await prisma.offerEnvelope.findFirst({ where: { ownerPublicKey: content.ownerPublicKey, logicalOfferId: content.logicalOfferId, revision: 1 } })
+  if (!row) throw new Error('acceptedEnvelopeFor: the accepted envelope row was not found')
+  return row.id as string
 }
 
 /**

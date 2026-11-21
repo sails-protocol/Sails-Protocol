@@ -12,7 +12,7 @@ import { PrismaClient } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
-import { commitTradePair } from './helpers/committedPairFixture'
+import { commitTradePair, acceptedEnvelopeFor } from './helpers/committedPairFixture'
 import nacl from 'tweetnacl'
 import type { ArbitrationProvider } from '../../src/modules/open-settlement/arbitration-provider'
 
@@ -73,7 +73,7 @@ describe('Issue #238 - dispute opening is atomic with the escrow freeze (real Po
     const seller = await prisma.user.create({ data: { publicKey: Buffer.from(sellerKey.publicKey).toString('hex') } })
     const buyer = await prisma.user.create({ data: { publicKey: Buffer.from(buyerKey.publicKey).toString('hex') } })
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
-    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001', acceptedEnvelopeId: await acceptedEnvelopeFor(prisma, seller, offer) })
     const commitmentPairId = type === 'MULTISIG'
       ? await commitTradePair(prisma, trade.id, { id: seller.id, secretKey: Buffer.from(sellerKey.secretKey).toString('hex') }, { id: buyer.id, secretKey: Buffer.from(buyerKey.secretKey).toString('hex') })
       : undefined
