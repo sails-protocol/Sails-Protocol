@@ -16,7 +16,7 @@ Origem: `ui-backend-gaps-2026-11-20.md`, o Despacho 039, o Despacho 051 com o Co
   - **Solução proposta:** existe proposta técnica, ainda não aprovada.
   - **Implementado:** está na interface e/ou no backend.
 - **Responsável inicial:** "EPM (a distribuir)", até o EPM atribuir.
-- **Indicadores (recomendação do CTO):** 44 requisitos descobertos (UX-001 a UX-044), 0 homologados.
+- **Indicadores (recomendação do CTO):** 45 requisitos descobertos (UX-001 a UX-045), 0 homologados.
 
 ---
 
@@ -428,7 +428,7 @@ Origem: sessão de UI, branch `ui/design-system` (sem PR publicada), decisões d
 
 - [ ] **UX-043: Seletor de nó Sails em Configurações**
   - Origem: UI e Product Owner, com inspiração Mostro: lista de nós (operador, região, status, taxa, limites, custódia declarada) e "adicionar seu próprio nó" com aviso.
-  - Regra Sails que muda a referência: ADR-001 "Node choice must not define market membership" e #361 (nenhum nó é autoridade obrigatória); a tela não sugere livro de ofertas por nó.
+  - Correção (UI, após esclarecimento do Product Owner e leitura de #147, ADR-001 e PROJECT_CONTEXT §2D item 12): mercado fechado NÃO é "nó privado". O nó mantém a rede (infraestrutura e serviço); o mercado público é da rede inteira. Mercado privado é conceito separado (UX-045) e pode rodar em nó compartilhado ou próprio (#147: quem hospeda o nó não define quem pertence ao mercado). O seletor de nó escolhe a infraestrutura e nunca troca de mercado. Regras Sails: ADR-001 "Node choice must not define market membership" e #361; a tela não sugere livro de ofertas por nó.
   - Contrato a levantar: catálogo e descoberta de nós (ADR-001 §6), metadados e identidade do nó. Ligado a UX-034 (E2).
   - Prioridade: P2.
   - Estado: interface prevista como item 1.4 do plano #746, com dados simulados e marcados na demonstração.
@@ -440,6 +440,13 @@ Origem: sessão de UI, branch `ui/design-system` (sem PR publicada), decisões d
   - Contorno na UI: a aba Disputas lista os próprios trades com status DISPUTED (dado real) e mostra a fila do árbitro numa seção separada só quando existir.
   - Prioridade: P2.
   - Estado: levantado pela UI, não aprovado.
+
+- [ ] **UX-045: Mercados privados e seletor de mercado**
+  - Origem: UI e Product Owner, após o esclarecimento nós x mercados. Módulo: OpenP2P (composição), OpenIdentity (CapabilityGrant, RFC-005) e políticas por implantação.
+  - Proposta técnica: composição de visibilidade da descoberta, CapabilityGrant (RFC-005) e políticas por implantação, não uma primitiva nova. Falta prova de composição e, se for insuficiente, decisão de produto antes de arquitetura (CTO).
+  - Proposta de interface: seletor de mercado no topo do Market ("Mercado público" e os mercados de que a pessoa participa), retomando o protótipo D1 da PR #727; gestão em Configurações, Comunidades (fio solto `communities`); cada mercado mostra em que nó está hospedado só como informação.
+  - Prioridade: P3 ou a decidir pelo CTO. Nome oficial em aberto (BACKLOG: Public/Private Markets/Servers).
+  - Estado: levantado, não aprovado. Relacionado a UX-043, UX-034 e UX-005.
 
 ## Decisões pendentes do CTO (F)
 1. Destino de STACKS, RSK_BTC e SPARK no enum (UX-005).
