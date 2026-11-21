@@ -447,6 +447,14 @@ Origem: sessão de UI, branch `ui/design-system` (sem PR publicada), decisões d
   - Proposta de interface: seletor de mercado no topo do Market ("Mercado público" e os mercados de que a pessoa participa), retomando o protótipo D1 da PR #727; gestão em Configurações, Comunidades (fio solto `communities`); cada mercado mostra em que nó está hospedado só como informação.
   - Prioridade: P3 ou a decidir pelo CTO. Nome oficial em aberto (BACKLOG: Public/Private Markets/Servers).
   - Estado: levantado, não aprovado. Relacionado a UX-043, UX-034 e UX-005.
+  - Resposta do CTO ao Product Owner (relatada pela sessão de UI; o texto original está com o Alan, não lido pelo EPM), vinculada à #147, SEM autorização de implementação:
+    - Os dois modelos da #147 se mantêm (nó compartilhado ou próprio); nó privado não é obrigatório; a experiência prioriza a combinação nó privado mais mercado fechado.
+    - "O mercado define a comunidade e suas permissões; o nó fornece comunicação, descoberta e disponibilidade."
+    - Casos: comunidade (por exemplo, 30 amigos que negociam pelo WhatsApp) e empresa (clientes, distribuidores e parceiros).
+    - Fluxo "Meus mercados": criar mercado, definir quem participa, regras, infraestrutura e convites. O participante entra com a identidade portátil e vê só as ofertas a que tem acesso.
+    - Critérios: os participantes controlam chaves e fundos; o host não acessa chaves nem tem autoridade unilateral sobre a liquidação; remover um membro não apaga a identidade portátil nem a reputação global; o operador de nó não falsifica autorização nem acessa fundos; as permissões são verificáveis no backend e no protocolo.
+    - Pendentes na #147: associação, isolamento, convites, privacidade e portabilidade.
+    - Pergunta aberta do CTO ao Product Owner: no mercado de empresa, só a empresa publica ou os clientes negociam entre si (define papéis e permissões).
 
 ## Decisões pendentes do CTO (F)
 1. Destino de STACKS, RSK_BTC e SPARK no enum (UX-005).
