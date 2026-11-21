@@ -19,8 +19,8 @@ const amount = '1'
 describe('WDK active generation ownership — PostgreSQL', () => {
   jest.setTimeout(120_000)
   const pg = createPostgresIntegrationHarness()
-  let prisma: any
-  let wdkTransferAttemptRepository: any
+  let prisma: typeof import('../../src/common/database').prisma
+  let wdkTransferAttemptRepository: typeof import('../../src/modules/open-settlement/wdk-transfer-attempt-repository').wdkTransferAttemptRepository
 
   beforeAll(async () => {
     await pg.probe()
