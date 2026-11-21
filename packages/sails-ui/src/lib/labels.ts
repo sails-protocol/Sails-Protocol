@@ -9,7 +9,7 @@
  * rendered to a person changes.
  */
 import type { AssetType, PaymentMethod } from '../types'
-import type { DisputeRuling } from '@satsails/p2p-trading-sdk'
+import type { DisputeRuling, DisputeStatus } from '@satsails/p2p-trading-sdk'
 
 // VERTICAL-SLICE-1 (2026-09-12) — BTC was the one Bitcoin-family label
 // with no rail qualifier (every sibling below already has one), leaving
@@ -123,4 +123,13 @@ export const DISPUTE_RULING_LABEL: Record<DisputeRuling, string> = {
   RELEASE: 'liberar para o comprador',
   REFUND: 'reembolsar o vendedor',
   SPLIT: 'dividir entre as partes',
+}
+
+export const DISPUTE_STATUS_LABEL: Record<DisputeStatus, string> = {
+  OPENED: 'Aberta',
+  EVIDENCE_SUBMITTED: 'Evidências enviadas',
+  ARBITRATED: 'Decisão do árbitro',
+  RESOLVED: 'Resolvida',
+  APPEALED: 'Em apelação',
+  AUTO_PROPOSED: 'Resolução automática proposta',
 }

@@ -27,13 +27,13 @@ interface Step {
 const STEPS: Step[] = [
   {
     icon: ShoppingCart,
-    title: 'Marketplace P2P, sem custódia',
-    description: 'Compre e venda cripto direto com outra pessoa — ninguém além de você e a contraparte guarda seus fundos em nenhum momento.',
+    title: 'Marketplace P2P com escrow',
+    description: 'Compre e venda cripto direto com outra pessoa. Cada trade mostra o tipo de escrow e quem pode assinar a liberação; em uma disputa, um árbitro designado também pode assinar.',
   },
   {
     icon: Lock,
     title: 'Escrow protege os dois lados',
-    description: 'Ao negociar, os fundos ficam bloqueados num escrow até o pagamento ser confirmado. Em caso de problema, um árbitro real pode intervir na disputa.',
+    description: 'Ao negociar, os fundos ficam bloqueados num escrow até o vendedor liberar, depois que o comprador marca o pagamento como enviado. Em caso de problema, um árbitro real pode intervir na disputa.',
   },
   {
     icon: MessageCircle,
@@ -43,7 +43,7 @@ const STEPS: Step[] = [
   {
     icon: KeyRound,
     title: 'Sua chave é sua identidade',
-    description: 'A mesma chave que você usou pra conectar assina suas ações e é sua identidade na rede P2P — igual ao Keet. Ela nunca sai do seu dispositivo.',
+    description: 'A mesma chave que você usou pra conectar assina suas ações e é sua identidade na rede P2P — igual ao Keet. Ela fica criptografada neste navegador e não é enviada ao Sails Protocol.',
   },
 ]
 

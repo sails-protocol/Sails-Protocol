@@ -47,23 +47,8 @@ export function formatByCurrency(value: number, currency: FiatCurrency): string 
   return value.toLocaleString(meta.locale, { style: 'currency', currency: meta.code })
 }
 
-// Illustrative-only fiat->USD rates, same honesty boundary as
-// AMOUNT_PRESETS above — used by PublishOffer.tsx to derive the
-// mandatory `priceUsd` (real CreateOfferInput field,
-// liquidity.service.ts) from whatever fiat price the user enters, since
-// no live rate feed exists. Not sourced from any live market.
-export const ILLUSTRATIVE_FX_TO_USD: Record<FiatCurrency, number> = {
-  BRL: 1 / 5.05,
-  USD: 1,
-  EUR: 1 / 0.92,
-  GBP: 1 / 0.79,
-  ARS: 1 / 980,
-  MXN: 1 / 18,
-  NGN: 1 / 1550,
-  INR: 1 / 83,
-  VES: 1 / 200,
-  COP: 1 / 4000,
-  PEN: 1 / 3.8,
-  BOB: 1 / 6.9,
-  EGP: 1 / 49,
+/** Unit price: never rounds away sub-cent digits (a 1.002 offer showed as "$1.00" while 100 units totalled $100.20). */
+export function formatPrice(value: number, currency: FiatCurrency): string {
+  const meta = FIAT_CURRENCIES.find((c) => c.code === currency) ?? FIAT_CURRENCIES[0]
+  return value.toLocaleString(meta.locale, { style: 'currency', currency: meta.code, maximumFractionDigits: 8 })
 }

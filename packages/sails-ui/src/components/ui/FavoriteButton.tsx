@@ -24,11 +24,13 @@ export function FavoriteButton({ userId }: { userId: string }) {
         setIsFav(toggleFavoriteTrader(userId))
       }}
       title={isFav ? 'Remover dos favoritos' : 'Favoritar este vendedor'}
-      // p-2 -m-2 (2026-08-01): expands the tap target to ~32px without
+      aria-label="Favoritar este vendedor"
+      aria-pressed={isFav}
+      // p-3.5 -m-3.5: expands the tap target to 44px without
       // shifting the visible icon or its layout position — the icon
       // alone was a 16px hit area, well under mobile's ~44px minimum
       // (found testing this same migration's other icon buttons live).
-      className={`p-2 -m-2 transition-colors ${isFav ? 'text-brand-orange-accent' : 'text-brand-text-muted hover:text-brand-text'}`}
+      className={`p-3.5 -m-3.5 transition-colors ${isFav ? 'text-brand-orange-accent' : 'text-brand-text-muted hover:text-brand-text'}`}
     >
       <Star className="h-4 w-4" fill={isFav ? 'currentColor' : 'none'} />
     </button>

@@ -1,6 +1,6 @@
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import { useAuth } from '../../context/AuthContext'
-import { UserAvatar } from '../ui/UserAvatar'
+import { AccountMenu } from './AccountMenu'
 import { ThemeToggle } from '../ui/ThemeToggle'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
@@ -19,6 +19,7 @@ import { HelpCircle } from 'lucide-react'
  */
 export function Topbar({ onReplayTour }: { onReplayTour: () => void }) {
   const { user } = useAuth()
+  const location = useLocation()
 
   return (
     <header className="hidden md:flex h-14 items-center justify-end gap-3 border-b border-brand-border-subtle bg-brand-bg/90 backdrop-blur px-6 sticky top-0 z-40">
@@ -36,13 +37,10 @@ export function Topbar({ onReplayTour }: { onReplayTour: () => void }) {
       <ThemeToggle />
 
       {user ? (
-        <Link to="/profile" className="flex items-center gap-2">
-          <UserAvatar user={user} size="sm" />
-          <span className="text-sm font-medium text-brand-text">{user.displayName}</span>
-        </Link>
+        <AccountMenu user={user} />
       ) : (
-        <Link to="/login" className={cn(buttonVariants({ className: 'text-sm px-4 py-2' }))}>
-          Conectar
+        <Link to="/login" state={{ from: location.pathname }} className={cn(buttonVariants({ className: 'text-sm px-4 py-2' }))}>
+          Conectar wallet
         </Link>
       )}
     </header>

@@ -67,7 +67,7 @@ export function Sidebar() {
               // an equal-width transparent border so nothing shifts on toggle.
               `flex items-center gap-3 rounded-lg border-l-2 px-3 py-2.5 text-sm font-medium transition-colors justify-center lg:justify-start ${
                 isActive
-                  ? 'border-brand-orange-accent bg-brand-orange-accent/10 text-brand-orange-accent'
+                  ? 'border-brand-orange-accent bg-brand-orange-accent/10 text-brand-orange-hover'
                   : 'border-transparent text-brand-text-secondary hover:bg-brand-elevated hover:text-brand-text'
               }`
             }

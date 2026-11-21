@@ -7,6 +7,25 @@ black + orange, light and dark theme, orange constant across both. See
 
 ## What this is
 
+### Monetary truth correction — CTO 118 (2026-11-14)
+
+This correction supersedes the historical FX descriptions below. Discovery,
+offer detail, own offers, Trade and Trade History display `priceUsd` /
+`totalUsd` as USD, without FX conversion. The optional legacy `priceBrl`
+field is not used to infer a binding quote currency. This does not establish
+fiat-payment commitment or multi-fiat support; B7 / #623 still owns that work.
+
+Publish Offer defaults to USD and accepts fixed USD prices only. Other
+currency selections show an unavailable message and cannot advance or
+submit. The illustrative FX table is removed; the entered positive USD
+decimal is passed unchanged (at most 16 integer and 8 fractional digits).
+The existing public SDK call is preserved, with no new economic endpoint,
+settlement integration, custody change or production activation.
+
+Targeted regression: `npx jest --runInBand packages/sails-ui/tests/publicationPrice.test.ts`.
+Funding/signing UX, SPLIT presentation, recovery, reusable packaging, Sails
+Pay reconciliation and CC17 acceptance remain separate, unfinished work.
+
 **Screen list corrected 2026-08-04** — no more Admin Dashboard/Manage
 Offers (removed the same day, see "What this is not" below), routing is
 `react-router` v8 (not `react-router-dom`, dropped in a dependency audit
@@ -120,7 +139,7 @@ acts on digital assets already in the wallet, via WDK. It never calls a
 banking API and never touches PIX or any other fiat rail; that
 conversion is a regulated on/off-ramp provider's job, entirely outside
 this protocol. The one negotiation step that names a fiat action
-("Aguardando pagamento") is always something the human counterparty
+("Pagamento marcado como enviado") is always something the human counterparty
 does — the agent only waits for and observes it.
 
 **Scam-prevention warnings (RFC-017,

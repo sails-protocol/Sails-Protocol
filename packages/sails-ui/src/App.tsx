@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router'
 import { Toaster } from 'sonner'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
@@ -15,6 +15,7 @@ import { SessionExpiryRedirect } from './components/auth/SessionExpiryRedirect'
 // page an unauthenticated first visit always needs immediately, so
 // deferring it would just move the same waterfall one step earlier.
 import { Login } from './pages/Login'
+import { NotFound } from './pages/NotFound'
 const Marketplace = lazy(() => import('./pages/Marketplace').then((m) => ({ default: m.Marketplace })))
 const OfferDetail = lazy(() => import('./pages/OfferDetail').then((m) => ({ default: m.OfferDetail })))
 const Trade = lazy(() => import('./pages/Trade').then((m) => ({ default: m.Trade })))
@@ -23,10 +24,23 @@ const PublishOffer = lazy(() => import('./pages/PublishOffer').then((m) => ({ de
 const TradeHistory = lazy(() => import('./pages/TradeHistory').then((m) => ({ default: m.TradeHistory })))
 const ActiveTrades = lazy(() => import('./pages/ActiveTrades').then((m) => ({ default: m.ActiveTrades })))
 const Disputes = lazy(() => import('./pages/Disputes').then((m) => ({ default: m.Disputes })))
+// Dev-only preview: import.meta.env.DEV is statically false in production builds, so Rollup drops this chunk.
+const CurrentActionPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/CurrentActionPreview').then((m) => ({ default: m.CurrentActionPreview }))) : null
+const SigningRequestPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/SigningRequestPreview').then((m) => ({ default: m.SigningRequestPreview }))) : null
+const FundingInstructionPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/FundingInstructionPreview').then((m) => ({ default: m.FundingInstructionPreview }))) : null
 
+// Mobile: top, so a toast never covers the page's primary action or the bottom nav.
+const MOBILE_QUERY = '(max-width: 767px)'
 function ThemedToaster() {
   const { theme } = useTheme()
-  return <Toaster position="bottom-right" theme={theme} />
+  const [mobile, setMobile] = useState(() => window.matchMedia(MOBILE_QUERY).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_QUERY)
+    const onChange = () => setMobile(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return <Toaster position={mobile ? 'top-center' : 'bottom-right'} theme={theme} />
 }
 
 // Same loading copy/style Trade.tsx's own initial-load state already
@@ -45,8 +59,9 @@ export default function App() {
             <ThemedToaster />
             <SessionExpiryRedirect />
             <Routes>
-              <Route path="/login" element={<Login />} />
               <Route element={<Layout />}>
+                {/* Connect-wallet dialog over the Market: the app stays open without a session */}
+                <Route path="/login" element={<><Suspense fallback={<RouteFallback />}><Marketplace /></Suspense><Login /></>} />
                 <Route path="/" element={<Suspense fallback={<RouteFallback />}><Marketplace /></Suspense>} />
                 <Route path="/offer/:id" element={<Suspense fallback={<RouteFallback />}><OfferDetail /></Suspense>} />
                 <Route path="/trade/:id" element={<Suspense fallback={<RouteFallback />}><Trade /></Suspense>} />
@@ -55,6 +70,10 @@ export default function App() {
                 <Route path="/profile/history" element={<Suspense fallback={<RouteFallback />}><TradeHistory /></Suspense>} />
                 <Route path="/profile/new-offer" element={<Suspense fallback={<RouteFallback />}><PublishOffer /></Suspense>} />
                 <Route path="/disputes" element={<Suspense fallback={<RouteFallback />}><Disputes /></Suspense>} />
+                {CurrentActionPreview && <Route path="/dev/current-action" element={<Suspense fallback={<RouteFallback />}><CurrentActionPreview /></Suspense>} />}
+                {SigningRequestPreview && <Route path="/dev/signing-request" element={<Suspense fallback={<RouteFallback />}><SigningRequestPreview /></Suspense>} />}
+                {FundingInstructionPreview && <Route path="/dev/funding-instruction" element={<Suspense fallback={<RouteFallback />}><FundingInstructionPreview /></Suspense>} />}
+                <Route path="*" element={<NotFound />} />
               </Route>
             </Routes>
           </BrowserRouter>

@@ -27,3 +27,18 @@ export class WrongPassphraseError extends Error {
     this.name = 'WrongPassphraseError'
   }
 }
+
+// SDK 409 codes from trade admission (PR #651), matched by `code` string so
+// this leaf module stays import-free (SailsError carries `code`).
+const SDK_ERROR_MESSAGES: Record<string, string> = {
+  INTENT_BOUND: 'Esta intenção já está vinculada a um trade e não pode ser removida.',
+  AMBIGUOUS_INTENT: 'Esta intenção corresponde a mais de um trade. Abra o trade pela lista de Trades Ativos.',
+  IDEMPOTENCY_OUTCOME_UNKNOWN: 'Não foi possível confirmar se o trade foi criado. Confira seus Trades Ativos antes de tentar de novo.',
+}
+
+/** User-facing message for a caught error: known SDK codes first, then the error's own message, then `fallback`. */
+export function errorMessage(err: unknown, fallback: string): string {
+  const code = (err as { code?: unknown } | null)?.code
+  if (typeof code === 'string' && SDK_ERROR_MESSAGES[code]) return SDK_ERROR_MESSAGES[code]
+  return err instanceof Error && err.message ? err.message : fallback
+}

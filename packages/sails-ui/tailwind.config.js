@@ -90,10 +90,17 @@ export default {
         sm: 'calc(var(--radius) - 4px)',
       },
       fontFamily: {
-        // Display face for headlines/wordmark only — body text stays on
-        // the fast, dense-legible system stack (see index.css's `body`
-        // rule); this is the one place asked to carry brand personality.
-        display: ['"Space Grotesk"', '-apple-system', 'sans-serif'],
+        // One family for UI and titles (display = ui since 2026-11-19);
+        // routed through CSS vars so the dev-only typography study can
+        // swap families at runtime. See index.css's `:root`.
+        display: ['var(--sails-font-display)'],
+        mono: ['var(--sails-font-mono)'],
+      },
+      // Responsive scale lives in index.css (--t-*); overriding the theme
+      // keys keeps these real utilities, so `sm:text-base` etc. still win.
+      fontSize: {
+        xs: ['var(--t-meta)', { lineHeight: 'var(--t-meta-lh)' }],
+        sm: ['var(--t-body)', { lineHeight: 'var(--t-body-lh)' }],
       },
     },
   },

@@ -7,7 +7,9 @@ import { AlertTriangle, Receipt, Lock } from 'lucide-react'
 export function ChatMessage({ message, isMine }: { message: Message; isMine: boolean }) {
   if (message.type === 'SYSTEM') {
     return (
-      <div className="self-center text-center text-xs italic text-brand-text-muted bg-brand-elevated border border-brand-border rounded-full px-4 py-1.5 my-1">
+      // State changes this client observed (Trade.tsx), never counterparty text. No time: when it was observed is not when it happened.
+      <div role="status" className="self-center max-w-full text-center text-xs text-brand-text-secondary bg-brand-elevated border border-brand-border-subtle rounded-md px-3 py-1.5 my-1">
+        <span className="font-semibold">Atualização do trade · </span>
         {message.content}
       </div>
     )
@@ -20,7 +22,7 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
         <div className="flex-1">
           <div className="flex items-center gap-1.5 font-semibold text-red-500">
             {message.riskPattern ? RISK_PATTERN_LABEL[message.riskPattern] : 'Sinal de risco detectado'}
-            <InfoTooltip text="Reflete RISK_WARNING (RFC-017, SocialEngineeringAgent) — no backend real, o QVAC analisa a mensagem via qvacAgentProvider.assessSocialEngineeringRisk() e essa detecção fica desligada por padrão (config.features.socialEngineeringDetection). Nesta interface, a detecção em si é simulada por palavras-chave — não existe rota conectando o navegador ao agente real ainda." />
+            <InfoTooltip text="Aviso automático por palavras-chave, feito nesta interface. Pode errar para mais ou para menos e não verifica a mensagem nem a contraparte." />
           </div>
           <p className="text-brand-text-secondary mt-0.5">{message.content}</p>
         </div>
@@ -35,7 +37,7 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
   return (
     <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}>
       {!isMine && message.sender && (
-        <span className="text-[10px] text-brand-text-muted mb-0.5 ml-1">{message.sender.displayName}</span>
+        <span className="text-xs text-brand-text-muted mb-0.5 ml-1">{message.sender.displayName}</span>
       )}
       <div
         className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${
@@ -44,7 +46,7 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
             : isProof
               ? 'bg-green-500/10 border border-green-500/25 text-brand-text'
               : isMine
-                ? 'bg-brand-orange text-white rounded-br-sm'
+                ? 'bg-brand-orange text-primary-foreground rounded-br-sm'
                 : 'bg-brand-elevated text-brand-text rounded-bl-sm'
         } ${isMedia ? 'p-1.5' : ''}`}
       >
@@ -69,7 +71,7 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
           <div className={`text-xs px-1.5 pt-1 ${isMine ? 'text-white/80' : 'text-brand-text-muted'}`}>{message.content}</div>
         )}
       </div>
-      <span className="text-[10px] text-brand-text-muted mt-0.5">{formatTime(message.createdAt)}</span>
+      <span className="text-xs text-brand-text-muted mt-0.5">{formatTime(message.createdAt)}</span>
     </div>
   )
 }

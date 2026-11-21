@@ -39,7 +39,8 @@ import { WrongPassphraseError } from './errors'
 
 /**
  * Classifies the error `sailsClient.settlement.getPendingTransaction()`
- * threw, for `useEscrowKey.ts`'s `signAndSubmitPendingTransactionIfNeeded()`.
+ * threw, for `Trade.tsx`'s read-only `readPending()` (CTO 437 step 4: the
+ * page only reads the round; signing is an explicit user action).
  *
  * `'absence'` — a genuine `SailsNotFoundError` (the real backend's
  * `getPendingTransaction()` throws this specifically when no pending
@@ -62,8 +63,7 @@ export function classifyPendingTransactionError(err: unknown): PendingTransactio
 
 /**
  * Classifies an error caught by `Trade.tsx`'s `ignoreExceptWrongPassphrase`
- * (the `.catch()` handler on `submitEscrowKeyIfNeeded()`/
- * `signAndSubmitPendingTransactionIfNeeded()` at its 3 call sites). By the
+ * (the `.catch()` handler on `submitEscrowKeyIfNeeded()`). By the
  * time an error reaches here, `classifyPendingTransactionError()` above
  * has already filtered out genuine absence upstream (inside
  * `useEscrowKey.ts`) — so every outcome below is a real failure or a

@@ -1,16 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { assessRiskWithQvac, type AgentRiskAssessment } from '../../lib/qvacAgent'
+import { isDemoNoModelOutput } from '../../lib/demoMarkers'
 import { InfoTooltip } from '../ui/InfoTooltip'
-import { Card } from '../ui/card'
 import { Brain } from 'lucide-react'
 import type { AssetType, TradeSide } from '../../types'
 
-const RISK_STYLE: Record<AgentRiskAssessment['risk'], string> = {
-  low: 'text-green-500 bg-green-500/10 border-green-500/25',
-  medium: 'text-yellow-500 bg-yellow-500/10 border-yellow-500/25',
-  high: 'text-red-500 bg-red-500/10 border-red-500/25',
-}
+const RISK_LABEL: Record<AgentRiskAssessment['risk'], string> = { low: 'baixo', medium: 'médio', high: 'alto' }
 
 const RECOMMENDATION_LABEL: Record<AgentRiskAssessment['recommendation'], string> = {
   proceed: 'Prosseguir',
@@ -25,8 +21,11 @@ interface Props {
   minValue: number
 }
 
+// Lote B: neutral (no green "low risk" reassurance), collapsed by default, and the
+// inference only runs once the viewer opens it (each call has a real cost).
 export function AgentRiskCard({ asset, side, maxValue, minValue }: Props) {
   const { user } = useAuth()
+  const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [assessment, setAssessment] = useState<AgentRiskAssessment | null>(null)
   // Real inference call now (2026-08-09) — genuinely can fail (network,
@@ -36,6 +35,7 @@ export function AgentRiskCard({ asset, side, maxValue, minValue }: Props) {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!open) return
     if (!user) {
       setLoading(false)
       return
@@ -48,7 +48,7 @@ export function AgentRiskCard({ asset, side, maxValue, minValue }: Props) {
         if (!cancelled) setAssessment(result)
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Falha ao avaliar risco com o QVAC')
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Não foi possível obter a análise do agente')
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -56,36 +56,39 @@ export function AgentRiskCard({ asset, side, maxValue, minValue }: Props) {
     return () => {
       cancelled = true
     }
-  }, [user, asset, side, maxValue, minValue])
+  }, [open, user, asset, side, maxValue, minValue])
 
   return (
-    <Card className="p-4 mt-3">
-      <div className="flex items-center gap-2 text-sm font-semibold text-brand-text mb-2">
-        <Brain className="h-4 w-4 shrink-0" />
-        Avaliação de risco do Agente QVAC
-        <InfoTooltip text="Reflete o passo real de assessIntentRisk() do backend (QvacAgentProvider, LLM local via @qvac/sdk) que roda antes da coordenação de um Intent (RFC-012). Analisa apenas dados do ativo/trade — o agente é Crypto-Native (RFC-016), sem qualquer acesso a contas bancárias ou trilhos fiat. Chamada real, precisa de sessão ativa." />
-      </div>
-
-      {!user ? (
-        <p className="text-xs text-brand-text-muted">Conecte sua carteira para ver a avaliação de risco do agente.</p>
-      ) : loading ? (
-        <div className="flex items-center gap-2 text-xs text-brand-text-muted">
-          <span className="w-1.5 h-1.5 rounded-full bg-brand-orange-accent animate-pulse" />
-          Analisando negociação com QVAC...
-        </div>
-      ) : error ? (
-        <p className="text-xs text-red-500">{error}</p>
-      ) : assessment ? (
-        <div>
-          <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${RISK_STYLE[assessment.risk]}`}>
-            Risco {assessment.risk === 'low' ? 'baixo' : assessment.risk === 'medium' ? 'médio' : 'alto'}
+    <details className="rounded-lg border border-brand-border-subtle bg-brand-surface px-4" onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary className="min-h-11 cursor-pointer flex items-center gap-2 text-sm font-semibold text-brand-text">
+        <Brain className="h-4 w-4 shrink-0" aria-hidden="true" />
+        Sugestão do Sails Agent
+        <InfoTooltip text="Análise automática feita por um modelo de IA local, só com os dados do ativo e do trade. É uma sugestão, não uma decisão nem uma garantia de segurança. O agente não acessa contas bancárias." />
+      </summary>
+      <div className="pb-4">
+        {!user ? (
+          <p className="text-sm text-brand-text-secondary">Conecte sua wallet para ver a sugestão do agente.</p>
+        ) : loading ? (
+          <p className="text-sm text-brand-text-secondary">Consultando o agente...</p>
+        ) : error ? (
+          <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+        ) : assessment ? (
+          <div className="text-sm">
+            {isDemoNoModelOutput(assessment) ? (
+              <p className="text-brand-text-secondary">Nenhum modelo foi consultado — sem nível de risco.</p>
+            ) : (
+              <p className="text-brand-text">Nível de risco sugerido: {RISK_LABEL[assessment.risk]}</p>
+            )}
+            <p className="mt-1 text-brand-text-secondary">{assessment.reasoning}</p>
+            {!isDemoNoModelOutput(assessment) && (
+              <p className="mt-1 text-brand-text-secondary">
+                Sugestão: <span className="font-medium text-brand-text">{RECOMMENDATION_LABEL[assessment.recommendation]}</span>
+              </p>
+            )}
+            <p className="mt-2 text-xs text-brand-text-secondary">É uma sugestão automática, não uma decisão nem uma garantia.</p>
           </div>
-          <p className="text-sm text-brand-text-secondary mt-2">{assessment.reasoning}</p>
-          <p className="text-xs text-brand-text-muted mt-1">
-            Recomendação: <span className="font-medium text-brand-text">{RECOMMENDATION_LABEL[assessment.recommendation]}</span>
-          </p>
-        </div>
-      ) : null}
-    </Card>
+        ) : null}
+      </div>
+    </details>
   )
 }
