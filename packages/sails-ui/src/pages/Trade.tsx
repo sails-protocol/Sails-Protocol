@@ -975,6 +975,8 @@ export function Trade() {
     valueText: (n) => (n ? `${n} de 5` : 'Escolha de 1 a 5'),
     scoreError: 'Escolha uma nota de 1 a 5 estrelas.',
     commentLabel: 'Comentário (opcional)',
+    commentCounter: (n, max) => `${n}/${max}`,
+    commentTooLong: (over, max) => `Passou ${over} ${over === 1 ? 'caractere' : 'caracteres'} do limite de ${max}. Encurte o comentário para enviar.`,
     submitLabel: 'Enviar avaliação',
   }
   const handleRate = async (input: RatingInput) => {

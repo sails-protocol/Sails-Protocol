@@ -8,7 +8,19 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 - **Refinar, nunca refazer.** O que já foi aprovado fica como está. Muda só o que foi pedido. Nenhuma funcionalidade some da tela: se mudar de lugar, é reencaixada (2026-11-20).
 - **Verdade antes de visual (CTO 437).** Nada inventado: nenhum estado, prazo, taxa, contador, escala de reputação ou custódia que o protocolo não tenha. "Pagamento enviado" não é "pagamento verificado". "Concluído" não é finalidade de liquidação. USD é a única unidade real de preço. `fundedAmount` nunca aparece. Nenhum texto genérico de "não custodial".
 - **Funcionalidade futura aparece como "Em breve"**, desabilitada e ligada à lista de fios soltos (`LOOSE_WIRES` em `lib/looseWires.ts`, issue #729), nunca com dado falso (2026-11-20).
+- **Toda descoberta relevante de UX entra no registro de requisitos antes de ser dada como encerrada** (Despachos 052 e 053, regra do processo SEM). O registro mestre é `docs/product/PRODUCT_REQUIREMENTS_REGISTRY.md`, mantido pelo EPM. A UI propõe; o checkbox só é marcado depois da homologação.
 - **Publicação no GitHub** só com inspeção e OK do EPM, sempre como Draft. Merge de mudança econômica, migração e produção: HOLD (Despachos 033, 037 e 039).
+
+## Ordens do CTO sobre lacunas da interface (Despacho 051 e Complemento 051-A, 2026-11-20)
+- **Nenhuma funcionalidade levantada pela interface é descartada** só porque o backend ou o SDK ainda não a suportam. Cada uma fica registrada e rastreável, com prioridade, dependências, proposta de contrato e situação, na lista de fios soltos (`lib/looseWires.ts`, issue #729) e na lista de lacunas do backend (`ui-backend-gaps-2026-11-20.md`). O EPM coordena esse backlog.
+- **A experiência do usuário orienta a evolução dos módulos**, respeitando segurança, descentralização, portabilidade e autocustódia.
+- **Frentes em especificação:**
+  - Trade P1: horários das transições (C1), dados de recebimento do vendedor (C2), broadcast e próximo ator (C3), janela de pagamento, prazos, cancelamento e apelação (C12);
+  - identidade portátil do anunciante (B1) e recuperação de chaves sem custódia centralizada (D1);
+  - notificações (E1).
+  - Até o contrato existir, a interface não inventa prazo nem dado. O cancelamento automático nunca pode invalidar fundos bloqueados ou pagamentos em andamento.
+- **Avaliações portáteis:** nota de 1 a 5 estrelas, **comentário opcional de até 280 caracteres** (com contador na tela), assinatura do avaliador, vínculo com a identidade portátil e com um trade elegível, proteção contra duplicadas e consulta de média e quantidade pelo SDK.
+- **Gates:** descoberta, especificação, protótipo e testes não econômicos. Merge, migração, deploy e ativação econômica continuam em HOLD. A cadeia F4b → M-1b continua prioritária.
 
 ## Navegação e layout
 - Menu com 5 itens. A escolha do nó fica em Configurações (2026-11-20).
@@ -60,6 +72,10 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 ## Trade
 - O "Trilho do trade" mostra as etapas e de quem é a vez. Só aparece etapa ou vez que um dado real sustente. Se a interface não pode agir, nunca diz "Sua vez" (2026-11-20, auditoria de verdade).
 - O Sails Agent e "Alterar endereço" ficam em "Ferramentas", sem sumir (2026-11-20).
+- **Temporizador no fluxo do trade, inspirado na Binance P2P** (2026-11-20). A tela só mostra prazos que o protocolo realmente tem (CTO 437):
+  - **agora:** o prazo do escrow (`expiresAt`) vira uma contagem regressiva visível no cartão da etapa atual, que fica âmbar quando falta pouco, com aviso para leitor de tela em momentos-chave e sem piscar;
+  - **depois do contrato:** a janela de pagamento escolhida pelo anunciante, o cancelamento automático, o prazo de liberação e a espera antes de apelar. Foi pedido ao CTO, item C12 da lista de lacunas do backend;
+  - no modo demonstração a janela de pagamento pode ser simulada, com dados fictícios.
 - **O avanço do trade tem cor** (2026-11-20). Nunca verde, porque "concluído" não é finalidade de liquidação (CTO 437):
   - etapa concluída: círculo azul da marca com check, e a linha até a próxima etapa preenchida em azul;
   - etapa atual com ação sua: anel laranja com pulso suave (parado quando o sistema pede menos movimento) e "Sua vez";

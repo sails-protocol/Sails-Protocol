@@ -664,14 +664,39 @@ estrelas, só informativas, nunca entram na reputação). Não aparece nas linha
 do Market. "Membro desde" no Perfil próprio = mês e ano (`formatMonthYear`,
 "nov. de 2026"); a data pública do anunciante não existe no SDK (fio solto).
 
+#### Resumo de avaliações (`lib/ratings.ts`, `ui/RatingSummaryLine.tsx`, item `rating` do `TrustLine`)
+Nenhum endpoint lê as avaliações ainda (`LOOSE_WIRES.readRatings`), então todo
+dado real dá `null` e nada muda na tela real. Só o modo demonstração (build de
+desenvolvimento + `?demo=1`) preenche `demoRatings` / `demoMemberSince`, pelos
+guards `demoRatingsOf` / `demoMemberSinceOf` de `lib/demoMarkers.ts`. A UI lê
+só por `offerRatings(offer)` / `sellerRatings(seller)` / `sellerMemberSince(seller)`.
+- **Compacta (linha do Market):** item `rating` do `TrustLine`, depois da
+  reputação, estrela + "4,8 (126)". Nome acessível "Avaliação média 4,8 de 5,
+  126 avaliações". Nunca "/5". Na tabela segue na mesma linha da reputação
+  quando cabe e quebra para a linha de baixo quando não; no `OfferCard` fica
+  sempre na linha de baixo. Sem dado: nada.
+- **Completa (detalhe da oferta e Perfil):** `RatingSummaryLine` no lugar do
+  `PlannedItem`, estrela + "4,8 · 126 avaliações" + "· desde jan. de 2025"
+  (só no anunciante, só se houver data). Explicação `RATINGS_DEMO_EXPLANATION`
+  (diz que os números são fictícios). Sem dado: o `PlannedItem` "Em breve".
+- **Cor:** estrela preenchida em `brand-checked` (o mesmo azul do
+  `StarRating`), nunca amarelo; texto no tom da linha.
+- A explicação da reputação diz que as estrelas são avaliações entre pessoas,
+  só informativas, e nunca mudam a reputação.
+
 #### Avaliação da contraparte (`ui/star-rating.tsx`, `trade/RateCounterpartyCard.tsx`)
 - **Quando:** trade `COMPLETED`, só para as duas partes; "Avaliar <nome>".
 - **Estrelas:** `StarRating` sobre o `RadioGroup` (rádios nativos escondidos,
   um rótulo por estrela "3 estrelas"; setas mudam a nota); 40 px fino / 44 toque;
   escolhidas na cor de marcado (azul), nunca laranja; foco = outline no próprio
   rótulo; o texto "3 de 5" é anunciado (polite).
-- **Comentário** opcional (vazio não é enviado). Enviar com `loading`. Sem nota
-  = erro no campo.
+- **Comentário** opcional (vazio não é enviado), até `MAX_RATING_COMMENT` = 280
+  caracteres (Complemento 051-A). Contador "N/280" sob o campo, à direita, em
+  `tabular-nums`; anunciado (`aria-live="polite"`) só a partir de 260. Sem
+  `maxLength` nativo, que cortaria uma colagem em silêncio: passou do limite, o
+  texto fica inteiro, o campo fica `aria-invalid`, o contador vira `danger-fg`
+  e aparece a mensagem "Passou N caracteres do limite de 280…"; o envio é
+  recusado com foco no campo. Enviar com `loading`. Sem nota = erro no campo.
 - **Resultado:** sucesso = toast + uma linha "Você avaliou este trade" no lugar
   do formulário; o 400 "already rated" do nó Sails = "Você já avaliou este
   trade"; outro erro = mensagem sob o formulário. `sessionStorage`

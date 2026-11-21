@@ -20,7 +20,10 @@ import { sailsClient } from '../lib/sailsClient'
 import { formatAmount, formatDateTime, formatMonthYear } from '../lib/format'
 import { ASSET_LABELS, ASSET_SHORT_LABELS } from '../lib/labels'
 import { AssetNetworkLabel } from '../components/ui/AssetIcon'
-import { ACCOUNT_DISPUTE_RATE_DEFINITION, formatAccountDisputeRate, RATINGS_EXPLANATION, REPUTATION_EXPLANATION } from '../lib/reputation'
+import { ACCOUNT_DISPUTE_RATE_DEFINITION, formatAccountDisputeRate, RATINGS_DEMO_EXPLANATION, RATINGS_EXPLANATION, REPUTATION_EXPLANATION } from '../lib/reputation'
+import { ratingFullText, ratingSrText, sellerRatings } from '../lib/ratings'
+import { demoRatingsOf } from '../lib/demoMarkers'
+import { RatingSummaryLine } from '../components/ui/RatingSummaryLine'
 import { PlannedItem } from '../components/ui/PlannedItem'
 import { LOOSE_WIRES } from '../lib/looseWires'
 import { ExplanationPopover } from '../components/ui/ExplanationPopover'
@@ -134,6 +137,7 @@ export function Profile() {
   }, [offers, statusFilter])
 
   if (!user) return null
+  const ratings = sellerRatings({ demoRatings: demoRatingsOf(user) }) // dev demo only; null for real data
 
   // Optimistic update + real PATCH /v1/liquidity/offers/:id/status
   // (2026-08-01) — reverts the optimistic change and shows an error
@@ -196,15 +200,26 @@ export function Profile() {
             { label: 'Reputação', value: <span className="inline-flex items-center gap-1.5">{user.reputationScore.toFixed(0)}<ExplanationPopover explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.title} /></span> },
           ]}
         />
-        {/* Ratings exist (reputation.rate()) but cannot be read back yet: no number, only the planned item. */}
-        <PlannedItem
-          className="mt-4 pt-4 border-t border-brand-border-subtle"
-          icon={LOOSE_WIRES.readRatings.icon}
-          label={LOOSE_WIRES.readRatings.label}
-          soonLabel="Em breve"
-          description="Notas de 1 a 5 estrelas que as contrapartes dão ao fim de um trade. Não mudam a reputação."
-          explanation={RATINGS_EXPLANATION}
-        />
+        {/* Ratings exist (reputation.rate()) but cannot be read back yet: real data gets the planned item, no
+            number; only the dev demo carries a summary (lib/ratings.ts). "Membro desde" is already shown above. */}
+        {ratings ? (
+          <RatingSummaryLine
+            className="mt-4 pt-4 border-t border-brand-border-subtle"
+            text={ratingFullText(ratings)}
+            srText={ratingSrText(ratings)}
+            description="Notas de 1 a 5 estrelas que as contrapartes dão ao fim de um trade. Não mudam a reputação."
+            explanation={RATINGS_DEMO_EXPLANATION}
+          />
+        ) : (
+          <PlannedItem
+            className="mt-4 pt-4 border-t border-brand-border-subtle"
+            icon={LOOSE_WIRES.readRatings.icon}
+            label={LOOSE_WIRES.readRatings.label}
+            soonLabel="Em breve"
+            description="Notas de 1 a 5 estrelas que as contrapartes dão ao fim de um trade. Não mudam a reputação."
+            explanation={RATINGS_EXPLANATION}
+          />
+        )}
       </Card>
 
       <section aria-labelledby="my-offers-title" className="mt-8">

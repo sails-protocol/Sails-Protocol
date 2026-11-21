@@ -45,9 +45,15 @@ import type { Offer } from '../../types'
 import { PlannedItem } from '../../components/ui/PlannedItem'
 import { StarRating } from '../../components/ui/star-rating'
 import { RateCounterpartyCard, type RateCounterpartyCopy } from '../../components/trade/RateCounterpartyCard'
-import { RATINGS_EXPLANATION } from '../../lib/reputation'
+import { RATINGS_DEMO_EXPLANATION, RATINGS_EXPLANATION, trustItems } from '../../lib/reputation'
+import { ratingCompactItem, ratingFullText, ratingSrText } from '../../lib/ratings'
+import { RatingSummaryLine } from '../../components/ui/RatingSummaryLine'
+import { TrustLine } from '../../components/ui/TrustLine'
 import { NavPositionThumb } from '../../components/layout/NavPositionThumb'
 import { NAV_ITEMS, NavIcon, navItemTone } from '../../components/layout/Sidebar'
+
+// Fictional specimen values (Boreal OTC in the demo).
+const DS_RATING = { average: 4.8, count: 126 }
 
 type Theme = 'light' | 'dark'
 type Vars = Record<Theme, Record<string, string>>
@@ -222,6 +228,8 @@ const RATE_COPY: RateCounterpartyCopy = {
   valueText: (n) => (n ? `${n} de 5` : 'Escolha de 1 a 5'),
   scoreError: 'Escolha uma nota de 1 a 5 estrelas.',
   commentLabel: 'Comentário (opcional)',
+  commentCounter: (n, max) => `${n}/${max}`,
+  commentTooLong: (over, max) => `Passou ${over} ${over === 1 ? 'caractere' : 'caracteres'} do limite de ${max}. Encurte o comentário para enviar.`,
   submitLabel: 'Enviar avaliação',
 }
 const SEG_OPTIONS = [{ value: 'all', label: 'Todos' }, { value: 'buy', label: 'Comprar' }, { value: 'sell', label: 'Vender' }] as const
@@ -588,6 +596,14 @@ export function DesignSystemPreview() {
             <div><PaymentMethods labels={['PIX', 'TED', 'Dinheiro', 'Wise']} className="text-sm text-brand-text" /></div>
           </div>
           <div className="space-y-4">
+            <div id="ds-avaliacoes" className="space-y-2">
+              <p className="text-caption text-brand-text-muted">Avaliações, forma compacta (linha do Market, depois da reputação):</p>
+              <TrustLine items={[...trustItems({ reputationScore: 311, totalTrades: 158, disputeCount: 2 }), ratingCompactItem(DS_RATING)]} className="block text-xs text-brand-text-muted" />
+              <p className="text-caption text-brand-text-muted">Forma completa (detalhe da oferta e Perfil):</p>
+              <RatingSummaryLine text={ratingFullText(DS_RATING)} srText={ratingSrText(DS_RATING)} meta="desde mar. de 2024" description="Notas de 1 a 5 estrelas dadas pelas contrapartes. Só informativas: não mudam a reputação." explanation={RATINGS_DEMO_EXPLANATION} />
+              <p className="text-caption text-brand-text-muted">Sem dado (todo dado real hoje): nada na linha; "Em breve" no detalhe e no Perfil.</p>
+              <TrustLine items={trustItems({ reputationScore: 6, totalTrades: 3, disputeCount: 1 })} className="block text-xs text-brand-text-muted" />
+            </div>
             <PlannedItem label="Avaliações" soonLabel="Em breve" description="Notas de 1 a 5 estrelas dadas pelas contrapartes. Só informativas: não mudam a reputação." explanation={RATINGS_EXPLANATION} />
             <StarRating legend="Estrelas (StarRating)" name="ds-stars" value={stars} onChange={setStars} starLabel={RATE_COPY.starLabel} valueText={RATE_COPY.valueText(stars)} />
           </div>

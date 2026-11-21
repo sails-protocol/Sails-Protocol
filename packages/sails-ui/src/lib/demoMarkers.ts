@@ -5,6 +5,8 @@
  * production build `import.meta.env.DEV` is statically false, so demo data
  * can never change what production renders.
  */
+import { ratingSummaryOf, type RatingSummary } from './ratings'
+
 export interface DemoNoModelMarker {
   modelConsulted: false
 }
@@ -27,4 +29,17 @@ export function demoPaymentMethodsOf<T extends string>(raw: unknown): T[] | unde
   if (!import.meta.env.DEV) return undefined
   const list = (raw as { demoPaymentMethods?: unknown } | null)?.demoPaymentMethods
   return Array.isArray(list) && list.length > 0 ? (list as T[]) : undefined
+}
+
+/** Demo-only rating summary on a raw summary/seller (no read endpoint yet, LOOSE_WIRES.readRatings); undefined for real data. */
+export function demoRatingsOf(raw: unknown): RatingSummary | undefined {
+  if (!isDemoMode()) return undefined
+  return ratingSummaryOf((raw as { demoRatings?: unknown } | null)?.demoRatings) ?? undefined
+}
+
+/** Demo-only sign-up date on a raw seller (public data has none, LOOSE_WIRES.publicMemberSince); undefined for real data. */
+export function demoMemberSinceOf(raw: unknown): string | undefined {
+  if (!isDemoMode()) return undefined
+  const v = (raw as { demoMemberSince?: unknown } | null)?.demoMemberSince
+  return typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : undefined
 }

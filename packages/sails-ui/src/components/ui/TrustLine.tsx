@@ -1,9 +1,11 @@
-import { ArrowLeftRight, Award, Scale, type LucideIcon } from 'lucide-react'
+import { ArrowLeftRight, Award, Scale, Star, type LucideIcon } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { TrustKind, TrustLineItem } from './trustTypes'
 
 // Neutral icons only: never a shield or check, which would read as a guarantee.
-const ICONS: Record<TrustKind, LucideIcon> = { reputation: Award, trades: ArrowLeftRight, disputes: Scale, disputeRate: Scale }
+const ICONS: Record<TrustKind, LucideIcon> = { reputation: Award, trades: ArrowLeftRight, disputes: Scale, disputeRate: Scale, rating: Star }
+// Rating stars use the same checked blue as the StarRating input (one meaning: a chosen/filled star), never yellow.
+const ICON_TONE: Partial<Record<TrustKind, string>> = { rating: 'fill-current text-brand-checked' }
 
 /**
  * Layer A: a compact trust line, each item an icon plus its text. Items are spaced, not joined by a
@@ -20,7 +22,7 @@ export function TrustLine({ items, className }: { items: TrustLineItem[]; classN
           // Spacing lives on the items (not flex gap) so a caller's display class ("block") cannot remove it.
           <span key={item.kind} className="inline-block whitespace-nowrap mr-3 last:mr-0">
             {i > 0 && <span className="sr-only">, </span>}
-            <Icon aria-hidden="true" className="inline-block h-4 w-4 mr-1 align-[-4px]" />
+            <Icon aria-hidden="true" className={cn('inline-block h-4 w-4 mr-1 align-[-4px]', ICON_TONE[item.kind])} />
             {item.srText ? <><span aria-hidden="true">{item.text}</span><span className="sr-only">{item.srText}</span></> : item.text}
           </span>
         )

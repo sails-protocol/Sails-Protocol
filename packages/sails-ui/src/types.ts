@@ -205,6 +205,8 @@ export interface Offer {
   paymentMethod: PaymentMethod
   // Dev demo only (demoPaymentMethodsOf): real offers carry one method until issue #735. Read through offerPaymentMethods().
   demoPaymentMethods?: PaymentMethod[]
+  // Dev demo only (demoRatingsOf): no endpoint reads ratings yet (LOOSE_WIRES.readRatings). Read through offerRatings().
+  demoRatings?: { average: number; count: number }
   paymentDetails?: string
   status: OfferStatus
   network?: string

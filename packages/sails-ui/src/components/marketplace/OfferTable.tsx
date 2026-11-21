@@ -14,6 +14,7 @@ import { sellerTrust } from './offerList'
 import { TrustLine } from '../ui/TrustLine'
 import { ExplanationPopover } from '../ui/ExplanationPopover'
 import { REPUTATION_EXPLANATION } from '../../lib/reputation'
+import { offerRatings, ratingCompactItem } from '../../lib/ratings'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table'
 
 const SELLER_FALLBACK = 'Anunciante'
@@ -65,7 +66,10 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
   const limits = `${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}`
   // Real offers carry one method; only the dev demo has several (offerPaymentMethods).
   const methods = offerPaymentMethods(offer).map((m) => PAYMENT_METHOD_LABELS[m])
-  const label = `${action} ${ASSET_LABELS[offer.asset]} por ${price}, ${name ?? SELLER_FALLBACK}, ${methods.join(', ')}, limites ${limits}`
+  // Ratings: dev demo only until LOOSE_WIRES.readRatings; real rows show nothing. Same line as the trust line when it fits, else wraps.
+  const ratings = offerRatings(offer)
+  const rating = ratings ? ratingCompactItem(ratings) : null
+  const label = `${action} ${ASSET_LABELS[offer.asset]} por ${price}, ${name ?? SELLER_FALLBACK}${rating ? `, ${rating.srText}` : ''}, ${methods.join(', ')}, limites ${limits}`
 
   return (
     <TableRow interactive className="relative h-[4.25rem]">
@@ -77,7 +81,7 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
               <span data-seller-name className="text-sm font-medium text-brand-text truncate">{name ?? SELLER_FALLBACK}</span>
               {offer.user.verified && <Check aria-label="Verificado" className="h-3.5 w-3.5 shrink-0 text-brand-orange-accent" />}
             </div>
-            <TrustLine items={items} className="block text-xs text-brand-text-muted" />
+            <TrustLine items={rating ? [...items, rating] : items} className="block text-xs text-brand-text-muted" />
           </div>
         </div>
       </TableCell>

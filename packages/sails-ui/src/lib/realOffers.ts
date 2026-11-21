@@ -25,7 +25,7 @@ import type { LiquidityOfferSummary } from '@satsails/p2p-trading-sdk'
 import { sailsClient } from './sailsClient'
 import type { AssetType, Offer, PaymentMethod, TradeSide, User } from '../types'
 import { ASSETS } from '../data/mock'
-import { demoPaymentMethodsOf } from './demoMarkers'
+import { demoPaymentMethodsOf, demoRatingsOf } from './demoMarkers'
 
 // `@satsails/p2p-trading-sdk`'s own `discover()` is typed against the *real* backend
 // AssetType (no `DEPIX` — see types.ts's own comment on why this UI's
@@ -76,6 +76,7 @@ function summaryToOffer(s: SummaryWithMaker): Offer {
     maxAmount: Number(s.maxAmount),
     paymentMethod: (s.paymentMethods[0] as PaymentMethod) ?? 'PIX',
     demoPaymentMethods: demoPaymentMethodsOf<PaymentMethod>(s), // dev demo only; undefined for real data
+    demoRatings: demoRatingsOf(s), // dev demo only; undefined for real data (LOOSE_WIRES.readRatings)
     status: 'ACTIVE', // discover()/getAggregatedOffers() only ever returns ACTIVE offers (liquidity.service.ts's own where clause)
     country: 'BR', // not returned by this route — no real country field exists on Offer yet, same gap types.ts's own header already discloses
     tradedWithCurrentUser: false, // needs a real trade-history join this route doesn't do — see types.ts's own comment on this field

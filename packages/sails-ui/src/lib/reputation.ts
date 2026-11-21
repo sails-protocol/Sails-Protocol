@@ -55,7 +55,7 @@ export const REPUTATION_EXPLANATION: Explanation & { trigger: string } = {
     '0 em cancelamento de comum acordo ou divisão',
     '−5 para quem apadrinhou alguém que perde a primeira disputa',
   ],
-  footer: 'É uma soma de pontos, sem valor máximo: 82 significa 82 pontos acumulados, não 82 de 100. Avaliações por estrelas não entram na conta.',
+  footer: 'É uma soma de pontos, sem valor máximo: 82 significa 82 pontos acumulados, não 82 de 100. As estrelas são avaliações que as pessoas dão umas às outras depois de um trade: só informativas, nunca mudam a reputação.',
   trigger: 'Como funciona a reputação',
 }
 
@@ -87,5 +87,15 @@ export const RATINGS_EXPLANATION: Explanation = {
     'De 1 a 5 estrelas, dadas pela contraparte ao fim de um trade',
     'Só informativas: não mudam a reputação',
     'A leitura das avaliações ainda não está disponível',
+  ],
+}
+
+/** The same explanation when a rating summary is on screen, which today happens only with the dev demo's fictional data. */
+export const RATINGS_DEMO_EXPLANATION: Explanation = {
+  title: RATINGS_EXPLANATION.title,
+  lines: [
+    RATINGS_EXPLANATION.lines[0],
+    RATINGS_EXPLANATION.lines[1],
+    'Números fictícios do modo demonstração: a leitura real das avaliações ainda não está disponível',
   ],
 }

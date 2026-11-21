@@ -9,6 +9,7 @@ import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../../l
 import { AssetNetworkLabel } from '../ui/AssetIcon'
 import { sellerTrust } from './offerList'
 import { TrustLine } from '../ui/TrustLine'
+import { offerRatings, ratingCompactItem } from '../../lib/ratings'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
 import { Check } from 'lucide-react'
@@ -29,7 +30,10 @@ export function OfferCard({ offer, own = false }: { offer: Offer; own?: boolean 
   // Real offers carry one method; only the dev demo has several (offerPaymentMethods).
   const methods = offerPaymentMethods(offer).map((m) => PAYMENT_METHOD_LABELS[m])
   // One concise accessible name instead of every cell's text read in a row (same wording as the table).
-  const label = `${action}: ${ASSET_LABELS[offer.asset]} por ${price}, ${name ?? SELLER_FALLBACK}, ${methods.join(', ')}, limites ${limits}`
+  // Ratings: dev demo only until LOOSE_WIRES.readRatings; real rows show nothing. On phone they sit on the line below.
+  const ratings = offerRatings(offer)
+  const rating = ratings ? ratingCompactItem(ratings) : null
+  const label = `${action}: ${ASSET_LABELS[offer.asset]} por ${price}, ${name ?? SELLER_FALLBACK}${rating ? `, ${rating.srText}` : ''}, ${methods.join(', ')}, limites ${limits}`
 
   return (
     <Link to={`/offer/${offer.id}`} aria-label={label} className="offer-row items-start">
@@ -42,6 +46,7 @@ export function OfferCard({ offer, own = false }: { offer: Offer; own?: boolean 
           </span>
           <TrustLine items={items} className="text-xs text-brand-text-muted" />
         </div>
+        {rating && <TrustLine items={[rating]} className="block mt-0.5 text-xs text-brand-text-muted" />}
         <div className="mt-1 flex flex-wrap items-baseline gap-x-1.5">
           <span data-price className="money-lg text-brand-text whitespace-nowrap">{price}</span>
           <span className="inline-flex flex-wrap items-center gap-x-1 text-xs text-brand-text-muted">

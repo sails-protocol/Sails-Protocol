@@ -1,4 +1,4 @@
-import { isAlreadyRatedError, readRated, saveRated, validateRating } from '../src/lib/rating'
+import { commentOverBy, isAlreadyRatedError, MAX_RATING_COMMENT, RATING_COUNTER_LIVE_FROM, readRated, saveRated, validateRating } from '../src/lib/rating'
 
 describe('rating input validation', () => {
   it('accepts integer scores 1 to 5 and trims the comment', () => {
@@ -8,6 +8,18 @@ describe('rating input validation', () => {
   })
   it('refuses a missing, fractional or out-of-range score', () => {
     for (const s of [null, 0, 6, 2.5, -1, Number.NaN]) expect(validateRating(s, 'x')).toEqual({ ok: false, error: 'score' })
+  })
+  it('limits the comment to 280 characters and refuses a longer one instead of cutting it (Complemento 051-A)', () => {
+    expect(MAX_RATING_COMMENT).toBe(280)
+    expect(RATING_COUNTER_LIVE_FROM).toBe(260)
+    const at = 'a'.repeat(280)
+    expect(validateRating(4, at)).toEqual({ ok: true, input: { score: 4, comment: at } })
+    expect(commentOverBy(at)).toBe(0)
+    const pasted = 'b'.repeat(295)
+    expect(commentOverBy(pasted)).toBe(15)
+    expect(validateRating(4, pasted)).toEqual({ ok: false, error: 'comment' })
+    // The score error still comes first.
+    expect(validateRating(null, pasted)).toEqual({ ok: false, error: 'score' })
   })
 })
 

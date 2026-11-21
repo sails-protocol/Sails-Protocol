@@ -5,7 +5,8 @@ import { PaymentMethods } from '../components/ui/PaymentMethods'
 import { PlannedItem } from '../components/ui/PlannedItem'
 import { LOOSE_WIRES } from '../lib/looseWires'
 import { offerPaymentMethods } from '../lib/paymentMethods'
-import { demoPaymentMethodsOf } from '../lib/demoMarkers'
+import { demoMemberSinceOf, demoPaymentMethodsOf, demoRatingsOf } from '../lib/demoMarkers'
+import { ratingFullText, ratingSrText, sellerMemberSince, sellerRatings, type DemoRatingFields } from '../lib/ratings'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { FavoriteButton } from '../components/ui/FavoriteButton'
 import { Button, buttonVariants } from '../components/ui/button'
@@ -23,7 +24,8 @@ import { errorMessage } from '../lib/errors'
 import { SailsNotFoundError, SailsTransportError, type PublicOfferDetail, type PublicOfferSeller } from '@satsails/p2p-trading-sdk'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { AssetNetworkLabel } from '../components/ui/AssetIcon'
-import { disputeRatePct, RATINGS_EXPLANATION, REPUTATION_EXPLANATION, trustItems } from '../lib/reputation'
+import { disputeRatePct, RATINGS_DEMO_EXPLANATION, RATINGS_EXPLANATION, REPUTATION_EXPLANATION, trustItems } from '../lib/reputation'
+import { RatingSummaryLine } from '../components/ui/RatingSummaryLine'
 import { TrustLine } from '../components/ui/TrustLine'
 import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import { useAuth } from '../context/AuthContext'
@@ -43,7 +45,7 @@ import type { FiatCurrency } from '../types'
 // confirmed directly (grep across this file), not assumed.
 interface OfferDetailView {
   id: string
-  seller: PublicOfferSeller
+  seller: PublicOfferSeller & DemoRatingFields
   asset: PublicOfferDetail['asset']
   side: PublicOfferDetail['side']
   priceUsd: number
@@ -61,7 +63,8 @@ function toOfferDetailView(raw: PublicOfferDetail): OfferDetailView {
   const priceUsd = Number(raw.priceUsd)
   return {
     id: raw.id,
-    seller: raw.seller,
+    // Ratings and sign-up date: dev demo only (LOOSE_WIRES.readRatings, publicMemberSince); undefined for real data.
+    seller: { ...raw.seller, demoRatings: demoRatingsOf(raw.seller), demoMemberSince: demoMemberSinceOf(raw.seller) },
     asset: raw.asset,
     side: raw.side,
     priceUsd,
@@ -214,6 +217,8 @@ export function OfferDetail() {
   }
 
   const sellerName = offer.seller.displayName
+  const ratings = sellerRatings(offer.seller)
+  const memberSince = sellerMemberSince(offer.seller)
   return (
     <Page width="detail">
       <PageHeader back={back} title={`Oferta de ${ASSET_LABELS[offer.asset]}`} meta={sellerName ? `Anunciada por ${sellerName}` : undefined} />
@@ -330,15 +335,27 @@ export function OfferDetail() {
             </div>
             <FavoriteButton userId={offer.seller.id} />
           </div>
-          {/* No read endpoint for ratings yet (LOOSE_WIRES.readRatings): planned item, no number. */}
-          <PlannedItem
-            className="mt-4 pt-4 border-t border-brand-border-subtle"
-            icon={LOOSE_WIRES.readRatings.icon}
-            label={LOOSE_WIRES.readRatings.label}
-            soonLabel="Em breve"
-            description="Notas de 1 a 5 estrelas dadas pelas contrapartes. Só informativas: não mudam a reputação."
-            explanation={RATINGS_EXPLANATION}
-          />
+          {/* No read endpoint for ratings yet (LOOSE_WIRES.readRatings): real data gets the planned item, no number;
+              only the dev demo carries a summary (lib/ratings.ts). */}
+          {ratings ? (
+            <RatingSummaryLine
+              className="mt-4 pt-4 border-t border-brand-border-subtle"
+              text={ratingFullText(ratings)}
+              srText={ratingSrText(ratings)}
+              meta={memberSince ? `desde ${memberSince}` : undefined}
+              description="Notas de 1 a 5 estrelas dadas pelas contrapartes. Só informativas: não mudam a reputação."
+              explanation={RATINGS_DEMO_EXPLANATION}
+            />
+          ) : (
+            <PlannedItem
+              className="mt-4 pt-4 border-t border-brand-border-subtle"
+              icon={LOOSE_WIRES.readRatings.icon}
+              label={LOOSE_WIRES.readRatings.label}
+              soonLabel="Em breve"
+              description="Notas de 1 a 5 estrelas dadas pelas contrapartes. Só informativas: não mudam a reputação."
+              explanation={RATINGS_EXPLANATION}
+            />
+          )}
         </Card>
       </div>
     </Page>

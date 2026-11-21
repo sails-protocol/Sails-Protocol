@@ -104,6 +104,18 @@ function newDispute(tradeId: string, escrowId: string, openedBy: string, arbiter
   }
 }
 
+/**
+ * Demo-only rating summaries and sign-up dates (fictional), read through lib/demoMarkers.ts. No endpoint
+ * reads ratings back yet (LOOSE_WIRES.readRatings) and the public seller has no sign-up date
+ * (LOOSE_WIRES.publicMemberSince). Erin (the demo viewer) has none, to show the empty case.
+ */
+const DEMO_TRADER_EXTRAS: Record<string, { demoRatings: { average: number; count: number }; demoMemberSince: string }> = {
+  'demo-0a11': { demoRatings: { average: 4.9, count: 41 }, demoMemberSince: '2025-01-15T12:00:00Z' }, // Alice
+  'demo-0b22': { demoRatings: { average: 4.8, count: 126 }, demoMemberSince: '2024-03-15T12:00:00Z' }, // Boreal OTC
+  'demo-0d44': { demoRatings: { average: 4.7, count: 233 }, demoMemberSince: '2023-08-15T12:00:00Z' }, // Kestrel Câmbio
+  'demo-0c33': { demoRatings: { average: 4.6, count: 12 }, demoMemberSince: '2025-09-15T12:00:00Z' }, // Bob
+}
+
 // Obviously fictional traders, offers, trades and disputes; prices in USD like the real discover() route.
 function seed(): DemoState {
   const g = 'demo-0a11', f = 'demo-0b22', m = 'demo-0c33', a = 'demo-0d44'
@@ -611,6 +623,7 @@ export function installDemoBackend() {
         // LOOSE_WIRES preview: the real route does not return these yet (realOffers.ts SummaryWithMaker).
         traderDisplayName: findParticipant(o.userId).displayName, traderTotalTrades: findParticipant(o.userId).totalTrades,
         traderDisputeCount: findParticipant(o.userId).disputeCount,
+        demoRatings: DEMO_TRADER_EXTRAS[o.userId]?.demoRatings,
       }))
       return { offers, sources: ['internal'], total: all.length, hasMore: offset + limit < all.length }
     },
@@ -621,7 +634,7 @@ export function installDemoBackend() {
       const { userId: _u, paymentDetails: _d, ...rest } = o
       const detail: PublicOfferDetail = {
         ...rest,
-        seller: { id: p.id, publicKey: p.publicKey, displayName: p.displayName, peerId: p.peerId, verified: p.verified, reputationScore: p.reputationScore, totalTrades: p.totalTrades, disputeRate: reputationOf(p).disputeRate },
+        seller: { id: p.id, publicKey: p.publicKey, displayName: p.displayName, peerId: p.peerId, verified: p.verified, reputationScore: p.reputationScore, totalTrades: p.totalTrades, disputeRate: reputationOf(p).disputeRate, ...DEMO_TRADER_EXTRAS[p.id] },
       }
       return detail
     },
