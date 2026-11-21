@@ -528,7 +528,9 @@ function parseGoal(goal: string) {
 
 // Same matching as the server's liquidity.service.ts proposeForIntent(), over the demo offers.
 function proposeForIntent(intent: Intent<TradeIntentPayload>, amount: string): { proposal: TradeProposal | null; counterProposal: CounterProposal | null } {
-  const { asset, side, minPriceUsd, maxPriceUsd, minReputationRating } = intent.payload
+  const { asset, side, minPriceUsd, maxPriceUsd, minReputationScore, minReputationRating } = intent.payload
+  // UX-048: the score threshold wins over the deprecated alias (same number, never rescaled).
+  const minScore = minReputationScore ?? minReputationRating
   const counterSide = side === 'BUY' ? 'SELL' : 'BUY'
   const reputation = (o: Offer) => findParticipant(o.userId).reputationScore
   const sorted = state.offers
@@ -537,7 +539,7 @@ function proposeForIntent(intent: Intent<TradeIntentPayload>, amount: string): {
     .sort((x, y) => (counterSide === 'SELL' ? 1 : -1) * (Number(x.priceUsd) - Number(y.priceUsd)))
   const amountNum = Number(amount)
   const passesAmountAndReputation = (o: Offer) =>
-    reputation(o) >= (minReputationRating ?? 0) && amountNum >= Number(o.minAmount) && amountNum <= Number(o.maxAmount)
+    (minScore === undefined || (reputation(o) !== undefined && reputation(o) >= minScore)) && amountNum >= Number(o.minAmount) && amountNum <= Number(o.maxAmount)
   const passesPrice = (o: Offer) =>
     !(minPriceUsd !== undefined && Number(o.priceUsd) < Number(minPriceUsd)) && !(maxPriceUsd !== undefined && Number(o.priceUsd) > Number(maxPriceUsd))
 

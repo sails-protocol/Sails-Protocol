@@ -64,7 +64,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
   // RFC-023 — new real mandate field; nothing before this fed a backend
   // that could enforce it. Optional: an empty value means no reputation
   // floor, not zero.
-  const [minReputationRating, setMinReputationRating] = useState('')
+  const [minReputationScore, setMinReputationScore] = useState('')
 
   // undefined = mandate not yet submitted (still editing); null = a real
   // propose call ran and found nothing within the declared limits; an
@@ -105,7 +105,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
       setResult(intent)
       setLimitPrice('')
       setQuantity('')
-      setMinReputationRating('')
+      setMinReputationScore('')
       onIntentGenerated?.(intent.asset, intent.side, intent.currency)
     } catch (err) {
       toast.error(errorMessage(err, t('agent.toast.generateFailed')))
@@ -140,11 +140,12 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
       priceLimit = limitPrice
     }
 
+    // UX-048: the canonical reputation score is a cumulative sum (+2/-5), no ceiling, may be negative (SDK |value| <= 1e9).
     let minReputation: number | undefined
-    const repInput = minReputationRating.trim()
+    const repInput = minReputationScore.trim()
     if (repInput) {
       minReputation = Number(repInput)
-      if (!Number.isFinite(minReputation) || minReputation < 0 || minReputation > 5) {
+      if (!Number.isInteger(minReputation) || Math.abs(minReputation) > 1e9) {
         toast.error(t('agent.toast.reputationRange'))
         return
       }
@@ -157,7 +158,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
         side: result.side,
         currency: result.currency,
         fiatMethod: result.fiatMethod,
-        minReputationRating: minReputation,
+        minReputationScore: minReputation,
         ...(priceLimit !== undefined
           ? side === 'BUY' ? { maxPriceUsd: priceLimit } : { minPriceUsd: priceLimit }
           : {}),
@@ -220,7 +221,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
     setGoal('')
     setQuantity('')
     setLimitPrice('')
-    setMinReputationRating('')
+    setMinReputationScore('')
     setIntentId(null)
     setProposal(undefined)
     setCounterProposal(null)
@@ -361,12 +362,14 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                 <label className="text-xs text-brand-text-muted col-span-2">
                   {t('agent.mandate.minReputation')}
                   <Input
-                    type="number" step="0.5" min="0" max="5"
-                    value={minReputationRating}
-                    onChange={(e) => setMinReputationRating(e.target.value)}
-                    placeholder={t('agent.example', { value: '3' })}
+                    type="number" step="1" inputMode="numeric"
+                    value={minReputationScore}
+                    onChange={(e) => setMinReputationScore(e.target.value)}
+                    placeholder={t('agent.example', { value: '20' })}
+                    aria-describedby="agent-min-reputation-help"
                     className="w-full mt-1 text-sm"
                   />
+                  <span id="agent-min-reputation-help" className="block mt-1 text-xs text-brand-text-muted">{t('agent.mandate.minReputationHelp')}</span>
                 </label>
               </div>
 

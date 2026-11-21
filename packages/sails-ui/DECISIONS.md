@@ -208,11 +208,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 ## Market e ofertas
 - Ofertas ordenadas pela reputação Sails, em tabela no desktop e em lista no celular (2026-11-20).
 - **Reputação** sempre explicada: "Reputação N" é uma soma sem teto (+2 por trade concluído, −5 por disputa perdida). Nunca "/100", porcentagem ou estrelas. Cada informação tem o seu ícone ao lado. A explicação também aparece em Configurações (2026-11-20).
-  - **Sails Agent, "reputação mínima" (UX-048, decisão do CTO, 2026-11-21):** a reputação é pontuação acumulativa, sem teto, e pode ser negativa (+2/−5). Não é nota de 0 a 5; as estrelas de 1 a 5 são outra coisa.
-    - **HOLD:** o campo atual "Reputação mínima da contraparte (0–5)" em `components/agent/AgentIntentionPanel.tsx` não é corrigido só na tela.
-    - **Ordem:** primeiro o Principal alinha o contrato do SDK (novo `minReputationScore` numérico, que aceita negativos; o `minReputationRating` fica obsoleto como alias) e o GK valida a semântica.
-    - **Depois do aviso do EPM** de que o contrato foi aprovado, a UI corrige o campo e os testes: campo numérico sem teto; rótulo "pontuação de reputação" com unidade clara; nunca como estrelas nem porcentagem; uma classificação visual só como apoio.
-    - **Até lá:** nenhuma escala nova inventada.
+  - **Sails Agent, "reputação mínima" (UX-048, decisão do CTO; contrato do SDK aprovado e na main 46d1a8a9, 2026-11-21):** campo "Pontuação mínima de reputação da contraparte (opcional)", número inteiro sem teto que aceita negativos (`minReputationScore`; o alias `minReputationRating` fica obsoleto e a UI não o envia). O texto de ajuda explica a soma (+2 por trade concluído, −5 por disputa perdida) e que, com um mínimo definido, ofertas de quem ainda não tem pontuação ficam de fora. Nunca estrelas, porcentagem nem escala de 0 a 5.
 - **Avaliações** (1 a 5 estrelas) ficam separadas da reputação e nunca entram nela (2026-11-20, revisado no mesmo dia; Despacho 039).
   - Quando o dado existir, aparecem já na **primeira vista, na lista do Market**, depois da reputação e mais discretas: "★ 4,8 (37)", com estrela, média e quantidade. Nunca "/5" nem número solto ao lado da reputação. No celular vão para a linha de baixo.
   - No detalhe e no Perfil, a forma completa: "★ 4,8 · 37 avaliações · desde jan. de 2025".

@@ -28,6 +28,10 @@ describe('decisions guard: copy (DECISIONS.md "Textos honestos" and copy audit)'
   it('a dispute is "decision recorded", never "resolved"', () => expect(hits(PT, /disputa resolvida|^resolvida$/i)).toEqual([]))
   it('payment details are never shown as fixed or verified (EPM, #735 §14.3)', () =>
     expect(hits(PT, /dados de pagamento[^.]{0,40}\b(?:ficam|são|estão)\s+(?:fixos|congelados|verificados|garantidos)/i)).toEqual([]))
+  it('reputation is never a 0-5 scale (UX-048: unbounded score, may be negative)', () => {
+    expect(hits(ALL.filter((e) => e.key.startsWith('agent.')), /0\s?[–-]\s?5|0 e 5|0 and 5/)).toEqual([])
+    expect(code('components/agent/AgentIntentionPanel.tsx')).not.toMatch(/max="5"/)
+  })
   it('pt-BR stays in the neutral register (no "pra", "pro", "tá")', () => expect(hits(PT, /\b(?:pra|pro|tá)\b/i)).toEqual([]))
 })
 
