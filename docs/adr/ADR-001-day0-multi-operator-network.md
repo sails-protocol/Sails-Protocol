@@ -339,6 +339,30 @@ no new external dependency.
   may be a mandatory authority for membership or truth.** A Satsails
   bootstrap node may *assist* discovery (§6); it may never *gate* it.
 
+## 1.1 Market scopes (addendum, 2026-11-21, CTO Despacho 056)
+
+**This addendum does not change §1. It defines the scope §1 applies to now that the protocol has more than one market.**
+§1 was written when the network had a single shared market. Since then, #147 introduced markets as signed, node-independent
+objects, each with a `visibility` of PUBLIC or PRIVATE (#147 rev3 and the "Nós e Mercados" addendum).
+
+- **Scope of the invariant.** "All conformant nodes must be capable of reaching the same protocol-level liquidity
+  universe" holds **per public market**. For every market whose visibility is PUBLIC, any conformant node must be capable of
+  reaching that market's offers, whichever node hosts the market and whichever node published each offer.
+- **The default market.** `SAILS_DEFAULT` is the public market that §1 originally described. It holds every offer signed
+  without a market binding (envelope v1). Its identity and policy are protocol constants with no governance key (D12).
+- **Private markets are outside the invariant by their own governance, never by node choice.** A market whose visibility is
+  PRIVATE is reachable only by its authorized members and hosts, because its signed policy says so. "Node choice must not
+  define market membership" (§1) is unchanged and applies to every market, public or private.
+- **Protocol reach ≠ mandatory hosting ≠ instantaneous synchronization.** "Capable of reaching" means that the network
+  preserves a path: signed facts propagate, and discovery has no mandatory central authority (§4, §6). It does **not** mean
+  that every node must carry, store or relay every public market. Carrying a public market is the operator's choice (D14).
+  It also does not mean that every node holds the same view at the same time. Bounded propagation delay remains expected,
+  exactly as §1 already states.
+- **Listing is not confidentiality.** A public market may be UNLISTED (D13). Leaving a market out of a directory does
+  not restrict who can reach it, and it gives no privacy guarantee.
+- **No new authority.** No Satsails-operated node, index, registry, bootstrap service or release key decides which markets
+  exist, which are public, or who reaches them. §1's last bullet applies unchanged to every market scope.
+
 ## 2. Object authority
 
 **Property, before mechanism:** the only entity that may authorize an
