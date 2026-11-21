@@ -31,7 +31,7 @@ export default defineArea(
     'labels.paymentCategory.bank': 'Transferência bancária',
     'labels.paymentCategory.wallet': 'Carteiras digitais',
     'labels.paymentCategory.cash': 'Dinheiro / presencial',
-    'labels.paymentCategory.crypto': 'Cripto / Lightning',
+    'labels.paymentCategory.crypto': 'Cripto',
     'labels.paymentCategory.remittance': 'Internacional / remessas',
     'labels.paymentCategory.other': 'Outros',
 
@@ -90,7 +90,7 @@ export default defineArea(
       'labels.paymentCategory.bank': 'Bank transfer',
       'labels.paymentCategory.wallet': 'Digital wallets',
       'labels.paymentCategory.cash': 'Cash / in person',
-      'labels.paymentCategory.crypto': 'Crypto / Lightning',
+      'labels.paymentCategory.crypto': 'Crypto',
       'labels.paymentCategory.remittance': 'International / remittances',
       'labels.paymentCategory.other': 'Other',
 
@@ -148,7 +148,7 @@ export default defineArea(
       'labels.paymentCategory.bank': 'Transferencia bancaria',
       'labels.paymentCategory.wallet': 'Billeteras digitales',
       'labels.paymentCategory.cash': 'Efectivo / en persona',
-      'labels.paymentCategory.crypto': 'Cripto / Lightning',
+      'labels.paymentCategory.crypto': 'Cripto',
       'labels.paymentCategory.remittance': 'Internacional / remesas',
       'labels.paymentCategory.other': 'Otros',
 
@@ -206,7 +206,7 @@ export default defineArea(
       'labels.paymentCategory.bank': 'Virement bancaire',
       'labels.paymentCategory.wallet': 'Portefeuilles numériques',
       'labels.paymentCategory.cash': 'Espèces / en personne',
-      'labels.paymentCategory.crypto': 'Crypto / Lightning',
+      'labels.paymentCategory.crypto': 'Crypto',
       'labels.paymentCategory.remittance': 'International / transferts',
       'labels.paymentCategory.other': 'Autres',
 
@@ -264,7 +264,7 @@ export default defineArea(
       'labels.paymentCategory.bank': 'Banküberweisung',
       'labels.paymentCategory.wallet': 'Digitale Wallets',
       'labels.paymentCategory.cash': 'Bargeld / persönlich',
-      'labels.paymentCategory.crypto': 'Krypto / Lightning',
+      'labels.paymentCategory.crypto': 'Krypto',
       'labels.paymentCategory.remittance': 'International / Auslandsüberweisungen',
       'labels.paymentCategory.other': 'Sonstige',
 

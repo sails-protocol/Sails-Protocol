@@ -4,7 +4,7 @@ import { toast } from '../components/ui/toast'
 import { PaymentMethods } from '../components/ui/PaymentMethods'
 import { PlannedItem } from '../components/ui/PlannedItem'
 import { LOOSE_WIRES } from '../lib/looseWires'
-import { offerPaymentMethods } from '../lib/paymentMethods'
+import { hasAvailablePaymentMethod, offerPaymentMethods } from '../lib/paymentMethods'
 import { demoMemberSinceOf, demoPaymentMethodsOf, demoRatingsOf } from '../lib/demoMarkers'
 import { ratingFullText, ratingSrText, sellerMemberSince, sellerRatings, type DemoRatingFields } from '../lib/ratings'
 import { UserAvatar } from '../components/ui/UserAvatar'
@@ -191,6 +191,7 @@ export function OfferDetail() {
       toast.error(t('offer.toast.ownOffer'))
       return
     }
+    if (!hasAvailablePaymentMethod(offer)) return
     if (!amountNum || !withinLimits) {
       toast.error(t('offer.toast.outOfLimits'))
       return
@@ -310,7 +311,10 @@ export function OfferDetail() {
               )}
 
               {/* The ticket's one primary is the viewer's side (solid green buy / solid red sell), replacing orange here. */}
-              <Button onClick={handleStartTrade} loading={startingTrade} variant={offer.side === 'SELL' ? 'buy' : 'sell'} className="mt-4 w-full min-h-10 touch:min-h-11">
+              {!hasAvailablePaymentMethod(offer) && (
+                <Alert tone="info" size="sm" className="mt-3">{t('offer.ticket.methodNotAvailable')}</Alert>
+              )}
+              <Button onClick={handleStartTrade} loading={startingTrade} disabled={!hasAvailablePaymentMethod(offer)} variant={offer.side === 'SELL' ? 'buy' : 'sell'} className="mt-4 w-full min-h-10 touch:min-h-11">
                 {startingTrade ? t('offer.ticket.starting') : t(offer.side === 'SELL' ? 'offer.ticket.buy' : 'offer.ticket.sell', { asset: ASSET_SHORT_LABELS[offer.asset] })}
               </Button>
             </Card>

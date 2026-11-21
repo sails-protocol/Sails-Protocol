@@ -12,6 +12,7 @@ export default defineArea(
 
     'offer.toast.connectWallet': 'Conecte sua wallet primeiro',
     'offer.toast.ownOffer': 'Você não pode negociar com sua própria oferta',
+    'offer.ticket.methodNotAvailable': 'A forma de pagamento desta oferta ainda não está disponível para negociar.',
     'offer.toast.outOfLimits': 'Informe uma quantidade dentro do limite da oferta',
     'offer.toast.started': 'Trade iniciado',
     'offer.toast.startFailed': 'Falha ao iniciar trade',
@@ -53,6 +54,7 @@ export default defineArea(
 
       'offer.toast.connectWallet': 'Connect your wallet first',
       'offer.toast.ownOffer': 'You cannot trade on your own offer',
+      'offer.ticket.methodNotAvailable': 'This offer’s payment method is not available for trading yet.',
       'offer.toast.outOfLimits': 'Enter an amount within the offer’s limits',
       'offer.toast.started': 'Trade started',
       'offer.toast.startFailed': 'Could not start the trade',
@@ -93,6 +95,7 @@ export default defineArea(
 
       'offer.toast.connectWallet': 'Conecta tu wallet primero',
       'offer.toast.ownOffer': 'No puedes negociar con tu propia oferta',
+      'offer.ticket.methodNotAvailable': 'La forma de pago de esta oferta aún no está disponible para negociar.',
       'offer.toast.outOfLimits': 'Ingresa una cantidad dentro del límite de la oferta',
       'offer.toast.started': 'Trade iniciado',
       'offer.toast.startFailed': 'No se pudo iniciar el trade',
@@ -133,6 +136,7 @@ export default defineArea(
 
       'offer.toast.connectWallet': 'Connectez d’abord votre wallet',
       'offer.toast.ownOffer': 'Vous ne pouvez pas négocier votre propre offre',
+      'offer.ticket.methodNotAvailable': 'Le moyen de paiement de cette offre n’est pas encore disponible pour négocier.',
       'offer.toast.outOfLimits': 'Saisissez une quantité dans les limites de l’offre',
       'offer.toast.started': 'Trade lancé',
       'offer.toast.startFailed': 'Impossible de lancer le trade',
@@ -173,6 +177,7 @@ export default defineArea(
 
       'offer.toast.connectWallet': 'Verbinde zuerst deine Wallet',
       'offer.toast.ownOffer': 'Du kannst nicht mit deinem eigenen Angebot handeln',
+      'offer.ticket.methodNotAvailable': 'Die Zahlungsart dieses Angebots ist für den Handel noch nicht verfügbar.',
       'offer.toast.outOfLimits': 'Gib eine Menge innerhalb des Angebotslimits ein',
       'offer.toast.started': 'Trade gestartet',
       'offer.toast.startFailed': 'Trade konnte nicht gestartet werden',

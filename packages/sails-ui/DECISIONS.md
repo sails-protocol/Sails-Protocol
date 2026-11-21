@@ -219,6 +219,10 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
   - Ícone: a logo oficial do ativo, com uma bolinha no canto com a logo oficial da rede e o nome da rede ao lado.
   - Só fica disponível o que tem rail de liquidação real. O resto aparece como "Em breve".
   - **Lightning fica fora, sem exceção**, até entrar no compromisso (EPM, 2026-11-20).
+  - **CTO 28 (2026-11-21, issues #734 e #588):** Lightning nativo, Spark/Lightning e Arkade ficam no roadmap, sem ativação no Day 0 e sem data prometida.
+    - "Lightning direto" como forma de pagamento aparece como "Em breve" na tela de publicar e nunca pode ser escolhido; sai do filtro e da demonstração. O Sails Agent nunca o propõe. Uma oferta cujo único método é futuro não abre trade: o botão fica desativado, com aviso.
+    - O escrow `LIGHTNING_HODL` (que usa Arkade por dentro) nunca aparece como disponível ou homologado; quando o backend o informa num trade, o rótulo continua "Bitcoin via Arkade (rede de teste)".
+    - A categoria de pagamento passa a se chamar "Cripto" (era "Cripto / Lightning").
   - Origem das logos: web3icons (MIT, commit `172f57f`) e o kit oficial da Liquid (Blockstream). Ver `ui-refs/logos-download-2026-11-20/SOURCE.txt` (2026-11-20).
 
 ## Trade

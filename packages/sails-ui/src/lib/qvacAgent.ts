@@ -26,6 +26,7 @@
  */
 import { sailsClient } from './sailsClient'
 import { ASSETS, PAYMENT_METHODS } from '../data/mock'
+import { isFuturePaymentMethod } from './paymentMethods'
 import type { AssetType, FiatCurrency, PaymentMethod, TradeSide } from '../types'
 import { t } from '../i18n'
 
@@ -70,7 +71,7 @@ function isKnownAsset(a: string): a is (typeof ASSETS)[number] {
 }
 
 function isKnownPaymentMethod(m: string): m is PaymentMethod {
-  return (PAYMENT_METHODS as readonly string[]).includes(m)
+  return (PAYMENT_METHODS as readonly string[]).includes(m) && !isFuturePaymentMethod(m)
 }
 
 export async function generateIntentWithQvac(goal: string, side: TradeSide): Promise<AgentGeneratedIntent> {

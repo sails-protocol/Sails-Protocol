@@ -12,6 +12,17 @@ export const LIST_METHODS_MAX = 3
 /** Same, below `sm`. */
 export const LIST_METHODS_MAX_NARROW = 2
 
+/**
+ * Future modalities (CTO 28, 2026-11-21): known to the backend enum but not enabled on Day 0. They stay
+ * visible as "Em breve" and can never be chosen to publish an offer or to open a trade.
+ */
+export const FUTURE_PAYMENT_METHODS: ReadonlySet<string> = new Set(['LIGHTNING_DIRECT'])
+export const isFuturePaymentMethod = (m: string): boolean => FUTURE_PAYMENT_METHODS.has(m)
+/** True when the offer accepts at least one method that is enabled today. */
+export function hasAvailablePaymentMethod(offer: { paymentMethod: PaymentMethod; demoPaymentMethods?: readonly PaymentMethod[] }): boolean {
+  return offerPaymentMethods(offer).some((m) => !isFuturePaymentMethod(m))
+}
+
 /** The one place the UI reads an offer's methods: the demo list when present, else the real single method. */
 export function offerPaymentMethods(offer: { paymentMethod: PaymentMethod; demoPaymentMethods?: readonly PaymentMethod[] }): PaymentMethod[] {
   return offer.demoPaymentMethods?.length ? offer.demoPaymentMethods.slice(0, MAX_PAYMENT_METHODS) : [offer.paymentMethod]

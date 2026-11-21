@@ -61,7 +61,7 @@ import { publicationPriceUsd } from '../lib/publicationPrice'
 import { PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { sailsClient } from '../lib/sailsClient'
 import { isDemoMode } from '../lib/demoMarkers'
-import { MAX_PAYMENT_METHODS } from '../lib/paymentMethods'
+import { MAX_PAYMENT_METHODS, isFuturePaymentMethod } from '../lib/paymentMethods'
 import type { AssetType, FiatCurrency, TradeSide } from '../types'
 import { t } from '../i18n'
 
@@ -362,7 +362,9 @@ export function PublishOffer() {
                 multiple
                 label={t('publish.methods')}
                 valueText={`${t('publish.methodsOf', { count: demoMethods.length, max: MAX_PAYMENT_METHODS })}${demoMethods.length ? `, ${demoMethods.map((m) => PAYMENT_METHOD_LABELS[m]).join(', ')}` : ''}`}
-                options={PAYMENT_METHODS.map((m) => ({ value: m, label: PAYMENT_METHOD_LABELS[m], disabled: methodsAtLimit && !demoMethods.includes(m) }))}
+                options={PAYMENT_METHODS.map((m) => isFuturePaymentMethod(m)
+                  ? { value: m, label: `${PAYMENT_METHOD_LABELS[m]} · ${t('common.soon')}`, disabled: true }
+                  : { value: m, label: PAYMENT_METHOD_LABELS[m], disabled: methodsAtLimit && !demoMethods.includes(m) })}
                 selected={demoMethods}
                 onSelect={toggleDemoMethod}
                 triggerClassName="w-full"
@@ -390,7 +392,7 @@ export function PublishOffer() {
                 </SelectTrigger>
                 <SelectContent>
                   {PAYMENT_METHODS.map((m) => (
-                    <SelectItem key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</SelectItem>
+                    <SelectItem key={m} value={m} disabled={isFuturePaymentMethod(m)}>{PAYMENT_METHOD_LABELS[m]}{isFuturePaymentMethod(m) ? ` · ${t('common.soon')}` : ''}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

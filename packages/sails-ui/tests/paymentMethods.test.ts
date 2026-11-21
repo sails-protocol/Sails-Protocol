@@ -1,4 +1,4 @@
-import { acceptsAnyMethod, LIST_METHODS_MAX, LIST_METHODS_MAX_NARROW, MAX_PAYMENT_METHODS, offerPaymentMethods, splitOverflow } from '../src/lib/paymentMethods'
+import { acceptsAnyMethod, LIST_METHODS_MAX, LIST_METHODS_MAX_NARROW, MAX_PAYMENT_METHODS, offerPaymentMethods, splitOverflow, hasAvailablePaymentMethod, isFuturePaymentMethod } from '../src/lib/paymentMethods'
 
 describe('PaymentMethods overflow', () => {
   it('shows up to max and counts the rest', () => {
@@ -51,5 +51,15 @@ describe('offerPaymentMethods (single adapter)', () => {
   it('the any-of filter sees every demo method', () => {
     expect(acceptsAnyMethod(offerPaymentMethods({ paymentMethod: 'BANK_TRANSFER', demoPaymentMethods: ['BANK_TRANSFER', 'PIX', 'TED'] }), ['TED'])).toBe(true)
     expect(acceptsAnyMethod(offerPaymentMethods({ paymentMethod: 'BANK_TRANSFER' }), ['TED'])).toBe(false)
+  })
+})
+
+describe('future payment methods (CTO 28)', () => {
+  it('Lightning direto is a future modality: never available to publish or trade on Day 0', () => {
+    expect(isFuturePaymentMethod('LIGHTNING_DIRECT')).toBe(true)
+    expect(isFuturePaymentMethod('PIX')).toBe(false)
+    expect(hasAvailablePaymentMethod({ paymentMethod: 'LIGHTNING_DIRECT' })).toBe(false)
+    expect(hasAvailablePaymentMethod({ paymentMethod: 'LIGHTNING_DIRECT', demoPaymentMethods: ['LIGHTNING_DIRECT', 'PIX'] })).toBe(true)
+    expect(hasAvailablePaymentMethod({ paymentMethod: 'PIX' })).toBe(true)
   })
 })
