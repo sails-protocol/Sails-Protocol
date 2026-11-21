@@ -39,6 +39,43 @@ Três eixos separados, que nunca se misturam:
 | Lado do trade | buy (compra), sell (venda) | só "Comprar"/"Vender"; nunca sucesso/erro |
 | Status | success, warning, danger, info, neutral | ciclo de vida e feedback; disputa = danger |
 
+Mais três papéis de sistema, travados e fora do white-label: neutro (superfícies,
+texto e bordas), foco e desativado.
+
+**Papéis e tokens.** Utilitários do `roles()` em `tailwind.config.js` (estrutura
+em 2.1). Contraste = mínimo entre fundo, superfície e elevado, tirado dos
+comentários de `src/index.css` e das medições já registradas neste documento
+(2.2, 5.1 a 5.5).
+
+| Papel | Tokens | Contraste, escuro | Contraste, claro |
+|---|---|---|---|
+| Laranja da marca | sólido `bg-primary` + `text-primary-foreground`; texto, ícone e anel `text-brand-orange-accent`; `--color-orange` (texto e borda no claro); `-hover` | sólido #F97316 / #111318 6.63; texto 5.14; no tint 4.51 | sólido #EA580C / #111318 5.22 (provisório), preenchimento 3.41 / 3.56 / 3.26; texto #C2410C 4.75; no tint 4.13 (**não aprovado**) |
+| Azul da marca | `brand-blue` · `-fg` · `-bg` · `-border` · `-solid` · `brand-on-blue`; derivados `text-brand-link`, `bg-brand-checked` + `text-brand-on-checked`, `bg-brand-selected` | texto #60A5FA 5.67, no tint 4.80; sólido #2563EB / branco 5.17; marcado #60A5FA com check escuro 7.31 / 6.42 / 5.67; link 7.31 / 6.42 / 5.67; texto sobre seleção 10.91–14.43 | texto #1D4ED8 6.15, no tint 5.36, base #2563EB 4.74; sólido 5.17; marcado 4.95 / 5.17 / 4.74, check 5.17; link 6.42 / 6.70 / 6.15; texto sobre seleção 15.40–16.73 |
+| Info | `brand-info` · `-fg` · `-bg` · `-border` · `-solid` · `brand-on-info`; `TONE_CLASS.info`, `Alert tone="info"` | texto #60A5FA 5.67, no tint 4.80; sólido #60A5FA / #111318 7.31 | texto #1D4ED8 6.15, no tint 5.27; sólido #1D4ED8 / branco 6.70 |
+| Sucesso | `brand-success*`; `TONE_CLASS.success`, `Alert tone="success"` | texto #34D399 7.49, no tint 6.14; sólido / #111318 9.67 | texto #166534 6.54, no tint 5.74, base #15803D 4.60; sólido / branco 5.02 |
+| Atenção | `brand-warning*`; `TONE_CLASS.warning`, `Alert tone="warning"` | texto #FBBF24 8.63, no tint 6.95; sólido / #111318 11.13 | texto #92400E 6.50, no tint 5.71, base #B45309 4.61; sólido / branco 5.02 |
+| Perigo | `brand-danger*`; `TONE_CLASS.danger`, `Alert tone="danger"`, `variant="destructive"` (`--destructive` = `--color-danger-solid`) | texto #F87171 5.21, no tint 4.52; sólido #B91C1C / branco 6.47 | texto #B91C1C 5.93, no tint 5.02; sólido / branco 6.47 |
+| Compra | `brand-buy*`, só nas casas do guard (`ui/button.tsx`, `ui/StatusBadges.tsx`, `lib/tone.ts`) | texto #4CC79A 6.82, no tint 5.63; sólido #4CC79A / #111318 8.80 | texto #0A6B49 6.00, no tint 5.29, base #0D8259 4.42; sólido / branco 4.82 |
+| Venda | `brand-sell*`, mesmas casas | texto #FB7185 5.35, no tint 4.64; sólido #FB7185 / #111318 6.90 | texto #A3324A 6.19, no tint 5.36, base #B9384E 5.15; sólido / branco 5.62 |
+| Neutro | `bg-brand-bg` → `-surface` → `-elevated`, `bg-brand-tonal`; `text-brand-text` · `-text-secondary` · `-text-muted`; `border-brand-border` (funcional), `border-brand-border-subtle` (decorativa); `TONE_CLASS.neutral` | texto #F5F7FA 17.31 / 15.21 / 13.42; secundário #A9B0BC 6.60; muted #949CAA ≥ 4.6 no elevado; borda #6B7385 3.03 | texto #0A0A0A 18.97 / 19.80 / 18.16; secundário #525252 7.17; muted #646464 ~5.9 sobre branco; borda #878787 3.30 |
+| Foco | `--color-focus` (= cor do texto): `outline` global de `:focus-visible`, `field-focus`, `field-focus-within` | 17.31 / 15.21 / 13.42 | 18.97 / 19.80 / 18.16 |
+| Desativado | `bg-brand-disabled-container` (texto a 12 %), `text-brand-disabled-content` (38 %) | 2.77–3.16 (isento: componente inativo) | 2.44–2.46 (isento) |
+
+**Quando usar e quando não usar.**
+
+| Papel | Use para | Nunca para | Exemplos |
+|---|---|---|---|
+| Laranja da marca | a ação primária da tela (um sólido só); "você está aqui": item ativo da navegação, aba ativa, etapa `yours` do trilho, "Sua vez" | link, seleção, marcado, foco, status, lado do trade, decoração, selo de confiança | `Button` padrão, Sidebar e BottomNav ativos, indicador de `Tabs`, anel `yours` do `TradeRail`, faixa `action` do `CurrentActionCard` |
+| Azul da marca | o que foi escolhido: checkbox, switch, rádio, chip de filtro, opção do combobox, `IconButton` ligado, favorito; linha selecionada (`bg-brand-selected` + check); link; progresso; etapa concluída e "esperando" no trilho | status ou feedback (isso é info), ação primária, lado | `Checkbox`, `Switch`, `Radio`, `FilterChip`, `Combobox`, `IconButton pressed`, `Progress`, `button variant="link"`, `TradeRail` `done`/`waiting` |
+| Info | estado informativo do ciclo de vida (trade ativo, fundos bloqueados); aviso informativo; comprovante no chat (tint + rótulo); os seus balões no chat (sólido) | link, seleção, marcado (são azul da marca); confirmar pagamento (comprovante é alegação de uma parte, CTO 437) | `TONE_CLASS.info` (trade `ACTIVE`, escrow `FUNDS_LOCKED`), `Alert tone="info"`, `ChatMessage`, `toast.info` |
+| Sucesso | resultado positivo de uma ação local ou de uma checagem (chave copiada, endereço salvo, checagem do destino OK); presença online | concluído (CTO 437); liberado, decisão registrada, pagamento enviado (provisório, ver regras abaixo); compra | `toast.success` de ações locais, `Alert tone="success"`, checagem `ok` do `SigningRequestCard` |
+| Atenção | prazos e o que pede cuidado: contagem do escrow perto do fim, etapa bloqueada, em disputa ou com prazo encerrado no trilho, escrow `PAYMENT_PENDING`/`EXPIRED`, rodada de assinatura aberta, consequências numa confirmação | erro; o chip de status de uma disputa (é perigo) | `EscrowCountdown`, `TradeRail` `attention`, `ConfirmActionDialog`, `Alert tone="warning"` |
+| Perigo | disputa (chip e aviso), erro, campo inválido, ação destrutiva, alerta de risco no chat | venda: uma disputa nunca usa o vermelho de venda, e "Vender" nunca usa perigo | `TONE_CLASS.danger` (`DISPUTED`), `Alert tone="danger"`, borda de `aria-invalid`, `variant="destructive"`, item `destructive` do `Menu` |
+| Compra / Venda | só o lado do trade, "Comprar" e "Vender", escolhido a partir do `side` | status, sucesso, erro, disputa, qualquer outro significado | `SideBadge`, `SideArrow`, seletor de lado (`segmentItemClass(selecionado, side)`), `buy-tonal`/`sell-tonal` na linha, `buy`/`sell` no ticket |
+| Neutro | superfícies (fundo → superfície → elevado), texto, borda de campo, divisórias, estados sem severidade (criado, cancelado, reembolsado, dividido, concluído), "Sua oferta" | borda em volta de superfície (superfícies se separam por tom e elevação, 5.1) | `TONE_CLASS.neutral`, `variant="secondary"` (tonal), `Divider` |
+| Foco | todo foco pelo teclado: contorno 2 px em botões, links, abas e linhas; a borda do próprio campo nos campos | laranja, azul ou qualquer cor de marca como foco; `outline-none` sem substituto; `ring-offset` | `:focus-visible` global, `field-focus`, `field-focus-within` |
+| Desativado | todo controle `disabled` ou `aria-disabled` | opacidade solta (`opacity-50/60`) em botão, linha ou campo, ou somada aos tokens; laranja desativado (exceção documentada: checkbox e switch a 0.5, 5.2) | `Button` (`DISABLED_FILLED`), `Input`, opção desativada do `Combobox` |
+
 Regras:
 - **buy/sell nunca para status.** Um chip "Vender" não pode parecer erro; uma disputa usa danger, nunca sell.
 - **Laranja não é "compra"; verde não é necessariamente "compra"; vermelho não é "venda".**
@@ -66,6 +103,54 @@ Regras:
 - **Seleção ≠ marcado ≠ link** (fase 3): linha/opção selecionada = `bg-brand-selected`
   (azul da marca a 12 %) + sinal que não é cor (check, rádio, texto); link =
   `text-brand-link` (azul da marca). Laranja nunca é link nem seleção.
+
+Regras de aplicação (2026-11-21; consolidam as regras acima e o `DECISIONS.md`):
+- **Um só laranja sólido por tela** (Product Owner, 2026-11-21). Sem sessão, o
+  sólido é o "Conectar wallet" do topo, porque destrava todas as ações: o "Nova
+  oferta" do Market e os "Conectar wallet" dentro das páginas ficam tonais. Com
+  sessão, o sólido volta para o "Nova oferta". No ticket da oferta o lado
+  substitui o laranja. No trade, a ação da etapa é o sólido e o "Enviar" do
+  chat é tonal. Qualquer outra ação da mesma tela usa `secondary` (tonal).
+- **Laranja só para agir e para "você está aqui".** Contagem, filtro aplicado,
+  selo, cabeçalho de bloco, hover de ícone e foco não são laranja.
+- **Lado = texto colorido + seta, em todo lugar onde o lado aparece ou é
+  escolhido.** Exibido: `SideBadge`. Escolhido (seletor de lado do Market e do
+  Publicar, **provisório — ratificação pendente**): thumb elevado com texto
+  `-fg` peso 600 e `SideArrow` na cor do lado, sem tint
+  (`SIDE_SEGMENT_SELECTED`, `segmentItemClass(selecionado, side)`); o lado não
+  selecionado fica com texto secundário e a seta na cor base. Texto `-fg` no
+  thumb branco do claro ≥ 6.00 (compra) e ≥ 6.19 (venda), porque o thumb é a
+  superfície; no escuro o thumb é translúcido e o par ainda não foi medido
+  (medir em `/dev/design-system`). "Sua oferta" fica neutra.
+- **Status = tint + ícone + rótulo.** Chips e badges usam `TONE_CLASS` com o
+  ícone do estado (`TradeStatusBadge`, `EscrowStatusBadge`, `OfferStatusBadge`);
+  avisos usam `Alert` (tint + ícone, sem borda). Nenhum status novo nasce só com
+  cor, só com texto colorido ou só com ícone.
+- **A cor nunca é o único sinal.** Lado tem seta e rótulo; status tem ícone e
+  rótulo; seleção tem check ou rádio; a vez no trilho tem "Sua vez" e o pulso.
+- **Concluído é azul, nunca verde** (CTO 437: concluído não é finalidade de
+  liquidação). No trilho, etapa feita = azul da marca, e o final fica todo azul,
+  sem comemoração (5.5). Nos chips, `COMPLETED` é neutro (provisório, acima).
+  Liberado, decisão registrada e pagamento enviado também não usam sucesso,
+  nem em toast (**provisório — ratificação pendente**: extensão proposta pela
+  auditoria de cores de 2026-11-21; até a ratificação, vale para código novo).
+- **Seus balões no chat = info sólido** (Product Owner, 2026-11-21):
+  `bg-brand-info-solid` + `text-brand-on-info`, 6.70 no claro e 7.31 no
+  escuro; os da outra parte ficam neutros (`bg-brand-elevated`). O comprovante
+  usa o tint de info com rótulo e nunca verde. É info, não azul da marca: o
+  balão não é seleção nem link.
+- **Prazo e atenção = âmbar; disputa e erro = perigo.** O trilho pinta de âmbar
+  a etapa em disputa (5.5); o chip, o contador e o aviso da disputa são perigo.
+  O vermelho de venda nunca aparece numa disputa.
+- **Pareamento por tema.** Use sempre o par do papel: `-solid` com `on-X`, tint
+  `-bg` com texto `-fg`, nunca a base como texto corrido no claro. No escuro os
+  sólidos de matiz claro levam rótulo escuro #111318 (laranja, sucesso, atenção,
+  info, compra, venda, marcado); perigo (#B91C1C) e o sólido do azul da marca
+  (#2563EB) mantêm o branco. No claro os sólidos levam branco, menos o primário
+  laranja (#111318 sobre #EA580C, provisório). Laranja claro sobre tint laranja
+  (4.13) não é combinação aprovada.
+- **Foco e desativado são travados.** Foco usa só `--color-focus`; desativado
+  usa só os tokens de desativado. Nenhum dos dois muda no white-label (2.4).
 
 ### 2.1 Estrutura de cada papel
 
