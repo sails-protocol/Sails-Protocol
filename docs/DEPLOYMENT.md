@@ -972,3 +972,19 @@ sweep body; every other instance's tick is a fast no-op. Redis is already
 a hard dependency for this codebase (sessions, rate limiting, cross-
 instance pub/sub), so this adds no new infrastructure, only a small,
 well-understood locking primitive — not implemented in this phase.
+
+## 6.4 Database environment marker `deployment_mode` (F4, CTO Despacho 030 gate 3)
+
+The escrow commitment-pair trigger requires a COMMITTED pair for **every** escrow type. `MOCK` is exempt **only while the table `deployment_mode` has its single row** (`development` or `test`). The migration inserts **nothing**: a database with no row **is production**, and `MOCK` needs a COMMITTED pair there like any other type. There is no `production` value.
+
+- **Production:** never insert the row. The runtime role has `SELECT` only (`scripts/db/runtime-grants.sql`); only the database admin can write it. The server **refuses to start** in production if the row exists (`src/common/database/deployment-mode.ts`, called from `startServer`).
+- **Local development:** after `npm run db:local:start` and the migrations, set the row as the admin: `ADMIN_DATABASE_URL=postgresql://postgres:password@localhost:5432/sails_protocol npm run db:mode:dev`.
+- **Tests / CI:** the integration harness inserts `test` itself (guarded by `SAILS_INTEGRATION_TEST_DB_CONFIRMED` and the local host/name allowlist). The restricted-runtime CI lane runs `node scripts/db/set-deployment-mode.js test` as the admin before switching to `sails_runtime`.
+- **Residual risks (declared):** an admin inserting `test` into a production database is a trusted, audited action (`created_by = current_user`), and the boot check then stops the server; MOCK fixtures fail until the row is set, including the restricted-runtime lane.
+
+### 6.4.1 What the `deployment_mode` row does and does not protect (Despacho 031)
+
+- **Detection, three layers:** the boot check (start-up), a periodic check on the reconcile interval (logs an ERROR naming the row), and `/health/ready` (503 `not_ready`, check `deployment_mode`, plus an ERROR log). A row written later by the admin in a running production process is therefore noticed within one interval and makes readiness fail, not only at the next restart.
+- **Limit of `isProduction` / `NODE_ENV`:** every one of these checks runs only when the process believes it is production (`config.isProduction`, from `NODE_ENV`). A test database promoted to production **without** removing the row, run by a process that is *not* configured as production, is not detected by the application; the escrow trigger then treats `MOCK` as exempt. The database cannot know the environment by itself (a GUC was rejected: it is not a trusted input).
+- **What the admin can do:** the role that writes the row is the same role that can `DROP`/`DISABLE` any F3/F4 trigger and `UPDATE` any table. The row only makes one of those powers **auditable** (`created_by = current_user`); it does not shrink the admin's power. Production safety against the runtime role and against configuration mistakes holds; against a malicious admin it does not, and is not claimed to.
+- **Operational mitigation (required):** segregate the admin role from the application and from developers; audit DDL/DML on `deployment_mode` and on trigger changes (e.g. `pgaudit`, cloud audit logs); alarm on any row in `deployment_mode` in production databases (the ERROR log above is the application-side signal); never restore a test dump into a production database without clearing the row.

@@ -41,6 +41,7 @@ import { PrismaClient } from '@prisma/client'
 import { randomBytes, randomUUID } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
+import { legacyEscrowRow } from './helpers/legacyEscrowSeed'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -138,7 +139,7 @@ describe('Issue #250 - WDK_USDT_EVM SPLIT restart convergence (real PostgreSQL)'
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1', minAmount: '10', maxAmount: '10', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '10' })
     createdTradeIds.push(trade.id)
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'WDK_USDT_EVM', status: 'SPLIT', lockedAmount: '10', asset: 'USDT_ERC20' } })
+    const escrow = await legacyEscrowRow(prisma, { tradeId: trade.id, type: 'WDK_USDT_EVM', lockedAmount: '10', asset: 'USDT_ERC20', columns: { status: 'SPLIT' } })
     createdEscrowIds.push(escrow.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id, status: 'ACTIVE' } })
     return { tradeId: trade.id, escrowId: escrow.id, sellerId: seller.id, buyerId: buyer.id, buyerPayoutAddress, sellerPayoutAddress }

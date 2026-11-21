@@ -11,6 +11,7 @@ import { config } from './config'
 import { prisma } from './common/database'
 import { connectDatabase } from './common/database'
 import { assertRuntimeDatabasePrivileges } from './common/database/runtime-privileges'
+import { assertNoDeploymentModeInProduction, startDeploymentModeWatch } from './common/database/deployment-mode'
 import { redis } from './common/redis'
 import { connectRedis } from './common/redis'
 import { AppError, ERROR_DOCS_URL } from './common/errors'
@@ -346,6 +347,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     }
 
     await timed('postgres', () => prisma.$queryRaw`SELECT 1`)
+    // F4 gate 3: production is UNHEALTHY while the deployment_mode row exists (it opens the MOCK exemption); a no-op outside production.
+    await timed('deployment_mode', async () => {
+      try { await assertNoDeploymentModeInProduction() } catch (err) {
+        app.log.error({ err, dependency: 'deployment_mode' }, 'deployment_mode row present in production: the MOCK exemption is OPEN')
+        throw err
+      }
+    })
     await timed('redis', async () => {
       const pong = await redis.ping()
       if (pong !== 'PONG') throw new Error(`unexpected PING reply: ${pong}`)
@@ -449,6 +457,10 @@ export async function startServer() {
   await connectDatabase()
   // CTO 225 - in production, refuse to serve on a connection that could bypass the write-once triggers.
   await assertRuntimeDatabasePrivileges()
+  // F4 gate 3: a production database must not carry the deployment_mode row (it opens the MOCK exemption of the escrow trigger).
+  await assertNoDeploymentModeInProduction()
+  // ...and again every tick, because the boot check alone misses a row written later by the admin in a running production process.
+  startDeploymentModeWatch(app.log, config.trade.settlementReconcileIntervalMs)
   await connectRedis()
 
   // Missão 08B — cross-instance event fan-out. Deliberately only wired

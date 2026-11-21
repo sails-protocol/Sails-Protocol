@@ -725,10 +725,25 @@ describe('E21 slice 1 — transactional, idempotent trade admission (real Postgr
     const sql = require('fs').readFileSync(require('path').join(__dirname, '../../prisma/migrations/20261115120000_trade_admission_trade_intent/migration.sql'), 'utf8') as string
     const reversal = sql.split(/\r?\n/).filter((l) => /^-- {3}(DROP|ALTER) /.test(l)).map((l) => l.replace(/^--\s+/, ''))
     expect(reversal).toHaveLength(7)
+    // A later migration that depends on this one is reversed first, by its own documented reversal: F3's
+    // commitment_pairs references trades("tradeIntentId") (20261120120000), so it goes before the UNIQUE index does.
+    const f3 = require('fs').readFileSync(require('path').join(__dirname, '../../prisma/migrations/20261120120000_commitment_pairs/migration.sql'), 'utf8') as string
+    const dependents = f3.split(/\r?\n/).filter((l) => /^-- {3}DROP /.test(l)).flatMap((l) => l.replace(/^--\s+/, '').split(';').map((s) => s.trim()).filter(Boolean))
+    // F4 (20261122122000) adds escrows.commitmentPairId -> commitment_pairs (RESTRICT), so ITS documented reversal runs before F3's.
+    const f4 = (require('fs').readFileSync(require('path').join(__dirname, '../../prisma/migrations/20261122122000_f4_escrow_commitment_binding/migration.sql'), 'utf8') as string).split(/\r?\n/)
+    const start = f4.findIndex((l) => l.startsWith('-- Reversal'))
+    const f4Block: string[] = []
+    for (let i = start + 1; i < f4.length && /^--  /.test(f4[i]); i++) f4Block.push(f4[i].replace(/^--\s+/, ''))
+    const f4Dependents = f4Block.join(' ').split(';').map((s) => s.trim()).filter(Boolean)
+    expect(f4Dependents.length).toBeGreaterThanOrEqual(8)
+    // F4a (20261122121000) owns the deployment_mode table; its documented reversal runs right after F4b's (F4b's function reads the table).
+    const f4a = require('fs').readFileSync(require('path').join(__dirname, '../../prisma/migrations/20261122121000_deployment_mode/migration.sql'), 'utf8') as string
+    const f4aDependents = f4a.split(/\r?\n/).filter((l) => /^-- {3}DROP /.test(l)).map((l) => l.replace(/^--\s+/, '').replace(/;\s*$/, ''))
+    expect(f4aDependents).toEqual(['DROP TABLE "deployment_mode"'])
     const columnCount = async (q: { $queryRawUnsafe: PrismaClient['$queryRawUnsafe'] }) =>
       Number((await q.$queryRawUnsafe<Array<{ n: bigint }>>(`SELECT count(*) AS n FROM information_schema.columns WHERE table_name = 'trades' AND column_name = 'tradeIntentId'`))[0].n)
     await expect(prisma.$transaction(async (t) => {
-      for (const stmt of reversal) await t.$executeRawUnsafe(stmt)
+      for (const stmt of [...f4Dependents, ...f4aDependents, ...dependents, ...reversal]) await t.$executeRawUnsafe(stmt)
       expect(await columnCount(t)).toBe(0)
       throw new Error('ROLLBACK_REVERSAL')
     }, { timeout: 30_000 })).rejects.toThrow('ROLLBACK_REVERSAL')

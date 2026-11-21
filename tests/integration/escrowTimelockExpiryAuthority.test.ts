@@ -19,6 +19,7 @@
 // millisecond boundary against a real, unmocked Date.now().
 
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { createBoundTrade } from './helpers/committedPairFixture'
 
 describe('Sails Core Implementation Program M4 (Retry) — real sweepExpiredEscrows() authoritative path (real Postgres)', () => {
   jest.setTimeout(60_000)
@@ -50,12 +51,12 @@ describe('Sails Core Implementation Program M4 (Retry) — real sweepExpiredEscr
 
   async function fixtureEscrow(type: string, expiresAt: Date) {
     const s = suffix()
-    const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-m4-${s}` } })
-    const seller = await prisma.user.create({ data: { publicKey: `pk-seller-m4-${s}` } })
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
-    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const bound = await createBoundTrade(prisma) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+    const { buyer, seller, trade } = bound
+    const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
+    const boundPairId = await bound.commit()
     const escrow = await prisma.escrow.create({
-      data: { tradeId: trade.id, type: type as any, status: 'FUNDS_LOCKED', asset: 'BTC', lockedAmount: '0.001', timelockHours: 1, expiresAt },
+      data: { tradeId: trade.id, commitmentPairId: type === 'MOCK' ? undefined : boundPairId, type: type as any, status: 'FUNDS_LOCKED', asset: 'BTC', lockedAmount: '0.001', timelockHours: 1, expiresAt },
     })
     return { escrow, trade }
   }
@@ -121,12 +122,12 @@ describe('Sails Core Implementation Program M4 (Retry) — real sweepExpiredEscr
   it('P9/§45 — existing historical Escrow rows remain fully valid and untouched by the new authoritative path', async () => {
     requirePostgres('M4 legacy compatibility')
     const s = suffix()
-    const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-m4-legacy-${s}` } })
-    const seller = await prisma.user.create({ data: { publicKey: `pk-seller-m4-legacy-${s}` } })
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
-    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const bound = await createBoundTrade(prisma) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+    const { buyer, seller, trade } = bound
+    const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
+    const boundPairId = await bound.commit()
     const historicalEscrow = await prisma.escrow.create({
-      data: { tradeId: trade.id, type: 'MULTISIG', status: 'COMPLETED', asset: 'BTC', lockedAmount: '0.001' },
+      data: { tradeId: trade.id, commitmentPairId: boundPairId, type: 'MULTISIG', status: 'COMPLETED', asset: 'BTC', lockedAmount: '0.001' },
     })
 
     await escrowService.sweepExpiredEscrows()

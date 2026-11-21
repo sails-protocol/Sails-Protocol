@@ -13,6 +13,7 @@ import { readFileSync } from 'fs'
 import path from 'path'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
+import { escrowRowForType } from './helpers/legacyEscrowSeed'
 
 const ARBITER = 'k6-test-arbiter'
 const BASELINE_MIGRATION = path.resolve(__dirname, '../../prisma/migrations/20261102120000_dispute_ruling_finalization_baseline/migration.sql')
@@ -81,7 +82,7 @@ describe('Codex findings on PR #570 (real PostgreSQL)', () => {
     const buyer = await user()
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: type as never, status: status as never, lockedAmount: '0.001', asset: 'BTC', ...extra } })
+    const escrow = await escrowRowForType(prisma, { tradeId: trade.id, type: type as never, lockedAmount: '0.001', asset: 'BTC', columns: { status: status as never, ...extra } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id, status: tradeStatus as never } })
     return { tradeId: trade.id, escrowId: escrow.id, sellerId: seller.id, buyerId: buyer.id }
   }

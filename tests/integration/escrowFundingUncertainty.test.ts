@@ -9,7 +9,8 @@
 
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
-import { registerTestParticipant, closeTestRedis, preserveTestRedis } from './identityTestHelpers'
+import { registerTestParticipant, registerTestParticipantWithKey, closeTestRedis, preserveTestRedis } from './identityTestHelpers'
+import { commitTradePair } from './helpers/committedPairFixture'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 describe('Escrow funding uncertainty — real Postgres (Missão 11 Fase 9.1)', () => {
@@ -69,6 +70,7 @@ describe('Escrow funding uncertainty — real Postgres (Missão 11 Fase 9.1)', (
   afterAll(async () => {
     if (dbAvailable) {
       await prisma.$disconnect()
+      await (global as any).__prisma?.$disconnect() // #748: the client the last restart created
       await closeTestRedis()
     }
   })
@@ -81,12 +83,13 @@ describe('Escrow funding uncertainty — real Postgres (Missão 11 Fase 9.1)', (
   afterEach(() => { global.fetch = realFetch })
 
   async function makeLockedMultisigEscrow(suffix: string) {
-    const seller = await registerTestParticipant(identityService, 'Seller')
-    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const seller = await registerTestParticipantWithKey(identityService, 'Seller')
+    const buyer = await registerTestParticipantWithKey(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({
       userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER',
     })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    await commitTradePair(prisma, trade.id, seller, buyer) // F4 deny-by-default: the COMMITTED pair of this trade
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     // Missão 11 Fase 9.1.1 — fail-closed capability declaration is now
     // required for a real MULTISIG commit (no more grandfathered omission).
@@ -119,6 +122,10 @@ describe('Escrow funding uncertainty — real Postgres (Missão 11 Fase 9.1)', (
     // module reads the SAME row back from Postgres — proving this is real,
     // persisted history, not in-process state that a restart would lose.
     preserveTestRedis() // keep ONE Redis client across resetModules() so afterAll can close it
+    await (global as any).__prisma?.$disconnect()
+    // #748: database/index.ts reuses global.__prisma across jest.resetModules(); without clearing it the restarted modules
+    // pair a NEW @prisma/client (their Prisma.sql fragments) with the OLD client, and nested fragments are sent as values.
+    ;(global as any).__prisma = undefined
     jest.resetModules()
     const freshRepo = require('../../src/modules/open-settlement/escrow-funding-evidence-repository').escrowFundingEvidenceRepository
     const afterRestart = await freshRepo.listForEscrow(escrowId)

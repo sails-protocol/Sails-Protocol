@@ -48,6 +48,10 @@ export interface CreateTradeInput {
   // src/common/idempotency.ts's own header for why this is a caller-
   // supplied key, not a composite-business-key uniqueness constraint.
   idempotencyKey?: string
+  // E21 R1 (CTO 28 Despacho 029) - optional: the offer_envelopes row (exact revision) this trade accepts. The
+  // database guard (migration 20261121120000) refuses it unless it is this Offer owner's resolved, active revision
+  // matching the trade terms. Omitted means today's Offer-only admission (acceptedEnvelopeId stays NULL).
+  acceptedEnvelopeId?: string
 }
 
 export interface TradePagination {
@@ -100,7 +104,7 @@ export class TradeService {
    */
   async createTrade(input: CreateTradeInput) {
     const claim = input.idempotencyKey
-      ? { key: input.idempotencyKey, requestHash: hashIdempotentPayload({ offerId: input.offerId, amount: input.amount }) }
+      ? { key: input.idempotencyKey, requestHash: hashIdempotentPayload({ offerId: input.offerId, amount: input.amount, ...(input.acceptedEnvelopeId ? { acceptedEnvelopeId: input.acceptedEnvelopeId } : {}) }) }
       : null
 
     if (claim) {
@@ -116,6 +120,10 @@ export class TradeService {
       if (claim && isUniqueConstraintError(err)) {
         const existing = await findIdempotencyClaim(TRADE_CREATE_SCOPE, input.counterpartyId, claim.key)
         if (existing) return this.replay(existing, claim.requestHash, input)
+      }
+      // E21 R1: the accepted revision is unknown (FK) or not this Offer owner's resolved, active, matching revision.
+      if (input.acceptedEnvelopeId && ((err as { code?: unknown })?.code === 'P2003' || (err instanceof Error && err.message.includes('trades: acceptedEnvelopeId must be')))) {
+        throw new ValidationError(`acceptedEnvelopeId ${input.acceptedEnvelopeId} is not an acceptable revision of Offer ${input.offerId}`)
       }
       throw err
     }
@@ -197,6 +205,7 @@ export class TradeService {
       network: offer.network,
       intentId: offer.intentId, // RFC-018 — carried over from the accepted Offer (published meaning unchanged)
       tradeIntentId: tradeIntent.intentId,
+      acceptedEnvelopeId: input.acceptedEnvelopeId,
     }, tx)
 
     const created = await eventBus.publishInTransaction(tx, 'openp2p.trade.created', {

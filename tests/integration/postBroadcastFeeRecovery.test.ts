@@ -21,6 +21,7 @@ jest.mock('../../src/common/events/event-bus', () => ({
 
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { createBoundTrade } from './helpers/committedPairFixture'
 
 describe('post-broadcast fee recovery (Issue #245 Phase 2, real Postgres)', () => {
   jest.setTimeout(120_000)
@@ -49,21 +50,33 @@ describe('post-broadcast fee recovery (Issue #245 Phase 2, real Postgres)', () =
 
   const suffix = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const evidenceLine = (label: string, data: unknown) => process.stdout.write(`EVIDENCE[#245-P2] ${label}: ${JSON.stringify(data)}\n`)
+  // #748: every escrow this suite created. A report entry for any of them, or for a sweep not tied to one escrow
+  // ('dispute:*', 'dispute:<id>', 'settlement-provenance:*', 'external-spend:*'), fails the case: filtering by the case's
+  // own escrowId hid a failing ruling-recovery sweep. Escrows left by other suites in the shared database are reconciled
+  // against this suite's mocked provider, so their entries are printed, not asserted.
+  const ownEscrows = new Set<string>()
+  function expectNoMaskedFailures(label: string, failed: Array<{ escrowId: string; error: string }>) {
+    const masked = failed.filter((f) => f.escrowId.includes(':') || ownEscrows.has(f.escrowId))
+    const foreign = failed.filter((f) => !masked.includes(f))
+    if (foreign.length > 0) evidenceLine(`${label} failures of escrows from other suites (not asserted)`, foreign)
+    expect(masked).toEqual([])
+  }
 
   /** The state the live path leaves after a broadcast whose fee recording failed. */
   async function afterBroadcastWithFailedAccounting(opts: { emitted?: boolean; noObligation?: boolean; noFeeAddress?: boolean } = {}) {
     const s = suffix()
     const txid = require('crypto').createHash('sha256').update(s).digest('hex')
-    const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-245p2-${s}` } })
-    const seller = await prisma.user.create({ data: { publicKey: `pk-seller-245p2-${s}` } })
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
-    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const bound = await createBoundTrade(prisma) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+    const { buyer, seller, trade } = bound
+    const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
+    const boundPairId = await bound.commit()
     const feePolicy = await prisma.feePolicyVersion.create({
       data: { label: `fp-245p2-${s}`, railScope: `FIXTURE_RAIL_245P2-${s}`, status: 'PUBLISHED', publishedAt: new Date(), protocolFeeRate: '0.004', payerModel: 'SELLER_PAYS', economicBasis: 'SELLER_DELIVERED_VALUE', requiredConfirmations: 1, createdBy: 'issue-245-p2-test' },
     })
     const escrow = await prisma.escrow.create({
-      data: { tradeId: trade.id, type: 'MULTISIG', status: 'COMPLETED', asset: 'BTC', lockedAmount: '0.001', txReleaseId: txid, snapshotFeeCollectionAddress: opts.noFeeAddress ? null : 'tb1qfeeaddress245p2' },
+      data: { tradeId: trade.id, commitmentPairId: boundPairId, type: 'MULTISIG', status: 'COMPLETED', asset: 'BTC', lockedAmount: '0.001', txReleaseId: txid, snapshotFeeCollectionAddress: opts.noFeeAddress ? null : 'tb1qfeeaddress245p2' },
     })
+    ownEscrows.add(escrow.id)
     const obligationData = { escrowId: escrow.id, feePolicyVersionId: feePolicy.id, economicDetermination: 'OWED' as const, collectionStatus: 'PENDING_COLLECTION' as const, basisAmount: '0.001', computedFee: '0.00000500', asset: 'BTC' as const }
     const obligation = opts.noObligation ? { id: 'none' } : await prisma.feeObligation.create({ data: obligationData })
     if (opts.emitted !== false) {
@@ -105,6 +118,9 @@ describe('post-broadcast fee recovery (Issue #245 Phase 2, real Postgres)', () =
     const { escrowId, obligationId, txid } = await afterBroadcastWithFailedAccounting()
     // "restart": a brand new module graph and a new database client, no in-memory state carried over.
     await prisma.$disconnect()
+    // #748: database/index.ts reuses global.__prisma across jest.resetModules(); without clearing it the restarted modules
+    // pair a NEW @prisma/client (their Prisma.sql fragments) with the OLD client, and nested fragments are sent as values.
+    ;(global as any).__prisma = undefined
     jest.resetModules()
     load()
     // resetModules() re-creates the stubbed chain collaborator too; the reconstruction stub must be armed again.
@@ -112,10 +128,10 @@ describe('post-broadcast fee recovery (Issue #245 Phase 2, real Postgres)', () =
     const report = await reconcilePendingSettlements()
     const s = await snapshot(escrowId, obligationId)
     const row = await prisma.feeCollectionEvidence.findFirst({ where: { feeObligationId: obligationId } })
-    evidenceLine('2+3 after restart + reconcile', { ...s, txidMatches: row?.txid === txid, failed: report.failed.filter((f) => f.escrowId === escrowId) })
+    evidenceLine('2+3 after restart + reconcile', { ...s, txidMatches: row?.txid === txid, failed: report.failed })
     expect(s).toMatchObject({ status: 'IN_PROGRESS', broadcast: 1, confirmed: 0, events: 1, pendingRow: false, signatures: 0 })
     expect(row).toMatchObject({ kind: 'BROADCAST', txid, vout: FEE.vout, scriptPubKey: FEE.scriptPubKeyHex })
-    expect(report.failed.filter((f) => f.escrowId === escrowId)).toEqual([])
+    expectNoMaskedFailures('2+3', report.failed)
   })
 
   it('4 repeated reconciliation passes never duplicate the BROADCAST row, the event, or the obligation state', async () => {
@@ -138,7 +154,7 @@ describe('post-broadcast fee recovery (Issue #245 Phase 2, real Postgres)', () =
     const first = await reconcilePendingSettlements()
     const afterFailure = await snapshot(escrowId, obligationId)
     evidenceLine('5 after the failed recovery pass', afterFailure)
-    expect(first.failed.filter((f) => f.escrowId === escrowId)).toEqual([]) // logged, never thrown: the settlement's funds already moved
+    expectNoMaskedFailures('5', first.failed) // logged, never thrown: the settlement's funds already moved
     expect(afterFailure).toMatchObject({ status: 'PENDING_COLLECTION', broadcast: 0, events: 1, pendingRow: true, signatures: 1 })
 
     await reconcilePendingSettlements() // the spy now falls through to the real implementation
@@ -182,9 +198,9 @@ describe('post-broadcast fee recovery (Issue #245 Phase 2, real Postgres)', () =
     const { escrowId, obligationData } = await afterBroadcastWithFailedAccounting({ noObligation: true })
     const report = await reconcilePendingSettlements()
     const pendingAfter = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId } })
-    evidenceLine('9 missing FeeObligation', { pendingKept: !!pendingAfter, failed: report.failed.filter((f) => f.escrowId === escrowId) })
+    evidenceLine('9 missing FeeObligation', { pendingKept: !!pendingAfter, failed: report.failed })
     expect(pendingAfter).not.toBeNull()
-    expect(report.failed.filter((f) => f.escrowId === escrowId)).toEqual([])
+    expectNoMaskedFailures('9', report.failed)
     const created = await prisma.feeObligation.create({ data: obligationData })
     await reconcilePendingSettlements()
     const s = await snapshot(escrowId, created.id)

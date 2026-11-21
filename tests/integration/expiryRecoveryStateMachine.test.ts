@@ -12,6 +12,7 @@
 // machine and event-chain properties this phase's own mandate named.
 
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { createBoundTrade } from './helpers/committedPairFixture'
 
 describe('Generation-1 expiry-recovery state machine (Missão 11 Fase 7.3.3, real Postgres)', () => {
   jest.setTimeout(60_000)
@@ -45,13 +46,13 @@ describe('Generation-1 expiry-recovery state machine (Missão 11 Fase 7.3.3, rea
 
   async function fixtureExpiredMultisigEscrow() {
     const s = suffix()
-    const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-expiry-${s}` } })
-    const seller = await prisma.user.create({ data: { publicKey: `pk-seller-expiry-${s}` } })
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
-    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const bound = await createBoundTrade(prisma) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+    const { buyer, seller, trade } = bound
+    const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
+    const boundPairId = await bound.commit()
     const escrow = await prisma.escrow.create({
       data: {
-        tradeId: trade.id, type: 'MULTISIG', status: 'FUNDS_LOCKED', asset: 'BTC', lockedAmount: '0.001',
+        tradeId: trade.id, commitmentPairId: boundPairId, type: 'MULTISIG', status: 'FUNDS_LOCKED', asset: 'BTC', lockedAmount: '0.001',
         timelockHours: 1, expiresAt: new Date(Date.now() - 60_000), // already expired
       },
     })
@@ -117,10 +118,10 @@ describe('Generation-1 expiry-recovery state machine (Missão 11 Fase 7.3.3, rea
   it('existing historical (non-EXPIRED) escrows remain fully interpretable — the additive enum value changes nothing about them', async () => {
     requirePostgres('historical escrow unaffected')
     const s = suffix()
-    const buyer = await prisma.user.create({ data: { publicKey: `pk-buyer-hist-${s}` } })
-    const seller = await prisma.user.create({ data: { publicKey: `pk-seller-hist-${s}` } })
-    const offer = await prisma.offer.create({ data: { userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '1', paymentMethod: 'PIX' } })
-    const trade = await prisma.trade.create({ data: { offerId: offer.id, buyerId: buyer.id, sellerId: seller.id, asset: 'BTC', amount: '0.001', priceUsd: '65000', totalUsd: '65' } })
+    const bound = await createBoundTrade(prisma) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+    const { buyer, seller, trade } = bound
+    const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
+    const boundPairId = await bound.commit()
     const historicalEscrow = await prisma.escrow.create({
       data: { tradeId: trade.id, type: 'MOCK', status: 'COMPLETED', asset: 'BTC', lockedAmount: '0.001' },
     })

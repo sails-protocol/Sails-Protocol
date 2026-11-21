@@ -32,6 +32,16 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **#748: integration suites that simulate a restart now get a new database client (tests only).**
+  - **Cause:** `src/common/database/index.ts` reuses `global.__prisma` across `jest.resetModules()`. The restarted modules paired a new `@prisma/client` (their `Prisma.sql` fragments) with the old client, which sent the D13 `SWEEP_KEY` fragment as a value (PG 22007). The ruling-recovery sweep failed in `postBroadcastFeeRecovery`, and the failure was hidden because the suite filtered `report.failed` by the case's own escrow.
+  - **Change:** `postBroadcastFeeRecovery`, `economicDispositionAuthorityConcurrency`, `escrowFundingConcurrency` and `escrowFundingUncertainty` disconnect and clear `global.__prisma` before each `jest.resetModules()`, and close the restarted client in `afterAll`.
+  - **Assertions:** `postBroadcastFeeRecovery` fails on any sweep-level failure (`dispute:*`, `dispute:<id>`, `…:*`) and on any failure of an escrow it created; failures of other suites' escrows are printed.
+  - **Not changed:** production code, including `SWEEP_KEY`.
+- **CTO Despacho 046: two real-PostgreSQL suites leave the unit lane, which no longer reaches a database.** Tests and lanes only, no production code.
+  - `disputedDispositionProductionPath` and `wdkTransferAttemptConcurrency` ran in the unit lane (parallel, against the shared database). They now run in the PostgreSQL lane (`--runInBand`).
+  - `wdkTransferAttemptConcurrency` moved to `tests/integration/`, adopted the integration harness (fail-closed database check) and uses a fresh id per test with no deletes. It also runs in the CI restricted step as `sails_runtime`. Its 8 tests and their assertions are unchanged.
+  - `test:unit` runs through `scripts/test-unit-lane.js`, which forces `DATABASE_URL` to an unroutable sentinel (no localhost fallback), so any unit-lane suite that touches PostgreSQL fails loudly. `tests/unitLaneNoDatabase.test.ts` proves it.
+
 - **CTO 239/245/246 — "latest" fee collection evidence follows record order (real PostgreSQL).** Local commits, pending review.
   - **Cause:** readers used `ORDER BY "recordedAt" DESC LIMIT 1`. `recordedAt` is `timestamp(3)`, so rows of one obligation often tie within a millisecond (200-run probe: 79 ties, 2 misses; CI run 43748566359). It is also not commit order: a DB-default insert carries its transaction's start, so a writer that begins first, waits for the obligation's row lock and commits last has the smaller `recordedAt` (CTO 246 lock-wait inversion, reproduced on fee evidence; a `(recordedAt, seq)` order still picked the wrong row). Prisma Client fills `@default(now())` itself, with the app clock at insert time.
   - **Fix:** migration `20261116120000_fee_collection_evidence_seq` adds `seq` (`SERIAL`, nextval at insert) and every reader orders by `seq` alone: the four fee reconciliation checks, `listForObligation()` (last BROADCAST for `recognizeConfirmation()` and the confirmation job, last CONFIRMED for the reorg sweep), `allocate()`, `findCollectedNotYetAllocated()`, `findReorgedGenerationsNotReversed()` ("recorded after" = higher `seq`) and the escrow detail reads. `recordedAt` is informational.
@@ -40,6 +50,16 @@ All notable changes to this project will be documented in this file.
   - **Historical rows:** keep the `seq` that `ADD COLUMN` assigns (physical order); no automatic renumbering (CTO 249). Their order is not economic evidence: the old `recordedAt` order and the new `seq` order can disagree on the latest row. A read-only inventory and the operator handling are in `docs/DEPLOYMENT.md` §6.5. A historical tie between two CONFIRMED rows can change who is entitled and, if the other row was already allocated, lets `allocate()` allocate the same revenue again (characterized by a test; CTO decision). Economic policy is unchanged.
 
 ### Security
+
+- **D030: `escrows.type` has no default (CTO 28 Despacho 030).** Draft, pending Gatekeeper VERIFY; no route or API change.
+  - `Escrow.type` loses `@default(MOCK)`. An INSERT that omits the rail is refused by the database (NOT NULL, SQLSTATE `23502`) instead of silently becoming a MOCK escrow. Every writer in `src/` already passes `type` (`CreateEscrowData.type` is required).
+  - **Migration** `20261122120000_escrow_type_drop_default`: `ALTER COLUMN type DROP DEFAULT` (catalog only, existing rows untouched), `lock_timeout` 5 s; reversal (`SET DEFAULT 'MOCK'`) in its header.
+  - **Test** `escrowTypeNoDefault.test.ts`: `pg_attrdef` shows no default; a direct INSERT without type fails with 23502 and writes nothing, also as `sails_runtime` in the CI restricted step; the explicit type passes.
+
+- **E21 R1 — a trade binds the exact offer-envelope revision it accepted (CTO 28 Despacho 029).** Draft, pending Gatekeeper VERIFY; no route change.
+  - **Column** `trades.acceptedEnvelopeId`: FOREIGN KEY to `offer_envelopes.id` (append-only, write-once) `ON DELETE RESTRICT`, written by `createTrade({ acceptedEnvelopeId })` in the admission transaction and never after. Legacy trades stay NULL, no backfill.
+  - **Guard** `trades_accepted_envelope_guard`: at the INSERT the revision must belong to the Offer owner, be resolved (no equivocating row at its revision, no later revision), `ACTIVE` and unexpired on the database clock, and carry the trade terms (asset, side, priceUsd as numeric, paymentMethod, amount within its inclusive limits, all numeric; stricter than the admission's `Number()` bounds check only in refusing). A refused revision fails the whole admission with `VALIDATION_ERROR`; callers that omit the field keep their exact idempotency request hash.
+  - **Migration** `20261121120000_trade_accepted_envelope`: additive, `lock_timeout` 5 s; reversal in its header.
 
 - **E21 slice 1 — transactional, idempotent trade admission with a Trade Intent per trade (real PostgreSQL).** Draft, pending CTO and Gatekeeper review. Does not close E21/F28.
   - **One transaction:** the idempotency claim (written `COMPLETED`), the Offer re-validated under `SELECT ... FOR SHARE` (active, not your own, amount bounds, price and total), the trade's own Intent (`TradeIntent`, child of the Offer Intent, born `NEGOTIATING`), the Trade, `openp2p.trade.created` and the negotiation opening (`negotiation.opened`, `openp2p.trade.status_changed`) commit together or not at all. Lock order: claim, Offer row, event-store advisory lock.
