@@ -254,7 +254,7 @@ vista. Endereços antigos redirecionam com `replace`, mantendo query, hash e
 `/trades/disputes`. O Perfil continua com a vitrine (identidade, reputação,
 avaliações) e com a mesma seção "Minhas ofertas" (`MyOffersSection`,
 compartilhada com a aba). Configurações, em ordem de uso: Wallet, Aparência,
-Idioma, Notificações, Segurança, Nó Sails, Comunidades, Ajuda e Sobre. A seção
+Idioma, Notificações, Segurança, Rede e nós, Mercados, Ajuda e Sobre. A seção
 aberta fica na URL, `?section=<id>` (substitui o histórico, não empilha; sem o
 parâmetro ou com id desconhecido abre Wallet; `lib/settingsSection.ts`); no
 celular um link direto já abre a seção.
@@ -633,7 +633,7 @@ outros status.
 #### Configurações
 Seções (abas verticais md+, lista que abre a seção abaixo de md), em ordem de
 uso: **Wallet**, **Aparência** (`SunMoon`), **Idioma** (`Languages`),
-**Notificações** (`Bell`), **Segurança**, **Nó Sails** (`Network`),
+**Notificações** (`Bell`), **Segurança**, **Rede e nós** (`Network`, antes "Nó Sails"),
 **Mercados** (antes Comunidades; o id `comunidades` continua, para `?section=` não quebrar: mercado que abre por padrão, convites recebidos, privacidade da participação "Em breve" e atalhos para Meus mercados e Entrar com convite), **Ajuda e Sobre**.
 "Aplicativo" saiu: tema e estilo dos avatares foram para Aparência (com Avatar
 público e Moeda de exibição, ainda "Em breve"); Idioma e Notificações viraram

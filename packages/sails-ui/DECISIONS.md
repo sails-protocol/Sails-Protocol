@@ -34,11 +34,11 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 - **Gates:** descoberta, especificação, protótipo e testes não econômicos. Merge, migração, deploy e ativação econômica continuam em HOLD. A cadeia F4b → M-1b continua prioritária.
 
 ## Navegação e layout
-- Menu com 5 itens. A escolha do nó fica em Configurações (2026-11-20).
+- Menu com 5 itens (versão de 2026-11-20, substituída pela "Reorganização pela visão do usuário" abaixo, que deixou 4 itens). A escolha do nó fica em Configurações.
 - **Reorganização pela visão do usuário** (2026-11-20, substitui o item acima quando implementada). Nada sai da tela e as rotas antigas redirecionam para o lugar novo.
   - **Menu:** Market · Trades · Perfil · Configurações. No celular a barra inferior fica com 4 itens.
   - **Trades:** Ativos · Histórico · Minhas ofertas · Disputas. Disputas sai do menu principal e vira aba, com um contador quando há disputa aberta. "Minhas ofertas" reúne criar, pausar e cancelar as próprias ofertas. O Perfil continua sendo a vitrine pública.
-  - **Configurações, em ordem de uso:** Wallet, Aparência, Idioma, Notificações, Segurança, Rede e nós (antes "Nó Sails"), Comunidades, Ajuda e Sobre.
+  - **Configurações, em ordem de uso:** Wallet, Aparência, Idioma, Notificações, Segurança, Rede e nós (antes "Nó Sails"), Mercados (antes "Comunidades"), Ajuda e Sobre.
   - **Árbitros:** o item próprio "Arbitragem" entra na fase da visão do árbitro (ver "Visões por papel"). Até lá, a lista de casos continua acessível pelo mesmo endereço.
 - **Visões por papel** (2026-11-20): primeiro fecha-se toda a interface da visão do usuário. Depois vêm, em fases separadas:
   - a **visão do árbitro**, com a lista de arbitragem e a condução dos casos;
@@ -50,7 +50,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 - Menu lateral recolhível no desktop. O item Perfil mostra o avatar da pessoa (2026-11-20).
 - **Posição do menu no desktop** (2026-11-20): em Configurações → Aparência, "Posição do menu: Lateral | Superior", com uma miniatura de cada opção. A escolha fica salva no navegador e não há botão de alternar na barra.
   - O padrão é **lateral**, com o recolher e expandir de hoje.
-  - **Superior:** logo à esquerda, os 5 itens no centro, avatar e menu da conta à direita.
+  - **Superior:** logo à esquerda, os itens do menu no centro, avatar e menu da conta à direita.
   - Abaixo de 1024 px vale o layout de hoje.
   - No celular a barra inferior continua igual, qualquer que seja a escolha.
   - Os dois layouts são testados em todas as larguras e nos dois temas.
@@ -146,7 +146,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
         - Criar mercado.
         - Quem só usa o mercado aberto nunca é incomodado. Quem participa de comunidades troca de mercado em dois toques.
       - **A vitrine "Explorar mercados":** uma página com os mercados públicos em destaque (marca, descrição, participantes, Vitrine ou Comunidade), com endereço próprio para compartilhar. É o marketing da abordagem do Sails: "crie o mercado da sua comunidade ou empresa, sem precisar de servidor".
-      - **Descoberta na hora certa:** um cartão discreto que dá para fechar e aparece de vez em quando no Market. Os mesmos convites aparecem nos lugares naturais: lista vazia, Perfil e Comunidades. Um mercado privado em que a pessoa entrou por convite passa a aparecer logo depois do "Mercado aberto", que continua sempre em primeiro.
+      - **Descoberta na hora certa:** um cartão discreto que dá para fechar e aparece de vez em quando no Market. Os mesmos convites aparecem nos lugares naturais: lista vazia, Perfil e Configurações → Mercados (antes Comunidades). Um mercado privado em que a pessoa entrou por convite passa a aparecer logo depois do "Mercado aberto", que continua sempre em primeiro.
       - **Ícones obrigatórios:** cada tipo de mercado e cada ação do portal tem o seu ícone (lucide, dos tokens): mercado aberto, mercado público com marca, mercado privado, explorar, convite e criar. A marca de um mercado público, quando existir, substitui o ícone genérico.
       - **Promoção futura:** se os mercados específicos virarem hábito, "Mercados" pode subir para o menu principal. Por enquanto fica no portal, para não haver mudança brusca.
       - **Nome:** "**Mercado aberto**" é a proposta do Product Owner para o mercado público padrão do Sails, junto com "sala privada". O nome oficial ainda está em aberto; a tela já usa "Mercado aberto".
@@ -175,6 +175,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 - **Comprar e Vender coloridos:** na lista, fundo suave verde ou vermelho com o texto na mesma cor. No detalhe da oferta, botão sólido verde ou vermelho. "Sua oferta" fica neutro. Todos os estados são mostrados e medidos (repouso, mouse em cima, pressionado, foco, desativado, carregando), nos dois temas (2026-11-20).
 - **Aparência:** padrão do sistema, escuro ou claro. Até o Architect decidir, o app abre no escuro (2026-11-20).
 - **Idiomas:** padrão do sistema, Português (Brasil), English, Español, Français e Deutsch. Números, moedas e datas seguem o idioma escolhido (2026-11-20).
+  - **Textos de dinheiro e de disputa sem revisão nativa ficam fora da publicação** (2026-11-21). As chaves de dinheiro, disputa, prazo, reputação, custódia e confirmação em inglês, espanhol, francês e alemão só vão para produção depois de um falante nativo revisar (lista `NEEDS_NATIVE_REVIEW`, DESIGN_SYSTEM.md §7.3).
 - Referências de qualidade: Apple HIG, Material 3 e WCAG 2.2 AA. Para padrões de mercado P2P: Binance P2P e Hodl Hodl. Nunca copiar nenhuma delas (2026-11-20).
 
 ## Market e ofertas

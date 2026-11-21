@@ -8,7 +8,7 @@ export default defineArea(
     'common.cancel': 'Cancelar',
     'common.soon': 'Em breve',
     'common.copy': 'Copiar',
-    'common.copied': 'Copiado!',
+    'common.copied': 'Copiado',
     'common.copyFailed': 'Não foi possível copiar',
     'common.notifications': 'Notificações',
   },

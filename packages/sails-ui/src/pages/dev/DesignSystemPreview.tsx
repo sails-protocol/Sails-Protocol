@@ -617,10 +617,10 @@ export function DesignSystemPreview() {
       <Section id="ds-phase4a" title="Métodos de pagamento, item planejado e avaliação">
         <div className="grid gap-6 md:grid-cols-2">
           <div className="space-y-2 text-body-sm">
-            <p className="text-caption text-brand-text-muted">PaymentMethods: até 2 na linha (1 abaixo de sm), depois +N; lista completa na oferta.</p>
-            <div><PaymentMethods labels={['PIX']} max={2} maxNarrow={1} /></div>
-            <div><PaymentMethods labels={['PIX', 'TED', 'Dinheiro', 'Wise']} max={2} maxNarrow={1} /></div>
-            <div><PaymentMethods labels={['PIX', 'TED', 'Dinheiro', 'Wise']} className="text-sm text-brand-text" /></div>
+            <p className="text-caption text-brand-text-muted">PaymentMethods: até 3 na linha (2 abaixo de sm), depois +N; lista completa na oferta.</p>
+            <div><PaymentMethods labels={['PIX']} max={3} maxNarrow={2} /></div>
+            <div><PaymentMethods labels={['PIX', 'TED', 'Boleto bancário', 'Wise', 'Revolut']} max={3} maxNarrow={2} /></div>
+            <div><PaymentMethods labels={['PIX', 'TED', 'Boleto bancário', 'Wise', 'Revolut']} className="text-sm text-brand-text" /></div>
           </div>
           <div className="space-y-4">
             <div id="ds-avaliacoes" className="space-y-2">
