@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext'
 import { isNavActive } from './navMatch'
 import { NAV_ITEMS, NavIcon } from './Sidebar'
 import { cn } from '../../lib/utils'
+import { t } from '../../i18n'
 
 /**
  * Mobile navigation (below md): the Sidebar's own destinations, icons and labels (NAV_ITEMS), so the
@@ -15,7 +16,7 @@ export function BottomNav() {
   const items = NAV_ITEMS.filter((item) => !item.requiresAuth || user)
 
   return (
-    <nav aria-label="Navegação principal" className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-brand-surface border-t border-brand-border-subtle flex pb-[env(safe-area-inset-bottom)]">
+    <nav aria-label={t('shell.nav.main')} className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-brand-surface border-t border-brand-border-subtle flex pb-[env(safe-area-inset-bottom)]">
       {items.map((item) => {
         const isActive = isNavActive(pathname, item)
         return (

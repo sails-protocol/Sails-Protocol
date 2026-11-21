@@ -17,27 +17,33 @@ import { MARKETS_ROUTES } from '../../components/layout/navMatch'
 import { dismissDiscovery, readDiscoveryDismissedAt, shouldShowDiscovery } from '../../lib/discoveryCard'
 import { ownMarkets } from '../../lib/myMarkets'
 import { cn } from '../../lib/utils'
-import { MARKET_LIST_COPY, MARKETS_VALUE_LINE, SOON, useVisibleMarkets } from './shared'
+import { marketListCopy, marketsValueLine, useVisibleMarkets } from './shared'
+import { t } from '../../i18n'
 
-const PORTAL_ACTIONS: readonly MarketPortalAction[] = [
-  { id: 'explore', label: 'Explorar mercados', description: 'Mercados públicos de comunidades e empresas', icon: MARKET_ACTION_ICON.explore, to: MARKETS_ROUTES.explore },
-  { id: 'join', label: 'Entrar com convite', description: 'Num mercado privado, com um convite Sails', icon: MARKET_ACTION_ICON.invite, to: MARKETS_ROUTES.join },
-  { id: 'create', label: 'Criar mercado', description: 'Para a sua comunidade ou empresa', icon: MARKET_ACTION_ICON.create, to: MARKETS_ROUTES.create },
-]
+function portalActions(): readonly MarketPortalAction[] {
+  return [
+    { id: 'explore', label: t('markets.action.explore'), description: t('markets.action.exploreDescription'), icon: MARKET_ACTION_ICON.explore, to: MARKETS_ROUTES.explore },
+    { id: 'join', label: t('markets.action.join'), description: t('markets.action.joinDescription'), icon: MARKET_ACTION_ICON.invite, to: MARKETS_ROUTES.join },
+    { id: 'create', label: t('markets.action.create'), description: t('markets.action.createDescription'), icon: MARKET_ACTION_ICON.create, to: MARKETS_ROUTES.create },
+  ]
+}
 
-const PORTAL_COPY: MarketPortalCopy = {
-  triggerPrefix: 'Mercado:',
-  title: 'Mercados',
-  yourMarkets: 'Seus mercados',
-  actionsTitle: 'Mais mercados',
-  current: 'Selecionado',
-  close: 'Fechar',
-  marketLine: (m) => m.relation === 'default'
-    ? 'Ofertas de toda a Rede Sails'
-    : `${MARKET_LIST_COPY.visibility[m.visibility]} · ${MARKET_LIST_COPY.relation[m.relation]}`,
-  unavailable: SOON,
-  unavailableReason: () => 'As ofertas de outros mercados ainda não existem no protocolo.',
-  illustrative: 'Exemplo fictício',
+function portalCopy(): MarketPortalCopy {
+  const list = marketListCopy()
+  return {
+    triggerPrefix: t('markets.portal.triggerPrefix'),
+    title: t('markets.title'),
+    yourMarkets: t('markets.portal.yourMarkets'),
+    actionsTitle: t('markets.portal.actionsTitle'),
+    current: t('markets.portal.current'),
+    close: t('common.close'),
+    marketLine: (m) => m.relation === 'default'
+      ? t('markets.default.description')
+      : t('markets.portal.marketLine', { visibility: list.visibility[m.visibility], relation: list.relation[m.relation] }),
+    unavailable: t('common.soon'),
+    unavailableReason: () => t('markets.portal.unavailableReason'),
+    illustrative: t('markets.fictionalExample'),
+  }
 }
 
 export function MarketPortalButton({ className }: { className?: string }) {
@@ -49,9 +55,9 @@ export function MarketPortalButton({ className }: { className?: string }) {
       // Until market offers exist (LOOSE_WIRES.marketMembership), only Mercado aberto can be entered.
       isSelectable={(m) => m.relation === 'default'}
       onSelect={() => undefined}
-      actions={PORTAL_ACTIONS}
+      actions={portalActions()}
       renderLink={({ to, className: c, onClick, children }) => <Link to={to} className={c} onClick={onClick}>{children}</Link>}
-      copy={PORTAL_COPY}
+      copy={portalCopy()}
       className={className}
     />
   )
@@ -64,14 +70,14 @@ export function MarketsDiscoveryCard({ className }: { className?: string }) {
     <aside aria-labelledby="markets-discovery-title" className={cn('flex items-start gap-3 rounded-lg bg-brand-surface p-3', className)}>
       <ActionIcon icon={MARKET_ACTION_ICON.explore} />
       <div className="min-w-0 flex-1">
-        <h2 id="markets-discovery-title" className="text-sm font-medium text-brand-text">Mercados de comunidades e empresas</h2>
-        <p className="mt-0.5 text-caption text-brand-text-secondary">{MARKETS_VALUE_LINE}</p>
+        <h2 id="markets-discovery-title" className="text-sm font-medium text-brand-text">{t('markets.discovery.title')}</h2>
+        <p className="mt-0.5 text-caption text-brand-text-secondary">{marketsValueLine()}</p>
         <div className="mt-2 flex flex-wrap gap-2">
-          <Link to={MARKETS_ROUTES.explore} className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'touch:min-h-11')}>Explorar mercados</Link>
-          <Link to={MARKETS_ROUTES.create} className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'touch:min-h-11')}>Criar mercado</Link>
+          <Link to={MARKETS_ROUTES.explore} className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'touch:min-h-11')}>{t('markets.action.explore')}</Link>
+          <Link to={MARKETS_ROUTES.create} className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'touch:min-h-11')}>{t('markets.action.create')}</Link>
         </div>
       </div>
-      <IconButton label="Fechar" size="sm" onClick={() => { dismissDiscovery(Date.now()); setVisible(false) }}>
+      <IconButton label={t('common.close')} size="sm" onClick={() => { dismissDiscovery(Date.now()); setVisible(false) }}>
         <X />
       </IconButton>
     </aside>
@@ -83,10 +89,10 @@ export function MarketsCallToAction({ className }: { className?: string }) {
   return (
     <div className={cn('flex flex-wrap items-center justify-center gap-2', className)}>
       <Link to={MARKETS_ROUTES.explore} className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'touch:min-h-11')}>
-        <MARKET_ACTION_ICON.explore aria-hidden="true" />Explorar mercados
+        <MARKET_ACTION_ICON.explore aria-hidden="true" />{t('markets.action.explore')}
       </Link>
       <Link to={MARKETS_ROUTES.create} className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'touch:min-h-11')}>
-        <MARKET_ACTION_ICON.create aria-hidden="true" />Criar mercado
+        <MARKET_ACTION_ICON.create aria-hidden="true" />{t('markets.action.create')}
       </Link>
     </div>
   )

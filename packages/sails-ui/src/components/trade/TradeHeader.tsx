@@ -8,6 +8,7 @@ import type { StatusTone } from '../../lib/tradeState'
 import { CopyButton } from '../ui/CopyButton'
 import { cn } from '../../lib/utils'
 import { TONE_CLASS } from '../../lib/tone'
+import { t } from '../../i18n'
 
 export const STATUS_TONE_CLASS: Record<StatusTone, string> = {
   // The one status chip of the page: Design System tone with a stronger border.
@@ -47,8 +48,8 @@ export function TradeHeader({ title, tradeId, createdAtLabel, status, leading, a
       <h1 className="mt-1 text-page-title [overflow-wrap:anywhere]">{title}</h1>
       <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-brand-text-secondary">
         <span>Trade <span className="font-mono">#{tradeId.slice(0, 8)}</span></span>
-        <CopyButton value={tradeId} label="Copiar" className="px-3 py-1 touch:min-h-11" />
-        <span>· Aberto em {createdAtLabel}</span>
+        <CopyButton value={tradeId} label={t('common.copy')} className="px-3 py-1 touch:min-h-11" />
+        <span>{t('trade.header.openedAt', { date: createdAtLabel })}</span>
         {asset && <span className="inline-flex items-center gap-1">· {asset}</span>}
       </p>
     </header>

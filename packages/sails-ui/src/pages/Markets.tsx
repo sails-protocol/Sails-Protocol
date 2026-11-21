@@ -20,79 +20,95 @@ import { FactList } from '../components/markets/FactList'
 import { CreateMarketWizard, type CreateMarketCopy } from '../components/markets/CreateMarketWizard'
 import { isDemoMode } from '../lib/demoMarkers'
 import { cn } from '../lib/utils'
-import { GUARANTEES, IDENTIFIERS, JoinMarketPanel, MARKET_LIST_COPY, MARKETS_VALUE_LINE, SOON, WireNote, WirePlanned, useVisibleMarkets } from './markets/shared'
+import { guarantees, identifiers, JoinMarketPanel, marketListCopy, marketsValueLine, WireNote, WirePlanned, useVisibleMarkets } from './markets/shared'
 import { MarketIcon, MARKET_ACTION_ICON } from '../components/markets/MarketIcon'
 import { ownMarkets } from '../lib/myMarkets'
+import { getLocale } from '../lib/locale'
+import { t } from '../i18n'
 
 const TAB_ICON = 'h-4 w-4 shrink-0'
-const TABS = [
-  { to: MARKETS_ROUTES.explore, label: <><MARKET_ACTION_ICON.explore aria-hidden="true" className={TAB_ICON} />Explorar mercados</> },
-  { to: MARKETS_ROUTES.mine, label: <><UsersRound aria-hidden="true" className={TAB_ICON} />Meus mercados</> },
-  { to: MARKETS_ROUTES.create, label: <><MARKET_ACTION_ICON.create aria-hidden="true" className={TAB_ICON} />Criar mercado</> },
-  { to: MARKETS_ROUTES.join, label: <><MARKET_ACTION_ICON.invite aria-hidden="true" className={TAB_ICON} />Entrar com convite</> },
+const tabs = () => [
+  { to: MARKETS_ROUTES.explore, label: <><MARKET_ACTION_ICON.explore aria-hidden="true" className={TAB_ICON} />{t('markets.action.explore')}</> },
+  { to: MARKETS_ROUTES.mine, label: <><UsersRound aria-hidden="true" className={TAB_ICON} />{t('markets.action.mine')}</> },
+  { to: MARKETS_ROUTES.create, label: <><MARKET_ACTION_ICON.create aria-hidden="true" className={TAB_ICON} />{t('markets.action.create')}</> },
+  { to: MARKETS_ROUTES.join, label: <><MARKET_ACTION_ICON.invite aria-hidden="true" className={TAB_ICON} />{t('markets.action.join')}</> },
 ]
 
 const SURFACE = 'border-brand-border-subtle bg-brand-surface p-4'
 
-const CREATE_COPY: CreateMarketCopy = {
-  steps: {
-    identity: 'Nome, descrição e identidade visual',
-    visibility: 'Visibilidade',
-    participation: 'Participação e permissões',
-    infrastructure: 'Infraestrutura',
-    review: 'Revisão',
-    invites: 'Participantes e convites',
-  },
-  progress: (at, total, title) => `Passo ${at} de ${total}: ${title}`,
-  name: 'Nome do mercado',
-  nameHelp: (max) => `Até ${max} caracteres. As pessoas vão reconhecer o mercado por este nome.`,
-  description: 'Descrição',
-  descriptionOptional: '(opcional)',
-  visibility: [
-    { value: 'public', label: 'Público', description: 'Qualquer pessoa na Rede Sails pode encontrar o mercado e ver as ofertas.' },
-    { value: 'private', label: 'Privado', description: 'Só quem tiver um convite Sails autorizado entra e vê as ofertas.' },
-  ],
-  visibilityNote: 'A visibilidade não define quem publica. Isso é o próximo passo.',
-  participation: [
-    { value: 'vitrine', label: 'Vitrine', description: 'Publicam o administrador ou participantes autorizados. Negociam clientes e membros autorizados.' },
-    { value: 'comunidade', label: 'Comunidade', description: 'Todos os membros autorizados publicam e negociam.' },
-    { value: 'personalizado', label: 'Personalizado (futuro)', description: 'Permissões configuradas uma a uma.', disabled: true },
-  ],
-  participationNote: 'Atalhos opcionais para configurar permissões, não limites do protocolo.',
-  infrastructure: [
-    { value: 'network', label: 'Rede Sails (padrão)', description: 'O mercado usa a Rede Sails. Você não mantém nenhuma máquina, quando a rede oferecer hospedagem.' },
-    { value: 'own', label: 'Nó próprio', description: 'O mercado roda num nó Sails que você mantém. Adicione o nó em Configurações → Rede e nós.' },
-  ],
-  infrastructureNote: 'Configuração técnica. Pode ficar no padrão.',
-  review: { name: 'Nome', description: 'Descrição', visibility: 'Visibilidade', participation: 'Participação', infrastructure: 'Infraestrutura', empty: 'Não informado' },
-  back: 'Voltar',
-  next: 'Continuar',
-  create: 'Criar mercado',
+function createCopy(): CreateMarketCopy {
+  const list = marketListCopy()
+  const steps = {
+    identity: t('markets.create.step.identity'),
+    visibility: t('markets.create.step.visibility'),
+    participation: t('markets.create.step.participation'),
+    infrastructure: t('markets.create.step.infrastructure'),
+    review: t('markets.create.step.review'),
+    invites: t('markets.create.step.invites'),
+  }
+  return {
+    steps,
+    // at/total as strings: step numbers, not quantities.
+    progress: (at, total, title) => t('markets.create.progress', { at: String(at), total: String(total), title }),
+    name: t('markets.create.name'),
+    nameHelp: (max) => t('markets.create.nameHelp', { max }),
+    description: t('markets.create.description'),
+    descriptionOptional: t('markets.optional'),
+    visibility: [
+      { value: 'public', label: list.visibility.public, description: t('markets.create.visibility.publicDescription') },
+      { value: 'private', label: list.visibility.private, description: t('markets.create.visibility.privateDescription') },
+    ],
+    visibilityNote: t('markets.create.visibilityNote'),
+    participation: [
+      { value: 'vitrine', label: list.preset.vitrine, description: t('markets.create.participation.vitrineDescription') },
+      { value: 'comunidade', label: list.preset.comunidade, description: t('markets.create.participation.comunidadeDescription') },
+      { value: 'personalizado', label: t('markets.create.participation.personalizadoLabel'), description: t('markets.create.participation.personalizadoDescription'), disabled: true },
+    ],
+    participationNote: t('markets.create.participationNote'),
+    infrastructure: [
+      { value: 'network', label: t('markets.create.infrastructure.networkLabel'), description: t('markets.create.infrastructure.networkDescription') },
+      { value: 'own', label: t('markets.create.infrastructure.ownLabel'), description: t('markets.create.infrastructure.ownDescription') },
+    ],
+    infrastructureNote: t('markets.create.infrastructureNote'),
+    review: {
+      name: t('markets.create.review.name'), description: t('markets.create.description'), visibility: steps.visibility,
+      participation: t('markets.create.review.participation'), infrastructure: steps.infrastructure, empty: t('markets.create.review.empty'),
+    },
+    back: t('markets.create.back'),
+    next: t('markets.create.next'),
+    create: t('markets.action.create'),
+  }
 }
 
 // The 2×2 of visibility × infrastructure (CTO final correction): one example each, all independent choices.
-const EXAMPLES: readonly { visibility: string; infrastructure: string; example: string }[] = [
-  { visibility: 'Público', infrastructure: 'Rede Sails', example: 'Empresa com vitrine e marca própria, sem manter infraestrutura' },
-  { visibility: 'Público', infrastructure: 'Nó próprio', example: 'Operador com um mercado aberto independente' },
-  { visibility: 'Privado', infrastructure: 'Rede Sails', example: 'Grupo de amigos ou comunidade fechada' },
-  { visibility: 'Privado', infrastructure: 'Nó próprio', example: 'Empresa com mercado exclusivo para parceiros' },
-]
+function examples(): readonly { key: string; visibility: string; infrastructure: string; example: string }[] {
+  const pub = t('markets.list.visibility.public')
+  const priv = t('markets.list.visibility.private')
+  const own = t('markets.create.infrastructure.ownLabel')
+  return [
+    { key: 'public-network', visibility: pub, infrastructure: 'Rede Sails', example: t('markets.create.example.publicNetwork') },
+    { key: 'public-own', visibility: pub, infrastructure: own, example: t('markets.create.example.publicOwn') },
+    { key: 'private-network', visibility: priv, infrastructure: 'Rede Sails', example: t('markets.create.example.privateNetwork') },
+    { key: 'private-own', visibility: priv, infrastructure: own, example: t('markets.create.example.privateOwn') },
+  ]
+}
 
-const PRESET_LABEL = MARKET_LIST_COPY.preset
 const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secondary'
 
 /** Showcase of public markets (DECISIONS.md "Modelo mundo aberto"): its own shareable route, /markets. */
 function ExploreView() {
   const publics = useVisibleMarkets().filter((m) => m.visibility === 'public')
+  const list = marketListCopy()
+  const soon = t('common.soon')
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-brand-surface p-4">
-        <p className="min-w-0 flex-1 basis-60 text-body-sm text-brand-text">{MARKETS_VALUE_LINE}</p>
+        <p className="min-w-0 flex-1 basis-60 text-body-sm text-brand-text">{marketsValueLine()}</p>
         <Link to={MARKETS_ROUTES.create} className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'shrink-0 touch:min-h-11')}>
-          <MARKET_ACTION_ICON.create aria-hidden="true" />Criar mercado
+          <MARKET_ACTION_ICON.create aria-hidden="true" />{t('markets.action.create')}
         </Link>
       </div>
-      <ul aria-label="Mercados públicos" className="grid gap-3 sm:grid-cols-2">
+      <ul aria-label={t('markets.explore.listLabel')} className="grid gap-3 sm:grid-cols-2">
         {publics.map((m) => (
           <li key={m.id} className="flex flex-col gap-3 rounded-lg bg-brand-surface p-4">
             <div className="flex items-start gap-3">
@@ -100,30 +116,30 @@ function ExploreView() {
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <h2 className="text-sm font-medium text-brand-text">{m.name}</h2>
-                  {m.illustrative && <Badge variant="outline" className={TAG}>{MARKET_LIST_COPY.illustrative}</Badge>}
+                  {m.illustrative && <Badge variant="outline" className={TAG}>{list.illustrative}</Badge>}
                 </div>
                 <p className="mt-0.5 text-caption text-brand-text-secondary">{m.description}</p>
               </div>
             </div>
             <dl className="flex flex-wrap gap-x-4 gap-y-1 text-caption">
               <div className="flex gap-1">
-                <dt className="text-brand-text-muted">Participantes:</dt>
-                <dd className="tabular-nums text-brand-text">{m.participants !== undefined ? m.participants.toLocaleString('pt-BR') : SOON}</dd>
+                <dt className="text-brand-text-muted">{t('markets.explore.participants')}</dt>
+                <dd className="tabular-nums text-brand-text">{m.participants !== undefined ? m.participants.toLocaleString(getLocale()) : soon}</dd>
               </div>
               <div className="flex gap-1">
-                <dt className="text-brand-text-muted">Modelo:</dt>
-                <dd className="text-brand-text">{m.preset ? PRESET_LABEL[m.preset] : m.relation === 'default' ? 'Aberto a todos' : SOON}</dd>
+                <dt className="text-brand-text-muted">{t('markets.explore.model')}</dt>
+                <dd className="text-brand-text">{m.preset ? list.preset[m.preset] : m.relation === 'default' ? t('markets.explore.openToAll') : soon}</dd>
               </div>
             </dl>
             <div className="mt-auto">
               {m.relation === 'default'
-                ? <Link to="/" className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'touch:min-h-11')}>Abrir<span className="sr-only"> {m.name}</span></Link>
-                : <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{SOON}</Badge>}
+                ? <Link to="/" className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'touch:min-h-11')}>{t('markets.explore.open')}<span className="sr-only"> {m.name}</span></Link>
+                : <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{soon}</Badge>}
             </div>
           </li>
         ))}
       </ul>
-      {publics.length === 1 && <WirePlanned id="marketDiscovery" description="Mercados públicos de comunidades e empresas aparecem aqui, com marca, descrição e participantes, para você seguir." />}
+      {publics.length === 1 && <WirePlanned id="marketDiscovery" description={t('markets.explore.discoveryPlanned')} />}
     </div>
   )
 }
@@ -132,9 +148,9 @@ function MineView() {
   const markets = ownMarkets(useVisibleMarkets())
   return (
     <Card className={cn(SURFACE, 'space-y-4')}>
-      <MarketList markets={markets} copy={{ ...MARKET_LIST_COPY, label: 'Meus mercados' }} />
-      {markets.length === 1 && <WirePlanned id="marketMembership" description="Os mercados públicos que você segue ou administra e os privados de que você participa aparecem aqui." />}
-      <WirePlanned id="marketPortability" description="Reconhecer seus mercados depois de trocar de aplicativo ou de nó, quando houver suporte verificável. Não é recuperação automática." />
+      <MarketList markets={markets} copy={{ ...marketListCopy(), label: t('markets.action.mine') }} />
+      {markets.length === 1 && <WirePlanned id="marketMembership" description={t('markets.mine.membershipPlanned')} />}
+      <WirePlanned id="marketPortability" description={t('markets.mine.portabilityPlanned')} />
     </Card>
   )
 }
@@ -146,14 +162,14 @@ function CreateView() {
     <div className="space-y-6">
       <Card className={SURFACE}>
         {created ? (
-          <Alert tone="info" live title="Demonstração: mercado fictício">
-            “{created}” foi criado só nesta demonstração. Nada foi enviado ao protocolo.
+          <Alert tone="info" live title={t('markets.create.demoTitle')}>
+            {t('markets.create.demoBody', { name: created })}
           </Alert>
         ) : (
           <CreateMarketWizard
-            copy={CREATE_COPY}
-            brandingSlot={<WirePlanned id="marketBranding" description="Logo e cores do mercado." />}
-            invitesSlot={<WirePlanned id="marketInvite" label="Gerenciar participantes e convites" description="Convidar participantes com convites Sails, ver quem entrou e revogar acessos." />}
+            copy={createCopy()}
+            brandingSlot={<WirePlanned id="marketBranding" description={t('markets.create.brandingPlanned')} />}
+            invitesSlot={<WirePlanned id="marketInvite" label={t('markets.create.invitesLabel')} description={t('markets.create.invitesPlanned')} />}
             createAvailable={demo}
             unavailableNote={<WireNote ids={['createMarket']} />}
             onCreate={(d) => setCreated(d.name.trim())}
@@ -161,11 +177,11 @@ function CreateView() {
         )}
       </Card>
       <section aria-labelledby="markets-examples">
-        <h2 id="markets-examples" className="text-section-title">Exemplos</h2>
-        <p className="mt-1 text-body-sm text-brand-text-secondary">Visibilidade e infraestrutura são escolhas separadas.</p>
+        <h2 id="markets-examples" className="text-section-title">{t('markets.create.examplesTitle')}</h2>
+        <p className="mt-1 text-body-sm text-brand-text-secondary">{t('markets.create.examplesLead')}</p>
         <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-          {EXAMPLES.map((e) => (
-            <li key={`${e.visibility}-${e.infrastructure}`} className="rounded-lg bg-brand-surface p-3">
+          {examples().map((e) => (
+            <li key={e.key} className="rounded-lg bg-brand-surface p-3">
               <p className="text-caption text-brand-text-secondary">{e.visibility} · {e.infrastructure}</p>
               <p className="mt-0.5 text-body-sm text-brand-text">{e.example}</p>
             </li>
@@ -173,10 +189,10 @@ function CreateView() {
         </ul>
       </section>
       <div className="grid gap-6 md:grid-cols-2">
-        <FactList title="Garantias" facts={GUARANTEES} />
+        <FactList title={t('markets.guarantees.title')} facts={guarantees()} />
         <div>
-          <FactList title="Como o Sails identifica cada parte" facts={IDENTIFIERS} />
-          <p className="mt-2 text-caption text-brand-text-muted">Os formatos ainda estão em definição.</p>
+          <FactList title={t('markets.identifiers.title')} facts={identifiers()} />
+          <p className="mt-2 text-caption text-brand-text-muted">{t('markets.identifiers.formatsPending')}</p>
         </div>
       </div>
     </div>
@@ -187,10 +203,10 @@ function JoinView() {
   return (
     <div className="space-y-6">
       <Card className={SURFACE}>
-        <p className="mb-4 text-body-sm text-brand-text-secondary">Mercados privados são separados do nó que os hospeda. Para entrar, você precisa de um convite Sails.</p>
+        <p className="mb-4 text-body-sm text-brand-text-secondary">{t('markets.join.intro')}</p>
         <JoinMarketPanel />
       </Card>
-      <FactList title="Garantias" facts={GUARANTEES} />
+      <FactList title={t('markets.guarantees.title')} facts={guarantees()} />
     </div>
   )
 }
@@ -201,15 +217,15 @@ export function Markets() {
   return (
     <Page width="detail">
       <PageHeader
-        title="Mercados"
-        meta="Explore, participe ou crie mercados. O Mercado aberto continua sendo o padrão do Market."
+        title={t('markets.title')}
+        meta={t('markets.meta')}
         back={
           <Link to="/" className="inline-flex min-h-11 items-center gap-1 text-body-sm text-brand-text-secondary hover:text-brand-text md:min-h-0">
             <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Market
           </Link>
         }
       >
-        <TabLinks label="Mercados" items={TABS} className="overflow-x-auto overflow-y-hidden whitespace-nowrap [scrollbar-width:none]" />
+        <TabLinks label={t('markets.title')} items={tabs()} className="overflow-x-auto overflow-y-hidden whitespace-nowrap [scrollbar-width:none]" />
       </PageHeader>
       {view === MARKETS_ROUTES.mine ? <MineView /> : view === MARKETS_ROUTES.create ? <CreateView /> : view === MARKETS_ROUTES.join ? <JoinView /> : <ExploreView />}
     </Page>

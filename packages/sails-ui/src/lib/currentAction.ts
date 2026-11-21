@@ -7,6 +7,7 @@
  * unless the status is COMPLETED, DISPUTED or REFUNDED.
  */
 import type { EscrowStatus } from '../types'
+import { t } from '../i18n'
 
 export type CurrentActionKind = 'createEscrow' | 'lock' | 'markPaymentSent' | 'release'
 
@@ -19,8 +20,6 @@ export interface CurrentAction {
   canDispute: boolean
 }
 
-const WAITING = 'Aguardando a contraparte'
-
 // `releaseUnavailable`: the escrow type needs a signing round this interface cannot sign
 // (LIGHTNING_HODL / SAFE_GUARD_EVM), so no release is offered — it would dead-end.
 // `signingUnavailable`: a release signing round exists but this interface cannot offer the signature
@@ -30,39 +29,41 @@ export function deriveCurrentAction({ status, isBuyer, isSeller, releaseUnavaila
   const canDispute = (isBuyer || isSeller) && status !== 'COMPLETED' && status !== 'DISPUTED' && status !== 'REFUNDED'
   const party = isBuyer || isSeller
 
+  const watching = () => t(party ? 'escrow.actor.waiting' : 'escrow.actor.following')
+
   switch (status) {
     case 'CREATED':
       return isSeller
-        ? { tone: 'action', actorLabel: 'Ação necessária — vendedor', title: 'Bloquear os fundos no escrow', description: 'Registra o bloqueio dos fundos que você já depositou no escrow. Se o depósito ainda não for aceito, a ação será recusada. Não libera nada ao comprador.', primary: { action: 'lock', label: 'Bloquear fundos' }, canDispute }
-        : { tone: 'waiting', actorLabel: party ? WAITING : 'Acompanhamento', title: 'Aguardando o vendedor bloquear os fundos', description: 'Não envie nenhum pagamento antes de os fundos estarem bloqueados no escrow.', canDispute }
+        ? { tone: 'action', actorLabel: t('escrow.actor.sellerNeeded'), title: t('escrow.action.lock.title'), description: t('escrow.action.lock.description'), primary: { action: 'lock', label: t('escrow.action.lock.label') }, canDispute }
+        : { tone: 'waiting', actorLabel: watching(), title: t('escrow.action.waitLock.title'), description: t('escrow.action.noPaymentBeforeLock'), canDispute }
     case 'FUNDS_LOCKED':
       if (party && deadlinePassed) {
         return isBuyer
-          ? { tone: 'attention', actorLabel: 'Comprador', title: 'Prazo do escrow encerrado', description: 'O prazo terminou antes de o pagamento ser marcado como enviado, e o nó Sails ainda não registrou o encerramento. Não envie o pagamento agora. Se já enviou, fale com o vendedor pelo chat ou abra uma disputa.', canDispute }
-          : { tone: 'attention', actorLabel: 'Vendedor', title: 'Prazo do escrow encerrado', description: 'O prazo terminou com os fundos bloqueados e o pagamento ainda não marcado como enviado. O nó Sails ainda não registrou o encerramento do escrow.', canDispute }
+          ? { tone: 'attention', actorLabel: t('escrow.actor.buyer'), title: t('escrow.state.expired'), description: t('escrow.action.deadline.buyer'), canDispute }
+          : { tone: 'attention', actorLabel: t('escrow.actor.seller'), title: t('escrow.state.expired'), description: t('escrow.action.deadline.seller'), canDispute }
       }
       return isBuyer
-        ? { tone: 'action', actorLabel: 'Ação necessária — comprador', title: 'Marcar o pagamento como enviado', description: 'Avisa o vendedor de que você enviou o pagamento. Não libera os fundos — isso só acontece quando o vendedor liberar. Toque só depois de concluir a transferência no app do seu banco.', primary: { action: 'markPaymentSent', label: 'Marcar pagamento enviado' }, canDispute }
-        : { tone: 'waiting', actorLabel: party ? WAITING : 'Acompanhamento', title: 'Aguardando o comprador marcar o pagamento como enviado', description: 'O nó Sails registrou o bloqueio dos fundos.', canDispute }
+        ? { tone: 'action', actorLabel: t('escrow.actor.buyerNeeded'), title: t('escrow.action.markPaid.title'), description: t('escrow.action.markPaid.description'), primary: { action: 'markPaymentSent', label: t('escrow.action.markPaid.label') }, canDispute }
+        : { tone: 'waiting', actorLabel: watching(), title: t('escrow.action.waitMarkPaid.title'), description: t('escrow.action.waitMarkPaid.description'), canDispute }
     case 'PAYMENT_PENDING':
       if (party && signingUnavailable) {
-        return { tone: 'attention', actorLabel: isSeller ? 'Vendedor' : 'Comprador', title: 'Assinatura da liberação indisponível nesta interface', description: 'A rodada de assinaturas da liberação está aberta, mas esta interface não oferece a assinatura agora. Os detalhes estão na rodada abaixo.', canDispute }
+        return { tone: 'attention', actorLabel: t(isSeller ? 'escrow.actor.seller' : 'escrow.actor.buyer'), title: t('escrow.action.signingUnavailable.title'), description: t('escrow.action.signingUnavailable.description'), canDispute }
       }
       if (isSeller && releaseUnavailable) {
-        return { tone: 'attention', actorLabel: 'Vendedor', title: 'Liberação indisponível nesta interface para este tipo de escrow', description: 'Esta interface ainda não confere os termos da transação deste tipo de escrow antes de assinar, por isso não inicia a liberação.', canDispute }
+        return { tone: 'attention', actorLabel: t('escrow.actor.seller'), title: t('escrow.action.releaseUnavailable.title'), description: t('escrow.action.releaseUnavailable.description'), canDispute }
       }
       return isSeller
-        ? { tone: 'action', actorLabel: 'Ação necessária — vendedor', title: 'Liberar os fundos ao comprador', description: 'O comprador marcou o pagamento como enviado. Confira o recebimento na sua conta antes de liberar. Em alguns escrows, a liberação só é concluída depois das assinaturas necessárias.', primary: { action: 'release', label: 'Liberar fundos' }, canDispute }
-        : { tone: 'waiting', actorLabel: party ? WAITING : 'Acompanhamento', title: 'Aguardando o vendedor liberar', description: 'O pagamento foi marcado como enviado. O vendedor ainda precisa conferir o recebimento e liberar os fundos.', canDispute }
+        ? { tone: 'action', actorLabel: t('escrow.actor.sellerNeeded'), title: t('escrow.action.release.title'), description: t('escrow.action.release.description'), primary: { action: 'release', label: t('escrow.action.release.label') }, canDispute }
+        : { tone: 'waiting', actorLabel: watching(), title: t('escrow.action.waitRelease.title'), description: t('escrow.action.waitRelease.description'), canDispute }
     case 'COMPLETED':
-      return { tone: 'terminal', actorLabel: 'Encerrado', title: 'Escrow marcado como concluído', description: 'Não há mais ações disponíveis neste trade.', canDispute }
+      return { tone: 'terminal', actorLabel: t('escrow.actor.closed'), title: t('escrow.state.completed'), description: t('escrow.action.noMoreActions'), canDispute }
     case 'REFUNDED':
-      return { tone: 'terminal', actorLabel: 'Encerrado', title: 'Escrow marcado como reembolsado', description: 'Não há mais ações disponíveis neste trade.', canDispute }
+      return { tone: 'terminal', actorLabel: t('escrow.actor.closed'), title: t('escrow.state.refunded'), description: t('escrow.action.noMoreActions'), canDispute }
     case 'SPLIT':
-      return { tone: 'terminal', actorLabel: 'Resultado do escrow', title: 'Escrow marcado como dividido entre as partes', description: 'O escrow foi marcado como dividido entre as partes por decisão da disputa.', canDispute }
+      return { tone: 'terminal', actorLabel: t('escrow.actor.outcome'), title: t('escrow.state.split'), description: t('escrow.action.split.description'), canDispute }
     case 'DISPUTED':
-      return { tone: 'attention', actorLabel: 'Em disputa', title: 'Trade em disputa', description: 'As ações normais do trade estão suspensas. A resolução segue pela disputa.', canDispute }
+      return { tone: 'attention', actorLabel: t('escrow.state.disputed'), title: t('escrow.action.disputed.title'), description: t('escrow.action.disputed.description'), canDispute }
     case 'EXPIRED':
-      return { tone: 'attention', actorLabel: 'Prazo encerrado', title: 'Prazo do escrow encerrado', description: 'O escrow não está mais aberto para as etapas normais do trade.', canDispute }
+      return { tone: 'attention', actorLabel: t('escrow.actor.deadlinePassed'), title: t('escrow.state.expired'), description: t('escrow.action.expired.description'), canDispute }
   }
 }

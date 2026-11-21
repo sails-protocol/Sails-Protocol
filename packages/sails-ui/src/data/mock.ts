@@ -17,6 +17,7 @@
 // asset option list, DECISIONS.md "Catálogo de ativos"). Re-exported here for discover() fan-out
 // (lib/realOffers.ts) and the agent parser (lib/qvacAgent.ts), which need every enum value that
 // existing offers can carry, not what a picker offers.
+import { getLocale } from '../lib/locale'
 export { ENUM_ASSET_TYPES as ASSETS } from '../lib/assetCatalog'
 
 // The real backend `PaymentMethod` enum (prisma/schema.prisma) exactly —
@@ -287,3 +288,15 @@ export const COUNTRIES: { code: string; label: string }[] = [
   { code: 'ZM', label: 'Zâmbia' },
   { code: 'ZW', label: 'Zimbábue' },
 ]
+
+/** Country name in the interface language: the pt-BR label above, Intl.DisplayNames elsewhere (sorted lists keep their order). */
+export function countryLabel(code: string): string {
+  const pt = COUNTRIES.find((c) => c.code === code)?.label
+  const locale = getLocale()
+  if (locale === 'pt-BR') return pt ?? code
+  try {
+    return new Intl.DisplayNames(locale, { type: 'region' }).of(code) ?? pt ?? code
+  } catch {
+    return pt ?? code
+  }
+}

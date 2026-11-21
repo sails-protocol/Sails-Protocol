@@ -653,8 +653,8 @@ Architect decidir. `useTheme()` agora dá `{ theme, preference, setPreference }`
 #### Idioma (`lib/locale.ts`)
 `RadioGroup` com Padrão do sistema, Português (Brasil), English, Español,
 Français, Deutsch (cada idioma no próprio nome, com `lang`). Guardado em
-`sails_ui_locale` para o lote B ler. Escolher um idioma que não é português
-mostra um `Alert` info: "Tradução em andamento". Não existe dicionário ainda.
+`sails_ui_locale`; a escolha vale na hora, sem recarregar, e "Padrão do
+sistema" segue o navegador (ver 7.3).
 
 #### Notificações
 Sem sistema de notificações no SDK: três linhas "Em breve" (novos trades e
@@ -869,7 +869,7 @@ medido (`/dev/design-system` ou o script de contraste) ao Architect.
 ### 7.1 Números, dinheiro e datas (**provisório — ratificação pendente**)
 
 Um módulo (`src/lib/format.ts`, `formatPrice`/`formatByCurrency` em
-`lib/currency.ts`) e uma política: **todo número em pt-BR** (milhar ".",
+`lib/currency.ts`) e uma política: **todo número no idioma da interface** (em pt-BR, milhar "." e
 decimal ","), qualquer que seja a moeda, para uma linha nunca misturar "0.001
 BTC" com "R$ 1.234,56".
 
@@ -896,6 +896,79 @@ nó Sails", "Transação de pagamento registrada pelo nó Sails", "O nó Sails p
 recusar a apelação". O sentido não muda (é quem registra e responde); nomes de
 código (`server-custodial-…`, `sailsClient`) ficam como estão.
 
+### 7.3 Idiomas e catálogo de textos (`src/i18n/`, UX-028, 2026-11-21)
+
+**Arquitetura.** Sem dependência nova. `src/i18n/areas/<área>.ts` guarda, por
+área, o catálogo-fonte em pt-BR e as traduções en, es, fr e de
+(`defineArea`): falta ou sobra de chave é erro de TypeScript. As chaves começam
+pelo nome da área (`trade.*`, `market.*`). `t('chave', { nome, count })`
+interpola `{nome}`, formata números no idioma e escolhe o plural por
+`Intl.PluralRules` (`{ one, other }`). `useT()` faz o componente reagir; a troca
+de idioma remonta a árvore de rotas (`App.tsx`, `Localized`), então os textos
+calculados em `lib/` também mudam na hora, sem recarregar. `<html lang>`
+acompanha; `dir` fica `ltr`.
+
+**Idioma resolvido** (`lib/locale.ts`): a escolha em Configurações → Idioma
+(`sails_ui_locale`); "Padrão do sistema" casa `navigator.languages` com os
+cinco catálogos pela língua (pt-PT → pt-BR, de-AT → de); sem casamento, pt-BR.
+
+**Layer A não importa o dicionário.** Os primitivos de `components/ui/`
+recebem texto por props ou pelo `UiStringsProvider` (`ui/uiStrings.tsx`), que a
+Sails Market preenche em `i18n/uiStrings.ts` e um parceiro white-label preenche
+com o próprio catálogo. Exceção documentada: `StatusBadges`, `VouchButton` e
+`AssetIcon` já são componentes do app dentro de `ui/` (importam `lib/` ou o
+cliente) e podem usar `t()`.
+
+**Formatação** (`lib/format.ts`, `lib/currency.ts`): números, moedas e datas no
+idioma da interface. USD continua a única unidade de preço: pt-BR
+"US$ 97.800,00" (formato do dólar em pt ainda pendente do PO), en
+"$97,800.00", es "97.800,00 US$", fr "97 800,00 $US", de "97.800,00 $".
+Nomes de moeda e de país vêm do `Intl.DisplayNames` fora do pt-BR.
+
+**Fica em pt-BR:** as páginas `/dev/*`, os dados fictícios da demonstração
+(nomes, mensagens de chat, descrições de oferta, erros simulados do nó em
+`demo/demoBackend.ts`: são dados, como o texto que uma pessoa escreve) e as
+mensagens de erro que o nó Sails devolve.
+
+**Glossário obrigatório** (o guard de verdade confere):
+
+| pt-BR | en | es | fr | de |
+|---|---|---|---|---|
+| nó Sails | Sails node | nodo Sails | nœud Sails | Sails-Knoten |
+| Mercado aberto | Open market | Mercado abierto | Marché ouvert | Offener Markt |
+| mercado privado | private market | mercado privado | marché privé | privater Markt |
+| pagamento marcado como enviado | payment marked as sent | pago marcado como enviado | paiement marqué comme envoyé | Zahlung als gesendet markiert |
+| Escrow marcado como concluído | Escrow marked as completed | Escrow marcado como completado | Escrow marqué comme terminé | Escrow als abgeschlossen markiert |
+| Reputação N | Reputation N | Reputación N | Réputation N | Reputation N |
+| avaliações | ratings | valoraciones | évaluations | Bewertungen |
+| disputa | dispute | disputa | litige | Streitfall |
+| árbitro | arbitrator | árbitro | arbitre | Schiedsperson |
+| Em breve | Coming soon | Próximamente | Bientôt | Demnächst |
+| Comprar / Vender | Buy / Sell | Comprar / Vender | Acheter / Vendre | Kaufen / Verkaufen |
+| Configurações | Settings | Ajustes | Paramètres | Einstellungen |
+| oferta | offer | oferta | offre | Angebot |
+
+Nomes que não se traduzem: Sails, Sails Market, Rede Sails, Sails Agent,
+Sails Node ID, Sails Market ID, Sails Market Invite, Market e Trades (itens do
+menu), escrow, wallet, tickers e redes. Tratamento: en "you"; es "tú"; fr
+"vous"; de "du" (provisório, para o Architect). Frases em caixa normal em
+todos os idiomas (o alemão mantém a maiúscula dos substantivos).
+
+**Revisão nativa obrigatória antes de publicar.** As chaves das áreas
+dinheiro (`money`), disputa (`dispute`), prazo e temporizador do escrow
+(`deadline`), explicação da reputação (`reputation`), custódia (`custody`) e
+diálogos de confirmação (`confirmation`) ficam listadas em `review` no arquivo
+da área e somadas em `NEEDS_NATIVE_REVIEW` (`i18n/catalog.ts`;
+`tests/i18n.test.ts` imprime a lista). **Esses textos não vão para produção em
+en, es, fr ou de antes da revisão de um falante nativo** (DECISIONS.md: "textos
+de dinheiro e de disputa sem revisão nativa ficam fora da publicação"). Quando
+um falante revisar, a chave sai da lista no mesmo commit, com o nome de quem
+revisou na mensagem.
+
+**Textos longos.** O alemão e o francês são até 35 % mais longos: rótulos
+quebram linha em vez de cortar, botões têm `min-w-0` e o texto pode quebrar;
+nada de largura fixa em rótulo. A auditoria de overflow roda nos cinco idiomas.
+
 ## 8. Checklist para agentes e builders
 
 - [ ] Reusei um componente existente antes de criar um novo.
@@ -910,7 +983,8 @@ código (`server-custodial-…`, `sailsClient`) ficam como estão.
 - [ ] Lado = texto + seta; status = pílula + ícone; marcado = azul.
 - [ ] Botão de lado só para "Comprar"/"Vender" (`buy`/`sell` no ticket, `-tonal` na linha), escolhido a partir do `side`.
 - [ ] Recurso futuro = "Em breve" ligado a `LOOSE_WIRES` (`PlannedItem` ou linha planejada), sem número inventado.
-- [ ] Números pelo `lib/format.ts` (pt-BR).
+- [ ] Números pelo `lib/format.ts` (no idioma da interface).
+- [ ] Todo texto visível, `aria-label` e `sr-only` vem de `t()` (7.3); chave nova nas cinco línguas, e as de dinheiro, disputa, prazo, reputação, custódia e confirmação na lista `review`.
 - [ ] Estados loading, empty e error completos (`StateBlock`).
 - [ ] Ação irreversível passa por `ConfirmActionDialog`.
 - [ ] Nenhum estado, garantia, prazo ou custódia de protocolo inventado (CTO 437).

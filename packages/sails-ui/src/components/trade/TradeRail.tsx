@@ -15,8 +15,9 @@ import { formatDateTime } from '../../lib/format'
 import { TONE_CLASS } from '../../lib/tone'
 import { cn } from '../../lib/utils'
 import { Button } from '../ui/button'
+import { t } from '../../i18n'
 
-const STATE_TEXT = { done: 'concluída', current: 'etapa atual', upcoming: 'ainda não' } as const
+const STATE_KEY = { done: 'trade.rail.stateDone', current: 'trade.rail.stateCurrent', upcoming: 'trade.rail.stateUpcoming' } as const
 
 // Static class strings so Tailwind generates them. Rings/fills >= 3:1 on surface and elevated (DESIGN_SYSTEM.md 5.5).
 const CIRCLE: Record<StageTone, string> = {
@@ -59,7 +60,7 @@ function Baton({ baton, look }: { baton: BatonView; look: BatonLook }) {
   )
 }
 
-export function TradeRail({ steps, status, baton, viewer = null, title = 'Andamento do trade' }: Props) {
+export function TradeRail({ steps, status, baton, viewer = null, title = t('trade.rail.title') }: Props) {
   const [open, setOpen] = useState(false)
   const titleId = useId()
   const listId = useId()
@@ -85,7 +86,7 @@ export function TradeRail({ steps, status, baton, viewer = null, title = 'Andame
           aria-controls={listId}
           className="ml-auto lg:hidden"
         >
-          {open ? 'Ocultar etapas' : 'Ver etapas'}
+          {t(open ? 'trade.rail.hideSteps' : 'trade.rail.showSteps')}
           <ChevronDown className={cn('size-icon-sm transition-transform duration-short ease-standard', open && 'rotate-180')} aria-hidden="true" />
         </Button>
       </div>
@@ -97,7 +98,7 @@ export function TradeRail({ steps, status, baton, viewer = null, title = 'Andame
             <span key={s.id} className={cn('rounded-full', DOT[stageTone(s, viewer)])} />
           ))}
         </span>
-        {current && <span className="min-w-0 text-xs text-brand-text-secondary [overflow-wrap:anywhere]"><span className="sr-only">Etapa atual: </span>{current.label}</span>}
+        {current && <span className="min-w-0 text-xs text-brand-text-secondary [overflow-wrap:anywhere]"><span className="sr-only">{t('trade.rail.currentStep')} </span>{current.label}</span>}
       </div>
 
       <ol id={listId} className={cn('mt-4 lg:grid lg:auto-cols-fr lg:grid-flow-col', open ? 'block' : 'hidden')}>
@@ -130,7 +131,7 @@ export function TradeRail({ steps, status, baton, viewer = null, title = 'Andame
               <div className="flex min-w-0 flex-col gap-1 pt-0.5 lg:pt-0">
                 <p className={cn('text-sm [overflow-wrap:anywhere]', s.state === 'upcoming' ? 'text-brand-text-secondary' : 'font-medium text-brand-text')}>
                   {s.label}
-                  <span className="sr-only"> — {STATE_TEXT[s.state]}</span>
+                  <span className="sr-only"> — {t(STATE_KEY[s.state])}</span>
                 </p>
                 {s.at && <p className="text-xs text-brand-text-secondary">{formatDateTime(s.at)}</p>}
                 {s.evidence?.map((e) => (

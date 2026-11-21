@@ -4,6 +4,7 @@
  * defensive read of Dispute.evidence (typed `unknown[]` by the SDK).
  */
 import type { Dispute, DisputeRuling, Escrow, EscrowType } from '@satsails/p2p-trading-sdk'
+import { t } from '../i18n'
 
 // RFC-021 D9 — SPLIT only works for these three; SAFE_GUARD_EVM's
 // immutable Guard contract and LIGHTNING_HODL's fixed-leaf VtxoScript
@@ -15,13 +16,14 @@ export const SPLIT_SUPPORTED: ReadonlySet<EscrowType> = new Set(['MOCK', 'WDK_US
 // it: buildMultisigSigningIntent() refuses split PSBTs (multisigSigningIntent.ts),
 // and the server's split PSBT still needs a party signature.
 const SPLIT_NOT_SIGNABLE_HERE: ReadonlySet<EscrowType> = new Set(['MULTISIG'])
-export const SPLIT_UNAVAILABLE_REASON = 'Não disponível nesta interface: a assinatura da divisão ainda não é suportada.'
+export const splitUnavailableReason = () => t('escrow.dispute.splitUnavailable')
 
 // One wording for a ruling everywhere on the arbiter console: list, case file and confirmation.
+// Getters: each read uses the current language.
 export const RULING_DECISION: Record<DisputeRuling, string> = {
-  RELEASE: 'Liberar ao comprador',
-  REFUND: 'Devolver ao vendedor',
-  SPLIT: 'Dividir 50/50',
+  get RELEASE() { return t('escrow.dispute.rulingRelease') },
+  get REFUND() { return t('escrow.dispute.rulingRefund') },
+  get SPLIT() { return t('escrow.dispute.rulingSplit') },
 }
 
 export type DecisionChoice = DisputeRuling | 'SUGGESTION'
@@ -49,10 +51,10 @@ export function splitUnavailableHere(ruling: DisputeRuling, escrowType: EscrowTy
 export function decisionOptions(dispute: Dispute, escrowType: EscrowType | null): DecisionOption[] {
   if (dispute.status === 'RESOLVED') return []
   const rulings: DisputeRuling[] = escrowType && SPLIT_SUPPORTED.has(escrowType) ? ['RELEASE', 'REFUND', 'SPLIT'] : ['RELEASE', 'REFUND']
-  const reason = (ruling: DisputeRuling) => (splitUnavailableHere(ruling, escrowType) ? { unavailableReason: SPLIT_UNAVAILABLE_REASON } : {})
+  const reason = (ruling: DisputeRuling) => (splitUnavailableHere(ruling, escrowType) ? { unavailableReason: splitUnavailableReason() } : {})
   const options: DecisionOption[] = rulings.map((ruling) => ({ value: ruling, ruling, label: RULING_DECISION[ruling], ...reason(ruling) }))
   const suggested = pendingSuggestion(dispute)
-  if (suggested) options.push({ value: 'SUGGESTION', ruling: suggested, label: 'Aceitar a sugestão automática', detail: RULING_DECISION[suggested], ...reason(suggested) })
+  if (suggested) options.push({ value: 'SUGGESTION', ruling: suggested, label: t('escrow.dispute.acceptSuggestion'), detail: RULING_DECISION[suggested], ...reason(suggested) })
   return options
 }
 
@@ -65,7 +67,7 @@ export function selectableOption(options: DecisionOption[], choice: DecisionChoi
 
 /** MULTISIG disputed release/refund: the server requires the winning side's signature (buyer for RELEASE, seller for REFUND). */
 export function multisigPendingSigner(ruling: DisputeRuling): string | null {
-  return ruling === 'RELEASE' ? 'o comprador' : ruling === 'REFUND' ? 'o vendedor' : null
+  return ruling === 'RELEASE' ? t('escrow.dispute.signerBuyer') : ruling === 'REFUND' ? t('escrow.dispute.signerSeller') : null
 }
 
 /** Buyer/seller only when the escrow itself says so (participantKeys); never guessed. */
@@ -106,7 +108,7 @@ export function parseEvidence(raw: unknown[] | null | undefined): EvidenceItem[]
     const r = e as Record<string, unknown>
     const uri = str(r.uri)
     return [{
-      type: str(r.type) ?? 'desconhecido',
+      type: str(r.type) ?? t('escrow.dispute.unknownEvidenceType'),
       note: str(r.note),
       uri,
       href: uri ? safeHttpHref(uri) : null,

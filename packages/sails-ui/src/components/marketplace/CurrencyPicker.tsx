@@ -7,7 +7,8 @@
  */
 import { useMemo } from 'react'
 import type { FiatCurrency } from '../../types'
-import { FIAT_CURRENCIES } from '../../lib/currency'
+import { FIAT_CURRENCIES, currencyLabel } from '../../lib/currency'
+import { t } from '../../i18n'
 import { Combobox, type ComboboxOption } from '../ui/combobox'
 
 interface Props {
@@ -18,22 +19,23 @@ interface Props {
 // Combobox primitive (2026-11-20): same options and single choice; search by code or name is new.
 export function CurrencyPicker({ value, onChange }: Props) {
   const options = useMemo<ComboboxOption<FiatCurrency | 'Todas'>[]>(() => [
-    { value: 'Todas', label: 'Todas as moedas' },
-    ...FIAT_CURRENCIES.map((c) => ({ value: c.code, label: c.code, keywords: [c.label], detail: c.label })),
+    { value: 'Todas', label: t('market.currency.allOption') },
+    // Search matches the pt-BR name too, so a name typed in either language finds the currency.
+    ...FIAT_CURRENCIES.map((c) => ({ value: c.code, label: c.code, keywords: [currencyLabel(c.code), c.label], detail: currencyLabel(c.code) })),
   ], [])
-  const valueText = value === 'Todas' ? 'Todas moedas' : value
+  const valueText = value === 'Todas' ? t('market.currency.allShort') : value
 
   return (
     <Combobox
-      label="Moeda"
+      label={t('market.field.currency')}
       valueText={valueText}
       options={options}
       selected={[value]}
       onSelect={onChange}
       triggerClassName="min-w-[110px]"
       trigger={<span className="font-medium">{valueText}</span>}
-      searchPlaceholder="Buscar moeda…"
-      emptyText={() => 'Nenhuma moeda encontrada.'}
+      searchPlaceholder={t('market.currency.search')}
+      emptyText={() => t('market.currency.empty')}
       contentClassName="w-56"
     />
   )

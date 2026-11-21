@@ -22,6 +22,7 @@ import { ASSET_LABELS, ASSET_SHORT_LABELS } from '../lib/labels'
 import { errorMessage } from '../lib/errors'
 import { formatPrice } from '../lib/currency'
 import type { Offer, OfferStatus, User } from '../types'
+import { t } from '../i18n'
 
 // Moved here from Profile.tsx unchanged (2026-11-20, DECISIONS.md "Reorganização pela visão do usuário"):
 // "Minhas ofertas" is a Trades tab now; Perfil renders the same section, so nothing left either screen.
@@ -62,8 +63,9 @@ function toOffer(raw: Awaited<ReturnType<typeof sailsClient.liquidity.getMyOffer
   }
 }
 
-const OFFER_FILTERS: { value: OfferStatus | 'Todos'; label: string }[] = [
-  { value: 'Todos', label: 'Todos' },
+// A function, not a constant: the labels follow the interface language.
+const offerFilters = (): { value: OfferStatus | 'Todos'; label: string }[] => [
+  { value: 'Todos', label: t('trades.filter.all') },
   { value: 'ACTIVE', label: OFFER_STATUS_LABEL.ACTIVE },
   { value: 'PAUSED', label: OFFER_STATUS_LABEL.PAUSED },
   { value: 'COMPLETED', label: OFFER_STATUS_LABEL.COMPLETED },
@@ -97,7 +99,7 @@ export function MyOffersSection({ user, className }: { user: User; className?: s
       .catch((err) => {
         if (cancelled) return
         setOffers([])
-        setOffersError(errorMessage(err, 'Não foi possível carregar suas ofertas agora.'))
+        setOffersError(errorMessage(err, t('trades.offers.loadFailed')))
       })
       .finally(() => { if (!cancelled) setLoadingOffers(false) })
     return () => { cancelled = true }
@@ -129,48 +131,48 @@ export function MyOffersSection({ user, className }: { user: User; className?: s
       .then(() => toast.success(message))
       .catch(() => {
         if (previousStatus) setOffers((prev) => prev.map((o) => (o.id === id ? { ...o, status: previousStatus } : o)))
-        toast.error('Não foi possível atualizar a oferta — tente novamente.')
+        toast.error(t('trades.offers.updateFailed'))
       })
   }
 
   return (
     <section aria-labelledby="my-offers-title" className={className}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="my-offers-title" className="text-section-title">Minhas ofertas</h2>
-        <SegmentedControl label="Filtrar ofertas por status" options={OFFER_FILTERS} value={statusFilter} onChange={setStatusFilter} />
+        <h2 id="my-offers-title" className="text-section-title">{t('trades.offers.title')}</h2>
+        <SegmentedControl label={t('trades.offers.filterLabel')} options={offerFilters()} value={statusFilter} onChange={setStatusFilter} />
       </div>
 
       {!loadingOffers && offersError ? (
         <StateBlock
           kind="error"
           className="mt-3"
-          title="Não foi possível carregar suas ofertas"
+          title={t('trades.offers.errorTitle')}
           description={offersError}
-          action={<Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-9 touch:min-h-11 px-4">Tentar novamente</Button>}
+          action={<Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-9 touch:min-h-11 px-4">{t('trades.retry')}</Button>}
         />
       ) : !loadingOffers && offers.length === 0 ? (
         <StateBlock
           kind="empty"
           className="mt-3"
-          title="Nenhuma oferta publicada ainda"
-          description="Publique uma oferta para aparecer no Market."
-          action={<Link to={TRADES_ROUTES.newOffer} className={cn(buttonVariants({ variant: 'outline', className: 'min-h-9 touch:min-h-11 px-4' }))}>Publicar oferta</Link>}
+          title={t('trades.offers.emptyTitle')}
+          description={t('trades.offers.emptyDescription')}
+          action={<Link to={TRADES_ROUTES.newOffer} className={cn(buttonVariants({ variant: 'outline', className: 'min-h-9 touch:min-h-11 px-4' }))}>{t('trades.offers.publish')}</Link>}
         />
       ) : (
         <Card className="mt-3 overflow-hidden">
           <div aria-hidden="true" className={cn(TABLE_HEAD_ROW, 'hidden', OFFER_COLS)}>
-            <span>Lado</span>
-            <span>Ativo</span>
-            <span>Preço (USD)</span>
-            <span>Limites</span>
-            <span>Status</span>
-            <span>Criada em</span>
-            <span className="text-right">Ações</span>
+            <span>{t('trades.offers.col.side')}</span>
+            <span>{t('trades.offers.col.asset')}</span>
+            <span>{t('trades.offers.col.price')}</span>
+            <span>{t('trades.offers.col.limits')}</span>
+            <span>{t('trades.col.status')}</span>
+            <span>{t('trades.offers.col.created')}</span>
+            <span className="text-right">{t('trades.offers.col.actions')}</span>
           </div>
           {loadingOffers ? (
-            <ListSkeleton label="Carregando ofertas" rows={2} rowClassName="h-[7.5rem] xl:h-14" />
+            <ListSkeleton label={t('trades.offers.loading')} rows={2} rowClassName="h-[7.5rem] xl:h-14" />
           ) : myOffers.length === 0 ? (
-            <StateBlock bare kind="empty" title={`Nenhuma oferta com status "${statusFilter === 'Todos' ? '' : OFFER_STATUS_LABEL[statusFilter]}"`} />
+            <StateBlock bare kind="empty" title={t('trades.offers.noneWithStatus', { status: statusFilter === 'Todos' ? '' : OFFER_STATUS_LABEL[statusFilter] })} />
           ) : (
             <ul>
               {myOffers.map((o) => {
@@ -186,7 +188,7 @@ export function MyOffersSection({ user, className }: { user: User; className?: s
                         {formatAmount(o.minAmount)}–{formatAmount(o.maxAmount)} {ASSET_SHORT_LABELS[o.asset]}
                       </span>
                       <span><OfferStatusBadge status={o.status} /></span>
-                      <span className="text-xs text-brand-text-muted tabular-nums basis-full xl:basis-auto"><span className="xl:hidden">Criada em </span>{formatDateTime(o.createdAt)}</span>
+                      <span className="text-xs text-brand-text-muted tabular-nums basis-full xl:basis-auto"><span className="xl:hidden">{t('trades.offers.col.created')} </span>{formatDateTime(o.createdAt)}</span>
                       <span className="flex items-center gap-1 xl:justify-end ml-auto xl:ml-0">
                         {canManage && confirmingCancelId !== o.id && (
                           <>
@@ -195,17 +197,17 @@ export function MyOffersSection({ user, className }: { user: User; className?: s
                               size="sm"
                               onClick={() =>
                                 o.status === 'ACTIVE'
-                                  ? applyStatus(o.id, 'PAUSED', 'Oferta pausada — não aparece mais no Market')
-                                  : applyStatus(o.id, 'ACTIVE', 'Oferta reativada')
+                                  ? applyStatus(o.id, 'PAUSED', t('trades.offers.paused'))
+                                  : applyStatus(o.id, 'ACTIVE', t('trades.offers.reactivated'))
                               }
                               className="min-h-11 md:min-h-0 text-body-sm"
                             >
-                              {o.status === 'ACTIVE' ? 'Pausar' : 'Ativar'}
+                              {t(o.status === 'ACTIVE' ? 'trades.offers.pause' : 'trades.offers.activate')}
                             </Button>
                             {/* Destructive action one step away (overflow), with the same confirmation below. */}
                             <Popover>
                               <PopoverTrigger
-                                aria-label="Mais ações da oferta"
+                                aria-label={t('trades.offers.moreActions')}
                                 className="h-11 w-11 md:h-9 md:w-9 flex items-center justify-center rounded-md text-brand-text-muted hover:text-brand-text state-layer"
                               >
                                 <MoreHorizontal className="h-4 w-4" />
@@ -216,7 +218,7 @@ export function MyOffersSection({ user, className }: { user: User; className?: s
                                   onClick={() => setConfirmingCancelId(o.id)}
                                   className="w-full min-h-9 touch:min-h-11 rounded-md px-2.5 py-2 text-left text-sm text-brand-danger-fg state-layer"
                                 >
-                                  Cancelar oferta
+                                  {t('trades.offers.cancelOffer')}
                                 </button>
                               </PopoverContent>
                             </Popover>
@@ -224,10 +226,10 @@ export function MyOffersSection({ user, className }: { user: User; className?: s
                         )}
                         <Link
                           to={`/offer/${o.id}`}
-                          aria-label={`Ver oferta de ${ASSET_LABELS[o.asset]}`}
+                          aria-label={t('trades.offers.viewAria', { asset: ASSET_LABELS[o.asset] })}
                           className="min-h-9 touch:min-h-11 px-2 -mr-2 text-body-sm text-brand-text-secondary hover:text-brand-text flex items-center rounded-md"
                         >
-                          Ver <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                          {t('trades.offers.view')} <ChevronRight className="h-4 w-4" aria-hidden="true" />
                         </Link>
                       </span>
                     </div>
@@ -235,13 +237,13 @@ export function MyOffersSection({ user, className }: { user: User; className?: s
                     {confirmingCancelId === o.id && (
                       <div className="mt-3 rounded-md bg-brand-danger/5 px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
                         <span className="text-xs text-brand-text-secondary">
-                          Cancelar esta oferta? Ela sai do Market imediatamente e não pode ser reativada — publique uma nova se mudar de ideia.
+                          {t('trades.offers.confirmCancel')}
                         </span>
                         <div className="flex gap-2 shrink-0">
-                          <Button variant="destructive" size="sm" onClick={() => applyStatus(o.id, 'CANCELLED', 'Oferta cancelada')} className="min-h-11 md:min-h-0 text-body-sm">
-                            Sim, cancelar
+                          <Button variant="destructive" size="sm" onClick={() => applyStatus(o.id, 'CANCELLED', t('trades.offers.cancelled'))} className="min-h-11 md:min-h-0 text-body-sm">
+                            {t('trades.offers.yesCancel')}
                           </Button>
-                          <Button variant="outline" size="sm" autoFocus onClick={() => setConfirmingCancelId(null)} className="min-h-11 md:min-h-0 text-body-sm">Voltar</Button>
+                          <Button variant="outline" size="sm" autoFocus onClick={() => setConfirmingCancelId(null)} className="min-h-11 md:min-h-0 text-body-sm">{t('trades.back')}</Button>
                         </div>
                       </div>
                     )}
@@ -266,7 +268,7 @@ export function MyOffers() {
         actions={user ? (
           <Link to={TRADES_ROUTES.newOffer} className={cn(buttonVariants({ className: 'shrink-0 min-h-10 touch:min-h-11 px-4' }))}>
             <Plus aria-hidden="true" />
-            Nova oferta
+            {t('trades.offers.new')}
           </Link>
         ) : undefined}
       >
@@ -275,13 +277,13 @@ export function MyOffers() {
       {user ? (
         <MyOffersSection user={user} />
       ) : loading ? (
-        <Card className="overflow-hidden"><ListSkeleton label="Verificando sessão…" rows={2} rowClassName="h-14" /></Card>
+        <Card className="overflow-hidden"><ListSkeleton label={t('trades.offers.checkingSession')} rows={2} rowClassName="h-14" /></Card>
       ) : (
         <StateBlock
           kind="signedOut"
-          title="Conecte sua wallet"
-          description="Conecte sua wallet para ver e gerenciar suas ofertas."
-          action={<Link to="/login" state={{ from: TRADES_ROUTES.offers }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Conectar wallet</Link>}
+          title={t('trades.connectTitle')}
+          description={t('trades.offers.signedOutDescription')}
+          action={<Link to="/login" state={{ from: TRADES_ROUTES.offers }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>{t('trades.connect')}</Link>}
         />
       )}
     </Page>

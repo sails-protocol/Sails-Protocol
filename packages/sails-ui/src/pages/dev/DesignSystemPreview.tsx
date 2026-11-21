@@ -33,7 +33,7 @@ import { AssetPicker } from '../../components/marketplace/AssetPicker'
 import { AssetPairIcon } from '../../components/ui/AssetIcon'
 import { cn } from '../../lib/utils'
 import { badgeVariants } from '../../components/ui/badge'
-import { SOON_NOTE, pickerPairs } from '../../lib/assetCatalog'
+import { soonNote, pickerPairs } from '../../lib/assetCatalog'
 import type { AssetType } from '../../types'
 import { nextSort, sortRows, type SortState } from '../../lib/sort'
 import { PaymentMethods } from '../../components/ui/PaymentMethods'
@@ -971,9 +971,9 @@ export function DesignSystemPreview() {
                     <AssetPairIcon pair={p} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate">{p.label}</span>
-                      {p.note && p.note !== SOON_NOTE && <span className="block text-xs font-normal text-brand-text-muted">{p.note}</span>}
+                      {p.note && p.note !== soonNote() && <span className="block text-xs font-normal text-brand-text-muted">{p.note}</span>}
                     </span>
-                    {soon && <span className="shrink-0 text-xs"><span className={CATALOG_SOON_BADGE}>{SOON_NOTE}</span></span>}
+                    {soon && <span className="shrink-0 text-xs"><span className={CATALOG_SOON_BADGE}>{soonNote()}</span></span>}
                     <Check aria-hidden="true" className={cn('size-icon-sm shrink-0 text-brand-blue-fg', state !== 'Selecionado' && 'invisible')} />
                   </div>
                 </div>
@@ -1007,7 +1007,7 @@ export function DesignSystemPreview() {
                 <tr key={x.id} className="border-t border-brand-border-subtle">
                   <td className="px-3 py-2"><span className="inline-flex items-center gap-1.5"><AssetPairIcon pair={x} size="sm" />{x.label}</span></td>
                   <td className="px-3 py-2">{x.assetType ? <span className="mono-id">{x.assetType}</span> : <span className="text-brand-text-muted">não existe</span>}</td>
-                  <td className="px-3 py-2">{x.testOnly ? 'Só em desenvolvimento' : x.availability === 'available' ? 'Disponível' : SOON_NOTE}</td>
+                  <td className="px-3 py-2">{x.testOnly ? 'Só em desenvolvimento' : x.availability === 'available' ? 'Disponível' : soonNote()}</td>
                   <td className="px-3 py-2 text-brand-text-secondary">{x.note || '—'}</td>
                 </tr>
               ))}

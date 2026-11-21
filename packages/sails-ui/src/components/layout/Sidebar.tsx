@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { IdentityAvatar } from '../ui/IdentityAvatar'
 import { cn } from '../../lib/utils'
 import { SailsLogo, SailsMark } from '../brand/SailsLogo'
+import { t } from '../../i18n'
 
 /**
  * Product navigation, shared by the desktop Sidebar and the mobile BottomNav (same destinations, icons and
@@ -22,8 +23,9 @@ import { SailsLogo, SailsMark } from '../brand/SailsLogo'
 export const NAV_ITEMS = [
   { to: '/', also: [MARKETS_ROUTES.explore], label: 'Market', icon: ShoppingCart, end: true, requiresAuth: false },
   { to: TRADES_ROUTES.active, also: ['/trade'], label: 'Trades', icon: ArrowLeftRight, end: false, requiresAuth: false },
-  { to: '/profile', label: 'Perfil', icon: User, end: true, requiresAuth: false },
-  { to: '/settings', label: 'Configurações', icon: Settings, end: false, requiresAuth: false },
+  // Getters: read at render time, so the label follows the interface language (Market/Trades are names).
+  { to: '/profile', get label() { return t('shell.nav.profile') }, icon: User, end: true, requiresAuth: false },
+  { to: '/settings', get label() { return t('shell.nav.settings') }, icon: Settings, end: false, requiresAuth: false },
 ] as const
 
 export type NavItem = (typeof NAV_ITEMS)[number]
@@ -122,7 +124,7 @@ export function Sidebar({ hideFromLg = false }: { hideFromLg?: boolean }) {
     }
   }
 
-  const toggleLabel = expanded ? 'Recolher menu' : 'Expandir menu'
+  const toggleLabel = expanded ? t('shell.nav.collapse') : t('shell.nav.expand')
   const motion = 'transition-[width] duration-medium ease-standard motion-reduce:transition-none'
   const rowClass = 'flex h-9 touch:h-11 w-full items-center gap-3 rounded-md px-[11px] text-sm whitespace-nowrap transition-colors'
 
@@ -148,7 +150,7 @@ export function Sidebar({ hideFromLg = false }: { hideFromLg?: boolean }) {
         />
       )}
       <aside
-        aria-label="Navegação principal"
+        aria-label={t('shell.nav.main')}
         className={cn(
           'absolute inset-y-0 left-0 flex flex-col overflow-hidden border-r border-brand-border-subtle bg-brand-surface',
           motion,

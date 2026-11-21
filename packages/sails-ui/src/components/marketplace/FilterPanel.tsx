@@ -16,7 +16,7 @@
 import * as React from 'react'
 import type { FiatCurrency, MarketplaceFilters, PaymentMethod } from '../../types'
 import { AMOUNT_PRESETS, formatByCurrency } from '../../lib/currency'
-import { COUNTRIES, PAYMENT_METHODS_FILTERABLE } from '../../data/mock'
+import { COUNTRIES, PAYMENT_METHODS_FILTERABLE, countryLabel } from '../../data/mock'
 import { PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import {
   PAYMENT_METHOD_CATEGORY,
@@ -36,6 +36,7 @@ import { IconButton } from '../ui/icon-button'
 import { FilterChip } from '../ui/filter-chip'
 import { Search, ChevronDown, ChevronUp, X, ArrowLeft, SlidersHorizontal } from 'lucide-react'
 import { DEFAULT_FILTERS } from '../../types'
+import { t } from '../../i18n'
 
 interface Props {
   open: boolean
@@ -60,10 +61,11 @@ interface Props {
 // of this mission's copy-only scope for §4.4) — see
 // docs/SAILS_DESIGN_LANGUAGE.md's Filter/Discovery UX Grammar section
 // and docs/BACKLOG.md.
+// Labels are getters so they follow the interface language on every read.
 export const SORT_OPTIONS: { value: MarketplaceFilters['sortBy']; label: string }[] = [
-  { value: 'price', label: 'Menor preço' },
-  { value: 'reputation', label: 'Maior reputação' },
-  { value: 'trades', label: 'Mais trades' },
+  { value: 'price', get label() { return t('market.sort.price') } },
+  { value: 'reputation', get label() { return t('market.sort.reputation') } },
+  { value: 'trades', get label() { return t('market.sort.trades') } },
 ]
 
 // UI-POLISH-2 §2.2 — was a false "staged commit" UI: every control called
@@ -132,11 +134,11 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
               target rule; the icon stays visually 20px, only the hit
               area grows. -ml-2.5 keeps the icon itself visually aligned
               with the content below despite the larger tap target. */}
-          <IconButton label="Voltar" onClick={cancelAndClose} className="sm:hidden -ml-2.5">
+          <IconButton label={t('market.filters.back')} onClick={cancelAndClose} className="sm:hidden -ml-2.5">
             <ArrowLeft aria-hidden="true" />
           </IconButton>
-          <SheetTitle className="flex-1">Filtros avançados</SheetTitle>
-          <IconButton label="Fechar" size="sm" onClick={cancelAndClose} className="hidden sm:inline-flex">
+          <SheetTitle className="flex-1">{t('market.filters.advanced')}</SheetTitle>
+          <IconButton label={t('common.close')} size="sm" onClick={cancelAndClose} className="hidden sm:inline-flex">
             <X aria-hidden="true" />
           </IconButton>
         </div>
@@ -153,43 +155,43 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
                   than a disconnected line of text. */}
               <span className="flex items-center gap-1.5 text-brand-text-secondary">
                 <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
-                {activeCount} {activeCount === 1 ? 'filtro ativo' : 'filtros ativos'}
+                {t('market.filters.activeCount', { count: String(activeCount) })}
               </span>
               <button type="button" onClick={clearDraft} className="text-brand-link hover:underline underline-offset-4 font-medium">
-                Limpar tudo
+                {t('market.filters.clearAll')}
               </button>
             </div>
           )}
 
           <ToggleRow
-            label="Salvar filtro para o próximo"
-            info="Mantém essas preferências de filtro salvas para a próxima vez que você visitar o Marketplace."
+            label={t('market.filters.save')}
+            info={t('market.filters.saveInfo')}
             checked={draft.saveForNext}
             onChange={(v) => set('saveForNext', v)}
           />
 
-          <Section title="Qualidade do anunciante">
+          <Section title={t('market.filters.sellerQuality')}>
             <CheckRow
-              label="Apenas anúncios negociáveis"
-              info="Exclui usuários que você bloqueou ou que bloquearam você."
+              label={t('market.filters.negotiable')}
+              info={t('market.filters.negotiableInfo')}
               checked={draft.negotiableOnly}
               onChange={(v) => set('negotiableOnly', v)}
             />
             <CheckRow
-              label="Comerciantes com os quais você já negociou"
-              info="Comerciantes frequentes com quem você negociou nos últimos meses."
+              label={t('market.filters.previouslyTraded')}
+              info={t('market.filters.previouslyTradedInfo')}
               checked={draft.previouslyTradedOnly}
               onChange={(v) => set('previouslyTradedOnly', v)}
               last
             />
           </Section>
 
-          <Section title="Valor (USD)" info="Mostra só ofertas cujos limites, convertidos pelo preço em USD da própria oferta, incluem este valor.">
+          <Section title={t('market.filters.amount')} info={t('market.filters.amountInfo')}>
             <Input
               value={draft.amount}
               onChange={(e) => set('amount', e.target.value)}
               type="number"
-              aria-label="Valor em USD"
+              aria-label={t('market.filters.amountLabel')}
               placeholder="0.00"
               className="w-full mb-2"
             />
@@ -203,21 +205,21 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
           {/* "Tempo de pagamento" removed (CTO 437): it was never applied and described an order-expiry
               deadline offers do not have. LOOSE_WIRES: offer payment-time window needs a contract. */}
 
-          <Section title="País/Região">
+          <Section title={t('market.filters.country')}>
             <Select value={draft.country} onValueChange={(v) => set('country', v)}>
-              <SelectTrigger aria-label="País/Região" className="w-full">
+              <SelectTrigger aria-label={t('market.filters.country')} className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Todos">Todos</SelectItem>
+                <SelectItem value="Todos">{t('market.filters.countryAll')}</SelectItem>
                 {COUNTRIES.map((c) => (
-                  <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>
+                  <SelectItem key={c.code} value={c.code}>{countryLabel(c.code)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Section>
 
-          <Section title="Método de pagamento" info="Métodos populares indicados primeiro pelo país selecionado — os demais continuam disponíveis em 'Ver todos'.">
+          <Section title={t('market.filters.paymentMethod')} info={t('market.filters.paymentMethodInfo')}>
             <PaymentMethodSection
               country={draft.country}
               value={draft.paymentMethods}
@@ -225,7 +227,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
             />
           </Section>
 
-          <Section title="Ordenação" last>
+          <Section title={t('market.filters.sorting')} last>
             <div className="flex gap-1.5 flex-wrap">
               {SORT_OPTIONS.map((s) => (
                 <FilterChip key={s.value} label={s.label} selected={draft.sortBy === s.value} onToggle={() => set('sortBy', s.value)} />
@@ -240,10 +242,10 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
             position — no more scrolling to the end to apply/clear. */}
         <div className="shrink-0 border-t border-brand-border-subtle p-4 flex gap-2 bg-brand-surface">
           <Button variant="outline" onClick={clearDraft} className="flex-1 py-2.5 text-sm">
-            Limpar
+            {t('market.clear')}
           </Button>
           <Button onClick={applyAndClose} className="flex-1 py-2.5 text-sm">
-            Aplicar filtros
+            {t('market.filters.apply')}
           </Button>
         </div>
       </SheetContent>
@@ -329,7 +331,7 @@ function PaymentMethodSection({
   }
   const chip = (m: PaymentMethod) =>
     selectedSet.has(m) ? (
-      <FilterChip key={m} label={PAYMENT_METHOD_LABELS[m]} onClear={() => clear(m)} clearLabel={`Remover filtro ${PAYMENT_METHOD_LABELS[m]}`} />
+      <FilterChip key={m} label={PAYMENT_METHOD_LABELS[m]} onClear={() => clear(m)} clearLabel={t('market.filters.removeMethod', { method: PAYMENT_METHOD_LABELS[m] })} />
     ) : (
       <FilterChip key={m} label={PAYMENT_METHOD_LABELS[m]} onToggle={() => onToggle(m)} />
     )
@@ -338,7 +340,7 @@ function PaymentMethodSection({
     <div>
       {value.length > 0 && (
         <div className="mb-2">
-          <span className="text-xs text-brand-text-muted">Selecionados</span>
+          <span className="text-xs text-brand-text-muted">{t('market.filters.selected')}</span>
           <div ref={selectedRef} className="flex gap-1.5 flex-wrap mt-1">
             {value.map(chip)}
           </div>
@@ -348,7 +350,7 @@ function PaymentMethodSection({
       {suggested.length > 0 && (
         <div className="mb-2">
           <span className="text-xs text-brand-text-muted">
-            Sugeridos para {COUNTRIES.find((c) => c.code === country)?.label ?? country}
+            {t('market.filters.suggestedFor', { country: countryLabel(country) })}
           </span>
           <div className="flex gap-1.5 flex-wrap mt-1">
             {suggested.map(chip)}
@@ -364,7 +366,7 @@ function PaymentMethodSection({
         className="flex items-center gap-1 text-xs text-brand-text-secondary hover:text-brand-text mt-1"
       >
         {expanded ? <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />}
-        {expanded ? 'Ocultar métodos' : 'Ver todos os métodos'}
+        {expanded ? t('market.filters.hideMethods') : t('market.filters.showAllMethods')}
       </button>
 
       {expanded && (
@@ -373,9 +375,9 @@ function PaymentMethodSection({
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-brand-text-muted pointer-events-none" aria-hidden="true" />
             <Input
               value={search}
-              aria-label="Buscar método de pagamento"
+              aria-label={t('market.payment.searchLabel')}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar método de pagamento…"
+              placeholder={t('market.payment.search')}
               className="w-full pl-8"
             />
           </div>
@@ -389,7 +391,7 @@ function PaymentMethodSection({
               </div>
             ))}
             {filteredRemaining.length === 0 && (
-              <p className="text-xs text-brand-text-muted">Nenhum método encontrado com esse nome.</p>
+              <p className="text-xs text-brand-text-muted">{t('market.payment.empty')}</p>
             )}
           </div>
         </div>

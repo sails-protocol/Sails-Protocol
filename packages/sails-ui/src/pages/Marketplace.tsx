@@ -31,11 +31,12 @@ import { REPUTATION_EXPLANATION } from '../lib/reputation'
 import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import { acceptsAnyMethod, offerPaymentMethods } from '../lib/paymentMethods'
 import { MarketPortalButton, MarketsCallToAction, MarketsDiscoveryCard } from './markets/MarketsEntry'
+import { t } from '../i18n'
 
-const SIDE_FILTERS: { value: TradeSide | 'Todos'; label: string }[] = [
-  { value: 'Todos', label: 'Todos' },
-  { value: 'BUY', label: 'Comprar' },
-  { value: 'SELL', label: 'Vender' },
+const SIDE_FILTERS: { value: TradeSide | 'Todos'; label: () => string }[] = [
+  { value: 'Todos', label: () => t('market.side.all') },
+  { value: 'BUY', label: () => t('labels.side.buy') },
+  { value: 'SELL', label: () => t('labels.side.sell') },
 ]
 
 const FILTERS_STORAGE_KEY = 'sails_ui_marketplace_filters'
@@ -182,7 +183,7 @@ export function Marketplace() {
   }, [allOffers, asset, currency, side, search, filters])
 
   const sideSegment = (wrapClass: string, buttonClass: string) => (
-    <div role="group" aria-label="Lado da oferta" className={cn('flex gap-1', SEGMENT_TRACK, wrapClass)}>
+    <div role="group" aria-label={t('market.side.label')} className={cn('flex gap-1', SEGMENT_TRACK, wrapClass)}>
       {SIDE_FILTERS.map((s) => (
         <button
           key={s.value}
@@ -192,7 +193,7 @@ export function Marketplace() {
           // Quiet selected state: the page's one solid orange is "Nova oferta".
           className={cn('px-3', buttonClass, segmentItemClass(side === s.value))}
         >
-          {s.label}
+          {s.label()}
         </button>
       ))}
     </div>
@@ -202,12 +203,13 @@ export function Marketplace() {
     mobileFiltersTriggerRef.current = e.currentTarget
     setMobileFiltersOpen(true)
   }
-  const filtersLabel = (n: number) => (n > 0 ? `Filtros, ${n} ${n === 1 ? 'ativo' : 'ativos'}` : 'Filtros')
+  const filtersLabel = (n: number) => (n > 0 ? t('market.filters.buttonActive', { count: String(n) }) : t('market.filters.button'))
+  const countOf = (n: number) => String(n) // counts as before: no digit grouping
   const chipButton = 'h-9 touch:h-11 px-3 text-sm border-brand-border bg-brand-elevated state-layer hover:border-brand-border-hover'
 
   const sortSelect = (triggerClass: string) => (
     <Select value={filters.sortBy} onValueChange={(v) => setFilters({ ...filters, sortBy: v as MarketplaceFilters['sortBy'] })}>
-      <SelectTrigger aria-label="Ordenar por" className={cn('gap-2 text-sm bg-brand-elevated border-brand-border hover:border-brand-border-hover', triggerClass)}>
+      <SelectTrigger aria-label={t('market.sort.label')} className={cn('gap-2 text-sm bg-brand-elevated border-brand-border hover:border-brand-border-hover', triggerClass)}>
         {/* The icon and the accessible name say "Ordenar", so the value stays short enough for one toolbar row. */}
         <ArrowDownUp aria-hidden="true" className="h-4 w-4 shrink-0 text-brand-text-muted" />
         <span className="mr-auto"><SelectValue /></span>
@@ -228,14 +230,14 @@ export function Marketplace() {
         // The market portal (DECISIONS.md "Modelo mundo aberto"): discreet, next to the title; Mercado aberto is the default.
         titleAside={<MarketPortalButton />}
         // Only the count is a live region (announced as filters change); the attribution is static.
-        meta={<><span role="status">{loadingOffers ? 'Carregando ofertas' : `${offers.length} ${offers.length === 1 ? 'oferta disponível' : 'ofertas disponíveis'}`}</span> · Powered by Satsails</>}
+        meta={<><span role="status">{loadingOffers ? t('market.results.loading') : offers.length === 0 ? t('market.results.countZero') : t('market.results.count', { count: countOf(offers.length) })}</span> · Powered by Satsails</>}
         // Desktop: the side segment sits with the page title, which keeps every other filter plus sort and
         // search on one bar row at 1280. The one solid primary of the page is "Nova oferta".
         actions={<>
           {sideSegment('hidden md:flex', 'h-8 touch:h-11')}
           <Link to={TRADES_ROUTES.newOffer} className={cn(buttonVariants({ className: 'shrink-0 min-h-10 touch:min-h-11 px-4' }))}>
             <Plus aria-hidden="true" />
-            Nova oferta
+            {t('market.newOffer')}
           </Link>
         </>}
       />
@@ -275,7 +277,7 @@ export function Marketplace() {
           className={cn(chipButton, 'min-w-11')}
         >
           <SlidersHorizontal aria-hidden="true" />
-          <span className="hidden min-[360px]:inline">Filtros</span>
+          <span className="hidden min-[360px]:inline">{t('market.filters.button')}</span>
           {mobileFilterCount > 0 && <CountBadge n={mobileFilterCount} />}
         </Button>
       </div>
@@ -301,7 +303,7 @@ export function Marketplace() {
           className={cn(chipButton, 'hidden lg:inline-flex shrink-0')}
         >
           <SlidersHorizontal className="h-4 w-4" />
-          Filtros
+          {t('market.filters.button')}
           {activeFilterCount > 0 && <CountBadge n={activeFilterCount} />}
         </Button>
         <Button
@@ -313,7 +315,7 @@ export function Marketplace() {
           className={cn(chipButton, 'lg:hidden shrink-0')}
         >
           <SlidersHorizontal className="h-4 w-4" />
-          Filtros
+          {t('market.filters.button')}
           {mobileFilterCount > 0 && <CountBadge n={mobileFilterCount} />}
         </Button>
 
@@ -321,8 +323,8 @@ export function Marketplace() {
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar por vendedor…"
-          aria-label="Buscar por vendedor"
+          placeholder={t('market.search.placeholder')}
+          aria-label={t('market.search.label')}
           className="hidden lg:block flex-1 min-w-[7rem] max-w-[200px] bg-brand-elevated border-brand-border"
         />
 
@@ -337,31 +339,31 @@ export function Marketplace() {
         open={mobileFiltersOpen}
         onOpenChange={setMobileFiltersOpen}
         triggerRef={mobileFiltersTriggerRef}
-        title="Filtros"
-        closeLabel="Fechar"
+        title={t('market.filters.button')}
+        closeLabel={t('common.close')}
         footer={<>
-          <Button variant="outline" onClick={() => clearAll()} disabled={!hasAnyFilter} className="flex-1 min-h-11 text-sm">Limpar</Button>
+          <Button variant="outline" onClick={() => clearAll()} disabled={!hasAnyFilter} className="flex-1 min-h-11 text-sm">{t('market.clear')}</Button>
           <Button onClick={() => setMobileFiltersOpen(false)} className="flex-1 min-h-11 text-sm">
-            {loadingOffers ? 'Ver ofertas' : `Ver ${offers.length} ${offers.length === 1 ? 'oferta' : 'ofertas'}`}
+            {loadingOffers ? t('market.results.show') : offers.length === 0 ? t('market.results.showCountZero') : t('market.results.showCount', { count: countOf(offers.length) })}
           </Button>
         </>}
       >
-        <MobileField label="Ativo"><AssetPicker value={asset} onChange={setAsset} /></MobileField>
-        <MobileField label="Moeda"><CurrencyPicker value={currency} onChange={setCurrency} /></MobileField>
-        <MobileField label="Pagamento">
+        <MobileField label={t('market.field.asset')}><AssetPicker value={asset} onChange={setAsset} /></MobileField>
+        <MobileField label={t('market.field.currency')}><CurrencyPicker value={currency} onChange={setCurrency} /></MobileField>
+        <MobileField label={t('market.field.payment')}>
           <PaymentMethodPicker
             methods={PAYMENT_METHODS_FILTERABLE}
             value={filters.paymentMethods}
             onChange={(paymentMethods) => setFilters({ ...filters, paymentMethods })}
           />
         </MobileField>
-        <MobileField label="Ordenar">{sortSelect('w-full min-h-11')}</MobileField>
-        <MobileField label="Vendedor">
+        <MobileField label={t('market.field.sort')}>{sortSelect('w-full min-h-11')}</MobileField>
+        <MobileField label={t('market.field.seller')}>
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por vendedor…"
-            aria-label="Buscar por vendedor"
+            placeholder={t('market.search.placeholder')}
+            aria-label={t('market.search.label')}
             className="w-full min-h-11 bg-brand-elevated border-brand-border"
           />
         </MobileField>
@@ -373,7 +375,7 @@ export function Marketplace() {
           }}
           className="w-full min-h-11 h-auto justify-between text-sm border-brand-border"
         >
-          <span className="flex items-center gap-2"><SlidersHorizontal aria-hidden="true" /> Filtros avançados</span>
+          <span className="flex items-center gap-2"><SlidersHorizontal aria-hidden="true" /> {t('market.filters.advanced')}</span>
           {activeFilterCount > 0 && <CountBadge n={activeFilterCount} />}
         </Button>
       </MobileFiltersSheet>
@@ -387,15 +389,15 @@ export function Marketplace() {
           dishonest when some (asset, side) pairs actually succeeded. */}
       {!loadingOffers && offersError && offers.length > 0 && (
         <Alert tone="warning" size="sm" live className="mt-4">
-          Algumas ofertas podem não ter carregado — houve falha ao buscar parte do Marketplace.
+          {t('market.results.partialError')}
         </Alert>
       )}
 
       {/* One surface; rows carry at most one hairline. lg+ is a real <table> (OfferTable); below lg the
           same cells fold into compact rows (OfferCard). */}
-      <div id="marketplace-offer-grid" tabIndex={-1} aria-label="Resultados" className="mt-3 rounded-lg border border-brand-border-subtle overflow-hidden bg-brand-surface [&_li:last-child>a]:border-b-0">
+      <div id="marketplace-offer-grid" tabIndex={-1} aria-label={t('market.results.label')} className="mt-3 rounded-lg border border-brand-border-subtle overflow-hidden bg-brand-surface [&_li:last-child>a]:border-b-0">
         {loadingOffers ? (
-          <ListSkeleton label="Carregando ofertas" rows={5} rowClassName="h-[5.75rem] lg:h-[4.25rem] lg:px-5" />
+          <ListSkeleton label={t('market.results.loading')} rows={5} rowClassName="h-[5.75rem] lg:h-[4.25rem] lg:px-5" />
         ) : (
           <>
             {offers.length > 0 && (
@@ -405,7 +407,7 @@ export function Marketplace() {
                 <div className="lg:hidden flex justify-end border-b border-brand-border-subtle px-4">
                   <ExplanationPopover variant="text" explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.trigger} />
                 </div>
-                <ul aria-label="Ofertas" className="lg:hidden">
+                <ul aria-label={t('market.results.list')} className="lg:hidden">
                   {offers.map((offer) => (
                     <li key={offer.id}><OfferCard offer={offer} own={isOwn(offer)} /></li>
                   ))}
@@ -422,12 +424,12 @@ export function Marketplace() {
                 bare
                 kind={offersError ? 'error' : 'empty'}
                 icon={offersError ? AlertTriangle : SearchX}
-                title={offersError ? 'Não foi possível carregar as ofertas' : 'Nenhuma oferta encontrada'}
-                description={offersError ? 'Verifique sua conexão e tente novamente.' : 'Ajuste os filtros ou o ativo selecionado para ver mais resultados.'}
+                title={offersError ? t('market.error.title') : t('market.empty.title')}
+                description={offersError ? t('market.error.description') : t('market.empty.description')}
                 action={offersError ? (
-                  <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-9 touch:min-h-11 px-4">Tentar novamente</Button>
+                  <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-9 touch:min-h-11 px-4">{t('market.retry')}</Button>
                 ) : hasAnyFilter ? (
-                  <Button variant="outline" onClick={() => clearAll(true)} className="min-h-9 touch:min-h-11 px-4">Limpar filtros</Button>
+                  <Button variant="outline" onClick={() => clearAll(true)} className="min-h-9 touch:min-h-11 px-4">{t('market.clearFilters')}</Button>
                 ) : undefined}
                 secondaryAction={offersError ? undefined : <MarketsCallToAction />}
               />

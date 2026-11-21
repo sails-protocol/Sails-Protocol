@@ -6,9 +6,7 @@ import { canVouch } from '../../lib/reputation'
 import { InfoTooltip } from './InfoTooltip'
 import { IconButton } from './icon-button'
 import { ShieldPlus, ShieldCheck } from 'lucide-react'
-
-const VOUCH_EXPLAINER =
-  'Vouching (RFC-021) usa a SUA reputação como aval — não é KYC nem verificação de identidade. Se a pessoa que você avalizar perder a primeira disputa dela enquanto o aval estiver ativo, sua própria reputação sofre uma penalidade real.'
+import { t } from '../../i18n'
 
 // RFC-021 D7 — real endpoint (sailsClient.reputation.vouchFor), the
 // actual cold-start-trust fix (pre-signs the vouchee's PaymentAccount to
@@ -30,9 +28,9 @@ export function VouchButton({ voucheeId }: { voucheeId: string }) {
     try {
       await sailsClient.reputation.vouchFor(voucheeId)
       setVouched(true)
-      toast.success('Aval registrado — sua reputação agora respalda esta pessoa')
+      toast.success(t('reputation.vouch.success'))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Não foi possível registrar o aval')
+      toast.error(err instanceof Error ? err.message : t('reputation.vouch.failed'))
     } finally {
       setLoading(false)
     }
@@ -48,16 +46,16 @@ export function VouchButton({ voucheeId }: { voucheeId: string }) {
         aria-disabled={!eligible || vouched || undefined}
         label={
           vouched
-            ? 'Você já avalizou esta pessoa'
+            ? t('reputation.vouch.already')
             : eligible
-              ? 'Avalizar esta pessoa com sua reputação'
-              : 'Requer pelo menos 3 trades e reputação positiva para avalizar alguém'
+              ? t('reputation.vouch.action')
+              : t('reputation.vouch.ineligible')
         }
         className={vouched ? 'aria-disabled:text-brand-success-fg' : undefined}
       >
         {vouched ? <ShieldCheck aria-hidden="true" /> : <ShieldPlus aria-hidden="true" />}
       </IconButton>
-      <InfoTooltip text={VOUCH_EXPLAINER} />
+      <InfoTooltip text={t('reputation.vouch.explainer')} />
     </div>
   )
 }

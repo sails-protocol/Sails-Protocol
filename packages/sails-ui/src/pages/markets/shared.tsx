@@ -3,7 +3,8 @@
  * privados", CTO final correction for plan 1.4, issue #147, issue #361, ADR-001). Markets are the product and live in
  * the Market area; nodes are infrastructure in Configurações → Rede e nós. No contract exists, so every
  * backend-dependent control is disabled and names its loose wire; only demo mode (?demo=1, lib/demoMarkers.ts) adds
- * fictional markets and lets an invite walk through its states. All pt-BR copy of the prototype lives in Layer C.
+ * fictional markets and lets an invite walk through its states. All copy of the prototype lives in Layer C (`markets.*`,
+ * built at render so it follows the interface language); NODES_MARKETS_SCREENS is dev-gallery text and stays pt-BR.
  */
 import { useEffect, useReducer, useSyncExternalStore } from 'react'
 import { KeyRound, Scale, Server, Ticket, UserMinus, Users } from 'lucide-react'
@@ -17,15 +18,14 @@ import { LOOSE_WIRES, type LooseWireId } from '../../lib/looseWires'
 import { demoMarkets, isDemoMode, setDemoInviteGranted, subscribeDemoMarkets } from '../../lib/demoMarkers'
 import { composeMyMarkets, type MarketView } from '../../lib/myMarkets'
 import { INVITE_STATES, nextInviteState, type InviteEvent, type InviteOutcome, type InviteState } from '../../lib/marketInvite'
-
-export const SOON = 'Em breve'
+import { t } from '../../i18n'
 
 /** "Em breve" + the loose wires a disabled control waits for (each wire's label; the contract is in LOOSE_WIRES). */
 export function WireNote({ ids }: { ids: readonly LooseWireId[] }) {
   return (
     <p className="text-caption text-brand-text-secondary">
-      <Badge variant="outline" className="mr-1.5 border-transparent bg-brand-tonal font-medium text-brand-text">{SOON}</Badge>
-      Depende de: {ids.map((id) => LOOSE_WIRES[id].label).join(', ')}.
+      <Badge variant="outline" className="mr-1.5 border-transparent bg-brand-tonal font-medium text-brand-text">{t('common.soon')}</Badge>
+      {t('markets.wireNote', { wires: ids.map((id) => LOOSE_WIRES[id].label).join(', ') })}
     </p>
   )
 }
@@ -33,83 +33,90 @@ export function WireNote({ ids }: { ids: readonly LooseWireId[] }) {
 /** A planned item backed by a loose wire; `label` overrides the wire's label when the screen names the feature differently. */
 export function WirePlanned({ id, label, description, className }: { id: LooseWireId; label?: string; description?: string; className?: string }) {
   const wire = LOOSE_WIRES[id]
-  return <PlannedItem icon={wire.icon} label={label ?? wire.label} soonLabel={SOON} description={description} className={className} />
+  return <PlannedItem icon={wire.icon} label={label ?? wire.label} soonLabel={t('common.soon')} description={description} className={className} />
 }
 
 /** The Sails default public market, "Mercado aberto" (DECISIONS.md "Modelo mundo aberto"): the only real one today. */
-export const DEFAULT_MARKET: MarketView = {
-  id: 'public', name: 'Mercado aberto', visibility: 'public', relation: 'default', infrastructure: 'network', description: 'Ofertas de toda a Rede Sails',
+export function defaultMarket(): MarketView {
+  return { id: 'public', name: t('markets.default.name'), visibility: 'public', relation: 'default', infrastructure: 'network', description: t('markets.default.description') }
 }
 
 /** Default market first, then (demo only) fictional markets, including one joined by a fictional invite. */
 export function useVisibleMarkets(): MarketView[] {
   const demo = useSyncExternalStore(subscribeDemoMarkets, demoMarkets)
-  return composeMyMarkets(DEFAULT_MARKET, demo)
+  return composeMyMarkets(defaultMarket(), demo)
 }
 
 /** The value line of the markets approach (DECISIONS.md "Modelo mundo aberto"); "nó próprio", never "servidor". */
-export const MARKETS_VALUE_LINE = 'Crie o mercado da sua comunidade ou empresa, sem precisar de nó próprio.'
+export const marketsValueLine = () => t('markets.valueLine')
 
-export const MARKET_LIST_COPY: MarketListCopy = {
-  label: 'Mercados',
-  visibility: { public: 'Público', private: 'Privado' },
-  relation: { default: 'Padrão da Rede Sails', follows: 'Você segue', admin: 'Você administra', member: 'Você participa', none: 'Aberto para seguir' },
-  presetLabel: 'Modelo',
-  preset: { vitrine: 'Vitrine', comunidade: 'Comunidade', personalizado: 'Personalizado' },
-  infrastructureLabel: 'Detalhe técnico:',
-  infrastructure: { network: 'Rede Sails', own: 'nó próprio' },
-  illustrative: 'Exemplo ilustrativo',
+export function marketListCopy(): MarketListCopy {
+  return {
+    label: t('markets.title'),
+    visibility: { public: t('markets.list.visibility.public'), private: t('markets.list.visibility.private') },
+    relation: {
+      default: t('markets.list.relation.default'), follows: t('markets.list.relation.follows'), admin: t('markets.list.relation.admin'),
+      member: t('markets.list.relation.member'), none: t('markets.list.relation.none'),
+    },
+    presetLabel: t('markets.list.presetLabel'),
+    preset: { vitrine: t('markets.list.preset.vitrine'), comunidade: t('markets.list.preset.comunidade'), personalizado: t('markets.list.preset.personalizado') },
+    infrastructureLabel: t('markets.list.infrastructureLabel'),
+    infrastructure: { network: 'Rede Sails', own: t('markets.list.infrastructure.own') },
+    illustrative: t('markets.list.illustrative'),
+  }
 }
 
-export const GUARANTEES: readonly Fact[] = [
-  { icon: KeyRound, title: 'Suas chaves e seus fundos continuam com você.' },
-  { icon: Server, title: 'Quem hospeda o mercado não acessa suas chaves nem decide a liquidação sozinho.' },
-  { icon: UserMinus, title: 'O administrador pode remover alguém do mercado, sem apagar a identidade portátil nem a reputação global da pessoa.' },
-  { icon: Scale, title: 'As permissões são verificadas pelo protocolo, não só escondidas na tela.' },
-]
+export function guarantees(): readonly Fact[] {
+  return [
+    { icon: KeyRound, title: t('markets.guarantees.keys') },
+    { icon: Server, title: t('markets.guarantees.host') },
+    { icon: UserMinus, title: t('markets.guarantees.admin') },
+    { icon: Scale, title: t('markets.guarantees.permissions') },
+  ]
+}
 
 // The three identifiers, in words only: their formats are pending the Principal (never shown or invented here).
-export const IDENTIFIERS: readonly Fact[] = [
-  { icon: Server, title: 'Sails Node ID', description: 'Identifica a infraestrutura: o nó Sails.' },
-  { icon: Users, title: 'Sails Market ID', description: 'Identifica o mercado, independente da infraestrutura.' },
-  { icon: Ticket, title: 'Sails Market Invite', description: 'Convida e autoriza a entrada num mercado privado.' },
-]
-
-const INVITE_COPY: JoinMarketCopy = {
-  invite: 'Convite Sails',
-  inviteHelp: 'Cole o convite que você recebeu de quem administra o mercado. Conhecer o nome ou um identificador público do mercado não basta para entrar.',
-  submit: 'Validar convite',
-  another: 'Usar outro convite',
-  states: {
-    validating: { title: 'Validando convite…', description: 'O protocolo confere se o convite é válido e se foi emitido para você.' },
-    pending: { title: 'Autorização pendente', description: 'O convite é válido. Falta o administrador do mercado autorizar a sua entrada.' },
-    granted: { title: 'Acesso concedido', description: 'O mercado aparece no seu portal de mercados, logo depois do Mercado aberto, que continua igual.' },
-    expired: { title: 'Convite expirado', description: 'Este convite passou do prazo. Peça um novo a quem administra o mercado.' },
-    revoked: { title: 'Acesso revogado', description: 'O administrador retirou este acesso. Sua identidade e sua reputação global continuam as mesmas.' },
-  },
+export function identifiers(): readonly Fact[] {
+  return [
+    { icon: Server, title: 'Sails Node ID', description: t('markets.identifiers.node') },
+    { icon: Users, title: 'Sails Market ID', description: t('markets.identifiers.market') },
+    { icon: Ticket, title: 'Sails Market Invite', description: t('markets.identifiers.invite') },
+  ]
 }
 
-const DEMO_OUTCOMES: { outcome: InviteOutcome; label: string }[] = [
-  { outcome: 'pending', label: 'Autorização pendente' },
-  { outcome: 'granted', label: 'Acesso concedido' },
-  { outcome: 'expired', label: 'Convite expirado' },
-  { outcome: 'revoked', label: 'Acesso revogado' },
-]
+type ShownInvite = Exclude<InviteState, 'idle'>
+const inviteState = (s: ShownInvite) => ({ title: t(`markets.invite.${s}.title`), description: t(`markets.invite.${s}.description`) })
+
+function inviteCopy(): JoinMarketCopy {
+  return {
+    invite: t('markets.invite.label'),
+    inviteHelp: t('markets.invite.help'),
+    submit: t('markets.invite.submit'),
+    another: t('markets.invite.another'),
+    states: {
+      validating: inviteState('validating'), pending: inviteState('pending'), granted: inviteState('granted'),
+      expired: inviteState('expired'), revoked: inviteState('revoked'),
+    },
+  }
+}
+
+// Each demo answer is labelled with the title of the state it leads to.
+const DEMO_OUTCOMES: readonly InviteOutcome[] = ['pending', 'granted', 'expired', 'revoked']
 
 /** Demo only: the viewer answers for the protocol, step by step. Clearly fictional, never rendered in real mode. */
 function DemoInviteControls({ state, dispatch }: { state: InviteState; dispatch: (e: InviteEvent) => void }) {
   const buttons = state === 'validating'
-    ? DEMO_OUTCOMES.map((o) => ({ key: o.outcome, label: o.label, run: () => dispatch({ type: 'validated', outcome: o.outcome }) }))
+    ? DEMO_OUTCOMES.map((o) => ({ key: o, label: inviteState(o).title, run: () => dispatch({ type: 'validated', outcome: o }) }))
     : state === 'pending'
-      ? [{ key: 'auth', label: 'Administrador autoriza', run: () => dispatch({ type: 'authorized' }) }, { key: 'rev', label: 'Administrador revoga', run: () => dispatch({ type: 'revoked' }) }]
+      ? [{ key: 'auth', label: t('markets.invite.demo.authorize'), run: () => dispatch({ type: 'authorized' }) }, { key: 'rev', label: t('markets.invite.demo.revoke'), run: () => dispatch({ type: 'revoked' }) }]
       : state === 'granted'
-        ? [{ key: 'rev', label: 'Administrador revoga', run: () => dispatch({ type: 'revoked' }) }]
+        ? [{ key: 'rev', label: t('markets.invite.demo.revoke'), run: () => dispatch({ type: 'revoked' }) }]
         : []
   return (
     <div className="rounded-lg bg-brand-elevated p-3">
       <p className="text-caption text-brand-text-secondary">
-        <Badge variant="outline" className="mr-1.5 border-transparent bg-brand-tonal font-medium text-brand-text">Demonstração</Badge>
-        Convite fictício: aqui você responde no lugar do protocolo. Nada disso é real.
+        <Badge variant="outline" className="mr-1.5 border-transparent bg-brand-tonal font-medium text-brand-text">{t('markets.invite.demo.badge')}</Badge>
+        {t('markets.invite.demo.note')}
       </p>
       {buttons.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
@@ -131,11 +138,11 @@ export function JoinMarketPanel() {
   }, [state])
   return (
     <JoinMarketForm
-      copy={INVITE_COPY}
+      copy={inviteCopy()}
       state={state}
       contractAvailable={demo}
       unavailableNote={<WireNote ids={['marketInvite', 'marketMembership']} />}
-      qrEntry={<WirePlanned id="marketInviteQr" description="Para ler um convite com a câmera do aparelho." />}
+      qrEntry={<WirePlanned id="marketInviteQr" description={t('markets.invite.qrPlanned')} />}
       demoControls={demo && state !== 'idle' ? <DemoInviteControls state={state} dispatch={dispatch} /> : undefined}
       onSubmit={() => dispatch({ type: 'submit' })}
       onReset={() => dispatch({ type: 'reset' })}
@@ -160,7 +167,7 @@ export const NODES_MARKETS_SCREENS: readonly { screen: string; where: string; wi
 export function InviteStateGallery() {
   return (
     <div className="grid gap-3 md:grid-cols-2">
-      {INVITE_STATES.filter((s) => s !== 'idle').map((s) => <InviteStatus key={s} state={s} copy={INVITE_COPY} />)}
+      {INVITE_STATES.filter((s) => s !== 'idle').map((s) => <InviteStatus key={s} state={s} copy={inviteCopy()} />)}
     </div>
   )
 }

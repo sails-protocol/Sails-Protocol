@@ -7,6 +7,7 @@
 import { useId, type ReactNode } from 'react'
 import { CopyButton } from '../ui/CopyButton'
 import { cn } from '../../lib/utils'
+import { t } from '../../i18n'
 
 export interface SpecRow {
   label: string
@@ -34,7 +35,7 @@ export function TradeSpecs({ title, groups, children }: { title: string; groups:
                 <dt className="max-w-[45%] shrink-0 text-brand-text-secondary">{r.label}</dt>
                 <dd className="flex min-w-0 items-center gap-2 text-right text-brand-text">
                   <span translate={r.mono ? 'no' : undefined} className={cn('min-w-0 [overflow-wrap:anywhere]', r.mono && 'font-mono text-xs')}>{r.value}</span>
-                  {r.copy && <CopyButton value={r.copy} label="Copiar" className="shrink-0 px-3 py-1 touch:min-h-11" />}
+                  {r.copy && <CopyButton value={r.copy} label={t('common.copy')} className="shrink-0 px-3 py-1 touch:min-h-11" />}
                 </dd>
               </div>
             ))}

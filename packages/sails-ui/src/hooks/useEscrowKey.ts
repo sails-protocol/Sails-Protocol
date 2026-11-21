@@ -30,6 +30,7 @@ import { sailsClient } from '../lib/sailsClient'
 import { encryptBytes, decryptBytes } from '../lib/keyEncryption'
 import { WrongPassphraseError } from '../context/AuthContext'
 import { buildMultisigSigningIntent } from '../lib/multisigSigningIntent'
+import { t } from '../i18n'
 
 const ESCROW_KEY_STORAGE_KEY = 'sails_ui_escrow_keypair'
 
@@ -73,7 +74,7 @@ async function loadOrCreateEscrowKeypair(encryptionKey: CryptoKey): Promise<Stor
           // Same WrongPassphraseError AuthContext.tsx throws for the
           // identity key, so every caller (Trade.tsx) can catch both
           // with one `instanceof` check instead of string-matching.
-          throw new WrongPassphraseError('Não foi possível desbloquear sua chave de escrow — senha incorreta.')
+          throw new WrongPassphraseError(t('auth.errors.escrowWrongPassphrase'))
         }
         // reason === 'corrupt' (pre-encryption legacy entry or a
         // corrupted one) — falls through and regenerates below, same as
@@ -99,7 +100,7 @@ async function loadOrCreateEscrowKeypair(encryptionKey: CryptoKey): Promise<Stor
     // escrow, or signing with a key that doesn't match what was
     // submitted. Must fail loudly, not let an unpersisted key be used as
     // if it were durable.
-    throw new Error('Não foi possível salvar sua chave de escrow neste navegador (modo privado ou armazenamento cheio) — tente em uma janela normal ou libere espaço.')
+    throw new Error(t('auth.errors.escrowSaveFailed'))
   }
   return { privateKeyHex: bytesToHex(kp.privateKey), publicKeyHex: kp.publicKeyHex }
 }

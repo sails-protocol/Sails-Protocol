@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { isFavoriteTrader, toggleFavoriteTrader } from '../../lib/favorites'
 import { Star } from 'lucide-react'
 import { IconButton } from './icon-button'
+import { useUiStrings } from './uiStrings'
 
 // Airtm-inspired (its own "pick a cashier you trust" pattern) —
 // lib/favorites.ts's own header comment has the full real-vs-UI-only
@@ -15,6 +16,7 @@ import { IconButton } from './icon-button'
 // real trade's real buyer/seller).
 export function FavoriteButton({ userId }: { userId: string }) {
   const [isFav, setIsFav] = useState(() => isFavoriteTrader(userId))
+  const strings = useUiStrings()
 
   return (
     <IconButton
@@ -25,7 +27,7 @@ export function FavoriteButton({ userId }: { userId: string }) {
         setIsFav(toggleFavoriteTrader(userId))
       }}
       // Constant name, the state is aria-pressed (on = brand blue: chosen, not orange: act).
-      label="Favoritar este vendedor"
+      label={strings.favoriteSeller}
       pressed={isFav}
     >
       <Star aria-hidden="true" fill={isFav ? 'currentColor' : 'none'} />

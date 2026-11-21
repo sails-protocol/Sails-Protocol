@@ -17,34 +17,20 @@ import { useState } from 'react'
 import { Dialog, DialogContent } from '../ui/dialog'
 import { Button } from '../ui/button'
 import { ShoppingCart, Lock, MessageCircle, KeyRound, type LucideIcon } from 'lucide-react'
+import { t, type MessageKey } from '../../i18n'
 
 interface Step {
   icon: LucideIcon
-  title: string
-  description: string
+  title: MessageKey
+  description: MessageKey
 }
 
+// Keys, not copy: translated at render time (shell.onboarding.*).
 const STEPS: Step[] = [
-  {
-    icon: ShoppingCart,
-    title: 'Marketplace P2P com escrow',
-    description: 'Compre e venda cripto direto com outra pessoa. Cada trade mostra o tipo de escrow e quem pode assinar a liberação; em uma disputa, um árbitro designado também pode assinar.',
-  },
-  {
-    icon: Lock,
-    title: 'Escrow protege os dois lados',
-    description: 'Ao negociar, os fundos ficam bloqueados num escrow até o vendedor liberar, depois que o comprador marca o pagamento como enviado. Em caso de problema, um árbitro real pode intervir na disputa.',
-  },
-  {
-    icon: MessageCircle,
-    title: 'Chat direto, com criptografia opcional',
-    description: 'Combine os detalhes do pagamento pelo chat da negociação. Dá pra ativar criptografia de ponta a ponta a qualquer momento, direto no cabeçalho do chat.',
-  },
-  {
-    icon: KeyRound,
-    title: 'Sua chave é sua identidade',
-    description: 'A mesma chave que você usou pra conectar assina suas ações e é sua identidade na rede P2P — igual ao Keet. Ela fica criptografada neste navegador e não é enviada ao Sails Protocol.',
-  },
+  { icon: ShoppingCart, title: 'shell.onboarding.marketplace.title', description: 'shell.onboarding.marketplace.description' },
+  { icon: Lock, title: 'shell.onboarding.escrow.title', description: 'shell.onboarding.escrow.description' },
+  { icon: MessageCircle, title: 'shell.onboarding.chat.title', description: 'shell.onboarding.chat.description' },
+  { icon: KeyRound, title: 'shell.onboarding.key.title', description: 'shell.onboarding.key.description' },
 ]
 
 export function OnboardingTour({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -66,8 +52,8 @@ export function OnboardingTour({ open, onOpenChange }: { open: boolean; onOpenCh
           <div className="w-14 h-14 rounded-full bg-brand-orange-accent/10 border border-brand-orange-accent/25 flex items-center justify-center mb-4">
             <current.icon className="h-6 w-6 text-brand-orange-accent" />
           </div>
-          <h2 className="text-headline font-display text-brand-text">{current.title}</h2>
-          <p className="text-sm text-brand-text-muted mt-2">{current.description}</p>
+          <h2 className="text-headline font-display text-brand-text">{t(current.title)}</h2>
+          <p className="text-sm text-brand-text-muted mt-2">{t(current.description)}</p>
         </div>
 
         {/* Step-dot progress — same visual language as PublishOffer.tsx's
@@ -84,13 +70,13 @@ export function OnboardingTour({ open, onOpenChange }: { open: boolean; onOpenCh
 
         <div className="flex items-center gap-2 mt-4">
           <Button variant="outline" onClick={close} className="flex-1 py-2 text-sm">
-            Pular
+            {t('shell.onboarding.skip')}
           </Button>
           <Button
             onClick={() => (isLast ? close() : setStep((s) => s + 1))}
             className="flex-1 py-2 text-sm"
           >
-            {isLast ? 'Começar' : 'Próximo'}
+            {isLast ? t('shell.onboarding.start') : t('shell.onboarding.next')}
           </Button>
         </div>
       </DialogContent>

@@ -55,7 +55,7 @@ import { Combobox } from '../components/ui/combobox'
 import { PaymentMethods } from '../components/ui/PaymentMethods'
 import { ArrowLeft } from 'lucide-react'
 import { fetchOffers } from '../lib/realOffers'
-import { ASSETS, PAYMENT_METHODS, COUNTRIES } from '../data/mock'
+import { ASSETS, PAYMENT_METHODS, COUNTRIES, countryLabel } from '../data/mock'
 import { formatByCurrency } from '../lib/currency'
 import { publicationPriceUsd } from '../lib/publicationPrice'
 import { PAYMENT_METHOD_LABELS } from '../lib/labels'
@@ -63,8 +63,10 @@ import { sailsClient } from '../lib/sailsClient'
 import { isDemoMode } from '../lib/demoMarkers'
 import { MAX_PAYMENT_METHODS } from '../lib/paymentMethods'
 import type { AssetType, FiatCurrency, TradeSide } from '../types'
+import { t } from '../i18n'
 
-const STEPS = ['Tipo e preço', 'Valor e método', 'Condições']
+// A function, not a constant: the labels follow the interface language.
+const steps = () => [t('publish.step.typePrice'), t('publish.step.amountMethod'), t('publish.step.conditions')]
 
 const NETWORK_BY_ASSET: Partial<Record<AssetType, string>> = {
   BTC: 'bitcoin', LN_BTC: 'lightning', LIQUID_BTC: 'liquid',
@@ -167,11 +169,11 @@ export function PublishOffer() {
 
   const goNext = () => {
     if (step === 1 && !step1Valid) {
-      toast.error('Selecione o ativo, a moeda e informe um preço válido')
+      toast.error(t('publish.error.step1'))
       return
     }
     if (step === 2 && !step2Valid) {
-      toast.error(method === undefined ? 'Escolha ao menos um método de pagamento' : 'Informe limites válidos e os detalhes do pagamento')
+      toast.error(t(method === undefined ? 'publish.error.noMethod' : 'publish.error.step2'))
       return
     }
     setStep((s) => Math.min(s + 1, 3))
@@ -182,11 +184,11 @@ export function PublishOffer() {
   const handlePublish = async () => {
     if (!user || asset === 'Todos') return
     if (priceUsd === null || priceType !== 'FIXED') {
-      toast.error('Publicação disponível apenas com preço fixo em USD válido, sem conversão de câmbio.')
+      toast.error(t('publish.error.fixedUsdOnly'))
       return
     }
     if (!step2Valid || method === undefined) {
-      toast.error('Informe limites válidos e os detalhes do pagamento')
+      toast.error(t('publish.error.step2'))
       return
     }
 
@@ -211,10 +213,10 @@ export function PublishOffer() {
         idempotencyKey: offerIdempotencyKeyRef.current,
       })
       offerIdempotencyKeyRef.current = crypto.randomUUID() // this attempt is now settled — a new key for whatever comes next
-      toast.success('Oferta publicada')
+      toast.success(t('publish.published'))
       navigate(TRADES_ROUTES.offers)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Falha ao publicar oferta')
+      toast.error(err instanceof Error ? err.message : t('publish.failed'))
     } finally {
       setPublishing(false)
     }
@@ -225,16 +227,16 @@ export function PublishOffer() {
       <PageHeader
         back={
           <Link to={TRADES_ROUTES.offers} className="min-h-11 md:min-h-0 text-body-sm text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Minhas ofertas
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {t('trades.offers.title')}
           </Link>
         }
-        title="Publicar oferta"
+        title={t('trades.offers.publish')}
       />
 
       <Card>
         {/* One-line stepper in the card header. */}
-        <ol aria-label="Etapas" className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 border-b border-brand-border-subtle">
-          {STEPS.map((label, i) => {
+        <ol aria-label={t('publish.stepsLabel')} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 border-b border-brand-border-subtle">
+          {steps().map((label, i, all) => {
             const n = i + 1
             const current = n === step
             return (
@@ -243,7 +245,7 @@ export function PublishOffer() {
                   {n}
                 </span>
                 <span className={current ? 'text-brand-text font-medium' : 'text-brand-text-muted'}>{label}</span>
-                {n < STEPS.length && <span aria-hidden="true" className="w-6 h-px bg-brand-border-subtle" />}
+                {n < all.length && <span aria-hidden="true" className="w-6 h-px bg-brand-border-subtle" />}
               </li>
             )
           })}
@@ -252,7 +254,7 @@ export function PublishOffer() {
         {step === 1 && (
           <div className="space-y-4">
             <div>
-              <label className="text-xs text-brand-text-muted mb-1.5 block" id="publish-side-label">Eu quero</label>
+              <label className="text-xs text-brand-text-muted mb-1.5 block" id="publish-side-label">{t('publish.side')}</label>
               <div role="group" aria-labelledby="publish-side-label" className={cn('flex gap-1', SEGMENT_TRACK)}>
                 {(['SELL', 'BUY'] as TradeSide[]).map((s) => (
                   <button
@@ -261,7 +263,7 @@ export function PublishOffer() {
                     aria-pressed={side === s}
                     className={cn('flex-1 h-8 touch:h-11', segmentItemClass(side === s))}
                   >
-                    {s === 'SELL' ? 'Vender' : 'Comprar'}
+                    {t(s === 'SELL' ? 'publish.sell' : 'publish.buy')}
                   </button>
                 ))}
               </div>
@@ -269,68 +271,68 @@ export function PublishOffer() {
 
             <div className="grid gap-3 sm:grid-cols-2 [&_.toolbar-chip]:w-full">
               <div>
-                <label className="text-xs text-brand-text-muted mb-1.5 block">Ativo</label>
+                <label className="text-xs text-brand-text-muted mb-1.5 block">{t('trades.offers.col.asset')}</label>
                 <AssetPicker
-                  allLabel="Selecione o ativo"
+                  allLabel={t('publish.selectAsset')}
                   hideAllOption
                   value={asset}
                   onChange={(a) => setAsset(a as (typeof ASSETS)[number] | 'Todos')}
                 />
               </div>
               <div>
-                <label className="text-xs text-brand-text-muted mb-1.5 block">com moeda fiduciária</label>
+                <label className="text-xs text-brand-text-muted mb-1.5 block">{t('publish.fiat')}</label>
                 <CurrencyPicker value={currency} onChange={setCurrency} />
                 <p className="text-xs text-brand-text-muted mt-1.5" role="status">
                   {currency === 'USD'
-                    ? 'Preço informado em USD, sem conversão de câmbio.'
-                    : 'Publicação nesta moeda indisponível. Selecione USD; conversão de câmbio ainda não habilitada.'}
+                    ? t('publish.usdNote')
+                    : t('publish.otherCurrencyNote')}
                 </p>
               </div>
             </div>
 
             <div>
               <label className="text-xs text-brand-text-muted mb-1.5 flex items-center gap-1">
-                Tipo de preço
-                <InfoTooltip text="Flutuante (atrelado a uma cotação de mercado ao vivo) ainda não é suportado — não existe integração com uma fonte de câmbio em tempo real no backend hoje. Publicar sempre envia um preço fixo." />
+                {t('publish.priceType')}
+                <InfoTooltip text={t('publish.priceTypeHelp')} />
               </label>
               <Select value={priceType} onValueChange={(v) => setPriceType(v as 'FIXED' | 'FLOATING')}>
-                <SelectTrigger aria-label="Tipo de preço" className="w-full">
+                <SelectTrigger aria-label={t('publish.priceType')} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="FIXED">Fixo</SelectItem>
-                  <SelectItem value="FLOATING" disabled>Flutuante (em breve)</SelectItem>
+                  <SelectItem value="FIXED">{t('publish.fixed')}</SelectItem>
+                  <SelectItem value="FLOATING" disabled>{t('publish.floatingSoon')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             {priceType === 'FIXED' ? (
               <div>
-                <label className="text-xs text-brand-text-muted mb-1.5 block">Preço fixo</label>
+                <label className="text-xs text-brand-text-muted mb-1.5 block">{t('publish.fixedPrice')}</label>
                 <div className="flex items-center input-field field-focus-within !p-0 h-9 touch:h-11">
-                  <button onClick={() => setPrice(String(Math.max(0, Number(price || 0) - 1)))} aria-label="Diminuir preço" className="h-full min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">−</button>
+                  <button onClick={() => setPrice(String(Math.max(0, Number(price || 0) - 1)))} aria-label={t('publish.decreasePrice')} className="h-full min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">−</button>
                   <input
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
                     type="number"
-                    aria-label="Preço fixo"
+                    aria-label={t('publish.fixedPrice')}
                     className="flex-1 min-w-0 bg-transparent text-center text-field font-medium tabular-nums outline-none text-brand-text [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     placeholder="0"
                   />
-                  <button onClick={() => setPrice(String(Number(price || 0) + 1))} aria-label="Aumentar preço" className="h-full min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">+</button>
+                  <button onClick={() => setPrice(String(Number(price || 0) + 1))} aria-label={t('publish.increasePrice')} className="h-full min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">+</button>
                 </div>
                 {loadingSuggestedRange && (
-                  <p className="text-xs text-brand-text-muted mt-1.5">Buscando faixa de preço…</p>
+                  <p className="text-xs text-brand-text-muted mt-1.5">{t('publish.loadingRange')}</p>
                 )}
                 {!loadingSuggestedRange && suggestedRange && (
                   <p className="text-xs text-brand-text-muted mt-1.5">
-                    Faixa de preço sugerida: {formatByCurrency(suggestedRange.min, currency as FiatCurrency)} – {formatByCurrency(suggestedRange.max, currency as FiatCurrency)}
+                    {t('publish.suggestedRange', { min: formatByCurrency(suggestedRange.min, currency as FiatCurrency), max: formatByCurrency(suggestedRange.max, currency as FiatCurrency) })}
                   </p>
                 )}
               </div>
             ) : (
               <div className="bg-brand-elevated rounded-md p-3 text-xs text-brand-text-secondary">
-                Preço flutuante ainda não suportado neste protótipo — selecione "Fixo" para continuar.
+                {t('publish.floatingUnsupported')}
               </div>
             )}
           </div>
@@ -341,13 +343,13 @@ export function PublishOffer() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">
-                  Quantidade mínima
+                  {t('publish.minAmount')}
                   <Input value={minAmount} onChange={(e) => setMinAmount(e.target.value)} type="number" className="w-full mt-1.5" placeholder="0.00" />
                 </label>
               </div>
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">
-                  Quantidade máxima
+                  {t('publish.maxAmount')}
                   <Input value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} type="number" className="w-full mt-1.5" placeholder="0.00" />
                 </label>
               </div>
@@ -355,35 +357,35 @@ export function PublishOffer() {
 
             {demo ? (
             <div>
-              <span className="text-xs text-brand-text-muted mb-1.5 block" aria-hidden="true">Métodos de pagamento</span>
+              <span className="text-xs text-brand-text-muted mb-1.5 block" aria-hidden="true">{t('publish.methods')}</span>
               <Combobox
                 multiple
-                label="Métodos de pagamento"
-                valueText={`${demoMethods.length} de ${MAX_PAYMENT_METHODS}${demoMethods.length ? `, ${demoMethods.map((m) => PAYMENT_METHOD_LABELS[m]).join(', ')}` : ''}`}
+                label={t('publish.methods')}
+                valueText={`${t('publish.methodsOf', { count: demoMethods.length, max: MAX_PAYMENT_METHODS })}${demoMethods.length ? `, ${demoMethods.map((m) => PAYMENT_METHOD_LABELS[m]).join(', ')}` : ''}`}
                 options={PAYMENT_METHODS.map((m) => ({ value: m, label: PAYMENT_METHOD_LABELS[m], disabled: methodsAtLimit && !demoMethods.includes(m) }))}
                 selected={demoMethods}
                 onSelect={toggleDemoMethod}
                 triggerClassName="w-full"
                 contentClassName="w-[var(--radix-popover-trigger-width)]"
-                trigger={<span className="truncate">{demoMethods.length === 0 ? 'Selecione os métodos' : demoMethods.length === 1 ? PAYMENT_METHOD_LABELS[demoMethods[0]] : `${demoMethods.length} métodos`}</span>}
-                searchPlaceholder="Buscar método de pagamento…"
-                emptyText={() => 'Nenhum método encontrado com esse nome.'}
+                trigger={<span className="truncate">{demoMethods.length === 0 ? t('publish.selectMethods') : demoMethods.length === 1 ? PAYMENT_METHOD_LABELS[demoMethods[0]] : t('publish.methodCount', { count: demoMethods.length })}</span>}
+                searchPlaceholder={t('publish.searchMethod')}
+                emptyText={() => t('publish.noMethodFound')}
                 footer={methodsAtLimit ? () => (
-                  <p className="px-3 py-2 text-xs text-brand-text-secondary">Limite de {MAX_PAYMENT_METHODS} métodos atingido. Remova um para escolher outro.</p>
+                  <p className="px-3 py-2 text-xs text-brand-text-secondary">{t('publish.limitReachedHint', { max: MAX_PAYMENT_METHODS })}</p>
                 ) : undefined}
               />
               {demoMethods.length > 1 && <PaymentMethods labels={demoMethods.map((m) => PAYMENT_METHOD_LABELS[m])} className="mt-2" />}
               <p role="status" className="text-xs text-brand-text-muted mt-1.5">
-                <span className="tabular-nums">{demoMethods.length} de {MAX_PAYMENT_METHODS}</span>
-                {demoMethods.length === 0 ? ' · Escolha ao menos um método.' : methodsAtLimit ? ` · Limite de ${MAX_PAYMENT_METHODS} métodos atingido.` : ''}
+                <span className="tabular-nums">{t('publish.methodsOf', { count: demoMethods.length, max: MAX_PAYMENT_METHODS })}</span>
+                {demoMethods.length === 0 ? ` · ${t('publish.chooseOneMethod')}` : methodsAtLimit ? ` · ${t('publish.limitReached', { max: MAX_PAYMENT_METHODS })}` : ''}
               </p>
-              <p className="text-xs text-brand-text-muted mt-1">Modo demonstração: vários métodos existem só nesta simulação. Uma oferta real aceita um método.</p>
+              <p className="text-xs text-brand-text-muted mt-1">{t('publish.demoNote')}</p>
             </div>
             ) : (
             <div>
-              <label className="text-xs text-brand-text-muted mb-1.5 block">Método de pagamento</label>
+              <label className="text-xs text-brand-text-muted mb-1.5 block">{t('publish.method')}</label>
               <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as (typeof PAYMENT_METHODS)[number])}>
-                <SelectTrigger aria-label="Método de pagamento" className="w-full">
+                <SelectTrigger aria-label={t('publish.method')} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -397,12 +399,12 @@ export function PublishOffer() {
 
             <div>
               <label className="text-xs text-brand-text-muted mb-1.5 block">
-                Detalhes do pagamento
+                {t('publish.paymentDetails')}
                 <Input
                   value={paymentDetails}
                   onChange={(e) => setPaymentDetails(e.target.value)}
                   className="w-full mt-1.5"
-                  placeholder={method === 'PIX' ? 'Sua chave PIX' : 'Dados para o comprador enviar o pagamento'}
+                  placeholder={t(method === 'PIX' ? 'publish.pixPlaceholder' : 'publish.detailsPlaceholder')}
                 />
               </label>
             </div>
@@ -412,27 +414,27 @@ export function PublishOffer() {
         {step === 3 && (
           <div className="space-y-4">
             <div>
-              <label className="text-xs text-brand-text-muted mb-1.5 block">País/Região</label>
+              <label className="text-xs text-brand-text-muted mb-1.5 block">{t('publish.country')}</label>
               <Select value={country} onValueChange={setCountry}>
-                <SelectTrigger aria-label="País/Região" className="w-full">
+                <SelectTrigger aria-label={t('publish.country')} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {COUNTRIES.map((c) => (
-                    <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>
+                    <SelectItem key={c.code} value={c.code}>{countryLabel(c.code)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
             <div>
-              <label className="text-xs text-brand-text-muted mb-1.5 block">Descrição (opcional)</label>
+              <label className="text-xs text-brand-text-muted mb-1.5 block">{t('publish.description')}</label>
               <Textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="w-full"
                 rows={3}
-                placeholder="Instruções extras para a contraparte…"
+                placeholder={t('publish.descriptionPlaceholder')}
               />
             </div>
           </div>
@@ -443,16 +445,16 @@ export function PublishOffer() {
       <div className="flex items-center justify-between gap-2 px-5 py-3 border-t border-brand-border-subtle">
         {step > 1 ? (
           <Button variant="ghost" onClick={() => setStep((s) => s - 1)} className="min-h-10 touch:min-h-11">
-            Voltar
+            {t('trades.back')}
           </Button>
         ) : <span />}
         {step < 3 ? (
           <Button onClick={goNext} disabled={step === 1 ? !step1Valid : !step2Valid} className="min-h-10 touch:min-h-11 px-6">
-            Próximo
+            {t('publish.next')}
           </Button>
         ) : (
           <Button onClick={handlePublish} loading={publishing} disabled={!step1Valid || !step2Valid} className="min-h-10 touch:min-h-11 px-6">
-            {publishing ? 'Publicando…' : 'Publicar oferta'}
+            {publishing ? t('publish.publishing') : t('trades.offers.publish')}
           </Button>
         )}
       </div>

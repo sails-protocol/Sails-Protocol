@@ -21,6 +21,7 @@
  * depth, whose number the contract does not expose.
  */
 import type { Escrow } from '@satsails/p2p-trading-sdk'
+import { t } from '../i18n'
 
 export type FundingEscrow = Pick<Escrow,
   'type' | 'status' | 'asset' | 'lockedAmount' | 'multisigAddr' | 'txLockId' | 'txLockVout' | 'fundedAmount'
@@ -52,7 +53,7 @@ export function bitcoinNetworkFromAddress(address: string): string | null {
   const a = address.toLowerCase()
   if (a.startsWith('bcrt1')) return 'Bitcoin regtest'
   if (a.startsWith('bc1')) return 'Bitcoin mainnet'
-  if (a.startsWith('tb1')) return 'Bitcoin testnet ou signet'
+  if (a.startsWith('tb1')) return t('escrow.funding.networkTestnet')
   return null
 }
 
@@ -60,9 +61,9 @@ function addressFacts(e: FundingEscrow): FundingFact[] {
   const address = e.multisigAddr
   return [
     address
-      ? { label: 'Endereço do escrow', value: address, mono: true, copy: address }
-      : { label: 'Endereço do escrow', value: 'Ainda não disponível' },
-    { label: 'Rede', value: (address && bitcoinNetworkFromAddress(address)) ?? 'Não disponível' },
+      ? { label: t('escrow.funding.address'), value: address, mono: true, copy: address }
+      : { label: t('escrow.funding.address'), value: t('escrow.funding.notYet') },
+    { label: t('escrow.funding.network'), value: (address && bitcoinNetworkFromAddress(address)) ?? t('escrow.funding.unavailable') },
   ]
 }
 
@@ -73,41 +74,37 @@ export function deriveFundingInstruction(i: { escrow: FundingEscrow; isBuyer: bo
   if (!i.isSeller) {
     return {
       viewer: 'buyer',
-      title: 'Endereço de depósito do escrow',
+      title: t('escrow.funding.buyerTitle'),
       facts: addressFacts(e),
       requirements: [],
-      note: e.multisigAddr ? 'Você pode conferir o depósito num explorador de blocos.' : 'O endereço aparece depois que você e o vendedor registrarem suas chaves no escrow.',
-      copyLabel: 'Copiar endereço',
+      note: t(e.multisigAddr ? 'escrow.funding.buyerNoteExplorer' : 'escrow.funding.buyerNoteNoAddress'),
+      copyLabel: t('escrow.funding.copyAddress'),
     }
   }
 
   const rule = amountRule(e)
   const amount = `${e.lockedAmount} ${i.assetLabel}`
-  const title = !e.multisigAddr ? 'O endereço de depósito ainda não está disponível'
-    : rule === 'atLeast' ? `Deposite pelo menos ${amount} neste endereço`
-    : rule === 'exact' ? `Deposite exatamente ${amount} neste endereço`
-    : 'O valor exato do depósito não está disponível nesta tela'
-  const amountFact: FundingFact = rule === 'atLeast' ? { label: 'Valor mínimo', value: amount }
-    : rule === 'exact' ? { label: 'Valor exato', value: amount }
-    : { label: 'Valor exato', value: 'Não disponível nesta tela' }
+  const title = !e.multisigAddr ? t('escrow.funding.titleNoAddress')
+    : rule === 'atLeast' ? t('escrow.funding.titleAtLeast', { amount })
+    : rule === 'exact' ? t('escrow.funding.titleExact', { amount })
+    : t('escrow.funding.titleExactUnavailable')
+  const amountFact: FundingFact = rule === 'atLeast' ? { label: t('escrow.funding.minAmount'), value: amount }
+    : rule === 'exact' ? { label: t('escrow.funding.exactAmount'), value: amount }
+    : { label: t('escrow.funding.exactAmount'), value: t('escrow.funding.unavailableHere') }
 
   const requirements = [
-    rule === 'atLeast'
-      ? 'Um único depósito (uma só saída de transação) com o valor mínimo. Depósitos separados não são somados.'
-      : 'Valor exato numa só saída de transação. Valores abaixo, acima ou divididos em mais de um depósito são recusados.',
-    ...(rule === 'exactUnavailable'
-      ? [`O valor exato é ${amount} mais a reserva máxima da taxa do protocolo, e esse total não é informado nesta tela. Não deposite sem conhecê-lo.`]
-      : []),
-    'Aguarde as confirmações exigidas pelo nó Sails antes de registrar o bloqueio. O número exigido não é informado nesta tela.',
+    t(rule === 'atLeast' ? 'escrow.funding.reqSingle' : 'escrow.funding.reqExact'),
+    ...(rule === 'exactUnavailable' ? [t('escrow.funding.reqReserve', { amount })] : []),
+    t('escrow.funding.reqConfirmations'),
   ]
 
   return {
     viewer: 'seller',
     title,
     facts: [amountFact, ...addressFacts(e)],
-    requirements: e.multisigAddr ? requirements : ['O endereço é gerado depois que você e o comprador registrarem suas chaves no escrow. Não deposite antes de ele aparecer aqui.'],
-    note: 'Depois de enviar, toque em "Bloquear fundos": o nó Sails confere o depósito e recusa se ainda não o encontrar.',
-    copyLabel: 'Copiar endereço',
+    requirements: e.multisigAddr ? requirements : [t('escrow.funding.reqNoAddress')],
+    note: t('escrow.funding.note'),
+    copyLabel: t('escrow.funding.copyAddress'),
   }
 }
 
@@ -115,8 +112,8 @@ export function deriveFundingInstruction(i: { escrow: FundingEscrow; isBuyer: bo
 export function deriveFundingRecordRows(e: FundingEscrow): FundingFact[] {
   if (e.type !== 'MULTISIG' || !e.txLockId) return []
   return [
-    { label: 'Depósito registrado pelo nó Sails', value: e.txLockId, mono: true, copy: e.txLockId },
-    ...(e.txLockVout !== null && e.txLockVout !== undefined ? [{ label: 'Saída registrada (vout)', value: String(e.txLockVout), mono: true }] : []),
+    { label: t('escrow.funding.recordDeposit'), value: e.txLockId, mono: true, copy: e.txLockId },
+    ...(e.txLockVout !== null && e.txLockVout !== undefined ? [{ label: t('escrow.funding.recordVout'), value: String(e.txLockVout), mono: true }] : []),
     // The provider writes the explorer's sats value here while other readers treat the column as BTC; never guess the unit.
     // fundedAmount is not shown: its unit is inconsistent in the backend (provider writes sats,
     // reconciliation reads BTC), so any rendering could be read as a usable amount. Pending CTO.
@@ -131,10 +128,10 @@ export function lockRefusalMessage(err: unknown): string | null {
   const { code, message } = (err ?? {}) as { code?: unknown; message?: unknown }
   if (code !== 'ESCROW_ERROR' || typeof message !== 'string') return null
   if (/^No funding UTXO/.test(message)) {
-    return 'O nó Sails ainda não encontrou o depósito exigido neste endereço. Confira o valor e aguarde as confirmações antes de tentar novamente.'
+    return t('escrow.funding.refusalNotFound')
   }
   if (/confirmation\(s\)\. Refusing to lock funds/.test(message)) {
-    return 'O depósito encontrado neste endereço ainda não tem as confirmações exigidas pelo nó Sails. Tente novamente mais tarde.'
+    return t('escrow.funding.refusalConfirmations')
   }
   return null
 }

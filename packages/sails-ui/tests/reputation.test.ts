@@ -2,6 +2,9 @@ import { formatReputation, REPUTATION_EXPLANATION, trustItems, trustParts } from
 import * as reputation from '../src/lib/reputation'
 import { countActiveFilters } from '../src/lib/filters'
 import { DEFAULT_FILTERS } from '../src/types'
+import { setLocalePreference } from '../src/lib/locale'
+import { PAYMENT_METHOD_LABELS } from '../src/lib/labels'
+import { ASSET_CATALOG, DEV_TEST_PAIR } from '../src/lib/assetCatalog'
 
 describe('reputation display', () => {
   it('uses the one "Reputação N" format, never "pontos"', () => {
@@ -43,5 +46,23 @@ describe('Market filters', () => {
     expect(DEFAULT_FILTERS).not.toHaveProperty('highReputationOnly')
     const saved = { ...DEFAULT_FILTERS, highReputationOnly: true } as typeof DEFAULT_FILTERS
     expect(countActiveFilters(saved)).toBe(0)
+  })
+})
+
+describe('translated labels follow the interface language (getters, no freeze at import)', () => {
+  afterEach(() => setLocalePreference('pt-BR'))
+
+  it('reads the current language on every access', () => {
+    expect(trustParts({ reputationScore: 10, totalTrades: 0, disputeCount: 0 })).toEqual(['Reputação 10', '0 trades', '0 disputas'])
+    expect(PAYMENT_METHOD_LABELS.BANK_TRANSFER).toBe('Transferência bancária')
+    setLocalePreference('en')
+    expect(trustParts({ reputationScore: 10, totalTrades: 1, disputeCount: 2 })).toEqual(['Reputation 10', '1 trade', '2 disputes'])
+    expect(REPUTATION_EXPLANATION.title).toBe('How reputation is calculated')
+    expect(PAYMENT_METHOD_LABELS.BANK_TRANSFER).toBe('Bank transfer')
+    expect(PAYMENT_METHOD_LABELS.PIX).toBe('PIX')
+    expect(DEV_TEST_PAIR.label).toBe('BTC · Test network')
+    expect(ASSET_CATALOG.find((p) => p.id === 'usdt-ethereum')!.note).toBe('Reference implementation')
+    setLocalePreference('de')
+    expect(Object.values(PAYMENT_METHOD_LABELS)).toContain('Banküberweisung')
   })
 })

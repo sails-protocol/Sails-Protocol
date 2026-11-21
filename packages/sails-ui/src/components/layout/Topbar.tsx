@@ -6,6 +6,7 @@ import { NAV_ITEMS, NavIcon, navItemTone } from './Sidebar'
 import { SailsLogo } from '../brand/SailsLogo'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
+import { t } from '../../i18n'
 
 /**
  * Desktop topbar (UI-FOUNDATION-1 — hybrid sidebar + topbar shell).
@@ -38,7 +39,7 @@ export function Topbar({ withNav = false }: { withNav?: boolean }) {
         </NavLink>
       )}
       {withNav && (
-        <nav aria-label="Navegação principal" className="hidden lg:flex items-center gap-1">
+        <nav aria-label={t('shell.nav.main')} className="hidden lg:flex items-center gap-1">
           {items.map((item) => {
             const isActive = isNavActive(location.pathname, item)
             return (
@@ -60,7 +61,7 @@ export function Topbar({ withNav = false }: { withNav?: boolean }) {
           <AccountMenu user={user} />
         ) : (
           <Link to="/login" state={{ from: location.pathname }} className={cn(buttonVariants({ className: 'text-sm px-4 py-2' }))}>
-            Conectar wallet
+            {t('shell.session.connectWallet')}
           </Link>
         )}
       </div>

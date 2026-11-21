@@ -10,6 +10,10 @@
  */
 import type { AssetType, PaymentMethod } from '../types'
 import type { DisputeRuling, DisputeStatus, EscrowType } from '@satsails/p2p-trading-sdk'
+import { t } from '../i18n'
+
+// Translated entries are getters, so a label follows the interface language on every read (a plain
+// value would freeze in the language active at import time). Brand names stay plain strings.
 
 // VERTICAL-SLICE-1 (2026-09-12) — BTC was the one Bitcoin-family label
 // with no rail qualifier (every sibling below already has one), leaving
@@ -26,7 +30,7 @@ import type { DisputeRuling, DisputeStatus, EscrowType } from '@satsails/p2p-tra
 // existing data; the remaining values are kept only so old records still render.
 export const ASSET_LABELS: Record<AssetType, string> = {
   BTC: 'BTC · On-chain',
-  LN_BTC: 'BTC · Rede de teste',
+  get LN_BTC() { return `BTC · ${t('labels.network.test')}` },
   LIQUID_BTC: 'BTC · Liquid',
   RSK_BTC: 'BTC · RSK',
   USDT_ERC20: 'USDT · Ethereum',
@@ -78,13 +82,14 @@ export const ASSET_SHORT_LABELS: Record<AssetType, string> = {
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   PIX: 'PIX',
   TED: 'TED',
-  BANK_TRANSFER: 'Transferência bancária',
-  CRYPTO_DIRECT: 'Cripto direto',
-  LIGHTNING_DIRECT: 'Lightning direto',
-  CASH: 'Dinheiro em espécie',
-  OTHER: 'Outro',
+  get BANK_TRANSFER() { return t('labels.payment.bankTransfer') },
+  get CRYPTO_DIRECT() { return t('labels.payment.cryptoDirect') },
+  get LIGHTNING_DIRECT() { return t('labels.payment.lightningDirect') },
+  // Legacy cash methods: no longer offered, kept so old records still render their name.
+  get CASH() { return t('labels.legacy.cash') },
+  get OTHER() { return t('labels.payment.other') },
   PAYPAL: 'PayPal',
-  CASH_BY_MAIL: 'Dinheiro pelo correio',
+  get CASH_BY_MAIL() { return t('labels.legacy.cashByMail') },
   SKRILL: 'Skrill',
   ADVCASH: 'AdvCash',
   NETELLER: 'Neteller',
@@ -94,17 +99,17 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   WEBMONEY: 'WebMoney',
   ZELLE: 'Zelle',
   ZINLI: 'Zinli',
-  CREDIT_DEBIT_CARD: 'Cartão de crédito/débito',
-  GIFT_CARD: 'Vale-presente',
+  get CREDIT_DEBIT_CARD() { return t('labels.payment.card') },
+  get GIFT_CARD() { return t('labels.payment.giftCard') },
   MERCADO_PAGO: 'Mercado Pago',
   NEQUI: 'Nequi',
   BANCOLOMBIA: 'Bancolombia',
   WALLY: 'Wally',
   YAPE: 'Yape',
-  MOBILE_MONEY: 'Dinheiro móvel (M-Pesa etc.)',
+  get MOBILE_MONEY() { return t('labels.payment.mobileMoney') },
   REVOLUT: 'Revolut',
-  BOLETO: 'Boleto bancário',
-  LOTERICA_DEPOSIT: 'Depósito em lotérica/caixa eletrônico',
+  get BOLETO() { return t('labels.payment.boleto') },
+  get LOTERICA_DEPOSIT() { return t('labels.legacy.lotericaDeposit') },
   DEPIX: 'DePix',
   WISE: 'Wise',
   VENMO: 'Venmo',
@@ -112,7 +117,7 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   PICPAY: 'PicPay',
   PLIN: 'Plin',
   // HodlHodl (2026-08-01) — see types.ts's own comment on this same group.
-  UPI: 'UPI (Índia)',
+  get UPI() { return t('labels.payment.upi') },
   INTERAC: 'Interac e-Transfer',
   ALIPAY: 'Alipay',
   WECHAT_PAY: 'WeChat Pay',
@@ -125,26 +130,26 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
 // De-duplicated 2026-08-11 — Disputes.tsx and TradeDisputePanel.tsx
 // each had their own identical copy of this map.
 export const DISPUTE_RULING_LABEL: Record<DisputeRuling, string> = {
-  RELEASE: 'liberar para o comprador',
-  REFUND: 'reembolsar o vendedor',
-  SPLIT: 'dividir entre as partes',
+  get RELEASE() { return t('labels.disputeRuling.release') },
+  get REFUND() { return t('labels.disputeRuling.refund') },
+  get SPLIT() { return t('labels.disputeRuling.split') },
 }
 
 export const DISPUTE_STATUS_LABEL: Record<DisputeStatus, string> = {
-  OPENED: 'Aberta',
-  EVIDENCE_SUBMITTED: 'Evidências enviadas',
-  ARBITRATED: 'Decisão do árbitro',
-  RESOLVED: 'Resolvida',
-  APPEALED: 'Em apelação',
-  AUTO_PROPOSED: 'Resolução automática proposta',
+  get OPENED() { return t('labels.disputeStatus.opened') },
+  get EVIDENCE_SUBMITTED() { return t('labels.disputeStatus.evidenceSubmitted') },
+  get ARBITRATED() { return t('labels.disputeStatus.arbitrated') },
+  get RESOLVED() { return t('labels.disputeStatus.resolved') },
+  get APPEALED() { return t('labels.disputeStatus.appealed') },
+  get AUTO_PROPOSED() { return t('labels.disputeStatus.autoProposed') },
 }
 
 /** Escrow.type in words (the settlement rail of the escrow); the code stays the stored value. */
 export const ESCROW_TYPE_LABEL: Record<EscrowType, string> = {
-  MULTISIG: 'Multisig Bitcoin',
-  LIGHTNING_HODL: 'Bitcoin via Arkade (rede de teste)',
-  LIQUID_COVENANT: 'Covenant na Liquid',
-  WDK_USDT_EVM: 'USDT em rede EVM (WDK)',
-  SAFE_GUARD_EVM: 'Safe com Guard (EVM)',
-  MOCK: 'Simulado (sem provedor real)',
+  get MULTISIG() { return t('labels.escrowType.multisig') },
+  get LIGHTNING_HODL() { return t('labels.escrowType.lightningHodl') },
+  get LIQUID_COVENANT() { return t('labels.escrowType.liquidCovenant') },
+  get WDK_USDT_EVM() { return t('labels.escrowType.wdkUsdtEvm') },
+  get SAFE_GUARD_EVM() { return t('labels.escrowType.safeGuardEvm') },
+  get MOCK() { return t('labels.escrowType.mock') },
 }

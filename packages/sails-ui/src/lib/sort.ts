@@ -2,6 +2,7 @@
  * Table sorting (DESIGN_SYSTEM.md 5.3, Table). Pure helpers so the sort order
  * and the header's aria-sort come from one place and are unit-tested.
  */
+import { getLocale } from './locale'
 export type SortDirection = 'ascending' | 'descending'
 export interface SortState<K extends string = string> {
   key: K
@@ -20,12 +21,12 @@ export function ariaSort(current: SortState | null, key: string): 'ascending' | 
 }
 
 /**
- * Stable sort by one accessor. Numbers compare numerically, strings with pt-BR
+ * Stable sort by one accessor. Numbers compare numerically, strings with the interface language
  * collation (accents, "10" after "9"); null/undefined always go last, in both directions.
  */
 export function sortRows<T>(rows: readonly T[], sort: SortState | null, accessor: (row: T, key: string) => string | number | null | undefined): T[] {
   if (!sort) return [...rows]
-  const collator = new Intl.Collator('pt-BR', { numeric: true, sensitivity: 'base' })
+  const collator = new Intl.Collator(getLocale(), { numeric: true, sensitivity: 'base' })
   const sign = sort.direction === 'ascending' ? 1 : -1
   return rows
     .map((row, i) => ({ row, i, v: accessor(row, sort.key) }))

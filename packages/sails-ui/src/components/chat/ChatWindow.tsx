@@ -33,6 +33,7 @@ import { Card } from '../ui/card'
 import { Input } from '../ui/input'
 import { Switch } from '../ui/switch'
 import { InfoTooltip } from '../ui/InfoTooltip'
+import { t } from '../../i18n'
 import { Lock, LockOpen } from 'lucide-react'
 
 interface Props {
@@ -87,38 +88,38 @@ export function ChatWindow({
     <Card className="flex flex-col h-[520px] overflow-hidden">
       <div className="px-4 py-2 border-b border-brand-border">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-sm font-semibold text-brand-text">Chat P2P</span>
+          <span className="text-sm font-semibold text-brand-text">{t('trade.chat.title')}</span>
           <span
             className={`text-xs flex items-center gap-1 shrink-0 ${
               counterpartyOnline === null ? 'text-brand-text-muted' : counterpartyOnline ? 'text-brand-success-fg' : 'text-brand-text-muted'
             }`}
             title={
               counterpartyOnline === null
-                ? 'Ainda não observamos esta pessoa entrar na sala de chat'
+                ? t('trade.chat.presenceUnknownTitle')
                 : counterpartyOnline
-                  ? `${counterpartyName ?? 'A contraparte'} está no chat agora`
-                  : `${counterpartyName ?? 'A contraparte'} não está no chat agora`
+                  ? (counterpartyName != null ? t('trade.chat.inChatNamed', { name: counterpartyName }) : t('trade.chat.inChatAnon'))
+                  : (counterpartyName != null ? t('trade.chat.notInChatNamed', { name: counterpartyName }) : t('trade.chat.notInChatAnon'))
             }
           >
             <span className={`w-1.5 h-1.5 rounded-full ${counterpartyOnline ? 'bg-brand-success' : 'bg-brand-text-muted/50'}`} />
             <span>
-              {counterpartyOnline === null ? 'Presença desconhecida' : counterpartyOnline ? `${counterpartyName ?? 'Contraparte'} online` : `${counterpartyName ?? 'Contraparte'} offline`}
+              {counterpartyOnline === null ? t('trade.chat.presenceUnknown') : t(counterpartyOnline ? 'trade.chat.online' : 'trade.chat.offline', { name: counterpartyName ?? t('trade.parties.counterparty') })}
             </span>
           </span>
         </div>
         {/* The label states what is true now; the switch is the action. */}
         <div className="flex items-center gap-1.5 text-xs text-brand-text-secondary">
           {encryptionEnabled ? <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : <LockOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
-          <span>{encryptionEnabled ? 'Criptografado' : 'Não criptografado'}</span>
-          <InfoTooltip text="Cifra as próximas mensagens de ponta a ponta (só você e a contraparte conseguem ler). Mensagens antigas continuam em texto simples." />
+          <span>{t(encryptionEnabled ? 'trade.chat.encrypted' : 'trade.chat.notEncrypted')}</span>
+          <InfoTooltip text={t('trade.chat.encryptionHelp')} />
           <label htmlFor={switchId} className="flex min-h-11 cursor-pointer items-center gap-1.5 pl-1">
-            <span className={encryptionEnabled ? 'sr-only' : ''}>Ativar</span>
+            <span className={encryptionEnabled ? 'sr-only' : ''}>{t('trade.chat.enable')}</span>
             <Switch
               id={switchId}
               checked={encryptionEnabled}
               onCheckedChange={onToggleEncryption}
               disabled={!encryptionAvailable}
-              aria-label="Criptografia de ponta a ponta no chat"
+              aria-label={t('trade.chat.encryptionSwitch')}
             />
           </label>
         </div>
@@ -126,7 +127,7 @@ export function ChatWindow({
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
         {messages.length === 0 && (
-          <p className="m-auto text-sm text-brand-text-secondary">Nenhuma mensagem ainda.</p>
+          <p className="m-auto text-sm text-brand-text-secondary">{t('trade.chat.empty')}</p>
         )}
         {messages.map((m) => (
           <ChatMessage key={m.id} message={m} isMine={m.senderId === currentUserId} />
@@ -139,12 +140,12 @@ export function ChatWindow({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-          placeholder={encryptionEnabled ? 'Mensagem criptografada...' : 'Digite uma mensagem...'}
-          aria-label="Mensagem"
+          placeholder={t(encryptionEnabled ? 'trade.chat.placeholderEncrypted' : 'trade.chat.placeholder')}
+          aria-label={t('trade.chat.messageLabel')}
           className="flex-1 min-h-11"
         />
         <Button onClick={handleSend} className="min-h-11 px-4 text-sm">
-          Enviar
+          {t('trade.chat.send')}
         </Button>
       </div>
     </Card>

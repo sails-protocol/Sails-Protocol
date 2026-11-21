@@ -21,7 +21,7 @@ export function SailsLogo({ size = 'md', className }: { size?: 'sm' | 'md'; clas
   return (
     <span className={cn('inline-flex items-center gap-2 font-semibold tracking-tight text-brand-text whitespace-nowrap', size === 'md' ? 'text-headline' : 'text-heading', className)}>
       <SailsMark size={size === 'md' ? 28 : 24} />
-      <span>Sails <span className="text-brand-orange-accent">Market</span></span>
+      <span translate="no">Sails <span className="text-brand-orange-accent">Market</span></span>
     </span>
   )
 }

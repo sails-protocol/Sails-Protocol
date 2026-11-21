@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router'
 import { ThemeProvider, useTheme } from './context/ThemeContext'
 import { AuthProvider } from './context/AuthContext'
@@ -7,6 +7,9 @@ import { Toaster } from './components/ui/toast'
 import { Layout } from './components/layout/Layout'
 import { SessionExpiryRedirect } from './components/auth/SessionExpiryRedirect'
 import { LEGACY_REDIRECTS, legacyRedirect, MARKETS_ROUTES, TRADES_ROUTES } from './components/layout/navMatch'
+import { UiStringsProvider } from './components/ui/uiStrings'
+import { t, useLocale } from './i18n'
+import { sailsUiStrings } from './i18n/uiStrings'
 
 // Route-level code splitting (2026-08-11) — vite build's own warning
 // (a single ~2.6MB chunk) was every page in one bundle regardless of
@@ -53,7 +56,7 @@ function ThemedToaster() {
 // uses — one consistent "carregando" look across the app, not a new one
 // invented just for route transitions.
 function RouteFallback() {
-  return <div className="text-center py-16 text-brand-text-muted">Carregando…</div>
+  return <div className="text-center py-16 text-brand-text-muted">{t('common.loading')}</div>
 }
 
 // Old address -> its new home (navMatch.ts LEGACY_REDIRECTS), replacing the history entry and keeping
@@ -64,12 +67,35 @@ function LegacyRedirect() {
   return to ? <Navigate replace to={to} state={location.state} /> : <NotFound />
 }
 
+// A language change remounts the routed tree (key), so every string, including those computed in lib/
+// helpers, re-renders in the new language; providers above keep the session, theme and route.
+function Localized({ children }: { children: ReactNode }) {
+  const locale = useLocale()
+  // The remount would drop focus (e.g. the language radio just chosen by keyboard): put it back on the same control.
+  const shown = useRef(locale)
+  const refocus = useRef<string | null>(null)
+  if (shown.current !== locale) {
+    const el = document.activeElement
+    refocus.current = el instanceof HTMLInputElement && el.name
+      ? `input[name="${CSS.escape(el.name)}"][value="${CSS.escape(el.value)}"]`
+      : el?.id ? `#${CSS.escape(el.id)}` : null
+    shown.current = locale
+  }
+  useLayoutEffect(() => {
+    document.documentElement.lang = locale
+    if (refocus.current) document.querySelector<HTMLElement>(refocus.current)?.focus()
+    refocus.current = null
+  }, [locale])
+  return <UiStringsProvider key={locale} value={sailsUiStrings()}>{children}</UiStringsProvider>
+}
+
 export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
         <TooltipProvider>
           <BrowserRouter>
+            <Localized>
             <ThemedToaster />
             <SessionExpiryRedirect />
             <Routes>
@@ -96,6 +122,7 @@ export default function App() {
                 <Route path="*" element={<NotFound />} />
               </Route>
             </Routes>
+            </Localized>
           </BrowserRouter>
         </TooltipProvider>
       </AuthProvider>

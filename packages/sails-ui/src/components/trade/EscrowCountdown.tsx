@@ -10,6 +10,7 @@ import { AlertTriangle, Clock } from 'lucide-react'
 import { ExplanationPopover } from '../ui/ExplanationPopover'
 import { Progress } from '../ui/progress'
 import { cn } from '../../lib/utils'
+import { t } from '../../i18n'
 import { deadlineMilestone, escrowDeadlineView, MILESTONE_ANNOUNCEMENT } from '../../lib/escrowDeadline'
 import type { EscrowStatus } from '../../types'
 
@@ -56,8 +57,8 @@ export function EscrowCountdown({
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <p className={cn('flex items-center gap-1.5 text-caption font-medium', attention ? 'text-brand-warning-fg' : 'text-brand-text-secondary')}>
           <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-          Prazo do escrow
-          <ExplanationPopover explanation={view.explanation} label="O que é o prazo do escrow" className="ml-0.5" />
+          {t('trade.countdown.title')}
+          <ExplanationPopover explanation={view.explanation} label={t('trade.countdown.explainLabel')} className="ml-0.5" />
         </p>
         {view.kind === 'active' && <p className="text-caption tabular-nums text-brand-text-muted">{view.deadlineText}</p>}
       </div>
@@ -66,10 +67,10 @@ export function EscrowCountdown({
         <>
           <p className={cn('mt-1', view.tone === 'expired' ? 'text-subheading' : 'money-lg tabular-nums', attention ? 'text-brand-warning-fg' : 'text-brand-text')}>
             <span aria-hidden="true">{view.remainingText}</span>
-            <span className="sr-only">{view.tone === 'expired' ? MILESTONE_ANNOUNCEMENT[4] : `${view.tone === 'attention' ? 'Falta pouco. ' : ''}Faltam ${view.remainingText}`}</span>
+            <span className="sr-only">{view.tone === 'expired' ? MILESTONE_ANNOUNCEMENT[4] : t(view.tone === 'attention' ? 'trade.countdown.remainingSoon' : 'trade.countdown.remaining', { time: view.remainingText })}</span>
           </p>
           {view.progress !== null && view.tone !== 'expired' && (
-            <Progress value={view.progress} label="Tempo decorrido do prazo do escrow" className="mt-2" />
+            <Progress value={view.progress} label={t('trade.countdown.progress')} className="mt-2" />
           )}
         </>
       ) : (

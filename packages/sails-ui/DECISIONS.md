@@ -14,6 +14,10 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
   - Descobertas novas vão para o registro de requisitos, não para a tela.
 - **Refinar, nunca refazer.** O que já foi aprovado fica como está. Muda só o que foi pedido. Nenhuma funcionalidade some da tela: se mudar de lugar, é reencaixada (2026-11-20).
 - **Verdade antes de visual (CTO 437).** Nada inventado: nenhum estado, prazo, taxa, contador, escala de reputação ou custódia que o protocolo não tenha. "Pagamento enviado" não é "pagamento verificado". "Concluído" não é finalidade de liquidação. USD é a única unidade real de preço. `fundedAmount` nunca aparece. Nenhum texto genérico de "não custodial".
+- **Simular ao máximo para entender o todo** (Product Owner, 2026-11-21): quanto mais fluxos completos puderem ser percorridos, melhor se entende o produto e se ajustam a tela e o Design System.
+  - **No modo demonstração:** os fluxos são simulados de ponta a ponta, com dados fictícios realistas e marcados como fictícios.
+  - **Com dados reais:** a pessoa percorre o fluxo inteiro, e o resultado que depende de um contrato aparece como **prévia** marcada, nunca como coisa feita.
+  - O que a simulação ensinar vira ajuste no Design System e entra no registro de requisitos.
 - **Funcionalidade futura aparece como "Em breve"**, desabilitada e ligada à lista de fios soltos (`LOOSE_WIRES` em `lib/looseWires.ts`, issue #729), nunca com dado falso (2026-11-20).
 - **Toda descoberta relevante de UX entra no registro de requisitos antes de ser dada como encerrada** (Despachos 052 e 053, regra do processo SEM). O registro mestre é `docs/product/PRODUCT_REQUIREMENTS_REGISTRY.md`, mantido pelo EPM. A UI propõe; o checkbox só é marcado depois da homologação.
 - **Publicação no GitHub** só com inspeção e OK do EPM, sempre como Draft. Merge de mudança econômica, migração e produção: HOLD (Despachos 033, 037 e 039).
@@ -126,6 +130,13 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
       | Privado | Nó próprio | Empresa com mercado exclusivo para parceiros |
 
     - **Entrar com convite:** o fluxo do Sails Market Invite, com convite verificável, QR Code e os estados validando, autorização pendente, acesso concedido, expirado e revogado. Sem Nostr e sem credencial improvisada. Conhecer um identificador público não basta.
+    - **Criar mercado, fluxo completo com dados reais** (Product Owner, 2026-11-21): com dados reais, a pessoa percorre os 6 passos, incluindo participantes e convites nos privados. No fim aparece uma **prévia do mercado criado**: a página do mercado como os participantes vão ver e, nos privados, a tela de convites. A prévia é marcada "Prévia: a criação real depende do protocolo", com o contrato de que depende. Nada é gravado e nada é inventado.
+    - **Configurações → "Mercados"** (antes "Comunidades"; Product Owner, 2026-11-21). A seção guarda **preferências** sobre mercados, não os mercados, que vivem no Market:
+      - qual mercado abre por padrão (o Mercado aberto ou um dos seus);
+      - convites recebidos e pendentes;
+      - privacidade da participação, quando o protocolo definir;
+      - atalhos para "Meus mercados" e "Entrar com convite".
+      - O que depende do backend fica "Em breve". O id da seção continua o mesmo, para o endereço `?section=` não quebrar.
     - **Modelo "mundo aberto"** (aprovado pelo Product Owner, 2026-11-21):
       - **O mercado aberto é o padrão, sem atrito:** o app abre direto nele, ninguém escolhe nada e o menu principal continua com 4 itens. A maior parte dos usuários fica aqui.
       - **O portal:** no topo do Market, ao lado do título, um botão discreto com ícone, "Mercado aberto ▾". Ele abre um painel com:

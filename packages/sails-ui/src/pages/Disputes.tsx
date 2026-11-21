@@ -41,6 +41,7 @@ import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
 import { Bot, ChevronRight, Info, X } from 'lucide-react'
 import { TONE_CLASS } from '../lib/tone'
 import { RadioCard, RadioGroup } from '../components/ui/radio-group'
+import { t, type MessageKey } from '../i18n'
 
 // Sails Core Implementation Program M8-R2 (Destination Authority
 // Conformance, disputed rails, 2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md)
@@ -70,14 +71,19 @@ interface Row {
   escrow: Escrow | null // null if this specific escrow fetch failed — row still shows, just without asset/amount/type-aware actions
 }
 
-const EVIDENCE_TYPE_LABEL: Record<string, string> = {
-  text: 'Texto', payment_receipt: 'Comprovante de pagamento', chat_log: 'Registro de conversa', screenshot: 'Captura de tela',
+// Keys, not copy: t() runs on read so the labels follow the interface language.
+const EVIDENCE_TYPE_KEY: Record<string, MessageKey> = {
+  text: 'disputes.evidenceType.text', payment_receipt: 'disputes.evidenceType.payment_receipt',
+  chat_log: 'disputes.evidenceType.chat_log', screenshot: 'disputes.evidenceType.screenshot',
 }
-const ROLE_LABEL = { buyer: 'comprador', seller: 'vendedor' } as const
+const ROLE_KEY = { buyer: 'disputes.role.buyer', seller: 'disputes.role.seller' } as const
 
 const shortId = (id: string) => id.slice(0, 8)
 const amountText = (e: Escrow) => `${formatAmount(Number(e.lockedAmount))} ${ASSET_SHORT_LABELS[e.asset] ?? e.asset}`
-const countLabel = (n: number) => (n === 1 ? '1 evidência' : `${n} evidências`)
+// pt-BR plural rules put 0 in `one`; the zero case keeps its own message ("0 evidências").
+const countLabel = (n: number) => (n === 0 ? t('disputes.evidenceCountZero') : t('disputes.evidenceCount', { count: n }))
+/** Who still has to sign a MULTISIG disputed release/refund, in the interface language (multisigPendingSigner decides whether anyone does). */
+const signerText = (ruling: DisputeRuling) => (multisigPendingSigner(ruling) ? t(ruling === 'RELEASE' ? 'disputes.signer.buyer' : 'disputes.signer.seller') : null)
 
 // Desktop table columns: Trade | Valor | Status | Aberta por | Evidências | Aberta em | action.
 const DISPUTE_COLS = 'xl:grid-cols-[8rem_8rem_10rem_minmax(0,1fr)_5.5rem_6.5rem_auto] xl:items-center xl:gap-y-0'
@@ -121,7 +127,7 @@ export function Disputes() {
       .then((page) => {
         if (!cancelled) setTrades(page.trades.filter((t) => t.status === 'DISPUTED').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)))
       })
-      .catch((err) => { if (!cancelled) setError(errorMessage(err, 'Falha ao carregar trades')) })
+      .catch((err) => { if (!cancelled) setError(errorMessage(err, t('trades.active.loadFailed'))) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }
@@ -134,7 +140,7 @@ export function Disputes() {
     <Page>
       <PageHeader
         title="Trades"
-        meta={ready && trades.length > 0 ? `${trades.length} ${trades.length === 1 ? 'trade seu em disputa' : 'trades seus em disputa'}` : undefined}
+        meta={ready && trades.length > 0 ? t('disputes.meta', { count: trades.length }) : undefined}
       >
         <TradesTabs openDisputes={ready ? trades.length : null} />
       </PageHeader>
@@ -142,52 +148,52 @@ export function Disputes() {
       {signedOut ? (
         <StateBlock
           kind="signedOut"
-          title="Conecte sua wallet"
-          description="Conecte sua wallet para ver seus trades em disputa."
-          action={<Link to="/login" state={{ from: TRADES_ROUTES.disputes }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Conectar wallet</Link>}
+          title={t('trades.connectTitle')}
+          description={t('disputes.signedOutDescription')}
+          action={<Link to="/login" state={{ from: TRADES_ROUTES.disputes }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>{t('trades.connect')}</Link>}
         />
       ) : error ? (
         <StateBlock
           kind="error"
-          title="Não foi possível carregar seus trades em disputa"
+          title={t('disputes.errorTitle')}
           description={error}
-          action={<Button variant="outline" onClick={load} className="min-h-9 touch:min-h-11 px-4">Tentar novamente</Button>}
+          action={<Button variant="outline" onClick={load} className="min-h-9 touch:min-h-11 px-4">{t('trades.retry')}</Button>}
         />
       ) : authLoading || loading ? (
         <Card className="overflow-hidden">
-          <ListSkeleton label="Carregando trades em disputa" rows={2} rowClassName="h-[5.5rem] lg:h-[3.75rem]" />
+          <ListSkeleton label={t('disputes.loading')} rows={2} rowClassName="h-[5.5rem] lg:h-[3.75rem]" />
         </Card>
       ) : trades.length === 0 ? (
-        <StateBlock kind="empty" title="Nenhum trade seu em disputa" description="Se você abrir uma disputa num trade, ou a outra parte abrir, ele aparece aqui." />
+        <StateBlock kind="empty" title={t('disputes.emptyTitle')} description={t('disputes.emptyDescription')} />
       ) : (
         <Card className="overflow-hidden">
           <div aria-hidden="true" className={cn(TABLE_HEAD_ROW, 'hidden', MY_COLS)}>
-            <span>Valor</span>
-            <span>Papel</span>
-            <span>Status</span>
-            <span>Onde acompanhar</span>
-            <span className="text-right">Atualizado</span>
+            <span>{t('trades.col.amount')}</span>
+            <span>{t('trades.col.role')}</span>
+            <span>{t('trades.col.status')}</span>
+            <span>{t('disputes.col.where')}</span>
+            <span className="text-right">{t('trades.col.updated')}</span>
             <span />
           </div>
           <ul>
-            {trades.map((t) => {
-              const role = t.buyerId === user?.id ? 'Comprador' : 'Vendedor'
+            {trades.map((tr) => {
+              const role = t(tr.buyerId === user?.id ? 'trades.role.buyer' : 'trades.role.seller')
               return (
-                <li key={t.id} className={TABLE_ROW}>
-                  <Link to={`/trade/${t.id}`} className={cn('flex flex-col gap-1 px-4 py-3', TABLE_ROW_INTERACTIVE, MY_COLS)}>
+                <li key={tr.id} className={TABLE_ROW}>
+                  <Link to={`/trade/${tr.id}`} className={cn('flex flex-col gap-1 px-4 py-3', TABLE_ROW_INTERACTIVE, MY_COLS)}>
                     <span className="flex items-center justify-between gap-3 lg:block">
                       <span className="min-w-0">
-                        <span className="money block text-brand-text">{formatAmount(Number(t.amount))} {ASSET_SHORT_LABELS[t.asset]}</span>
-                        <span className="hidden lg:block text-xs text-brand-text-muted tabular-nums">{formatUsd(Number(t.totalUsd))} USD</span>
+                        <span className="money block text-brand-text">{formatAmount(Number(tr.amount))} {ASSET_SHORT_LABELS[tr.asset]}</span>
+                        <span className="hidden lg:block text-xs text-brand-text-muted tabular-nums">{formatUsd(Number(tr.totalUsd))} USD</span>
                       </span>
-                      <span className="lg:hidden"><TradeStatusBadge status={t.status} /></span>
+                      <span className="lg:hidden"><TradeStatusBadge status={tr.status} /></span>
                     </span>
                     <span className="hidden lg:block text-sm text-brand-text-secondary">{role}</span>
-                    <span className="hidden lg:block"><TradeStatusBadge status={t.status} /></span>
-                    <span className="text-sm text-brand-text-secondary">Acompanhe a disputa na página do trade</span>
+                    <span className="hidden lg:block"><TradeStatusBadge status={tr.status} /></span>
+                    <span className="text-sm text-brand-text-secondary">{t('disputes.followOnTrade')}</span>
                     <span className="text-xs text-brand-text-muted tabular-nums lg:text-right">
-                      <span className="lg:hidden">{role} · {formatUsd(Number(t.totalUsd))} USD · </span>
-                      {formatDateTime(t.updatedAt)}
+                      <span className="lg:hidden">{role} · {formatUsd(Number(tr.totalUsd))} USD · </span>
+                      {formatDateTime(tr.updatedAt)}
                     </span>
                     <ChevronRight className="hidden lg:block h-4 w-4 text-brand-text-muted" aria-hidden="true" />
                   </Link>
@@ -271,7 +277,7 @@ function ArbiterCases() {
         if (!cancelled) setNames(Object.fromEntries(found.filter((f): f is readonly [string, string] => !!f?.[1])))
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Falha ao carregar disputas')
+        if (!cancelled) setError(err instanceof Error ? err.message : t('disputes.loadFailed'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -292,10 +298,10 @@ function ArbiterCases() {
   }
 
   const personLabel = (id: string | null, escrow: Escrow | null) => {
-    if (!id) return 'Não disponível'
+    if (!id) return t('disputes.notAvailable')
     const role = partyRole(id, escrow)
-    const name = names[id] ?? `Participante ${shortId(id)}`
-    return role ? `${name} (${ROLE_LABEL[role]})` : name
+    const name = names[id] ?? t('disputes.participant', { id: shortId(id) })
+    return role ? t('disputes.personWithRole', { name, role: t(ROLE_KEY[role]) }) : name
   }
 
   // Fixed 2026-08-29 (Missão 13 Fase 2, INV-12) — the server now requires a
@@ -317,38 +323,40 @@ function ArbiterCases() {
   // hidden.
   const resolve = async (row: Row, ruling: DisputeRuling) => {
     if (!row.escrow) {
-      toast.error('O escrow desta disputa não pôde ser carregado — tente novamente')
+      toast.error(t('disputes.toast.escrowNotLoaded'))
       return
     }
     if (!wallet) {
-      toast.error('Nenhuma chave de assinatura disponível nesta sessão — reconecte sua wallet')
+      toast.error(t('disputes.toast.noSigningKey'))
       return
     }
     const needsSignature = SIGNATURE_COLLECTION_TYPES.has(row.escrow.type)
     // MULTISIG disputed release/refund: requiredSigners is the buyer (RELEASE) or the seller (REFUND), see multisig.provider.ts.
-    const signer = row.escrow.type === 'MULTISIG' ? multisigPendingSigner(ruling) : null
-    const signerWait = signer ? ` — ${signer} ainda precisa assinar pra executar` : null
+    const signer = row.escrow.type === 'MULTISIG' ? signerText(ruling) : null
+    // One message per outcome: the decision, then who still has to sign, or that a signature round started.
+    const ruled = (decision: string, awaitingSignature: boolean) =>
+      signer ? t('disputes.ruled.signerWait', { decision, signer }) : awaitingSignature ? t('disputes.ruled.awaitingSignature', { decision }) : decision
     setActing(true)
     try {
       if (ruling === 'RELEASE') {
         // No destination passed — the buyer's own registered PayoutAddress
         // governs (server-enforced for every rail, not just MULTISIG).
         await sailsClient.settlement.resolveDisputeWithWallet(row.dispute.id, 'RELEASE', wallet)
-        toast.success(`Decisão registrada: liberar ao comprador${signerWait ?? (needsSignature ? ' — aguardando assinatura pra liberar os fundos' : '')}`)
+        toast.success(ruled(t('disputes.ruled.release'), needsSignature))
       } else if (ruling === 'REFUND') {
         await sailsClient.settlement.resolveDisputeWithWallet(row.dispute.id, 'REFUND', wallet)
-        toast.success(`Decisão registrada: devolver ao vendedor${signerWait ?? ''}`)
+        toast.success(ruled(t('disputes.ruled.refund'), false))
       } else {
         // Same reasoning as RELEASE above — buyer's and seller's own
         // registered PayoutAddresses govern independently, never a value
         // supplied here.
         await sailsClient.settlement.resolveDisputeWithWallet(row.dispute.id, 'SPLIT', wallet, undefined, undefined, 5000)
-        toast.success(needsSignature ? 'Decisão registrada: dividir 50/50 — aguardando assinatura pra liberar os fundos' : 'Decisão registrada: dividir 50/50')
+        toast.success(ruled(t('disputes.ruled.split'), needsSignature))
       }
       setSelectedId(null)
       load()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Falha ao resolver disputa')
+      toast.error(err instanceof Error ? err.message : t('disputes.toast.resolveFailed'))
     } finally {
       setActing(false)
     }
@@ -363,15 +371,15 @@ function ArbiterCases() {
     setActing(false)
     const dispute = fresh?.disputes?.find((d) => d.id === row.dispute.id)
     if (!fresh) {
-      toast.error('Não foi possível confirmar o estado atual da disputa — tente novamente')
+      toast.error(t('disputes.toast.stateCheckFailed'))
     } else if (splitUnavailableHere(ruling, fresh.type)) {
-      toast.error('Não disponível nesta interface: a assinatura da divisão ainda não é suportada.')
+      toast.error(t('disputes.toast.splitUnavailable'))
     } else if (
       !dispute || dispute.status === 'RESOLVED' || dispute.arbiterId !== user?.id ||
       // Accepting the suggestion only while that exact suggestion is still pending.
       (viaSuggestion && (dispute.status !== 'AUTO_PROPOSED' || dispute.autoResolutionRecommendation !== ruling))
     ) {
-      toast.error('O estado do trade mudou — revise antes de continuar')
+      toast.error(t('disputes.toast.stateChanged'))
       setPending(null)
       setSelectedId(null)
       load()
@@ -408,25 +416,25 @@ function ArbiterCases() {
 
   return (
     <section aria-labelledby="arbiter-cases-title" className="mt-8">
-      <h2 id="arbiter-cases-title" className="text-section-title">Casos atribuídos a você como árbitro</h2>
-      {ready && <p className="text-metadata mt-1 mb-3">{openCount} em aberto</p>}
+      <h2 id="arbiter-cases-title" className="text-section-title">{t('disputes.arbiter.title')}</h2>
+      {ready && <p className="text-metadata mt-1 mb-3">{t('disputes.arbiter.openCount', { count: openCount })}</p>}
       {error ? (
         <StateBlock
           kind="error"
           className="mt-3"
-          title="Não foi possível carregar os casos de arbitragem"
+          title={t('disputes.arbiter.errorTitle')}
           description={error}
-          action={<Button variant="outline" onClick={load} className="min-h-9 touch:min-h-11 px-4">Tentar novamente</Button>}
+          action={<Button variant="outline" onClick={load} className="min-h-9 touch:min-h-11 px-4">{t('trades.retry')}</Button>}
         />
       ) : (
         <Card className="overflow-hidden">
           <div aria-hidden="true" className={cn(TABLE_HEAD_ROW, 'hidden xl:grid gap-x-4', DISPUTE_COLS)}>
-            <span>Trade</span>
-            <span>Valor</span>
-            <span>Status</span>
-            <span>Aberta por</span>
-            <span>Evidências</span>
-            <span>Aberta em</span>
+            <span>{t('disputes.col.trade')}</span>
+            <span>{t('trades.col.amount')}</span>
+            <span>{t('trades.col.status')}</span>
+            <span>{t('disputes.col.openedBy')}</span>
+            <span>{t('disputes.col.evidence')}</span>
+            <span>{t('disputes.col.openedAt')}</span>
             <span />
           </div>
           <ul>
@@ -440,7 +448,7 @@ function ArbiterCases() {
                     <span className="mono-id text-body-sm text-brand-text">#{shortId(d.tradeId)}</span>
                     {pendingSuggestion(d) && (
                       <p className="text-xs text-brand-text-muted flex items-center gap-1">
-                        <Bot className="h-3.5 w-3.5" aria-hidden="true" /> Sugestão automática
+                        <Bot className="h-3.5 w-3.5" aria-hidden="true" /> {t('disputes.autoSuggestion')}
                       </p>
                     )}
                   </div>
@@ -451,18 +459,18 @@ function ArbiterCases() {
                         <span className="block text-xs text-brand-text-muted truncate">{ASSET_LABELS[row.escrow.asset] ?? row.escrow.asset}</span>
                       </>
                     ) : (
-                      <span className="text-body-sm text-brand-text-secondary">Valor indisponível (escrow não carregado)</span>
+                      <span className="text-body-sm text-brand-text-secondary">{t('disputes.amountUnavailable')}</span>
                     )}
                   </div>
                   <div className="min-w-0">
                     <DisputeStatusBadge status={d.status} />
                     {d.status === 'RESOLVED' && d.ruling && (
-                      <p className="mt-0.5 text-xs text-brand-text-muted">Decisão: {RULING_DECISION[d.ruling]}</p>
+                      <p className="mt-0.5 text-xs text-brand-text-muted">{t('disputes.rulingLine', { decision: RULING_DECISION[d.ruling] })}</p>
                     )}
                   </div>
                   {/* One quiet line below xl; three columns from xl (contents). */}
                   <div className="flex flex-wrap gap-x-2 text-xs text-brand-text-muted xl:contents">
-                    <span className="xl:text-body-sm xl:text-brand-text-secondary xl:truncate"><span className="xl:hidden">Aberta por </span>{personLabel(d.openedBy, row.escrow)}</span>
+                    <span className="xl:text-body-sm xl:text-brand-text-secondary xl:truncate"><span className="xl:hidden">{t('disputes.col.openedBy')} </span>{personLabel(d.openedBy, row.escrow)}</span>
                     <span className="xl:text-body-sm xl:text-brand-text-secondary tabular-nums"><span aria-hidden="true" className="xl:hidden">· </span>{countLabel(evidenceCount)}</span>
                     <span className="tabular-nums"><span aria-hidden="true" className="xl:hidden">· </span>{formatDateTime(d.createdAt)}</span>
                   </div>
@@ -474,10 +482,10 @@ function ArbiterCases() {
                     variant="outline"
                     size="sm"
                     onClick={() => openCase(d.id)}
-                    aria-label={`Abrir caso do trade #${shortId(d.tradeId)}`}
+                    aria-label={t('disputes.openCaseAria', { id: shortId(d.tradeId) })}
                     className="min-h-11 md:min-h-0 !col-start-2 row-start-1 row-span-4 self-center justify-self-end xl:!col-start-auto xl:row-start-auto xl:row-span-1"
                   >
-                    Abrir caso
+                    {t('disputes.openCase')}
                   </Button>
                 </li>
               )
@@ -518,23 +526,23 @@ function ArbiterCases() {
         <ConfirmActionDialog
           open
           onOpenChange={(open) => !open && setPending(null)}
-          title="Confirmar decisão da disputa?"
+          title={t('disputes.confirm.title')}
           summary={[
-            { label: 'Trade', value: `#${shortId(pending.row.dispute.tradeId)}` },
-            { label: 'Decisão', value: pending.viaSuggestion ? `${RULING_DECISION[pending.ruling]} (sugestão automática aceita)` : RULING_DECISION[pending.ruling] },
-            { label: 'Quem decide', value: 'Você, como árbitro designado' },
-            ...(pending.row.escrow?.type === 'MULTISIG' && multisigPendingSigner(pending.ruling)
-              ? [{ label: 'Assinatura pendente', value: `${multisigPendingSigner(pending.ruling)} ainda precisa assinar` }]
+            { label: t('disputes.col.trade'), value: `#${shortId(pending.row.dispute.tradeId)}` },
+            { label: t('disputes.decision'), value: pending.viaSuggestion ? t('disputes.confirm.suggestionAccepted', { decision: RULING_DECISION[pending.ruling] }) : RULING_DECISION[pending.ruling] },
+            { label: t('disputes.confirm.whoDecides'), value: t('disputes.confirm.you') },
+            ...(pending.row.escrow?.type === 'MULTISIG' && signerText(pending.ruling)
+              ? [{ label: t('disputes.confirm.pendingSignature'), value: t('disputes.confirm.pendingSignatureValue', { signer: signerText(pending.ruling)! }) }]
               : []),
             {
-              label: 'Valor em escrow',
+              label: t('disputes.escrowAmount'),
               value: pending.row.escrow
-                ? `${amountText(pending.row.escrow)} — ${ASSET_LABELS[pending.row.escrow.asset] ?? pending.row.escrow.asset}`
-                : 'Indisponível (escrow não carregado)',
+                ? t('disputes.confirm.amountWithAsset', { amount: amountText(pending.row.escrow), asset: ASSET_LABELS[pending.row.escrow.asset] ?? pending.row.escrow.asset })
+                : t('disputes.unavailableNotLoaded'),
             },
           ]}
-          consequence="Sua decisão é registrada pelo protocolo; a execução pode depender das assinaturas necessárias. Não pode ser desfeita por esta tela."
-          confirmLabel="Confirmar decisão"
+          consequence={t('disputes.confirm.consequence')}
+          confirmLabel={t('disputes.confirm.confirm')}
           busy={acting}
           onConfirm={() => confirmRuling(pending.row, pending.ruling, pending.viaSuggestion)}
         />
@@ -579,59 +587,59 @@ function CaseFile({
   const canDecide = options.length > 0 && !!escrow
   const suggestionPending = !!pendingSuggestion(d)
   const chosen = selectableOption(options, choice)
-  const signer = escrow?.type === 'MULTISIG' && chosen ? multisigPendingSigner(chosen.ruling) : null
+  const signer = escrow?.type === 'MULTISIG' && chosen ? signerText(chosen.ruling) : null
 
   return (
     <>
       <div className="flex items-start gap-3 px-4 sm:px-6 py-4 border-b border-brand-border-subtle">
         <div className="min-w-0 flex-1">
           <SheetTitle ref={headingRef} tabIndex={-1} className="text-section-title outline-none">
-            Caso · Trade #{shortId(d.tradeId)}
+            {t('disputes.case.title', { id: shortId(d.tradeId) })}
           </SheetTitle>
           <SheetDescription className="text-sm text-brand-text-secondary mt-1">
-            Você decide como árbitro designado.
+            {t('disputes.case.description')}
           </SheetDescription>
         </div>
         <SheetClose className="h-11 w-11 -mr-2 -mt-1 shrink-0 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text state-layer">
           <X className="h-5 w-5" aria-hidden="true" />
-          <span className="sr-only">Fechar caso</span>
+          <span className="sr-only">{t('disputes.case.close')}</span>
         </SheetClose>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <Section id="case-summary" title="Resumo">
+        <Section id="case-summary" title={t('disputes.case.summary')}>
           <dl>
-            <Field label="Trade"><span className="font-mono">#{shortId(d.tradeId)}</span></Field>
-            <Field label="Valor em escrow">
-              {escrow ? <><span className="money">{amountText(escrow)}</span> <span className="text-brand-text-secondary">· {ASSET_LABELS[escrow.asset] ?? escrow.asset}</span></> : 'Indisponível (escrow não carregado)'}
+            <Field label={t('disputes.col.trade')}><span className="font-mono">#{shortId(d.tradeId)}</span></Field>
+            <Field label={t('disputes.escrowAmount')}>
+              {escrow ? <><span className="money">{amountText(escrow)}</span> <span className="text-brand-text-secondary">· {ASSET_LABELS[escrow.asset] ?? escrow.asset}</span></> : t('disputes.unavailableNotLoaded')}
             </Field>
-            <Field label="Status do escrow">{escrow ? ESCROW_STATUS_LABEL[escrow.status] ?? escrow.status : 'Indisponível'}</Field>
-            <Field label="Status da disputa">{DISPUTE_STATUS_LABEL[d.status] ?? d.status}</Field>
-            <Field label="Comprador">{personLabel(partyIdFor('buyer', escrow), null)}</Field>
-            <Field label="Vendedor">{personLabel(partyIdFor('seller', escrow), null)}</Field>
+            <Field label={t('disputes.case.escrowStatus')}>{escrow ? ESCROW_STATUS_LABEL[escrow.status] ?? escrow.status : t('disputes.unavailable')}</Field>
+            <Field label={t('disputes.case.disputeStatus')}>{DISPUTE_STATUS_LABEL[d.status] ?? d.status}</Field>
+            <Field label={t('trades.role.buyer')}>{personLabel(partyIdFor('buyer', escrow), null)}</Field>
+            <Field label={t('trades.role.seller')}>{personLabel(partyIdFor('seller', escrow), null)}</Field>
           </dl>
         </Section>
 
-        <Section id="case-reason" title="Motivo">
+        <Section id="case-reason" title={t('disputes.case.reason')}>
           <p className="text-sm text-brand-text whitespace-pre-wrap break-words">{d.reason}</p>
           <dl className="mt-3">
-            <Field label="Aberta por">{personLabel(d.openedBy, escrow)}</Field>
-            <Field label="Aberta em">{formatDateTime(d.createdAt)}</Field>
+            <Field label={t('disputes.col.openedBy')}>{personLabel(d.openedBy, escrow)}</Field>
+            <Field label={t('disputes.col.openedAt')}>{formatDateTime(d.createdAt)}</Field>
           </dl>
         </Section>
 
-        <Section id="case-evidence" title={`Evidências (${evidence.length})`}>
+        <Section id="case-evidence" title={t('disputes.case.evidenceTitle', { count: evidence.length })}>
           <p className="flex gap-2 text-sm text-brand-text-secondary">
             <Info className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
-            Evidência não é verdade — são declarações das partes.
+            {t('disputes.case.evidenceDisclaimer')}
           </p>
           {evidence.length === 0 ? (
-            <p className="mt-3 text-sm text-brand-text-muted">Nenhuma evidência enviada.</p>
+            <p className="mt-3 text-sm text-brand-text-muted">{t('disputes.case.noEvidence')}</p>
           ) : (
             <ol className="mt-3 space-y-3">
               {evidence.map((e, i) => (
                 <li key={i} className="border-l-2 border-brand-border pl-3">
-                  <div className="text-sm font-medium text-brand-text">{EVIDENCE_TYPE_LABEL[e.type] ?? e.type}</div>
+                  <div className="text-sm font-medium text-brand-text">{EVIDENCE_TYPE_KEY[e.type] ? t(EVIDENCE_TYPE_KEY[e.type]) : e.type}</div>
                   <div className="text-metadata">
                     {personLabel(e.submittedBy, escrow)}{e.submittedAt && ` · ${formatDateTime(e.submittedAt)}`}
                   </div>
@@ -641,9 +649,9 @@ function CaseFile({
                       {e.uri}
                     </a>
                   ) : (
-                    <p className="mt-1 text-sm text-brand-text-secondary break-all">{e.uri} <span className="text-brand-text-muted">(link não aberto: só http/https)</span></p>
+                    <p className="mt-1 text-sm text-brand-text-secondary break-all">{e.uri} <span className="text-brand-text-muted">{t('disputes.case.linkNotOpened')}</span></p>
                   ))}
-                  {e.referenceId && <p className="mt-1 text-metadata break-all">Referência OpenProof: {e.referenceId}</p>}
+                  {e.referenceId && <p className="mt-1 text-metadata break-all">{t('disputes.case.openProofRef', { id: e.referenceId })}</p>}
                 </li>
               ))}
             </ol>
@@ -651,42 +659,42 @@ function CaseFile({
         </Section>
 
         {d.autoResolutionRecommendation && (
-          <Section id="case-suggestion" title="Sugestão automática">
-            <p className="text-sm text-brand-text-secondary">Sugestão, não decisão.</p>
+          <Section id="case-suggestion" title={t('disputes.autoSuggestion')}>
+            <p className="text-sm text-brand-text-secondary">{t('disputes.case.suggestionNotDecision')}</p>
             <dl className="mt-2">
-              <Field label="Sugere">{RULING_DECISION[d.autoResolutionRecommendation]}</Field>
-              {d.autoResolutionReasoning && <Field label="Justificativa">{d.autoResolutionReasoning}</Field>}
+              <Field label={t('disputes.case.suggests')}>{RULING_DECISION[d.autoResolutionRecommendation]}</Field>
+              {d.autoResolutionReasoning && <Field label={t('disputes.case.reasoning')}>{d.autoResolutionReasoning}</Field>}
               {suggestionPending && d.autoResolutionDeadline && (
-                <Field label="Prazo">Aplicada automaticamente em {formatDateTime(d.autoResolutionDeadline)} se ninguém contestar</Field>
+                <Field label={t('disputes.case.deadline')}>{t('disputes.case.autoApplyAt', { date: formatDateTime(d.autoResolutionDeadline) })}</Field>
               )}
             </dl>
           </Section>
         )}
 
         {d.appealRound > 0 && (
-          <Section id="case-appeal" title="Rodada de recurso">
+          <Section id="case-appeal" title={t('disputes.case.appealRound')}>
             <dl>
-              <Field label="Rodada">#{d.appealRound}</Field>
-              {d.previousRuling && <Field label="Decisão anterior">{RULING_DECISION[d.previousRuling]}</Field>}
+              <Field label={t('disputes.case.round')}>#{d.appealRound}</Field>
+              {d.previousRuling && <Field label={t('disputes.case.previousRuling')}>{RULING_DECISION[d.previousRuling]}</Field>}
             </dl>
           </Section>
         )}
 
         <section aria-labelledby="case-decision" className="px-4 sm:px-6 py-5">
-          <h3 id="case-decision" className="text-label mb-3">Decisão</h3>
+          <h3 id="case-decision" className="text-label mb-3">{t('disputes.decision')}</h3>
           {d.status === 'RESOLVED' ? (
             <p className="text-sm text-brand-text">
-              {d.ruling ? `Decisão registrada: ${RULING_DECISION[d.ruling]}` : 'Disputa resolvida.'}
+              {d.ruling ? t('disputes.case.rulingRecorded', { decision: RULING_DECISION[d.ruling] }) : t('disputes.case.resolved')}
               {d.resolvedAt && ` · ${formatDateTime(d.resolvedAt)}`}
             </p>
           ) : !escrow ? (
             <div className="text-sm text-brand-text-secondary">
-              O escrow desta disputa não pôde ser carregado; a decisão fica indisponível até ele carregar.
-              <Button variant="outline" onClick={onRetry} className="mt-3 min-h-11 w-full sm:w-auto">Tentar novamente</Button>
+              {t('disputes.case.escrowNotLoaded')}
+              <Button variant="outline" onClick={onRetry} className="mt-3 min-h-11 w-full sm:w-auto">{t('trades.retry')}</Button>
             </div>
           ) : (
             <>
-              <RadioGroup legend="Escolha a decisão" legendHidden listClassName="space-y-2">
+              <RadioGroup legend={t('disputes.case.chooseDecision')} legendHidden listClassName="space-y-2">
                 {options.map((o) => (
                   <RadioCard
                     key={o.value}
@@ -706,12 +714,12 @@ function CaseFile({
                 ))}
               </RadioGroup>
               <div className="mt-4 space-y-1.5 text-sm text-brand-text-secondary">
-                <p>Sua decisão é assinada com a chave de identidade desta sessão.</p>
+                <p>{t('disputes.case.signedWithSessionKey')}</p>
                 {/* multisig.provider.ts: on a DISPUTED release/refund the server signs with the arbiter key it derives (MULTISIG_SEED); requiredSigners is the buyer (release) or the seller (refund). */}
                 {escrow.type === 'MULTISIG' && (
                   <p>
-                    Neste escrow MULTISIG, a chave de gasto do árbitro fica com o serviço, que inclui essa assinatura.
-                    {signer && ` Para executar esta decisão, ${signer} ainda precisa assinar.`}
+                    {t('disputes.case.multisigNote')}
+                    {signer && ` ${t('disputes.case.multisigSigner', { signer })}`}
                   </p>
                 )}
               </div>
@@ -723,7 +731,7 @@ function CaseFile({
       {canDecide && (
         <div className="border-t border-brand-border-subtle bg-background px-4 sm:px-6 py-3">
           <Button onClick={onReview} loading={acting} disabled={!chosen} className="min-h-11 w-full">
-            Revisar decisão
+            {t('disputes.case.review')}
           </Button>
         </div>
       )}

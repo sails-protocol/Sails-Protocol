@@ -17,6 +17,7 @@
 import type { DisputeStatus } from '@satsails/p2p-trading-sdk'
 import type { EscrowStatus, TradeStatus } from '../types'
 import { deriveCurrentAction, type CurrentAction } from './currentAction'
+import { t, type MessageKey } from '../i18n'
 
 export type StatusTone = 'neutral' | 'info' | 'warning' | 'success' | 'danger'
 export type StepState = 'done' | 'current' | 'upcoming'
@@ -109,20 +110,20 @@ export interface TradeState {
  * server, not verified by it: "Pagamento marcado como enviado" is not a
  * payment confirmation and "concluído" is not settlement finality.
  */
+// Getters: each read uses the current language (a plain object would freeze the import-time one).
 export const ESCROW_STATE_LABEL: Record<EscrowStatus, string> = {
-  CREATED: 'Escrow criado',
-  FUNDS_LOCKED: 'Fundos registrados como bloqueados',
-  PAYMENT_PENDING: 'Pagamento marcado como enviado',
-  COMPLETED: 'Escrow marcado como concluído',
-  DISPUTED: 'Em disputa',
-  REFUNDED: 'Escrow marcado como reembolsado',
-  SPLIT: 'Escrow marcado como dividido entre as partes',
-  EXPIRED: 'Prazo do escrow encerrado',
+  get CREATED() { return t('escrow.state.created') },
+  get FUNDS_LOCKED() { return t('escrow.state.fundsLocked') },
+  get PAYMENT_PENDING() { return t('escrow.state.paymentPending') },
+  get COMPLETED() { return t('escrow.state.completed') },
+  get DISPUTED() { return t('escrow.state.disputed') },
+  get REFUNDED() { return t('escrow.state.refunded') },
+  get SPLIT() { return t('escrow.state.split') },
+  get EXPIRED() { return t('escrow.state.expired') },
 }
-const NO_ESCROW_LABEL = 'Escrow ainda não criado'
 
 /** Escrow.txReleaseId: the payout (release/refund/split) transaction the server recorded. Distinct from the deposit (txLockId). */
-export const PAYOUT_TX_LABEL = 'Transação de pagamento registrada pelo nó Sails'
+export const payoutTxLabel = () => t('escrow.payoutTx')
 
 /**
  * Escrow.custodyModel, as the server's providers declare it (getCustodyModelForType():
@@ -130,25 +131,24 @@ export const PAYOUT_TX_LABEL = 'Transação de pagamento registrada pelo nó Sai
  * other value or null is shown as not declared: never guessed as custodial or not.
  */
 export const CUSTODY_MODEL_LABEL: Record<string, string> = {
-  'client-held-buyer-seller-keys-server-held-arbiter': 'Comprador e vendedor guardam as próprias chaves; a chave de árbitro fica com o nó Sails',
-  'client-held-buyer-seller-keys-server-held-kms-arbiter': 'Comprador e vendedor guardam as próprias chaves; a chave de árbitro fica com o nó Sails, num serviço de gestão de chaves (KMS)',
-  'server-custodial-reference-implementation': 'Custódia do nó Sails (implementação de referência)',
+  get 'client-held-buyer-seller-keys-server-held-arbiter'() { return t('escrow.custody.clientHeld') },
+  get 'client-held-buyer-seller-keys-server-held-kms-arbiter'() { return t('escrow.custody.clientHeldKms') },
+  get 'server-custodial-reference-implementation'() { return t('escrow.custody.nodeReference') },
 }
 export function custodyModelLabel(model: string | null | undefined): string {
-  return (model && Object.prototype.hasOwnProperty.call(CUSTODY_MODEL_LABEL, model) ? CUSTODY_MODEL_LABEL[model] : null) ?? 'Não declarado pelo provedor'
+  return (model && Object.prototype.hasOwnProperty.call(CUSTODY_MODEL_LABEL, model) ? CUSTODY_MODEL_LABEL[model] : null) ?? t('escrow.custody.undeclared')
 }
-const CANCELLED_LABEL = 'Trade cancelado'
 
 const ACTIVE_ESCROW = new Set<EscrowStatus>(['CREATED', 'FUNDS_LOCKED', 'PAYMENT_PENDING'])
 const ACTIVE_OR_EXPIRED = new Set<EscrowStatus>([...ACTIVE_ESCROW, 'EXPIRED'])
 
 // Only from the real round kind: never assume a round is a release.
-const ROUND_CHIP: Record<SigningRoundKind, string> = {
-  release: 'Liberação em andamento',
-  refund: 'Reembolso em andamento',
-  split: 'Divisão em andamento',
-  unknown: 'Rodada de assinatura em andamento',
-}
+const ROUND_CHIP = {
+  release: 'escrow.round.chip.release',
+  refund: 'escrow.round.chip.refund',
+  split: 'escrow.round.chip.split',
+  unknown: 'escrow.round.chip.unknown',
+} as const satisfies Record<SigningRoundKind, MessageKey>
 
 // The chip names the recorded state (ESCROW_STATE_LABEL); who acts next is the action card's job.
 const CHIP_TONE: Record<EscrowStatus, StatusTone> = {
@@ -158,26 +158,26 @@ const CHIP_TONE: Record<EscrowStatus, StatusTone> = {
 }
 
 function statusChip(i: TradeStateInput, cancelled: boolean): TradeState['status'] {
-  if (cancelled) return { label: CANCELLED_LABEL, tone: 'neutral' }
+  if (cancelled) return { label: t('escrow.state.cancelled'), tone: 'neutral' }
   // A dispute stays the headline state while any round exists; terminal statuses have no open round to show.
   if (i.signingRoundKind && i.escrowStatus && ACTIVE_OR_EXPIRED.has(i.escrowStatus)) {
-    return { label: ROUND_CHIP[i.signingRoundKind], tone: i.signingRoundKind === 'unknown' ? 'neutral' : 'warning' }
+    return { label: t(ROUND_CHIP[i.signingRoundKind]), tone: i.signingRoundKind === 'unknown' ? 'neutral' : 'warning' }
   }
-  if (!i.escrowStatus) return { label: NO_ESCROW_LABEL, tone: 'neutral' }
+  if (!i.escrowStatus) return { label: t('escrow.state.none'), tone: 'neutral' }
   return { label: ESCROW_STATE_LABEL[i.escrowStatus], tone: CHIP_TONE[i.escrowStatus] }
 }
 
-const ROUND_EVIDENCE: Record<SigningRoundKind, string> = {
-  release: 'Rodada de liberação',
-  refund: 'Rodada de reembolso',
-  split: 'Rodada de divisão',
-  unknown: 'Rodada de assinatura',
-}
+const ROUND_EVIDENCE = {
+  release: 'escrow.round.release',
+  refund: 'escrow.round.refund',
+  split: 'escrow.round.split',
+  unknown: 'escrow.round.unknown',
+} as const satisfies Record<SigningRoundKind, MessageKey>
 
 /** "1 de 2 assinaturas", counting only required signers that signed. */
 function roundProgress(r: RoundSigners): string {
   const signed = r.requiredSigners.filter((id) => (r.signedBy ?? []).some((x) => x.participantId === id)).length
-  return `${signed} de ${r.requiredSigners.length} assinaturas`
+  return t('escrow.round.progress', { signed, count: r.requiredSigners.length })
 }
 
 /** Required signers that have not signed, as roles; an id the trade does not identify stays 'unknown'. */
@@ -193,8 +193,8 @@ function pendingSigners(i: TradeStateInput, r: RoundSigners): StepActor[] {
 /** FUNDS_LOCKED and the server's expiresAt is already behind us, but the node has not recorded the expiry yet. */
 export function escrowDeadlinePassed(i: Pick<TradeStateInput, 'escrowStatus' | 'escrowExpiresAt' | 'now'>): boolean {
   if (i.escrowStatus !== 'FUNDS_LOCKED' || !i.escrowExpiresAt) return false
-  const t = Date.parse(i.escrowExpiresAt)
-  return Number.isFinite(t) && t <= (i.now ?? Date.now())
+  const at = Date.parse(i.escrowExpiresAt)
+  return Number.isFinite(at) && at <= (i.now ?? Date.now())
 }
 
 function currentActors(i: TradeStateInput, cancelled: boolean, current: TradeStep['id']): { actors: StepActor[]; blocked?: TradeStep['blocked'] } {
@@ -223,17 +223,17 @@ function currentActors(i: TradeStateInput, cancelled: boolean, current: TradeSte
 function steps(i: TradeStateInput, cancelled: boolean, locked: boolean): TradeStep[] {
   const s = i.escrowStatus
   const L = ESCROW_STATE_LABEL
-  const opened: TradeStep = { id: 'opened', label: 'Trade aberto', state: 'done', at: i.createdAt }
-  const escrow: TradeStep = { id: 'escrow', label: L.CREATED, state: s ? 'done' : 'upcoming', at: s ? i.escrowCreatedAt : null, ...(s && i.escrowId ? { evidence: [{ label: 'ID do escrow', value: i.escrowId, mono: true }] } : {}) }
+  const opened: TradeStep = { id: 'opened', label: t('escrow.rail.opened'), state: 'done', at: i.createdAt }
+  const escrow: TradeStep = { id: 'escrow', label: L.CREATED, state: s ? 'done' : 'upcoming', at: s ? i.escrowCreatedAt : null, ...(s && i.escrowId ? { evidence: [{ label: t('escrow.rail.escrowId'), value: i.escrowId, mono: true }] } : {}) }
   // MULTISIG only: the seller deposits to the escrow address before the lock is recorded. Done = the lock recorded the outpoint.
   const outpoint = i.txLockId ? (i.txLockVout !== null && i.txLockVout !== undefined ? `${i.txLockId}:${i.txLockVout}` : i.txLockId) : null
   const deposit: TradeStep[] = s && i.escrowType === 'MULTISIG'
-    ? [{ id: 'deposit', label: 'Depósito registrado no endereço do escrow', state: locked ? 'done' : 'upcoming', ...(outpoint ? { evidence: [{ label: 'Saída registrada', value: outpoint, mono: true }] } : {}) }]
+    ? [{ id: 'deposit', label: t('escrow.rail.deposit'), state: locked ? 'done' : 'upcoming', ...(outpoint ? { evidence: [{ label: t('escrow.rail.recordedOutput'), value: outpoint, mono: true }] } : {}) }]
     : []
   const lockedStep: TradeStep = { id: 'locked', label: L.FUNDS_LOCKED, state: locked ? 'done' : 'upcoming', at: i.lockedAt }
   // Recorded by the server, never "confirmed": no confirmation depth is exposed.
   const transaction: TradeStep[] = i.txReleaseId
-    ? [{ id: 'transaction', label: PAYOUT_TX_LABEL, state: 'done', evidence: [{ label: 'ID da transação', value: i.txReleaseId, mono: true }] }]
+    ? [{ id: 'transaction', label: payoutTxLabel(), state: 'done', evidence: [{ label: t('escrow.rail.txId'), value: i.txReleaseId, mono: true }] }]
     : []
   const withActors = (list: TradeStep[]) => {
     const cur = list.find((x) => x.state === 'current')
@@ -245,7 +245,7 @@ function steps(i: TradeStateInput, cancelled: boolean, locked: boolean): TradeSt
 
   // Side branches: keep only what the records prove happened, then the outcome.
   // Whether payment was marked as sent before a dispute is not recorded, so that step is omitted.
-  const outcome: Omit<TradeStep, 'id'> | null = cancelled ? { label: CANCELLED_LABEL, state: 'done', at: i.cancelledAt }
+  const outcome: Omit<TradeStep, 'id'> | null = cancelled ? { label: t('escrow.state.cancelled'), state: 'done', at: i.cancelledAt }
     : s === 'DISPUTED' ? { label: L.DISPUTED, state: 'current', tone: 'danger' }
     : s === 'EXPIRED' ? { label: L.EXPIRED, state: 'current', tone: 'warning' }
     : s === 'REFUNDED' ? { label: L.REFUNDED, state: 'done', at: i.cancelledAt }
@@ -254,7 +254,7 @@ function steps(i: TradeStateInput, cancelled: boolean, locked: boolean): TradeSt
   if (outcome) {
     // A round on a disputed/expired escrow (ruling or refund) is evidence on the outcome, not a stage of the happy path.
     const roundEvidence = i.round && i.signingRoundKind && (s === 'DISPUTED' || s === 'EXPIRED')
-      ? [{ label: ROUND_EVIDENCE[i.signingRoundKind], value: roundProgress(i.round) }]
+      ? [{ label: t(ROUND_EVIDENCE[i.signingRoundKind]), value: roundProgress(i.round) }]
       : []
     const end: TradeStep = { id: 'outcome', ...outcome, ...(roundEvidence.length ? { evidence: roundEvidence } : {}) }
     const proven = [opened, ...(s ? [escrow] : []), ...(locked ? [...deposit, lockedStep] : []), end]
@@ -265,7 +265,7 @@ function steps(i: TradeStateInput, cancelled: boolean, locked: boolean): TradeSt
   const done = s === 'COMPLETED'
   // Only a round the server returned for this escrow; never assumed from the escrow type.
   const signatures: TradeStep[] = s === 'PAYMENT_PENDING' && i.signingRoundKind && i.round
-    ? [{ id: 'signatures', label: i.signingRoundKind === 'release' ? 'Assinaturas da liberação' : ROUND_EVIDENCE[i.signingRoundKind], state: 'upcoming', evidence: [{ label: 'Assinaturas', value: roundProgress(i.round) }] }]
+    ? [{ id: 'signatures', label: t(i.signingRoundKind === 'release' ? 'escrow.rail.releaseSignatures' : ROUND_EVIDENCE[i.signingRoundKind]), state: 'upcoming', evidence: [{ label: t('escrow.rail.signatures'), value: roundProgress(i.round) }] }]
     : []
   const list: TradeStep[] = [
     opened, escrow, ...deposit, lockedStep,
@@ -296,25 +296,26 @@ export function batonLabel(step: Pick<TradeStep, 'actors' | 'blocked'> | undefin
   if (!actors?.length) return null
   const blocked = step?.blocked
   if (viewer && actors.includes(viewer)) {
-    if (!blocked) return { text: 'Sua vez', tone: 'brand' }
-    if (blocked === 'deadline') return { text: 'Prazo do escrow encerrado', tone: 'neutral' }
-    return { text: blocked === 'signing' ? 'Assinatura indisponível aqui' : 'Liberação indisponível aqui', tone: 'neutral' }
+    if (!blocked) return { text: t('escrow.baton.yourTurn'), tone: 'brand' }
+    if (blocked === 'deadline') return { text: t('escrow.state.expired'), tone: 'neutral' }
+    return { text: t(blocked === 'signing' ? 'escrow.baton.signingUnavailable' : 'escrow.baton.releaseUnavailable'), tone: 'neutral' }
   }
-  if (blocked === 'deadline') return { text: 'Prazo do escrow encerrado', tone: 'neutral' }
+  if (blocked === 'deadline') return { text: t('escrow.state.expired'), tone: 'neutral' }
   const tone = blocked ? 'neutral' : 'brand'
   if (actors.length === 1) {
     const a = actors[0]
-    if (a === 'arbiter') return { text: 'Com o árbitro', tone }
-    if (a === 'parties') return { text: 'Partes podem contestar até o prazo', tone }
-    if (a === 'unknown') return { text: blocked ? 'Aguardando participante não identificado' : 'Vez de participante não identificado', tone }
-    const role = a === 'buyer' ? 'comprador' : 'vendedor'
+    if (a === 'arbiter') return { text: t('escrow.baton.arbiter'), tone }
+    if (a === 'parties') return { text: t('escrow.baton.parties'), tone }
+    if (a === 'unknown') return { text: t(blocked ? 'escrow.baton.waitingUnknown' : 'escrow.baton.turnUnknown'), tone }
     const name = names[a]
-    if (blocked) return { text: name ? `Aguardando ${name} (${role})` : `Aguardando o ${role}`, tone }
-    return { text: name ? `Vez de ${name} (${role})` : `Vez do ${role}`, tone }
+    const key = a === 'buyer'
+      ? (blocked ? (name ? 'escrow.baton.waitingBuyerNamed' : 'escrow.baton.waitingBuyer') : (name ? 'escrow.baton.turnBuyerNamed' : 'escrow.baton.turnBuyer'))
+      : (blocked ? (name ? 'escrow.baton.waitingSellerNamed' : 'escrow.baton.waitingSeller') : (name ? 'escrow.baton.turnSellerNamed' : 'escrow.baton.turnSeller'))
+    return { text: t(key, name ? { name } : undefined), tone }
   }
   const both = actors.every((a) => a === 'buyer' || a === 'seller')
-  if (blocked) return { text: both ? 'Aguardando o comprador e o vendedor' : 'Aguardando mais de um participante', tone }
-  return { text: both ? 'Vez do comprador e do vendedor' : 'Vez de mais de um participante', tone }
+  if (blocked) return { text: t(both ? 'escrow.baton.waitingBoth' : 'escrow.baton.waitingMany'), tone }
+  return { text: t(both ? 'escrow.baton.turnBoth' : 'escrow.baton.turnMany'), tone }
 }
 
 /**
@@ -332,17 +333,17 @@ export function stageTone(step: Pick<TradeStep, 'state' | 'tone' | 'actors' | 'b
 
 function action(i: TradeStateInput, cancelled: boolean): CurrentAction {
   if (cancelled) {
-    return { tone: 'terminal', actorLabel: 'Encerrado', title: CANCELLED_LABEL, description: 'Não há mais ações disponíveis neste trade.', canDispute: false }
+    return { tone: 'terminal', actorLabel: t('escrow.actor.closed'), title: t('escrow.state.cancelled'), description: t('escrow.action.noMoreActions'), canDispute: false }
   }
   if (!i.escrowStatus) {
     return i.isSeller
-      ? { tone: 'action', actorLabel: 'Ação necessária — vendedor', title: 'Criar o escrow deste trade', description: 'Registra o escrow do trade no nó Sails. Não move fundos: depois você deposita e registra o bloqueio dos fundos.', primary: { action: 'createEscrow', label: 'Criar escrow' }, canDispute: false }
-      : { tone: 'waiting', actorLabel: i.isBuyer ? 'Aguardando a contraparte' : 'Acompanhamento', title: 'Aguardando o vendedor criar o escrow', description: 'Não envie nenhum pagamento antes de os fundos estarem bloqueados no escrow.', canDispute: false }
+      ? { tone: 'action', actorLabel: t('escrow.actor.sellerNeeded'), title: t('escrow.action.createEscrow.title'), description: t('escrow.action.createEscrow.description'), primary: { action: 'createEscrow', label: t('escrow.action.createEscrow.label') }, canDispute: false }
+      : { tone: 'waiting', actorLabel: t(i.isBuyer ? 'escrow.actor.waiting' : 'escrow.actor.following'), title: t('escrow.action.waitCreate.title'), description: t('escrow.action.noPaymentBeforeLock'), canDispute: false }
   }
   const view = deriveCurrentAction({ status: i.escrowStatus, isBuyer: i.isBuyer, isSeller: i.isSeller, releaseUnavailable: i.releaseUnavailable, signingUnavailable: i.signingUnavailable, deadlinePassed: escrowDeadlinePassed(i) })
   // A resolved dispute can still be appealed (TradeDisputePanel): never say nothing is left to do next to that button.
   if (view.tone === 'terminal' && i.appealAvailable) {
-    return { ...view, actorLabel: 'Disputa resolvida', description: 'A única ação ainda disponível neste trade é apelar da decisão da disputa, na seção da disputa.' }
+    return { ...view, actorLabel: t('escrow.actor.disputeResolved'), description: t('escrow.action.appealOnly') }
   }
   // While a signing round exists, its card is the next step; never offer a second release.
   return i.signingRoundKind ? { ...view, primary: undefined } : view

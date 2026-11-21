@@ -3,8 +3,10 @@
 // tabbing to the "i" button had no way to see this text at all before —
 // Tooltip.Trigger shows/hides on focus/blur too, not just hover/click.
 import { Tooltip, TooltipTrigger, TooltipContent } from './tooltip'
+import { useUiStrings } from './uiStrings'
 
 export function InfoTooltip({ text }: { text: string }) {
+  const strings = useUiStrings()
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -13,7 +15,7 @@ export function InfoTooltip({ text }: { text: string }) {
             it's used inline next to a label, but as the actual button
             box it was also a 16px tap target — real mobile-testing find,
             not hypothetical, same class of fix as FavoriteButton's own. */}
-        <button type="button" aria-label="Mais informações" className="group p-3.5 -m-3.5 flex items-center justify-center">
+        <button type="button" aria-label={strings.moreInfo} className="group p-3.5 -m-3.5 flex items-center justify-center">
           <span className="w-4 h-4 rounded-full border border-brand-border text-brand-text-muted text-xs flex items-center justify-center transition-colors group-hover:border-brand-orange-accent group-hover:text-brand-orange-accent">
             i
           </span>

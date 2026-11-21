@@ -8,7 +8,7 @@ import { useAuth, WrongPassphraseError } from '../context/AuthContext'
 import { useEscrowKey } from '../hooks/useEscrowKey'
 import { classifySigningWatchError, classifyPendingTransactionError } from '../lib/escrowErrorClassification'
 import { checkMultisigPending, MultisigSigningIntentError } from '../lib/multisigSigningIntent'
-import { deriveSigningRequest, roundSnapshotChanged, signingActionLabel, UNKNOWN_SIGNER, type RoundSnapshot, type SigningVerification } from '../lib/signingRequest'
+import { deriveSigningRequest, roundSnapshotChanged, signingActionLabel, unknownSignerLabel, type RoundSnapshot, type SigningVerification } from '../lib/signingRequest'
 import { sailsClient } from '../lib/sailsClient'
 import { toUiMessage, toUiMessageFromEvent } from '../lib/tradeMessages'
 import { EscrowCountdown } from '../components/trade/EscrowCountdown'
@@ -22,7 +22,7 @@ import { PaymentInstructions } from '../components/trade/PaymentInstructions'
 import { PayoutAddressForm } from '../components/trade/PayoutAddressForm'
 import { FundingInstructionCard } from '../components/trade/FundingInstructionCard'
 import { deriveFundingInstruction, deriveFundingRecordRows, lockRefusalMessage } from '../lib/fundingInstruction'
-import { batonLabel, custodyModelLabel, deriveTradeState, ESCROW_STATE_LABEL, PAYOUT_TX_LABEL } from '../lib/tradeState'
+import { batonLabel, custodyModelLabel, deriveTradeState, ESCROW_STATE_LABEL, payoutTxLabel } from '../lib/tradeState'
 import { TradeParties } from '../components/trade/TradeParties'
 import { TradeDisputePanel } from '../components/trade/TradeDisputePanel'
 import { ChatWindow } from '../components/chat/ChatWindow'
@@ -40,6 +40,7 @@ import { formatDateTime, formatUsdExact } from '../lib/format'
 import { detectRiskLocally } from '../lib/socialEngineering'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, DISPUTE_RULING_LABEL, ESCROW_TYPE_LABEL, PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { AssetNetworkLabel } from '../components/ui/AssetIcon'
+import { t } from '../i18n'
 
 // Sails Core Implementation Program M8-R2 (Destination Authority
 // Conformance, 2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md) —
@@ -102,11 +103,10 @@ const ROUND_KINDS = new Set<string>(['release', 'refund', 'split'])
 // Chat system rows for escrow state changes this client observed (a WS frame
 // refetch or the viewer's own action) — composed from refetched state, never
 // counterparty text. Not persisted: a reload starts from the recorded state.
-const SYSTEM_TEXT: Record<EscrowStatus, string> = {
-  ...ESCROW_STATE_LABEL,
-  PAYMENT_PENDING: `${ESCROW_STATE_LABEL.PAYMENT_PENDING} (não verificado pela plataforma)`,
-  DISPUTED: 'Disputa aberta',
-}
+const systemText = (s: EscrowStatus): string | undefined =>
+  s === 'PAYMENT_PENDING' ? t('trade.system.paymentPending', { state: ESCROW_STATE_LABEL.PAYMENT_PENDING })
+    : s === 'DISPUTED' ? t('trade.system.disputed')
+    : ESCROW_STATE_LABEL[s]
 
 // What a confirmation dialog was opened for. The dialog renders from this
 // snapshot and the confirm handler compares the re-read round against it.
@@ -130,11 +130,11 @@ async function readPending(e: SdkEscrow): Promise<PendingState> {
 }
 
 function signingErrorMessage(err: unknown): string {
-  if (err instanceof SigningIntentVerificationError) return 'A transação não corresponde ao que era esperado para este escrow — não assine.'
-  if (err instanceof MultisigSigningIntentError) return `Não foi possível conferir a transação: ${err.userMessage}`
+  if (err instanceof SigningIntentVerificationError) return t('trade.sign.mismatch')
+  if (err instanceof MultisigSigningIntentError) return t('trade.sign.cannotCheck', { reason: err.userMessage })
   if (err instanceof WrongPassphraseError) return err.message
   // The server may store the signature before a later step fails, so never claim nothing was sent.
-  return 'Não foi possível concluir. Sua assinatura pode ter sido registrada — confira o estado abaixo.'
+  return t('trade.sign.maybeRecorded')
 }
 
 async function fetchParticipantUser(participantId: string): Promise<User> {
@@ -198,10 +198,10 @@ export function Trade() {
       case 'session-expired':
         break // handled globally — see this function's own comment above
       case 'forbidden':
-        toast.error('Não foi possível verificar sua permissão para assinar este escrow.')
+        toast.error(t('trade.sign.forbidden'))
         break
       default:
-        toast.error('Não foi possível registrar sua chave neste escrow — tente recarregar a página.')
+        toast.error(t('trade.sign.keyRegisterFailed'))
     }
   }
 
@@ -387,7 +387,7 @@ export function Trade() {
     if (prev === undefined || prev === cur || !cur) return
     setMessages((m) => [...m, {
       id: `system-${cur}-${Date.now()}`, senderId: null, sender: null, type: 'SYSTEM',
-      content: SYSTEM_TEXT[cur as EscrowStatus] ?? cur, createdAt: new Date().toISOString(),
+      content: systemText(cur as EscrowStatus) ?? cur, createdAt: new Date().toISOString(),
     }])
   }, [escrow?.status, loading])
 
@@ -407,7 +407,7 @@ export function Trade() {
     try {
       return checkMultisigPending(escrow, pendingTx)
     } catch {
-      return { status: 'cannotVerify', reason: 'Não foi possível ler os dados da transação.' }
+      return { status: 'cannotVerify', reason: t('trade.sign.cannotRead') }
     }
   }, [escrow, pendingTx])
   const signingView = useMemo(() => pendingTx && trade && escrow ? deriveSigningRequest({
@@ -415,7 +415,7 @@ export function Trade() {
     viewerId: user?.id,
     verification,
     // The viewer keeps their role: "Você (vendedor)".
-    signerLabel: (pid) => pid === user?.id ? (isBuyer ? 'Você (comprador)' : isSeller ? 'Você (vendedor)' : 'Você') : pid === trade.buyerId ? 'Comprador' : pid === trade.sellerId ? 'Vendedor' : UNKNOWN_SIGNER,
+    signerLabel: (pid) => pid === user?.id ? t(isBuyer ? 'trade.parties.youBuyer' : isSeller ? 'trade.parties.youSeller' : 'trade.parties.you') : pid === trade.buyerId ? t('escrow.actor.buyer') : pid === trade.sellerId ? t('escrow.actor.seller') : unknownSignerLabel(),
     disputed: escrow.status === 'DISPUTED',
     // Mirrors cancelPendingTransaction's server preconditions (seller, MULTISIG, non-disputed, non-terminal).
     canCancel: isSeller && escrow.type === 'MULTISIG' && escrow.status !== 'DISPUTED' && !TERMINAL_ESCROW_STATUSES.has(escrow.status),
@@ -457,27 +457,27 @@ export function Trade() {
   useEffect(() => {
     if (!roundDialog || acting || !roundSnapshotChanged(roundDialog.round, pendingTx)) return
     setRoundDialog(null)
-    toast.error('O estado do trade mudou — revise antes de continuar')
+    toast.error(t('trade.toast.stateChanged'))
   }, [roundDialog, acting, pendingTx])
 
   const openRoundDialog = (kind: RoundDialog['kind']) => {
     if (!pendingTx || !signingView || !escrow) return
-    const progress = { label: 'Assinaturas', value: signingView.progress.text }
-    const status = { label: 'Estado atual', value: ESCROW_STATE_LABEL[escrow.status as EscrowStatus] ?? escrow.status }
+    const progress = { label: t('trade.confirm.signatures'), value: signingView.progress.text }
+    const status = { label: t('trade.confirm.currentState'), value: ESCROW_STATE_LABEL[escrow.status as EscrowStatus] ?? escrow.status }
     setRoundDialog({
       kind,
       round: { id: pendingTx.id, unsignedPsbtBase64: pendingTx.unsignedPsbtBase64 },
       escrowStatus: escrow.status,
       summary: kind === 'sign'
         ? [
-            { label: 'Ação', value: signingActionLabel(pendingTx.kind) },
+            { label: t('trade.confirm.action'), value: signingActionLabel(pendingTx.kind) },
             // Full money flow from the verified transaction: each output and the network fee (labels are unique).
             ...(signingView.check?.items ?? []).map((it) => ({ label: it.label, value: it.value })),
-            { label: 'Conferência', value: signingView.check?.title ?? '' },
+            { label: t('trade.confirm.check'), value: signingView.check?.title ?? '' },
             progress,
             status,
           ]
-        : [{ label: 'Rodada', value: signingActionLabel(pendingTx.kind) }, progress, status],
+        : [{ label: t('trade.confirm.round'), value: signingActionLabel(pendingTx.kind) }, progress, status],
     })
   }
 
@@ -512,9 +512,9 @@ export function Trade() {
       const record = await sailsClient.settlement.setPayoutAddress({ asset: trade.asset, address: payoutAddressInput.trim() })
       setPayoutAddress({ address: record.address })
       setPayoutAddressInput('')
-      toast.success('Endereço de recebimento salvo')
+      toast.success(t('trade.payout.saved'))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Falha ao salvar endereço')
+      toast.error(err instanceof Error ? err.message : t('trade.payout.saveFailed'))
     } finally {
       setSavingPayoutAddress(false)
     }
@@ -525,7 +525,7 @@ export function Trade() {
     try {
       await fn()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Falha na ação')
+      toast.error(err instanceof Error ? err.message : t('trade.toast.actionFailed'))
     } finally {
       setActing(false)
     }
@@ -534,7 +534,7 @@ export function Trade() {
   const handleCreateEscrow = () => trade && withGuard(async () => {
     const e = await sailsClient.settlement.create({ tradeId: trade.id, lockedAmount: trade.amount, asset: trade.asset })
     setEscrow(e)
-    toast.success('Escrow criado')
+    toast.success(t('trade.toast.escrowCreated'))
   })
 
   const handleLockFunds = () => escrow && withGuard(async () => {
@@ -548,7 +548,7 @@ export function Trade() {
       return
     }
     setEscrow(e)
-    toast.success('Escrow bloqueado', { icon: <Lock className="h-4 w-4" /> })
+    toast.success(t('trade.toast.escrowLocked'), { icon: <Lock className="h-4 w-4" /> })
   })
 
   const handleMarkPaymentSent = () => escrow && withGuard(async () => {
@@ -556,19 +556,19 @@ export function Trade() {
     const fresh = await sailsClient.settlement.get(escrow.id)
     if (fresh.status !== 'FUNDS_LOCKED' || !user || user.id !== trade?.buyerId) {
       setEscrow(fresh)
-      toast.error('O estado do trade mudou — revise antes de continuar')
+      toast.error(t('trade.toast.stateChanged'))
       return
     }
     const e = await sailsClient.settlement.markPaymentSent(escrow.id)
     setEscrow(e)
-    toast.success('Pagamento marcado como enviado', { icon: <Banknote className="h-4 w-4" /> })
+    toast.success(t('trade.toast.paymentMarkedSent'), { icon: <Banknote className="h-4 w-4" /> })
   })
 
   // Explicit, user-confirmed signing (MULTISIG only). Re-reads the round
   // and the escrow first; aborts if anything changed since the review.
   const handleSignPending = (snap: RoundDialog) => escrow && user && withGuard(async () => {
     if (!encryptionKey) {
-      toast.error('Sua chave de escrow está bloqueada — entre novamente com sua senha para assinar.')
+      toast.error(t('trade.sign.keyLocked'))
       return
     }
     const [freshEscrow, fresh] = await Promise.all([sailsClient.settlement.get(escrow.id), readPending(escrow)])
@@ -581,7 +581,7 @@ export function Trade() {
       setRoundDialog(null)
       setEscrow(freshEscrow)
       setPending(fresh)
-      toast.error('O estado do trade mudou — revise antes de continuar')
+      toast.error(t('trade.toast.stateChanged'))
       return
     }
     let signedOk = false
@@ -595,14 +595,14 @@ export function Trade() {
     const e = await sailsClient.settlement.get(escrow.id).catch(() => freshEscrow)
     setEscrow(e)
     await refreshPending(e)
-    if (signedOk) toast.success('Assinatura registrada')
+    if (signedOk) toast.success(t('trade.toast.signatureRecorded'))
   })
 
   const handleRefreshSigning = () => escrow && withGuard(async () => {
     const e = await sailsClient.settlement.get(escrow.id)
     setEscrow(e)
     const next = await refreshPending(e)
-    if (next.status === 'error') toast.error('Não foi possível consultar se há uma assinatura pendente neste escrow.')
+    if (next.status === 'error') toast.error(t('trade.sign.pendingReadFailed'))
   })
 
   // Seller-only: retire a round this interface cannot sign (cancelPendingTransaction).
@@ -616,7 +616,7 @@ export function Trade() {
       setRoundDialog(null)
       setEscrow(freshEscrow)
       setPending(fresh)
-      toast.error('O estado do trade mudou — revise antes de continuar')
+      toast.error(t('trade.toast.stateChanged'))
       return
     }
     const result = await sailsClient.settlement.cancelPendingTransaction(escrow.id, freshTx.id)
@@ -624,7 +624,7 @@ export function Trade() {
     const e = await sailsClient.settlement.get(escrow.id).catch(() => freshEscrow)
     setEscrow(e)
     await refreshPending(e)
-    toast.success(result.outcome === 'CANCELLED' ? 'Rodada de assinatura encerrada' : 'Esta rodada de assinatura já não existe — estado atualizado')
+    toast.success(t(result.outcome === 'CANCELLED' ? 'trade.toast.roundCancelled' : 'trade.toast.roundGone'))
   })
 
   const handleReleaseFunds = () => escrow && withGuard(async () => {
@@ -633,7 +633,7 @@ export function Trade() {
     const fresh = await sailsClient.settlement.get(escrow.id)
     if (fresh.status !== 'PAYMENT_PENDING' || !user || user.id !== trade?.sellerId) {
       setEscrow(fresh)
-      toast.error('O estado do trade mudou — revise antes de continuar')
+      toast.error(t('trade.toast.stateChanged'))
       return
     }
     // MULTISIG, LIGHTNING_HODL and SAFE_GUARD_EVM release through a client-
@@ -643,7 +643,7 @@ export function Trade() {
     // verify-then-sign path, so a round is never started for LIGHTNING_HODL /
     // SAFE_GUARD_EVM: it could not be signed here and would block retries.
     if (UNSIGNABLE_ESCROW_TYPES.has(escrow.type)) {
-      toast.error('Liberação indisponível nesta interface para este tipo de escrow')
+      toast.error(t('trade.toast.releaseUnavailable'))
       return
     }
     if (escrow.type === 'MULTISIG') {
@@ -662,16 +662,16 @@ export function Trade() {
       // (no broadcast/confirmation state is exposed to this UI yet).
       const missing = next.status === 'ready' ? next.tx.requiredSigners.filter((id) => !(next.tx.signedBy ?? []).some((x) => x.participantId === id)) : []
       toast.success(
-        e.status === 'COMPLETED' ? 'Escrow marcado como concluído pelo nó Sails'
-          : missing.includes(user.id) ? 'Liberação iniciada — revise e assine a transação abaixo.'
-          : missing.length === 1 && missing[0] === trade?.buyerId ? 'Liberação iniciada — aguardando a assinatura do comprador.'
-          : 'Liberação iniciada — a transação precisa das assinaturas necessárias.'
+        t(e.status === 'COMPLETED' ? 'trade.toast.escrowCompleted'
+          : missing.includes(user.id) ? 'trade.toast.releaseStartedSign'
+          : missing.length === 1 && missing[0] === trade?.buyerId ? 'trade.toast.releaseStartedBuyer'
+          : 'trade.toast.releaseStartedSignatures')
       )
       return
     }
     const e = await sailsClient.settlement.release(escrow.id)
     setEscrow(e)
-    toast.success(e.status === 'COMPLETED' ? 'Escrow marcado como concluído pelo nó Sails' : 'Liberação solicitada')
+    toast.success(t(e.status === 'COMPLETED' ? 'trade.toast.escrowCompleted' : 'trade.toast.releaseRequested'))
   })
 
   // Cancel returns focus to the "Abrir disputa" trigger (re-mounted with the action card).
@@ -687,13 +687,13 @@ export function Trade() {
 
   const handleOpenDispute = () => escrow && withGuard(async () => {
     if (!disputeReason.trim()) {
-      toast.error('Descreva o motivo da disputa')
+      toast.error(t('trade.disputeForm.describeReason'))
       return
     }
     await sailsClient.settlement.dispute(escrow.id, disputeReason.trim())
     const refreshed = await sailsClient.settlement.get(escrow.id)
     setEscrow(refreshed)
-    toast.error('Disputa aberta')
+    toast.error(t('trade.toast.disputeOpened'))
     setShowDisputeForm(false)
     setDisputeReason('')
   })
@@ -708,7 +708,7 @@ export function Trade() {
 
   const handleSubmitEvidence = () => dispute && withGuard(async () => {
     if (!evidenceNote.trim()) {
-      toast.error('Descreva a evidência antes de enviar')
+      toast.error(t('trade.toast.evidenceEmpty'))
       return
     }
     const updated = await sailsClient.settlement.submitDisputeEvidence(
@@ -717,7 +717,7 @@ export function Trade() {
     evidenceIdempotencyKeyRef.current = crypto.randomUUID() // this attempt is now settled — a new key for the next one
     patchDispute(updated)
     setEvidenceNote('')
-    toast.success('Evidência enviada')
+    toast.success(t('trade.toast.evidenceSent'))
   })
 
   // Re-reads the dispute before a confirmed step: proceeds only if it is still the one the user reviewed, in the expected status.
@@ -727,7 +727,7 @@ export function Trade() {
     const d = fresh.disputes?.[0]
     if (d && d.id === dispute.id && d.status === expected && d.appealRound === dispute.appealRound) return true
     setEscrow(fresh)
-    toast.error('O estado do trade mudou — revise antes de continuar')
+    toast.error(t('trade.toast.stateChanged'))
     return false
   }
 
@@ -735,7 +735,7 @@ export function Trade() {
     if (!(await freshDisputeStill('AUTO_PROPOSED'))) return
     const updated = await sailsClient.settlement.contestAutoResolution(dispute.id)
     patchDispute(updated)
-    toast('Recomendação automática contestada — disputa voltou para revisão humana')
+    toast(t('trade.toast.contested'))
   })
 
   const handleAppeal = () => dispute && withGuard(async () => {
@@ -743,7 +743,7 @@ export function Trade() {
     // appealFeeRequired is never printed: the contract gives it no unit (REVIEW LW-11).
     const { dispute: updated } = await sailsClient.settlement.appealDispute(dispute.id)
     patchDispute(updated)
-    toast.success('Apelação registrada — a disputa foi reaberta para um novo árbitro')
+    toast.success(t('trade.toast.appealed'))
   })
 
   const handleSend = (content: string) => {
@@ -774,7 +774,7 @@ export function Trade() {
   }
 
   if (loading) {
-    return <StateBlock kind="loading" title="Carregando trade" />
+    return <StateBlock kind="loading" title={t('trade.page.loading')} />
   }
 
   // Real gap found live (2026-08-15): getTrade() requires an authenticated
@@ -793,9 +793,9 @@ export function Trade() {
     return (
       <StateBlock
         kind="signedOut"
-        title="Conecte sua wallet"
-        description="Conecte sua wallet para ver este trade."
-        action={<Button onClick={() => navigate('/login', { state: { from: location.pathname } })} className="min-h-10 touch:min-h-11 px-4">Conectar wallet</Button>}
+        title={t('trade.page.signedOutTitle')}
+        description={t('trade.page.signedOutDescription')}
+        action={<Button onClick={() => navigate('/login', { state: { from: location.pathname } })} className="min-h-10 touch:min-h-11 px-4">{t('trade.page.connect')}</Button>}
       />
     )
   }
@@ -804,9 +804,9 @@ export function Trade() {
     return (
       <StateBlock
         kind="error"
-        title="Não foi possível carregar este trade"
-        description="Verifique sua conexão e tente novamente."
-        action={<Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-9 touch:min-h-11 px-4">Tentar novamente</Button>}
+        title={t('trade.page.loadFailed')}
+        description={t('trade.page.loadFailedDescription')}
+        action={<Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-9 touch:min-h-11 px-4">{t('trade.page.retry')}</Button>}
       />
     )
   }
@@ -815,8 +815,8 @@ export function Trade() {
     return (
       <StateBlock
         kind="empty"
-        title="Trade não encontrado"
-        action={<Link to="/" className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Voltar ao Market</Link>}
+        title={t('trade.page.notFound')}
+        action={<Link to="/" className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>{t('trade.page.backToMarket')}</Link>}
       />
     )
   }
@@ -861,49 +861,50 @@ export function Trade() {
 
   const short = ASSET_SHORT_LABELS[trade.asset]
   const methodLabel = trade.offer ? PAYMENT_METHOD_LABELS[trade.offer.paymentMethod] : null
-  const title = isBuyer ? `Comprando ${trade.amount} ${short} de ${seller.displayName ?? 'contraparte'}`
-    : isSeller ? `Vendendo ${trade.amount} ${short} para ${buyer.displayName ?? 'contraparte'}`
-    : `Trade de ${trade.amount} ${short}`
+  const fallbackName = t('trade.header.counterpartyFallback')
+  const title = isBuyer ? t('trade.header.buying', { amount: trade.amount, asset: short, name: seller.displayName ?? fallbackName })
+    : isSeller ? t('trade.header.selling', { amount: trade.amount, asset: short, name: buyer.displayName ?? fallbackName })
+    : t('trade.header.observer', { amount: trade.amount, asset: short })
   const totalLabel = formatUsdExact(trade.totalUsd)
-  const totalSub = `Valor do trade em USD${methodLabel ? ` · ${methodLabel}` : ''}`
-  const partyLabel = (pid: string) => pid === user.id ? 'Você' : pid === trade.buyerId ? 'Comprador' : pid === trade.sellerId ? 'Vendedor'
-    : pid === dispute?.arbiterId ? 'Árbitro' : 'Participante não identificado'
+  const totalSub = `${t('trade.amounts.tradeValueUsd')}${methodLabel ? ` · ${methodLabel}` : ''}`
+  const partyLabel = (pid: string) => t(pid === user.id ? 'trade.parties.you' : pid === trade.buyerId ? 'trade.parties.buyer' : pid === trade.sellerId ? 'trade.parties.seller'
+    : pid === dispute?.arbiterId ? 'trade.parties.arbitrator' : 'trade.parties.unknown')
 
   // custodyModel is only on getEscrow() reads (absent after a create/lock response): no row then, never a guess.
   const custodyRow: SpecRow[] = escrow && escrow.custodyModel !== undefined
-    ? [{ label: 'Modelo de custódia declarado', value: custodyModelLabel(escrow.custodyModel) }]
+    ? [{ label: t('trade.record.custodyModel'), value: custodyModelLabel(escrow.custodyModel) }]
     : []
   // Registro: the recorded details grouped by the stage that produced them (rail = index, Registro = full values).
   const registro: SpecGroup[] = [
-    { title: 'Trade', rows: [
-      { label: 'ID do trade', value: trade.id, mono: true, copy: trade.id },
-      { label: 'Aberto em', value: formatDateTime(trade.createdAt) },
-      { label: 'Moeda', value: ASSET_LABELS[trade.asset] },
-      { label: 'Quantidade', value: `${trade.amount} ${short}` },
-      { label: 'Preço unitário (USD)', value: formatUsdExact(trade.priceUsd) },
-      { label: 'Valor do trade (USD)', value: totalLabel },
-      { label: 'Forma de pagamento', value: methodLabel ?? 'Não informada' },
+    { title: t('trade.record.groupTrade'), rows: [
+      { label: t('trade.record.tradeId'), value: trade.id, mono: true, copy: trade.id },
+      { label: t('trade.record.openedAt'), value: formatDateTime(trade.createdAt) },
+      { label: t('trade.record.asset'), value: ASSET_LABELS[trade.asset] },
+      { label: t('trade.record.quantity'), value: `${trade.amount} ${short}` },
+      { label: t('trade.record.unitPriceUsd'), value: formatUsdExact(trade.priceUsd) },
+      { label: t('trade.record.tradeValueUsd'), value: totalLabel },
+      { label: t('trade.record.paymentMethod'), value: methodLabel ?? t('trade.record.notInformed') },
     ] },
-    { title: 'Escrow', rows: escrow ? [
-      { label: 'ID do escrow', value: escrow.id, mono: true, copy: escrow.id },
-      { label: 'Tipo de escrow', value: ESCROW_TYPE_LABEL[escrow.type] ?? escrow.type },
+    { title: t('trade.record.groupEscrow'), rows: escrow ? [
+      { label: t('trade.record.escrowId'), value: escrow.id, mono: true, copy: escrow.id },
+      { label: t('trade.record.escrowType'), value: ESCROW_TYPE_LABEL[escrow.type] ?? escrow.type },
       ...custodyRow,
-      { label: 'Estado registrado do escrow', value: ESCROW_STATE_LABEL[escrowStatus] ?? escrow.status },
-      ...(escrow.lockedAt ? [{ label: 'Bloqueio registrado em', value: formatDateTime(escrow.lockedAt) }] : []),
-      { label: 'Última atualização do escrow', value: formatDateTime(escrow.updatedAt) },
-    ] : [{ label: 'Escrow', value: 'Ainda não criado' }] },
-    { title: 'Depósito', rows: escrow ? deriveFundingRecordRows(escrow) : [] },
-    { title: 'Assinaturas', rows: pendingTx && signingView ? [
-      { label: 'Rodada', value: signingActionLabel(pendingTx.kind) },
-      ...signingView.signers.map((sg) => ({ label: sg.label, value: sg.at ? `Assinou em ${formatDateTime(sg.at)}` : sg.statusText })),
+      { label: t('trade.record.escrowState'), value: ESCROW_STATE_LABEL[escrowStatus] ?? escrow.status },
+      ...(escrow.lockedAt ? [{ label: t('trade.record.lockedAt'), value: formatDateTime(escrow.lockedAt) }] : []),
+      { label: t('trade.record.escrowUpdatedAt'), value: formatDateTime(escrow.updatedAt) },
+    ] : [{ label: t('trade.record.escrow'), value: t('trade.record.escrowNotCreated') }] },
+    { title: t('trade.record.groupDeposit'), rows: escrow ? deriveFundingRecordRows(escrow) : [] },
+    { title: t('trade.record.groupSignatures'), rows: pendingTx && signingView ? [
+      { label: t('trade.record.round'), value: signingActionLabel(pendingTx.kind) },
+      ...signingView.signers.map((sg) => ({ label: sg.label, value: sg.at ? t('trade.record.signedAt', { date: formatDateTime(sg.at) }) : sg.statusText })),
     ] : [] },
     // Recorded by the server; no broadcast or confirmation state is exposed, so never "confirmada".
-    { title: 'Transação', rows: escrow?.txReleaseId ? [{ label: PAYOUT_TX_LABEL, value: escrow.txReleaseId, mono: true, copy: escrow.txReleaseId }] : [] },
-    { title: 'Encerramento', rows: [
-      ...(trade.completedAt ? [{ label: 'Concluído em', value: formatDateTime(trade.completedAt) }] : []),
-      ...(trade.cancelledAt ? [{ label: 'Cancelado em', value: formatDateTime(trade.cancelledAt) }] : []),
+    { title: t('trade.record.groupTransaction'), rows: escrow?.txReleaseId ? [{ label: payoutTxLabel(), value: escrow.txReleaseId, mono: true, copy: escrow.txReleaseId }] : [] },
+    { title: t('trade.record.groupClosing'), rows: [
+      ...(trade.completedAt ? [{ label: t('trade.record.completedAt'), value: formatDateTime(trade.completedAt) }] : []),
+      ...(trade.cancelledAt ? [{ label: t('trade.record.cancelledAt'), value: formatDateTime(trade.cancelledAt) }] : []),
     ] },
-    { title: 'Recebimento', rows: isBuyer && payoutAddress ? [{ label: 'Seu endereço de recebimento', value: payoutAddress.address, mono: true, copy: payoutAddress.address }] : [] },
+    { title: t('trade.record.groupPayout'), rows: isBuyer && payoutAddress ? [{ label: t('trade.record.payoutAddress'), value: payoutAddress.address, mono: true, copy: payoutAddress.address }] : [] },
   ]
 
   const fundingView = escrow ? deriveFundingInstruction({ escrow, isBuyer, isSeller, assetLabel: ASSET_SHORT_LABELS[escrow.asset] }) : null
@@ -918,7 +919,7 @@ export function Trade() {
       assetLabel={ASSET_LABELS[trade.asset]}
     />
   )
-  const priceItem = { label: 'Preço', value: `${formatUsdExact(trade.priceUsd)} / ${short}`, sub: 'Preço unitário do trade' }
+  const priceItem = { label: t('trade.amounts.price'), value: `${formatUsdExact(trade.priceUsd)} / ${short}`, sub: t('trade.amounts.unitPrice') }
   const actionCardShown = !(escrowStatus === 'DISPUTED' && dispute) && !showDisputeForm
   const paymentInstructions = (isBuyer || isSeller) && trade.offer ? (
     // paymentMethod/paymentDetails come from the originating Offer
@@ -943,13 +944,13 @@ export function Trade() {
   const countdown = escrow ? <EscrowCountdown expiresAt={escrow.expiresAt} timelockHours={escrow.timelockHours} status={escrowStatus} /> : null
   // The signing round is a sub-step of the current stage: rendered inside the stage card (or the dispute panel).
   const signing = (embedded: boolean) => !escrow ? null
-    : pending.status === 'loading' ? <SigningRequestCard embedded={embedded} status="loading" label="Consultando assinaturas pendentes…" />
+    : pending.status === 'loading' ? <SigningRequestCard embedded={embedded} status="loading" label={t('trade.sign.loading')} />
     : pending.status === 'error' ? (
       <SigningRequestCard
         embedded={embedded}
         status="error"
-        message="Não foi possível consultar se há uma assinatura pendente neste escrow."
-        retryLabel="Tentar novamente"
+        message={t('trade.sign.pendingReadFailed')}
+        retryLabel={t('trade.page.retry')}
         onRetry={() => { setPending({ status: 'loading' }); void refreshPending(escrow) }}
       />
     )
@@ -967,18 +968,17 @@ export function Trade() {
 
   // A finished trade's party rates the other one; informational, never part of the reputation (RFC-007).
   const rateTarget = trade.status === 'COMPLETED' && (isBuyer || isSeller) ? (isBuyer ? seller : buyer) : null
-  const rateName = rateTarget?.displayName ?? (isBuyer ? 'o vendedor' : 'o comprador')
   const rateCopy: RateCounterpartyCopy = {
-    title: `Avaliar ${rateName}`,
-    description: 'De 1 a 5 estrelas, com um comentário se quiser. A avaliação é só informativa: não muda a reputação de ninguém. Uma por trade.',
-    legend: 'Nota',
-    starLabel: (n) => `${n} ${n === 1 ? 'estrela' : 'estrelas'}`,
-    valueText: (n) => (n ? `${n} de 5` : 'Escolha de 1 a 5'),
-    scoreError: 'Escolha uma nota de 1 a 5 estrelas.',
-    commentLabel: 'Comentário (opcional)',
+    title: rateTarget?.displayName != null ? t('trade.rate.title', { name: rateTarget.displayName }) : t(isBuyer ? 'trade.rate.titleSeller' : 'trade.rate.titleBuyer'),
+    description: t('trade.rate.description'),
+    legend: t('trade.rate.legend'),
+    starLabel: (n) => t('trade.rate.stars', { count: n }),
+    valueText: (n) => (n ? t('trade.rate.valueOf5', { score: n }) : t('trade.rate.choose')),
+    scoreError: t('trade.rate.scoreError'),
+    commentLabel: t('trade.rate.commentLabel'),
     commentCounter: (n, max) => `${n}/${max}`,
-    commentTooLong: (over, max) => `Passou ${over} ${over === 1 ? 'caractere' : 'caracteres'} do limite de ${max}. Encurte o comentário para enviar.`,
-    submitLabel: 'Enviar avaliação',
+    commentTooLong: (over, max) => t('trade.rate.commentTooLong', { count: over, max }),
+    submitLabel: t('trade.rate.submit'),
   }
   const handleRate = async (input: RatingInput) => {
     if (!rateTarget) return
@@ -988,13 +988,13 @@ export function Trade() {
       await sailsClient.reputation.rate({ tradeId: trade.id, ratedId: rateTarget.id, ...input })
       saveRated(sessionStore(), trade.id, 'rated')
       setRated('rated')
-      toast.success('Avaliação enviada')
+      toast.success(t('trade.rate.sent'))
     } catch (err) {
       if (isAlreadyRatedError(err)) {
         saveRated(sessionStore(), trade.id, 'already')
         setRated('already')
       } else {
-        setRatingError(errorMessage(err, 'Não foi possível enviar a avaliação. Tente novamente.'))
+        setRatingError(errorMessage(err, t('trade.rate.failed')))
       }
     } finally {
       setSubmittingRating(false)
@@ -1010,7 +1010,7 @@ export function Trade() {
         asset={<AssetNetworkLabel asset={trade.asset} />}
         leading={(
           <Link to="/" className="inline-flex min-h-11 items-center gap-1.5 text-sm text-brand-text-secondary hover:text-brand-text">
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Voltar
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {t('trade.page.back')}
           </Link>
         )}
       />
@@ -1018,16 +1018,16 @@ export function Trade() {
       {/* The counterparty is in its own block (with presence and the chat), not in the amounts. */}
       <TradeAmountsStrip
         items={isBuyer ? [
-          { label: 'Você paga', value: totalLabel, sub: totalSub },
-          { label: 'Você recebe', value: `${trade.amount} ${short}`, sub: <AssetNetworkLabel asset={trade.asset} /> },
+          { label: t('trade.amounts.youPay'), value: totalLabel, sub: totalSub },
+          { label: t('trade.amounts.youReceive'), value: `${trade.amount} ${short}`, sub: <AssetNetworkLabel asset={trade.asset} /> },
           priceItem,
         ] : isSeller ? [
-          { label: 'Você vende', value: `${trade.amount} ${short}`, sub: <AssetNetworkLabel asset={trade.asset} /> },
-          { label: 'Você recebe', value: totalLabel, sub: totalSub },
+          { label: t('trade.amounts.youSell'), value: `${trade.amount} ${short}`, sub: <AssetNetworkLabel asset={trade.asset} /> },
+          { label: t('trade.amounts.youReceive'), value: totalLabel, sub: totalSub },
           priceItem,
         ] : [
-          { label: 'Quantidade', value: `${trade.amount} ${short}`, sub: <AssetNetworkLabel asset={trade.asset} /> },
-          { label: 'Valor do trade', value: totalLabel, sub: totalSub },
+          { label: t('trade.amounts.quantity'), value: `${trade.amount} ${short}`, sub: <AssetNetworkLabel asset={trade.asset} /> },
+          { label: t('trade.amounts.tradeValue'), value: totalLabel, sub: totalSub },
           priceItem,
         ]}
       />
@@ -1051,8 +1051,8 @@ export function Trade() {
               {fundingView && <FundingInstructionCard view={fundingView} />}
               {state.payoutStep === 'checkFailed' && (
                 <div className="mt-4 pt-4 border-t border-brand-border-subtle flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p role="status" className="text-sm text-brand-text-secondary">Não foi possível verificar seu endereço de recebimento.</p>
-                  <Button variant="outline" onClick={() => setPayoutCheckRun((n) => n + 1)} className="min-h-11 shrink-0 text-sm">Tentar novamente</Button>
+                  <p role="status" className="text-sm text-brand-text-secondary">{t('trade.payout.checkFailed')}</p>
+                  <Button variant="outline" onClick={() => setPayoutCheckRun((n) => n + 1)} className="min-h-11 shrink-0 text-sm">{t('trade.page.retry')}</Button>
                 </div>
               )}
               {state.payoutStep === 'missing' && (
@@ -1060,9 +1060,9 @@ export function Trade() {
                 // (setPayoutAddress()); the seller never chooses it. Release
                 // resolves this address server-side and fails without one.
                 <div className="mt-4 pt-4 border-t border-brand-border-subtle">
-                  <p className="text-sm font-semibold text-brand-text">Cadastre seu endereço de recebimento</p>
+                  <p className="text-sm font-semibold text-brand-text">{t('trade.payout.missingTitle')}</p>
                   <p className="mt-0.5 text-sm text-brand-text-secondary">
-                    A liberação dos fundos para você falha enquanto não houver um endereço cadastrado para {ASSET_LABELS[trade.asset]}.
+                    {t('trade.payout.missingDescription', { asset: ASSET_LABELS[trade.asset] })}
                   </p>
                   {payoutForm(false)}
                 </div>
@@ -1070,7 +1070,7 @@ export function Trade() {
               {paymentInCard && <div className="mt-4">{paymentInstructions}</div>}
               {signing(true)}
               {!isBuyer && !isSeller && (
-                <p className="mt-3 text-sm text-brand-text-secondary">Você não é parte deste trade — ações desabilitadas.</p>
+                <p className="mt-3 text-sm text-brand-text-secondary">{t('trade.page.notParty')}</p>
               )}
             </CurrentActionCard>
           ) : (
@@ -1079,8 +1079,8 @@ export function Trade() {
               className="rounded-lg border border-brand-border-subtle bg-brand-elevated p-4"
               onKeyDown={(e) => { if (e.key === 'Escape') cancelDisputeForm() }}
             >
-              <h2 id="dispute-form-title" className="text-heading text-brand-text">Abrir disputa</h2>
-              <label htmlFor="dispute-reason" className="mt-2 block text-sm text-brand-text-secondary">Descreva o motivo da disputa</label>
+              <h2 id="dispute-form-title" className="text-heading text-brand-text">{t('trade.action.openDispute')}</h2>
+              <label htmlFor="dispute-reason" className="mt-2 block text-sm text-brand-text-secondary">{t('trade.disputeForm.describeReason')}</label>
               <Textarea
                 id="dispute-reason"
                 autoFocus
@@ -1090,8 +1090,8 @@ export function Trade() {
                 rows={3}
               />
               <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                <Button variant="destructive" onClick={handleOpenDispute} loading={acting} className="min-h-11 text-sm">Confirmar disputa</Button>
-                <Button variant="outline" onClick={cancelDisputeForm} className="min-h-11 text-sm">Cancelar</Button>
+                <Button variant="destructive" onClick={handleOpenDispute} loading={acting} className="min-h-11 text-sm">{t('trade.disputeForm.confirm')}</Button>
+                <Button variant="outline" onClick={cancelDisputeForm} className="min-h-11 text-sm">{t('common.cancel')}</Button>
               </div>
             </section>
           )}
@@ -1122,7 +1122,7 @@ export function Trade() {
           {rateTarget && (
             <RateCounterpartyCard
               copy={rateCopy}
-              doneText={rated === 'rated' ? 'Você avaliou este trade' : rated === 'already' ? 'Você já avaliou este trade' : null}
+              doneText={rated === 'rated' ? t('trade.rate.done') : rated === 'already' ? t('trade.rate.already') : null}
               submitting={submittingRating}
               error={ratingError}
               onSubmit={handleRate}
@@ -1132,7 +1132,7 @@ export function Trade() {
           {!paymentInCard && paymentInstructions}
         </div>
 
-        <aside className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-1 lg:row-span-3" aria-label="Contraparte e chat">
+        <aside className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-1 lg:row-span-3" aria-label={t('trade.page.asideLabel')}>
           <TradeParties buyer={buyer} seller={seller} currentUserId={user?.id} counterpartyOnline={counterpartyOnline}>
             <Button
               variant="outline"
@@ -1142,7 +1142,7 @@ export function Trade() {
               className="mt-1 w-full lg:hidden"
             >
               <MessageSquare className="size-icon-sm" aria-hidden="true" />
-              {chatOpen ? 'Ocultar chat' : `Abrir chat · ${messages.length} ${messages.length === 1 ? 'mensagem' : 'mensagens'}`}
+              {chatOpen ? t('trade.chat.toggleHide') : t('trade.chat.toggleOpen', { count: messages.length })}
             </Button>
           </TradeParties>
           <div id="trade-chat" className={chatOpen ? '' : 'hidden lg:block'}>
@@ -1160,23 +1160,23 @@ export function Trade() {
         </aside>
 
         <div className="min-w-0 lg:col-start-1 lg:row-start-2">
-          <TradeSpecs title="Registro" groups={registro} />
+          <TradeSpecs title={t('trade.record.title')} groups={registro} />
         </div>
 
         {/* Ferramentas: secondary tools, collapsed. Nothing here is a step of the trade. */}
         <details className="group min-w-0 self-start lg:col-start-1 lg:row-start-3">
           <summary className="flex min-h-9 touch:min-h-11 w-fit cursor-pointer items-center gap-2 rounded-md text-sm font-semibold text-brand-text underline-offset-4 hover:underline">
             <ChevronRight className="size-icon-sm transition-transform duration-short ease-standard group-open:rotate-90" aria-hidden="true" />
-            Ferramentas
+            {t('trade.page.tools')}
           </summary>
           <div className="mt-2 flex flex-col gap-3">
             {/* A pre-trade proceed/hold/reject read: nothing to act on once the escrow is terminal, disputed or expired. */}
             {state.open
               ? <AgentRiskCard asset={trade.asset} side={isBuyer ? 'BUY' : 'SELL'} maxValue={Number(trade.totalUsd)} minValue={Number(trade.totalUsd)} />
-              : <p className="text-sm text-brand-text-secondary">A sugestão do Sails Agent fica disponível só enquanto o trade está aberto.</p>}
+              : <p className="text-sm text-brand-text-secondary">{t('trade.page.agentClosed')}</p>}
             {isBuyer && payoutAddress && (
               <details className="rounded-lg border border-brand-border-subtle bg-brand-surface px-4">
-                <summary className="flex min-h-9 touch:min-h-11 cursor-pointer items-center text-sm font-semibold text-brand-text underline-offset-4 hover:underline">Alterar endereço de recebimento</summary>
+                <summary className="flex min-h-9 touch:min-h-11 cursor-pointer items-center text-sm font-semibold text-brand-text underline-offset-4 hover:underline">{t('trade.payout.change')}</summary>
                 <div className="pb-4">{payoutForm(true)}</div>
               </details>
             )}
@@ -1187,19 +1187,19 @@ export function Trade() {
       <ConfirmActionDialog
         open={confirmRelease}
         onOpenChange={setConfirmRelease}
-        title="Liberar os fundos ao comprador?"
+        title={t('trade.confirm.release.title')}
         summary={[
-          { label: 'Valor', value: `${trade.amount} ${short} — ${ASSET_LABELS[trade.asset]}` },
-          { label: 'Valor do trade (USD)', value: totalLabel },
-          { label: 'Comprador', value: buyer.displayName ?? 'Nome não informado' },
-          { label: 'Estado atual', value: ESCROW_STATE_LABEL[escrowStatus] },
+          { label: t('trade.confirm.release.amount'), value: `${trade.amount} ${short} — ${ASSET_LABELS[trade.asset]}` },
+          { label: t('trade.record.tradeValueUsd'), value: totalLabel },
+          { label: t('trade.parties.buyer'), value: buyer.displayName ?? t('trade.confirm.nameMissing') },
+          { label: t('trade.confirm.currentState'), value: ESCROW_STATE_LABEL[escrowStatus] },
         ]}
         warnings={[
-          'Confira o recebimento no app do seu banco — não confie em comprovantes, prints ou SMS.',
-          'Libere só se o valor certo já estiver na sua conta.',
+          t('trade.confirm.release.warnBank'),
+          t('trade.confirm.release.warnAmount'),
         ]}
-        consequence="Ao confirmar, a liberação dos fundos ao comprador é iniciada. Em alguns escrows ela só é concluída depois das assinaturas necessárias. Depois de concluída, não pode ser desfeita."
-        confirmLabel="Confirmar liberação"
+        consequence={t('trade.confirm.release.consequence')}
+        confirmLabel={t('trade.confirm.release.confirm')}
         busy={acting}
         onConfirm={async () => {
           await handleReleaseFunds()
@@ -1210,19 +1210,19 @@ export function Trade() {
       <ConfirmActionDialog
         open={confirmStep === 'markPaid'}
         onOpenChange={(open) => { if (!open) setConfirmStep(null) }}
-        title="Marcar o pagamento como enviado?"
+        title={t('trade.confirm.markPaid.title')}
         summary={[
-          { label: 'Valor a pagar (USD)', value: totalLabel },
-          { label: 'Forma de pagamento', value: methodLabel ?? 'Não informada' },
-          { label: 'Vendedor', value: seller.displayName ?? 'Nome não informado' },
-          { label: 'Estado atual', value: ESCROW_STATE_LABEL[escrowStatus] },
+          { label: t('trade.confirm.markPaid.amountUsd'), value: totalLabel },
+          { label: t('trade.record.paymentMethod'), value: methodLabel ?? t('trade.record.notInformed') },
+          { label: t('trade.parties.seller'), value: seller.displayName ?? t('trade.confirm.nameMissing') },
+          { label: t('trade.confirm.currentState'), value: ESCROW_STATE_LABEL[escrowStatus] },
         ]}
         warnings={[
-          'Marque só depois de concluir a transferência no app do seu banco.',
-          'Pague de uma conta no seu nome, somente para os dados mostrados nesta tela.',
+          t('trade.confirm.markPaid.warnBank'),
+          t('trade.confirm.markPaid.warnAccount'),
         ]}
-        consequence="Registra no escrow que você enviou o pagamento. A plataforma não verifica o pagamento e isto não libera os fundos: o vendedor ainda precisa conferir o recebimento e liberar. Esta interface não oferece como desfazer a marcação."
-        confirmLabel="Marcar como enviado"
+        consequence={t('trade.confirm.markPaid.consequence')}
+        confirmLabel={t('trade.confirm.markPaid.confirm')}
         busy={acting}
         onConfirm={async () => {
           await handleMarkPaymentSent()
@@ -1234,13 +1234,13 @@ export function Trade() {
         <ConfirmActionDialog
           open={confirmStep === 'contest'}
           onOpenChange={(open) => { if (!open) setConfirmStep(null) }}
-          title="Contestar a sugestão automática?"
+          title={t('trade.confirm.contest.title')}
           summary={[
-            ...(dispute.autoResolutionRecommendation ? [{ label: 'Sugestão', value: DISPUTE_RULING_LABEL[dispute.autoResolutionRecommendation] }] : []),
-            ...(dispute.autoResolutionDeadline ? [{ label: 'Aplica-se sem contestação em', value: formatDateTime(dispute.autoResolutionDeadline) }] : []),
+            ...(dispute.autoResolutionRecommendation ? [{ label: t('trade.confirm.contest.suggestion'), value: DISPUTE_RULING_LABEL[dispute.autoResolutionRecommendation] }] : []),
+            ...(dispute.autoResolutionDeadline ? [{ label: t('trade.confirm.contest.appliesAt'), value: formatDateTime(dispute.autoResolutionDeadline) }] : []),
           ]}
-          consequence="A sugestão deixa de ser aplicada e a disputa volta para revisão humana, com as evidências enviadas. Esta interface não oferece como desfazer a contestação."
-          confirmLabel="Contestar sugestão"
+          consequence={t('trade.confirm.contest.consequence')}
+          confirmLabel={t('trade.dispute.contest')}
           busy={acting}
           onConfirm={async () => {
             await handleContestAutoResolution()
@@ -1253,17 +1253,17 @@ export function Trade() {
         <ConfirmActionDialog
           open={confirmStep === 'appeal'}
           onOpenChange={(open) => { if (!open) setConfirmStep(null) }}
-          title="Apelar da decisão?"
+          title={t('trade.confirm.appeal.title')}
           summary={[
-            { label: 'Decisão registrada', value: dispute.ruling ? (DISPUTE_RULING_LABEL[dispute.ruling] ?? dispute.ruling) : 'Não informada no registro' },
-            { label: 'Rodada de apelação', value: String(dispute.appealRound + 1) },
+            { label: t('trade.confirm.appeal.ruling'), value: dispute.ruling ? (DISPUTE_RULING_LABEL[dispute.ruling] ?? dispute.ruling) : t('trade.confirm.appeal.rulingMissing') },
+            { label: t('trade.confirm.appeal.round'), value: String(dispute.appealRound + 1) },
           ]}
           warnings={[
-            'Uma taxa de apelação pode ser registrada para você. O valor não é informado nesta tela.',
-            'O nó Sails pode recusar a apelação, conforme o tipo de escrow e a configuração de arbitragem.',
+            t('trade.confirm.appeal.warnFee'),
+            t('trade.confirm.appeal.warnRefuse'),
           ]}
-          consequence="Reabre a disputa para um novo árbitro decidir. A decisão atual passa a constar como decisão anterior. Esta interface não oferece como desfazer a apelação."
-          confirmLabel="Apelar da decisão"
+          consequence={t('trade.confirm.appeal.consequence')}
+          confirmLabel={t('trade.dispute.appealAction')}
           busy={acting}
           onConfirm={async () => {
             await handleAppeal()
@@ -1276,11 +1276,11 @@ export function Trade() {
         <ConfirmActionDialog
           open
           onOpenChange={(open) => { if (!open) setRoundDialog(null) }}
-          title="Assinar esta transação?"
+          title={t('trade.confirm.sign.title')}
           summary={roundDialog.summary}
-          warnings={['O endereço de destino é o que o nó Sails informou para esta rodada — confira-o antes de assinar.']}
-          consequence="Sua assinatura autoriza esta transação. Com as assinaturas necessárias ela pode ser transmitida e não poderá ser desfeita."
-          confirmLabel="Assinar"
+          warnings={[t('trade.confirm.sign.warnAddress')]}
+          consequence={t('trade.confirm.sign.consequence')}
+          confirmLabel={t('trade.confirm.sign.confirm')}
           busy={acting}
           onConfirm={async () => {
             await handleSignPending(roundDialog)
@@ -1293,11 +1293,11 @@ export function Trade() {
         <ConfirmActionDialog
           open
           onOpenChange={(open) => { if (!open) setRoundDialog(null) }}
-          title="Cancelar esta rodada de assinatura?"
+          title={t('trade.confirm.cancelRound.title')}
           summary={roundDialog.summary}
-          consequence="Encerra esta rodada de assinatura. Assinaturas já entregues continuam válidas para esta mesma transação até o depósito ser gasto."
-          confirmLabel="Cancelar rodada"
-          cancelLabel="Voltar"
+          consequence={t('trade.confirm.cancelRound.consequence')}
+          confirmLabel={t('trade.confirm.cancelRound.confirm')}
+          cancelLabel={t('trade.confirm.cancelRound.back')}
           tone="danger"
           busy={acting}
           onConfirm={async () => {

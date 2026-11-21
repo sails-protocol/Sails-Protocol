@@ -8,17 +8,19 @@
  */
 import type { User } from '../types'
 import type { Explanation, TrustLineItem } from '../components/ui/trustTypes'
+import { t } from '../i18n'
 
 /** One definition of an account's dispute rate for Profile and Meus Trades: disputes opened ÷ completed trades (server counters). */
-export const ACCOUNT_DISPUTE_RATE_DEFINITION =
-  'Trades seus que entraram em disputa ÷ trades concluídos, pelos contadores da sua conta (os mesmos da reputação). Trades reembolsados ou ainda em disputa entram só no numerador; quando a conta não fecha em uma porcentagem, mostramos o número de disputas.'
+export const accountDisputeRateDefinition = () => t('reputation.disputeRateDefinition')
+
+// The explanation objects below use getters so they follow the interface language on every read.
 
 // disputeCount rises on every dispute; totalTrades only on release/split (events/handlers.ts),
 // so refunded or open disputes can push the ratio past 100% or have no denominator at all.
 export function formatAccountDisputeRate(user: Pick<User, 'totalTrades' | 'disputeCount'>): string {
   if (user.disputeCount === 0) return '0%'
   if (user.totalTrades === 0 || user.disputeCount > user.totalTrades) {
-    return `${user.disputeCount} ${user.disputeCount === 1 ? 'disputa' : 'disputas'}`
+    return disputeCountText(user.disputeCount)
   }
   return `${Math.round((user.disputeCount / user.totalTrades) * 100)}%`
 }
@@ -40,23 +42,29 @@ export function canVouch(user: Pick<User, 'totalTrades' | 'reputationScore'>): b
 
 /** The one display format for reputationScore everywhere ("Reputação 96"): an unbounded +2/-5 sum, never a star rating or "pontos". */
 export function formatReputation(score: number): string {
-  return `Reputação ${score.toFixed(0)}`
+  return t('reputation.score', { score: score.toFixed(0) })
 }
+
+// Counts are passed as strings (no digit grouping, as before); pt-BR puts 0 in the "one" plural form, hence the Zero keys.
+const tradeCountText = (n: number) => (n === 0 ? t('reputation.tradesZero') : t('reputation.trades', { count: String(n) }))
+const disputeCountText = (n: number) => (n === 0 ? t('reputation.disputesZero') : t('reputation.disputes', { count: String(n) }))
 
 /**
  * The one copy source for how reputationScore is computed (reputation.service.ts:57-58, RFC-007, RFC-021 D7
  * VOUCH_BURN_PENALTY). An unbounded sum: never shown as a fraction, percentage, stars or tier.
  */
 export const REPUTATION_EXPLANATION: Explanation & { trigger: string } = {
-  title: 'Como a reputação é calculada',
-  lines: [
-    '+2 por trade concluído',
-    '−5 por disputa perdida',
-    '0 em cancelamento de comum acordo ou divisão',
-    '−5 para quem apadrinhou alguém que perde a primeira disputa',
-  ],
-  footer: 'É uma soma de pontos, sem valor máximo: 82 significa 82 pontos acumulados, não 82 de 100. As estrelas são avaliações que as pessoas dão umas às outras depois de um trade: só informativas, nunca mudam a reputação.',
-  trigger: 'Como funciona a reputação',
+  get title() { return t('reputation.explanation.title') },
+  get lines() {
+    return [
+      t('reputation.explanation.completed'),
+      t('reputation.explanation.disputeLost'),
+      t('reputation.explanation.neutral'),
+      t('reputation.explanation.vouchBurn'),
+    ]
+  },
+  get footer() { return t('reputation.explanation.footer') },
+  get trigger() { return t('reputation.explanation.trigger') },
 }
 
 /**
@@ -64,16 +72,16 @@ export const REPUTATION_EXPLANATION: Explanation & { trigger: string } = {
  * the trade parties and the offer detail. Only the reputation is guaranteed; a count the source did not
  * return is left out instead of shown as "—" or a made-up 0.
  */
-export function trustItems(t: { reputationScore: number; totalTrades?: number; disputeCount?: number }): TrustLineItem[] {
-  const items: TrustLineItem[] = [{ kind: 'reputation', text: formatReputation(t.reputationScore), srText: `${formatReputation(t.reputationScore)} pontos` }]
-  if (t.totalTrades !== undefined) items.push({ kind: 'trades', text: `${t.totalTrades} ${t.totalTrades === 1 ? 'trade' : 'trades'}` })
-  if (t.disputeCount !== undefined) items.push({ kind: 'disputes', text: `${t.disputeCount} ${t.disputeCount === 1 ? 'disputa' : 'disputas'}` })
+export function trustItems(s: { reputationScore: number; totalTrades?: number; disputeCount?: number }): TrustLineItem[] {
+  const items: TrustLineItem[] = [{ kind: 'reputation', text: formatReputation(s.reputationScore), srText: t('reputation.scoreSr', { score: s.reputationScore.toFixed(0) }) }]
+  if (s.totalTrades !== undefined) items.push({ kind: 'trades', text: tradeCountText(s.totalTrades) })
+  if (s.disputeCount !== undefined) items.push({ kind: 'disputes', text: disputeCountText(s.disputeCount) })
   return items
 }
 
 /** The same trust line as plain strings, for accessible labels and text use. */
-export function trustParts(t: { reputationScore: number; totalTrades?: number; disputeCount?: number }): string[] {
-  return trustItems(t).map((item) => item.text)
+export function trustParts(s: { reputationScore: number; totalTrades?: number; disputeCount?: number }): string[] {
+  return trustItems(s).map((item) => item.text)
 }
 
 /**
@@ -82,20 +90,12 @@ export function trustParts(t: { reputationScore: number; totalTrades?: number; d
  * "Em breve" with this explanation and no number.
  */
 export const RATINGS_EXPLANATION: Explanation = {
-  title: 'Sobre as avaliações',
-  lines: [
-    'De 1 a 5 estrelas, dadas pela contraparte ao fim de um trade',
-    'Só informativas: não mudam a reputação',
-    'A leitura das avaliações ainda não está disponível',
-  ],
+  get title() { return t('reputation.ratings.title') },
+  get lines() { return [t('reputation.ratings.scale'), t('reputation.ratings.informational'), t('reputation.ratings.unavailable')] },
 }
 
 /** The same explanation when a rating summary is on screen, which today happens only with the dev demo's fictional data. */
 export const RATINGS_DEMO_EXPLANATION: Explanation = {
-  title: RATINGS_EXPLANATION.title,
-  lines: [
-    RATINGS_EXPLANATION.lines[0],
-    RATINGS_EXPLANATION.lines[1],
-    'Números fictícios do modo demonstração: a leitura real das avaliações ainda não está disponível',
-  ],
+  get title() { return RATINGS_EXPLANATION.title },
+  get lines() { return [t('reputation.ratings.scale'), t('reputation.ratings.informational'), t('reputation.ratings.demoUnavailable')] },
 }

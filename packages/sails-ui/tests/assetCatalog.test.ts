@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'fs'
 import { join, relative } from 'path'
 import {
-  ASSET_CATALOG, ASSET_GROUPS, DEV_TEST_PAIR, ENUM_ASSET_TYPES, REFERENCE_NOTE, SIGNING_HOLD_NOTE, SOON_NOTE,
+  ASSET_CATALOG, ASSET_GROUPS, DEV_TEST_PAIR, ENUM_ASSET_TYPES, referenceNote, signingHoldNote, soonNote,
   pairForAssetType, pickerPairs, selectablePairs,
 } from '../src/lib/assetCatalog'
 import { ASSET_LABELS } from '../src/lib/labels'
@@ -28,15 +28,15 @@ describe('asset catalog (ADR-002 §5A, DECISIONS.md "Catálogo de ativos")', () 
   it('only BTC on-chain is available, with the MULTISIG signing HOLD note', () => {
     const available = ASSET_CATALOG.filter((p) => p.availability === 'available')
     expect(available.map((p) => p.id)).toEqual(['btc-bitcoin'])
-    expect(available[0].note).toBe(SIGNING_HOLD_NOTE)
+    expect(available[0].note).toBe(signingHoldNote())
   })
 
   it('every soon pair has a reason; USDT Ethereum is the reference implementation', () => {
     const soon = ASSET_CATALOG.filter((p) => p.availability === 'soon')
     expect(soon).toHaveLength(13)
     for (const p of soon) expect(p.note.length).toBeGreaterThan(0)
-    expect(soon.find((p) => p.id === 'usdt-ethereum')!.note).toBe(REFERENCE_NOTE)
-    expect(soon.filter((p) => p.id !== 'usdt-ethereum').every((p) => p.note === SOON_NOTE)).toBe(true)
+    expect(soon.find((p) => p.id === 'usdt-ethereum')!.note).toBe(referenceNote())
+    expect(soon.filter((p) => p.id !== 'usdt-ethereum').every((p) => p.note === soonNote())).toBe(true)
   })
 
   it('no option is labelled Lightning; the Arkade test rail is dev-only and says so', () => {

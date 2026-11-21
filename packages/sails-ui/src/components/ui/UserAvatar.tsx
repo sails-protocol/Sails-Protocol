@@ -1,5 +1,6 @@
 import type { User } from '../../types'
 import { IdentityAvatar } from './IdentityAvatar'
+import { useUiStrings } from './uiStrings'
 
 // Technical Debt #61 (2026-09-10) — only `id`/`displayName` are ever
 // read below; loosened from the full `User` so callers with a narrower
@@ -37,12 +38,8 @@ export function UserAvatar({
   online?: boolean | null
 }) {
   const seed = user.publicKey || (user.id && user.id !== 'unknown' ? user.id : null)
-  const dotTitle =
-    online === null
-      ? 'Presença ainda não observada nesta sessão'
-      : online
-        ? 'Online agora — visto na sala de chat deste trade'
-        : 'Offline — saiu da sala de chat deste trade'
+  const strings = useUiStrings()
+  const dotTitle = online === null ? strings.presenceUnknown : online ? strings.presenceOnline : strings.presenceOffline
   return (
     <div className="relative shrink-0">
       <IdentityAvatar seed={seed} size={SIZES[size]} />

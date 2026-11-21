@@ -5,6 +5,7 @@ import { sailsClient } from '../../lib/sailsClient'
 import { TONE_CLASS } from '../../lib/tone'
 import { cn } from '../../lib/utils'
 import { TRADES_ROUTES } from './navMatch'
+import { t } from '../../i18n'
 
 /**
  * The viewer's own trades in dispute (getTrades(), first 50, status DISPUTED: the Disputas tab's own list).
@@ -41,17 +42,17 @@ export function TradesTabs({ openDisputes }: { openDisputes?: number | null }) {
   const fetched = useMyDisputedCount(openDisputes === undefined)
   const count = openDisputes === undefined ? fetched : openDisputes
   const items = [
-    { to: TRADES_ROUTES.active, label: 'Ativos' },
-    { to: TRADES_ROUTES.history, label: 'Histórico' },
-    { to: TRADES_ROUTES.offers, label: 'Minhas ofertas' },
+    { to: TRADES_ROUTES.active, label: t('shell.tradesTabs.active') },
+    { to: TRADES_ROUTES.history, label: t('shell.tradesTabs.history') },
+    { to: TRADES_ROUTES.offers, label: t('shell.tradesTabs.offers') },
     {
       to: TRADES_ROUTES.disputes,
       label: (
         <>
-          Disputas
+          {t('shell.tradesTabs.disputes')}
           {count ? (
             <span className={cn('rounded-full border px-1.5 text-caption tabular-nums', TONE_CLASS.warning)}>
-              {count}<span className="sr-only"> em disputa</span>
+              {count}<span className="sr-only">{` ${t('shell.tradesTabs.inDispute')}`}</span>
             </span>
           ) : null}
         </>

@@ -19,6 +19,7 @@ import { TRADES_ROUTES } from '../components/layout/navMatch'
 import { StateBlock } from '../components/ui/StateBlock'
 import { TABLE_HEAD_ROW, TABLE_ROW, TABLE_ROW_INTERACTIVE } from '../components/ui/table'
 import type { EscrowStatus } from '../types'
+import { t } from '../i18n'
 
 // Trades still awaiting resolution from this trader's own point of view —
 // COMPLETED/CANCELLED already have a home in TradeHistory.tsx. DISPUTED
@@ -76,7 +77,7 @@ export function ActiveTrades() {
         setRows(next)
       })
       .catch((err) => {
-        if (!cancelled) setError(errorMessage(err, 'Falha ao carregar trades'))
+        if (!cancelled) setError(errorMessage(err, t('trades.active.loadFailed')))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -91,7 +92,7 @@ export function ActiveTrades() {
   const yourTurnCount = rows.filter((r) => r.next?.yourTurn).length
   const signedOut = !authLoading && !user
   const meta = !signedOut && !error && !loading && rows.length > 0
-    ? `${rows.length} ${rows.length === 1 ? 'trade em andamento' : 'trades em andamento'}${yourTurnCount > 0 ? ` · ${yourTurnCount} ${yourTurnCount === 1 ? 'aguarda' : 'aguardam'} você` : ''}`
+    ? `${t('trades.active.count', { count: rows.length })}${yourTurnCount > 0 ? ` · ${t('trades.active.waiting', { count: yourTurnCount })}` : ''}`
     : undefined
 
   return (
@@ -103,60 +104,60 @@ export function ActiveTrades() {
       {signedOut ? (
         <StateBlock
           kind="signedOut"
-          title="Conecte sua wallet"
-          description="Conecte sua wallet para ver seus trades ativos."
-          action={<Link to="/login" state={{ from: TRADES_ROUTES.active }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Conectar wallet</Link>}
+          title={t('trades.connectTitle')}
+          description={t('trades.active.signedOutDescription')}
+          action={<Link to="/login" state={{ from: TRADES_ROUTES.active }} className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>{t('trades.connect')}</Link>}
         />
       ) : error ? (
         <StateBlock
           kind="error"
-          title="Não foi possível carregar seus trades"
+          title={t('trades.active.errorTitle')}
           description={error}
-          action={<Button variant="outline" onClick={load} className="min-h-9 touch:min-h-11 px-4">Tentar novamente</Button>}
+          action={<Button variant="outline" onClick={load} className="min-h-9 touch:min-h-11 px-4">{t('trades.retry')}</Button>}
         />
       ) : authLoading || loading ? (
         <Card className="overflow-hidden">
-          <ListSkeleton label="Carregando trades ativos" rows={3} rowClassName="h-[6.125rem] lg:h-[3.75rem]" />
+          <ListSkeleton label={t('trades.active.loading')} rows={3} rowClassName="h-[6.125rem] lg:h-[3.75rem]" />
         </Card>
       ) : rows.length === 0 ? (
         <StateBlock
           kind="empty"
-          title="Nenhum trade ativo"
-          description="Quando você iniciar um trade a partir de uma oferta, ele aparece aqui com o próximo passo."
-          action={<Link to="/" className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Explorar Market</Link>}
+          title={t('trades.active.emptyTitle')}
+          description={t('trades.active.emptyDescription')}
+          action={<Link to="/" className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>{t('trades.exploreMarket')}</Link>}
         />
       ) : (
         <Card className="overflow-hidden">
           <div aria-hidden="true" className={cn(TABLE_HEAD_ROW, 'hidden', COLS)}>
-            <span>Valor</span>
-            <span>Papel</span>
-            <span>Status</span>
-            <span>Próxima ação</span>
-            <span className="text-right">Atualizado</span>
+            <span>{t('trades.col.amount')}</span>
+            <span>{t('trades.col.role')}</span>
+            <span>{t('trades.col.status')}</span>
+            <span>{t('trades.active.col.next')}</span>
+            <span className="text-right">{t('trades.col.updated')}</span>
             <span />
           </div>
           <ul>
-            {rows.map(({ trade: t, isBuyer, next }) => (
-              <li key={t.id} className={TABLE_ROW}>
+            {rows.map(({ trade: tr, isBuyer, next }) => (
+              <li key={tr.id} className={TABLE_ROW}>
                 <Link
-                  to={`/trade/${t.id}`}
+                  to={`/trade/${tr.id}`}
                   className={cn('flex flex-col gap-1 px-4 py-3', TABLE_ROW_INTERACTIVE, COLS)}
                 >
                   <span className="flex items-center justify-between gap-3 lg:block">
                     <span className="min-w-0">
-                      <span className="money block text-brand-text">{formatAmount(Number(t.amount))} {ASSET_SHORT_LABELS[t.asset]}</span>
-                      <span className="hidden lg:block text-xs text-brand-text-muted tabular-nums">{formatUsd(Number(t.totalUsd))} USD</span>
+                      <span className="money block text-brand-text">{formatAmount(Number(tr.amount))} {ASSET_SHORT_LABELS[tr.asset]}</span>
+                      <span className="hidden lg:block text-xs text-brand-text-muted tabular-nums">{formatUsd(Number(tr.totalUsd))} USD</span>
                     </span>
-                    <span className="lg:hidden"><TradeStatusBadge status={t.status} /></span>
+                    <span className="lg:hidden"><TradeStatusBadge status={tr.status} /></span>
                   </span>
-                  <span className="hidden lg:block text-sm text-brand-text-secondary">{isBuyer ? 'Comprador' : 'Vendedor'}</span>
-                  <span className="hidden lg:block"><TradeStatusBadge status={t.status} /></span>
+                  <span className="hidden lg:block text-sm text-brand-text-secondary">{t(isBuyer ? 'trades.role.buyer' : 'trades.role.seller')}</span>
+                  <span className="hidden lg:block"><TradeStatusBadge status={tr.status} /></span>
                   <span className={cn('text-sm', next?.yourTurn ? 'font-medium text-brand-orange-accent' : 'text-brand-text-secondary')}>
-                    {next ? next.text : 'Próxima ação não disponível'}
+                    {next ? next.text : t('trades.active.noNext')}
                   </span>
                   <span className="text-xs text-brand-text-muted tabular-nums lg:text-right">
-                    <span className="lg:hidden">{isBuyer ? 'Comprador' : 'Vendedor'} · {formatUsd(Number(t.totalUsd))} USD · </span>
-                    {formatDateTime(t.updatedAt)}
+                    <span className="lg:hidden">{t(isBuyer ? 'trades.role.buyer' : 'trades.role.seller')} · {formatUsd(Number(tr.totalUsd))} USD · </span>
+                    {formatDateTime(tr.updatedAt)}
                   </span>
                   <ChevronRight className="hidden lg:block h-4 w-4 text-brand-text-muted" aria-hidden="true" />
                 </Link>

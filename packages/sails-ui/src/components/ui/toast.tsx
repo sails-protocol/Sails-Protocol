@@ -8,6 +8,7 @@
 import { toast as sonner, Toaster as Sonner, type ExternalToast } from 'sonner'
 import { AlertTriangle, CheckCircle2, Info, Loader2, X, XCircle } from 'lucide-react'
 import { toastDuration, type ToastKind } from '../../lib/toast'
+import { useUiStrings } from './uiStrings'
 
 type Message = Parameters<typeof sonner.success>[0]
 
@@ -31,13 +32,14 @@ const ICON = 'size-icon shrink-0'
 export const TOAST_CLASS = 'flex w-full items-center gap-3 rounded-md bg-brand-inverse py-3 pl-4 pr-2 text-body-sm text-brand-on-inverse shadow-elevation-2'
 
 export function Toaster({ position, theme }: { position: 'top-center' | 'bottom-right'; theme: 'light' | 'dark' }) {
+  const strings = useUiStrings()
   return (
     <Sonner
       position={position}
       theme={theme}
       visibleToasts={3}
       gap={8}
-      containerAriaLabel="Notificações"
+      containerAriaLabel={strings.notifications}
       icons={{
         success: <CheckCircle2 aria-hidden="true" className={`${ICON} text-brand-inverse-success`} />,
         info: <Info aria-hidden="true" className={`${ICON} text-brand-inverse-info`} />,
@@ -48,7 +50,7 @@ export function Toaster({ position, theme }: { position: 'top-center' | 'bottom-
       }}
       toastOptions={{
         unstyled: true,
-        closeButtonAriaLabel: 'Fechar',
+        closeButtonAriaLabel: strings.close,
         classNames: {
           // No border: the inverse surface and elevation-2 separate it from any page.
           toast: TOAST_CLASS,

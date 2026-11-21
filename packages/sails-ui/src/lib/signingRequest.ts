@@ -16,6 +16,8 @@
  * address the user registered, and the fee is not bounded — the copy says
  * so instead of claiming "the trade terms".
  */
+import { getLocale } from './locale'
+import { t } from '../i18n'
 import type { EscrowPendingTransaction } from '@satsails/p2p-trading-sdk'
 
 export type SigningVerification =
@@ -43,7 +45,7 @@ export interface SigningRequestView {
 
 export type PendingForView = Pick<EscrowPendingTransaction, 'kind' | 'toAddress' | 'toAddressSecondary' | 'requiredSigners' | 'signedBy'>
 
-export const UNKNOWN_SIGNER = 'Participante não identificado'
+export const unknownSignerLabel = () => t('escrow.signing.unknownSigner')
 
 /** The round a confirmation dialog was opened for. */
 export type RoundSnapshot = Pick<EscrowPendingTransaction, 'id' | 'unsignedPsbtBase64'>
@@ -53,44 +55,44 @@ export function roundSnapshotChanged(snapshot: RoundSnapshot, current: RoundSnap
   return !current || current.id !== snapshot.id || current.unsignedPsbtBase64 !== snapshot.unsignedPsbtBase64
 }
 
-const ACTION: Record<EscrowPendingTransaction['kind'], string> = {
-  release: 'Autorizar a liberação dos fundos ao comprador',
-  refund: 'Autorizar o reembolso dos fundos ao vendedor',
-  split: 'Autorizar a divisão dos fundos entre comprador e vendedor',
-}
+const ACTION = {
+  release: 'escrow.signing.actionRelease',
+  refund: 'escrow.signing.actionRefund',
+  split: 'escrow.signing.actionSplit',
+} as const satisfies Record<EscrowPendingTransaction['kind'], string>
 
 export function signingActionLabel(kind: EscrowPendingTransaction['kind']): string {
-  return ACTION[kind]
+  return t(ACTION[kind])
 }
 
 export function formatSats(sats: bigint): string {
-  return `${sats.toLocaleString('pt-BR')} sats`
+  return `${sats.toLocaleString(getLocale())} sats`
 }
 
 function destinationsFor(p: PendingForView): { label: string; address: string }[] {
-  if (p.kind === 'refund') return [{ label: 'Endereço do vendedor', address: p.toAddress }]
-  const out = [{ label: 'Endereço do comprador', address: p.toAddress }]
-  if (p.kind === 'split' && p.toAddressSecondary) out.push({ label: 'Endereço do vendedor', address: p.toAddressSecondary })
+  if (p.kind === 'refund') return [{ label: t('escrow.signing.sellerAddress'), address: p.toAddress }]
+  const out = [{ label: t('escrow.signing.buyerAddress'), address: p.toAddress }]
+  if (p.kind === 'split' && p.toAddressSecondary) out.push({ label: t('escrow.signing.sellerAddress'), address: p.toAddressSecondary })
   return out
 }
 
 // SDK mismatch field names (wallet-verification.ts) in plain language; deduplicated.
 export function describeMismatches(fields: string[]): string[] {
-  const text = (f: string) =>
-    f === 'psbt' ? 'Não foi possível ler a transação recebida.'
-    : f === 'network' ? 'A rede Bitcoin da transação não confere.'
-    : f.startsWith('input') ? 'A transação não gasta o depósito deste escrow.'
-    : f === 'witnessScript' || f === 'threshold' || f === 'participantPubkeys' ? 'As chaves do escrow na transação não conferem.'
-    : /^outputs(\[\d+\])?\.value$/.test(f) ? 'O valor enviado é diferente do esperado.'
-    : f.startsWith('outputs') ? 'O destino dos fundos é diferente do esperado.'
-    : f === 'minerFee' ? 'A taxa de rede é diferente da registrada.'
-    : 'Um campo da transação não confere com o esperado.'
-  return [...new Set(fields.map(text))]
+  const key = (f: string) =>
+    f === 'psbt' ? 'escrow.signing.mismatchPsbt'
+    : f === 'network' ? 'escrow.signing.mismatchNetwork'
+    : f.startsWith('input') ? 'escrow.signing.mismatchInput'
+    : f === 'witnessScript' || f === 'threshold' || f === 'participantPubkeys' ? 'escrow.signing.mismatchKeys'
+    : /^outputs(\[\d+\])?\.value$/.test(f) ? 'escrow.signing.mismatchValue'
+    : f.startsWith('outputs') ? 'escrow.signing.mismatchDestination'
+    : f === 'minerFee' ? 'escrow.signing.mismatchMinerFee'
+    : 'escrow.signing.mismatchOther'
+  return [...new Set(fields.map(key))].map((k) => t(k))
 }
 
 function outputLabel(address: string, index: number, destinations: { label: string; address: string }[], protocolFeeAddress?: string | null) {
   return destinations.find((d) => d.address === address)?.label
-    ?? (protocolFeeAddress && address === protocolFeeAddress ? 'Taxa do protocolo' : `Saída ${index + 1}`)
+    ?? (protocolFeeAddress && address === protocolFeeAddress ? t('escrow.signing.protocolFee') : t('escrow.signing.output', { n: index + 1 }))
 }
 
 // Labels double as list/summary keys: suffix repeats so every key is unique.
@@ -108,31 +110,33 @@ function checkFor(v: SigningVerification, destinations: { label: string; address
     case 'verified':
       return {
         tone: 'ok',
-        title: 'Conferido com a transação informada pelo nó Sails para este escrow',
-        note: 'Conferido: a transação gasta o depósito deste escrow e paga exatamente os destinos, valores e a taxa de rede abaixo. O endereço de destino é o que o nó Sails informou para esta rodada — confira-o.',
+        title: t('escrow.signing.verifiedTitle'),
+        note: t('escrow.signing.verifiedNote'),
         items: uniqueLabels([
-          ...v.outputs.map((o, i) => ({ label: outputLabel(o.address, i, destinations, protocolFeeAddress), value: `${formatSats(o.sats)} para ${o.address}`, mono: true })),
-          { label: 'Taxa de rede', value: formatSats(v.minerFeeSats) },
+          ...v.outputs.map((o, i) => ({ label: outputLabel(o.address, i, destinations, protocolFeeAddress), value: t('escrow.signing.outputValue', { amount: formatSats(o.sats), address: o.address }), mono: true })),
+          { label: t('escrow.signing.networkFee'), value: formatSats(v.minerFeeSats) },
         ]),
       }
     case 'mismatch':
       return {
         tone: 'danger',
-        title: 'A transação não corresponde ao que era esperado para este escrow — não assine',
+        title: t('escrow.signing.mismatchTitle'),
         items: describeMismatches(v.fields).map((m) => ({ label: m, value: '' })),
       }
     case 'cannotVerify':
-      return { tone: 'unavailable', title: 'Não foi possível conferir a transação', items: [{ label: v.reason, value: '' }] }
+      return { tone: 'unavailable', title: t('escrow.signing.cannotVerifyTitle'), items: [{ label: v.reason, value: '' }] }
     case 'unsupported':
       return {
         tone: 'unavailable',
-        title: 'Assinatura indisponível nesta interface para este tipo de escrow: ainda não há verificação dos termos antes de assinar.',
+        title: t('escrow.signing.unsupportedTitle'),
         items: [],
       }
   }
 }
 
-const WAITING_FOR: Record<string, string> = { Comprador: 'Aguardando a assinatura do comprador.', Vendedor: 'Aguardando a assinatura do vendedor.' }
+// Matched against the signer label the page gives (escrow.actor.buyer / .seller); any other label gets the generic count.
+const waitingFor = (label: string): string | null =>
+  label === t('escrow.actor.buyer') ? t('escrow.signing.waitingBuyer') : label === t('escrow.actor.seller') ? t('escrow.signing.waitingSeller') : null
 
 export function deriveSigningRequest({ pending, viewerId, verification, signerLabel, disputed = false, canCancel = false, protocolFeeAddress }: {
   pending: PendingForView
@@ -147,53 +151,51 @@ export function deriveSigningRequest({ pending, viewerId, verification, signerLa
 }): SigningRequestView {
   const signedAt = new Map((pending.signedBy ?? []).map((s) => [s.participantId, s.submittedAt]))
   const signedIds = new Set(signedAt.keys())
-  const signers = pending.requiredSigners.map((id) => ({ label: signerLabel(id), signed: signedIds.has(id), statusText: signedIds.has(id) ? 'Assinou' : 'Pendente', at: signedAt.get(id) ?? null }))
+  const signers = pending.requiredSigners.map((id) => ({ label: signerLabel(id), signed: signedIds.has(id), statusText: t(signedIds.has(id) ? 'escrow.signing.signed' : 'escrow.signing.pending'), at: signedAt.get(id) ?? null }))
   const signed = signers.filter((s) => s.signed).length
   const required = signers.length
   const remaining = signers.filter((s) => !s.signed)
-  const progress = { signed, required, text: `${signed} de ${required} assinaturas` }
+  const progress = { signed, required, text: t('escrow.round.progress', { signed, count: required }) }
   const destinations = destinationsFor(pending)
-  const title = ACTION[pending.kind]
+  const title = t(ACTION[pending.kind])
   const mustSign = !!viewerId && pending.requiredSigners.includes(viewerId) && !signedIds.has(viewerId)
-  const base = { title, destinations, progress, signers, refreshLabel: 'Atualizar' }
+  const base = { title, destinations, progress, signers, refreshLabel: t('escrow.signing.refresh') }
 
   if (remaining.length === 0) {
     return {
-      ...base, state: 'complete', actorLabel: 'Assinaturas registradas',
-      description: 'Todas as assinaturas necessárias foram registradas. Isso não confirma a transmissão nem a confirmação da transação na rede.',
+      ...base, state: 'complete', actorLabel: t('escrow.signing.completeActor'),
+      description: t('escrow.signing.completeDescription'),
     }
   }
   if (!mustSign) {
     return {
-      ...base, state: 'waiting', actorLabel: 'Aguardando assinaturas',
-      description: (remaining.length === 1 && WAITING_FOR[remaining[0].label]) || `Aguardando assinatura de ${remaining.length} participante(s).`,
+      ...base, state: 'waiting', actorLabel: t('escrow.signing.waitingActor'),
+      description: (remaining.length === 1 && waitingFor(remaining[0].label)) || t('escrow.signing.waitingMany', { count: remaining.length }),
     }
   }
   if (disputed) {
     return {
-      ...base, state: 'blocked', actorLabel: 'Trade em disputa',
-      check: { tone: 'unavailable', title: 'Esta interface não consegue confirmar se esta rodada vem da decisão da disputa.', items: [] },
-      description: 'Você não pode prosseguir por esta interface.',
+      ...base, state: 'blocked', actorLabel: t('escrow.action.disputed.title'),
+      check: { tone: 'unavailable', title: t('escrow.signing.disputedCheck'), items: [] },
+      description: t('escrow.signing.cannotProceed'),
     }
   }
   // A payout address equal to the protocol fee address means an inconsistent round: never verified.
   const feeCollision = !!protocolFeeAddress && (pending.toAddress === protocolFeeAddress || pending.toAddressSecondary === protocolFeeAddress)
   const effective: SigningVerification = feeCollision
-    ? { status: 'cannotVerify', reason: 'O endereço de destino informado é o mesmo endereço da taxa do protocolo — rodada inconsistente.' }
+    ? { status: 'cannotVerify', reason: t('escrow.signing.feeCollision') }
     : verification
   const check = checkFor(effective, destinations, protocolFeeAddress)
   if (effective.status !== 'verified') {
     return {
-      ...base, state: 'blocked', actorLabel: 'Sua assinatura é pedida', check,
-      description: canCancel
-        ? 'Esta interface não oferece a assinatura desta transação. Você pode cancelar esta rodada de assinatura.'
-        : 'Você não pode prosseguir por esta interface.',
-      ...(canCancel ? { cancel: { label: 'Cancelar rodada de assinatura' } } : {}),
+      ...base, state: 'blocked', actorLabel: t('escrow.signing.blockedActor'), check,
+      description: t(canCancel ? 'escrow.signing.blockedCancelDescription' : 'escrow.signing.cannotProceed'),
+      ...(canCancel ? { cancel: { label: t('escrow.signing.cancelRound') } } : {}),
     }
   }
   return {
-    ...base, state: 'sign', actorLabel: 'Ação necessária — sua assinatura', check,
-    description: 'Revise o destino e os valores conferidos antes de assinar.',
-    primary: { label: 'Revisar e assinar' },
+    ...base, state: 'sign', actorLabel: t('escrow.signing.signActor'), check,
+    description: t('escrow.signing.signDescription'),
+    primary: { label: t('escrow.signing.signLabel') },
   }
 }

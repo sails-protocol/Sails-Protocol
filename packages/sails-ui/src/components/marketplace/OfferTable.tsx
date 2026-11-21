@@ -16,8 +16,7 @@ import { ExplanationPopover } from '../ui/ExplanationPopover'
 import { REPUTATION_EXPLANATION } from '../../lib/reputation'
 import { offerRatings, ratingCompactItem } from '../../lib/ratings'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table'
-
-const SELLER_FALLBACK = 'Anunciante'
+import { t } from '../../i18n'
 
 /**
  * Desktop offer table: Anunciante | Preço | Limites | Pagamento | Ação.
@@ -27,7 +26,7 @@ const SELLER_FALLBACK = 'Anunciante'
 export function OfferTable({ offers, isOwn }: { offers: Offer[]; isOwn?: (offer: Offer) => boolean }) {
   return (
     <Table className="table-fixed">
-      <caption className="sr-only">Ofertas</caption>
+      <caption className="sr-only">{t('market.results.list')}</caption>
       {/* Fixed widths (narrower from 1024, full from 1280); only the seller column absorbs extra width. */}
       <colgroup>
         <col />
@@ -41,14 +40,14 @@ export function OfferTable({ offers, isOwn }: { offers: Offer[]; isOwn?: (offer:
           <TableHead className="pl-5">
             {/* The explanation sits in the header, not in a row: each row is already one stretched link. */}
             <span className="inline-flex items-center gap-1.5">
-              Anunciante
+              {t('market.offer.seller')}
               <ExplanationPopover explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.title} />
             </span>
           </TableHead>
-          <TableHead>Preço</TableHead>
-          <TableHead>Limites</TableHead>
-          <TableHead>Pagamento</TableHead>
-          <TableHead className="pr-5"><span className="sr-only">Ação</span></TableHead>
+          <TableHead>{t('market.table.price')}</TableHead>
+          <TableHead>{t('market.table.limits')}</TableHead>
+          <TableHead>{t('market.field.payment')}</TableHead>
+          <TableHead className="pr-5"><span className="sr-only">{t('market.table.action')}</span></TableHead>
         </tr>
       </TableHeader>
       <TableBody>
@@ -61,7 +60,8 @@ export function OfferTable({ offers, isOwn }: { offers: Offer[]; isOwn?: (offer:
 function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
   const { name, items } = sellerTrust(offer)
   // The viewer's own offer gets no trade action, only a quiet link to the offer.
-  const action = own ? 'Sua oferta' : offer.side === 'SELL' ? 'Comprar' : 'Vender'
+  const action = own ? t('market.offer.yours') : offer.side === 'SELL' ? t('labels.side.buy') : t('labels.side.sell')
+  const seller = name ?? t('market.offer.seller')
   const price = formatPrice(offer.priceFiat, offer.fiatCurrency)
   const limits = `${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}`
   // Real offers carry one method; only the dev demo has several (offerPaymentMethods).
@@ -69,17 +69,17 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
   // Ratings: dev demo only until LOOSE_WIRES.readRatings; real rows show nothing. Same line as the trust line when it fits, else wraps.
   const ratings = offerRatings(offer)
   const rating = ratings ? ratingCompactItem(ratings) : null
-  const label = `${action} ${ASSET_LABELS[offer.asset]} por ${price}, ${name ?? SELLER_FALLBACK}${rating ? `, ${rating.srText}` : ''}, ${methods.join(', ')}, limites ${limits}`
+  const label = t('market.offer.rowLabel', { action, asset: ASSET_LABELS[offer.asset], price, seller, rating: rating ? `, ${rating.srText}` : '', methods: methods.join(', '), limits })
 
   return (
     <TableRow interactive className="relative h-[4.25rem]">
       <TableCell className="pl-5">
         <div className="flex items-center gap-2.5 min-w-0">
-          <UserAvatar user={{ id: offer.user.id, displayName: name ?? SELLER_FALLBACK }} size="sm" />
+          <UserAvatar user={{ id: offer.user.id, displayName: seller }} size="sm" />
           <div className="min-w-0">
             <div className="flex items-center gap-1">
-              <span data-seller-name className="text-sm font-medium text-brand-text truncate">{name ?? SELLER_FALLBACK}</span>
-              {offer.user.verified && <Check aria-label="Verificado" className="h-3.5 w-3.5 shrink-0 text-brand-orange-accent" />}
+              <span data-seller-name className="text-sm font-medium text-brand-text truncate">{seller}</span>
+              {offer.user.verified && <Check aria-label={t('market.offer.verified')} className="h-3.5 w-3.5 shrink-0 text-brand-orange-accent" />}
             </div>
             <TrustLine items={rating ? [...items, rating] : items} className="block text-xs text-brand-text-muted" />
           </div>
@@ -87,7 +87,7 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
       </TableCell>
       <TableCell>
         <div data-price className="money-lg text-brand-text whitespace-nowrap">{price}</div>
-        <div className="flex items-center gap-1 text-xs text-brand-text-muted whitespace-nowrap">por <AssetNetworkLabel asset={offer.asset} /></div>
+        <div className="flex items-center gap-1 text-xs text-brand-text-muted whitespace-nowrap">{t('market.offer.per')} <AssetNetworkLabel asset={offer.asset} /></div>
       </TableCell>
       <TableCell className="text-body-sm text-brand-text-secondary tabular-nums whitespace-nowrap">{limits}</TableCell>
       <TableCell>

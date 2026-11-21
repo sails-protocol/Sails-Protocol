@@ -1,5 +1,5 @@
 import type { Dispute, Escrow } from '@satsails/p2p-trading-sdk'
-import { decisionOptions, multisigPendingSigner, parseEvidence, partyIdFor, partyRole, safeHttpHref, selectableOption, splitUnavailableHere, SPLIT_UNAVAILABLE_REASON } from '../src/lib/disputeCase'
+import { decisionOptions, multisigPendingSigner, parseEvidence, partyIdFor, partyRole, safeHttpHref, selectableOption, splitUnavailableHere, splitUnavailableReason } from '../src/lib/disputeCase'
 
 const dispute = (patch: Partial<Dispute> = {}): Dispute => ({
   id: 'd1', tradeId: 't1', escrowId: 'e1', openedBy: 'u1', reason: 'r', evidence: [], arbiterId: 'a1', status: 'OPENED',
@@ -17,7 +17,7 @@ describe('arbiter decision options', () => {
   })
   it('shows MULTISIG SPLIT disabled with a reason, never selectable', () => {
     const opts = decisionOptions(dispute(), 'MULTISIG')
-    expect(opts.find((o) => o.value === 'SPLIT')?.unavailableReason).toBe(SPLIT_UNAVAILABLE_REASON)
+    expect(opts.find((o) => o.value === 'SPLIT')?.unavailableReason).toBe(splitUnavailableReason())
     expect(selectableOption(opts, 'SPLIT')).toBeNull()
     expect(selectableOption(opts, 'RELEASE')?.ruling).toBe('RELEASE')
     for (const t of ['MOCK', 'WDK_USDT_EVM'] as const) {
@@ -29,7 +29,7 @@ describe('arbiter decision options', () => {
   it('blocks accepting a SPLIT suggestion on MULTISIG with the same reason', () => {
     const d = dispute({ status: 'AUTO_PROPOSED', autoResolutionRecommendation: 'SPLIT' })
     const multisig = decisionOptions(d, 'MULTISIG')
-    expect(multisig.find((o) => o.value === 'SUGGESTION')).toMatchObject({ ruling: 'SPLIT', unavailableReason: SPLIT_UNAVAILABLE_REASON })
+    expect(multisig.find((o) => o.value === 'SUGGESTION')).toMatchObject({ ruling: 'SPLIT', unavailableReason: splitUnavailableReason() })
     expect(selectableOption(multisig, 'SUGGESTION')).toBeNull()
     expect(splitUnavailableHere('SPLIT', 'MULTISIG')).toBe(true)
     expect(selectableOption(decisionOptions(d, 'MOCK'), 'SUGGESTION')?.ruling).toBe('SPLIT')

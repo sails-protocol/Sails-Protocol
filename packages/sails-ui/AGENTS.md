@@ -23,6 +23,6 @@
 - [ ] Keyboard and screen-reader basics checked: names, focus, live regions only where needed.
 - [ ] [Vercel Web Interface Guidelines](https://github.com/vercel-labs/web-interface-guidelines) reviewed, with findings listed as file:line.
 - [ ] LF line endings only.
-- [ ] Copy in pt-BR, sentence case. Use "nó Sails", never "servidor".
+- [ ] Copy comes from `t()` (pt-BR source catalog plus en, es, fr, de in `src/i18n/areas/`, DESIGN_SYSTEM.md 7.3), sentence case. Use "nó Sails", never "servidor"; money, dispute, deadline, reputation, custody and confirmation keys go in the native-review list.
 
 If a linked file moves, fix the link here; do not copy its rules into this file.

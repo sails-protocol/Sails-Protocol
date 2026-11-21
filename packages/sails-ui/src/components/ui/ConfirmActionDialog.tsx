@@ -9,6 +9,7 @@ import { useEffect, useRef } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Button } from './button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './dialog'
+import { useUiStrings } from './uiStrings'
 
 export interface ConfirmActionDialogProps {
   open: boolean
@@ -25,8 +26,9 @@ export interface ConfirmActionDialogProps {
 }
 
 export function ConfirmActionDialog({
-  open, onOpenChange, title, summary, warnings, consequence, confirmLabel, cancelLabel = 'Cancelar', onConfirm, busy = false, tone = 'default',
+  open, onOpenChange, title, summary, warnings, consequence, confirmLabel, cancelLabel, onConfirm, busy = false, tone = 'default',
 }: ConfirmActionDialogProps) {
+  const strings = useUiStrings()
   const cancelRef = useRef<HTMLButtonElement>(null)
   // Controlled dialog without a Radix Trigger: remember the opener so focus can go back to it.
   const openerRef = useRef<HTMLElement | null>(null)
@@ -76,7 +78,7 @@ export function ConfirmActionDialog({
 
         <DialogFooter className="gap-2 sm:gap-0">
           <Button ref={cancelRef} variant="outline" onClick={() => onOpenChange(false)} disabled={busy} className="min-h-11">
-            {cancelLabel}
+            {cancelLabel ?? strings.cancel}
           </Button>
           <Button variant={tone === 'danger' ? 'destructive' : 'default'} onClick={onConfirm} loading={busy} className="min-h-11">
             {confirmLabel}

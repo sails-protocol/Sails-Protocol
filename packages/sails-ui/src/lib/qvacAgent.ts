@@ -27,6 +27,7 @@
 import { sailsClient } from './sailsClient'
 import { ASSETS, PAYMENT_METHODS } from '../data/mock'
 import type { AssetType, FiatCurrency, PaymentMethod, TradeSide } from '../types'
+import { t } from '../i18n'
 
 export interface AgentGeneratedIntent {
   asset: AssetType
@@ -96,7 +97,7 @@ export async function assessRiskWithQvac(intent: {
     // guards against the UI's own broader AssetType (DEPIX and other
     // UI-only additions, see types.ts's own comment) reaching a route
     // whose schema is the narrower real backend enum.
-    throw new Error(`Ativo "${intent.asset}" não é suportado pela avaliação de risco do Sails Agent`)
+    throw new Error(t('agent.risk.unsupportedAsset', { asset: intent.asset }))
   }
   // The real route's response shape (IntentRiskAssessment) already
   // matches AgentRiskAssessment exactly — no reshaping needed, just the

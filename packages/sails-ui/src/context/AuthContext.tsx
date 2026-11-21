@@ -45,6 +45,7 @@ import { sailsClient } from '../lib/sailsClient'
 import { deriveKeyFromPassphrase, encryptBytes, decryptBytes } from '../lib/keyEncryption'
 import { WrongPassphraseError } from '../lib/errors'
 import { createSessionEpochGate } from '../lib/sessionEpochGate'
+import { t } from '../i18n'
 
 const KEYPAIR_STORAGE_KEY = 'sails_ui_keypair_secret_hex'
 
@@ -122,7 +123,7 @@ async function storeKeypair(encryptionKey: CryptoKey, kp: Ed25519Keypair) {
   try {
     localStorage.setItem(KEYPAIR_STORAGE_KEY, packed)
   } catch {
-    throw new Error('Não foi possível salvar sua chave neste navegador (modo privado ou armazenamento cheio) — tente em uma janela normal ou libere espaço.')
+    throw new Error(t('auth.errors.saveKeyFailed'))
   }
 }
 

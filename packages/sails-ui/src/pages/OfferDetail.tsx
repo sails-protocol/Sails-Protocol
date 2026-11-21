@@ -31,6 +31,7 @@ import { TrustLine } from '../components/ui/TrustLine'
 import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import { useAuth } from '../context/AuthContext'
 import type { FiatCurrency } from '../types'
+import { t } from '../i18n'
 
 // Technical Debt #61 (2026-09-10) — this view model now maps directly
 // from the SDK's own PublicOfferDetail (liquidity.getOffer()'s real
@@ -133,7 +134,7 @@ export function OfferDetail() {
         if (cancelled) return
         setOffer(null)
         const notFound = err instanceof SailsNotFoundError || (err instanceof SailsTransportError && err.statusCode === 404)
-        if (!notFound) setFetchError(errorMessage(err, 'Não foi possível carregar esta oferta agora.'))
+        if (!notFound) setFetchError(errorMessage(err, t('offer.loadErrorFallback')))
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
@@ -150,16 +151,16 @@ export function OfferDetail() {
       <Page width="detail">
         <div className="mb-4">{back}</div>
         {loading ? (
-          <StateBlock kind="loading" title="Carregando oferta" />
+          <StateBlock kind="loading" title={t('offer.loading')} />
         ) : (
           <StateBlock
             kind={fetchError ? 'error' : 'empty'}
             icon={fetchError ? undefined : SearchX}
-            title={fetchError ? 'Não foi possível carregar a oferta' : 'Oferta não encontrada'}
-            description={fetchError ?? 'Ela não existe ou não está mais disponível.'}
+            title={fetchError ? t('offer.error.title') : t('offer.notFound.title')}
+            description={fetchError ?? t('offer.notFound.description')}
             action={fetchError
-              ? <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-9 touch:min-h-11 px-4">Tentar novamente</Button>
-              : <Link to="/" className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>Voltar ao Market</Link>}
+              ? <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} className="min-h-9 touch:min-h-11 px-4">{t('market.retry')}</Button>
+              : <Link to="/" className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>{t('offer.backToMarket')}</Link>}
           />
         )}
       </Page>
@@ -179,7 +180,7 @@ export function OfferDetail() {
 
   const handleStartTrade = async () => {
     if (!user) {
-      toast.error('Conecte sua wallet primeiro')
+      toast.error(t('offer.toast.connectWallet'))
       // Carrega para onde voltar e o valor já digitado — sem isso o
       // usuário conectava a carteira e caía no Marketplace, tendo que
       // reencontrar a oferta e digitar tudo de novo.
@@ -187,11 +188,11 @@ export function OfferDetail() {
       return
     }
     if (isOwnOffer) {
-      toast.error('Você não pode negociar com sua própria oferta')
+      toast.error(t('offer.toast.ownOffer'))
       return
     }
     if (!amountNum || !withinLimits) {
-      toast.error('Informe uma quantidade dentro do limite da oferta')
+      toast.error(t('offer.toast.outOfLimits'))
       return
     }
     setStartingTrade(true)
@@ -208,10 +209,10 @@ export function OfferDetail() {
       // downstream of trade creation) irrelevant, since navigation below
       // leaves this screen.
       tradeIdempotencyKeyRef.current = crypto.randomUUID()
-      toast.success('Trade iniciado')
+      toast.success(t('offer.toast.started'))
       navigate(`/trade/${trade.id}`, { state: { offer, amount: amountNum } })
     } catch (err) {
-      toast.error(errorMessage(err, 'Falha ao iniciar trade'))
+      toast.error(errorMessage(err, t('offer.toast.startFailed')))
     } finally {
       setStartingTrade(false)
     }
@@ -222,29 +223,29 @@ export function OfferDetail() {
   const memberSince = sellerMemberSince(offer.seller)
   return (
     <Page width="detail">
-      <PageHeader back={back} title={`Oferta de ${ASSET_LABELS[offer.asset]}`} meta={sellerName ? `Anunciada por ${sellerName}` : undefined} />
+      <PageHeader back={back} title={t('offer.title', { asset: ASSET_LABELS[offer.asset] })} meta={sellerName ? t('offer.postedBy', { name: sellerName }) : undefined} />
 
       {/* Below lg one column in reading order: terms, then the action card, then the seller. lg+: terms and
           seller on the left (8), the sticky action card on the right (4). */}
       <div className="grid gap-x-6 gap-y-4 lg:grid-cols-12 lg:items-start">
         {/* One card for the terms: price on the left, the facts on the right; each fact appears once. */}
         <Card className="p-5 lg:col-span-8">
-          <h2 className="text-section-title">Termos da oferta</h2>
+          <h2 className="text-section-title">{t('offer.terms')}</h2>
           <div className="mt-4 grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
             <div>
-              <div className="text-xs text-brand-text-muted">Preço</div>
+              <div className="text-xs text-brand-text-muted">{t('market.table.price')}</div>
               <div className="mt-1 money-hero text-brand-text">{formatPrice(offer.priceFiat, offer.fiatCurrency)}</div>
               <div className="text-body-sm text-brand-text-muted mt-1">
-                por {ASSET_LABELS[offer.asset]}
+                {t('offer.perAsset', { asset: ASSET_LABELS[offer.asset] })}
                 {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}
               </div>
             </div>
             <dl className="grid grid-cols-2 gap-x-6 gap-y-4 content-start">
-              <Fact label="Ativo"><AssetNetworkLabel asset={offer.asset} size="md" /></Fact>
-              {offer.network && <Fact label="Rede">{offer.network}</Fact>}
+              <Fact label={t('market.field.asset')}><AssetNetworkLabel asset={offer.asset} size="md" /></Fact>
+              {offer.network && <Fact label={t('offer.network')}>{offer.network}</Fact>}
               {/* Full list here. Real offers carry one method (LOOSE_WIRES.multiPaymentMethods); the method is not chosen at trade time yet (LOOSE_WIRES.tradePaymentMethodChoice). */}
-              <Fact label="Pagamento"><PaymentMethods labels={offerPaymentMethods(offer).map((m) => PAYMENT_METHOD_LABELS[m])} className="text-sm text-brand-text" /></Fact>
-              <Fact label="Limites"><span className="tabular-nums">{formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)} {ASSET_SHORT_LABELS[offer.asset]}</span></Fact>
+              <Fact label={t('market.field.payment')}><PaymentMethods labels={offerPaymentMethods(offer).map((m) => PAYMENT_METHOD_LABELS[m])} className="text-sm text-brand-text" /></Fact>
+              <Fact label={t('market.table.limits')}><span className="tabular-nums">{formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)} {ASSET_SHORT_LABELS[offer.asset]}</span></Fact>
             </dl>
           </div>
         </Card>
@@ -252,24 +253,23 @@ export function OfferDetail() {
         <div className="lg:col-span-4 lg:col-start-9 lg:row-start-1 lg:row-span-2 lg:sticky lg:top-20">
           {isOwnOffer ? (
             <Card className="p-5">
-              <h2 className="text-section-title">Esta é a sua oferta</h2>
+              <h2 className="text-section-title">{t('offer.own.title')}</h2>
               <p className="text-body-sm text-brand-text-secondary mt-2">
-                Você não pode iniciar uma negociação com o seu próprio anúncio.
-                Gerencie-o em Trades, "Minhas ofertas".
+                {t('offer.own.body')}
               </p>
               <Link to={TRADES_ROUTES.offers} className={cn(buttonVariants({ variant: 'outline', className: 'mt-4 w-full min-h-10 touch:min-h-11' }))}>
-                Ir para Minhas ofertas
+                {t('offer.own.link')}
               </Link>
             </Card>
           ) : (
             <Card className="p-5">
               {/* The viewer's own action, never the advertiser's side (a SELL offer means the viewer buys). */}
               <h2 className="text-section-title">
-                {offer.side === 'SELL' ? 'Você compra' : 'Você vende'} {ASSET_SHORT_LABELS[offer.asset]}
+                {t(offer.side === 'SELL' ? 'offer.ticket.youBuy' : 'offer.ticket.youSell', { asset: ASSET_SHORT_LABELS[offer.asset] })}
               </h2>
 
               <label className="block text-xs text-brand-text-muted mt-4">
-                Quanto você quer {offer.side === 'SELL' ? 'comprar' : 'vender'}?
+                {t(offer.side === 'SELL' ? 'offer.ticket.amountBuy' : 'offer.ticket.amountSell')}
                 <div className="relative mt-1.5">
                   <Input
                     value={amount}
@@ -282,11 +282,11 @@ export function OfferDetail() {
                 </div>
               </label>
               {amount && !withinLimits && (
-                <p className="text-xs text-brand-danger-fg mt-1">Fora do limite: {formatAmount(offer.minAmount)} – {formatAmount(offer.maxAmount)}</p>
+                <p className="text-xs text-brand-danger-fg mt-1">{t('offer.ticket.outOfLimits', { min: formatAmount(offer.minAmount), max: formatAmount(offer.maxAmount) })}</p>
               )}
 
               <div className="mt-4 pt-4 border-t border-brand-border-subtle">
-                <div className="text-xs text-brand-text-muted">Você {offer.side === 'SELL' ? 'paga' : 'recebe'}</div>
+                <div className="text-xs text-brand-text-muted">{t(offer.side === 'SELL' ? 'offer.ticket.youPay' : 'offer.ticket.youReceive')}</div>
                 <div className="money-hero mt-1 text-brand-text">{formatByCurrency(totalFiat || 0, offer.fiatCurrency)}</div>
                 {/* Itemized from the only two inputs the total has: the offer carries no fee field. */}
                 {amountNum > 0 && (
@@ -298,20 +298,20 @@ export function OfferDetail() {
 
               <p className="mt-4 text-xs text-brand-text-secondary flex items-start gap-2">
                 <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
-                O tipo de escrow e as regras de liberação são definidos quando o trade é criado.
+                {t('offer.ticket.escrowNote')}
               </p>
 
               {/* HodlHodl/Binance P2P both show this caution before a first trade with a brand-new
                   counterparty: real data (offer.seller.totalTrades), a real 0 means no completed trades yet. */}
               {offer.seller.totalTrades === 0 && (
                 <Alert tone="warning" size="sm" className="mt-3">
-                  Este vendedor ainda não concluiu nenhum trade — negocie com cautela, especialmente em valores maiores.
+                  {t('offer.ticket.newSeller')}
                 </Alert>
               )}
 
               {/* The ticket's one primary is the viewer's side (solid green buy / solid red sell), replacing orange here. */}
               <Button onClick={handleStartTrade} loading={startingTrade} variant={offer.side === 'SELL' ? 'buy' : 'sell'} className="mt-4 w-full min-h-10 touch:min-h-11">
-                {startingTrade ? 'Iniciando…' : `${offer.side === 'SELL' ? 'Comprar' : 'Vender'} ${ASSET_SHORT_LABELS[offer.asset]}`}
+                {startingTrade ? t('offer.ticket.starting') : t(offer.side === 'SELL' ? 'offer.ticket.buy' : 'offer.ticket.sell', { asset: ASSET_SHORT_LABELS[offer.asset] })}
               </Button>
             </Card>
           )}
@@ -320,17 +320,17 @@ export function OfferDetail() {
         {/* Technical Debt #61: only the canonical public disclosure fields (trades, dispute rate,
             reputation); raw disputeCount, volume and "member since" are not part of the public response. */}
         <Card className="p-5 lg:col-span-8">
-          <h2 className="text-section-title">Anunciante</h2>
+          <h2 className="text-section-title">{t('market.offer.seller')}</h2>
           <div className="mt-3 flex items-center gap-3">
             <UserAvatar user={offer.seller} size="md" />
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium flex items-center gap-1.5 text-brand-text">
                 <span className="truncate">{sellerName}</span>
-                {offer.seller.verified && <Check aria-label="Verificado" className="h-4 w-4 shrink-0 text-brand-orange-accent" />}
+                {offer.seller.verified && <Check aria-label={t('market.offer.verified')} className="h-4 w-4 shrink-0 text-brand-orange-accent" />}
               </div>
               {/* reputationScore is an unbounded +2/-5 sum (lib/reputation.ts), never a 0-100 scale */}
               <div className="flex items-center gap-1.5 text-xs text-brand-text-muted">
-                <TrustLine items={[...trustItems({ reputationScore: offer.seller.reputationScore, totalTrades: offer.seller.totalTrades }), { kind: 'disputeRate', text: `taxa de disputas ${disputeRatePct(offer.seller.disputeRate)}%` }]} />
+                <TrustLine items={[...trustItems({ reputationScore: offer.seller.reputationScore, totalTrades: offer.seller.totalTrades }), { kind: 'disputeRate', text: t('offer.seller.disputeRate', { pct: String(disputeRatePct(offer.seller.disputeRate)) }) }]} />
                 <ExplanationPopover explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.title} />
               </div>
             </div>
@@ -343,8 +343,8 @@ export function OfferDetail() {
               className="mt-4 pt-4 border-t border-brand-border-subtle"
               text={ratingFullText(ratings)}
               srText={ratingSrText(ratings)}
-              meta={memberSince ? `desde ${memberSince}` : undefined}
-              description="Notas de 1 a 5 estrelas dadas pelas contrapartes. Só informativas: não mudam a reputação."
+              meta={memberSince ? t('offer.seller.memberSince', { date: memberSince }) : undefined}
+              description={t('reputation.ratings.description')}
               explanation={RATINGS_DEMO_EXPLANATION}
             />
           ) : (
@@ -352,8 +352,8 @@ export function OfferDetail() {
               className="mt-4 pt-4 border-t border-brand-border-subtle"
               icon={LOOSE_WIRES.readRatings.icon}
               label={LOOSE_WIRES.readRatings.label}
-              soonLabel="Em breve"
-              description="Notas de 1 a 5 estrelas dadas pelas contrapartes. Só informativas: não mudam a reputação."
+              soonLabel={t('common.soon')}
+              description={t('reputation.ratings.description')}
               explanation={RATINGS_EXPLANATION}
             />
           )}

@@ -24,36 +24,37 @@ import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import type { IdentityAvatarStyle } from '../lib/identityAvatar'
 import { Tabs } from '../components/ui/tabs'
 import { RadioCard, RadioGroup } from '../components/ui/radio-group'
-import { Alert } from '../components/ui/alert'
 import { LOOSE_WIRES, type LooseWireId } from '../lib/looseWires'
 import type { ThemePreference } from '../lib/themePreference'
-import { translationPending, useLocalePreference, type LocalePreference } from '../lib/locale'
+import { useLocalePreference, type LocalePreference } from '../lib/locale'
 import { sectionFromSearch } from '../lib/settingsSection'
 import { NetworkRow, NetworkSettingsRows } from '../components/settings/NetworkSettings'
 import { MARKETS_ROUTES } from '../components/layout/navMatch'
+import { t } from '../i18n'
 
-const AVATAR_STYLE_OPTIONS: ReadonlyArray<{ value: IdentityAvatarStyle; label: string }> = [
-  { value: 'vela', label: 'Vela' },
-  { value: 'mare', label: 'Maré' },
-  { value: 'grade', label: 'Grade' },
+// Option lists are built at render so their labels follow the interface language.
+const avatarStyleOptions = (): ReadonlyArray<{ value: IdentityAvatarStyle; label: string }> => [
+  { value: 'vela', label: t('settings.appearance.avatarVela') },
+  { value: 'mare', label: t('settings.appearance.avatarMare') },
+  { value: 'grade', label: t('settings.appearance.avatarGrade') },
 ]
 // Preview seed when no wallet is connected (a sample, not anyone's identity).
 const SAMPLE_AVATAR_SEED = 'sails-exemplo'
 
-const THEME_OPTIONS: ReadonlyArray<{ value: ThemePreference; label: string; icon: LucideIcon }> = [
-  { value: 'system', label: 'Padrão do sistema', icon: Monitor },
-  { value: 'dark', label: 'Escuro', icon: Moon },
-  { value: 'light', label: 'Claro', icon: Sun },
+const themeOptions = (): ReadonlyArray<{ value: ThemePreference; label: string; icon: LucideIcon }> => [
+  { value: 'system', label: t('settings.systemDefault'), icon: Monitor },
+  { value: 'dark', label: t('settings.appearance.dark'), icon: Moon },
+  { value: 'light', label: t('settings.appearance.light'), icon: Sun },
 ]
 
-const NAV_POSITION_OPTIONS: ReadonlyArray<{ value: NavPosition; label: string }> = [
-  { value: 'side', label: 'Lateral' },
-  { value: 'top', label: 'Superior' },
+const navPositionOptions = (): ReadonlyArray<{ value: NavPosition; label: string }> => [
+  { value: 'side', label: t('settings.appearance.navSide') },
+  { value: 'top', label: t('settings.appearance.navTop') },
 ]
 
-// Each language in its own name (how people find their language in a list).
-const LOCALE_OPTIONS: ReadonlyArray<{ value: LocalePreference; label: string; lang?: string }> = [
-  { value: 'system', label: 'Padrão do sistema' },
+// Each language in its own name (how people find their language in a list); only "system default" is translated.
+const localeOptions = (): ReadonlyArray<{ value: LocalePreference; label: string; lang?: string }> => [
+  { value: 'system', label: t('settings.systemDefault') },
   { value: 'pt-BR', label: 'Português (Brasil)', lang: 'pt-BR' },
   { value: 'en', label: 'English', lang: 'en' },
   { value: 'es', label: 'Español', lang: 'es' },
@@ -61,24 +62,22 @@ const LOCALE_OPTIONS: ReadonlyArray<{ value: LocalePreference; label: string; la
   { value: 'de', label: 'Deutsch', lang: 'de' },
 ]
 
-const SOON = 'Em breve'
-
 function Planned({ id, description }: { id: LooseWireId; description?: string }) {
   const wire = LOOSE_WIRES[id]
-  return <SettingsRow icon={wire.icon} label={wire.label} description={description} plannedLabel={SOON} />
+  return <SettingsRow icon={wire.icon} label={wire.label} description={description} plannedLabel={t('common.soon')} />
 }
 
 // Order by use (DECISIONS.md "Reorganização pela visão do usuário"); the ids are unchanged.
-const SECTIONS: ReadonlyArray<{ id: string; label: string; icon: LucideIcon }> = [
-  { id: 'wallet', label: 'Wallet', icon: Wallet },
-  { id: 'aparencia', label: 'Aparência', icon: SunMoon },
-  { id: 'idioma', label: 'Idioma', icon: Languages },
-  { id: 'notificacoes', label: 'Notificações', icon: Bell },
-  { id: 'seguranca', label: 'Segurança', icon: Shield },
+const sections = (): ReadonlyArray<{ id: string; label: string; icon: LucideIcon }> => [
+  { id: 'wallet', label: t('settings.section.wallet'), icon: Wallet },
+  { id: 'aparencia', label: t('settings.section.appearance'), icon: SunMoon },
+  { id: 'idioma', label: t('settings.section.language'), icon: Languages },
+  { id: 'notificacoes', label: t('settings.section.notifications'), icon: Bell },
+  { id: 'seguranca', label: t('settings.section.security'), icon: Shield },
   // Renamed "Rede e nós" (CTO final correction for plan 1.4); the id stays so ?section=no-sails keeps working.
-  { id: 'no-sails', label: 'Rede e nós', icon: Network },
-  { id: 'comunidades', label: 'Comunidades', icon: Users },
-  { id: 'ajuda', label: 'Ajuda e Sobre', icon: HelpCircle },
+  { id: 'no-sails', label: t('settings.section.network'), icon: Network },
+  { id: 'comunidades', label: t('settings.section.communities'), icon: Users },
+  { id: 'ajuda', label: t('settings.section.help'), icon: HelpCircle },
 ]
 
 /**
@@ -91,15 +90,15 @@ const SECTIONS: ReadonlyArray<{ id: string; label: string; icon: LucideIcon }> =
 export function Settings() {
   // The open section lives in the URL (?section=<id>, replaced, not pushed) so each one is deep-linkable.
   const [searchParams, setSearchParams] = useSearchParams()
-  const { id: active, fromUrl } = sectionFromSearch(searchParams, SECTIONS.map((s) => s.id))
+  const sectionList = sections()
+  const { id: active, fromUrl } = sectionFromSearch(searchParams, sectionList.map((s) => s.id))
   const setActive = (id: string) => setSearchParams((prev) => { prev.set('section', id); return prev }, { replace: true })
   // Below md only: whether a section is open (otherwise the section list shows); a deep link opens it.
   const [mobileOpen, setMobileOpen] = useState(fromUrl)
-  const activeLabel = SECTIONS.find((s) => s.id === active)?.label
+  const activeLabel = sectionList.find((s) => s.id === active)?.label
   const { replayTour } = useOutletContext<LayoutOutletContext>()
   const { preference, setPreference } = useTheme()
   const [locale, setLocale] = useLocalePreference()
-  const browserLanguage = typeof navigator === 'undefined' ? undefined : navigator.language
   const { user, loading: authLoading } = useAuth()
   const disconnect = useDisconnect()
   const [avatarStyle, setAvatarStyle] = useAvatarStyle()
@@ -111,22 +110,22 @@ export function Settings() {
   return (
     <Page width="detail">
       <PageHeader
-        title={<><span className="md:hidden">{mobileOpen ? activeLabel : 'Configurações'}</span><span className="hidden md:inline">Configurações</span></>}
+        title={<><span className="md:hidden">{mobileOpen ? activeLabel : t('settings.title')}</span><span className="hidden md:inline">{t('settings.title')}</span></>}
         back={mobileOpen ? (
           <button
             type="button"
             onClick={() => setMobileOpen(false)}
             className="md:hidden min-h-11 -my-2 inline-flex items-center gap-1 text-body-sm text-brand-text-secondary hover:text-brand-text rounded-md"
           >
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Configurações
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {t('settings.title')}
           </button>
         ) : undefined}
       />
       {!mobileOpen && (
-        <nav aria-label="Seções de configurações" className="md:hidden">
+        <nav aria-label={t('settings.sectionsLabel')} className="md:hidden">
           <Card className="overflow-hidden border-brand-border-subtle bg-brand-surface">
             <ul className="divide-y divide-brand-border-subtle">
-              {SECTIONS.map((s) => (
+              {sectionList.map((s) => (
                 <SettingsRow key={s.id} icon={s.icon} label={s.label} onClick={() => { setActive(s.id); setMobileOpen(true) }} />
               ))}
             </ul>
@@ -138,49 +137,46 @@ export function Settings() {
             drill-down list (above), so this tab list is hidden there. */}
         <Tabs
           orientation="vertical"
-          label="Seções de configurações"
+          label={t('settings.sectionsLabel')}
           idBase="settings"
-          items={SECTIONS.map((s) => ({ value: s.id, label: s.label, icon: s.icon }))}
+          items={sectionList.map((s) => ({ value: s.id, label: s.label, icon: s.icon }))}
           value={active}
           onChange={setActive}
           className="hidden md:flex sticky top-20"
         />
 
         <div className="min-w-0">
-          <SettingsGroup {...panel('no-sails')} title="Rede e nós" icon={Network}>
+          <SettingsGroup {...panel('no-sails')} title={t('settings.section.network')} icon={Network}>
             {/* Rede Sails is the default and works behind the scenes; markets live in the Market area, not here. */}
             <NetworkRow />
             {/* The app talks to one API base fixed by its build config (lib/sailsClient.ts); no live connection signal exists, so no status line. */}
-            <SettingsRow icon={Server} label="Nó Sails" description="Definido pela configuração deste app" value="Automático" />
-            {/* The planned rows stay, re-homed under "Avançado". */}
-            <NetworkSettingsRows advanced={<>
-              <Planned id="publicPrivateServers" />
-              <Planned id="manualServer" />
-              <Planned id="connectionDiagnostics" />
-            </>} />
+            <SettingsRow icon={Server} label={t('settings.network.node')} description={t('settings.network.nodeDescription')} value={t('markets.node.automatic')} />
+            {/* "Nós públicos e privados" and "Nó manual" are covered by the node catalogue (nodeCatalog, under Avançado) and
+                "Adicionar nó manualmente" (wire manualServer): node profiles are never market types (DECISIONS). */}
+            <NetworkSettingsRows advanced={<Planned id="connectionDiagnostics" />} />
           </SettingsGroup>
 
-          <SettingsGroup {...panel('wallet')} title="Wallet" icon={Wallet}>
+          <SettingsGroup {...panel('wallet')} title={t('settings.section.wallet')} icon={Wallet}>
             {authLoading ? (
-              <li><ListSkeleton label="Verificando sessão…" rows={2} rowClassName="h-14" /></li>
+              <li><ListSkeleton label={t('settings.wallet.checking')} rows={2} rowClassName="h-14" /></li>
             ) : user ? (
               <>
-                <SettingsRow icon={KeyRound} label="Wallet conectada" description="Guardada neste navegador" value="Chave local" />
+                <SettingsRow icon={KeyRound} label={t('settings.wallet.connected')} description={t('settings.wallet.storedHere')} value={t('settings.wallet.localKey')} />
                 <SettingsRow
                   icon={ShieldCheck}
-                  label="Chave pública"
+                  label={t('settings.wallet.publicKey')}
                   value={<span className="font-mono text-xs">{shortKey(user.publicKey)}</span>}
                   control={<CopyButton value={user.publicKey} className="min-h-9 touch:min-h-11 px-3" />}
                 />
-                <SettingsRow icon={LogOut} label="Desconectar" onClick={disconnect} />
+                <SettingsRow icon={LogOut} label={t('settings.wallet.disconnect')} onClick={disconnect} />
               </>
             ) : (
               <SettingsRow
                 icon={Wallet}
-                label="Nenhuma wallet conectada"
+                label={t('settings.wallet.none')}
                 control={
                   <Link to="/login" state={{ from: '/settings' }} className={cn(buttonVariants({ className: 'min-h-9 touch:min-h-11 px-4 text-sm shrink-0' }))}>
-                    Conectar wallet
+                    {t('settings.wallet.connect')}
                   </Link>
                 }
               />
@@ -190,10 +186,10 @@ export function Settings() {
             <Planned id="defaultReceiveAddress" />
           </SettingsGroup>
 
-          <SettingsGroup {...panel('aparencia')} title="Aparência" icon={SunMoon}>
+          <SettingsGroup {...panel('aparencia')} title={t('settings.section.appearance')} icon={SunMoon}>
             <li className="px-4 py-3">
-              <RadioGroup legend="Tema" description="Padrão do sistema segue o tema claro ou escuro do seu aparelho." listClassName="flex flex-wrap gap-2">
-                {THEME_OPTIONS.map((o) => (
+              <RadioGroup legend={t('settings.appearance.theme')} description={t('settings.appearance.themeHelp')} listClassName="flex flex-wrap gap-2">
+                {themeOptions().map((o) => (
                   <RadioCard key={o.value} name="theme" value={o.value} checked={preference === o.value} onChange={() => setPreference(o.value)} className="py-1.5">
                     <o.icon className="h-4 w-4 text-brand-text-secondary" aria-hidden="true" />
                     {o.label}
@@ -204,11 +200,11 @@ export function Settings() {
             {/* DECISIONS.md "Posição do menu no desktop": saved in this browser, no toggle in the bar. */}
             <li className="px-4 py-3">
               <RadioGroup
-                legend="Posição do menu"
-                description="Vale para telas a partir de 1024 px. Em telas menores e no celular, o menu continua como está."
+                legend={t('settings.appearance.navPosition')}
+                description={t('settings.appearance.navHelp')}
                 listClassName="flex flex-wrap gap-2"
               >
-                {NAV_POSITION_OPTIONS.map((o) => (
+                {navPositionOptions().map((o) => (
                   <RadioCard key={o.value} name="nav-position" value={o.value} checked={navPosition === o.value} onChange={() => setNavPosition(o.value)} className="py-1.5">
                     <NavPositionThumb position={o.value} />
                     {o.label}
@@ -219,11 +215,11 @@ export function Settings() {
             {/* Viewer display preference: changes how every avatar looks to this viewer only. */}
             <li className="px-4 py-3">
               <RadioGroup
-                legend="Estilo dos avatares"
-                description="Muda como você vê todos os avatares, o seu e os das contrapartes. Só você vê esta escolha."
+                legend={t('settings.appearance.avatarStyle')}
+                description={t('settings.appearance.avatarHelp')}
                 listClassName="flex flex-wrap gap-2"
               >
-                {AVATAR_STYLE_OPTIONS.map((o) => (
+                {avatarStyleOptions().map((o) => (
                   <RadioCard
                     key={o.value}
                     name="avatar-style"
@@ -238,54 +234,48 @@ export function Settings() {
                 ))}
               </RadioGroup>
             </li>
-            <Planned id="publicAvatar" description="Um avatar escolhido por você e visto pelas contrapartes" />
-            <Planned id="displayCurrency" description="Os preços são exibidos em USD." />
+            <Planned id="publicAvatar" description={t('settings.appearance.publicAvatar')} />
+            <Planned id="displayCurrency" description={t('settings.appearance.displayCurrency')} />
           </SettingsGroup>
 
-          {/* The choice is stored now (sails_ui_locale); the copy stays pt-BR until the translation lot (LOOSE_WIRES.language). */}
-          <SettingsGroup {...panel('idioma')} title="Idioma" icon={Languages}>
+          <SettingsGroup {...panel('idioma')} title={t('settings.section.language')} icon={Languages}>
             <li className="px-4 py-3">
-              <RadioGroup legend="Idioma da interface" listClassName="grid gap-2 sm:grid-cols-2">
-                {LOCALE_OPTIONS.map((o) => (
+              <RadioGroup legend={t('settings.language.legend')} listClassName="grid gap-2 sm:grid-cols-2">
+                {localeOptions().map((o) => (
                   <RadioCard key={o.value} name="locale" value={o.value} checked={locale === o.value} onChange={() => setLocale(o.value)}>
                     <span lang={o.lang}>{o.label}</span>
                   </RadioCard>
                 ))}
               </RadioGroup>
-              {translationPending(locale, browserLanguage) && (
-                <Alert tone="info" size="sm" live className="mt-3">
-                  Tradução em andamento. Por enquanto a interface continua em português; sua escolha fica salva.
-                </Alert>
-              )}
             </li>
           </SettingsGroup>
 
           {/* No notification system exists (LOOSE_WIRES notify*): planned rows only, no toggles that do nothing. */}
-          <SettingsGroup {...panel('notificacoes')} title="Notificações" icon={Bell}>
+          <SettingsGroup {...panel('notificacoes')} title={t('settings.section.notifications')} icon={Bell}>
             <Planned id="notifyTrades" />
             <Planned id="notifyChat" />
             <Planned id="notifyDisputes" />
           </SettingsGroup>
 
-          <SettingsGroup {...panel('seguranca')} title="Segurança" icon={Shield}>
+          <SettingsGroup {...panel('seguranca')} title={t('settings.section.security')} icon={Shield}>
             <Planned id="keyBackup" />
             <Planned id="sessionLock" />
           </SettingsGroup>
 
-          <SettingsGroup {...panel('comunidades')} title="Comunidades" icon={Users}>
-            <Planned id="communities" description="Comunidades e mercados restritos de que você participa" />
+          <SettingsGroup {...panel('comunidades')} title={t('settings.section.communities')} icon={Users}>
+            <Planned id="communities" description={t('settings.communities.description')} />
             {/* Markets live in the Market area (CTO final correction for plan 1.4); these rows only lead there. */}
-            <SettingsRow icon={Users} label="Meus mercados" description="Mercados públicos que você segue e privados de que você participa" to={MARKETS_ROUTES.mine} />
-            <SettingsRow icon={Ticket} label="Entrar com convite" description="Num mercado privado, com um convite Sails" to={MARKETS_ROUTES.join} />
+            <SettingsRow icon={Users} label={t('markets.action.mine')} description={t('settings.communities.myMarketsDescription')} to={MARKETS_ROUTES.mine} />
+            <SettingsRow icon={Ticket} label={t('markets.action.join')} description={t('markets.action.joinDescription')} to={MARKETS_ROUTES.join} />
           </SettingsGroup>
 
-          <SettingsGroup {...panel('ajuda')} title="Ajuda e Sobre" icon={HelpCircle}>
-            <SettingsRow icon={HelpCircle} label="Rever tour" description="Tour de boas-vindas do Sails Market" onClick={replayTour} />
+          <SettingsGroup {...panel('ajuda')} title={t('settings.section.help')} icon={HelpCircle}>
+            <SettingsRow icon={HelpCircle} label={t('settings.help.tour')} description={t('settings.help.tourDescription')} onClick={replayTour} />
             <SettingsRow
               icon={Award}
               label={REPUTATION_EXPLANATION.title}
-              description="Soma de pontos sem valor máximo: +2 por trade concluído, −5 por disputa perdida"
-              control={<ExplanationPopover explanation={REPUTATION_EXPLANATION} label="Ver detalhes" variant="text" className="shrink-0" />}
+              description={t('settings.help.reputationDescription')}
+              control={<ExplanationPopover explanation={REPUTATION_EXPLANATION} label={t('settings.help.details')} variant="text" className="shrink-0" />}
             />
             <Planned id="helpCenter" />
           </SettingsGroup>

@@ -8,6 +8,7 @@ import type { CurrentAction, CurrentActionKind } from '../../lib/currentAction'
 import { Button } from '../ui/button'
 import { Lock, Banknote, CheckCircle2, AlertTriangle, Hourglass, Info, Unlock } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { t } from '../../i18n'
 
 interface Props {
   view: CurrentAction
@@ -67,7 +68,7 @@ export function CurrentActionCard({ view, acting, onAction, onOpenDispute, child
               disabled={acting}
               className="min-h-11 px-1 text-sm text-brand-text-secondary underline underline-offset-4 hover:text-brand-text disabled:text-brand-disabled-content disabled:no-underline rounded-sm sm:ml-auto"
             >
-              Abrir disputa
+              {t('trade.action.openDispute')}
             </button>
           )}
         </div>

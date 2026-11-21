@@ -9,6 +9,7 @@
 import { CopyButton } from '../ui/CopyButton'
 import { SafetyNote } from '../ui/SafetyNote'
 import type { InstructionsVisibility } from '../../lib/tradeState'
+import { t } from '../../i18n'
 
 interface Props {
   viewer: 'buyer' | 'seller'
@@ -23,26 +24,26 @@ function Details({ viewer, details }: { viewer: Props['viewer']; details: string
   if (!details) {
     return (
       <p className="text-sm text-brand-text-secondary">
-        {viewer === 'buyer' ? 'O vendedor não informou os dados de pagamento aqui — combine pelo chat.' : 'Nenhum dado de pagamento seu foi registrado neste trade — combine pelo chat.'}
+        {t(viewer === 'buyer' ? 'trade.payment.noDetailsBuyer' : 'trade.payment.noDetailsSeller')}
       </p>
     )
   }
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
       <p className="min-w-0 flex-1 whitespace-pre-line text-sm text-brand-text [overflow-wrap:anywhere]">{details}</p>
-      <CopyButton value={details} label="Copiar dados" className="w-fit shrink-0 min-h-11 px-3" />
+      <CopyButton value={details} label={t('trade.payment.copyDetails')} className="w-fit shrink-0 min-h-11 px-3" />
     </div>
   )
 }
 
 export function PaymentInstructions({ viewer, visibility, methodLabel, details, embedded = false }: Props) {
-  const title = viewer === 'buyer' ? `Como pagar — ${methodLabel}` : `Seus dados de pagamento — ${methodLabel}`
+  const title = t(viewer === 'buyer' ? 'trade.payment.titleBuyer' : 'trade.payment.titleSeller', { method: methodLabel })
 
   if (visibility === 'inactive') {
     return (
       <details className="rounded-lg border border-brand-border-subtle bg-brand-surface p-4">
         <summary className="min-h-11 cursor-pointer text-sm text-brand-text-secondary flex items-center">
-          {title} <span className="ml-1">(sem ação pendente)</span>
+          {title} <span className="ml-1">{t('trade.payment.noPendingAction')}</span>
         </summary>
         <div className="mt-2"><Details viewer={viewer} details={details} /></div>
       </details>
@@ -55,19 +56,19 @@ export function PaymentInstructions({ viewer, visibility, methodLabel, details, 
       <div className="mt-2">
         {visibility === 'hidden' ? (
           <p className="text-sm text-brand-text-secondary">
-            As instruções de pagamento aparecem nesta tela depois que o vendedor registrar o bloqueio dos fundos no escrow.
+            {t('trade.payment.hiddenUntilLocked')}
           </p>
         ) : (
           <>
             <Details viewer={viewer} details={details} />
             {viewer === 'buyer' && details && (
               <SafetyNote className="mt-3">
-                Pague somente para estes dados, de uma conta no seu nome. Não aceite outros dados enviados por chat, e-mail ou telefone, nem pagamentos de terceiros.
+                {t('trade.payment.safety')}
               </SafetyNote>
             )}
             {viewer === 'seller' && details && (
               <p className="mt-2 text-xs text-brand-text-secondary">
-                O comprador vê estes dados na tela depois que os fundos forem registrados como bloqueados.
+                {t('trade.payment.sellerNote')}
               </p>
             )}
           </>

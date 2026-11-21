@@ -14,8 +14,7 @@ import { Textarea } from '../ui/textarea'
 import { Bot, ArrowDown, ChevronUp, ChevronDown, CheckCircle2, SearchX } from 'lucide-react'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import type { AssetType, FiatCurrency, TradeSide } from '../../types'
-
-const GOAL_PLACEHOLDER = 'Ex: quero comprar USDT pagando via PIX, tenho até R$ 500 disponíveis'
+import { useT } from '../../i18n'
 
 // Corrected 2026-08-15 (RFC-023) — "a negociação automática... ainda é
 // uma simulação" was true when this copy was written; POST
@@ -25,8 +24,7 @@ const GOAL_PLACEHOLDER = 'Ex: quero comprar USDT pagando via PIX, tenho até R$ 
 // — not a back-and-forth of counter-offers (this protocol has no such
 // mechanism). QVAC never creates the trade or touches escrow itself: it
 // always returns a concrete proposal for you to approve first.
-const BOUNDARY_TEXT =
-  'O Sails Agent usa um modelo de IA local, sem nuvem. Ele só lida com ativos digitais da sua carteira: buscar ofertas, preparar uma proposta. Ele nunca acessa seu banco nem faz PIX ou qualquer pagamento em dinheiro — o pagamento é sempre feito pela outra pessoa do trade, fora do protocolo. Gerar a intenção e buscar uma oferta real dentro dos limites que você definir (preço, reputação mínima) já funcionam de verdade: "negociar" aqui é encontrar a melhor oferta real dentro desses limites, não trocar contrapropostas. O Sails Agent nunca cria o trade nem move fundos sozinho: ele sempre devolve uma proposta para você aprovar antes de qualquer ação de escrow.'
+// The boundary copy itself lives in i18n (agent.boundary).
 
 interface Props {
   // Real fix: this panel used to live disconnected from the offer grid
@@ -49,6 +47,7 @@ interface Props {
 }
 
 export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilters }: Props) {
+  const t = useT()
   const { user } = useAuth()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
@@ -84,13 +83,13 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
 
   const handleGenerate = async () => {
     if (!goal.trim()) {
-      toast.error('Descreva o que você quer negociar')
+      toast.error(t('agent.toast.describeGoal'))
       return
     }
     // Real inference call now (2026-08-09) — requires an active session,
     // same as any other real @satsails/p2p-trading-sdk write/compute call in this app.
     if (!user) {
-      toast.error('Conecte sua wallet para usar o Sails Agent')
+      toast.error(t('agent.toast.connectWallet'))
       return
     }
     setLoading(true)
@@ -106,7 +105,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
       setMinReputationRating('')
       onIntentGenerated?.(intent.asset, intent.side, intent.currency)
     } catch (err) {
-      toast.error(errorMessage(err, 'Falha ao gerar a intenção'))
+      toast.error(errorMessage(err, t('agent.toast.generateFailed')))
     } finally {
       setLoading(false)
     }
@@ -124,7 +123,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
     if (!result) return
     const qty = Number(quantity)
     if (!qty || qty <= 0) {
-      toast.error('Informe a quantidade')
+      toast.error(t('agent.toast.enterQuantity'))
       return
     }
 
@@ -132,7 +131,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
     if (isUsd) {
       const price = Number(limitPrice)
       if (!price || price <= 0) {
-        toast.error(`Informe o preço ${side === 'BUY' ? 'máximo' : 'mínimo'}`)
+        toast.error(t(side === 'BUY' ? 'agent.toast.enterMaxPrice' : 'agent.toast.enterMinPrice'))
         return
       }
       priceLimit = limitPrice
@@ -143,7 +142,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
     if (repInput) {
       minReputation = Number(repInput)
       if (!Number.isFinite(minReputation) || minReputation < 0 || minReputation > 5) {
-        toast.error('Reputação mínima deve estar entre 0 e 5')
+        toast.error(t('agent.toast.reputationRange'))
         return
       }
     }
@@ -169,12 +168,12 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
       setProposal(found)
       setCounterProposal(counter)
       if (found) {
-        toast.success('O Sails Agent encontrou uma proposta real dentro dos seus limites', { icon: <Bot className="h-4 w-4" /> })
+        toast.success(t('agent.toast.found'), { icon: <Bot className="h-4 w-4" /> })
       } else if (counter) {
-        toast.info('Nenhuma oferta dentro do limite, mas o Sails Agent sugere uma contraproposta', { icon: <Bot className="h-4 w-4" /> })
+        toast.info(t('agent.toast.counter'), { icon: <Bot className="h-4 w-4" /> })
       }
     } catch (err) {
-      toast.error(errorMessage(err, 'Falha ao buscar uma oferta'))
+      toast.error(errorMessage(err, t('agent.toast.searchFailed')))
     } finally {
       setProposing(false)
     }
@@ -195,10 +194,10 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
       // can't today, since no input re-renders once a proposal exists,
       // but this doesn't rely on that staying true).
       const trade = await sailsClient.openp2p.trade(proposal.offerId, proposal.amount)
-      toast.success('Trade iniciado')
+      toast.success(t('agent.toast.tradeStarted'))
       navigate(`/trade/${trade.id}`)
     } catch (err) {
-      toast.error(errorMessage(err, 'Falha ao iniciar trade'))
+      toast.error(errorMessage(err, t('agent.toast.startFailed')))
     } finally {
       setApproving(false)
     }
@@ -237,7 +236,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          aria-label={open ? 'Fechar Sails Agent' : 'Abrir Sails Agent'}
+          aria-label={t(open ? 'agent.toggle.close' : 'agent.toggle.open')}
           aria-describedby="sails-agent-subtitle"
           className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 py-1 text-left"
         >
@@ -245,14 +244,14 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
             <Bot className="h-4 w-4" />
           </span>
           {/* "Sails Agent" is the product identity and is never truncated; the qualifier may be. Only the
-              intent is AI-generated; the offer search that follows is deterministic (BOUNDARY_TEXT). */}
+              intent is AI-generated; the offer search that follows is deterministic (agent.boundary). */}
           <span className="flex min-w-0 flex-1 items-baseline gap-x-2">
             <span className="shrink-0 text-sm font-semibold text-brand-text">Sails Agent</span>
-            <span id="sails-agent-subtitle" className="hidden md:block min-w-0 truncate text-metadata">Negociação no Market · Intenção gerada por IA, busca automática de oferta</span>
+            <span id="sails-agent-subtitle" className="hidden md:block min-w-0 truncate text-metadata">{t('agent.subtitle')}</span>
           </span>
           {open ? <ChevronUp aria-hidden="true" className="h-4 w-4 shrink-0 text-brand-text-secondary" /> : <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-brand-text-secondary" />}
         </button>
-        <InfoTooltip text={BOUNDARY_TEXT} />
+        <InfoTooltip text={t('agent.boundary')} />
       </div>
 
       {open && (
@@ -268,7 +267,7 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                       side === s ? 'bg-brand-surface font-medium text-brand-text' : 'text-brand-text-secondary'
                     }`}
                   >
-                    {s === 'BUY' ? 'Quero comprar' : 'Quero vender'}
+                    {t(s === 'BUY' ? 'agent.side.buy' : 'agent.side.sell')}
                   </button>
                 ))}
               </div>
@@ -276,19 +275,19 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
               <Textarea
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
-                placeholder={GOAL_PLACEHOLDER}
+                placeholder={t('agent.goalPlaceholder')}
                 className="w-full"
                 rows={2}
               />
 
               <div className="flex items-center gap-3 mt-2">
                 <Button onClick={handleGenerate} loading={loading} className="px-4 py-2 text-sm">
-                  {loading ? 'Gerando…' : 'Gerar intenção'}
+                  {t(loading ? 'agent.generating' : 'agent.generate')}
                 </Button>
                 {loading && (
                   <span className="text-xs text-brand-text-muted flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-brand-orange-accent motion-safe:animate-pulse" />
-                    LLAMA_3_2_1B_INST_Q4_0 · inferência local
+                    {t('agent.localInference')}
                   </span>
                 )}
               </div>
@@ -297,13 +296,13 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
 
           {result && proposal === undefined && (
             <div className="rounded-lg border border-brand-orange-accent/20 bg-brand-orange-accent/[0.04] p-4">
-              <div className="text-xs font-semibold text-brand-orange-accent mb-3">Intenção estruturada gerada</div>
+              <div className="text-xs font-semibold text-brand-orange-accent mb-3">{t('agent.intent.title')}</div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">
-                <Field label="Ativo" value={ASSET_LABELS[result.asset]} />
-                <Field label="Lado" value={result.side === 'BUY' ? 'Compra' : 'Venda'} />
-                <Field label="Moeda" value={result.currency} />
-                <Field label="Método" value={PAYMENT_METHOD_LABELS[result.fiatMethod]} />
-                <Field label="Faixa de valor sugerida" value={`${result.currency} ${result.minValue} – ${result.maxValue}`} />
+                <Field label={t('agent.intent.asset')} value={ASSET_LABELS[result.asset]} />
+                <Field label={t('agent.intent.side')} value={t(result.side === 'BUY' ? 'agent.intent.buy' : 'agent.intent.sell')} />
+                <Field label={t('agent.intent.currency')} value={result.currency} />
+                <Field label={t('agent.intent.method')} value={PAYMENT_METHOD_LABELS[result.fiatMethod]} />
+                <Field label={t('agent.intent.range')} value={`${result.currency} ${result.minValue} – ${result.maxValue}`} />
               </div>
 
               {matchCount !== undefined && (
@@ -312,33 +311,33 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                     onClick={() => document.getElementById('marketplace-offer-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
                     className="text-xs text-brand-orange-accent underline mb-3 flex items-center gap-1"
                   >
-                    {matchCount} {matchCount === 1 ? 'oferta corresponde' : 'ofertas correspondem'} a este filtro — ver no Marketplace
+                    {t('agent.matches', { count: matchCount })}
                     <ArrowDown className="h-3 w-3" />
                   </button>
                 ) : (
                   <div className="mb-3 rounded-md bg-brand-elevated border border-brand-border-subtle px-3 py-2 text-xs text-brand-text-secondary">
-                    Nenhuma oferta encontrada com {result.currency} + {ASSET_LABELS[result.asset]}
+                    {t('agent.noMatches', { currency: result.currency, asset: ASSET_LABELS[result.asset] })}
                     {onResetFilters && (
                       <button onClick={onResetFilters} className="ml-2 text-brand-orange-accent underline whitespace-nowrap">
-                        Redefinir filtros
+                        {t('agent.resetFilters')}
                       </button>
                     )}
                   </div>
                 )
               )}
 
-              <div className="text-xs font-semibold text-brand-text mb-2">Mandato para o Sails Agent</div>
+              <div className="text-xs font-semibold text-brand-text mb-2">{t('agent.mandate.title')}</div>
               <div className="grid grid-cols-2 gap-2 mb-3">
                 <label className="text-xs text-brand-text-muted">
-                  Quantidade ({ASSET_SHORT_LABELS[result.asset]})
-                  <Input value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="Ex: 100" className="w-full mt-1 text-sm" />
+                  {t('agent.mandate.quantity', { asset: ASSET_SHORT_LABELS[result.asset] })}
+                  <Input value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder={t('agent.example', { value: '100' })} className="w-full mt-1 text-sm" />
                 </label>
                 <label className="text-xs text-brand-text-muted">
-                  Preço {side === 'BUY' ? 'máximo' : 'mínimo'} (USD/un.)
+                  {t(side === 'BUY' ? 'agent.mandate.maxPrice' : 'agent.mandate.minPrice')}
                   <Input
                     value={limitPrice}
                     onChange={(e) => setLimitPrice(e.target.value)}
-                    placeholder="Ex: 1.02"
+                    placeholder={t('agent.example', { value: '1.02' })}
                     disabled={!isUsd}
                     className="w-full mt-1 text-sm disabled:opacity-50"
                   />
@@ -349,17 +348,17 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                       wrong currency. */}
                   {!isUsd && (
                     <span className="block mt-1 text-xs text-brand-text-muted normal-case">
-                      Limite de preço disponível apenas para moeda USD nesta versão
+                      {t('agent.mandate.usdOnly')}
                     </span>
                   )}
                 </label>
                 <label className="text-xs text-brand-text-muted col-span-2">
-                  Reputação mínima da contraparte (0–5, opcional)
+                  {t('agent.mandate.minReputation')}
                   <Input
                     type="number" step="0.5" min="0" max="5"
                     value={minReputationRating}
                     onChange={(e) => setMinReputationRating(e.target.value)}
-                    placeholder="Ex: 3"
+                    placeholder={t('agent.example', { value: '3' })}
                     className="w-full mt-1 text-sm"
                   />
                 </label>
@@ -368,10 +367,10 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
               <div className="flex gap-2">
                 <Button onClick={handleDelegate} loading={proposing} className="px-3 py-1.5 text-xs">
                   <Bot className="h-3.5 w-3.5" />
-                  {proposing ? 'Buscando oferta...' : 'Delegar para IA'}
+                  {t(proposing ? 'agent.searching' : 'agent.delegate')}
                 </Button>
                 <Button variant="outline" onClick={handleReset} disabled={proposing} className="px-3 py-1.5 text-xs">
-                  Cancelar
+                  {t('common.cancel')}
                 </Button>
               </div>
             </div>
@@ -383,21 +382,21 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                 <>
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-brand-orange-accent mb-2">
                     <Bot className="h-3.5 w-3.5" />
-                    Proposta real encontrada
+                    {t('agent.proposal.title')}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">
-                    <Field label="Preço" value={`USD ${proposal.priceUsd}`} />
-                    <Field label="Quantidade" value={`${proposal.amount} ${ASSET_SHORT_LABELS[result.asset]}`} />
-                    <Field label="Reputação da contraparte" value={proposal.traderReputation !== null ? String(proposal.traderReputation) : '—'} />
-                    <Field label="Pagamento" value={proposal.paymentMethods.map((m) => PAYMENT_METHOD_LABELS[m as keyof typeof PAYMENT_METHOD_LABELS] ?? m).join(', ')} />
+                    <Field label={t('agent.proposal.price')} value={`USD ${proposal.priceUsd}`} />
+                    <Field label={t('agent.proposal.quantity')} value={`${proposal.amount} ${ASSET_SHORT_LABELS[result.asset]}`} />
+                    <Field label={t('agent.proposal.reputation')} value={proposal.traderReputation !== null ? String(proposal.traderReputation) : '—'} />
+                    <Field label={t('agent.proposal.payment')} value={proposal.paymentMethods.map((m) => PAYMENT_METHOD_LABELS[m as keyof typeof PAYMENT_METHOD_LABELS] ?? m).join(', ')} />
                   </div>
                   <div className="flex gap-2">
                     <Button onClick={handleApprove} loading={approving} className="px-3 py-1.5 text-xs">
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      {approving ? 'Iniciando trade...' : 'Aprovar e iniciar trade'}
+                      {t(approving ? 'agent.starting' : 'agent.approve')}
                     </Button>
                     <Button variant="outline" onClick={handleAdjust} disabled={approving} className="px-3 py-1.5 text-xs">
-                      Ajustar mandato
+                      {t('agent.adjust')}
                     </Button>
                   </div>
                 </>
@@ -412,33 +411,33 @@ export function AgentIntentionPanel({ onIntentGenerated, matchCount, onResetFilt
                 <>
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-brand-orange-accent mb-2">
                     <Bot className="h-3.5 w-3.5" />
-                    Nenhuma oferta dentro do limite — contraproposta do Sails Agent
+                    {t('agent.counter.title')}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">
-                    <Field label={side === 'BUY' ? 'Seu limite (máximo)' : 'Seu limite (mínimo)'} value={`USD ${counterProposal.suggestedPriceUsd}`} />
-                    <Field label="Preço da oferta mais próxima" value={`USD ${counterProposal.listedPriceUsd}`} />
+                    <Field label={t(side === 'BUY' ? 'agent.counter.limitMax' : 'agent.counter.limitMin')} value={`USD ${counterProposal.suggestedPriceUsd}`} />
+                    <Field label={t('agent.counter.nearestPrice')} value={`USD ${counterProposal.listedPriceUsd}`} />
                   </div>
                   <p className="text-xs text-brand-text-secondary mb-3">{counterProposal.reasoning}</p>
                   <Button variant="outline" onClick={handleAdjust} className="px-3 py-1.5 text-xs">
-                    Ajustar mandato
+                    {t('agent.adjust')}
                   </Button>
                 </>
               ) : (
                 <>
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-brand-text-secondary mb-2">
                     <SearchX className="h-3.5 w-3.5" />
-                    Nenhuma oferta encontrada dentro dos seus limites
+                    {t('agent.none.title')}
                   </div>
                   <p className="text-xs text-brand-text-secondary mb-3">
-                    O Sails Agent buscou entre as ofertas reais de {ASSET_LABELS[result.asset]} e nenhuma atendeu ao preço e/ou reputação mínima informados.
+                    {t('agent.none.body', { asset: ASSET_LABELS[result.asset] })}
                   </p>
                   <Button variant="outline" onClick={handleAdjust} className="px-3 py-1.5 text-xs">
-                    Ajustar mandato
+                    {t('agent.adjust')}
                   </Button>
                 </>
               )}
               {intentId && (
-                <p className="mt-3 text-xs text-brand-text-muted font-mono">Intenção #{intentId.slice(0, 8)}</p>
+                <p className="mt-3 text-xs text-brand-text-muted font-mono">{t('agent.intentId', { id: intentId.slice(0, 8) })}</p>
               )}
             </div>
           )}

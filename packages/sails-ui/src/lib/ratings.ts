@@ -4,8 +4,10 @@
  * carries a summary and every reader here returns null. Only the dev demo fills `demoRatings` /
  * `demoMemberSince`, through the guards in lib/demoMarkers.ts (DECISIONS.md, Market e ofertas, Avaliações).
  */
+import { getLocale } from './locale'
 import type { TrustLineItem } from '../components/ui/trustTypes'
 import { formatMonthYear } from './format'
+import { t } from '../i18n'
 
 export interface RatingSummary { average: number; count: number }
 
@@ -28,17 +30,17 @@ export function sellerMemberSince(seller: DemoRatingFields): string | null {
   return (seller.demoMemberSince && formatMonthYear(seller.demoMemberSince)) || null
 }
 
-const average = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
-const countLabel = (n: number) => `${n.toLocaleString('pt-BR')} ${n === 1 ? 'avaliação' : 'avaliações'}`
+const average = (n: number) => n.toLocaleString(getLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+const countLabel = (n: number) => t('reputation.ratings.count', { count: n })
 
 /** Accessible name shared by both forms: "Avaliação média 4,8 de 5, 126 avaliações". */
 export function ratingSrText(r: RatingSummary): string {
-  return `Avaliação média ${average(r.average)} de 5, ${countLabel(r.count)}`
+  return t('reputation.ratings.sr', { average: average(r.average), ratings: countLabel(r.count) })
 }
 
 /** Compact list form, after the trust line: star + "4,8 (126)". Never "/5". */
 export function ratingCompactItem(r: RatingSummary): TrustLineItem {
-  return { kind: 'rating', text: `${average(r.average)} (${r.count.toLocaleString('pt-BR')})`, srText: ratingSrText(r) }
+  return { kind: 'rating', text: `${average(r.average)} (${r.count.toLocaleString(getLocale())})`, srText: ratingSrText(r) }
 }
 
 /** Full detail/Profile form after the star: "4,8 · 126 avaliações". */

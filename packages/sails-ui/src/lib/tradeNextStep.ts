@@ -1,5 +1,14 @@
 import type { EscrowStatus } from '../types'
-import { deriveCurrentAction } from './currentAction'
+import { deriveCurrentAction, type CurrentActionKind } from './currentAction'
+import { t } from '../i18n'
+
+// One message per action: lower-casing a translated title breaks German nouns and word order.
+const YOUR_TURN = {
+  createEscrow: 'escrow.nextStep.createEscrow',
+  lock: 'escrow.nextStep.lock',
+  markPaymentSent: 'escrow.nextStep.markPaymentSent',
+  release: 'escrow.nextStep.release',
+} as const satisfies Record<CurrentActionKind, string>
 
 export interface TradeNextStep {
   yourTurn: boolean
@@ -15,9 +24,9 @@ export interface TradeNextStep {
 export function tradeNextStep(escrowStatus: EscrowStatus | null | undefined, role: { isBuyer: boolean; isSeller: boolean }): TradeNextStep | null {
   if (escrowStatus === null) return null
   if (escrowStatus === undefined) {
-    return role.isSeller ? { yourTurn: true, text: 'Sua vez: criar o escrow' } : { yourTurn: false, text: 'Aguardando o vendedor criar o escrow' }
+    return role.isSeller ? { yourTurn: true, text: t(YOUR_TURN.createEscrow) } : { yourTurn: false, text: t('escrow.action.waitCreate.title') }
   }
   const action = deriveCurrentAction({ status: escrowStatus, ...role })
-  if (action.tone === 'action') return { yourTurn: true, text: `Sua vez: ${action.title.charAt(0).toLowerCase()}${action.title.slice(1)}` }
+  if (action.tone === 'action' && action.primary) return { yourTurn: true, text: t(YOUR_TURN[action.primary.action]) }
   return { yourTurn: false, text: action.title }
 }

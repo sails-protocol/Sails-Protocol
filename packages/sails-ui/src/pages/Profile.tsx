@@ -11,7 +11,7 @@ import { Page, PageHeader } from '../components/layout/PageHeader'
 import { cn } from '../lib/utils'
 import { Check, Plus } from 'lucide-react'
 import { formatAmount, formatMonthYear } from '../lib/format'
-import { ACCOUNT_DISPUTE_RATE_DEFINITION, formatAccountDisputeRate, RATINGS_DEMO_EXPLANATION, RATINGS_EXPLANATION, REPUTATION_EXPLANATION } from '../lib/reputation'
+import { accountDisputeRateDefinition, formatAccountDisputeRate, RATINGS_DEMO_EXPLANATION, RATINGS_EXPLANATION, REPUTATION_EXPLANATION } from '../lib/reputation'
 import { ratingFullText, ratingSrText, sellerRatings } from '../lib/ratings'
 import { demoRatingsOf } from '../lib/demoMarkers'
 import { RatingSummaryLine } from '../components/ui/RatingSummaryLine'
@@ -21,10 +21,8 @@ import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import { TRADES_ROUTES } from '../components/layout/navMatch'
 import { MyOffersSection } from './MyOffers'
 import { MarketsCallToAction } from './markets/MarketsEntry'
-import { MARKETS_VALUE_LINE } from './markets/shared'
-
-const KEY_EXPLAINER =
-  'Este é o identificador único da sua conta: a mesma chave assina suas ações e identifica você na conexão direta com outros usuários. É segura para compartilhar; sua chave privada nunca sai do seu dispositivo.'
+import { marketsValueLine } from './markets/shared'
+import { t } from '../i18n'
 
 export function Profile() {
   const { user } = useAuth()
@@ -47,11 +45,11 @@ export function Profile() {
   return (
     <Page width="detail">
       <PageHeader
-        title="Perfil"
+        title={t('profile.title')}
         actions={
           <Link to={TRADES_ROUTES.newOffer} className={cn(buttonVariants({ className: 'shrink-0 min-h-10 touch:min-h-11 px-4' }))}>
             <Plus aria-hidden="true" />
-            Nova oferta
+            {t('trades.offers.new')}
           </Link>
         }
       />
@@ -62,29 +60,29 @@ export function Profile() {
           <div className="min-w-0">
             <h2 className="text-section-title flex items-center gap-1.5 flex-wrap">
               {user.displayName}
-              {user.verified && <Check aria-label="Verificado" className="h-4 w-4 text-brand-orange-accent" />}
+              {user.verified && <Check aria-label={t('profile.verified')} className="h-4 w-4 text-brand-orange-accent" />}
             </h2>
             {/* Real gap found directly by the owner: this key was shown with no label at all. It genuinely is
                 the same key: PearNode's own Ed25519 keypair IS the identity keypair (docs/ARCHITECTURE.md,
                 pear.service.ts getKeyPair()), so the explainer says so plainly. */}
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="flex items-center gap-1 text-xs text-brand-text-muted">
-                Sua chave pública
-                <InfoTooltip text={KEY_EXPLAINER} />
+                {t('profile.publicKey')}
+                <InfoTooltip text={t('profile.keyExplainer')} />
               </span>
               <span className="mono-id text-body-sm text-brand-text-secondary truncate max-w-[16rem]">{user.publicKey}</span>
               <CopyButton value={user.publicKey} className="min-h-11 md:min-h-0 shrink-0" />
             </div>
-            {formatMonthYear(user.createdAt) && <p className="text-xs text-brand-text-muted mt-1">Membro desde {formatMonthYear(user.createdAt)}</p>}
+            {formatMonthYear(user.createdAt) && <p className="text-xs text-brand-text-muted mt-1">{t('profile.memberSince', { date: formatMonthYear(user.createdAt) })}</p>}
           </div>
         </div>
         <StatStrip
           className="mt-5 pt-4 border-t border-brand-border-subtle"
           items={[
-            { label: 'Trades', value: user.totalTrades },
-            { label: 'Volume (BTC)', value: formatAmount(user.totalVolumeBtc, 2) },
-            { label: 'Taxa de disputa', value: formatAccountDisputeRate(user), info: ACCOUNT_DISPUTE_RATE_DEFINITION },
-            { label: 'Reputação', value: <span className="inline-flex items-center gap-1.5">{user.reputationScore.toFixed(0)}<ExplanationPopover explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.title} /></span> },
+            { label: t('profile.stat.trades'), value: user.totalTrades },
+            { label: t('profile.stat.volume'), value: formatAmount(user.totalVolumeBtc, 2) },
+            { label: t('trades.history.stat.disputeRate'), value: formatAccountDisputeRate(user), info: accountDisputeRateDefinition() },
+            { label: t('profile.stat.reputation'), value: <span className="inline-flex items-center gap-1.5">{user.reputationScore.toFixed(0)}<ExplanationPopover explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.title} /></span> },
           ]}
         />
         {/* Ratings exist (reputation.rate()) but cannot be read back yet: real data gets the planned item, no
@@ -94,7 +92,7 @@ export function Profile() {
             className="mt-4 pt-4 border-t border-brand-border-subtle"
             text={ratingFullText(ratings)}
             srText={ratingSrText(ratings)}
-            description="Notas de 1 a 5 estrelas que as contrapartes dão ao fim de um trade. Não mudam a reputação."
+            description={t('profile.ratingsDescription')}
             explanation={RATINGS_DEMO_EXPLANATION}
           />
         ) : (
@@ -102,8 +100,8 @@ export function Profile() {
             className="mt-4 pt-4 border-t border-brand-border-subtle"
             icon={LOOSE_WIRES.readRatings.icon}
             label={LOOSE_WIRES.readRatings.label}
-            soonLabel="Em breve"
-            description="Notas de 1 a 5 estrelas que as contrapartes dão ao fim de um trade. Não mudam a reputação."
+            soonLabel={t('common.soon')}
+            description={t('profile.ratingsDescription')}
             explanation={RATINGS_EXPLANATION}
           />
         )}
@@ -113,8 +111,8 @@ export function Profile() {
 
       {/* Markets invitation in a natural place (DECISIONS.md "Modelo mundo aberto"). */}
       <section aria-labelledby="profile-markets" className="mt-8">
-        <h2 id="profile-markets" className="text-section-title">Mercados</h2>
-        <p className="mt-1 text-body-sm text-brand-text-secondary">{MARKETS_VALUE_LINE}</p>
+        <h2 id="profile-markets" className="text-section-title">{t('profile.markets')}</h2>
+        <p className="mt-1 text-body-sm text-brand-text-secondary">{marketsValueLine()}</p>
         <MarketsCallToAction className="mt-2 -ml-3 justify-start" />
       </section>
 

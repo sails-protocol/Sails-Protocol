@@ -1,5 +1,5 @@
 import { readThemePreference, resolveTheme, saveThemePreference, THEME_STORAGE_KEY } from '../src/lib/themePreference'
-import { LOCALE_STORAGE_KEY, readLocale, saveLocale, translationPending } from '../src/lib/locale'
+import { LOCALE_STORAGE_KEY, readLocale, saveLocale } from '../src/lib/locale'
 
 const memoryStore = (initial: Record<string, string> = {}) => {
   const data = { ...initial }
@@ -32,7 +32,7 @@ describe('theme preference', () => {
   })
 })
 
-describe('locale preference (stored only; translations are lot B)', () => {
+describe('locale preference', () => {
   it('defaults to system and reads a stored language under sails_ui_locale', () => {
     expect(LOCALE_STORAGE_KEY).toBe('sails_ui_locale')
     expect(readLocale(memoryStore())).toBe('system')
@@ -41,12 +41,5 @@ describe('locale preference (stored only; translations are lot B)', () => {
     expect(readLocale(store)).toBe('es')
     expect(readLocale(memoryStore({ [LOCALE_STORAGE_KEY]: 'klingon' }))).toBe('system')
     expect(readLocale(throwing)).toBe('system')
-  })
-  it('flags a pending translation for anything but Portuguese', () => {
-    expect(translationPending('pt-BR')).toBe(false)
-    expect(translationPending('en')).toBe(true)
-    expect(translationPending('system', 'pt-BR')).toBe(false)
-    expect(translationPending('system', 'de-DE')).toBe(true)
-    expect(translationPending('system', undefined)).toBe(false)
   })
 })

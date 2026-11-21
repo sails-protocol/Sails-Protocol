@@ -8,9 +8,7 @@ import { Input } from '../components/ui/input'
 import { SafetyNote } from '../components/ui/SafetyNote'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { ArrowLeft, ChevronRight, KeyRound, Link2, ShieldCheck, Wallet, type LucideIcon } from 'lucide-react'
-
-const PASSPHRASE_EXPLAINER =
-  'Essa senha nunca sai do seu navegador nem é enviada ao Sails Protocol — ela só criptografa sua chave privada aqui localmente (AES-256-GCM). Se esquecer, não tem como recuperar: a chave (e o acesso à conta/fundos vinculados) fica permanentemente inacessível.'
+import { t } from '../i18n'
 
 // Routes a visitor can see without a session. Cancelling the dialog returns
 // there; returning to a protected route would bounce straight back here.
@@ -46,20 +44,20 @@ export function Login() {
         {step === 'list' ? (
           <>
             <DialogHeader>
-              <DialogTitle>Conectar wallet</DialogTitle>
-              <DialogDescription>Escolha como você quer se conectar.</DialogDescription>
+              <DialogTitle>{t('auth.login.title')}</DialogTitle>
+              <DialogDescription>{t('auth.login.description')}</DialogDescription>
             </DialogHeader>
             <ul className="mt-2 space-y-2">
-              <Option icon={Wallet} title="Satsails Wallet" trailing="Em breve" />
-              <Option icon={Link2} title="WalletConnect" trailing="Em breve" />
+              <Option icon={Wallet} title="Satsails Wallet" trailing={t('common.soon')} />
+              <Option icon={Link2} title="WalletConnect" trailing={t('common.soon')} />
               <Option
                 icon={KeyRound}
-                title="Chave local"
-                subtitle="Para testes, guardada neste navegador"
+                title={t('auth.login.localKey')}
+                subtitle={t('auth.login.localKeySubtitle')}
                 onSelect={() => setStep('local')}
               />
             </ul>
-            <p className="mt-4 text-center text-xs text-brand-text-muted">Não tem uma wallet? A Satsails Wallet chega em breve.</p>
+            <p className="mt-4 text-center text-xs text-brand-text-muted">{t('auth.login.noWallet')}</p>
           </>
         ) : (
           <LocalKeyStep
@@ -120,7 +118,7 @@ function LocalKeyStep({ onBack, onConnected }: { onBack: () => void; onConnected
 
   const handleConnect = async () => {
     if (!passphrase) {
-      toast.error(isReturning ? 'Digite sua senha' : 'Crie uma senha para proteger sua chave')
+      toast.error(isReturning ? t('auth.local.enterPassphrase') : t('auth.local.createToProtect'))
       return
     }
     if (!canConnect) return
@@ -130,10 +128,10 @@ function LocalKeyStep({ onBack, onConnected }: { onBack: () => void; onConnected
       // `passphrase` never reaches the SDK/backend — AuthContext uses it only
       // locally, to derive the AES key that encrypts the stored keypair.
       await login(passphrase)
-      toast.success('Wallet conectada')
+      toast.success(t('auth.local.connected'))
       onConnected()
     } catch (err) {
-      toast.error(err instanceof WrongPassphraseError || err instanceof Error ? err.message : 'Falha ao conectar')
+      toast.error(err instanceof WrongPassphraseError || err instanceof Error ? err.message : t('auth.local.connectFailed'))
     } finally {
       setConnecting(false)
     }
@@ -145,31 +143,31 @@ function LocalKeyStep({ onBack, onConnected }: { onBack: () => void; onConnected
         <button
           type="button"
           onClick={onBack}
-          aria-label="Voltar para as opções"
+          aria-label={t('auth.local.back')}
           className="-ml-1 mb-1 w-11 h-11 md:w-8 md:h-8 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text state-layer"
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
         <DialogTitle className="flex items-center gap-1.5">
-          Chave local
-          <InfoTooltip text="Autenticação por assinatura de chave Ed25519 gerada neste navegador. Sua chave privada nunca sai do seu dispositivo." />
+          {t('auth.login.localKey')}
+          <InfoTooltip text={t('auth.local.info')} />
         </DialogTitle>
         <DialogDescription>
-          {isReturning ? 'Digite a senha que protege a chave deste navegador.' : 'Crie uma senha para proteger a chave que será gerada neste navegador.'}
+          {isReturning ? t('auth.local.descriptionReturning') : t('auth.local.descriptionNew')}
         </DialogDescription>
       </DialogHeader>
 
       <label className="mt-2 block">
         <span className="text-label flex items-center gap-1">
-          {isReturning ? 'Sua senha' : 'Crie uma senha'}
-          <InfoTooltip text={PASSPHRASE_EXPLAINER} />
+          {isReturning ? t('auth.local.yourPassphrase') : t('auth.local.createPassphrase')}
+          <InfoTooltip text={t('auth.local.passphraseExplainer')} />
         </span>
         <Input
           type="password"
           value={passphrase}
           onChange={(e) => setPassphrase(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && !connecting && handleConnect()}
-          placeholder={isReturning ? 'Digite sua senha' : 'Crie uma senha'}
+          placeholder={isReturning ? t('auth.local.enterPassphrase') : t('auth.local.createPassphrase')}
           className="w-full mt-1.5"
           autoComplete={isReturning ? 'current-password' : 'new-password'}
           autoFocus
@@ -178,13 +176,13 @@ function LocalKeyStep({ onBack, onConnected }: { onBack: () => void; onConnected
       {!isReturning && (
         <>
           <label className="mt-3 block">
-            <span className="text-label">Confirme a senha</span>
+            <span className="text-label">{t('auth.local.confirmLabel')}</span>
             <Input
               type="password"
               value={confirmation}
               onChange={(e) => setConfirmation(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && !connecting && handleConnect()}
-              placeholder="Digite a senha de novo"
+              placeholder={t('auth.local.confirmPlaceholder')}
               className="w-full mt-1.5"
               autoComplete="new-password"
               aria-invalid={mismatch}
@@ -192,19 +190,19 @@ function LocalKeyStep({ onBack, onConnected }: { onBack: () => void; onConnected
             />
           </label>
           {mismatch && (
-            <p id="passphrase-mismatch" role="alert" className="mt-1.5 text-xs text-brand-danger-fg">As senhas não coincidem</p>
+            <p id="passphrase-mismatch" role="alert" className="mt-1.5 text-xs text-brand-danger-fg">{t('auth.local.mismatch')}</p>
           )}
           <SafetyNote tone="warning" className="mt-3">
-            Esta senha criptografa sua chave aqui no navegador. Guarde-a: se você perdê-la, não há como recuperar a chave.
+            {t('auth.local.warning')}
           </SafetyNote>
         </>
       )}
       <Button onClick={handleConnect} loading={connecting} disabled={!canConnect} className="mt-3 w-full h-11">
-        {connecting ? 'Conectando…' : 'Conectar'}
+        {connecting ? t('auth.local.connecting') : t('auth.local.connect')}
       </Button>
       <p className="mt-3 flex gap-2 text-xs text-brand-text-secondary">
         <ShieldCheck className="h-4 w-4 shrink-0" />
-        Sua chave privada nunca sai do seu dispositivo. O Sails Protocol só verifica sua assinatura.
+        {t('auth.local.privacyNote')}
       </p>
     </>
   )

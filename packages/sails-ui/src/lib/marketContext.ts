@@ -3,6 +3,7 @@
  * Prototype only: the protocol has no market/community discovery or membership today, so nothing
  * in the real app produces these values yet. Pure helpers, no I/O.
  */
+import { getLocale } from './locale'
 
 export type MarketContextKind = 'public' | 'community' | 'restricted'
 export type MarketContextAccess = 'open' | 'restricted' | 'unavailable'
@@ -41,7 +42,7 @@ const KIND_ORDER: MarketContextKind[] = ['public', 'community', 'restricted']
 
 /** Public first, then communities, then restricted markets; alphabetical inside each kind. Does not mutate. */
 export function orderMarketContexts(options: readonly MarketContextView[]): MarketContextView[] {
-  return [...options].sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || a.name.localeCompare(b.name, 'pt-BR'))
+  return [...options].sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || a.name.localeCompare(b.name, getLocale()))
 }
 
 /** Ordered, non-empty groups by kind, for a sectioned list. */

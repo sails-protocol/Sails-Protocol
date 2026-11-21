@@ -4,6 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useUiStrings } from "./uiStrings"
 
 const Sheet = SheetPrimitive.Root
 
@@ -77,13 +78,16 @@ const SheetContent = React.forwardRef<
       {!hideDefaultClose && (
         <SheetPrimitive.Close className="absolute right-2 top-2 md:right-4 md:top-4 h-8 w-8 touch:h-11 touch:w-11 flex items-center justify-center rounded-md text-brand-text-secondary transition-colors duration-short state-layer hover:text-brand-text disabled:pointer-events-none">
           <X className="h-4 w-4" />
-          <span className="sr-only">Fechar</span>
+          <span className="sr-only"><CloseLabel /></span>
         </SheetPrimitive.Close>
       )}
     </SheetPrimitive.Content>
   </SheetPortal>
 ))
 SheetContent.displayName = SheetPrimitive.Content.displayName
+
+/** The close control's name from the host's UiStrings (Layer A never imports the app dictionary). */
+const CloseLabel = () => <>{useUiStrings().close}</>
 
 const SheetHeader = ({
   className,

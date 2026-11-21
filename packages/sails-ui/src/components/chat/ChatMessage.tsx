@@ -2,6 +2,7 @@ import type { Message } from '../../types'
 import { formatTime } from '../../lib/format'
 import { RISK_PATTERN_LABEL } from '../../lib/socialEngineering'
 import { InfoTooltip } from '../ui/InfoTooltip'
+import { t } from '../../i18n'
 import { AlertTriangle, Receipt, Lock } from 'lucide-react'
 
 export function ChatMessage({ message, isMine }: { message: Message; isMine: boolean }) {
@@ -9,7 +10,7 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
     return (
       // State changes this client observed (Trade.tsx), never counterparty text. No time: when it was observed is not when it happened.
       <div role="status" className="self-center max-w-full text-center text-xs text-brand-text-secondary bg-brand-elevated border border-brand-border-subtle rounded-md px-3 py-1.5 my-1">
-        <span className="font-semibold">Atualização do trade · </span>
+        <span className="font-semibold">{t('trade.chat.systemPrefix')} · </span>
         {message.content}
       </div>
     )
@@ -21,8 +22,8 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
         <AlertTriangle aria-hidden="true" className="h-4 w-4 shrink-0 text-brand-danger" />
         <div className="flex-1">
           <div className="flex items-center gap-1.5 font-semibold text-brand-danger-fg">
-            {message.riskPattern ? RISK_PATTERN_LABEL[message.riskPattern] : 'Sinal de risco detectado'}
-            <InfoTooltip text="Aviso automático por palavras-chave, feito nesta interface. Pode errar para mais ou para menos e não verifica a mensagem nem a contraparte." />
+            {message.riskPattern ? RISK_PATTERN_LABEL[message.riskPattern] : t('trade.chat.riskFallback')}
+            <InfoTooltip text={t('trade.chat.riskHelp')} />
           </div>
           <p className="text-brand-text-secondary mt-0.5">{message.content}</p>
         </div>
@@ -53,11 +54,11 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
         {/* A proof is a party's claim, not a verified payment (CTO 437): info tone, never success. */}
         {isProof && (
           <div className="text-xs font-semibold text-brand-info-fg mb-1 flex items-center gap-1">
-            <Receipt className="h-3.5 w-3.5" /> Comprovante enviado · não verificado
+            <Receipt className="h-3.5 w-3.5" /> {t('trade.chat.proof')}
           </div>
         )}
         {message.type === 'IMAGE' && message.mediaUrl && (
-          <img src={message.mediaUrl} alt={message.mediaFileName ?? 'Imagem enviada'} className="max-w-[240px] max-h-[240px] rounded-lg object-cover" />
+          <img src={message.mediaUrl} alt={message.mediaFileName ?? t('trade.chat.imageAlt')} className="max-w-[240px] max-h-[240px] rounded-lg object-cover" />
         )}
         {message.type === 'VIDEO' && message.mediaUrl && (
           <video src={message.mediaUrl} controls className="max-w-[240px] max-h-[240px] rounded-lg" />

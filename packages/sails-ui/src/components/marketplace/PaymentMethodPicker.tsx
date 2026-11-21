@@ -13,6 +13,7 @@ import { useMemo } from 'react'
 import type { PaymentMethod } from '../../types'
 import { PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import { Combobox, type ComboboxOption } from '../ui/combobox'
+import { t } from '../../i18n'
 
 interface Props {
   methods: readonly PaymentMethod[]
@@ -28,12 +29,12 @@ export function PaymentMethodPicker({ methods, value, onChange }: Props) {
   }
 
   const label =
-    value.length === 0 ? 'Todos os métodos' : value.length === 1 ? PAYMENT_METHOD_LABELS[value[0]] : `${value.length} métodos`
+    value.length === 0 ? t('market.payment.all') : value.length === 1 ? PAYMENT_METHOD_LABELS[value[0]] : t('market.payment.selected', { count: String(value.length) })
 
   return (
     <Combobox
       multiple
-      label="Métodos de pagamento"
+      label={t('market.payment.label')}
       valueText={label}
       options={options}
       selected={value}
@@ -41,8 +42,8 @@ export function PaymentMethodPicker({ methods, value, onChange }: Props) {
       triggerClassName="min-w-[150px]"
       // Active filter: brand blue (chosen), never orange (act).
       trigger={<span className={`truncate ${value.length > 0 ? 'font-medium text-brand-blue-fg' : ''}`}>{label}</span>}
-      searchPlaceholder="Buscar método de pagamento…"
-      emptyText={() => 'Nenhum método encontrado com esse nome.'}
+      searchPlaceholder={t('market.payment.search')}
+      emptyText={() => t('market.payment.empty')}
       footer={value.length > 0 ? () => (
         <div className="p-1">
           <button
@@ -50,7 +51,7 @@ export function PaymentMethodPicker({ methods, value, onChange }: Props) {
             onClick={() => onChange([])}
             className="w-full min-h-8 touch:min-h-11 rounded-sm text-xs text-brand-text-secondary hover:text-brand-text state-layer"
           >
-            Limpar seleção
+            {t('market.payment.clearSelection')}
           </button>
         </div>
       ) : undefined}

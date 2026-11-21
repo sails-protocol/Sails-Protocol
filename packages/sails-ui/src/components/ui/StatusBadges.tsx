@@ -11,6 +11,7 @@ import { ESCROW_STATE_LABEL } from '../../lib/tradeState'
 import { badgeVariants } from './badge'
 import { cn } from '../../lib/utils'
 import { TONE_CLASS } from '../../lib/tone'
+import { t } from '../../i18n'
 import {
   Clock, CheckCircle2, AlertTriangle, XCircle, Circle, Lock, RotateCcw, PauseCircle, Scissors, ArrowDownLeft, ArrowUpRight, type LucideIcon,
 } from 'lucide-react'
@@ -51,7 +52,7 @@ export function SideBadge({ side }: { side: TradeSide }) {
   return (
     <span className={cn('inline-flex items-center gap-1 whitespace-nowrap text-caption font-medium', buy ? 'text-brand-buy-fg' : 'text-brand-sell-fg')}>
       <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-      {buy ? 'Comprar' : 'Vender'}
+      {buy ? t('labels.side.buy') : t('labels.side.sell')}
     </span>
   )
 }
@@ -66,8 +67,13 @@ export function PaymentBadge({ method, className }: { method: PaymentMethod; cla
   )
 }
 
+// Getters: the label follows the interface language on every read.
 const TRADE_STATUS_LABEL: Record<TradeStatus, string> = {
-  PENDING: 'Pendente', ACTIVE: 'Ativo', COMPLETED: 'Concluído', DISPUTED: 'Em disputa', CANCELLED: 'Cancelado',
+  get PENDING() { return t('labels.tradeStatus.pending') },
+  get ACTIVE() { return t('labels.tradeStatus.active') },
+  get COMPLETED() { return t('labels.tradeStatus.completed') },
+  get DISPUTED() { return t('labels.tradeStatus.disputed') },
+  get CANCELLED() { return t('labels.tradeStatus.cancelled') },
 }
 const TRADE_STATUS_COLOR: Record<TradeStatus, string> = {
   PENDING: TONE_CLASS.warning,
@@ -121,7 +127,10 @@ export function EscrowStatusBadge({ status }: { status: EscrowStatus }) {
 }
 
 export const OFFER_STATUS_LABEL: Record<OfferStatus, string> = {
-  ACTIVE: 'Ativa', PAUSED: 'Pausada', COMPLETED: 'Concluída', CANCELLED: 'Cancelada',
+  get ACTIVE() { return t('labels.offerStatus.active') },
+  get PAUSED() { return t('labels.offerStatus.paused') },
+  get COMPLETED() { return t('labels.offerStatus.completed') },
+  get CANCELLED() { return t('labels.offerStatus.cancelled') },
 }
 const OFFER_STATUS_ICON: Record<OfferStatus, LucideIcon> = {
   ACTIVE: Circle, PAUSED: PauseCircle, COMPLETED: CheckCircle2, CANCELLED: XCircle,

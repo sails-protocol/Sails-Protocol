@@ -11,6 +11,7 @@ import { cn } from '../../lib/utils'
 import { hasSeenOnboarding, markOnboardingSeen } from '../../lib/onboarding'
 import { SailsLogo } from '../brand/SailsLogo'
 import { useNavPosition } from '../../lib/navPosition'
+import { t } from '../../i18n'
 
 /** What Layout hands its pages via `useOutletContext` (Configurações' "Rever tour"). */
 export interface LayoutOutletContext {
@@ -60,7 +61,7 @@ export function Layout() {
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:bg-brand-surface focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-brand-text focus:shadow-elevation-2"
       >
-        Pular para o conteúdo
+        {t('shell.nav.skipToContent')}
       </a>
       <Sidebar hideFromLg={topNav} />
       <div className="flex-1 min-w-0">
@@ -68,14 +69,14 @@ export function Layout() {
         {/* Mobile-only bar: logo + session, nothing else. Theme and "Rever tour" live in Configurações at
             every width (reachable from BottomNav). */}
         <header className="md:hidden h-14 flex items-center justify-between gap-3 px-4 border-b border-brand-border-subtle sticky top-0 z-40 bg-brand-bg/90 backdrop-blur">
-          <Link to="/" aria-label="Sails Market, início" className="rounded-md">
+          <Link to="/" aria-label={t('shell.nav.home')} className="rounded-md">
             <SailsLogo size="sm" />
           </Link>
           {user ? (
             <AccountMenu user={user} compact />
           ) : (
             <Link to="/login" state={{ from: location.pathname }} className={cn(buttonVariants({ size: 'sm', className: 'min-h-11 px-3' }))}>
-              Conectar wallet
+              {t('shell.session.connectWallet')}
             </Link>
           )}
         </header>

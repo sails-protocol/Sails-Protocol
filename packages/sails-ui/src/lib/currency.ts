@@ -1,7 +1,9 @@
+import { getLocale } from './locale'
 import type { FiatCurrency } from '../types'
 
-// `locale` is the currency's home convention, kept as data. Display uses one pt-BR
-// policy for every currency (lib/format.ts), so a row never mixes "," and "." decimals.
+// `locale` is the currency's home convention, kept as data. Display follows the interface language for
+// every currency (lib/format.ts), so a row never mixes "," and "." decimals. `label` is the pt-BR name;
+// other languages read the name from Intl (currencyLabel).
 export const FIAT_CURRENCIES: { code: FiatCurrency; label: string; locale: string }[] = [
   { code: 'BRL', label: 'Real Brasileiro', locale: 'pt-BR' },
   { code: 'USD', label: 'Dólar Americano', locale: 'en-US' },
@@ -43,11 +45,23 @@ export const AMOUNT_PRESETS: Record<FiatCurrency, number[]> = {
 
 export function formatByCurrency(value: number, currency: FiatCurrency): string {
   const meta = FIAT_CURRENCIES.find((c) => c.code === currency) ?? FIAT_CURRENCIES[0]
-  return value.toLocaleString('pt-BR', { style: 'currency', currency: meta.code })
+  return value.toLocaleString(getLocale(), { style: 'currency', currency: meta.code })
 }
 
 /** Unit price: never rounds away sub-cent digits (a 1.002 offer showed as "$1.00" while 100 units totalled $100.20). */
 export function formatPrice(value: number, currency: FiatCurrency): string {
   const meta = FIAT_CURRENCIES.find((c) => c.code === currency) ?? FIAT_CURRENCIES[0]
-  return value.toLocaleString('pt-BR', { style: 'currency', currency: meta.code, maximumFractionDigits: 8 })
+  return value.toLocaleString(getLocale(), { style: 'currency', currency: meta.code, maximumFractionDigits: 8 })
+}
+
+/** Currency name in the interface language: the pt-BR label as written here, Intl.DisplayNames elsewhere. */
+export function currencyLabel(code: FiatCurrency): string {
+  const meta = FIAT_CURRENCIES.find((c) => c.code === code)
+  const locale = getLocale()
+  if (locale === 'pt-BR' && meta) return meta.label
+  try {
+    return new Intl.DisplayNames(locale, { type: 'currency' }).of(code) ?? meta?.label ?? code
+  } catch {
+    return meta?.label ?? code
+  }
 }

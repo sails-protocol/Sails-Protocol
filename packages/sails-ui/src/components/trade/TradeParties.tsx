@@ -8,6 +8,7 @@ import { TrustLine } from '../ui/TrustLine'
 import { ExplanationPopover } from '../ui/ExplanationPopover'
 import { Card } from '../ui/card'
 import { Divider } from '../ui/divider'
+import { t } from '../../i18n'
 
 // counterpartyOnline (2026-08-02): real presence for whichever of
 // buyer/seller ISN'T currentUserId, sourced from Trade.tsx's chat
@@ -34,9 +35,9 @@ export function TradeParties({
   const viewerIsSeller = seller.id === currentUserId
   if (!viewerIsBuyer && !viewerIsSeller) {
     return (
-      <Card aria-label="Partes do trade" className="px-4 py-1.5 divide-y divide-brand-border-subtle">
-        <PartyRow user={buyer} role="Comprador" isYou={false} online={null} />
-        <PartyRow user={seller} role="Vendedor" isYou={false} online={null} />
+      <Card aria-label={t('trade.parties.label')} className="px-4 py-1.5 divide-y divide-brand-border-subtle">
+        <PartyRow user={buyer} role={t('trade.parties.buyer')} isYou={false} online={null} />
+        <PartyRow user={seller} role={t('trade.parties.seller')} isYou={false} online={null} />
         {children && <div className="py-2.5">{children}</div>}
       </Card>
     )
@@ -45,11 +46,11 @@ export function TradeParties({
   const you = viewerIsBuyer ? buyer : seller
   return (
     <Card aria-labelledby="trade-counterparty-title" className="px-4 py-3">
-      <h2 id="trade-counterparty-title" className="text-xs font-medium text-brand-text-secondary">Contraparte</h2>
-      <PartyRow user={other} role={viewerIsBuyer ? 'Vendedor' : 'Comprador'} isYou={false} online={counterpartyOnline} />
+      <h2 id="trade-counterparty-title" className="text-xs font-medium text-brand-text-secondary">{t('trade.parties.counterparty')}</h2>
+      <PartyRow user={other} role={t(viewerIsBuyer ? 'trade.parties.seller' : 'trade.parties.buyer')} isYou={false} online={counterpartyOnline} />
       {children}
       <Divider className="mt-2" />
-      <PartyRow user={you} role={viewerIsBuyer ? 'Comprador' : 'Vendedor'} isYou />
+      <PartyRow user={you} role={t(viewerIsBuyer ? 'trade.parties.buyer' : 'trade.parties.seller')} isYou />
     </Card>
   )
 }
@@ -60,7 +61,7 @@ function PartyRow({ user, role, isYou, online }: { user: User; role: string; isY
       <UserAvatar user={user} size="sm" showPresence={!isYou} online={online} />
       <div className="text-sm min-w-0">
         <span className="font-medium text-brand-text [overflow-wrap:anywhere]">{user.displayName}</span>
-        {isYou && <span className="ml-1.5 text-xs bg-brand-orange-accent/10 text-brand-orange-hover dark:text-brand-orange-accent rounded-sm px-1.5 py-0.5">Você</span>}
+        {isYou && <span className="ml-1.5 text-xs bg-brand-orange-accent/10 text-brand-orange-hover dark:text-brand-orange-accent rounded-sm px-1.5 py-0.5">{t('trade.parties.you')}</span>}
         <span className="ml-1.5 text-xs text-brand-text-secondary">· {role}</span>
         {/* Same trust line as the Market rows: server counters only, no derived percentage. */}
         {/* Inline (not flex) so the info button wraps with the text on narrow phones. */}

@@ -14,6 +14,7 @@ import { Button } from '../ui/button'
 import { TradeStatusBadge } from '../ui/StatusBadges'
 import { ASSET_SHORT_LABELS } from '../../lib/labels'
 import { formatAmount } from '../../lib/format'
+import { t } from '../../i18n'
 
 export interface TradeCardProps {
   trade: Trade
@@ -37,7 +38,7 @@ export function TradeCard({ trade, onRelease }: TradeCardProps) {
             CANCELLED trade isn't a valid action. */}
         {onRelease && trade.status === 'ACTIVE' && (
           <Button type="button" className="w-full mt-4" onClick={onRelease}>
-            Liberar fundos
+            {t('trade.card.release')}
           </Button>
         )}
       </CardContent>

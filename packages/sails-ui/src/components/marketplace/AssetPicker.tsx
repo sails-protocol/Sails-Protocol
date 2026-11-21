@@ -26,7 +26,8 @@
 import { useMemo } from 'react'
 import type { AssetType } from '../../types'
 import { ASSET_LABELS } from '../../lib/labels'
-import { ASSET_GROUPS, SOON_NOTE, pairForAssetType, pickerPairs } from '../../lib/assetCatalog'
+import { ASSET_GROUPS, pairForAssetType, pickerPairs, soonNote } from '../../lib/assetCatalog'
+import { t } from '../../i18n'
 import { Combobox, type ComboboxOption } from '../ui/combobox'
 import { badgeVariants } from '../ui/badge'
 import { AssetIcon, AssetPairIcon } from '../ui/AssetIcon'
@@ -44,9 +45,9 @@ interface Props {
 const SOON_BADGE = cn(badgeVariants({ variant: 'outline' }), 'border-transparent bg-brand-tonal font-medium text-brand-text')
 
 // Combobox primitive (2026-11-20, DESIGN_SYSTEM.md 5.3): search (label, code, asset or network name), arrow keys and Enter.
-export function AssetPicker({ value, onChange, allLabel = 'Todos os ativos', hideAllOption }: Props) {
+export function AssetPicker({ value, onChange, allLabel = t('market.asset.all'), hideAllOption }: Props) {
   const options = useMemo<ComboboxOption<string>[]>(() => [
-    ...(hideAllOption ? [] : [{ value: 'Todos', label: 'Todos os ativos' }]),
+    ...(hideAllOption ? [] : [{ value: 'Todos', label: t('market.asset.all') }]),
     ...pickerPairs(import.meta.env.DEV).map((p) => {
       const soon = p.availability === 'soon'
       const group = ASSET_GROUPS.find((g) => g.asset === p.asset)!.name
@@ -57,8 +58,8 @@ export function AssetPicker({ value, onChange, allLabel = 'Todos os ativos', hid
         leading: <AssetPairIcon pair={p} />,
         group,
         disabled: soon || p.assetType === null,
-        description: p.note && p.note !== SOON_NOTE ? p.note : undefined,
-        detail: soon ? <span className={SOON_BADGE}>{SOON_NOTE}</span> : undefined,
+        description: p.note && p.note !== soonNote() ? p.note : undefined,
+        detail: soon ? <span className={SOON_BADGE}>{soonNote()}</span> : undefined,
       }
     }),
   ], [hideAllOption])
@@ -67,7 +68,7 @@ export function AssetPicker({ value, onChange, allLabel = 'Todos os ativos', hid
 
   return (
     <Combobox
-      label="Ativo"
+      label={t('market.field.asset')}
       valueText={valueText}
       options={options}
       selected={[selectedId]}
@@ -84,8 +85,8 @@ export function AssetPicker({ value, onChange, allLabel = 'Todos os ativos', hid
           <span className={value === 'Todos' && hideAllOption ? 'truncate text-brand-text-muted' : 'font-medium truncate'}>{valueText}</span>
         </span>
       }
-      searchPlaceholder="Buscar ativo ou rede…"
-      emptyText={() => 'Nenhum ativo encontrado.'}
+      searchPlaceholder={t('market.asset.search')}
+      emptyText={() => t('market.asset.empty')}
     />
   )
 }

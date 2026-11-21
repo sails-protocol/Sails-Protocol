@@ -1,4 +1,4 @@
-import { batonLabel, custodyModelLabel, deriveTradeState, escrowDeadlinePassed, PAYOUT_TX_LABEL, stageTone, type StepActor, type TradeStateInput } from '../src/lib/tradeState'
+import { batonLabel, custodyModelLabel, deriveTradeState, escrowDeadlinePassed, payoutTxLabel, stageTone, type StepActor, type TradeStateInput } from '../src/lib/tradeState'
 import type { EscrowStatus, TradeStatus } from '../src/types'
 
 // Trade rail (trade workspace L4): stages and the bastão come only from record fields.
@@ -53,7 +53,7 @@ describe('trade rail stages', () => {
     const done = deriveTradeState(input('COMPLETED', { txReleaseId: 'tx-1' })).steps
     expect(done.map((s) => s.id).slice(-2)).toEqual(['completed', 'transaction'])
     expect(done[done.length - 1]).toMatchObject({ state: 'done', label: 'Transação de pagamento registrada pelo nó Sails', evidence: [{ value: 'tx-1' }] })
-    expect(PAYOUT_TX_LABEL).toBe('Transação de pagamento registrada pelo nó Sails')
+    expect(payoutTxLabel()).toBe('Transação de pagamento registrada pelo nó Sails')
     expect(done[done.length - 1].label).not.toMatch(/confirmad|liquidad|finaliz/i)
     // Refund/split payouts carry the same field, after their outcome.
     expect(ids(input('REFUNDED', { txReleaseId: 'tx-2' })).slice(-2)).toEqual(['outcome', 'transaction'])

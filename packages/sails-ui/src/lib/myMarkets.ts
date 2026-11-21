@@ -4,6 +4,7 @@
  * a secondary technical detail that never decides order, access or who publishes. Several public markets may exist
  * (a company storefront on Rede Sails); the Sails default public market always comes first. Pure, no I/O.
  */
+import { getLocale } from './locale'
 export type MarketVisibility = 'public' | 'private'
 /** How the person relates to the market: the default one, one they follow, administer or belong to, or none (discoverable only). */
 export type MarketRelation = 'default' | 'follows' | 'admin' | 'member' | 'none'
@@ -41,7 +42,7 @@ export function composeMyMarkets(defaultMarket: MarketView, others: readonly Mar
     seen.add(m.id)
     return true
   })
-  const byName = (a: MarketView, b: MarketView) => a.name.localeCompare(b.name, 'pt-BR')
+  const byName = (a: MarketView, b: MarketView) => a.name.localeCompare(b.name, getLocale())
   return [
     defaultMarket,
     ...rest.filter((m) => m.joinedByInvite).sort(byName),

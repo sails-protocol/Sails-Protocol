@@ -23,6 +23,7 @@ import { busyProps } from '../../lib/busy'
 import { AlertTriangle } from 'lucide-react'
 import { Alert } from '../ui/alert'
 import { parseEvidence } from '../../lib/disputeCase'
+import { t } from '../../i18n'
 
 interface Props {
   dispute: Dispute
@@ -40,6 +41,12 @@ interface Props {
   turnLabel?: string | null
   /** Host slot after the opening alert (the timelock, a ruling's signing round). */
   children?: ReactNode
+}
+
+/** `text` with `slot` (a placeholder t() left unfilled) replaced by `value` in bold. */
+function withStrong(text: string, slot: string, value: string, className = 'font-semibold') {
+  const [before, after = ''] = text.split(slot)
+  return <>{before}<strong className={className}>{value}</strong>{after}</>
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -64,34 +71,34 @@ export function TradeDisputePanel({
   const evidence = parseEvidence(dispute.evidence)
 
   return (
-    <section aria-label="Disputa" className="rounded-lg border border-brand-border-subtle bg-brand-surface p-4 space-y-3">
+    <section aria-label={t('trade.dispute.label')} className="rounded-lg border border-brand-border-subtle bg-brand-surface p-4 space-y-3">
       {resolved ? (
-        <p className="text-sm font-semibold text-brand-text">Disputa resolvida</p>
+        <p className="text-sm font-semibold text-brand-text">{t('trade.dispute.resolved')}</p>
       ) : (
         <Alert tone="danger" live icon={AlertTriangle} className="text-sm">
-          Disputa aberta por <strong className="font-semibold">{partyLabel(dispute.openedBy)}</strong> em {formatDateTime(dispute.createdAt)}. As ações normais do trade ficam suspensas até a resolução.
+          {withStrong(t('trade.dispute.openedBy', { date: formatDateTime(dispute.createdAt) }), '{party}', partyLabel(dispute.openedBy))}
         </Alert>
       )}
       {turnLabel && (
         <p className="text-sm text-brand-text-secondary">
-          Agora: <strong className="font-semibold text-brand-text">{turnLabel}</strong>
+          {withStrong(t('trade.dispute.now'), '{turn}', turnLabel, 'font-semibold text-brand-text')}
         </p>
       )}
       {children}
 
-      <Section title="Motivo">
+      <Section title={t('trade.dispute.reason')}>
         <p className="whitespace-pre-line [overflow-wrap:anywhere]">{dispute.reason}</p>
       </Section>
 
-      <Section title={`Evidências (${evidence.length})`}>
+      <Section title={t('trade.dispute.evidenceTitle', { count: evidence.length })}>
         {evidence.length === 0 ? (
-          <p className="text-brand-text-secondary">Nenhuma evidência enviada ainda.</p>
+          <p className="text-brand-text-secondary">{t('trade.dispute.noEvidence')}</p>
         ) : (
           <ul className="space-y-2">
             {evidence.map((ev, i) => (
               <li key={i} className="rounded-md bg-brand-elevated px-3 py-2">
                 <p className="text-xs text-brand-text-secondary">
-                  {[`Tipo: ${ev.type}`, ev.submittedBy ? `Enviada por ${partyLabel(ev.submittedBy)}` : null, ev.submittedAt ? formatDateTime(ev.submittedAt) : null].filter(Boolean).join(' · ')}
+                  {[t('trade.dispute.evidenceType', { type: ev.type }), ev.submittedBy ? t('trade.dispute.evidenceBy', { party: partyLabel(ev.submittedBy) }) : null, ev.submittedAt ? formatDateTime(ev.submittedAt) : null].filter(Boolean).join(' · ')}
                 </p>
                 {ev.note && <p className="mt-0.5 whitespace-pre-line [overflow-wrap:anywhere]">{ev.note}</p>}
                 {ev.uri && (ev.href
@@ -103,65 +110,66 @@ export function TradeDisputePanel({
         )}
         {isParty && (dispute.status === 'OPENED' || dispute.status === 'EVIDENCE_SUBMITTED') && (
           <div className="mt-3">
-            <label htmlFor="dispute-evidence" className="text-xs font-medium text-brand-text-secondary">Adicionar evidência</label>
+            <label htmlFor="dispute-evidence" className="text-xs font-medium text-brand-text-secondary">{t('trade.dispute.addEvidence')}</label>
             <Textarea
               id="dispute-evidence"
               value={evidenceNote}
               onChange={(e) => onEvidenceNoteChange(e.target.value)}
-              placeholder="Ex.: comprovante de pagamento, explicação..."
+              placeholder={t('trade.dispute.evidencePlaceholder')}
               className="mt-1 w-full"
               rows={2}
             />
             <Button variant="outline" onClick={run('evidence', onSubmitEvidence)} disabled={!evidenceNote.trim()} {...busyProps(acting, running, 'evidence')} className="mt-2 min-h-11 text-sm">
-              Enviar evidência
+              {t('trade.dispute.sendEvidence')}
             </Button>
           </div>
         )}
       </Section>
 
       {dispute.appealRound > 0 && (
-        <Section title="Apelação">
+        <Section title={t('trade.dispute.appeal')}>
           <p>
-            Rodada de apelação {dispute.appealRound}
-            {dispute.previousRuling && ` — decisão anterior: ${DISPUTE_RULING_LABEL[dispute.previousRuling]}`}
+            {dispute.previousRuling
+              ? t('trade.dispute.appealRoundPrevious', { round: String(dispute.appealRound), ruling: DISPUTE_RULING_LABEL[dispute.previousRuling] })
+              : t('trade.dispute.appealRound', { round: String(dispute.appealRound) })}
           </p>
         </Section>
       )}
 
       {dispute.autoResolutionRecommendation && (
-        <Section title="Sugestão automática (sugestão, não decisão)">
-          <p>Sugere: {DISPUTE_RULING_LABEL[dispute.autoResolutionRecommendation]}</p>
+        <Section title={t('trade.dispute.autoTitle')}>
+          <p>{t('trade.dispute.autoSuggests', { ruling: DISPUTE_RULING_LABEL[dispute.autoResolutionRecommendation] })}</p>
           {dispute.autoResolutionReasoning && <p className="mt-1 text-brand-text-secondary">{dispute.autoResolutionReasoning}</p>}
           {dispute.status === 'AUTO_PROPOSED' && dispute.autoResolutionDeadline && (
             <p className="mt-1 text-xs text-brand-text-secondary">
-              Aplica-se em {formatDateTime(dispute.autoResolutionDeadline)} se nenhuma parte contestar.
+              {t('trade.dispute.autoApplies', { date: formatDateTime(dispute.autoResolutionDeadline) })}
             </p>
           )}
           {isParty && dispute.status === 'AUTO_PROPOSED' && (
             <Button variant="outline" onClick={run('contest', onContestAutoResolution)} {...busyProps(acting, running, 'contest')} className="mt-2 min-h-11 text-sm">
-              Contestar sugestão
+              {t('trade.dispute.contest')}
             </Button>
           )}
         </Section>
       )}
 
       {resolved && (
-        <Section title="Decisão registrada">
+        <Section title={t('trade.dispute.ruling')}>
           {dispute.ruling ? (
             <p>
               {DISPUTE_RULING_LABEL[dispute.ruling] ?? dispute.ruling}
               {dispute.resolvedAt && ` — ${formatDateTime(dispute.resolvedAt)}`}
             </p>
           ) : (
-            <p className="text-brand-text-secondary">Decisão não informada no registro.</p>
+            <p className="text-brand-text-secondary">{t('trade.dispute.rulingMissing')}</p>
           )}
           {isParty && (
             <>
               <p className="mt-2 text-xs text-brand-text-secondary">
-                Você ainda pode apelar: a apelação reabre a disputa para um novo árbitro. O nó Sails pode recusá-la conforme o tipo de escrow e a configuração de arbitragem.
+                {t('trade.dispute.appealNote')}
               </p>
               <Button variant="outline" onClick={run('appeal', onAppeal)} {...busyProps(acting, running, 'appeal')} className="mt-2 min-h-11 text-sm">
-                Apelar da decisão
+                {t('trade.dispute.appealAction')}
               </Button>
             </>
           )}

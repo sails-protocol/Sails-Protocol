@@ -12,6 +12,7 @@
 import { recommendedEscrowType, type AssetType as EnumAssetType, type EscrowType } from '@satsails/p2p-trading-sdk'
 import type { AssetType } from '../types'
 import { MULTISIG_SIGNING_HOLD } from './multisigSigningIntent'
+import { t } from '../i18n'
 
 /** The real AssetType enum (SDK, Prisma, schemas): what offers and trades can carry. Not an option list. */
 export const ENUM_ASSET_TYPES = ['BTC', 'LIQUID_BTC', 'LN_BTC', 'RSK_BTC', 'STACKS', 'USDT_ERC20', 'USDT_LIGHTNING', 'USDT_LIQUID', 'USDT_TRC20'] as const satisfies readonly EnumAssetType[]
@@ -52,16 +53,18 @@ export const NETWORK_LOGO: Record<CatalogNetwork, string> = {
 }
 
 const PRODUCTION_ELIGIBLE: ReadonlySet<EscrowType> = new Set(['MULTISIG'])
-export const SOON_NOTE = 'Em breve'
-export const REFERENCE_NOTE = 'Implementação de referência'
-export const SIGNING_HOLD_NOTE = 'Assinatura pela interface temporariamente indisponível'
+// Notes are read through getters (`note`, below) so they follow the interface language; these give the current text.
+export const soonNote = () => t('common.soon')
+export const referenceNote = () => t('labels.asset.referenceNote')
+export const signingHoldNote = () => t('labels.asset.signingHoldNote')
 
 function availabilityOf(assetType: EnumAssetType | null): Pick<AssetPair, 'availability' | 'note'> {
   const rail = assetType ? recommendedEscrowType(assetType) : undefined
   if (rail && PRODUCTION_ELIGIBLE.has(rail)) {
-    return { availability: 'available', note: rail === 'MULTISIG' && MULTISIG_SIGNING_HOLD ? SIGNING_HOLD_NOTE : '' }
+    const hold = rail === 'MULTISIG' && MULTISIG_SIGNING_HOLD
+    return { availability: 'available', get note() { return hold ? signingHoldNote() : '' } }
   }
-  return { availability: 'soon', note: rail ? REFERENCE_NOTE : SOON_NOTE }
+  return { availability: 'soon', get note() { return rail ? referenceNote() : soonNote() } }
 }
 
 const NETWORK_LABEL: Record<CatalogNetwork, string> = {
@@ -71,7 +74,11 @@ const NETWORK_LABEL: Record<CatalogNetwork, string> = {
 
 function pair(asset: CatalogAsset, network: CatalogNetwork, assetType: EnumAssetType | null): AssetPair {
   const networkLabel = NETWORK_LABEL[network]
-  return { id: `${asset.toLowerCase()}-${network}`, asset, network, networkLabel, label: `${asset} · ${networkLabel}`, assetType, ...availabilityOf(assetType) }
+  // defineProperties, not a spread: a spread would copy the `note` getter's value once, at import.
+  return Object.defineProperties(
+    { id: `${asset.toLowerCase()}-${network}`, asset, network, networkLabel, label: `${asset} · ${networkLabel}`, assetType },
+    Object.getOwnPropertyDescriptors(availabilityOf(assetType)),
+  ) as AssetPair
 }
 
 export const ASSET_CATALOG: readonly AssetPair[] = [
@@ -93,8 +100,12 @@ export const ASSET_CATALOG: readonly AssetPair[] = [
 
 /** Arkade (LN_BTC) on mutinynet: a test rail, never "Lightning", never in a production build. */
 export const DEV_TEST_PAIR: AssetPair = {
-  id: 'btc-test', asset: 'BTC', network: null, networkLabel: 'Rede de teste', label: 'BTC · Rede de teste',
-  assetType: 'LN_BTC', availability: 'available', note: 'Arkade em rede de teste, só em desenvolvimento', testOnly: true,
+  id: 'btc-test', asset: 'BTC', network: null,
+  get networkLabel() { return t('labels.network.test') },
+  get label() { return `BTC · ${t('labels.network.test')}` },
+  assetType: 'LN_BTC', availability: 'available',
+  get note() { return t('labels.asset.devTestNote') },
+  testOnly: true,
 }
 
 /** Every option a picker shows, in catalog order (the dev test rail last, inside Bitcoin's group). */

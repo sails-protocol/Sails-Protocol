@@ -13,8 +13,7 @@ import { offerRatings, ratingCompactItem } from '../../lib/ratings'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
 import { Check } from 'lucide-react'
-
-const SELLER_FALLBACK = 'Anunciante'
+import { t } from '../../i18n'
 
 /**
  * Compact offer row for widths below the desktop table (OfferTable.tsx): the same cells folded into
@@ -23,8 +22,9 @@ const SELLER_FALLBACK = 'Anunciante'
  * the link; the action is a visual affordance only (no nested interactive element).
  */
 export function OfferCard({ offer, own = false }: { offer: Offer; own?: boolean }) {
-  const action = own ? 'Sua oferta' : offer.side === 'SELL' ? 'Comprar' : 'Vender'
+  const action = own ? t('market.offer.yours') : offer.side === 'SELL' ? t('labels.side.buy') : t('labels.side.sell')
   const { name, items } = sellerTrust(offer)
+  const seller = name ?? t('market.offer.seller')
   const price = formatPrice(offer.priceFiat, offer.fiatCurrency)
   const limits = `${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}`
   // Real offers carry one method; only the dev demo has several (offerPaymentMethods).
@@ -33,16 +33,16 @@ export function OfferCard({ offer, own = false }: { offer: Offer; own?: boolean 
   // Ratings: dev demo only until LOOSE_WIRES.readRatings; real rows show nothing. On phone they sit on the line below.
   const ratings = offerRatings(offer)
   const rating = ratings ? ratingCompactItem(ratings) : null
-  const label = `${action}: ${ASSET_LABELS[offer.asset]} por ${price}, ${name ?? SELLER_FALLBACK}${rating ? `, ${rating.srText}` : ''}, ${methods.join(', ')}, limites ${limits}`
+  const label = t('market.offer.cardLabel', { action, asset: ASSET_LABELS[offer.asset], price, seller, rating: rating ? `, ${rating.srText}` : '', methods: methods.join(', '), limits })
 
   return (
     <Link to={`/offer/${offer.id}`} aria-label={label} className="offer-row items-start">
-      <UserAvatar user={{ id: offer.user.id, displayName: name ?? SELLER_FALLBACK }} size="sm" />
+      <UserAvatar user={{ id: offer.user.id, displayName: seller }} size="sm" />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2">
           <span className="flex items-center gap-1 min-w-0">
-            <span data-seller-name className="text-sm font-medium text-brand-text">{name ?? SELLER_FALLBACK}</span>
-            {offer.user.verified && <Check aria-label="Verificado" className="h-3.5 w-3.5 shrink-0 text-brand-orange-accent" />}
+            <span data-seller-name className="text-sm font-medium text-brand-text">{seller}</span>
+            {offer.user.verified && <Check aria-label={t('market.offer.verified')} className="h-3.5 w-3.5 shrink-0 text-brand-orange-accent" />}
           </span>
           <TrustLine items={items} className="text-xs text-brand-text-muted" />
         </div>
@@ -50,12 +50,12 @@ export function OfferCard({ offer, own = false }: { offer: Offer; own?: boolean 
         <div className="mt-1 flex flex-wrap items-baseline gap-x-1.5">
           <span data-price className="money-lg text-brand-text whitespace-nowrap">{price}</span>
           <span className="inline-flex flex-wrap items-center gap-x-1 text-xs text-brand-text-muted">
-            por <AssetNetworkLabel asset={offer.asset} />
+            {t('market.offer.per')} <AssetNetworkLabel asset={offer.asset} />
             {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}
           </span>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-brand-text-secondary tabular-nums">
-          <span className="whitespace-nowrap"><span className="sr-only">Limites: </span>{limits}</span>
+          <span className="whitespace-nowrap"><span className="sr-only">{t('market.offer.limitsPrefix')} </span>{limits}</span>
           <PaymentMethods labels={methods} max={LIST_METHODS_MAX} maxNarrow={LIST_METHODS_MAX_NARROW} layout="inline" className="text-xs" />
         </div>
       </div>

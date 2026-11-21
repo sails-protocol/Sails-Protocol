@@ -11,6 +11,7 @@
 import type { EscrowStatus } from '../types'
 import type { Explanation } from '../components/ui/trustTypes'
 import { formatDateTime } from './format'
+import { t } from '../i18n'
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
@@ -34,11 +35,11 @@ const pad = (n: number) => String(n).padStart(2, '0')
 export function formatRemaining(ms: number): string {
   if (ms >= HOUR) {
     const totalMin = Math.floor(ms / MINUTE)
-    return `${Math.floor(totalMin / 60)}\u00a0h ${pad(totalMin % 60)}\u00a0min`
+    return t('escrow.deadline.hoursMinutes', { h: String(Math.floor(totalMin / 60)), m: pad(totalMin % 60) })
   }
   const totalSec = Math.min(3599, Math.max(0, Math.ceil(ms / 1000)))
   const m = Math.floor(totalSec / 60)
-  return m > 0 ? `${m}\u00a0min ${pad(totalSec % 60)}\u00a0s` : `${totalSec}\u00a0s`
+  return m > 0 ? t('escrow.deadline.minutesSeconds', { m: String(m), s: pad(totalSec % 60) }) : t('escrow.deadline.seconds', { s: String(totalSec) })
 }
 
 /** Key moments for the screen-reader status, in order: 0 none, 1 attention, 2 ≤ 10 min, 3 ≤ 1 min, 4 expired. */
@@ -49,11 +50,18 @@ export function deadlineMilestone(remainingMs: number, tone: DeadlineTone): 0 | 
   return tone === 'attention' ? 1 : 0
 }
 
+// Getters: each read uses the current language.
 export const MILESTONE_ANNOUNCEMENT: Record<1 | 2 | 3 | 4, string> = {
-  1: 'Prazo do escrow: falta pouco.',
-  2: 'Faltam 10 minutos ou menos para o fim do prazo do escrow.',
-  3: 'Falta 1 minuto ou menos para o fim do prazo do escrow.',
-  4: 'Prazo do escrow encerrado.',
+  get 1() { return t('escrow.deadline.milestone1') },
+  get 2() { return t('escrow.deadline.milestone2') },
+  get 3() { return t('escrow.deadline.milestone3') },
+  get 4() { return t('escrow.deadline.milestone4') },
+}
+
+/** Screen-reader text for the live countdown (EscrowCountdown): one message, so word order can differ per language. */
+export function remainingAnnouncement(remainingText: string, tone: DeadlineTone): string {
+  if (tone === 'expired') return MILESTONE_ANNOUNCEMENT[4]
+  return t(tone === 'attention' ? 'escrow.deadline.srRemainingSoon' : 'escrow.deadline.srRemaining', { time: remainingText })
 }
 
 export type EscrowDeadlineView =
@@ -70,20 +78,18 @@ export type EscrowDeadlineView =
       explanation: Explanation
     }
 
-const FOOTER = 'Esta interface não age sozinha quando o prazo acaba.'
-
 function explanation(status: EscrowStatus, timelockHours: number | null): Explanation {
   const lines: string[] = []
-  if (timelockHours) lines.push(`Contado pelo nó Sails a partir do bloqueio dos fundos: ${timelockHours}\u00a0h.`)
-  if (status === 'CREATED') lines.push('Só começa a contar quando os fundos forem bloqueados.')
+  if (timelockHours) lines.push(t('escrow.deadline.countedFrom', { hours: timelockHours }))
+  if (status === 'CREATED') lines.push(t('escrow.deadline.startsOnLock'))
   if (status === 'CREATED' || status === 'FUNDS_LOCKED') {
-    lines.push('Se o prazo passar com os fundos bloqueados e o pagamento ainda não marcado como enviado, o escrow deixa de aceitar as etapas normais do trade.')
+    lines.push(t('escrow.deadline.lockedRule'))
   } else if (status === 'PAYMENT_PENDING') {
-    lines.push('Com o pagamento já marcado como enviado, o nó Sails não encerra o escrow por este prazo: o trade segue pela liberação ou por disputa.')
+    lines.push(t('escrow.deadline.paymentPending'))
   } else if (status === 'DISPUTED') {
-    lines.push('Em disputa, o nó Sails não encerra o escrow por este prazo: a resolução segue pela disputa.')
+    lines.push(t('escrow.deadline.disputed'))
   }
-  return { title: 'Prazo do escrow', lines, footer: FOOTER }
+  return { title: t('escrow.deadline.title'), lines, footer: t('escrow.deadline.footer') }
 }
 
 export function escrowDeadlineView(
@@ -96,8 +102,8 @@ export function escrowDeadlineView(
   const why = explanation(i.status, hours)
   if (Number.isNaN(exp)) {
     // expiresAt is only set at lock: before it, the total is the whole story.
-    if (i.status === 'CREATED' && !i.expiresAt && hours) return { kind: 'pending', text: `${hours}\u00a0h a partir do bloqueio dos fundos`, explanation: why }
-    return { kind: 'unavailable', text: 'Prazo do escrow indisponível', explanation: why }
+    if (i.status === 'CREATED' && !i.expiresAt && hours) return { kind: 'pending', text: t('escrow.deadline.pending', { hours }), explanation: why }
+    return { kind: 'unavailable', text: t('escrow.deadline.unavailable'), explanation: why }
   }
   const remainingMs = exp - now
   const totalMs = hours ? hours * HOUR : null
@@ -107,8 +113,8 @@ export function escrowDeadlineView(
     kind: 'active',
     remainingMs,
     tone,
-    remainingText: tone === 'expired' ? 'Encerrado' : formatRemaining(remainingMs),
-    deadlineText: `${tone === 'expired' ? 'em' : 'até'} ${formatDateTime(i.expiresAt!, new Date(now))}`,
+    remainingText: tone === 'expired' ? t('escrow.deadline.ended') : formatRemaining(remainingMs),
+    deadlineText: t(tone === 'expired' ? 'escrow.deadline.endedAt' : 'escrow.deadline.until', { date: formatDateTime(i.expiresAt!, new Date(now)) }),
     progress,
     explanation: why,
   }

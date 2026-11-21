@@ -29,6 +29,7 @@ import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { toast } from '../ui/toast'
 import { useAuth } from '../../context/AuthContext'
+import { t } from '../../i18n'
 
 export function SessionExpiryRedirect() {
   const { sessionExpiry } = useAuth()
@@ -46,7 +47,7 @@ export function SessionExpiryRedirect() {
 
     if (location.pathname === '/login') return // already there — nothing to redirect away from
 
-    toast.error('Sua sessão expirou — faça login novamente para continuar.')
+    toast.error(t('auth.session.expired'))
     navigate('/login', { state: { from: sessionExpiry.path } })
     // Deliberately depends only on `sessionExpiry` — `navigate`/`location`
     // are read for their CURRENT value at the moment this fires, not

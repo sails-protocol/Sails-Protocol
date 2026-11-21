@@ -3,6 +3,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useUiStrings } from "./uiStrings"
 
 const Dialog = DialogPrimitive.Root
 
@@ -47,12 +48,15 @@ const DialogContent = React.forwardRef<
           on this migration found it, not a hypothetical. */}
       <DialogPrimitive.Close className="absolute right-2 top-2 md:right-4 md:top-4 h-8 w-8 touch:h-11 touch:w-11 flex items-center justify-center rounded-md text-brand-text-secondary transition-colors duration-short state-layer hover:text-brand-text disabled:pointer-events-none">
         <X className="h-4 w-4" />
-        <span className="sr-only">Fechar</span>
+        <span className="sr-only"><CloseLabel /></span>
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </DialogPortal>
 ))
 DialogContent.displayName = DialogPrimitive.Content.displayName
+
+/** The close control's name from the host's UiStrings (Layer A never imports the app dictionary). */
+const CloseLabel = () => <>{useUiStrings().close}</>
 
 const DialogHeader = ({
   className,
