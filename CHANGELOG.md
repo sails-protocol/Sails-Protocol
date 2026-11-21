@@ -32,6 +32,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **#748: integration suites that simulate a restart now get a new database client (tests only).**
+  - **Cause:** `src/common/database/index.ts` reuses `global.__prisma` across `jest.resetModules()`. The restarted modules paired a new `@prisma/client` (their `Prisma.sql` fragments) with the old client, which sent the D13 `SWEEP_KEY` fragment as a value (PG 22007). The ruling-recovery sweep failed in `postBroadcastFeeRecovery`, and the failure was hidden because the suite filtered `report.failed` by the case's own escrow.
+  - **Change:** `postBroadcastFeeRecovery`, `economicDispositionAuthorityConcurrency`, `escrowFundingConcurrency` and `escrowFundingUncertainty` disconnect and clear `global.__prisma` before each `jest.resetModules()`, and close the restarted client in `afterAll`.
+  - **Assertions:** `postBroadcastFeeRecovery` fails on any sweep-level failure (`dispute:*`, `dispute:<id>`, `…:*`) and on any failure of an escrow it created; failures of other suites' escrows are printed.
+  - **Not changed:** production code, including `SWEEP_KEY`.
 - **CTO Despacho 046: two real-PostgreSQL suites leave the unit lane, which no longer reaches a database.** Tests and lanes only, no production code.
   - `disputedDispositionProductionPath` and `wdkTransferAttemptConcurrency` ran in the unit lane (parallel, against the shared database). They now run in the PostgreSQL lane (`--runInBand`).
   - `wdkTransferAttemptConcurrency` moved to `tests/integration/`, adopted the integration harness (fail-closed database check) and uses a fresh id per test with no deletes. It also runs in the CI restricted step as `sails_runtime`. Its 8 tests and their assertions are unchanged.
