@@ -213,6 +213,9 @@ describe('FeePolicyService — protocolFeeRate strict validation (CTO 413)', () 
     ['comma decimal', '0,5', /not a decimal number/],
     ['non-numeric', 'abc', /not a decimal number/],
     ['empty', '', /not a decimal number/],
+    // Provisional protocol ceiling (MAX_PROTOCOL_FEE_RATE, 1%; final value is the CTO's, D-E6).
+    ['above the 1% ceiling', '0.01000001', /must be <= 0.01/],
+    ['above 100%', '1.5', /must be <= 0.01/],
   ]
 
   it.each(invalid)('createDraft refuses %s and writes nothing', async (_label, rate, message) => {
@@ -233,7 +236,7 @@ describe('FeePolicyService — protocolFeeRate strict validation (CTO 413)', () 
     ['exactly 8 decimal places', '0.00000001'],
     ['the fixture rate', '0.004'],
     ['trailing zeros past 8 places (value has 8 or fewer)', '0.0040000000'],
-    ['above 100% (no ceiling: an economic decision, not this check)', '1.5'],
+    ['exactly the 1% ceiling', '0.01'],
   ])('createDraft and publish accept %s, passing the value through unchanged', async (_label, rate) => {
     const repo = fakeRepo({ create: jest.fn().mockImplementation(async (input) => input) })
     await expect(new FeePolicyService(repo).createDraft(draftInput(rate))).resolves.toMatchObject({ protocolFeeRate: rate })

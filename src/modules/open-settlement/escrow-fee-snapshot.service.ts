@@ -30,6 +30,7 @@
  * this path.
  */
 import { prisma } from '../../common/database'
+import { AppError } from '../../common/errors'
 import { Prisma, FeePayerModel, FeeEconomicBasis } from '@prisma/client'
 import { feePolicyService, FeePolicyService } from './fee-policy.service'
 import { computeMaxProtocolFee } from './fee-reserve-math'
@@ -58,6 +59,33 @@ export class EscrowFeeSnapshotService {
   async computeSnapshotFields(railScope: string, lockedAmount: Prisma.Decimal | string): Promise<FeeSnapshotFields | null> {
     const policy = await this.policyService.findLivePolicyForRail(railScope)
     if (!policy) return null
+    return this.fieldsFor(policy, railScope, lockedAmount)
+  }
+
+  /**
+   * The snapshot of an escrow bound to a COMMITTED pair: the fee policy the two parties signed, read in the caller's
+   * transaction (under the pair lock), never the rail's policy of the moment. A party pays the committed fee, none, or
+   * the escrow is refused:
+   * - the committed policy is this rail's (and not a DRAFT) => it is frozen, even if retired since the commitment;
+   * - it is another rail's while this rail has a live policy => refused (409 FEE_POLICY_NOT_COMMITTED);
+   * - it is another rail's and this rail has none => no snapshot (legacy, no fee).
+   * Without a pair (only a MOCK escrow in a test database; every other type is refused before this) the legacy live lookup applies.
+   */
+  async computeCommittedSnapshotFields(
+    railScope: string,
+    lockedAmount: Prisma.Decimal | string,
+    committedPolicyId: string | null,
+    tx: Prisma.TransactionClient,
+  ): Promise<FeeSnapshotFields | null> {
+    if (!committedPolicyId) return this.computeSnapshotFields(railScope, lockedAmount)
+    const committed = await tx.feePolicyVersion.findUnique({ where: { id: committedPolicyId } })
+    if (committed && committed.railScope === railScope && committed.status !== 'DRAFT') return this.fieldsFor(committed, railScope, lockedAmount)
+    const live = await tx.feePolicyVersion.findFirst({ where: { railScope, status: 'PUBLISHED' }, select: { id: true } })
+    if (live) throw new AppError(`escrow refused: the committed fee policy is not this rail's (${railScope})`, 409, 'FEE_POLICY_NOT_COMMITTED')
+    return null
+  }
+
+  private fieldsFor(policy: { id: string; protocolFeeRate: Prisma.Decimal | string; payerModel: FeePayerModel; economicBasis: FeeEconomicBasis }, railScope: string, lockedAmount: Prisma.Decimal | string): FeeSnapshotFields {
 
     // Missão 11 Fase 5 §10 — defense-in-depth: fee-policy.service.ts's
     // publish() is the real, only application path that can make a policy
