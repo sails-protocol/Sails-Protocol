@@ -1,7 +1,13 @@
 import { Link, useNavigate } from 'react-router'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { UserAvatar } from '../components/ui/UserAvatar'
+import { IdentityAvatar } from '../components/ui/IdentityAvatar'
+import { AvatarDeck } from '../components/ui/AvatarDeck'
+import { Alert } from '../components/ui/alert'
+import { toast } from '../components/ui/toast'
+import { setOwnAvatarChoice, useOwnAvatar, type AvatarChoice } from '../lib/avatarChoice'
+import { useAvatarStyle } from '../lib/avatarStyle'
+import { useIsDesktop } from '../components/market-context/MarketContextSelector'
 import { CopyButton } from '../components/ui/CopyButton'
 import { InfoTooltip } from '../components/ui/InfoTooltip'
 import { Button, buttonVariants } from '../components/ui/button'
@@ -9,7 +15,7 @@ import { Card } from '../components/ui/card'
 import { StatStrip } from '../components/ui/StatStrip'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { cn } from '../lib/utils'
-import { Check, Plus } from 'lucide-react'
+import { Check, Pencil, Plus } from 'lucide-react'
 import { formatMonthYear } from '../lib/format'
 import { accountDisputeRateDefinition, formatAccountDisputeRate, RATINGS_DEMO_EXPLANATION, RATINGS_EXPLANATION, REPUTATION_EXPLANATION } from '../lib/reputation'
 import { ratingFullText, ratingSrText, sellerRatings } from '../lib/ratings'
@@ -27,6 +33,10 @@ import { t } from '../i18n'
 export function Profile() {
   const { user } = useAuth()
   const [keyOpen, setKeyOpen] = useState(false)
+  const [deckOpen, setDeckOpen] = useState(false)
+  const own = useOwnAvatar()
+  const [viewerStyle] = useAvatarStyle()
+  const desktop = useIsDesktop()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -41,6 +51,13 @@ export function Profile() {
 
   if (!user) return null
   const ratings = sellerRatings({ demoRatings: demoRatingsOf(user) }) // dev demo only; null for real data
+  // No pick yet: the deck opens on today's avatar (variant 0 in the viewer's style).
+  const avatarValue: AvatarChoice = own?.choice ?? { style: viewerStyle, variant: 0 }
+  const confirmAvatar = (choice: AvatarChoice) => {
+    setOwnAvatarChoice(choice)
+    setDeckOpen(false)
+    toast.success(t('profile.avatar.saved'))
+  }
 
 
   return (
@@ -57,7 +74,19 @@ export function Profile() {
 
       <Card className="p-5">
         <div className="flex gap-4 items-start sm:items-center">
-          <UserAvatar user={user} size="lg" />
+          {/* The avatar opens the deck; the pencil shows on hover/focus with a fine pointer and always on touch. */}
+          <button
+            type="button"
+            aria-label={t('profile.avatar.choose')}
+            aria-haspopup="dialog"
+            onClick={() => setDeckOpen(true)}
+            className="group relative shrink-0 rounded-full"
+          >
+            <IdentityAvatar seed={user.publicKey || user.id} size={48} />
+            <span aria-hidden="true" className="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full border-2 border-brand-surface bg-brand-raised text-brand-text shadow-elevation-1 opacity-0 transition-opacity duration-short group-hover:opacity-100 group-focus-visible:opacity-100 touch:opacity-100">
+              <Pencil className="size-icon-sm" />
+            </span>
+          </button>
           <div className="min-w-0">
             <h2 className="text-section-title flex items-center gap-1.5 flex-wrap">
               {user.displayName}
@@ -117,6 +146,29 @@ export function Profile() {
           />
         )}
       </Card>
+
+      {user.publicKey && (
+        <AvatarDeck
+          open={deckOpen}
+          onOpenChange={setDeckOpen}
+          publicKey={user.publicKey}
+          value={avatarValue}
+          onConfirm={confirmAvatar}
+          sheet={!desktop}
+          copy={{
+            title: t('profile.avatar.choose'),
+            description: t('profile.avatar.description'),
+            styleLabel: t('profile.avatar.style'),
+            styles: { vela: t('settings.appearance.avatarVela'), mare: t('settings.appearance.avatarMare'), grade: t('settings.appearance.avatarGrade') },
+            variantsLabel: t('profile.avatar.variants'),
+            variantLabel: (n) => t('profile.avatar.variant', { n }),
+            confirm: t('profile.avatar.confirm'),
+            cancel: t('common.cancel'),
+          }}
+          // LOOSE_WIRES.publicAvatar: no server field yet, so the pick is local and the note says so.
+          note={<Alert tone="info">{t('profile.avatar.localNote')}</Alert>}
+        />
+      )}
 
       <MyOffersSection user={user} className="mt-8" />
 
