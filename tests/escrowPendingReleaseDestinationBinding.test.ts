@@ -74,6 +74,8 @@ jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
     custodyModel: 'client-held-buyer-seller-keys-server-held-arbiter',
     buildUnsignedRelease: (...args: unknown[]) => mockBuildUnsignedRelease(...args),
     finalizeRelease: (...args: unknown[]) => mockFinalizeRelease(...args),
+    storedArbiterSignatureState: () => 'absent',
+    signAsArbiterAtExecution: () => 'arbiter-signed',
   },
   identifyFeeOutput: jest.fn(),
   networkFor: jest.fn(),
@@ -341,11 +343,13 @@ describe('escrow-pending-tx.ts submitTransactionSignature() — Economic Disposi
 
   async function createDisputedPending(generation: { appealRound: number; arbiterId: string; ruling: string; authoritySignature: string }) {
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' }))
-    mockDisputeFindFirst.mockResolvedValue({
-      id: 'dispute-1', tradeId: TRADE_ID, arbiterId: generation.arbiterId,
+    const recorded = {
+      id: 'dispute-1', tradeId: TRADE_ID, arbiterId: generation.arbiterId, status: 'RESOLVED',
       appealRound: generation.appealRound, ruling: generation.ruling, authoritySignature: generation.authoritySignature,
       authorityIssuedAt: new Date('2026-09-18T00:00:00.000Z'),
-    })
+    }
+    mockDisputeFindFirst.mockResolvedValue(recorded)
+    mockDisputeFindUniqueLive.mockResolvedValue(recorded) // the round is created while this generation is the live one
     await escrowService.initiateRelease(ESCROW_ID, undefined, generation.arbiterId)
     // submitTransactionSignature() re-fetches escrow.status directly —
     // still DISPUTED until the atomic claim inside it transitions it.

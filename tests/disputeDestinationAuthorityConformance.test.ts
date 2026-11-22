@@ -299,7 +299,7 @@ describe('LIGHTNING_HODL — disputed RELEASE (signature-collection binding)', (
     mockTradeFindUnique.mockResolvedValue(TRADE_ROW)
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ status: 'DISPUTED' })) // D11-R: an open dispute's escrow is DISPUTED
     mockDisputeFindUnique.mockResolvedValue({ id: DISPUTE_ID, tradeId: TRADE_ID, escrowId: ESCROW_ID, arbiterId: ARBITER_ID, status: 'OPENED', appealRound: 0 })
-    mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE' })
+    mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE', appealRound: 0 })
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
     mockUserFindUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({ id: where.id, publicKey: testPublicKeyHex }))
     mockBuildUnsignedRelease.mockResolvedValue({ psbtBase64: 'psbt-stub', requiredSigners: [SELLER_ID, BUYER_ID] })
@@ -401,7 +401,7 @@ describe('SAFE_GUARD_EVM — disputed RELEASE (signature-collection binding)', (
     mockTradeFindUnique.mockResolvedValue(TRADE_ROW)
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'SAFE_GUARD_EVM', asset: 'USDT_ERC20', status: 'DISPUTED' }))
     mockDisputeFindUnique.mockResolvedValue({ id: DISPUTE_ID, tradeId: TRADE_ID, escrowId: ESCROW_ID, arbiterId: ARBITER_ID, status: 'OPENED', appealRound: 0 })
-    mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE' })
+    mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE', appealRound: 0 })
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
     mockUserFindUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({ id: where.id, publicKey: testPublicKeyHex }))
     mockSafeGuardBuildUnsignedRelease.mockResolvedValue({ psbtBase64: 'safe-bundle-stub', requiredSigners: [SELLER_ID, BUYER_ID] })
@@ -478,7 +478,7 @@ describe('WDK_USDT_EVM — direct-call rail (resolution and execution in the sam
   })
 
   it('RELEASE: an arbiter-supplied wrong destination cannot override the buyer\'s registered PayoutAddress — resolution and execution happen in the same call', async () => {
-    mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE' })
+    mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE', appealRound: 0 })
     mockPayoutAddressFindUnique.mockResolvedValue({ address: '0xBuyerRegistered', participantId: BUYER_ID, asset: 'USDT_ERC20' })
     mockWdkReleaseFunds.mockResolvedValue({ txId: 'wdk-tx-1' })
     const [sig, issuedAt] = signResolution('RELEASE')
@@ -551,7 +551,7 @@ describe('MOCK — direct-call rail, real (unmocked) MockSettlementProvider', ()
   })
 
   it('RELEASE: the real MockSettlementProvider actually pays out to the buyer\'s registered PayoutAddress, never the arbiter-supplied one — resolution and execution in the same call', async () => {
-    mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE' })
+    mockDisputeUpdate.mockResolvedValue({ id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE', appealRound: 0 })
     mockPayoutAddressFindUnique.mockResolvedValue({ address: 'buyer-registered-address', participantId: BUYER_ID, asset: 'BTC' })
     mockEscrowUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: ESCROW_ID, ...data }))
     const [sig, issuedAt] = signResolution('RELEASE')

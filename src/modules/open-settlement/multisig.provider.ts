@@ -1376,7 +1376,7 @@ export class MultisigProvider implements SettlementProvider {
       const sameRound = Buffer.from(copy.data.globalMap.unsignedTx.toBuffer()).equals(Buffer.from(roundTx))
       const verifies = (k: Buffer) => (copy.data.inputs[0]?.partialSig ?? []).some((p) => Buffer.from(p.pubkey).equals(k)) && copy.validateSignaturesOfInput(0, (pub, msghash, sig) => ecc.verify(msghash, pub, sig), k)
       if (!sameRound || !keys.some(verifies)) {
-        throw new EscrowError(`MULTISIG provider: a stored signature for trade ${escrow.tradeId}'s round does not verify for a party key`)
+        throw new SubmissionDefinitelyFailed(`MULTISIG provider: failed to combine/finalize signatures for trade ${escrow.tradeId}: a stored signature does not verify for a party key`)
       }
     }
   }
@@ -1588,7 +1588,7 @@ export class MultisigProvider implements SettlementProvider {
    */
   signAsArbiterAtExecution(escrow: MultisigEscrowInput, unsignedPsbtBase64: string): string | null {
     const arbiterPubkey = escrow.arbiterPubkey ? Buffer.from(escrow.arbiterPubkey, 'hex') : null
-    if (!arbiterPubkey) throw new EscrowError(`MULTISIG provider: escrow for trade ${escrow.tradeId} has no arbiter commitment`)
+    if (!arbiterPubkey) throw new EscrowError(`MULTISIG provider: escrow for trade ${escrow.tradeId} has no persisted arbiter public-key commitment`)
     // The identity executing the ruling must still derive the exact committed key (drift fails closed, before anything else).
     this.assertArbiterMatchesScript({ ...escrow, status: 'DISPUTED' })
     const network = networkFor(config.multisig.network)

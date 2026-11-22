@@ -928,6 +928,7 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     // If its signers broadcast it, PASS 0 converges to that truth (UNKNOWN != FAILED).
     const spend = completeOutsideSails(c.round.unsignedPsbtBase64, (await liveRound(c.escrow.id))!.signatures.map((s) => s.signedPsbtBase64))
     chain.confirmed.add(spend.txid)
+    chain.hex.set(spend.txid, spend.hex) // the explorer serves a confirmed transaction's bytes
     chain.spentBy.set(`${c.funding}:0`, spend.txid)
     const after = await tick()
     expect(after.resumedUnclaimed.find((x) => x.escrowId === c.escrow.id)).toMatchObject({ txId: spend.txid, outcome: 'ALREADY_BROADCAST' })

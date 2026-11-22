@@ -743,23 +743,27 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
   })
 
-  it('disputed refund: arbiter pre-signs immediately, only the seller remains a required client signer', async () => {
+  it('disputed refund: the round carries no arbiter signature; the arbiter signs only at execution; only the seller remains a required client signer', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     const txid = '7'.repeat(64)
     mockUtxoFetch(txid, 100_000)
+    const disputedRefund = { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' }
     const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedRefund(
-      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
+      disputedRefund,
       REFUND_ADDRESS_UNUSED
     )
     expect(requiredSigners).toEqual(['seller-1'])
+    expect(bitcoin.Psbt.fromBase64(psbtBase64, { network }).data.inputs[0].partialSig ?? []).toHaveLength(0)
 
     const sellerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
     sellerCopy.signInput(0, sellerKey)
+    const arbiterSig = multisigProvider.signAsArbiterAtExecution(disputedRefund, psbtBase64)
+    expect(arbiterSig).not.toBeNull()
 
     // R6 — same deliberately-wrong-provider-response proof as above.
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '8'.repeat(64) })
-    const result = await multisigProvider.finalizeRefund({ tradeId: 't1' }, psbtBase64, [sellerCopy.toBase64()])
+    const result = await multisigProvider.finalizeRefund({ tradeId: 't1' }, psbtBase64, [sellerCopy.toBase64(), arbiterSig!])
     expect(result.txId).not.toBe('8'.repeat(64))
     expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
   })
@@ -915,31 +919,35 @@ describe('MultisigProvider — reconcilePendingSettlement() (Missão 11 Fase 9.6
     independentlyMerged.combine(sellerCopy)
     independentlyMerged.finalizeAllInputs()
     const expectedTxId = independentlyMerged.extractTransaction().getId()
+    const networkHex = independentlyMerged.extractTransaction().toHex()
 
     const escrow = {
       tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1',
       buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey,
       lockedAmount: '0.001', txLockId: txid, txLockVout: 0, status: 'COMPLETED',
     }
-    return { escrow, unsignedPsbtBase64: psbtBase64, signedList: [buyerCopy.toBase64(), sellerCopy.toBase64()], expectedTxId }
+    return { escrow, unsignedPsbtBase64: psbtBase64, signedList: [buyerCopy.toBase64(), sellerCopy.toBase64()], expectedTxId, networkHex }
   }
 
   it('Estado B (funds already moved) — the reconstructed transaction is already known to the network — converges WITHOUT a new broadcast', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     const txid = 'a1'.repeat(32)
-    const { escrow, unsignedPsbtBase64, signedList, expectedTxId } = await buildRealSignedRelease(multisigProvider, txid)
+    const { escrow, unsignedPsbtBase64, signedList, expectedTxId, networkHex } = await buildRealSignedRelease(multisigProvider, txid)
     fetchMock.mockClear() // discard buildUnsignedRelease()'s own setup fetches — only reconcilePendingSettlement()'s own calls should count below
 
-    // Only ONE fetch call expected: the existence check. No UTXO lookup,
-    // no broadcast — this is the whole point of asking the chain first.
+    // Two fetch calls expected: the existence check, then the network's own bytes of that transaction (never re-signed
+    // locally to reconstruct them). No UTXO lookup, no broadcast — this is the whole point of asking the chain first.
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true }) })
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, text: async () => networkHex })
 
     const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList)
 
     expect(result.outcome).toBe('ALREADY_BROADCAST')
     expect(result.txId).toBe(expectedTxId)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect((result as { rawTxHex: string }).rawTxHex).toBe(networkHex)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(String(fetchMock.mock.calls[0][0])).toContain(`/tx/${expectedTxId}/status`)
+    expect(String(fetchMock.mock.calls[1][0])).toContain(`/tx/${expectedTxId}/hex`)
   })
 
   it('Estado A (funds never moved) — reconstructed transaction unknown to the network, funding outpoint still unspent — broadcasts it for the first time', async () => {

@@ -334,7 +334,8 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     })
     await prisma.escrowParticipantKey.create({ data: { escrowId: escrow.id, role: 'buyer', participantId: buyer.id, pubkey: buyerPubkeyHex } })
     await prisma.escrowParticipantKey.create({ data: { escrowId: escrow.id, role: 'seller', participantId: seller.id, pubkey: sellerPubkeyHex } })
-    await prisma.dispute.create({ data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'fixture', arbiterId: DEFAULT_ARBITER_ID } })
+    // A recorded RELEASE ruling, so the refusal under test is the missing arbiter commitment, not the ruling check.
+    await prisma.dispute.create({ data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'fixture', arbiterId: DEFAULT_ARBITER_ID, status: 'RESOLVED', ruling: 'RELEASE', appealRound: 0 } })
 
     const arbiterRow = await prisma.escrowParticipantKey.findUnique({ where: { escrowId_role: { escrowId: escrow.id, role: 'arbiter' } } })
     expect(arbiterRow).toBeNull() // confirms this fixture is genuinely legacy-shaped
