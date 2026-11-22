@@ -545,7 +545,8 @@ export function Markets() {
   return (
     <Page width="detail">
       <PageHeader
-        title={t('markets.title')}
+        // Each sub-page has its own title (the tab strip is the way between them).
+        title={view === MARKETS_ROUTES.mine ? t('markets.action.mine') : view === MARKETS_ROUTES.create ? t('markets.action.create') : view === MARKETS_ROUTES.join ? t('markets.action.join') : t('markets.action.explore')}
         meta={t('markets.meta')}
         back={
           <Link to="/" className="inline-flex touch:min-h-11 items-center gap-1 text-body-sm text-brand-text-secondary hover:text-brand-text">
@@ -553,7 +554,8 @@ export function Markets() {
           </Link>
         }
       >
-        <TabLinks label={t('markets.title')} items={tabs()} className="overflow-x-auto overflow-y-hidden whitespace-nowrap [scrollbar-width:none]" />
+        {/* Phones: scrolls sideways with faded edges; TabLinks brings the current tab into view. */}
+        <TabLinks label={t('markets.title')} items={tabs()} className="overflow-x-auto overflow-y-hidden whitespace-nowrap [scrollbar-width:none] max-sm:[mask-image:linear-gradient(to_right,transparent,black_12px,black_calc(100%-12px),transparent)]" />
       </PageHeader>
       {view === MARKETS_ROUTES.mine ? <MineView /> : view === MARKETS_ROUTES.create ? <CreateView /> : view === MARKETS_ROUTES.join ? <JoinView /> : <ExploreView />}
     </Page>

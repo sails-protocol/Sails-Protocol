@@ -6,7 +6,7 @@
  * markets is not here: it lives in Meus mercados. No routing here: the caller renders each action link through
  * `renderLink`. Copy from props.
  */
-import { useId, useState, type ReactNode } from 'react'
+import { useId, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Check, ChevronDown, X, type LucideIcon } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '../ui/sheet'
@@ -41,7 +41,17 @@ export interface MarketPortalAction {
   secondary?: boolean
 }
 
-const ROW = 'flex min-h-11 w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left focus-visible:-outline-offset-2'
+const ROW = 'portal-row flex min-h-11 w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left focus-visible:-outline-offset-2'
+
+/** Arrow keys, Home and End move between the rows, as in the Menu primitive (Tab still leaves the panel). */
+function onRowKeys(e: KeyboardEvent<HTMLDivElement>) {
+  const rows = [...e.currentTarget.querySelectorAll<HTMLElement>('.portal-row')]
+  const at = rows.indexOf(document.activeElement as HTMLElement)
+  const next = e.key === 'ArrowDown' ? at + 1 : e.key === 'ArrowUp' ? at - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? rows.length - 1 : null
+  if (next === null || rows.length === 0) return
+  e.preventDefault()
+  rows[(next + rows.length) % rows.length]?.focus()
+}
 
 export function MarketPortal({ current, actions, renderLink, copy, className }: {
   current: MarketView
@@ -95,7 +105,7 @@ export function MarketPortal({ current, actions, renderLink, copy, className }: 
   const extra = actions.filter((a) => a.secondary)
 
   const body = (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1" onKeyDown={onRowKeys}>
       <p id={`${id}-current`} className="sr-only">{copy.currentTitle}</p>
       <div role="group" aria-labelledby={`${id}-current`}>
         <button type="button" aria-current="true" onClick={close} className={cn(ROW, 'bg-brand-selected')}>
@@ -142,7 +152,7 @@ export function MarketPortal({ current, actions, renderLink, copy, className }: 
             <X aria-hidden="true" className="h-5 w-5" />
           </button>
         </div>
-        <div className="overflow-y-auto overscroll-contain px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">{body}</div>
+        <div className="overflow-y-auto overscroll-contain px-2 py-2 pb-[max(1rem,env(safe-area-inset-bottom))]">{body}</div>
       </SheetContent>
     </Sheet>
   )
