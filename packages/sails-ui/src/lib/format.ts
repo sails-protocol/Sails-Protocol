@@ -51,3 +51,8 @@ export function formatMonthYear(iso: string): string {
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '' : new Intl.DateTimeFormat(LOCALE(), { month: 'short', year: 'numeric' }).format(d)
 }
+
+/** Compact USD for chart axes (pt-BR "US$ 12 mil", en "$12K"). */
+export function formatUsdCompact(value: number): string {
+  return value.toLocaleString(LOCALE(), { style: 'currency', currency: 'USD', currencyDisplay: currencyDisplay('USD'), notation: 'compact', maximumFractionDigits: 1 })
+}
