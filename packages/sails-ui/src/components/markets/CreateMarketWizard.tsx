@@ -9,8 +9,9 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Checkbox } from '../ui/checkbox'
 import { ImagePicker, type ImagePickerCopy } from './ImagePicker'
-import { ArrowLeft, ArrowRight, Ticket, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ChevronDown, Ticket, X } from 'lucide-react'
 import { Button } from '../ui/button'
+import { cn } from '../../lib/utils'
 import { Input } from '../ui/input'
 import { Textarea } from '../ui/textarea'
 import { Progress } from '../ui/progress'
@@ -40,6 +41,8 @@ export interface CreateMarketCopy {
   category: { legend: string; options: Option<MarketCategory>[] }
   profile: { legend: string; note: string; options: Option<MarketProfile>[] }
   images: { icon: ImagePickerCopy; banner: ImagePickerCopy; cover: ImagePickerCopy; coverToggle: string; note: string }
+  /** "Opções avançadas" (KYC and social login, collapsed). */
+  advanced: string
   entry: {
     lead: string
     kycLegend: string
@@ -127,6 +130,7 @@ export function CreateMarketWizard({ copy, initial, privateHostingSlot, branding
   const set = <K extends keyof MarketDraft>(key: K, value: MarketDraft[K]) => setDraft((d) => ({ ...d, [key]: value }))
   const label = <T extends string>(options: Option<T>[], v: T | null) => options.find((o) => o.value === v)?.label ?? copy.review.empty
   const [cover, setCover] = useState(false)
+  const [advanced, setAdvanced] = useState(() => (initial?.kyc ?? 'none') !== 'none')
   // Local previews only: every object URL this wizard made is revoked when replaced and when it unmounts.
   const urls = useRef(new Set<string>())
   useEffect(() => () => { urls.current.forEach((u) => URL.revokeObjectURL(u)); urls.current.clear() }, [])
@@ -188,48 +192,63 @@ export function CreateMarketWizard({ copy, initial, privateHostingSlot, branding
       )
       break
     case 'participation':
-      body = <Choice legend={copy.steps.participation} name={`${id}-preset`} options={copy.participation} value={draft.preset} onChange={(v) => set('preset', v)} note={copy.participationNote} />
-      break
-    case 'entry':
+      // Progressive disclosure (PO): KYC and social login stay under "Opções avançadas", default "Sem KYC".
       body = (
+        <div className="space-y-4">
+          <Choice legend={copy.steps.participation} name={`${id}-preset`} options={copy.participation} value={draft.preset} onChange={(v) => set('preset', v)} note={copy.participationNote} />
+          <div>
+            <button
+              type="button" aria-expanded={advanced} aria-controls={`${id}-advanced`} onClick={() => setAdvanced((o) => !o)}
+              className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg px-2 text-left text-sm font-medium text-brand-text state-layer focus-visible:-outline-offset-2"
+            >
+              <span className="min-w-0">
+                <span className="block">{copy.advanced}</span>
+                <span className="block text-caption font-normal text-brand-text-secondary">{copy.entry.summary(draft)}</span>
+              </span>
+              <ChevronDown aria-hidden="true" className={cn('h-4 w-4 shrink-0 text-brand-text-muted transition-transform duration-short', advanced && 'rotate-180')} />
+            </button>
+            <div id={`${id}-advanced`} hidden={!advanced} className="pt-3">
         <div className="space-y-5">
-          <p className="text-body-sm text-brand-text-secondary">{copy.entry.lead}</p>
-          <Choice legend={copy.entry.kycLegend} legendVisible name={`${id}-kyc`} options={copy.entry.kyc} value={draft.kyc} onChange={(v) => set('kyc', v)} />
-          {draft.kyc === 'above_threshold' && (
-            <div>
-              <label htmlFor={`${id}-threshold`} className="text-sm font-medium text-brand-text">{copy.entry.threshold}</label>
-              <Input
-                id={`${id}-threshold`} name="kyc-threshold" inputMode="numeric" autoComplete="off" className="mt-1 max-w-48 tabular-nums" value={draft.kycThreshold}
-                aria-invalid={thresholdBad || undefined} aria-describedby={`${id}-threshold-help`} onChange={(e) => set('kycThreshold', e.target.value)}
-              />
-              <p id={`${id}-threshold-help`} className={thresholdBad ? 'mt-1 text-caption text-brand-danger-fg' : 'mt-1 text-caption text-brand-text-muted'}>{thresholdBad ? copy.entry.thresholdError : copy.entry.thresholdHelp}</p>
-            </div>
-          )}
-          {draft.kyc !== 'none' && (
-            <div>
-              <label htmlFor={`${id}-provider`} className="text-sm font-medium text-brand-text">{copy.entry.provider}</label>
-              <Input
-                id={`${id}-provider`} name="kyc-provider" type="url" inputMode="url" autoComplete="off" spellCheck={false} className="mt-1" value={draft.kycProviderUrl}
-                placeholder="https://" aria-invalid={providerBad || undefined} aria-describedby={`${id}-provider-help`} onChange={(e) => set('kycProviderUrl', e.target.value)}
-              />
-              <p id={`${id}-provider-help`} className={providerBad ? 'mt-1 text-caption text-brand-danger-fg' : 'mt-1 text-caption text-brand-text-muted'}>{providerBad ? copy.entry.providerError : copy.entry.providerHelp}</p>
-            </div>
-          )}
-          <fieldset>
-            <legend className="text-sm font-medium text-brand-text">{copy.entry.socialLegend}</legend>
-            <p className="mt-0.5 text-xs text-brand-text-muted">{copy.entry.socialHelp}</p>
-            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
-              {copy.entry.social.map((o) => (
-                <div key={o.value} className="flex min-h-11 items-center gap-2">
-                  <Checkbox id={`${id}-social-${o.value}`} checked={draft.social.includes(o.value)} onCheckedChange={(v) => toggleSocial(o.value, v === true)} />
-                  <label htmlFor={`${id}-social-${o.value}`} className="cursor-pointer text-sm text-brand-text">{o.label}</label>
+              <p className="text-body-sm text-brand-text-secondary">{copy.entry.lead}</p>
+              <Choice legend={copy.entry.kycLegend} legendVisible name={`${id}-kyc`} options={copy.entry.kyc} value={draft.kyc} onChange={(v) => set('kyc', v)} />
+              {draft.kyc === 'above_threshold' && (
+                <div>
+                  <label htmlFor={`${id}-threshold`} className="text-sm font-medium text-brand-text">{copy.entry.threshold}</label>
+                  <Input
+                    id={`${id}-threshold`} name="kyc-threshold" inputMode="numeric" autoComplete="off" className="mt-1 max-w-48 tabular-nums" value={draft.kycThreshold}
+                    aria-invalid={thresholdBad || undefined} aria-describedby={`${id}-threshold-help`} onChange={(e) => set('kycThreshold', e.target.value)}
+                  />
+                  <p id={`${id}-threshold-help`} className={thresholdBad ? 'mt-1 text-caption text-brand-danger-fg' : 'mt-1 text-caption text-brand-text-muted'}>{thresholdBad ? copy.entry.thresholdError : copy.entry.thresholdHelp}</p>
                 </div>
-              ))}
+              )}
+              {draft.kyc !== 'none' && (
+                <div>
+                  <label htmlFor={`${id}-provider`} className="text-sm font-medium text-brand-text">{copy.entry.provider}</label>
+                  <Input
+                    id={`${id}-provider`} name="kyc-provider" type="url" inputMode="url" autoComplete="off" spellCheck={false} className="mt-1" value={draft.kycProviderUrl}
+                    placeholder="https://" aria-invalid={providerBad || undefined} aria-describedby={`${id}-provider-help`} onChange={(e) => set('kycProviderUrl', e.target.value)}
+                  />
+                  <p id={`${id}-provider-help`} className={providerBad ? 'mt-1 text-caption text-brand-danger-fg' : 'mt-1 text-caption text-brand-text-muted'}>{providerBad ? copy.entry.providerError : copy.entry.providerHelp}</p>
+                </div>
+              )}
+              <fieldset>
+                <legend className="text-sm font-medium text-brand-text">{copy.entry.socialLegend}</legend>
+                <p className="mt-0.5 text-xs text-brand-text-muted">{copy.entry.socialHelp}</p>
+                <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
+                  {copy.entry.social.map((o) => (
+                    <div key={o.value} className="flex min-h-11 items-center gap-2">
+                      <Checkbox id={`${id}-social-${o.value}`} checked={draft.social.includes(o.value)} onCheckedChange={(v) => toggleSocial(o.value, v === true)} />
+                      <label htmlFor={`${id}-social-${o.value}`} className="cursor-pointer text-sm text-brand-text">{o.label}</label>
+                    </div>
+                  ))}
+                </div>
+              </fieldset>
+              <div className="space-y-1 rounded-lg bg-brand-elevated p-3 text-caption text-brand-text-secondary">
+                <p>{copy.entry.responsibility}</p>
+                <p>{copy.entry.limits}</p>
+              </div>
             </div>
-          </fieldset>
-          <div className="space-y-1 rounded-lg bg-brand-elevated p-3 text-caption text-brand-text-secondary">
-            <p>{copy.entry.responsibility}</p>
-            <p>{copy.entry.limits}</p>
+            </div>
           </div>
         </div>
       )

@@ -15,7 +15,6 @@ import { ArrowLeft, ArrowRight, Check, CircleSlash } from 'lucide-react'
 import { Page, PageHeader } from '../../components/layout/PageHeader'
 import { MARKETS_ROUTES } from '../../components/layout/navMatch'
 import { Alert } from '../../components/ui/alert'
-import { Badge } from '../../components/ui/badge'
 import { Button, buttonVariants } from '../../components/ui/button'
 import { Progress } from '../../components/ui/progress'
 import { RadioCard, RadioGroup } from '../../components/ui/radio-group'
@@ -24,20 +23,19 @@ import { ASSET_CATALOG, ASSET_LOGO } from '../../lib/assetCatalog'
 import { isDemoMode } from '../../lib/demoMarkers'
 import { formatAmount, formatUsd } from '../../lib/format'
 import {
-  FUTURE_PAYMENT_ASSETS, SPACE_PRODUCTS, checkoutNetworks, checkoutStepNumber, demoEquivalent, nextCheckoutStep, spaceProduct,
+  CHECKOUT_STEPS, FUTURE_PAYMENT_ASSETS, SPACE_PRODUCTS, checkoutNetworks, checkoutStepNumber, demoEquivalent, nextCheckoutStep, spaceProduct,
   type CheckoutStep, type PayAsset, type SpaceProductId,
 } from '../../lib/spaceCatalog'
 import { DEMO_QUOTE_USD } from '../../demo/spaceShop'
 import { cn } from '../../lib/utils'
-import { WirePlanned } from '../markets/shared'
+import { simulatedToast, WirePlanned } from '../markets/shared'
+import { SimulatedBadge } from '../../components/ui/SimulatedBadge'
 import { t } from '../../i18n'
 import { useAuth } from '../../context/AuthContext'
 
 const SECTION = 'rounded-lg bg-brand-surface p-4'
-const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secondary'
 const STEP_TITLE: Partial<Record<CheckoutStep, () => string>> = {
   payment: () => t('shop.step.payment'),
-  review: () => t('shop.step.review'),
   awaiting: () => t('shop.step.awaiting'), confirming: () => t('shop.step.awaiting'), confirmed: () => t('shop.step.awaiting'),
   acquired: () => t('shop.step.acquired'),
 }
@@ -60,6 +58,7 @@ export function SpaceShop() {
   const demo = isDemoMode()
   const [choice, setChoice] = useState<SpaceProductId>('community')
   const [asset, setAsset] = useState<PayAsset>('BTC')
+  const [host, setHost] = useState<'own' | 'managed'>('own')
   const networks = checkoutNetworks(asset, ASSET_CATALOG)
   const [pairId, setPairId] = useState(networks[0]?.id ?? '')
   const [step, dispatch] = useReducer(nextCheckoutStep, 'catalog')
@@ -106,7 +105,7 @@ export function SpaceShop() {
   const pickAsset = (a: PayAsset) => { setAsset(a); setPairId(checkoutNetworks(a, ASSET_CATALOG)[0]?.id ?? '') }
   const summary: (readonly [string, string])[] = [
     [t('shop.receiptProduct'), name(product.id)],
-    ...(hosted(product.id) ? [[t('spaces.hosting.receipt'), t('spaces.hosting.own')] as const] : []),
+    ...(hosted(product.id) ? [[t('spaces.hosting.receipt'), host === 'managed' ? `${t('spaces.hosting.managed')} (${t('spaces.simulated')})` : t('spaces.hosting.own')] as const] : []),
     [t('shop.receiptPayment'), pair?.label ?? asset],
     [t('shop.priceLabel'), formatUsd(product.demoPriceUsd)],
     [t('shop.pay.equivalent'), amountText],
@@ -126,8 +125,8 @@ export function SpaceShop() {
 
         {number !== null && (
           <div>
-            <h2 ref={headingRef} tabIndex={-1} className="text-section-title outline-none">{t('shop.progress', { at: String(number), total: '4', title })}</h2>
-            <Progress className="mt-2" value={(number / 4) * 100} label={t('shop.progress', { at: String(number), total: '4', title })} />
+            <h2 ref={headingRef} tabIndex={-1} className="text-section-title outline-none">{t('shop.progress', { at: String(number), total: String(CHECKOUT_STEPS), title })}</h2>
+            <Progress className="mt-2" value={(number / CHECKOUT_STEPS) * 100} label={t('shop.progress', { at: String(number), total: String(CHECKOUT_STEPS), title })} />
           </div>
         )}
 
@@ -155,13 +154,13 @@ export function SpaceShop() {
             {hosted(choice) && (
               <section aria-labelledby="shop-host" className={SECTION}>
                 <RadioGroup legend={<span id="shop-host">{t('spaces.hosting.title')}</span>} description={t('spaces.page.singleNode')} listClassName="grid gap-2 md:grid-cols-2">
-                  <RadioCard name="space-host" value="managed" checked={false} disabled onChange={() => undefined} className="items-start">
+                  <RadioCard name="space-host" value="managed" checked={host === 'managed'} onChange={() => { setHost('managed'); simulatedToast(t('spaces.hosting.provisioned')) }} className="items-start">
                     <span className="min-w-0">
-                      <span className="flex flex-wrap items-center gap-2">{t('spaces.hosting.managed')}<Badge variant="outline" className={TAG}>{t('common.soon')}</Badge></span>
-                      <span className="block text-caption font-normal text-brand-text-secondary">{t('spaces.hosting.managedNote')}</span>
+                      <span className="flex flex-wrap items-center gap-2">{t('spaces.hosting.managed')}<SimulatedBadge label={t('spaces.simulated')} /></span>
+                      <span className="block text-caption font-normal text-brand-text-secondary">{host === 'managed' ? t('spaces.hosting.provisioned') : t('spaces.hosting.managedNote')}</span>
                     </span>
                   </RadioCard>
-                  <RadioCard name="space-host" value="own" checked onChange={() => undefined} className="items-start">
+                  <RadioCard name="space-host" value="own" checked={host === 'own'} onChange={() => setHost('own')} className="items-start">
                     <span className="min-w-0">
                       <span className="block">{t('spaces.hosting.own')}</span>
                       <span className="block text-caption font-normal text-brand-text-secondary">{t('spaces.hosting.ownNote')}</span>
@@ -174,7 +173,7 @@ export function SpaceShop() {
             <section aria-labelledby="shop-rights" className={SECTION}>
               <h2 id="shop-rights" className="text-section-title">{t('shop.rightsTitle')}</h2>
               <ul className="mt-2 space-y-1.5">
-                {(['shop.rightsUse', 'shop.rightsChoose', 'shop.rightsNot', 'shop.rightsOnce'] as const).map((k) => (
+                {(['shop.rightsUse', 'shop.rightsChoose', 'shop.rightsNot', 'shop.rightsFunds', 'shop.rightsOnce'] as const).map((k) => (
                   <li key={k} className="flex items-start gap-2 text-body-sm text-brand-text">
                     <Check aria-hidden="true" className="mt-0.5 size-icon-sm shrink-0 text-brand-text-muted" />{t(k)}
                   </li>
@@ -204,18 +203,8 @@ export function SpaceShop() {
                 </RadioCard>
               ))}
             </RadioGroup>
-            <Facts rows={[[t('shop.priceLabel'), formatUsd(product.demoPriceUsd)], [t('shop.pay.equivalent'), amountText]]} />
-            <p className="text-caption text-brand-text-muted">{t('shop.pay.quote', { quote: formatUsd(DEMO_QUOTE_USD[asset]), asset })}</p>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-              {backButton()}
-              <Button type="button" variant={primary} disabled={!pair} onClick={() => dispatch({ type: 'next' })} className="touch:min-h-11">{t('markets.create.next')}<ArrowRight aria-hidden="true" /></Button>
-            </div>
-          </section>
-        )}
-
-        {step === 'review' && (
-          <section className={cn(SECTION, 'space-y-4')}>
             <Facts rows={summary} />
+            <p className="text-caption text-brand-text-muted">{t('shop.pay.quote', { quote: formatUsd(DEMO_QUOTE_USD[asset]), asset })}</p>
             <ul className="space-y-1.5">
               {(['shop.oneTime', 'shop.notRequiredShort'] as const).map((k) => (
                 <li key={k} className="flex items-start gap-2 text-body-sm text-brand-text">
@@ -225,7 +214,7 @@ export function SpaceShop() {
             </ul>
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
               {backButton()}
-              <Button type="button" variant={primary} onClick={() => dispatch({ type: 'next' })} className="touch:min-h-11">{t('shop.toPayment')}<ArrowRight aria-hidden="true" /></Button>
+              <Button type="button" variant={primary} disabled={!pair} onClick={() => dispatch({ type: 'next' })} className="touch:min-h-11">{t('shop.toPayment')}<ArrowRight aria-hidden="true" /></Button>
             </div>
           </section>
         )}
@@ -261,7 +250,7 @@ export function SpaceShop() {
             <Facts rows={summary} />
             <p className="text-body-sm text-brand-text">{t('shop.nextStep')}</p>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Link to={`${MARKETS_ROUTES.create}?space=${product.id}${hosted(product.id) ? '&node=own' : ''}`} className={cn(buttonVariants({ variant: primary }), 'touch:min-h-11')}>{t('shop.configure')}</Link>
+              <Link to={`${MARKETS_ROUTES.create}?space=${product.id}${hosted(product.id) && host === 'own' ? '&node=own' : ''}`} className={cn(buttonVariants({ variant: primary }), 'touch:min-h-11')}>{t('shop.configure')}</Link>
               <Button type="button" variant="ghost" onClick={() => dispatch({ type: 'reset' })} className="touch:min-h-11">{t('shop.again')}</Button>
             </div>
           </section>

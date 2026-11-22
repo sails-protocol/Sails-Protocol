@@ -109,24 +109,24 @@ describe('simulated space checkout (demo)', () => {
   type Ev = Parameters<typeof nextCheckoutStep>[1]
   const run = (events: Ev[]) => events.reduce(nextCheckoutStep, 'catalog' as ReturnType<typeof nextCheckoutStep>)
 
-  it('walks catalog -> payment -> review -> awaiting -> confirming -> confirmed -> acquired', () => {
-    expect(run([{ type: 'next' }, { type: 'next' }, { type: 'next' }])).toBe('awaiting')
-    expect(run([{ type: 'next' }, { type: 'next' }, { type: 'next' }, { type: 'simulatePaid' }, { type: 'settled' }, { type: 'next' }])).toBe('acquired')
+  it('walks catalog -> payment -> awaiting -> confirming -> confirmed -> acquired', () => {
+    expect(run([{ type: 'next' }, { type: 'next' }])).toBe('awaiting')
+    expect(run([{ type: 'next' }, { type: 'next' }, { type: 'simulatePaid' }, { type: 'settled' }, { type: 'next' }])).toBe('acquired')
   })
 
   it('back works until the demo confirmation; no skipping the simulated payment', () => {
     expect(nextCheckoutStep('payment', { type: 'back' })).toBe('catalog')
-    expect(nextCheckoutStep('awaiting', { type: 'back' })).toBe('review')
-    expect(nextCheckoutStep('confirming', { type: 'back' })).toBe('review')
+    expect(nextCheckoutStep('awaiting', { type: 'back' })).toBe('payment')
+    expect(nextCheckoutStep('confirming', { type: 'back' })).toBe('payment')
     expect(nextCheckoutStep('confirmed', { type: 'back' })).toBe('confirmed')
     expect(nextCheckoutStep('awaiting', { type: 'next' })).toBe('awaiting')
-    expect(nextCheckoutStep('review', { type: 'simulatePaid' })).toBe('review')
+    expect(nextCheckoutStep('payment', { type: 'simulatePaid' })).toBe('payment')
     expect(nextCheckoutStep('awaiting', { type: 'settled' })).toBe('awaiting')
     expect(nextCheckoutStep('acquired', { type: 'reset' })).toBe('catalog')
   })
 
-  it('numbers the four checkout steps', () => {
-    expect(['catalog', 'payment', 'review', 'awaiting', 'confirming', 'confirmed', 'acquired'].map((s) => checkoutStepNumber(s as never))).toEqual([null, 1, 2, 3, 3, 3, 4])
+  it('numbers at most three checkout steps', () => {
+    expect(['catalog', 'payment', 'awaiting', 'confirming', 'confirmed', 'acquired'].map((s) => checkoutStepNumber(s as never))).toEqual([null, 1, 2, 2, 2, 3])
   })
 
   it('lists only the catalog networks of the chosen asset', () => {
@@ -141,5 +141,20 @@ describe('simulated space checkout (demo)', () => {
     expect(demoEquivalent(997, 'USDC', 0.9999)).toBe(997.1)
     expect(demoEquivalent(497, 'BTC', 0)).toBeNull()
     expect(demoEquivalent(497, 'BTC', undefined)).toBeNull()
+  })
+})
+
+describe('off-trade warning heuristic (soft, never blocks)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { looksOffTrade } = require('../src/lib/offTradeRisk') as typeof import('../src/lib/offTradeRisk')
+  it('flags payment details or moving the deal outside the trade', () => {
+    for (const m of ['meu email é ana@exemplo.com', 'liga 11 98765-4321', 'chave 123e4567-e89b-12d3-a456-426614174000', 'me chama em wa.me/5511999', 't.me/fulano', 'manda direto que é mais rápido', 'pago por fora', 'Minha chave Pix é o CPF']) {
+      expect(looksOffTrade(m)).toBe(true)
+    }
+  })
+  it('leaves ordinary trade talk alone', () => {
+    for (const m of ['Preciso comprar USDT, uns US$ 200', 'Abro a oferta agora', 'Pode ser por Pix dentro do trade?', 'Combinado, 1.500 reais']) {
+      expect(looksOffTrade(m)).toBe(false)
+    }
   })
 })

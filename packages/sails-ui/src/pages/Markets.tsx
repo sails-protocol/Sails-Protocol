@@ -74,7 +74,6 @@ function createCopy(): CreateMarketCopy {
     participation: t('markets.create.step.participation'),
     infrastructure: t('markets.create.step.infrastructure'),
     review: t('markets.create.step.review'),
-    entry: t('spaces.create.step.entry'),
     invites: t('markets.create.step.invites'),
   }
   return {
@@ -116,6 +115,7 @@ function createCopy(): CreateMarketCopy {
       coverToggle: t('spaces.create.coverToggle'),
       note: t('spaces.create.imagesNote'),
     },
+    advanced: t('spaces.create.advanced'),
     entry: {
       lead: t('spaces.create.entryLead'),
       kycLegend: t('spaces.create.kycLegend'),

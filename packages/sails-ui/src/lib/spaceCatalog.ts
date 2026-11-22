@@ -27,15 +27,16 @@ export function spaceProduct(id: string | null | undefined): SpaceProduct | null
 }
 
 // --- Simulated checkout (PO, 2026-11-22): 100 % demo. No address, no QR, no invoice, no live quote; nothing here
-// feeds any economic logic. Steps: catalog -> payment -> review -> awaiting -> confirming -> confirmed -> acquired.
+// feeds any economic logic. Steps (at most 3 after the catalog, PO): catalog -> payment (with the summary) -> awaiting ->
+// confirming -> confirmed -> acquired.
 
 export type PayAsset = (typeof FUTURE_PAYMENT_ASSETS)[number]
-export type CheckoutStep = 'catalog' | 'payment' | 'review' | 'awaiting' | 'confirming' | 'confirmed' | 'acquired'
+export type CheckoutStep = 'catalog' | 'payment' | 'awaiting' | 'confirming' | 'confirmed' | 'acquired'
 export type CheckoutEvent = { type: 'next' } | { type: 'back' } | { type: 'simulatePaid' } | { type: 'settled' } | { type: 'reset' }
 
-const FORWARD: Partial<Record<CheckoutStep, CheckoutStep>> = { catalog: 'payment', payment: 'review', review: 'awaiting', confirmed: 'acquired' }
+const FORWARD: Partial<Record<CheckoutStep, CheckoutStep>> = { catalog: 'payment', payment: 'awaiting', confirmed: 'acquired' }
 // Back (or cancel) from any step before the simulated confirmation; a confirmed demo purchase cannot be "undone".
-const BACKWARD: Partial<Record<CheckoutStep, CheckoutStep>> = { payment: 'catalog', review: 'payment', awaiting: 'review', confirming: 'review' }
+const BACKWARD: Partial<Record<CheckoutStep, CheckoutStep>> = { payment: 'catalog', awaiting: 'payment', confirming: 'payment' }
 
 /** One transition; events that do not apply leave the step unchanged. */
 export function nextCheckoutStep(step: CheckoutStep, event: CheckoutEvent): CheckoutStep {
@@ -48,9 +49,10 @@ export function nextCheckoutStep(step: CheckoutStep, event: CheckoutEvent): Chec
   }
 }
 
-/** "Passo N de 4" for the numbered checkout steps (the catalog has no number). */
+export const CHECKOUT_STEPS = 3
+/** "Passo N de 3" for the numbered checkout steps (the catalog has no number). */
 export function checkoutStepNumber(step: CheckoutStep): number | null {
-  return step === 'payment' ? 1 : step === 'review' ? 2 : step === 'awaiting' || step === 'confirming' || step === 'confirmed' ? 3 : step === 'acquired' ? 4 : null
+  return step === 'payment' ? 1 : step === 'awaiting' || step === 'confirming' || step === 'confirmed' ? 2 : step === 'acquired' ? 3 : null
 }
 
 /** Networks the official asset catalog lists for `asset` (passed in, so this module stays apart from the SDK code). */

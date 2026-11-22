@@ -8,7 +8,7 @@ import type { MarketInfrastructure, MarketVisibility, ParticipationPreset } from
 import type { KycMode, MarketCategory, MarketProfile, SocialLogin } from './marketContract'
 import { safeHttpsUrl } from './marketSpaces'
 
-export type CreateStep = 'identity' | 'visibility' | 'participation' | 'entry' | 'infrastructure' | 'review' | 'invites'
+export type CreateStep = 'identity' | 'visibility' | 'participation' | 'infrastructure' | 'review' | 'invites'
 
 export interface MarketDraft {
   name: string
@@ -63,7 +63,7 @@ export const MARKET_NAME_MAX = 60
 
 /** Steps in order. Participants and invites only exist for a private market. */
 export function createSteps(visibility: MarketVisibility | null): CreateStep[] {
-  const base: CreateStep[] = ['identity', 'visibility', 'participation', 'entry', 'infrastructure', 'review']
+  const base: CreateStep[] = ['identity', 'visibility', 'participation', 'infrastructure', 'review']
   return visibility === 'private' ? [...base, 'invites'] : base
 }
 
@@ -77,9 +77,8 @@ export function canAdvance(step: CreateStep, draft: MarketDraft): boolean {
     case 'visibility':
       return draft.visibility !== null
     case 'participation':
-      return draft.preset === 'vitrine' || draft.preset === 'comunidade'
-    case 'entry':
-      return entryPolicyValid(draft)
+      // The optional entry rules (KYC, social login) live in this step, collapsed under "Opções avançadas".
+      return (draft.preset === 'vitrine' || draft.preset === 'comunidade') && entryPolicyValid(draft)
     default:
       return true
   }

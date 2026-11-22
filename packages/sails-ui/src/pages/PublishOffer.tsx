@@ -36,7 +36,7 @@
  * old mock filter, which ignored side entirely.
  */
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { toast } from '../components/ui/toast'
 import { useAuth } from '../context/AuthContext'
 import { AssetPicker } from '../components/marketplace/AssetPicker'
@@ -80,7 +80,9 @@ export function PublishOffer() {
   const [step, setStep] = useState(1)
 
   // Step 1
-  const [side, setSide] = useState<TradeSide>('SELL')
+  // Optional starting side from a link (e.g. "Criar negociação a partir desta conversa"); the person can change it.
+  const [searchParams] = useSearchParams()
+  const [side, setSide] = useState<TradeSide>(() => (searchParams.get('side') === 'BUY' ? 'BUY' : 'SELL'))
   // Narrower than the UI's own `AssetType` on purpose — same reasoning
   // as `paymentMethod` below: this page submits straight to the real
   // `liquidity.publish()` call, which has no `DEPIX` (see types.ts's own

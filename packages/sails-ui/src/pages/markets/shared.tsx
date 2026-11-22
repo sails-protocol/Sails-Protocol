@@ -7,7 +7,7 @@
  * built at render so it follows the interface language); NODES_MARKETS_SCREENS is dev-gallery text and stays pt-BR.
  */
 import { useEffect, useReducer, useSyncExternalStore, type ReactNode } from 'react'
-import { BadgeCheck, KeyRound, Scale, Server, Ticket, UserMinus, Users } from 'lucide-react'
+import { Activity, KeyRound, Scale, Server, Ticket, UserMinus, Users } from 'lucide-react'
 import { Link } from 'react-router'
 import { Badge } from '../../components/ui/badge'
 import { Button, buttonVariants } from '../../components/ui/button'
@@ -25,6 +25,8 @@ import { InviteStatus, JoinMarketForm, type JoinMarketCopy } from '../../compone
 import type { MarketListCopy } from '../../components/markets/MarketList'
 import type { Fact } from '../../components/markets/FactList'
 import { LOOSE_WIRES, type LooseWireId } from '../../lib/looseWires'
+import { plannedBadge } from '../../lib/wiringMap'
+import { toast } from '../../components/ui/toast'
 import { DEMO_INVITED_MARKET_ID, demoMarkets, isDemoMode, setDemoInviteGranted, subscribeDemoMarkets } from '../../lib/demoMarkers'
 import { composeMyMarkets, type MarketView } from '../../lib/myMarkets'
 import { INVITE_STATES, nextInviteState, type InviteEvent, type InviteOutcome, type InviteState } from '../../lib/marketInvite'
@@ -32,10 +34,13 @@ import { t } from '../../i18n'
 
 /** "Em breve" (or `badge`, e.g. "Em preparação") + the loose wires a disabled control waits for (the contract is in LOOSE_WIRES). */
 export function WireNote({ ids, badge }: { ids: readonly LooseWireId[]; badge?: string }) {
+  // Demo: a note whose wires are all simulated says "Simulado", never an unexplained "Em breve" (lib/wiringMap.ts).
+  const demo = isDemoMode()
+  const label = badge ?? (ids.every((id) => plannedBadge(id, demo) === 'simulated') ? t('spaces.simulated') : t('common.soon'))
   // A div, not a p: Badge renders a div (a p cannot contain it).
   return (
     <div className="text-caption text-brand-text-secondary">
-      <Badge variant="outline" className="mr-1.5 border-transparent bg-brand-tonal font-medium text-brand-text-secondary">{badge ?? t('common.soon')}</Badge>
+      <Badge variant="outline" className="mr-1.5 border-transparent bg-brand-tonal font-medium text-brand-text-secondary">{label}</Badge>
       {t('markets.wireNote', { wires: ids.map((id) => LOOSE_WIRES[id].label).join(', ') })}
     </div>
   )
@@ -44,7 +49,13 @@ export function WireNote({ ids, badge }: { ids: readonly LooseWireId[]; badge?: 
 /** A planned item backed by a loose wire; `label` overrides the wire's label when the screen names the feature differently. */
 export function WirePlanned({ id, label, description, badge, className }: { id: LooseWireId; label?: string; description?: string; badge?: string; className?: string }) {
   const wire = LOOSE_WIRES[id]
-  return <PlannedItem icon={wire.icon} label={label ?? wire.label} soonLabel={badge ?? t('common.soon')} description={description} className={className} />
+  const soon = badge ?? (plannedBadge(id, isDemoMode()) === 'simulated' ? t('spaces.simulated') : t('common.soon'))
+  return <PlannedItem icon={wire.icon} label={label ?? wire.label} soonLabel={soon} description={description} className={className} />
+}
+
+/** Every simulated action says so (PO, 2026-11-22). */
+export function simulatedToast(message?: string) {
+  toast.info(message ?? t('spaces.simulated.toast'))
 }
 
 // --- Market Spaces (Comunidades, Mercados privados): copy shared by Explore, Meus mercados and the market page. ---
@@ -103,7 +114,7 @@ export function DemoVerifiedSeal({ explain = false }: { explain?: boolean }) {
   return (
     <span className="relative z-10 inline-flex items-center gap-1">
       <Badge variant="outline" className="gap-1 border-transparent bg-brand-info-bg font-medium text-brand-info-fg">
-        <BadgeCheck aria-hidden="true" className="size-icon-xs" />{t('spaces.verified')}
+        <Activity aria-hidden="true" className="size-icon-xs" />{t('spaces.verified')}
       </Badge>
       {explain && (
         <ExplanationPopover

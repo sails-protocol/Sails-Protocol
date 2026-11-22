@@ -8,7 +8,7 @@
  */
 import { useSyncExternalStore, type ReactNode } from 'react'
 import { Link, Navigate, useParams } from 'react-router'
-import { ArrowLeft, ExternalLink, MessagesSquare, SearchX, Ticket } from 'lucide-react'
+import { ArrowLeft, ExternalLink, MessageCircle, SearchX, Ticket } from 'lucide-react'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { MARKETS_ROUTES } from '../components/layout/navMatch'
 import { Badge } from '../components/ui/badge'
@@ -18,6 +18,8 @@ import { SideBadge } from '../components/ui/StatusBadges'
 import { MarketBanner } from '../components/markets/MarketBanner'
 import { MarketIcon } from '../components/markets/MarketIcon'
 import { AdminImage } from '../components/markets/AdminImage'
+import { IconButton } from '../components/ui/icon-button'
+import { MarketChats } from './markets/MarketChats'
 import { demoMarketPage, demoMarkets, isDemoMode, subscribeDemoMarkets } from '../lib/demoMarkers'
 import { canSeeOffers, kycSummary } from '../lib/marketSpaces'
 import { formatMonthYear, formatUsd } from '../lib/format'
@@ -27,12 +29,6 @@ import { t } from '../i18n'
 
 const SECTION = 'rounded-lg bg-brand-surface p-4'
 const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secondary'
-
-// Fictional group messages, pt-BR like the other demo fixtures (names from DECISIONS.md "Identidade").
-const DEMO_GROUP_CHAT = [
-  { who: 'Alice', text: 'Bom dia. Hoje tenho BTC para vender pelo Pix.' },
-  { who: 'Bob', text: 'Ótimo. Abro o trade pela sua oferta daqui a pouco.' },
-]
 
 /** Start and end always visible, the whole key for screen readers (DECISIONS.md "Chave pública no Perfil"). */
 function MonoKey({ value }: { value: string }) {
@@ -188,36 +184,33 @@ export function MarketPage() {
           )}
         </section>
 
-        {m.relation === 'admin' && (
-          <section aria-labelledby="market-members" className={SECTION}>
-            <h2 id="market-members" className="text-section-title">{t('spaces.page.membersTitle')}</h2>
-            <p className="mt-1 text-caption text-brand-text-secondary">{t('spaces.page.membersLead')}</p>
-            {page.memberKeys.length === 0 ? (
-              <p className="mt-2 text-body-sm text-brand-text-secondary">{t('markets.create.invites.empty')}</p>
-            ) : (
-              <ul aria-label={t('spaces.page.membersTitle')} className="mt-2 divide-y divide-brand-border-subtle">
-                {page.memberKeys.map((k) => <li key={k} className="py-2"><MonoKey value={k} /></li>)}
-              </ul>
-            )}
-          </section>
-        )}
-
-        <section aria-labelledby="market-chat" className={SECTION}>
-          <div className="flex flex-wrap items-center gap-2">
-            <MessagesSquare aria-hidden="true" className="size-icon-sm text-brand-text-muted" />
-            <h2 id="market-chat" className="text-section-title">{t('spaces.chat.title')}</h2>
-            <Badge variant="outline" className={TAG}>{t('spaces.demo')}</Badge>
+        <section aria-label={t('spaces.chat.sectionTitle')} className={SECTION}>
+          <MarketChats
+            membersSlot={m.relation === 'admin' ? (openPrivate) => (
+              <div className="pt-2">
+                <h3 className="text-sm font-medium text-brand-text">{t('spaces.page.membersTitle')}</h3>
+                <p className="mt-0.5 text-caption text-brand-text-secondary">{t('spaces.page.membersLead')}</p>
+                {page.memberKeys.length === 0 ? (
+                  <p className="mt-2 text-body-sm text-brand-text-secondary">{t('markets.create.invites.empty')}</p>
+                ) : (
+                  <ul aria-label={t('spaces.page.membersTitle')} className="mt-1 divide-y divide-brand-border-subtle">
+                    {page.memberKeys.map((k) => (
+                      <li key={k} className="flex items-center gap-2 py-1">
+                        <span className="min-w-0 flex-1"><MonoKey value={k} /></span>
+                        <IconButton label={t('spaces.chat.privateWith', { name: `${k.slice(0, 10)}…` })} size="sm" onClick={() => openPrivate({ author: `${k.slice(0, 10)}…${k.slice(-8)}`, seed: k })}>
+                          <MessageCircle aria-hidden="true" />
+                        </IconButton>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : undefined}
+          />
+          <div className="mt-4 space-y-2">
+            <WirePlanned id="marketGroupChat" description={t('spaces.chat.planned')} />
+            <WirePlanned id="marketDirectMessage" description={t('spaces.chat.privatePlanned')} />
           </div>
-          <p className="mt-1 text-caption text-brand-text-secondary">{t('spaces.chat.note')}</p>
-          <ul className="mt-3 space-y-2" aria-label={t('spaces.chat.title')}>
-            {DEMO_GROUP_CHAT.map((c) => (
-              <li key={c.text} className="max-w-prose rounded-lg bg-brand-elevated px-3 py-2">
-                <p className="text-caption font-medium text-brand-text">{c.who}</p>
-                <p className="text-body-sm text-brand-text">{c.text}</p>
-              </li>
-            ))}
-          </ul>
-          <WirePlanned id="marketGroupChat" description={t('spaces.chat.planned')} className="mt-3" />
         </section>
       </div>
     </Page>
