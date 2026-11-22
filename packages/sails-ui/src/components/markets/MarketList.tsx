@@ -19,6 +19,8 @@ export interface MarketListCopy {
   infrastructure: Record<MarketInfrastructure, string>
   infrastructureLabel: string
   illustrative: string
+  /** Tag for a market the person created (instead of the illustrative tag). */
+  ownedByYou?: string
 }
 
 const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secondary'
@@ -42,7 +44,7 @@ export function MarketList({ markets, copy, action, compact = false, className }
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="text-sm font-medium text-brand-text">{m.name}</span>
-                {m.illustrative && <Badge variant="outline" className={TAG}>{copy.illustrative}</Badge>}
+                {m.ownedByYou && copy.ownedByYou ? <Badge variant="outline" className={TAG}>{copy.ownedByYou}</Badge> : m.illustrative && <Badge variant="outline" className={TAG}>{copy.illustrative}</Badge>}
               </div>
               <p className="mt-0.5 text-caption text-brand-text-secondary">
                 {/* The open market is the whole network, not one of the public markets: no "Público" label. */}

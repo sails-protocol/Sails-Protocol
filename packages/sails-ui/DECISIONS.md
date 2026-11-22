@@ -339,5 +339,8 @@ Origem: áudios do PO (22/11) organizados pela sessão de UI (`ui-mercados-audio
 
 - **Ofertas primeiro na página do mercado** (Product Owner, 2026-11-22): cabeçalho (banner, ícone, nome, selos, participantes) e depois as abas **Ofertas** (padrão) | **Chat do grupo** | **Sobre** (regras, entrada, participantes, administração). Em Ofertas, só lado (Todos/Comprar/Vender) e ativo, sem filtros avançados (esses ficam no Market principal); cada oferta tem a ação do lado e "Conversar", que abre a conversa privada com a oferta no topo e a faixa do escrow. Estado vazio: "Ninguém publicou ofertas aqui ainda" e "Publicar oferta neste mercado". O chat é opcional para quem quer interagir. Na demonstração, as ofertas de mercado são fixtures simples (ainda não a `OfferTable` do Market, que depende de `liquidity.discover({ marketId })`); abrir trade e publicar num mercado são simulados e marcados.
 
+- **Segmentado selecionado com limite no tema claro** (PM como dono do Design System, 2026-11-22, WCAG 1.4.11): o item selecionado ganha 1px interno de `text-muted` (#646464), só no claro: 3.80:1 contra o trilho, antes 1.56 só pelo preenchimento. O trilho e as outras superfícies não mudam. No escuro nada muda (thumb vs trilho 1.51–1.54, com preenchimento, elevação, peso e `aria-pressed`). Detalhes e medidas em DESIGN_SYSTEM.md 5.1.
+- **Item 11 confirmado** (PM, 2026-11-22): o modo real continua percorrendo os passos de Criar mercado e termina na prévia honesta (decisão do Product Owner de 2026-11-21), com os preços escondidos.
+
 ## Pendente de decisão (não tratar como fechado)
 - Itens do `DESIGN_SYSTEM.md` ainda marcados como provisórios e que não entraram no pacote de 21/11 seguem provisórios.

@@ -163,6 +163,7 @@ export function marketListCopy(): MarketListCopy {
     infrastructureLabel: t('markets.list.infrastructureLabel'),
     infrastructure: { network: 'Rede Sails', own: t('markets.list.infrastructure.own') },
     illustrative: t('markets.list.illustrative'),
+    ownedByYou: t('spaces.ownedByYou'),
   }
 }
 
