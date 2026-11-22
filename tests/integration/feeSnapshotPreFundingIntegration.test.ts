@@ -271,6 +271,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     const rotated = await createPublishedPolicy('MULTISIG', { protocolFeeRate: '0.008', label: `e25w-rotated-${Date.now()}` })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, buyer.id)
 
+    expect((await prisma.feePolicyVersion.findUniqueOrThrow({ where: { id: policyAtCommit.id } })).status).toBe('RETIRED') // the rotation retired it
     expect(escrow.feePolicyVersionId).toBe(policyAtCommit.id) // committed, though retired since
     expect(escrow.feePolicyVersionId).not.toBe(rotated.id)
     expect(escrow.snapshotProtocolFeeRate?.toString()).toBe('0.004')
@@ -294,7 +295,8 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     await retireAnyLivePolicyForRail(retiredRail)
     for (const policy of [draft, live]) {
       const fx = await createCommitmentFixture(prisma, { feePolicyVersionId: policy.id })
-      await expect(fx.committedPair()).rejects.toMatchObject({ statusCode: 409, code: 'E25_FEE_POLICY_DIGEST_MISMATCH' })
+      // The same code as an unknown policy, told apart by the field: this refusal is about the policy's status.
+      await expect(fx.committedPair()).rejects.toMatchObject({ statusCode: 409, code: 'E25_FEE_POLICY_DIGEST_MISMATCH', details: { field: 'feePolicyVersionId.status' } })
     }
   })
 
