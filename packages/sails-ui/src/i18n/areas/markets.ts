@@ -45,7 +45,6 @@ export default defineArea(
     'markets.explore.listLabel': 'Mercados públicos',
     'markets.explore.participants': 'Participantes:',
     'markets.explore.model': 'Modelo:',
-    'markets.explore.openToAll': 'Aberto a todos',
     'markets.explore.open': 'Abrir',
     'markets.explore.discoveryPlanned': 'Mercados públicos de comunidades e empresas aparecem aqui, com marca, descrição e participantes, para você seguir.',
 
@@ -231,7 +230,6 @@ export default defineArea(
       'markets.explore.listLabel': 'Public markets',
       'markets.explore.participants': 'Participants:',
       'markets.explore.model': 'Model:',
-      'markets.explore.openToAll': 'Open to everyone',
       'markets.explore.open': 'Open',
       'markets.explore.discoveryPlanned': 'Public markets of communities and companies appear here, with brand, description and participants, for you to follow.',
 
@@ -416,7 +414,6 @@ export default defineArea(
       'markets.explore.listLabel': 'Mercados públicos',
       'markets.explore.participants': 'Participantes:',
       'markets.explore.model': 'Modelo:',
-      'markets.explore.openToAll': 'Abierto a todos',
       'markets.explore.open': 'Abrir',
       'markets.explore.discoveryPlanned': 'Aquí aparecen mercados públicos de comunidades y empresas, con marca, descripción y participantes, para que los sigas.',
 
@@ -601,7 +598,6 @@ export default defineArea(
       'markets.explore.listLabel': 'Marchés publics',
       'markets.explore.participants': 'Participants :',
       'markets.explore.model': 'Modèle :',
-      'markets.explore.openToAll': 'Ouvert à tous',
       'markets.explore.open': 'Ouvrir',
       'markets.explore.discoveryPlanned': 'Les marchés publics de communautés et d’entreprises apparaissent ici, avec marque, description et participants, pour que vous les suiviez.',
 
@@ -786,7 +782,6 @@ export default defineArea(
       'markets.explore.listLabel': 'Öffentliche Märkte',
       'markets.explore.participants': 'Teilnehmende:',
       'markets.explore.model': 'Modell:',
-      'markets.explore.openToAll': 'Offen für alle',
       'markets.explore.open': 'Öffnen',
       'markets.explore.discoveryPlanned': 'Hier erscheinen öffentliche Märkte von Communitys und Unternehmen, mit Marke, Beschreibung und Teilnehmenden, denen du folgen kannst.',
 

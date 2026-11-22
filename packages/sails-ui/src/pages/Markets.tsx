@@ -157,7 +157,10 @@ const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secon
 
 /** Showcase of public markets (DECISIONS.md "Modelo mundo aberto"): its own shareable route, /markets. */
 function ExploreView() {
-  const publics = useVisibleMarkets().filter((m) => m.visibility === 'public')
+  const visible = useVisibleMarkets()
+  // The open market is the whole network; the public markets (communities, shops) are listed apart from it.
+  const open = visible.find((m) => m.relation === 'default')
+  const publics = visible.filter((m) => m.visibility === 'public' && m.relation !== 'default')
   const list = marketListCopy()
   const soon = t('common.soon')
   return (
@@ -168,38 +171,50 @@ function ExploreView() {
           <MARKET_ACTION_ICON.create aria-hidden="true" />{t('markets.action.create')}
         </Link>
       </div>
-      <ul aria-label={t('markets.explore.listLabel')} className="grid gap-3 sm:grid-cols-2">
-        {publics.map((m) => (
-          <li key={m.id} className="flex flex-col gap-3 rounded-lg bg-brand-surface p-4">
-            <div className="flex items-start gap-3">
-              <MarketIcon market={m} size="lg" />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <h2 className="text-sm font-medium text-brand-text">{m.name}</h2>
-                  {m.illustrative && <Badge variant="outline" className={TAG}>{list.illustrative}</Badge>}
+      {open && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg bg-brand-surface p-4">
+          <MarketIcon market={open} size="lg" />
+          <div className="min-w-0 flex-1 basis-48">
+            <h2 className="text-sm font-medium text-brand-text">{open.name}</h2>
+            <p className="mt-0.5 text-caption text-brand-text-secondary">{open.description}</p>
+          </div>
+          <Link to="/" className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'shrink-0 touch:min-h-11')}>{t('markets.explore.open')}<span className="sr-only"> {open.name}</span></Link>
+        </div>
+      )}
+      <section aria-labelledby="explore-public" className="space-y-3">
+        <h2 id="explore-public" className="text-sm font-medium text-brand-text">{t('markets.explore.listLabel')}</h2>
+        {publics.length === 0 ? <WirePlanned id="marketDiscovery" description={t('markets.explore.discoveryPlanned')} /> : (
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {publics.map((m) => (
+              <li key={m.id} className="flex flex-col gap-3 rounded-lg bg-brand-surface p-4">
+                <div className="flex items-start gap-3">
+                  <MarketIcon market={m} size="lg" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <h3 className="text-sm font-medium text-brand-text">{m.name}</h3>
+                      {m.illustrative && <Badge variant="outline" className={TAG}>{list.illustrative}</Badge>}
+                    </div>
+                    <p className="mt-0.5 text-caption text-brand-text-secondary">{m.description}</p>
+                  </div>
                 </div>
-                <p className="mt-0.5 text-caption text-brand-text-secondary">{m.description}</p>
-              </div>
-            </div>
-            <dl className="flex flex-wrap gap-x-4 gap-y-1 text-caption">
-              <div className="flex gap-1">
-                <dt className="text-brand-text-muted">{t('markets.explore.participants')}</dt>
-                <dd className="tabular-nums text-brand-text">{m.participants !== undefined ? m.participants.toLocaleString(getLocale()) : soon}</dd>
-              </div>
-              <div className="flex gap-1">
-                <dt className="text-brand-text-muted">{t('markets.explore.model')}</dt>
-                <dd className="text-brand-text">{m.preset ? list.preset[m.preset] : m.relation === 'default' ? t('markets.explore.openToAll') : soon}</dd>
-              </div>
-            </dl>
-            <div className="mt-auto">
-              {m.relation === 'default'
-                ? <Link to="/" className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'touch:min-h-11')}>{t('markets.explore.open')}<span className="sr-only"> {m.name}</span></Link>
-                : <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text-secondary">{soon}</Badge>}
-            </div>
-          </li>
-        ))}
-      </ul>
-      {publics.length === 1 && <WirePlanned id="marketDiscovery" description={t('markets.explore.discoveryPlanned')} />}
+                <dl className="flex flex-wrap gap-x-4 gap-y-1 text-caption">
+                  <div className="flex gap-1">
+                    <dt className="text-brand-text-muted">{t('markets.explore.participants')}</dt>
+                    <dd className="tabular-nums text-brand-text">{m.participants !== undefined ? m.participants.toLocaleString(getLocale()) : soon}</dd>
+                  </div>
+                  <div className="flex gap-1">
+                    <dt className="text-brand-text-muted">{t('markets.explore.model')}</dt>
+                    <dd className="text-brand-text">{m.preset ? list.preset[m.preset] : soon}</dd>
+                  </div>
+                </dl>
+                <div className="mt-auto">
+                  <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text-secondary">{soon}</Badge>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   )
 }
