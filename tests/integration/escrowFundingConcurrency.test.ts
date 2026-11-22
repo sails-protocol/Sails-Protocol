@@ -36,7 +36,7 @@ import * as ecc from 'tiny-secp256k1'
 import { ECPairFactory } from 'ecpair'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, registerTestParticipantWithKey, closeTestRedis, preserveTestRedis } from './identityTestHelpers'
-import { commitTradePair } from './helpers/committedPairFixture'
+import { commitTradePair, acceptedEnvelopeFor } from './helpers/committedPairFixture'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 bitcoin.initEccLib(ecc)
@@ -142,7 +142,7 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
     const offer = await liquidityRouter.createOffer({
       userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER',
     })
-    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001', acceptedEnvelopeId: await acceptedEnvelopeFor(prisma, seller, offer) })
     await commitTradePair(prisma, trade.id, seller, buyer) // F4 deny-by-default: the COMMITTED pair of this trade
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
