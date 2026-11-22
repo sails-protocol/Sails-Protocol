@@ -275,6 +275,14 @@ describe('escrow-pending-tx.ts — disputed disposition authority', () => {
     expect(mockPendingTxCreate).not.toHaveBeenCalled()
   })
 
+  // GK C1: same generation, ruling reverted (no signature on either read): only the in-transaction re-check can refuse it.
+  it('refuses when the ruling was reverted at the same generation between the check and the round write', async () => {
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1', status: 'RESOLVED', ruling: 'RELEASE', appealRound: 0, authoritySignature: null })
+    mockDisputeFindUniqueLive.mockResolvedValue({ id: 'dispute-1', status: 'OPENED', ruling: null, appealRound: 0, authoritySignature: null })
+    await expect(escrowService.initiateRelease(ESCROW_ID, undefined, 'arbiter-1')).rejects.toMatchObject({ code: 'DISPUTE_RULING_REQUIRED' })
+    expect(mockPendingTxCreate).not.toHaveBeenCalled()
+  })
+
   // GK C-a1: a split round executes the ratio the ruling signed.
   it('refuses a split whose buyerBps differs from the one the ruling signed', async () => {
     mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1', status: 'RESOLVED', ruling: 'SPLIT', authorityBuyerBps: 6000 })

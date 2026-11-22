@@ -1531,7 +1531,12 @@ export class MultisigProvider implements SettlementProvider {
       // Checked before the gates callback (which takes the escrow claim): the stored signatures verify against the round,
       // and the executing identity still derives the committed arbiter key.
       this.assertSignaturesVerify(escrow, unsignedPsbtBase64, signedPsbtBase64List)
-      if (arbiterAtExecution) this.assertArbiterMatchesScript({ ...escrow, status: 'DISPUTED' })
+      if (arbiterAtExecution) {
+        this.assertArbiterMatchesScript({ ...escrow, status: 'DISPUTED' })
+        if (this.storedArbiterSignatureState(escrow, unsignedPsbtBase64) === 'invalid') {
+          throw new EscrowError(`MULTISIG provider: the stored arbiter signature on trade ${escrow.tradeId}'s round does not verify`)
+        }
+      }
       if (beforeFirstBroadcast) await beforeFirstBroadcast()
       // After the gates: the arbiter signs in memory.
       const tx = buildSigned()
@@ -1563,11 +1568,6 @@ export class MultisigProvider implements SettlementProvider {
     }
   }
 
-  /**
-   * The ONLY place the arbiter key signs a settlement. Callers reach it only after the ADR-005 + ADR-004 commit gates of
-   * a disputed (ruling) round. The signature lives in memory only: it is never persisted, logged or returned. A
-   * round whose PSBT already carries a valid arbiter signature gets none added (returns null).
-   */
   /** Whether a round's stored PSBT carries an arbiter signature, and whether it verifies for the committed key. */
   storedArbiterSignatureState(escrow: MultisigEscrowInput, unsignedPsbtBase64: string): 'absent' | 'valid' | 'invalid' {
     const arbiterPubkey = escrow.arbiterPubkey ? Buffer.from(escrow.arbiterPubkey, 'hex') : null
@@ -1581,6 +1581,11 @@ export class MultisigProvider implements SettlementProvider {
     }
   }
 
+  /**
+   * The ONLY place the arbiter key signs a settlement. Callers reach it only after the ADR-005 + ADR-004 commit gates of
+   * a disputed (ruling) round. The signature lives in memory only: it is never persisted, logged or returned. A
+   * round whose PSBT already carries a valid arbiter signature gets none added (returns null).
+   */
   signAsArbiterAtExecution(escrow: MultisigEscrowInput, unsignedPsbtBase64: string): string | null {
     const arbiterPubkey = escrow.arbiterPubkey ? Buffer.from(escrow.arbiterPubkey, 'hex') : null
     if (!arbiterPubkey) throw new EscrowError(`MULTISIG provider: escrow for trade ${escrow.tradeId} has no arbiter commitment`)

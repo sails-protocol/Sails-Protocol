@@ -145,10 +145,14 @@ describe('MULTISIG disputed settlement signing order (real PostgreSQL, real PSBT
     const { f, dispute } = await rulingRoundWithBuyerSignature('c8-gate')
     await prisma.dispute.update({ where: { id: dispute.id }, data: { status: 'APPEALED', appealRound: 1 } }) // the ruling generation is no longer current
     const sign = jest.spyOn(multisigProvider, 'signAsArbiterAtExecution')
-    await tick()
+    const report = await tick()
     expect(sign).not.toHaveBeenCalled()
     expect(chain.broadcasts).toHaveLength(0)
     expect((await prisma.escrow.findUniqueOrThrow({ where: { id: f.escrow.id } })).txReleaseId).toBeNull()
+    // The round was reached and refused by the commit gate (not skipped earlier, not refused by the signature checks).
+    const failure = report.failed.find((x: { escrowId: string }) => x.escrowId === f.escrow.id)
+    expect(failure).toBeDefined()
+    expect(failure.error).not.toMatch(/does not verify/)
   })
 
   it('7: recovery of a claimed escrow (PASS 1) without its durable disposition authorization: nothing is signed or broadcast', async () => {
