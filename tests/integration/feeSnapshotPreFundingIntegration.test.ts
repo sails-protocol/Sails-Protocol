@@ -103,6 +103,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
         treasuryPct: '25',
         walletRebatePct: '35',
         arbitratorReservePct: '10',
+        requiredConfirmations: 2, // a committed policy must have a canonical FeePolicyV1 digest
         createdBy: 'fase41-integration-test',
         publishedAt: new Date(),
         ...overrides,
