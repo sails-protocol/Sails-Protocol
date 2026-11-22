@@ -1,14 +1,22 @@
 import { useState } from 'react'
-import { toast } from 'sonner'
+import { toast } from './toast'
 import { Check } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { useUiStrings } from './uiStrings'
 
-export function CopyButton({ value, label = 'Copiar' }: { value: string; label?: string }) {
+export function CopyButton({ value, label, ariaLabel, className }: { value: string; label?: string; ariaLabel?: string; className?: string }) {
+  const strings = useUiStrings()
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(value)
+    try {
+      await navigator.clipboard.writeText(value)
+    } catch {
+      toast.error(strings.copyFailed)
+      return
+    }
     setCopied(true)
-    toast.success('Copiado!')
+    toast.success(strings.copied)
     setTimeout(() => setCopied(false), 1500)
   }
 
@@ -16,9 +24,10 @@ export function CopyButton({ value, label = 'Copiar' }: { value: string; label?:
     <button
       type="button"
       onClick={handleCopy}
-      className="text-xs text-brand-text-secondary hover:text-brand-text border border-brand-border rounded-md px-2 py-1 transition-colors"
+      aria-label={copied ? undefined : ariaLabel}
+      className={cn("inline-flex items-center justify-center rounded-md bg-brand-tonal px-2 py-1 text-xs font-medium text-brand-text state-layer", className)}
     >
-      {copied ? <Check className="h-3.5 w-3.5 inline" /> : label}
+      {copied ? <><Check className="size-icon-sm" aria-hidden="true" /><span className="sr-only">{strings.copied}</span></> : label ?? strings.copy}
     </button>
   )
 }

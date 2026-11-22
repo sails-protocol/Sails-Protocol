@@ -3,18 +3,20 @@
 // tabbing to the "i" button had no way to see this text at all before —
 // Tooltip.Trigger shows/hides on focus/blur too, not just hover/click.
 import { Tooltip, TooltipTrigger, TooltipContent } from './tooltip'
+import { useUiStrings } from './uiStrings'
 
 export function InfoTooltip({ text }: { text: string }) {
+  const strings = useUiStrings()
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        {/* p-2 -m-2 on the button, visible circle kept on the inner span
+        {/* p-3.5 -m-3.5 (44px) on the button, visible circle kept on the inner span
             (2026-08-01): the 16px badge is the intended look everywhere
             it's used inline next to a label, but as the actual button
             box it was also a 16px tap target — real mobile-testing find,
             not hypothetical, same class of fix as FavoriteButton's own. */}
-        <button type="button" aria-label="Mais informações" className="group p-2 -m-2 flex items-center justify-center">
-          <span className="w-4 h-4 rounded-full border border-brand-border text-brand-text-muted text-[10px] flex items-center justify-center transition-colors group-hover:border-brand-orange-accent group-hover:text-brand-orange-accent">
+        <button type="button" aria-label={strings.moreInfo} className="group p-3.5 -m-3.5 flex items-center justify-center">
+          <span className="w-4 h-4 rounded-full border border-brand-border text-brand-text-muted text-xs flex items-center justify-center transition-colors group-hover:border-brand-orange-accent group-hover:text-brand-orange-accent">
             i
           </span>
         </button>

@@ -7,6 +7,25 @@ black + orange, light and dark theme, orange constant across both. See
 
 ## What this is
 
+### Monetary truth correction — CTO 118 (2026-11-14)
+
+This correction supersedes the historical FX descriptions below. Discovery,
+offer detail, own offers, Trade and Trade History display `priceUsd` /
+`totalUsd` as USD, without FX conversion. The optional legacy `priceBrl`
+field is not used to infer a binding quote currency. This does not establish
+fiat-payment commitment or multi-fiat support; B7 / #623 still owns that work.
+
+Publish Offer defaults to USD and accepts fixed USD prices only. Other
+currency selections show an unavailable message and cannot advance or
+submit. The illustrative FX table is removed; the entered positive USD
+decimal is passed unchanged (at most 16 integer and 8 fractional digits).
+The existing public SDK call is preserved, with no new economic endpoint,
+settlement integration, custody change or production activation.
+
+Targeted regression: `npx jest --runInBand packages/sails-ui/tests/publicationPrice.test.ts`.
+Funding/signing UX, SPLIT presentation, recovery, reusable packaging, Sails
+Pay reconciliation and CC17 acceptance remain separate, unfinished work.
+
 **Screen list corrected 2026-08-04** — no more Admin Dashboard/Manage
 Offers (removed the same day, see "What this is not" below), routing is
 `react-router` v8 (not `react-router-dom`, dropped in a dependency audit
@@ -120,7 +139,7 @@ acts on digital assets already in the wallet, via WDK. It never calls a
 banking API and never touches PIX or any other fiat rail; that
 conversion is a regulated on/off-ramp provider's job, entirely outside
 this protocol. The one negotiation step that names a fiat action
-("Aguardando pagamento") is always something the human counterparty
+("Pagamento marcado como enviado") is always something the human counterparty
 does — the agent only waits for and observes it.
 
 **Scam-prevention warnings (RFC-017,
@@ -374,6 +393,27 @@ The dev server proxies `/v1`/`/api` to `http://localhost:3000` (the
 real backend) — not used by anything yet, but means swapping a mock
 data read for a real `fetch`/`@satsails/p2p-trading-sdk` call later doesn't also
 require touching `vite.config.ts`.
+
+## Homologação (build for the VPS)
+
+The nó Sails address is fixed at build time by `VITE_API_BASE_URL` (see `.env.example`; unset means
+`http://localhost:3000`):
+
+```bash
+VITE_API_BASE_URL=https://<node host> npm run build -w @sails/ui   # output in packages/sails-ui/dist
+```
+
+Serve `dist/` as static files with a fallback to `index.html` (client-side routes). The UI calls the node
+cross-origin, so the node (or the proxy in front of it) must send:
+
+- `Access-Control-Allow-Origin: <UI origin>`: in production the backend sets this from
+  `CORS_ALLOWED_ORIGINS` (comma-separated); without it every request fails and the UI shows "Não foi
+  possível conectar ao nó Sails".
+- `Access-Control-Expose-Headers: Date`: lets deadline countdowns use the node's clock
+  (`src/lib/serverClock.ts`). The backend does not send it today; add it at the proxy. Without it the UI
+  falls back to the device clock.
+
+Settings → Rede e nós shows the configured address and the live connection status.
 
 ## Next steps (not done here)
 

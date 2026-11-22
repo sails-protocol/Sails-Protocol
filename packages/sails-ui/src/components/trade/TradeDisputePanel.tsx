@@ -7,13 +7,31 @@
  * own 403 check) — see Disputes.tsx's own comment for why the arbiter
  * console doesn't offer these same three, and why it CAN resolve
  * directly instead of needing this evidence step.
+ *
+ * Lote B: one danger alert, neutral sections below it. Evidence is
+ * rendered as given (untyped `unknown[]` on the record): nothing here is
+ * marked as verified. The automatic suggestion is labelled as a
+ * suggestion, never a decision.
+ *
+ * C12 (2026-11-21): the contest blocks (decision and automatic suggestion) live in DisputeAppealBlock, driven
+ * only by backend data. The appeal button no longer shows for any party on a decided dispute: without the
+ * backend's appeal view it is never offered (on Day 0 the nó Sails refuses it). The ruling shows only its
+ * result and date; no justification field exists.
  */
+import { useState, type ReactNode } from 'react'
 import type { Dispute } from '@satsails/p2p-trading-sdk'
 import { Button } from '../ui/button'
 import { Textarea } from '../ui/textarea'
 import { formatDateTime } from '../../lib/format'
-import { DISPUTE_RULING_LABEL } from '../../lib/labels'
-import { AlertTriangle, Bot } from 'lucide-react'
+import { DISPUTE_RULING_LABEL, DISPUTE_STATUS_LABEL } from '../../lib/labels'
+import { busyProps } from '../../lib/busy'
+import { AlertTriangle, Scale } from 'lucide-react'
+import { Alert } from '../ui/alert'
+import { parseEvidence } from '../../lib/disputeCase'
+import { t, type MessageKey } from '../../i18n'
+import { DisputeAppealBlock, type DisputeNotice } from './DisputeAppealBlock'
+import type { AppealViewState } from '../../lib/disputeAppeal'
+import type { EscrowStatus } from '../../types'
 
 interface Props {
   dispute: Dispute
@@ -21,74 +39,172 @@ interface Props {
   isSeller: boolean
   acting: boolean
   evidenceNote: string
+  /** Maps a participant id to a role label ("Você", "Comprador", ...). */
+  partyLabel: (participantId: string) => string
   onEvidenceNoteChange: (value: string) => void
   onSubmitEvidence: () => void
   onContestAutoResolution: () => void
   onAppeal: () => void
+  /** C12 contest view: null when no endpoint exists (production today); see lib/disputeAppeal.ts. */
+  appealView: AppealViewState
+  /** Demo mode: the contest states are fictional and badged. */
+  demo: boolean
+  notice: DisputeNotice | null
+  /** The escrow's status as read, to say when it is already terminal (never "final"). */
+  escrowStatus?: EscrowStatus | null
+  onDeadlinePassed: () => void
+  onRetryAppealView: () => void
+  onRetryRefresh: () => void
+  /** Who the dispute waits on now (the rail's bastão text), e.g. "Com o árbitro"; omitted when the records do not say. */
+  turnLabel?: string | null
+  /** Host slot after the opening alert (the timelock, a ruling's signing round). */
+  children?: ReactNode
+}
+
+// Escrow terminal states as recorded (CTO 437: a terminal status, not settlement finality).
+const ESCROW_TERMINAL: Partial<Record<EscrowStatus, MessageKey>> = {
+  COMPLETED: 'escrow.state.completed',
+  REFUNDED: 'escrow.state.refunded',
+  SPLIT: 'escrow.state.split',
+}
+
+/** `text` with `slot` (a placeholder t() left unfilled) replaced by `value` in bold. */
+function withStrong(text: string, slot: string, value: string, className = 'font-semibold') {
+  const [before, after = ''] = text.split(slot)
+  return <>{before}<strong className={className}>{value}</strong>{after}</>
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="border-t border-brand-border-subtle pt-3">
+      <h3 className="text-xs font-semibold text-brand-text-secondary">{title}</h3>
+      <div className="mt-1 text-sm text-brand-text">{children}</div>
+    </div>
+  )
 }
 
 export function TradeDisputePanel({
-  dispute, isBuyer, isSeller, acting, evidenceNote,
-  onEvidenceNoteChange, onSubmitEvidence, onContestAutoResolution, onAppeal,
+  dispute, isBuyer, isSeller, acting, evidenceNote, partyLabel,
+  onEvidenceNoteChange, onSubmitEvidence, onContestAutoResolution, onAppeal, turnLabel, children,
+  appealView, demo, notice, escrowStatus, onDeadlinePassed, onRetryAppealView, onRetryRefresh,
 }: Props) {
   const isParty = isBuyer || isSeller
+  // Shared `acting`: the clicked action shows loading, the others are blocked (lib/busy.ts).
+  const [running, setRunning] = useState<string | null>(null)
+  const run = (key: string, fn: () => void) => () => { setRunning(key); fn() }
+  const resolved = dispute.status === 'RESOLVED'
+  // One reading of Dispute.evidence for the trade page and the arbiter console (SDK descriptor field: `uri`).
+  const evidence = parseEvidence(dispute.evidence)
+  const terminal = escrowStatus ? ESCROW_TERMINAL[escrowStatus] : undefined
 
   return (
-    <div className="mt-4 pt-4 border-t border-brand-border">
-      <div className="flex items-center gap-2 text-xs">
-        <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
-        <span className="font-semibold text-red-500">
-          {dispute.status === 'RESOLVED' ? 'Disputa resolvida' : 'Disputa em andamento'}
-        </span>
-        {dispute.status === 'AUTO_PROPOSED' && <Bot className="h-3.5 w-3.5 text-purple-400" />}
-      </div>
-      <p className="text-sm text-brand-text-secondary mt-1.5">{dispute.reason}</p>
-
-      {dispute.status === 'AUTO_PROPOSED' && dispute.autoResolutionRecommendation && (
-        <div className="mt-3 bg-purple-500/5 border border-purple-500/20 rounded-lg p-3 text-xs">
-          <div className="flex items-center gap-1.5 font-semibold text-purple-400">
-            <Bot className="h-3.5 w-3.5" /> Recomendação da QVAC: {DISPUTE_RULING_LABEL[dispute.autoResolutionRecommendation]}
-          </div>
-          <p className="text-brand-text-secondary mt-1">{dispute.autoResolutionReasoning}</p>
-          <p className="text-brand-text-muted mt-1">
-            {Math.round((dispute.autoResolutionConfidence ?? 0) * 100)}% de confiança
-            {dispute.autoResolutionDeadline && ` — aplica automaticamente em ${formatDateTime(dispute.autoResolutionDeadline)} se ninguém contestar`}
-          </p>
-          {isParty && (
-            <Button variant="outline" onClick={onContestAutoResolution} disabled={acting} className="mt-2 text-xs px-3 py-1.5">
-              Contestar recomendação
-            </Button>
-          )}
-        </div>
+    <section aria-label={t('trade.dispute.label')} className="rounded-lg border border-brand-border-subtle bg-brand-surface p-4 space-y-3">
+      {resolved ? (
+        <p className="text-sm font-semibold text-brand-text">{t('trade.dispute.resolved')}</p>
+      ) : (
+        <Alert tone="danger" live icon={AlertTriangle} className="text-sm">
+          {withStrong(t('trade.dispute.openedBy', { date: formatDateTime(dispute.createdAt) }), '{party}', partyLabel(dispute.openedBy))}
+        </Alert>
       )}
-
-      {dispute.status === 'RESOLVED' && dispute.ruling && (
-        <p className="text-xs text-green-500 mt-2">
-          Decisão: {DISPUTE_RULING_LABEL[dispute.ruling] ?? dispute.ruling}
-          {dispute.resolvedAt && ` — ${formatDateTime(dispute.resolvedAt)}`}
+      <p className="flex flex-wrap items-center gap-2 text-caption text-brand-text-secondary">
+        {t('trade.dispute.stage')}
+        <span className="inline-flex items-center gap-1 rounded-full bg-brand-elevated px-2 py-0.5 font-medium text-brand-text">
+          <Scale aria-hidden="true" className="size-icon-xs shrink-0" />
+          {DISPUTE_STATUS_LABEL[dispute.status] ?? dispute.status}
+        </span>
+        {terminal && <span>{t(terminal)}</span>}
+      </p>
+      {turnLabel && (
+        <p className="text-sm text-brand-text-secondary">
+          {withStrong(t('trade.dispute.now'), '{turn}', turnLabel, 'font-semibold text-brand-text')}
         </p>
       )}
+      {children}
 
-      {isParty && (dispute.status === 'OPENED' || dispute.status === 'EVIDENCE_SUBMITTED') && (
-        <div className="mt-3">
-          <Textarea
-            value={evidenceNote}
-            onChange={(e) => onEvidenceNoteChange(e.target.value)}
-            placeholder="Adicionar evidência (ex: comprovante de pagamento, explicação)..."
-            className="w-full"
-            rows={2}
-          />
-          <Button variant="outline" onClick={onSubmitEvidence} disabled={acting || !evidenceNote.trim()} className="mt-2 text-xs px-3 py-1.5">
-            Enviar evidência
-          </Button>
-        </div>
+      <Section title={t('trade.dispute.reason')}>
+        <p className="whitespace-pre-line [overflow-wrap:anywhere]">{dispute.reason}</p>
+      </Section>
+
+      <Section title={t('trade.dispute.evidenceTitle', { count: evidence.length })}>
+        {evidence.length === 0 ? (
+          <p className="text-brand-text-secondary">{t('trade.dispute.noEvidence')}</p>
+        ) : (
+          <ul className="space-y-2">
+            {evidence.map((ev, i) => (
+              <li key={i} className="rounded-md bg-brand-elevated px-3 py-2">
+                <p className="text-xs text-brand-text-secondary">
+                  {[t('trade.dispute.evidenceType', { type: ev.type }), ev.submittedBy ? t('trade.dispute.evidenceBy', { party: partyLabel(ev.submittedBy) }) : null, ev.submittedAt ? formatDateTime(ev.submittedAt) : null].filter(Boolean).join(' · ')}
+                </p>
+                {ev.note && <p className="mt-0.5 whitespace-pre-line [overflow-wrap:anywhere]">{ev.note}</p>}
+                {ev.uri && (ev.href
+                  ? <a href={ev.href} target="_blank" rel="noopener noreferrer nofollow" className="mt-0.5 inline-block text-brand-link underline [overflow-wrap:anywhere]">{ev.uri}</a>
+                  : <p className="mt-0.5 font-mono text-xs [overflow-wrap:anywhere]">{ev.uri}</p>)}
+              </li>
+            ))}
+          </ul>
+        )}
+        {isParty && (dispute.status === 'OPENED' || dispute.status === 'EVIDENCE_SUBMITTED') && (
+          <div className="mt-3">
+            <label htmlFor="dispute-evidence" className="text-xs font-medium text-brand-text-secondary">{t('trade.dispute.addEvidence')}</label>
+            <Textarea
+              id="dispute-evidence"
+              value={evidenceNote}
+              onChange={(e) => onEvidenceNoteChange(e.target.value)}
+              placeholder={t('trade.dispute.evidencePlaceholder')}
+              className="mt-1 w-full"
+              rows={2}
+            />
+            <Button variant="outline" onClick={run('evidence', onSubmitEvidence)} disabled={!evidenceNote.trim()} {...busyProps(acting, running, 'evidence')} className="mt-2 min-h-11 text-sm">
+              {t('trade.dispute.sendEvidence')}
+            </Button>
+          </div>
+        )}
+      </Section>
+
+      {dispute.appealRound > 0 && (
+        <Section title={t('trade.dispute.appeal')}>
+          <p>
+            {dispute.previousRuling
+              ? t('trade.dispute.appealRoundPrevious', { round: String(dispute.appealRound), ruling: DISPUTE_RULING_LABEL[dispute.previousRuling] })
+              : t('trade.dispute.appealRound', { round: String(dispute.appealRound) })}
+          </p>
+        </Section>
       )}
 
-      {isParty && dispute.status === 'RESOLVED' && (
-        <Button variant="outline" onClick={onAppeal} disabled={acting} className="mt-3 text-xs px-3 py-1.5">
-          Apelar da decisão
-        </Button>
+      {dispute.autoResolutionRecommendation && (
+        <Section title={t('trade.dispute.autoTitle')}>
+          <p>{t('trade.dispute.autoSuggests', { ruling: DISPUTE_RULING_LABEL[dispute.autoResolutionRecommendation] })}</p>
+          {dispute.autoResolutionReasoning && <p className="mt-1 text-brand-text-secondary">{dispute.autoResolutionReasoning}</p>}
+        </Section>
       )}
-    </div>
+
+      {resolved && (
+        <Section title={t('trade.dispute.ruling')}>
+          {dispute.ruling ? (
+            <p>
+              {dispute.resolvedAt
+                ? t('trade.dispute.rulingWithDate', { ruling: DISPUTE_RULING_LABEL[dispute.ruling] ?? dispute.ruling, date: formatDateTime(dispute.resolvedAt) })
+                : (DISPUTE_RULING_LABEL[dispute.ruling] ?? dispute.ruling)}
+            </p>
+          ) : (
+            <p className="text-brand-text-secondary">{t('trade.dispute.rulingMissing')}</p>
+          )}
+        </Section>
+      )}
+
+      <DisputeAppealBlock
+        dispute={dispute}
+        isParty={isParty}
+        view={appealView}
+        demo={demo}
+        acting={acting}
+        notice={notice}
+        onAppeal={onAppeal}
+        onContest={onContestAutoResolution}
+        onDeadlinePassed={onDeadlinePassed}
+        onRetryView={onRetryAppealView}
+        onRetryRefresh={onRetryRefresh}
+      />
+    </section>
   )
 }

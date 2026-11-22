@@ -53,7 +53,8 @@ const tradeIntentPayloadSchema = z.object({
   // they'd be silently dropped before ever reaching intent-engine.ts's
   // own bounds check, for every caller of this route (including
   // @satsails/p2p-trading-sdk's createIntent()).
-  minReputationRating: z.number().optional(),
+  minReputationScore: z.number().optional(), // UX-048; bounds and the alias rule are checked in intent-handler.ts
+  minReputationRating: z.number().optional(), // deprecated alias of minReputationScore
   // RFC-023 — same "must be listed explicitly or zod silently strips it"
   // reasoning as minReputationRating above. Decimal strings (RFC-009),
   // not z.number(), same convention as maxValue/minValue.
@@ -191,7 +192,7 @@ export async function intentRoutes(app: FastifyInstance): Promise<void> {
 
     const { match, counterProposal } = await liquidityRouter.proposeForIntent(
       payload.asset as AssetType, payload.side, amount,
-      { priceMin: payload.minPriceUsd, priceMax: payload.maxPriceUsd, minReputation: payload.minReputationRating }
+      { priceMin: payload.minPriceUsd, priceMax: payload.maxPriceUsd, minReputation: payload.minReputationRating, minReputationScore: payload.minReputationScore }
     )
 
     // COORDINATED's only forward transition is DISCOVERING

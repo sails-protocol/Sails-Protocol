@@ -2,12 +2,15 @@ import type { Message } from '../../types'
 import { formatTime } from '../../lib/format'
 import { RISK_PATTERN_LABEL } from '../../lib/socialEngineering'
 import { InfoTooltip } from '../ui/InfoTooltip'
+import { t } from '../../i18n'
 import { AlertTriangle, Receipt, Lock } from 'lucide-react'
 
 export function ChatMessage({ message, isMine }: { message: Message; isMine: boolean }) {
   if (message.type === 'SYSTEM') {
     return (
-      <div className="self-center text-center text-xs italic text-brand-text-muted bg-brand-elevated border border-brand-border rounded-full px-4 py-1.5 my-1">
+      // State changes this client observed (Trade.tsx), never counterparty text. No time: when it was observed is not when it happened.
+      <div role="status" className="self-center max-w-full text-center text-xs text-brand-text-secondary bg-brand-elevated border border-brand-border-subtle rounded-md px-3 py-1.5 my-1">
+        <span className="font-semibold">{t('trade.chat.systemPrefix')} · </span>
         {message.content}
       </div>
     )
@@ -15,12 +18,12 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
 
   if (message.type === 'RISK_WARNING') {
     return (
-      <div className="self-stretch flex items-start gap-2 text-xs bg-red-500/10 border border-red-500/25 text-brand-text rounded-lg px-3.5 py-2.5 my-1">
-        <AlertTriangle className="h-4 w-4 shrink-0" />
+      <div className="self-stretch flex items-start gap-2 text-xs bg-brand-danger-bg text-brand-text rounded-lg px-3.5 py-2.5 my-1">
+        <AlertTriangle aria-hidden="true" className="h-4 w-4 shrink-0 text-brand-danger" />
         <div className="flex-1">
-          <div className="flex items-center gap-1.5 font-semibold text-red-500">
-            {message.riskPattern ? RISK_PATTERN_LABEL[message.riskPattern] : 'Sinal de risco detectado'}
-            <InfoTooltip text="Reflete RISK_WARNING (RFC-017, SocialEngineeringAgent) — no backend real, o QVAC analisa a mensagem via qvacAgentProvider.assessSocialEngineeringRisk() e essa detecção fica desligada por padrão (config.features.socialEngineeringDetection). Nesta interface, a detecção em si é simulada por palavras-chave — não existe rota conectando o navegador ao agente real ainda." />
+          <div className="flex items-center gap-1.5 font-semibold text-brand-danger-fg">
+            {message.riskPattern ? RISK_PATTERN_LABEL[message.riskPattern] : t('trade.chat.riskFallback')}
+            <InfoTooltip text={t('trade.chat.riskHelp')} />
           </div>
           <p className="text-brand-text-secondary mt-0.5">{message.content}</p>
         </div>
@@ -35,41 +38,43 @@ export function ChatMessage({ message, isMine }: { message: Message; isMine: boo
   return (
     <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}>
       {!isMine && message.sender && (
-        <span className="text-[10px] text-brand-text-muted mb-0.5 ml-1">{message.sender.displayName}</span>
+        <span className="text-xs text-brand-text-muted mb-0.5 ml-1">{message.sender.displayName}</span>
       )}
       <div
-        className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${
+        className={`max-w-[75%] rounded-xl px-3.5 py-2 text-sm ${
           message.decryptionFailed
             ? 'bg-brand-elevated border border-dashed border-brand-border text-brand-text-muted italic'
             : isProof
-              ? 'bg-green-500/10 border border-green-500/25 text-brand-text'
+              ? 'bg-brand-info-bg border border-brand-info-border text-brand-text'
+              // Own bubbles are solid blue (DECISIONS.md, 2026-11-21): orange is reserved for actions.
               : isMine
-                ? 'bg-brand-orange text-white rounded-br-sm'
+                ? 'bg-brand-info-solid text-brand-on-info rounded-br-sm'
                 : 'bg-brand-elevated text-brand-text rounded-bl-sm'
         } ${isMedia ? 'p-1.5' : ''}`}
       >
+        {/* A proof is a party's claim, not a verified payment (CTO 437): info tone, never success. */}
         {isProof && (
-          <div className="text-xs font-semibold text-green-500 mb-1 flex items-center gap-1">
-            <Receipt className="h-3.5 w-3.5" /> Comprovante de Pagamento
+          <div className="text-xs font-semibold text-brand-info-fg mb-1 flex items-center gap-1">
+            <Receipt className="size-icon-xs" /> {t('trade.chat.proof')}
           </div>
         )}
         {message.type === 'IMAGE' && message.mediaUrl && (
-          <img src={message.mediaUrl} alt={message.mediaFileName ?? 'Imagem enviada'} className="max-w-[240px] max-h-[240px] rounded-lg object-cover" />
+          <img src={message.mediaUrl} alt={message.mediaFileName ?? t('trade.chat.imageAlt')} className="max-w-[240px] max-h-[240px] rounded-lg object-cover" />
         )}
         {message.type === 'VIDEO' && message.mediaUrl && (
           <video src={message.mediaUrl} controls className="max-w-[240px] max-h-[240px] rounded-lg" />
         )}
         {!isMedia && (
           <span className="inline-flex items-start gap-1">
-            {isEncrypted && !message.decryptionFailed && <Lock className="h-3 w-3 mt-0.5 shrink-0 opacity-70" />}
+            {isEncrypted && !message.decryptionFailed && <Lock className="size-icon-xs mt-0.5 shrink-0 opacity-70" />}
             <span>{message.content}</span>
           </span>
         )}
         {isMedia && message.content && (
-          <div className={`text-xs px-1.5 pt-1 ${isMine ? 'text-white/80' : 'text-brand-text-muted'}`}>{message.content}</div>
+          <div className={`text-xs px-1.5 pt-1 ${isMine ? 'text-brand-on-info/80' : 'text-brand-text-muted'}`}>{message.content}</div>
         )}
       </div>
-      <span className="text-[10px] text-brand-text-muted mt-0.5">{formatTime(message.createdAt)}</span>
+      <span className="text-xs text-brand-text-muted mt-0.5">{formatTime(message.createdAt)}</span>
     </div>
   )
 }
