@@ -24,7 +24,9 @@ jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
 import { EscrowService } from '../src/modules/open-settlement/escrow.service'
 import { EscrowError } from '../src/common/errors'
 
-const trade = (extra: Record<string, unknown> = {}) => ({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, ...extra })
+const trade = (extra: Record<string, unknown> = {}) => ({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, asset: 'BTC', amount: '0.001', ...extra })
+// A committed pair row whose stored terms match input(): asset/amount of the trade, rail of the resolved escrow type.
+const pair = (id: string, rail: string, terms: Record<string, unknown> = {}) => ({ id, rail, trade: { asset: 'BTC', amount: '0.001', ...terms } })
 const input = (type: string) => ({ tradeId: 'trade-1', type, lockedAmount: '0.001', asset: 'BTC' }) as any
 
 describe('createEscrow() A1: bound to the COMMITTED pair of the trade\'s own Intent, pair lock first', () => {
@@ -39,7 +41,7 @@ describe('createEscrow() A1: bound to the COMMITTED pair of the trade\'s own Int
 
   it('a ready pair: the escrow is created in the SAME transaction, AFTER the pair lock, carrying the pair id', async () => {
     mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1' }))
-    mockLock.mockImplementation(async () => { order.push('lock'); return { row: { id: 'pair-7' }, readiness: { ok: true }, t: new Date() } })
+    mockLock.mockImplementation(async () => { order.push('lock'); return { row: pair('pair-7', 'MULTISIG'), readiness: { ok: true }, t: new Date() } })
     await service.createEscrow(input('MULTISIG'), 'buyer-1')
     expect(mockLock).toHaveBeenCalledWith(txMarker, { anchorRef: 'anchor-1' })
     expect(order).toEqual(['tx:open', 'lock', 'repo.create', 'tx:close'])
@@ -51,7 +53,7 @@ describe('createEscrow() A1: bound to the COMMITTED pair of the trade\'s own Int
     mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1' }))
     mockLock.mockResolvedValue({ row: null, readiness: { ok: false, code: 'E25_COMMITMENT_MISSING' }, t: new Date() })
     await expect(service.createEscrow(input('MULTISIG'), 'buyer-1')).rejects.toThrow(/no executable commitment pair \(E25_COMMITMENT_MISSING\)/)
-    mockLock.mockResolvedValue({ row: { id: 'p' }, readiness: { ok: false, code: 'E25_NOT_COMMITTED' }, t: new Date() })
+    mockLock.mockResolvedValue({ row: pair('p', 'MULTISIG'), readiness: { ok: false, code: 'E25_NOT_COMMITTED' }, t: new Date() })
     await expect(service.createEscrow(input('MULTISIG'), 'buyer-1')).rejects.toThrow(/E25_NOT_COMMITTED/)
     mockFindById.mockResolvedValue(trade()) // no tradeIntentId
     mockLock.mockClear()
@@ -62,7 +64,7 @@ describe('createEscrow() A1: bound to the COMMITTED pair of the trade\'s own Int
 
   it('MOCK: takes the pair when there is one; with none it still goes to the repository WITHOUT a pair id (the database trigger decides, fail-closed in production)', async () => {
     mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1' }))
-    mockLock.mockResolvedValueOnce({ row: { id: 'pair-9' }, readiness: { ok: true }, t: new Date() })
+    mockLock.mockResolvedValueOnce({ row: pair('pair-9', 'MOCK'), readiness: { ok: true }, t: new Date() })
     await service.createEscrow(input('MOCK'), 'buyer-1')
     expect(repoCreate.mock.calls[0][0].commitmentPairId).toBe('pair-9')
     mockLock.mockResolvedValueOnce({ row: null, readiness: { ok: false, code: 'E25_COMMITMENT_MISSING' }, t: new Date() })
@@ -74,5 +76,49 @@ describe('createEscrow() A1: bound to the COMMITTED pair of the trade\'s own Int
     mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1' }))
     await expect(service.createEscrow(input('MULTISIG'), 'stranger')).rejects.toThrow(/not a counterparty/)
     expect(mockLock).not.toHaveBeenCalled()
+  })
+})
+
+describe('createEscrow(): its asset/amount are the trade's and its committed pair's, never the caller's own (ESCROW_TERMS_MISMATCH)', () => {
+  let repoCreate: jest.Mock
+  let service: EscrowService
+  beforeEach(() => {
+    mockLock.mockReset(); mockFindById.mockReset()
+    repoCreate = jest.fn(async (data: any) => ({ id: 'escrow-1', tradeId: data.tradeId, type: data.type, asset: data.asset, lockedAmount: data.lockedAmount }))
+    service = new EscrowService({ create: repoCreate } as any)
+    mockLock.mockResolvedValue({ row: pair('pair-1', 'MULTISIG'), readiness: { ok: true }, t: new Date() })
+  })
+
+  it('refuses an input asset different from the trade asset, before any pair lock: nothing is created', async () => {
+    mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1', asset: 'USDT' }))
+    await expect(service.createEscrow(input('MULTISIG'), 'buyer-1')).rejects.toMatchObject({ code: 'ESCROW_TERMS_MISMATCH' })
+    expect(mockLock).not.toHaveBeenCalled()
+    expect(repoCreate).not.toHaveBeenCalled()
+  })
+
+  it('refuses an input lockedAmount different from the trade amount (0.002 vs 0.001): nothing is created', async () => {
+    mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1' }))
+    await expect(service.createEscrow({ ...input('MULTISIG'), lockedAmount: '0.002' }, 'buyer-1')).rejects.toMatchObject({ code: 'ESCROW_TERMS_MISMATCH' })
+    expect(repoCreate).not.toHaveBeenCalled()
+  })
+
+  it('refuses when the committed pair amount differs from the input even though the trade matches: nothing is created', async () => {
+    mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1' }))
+    mockLock.mockResolvedValue({ row: pair('pair-1', 'MULTISIG', { amount: '0.002' }), readiness: { ok: true }, t: new Date() })
+    await expect(service.createEscrow(input('MULTISIG'), 'buyer-1')).rejects.toMatchObject({ code: 'ESCROW_TERMS_MISMATCH' })
+    expect(repoCreate).not.toHaveBeenCalled()
+  })
+
+  it('refuses when the committed pair rail differs from the resolved escrow type: nothing is created', async () => {
+    mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1' }))
+    mockLock.mockResolvedValue({ row: pair('pair-1', 'LIGHTNING_HODL'), readiness: { ok: true }, t: new Date() })
+    await expect(service.createEscrow(input('MULTISIG'), 'buyer-1')).rejects.toMatchObject({ code: 'ESCROW_TERMS_MISMATCH' })
+    expect(repoCreate).not.toHaveBeenCalled()
+  })
+
+  it('accepts amounts equal as decimals but written differently (0.00100000 vs 0.001)', async () => {
+    mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1' }))
+    await service.createEscrow({ ...input('MULTISIG'), lockedAmount: '0.00100000' }, 'buyer-1')
+    expect(repoCreate.mock.calls[0][0]).toMatchObject({ type: 'MULTISIG', commitmentPairId: 'pair-1', lockedAmount: '0.00100000' })
   })
 })
