@@ -314,7 +314,7 @@ function MineView() {
             copy={{ ...marketListCopy(), label: t('markets.action.mine') }}
             action={(m) => (
               <div className="flex flex-wrap items-center justify-end gap-1">
-                {yours(m) && <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{t('spaces.yourSpace')}</Badge>}
+                {yours(m) && <Badge variant="outline" className="hidden border-transparent bg-brand-tonal font-medium text-brand-text sm:inline-flex">{t('spaces.yourSpace')}</Badge>}
                 {yours(m) && transferButton(m)}
                 <Link to={m.relation === 'default' ? '/' : marketPath(m.id)} className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'touch:min-h-11')}>
                   {t('markets.explore.open')}<span className="sr-only"> {m.name}</span>
@@ -395,7 +395,7 @@ function CreateView() {
     [t('spaces.create.review.profile'), profileLabel(p) ?? ''],
     [t('spaces.create.review.entry'), entryText({ kyc: p.entry.kyc, thresholdUsd: p.entry.thresholdUsd ?? undefined, providerUrl: p.entry.providerUrl ?? undefined, social: p.entry.social })],
     ...(p.visibility === 'private' ? [] : [[t('markets.create.review.participation'), marketListCopy().preset[p.preset]] as [string, string]]),
-    [t('markets.create.step.infrastructure'), p.infrastructure === 'own' ? t('markets.create.infrastructure.ownLabel') : t('markets.create.infrastructure.networkLabel')],
+    [t('spaces.create.hostingLegend'), p.infrastructure === 'own' ? t('markets.create.infrastructure.ownLabel') : t('markets.create.infrastructure.networkLabel')],
   ]
   const primary = user ? 'default' : 'secondary'
   const space = spaceProduct(product)

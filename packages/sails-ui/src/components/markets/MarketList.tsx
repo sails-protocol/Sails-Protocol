@@ -53,7 +53,7 @@ export function MarketList({ markets, copy, action, compact = false, className }
               </p>
               {!compact && <p className="text-caption text-brand-text-muted">{copy.infrastructureLabel} {copy.infrastructure[m.infrastructure]}</p>}
             </div>
-            {trailing && <div className="shrink-0 self-center">{trailing}</div>}
+            {trailing && <div className={compact ? 'max-w-[55%] self-center' : 'shrink-0 self-center'}>{trailing}</div>}
           </li>
         )
       })}
