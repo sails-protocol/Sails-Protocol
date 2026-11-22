@@ -19,7 +19,8 @@ export const SEGMENT_TRACK = 'rounded-lg bg-brand-segment-track p-1'
 export function segmentItemClass(selected: boolean, side?: TradeSide) {
   return cn(
     'rounded-sm text-body-sm transition-colors duration-short state-layer',
-    selected ? (side ? SIDE_SEGMENT_SELECTED[side] : 'bg-brand-raised shadow-elevation-1 font-medium text-brand-text') : 'text-brand-text-secondary hover:text-brand-text'
+    // Selected: fill + elevation + weight, plus a 1px inner boundary in light (>= 3:1 against the track, WCAG 1.4.11).
+    selected ? cn('ring-1 ring-inset ring-brand-segment-selected-border', side ? SIDE_SEGMENT_SELECTED[side] : 'bg-brand-raised shadow-elevation-1 font-medium text-brand-text') : 'text-brand-text-secondary hover:text-brand-text'
   )
 }
 

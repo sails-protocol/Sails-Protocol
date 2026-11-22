@@ -93,6 +93,7 @@ describe('Intent transition atomicity + recoverable publication (real PostgreSQL
   // whose publication the test crashed); failures stay global.
   const ownEventIds = async (id: string) => new Set((await prisma.intentEvent.findMany({ where: { intentId: id, toStatus: 'COMMITTED' }, select: { id: true } })).map((e) => e.id))
   const own = (ids: string[], mine: Set<string>) => ids.filter((x) => mine.has(x))
+  const ownUnpublished = (id: string) => prisma.intentEvent.count({ where: { intentId: id, toStatus: 'COMMITTED', publishedAt: null } })
 
   it('crash between the status CAS and the IntentEvent insert rolls BOTH back, and the retry then succeeds', async () => {
     pg.requirePostgres('intent atomicity')
@@ -171,8 +172,12 @@ describe('Intent transition atomicity + recoverable publication (real PostgreSQL
 
     const reports = await Promise.all([recover({ graceMs: 0 }), recover({ graceMs: 0 }), recover({ graceMs: 0 }), recover({ graceMs: 0 })])
     expect(reports.flatMap((r) => r.failed)).toEqual([])
-    expect(own(reports.flatMap((r) => r.republished), await ownEventIds(id))).toHaveLength(1) // exactly one worker published it
-    expect(await durable(id, 'intent.committed')).toBe(1)
+    // No worker published this intent's event twice. Which worker (or a later pass) publishes it is not part of the
+    // property: other suites' owed events can fill a pass's batch, and a durable copy can already exist (marked only).
+    expect(own(reports.flatMap((r) => r.republished), await ownEventIds(id)).length).toBeLessThanOrEqual(1)
+    for (let pass = 0; pass < 10 && (await ownUnpublished(id)) > 0; pass++) await recover({ graceMs: 0 })
+    expect(await ownUnpublished(id)).toBe(0)
+    expect(await durable(id, 'intent.committed')).toBe(1) // published exactly once in total
   })
 
   it('an invalid transition changes nothing', async () => {

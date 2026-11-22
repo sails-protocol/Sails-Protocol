@@ -180,7 +180,7 @@ export function OfferDetail() {
 
   const handleStartTrade = async () => {
     if (!user) {
-      toast.error(t('offer.toast.connectWallet'))
+      // The sign-in opens in place with "Entre para continuar" and comes back to this offer (no error toast: not an error).
       // Carrega para onde voltar e o valor já digitado — sem isso o
       // usuário conectava a carteira e caía no Marketplace, tendo que
       // reencontrar a oferta e digitar tudo de novo.

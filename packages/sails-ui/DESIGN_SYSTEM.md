@@ -499,13 +499,17 @@ thumb `rounded-sm` 4 (concêntrico); hover/pressionado = `state-layer`:
 trilho tonal sem contorno; item selecionado = `bg-brand-raised` (claro: branco
 opaco; escuro: texto a 14% sobre o trilho) + `shadow-elevation-1` + texto
 principal peso 500; não selecionado = texto secundário peso 400. Seleção por
-preenchimento, elevação, cor e peso juntos, mais `aria-pressed`. Medido
+preenchimento, elevação, cor e peso juntos, mais `aria-pressed`. **No tema claro, o item selecionado tem também um limite
+interno de 1px** (`ring-1 ring-inset ring-brand-segment-selected-border` = `text-muted` #646464, variável
+`--segment-selected-border-a` 1 no claro e 0 no escuro): 3.80:1 contra o trilho (#cfcfcf sobre #fafafa), onde
+só o preenchimento dava 1.56 (WCAG 1.4.11; dono do DS, 2026-11-22). O trilho não muda, então nenhuma outra superfície
+muda. No escuro o limite fica transparente (0). Medido
 (mín–máx entre fundo, superfície e elevado):
 
 | Tema | thumb vs trilho | selecionado (texto/thumb) | não selecionado (secundário/trilho) | texto sel. vs não sel. |
 |---|---|---|---|---|
 | Escuro | 1.51–1.54 | 7.05–9.37 | 5.22–7.03 | 2.03 |
-| Claro | **1.50–1.62** (era 1.16–1.26) | 19.80 | 4.82–5.22 (era 6.20–6.73) | 2.53 |
+| Claro | 1.50–1.62 de preenchimento; **limite do selecionado 3.80** (2026-11-22) | 19.80 | 4.82–5.22 (era 6.20–6.73) | 2.53 |
 
 Trilho com tom próprio (fase 3): `bg-brand-segment-track` = texto a
 `--segment-track-a` (claro 0.18, escuro 0.08 = o tonal). No claro o thumb
