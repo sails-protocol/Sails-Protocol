@@ -36,7 +36,7 @@ import type { Offer } from '../types'
 import { fetchOffers } from '../lib/realOffers'
 import { pairForAssetType } from '../lib/assetCatalog'
 import { cn } from '../lib/utils'
-import { categoryLabel, DemoVerifiedSeal, entryText, guarantees, identifiers, JoinMarketPanel, marketCardCopy, marketListCopy, marketsValueLine, PrivateHostingNote, profileLabel, simulatedToast, SOCIAL_OPTIONS, WireNote, WirePlanned, useVisibleMarkets } from './markets/shared'
+import { categoryLabel, DemoVerifiedSeal, entryText, guarantees, identifiers, JoinMarketPanel, marketCardCopy, marketListCopy, marketsValueLine, PrivateHostingNote, profileLabel, RoleLinks, simulatedToast, SOCIAL_OPTIONS, WireNote, WirePlanned, useVisibleMarkets } from './markets/shared'
 import { MarketIcon, MARKET_ACTION_ICON } from '../components/markets/MarketIcon'
 import { ownMarkets } from '../lib/myMarkets'
 import { useAuth } from '../context/AuthContext'
@@ -104,6 +104,8 @@ function createCopy(): CreateMarketCopy {
     infrastructure: [
       { value: 'network', label: t('markets.create.infrastructure.networkLabel'), description: t('markets.create.infrastructure.networkDescription') },
       { value: 'own', label: t('markets.create.infrastructure.ownLabel'), description: t('markets.create.infrastructure.ownDescription') },
+      // CTO 36 (C): simulated in the demo, "Em breve" (not selectable) in real mode.
+      { value: 'managed', label: `${t('markets.create.infrastructure.managedLabel')} (${isDemoMode() ? t('spaces.simulated') : t('common.soon')})`, description: t('markets.create.infrastructure.managedDescription'), disabled: !isDemoMode() },
     ],
     infrastructureNote: t('markets.create.infrastructureNote'),
     category: { legend: t('spaces.create.category'), options: MARKET_CATEGORIES.map((c) => ({ value: c, label: t(`spaces.category.${c}`) })) },
@@ -166,10 +168,11 @@ function examples(): readonly { key: string; visibility: string; infrastructure:
   const pub = t('markets.list.visibility.public')
   const priv = t('markets.list.visibility.private')
   const own = t('markets.create.infrastructure.ownLabel')
+  const network = t('markets.create.infrastructure.networkLabel')
   return [
-    { key: 'public-network', visibility: pub, infrastructure: 'Rede Sails', example: t('markets.create.example.publicNetwork') },
+    { key: 'public-network', visibility: pub, infrastructure: network, example: t('markets.create.example.publicNetwork') },
     { key: 'public-own', visibility: pub, infrastructure: own, example: t('markets.create.example.publicOwn') },
-    { key: 'private-network', visibility: priv, infrastructure: 'Rede Sails', example: t('markets.create.example.privateNetwork') },
+    { key: 'private-network', visibility: priv, infrastructure: network, example: t('markets.create.example.privateNetwork') },
     { key: 'private-own', visibility: priv, infrastructure: own, example: t('markets.create.example.privateOwn') },
   ]
 }
@@ -397,7 +400,7 @@ function CreateView() {
     [t('spaces.create.review.profile'), profileLabel(p) ?? ''],
     [t('spaces.create.review.entry'), entryText({ kyc: p.entry.kyc, thresholdUsd: p.entry.thresholdUsd ?? undefined, providerUrl: p.entry.providerUrl ?? undefined, social: p.entry.social })],
     ...(p.visibility === 'private' ? [] : [[t('markets.create.review.participation'), marketListCopy().preset[p.preset]] as [string, string]]),
-    [t('spaces.create.hostingLegend'), p.infrastructure === 'own' ? t('markets.create.infrastructure.ownLabel') : t('markets.create.infrastructure.networkLabel')],
+    [t('spaces.create.hostingLegend'), marketListCopy().infrastructure[p.infrastructure]],
   ]
   const primary = user ? 'default' : 'secondary'
   const space = spaceProduct(product)
@@ -543,6 +546,8 @@ export function Markets() {
         <TabLinks label={t('markets.title')} items={tabs()} className="overflow-x-auto overflow-y-hidden whitespace-nowrap [scrollbar-width:none] max-sm:[mask-image:linear-gradient(to_right,transparent,black_12px,black_calc(100%-12px),transparent)]" />
       </PageHeader>
       {view === MARKETS_ROUTES.mine ? <MineView /> : view === MARKETS_ROUTES.create ? <CreateView /> : view === MARKETS_ROUTES.join ? <JoinView /> : <ExploreView />}
+      {/* Owning a market lives here; the other two roles (CTO 36 note) are one link away. */}
+      {(view === MARKETS_ROUTES.mine || view === MARKETS_ROUTES.create) && <RoleLinks here="market" className="mt-6" />}
     </Page>
   )
 }

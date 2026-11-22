@@ -65,13 +65,18 @@ export function kycSummary(policy: Pick<EntryPolicy, 'kyc' | 'thresholdUsd' | 'p
   return { kind: 'above', thresholdUsd: typeof t === 'number' && Number.isFinite(t) && t > 0 ? t : KYC_DEFAULT_THRESHOLD_USD, formUrl }
 }
 
-/** Fictional "Verificado" criteria, demo only; the real criteria are not defined (CTO and protocol, N1). */
-export const DEMO_VERIFIED_CRITERIA = { minRating: 4.5, minRatings: 50, minTrades: 100, minVolumeUsd: 50_000 } as const
-export interface DemoMarketStats { rating: number; ratings: number; trades: number; volumeUsd: number }
+/**
+ * "Mercado ativo" badge criteria (CTO 33, 2026-11-23): provisional, subject to calibration, computed by the Sails node from
+ * verifiable trades over the window (cancelled, reverted or artificial trades never count). Activity only, no rating.
+ * The demo applies them to fixture stats; the real badge waits for the node to publish the computation.
+ */
+export const DEMO_VERIFIED_CRITERIA = { windowDays: 90, minTrades: 100, minVolumeUsd: 50_000, minActiveDays: 10 } as const
+/** Counts over the window, already without cancelled, reverted or artificial trades; calculatedAt = last computation. */
+export interface DemoMarketStats { trades: number; volumeUsd: number; activeDays: number; calculatedAt: string }
 
 export function meetsDemoVerifiedCriteria(s: DemoMarketStats | undefined): boolean {
   const c = DEMO_VERIFIED_CRITERIA
-  return !!s && s.rating >= c.minRating && s.ratings >= c.minRatings && s.trades >= c.minTrades && s.volumeUsd >= c.minVolumeUsd
+  return !!s && s.trades >= c.minTrades && s.volumeUsd >= c.minVolumeUsd && s.activeDays >= c.minActiveDays
 }
 
 /**

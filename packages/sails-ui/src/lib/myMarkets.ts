@@ -10,7 +10,8 @@ export type MarketVisibility = 'public' | 'private'
 /** How the person relates to the market: the default one, one they follow, administer or belong to, or none (discoverable only). */
 export type MarketRelation = 'default' | 'follows' | 'admin' | 'member' | 'none'
 /** Only two choices (a shared public node is part of Rede Sails). */
-export type MarketInfrastructure = 'network' | 'own'
+/** CTO 36: Sails Public Network (shared hosting, included), own node (self-hosted) or white-label managed node. */
+export type MarketInfrastructure = 'network' | 'own' | 'managed'
 /** Optional UX presets (DECISIONS.md "Modelos iniciais de experiência"), never protocol limits. */
 export type ParticipationPreset = 'vitrine' | 'comunidade' | 'personalizado'
 

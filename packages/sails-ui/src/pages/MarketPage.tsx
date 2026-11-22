@@ -209,7 +209,7 @@ export function MarketPage() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] sm:flex-wrap [&>*]:shrink-0 [&>*]:whitespace-nowrap">
                 {profile && <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{profile}</Badge>}
-                {page.verified && <DemoVerifiedSeal explain />}
+                {page.verified && <DemoVerifiedSeal explain calculatedAt={page.verifiedAt} />}
                 {m.ownedByYou ? <Badge variant="outline" className={TAG}>{t('spaces.ownedByYou')}</Badge> : m.illustrative && <Badge variant="outline" className={TAG}>{list.illustrative}</Badge>}
               </div>
               {m.description && <p className="mt-1 line-clamp-1 break-words text-body-sm text-brand-text-secondary sm:line-clamp-none">{m.description}</p>}
