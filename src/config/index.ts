@@ -628,6 +628,8 @@ export const config = {
     // set this cannot construct a fee-collecting transaction at all,
     // by construction, not by convention.
     protocolFeeCollectionAddress: process.env.SAILS_PROTOCOL_FEE_COLLECTION_ADDRESS || undefined,
+    // Ceiling on any protocol fee rate a policy may carry (FeePolicyService). Provisional 1%; the final value is governed (CTO 38, D-E6).
+    maxProtocolFeeRate: process.env.SAILS_MAX_PROTOCOL_FEE_RATE || '0.01',
     // RFC-021 D2 — which ArbitrationProvider settlement.routes.ts's
     // getDisputeService() constructs. 'trusted-list' (default) preserves
     // RFC-007 D4's exact original behavior for every existing deployment;

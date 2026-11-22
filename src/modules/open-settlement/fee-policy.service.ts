@@ -47,9 +47,13 @@ import {
   type CreateDraftFeePolicyVersionData,
 } from './fee-policy-repository'
 import { assertRailCanActivateFeeCollection } from './escrow-providers'
+import { config } from '../../config'
 
-// Provisional protocol ceiling (1%), to be confirmed by the CTO (D-E6). A rate above it is never accepted.
-export const MAX_PROTOCOL_FEE_RATE = '0.01'
+// The protocol fee ceiling: config.settlement.maxProtocolFeeRate (SAILS_MAX_PROTOCOL_FEE_RATE), provisional 1% until governed (CTO 38, D-E6).
+// A rate above it is never accepted.
+export function maxProtocolFeeRate(): string {
+  return config.settlement?.maxProtocolFeeRate ?? '0.01'
+}
 
 // CTO 413 (P1) — structural checks plus the ceiling above. DECIMAL(24,8) would store NaN
 // (and order it above every number) and round a 9th decimal place silently, so both are refused, never coerced.
@@ -66,8 +70,9 @@ function assertValidProtocolFeeRate(value: Prisma.Decimal | string): void {
   if (rate.isNegative()) {
     throw new ValidationError('protocolFeeRate must be >= 0', { protocolFeeRate: rate.toString() })
   }
-  if (rate.greaterThan(MAX_PROTOCOL_FEE_RATE)) {
-    throw new ValidationError(`protocolFeeRate must be <= ${MAX_PROTOCOL_FEE_RATE}`, { protocolFeeRate: rate.toString() })
+  const ceiling = maxProtocolFeeRate()
+  if (rate.greaterThan(ceiling)) {
+    throw new ValidationError(`protocolFeeRate must be <= ${ceiling}`, { protocolFeeRate: rate.toString() })
   }
   if (rate.decimalPlaces() > 8) {
     throw new ValidationError('protocolFeeRate must have at most 8 decimal places (it is never rounded)', { protocolFeeRate: rate.toString() })
