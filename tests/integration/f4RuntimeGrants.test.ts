@@ -176,6 +176,10 @@ describe('F4 S1 - runtime track (sails_runtime, column-level grants)', () => {
     expect(await can('offer_capacity_request_unblock(text, jsonb, text)')).toBe(true)
     for (const fn of ['offer_capacity_settlement_proof(text)', 'offer_capacity_execute_unblock(text, text, text)', 'offer_capacity_block_on_evidence()',
       'offer_capacity_unblock_digest(text, text, text, text, timestamptz, jsonb, text)', 'commitment_pairs_reserve_capacity()']) expect([fn, await can(fn)]).toEqual([fn, false])
+    // GK posterior: the reviewer role holds EXECUTE only on execute_unblock; it cannot file a request nor release (today only the migration guarantees it)
+    const reviewerCan = async (fn: string) => (await su.query(`SELECT has_function_privilege('sails_capacity_reviewer', $1, 'EXECUTE') AS ok`, [fn])).rows[0].ok as boolean
+    expect(await reviewerCan('offer_capacity_execute_unblock(text, text, text)')).toBe(true)
+    for (const fn of ['offer_capacity_request_unblock(text, jsonb, text)', 'offer_capacity_try_release(text)', 'offer_capacity_settlement_proof(text)', 'offer_capacity_block_on_evidence()']) expect([fn, await reviewerCan(fn)]).toEqual([fn, false])
     // the privilege check precedes any constraint: a direct INSERT as the runtime is refused outright
     expect(await code(rt.query(`INSERT INTO offer_capacity_reservations ("id","ownerPublicKey","logicalOfferId","tradeIntentId","commitmentPairId","amount","capacityRevisionObserved","capacityTotalAtReservation","offerRevision","offerEnvelopeDigest")
       VALUES (gen_random_uuid()::text,'o','l','a','p',0.00000001,1,1000000,1,'x')`))).toBe('42501')
