@@ -26,7 +26,7 @@ export default defineArea(
     'faq.group.markets': 'Mercados',
 
     'faq.howItWorks.q': 'Como funciona uma negociação no Sails?',
-    'faq.howItWorks.a': 'Você escolhe uma oferta e abre um trade. O vendedor bloqueia os fundos no escrow. Você paga por fora (PIX, banco…) e marca "Pagamento enviado". Quando o vendedor confirma o recebimento, os fundos são liberados.',
+    'faq.howItWorks.a': 'Você escolhe uma oferta e abre um trade. O vendedor bloqueia os fundos no escrow. Você paga por fora (PIX, banco…) e marca “Pagamento enviado”. Quando o vendedor confirma o recebimento, os fundos são liberados.',
     'faq.d1.s1': 'Oferta aceita',
     'faq.d1.s2': 'Escrow bloqueado',
     'faq.d1.s3': 'Pagamento enviado',
@@ -69,7 +69,7 @@ export default defineArea(
 
     'faq.deadline.q': 'Quanto tempo tenho para pagar?',
     'faq.deadline.a': 'O prazo vem de cada trade, e o app só mostra o que o nó Sails informa. Um temporizador nunca move fundos.',
-    'faq.markedPaid.q': '"Marquei como pago" já libera o dinheiro?',
+    'faq.markedPaid.q': '“Marquei como pago” já libera o dinheiro?',
     'faq.markedPaid.a': 'Não. Marcar avisa o vendedor, mas não comprova nem libera nada. Quem libera é o vendedor, depois de conferir o dinheiro na conta.',
     'faq.thirdParty.q': 'Posso pagar fora do trade ou para um terceiro?',
     'faq.thirdParty.a': 'Não. Pague só para os dados mostrados no trade, de uma conta no seu nome.',
@@ -95,14 +95,14 @@ export default defineArea(
     'faq.fees.t4.spaceNote': 'O preço da hospedagem não muda a taxa do protocolo',
 
     'faq.dispute.q': 'O que faço se a outra parte não responde ou o pagamento deu problema?',
-    'faq.dispute.a': 'Abra uma disputa no trade e junte as evidências. O árbitro registra uma decisão. A liberação ainda pode depender de assinaturas, por isso a tela diz "Decisão registrada".',
+    'faq.dispute.a': 'Abra uma disputa no trade e junte as evidências. O árbitro registra uma decisão. A liberação ainda pode depender de assinaturas, por isso a tela diz “Decisão registrada”.',
     'faq.d2.s1': 'Pagamento enviado',
     'faq.d2.s2': 'Disputa aberta',
     'faq.d2.s3': 'Decisão registrada',
     'faq.d2.s4': 'Contestação, se o trade permitir',
     'faq.d2.aria': 'Caminho de uma disputa: pagamento enviado; se houver problema, disputa aberta (sua ação); decisão registrada; contestação, só se o trade permitir.',
     'faq.appeal.q': 'Posso contestar a decisão?',
-    'faq.appeal.a': 'Só quando o app mostra o botão "Contestar decisão". Se não houver botão, a tela do trade diz que a contestação não está disponível nesse caso.',
+    'faq.appeal.a': 'Só quando o app mostra o botão “Contestar decisão”. Se não houver botão, a tela do trade diz que a contestação não está disponível nesse caso.',
 
     'faq.reputation.q': 'Como a reputação é calculada?',
     'faq.reputation.a': 'É uma soma sem teto: +2 por trade concluído, −5 por disputa perdida. As estrelas são avaliações das pessoas e contam à parte.',
@@ -135,7 +135,7 @@ export default defineArea(
       'faq.group.markets': 'Markets',
 
       'faq.howItWorks.q': 'How does a trade work on Sails?',
-      'faq.howItWorks.a': 'You pick an offer and open a trade. The seller locks the funds in escrow. You pay outside the app (PIX, bank…) and mark "Payment sent". Once the seller confirms receipt, the funds are released.',
+      'faq.howItWorks.a': 'You pick an offer and open a trade. The seller locks the funds in escrow. You pay outside the app (PIX, bank…) and mark “Payment sent”. Once the seller confirms receipt, the funds are released.',
       'faq.d1.s1': 'Offer accepted',
       'faq.d1.s2': 'Escrow locked',
       'faq.d1.s3': 'Payment sent',
@@ -178,7 +178,7 @@ export default defineArea(
 
       'faq.deadline.q': 'How long do I have to pay?',
       'faq.deadline.a': 'The deadline comes from each trade, and the app only shows what the Sails node reports. A timer never moves funds.',
-      'faq.markedPaid.q': 'Does "I marked it as paid" release the money?',
+      'faq.markedPaid.q': 'Does “I marked it as paid” release the money?',
       'faq.markedPaid.a': 'No. Marking notifies the seller but proves or releases nothing. The seller releases, after checking the money in their account.',
       'faq.thirdParty.q': 'Can I pay outside the trade or to a third party?',
       'faq.thirdParty.a': 'No. Pay only to the details shown in the trade, from an account in your name.',
@@ -204,14 +204,14 @@ export default defineArea(
       'faq.fees.t4.spaceNote': 'The hosting price does not change the protocol fee',
 
       'faq.dispute.q': 'What do I do if the other party does not respond or the payment went wrong?',
-      'faq.dispute.a': 'Open a dispute in the trade and gather the evidence. The arbitrator records a ruling. The release may still depend on signatures, so the screen says "Ruling recorded".',
+      'faq.dispute.a': 'Open a dispute in the trade and gather the evidence. The arbitrator records a ruling. The release may still depend on signatures, so the screen says “Ruling recorded”.',
       'faq.d2.s1': 'Payment sent',
       'faq.d2.s2': 'Dispute opened',
       'faq.d2.s3': 'Ruling recorded',
       'faq.d2.s4': 'Appeal, if the trade allows it',
       'faq.d2.aria': 'Path of a dispute: payment sent; if there is a problem, dispute opened (your action); ruling recorded; appeal, only if the trade allows it.',
       'faq.appeal.q': 'Can I appeal the ruling?',
-      'faq.appeal.a': 'Only when the app shows the "Appeal the ruling" button. If there is no button, the trade screen says that an appeal is not available in that case.',
+      'faq.appeal.a': 'Only when the app shows the “Appeal the ruling” button. If there is no button, the trade screen says that an appeal is not available in that case.',
 
       'faq.reputation.q': 'How is reputation calculated?',
       'faq.reputation.a': 'It is an uncapped sum: +2 per completed trade, −5 per lost dispute. Stars are people’s ratings and count separately.',
@@ -243,7 +243,7 @@ export default defineArea(
       'faq.group.markets': 'Mercados',
 
       'faq.howItWorks.q': '¿Cómo funciona una negociación en Sails?',
-      'faq.howItWorks.a': 'Eliges una oferta y abres un trade. El vendedor bloquea los fondos en el escrow. Pagas por fuera (PIX, banco…) y marcas "Pago enviado". Cuando el vendedor confirma la recepción, los fondos se liberan.',
+      'faq.howItWorks.a': 'Eliges una oferta y abres un trade. El vendedor bloquea los fondos en el escrow. Pagas por fuera (PIX, banco…) y marcas “Pago enviado”. Cuando el vendedor confirma la recepción, los fondos se liberan.',
       'faq.d1.s1': 'Oferta aceptada',
       'faq.d1.s2': 'Escrow bloqueado',
       'faq.d1.s3': 'Pago enviado',
@@ -286,7 +286,7 @@ export default defineArea(
 
       'faq.deadline.q': '¿Cuánto tiempo tengo para pagar?',
       'faq.deadline.a': 'El plazo viene de cada trade, y la app solo muestra lo que informa el nodo Sails. Un temporizador nunca mueve fondos.',
-      'faq.markedPaid.q': '¿"Marqué como pagado" ya libera el dinero?',
+      'faq.markedPaid.q': '¿“Marqué como pagado” ya libera el dinero?',
       'faq.markedPaid.a': 'No. Marcarlo avisa al vendedor, pero no comprueba ni libera nada. Quien libera es el vendedor, después de comprobar el dinero en su cuenta.',
       'faq.thirdParty.q': '¿Puedo pagar fuera del trade o a un tercero?',
       'faq.thirdParty.a': 'No. Paga solo a los datos que muestra el trade, desde una cuenta a tu nombre.',
@@ -312,14 +312,14 @@ export default defineArea(
       'faq.fees.t4.spaceNote': 'El precio del alojamiento no cambia la comisión del protocolo',
 
       'faq.dispute.q': '¿Qué hago si la otra parte no responde o el pago tuvo un problema?',
-      'faq.dispute.a': 'Abre una disputa en el trade y reúne las evidencias. El árbitro registra una decisión. La liberación aún puede depender de firmas, por eso la pantalla dice "Decisión registrada".',
+      'faq.dispute.a': 'Abre una disputa en el trade y reúne las evidencias. El árbitro registra una decisión. La liberación aún puede depender de firmas, por eso la pantalla dice “Decisión registrada”.',
       'faq.d2.s1': 'Pago enviado',
       'faq.d2.s2': 'Disputa abierta',
       'faq.d2.s3': 'Decisión registrada',
       'faq.d2.s4': 'Apelación, si el trade lo permite',
       'faq.d2.aria': 'Camino de una disputa: pago enviado; si hay un problema, disputa abierta (tu acción); decisión registrada; apelación, solo si el trade lo permite.',
       'faq.appeal.q': '¿Puedo apelar la decisión?',
-      'faq.appeal.a': 'Solo cuando la app muestra el botón "Apelar la decisión". Si no hay botón, la pantalla del trade dice que la apelación no está disponible en ese caso.',
+      'faq.appeal.a': 'Solo cuando la app muestra el botón “Apelar la decisión”. Si no hay botón, la pantalla del trade dice que la apelación no está disponible en ese caso.',
 
       'faq.reputation.q': '¿Cómo se calcula la reputación?',
       'faq.reputation.a': 'Es una suma sin tope: +2 por trade completado, −5 por disputa perdida. Las estrellas son valoraciones de las personas y cuentan aparte.',
