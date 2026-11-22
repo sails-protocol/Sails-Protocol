@@ -764,7 +764,7 @@ Four concrete mechanisms:
    protocol itself from becoming a mandatory rent-extraction layer that
    integrators have no way to opt out of.
 
-   > **SUPERADO (Decisão CTO 38, 2026-11-22):** o ponto 4 (integrador escolher 0% para seus usuários) conflita com a direção econômica vigente: a taxa do protocolo é global, definida pela autoridade econômica do Sails, e nem o operador de nó nem o integrador a definem unilateralmente. O texto acima é mantido como registro histórico, sem reescrita. Ver o bloco "Decisão CTO 36" no topo e as decisões D-E1 a D-E6 do CTO 38.
+   > **SUPERADO (Decisão CTO 38, 2026-11-22):** o ponto 4 (integrador escolher 0% para seus usuários) conflita com a direção econômica vigente: a taxa do protocolo deve ser global, definida pela autoridade econômica do Sails (direção vigente; a imposição técnica está em implementação), e nem o operador de nó nem o integrador a definem unilateralmente. O texto acima é mantido como registro histórico, sem reescrita. Ver o bloco "Decisão CTO 36" no topo e a Decisão CTO 38 sobre a autoridade econômica.
 
 ### 6.5 Economic Authority Model — Terminology (Missão 11 Fase 7.1/7.2)
 
