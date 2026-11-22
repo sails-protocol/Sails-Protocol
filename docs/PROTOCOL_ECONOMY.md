@@ -764,6 +764,8 @@ Four concrete mechanisms:
    protocol itself from becoming a mandatory rent-extraction layer that
    integrators have no way to opt out of.
 
+   > **SUPERADO (Decisão CTO 38, 2026-11-22):** o ponto 4 (integrador escolher 0% para seus usuários) conflita com a direção econômica vigente: a taxa do protocolo é global, definida pela autoridade econômica do Sails, e nem o operador de nó nem o integrador a definem unilateralmente. O texto acima é mantido como registro histórico, sem reescrita. Ver o bloco "Decisão CTO 36" no topo e as decisões D-E1 a D-E6 do CTO 38.
+
 ### 6.5 Economic Authority Model — Terminology (Missão 11 Fase 7.1/7.2)
 
 > Nota (Decisão CTO 36 (2026-11-22)): a cadeia FeeCollectionEvidence(CONFIRMED) → FeeObligation → DistributionPolicyVersion → EntitlementLedgerEntry é a autoridade econômica; pagar os direitos registrados exige execução e validação próprias. Ver o bloco no topo.
