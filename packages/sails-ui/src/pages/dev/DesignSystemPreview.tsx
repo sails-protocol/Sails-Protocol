@@ -40,6 +40,7 @@ import { PaymentMethods } from '../../components/ui/PaymentMethods'
 import { TradeRail } from '../../components/trade/TradeRail'
 import { InviteStateGallery, NODES_MARKETS_SCREENS } from '../markets/shared'
 import { LOOSE_WIRES } from '../../lib/looseWires'
+import { Link } from 'react-router'
 import { EscrowCountdown } from '../../components/trade/EscrowCountdown'
 import { batonLabel, deriveTradeState, type TradeStateInput } from '../../lib/tradeState'
 import { OfferTable } from '../../components/marketplace/OfferTable'
@@ -1123,6 +1124,7 @@ export function DesignSystemPreview() {
               <TableHead>Fio solto e contrato</TableHead>
             </TableRow>
           </TableHeader>
+          <p className="mb-2 text-caption text-brand-text-secondary">Situação de cada fio solto (ligado, simulado, fora do Day 0): <Link to="/dev/wiring" className="text-brand-link underline-offset-2 hover:underline">mapa de ligações</Link>.</p>
           <TableBody>
             {NODES_MARKETS_SCREENS.map((s) => (
               <TableRow key={s.screen}>

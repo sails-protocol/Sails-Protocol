@@ -4,9 +4,12 @@ const draft = (over: Partial<MarketDraft>): MarketDraft => ({ ...EMPTY_DRAFT, ..
 
 describe('Criar mercado steps', () => {
   it('public markets end at review; private markets add participants and invites', () => {
-    expect(createSteps('public')).toEqual(['identity', 'visibility', 'participation', 'entry', 'infrastructure', 'review'])
+    expect(createSteps('public')).toEqual(['identity', 'visibility', 'participation', 'infrastructure', 'review'])
     expect(createSteps(null)).toEqual(createSteps('public'))
     expect(createSteps('private').slice(-1)).toEqual(['invites'])
+    // Demo with the space type chosen: visibility comes from the type, review happens in Revisar e pagar.
+    expect(createSteps('public', true)).toEqual(['identity'])
+    expect(createSteps('private', true)).toEqual(['identity'])
   })
 
   it('infrastructure defaults to Rede Sails and never blocks', () => {
@@ -89,7 +92,8 @@ describe('Criar mercado: entry policy (declarative, evaluated by the admin)', ()
     expect(entryPolicyValid(draft({ kyc: 'all', kycProviderUrl: 'http://kyc.example' }))).toBe(false)
     expect(entryPolicyValid(draft({ kyc: 'all', kycProviderUrl: 'https://kyc.example/form' }))).toBe(true)
     expect(entryPolicyValid(draft({ kyc: 'above_threshold', kycProviderUrl: 'https://kyc.example', kycThreshold: 'abc' }))).toBe(false)
-    expect(canAdvance('entry', draft({ kyc: 'above_threshold', kycProviderUrl: 'https://kyc.example', kycThreshold: '10.000' }))).toBe(true)
+    expect(canAdvance('participation', draft({ preset: 'vitrine', kyc: 'above_threshold', kycProviderUrl: 'https://kyc.example', kycThreshold: '10.000' }))).toBe(true)
+    expect(canAdvance('participation', draft({ preset: 'vitrine', kyc: 'all', kycProviderUrl: '' }))).toBe(false)
   })
 
   it('the preview carries the policy and its dependency', () => {
