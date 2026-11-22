@@ -31,6 +31,7 @@ import { cn } from '../lib/utils'
 import { categoryLabel, DemoVerifiedSeal, entryText, guarantees, identifiers, JoinMarketPanel, marketCardCopy, marketListCopy, marketsValueLine, PrivateHostingNote, profileLabel, SOCIAL_OPTIONS, WireNote, WirePlanned, useVisibleMarkets } from './markets/shared'
 import { MarketIcon, MARKET_ACTION_ICON } from '../components/markets/MarketIcon'
 import { ownMarkets } from '../lib/myMarkets'
+import { useAuth } from '../context/AuthContext'
 import { t } from '../i18n'
 
 const TAB_ICON = 'h-4 w-4 shrink-0'
@@ -337,6 +338,7 @@ function spaceDraft(search: string): Partial<MarketDraft> | undefined {
 
 function CreateView() {
   const demo = isDemoMode()
+  const { user } = useAuth()
   const { search } = useLocation()
   const initial = spaceDraft(search)
   // DECISIONS.md "Criar mercado, fluxo completo com dados reais": the final step opens a preview, never a created market.
@@ -393,6 +395,7 @@ function CreateView() {
                 participantsAvailable={demo}
                 participantsUnavailableNote={<WireNote ids={['marketInvite']} />}
                 onCreate={(d) => setPreview(marketPreview(d))}
+                primarySolid={!!user}
               />
             </div>
             {preview && (
@@ -406,7 +409,7 @@ function CreateView() {
                   [t('spaces.create.review.entry'), entryText({ kyc: preview.entry.kyc, thresholdUsd: preview.entry.thresholdUsd ?? undefined, providerUrl: preview.entry.providerUrl ?? undefined, social: preview.entry.social })],
                   ...(preview.visibility === 'private' ? [[t('markets.list.visibility.private'), t('spaces.page.singleNode')] as [string, string]] : []),
                 ]}
-                confirm={demo ? <Button type="button" onClick={createDemo} className="touch:min-h-11">{t('spaces.create.createDemo')}</Button> : undefined}
+                confirm={demo ? <Button type="button" variant={user ? 'default' : 'secondary'} onClick={createDemo} className="touch:min-h-11">{t('spaces.create.createDemo')}</Button> : undefined}
                 onEdit={backToWizard}
                 onDiscard={() => setConfirmDiscard(true)}
               />

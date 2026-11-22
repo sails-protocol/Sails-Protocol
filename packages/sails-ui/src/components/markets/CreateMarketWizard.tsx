@@ -98,7 +98,7 @@ function Choice<T extends string>({ legend, name, options, value, onChange, note
   )
 }
 
-export function CreateMarketWizard({ copy, initial, privateHostingSlot, brandingSlot, invitesSlot, createAvailable, unavailableNote, participantsAvailable, participantsUnavailableNote, onCreate }: {
+export function CreateMarketWizard({ copy, initial, privateHostingSlot, brandingSlot, invitesSlot, createAvailable, unavailableNote, participantsAvailable, participantsUnavailableNote, onCreate, primarySolid = true }: {
   copy: CreateMarketCopy
   /** Starting values (e.g. the kind of space bought in the demo); everything stays editable. */
   initial?: Partial<MarketDraft>
@@ -113,6 +113,8 @@ export function CreateMarketWizard({ copy, initial, privateHostingSlot, branding
   participantsAvailable: boolean
   participantsUnavailableNote?: ReactNode
   onCreate?: (draft: MarketDraft) => void
+  /** False without a session: the topbar "Conectar wallet" is then the screen's only solid orange (DECISIONS.md). */
+  primarySolid?: boolean
 }) {
   const id = useId()
   const [draft, setDraft] = useState<MarketDraft>(() => ({ ...EMPTY_DRAFT, ...initial }))
@@ -318,7 +320,7 @@ export function CreateMarketWizard({ copy, initial, privateHostingSlot, branding
           <ArrowLeft aria-hidden="true" />{copy.back}
         </Button>
         {finalAction ? (
-          <Button type="button" aria-describedby={!createAvailable && unavailableNote ? `${id}-unavailable` : undefined} onClick={() => onCreate?.(draft)} className="touch:min-h-11">
+          <Button type="button" variant={primarySolid ? 'default' : 'secondary'} aria-describedby={!createAvailable && unavailableNote ? `${id}-unavailable` : undefined} onClick={() => onCreate?.(draft)} className="touch:min-h-11">
             {copy.create}
           </Button>
         ) : (

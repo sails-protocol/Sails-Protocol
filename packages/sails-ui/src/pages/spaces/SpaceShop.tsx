@@ -22,11 +22,13 @@ import { FUTURE_PAYMENT_ASSETS, SPACE_PRODUCTS, spaceProduct, type SpaceProductI
 import { cn } from '../../lib/utils'
 import { WirePlanned } from '../markets/shared'
 import { t } from '../../i18n'
+import { useAuth } from '../../context/AuthContext'
 
 const SECTION = 'rounded-lg bg-brand-surface p-4'
 const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secondary'
 
 export function SpaceShop() {
+  const { user } = useAuth()
   const demo = isDemoMode()
   const [choice, setChoice] = useState<SpaceProductId>('community')
   const [confirming, setConfirming] = useState(false)
@@ -145,7 +147,7 @@ export function SpaceShop() {
             </section>
 
             <div className="flex justify-end">
-              <Button type="button" onClick={() => setConfirming(true)} className="touch:min-h-11">{t('shop.simulate')}</Button>
+              <Button type="button" variant={user ? 'default' : 'secondary'} onClick={() => setConfirming(true)} className="touch:min-h-11">{t('shop.simulate')}</Button>
             </div>
           </>
         )}
