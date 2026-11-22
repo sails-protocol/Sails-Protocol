@@ -36,6 +36,7 @@ import {
 import { feePolicyVersionRepository, type FeePolicyVersionRepository } from './fee-policy-repository'
 import { computeProtocolFee } from './fee-reserve-math'
 import { EscrowError } from '../../common/errors'
+import { parseBreakEven } from './fee-break-even'
 import { Prisma } from '@prisma/client'
 import type { AssetType } from '../../common/types'
 
@@ -287,7 +288,10 @@ export class FeeObligationService {
         // snapshot) — a mismatch here would mean the two computations
         // used different inputs somewhere, a real bug worth surfacing.
         const builtFeeBtc = new Prisma.Decimal(actualCollection.feeSats).dividedBy(1e8)
-        if (!waived && !builtFeeBtc.equals(computedFee)) {
+        // Break-even (CTO 38 §14): the collected amount is the nominal fee net of its own output's cost, never above it.
+        const policy = await this.policyRepo.findById(escrow.feePolicyVersionId)
+        const netOfOutputCost = !!parseBreakEven(policy?.smallTradeRule) && builtFeeBtc.lessThanOrEqualTo(computedFee)
+        if (!waived && !builtFeeBtc.equals(computedFee) && !netOfOutputCost) {
           log.error({
             msg: 'FeeObligation computedFee disagrees with the amount actually built into the settlement transaction — recording the ACTUAL on-chain amount, not the independently recomputed one',
             escrowId: escrow.id, computedFee: computedFee.toString(), actualCollectionFeeSats: actualCollection.feeSats,

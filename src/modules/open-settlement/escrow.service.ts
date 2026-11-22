@@ -65,6 +65,8 @@ import { tradeRepository } from '../open-p2p/trade-repository'
 import { lockPairForEffect } from '../open-p2p/commitment-pair.service'
 import { feeObligationService } from './fee-obligation.service'
 import { escrowFeeSnapshotService } from './escrow-fee-snapshot.service'
+import { parseBreakEven, assertPayoutTypeAllowed } from './fee-break-even'
+import { networkFor } from './multisig.provider'
 import { escrowFundingEvidenceRepository } from './escrow-funding-evidence-repository'
 import { assertKnownCapabilityProfile, findCapabilityCommitBlocker } from './capability-profile'
 
@@ -473,6 +475,7 @@ export class EscrowService {
         throw new EscrowError('escrow refused: the trade has no commitment anchor (E25_COMMITMENT_MISSING)')
       }
       const feeSnapshot = await escrowFeeSnapshotService.computeCommittedSnapshotFields(type, input.lockedAmount, commitmentPairId ? pairFeePolicyId : null, tx)
+      await assertCommittedPayoutTypes(tx, feeSnapshot?.feePolicyVersionId ?? null, [trade.buyerId, trade.sellerId], input.asset)
       return this.repo.create({
         tradeId: input.tradeId,
         type,
@@ -1294,6 +1297,17 @@ export const escrowService = new EscrowService()
 // The escrow's economic terms are the trade's and its committed pair's, never the caller's own.
 function escrowTermsMismatch(detail: string) {
   return new AppError('escrow refused: its terms do not match the trade (' + detail + ')', 409, 'ESCROW_TERMS_MISMATCH')
+}
+// CTO 38 §14 (break-even): a registered payout address of a type outside the COMMITTED policy's allowed types is refused
+// here, at creation; the address is registered before the trade. Without breakEven nothing is checked.
+async function assertCommittedPayoutTypes(tx: Prisma.TransactionClient, feePolicyVersionId: string | null, participantIds: string[], asset: CreateEscrowInput['asset']) {
+  if (!feePolicyVersionId) return
+  const policy = await tx.feePolicyVersion.findUnique({ where: { id: feePolicyVersionId }, select: { smallTradeRule: true } })
+  const breakEven = parseBreakEven(policy?.smallTradeRule)
+  if (!breakEven) return
+  const registered = await tx.payoutAddress.findMany({ where: { participantId: { in: participantIds }, asset: asset as AssetType }, select: { address: true } })
+  const network = networkFor(config.multisig.network)
+  for (const r of registered) assertPayoutTypeAllowed(breakEven, r.address, network)
 }
 function assertEscrowMatchesTrade(input: { asset: string; lockedAmount: string }, trade: { asset: string; amount: Prisma.Decimal | string }) {
   if (input.asset !== trade.asset) throw escrowTermsMismatch('asset')
