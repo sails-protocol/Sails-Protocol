@@ -123,6 +123,14 @@ describe("createEscrow(): its asset/amount are the trade's and its committed pai
     expect(repoCreate).not.toHaveBeenCalled()
   })
 
+  // The trade check alone: the input equals the committed pair (0.002) but not the trade (0.001).
+  it('refuses an input that matches the committed pair amount but not the trade amount: nothing is created', async () => {
+    mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1' }))
+    mockLock.mockResolvedValue({ row: pair('pair-1', 'MULTISIG', { amount: '0.002' }), readiness: { ok: true }, t: new Date() })
+    await expect(service.createEscrow({ ...input('MULTISIG'), lockedAmount: '0.002' }, 'buyer-1')).rejects.toMatchObject({ code: 'ESCROW_TERMS_MISMATCH' })
+    expect(repoCreate).not.toHaveBeenCalled()
+  })
+
   it('refuses one satoshi less than the trade amount (0.00099999 vs 0.001): nothing is created', async () => {
     mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1' }))
     await expect(service.createEscrow({ ...input('MULTISIG'), lockedAmount: '0.00099999' }, 'buyer-1')).rejects.toMatchObject({ code: 'ESCROW_TERMS_MISMATCH' })
