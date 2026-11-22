@@ -16,9 +16,11 @@
  * here: scripts/db/runtime-grants.sql does that as sails_migrator after each
  * migration run.
  *
- * On Amazon RDS the master is rds_superuser, not a real superuser: grant it
- * membership in sails_migrator first (GRANT sails_migrator TO <master>) so it
- * may transfer ownership. Never point the application at the master.
+ * A non-superuser administrator (a managed-PostgreSQL master with only
+ * CREATEROLE/CREATEDB) is supported: the script makes it a member of
+ * sails_migrator (SET, INHERIT) so it may transfer ownership and re-run, and
+ * verifies (instead of naming) SUPERUSER, REPLICATION and BYPASSRLS on roles
+ * that already exist. Never point the application at the administrator.
  */
 const { Client } = require('pg')
 
@@ -32,10 +34,17 @@ function required(name) {
   return value
 }
 
-async function upsertRole(client, role, password, extra) {
+async function upsertRole(client, role, password, extra, adminIsSuperuser) {
   const exists = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role])
   const verb = exists.rowCount ? 'ALTER' : 'CREATE'
-  await client.query(`${verb} ROLE ${client.escapeIdentifier(role)} WITH LOGIN ${LOCKDOWN} ${extra} PASSWORD ${client.escapeLiteral(password)}`)
+  // A non-superuser may not name SUPERUSER, REPLICATION or BYPASSRLS in ALTER ROLE, not even to deny them; it cannot
+  // grant them either, so it re-asserts the rest and verifies those three below instead.
+  const lockdown = verb === 'ALTER' && !adminIsSuperuser ? 'NOCREATEDB NOCREATEROLE' : LOCKDOWN
+  await client.query(`${verb} ROLE ${client.escapeIdentifier(role)} WITH LOGIN ${lockdown} ${extra} PASSWORD ${client.escapeLiteral(password)}`)
+  const { rows: [r] } = await client.query('SELECT rolsuper, rolreplication, rolbypassrls FROM pg_roles WHERE rolname = $1', [role])
+  if (r.rolsuper || r.rolreplication || r.rolbypassrls) {
+    throw new Error(`${role} has SUPERUSER, REPLICATION or BYPASSRLS; only a superuser can remove it - fix the role before bootstrapping`)
+  }
 }
 
 async function bootstrap() {
@@ -49,10 +58,16 @@ async function bootstrap() {
     // Keep the passwords out of the server log (statement logging); a non-superuser admin (RDS) may not change it.
     await client.query("SET log_statement = 'none'").catch(() => {})
     await client.query('SET log_min_error_statement = panic').catch(() => {})
+    const { rows: [admin] } = await client.query(
+      `SELECT rolsuper, current_setting('server_version_num')::int >= 160000 AS pg16 FROM pg_roles WHERE rolname = current_user`)
+    // The non-superuser path is tested on PostgreSQL 16 only (tests/integration/bootstrapNonSuperuser.test.ts).
+    if (!admin.rolsuper && !admin.pg16) {
+      throw new Error('a non-superuser administrator needs PostgreSQL 16 or later; on an older server run this as a superuser')
+    }
     // Roles, memberships and ownership commit together or not at all.
     await client.query('BEGIN')
-    await upsertRole(client, MIGRATOR, migratorPassword, 'INHERIT')
-    await upsertRole(client, RUNTIME, runtimePassword, 'NOINHERIT')
+    await upsertRole(client, MIGRATOR, migratorPassword, 'INHERIT', admin.rolsuper)
+    await upsertRole(client, RUNTIME, runtimePassword, 'NOINHERIT', admin.rolsuper)
 
     // The runtime must not be able to SET ROLE to anything (migrator, admin, pg_* roles).
     const memberships = await client.query(
@@ -64,6 +79,14 @@ async function bootstrap() {
 
     const { rows: [{ db }] } = await client.query('SELECT current_database() AS db')
     const m = client.escapeIdentifier(MIGRATOR)
+    // A non-superuser administrator (managed PostgreSQL master: CREATEROLE/CREATEDB only) may hand objects to the
+    // migrator only if it can SET ROLE to it (PostgreSQL 16+), and after the hand-over it reaches the database
+    // (CONNECT) and re-runs this script only through the migrator's privileges: make it a member of the migrator
+    // (SET and INHERIT; the documented "GRANT sails_migrator TO <master>"). The administrator is already above the
+    // migrator, so this adds nothing it could not do; the runtime never gets any membership (revoked above).
+    if (!admin.rolsuper) {
+      await client.query(`GRANT ${m} TO CURRENT_USER WITH SET TRUE, INHERIT TRUE`)
+    }
     await client.query(`ALTER DATABASE ${client.escapeIdentifier(db)} OWNER TO ${m}`)
     await client.query(`REVOKE ALL ON DATABASE ${client.escapeIdentifier(db)} FROM PUBLIC`)
     await client.query(`ALTER SCHEMA public OWNER TO ${m}`)
