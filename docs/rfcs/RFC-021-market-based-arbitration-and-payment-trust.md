@@ -271,6 +271,8 @@ the trader-side one) — and both stay `0` for any deployment that
 doesn't set `PROTOCOL_FEE_RATE`, which is the honest number for that
 deployment, not a bug.
 
+> Atualizado: ver CTO 36 (2026-11-22); 0,40% é referência, não ativo.
+
 **Added 2026-08-11:** the split cited above was 40/30/20/10 when this
 correction was originally written (2026-07-29); `PROTOCOL_ECONOMY.md`
 §6.2 revised it to 35/30/25/10 (Wallet Rebate/Node Operator/Treasury/
@@ -878,6 +880,7 @@ overwritten.
    (code default `0`, production expected to set `0.004`), `Escrow.feeCharged`,
    `FeeDistribution` (the real 35/30/25/10 split `PROTOCOL_ECONOMY.md`
    §6.2 already decided — revised 2026-08-11 from the original 40/30/20/10).
+   (Atualizado: ver CTO 36 (2026-11-22); 0,40% é referência, não ativo.)
 1. ✅ `ArbiterProfile` Prisma model + `register()`/`eligibleFor()`/
    `assign()` (D1-D3) — `market-arbitration.provider.ts`, gated behind
    `config.settlement.arbitrationMode`.

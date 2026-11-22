@@ -28,6 +28,8 @@
 > primarily documented in `GOVERNANCE.md` §2B, cross-referenced from
 > sections 3 and 4.3 here rather than duplicated.
 
+
+> **Decisão CTO 36 (2026-11-22):** 0.40% é a taxa de *referência* para avaliação de ativação, não uma cobrança ativa. A divisão 35/30/25/10 é proposta histórica, não política publicada nem ativada. A autoridade econômica é a cadeia FeeCollectionEvidence(CONFIRMED) → FeeObligation → DistributionPolicyVersion → EntitlementLedgerEntry; o pagamento efetivo dos direitos registrados exige mecanismos próprios de execução e validação. A política é versionada e preserva direitos já constituídos. As taxas Merchant 0,36/0,32/0,28% são apenas cenários de simulação, não aprovados. Nenhum incentivo pode superar a receita reconhecida; a parcela de tesouraria não pertence integralmente à Satsails; a remuneração de operadores de nós é por serviço economicamente relevante comprovado, sem dupla remuneração.
 ---
 
 ## 1. The Core Constraint: No Speculative Token
@@ -224,6 +226,8 @@ Months 18+ (governance maturity)
   → This is the anti-centralization mechanism — see section 7
 ```
 
+> Nota (Decisão CTO 36 (2026-11-22)): 0.40% é taxa de referência, não cobrança ativa; ver o bloco "Decisão CTO 36 (2026-11-22)" no topo deste documento.
+
 This still mirrors how the Ethereum Foundation or the Uniswap Foundation
 used initial concentrated funding/control to bootstrap an ecosystem, then
 handed fee-parameter and treasury governance to a broader body once the
@@ -372,6 +376,8 @@ there's no pool-share problem to solve with a token in the first place.
 
 ### 4.2 Node Operators (Bootstrap nodes, Reputation nodes, future relay nodes)
 
+> Nota (Decisão CTO 36 (2026-11-22)): a remuneração de operadores é por serviço economicamente relevante comprovado, sem dupla remuneração; ver o bloco no topo deste documento.
+
 This is the hardest group to incentivize without a token, because unlike
 LPs, node operators don't have a natural transaction to earn a spread on.
 Three tiers of answer, matched to the roadmap:
@@ -505,6 +511,8 @@ prose, before either primitive existed in this form.
     ├── Rumble Wallet    ← rebate for originating User B's side
     └── Node/Treasury/Arbitrator buckets (section 6.2)
   ```
+
+> Nota (Decisão CTO 36 (2026-11-22)): 0.40% é taxa de referência, não cobrança ativa; ver o bloco "Decisão CTO 36 (2026-11-22)" no topo deste documento.
 
   When both sides happen to use the same wallet, that wallet simply
   receives both origination rebates. When they differ — the common case
@@ -644,6 +652,8 @@ either party alone. This mirrors how HodlHodl splits its escrow fee.
 
 ### 6.2 Who receives
 
+> Nota (Decisão CTO 36 (2026-11-22)): 35/30/25/10 é proposta histórica, não política publicada nem ativada; 0.40% é referência, não cobrança ativa. Ver o bloco no topo deste documento.
+
 **HISTORICAL / SUPERSEDED as of Missão 11 Fase 6.5.2 — the mechanism
 below (`chargeProtocolFee()`/`FeeDistribution`, RFC-021 Phase 0) and the
 Fase 2.2 evolution of it that followed
@@ -678,6 +688,8 @@ Protocol Fee (100%, default rate 0.40% of trade value — section 3)
   ├── 25% → Developer/Treasury Fund    (ongoing protocol development, section 4.3)
   └── 10% → Arbitrator Reserve         (pre-funds dispute resolution, section 4.4)
 ```
+
+> Nota (Decisão CTO 36 (2026-11-22)): 0.40% é taxa de referência, não cobrança ativa; ver o bloco "Decisão CTO 36 (2026-11-22)" no topo deste documento.
 
 **Revised 2026-08-11** from the original 40/30/20/10 (Node/Treasury/Wallet/
 Arbitrator) split. Rationale: wallets are the acquisition channel — without
@@ -753,6 +765,8 @@ Four concrete mechanisms:
    integrators have no way to opt out of.
 
 ### 6.5 Economic Authority Model — Terminology (Missão 11 Fase 7.1/7.2)
+
+> Nota (Decisão CTO 36 (2026-11-22)): a cadeia FeeCollectionEvidence(CONFIRMED) → FeeObligation → DistributionPolicyVersion → EntitlementLedgerEntry é a autoridade econômica; pagar os direitos registrados exige execução e validação próprias. Ver o bloco no topo.
 
 Three distinct real, implemented entities govern economics today — easy to
 conflate by name alone, so spelled out explicitly:
