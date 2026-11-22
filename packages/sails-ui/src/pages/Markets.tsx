@@ -54,7 +54,7 @@ const SURFACE = 'border-brand-border-subtle bg-brand-surface p-4'
 const safeLocalStorage = () => { try { return window.localStorage } catch { return undefined } }
 
 // Pixel sizes and formats from lib/imageCheck.ts, written in the interface language (PO, 2026-11-22).
-const imageCopy = (kind: ImageKind, label: string): ImagePickerCopy => {
+const imageCopy = (kind: ImageKind, label: string, name: string): ImagePickerCopy => {
   const spec = IMAGE_SPECS[kind]
   const locale = getLocale()
   const formats = t(kind === 'icon' ? 'spaces.create.formatsIcon' : 'spaces.create.formatsPhoto')
@@ -64,6 +64,7 @@ const imageCopy = (kind: ImageKind, label: string): ImagePickerCopy => {
     label,
     help: t('spaces.create.imageHelp', { ratio: spec.ratioLabel, rec, min: formatPx(spec.minimum, locale), formats, max }) + (kind === 'icon' ? '' : ` ${t('spaces.create.safeArea')}`),
     choose: t('spaces.create.choose'), replace: t('spaces.create.replace'), remove: t('spaces.create.remove'),
+    names: Object.fromEntries((['choose', 'replace', 'remove'] as const).map((a) => [a, t('spaces.create.imageActionName', { action: t(`spaces.create.${a}`), image: name })])) as ImagePickerCopy['names'],
     wrongType: t('spaces.create.wrongType', { formats }),
     tooBig: t('spaces.create.tooBig', { max }),
     warnSmall: t('spaces.create.warnSmall', { rec }),
@@ -114,9 +115,9 @@ function createCopy(): CreateMarketCopy {
       ],
     },
     images: {
-      icon: imageCopy('icon', t('spaces.create.icon')),
-      banner: imageCopy('banner', t('spaces.create.banner')),
-      cover: imageCopy('cover', t('spaces.create.cover')),
+      icon: imageCopy('icon', t('spaces.create.icon'), t('spaces.create.iconName')),
+      banner: imageCopy('banner', t('spaces.create.banner'), t('spaces.create.bannerName')),
+      cover: imageCopy('cover', t('spaces.create.cover'), t('spaces.create.coverName')),
       coverToggle: t('spaces.create.coverToggle'),
       note: t('spaces.create.imagesNote'),
     },
@@ -286,7 +287,8 @@ function MineView() {
         onConfirm={() => { setTransferring(null); simulatedToast(t('spaces.transferToast')) }}
       />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-section-title">{t('markets.action.mine')}</h2>
+        {/* The page h1 already says Meus mercados: this h2 names the list by its size. */}
+        <h2 className="text-section-title">{t('spaces.portal.mineCount', { count: markets.length })}</h2>
         <SegmentedControl
           label={t('spaces.mine.viewLabel')}
           value={mode}
@@ -517,7 +519,7 @@ function JoinView() {
         {isDemoMode() && <p className="-mt-2 mb-4 text-caption text-brand-text-muted">{t('spaces.page.privateAccess')}</p>}
         <JoinMarketPanel primarySolid={!!user} />
       </Card>
-      <FactList title={t('markets.guarantees.title')} facts={guarantees()} />
+      <FactList level={2} title={t('markets.guarantees.title')} facts={guarantees()} />
     </div>
   )
 }

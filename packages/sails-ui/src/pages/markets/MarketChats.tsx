@@ -73,12 +73,12 @@ const ME = { author: 'Você', seed: 'demo-member-you' }
 const usd = (v: number) => v.toLocaleString(getLocale(), { style: 'currency', currency: 'USD', currencyDisplay: currencyDisplay('USD'), maximumFractionDigits: 0 })
 const intentAmount = (i: Intent) => (i.max && i.max !== i.min ? `${usd(i.min)}–${usd(i.max)}` : usd(i.min))
 
-function IntentCard({ intent, onPrivate }: { intent: Intent; onPrivate?: () => void }) {
+function IntentCard({ intent, author, onPrivate }: { intent: Intent; author: string; onPrivate?: () => void }) {
   return (
     <div className="mt-1 space-y-1 rounded-md bg-brand-surface px-3 py-2">
       <p className="text-body-sm font-medium text-brand-text">{t(`spaces.intent.type.${intent.type}`)}</p>
       <p className="tabular-nums text-caption text-brand-text-secondary">{intentAmount(intent)} · {intent.method}</p>
-      {onPrivate && <Button type="button" size="sm" variant="secondary" onClick={onPrivate} className="touch:min-h-11"><MessageCircle aria-hidden="true" />{t('spaces.chat.privateShort')}</Button>}
+      {onPrivate && <Button type="button" size="sm" variant="secondary" onClick={onPrivate} aria-label={t('spaces.chat.privateWith', { name: author })} className="touch:min-h-11"><MessageCircle aria-hidden="true" />{t('spaces.chat.privateShort')}</Button>}
     </div>
   )
 }
@@ -90,7 +90,7 @@ function Bubble({ m, onPrivate, onPin }: { m: Msg; onPrivate?: (m: Msg) => void;
       <div className={cn('min-w-0 max-w-prose rounded-lg px-3 py-2', m.own ? 'bg-brand-info-solid text-brand-on-info' : 'bg-brand-elevated text-brand-text')}>
         <p className={cn('text-caption font-medium', m.own ? 'text-brand-on-info' : 'text-brand-text')}>{m.author}</p>
         {m.text && <p className="break-words text-body-sm">{m.text}</p>}
-        {m.intent && <IntentCard intent={m.intent} onPrivate={onPrivate && !m.own ? () => onPrivate(m) : undefined} />}
+        {m.intent && <IntentCard intent={m.intent} author={m.author} onPrivate={onPrivate && !m.own ? () => onPrivate(m) : undefined} />}
         {/* Stays on the sent message too (a soft reminder, never a block). */}
         {m.risky && <p className="mt-1 flex items-start gap-1 text-caption"><AlertTriangle aria-hidden="true" className="mt-px size-icon-xs shrink-0" />{t('spaces.chat.offTrade')}</p>}
       </div>
@@ -224,7 +224,7 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
         items={[{ value: 'group', label: t('spaces.chat.groupTab') }, { value: 'private', label: list.length ? t('spaces.chat.privateTabCount', { count: list.length }) : t('spaces.chat.privateTab') }]}
       />
       {tab === 'group' ? (
-        <div {...tabPanelProps(idBase, 'group')} className="space-y-3 pt-3 outline-none">
+        <div {...tabPanelProps(idBase, 'group')} className="space-y-3 pt-3">
           {pinned && (() => {
             const p = group.find((x) => x.id === pinned)
             return p ? (
@@ -250,7 +250,7 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
           {membersSlot?.((p) => openPrivate(p))}
         </div>
       ) : (
-        <div {...tabPanelProps(idBase, 'private')} className="space-y-3 pt-3 outline-none">
+        <div {...tabPanelProps(idBase, 'private')} className="space-y-3 pt-3">
           {!thread ? (
             list.length === 0 ? (
               <p className="text-body-sm text-brand-text-secondary">{t('spaces.chat.privateEmpty')}</p>
@@ -275,7 +275,7 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
               <p className="text-body-sm font-medium text-brand-text">{t('spaces.chat.privateWith', { name: thread.peer.author })}</p>
               {/* Fixed at the top of every private conversation (PO). */}
               <Alert tone="warning" icon={ShieldAlert} title={t('spaces.chat.safety')} />
-              {thread.intent && <IntentCard intent={thread.intent} />}
+              {thread.intent && <IntentCard intent={thread.intent} author={thread.peer.author} />}
               {thread.context && <p className="rounded-md bg-brand-elevated px-3 py-2 text-body-sm text-brand-text">{thread.context}</p>}
               <ul className="space-y-2" aria-label={t('spaces.chat.privateWith', { name: thread.peer.author })}>
                 {thread.msgs.length === 0 && <li className="text-caption text-brand-text-secondary">{t('spaces.chat.privateNew')}</li>}
