@@ -15,16 +15,18 @@
  * method or metadata invented, just grouped.
  */
 import type { PaymentMethod } from '../types'
+import { t } from '../i18n'
 
 export type PaymentMethodCategory = 'BANK' | 'WALLET' | 'CASH' | 'CRYPTO' | 'REMITTANCE' | 'OTHER'
 
+// Getters: read in the interface language on every render (lib/labels.ts).
 export const PAYMENT_METHOD_CATEGORY_LABELS: Record<PaymentMethodCategory, string> = {
-  BANK: 'Transferência bancária',
-  WALLET: 'Carteiras digitais',
-  CASH: 'Dinheiro / presencial',
-  CRYPTO: 'Cripto / Lightning',
-  REMITTANCE: 'Internacional / remessas',
-  OTHER: 'Outros',
+  get BANK() { return t('labels.paymentCategory.bank') },
+  get WALLET() { return t('labels.paymentCategory.wallet') },
+  get CASH() { return t('labels.paymentCategory.cash') },
+  get CRYPTO() { return t('labels.paymentCategory.crypto') },
+  get REMITTANCE() { return t('labels.paymentCategory.remittance') },
+  get OTHER() { return t('labels.paymentCategory.other') },
 }
 
 // Category order used when rendering the expanded/grouped list —
@@ -65,7 +67,7 @@ export const PAYMENT_METHOD_CATEGORY: Record<PaymentMethod, PaymentMethodCategor
  * (no fabricated priority) rather than a gap papered over with a guess.
  */
 export const COUNTRY_PRIORITY_METHODS: Partial<Record<string, PaymentMethod[]>> = {
-  BR: ['PIX', 'TED', 'BANK_TRANSFER', 'MERCADO_PAGO', 'PICPAY', 'BOLETO', 'LOTERICA_DEPOSIT', 'DEPIX'],
+  BR: ['PIX', 'TED', 'BANK_TRANSFER', 'MERCADO_PAGO', 'PICPAY', 'BOLETO', 'DEPIX'],
   US: ['ZELLE', 'CASH_APP', 'VENMO', 'WISE', 'PAYPAL', 'CREDIT_DEBIT_CARD'],
   AR: ['MERCADO_PAGO', 'ASTROPAY', 'BANK_TRANSFER'],
   MX: ['MERCADO_PAGO', 'BANK_TRANSFER', 'PAYPAL'],

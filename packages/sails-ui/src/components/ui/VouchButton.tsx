@@ -1,13 +1,12 @@
 import { useState } from 'react'
-import { toast } from 'sonner'
+import { toast } from './toast'
 import { useAuth } from '../../context/AuthContext'
 import { sailsClient } from '../../lib/sailsClient'
 import { canVouch } from '../../lib/reputation'
 import { InfoTooltip } from './InfoTooltip'
+import { IconButton } from './icon-button'
 import { ShieldPlus, ShieldCheck } from 'lucide-react'
-
-const VOUCH_EXPLAINER =
-  'Vouching (RFC-021) usa a SUA reputação como aval — não é KYC nem verificação de identidade. Se a pessoa que você avalizar perder a primeira disputa dela enquanto o aval estiver ativo, sua própria reputação sofre uma penalidade real.'
+import { t } from '../../i18n'
 
 // RFC-021 D7 — real endpoint (sailsClient.reputation.vouchFor), the
 // actual cold-start-trust fix (pre-signs the vouchee's PaymentAccount to
@@ -29,9 +28,9 @@ export function VouchButton({ voucheeId }: { voucheeId: string }) {
     try {
       await sailsClient.reputation.vouchFor(voucheeId)
       setVouched(true)
-      toast.success('Aval registrado — sua reputação agora respalda esta pessoa')
+      toast.success(t('reputation.vouch.success'))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Não foi possível registrar o aval')
+      toast.error(err instanceof Error ? err.message : t('reputation.vouch.failed'))
     } finally {
       setLoading(false)
     }
@@ -39,24 +38,24 @@ export function VouchButton({ voucheeId }: { voucheeId: string }) {
 
   return (
     <div className="flex items-center gap-1">
-      <button
-        type="button"
+      {/* IconButton: the reason is the name and the tooltip (no title=); unavailable stays focusable via aria-disabled. */}
+      <IconButton
+        size="sm"
         onClick={handleVouch}
-        disabled={!eligible || loading || vouched}
-        title={
+        loading={loading}
+        aria-disabled={!eligible || vouched || undefined}
+        label={
           vouched
-            ? 'Você já avalizou esta pessoa'
+            ? t('reputation.vouch.already')
             : eligible
-              ? 'Avalizar esta pessoa com sua reputação'
-              : 'Requer pelo menos 3 trades e reputação positiva para avalizar alguém'
+              ? t('reputation.vouch.action')
+              : t('reputation.vouch.ineligible')
         }
-        className={`p-2 -m-2 transition-colors disabled:cursor-not-allowed ${
-          vouched ? 'text-green-500' : eligible ? 'text-brand-text-muted hover:text-brand-orange-accent' : 'text-brand-text-muted/40'
-        }`}
+        className={vouched ? 'aria-disabled:text-brand-blue-fg' : undefined}
       >
-        {vouched ? <ShieldCheck className="h-4 w-4" /> : <ShieldPlus className="h-4 w-4" />}
-      </button>
-      <InfoTooltip text={VOUCH_EXPLAINER} />
+        {vouched ? <ShieldCheck aria-hidden="true" /> : <ShieldPlus aria-hidden="true" />}
+      </IconButton>
+      <InfoTooltip text={t('reputation.vouch.explainer')} />
     </div>
   )
 }

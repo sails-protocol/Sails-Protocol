@@ -9,12 +9,11 @@
  * section already edits — not a second source of truth, just a second,
  * faster entry point to it.
  */
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import type { PaymentMethod } from '../../types'
 import { PAYMENT_METHOD_LABELS } from '../../lib/labels'
-import { Input } from '../ui/input'
-import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover'
-import { Search, Check, ChevronDown } from 'lucide-react'
+import { Combobox, type ComboboxOption } from '../ui/combobox'
+import { t } from '../../i18n'
 
 interface Props {
   methods: readonly PaymentMethod[]
@@ -22,69 +21,40 @@ interface Props {
   onChange: (methods: PaymentMethod[]) => void
 }
 
+// Combobox primitive (2026-11-20): same multi-select toggle, search and "Limpar seleção"; the list stays open.
 export function PaymentMethodPicker({ methods, value, onChange }: Props) {
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState('')
-
-  const filtered = useMemo(
-    () => methods.filter((m) => PAYMENT_METHOD_LABELS[m].toLowerCase().includes(search.toLowerCase())),
-    [methods, search]
-  )
-
+  const options = useMemo<ComboboxOption<PaymentMethod>[]>(() => methods.map((m) => ({ value: m, label: PAYMENT_METHOD_LABELS[m] })), [methods])
   const toggle = (m: PaymentMethod) => {
     onChange(value.includes(m) ? value.filter((x) => x !== m) : [...value, m])
   }
 
   const label =
-    value.length === 0 ? 'Métodos de pagamento' : value.length === 1 ? PAYMENT_METHOD_LABELS[value[0]] : `${value.length} métodos`
+    value.length === 0 ? t('market.payment.all') : value.length === 1 ? PAYMENT_METHOD_LABELS[value[0]] : t('market.payment.selected', { count: String(value.length) })
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger aria-label="Métodos de pagamento" className="toolbar-chip flex items-center gap-2 min-w-[170px] justify-between">
-        <span className={`truncate ${value.length > 0 ? 'font-medium text-brand-orange-accent' : ''}`}>{label}</span>
-        <ChevronDown className="h-4 w-4 text-brand-text-muted shrink-0" />
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 p-2">
-        <div className="relative mb-2">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-brand-text-muted pointer-events-none" />
-          <Input
-            autoFocus
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar método de pagamento..."
-            className="w-full pl-8"
-          />
-        </div>
-        <div className="max-h-64 overflow-y-auto">
-          {filtered.map((m) => {
-            const checked = value.includes(m)
-            return (
-              <button
-                key={m}
-                onClick={() => toggle(m)}
-                aria-pressed={checked}
-                className={`w-full flex items-center justify-between text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                  checked ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'
-                }`}
-              >
-                {PAYMENT_METHOD_LABELS[m]}
-                {checked && <Check className="h-4 w-4" />}
-              </button>
-            )
-          })}
-          {filtered.length === 0 && (
-            <p className="text-xs text-brand-text-muted px-3 py-2">Nenhum método encontrado com esse nome.</p>
-          )}
-        </div>
-        {value.length > 0 && (
+    <Combobox
+      multiple
+      label={t('market.payment.label')}
+      valueText={label}
+      options={options}
+      selected={value}
+      onSelect={toggle}
+      triggerClassName="min-w-[150px]"
+      // Active filter: brand blue (chosen), never orange (act).
+      trigger={<span className={`truncate ${value.length > 0 ? 'font-medium text-brand-blue-fg' : ''}`}>{label}</span>}
+      searchPlaceholder={t('market.payment.search')}
+      emptyText={() => t('market.payment.empty')}
+      footer={value.length > 0 ? () => (
+        <div className="p-1">
           <button
+            type="button"
             onClick={() => onChange([])}
-            className="w-full text-xs text-brand-text-muted hover:text-brand-text mt-1 pt-2 border-t border-brand-border-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+            className="w-full min-h-8 touch:min-h-11 rounded-sm text-xs text-brand-text-secondary hover:text-brand-text state-layer"
           >
-            Limpar seleção
+            {t('market.payment.clearSelection')}
           </button>
-        )}
-      </PopoverContent>
-    </Popover>
+        </div>
+      ) : undefined}
+    />
   )
 }
