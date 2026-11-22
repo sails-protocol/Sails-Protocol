@@ -195,6 +195,8 @@ Even without custody, disputes are inevitable in any real market. The
 protocol has a planned resolution layer — not custodial arbitration, but
 verifiable, evidence-based mechanisms. The separation of the Resolution Layer from a Signing Federation is planned/proposed, not implemented: in Gen-1 the arbiter key is held by the node server (see the Signing Federation README in `docs/architecture/SAILS_SIGNING_FEDERATION/`).
 
+Residual risks (arbiter unavailability, recovery, key compromise): see #237 and the Entrega A residuals in `docs/architecture/SAILS_SIGNING_FEDERATION/`; no guarantee is claimed.
+
 ### Scenario A: Payment sent, asset not released
 
 Buyer provides fiat receipt via Secretstream chat. QVAC (future) analyzes
@@ -202,16 +204,12 @@ the payment proof. A 24-hour timeout auto-escalates. Multisig requires the
 arbiter to co-sign the release if the seller is unresponsive or acting in
 bad faith.
 
-Residual risks (arbiter unavailability, recovery, key compromise): see #237 and the Entrega A residuals in `docs/architecture/SAILS_SIGNING_FEDERATION/`; no guarantee is claimed.
-
 ### Scenario B: Asset locked, payment not received
 
 Seller provides no evidence of non-payment beyond the timeout. The
 escrow's protocol expiry deadline passes → escrow refunds the seller
 automatically. The buyer's suspicious non-payment pattern is logged to
 the reputation system.
-
-Residual risks (arbiter unavailability, recovery, key compromise): see #237 and the Entrega A residuals in `docs/architecture/SAILS_SIGNING_FEDERATION/`; no guarantee is claimed.
 
 **Terminology note, Missão 11 Fase 9.1 §9 (2026-08-24):** "Timelock" in
 this document (and this codebase's `timelockHours`/`DEFAULT_TIMELOCK_HOURS`
