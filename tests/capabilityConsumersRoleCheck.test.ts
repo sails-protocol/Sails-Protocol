@@ -6,7 +6,7 @@
 // treated as authority from someone else). Static text scan, no database; it fails when a new consumer appears unreviewed.
 import { readdirSync, readFileSync } from 'fs'
 import { join, relative, sep } from 'path'
-import { stripComments, enclosingFunctionRange } from './helpers/economicChokeScan'
+import { stripComments } from './helpers/economicChokeScan'
 
 const ROOT = join(__dirname, '..')
 
@@ -37,6 +37,15 @@ function collect(dir: string, out: Record<string, string>): void {
   }
 }
 
+// The start of the nearest preceding function or class method; its parameters may span several lines.
+const DECLARATION = /\n(?:export\s+)?(?:async\s+)?function\s+([\w$]+)|\n[ \t]+(?:public\s+|private\s+|protected\s+)?async\s+([\w$]+)\s*\(/g
+function enclosingStart(code: string, index: number): { name: string; start: number } | null {
+  let found: { name: string; start: number } | null = null
+  const re = new RegExp(DECLARATION.source, 'g')
+  for (let m = re.exec(code); m && m.index < index; m = re.exec(code)) found = { name: m[1] ?? m[2], start: m.index }
+  return found
+}
+
 function indexesOf(code: string, needle: string): number[] {
   const out: number[] = []
   for (let i = code.indexOf(needle); i >= 0; i = code.indexOf(needle, i + 1)) {
@@ -48,10 +57,10 @@ function indexesOf(code: string, needle: string): number[] {
 export function scanCapabilityConsumers(files: Record<string, string>): string[] {
   const violations: string[] = []
   for (const [path, raw] of Object.entries(files)) {
-    const code = stripComments(raw)
+    const code = '\n' + stripComments(raw)
     if (path !== GATE_A_DEFINITION) {
       for (const i of indexesOf(code, GATE_A)) {
-        const fn = enclosingFunctionRange(code, i)
+        const fn = enclosingStart(code, i)
         const before = fn ? code.slice(fn.start, i) : ''
         if (!ROLE_CHECKS.some((r) => before.includes(r))) violations.push(`${path}: ${GATE_A} without a preceding role check in ${fn?.name ?? '<top level>'}`)
       }
