@@ -129,6 +129,58 @@ describe('MULTISIG disputed settlement signing order (real PostgreSQL, real PSBT
     expect(chain.broadcasts).toHaveLength(1)
   })
 
+  const tick = () => require('../../src/modules/open-settlement/escrow-settlement-reconciliation.service').reconcilePendingSettlements({ externalSpendMinIntervalMs: 0 })
+  async function rulingRoundWithBuyerSignature(label: string) {
+    const f = await funded(label)
+    const dispute = await getDisputeService().raiseDispute(f.trade.id, f.buyer.id, 'sso')
+    await resolve(f, dispute.id, 'RELEASE')
+    const r = await round(f.escrow.id)
+    // Stored directly: the round is fully signed but was never executed (a crash before finalization).
+    await prisma.escrowTransactionSignature.create({ data: { pendingTxId: r.id, participantId: f.buyer.id, signedPsbtBase64: signRound(r.unsignedPsbtBase64, buyerKey) } })
+    return { f, dispute, r }
+  }
+
+  it('6: recovery (C8) whose commit gate refuses: the arbiter never signs and nothing is broadcast', async () => {
+    pg.requirePostgres('6')
+    const { f, dispute } = await rulingRoundWithBuyerSignature('c8-gate')
+    await prisma.dispute.update({ where: { id: dispute.id }, data: { status: 'APPEALED', appealRound: 1 } }) // the ruling generation is no longer current
+    const sign = jest.spyOn(multisigProvider, 'signAsArbiterAtExecution')
+    await tick()
+    expect(sign).not.toHaveBeenCalled()
+    expect(chain.broadcasts).toHaveLength(0)
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: f.escrow.id } })).txReleaseId).toBeNull()
+  })
+
+  it('7: recovery of a claimed escrow (PASS 1) without its durable disposition authorization: nothing is signed or broadcast', async () => {
+    pg.requirePostgres('7')
+    const { f } = await rulingRoundWithBuyerSignature('pass1')
+    await prisma.escrow.update({ where: { id: f.escrow.id }, data: { status: 'COMPLETED' } }) // claimed, no txReleaseId, no authorization row
+    expect(await prisma.economicDispositionAuthorization.count({ where: { escrowId: f.escrow.id } })).toBe(0)
+    const sign = jest.spyOn(multisigProvider, 'signAsArbiterAtExecution')
+    await tick()
+    expect(sign).not.toHaveBeenCalled()
+    expect(chain.broadcasts).toHaveLength(0)
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: f.escrow.id } })).txReleaseId).toBeNull()
+  })
+
+  it('8: a stored arbiter signature that does not verify refuses execution before any claim; nothing is broadcast', async () => {
+    pg.requirePostgres('8')
+    const f = await funded('forged')
+    const dispute = await getDisputeService().raiseDispute(f.trade.id, f.buyer.id, 'sso')
+    await resolve(f, dispute.id, 'RELEASE')
+    const r = await round(f.escrow.id)
+    const keys = await loadParticipantPubkeys(f.escrow.id)
+    // A signature that is well-formed but made by another key, stored under the arbiter's public key.
+    const other = bitcoin.Psbt.fromBase64(signRound(r.unsignedPsbtBase64, sellerKey), { network: NETWORK }).data.inputs[0].partialSig![0].signature
+    const forged = bitcoin.Psbt.fromBase64(r.unsignedPsbtBase64, { network: NETWORK })
+    forged.updateInput(0, { partialSig: [{ pubkey: Buffer.from(keys.arbiterPubkey, 'hex'), signature: other }] })
+    await prisma.$executeRaw`UPDATE escrow_pending_transactions SET "unsignedPsbtBase64" = ${forged.toBase64()} WHERE id = ${r.id}`
+    const stored = await round(f.escrow.id)
+    await expect(escrowService.submitTransactionSignature(f.escrow.id, f.buyer.id, signRound(stored.unsignedPsbtBase64, buyerKey), r.id)).rejects.toThrow(/does not verify/)
+    expect(chain.broadcasts).toHaveLength(0)
+    expect((await prisma.escrow.findUniqueOrThrow({ where: { id: f.escrow.id } })).status).toBe('DISPUTED')
+  })
+
   it('5: the seller cannot use a ruling round for the buyer (signer membership unchanged)', async () => {
     pg.requirePostgres('5')
     const f = await funded('member')

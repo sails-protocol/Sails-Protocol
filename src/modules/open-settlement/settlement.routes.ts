@@ -427,7 +427,8 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     const { id } = idParam.parse(request.params)
     const body = submitTransactionSignatureSchema.parse(request.body)
     const result = await escrowService.submitTransactionSignature(id, participantId(request), body.signedPsbtBase64, body.pendingTransactionId)
-    return reply.code(200).send(success(result))
+    const safe = 'pendingTransaction' in result && result.pendingTransaction ? { ...result, pendingTransaction: withoutPartialSignatures(result.pendingTransaction) } : result
+    return reply.code(200).send(success(safe))
   })
 
   // Issue #239 - the seller withdraws a cooperative MULTISIG round that is not fully signed. Retired, NOT revoked:

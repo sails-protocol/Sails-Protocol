@@ -1050,6 +1050,9 @@ export class MultisigProvider implements SettlementProvider {
     outputCount: number,
     computeOutputs: (spendableValue: bigint) => Array<{ address: string; value: bigint }>
   ): Promise<{ psbt: bitcoin.Psbt; feeSats: bigint }> {
+    // The executing identity must still derive the committed arbiter key; checked here (public key only) and again
+    // where the arbiter actually signs.
+    this.assertArbiterMatchesScript(escrow)
     const { p2ms, p2wsh, network } = this.buildScript(parties)
 
     if (!escrow.txLockId) {
@@ -1525,11 +1528,16 @@ export class MultisigProvider implements SettlementProvider {
       // fail-closed commit gate immediately before the first broadcast.
       // ALREADY_BROADCAST never reaches this callback, preserving recovery
       // of external truth after later authority changes.
-      if (beforeFirstBroadcast) await beforeFirstBroadcast()
-      // After the gates: the beneficiary's signatures are re-verified against the round, then the arbiter signs in memory.
+      // Checked before the gates callback (which takes the escrow claim): the stored signatures verify against the round,
+      // and the executing identity still derives the committed arbiter key.
       this.assertSignaturesVerify(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+      if (arbiterAtExecution) this.assertArbiterMatchesScript({ ...escrow, status: 'DISPUTED' })
+      if (beforeFirstBroadcast) await beforeFirstBroadcast()
+      // After the gates: the arbiter signs in memory.
       const tx = buildSigned()
       const rawTxHex = tx.toHex()
+      // N2: checked BEFORE anything is sent.
+      if (tx.getId() !== expectedTxId) throw new EscrowError(`MULTISIG provider: the rebuilt transaction for trade ${escrow.tradeId} does not match its round`)
 
       // Sails Core Implementation Program M9-R (R6, provider txid
       // integrity) — same discipline as finalizeSpend(): `expectedTxId`
@@ -1543,7 +1551,6 @@ export class MultisigProvider implements SettlementProvider {
           escrowId: escrow.tradeId, expectedTxId, providerReturnedTxId,
         })
       }
-      if (tx.getId() !== expectedTxId) throw new EscrowError(`MULTISIG provider: the rebuilt transaction for trade ${escrow.tradeId} does not match its round`)
       return {
         outcome: 'NEWLY_BROADCAST', txId: expectedTxId, rawTxHex,
         detail: `Funding outpoint ${escrow.txLockId}:${escrow.txLockVout ?? '(no vout)'} was still unspent — broadcast the deterministically-reconstructed transaction for the first time.`,
@@ -1561,6 +1568,19 @@ export class MultisigProvider implements SettlementProvider {
    * a disputed (ruling) round. The signature lives in memory only: it is never persisted, logged or returned. A legacy
    * round whose PSBT already carries a valid arbiter signature gets none added (returns null).
    */
+  /** Whether a round's stored PSBT carries an arbiter signature, and whether it verifies for the committed key. */
+  storedArbiterSignatureState(escrow: MultisigEscrowInput, unsignedPsbtBase64: string): 'absent' | 'valid' | 'invalid' {
+    const arbiterPubkey = escrow.arbiterPubkey ? Buffer.from(escrow.arbiterPubkey, 'hex') : null
+    if (!arbiterPubkey) return 'absent'
+    const psbt = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network: networkFor(config.multisig.network) })
+    if (!(psbt.data.inputs[0]?.partialSig ?? []).some((p) => Buffer.from(p.pubkey).equals(arbiterPubkey))) return 'absent'
+    try {
+      return psbt.validateSignaturesOfInput(0, (pub, msghash, sig) => ecc.verify(msghash, pub, sig), arbiterPubkey) ? 'valid' : 'invalid'
+    } catch {
+      return 'invalid'
+    }
+  }
+
   signAsArbiterAtExecution(escrow: MultisigEscrowInput, unsignedPsbtBase64: string): string | null {
     const arbiterPubkey = escrow.arbiterPubkey ? Buffer.from(escrow.arbiterPubkey, 'hex') : null
     if (!arbiterPubkey) throw new EscrowError(`MULTISIG provider: escrow for trade ${escrow.tradeId} has no arbiter commitment`)
@@ -1568,12 +1588,9 @@ export class MultisigProvider implements SettlementProvider {
     this.assertArbiterMatchesScript({ ...escrow, status: 'DISPUTED' })
     const network = networkFor(config.multisig.network)
     const psbt = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network })
-    const existing = (psbt.data.inputs[0]?.partialSig ?? []).find((p) => Buffer.from(p.pubkey).equals(arbiterPubkey))
-    if (existing) {
-      const ok = psbt.validateSignaturesOfInput(0, (pub, msghash, sig) => ecc.verify(msghash, pub, sig), arbiterPubkey)
-      if (!ok) throw new EscrowError(`MULTISIG provider: the legacy arbiter signature on trade ${escrow.tradeId}'s round does not verify`)
-      return null
-    }
+    const stored = this.storedArbiterSignatureState(escrow, unsignedPsbtBase64)
+    if (stored === 'invalid') throw new EscrowError(`MULTISIG provider: the stored arbiter signature on trade ${escrow.tradeId}'s round does not verify`)
+    if (stored === 'valid') return null
     const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow))
     psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
     return psbt.toBase64()

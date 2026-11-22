@@ -441,6 +441,14 @@ export async function submitTransactionSignature(escrowId: string, participantId
     throw new EscrowError(`Escrow type '${escrow.type}' does not support split finalization — buildUnsignedSplit was allowed but finalizeSplit is not implemented`)
   }
 
+  // A stored arbiter signature that does not verify refuses the round BEFORE any gate or claim (nothing is consumed).
+  if (escrow.type === 'MULTISIG' && pending.disputeId) {
+    const keys = await loadParticipantPubkeys(escrowId)
+    if (multisigProvider.storedArbiterSignatureState({ tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString(), ...keys }, pending.unsignedPsbtBase64) === 'invalid') {
+      throw new EscrowError(`Escrow ${escrowId}: the round's stored arbiter signature does not verify`)
+    }
+  }
+
   // ADR-005 / #218 — Economic Disposition Commit Gate. Runs first: a stale
   // ruling generation must fail closed before Capability/Eligibility is
   // even considered (ADR-005 §7 — the two gates are orthogonal, but this
