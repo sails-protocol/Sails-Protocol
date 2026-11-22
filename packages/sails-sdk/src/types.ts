@@ -494,7 +494,11 @@ export interface TradeIntentPayload {
   // (that's OpenLiquidity follow-up work) — this is the vocabulary.
   // kycRequired removed 2026-08-09 — this protocol does not do KYC, see
   // src/common/types/intent.ts's matching removal note.
-  minReputationRating?: number // 0-5, mirrors ReputationScore's scale
+  // UX-048: minimum canonical OpenReputation score (cumulative, no ceiling, may be negative; |value| <= 1e9).
+  // Filters the offers proposed by proposeTrade(); the trade itself is still created only by your explicit call.
+  minReputationScore?: number
+  /** @deprecated Use minReputationScore. The same number against the same score (never rescaled), 0-5 only. */
+  minReputationRating?: number
   // RFC-023 (rfcs/RFC-023-qvac-negotiated-trade-proposal.md) — read by
   // intentFacade.proposeTrade() below via POST /v1/intents/:id/propose.
   // Decimal strings (RFC-009), USD-denominated — matches Offer.priceUsd,
