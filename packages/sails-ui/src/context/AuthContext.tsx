@@ -45,6 +45,7 @@ import { sailsClient } from '../lib/sailsClient'
 import { deriveKeyFromPassphrase, encryptBytes, decryptBytes } from '../lib/keyEncryption'
 import { WrongPassphraseError } from '../lib/errors'
 import { createSessionEpochGate } from '../lib/sessionEpochGate'
+import { setAvatarChoiceOwner } from '../lib/avatarChoice'
 import { t } from '../i18n'
 
 const KEYPAIR_STORAGE_KEY = 'sails_ui_keypair_secret_hex'
@@ -266,6 +267,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setEncryptionKey(null)
     sailsClient.setSessionToken(null)
   }
+
+  // Own avatar pick (Perfil deck) follows the signed-in key; local to this browser.
+  useEffect(() => setAvatarChoiceOwner(user?.publicKey || null), [user?.publicKey])
 
   // No more silent re-authenticate-on-mount: a page refresh now requires
   // re-entering the passphrase, same as any real wallet/password manager
