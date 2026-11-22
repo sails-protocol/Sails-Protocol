@@ -71,7 +71,7 @@ export default defineArea(
     },
     fr: {
       'profile.title': 'Profil',
-      'profile.keyExplainer': 'C’est la clé publique de votre compte : elle vous identifie sur le réseau P2P et confirme les actions que vous signez. Elle peut être partagée. La clé privée reste avec vous et n’apparaît pas ici.',
+      'profile.keyExplainer': 'C’est la clé publique de votre compte : elle vous identifie sur le réseau P2P et confirme les actions que vous signez. Elle peut être partagée. La clé privée reste avec vous et n’apparaît pas ici.',
       'profile.verified': 'Vérifié',
       'profile.publicKey': 'Votre clé publique',
       'profile.key.showFull': 'Voir la clé complète',

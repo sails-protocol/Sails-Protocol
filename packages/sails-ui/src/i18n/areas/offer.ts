@@ -153,9 +153,9 @@ export default defineArea(
 
       'offer.ticket.youBuy': 'Vous achetez {asset}',
       'offer.ticket.youSell': 'Vous vendez {asset}',
-      'offer.ticket.amountBuy': 'Combien voulez-vous acheter ?',
-      'offer.ticket.amountSell': 'Combien voulez-vous vendre ?',
-      'offer.ticket.outOfLimits': 'Hors limite : {min} – {max}',
+      'offer.ticket.amountBuy': 'Combien voulez-vous acheter ?',
+      'offer.ticket.amountSell': 'Combien voulez-vous vendre ?',
+      'offer.ticket.outOfLimits': 'Hors limite : {min} – {max}',
       'offer.ticket.youPay': 'Vous payez',
       'offer.ticket.youReceive': 'Vous recevez',
       'offer.ticket.escrowNote': 'Le type d’escrow et les règles de libération sont définis à la création du trade.',

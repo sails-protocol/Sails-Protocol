@@ -272,7 +272,7 @@ export default defineArea(
       'settings.network.operatorDescription': 'Apparaît seulement quand l’opérateur est vérifié.',
       'settings.network.addNode': 'Ajouter un nœud manuellement',
       'settings.network.addNodeDescription': 'Avec l’adresse ou l’identifiant envoyé par l’opérateur',
-      'settings.network.addNodeDialog': 'Facultatif. Le nœud maintient votre connexion au réseau ; il ne décide pas qui participe à chaque marché.',
+      'settings.network.addNodeDialog': 'Facultatif. Le nœud maintient votre connexion au réseau ; il ne décide pas qui participe à chaque marché.',
       'settings.network.notMarketTitle': 'Un nœud n’est pas un marché',
       'settings.network.notMarketBody': 'Se connecter à un nœud ne donne pas accès aux marchés qu’il héberge. Le Marché ouvert appartient au réseau, pas au nœud. Chaque opérateur est responsable de son propre nœud.',
       'settings.network.advanced': 'Avancé',
@@ -320,7 +320,7 @@ export default defineArea(
 
       'settings.help.tour': 'Revoir la présentation',
       'settings.help.tourDescription': 'Présentation d’accueil de Sails Market',
-      'settings.help.reputationDescription': 'Somme de points sans maximum : +2 par trade terminé, −5 par litige perdu',
+      'settings.help.reputationDescription': 'Somme de points sans maximum : +2 par trade terminé, −5 par litige perdu',
       'settings.help.details': 'Voir les détails',
     },
     de: {

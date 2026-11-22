@@ -230,7 +230,7 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
             return p ? (
               <div className="flex items-start gap-2 rounded-lg bg-brand-elevated px-3 py-2">
                 <Pin aria-hidden="true" className="mt-0.5 size-icon-sm shrink-0 text-brand-text-muted" />
-                <p className="min-w-0 flex-1 text-body-sm text-brand-text"><span className="font-medium">{t('spaces.admin.pinned')}: </span>{p.author}: {p.text ?? (p.intent ? `${t(`spaces.intent.type.${p.intent.type}`)} · ${intentAmount(p.intent)}` : '')}</p>
+                <p className="min-w-0 flex-1 text-body-sm text-brand-text"><span className="font-medium">{t('spaces.admin.pinnedPrefix')}</span>{' '}{t('spaces.admin.pinnedLine', { author: p.author, text: p.text ?? (p.intent ? `${t(`spaces.intent.type.${p.intent.type}`)} · ${intentAmount(p.intent)}` : '') })}</p>
                 {canPin && <Button type="button" size="sm" variant="ghost" onClick={() => setPinned(null)} className="touch:min-h-11">{t('spaces.admin.unpin')}</Button>}
               </div>
             ) : null
