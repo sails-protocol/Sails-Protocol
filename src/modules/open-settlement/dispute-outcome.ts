@@ -334,8 +334,8 @@ export async function commitAuthoritativeDisputeRuling(
  * built during commit. This is what lets the M8 dispatch gate prove it
  * is reading persistence, not transient request memory (mission §16).
  */
-export async function loadDisputeRulingRecord(escrowId: string, appealRound: number): Promise<SemanticTransitionRecordRow | null> {
-  return prisma.semanticTransitionRecord.findUnique({
+export async function loadDisputeRulingRecord(escrowId: string, appealRound: number, client: Prisma.TransactionClient = prisma): Promise<SemanticTransitionRecordRow | null> {
+  return client.semanticTransitionRecord.findUnique({
     where: {
       interactionId_transitionType_appealRound: {
         interactionId: escrowId,
