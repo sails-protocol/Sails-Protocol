@@ -46,8 +46,6 @@ import { economicDispositionLockKey } from './economic-disposition-authority'
 import { OUTBOUND_OPERATION_TYPES, POTENTIALLY_SENT_STATUSES, wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
 import { splitLegAmounts } from './wdk-settlement.provider'
 import { assertDisputeDispatchEligible, issueRulingSupersessionGrant } from './dispute-dispatch'
-import { assertTranslationMatchesOutcome } from './dispatch-translation-guard'
-import { networkFor } from './multisig.provider'
 import { publishPendingDisputeTransitions, transitionKeyFor, type DisputeTransitionKind } from './dispute-transition-outbox'
 
 // RFC-021 D6 — appeal fee, PROTOCOL_ECONOMY.md §4.4's own arbitration-fee
@@ -799,9 +797,7 @@ export class DisputeService {
     }
 
     try {
-      const record = await assertDisputeDispatchEligible(dispute.escrowId, dispute.appealRound)
-      const outcome = record.outcome!
-      const network = networkFor(config.multisig.network)
+      await assertDisputeDispatchEligible(dispute.escrowId, dispute.appealRound)
       const buyerDestination = commitResult.destinations.find((d) => d.beneficiary === buyerId)?.destination
       const sellerDestination = commitResult.destinations.find((d) => d.beneficiary === sellerId)?.destination
 
@@ -812,9 +808,11 @@ export class DisputeService {
         id: dispute.id, appealRound: dispute.appealRound, arbiterId: payload.authorityId, ruling: payload.outcome,
         authoritySignature, authorityIssuedAt: new Date(payload.issuedAt), status: 'RESOLVED',
       })
-      let pending: { unsignedPsbtBase64: string; minerFeeSats: number | null }
+      // GK-M9R-D R2 - the translation is checked against this Outcome inside initiateSignatureCollectionCore(), under
+      // the escrow lock and before the round exists. A failure throws here with no round written and nothing retired,
+      // so the revert below only ever undoes the ruling; there is no round to delete (or to have been signed meanwhile).
       if (payload.outcome === 'RELEASE') {
-        pending = await escrowService.initiateRelease(dispute.escrowId, buyerDestination, payload.authorityId, supersession)
+        await escrowService.initiateRelease(dispute.escrowId, buyerDestination, payload.authorityId, supersession)
       } else if (payload.outcome === 'REFUND') {
         // M8-RF (Destination Consistency) — sellerDestination is the
         // seller's OWN historical DestinationBinding, already resolved
@@ -824,23 +822,11 @@ export class DisputeService {
         // the real Bitcoin translation match what the Outcome already
         // authorized — never re-derived from the seller's multisig
         // signing key, never re-read from current PayoutAddress state.
-        pending = await escrowService.initiateRefund(dispute.escrowId, payload.authorityId, sellerDestination, supersession)
+        await escrowService.initiateRefund(dispute.escrowId, payload.authorityId, sellerDestination, supersession)
       } else {
-        pending = await escrowService.initiateSplit(dispute.escrowId, buyerDestination, sellerDestination, payload.buyerBps!, payload.authorityId, supersession)
+        await escrowService.initiateSplit(dispute.escrowId, buyerDestination, sellerDestination, payload.buyerBps!, payload.authorityId, supersession)
       }
 
-      try {
-        assertTranslationMatchesOutcome(pending.unsignedPsbtBase64, outcome, network, pending.minerFeeSats ?? undefined)
-      } catch (guardErr) {
-        // The translator produced something that does not correspond to
-        // the authoritative Outcome — never let it sit collectable for
-        // signature. Deleting the just-created pending row is what
-        // actually blocks dispatch (mission §19: "blocked before
-        // broadcast if translated intent is inspectable" — it was, and
-        // this is the block).
-        await prisma.escrowPendingTransaction.deleteMany({ where: { escrowId: dispute.escrowId } })
-        throw guardErr
-      }
     } catch (err) {
       // Same revert discipline as applyRuling()'s own catch above,
       // extended to also delete the durable Core record this method
