@@ -6,6 +6,7 @@
 import { cn } from '../../lib/utils'
 import type { MarketView } from '../../lib/myMarkets'
 import { marketIconOf } from './MarketIcon'
+import { isLocalPreviewUrl } from '../../lib/localImage'
 
 const TONES = [
   'from-brand-blue/20 via-brand-elevated to-brand-info/10',
@@ -28,7 +29,7 @@ export function MarketBanner({ market, image, className }: {
   const Icon = marketIconOf(market)
   return (
     <div aria-hidden="true" className={cn('relative aspect-[3/1] w-full overflow-hidden rounded-lg bg-brand-elevated', className)}>
-      {image ? (
+      {isLocalPreviewUrl(image) ? (
         <img src={image} alt="" className="h-full w-full object-cover" />
       ) : (
         <div className={cn('flex h-full w-full items-center justify-end bg-gradient-to-br pr-[8%]', TONES[bannerTone(market.id)])}>

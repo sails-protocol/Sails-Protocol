@@ -314,5 +314,7 @@ Origem: áudios do PO (22/11) organizados pela sessão de UI (`ui-mercados-audio
 - **Espaço como item único do comprador** (Product Owner, 2026-11-22): quem compra paga uma vez e o espaço passa a ser seu, vinculado à sua identidade (transferência no futuro), e é a pessoa que define o tipo e a configuração. Fluxo: catálogo → "Espaço adquirido (demonstração, nada foi cobrado)" → Criar mercado já preenchido com o tipo. Nunca as palavras NFT ou token, e nunca dizer que um token é emitido.
 - **Onde roda o espaço** (Product Owner, 2026-11-22): para mercado privado e empresarial / OTC, a pessoa escolhe entre o nó Sails gerenciado pela Satsails, opcionalmente incluído no preço do espaço (termos comerciais pendentes do CTO), que fica "Em breve" e não pode ser escolhido, e o próprio nó (VPS própria). Aparece no catálogo e no passo de visibilidade do Criar mercado.
 
+- **Imagem remota só com clique, também no banner e no ícone** (GK, 2026-11-22): `MarketBanner` e `MarketIcon` só desenham sem clique uma prévia local (`blob:` ou `data:image/`, via `isLocalPreviewUrl`); qualquer link do administrador passa pelo `AdminImage` (clique para carregar, aviso de IP). Teste: `tests/localImage.test.ts`.
+
 ## Pendente de decisão (não tratar como fechado)
 - Itens do `DESIGN_SYSTEM.md` ainda marcados como provisórios e que não entraram no pacote de 21/11 seguem provisórios.
