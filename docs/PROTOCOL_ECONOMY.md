@@ -30,6 +30,17 @@
 
 
 > **Decisão CTO 36 (2026-11-22):** 0.40% é a taxa de *referência* para avaliação de ativação, não uma cobrança ativa. A divisão 35/30/25/10 é proposta histórica, não política publicada nem ativada. A autoridade econômica é a cadeia FeeCollectionEvidence(CONFIRMED) → FeeObligation → DistributionPolicyVersion → EntitlementLedgerEntry; o pagamento efetivo dos direitos registrados exige mecanismos próprios de execução e validação. A política é versionada e preserva direitos já constituídos. As taxas Merchant 0,36/0,32/0,28% são apenas cenários de simulação, não aprovados. Nenhum incentivo pode superar a receita reconhecida; a parcela de tesouraria não pertence integralmente à Satsails; a remuneração de operadores de nós é por serviço economicamente relevante comprovado, sem dupla remuneração.
+
+> **Decisão CTO 38 (2026-11-22) — autoridade econômica global (direção; política assinada em implementação):**
+>
+> - **Taxa de referência 0,40%** sobre o ativo entregue pelo vendedor, cobrada no ativo de liquidação, sem conversão obrigatória. Continua sendo referência/proposta: nenhuma cobrança está ativa.
+> - **A taxa global é definida pela autoridade econômica do protocolo, não pelo operador de nó.** A política global assinada pela autoridade econômica está **em implementação**; hoje a política implementada é versionada localmente por nó (ver §6.5). Implementações independentes permanecem livres, mas fora da rede econômica oficial se não seguirem a política publicada.
+> - **Wallets:** as duas pontas (wallet do comprador e wallet do vendedor), quando elegíveis, participam do **mesmo pool conjunto**, sem duplicar o pool. Remunerar duas wallets não significa cobrar das duas partes (quem paga: §6.1, SELLER_PAYS / SELLER_DELIVERED_VALUE).
+> - **Merchant:** direção de desconto na cobrança, conforme a política global. **Não há taxas nem descontos homologados**; 0,36/0,32/0,28% seguem apenas como cenários.
+> - **Break-even BTC MULTISIG (perfil Day 0, parâmetros iniciais, não ativos):** fMax = 25 sat/vB como parâmetro inicial do perfil; endereços de devolução P2WPKH/P2WSH/P2TR (Dmax 330 sats); a saída de coleta absorve o próprio custo marginal; a reserva do vendedor é sempre devolvida ao vendedor; a cobrança só ocorre quando viável (acima do dust e do custo marginal); acima do limite de taxa de rede não se promete confirmação imediata. **Esse cálculo vale apenas para BTC MULTISIG e não deve ser extrapolado para outros rails.**
+> - **Cobrabilidade e custos de rede:** valores pequenos podem não ser cobráveis (dust, custo de rede). Nos demais rails (por exemplo EVM) o gas é custo próprio do rail, tratado na homologação de cada rail; o break-even BTC não se aplica.
+>
+> Nada neste bloco ativa taxas, descontos, distribuição ou pagamentos.
 ---
 
 ## 1. The Core Constraint: No Speculative Token
@@ -131,6 +142,8 @@ fiat — never a protocol-native token:
 | **API / SDK Usage Tiers** | Free sandbox + low-volume tier; paid tier for high-volume integrators needing SLA | Integrators above the free tier |
 | **Enterprise Licensing** | White-label protocol access with dedicated support for OTCs, fintechs, exchanges | Enterprise licensees |
 | **Premium Reputation Services** | Optional advanced verification, analytics, badges for high-volume participants | Opt-in participants |
+
+> Nota (Decisão CTO 38 (2026-11-22)): a coluna "Who pays" da linha Protocol Fee ("split between the two counterparties") é **histórica**. A autoridade vigente é `SELLER_PAYS` / `SELLER_DELIVERED_VALUE`: taxa cobrada do vendedor sobre o valor entregue (ver §6.1). Texto original preservado.
 
 The **Protocol Fee** is the only mechanism structurally tied to the
 protocol's core function (settlement) — it is the primary long-term
@@ -369,6 +382,8 @@ pay a reduced Protocol Fee, similar to maker-rebate tiers on centralized
 exchanges. This costs the protocol a small amount of fee revenue but grows
 total settlement volume, which is the actual goal.
 
+> Nota (Decisão CTO 38 (2026-11-22)): descontos por volume/reputação são direitos **condicionados à política global aprovada**, ainda não homologada; nada aqui promete desconto ou pagamento automático.
+
 **Why no token here:** Uniswap pays LPs via pool fee-share, requiring
 pooled capital and a token-like LP-share accounting unit. Sails has no
 pooled liquidity — offers are individually posted and matched P2P — so
@@ -524,6 +539,8 @@ prose, before either primitive existed in this form.
   no dependency on which wallet the Reference Implementation happens to
   be.
 
+> Nota (Decisão CTO 38 (2026-11-22)): o rebate de wallets é um direito condicionado à política global aprovada e à elegibilidade, dentro do pool conjunto descrito no bloco "Decisão CTO 38" no topo; **não há promessa de pagamento automático** (não existe hoje caminho de pagamento; ver §6.3).
+
 ### 4.6 Integrators (fintechs, ERPs, enterprise apps beyond wallets)
 
 - Same rebate mechanism as wallets (4.5) for standard integrations.
@@ -628,6 +645,8 @@ competition for the wallet businesses themselves.
 
 ### 6.1 Who pays
 
+> Nota (Decisão CTO 38 (2026-11-22)): §§6.1–6.4 preservam propostas históricas. Para evitar ambiguidade: (i) a **divisão histórica** (35/30/25/10 etc.) é proposta, não política publicada; (ii) o **ledger atual** é FeeCollectionEvidence → FeeObligation → DistributionPolicyVersion → EntitlementLedgerEntry, que registra direitos; (iii) a **execução futura de pagamento** é mecanismo à parte, que **não existe hoje**. Registrar um direito não é pagá-lo.
+
 **HISTORICAL / SUPERSEDED — never implemented this way (noted Missão 11
 Fase 6.5.2).** The paragraph below describes the original design
 proposal. What was actually built (`FeePayerModel`/`FeeEconomicBasis` in
@@ -709,6 +728,8 @@ wallets pays both, never just one.
 
 ### 6.3 How distributed
 
+> Nota (Decisão CTO 38 (2026-11-22)): "distribuição" aqui é histórica. Hoje existe apenas o registro de direitos no ledger (§6.5); não existe caminho de pagamento. A execução futura exigirá mecanismo próprio, validação e decisão específica.
+
 **HISTORICAL / SUPERSEDED — see §6.2's own note.** The real, built
 architecture (Fase 6.3A) separates *entitlement* (an exact ledger record
 of what a recipient is owed) from *payout* (moving real value to that
@@ -738,6 +759,8 @@ is what makes the fee model a protocol-level guarantee rather than a
 business decision any single implementer could quietly change.
 
 ### 6.4 How to avoid centralization
+
+> Nota (Decisão CTO 38 (2026-11-22)): lista histórica; ver a nota de superação no item 4 e o bloco "Decisão CTO 38" no topo.
 
 Four concrete mechanisms:
 
@@ -769,6 +792,8 @@ Four concrete mechanisms:
 ### 6.5 Economic Authority Model — Terminology (Missão 11 Fase 7.1/7.2)
 
 > Nota (Decisão CTO 36 (2026-11-22)): a cadeia FeeCollectionEvidence(CONFIRMED) → FeeObligation → DistributionPolicyVersion → EntitlementLedgerEntry é a autoridade econômica; pagar os direitos registrados exige execução e validação próprias. Ver o bloco no topo.
+
+> Nota (Decisão CTO 38 (2026-11-22)): distinguir **(a) política hoje implementada** — versionada localmente por nó (`FeePolicyVersion`/`DistributionPolicyVersion` no próprio nó) — de **(b) a nova autoridade global**, uma política assinada pela autoridade econômica do protocolo, que os nós reconhecem e validam. (b) é **direção ainda dependente de integração**; não está ativa e não altera as entidades descritas abaixo.
 
 Three distinct real, implemented entities govern economics today — easy to
 conflate by name alone, so spelled out explicitly:
