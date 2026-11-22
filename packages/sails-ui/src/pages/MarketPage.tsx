@@ -8,7 +8,7 @@
  */
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router'
-import { ArrowLeft, ExternalLink, MessageCircle, SearchX, Ticket, UserMinus } from 'lucide-react'
+import { ArrowLeft, ChartColumn, ExternalLink, MessageCircle, SearchX, Ticket, UserMinus } from 'lucide-react'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { MARKETS_ROUTES, TRADES_ROUTES, marketPath } from '../components/layout/navMatch'
 import { Badge } from '../components/ui/badge'
@@ -22,6 +22,7 @@ import { AdminImage } from '../components/markets/AdminImage'
 import { IconButton } from '../components/ui/icon-button'
 import { MarketChats, type OpenPrivateRequest } from './markets/MarketChats'
 import { Tabs, tabPanelProps } from '../components/ui/tabs'
+import { MarketDashboard } from './stats/MarketDashboard'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { FilterChip } from '../components/ui/filter-chip'
 import { Button } from '../components/ui/button'
@@ -100,7 +101,11 @@ export function MarketPage() {
   const idBase = useId()
   // ?tab=chat&peer=…&name=… ("Voltar à conversa"): reopen Conversas › Privadas on that thread.
   const [params] = useSearchParams()
-  const [tab, setTab] = useState<'offers' | 'chat' | 'about'>(() => (params.get('tab') === 'chat' ? 'chat' : 'offers'))
+  // ?tab=dashboard opens "Painel" (owner only; anyone else lands on Ofertas).
+  const [tab, setTab] = useState<'offers' | 'chat' | 'about' | 'dashboard'>(() => { const p = params.get('tab'); return p === 'chat' || p === 'dashboard' ? p : 'offers' })
+  // Same page, new ?tab= (a link to ?tab=dashboard from this market): follow it.
+  const tabParam = params.get('tab')
+  useEffect(() => { if (tabParam === 'chat' || tabParam === 'dashboard') setTab(tabParam) }, [tabParam])
   const [side, setSide] = useState<'all' | 'BUY' | 'SELL'>('all')
   const [asset, setAsset] = useState<string | null>(null)
   const [chatRequest, setChatRequest] = useState<OpenPrivateRequest | null>(() => {
@@ -159,6 +164,9 @@ export function MarketPage() {
   }
 
   const m = page.market
+  // "Painel do espaço": the person who administers or owns this market only (PO 2026-11-23).
+  const owner = m.relation === 'admin' || !!m.ownedByYou
+  const shownTab = tab === 'dashboard' && !owner ? 'offers' : tab
   const requests = m.relation === 'admin' ? demoJoinRequests(m.id) : []
   const list = marketListCopy()
   const kyc = kycSummary(m.entryPolicy)
@@ -223,12 +231,12 @@ export function MarketPage() {
         <Tabs
           idBase={idBase}
           label={m.name}
-          value={tab}
+          value={shownTab}
           onChange={setTab}
-          items={[{ value: 'offers', label: t('spaces.page.tabOffers') }, { value: 'chat', label: t('spaces.page.tabChats') }, { value: 'about', label: t('spaces.page.tabAbout') }]}
+          items={[{ value: 'offers', label: t('spaces.page.tabOffers') }, { value: 'chat', label: t('spaces.page.tabChats') }, { value: 'about', label: t('spaces.page.tabAbout') }, ...(owner ? [{ value: 'dashboard' as const, label: t('stats.space.tab') }] : [])]}
         />
 
-        <div {...tabPanelProps(idBase, 'offers')} hidden={tab !== 'offers'} className={cn(SECTION, 'space-y-3')}>
+        <div {...tabPanelProps(idBase, 'offers')} hidden={shownTab !== 'offers'} className={cn(SECTION, 'space-y-3')}>
           {page.hasOffers && demoOffers === null && !offersError ? <ListSkeleton label={t('spaces.offers.loading')} rows={3} /> : offersError ? (
             <StateBlock kind="error" bare title={t('spaces.offers.error')} />
           ) : all.length === 0 ? (
@@ -264,11 +272,17 @@ export function MarketPage() {
           )}
         </div>
 
-        <div {...tabPanelProps(idBase, 'chat')} hidden={tab !== 'chat'} className={SECTION}>
+        <div {...tabPanelProps(idBase, 'chat')} hidden={shownTab !== 'chat'} className={SECTION}>
           <MarketChats openWith={chatRequest} backTo={marketPath(m.id)} canPin={m.relation === 'admin'} />
         </div>
 
-        <div {...tabPanelProps(idBase, 'about')} hidden={tab !== 'about'} className="space-y-4">
+        {owner && (
+          <div {...tabPanelProps(idBase, 'dashboard')} hidden={shownTab !== 'dashboard'}>
+            {shownTab === 'dashboard' && <MarketDashboard marketId={m.id} activity30d={m.activity30d} participants={m.participants} activeOffers={page.hasOffers && demoOffers === null ? null : all.length} />}
+          </div>
+        )}
+
+        <div {...tabPanelProps(idBase, 'about')} hidden={shownTab !== 'about'} className="space-y-4">
           <section aria-labelledby="market-facts" className={SECTION}>
             <h2 id="market-facts" className="sr-only">{t('spaces.page.tabAbout')}</h2>
             <dl className="divide-y divide-brand-border-subtle">
@@ -279,6 +293,11 @@ export function MarketPage() {
               <Fact k={list.infrastructureLabel.replace(/:$/, '')}>{list.infrastructure[m.infrastructure]}</Fact>
             </dl>
             {m.visibility === 'private' && <p className="mt-2 text-caption text-brand-text-secondary">{t('spaces.page.singleNode')}</p>}
+            {owner && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => setTab('dashboard')} className="mt-2 -ml-2 touch:min-h-11">
+                <ChartColumn aria-hidden="true" />{t('stats.space.open')}
+              </Button>
+            )}
           </section>
 
           <section aria-labelledby="market-rules" className={SECTION}>

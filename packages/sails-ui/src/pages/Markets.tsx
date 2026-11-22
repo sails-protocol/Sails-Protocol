@@ -280,6 +280,10 @@ function MineView() {
   const transferButton = (m: MarketView) => (
     <Button type="button" size="sm" variant="ghost" onClick={() => setTransferring(m)} className="relative z-10 touch:min-h-11">{t('spaces.transfer')}<span className="sr-only"> {m.name}</span></Button>
   )
+  // "Painel do espaço" lives on the market page (tab Painel), owner only.
+  const dashboardLink = (m: MarketView) => (
+    <Link to={`${marketPath(m.id)}?tab=dashboard`} className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'relative z-10 touch:min-h-11')}>{t('stats.space.tab')}<span className="sr-only"> {m.name}</span></Link>
+  )
   return (
     <div className="space-y-4">
       <ConfirmActionDialog
@@ -307,7 +311,7 @@ function MineView() {
               <MarketCard
                 market={m} copy={cardCopy} className="w-full"
                 badges={yours(m) ? <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{t('spaces.yourSpace')}</Badge> : undefined}
-                action={<div className="flex flex-wrap gap-2"><OpenLink m={m} />{yours(m) && transferButton(m)}</div>}
+                action={<div className="flex flex-wrap gap-2"><OpenLink m={m} />{yours(m) && dashboardLink(m)}{yours(m) && transferButton(m)}</div>}
               />
             </li>
           ))}
@@ -321,6 +325,7 @@ function MineView() {
             action={(m) => (
               <div className="flex flex-wrap items-center justify-end gap-1">
                 {yours(m) && <Badge variant="outline" className="hidden border-transparent bg-brand-tonal font-medium text-brand-text sm:inline-flex">{t('spaces.yourSpace')}</Badge>}
+                {yours(m) && dashboardLink(m)}
                 {yours(m) && transferButton(m)}
                 <Link to={m.relation === 'default' ? '/' : marketPath(m.id)} className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'touch:min-h-11')}>
                   {t('markets.explore.open')}<span className="sr-only"> {m.name}</span>

@@ -63,7 +63,7 @@ export const DEMO_MARKET_FIXTURES: readonly DemoMarketFixture[] = [
   },
   {
     // Administered by the demo user: its page shows the admin's member list (public keys only).
-    market: { id: 'demo-market-meu', name: 'Meu Mercado Exemplo', description: 'Comunidade fictícia, com aprovação, que você administra nesta demonstração', category: 'GENERAL', profile: 'P2P', visibility: 'PUBLIC', participantsCount: 4, adminIdentity: key('a7d3'), createdAt: '2026-11-01T12:00:00Z', entryPolicy: { kyc: 'none', social: ['GITHUB'] }, listed: true, state: 'PUBLISHED' },
+    market: { id: 'demo-market-meu', name: 'Meu Mercado Exemplo', description: 'Comunidade fictícia, com aprovação, que você administra nesta demonstração', category: 'GENERAL', profile: 'P2P', visibility: 'PUBLIC', participantsCount: 4, adminIdentity: key('a7d3'), createdAt: '2024-09-02T12:00:00Z', entryPolicy: { kyc: 'none', social: ['GITHUB'] }, listed: true, state: 'PUBLISHED' },
     preset: 'comunidade', entry: 'approval', activity30d: 6,
   },
 ]
@@ -79,7 +79,7 @@ export const DEMO_MY_MARKETS: readonly MyMarketEntry[] = [
   { marketId: 'demo-market-loja', relation: 'follower', joinedAt: '2026-07-01T12:00:00Z' },
   { marketId: 'demo-market-amigos', relation: 'member', joinedAt: '2026-02-01T12:00:00Z' },
   { marketId: 'demo-market-abc', relation: 'member', joinedAt: '2026-05-01T12:00:00Z' },
-  { marketId: 'demo-market-meu', relation: 'admin', joinedAt: '2026-11-01T12:00:00Z' },
+  { marketId: 'demo-market-meu', relation: 'admin', joinedAt: '2024-09-02T12:00:00Z' }, // started about two years ago: "Desde o início" in Painel shows monthly buckets
 ]
 
 /** Fictional members of the market the demo user administers (the admin sees public keys only, GK 2026-11-22). */
