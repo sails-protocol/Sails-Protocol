@@ -12,7 +12,7 @@ import { Card } from '../components/ui/card'
 import { StepFlow, type FlowStep } from '../components/ui/StepFlow'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { SafetyCenterLink } from '../components/safety/SafetyCenterLink'
-import { FAQ_GROUPS, FAQ_ITEMS, faqAnchor, faqSlugFromHash, type FaqExtra, type FaqItem } from '../lib/faq'
+import { FAQ_GROUPS, FAQ_ITEMS, FAQ_LINKS, faqAnchor, faqSlugFromHash, type FaqExtra, type FaqItem } from '../lib/faq'
 import { ESCROW_STATE_LABEL } from '../lib/tradeState'
 import { cn } from '../lib/utils'
 import { t, type MessageKey } from '../i18n'
@@ -126,6 +126,11 @@ function Question({ item, open, onToggle }: { item: FaqItem; open: boolean; onTo
       <div id={`${id}-panel`} role="region" aria-labelledby={`${id}-button`} hidden={!open} className="px-4 pb-4">
         {answer.map((p) => <p key={p} className="mt-1 max-w-[68ch] text-body-sm text-brand-text-secondary first:mt-0">{p}</p>)}
         {item.extras?.map((e) => <Extra key={e} id={e} />)}
+        {item.links && (
+          <p className="mt-2 flex flex-wrap gap-x-4 text-body-sm">
+            {item.links.map((l) => <Link key={l} to={FAQ_LINKS[l]} className="inline-flex min-h-8 touch:min-h-11 items-center font-medium text-brand-link underline underline-offset-2 hover:decoration-2">{k(`faq.link.${l}`)}</Link>)}
+          </p>
+        )}
         {item.more && (
           <p className="mt-3 flex flex-wrap items-center gap-x-4 text-body-sm">
             <span className="basis-full text-caption text-brand-text-muted">{t('faq.learnMore')}</span>

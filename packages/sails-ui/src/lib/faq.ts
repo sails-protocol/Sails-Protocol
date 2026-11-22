@@ -7,7 +7,7 @@ import type { SafetyCenterPage } from './safetyCenter'
 
 export const FAQ_ROUTE = '/settings/help/faq'
 
-export const FAQ_GROUPS = ['start', 'safety', 'fees', 'disputes', 'account', 'markets'] as const
+export const FAQ_GROUPS = ['start', 'safety', 'fees', 'disputes', 'account', 'markets', 'merchant'] as const
 export type FaqGroup = (typeof FAQ_GROUPS)[number]
 
 /** Extra content under an answer: a table (T1, T2, T4) or a step diagram (D1, D2). */
@@ -22,9 +22,15 @@ export interface FaqItem {
   extras?: readonly FaqExtra[]
   /** Safety Center pages offered as "Saiba mais". */
   more?: readonly SafetyCenterPage[]
+  /** In-app pages the answer points to (label `faq.link.<id>`). */
+  links?: readonly FaqLink[]
 }
 
-// Order on screen = the approved proposal (13 questions).
+/** In-app destinations an answer can link to. */
+export const FAQ_LINKS = { merchant: '/profile#merchant', myMarkets: '/markets/mine' } as const
+export type FaqLink = keyof typeof FAQ_LINKS
+
+// Order on screen = the approved proposal (13 questions), then the Merchant group (PO 2026-11-23).
 export const FAQ_ITEMS: readonly FaqItem[] = [
   { slug: 'como-funciona', key: 'howItWorks', group: 'start', extras: ['d1'], more: ['safeDecision'] },
   { slug: 'estados', key: 'states', group: 'start', extras: ['t1'] },
@@ -39,9 +45,13 @@ export const FAQ_ITEMS: readonly FaqItem[] = [
   { slug: 'senha', key: 'password', group: 'account' },
   { slug: 'mercados', key: 'markets', group: 'markets' },
   { slug: 'kyc', key: 'kyc', group: 'markets' },
+  { slug: 'merchant-how', key: 'merchantHow', group: 'merchant', links: ['merchant'] },
+  { slug: 'merchant-criteria', key: 'merchantCriteria', group: 'merchant', links: ['merchant'] },
+  { slug: 'merchant-perks', key: 'merchantPerks', group: 'merchant', links: ['merchant'] },
+  { slug: 'merchant-space', key: 'merchantSpace', group: 'merchant', links: ['merchant', 'myMarkets'] },
 ]
 
-export type FaqSlug = 'como-funciona' | 'estados' | 'escrow' | 'prazo' | 'marquei-pago' | 'terceiros' | 'taxas' | 'disputa' | 'contestar' | 'reputacao' | 'senha' | 'mercados' | 'kyc'
+export type FaqSlug = 'como-funciona' | 'estados' | 'escrow' | 'prazo' | 'marquei-pago' | 'terceiros' | 'taxas' | 'disputa' | 'contestar' | 'reputacao' | 'senha' | 'mercados' | 'kyc' | 'merchant-how' | 'merchant-criteria' | 'merchant-perks' | 'merchant-space'
 
 export const faqAnchor = (slug: FaqSlug | string) => `faq-${slug}`
 export const faqPath = (slug: FaqSlug) => `${FAQ_ROUTE}#${faqAnchor(slug)}`
