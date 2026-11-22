@@ -37,3 +37,19 @@ describe('wiring map', () => {
     }
   })
 })
+
+describe('demo simulation guard: planned spots route through the wiring map', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { readFileSync } = require('fs') as typeof import('fs')
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { join } = require('path') as typeof import('path')
+  const code = (p: string) => readFileSync(join(__dirname, '..', 'src', p), 'utf8')
+  it('WirePlanned and WireNote pick "Simulado" through plannedBadge', () => {
+    expect(code('pages/markets/shared.tsx')).toMatch(/plannedBadge\(id, isDemoMode\(\)\)/)
+    expect(code('pages/markets/shared.tsx')).toMatch(/plannedBadge\(id, demo\)/)
+  })
+  it('Settings planned rows render the demo simulation (or the honest notice) before "Em breve"', () => {
+    expect(code('pages/Settings.tsx')).toMatch(/isDemoMode\(\) \? <SimulatedSettingRow id=\{id\}/)
+    expect(code('components/settings/SimulatedSettings.tsx')).toMatch(/meta\.status === 'notice'/)
+  })
+})
