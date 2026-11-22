@@ -237,14 +237,31 @@ describe('escrow-pending-tx.ts — disputed disposition authority', () => {
     expect(mockPendingTxCreate).not.toHaveBeenCalled()
   })
 
-  it('keeps the current assigned arbiter authorized for initiateRelease', async () => {
-    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1' })
+  it('keeps the current assigned arbiter authorized for initiateRelease once the dispute is RESOLVED with a RELEASE ruling', async () => {
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1', status: 'RESOLVED', ruling: 'RELEASE' })
 
     const pending: any = await escrowService.initiateRelease(ESCROW_ID, undefined, 'arbiter-1')
 
     expect(pending.toAddress).toBe('address-A')
     expect(mockBuildUnsignedRelease).toHaveBeenCalled()
     expect(mockPendingTxCreate).toHaveBeenCalledTimes(1)
+  })
+
+  // A disputed round only executes a recorded ruling of the same kind: the assigned arbiter alone is not enough.
+  it.each([
+    ['an open dispute (no ruling)', { status: 'OPENED', ruling: null }, 'release'],
+    ['an evidence-stage dispute', { status: 'EVIDENCE_SUBMITTED', ruling: null }, 'refund'],
+    ['a RESOLVED dispute with a different ruling', { status: 'RESOLVED', ruling: 'REFUND' }, 'release'],
+    ['a RESOLVED dispute with a different ruling (refund)', { status: 'RESOLVED', ruling: 'RELEASE' }, 'refund'],
+    ['a RESOLVED dispute with a different ruling (split)', { status: 'RESOLVED', ruling: 'RELEASE' }, 'split'],
+  ])('refuses the assigned arbiter on %s, before building or persisting anything', async (_label, fields, kind) => {
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1', ...fields })
+    const call = kind === 'release' ? escrowService.initiateRelease(ESCROW_ID, undefined, 'arbiter-1')
+      : kind === 'refund' ? escrowService.initiateRefund(ESCROW_ID, 'arbiter-1')
+      : escrowService.initiateSplit(ESCROW_ID, undefined, undefined, 5000, 'arbiter-1')
+    await expect(call).rejects.toMatchObject({ code: 'DISPUTE_RULING_REQUIRED', statusCode: 409 })
+    expect(mockBuildUnsignedRelease).not.toHaveBeenCalled()
+    expect(mockPendingTxCreate).not.toHaveBeenCalled()
   })
 
   // ADR-005 / #218 — the ruling-generation provenance snapshot captured
@@ -255,7 +272,7 @@ describe('escrow-pending-tx.ts — disputed disposition authority', () => {
   // not just that it doesn't throw.
   it('snapshots the ruling generation onto the pending row when created from a disputed ruling', async () => {
     mockDisputeFindFirst.mockResolvedValue({
-      id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1',
+      id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1', status: 'RESOLVED',
       appealRound: 0, ruling: 'RELEASE', authoritySignature: 'sig-0', authorityIssuedAt: new Date('2026-09-18T00:00:00.000Z'),
     })
 

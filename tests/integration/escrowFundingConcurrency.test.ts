@@ -243,7 +243,8 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
       // this escrow's script (ARBITER_ID, matching TRUSTED_ARBITRATORS
       // set at the top of this file), and isSellerOrAssignedArbiter()
       // requires a real Dispute row naming that same arbiter.
-      await prisma.dispute.create({ data: { tradeId, escrowId, openedBy: buyerId, reason: 'test fixture', arbiterId: ARBITER_ID } })
+      // The split round executes a recorded SPLIT ruling (DISPUTE_RULING_REQUIRED).
+      await prisma.dispute.create({ data: { tradeId, escrowId, openedBy: buyerId, reason: 'test fixture', arbiterId: ARBITER_ID, status: 'RESOLVED', ruling: 'SPLIT' } })
 
       const reorgWrite = simulateEvidenceWriteUnderLock(escrowId, 'REORGED_INVALIDATED', 80)
       await tick(15)

@@ -187,7 +187,7 @@ jest.mock('../src/common/database', () => ({
       // required, which ES-module import hoisting can trigger before
       // those later `const` declarations in this same file initialize.
       findFirst: jest.fn().mockImplementation(({ where }: { where: { tradeId: string; arbiterId: string } }) =>
-        Promise.resolve(where.tradeId === 'trade-1' && where.arbiterId === 'arbiter-1' ? { id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1', appealRound: 0, ruling: 'RELEASE' } : null)
+        Promise.resolve(where.tradeId === 'trade-1' && where.arbiterId === 'arbiter-1' ? { id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1', status: 'RESOLVED', appealRound: 0, ruling: 'RELEASE' } : null)
       ),
     },
     user: { findUnique: (...args: unknown[]) => mockUserFindUnique(...args) },

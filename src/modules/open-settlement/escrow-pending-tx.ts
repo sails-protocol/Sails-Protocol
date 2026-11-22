@@ -1,5 +1,5 @@
 import { prisma } from '../../common/database'
-import { NotFoundError, EscrowError, ForbiddenError, ValidationError } from '../../common/errors'
+import { NotFoundError, EscrowError, ForbiddenError, ValidationError, AppError } from '../../common/errors'
 import { config } from '../../config'
 import { getSignatureCollectionProvider } from './escrow-providers'
 import {
@@ -120,6 +120,11 @@ async function initiateSignatureCollectionCore(
   let disputedRulingProvenance: Record<string, unknown> = {}
   if (escrow.status === 'DISPUTED') {
     const dispute = await assertDisputedDispositionAuthority(trade.id, escrow.status, triggeredBy)
+    // A disputed settlement round exists only to execute a recorded ruling of the same kind.
+    const rulingForKind = kind === 'release' ? 'RELEASE' : kind === 'refund' ? 'REFUND' : 'SPLIT'
+    if (!dispute || dispute.status !== 'RESOLVED' || dispute.ruling !== rulingForKind) {
+      throw new AppError(`Escrow ${escrowId} is DISPUTED: a ${kind} round requires its dispute to be RESOLVED with a ${rulingForKind} ruling`, 409, 'DISPUTE_RULING_REQUIRED')
+    }
     if (dispute) {
       disputedRulingProvenance = {
         disputeId: dispute.id,

@@ -256,7 +256,8 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     const txid = createHash('sha256').update(escrow.id).digest('hex')
     await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'DISPUTED', txLockId: txid, txLockVout: 0 } })
     await prisma.dispute.create({
-      data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'fixture', arbiterId: arbiterIdForDispute },
+      // A disputed round only executes a recorded ruling of the same kind (DISPUTE_RULING_REQUIRED): every case below initiates a release.
+      data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'fixture', arbiterId: arbiterIdForDispute, status: 'RESOLVED', ruling: 'RELEASE' },
     })
     return { escrow, buyer, seller, trade, txid }
   }
