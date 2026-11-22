@@ -181,6 +181,19 @@ describe('M-1b reorg block + two-role unblock (real PG, real login roles)', () =
     expect(await s.openBlocks()).toHaveLength(1)
   })
 
+  // GK M9: a request filed BEFORE another request cleared the same block is refused as STALE (E2517), never re-executed.
+  run('STALE (E2517): two requests on the same open block; the first clears it; the second (still unexecuted) is refused and nothing is re-consumed', async () => {
+    const s = await blocked(0xc8)
+    await s.ev('r', 'RECONFIRMED', 100, 101, T(5))
+    const [b] = await s.openBlocks()
+    const r1 = await request(op, b.id, s.esc.id, K('a'))
+    const r2 = await request(op, b.id, s.esc.id, K('e'))
+    expect(await execute(rev1, r1, K('b'))).toBe('EXECUTED')
+    expect(await code(execute(rev2, r2, K('d'), 'cd'.repeat(64)))).toBe('E2517')
+    const row = (await rawAdmin(`SELECT "executedAt" FROM offer_capacity_unblock_requests WHERE id=$1`, [r2])).rows[0]
+    expect(row.executedAt).toBeNull() // the stale request was not consumed
+  })
+
   // GK M10: the function's own reviewer-role check is defence in depth behind the EXECUTE grant; it must hold on its own.
   run('DEFENCE IN DEPTH (E2512): a role that was GRANTED execute but is NOT a reviewer member is refused by the function itself', async () => {
     const nonRev = `m1b_nonrev_${RUN}`
