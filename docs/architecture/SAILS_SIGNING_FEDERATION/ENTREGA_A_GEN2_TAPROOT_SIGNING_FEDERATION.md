@@ -437,7 +437,7 @@ On top of the invariants:
 ---
 
 ## GK co-signature (2026-11-21), with 3 corrections
-The GK co-signs this document as the JOINT opinion. It converges with `GK_T7_criterios_prova_adversarial_e_pontos_CTO.md` (S1-S4, T7-1..T7-7), which is merged here as the test annex. Where the two differ, this document prevails, with the corrections below.
+The GK co-signs this document as the JOINT opinion. It converges with the GK's adversarial test annex (S1-S4, T7-1..T7-7), to be published with Delivery B. Where the two differ, this document prevails, with the corrections below.
 
 **C1. I1 is accepted, and it is STRONGER than the GK's S2.** Irrevocability on the FIRST member's signature, rather than on a complete set of k, is better: it closes the case where k−1 members sign g1 and later sign g2. It needs a second half on the Resolution Layer side, because of point 4 (the substitute resolver taking over at D_max/2):
 - **I1-RL:** at most **one decision per escrow**: the FIRST one recorded in the GV8 log. Any later decision for the same escrow, from the original resolver arriving late or from a substitute, is refused by the RL and by every SF/RS member. A substitute may rule only if GV8 shows **no** decision for that escrow.
