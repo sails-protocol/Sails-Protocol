@@ -60,6 +60,7 @@
  * needs a corresponding, explicit extension — never a silent gap.
  */
 import * as bitcoin from 'bitcoinjs-lib'
+import { AppError } from '../../common/errors'
 import { Outcome } from '@sails/core'
 import { ArbitrationOutcomeContent, BeneficiaryDestination, allocateExactUnitsOverTotal } from './economic-outcome'
 import { deriveDistributableTotal } from './execution-cost-policy'
@@ -165,9 +166,10 @@ export function validateTranslatedOutputsAgainstOutcome(
   return { ok: mismatches.length === 0, mismatches }
 }
 
-export class TranslationGuardError extends Error {
+/** An expected refusal (409, mismatches in `details`), not a 500: nothing was persisted. Unexpected faults stay 500. */
+export class TranslationGuardError extends AppError {
   constructor(public readonly mismatches: readonly string[]) {
-    super(`Translated settlement transaction does not correspond to the authoritative Outcome (${mismatches.length} mismatch(es)): ${mismatches.join('; ')}`)
+    super(`Translated settlement transaction does not correspond to the authoritative Outcome (${mismatches.length} mismatch(es)): ${mismatches.join('; ')}`, 409, 'TRANSLATION_GUARD_MISMATCH', mismatches)
   }
 }
 

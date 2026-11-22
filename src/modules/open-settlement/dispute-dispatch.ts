@@ -83,7 +83,7 @@ export function issueRulingSupersessionGrant(dispute: {
   return grant
 }
 
-const RULING_KIND: Record<string, string> = { RELEASE: 'release', REFUND: 'refund', SPLIT: 'split' }
+export const RULING_KIND: Record<string, string> = { RELEASE: 'release', REFUND: 'refund', SPLIT: 'split' }
 
 /** Under the escrow lock: the grant is one this module issued and still matches the committed ruling. */
 export async function revalidateRulingSupersessionGrant(
