@@ -20,6 +20,14 @@ const DEMO_PROGRESS = { done: 18, goal: 50 }
 
 export function MerchantProgramSection({ className }: { className?: string }) {
   const demo = isDemoMode()
+  const INCENTIVES: [string, string][] = [
+    [t('profile.merchant.incentives.standard'), t('profile.merchant.incentives.standardWhat')],
+    [t('profile.merchant.incentives.space'), t('profile.merchant.incentives.spaceWhat')],
+    ['Merchant', t('profile.merchant.incentives.merchantWhat')],
+    ['Merchant Pro', t('profile.merchant.incentives.proWhat')],
+    ['Merchant Elite', t('profile.merchant.incentives.eliteWhat')],
+    [t('profile.merchant.incentives.operator'), t('profile.merchant.incentives.operatorWhat')],
+  ]
   return (
     <section id="merchant" aria-labelledby="profile-merchant" className={cn('scroll-mt-20', className)}>
       <div className="flex flex-wrap items-center gap-2">
@@ -33,8 +41,19 @@ export function MerchantProgramSection({ className }: { className?: string }) {
         {BENEFITS.map((b) => <li key={b}>{t(`profile.merchant.benefit.${b}`)}</li>)}
       </ul>
       <p className="mt-3 text-caption text-brand-text-secondary">{t('profile.merchant.basis')}</p>
-      <p className="mt-1 text-caption text-brand-text-secondary">{t('profile.merchant.noTopTier')} {t('profile.merchant.noAdvantage')}</p>
+      <p className="mt-1 text-caption text-brand-text-secondary">{t('profile.merchant.noTopTier')} {t('profile.merchant.noAdvantage')} {t('profile.merchant.globalPolicy')}</p>
       <p className="mt-1 text-caption text-brand-text-muted">{t('profile.merchant.referenceFee')}</p>
+      {/* CTO 38 complement 1: who gets what, as a proposal with no numbers; the protocol (never a node) sets base fee and benefits. */}
+      <h3 className="mt-3 text-sm font-medium text-brand-text">{t('profile.merchant.incentives.title')}</h3>
+      <dl className="mt-1 divide-y divide-brand-border-subtle text-body-sm">
+        {INCENTIVES.map(([who, what]) => (
+          <div key={what} className="py-1.5 sm:grid sm:grid-cols-[14rem_minmax(0,1fr)] sm:gap-3">
+            <dt className="font-medium text-brand-text">{who}</dt>
+            <dd className="text-brand-text-secondary">{what}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-1 text-caption text-brand-text-muted">{t('profile.merchant.incentives.note')}</p>
       {demo && (
         <div className="mt-3 rounded-lg bg-brand-surface p-3">
           <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-brand-text">{t('profile.merchant.progressTitle')}<SimulatedBadge label={t('spaces.simulated')} /></p>

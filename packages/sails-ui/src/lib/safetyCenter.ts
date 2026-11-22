@@ -7,6 +7,7 @@ export const SAFETY_CENTER_BASE_URL = 'https://sails-protocol.github.io/Sails-P2
 
 export const SAFETY_CENTER_PAGES = {
   home: '',
+  safeDecision: 'guides/decisao-segura-p2p',
   thirdPartyPayments: 'guides/pagamentos/terceiros',
   incident: 'incident',
   escrowLimits: 'guides/negociacoes/limites-do-escrow',

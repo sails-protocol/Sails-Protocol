@@ -158,6 +158,8 @@ function seed(): DemoState {
   ])
   // Demo user's open trades: one waiting for the user's payment, one in dispute with an automatic suggestion to contest.
   add(seedTrade('7e2c5b18-demo-a1', o('demo-offer-3'), ME, m, '500', daysAgo(0.05), 'ACTIVE'), 'FUNDS_LOCKED')
+  // The one demo trade that shows the gated fee breakdown, with "—" amounts (CTO 38 complement 1).
+  Object.assign(escrows[escrows.length - 1], { demoFeeBreakdown: true })
   add(seedTrade('c41d9e73-demo-a2', o('demo-offer-6'), ME, g, '200', daysAgo(2), 'DISPUTED'), 'DISPUTED', (eid) => [
     newDispute('c41d9e73-demo-a2', eid, ME, JUDGE, 'Paguei em dinheiro no encontro e o vendedor não liberou (exemplo fictício).', daysAgo(2), {
       status: 'AUTO_PROPOSED', evidence: [evidence(ME, 'Recibo assinado no encontro (exemplo).', daysAgo(2))],

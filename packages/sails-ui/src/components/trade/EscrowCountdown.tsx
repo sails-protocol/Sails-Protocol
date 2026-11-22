@@ -9,6 +9,7 @@
  */
 import { AlertTriangle, Clock } from 'lucide-react'
 import { ExplanationPopover } from '../ui/ExplanationPopover'
+import { FaqLink } from '../faq/FaqLink'
 import { Progress } from '../ui/progress'
 import { cn } from '../../lib/utils'
 import { t } from '../../i18n'
@@ -47,6 +48,7 @@ export function EscrowCountdown({
           <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
           {t('trade.countdown.title')}
           <ExplanationPopover explanation={view.explanation} label={t('trade.countdown.explainLabel')} className="ml-0.5" />
+          <FaqLink slug="prazo" className="ml-1" />
         </p>
         {view.kind === 'active' && <p className="text-caption tabular-nums text-brand-text-muted">{view.deadlineText}</p>}
       </div>

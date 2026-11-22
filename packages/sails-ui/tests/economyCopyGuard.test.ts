@@ -1,7 +1,7 @@
 /**
  * CTO 36 + complementary note (2026-11-22): no proposed economic number is shown as active policy. The 35/30/25/10 split and
- * the Merchant fees 0,36 / 0,32 / 0,28 % never appear in src; the 0,40 % reference fee appears only in the one key that
- * words it as "proposed, not charged yet" (profile.merchant.referenceFee).
+ * the Merchant fees 0,36 / 0,32 / 0,28 % never appear in src; the 0,40 % reference fee appears only in the keys that
+ * word it as "proposed, not activated yet": profile.merchant.referenceFee and the FAQ fee answer and T4 row (CTO 38).
  */
 import { readdirSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
@@ -13,13 +13,13 @@ const files = (dir: string): string[] => readdirSync(dir).flatMap((n) => {
 })
 const FORBIDDEN = [/35\s*\/\s*30\s*\/\s*25\s*\/\s*10/, /0[,.]36\s?%/, /0[,.]32\s?%/, /0[,.]28\s?%/]
 const REFERENCE_FEE = /0[,.]40\s?%/
-const REFERENCE_KEY = "'profile.merchant.referenceFee'"
+const REFERENCE_KEYS = ["'profile.merchant.referenceFee'", "'faq.fees.answer'", "'faq.fees.t4.protocolNote'"]
 
 function economyViolations(path: string, text: string): string[] {
   return text.split('\n').flatMap((line, i) => {
     const at = `${path}:${i + 1}`
     const out = FORBIDDEN.filter((re) => re.test(line)).map((re) => `${at} ${re}`)
-    if (REFERENCE_FEE.test(line) && !line.includes(REFERENCE_KEY)) out.push(`${at} 0,40% outside ${REFERENCE_KEY}`)
+    if (REFERENCE_FEE.test(line) && !REFERENCE_KEYS.some((k) => line.includes(k))) out.push(`${at} 0,40% outside ${REFERENCE_KEYS.join(', ')}`)
     return out
   })
 }
@@ -35,5 +35,9 @@ describe('economy copy guard (CTO 36)', () => {
     expect(economyViolations('x', "'a': 'split 35/30/25/10'")).toHaveLength(1)
     expect(economyViolations('x', "'a': 'Merchant 0,36%, 0.32 % e 0,28 %'")).toHaveLength(3)
     expect(economyViolations('x', "    'profile.merchant.referenceFee': 'Taxa de referência proposta: 0,40%, ainda não cobrada.',")).toEqual([])
+    expect(economyViolations('x', "      'faq.fees.answer': 'reference of 0.40% on trades',")).toEqual([])
+    expect(economyViolations('x', "      'faq.fees.t4.protocolNote': 'Référence proposée : 0,40 %',")).toEqual([])
+    expect(economyViolations('x', "      'faq.fees.note': 'Taxa 0,40%',")).toHaveLength(1)
+    expect(economyViolations('x', "      'trade.record.protocolFee': '0,40%',")).toHaveLength(1)
   })
 })

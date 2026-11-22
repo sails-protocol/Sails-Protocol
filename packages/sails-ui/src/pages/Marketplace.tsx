@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Link } from 'react-router'
+import { FaqTextLink } from '../components/faq/FaqLink'
 import { PAYMENT_METHODS_FILTERABLE } from '../data/mock'
 import { fetchOffers } from '../lib/realOffers'
 import { countActiveFilters } from '../lib/filters'
@@ -408,7 +409,7 @@ export function Marketplace() {
                 <div className="hidden lg:block"><OfferTable offers={offers} isOwn={isOwn} /></div>
                 {/* Compact rows are whole-row links, so the reputation explanation sits above them, not inside one. */}
                 <div className="lg:hidden flex justify-end border-b border-brand-border-subtle px-4">
-                  <ExplanationPopover variant="text" explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.trigger} />
+                  <ExplanationPopover variant="text" explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.trigger} more={<FaqTextLink slug="reputacao">{t('faq.reputationLink')}</FaqTextLink>} />
                 </div>
                 <ul aria-label={t('market.results.list')} className="lg:hidden">
                   {offers.map((offer) => (
