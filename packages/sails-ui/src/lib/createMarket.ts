@@ -5,6 +5,8 @@
  * Pure, no I/O.
  */
 import type { MarketInfrastructure, MarketVisibility, ParticipationPreset } from './myMarkets'
+import type { KycMode, MarketCategory, MarketProfile, SocialLogin } from './marketContract'
+import { safeHttpsUrl } from './marketSpaces'
 
 export type CreateStep = 'identity' | 'visibility' | 'participation' | 'infrastructure' | 'review' | 'invites'
 
@@ -16,10 +18,42 @@ export interface MarketDraft {
   infrastructure: MarketInfrastructure
   /** Private market only: identifiers typed by the creator (demo only; real mode cannot add any, LOOSE_WIRES.marketInvite). */
   participants: readonly string[]
+  category: MarketCategory
+  profile: MarketProfile
+  /** Object URLs of the person's own local files (preview only, never uploaded); owned and revoked by the wizard. */
+  iconUrl: string | null
+  bannerUrl: string | null
+  coverUrl: string | null
+  /** Declarative entry policy (lib/marketContract.ts EntryPolicy): the admin or their provider evaluates it. */
+  kyc: KycMode
+  /** Text as typed; read with parseUsdWhole. */
+  kycThreshold: string
+  kycProviderUrl: string
+  social: readonly SocialLogin[]
 }
 
 /** Infrastructure starts on Rede Sails (the default); the rest starts empty. */
-export const EMPTY_DRAFT: MarketDraft = { name: '', description: '', visibility: null, preset: null, infrastructure: 'network', participants: [] }
+export const EMPTY_DRAFT: MarketDraft = {
+  name: '', description: '', visibility: null, preset: null, infrastructure: 'network', participants: [],
+  // Category and profile start on the most common choice, so the badge always has a value.
+  category: 'GENERAL', profile: 'P2P', iconUrl: null, bannerUrl: null, coverUrl: null,
+  kyc: 'none', kycThreshold: '10000', kycProviderUrl: '', social: [],
+}
+
+/** A whole-dollar amount typed with or without separators ("10.000", "10,000", "10000"); null unless > 0. */
+export function parseUsdWhole(raw: string): number | null {
+  const digits = raw.replace(/[\s.,]/g, '')
+  if (!/^\d{1,12}$/.test(digits)) return null
+  const n = Number(digits)
+  return n > 0 ? n : null
+}
+
+/** KYC needs the admin's own provider form link (https only); "above a value" also needs a positive amount. */
+export function entryPolicyValid(d: Pick<MarketDraft, 'kyc' | 'kycThreshold' | 'kycProviderUrl'>): boolean {
+  if (d.kyc === 'none') return true
+  if (!safeHttpsUrl(d.kycProviderUrl)) return false
+  return d.kyc === 'all' || parseUsdWhole(d.kycThreshold) !== null
+}
 
 /** Prototype cap on invites listed in one draft; the real limit belongs to the contract. */
 export const PARTICIPANTS_MAX = 20
@@ -28,7 +62,11 @@ export const PARTICIPANTS_MAX = 20
 export const MARKET_NAME_MAX = 60
 
 /** Steps in order. Participants and invites only exist for a private market. */
-export function createSteps(visibility: MarketVisibility | null): CreateStep[] {
+export function createSteps(visibility: MarketVisibility | null, simple = false): CreateStep[] {
+  // Simple (demo, the space type already chosen, PO 2026-11-22): visibility comes from the type; hosting and entry
+  // rules sit under "Opções avançadas" in the participation step; review happens in "Revisar e pagar".
+  // One Configurar screen: the rest (preset, entry rules, hosting) sits under "Opções avançadas"; invites move to the market page.
+  if (simple) return ['identity']
   const base: CreateStep[] = ['identity', 'visibility', 'participation', 'infrastructure', 'review']
   return visibility === 'private' ? [...base, 'invites'] : base
 }
@@ -43,7 +81,8 @@ export function canAdvance(step: CreateStep, draft: MarketDraft): boolean {
     case 'visibility':
       return draft.visibility !== null
     case 'participation':
-      return draft.preset === 'vitrine' || draft.preset === 'comunidade'
+      // The optional entry rules (KYC, social login) live in this step, collapsed under "Opções avançadas".
+      return (draft.preset === 'vitrine' || draft.preset === 'comunidade') && entryPolicyValid(draft)
     default:
       return true
   }
@@ -63,7 +102,7 @@ export function addParticipant(list: readonly string[], raw: string): readonly s
 }
 
 /** Loose wires the created market would need (each a LOOSE_WIRES id). */
-export type PreviewDependency = 'createMarket' | 'marketBranding' | 'marketMembership' | 'marketInvite'
+export type PreviewDependency = 'createMarket' | 'marketBranding' | 'marketMembership' | 'marketInvite' | 'marketEntryPolicy'
 
 /**
  * "Prévia do mercado criado" (DECISIONS.md "Criar mercado, fluxo completo com dados reais"): the market page as its
@@ -76,6 +115,11 @@ export interface MarketPreviewModel {
   visibility: MarketVisibility
   preset: Exclude<ParticipationPreset, 'personalizado'>
   infrastructure: MarketInfrastructure
+  category: MarketCategory
+  profile: MarketProfile
+  iconUrl: string | null
+  bannerUrl: string | null
+  entry: { kyc: KycMode; thresholdUsd: number | null; providerUrl: string | null; social: readonly SocialLogin[] }
   /** Always null: the Sails Market ID format is not defined yet. */
   marketId: null
   /** Always empty: a market that does not exist has no offers. */
@@ -97,9 +141,23 @@ export function marketPreview(draft: MarketDraft): MarketPreviewModel | null {
     visibility: draft.visibility,
     preset: draft.preset,
     infrastructure: draft.infrastructure,
+    category: draft.category,
+    profile: draft.profile,
+    iconUrl: draft.iconUrl,
+    bannerUrl: draft.bannerUrl,
+    entry: {
+      kyc: draft.kyc,
+      thresholdUsd: draft.kyc === 'above_threshold' ? parseUsdWhole(draft.kycThreshold) : null,
+      providerUrl: draft.kyc === 'none' ? null : safeHttpsUrl(draft.kycProviderUrl),
+      social: draft.social,
+    },
     marketId: null,
     offers: [],
     invites: isPrivate ? draft.participants.map((identifier) => ({ identifier, state: 'pending' as const })) : null,
-    dependsOn: isPrivate ? ['createMarket', 'marketBranding', 'marketMembership', 'marketInvite'] : ['createMarket', 'marketBranding', 'marketMembership'],
+    dependsOn: [
+      'createMarket', 'marketBranding', 'marketMembership',
+      ...(isPrivate ? ['marketInvite' as const] : []),
+      ...(draft.kyc !== 'none' || draft.social.length > 0 ? ['marketEntryPolicy' as const] : []),
+    ],
   }
 }

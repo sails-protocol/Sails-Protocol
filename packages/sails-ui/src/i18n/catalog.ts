@@ -18,9 +18,11 @@ import profile from './areas/profile'
 import markets from './areas/markets'
 import settings from './areas/settings'
 import looseWires from './areas/looseWires'
+import spaces from './areas/spaces'
+import shop from './areas/shop'
 
 /** Every area, in one list. Add a new area file here (keys must start with the area name). */
-export const AREAS = { common, shell, auth, market, offer, labels, reputation, ui, trade, escrow, agent, trades, publish, disputes, profile, markets, settings, looseWires } as const
+export const AREAS = { common, shell, auth, market, offer, labels, reputation, ui, trade, escrow, agent, trades, publish, disputes, profile, markets, settings, looseWires, spaces, shop } as const
 
 type KeysOf<A> = A extends Area<infer K> ? K : never
 export type MessageKey = KeysOf<(typeof AREAS)[keyof typeof AREAS]>

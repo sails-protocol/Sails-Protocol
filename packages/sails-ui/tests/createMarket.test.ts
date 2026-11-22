@@ -1,4 +1,4 @@
-import { EMPTY_DRAFT, MARKET_NAME_MAX, PARTICIPANTS_MAX, addParticipant, canAdvance, canReach, createSteps, marketPreview, type MarketDraft } from '../src/lib/createMarket'
+import { EMPTY_DRAFT, MARKET_NAME_MAX, PARTICIPANTS_MAX, addParticipant, canAdvance, canReach, createSteps, entryPolicyValid, marketPreview, parseUsdWhole, type MarketDraft } from '../src/lib/createMarket'
 
 const draft = (over: Partial<MarketDraft>): MarketDraft => ({ ...EMPTY_DRAFT, ...over })
 
@@ -7,6 +7,9 @@ describe('Criar mercado steps', () => {
     expect(createSteps('public')).toEqual(['identity', 'visibility', 'participation', 'infrastructure', 'review'])
     expect(createSteps(null)).toEqual(createSteps('public'))
     expect(createSteps('private').slice(-1)).toEqual(['invites'])
+    // Demo with the space type chosen: visibility comes from the type, review happens in Revisar e pagar.
+    expect(createSteps('public', true)).toEqual(['identity'])
+    expect(createSteps('private', true)).toEqual(['identity'])
   })
 
   it('infrastructure defaults to Rede Sails and never blocks', () => {
@@ -47,6 +50,8 @@ describe('Prévia do mercado criado', () => {
   it('public: trimmed copy, no id, no offers, no invites screen, three dependencies', () => {
     expect(marketPreview(pub)).toEqual({
       name: 'Loja Boreal', description: null, visibility: 'public', preset: 'vitrine', infrastructure: 'network',
+      category: 'GENERAL', profile: 'P2P', iconUrl: null, bannerUrl: null,
+      entry: { kyc: 'none', thresholdUsd: null, providerUrl: null, social: [] },
       marketId: null, offers: [], invites: null, dependsOn: ['createMarket', 'marketBranding', 'marketMembership'],
     })
   })
@@ -66,5 +71,34 @@ describe('Prévia do mercado criado', () => {
     expect(addParticipant(one, '   ')).toBe(one)
     const full = Array.from({ length: PARTICIPANTS_MAX }, (_, i) => `p${i}`)
     expect(addParticipant(full, 'extra')).toBe(full)
+  })
+})
+
+describe('Criar mercado: entry policy (declarative, evaluated by the admin)', () => {
+  it('parses whole dollars with or without separators', () => {
+    expect(parseUsdWhole('10.000')).toBe(10000)
+    expect(parseUsdWhole('10,000')).toBe(10000)
+    expect(parseUsdWhole(' 2500 ')).toBe(2500)
+    expect(parseUsdWhole('0')).toBeNull()
+    expect(parseUsdWhole('-5')).toBeNull()
+    expect(parseUsdWhole('10k')).toBeNull()
+    expect(parseUsdWhole('')).toBeNull()
+  })
+
+  it('KYC needs an https provider link; above a value also needs the amount', () => {
+    expect(entryPolicyValid(EMPTY_DRAFT)).toBe(true)
+    expect(entryPolicyValid(draft({ kyc: 'all', kycProviderUrl: '' }))).toBe(false)
+    expect(entryPolicyValid(draft({ kyc: 'all', kycProviderUrl: 'javascript:alert(1)' }))).toBe(false)
+    expect(entryPolicyValid(draft({ kyc: 'all', kycProviderUrl: 'http://kyc.example' }))).toBe(false)
+    expect(entryPolicyValid(draft({ kyc: 'all', kycProviderUrl: 'https://kyc.example/form' }))).toBe(true)
+    expect(entryPolicyValid(draft({ kyc: 'above_threshold', kycProviderUrl: 'https://kyc.example', kycThreshold: 'abc' }))).toBe(false)
+    expect(canAdvance('participation', draft({ preset: 'vitrine', kyc: 'above_threshold', kycProviderUrl: 'https://kyc.example', kycThreshold: '10.000' }))).toBe(true)
+    expect(canAdvance('participation', draft({ preset: 'vitrine', kyc: 'all', kycProviderUrl: '' }))).toBe(false)
+  })
+
+  it('the preview carries the policy and its dependency', () => {
+    const p = marketPreview(draft({ name: 'Loja', visibility: 'public', preset: 'vitrine', kyc: 'above_threshold', kycThreshold: '10.000', kycProviderUrl: 'https://kyc.example/f', social: ['X'] }))
+    expect(p?.entry).toEqual({ kyc: 'above_threshold', thresholdUsd: 10000, providerUrl: 'https://kyc.example/f', social: ['X'] })
+    expect(p?.dependsOn).toContain('marketEntryPolicy')
   })
 })
