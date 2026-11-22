@@ -1012,6 +1012,25 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(mockTradeCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ acceptedEnvelopeId: 'env-1' }) }))
     })
 
+    it('refuses an envelope revision the database rejects (400), not a 500', async () => {
+      const token = await authedSession('buyer-1')
+      mockOfferFindUnique.mockResolvedValueOnce({
+        id: 'offer-1', userId: 'seller-1', status: 'ACTIVE', side: 'SELL',
+        asset: 'BTC', priceUsd: '65000', network: null,
+      })
+      mockTradeCreate.mockRejectedValueOnce(new Error('trades: acceptedEnvelopeId must be the latest ACTIVE revision of the offer'))
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/openp2p/trades',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { offerId: 'offer-1', amount: '0.01', acceptedEnvelopeId: 'env-stale' },
+      })
+
+      expect(res.statusCode).toBe(400)
+      expect(res.body).toContain('is not an acceptable revision')
+    })
+
     it('starts a trade from an active offer and opens negotiation', async () => {
       const token = await authedSession('buyer-1')
       mockOfferFindUnique.mockResolvedValueOnce({
