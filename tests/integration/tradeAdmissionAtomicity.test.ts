@@ -26,6 +26,10 @@ describe('E21 slice 1 — transactional, idempotent trade admission (real Postgr
 
   const pg = createPostgresIntegrationHarness()
   let prisma: PrismaClient
+  // DDL fixtures (fault-injection trigger, disabling the guard trigger, the documented reversal) need the schema owner.
+  // They go through the administrator connection when one is given (the restricted-runtime CI lane sets
+  // ADMIN_DATABASE_URL); the admission itself always runs on the app client, never with widened runtime privileges.
+  let ddl: PrismaClient
   let eventBus: any
   let liquidityRouter: any
   let tradeService: any
@@ -42,6 +46,7 @@ describe('E21 slice 1 — transactional, idempotent trade admission (real Postgr
     await pg.probe()
     if (!pg.isAvailable()) return
     ;({ prisma } = require('../../src/common/database'))
+    ddl = process.env.ADMIN_DATABASE_URL ? new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.ADMIN_DATABASE_URL }) }) : prisma
     ;({ eventBus } = require('../../src/common/events/event-bus'))
     ;({ liquidityRouter } = require('../../src/modules/open-liquidity/liquidity.service'))
     ;({ tradeService } = require('../../src/modules/open-p2p/trade.service'))
@@ -61,6 +66,7 @@ describe('E21 slice 1 — transactional, idempotent trade admission (real Postgr
     jest.restoreAllMocks()
     await app?.close()
     await prisma?.$disconnect()
+    if (ddl && ddl !== prisma) await ddl.$disconnect()
     await closeTestRedis()
   })
 
@@ -239,11 +245,11 @@ describe('E21 slice 1 — transactional, idempotent trade admission (real Postgr
 
   it('S5c — the database refusing the Trade insert (after the Trade Intent was written) rolls the Intent and the claim back', async () => {
     pg.requirePostgres('S5c')
-    await prisma.$executeRawUnsafe(`
+    await ddl.$executeRawUnsafe(`
       CREATE OR REPLACE FUNCTION test_e21_trade_fault() RETURNS trigger AS $$
       BEGIN IF NEW.amount = 0.777 THEN RAISE EXCEPTION 'SIMULATED_CRASH on trades insert'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql`)
-    await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS test_e21_trade_fault_trg ON trades')
-    await prisma.$executeRawUnsafe('CREATE TRIGGER test_e21_trade_fault_trg BEFORE INSERT ON trades FOR EACH ROW EXECUTE FUNCTION test_e21_trade_fault()')
+    await ddl.$executeRawUnsafe('DROP TRIGGER IF EXISTS test_e21_trade_fault_trg ON trades')
+    await ddl.$executeRawUnsafe('CREATE TRIGGER test_e21_trade_fault_trg BEFORE INSERT ON trades FOR EACH ROW EXECUTE FUNCTION test_e21_trade_fault()')
     try {
       const seller = await user()
       const buyer = await user()
@@ -253,7 +259,7 @@ describe('E21 slice 1 — transactional, idempotent trade admission (real Postgr
       expect(await snapshot()).toEqual(before)
       expect(await claimsOf(buyer.id)).toHaveLength(0)
     } finally {
-      await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS test_e21_trade_fault_trg ON trades')
+      await ddl.$executeRawUnsafe('DROP TRIGGER IF EXISTS test_e21_trade_fault_trg ON trades')
     }
   })
 
@@ -711,7 +717,7 @@ describe('E21 slice 1 — transactional, idempotent trade admission (real Postgr
     await expect(prisma.trade.create({ data: { ...base, intentId: ta.tradeIntentId } })).rejects.toThrow(/another trade's own Intent/)
     await expect(prisma.trade.create({ data: { ...base, intentId: offer.intentId, tradeIntentId: ta.tradeIntentId } })).rejects.toThrow(/Unique constraint|tradeIntentId/)
     // CHECK alone (trigger disabled inside a rolled-back transaction): the own Intent can never equal the offer Intent.
-    await expect(prisma.$transaction(async (t) => {
+    await expect(ddl.$transaction(async (t) => {
       await t.$executeRawUnsafe('ALTER TABLE trades DISABLE TRIGGER trades_trade_intent_guard')
       await t.$executeRawUnsafe(`INSERT INTO trades (id, "offerId", "buyerId", "sellerId", asset, amount, "priceUsd", "totalUsd", "intentId", "tradeIntentId", "updatedAt") VALUES ($1, $2, $3, $4, 'BTC', 0.001, 60000, 60, $5, $5, now())`, randomUUID(), offer.id, a.id, seller.id, free.id)
     })).rejects.toThrow(/trades_trade_intent_distinct_from_offer_intent/)
@@ -742,7 +748,7 @@ describe('E21 slice 1 — transactional, idempotent trade admission (real Postgr
     expect(f4aDependents).toEqual(['DROP TABLE "deployment_mode"'])
     const columnCount = async (q: { $queryRawUnsafe: PrismaClient['$queryRawUnsafe'] }) =>
       Number((await q.$queryRawUnsafe<Array<{ n: bigint }>>(`SELECT count(*) AS n FROM information_schema.columns WHERE table_name = 'trades' AND column_name = 'tradeIntentId'`))[0].n)
-    await expect(prisma.$transaction(async (t) => {
+    await expect(ddl.$transaction(async (t) => {
       for (const stmt of [...f4Dependents, ...f4aDependents, ...dependents, ...reversal]) await t.$executeRawUnsafe(stmt)
       expect(await columnCount(t)).toBe(0)
       throw new Error('ROLLBACK_REVERSAL')
