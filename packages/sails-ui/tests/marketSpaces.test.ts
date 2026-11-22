@@ -102,3 +102,44 @@ describe('space catalog (Satsails service, demo prices)', () => {
     expect(spaceProduct('monthly')).toBeNull()
   })
 })
+
+describe('simulated space checkout (demo)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { checkoutNetworks, checkoutStepNumber, demoEquivalent, nextCheckoutStep } = require('../src/lib/spaceCatalog') as typeof import('../src/lib/spaceCatalog')
+  type Ev = Parameters<typeof nextCheckoutStep>[1]
+  const run = (events: Ev[]) => events.reduce(nextCheckoutStep, 'catalog' as ReturnType<typeof nextCheckoutStep>)
+
+  it('walks catalog -> payment -> review -> awaiting -> confirming -> confirmed -> acquired', () => {
+    expect(run([{ type: 'next' }, { type: 'next' }, { type: 'next' }])).toBe('awaiting')
+    expect(run([{ type: 'next' }, { type: 'next' }, { type: 'next' }, { type: 'simulatePaid' }, { type: 'settled' }, { type: 'next' }])).toBe('acquired')
+  })
+
+  it('back works until the demo confirmation; no skipping the simulated payment', () => {
+    expect(nextCheckoutStep('payment', { type: 'back' })).toBe('catalog')
+    expect(nextCheckoutStep('awaiting', { type: 'back' })).toBe('review')
+    expect(nextCheckoutStep('confirming', { type: 'back' })).toBe('review')
+    expect(nextCheckoutStep('confirmed', { type: 'back' })).toBe('confirmed')
+    expect(nextCheckoutStep('awaiting', { type: 'next' })).toBe('awaiting')
+    expect(nextCheckoutStep('review', { type: 'simulatePaid' })).toBe('review')
+    expect(nextCheckoutStep('awaiting', { type: 'settled' })).toBe('awaiting')
+    expect(nextCheckoutStep('acquired', { type: 'reset' })).toBe('catalog')
+  })
+
+  it('numbers the four checkout steps', () => {
+    expect(['catalog', 'payment', 'review', 'awaiting', 'confirming', 'confirmed', 'acquired'].map((s) => checkoutStepNumber(s as never))).toEqual([null, 1, 2, 3, 3, 3, 4])
+  })
+
+  it('lists only the catalog networks of the chosen asset', () => {
+    const pairs = [{ asset: 'BTC', network: 'bitcoin' }, { asset: 'BTC', network: null }, { asset: 'USDT', network: 'tron' }, { asset: 'USDC', network: 'base' }]
+    expect(checkoutNetworks('BTC', pairs).map((p) => p.network)).toEqual(['bitcoin'])
+    expect(checkoutNetworks('USDT', pairs).map((p) => p.network)).toEqual(['tron'])
+  })
+
+  it('converts at a fixed demo quote, rounded per asset, and refuses a bad quote', () => {
+    expect(demoEquivalent(497, 'BTC', 100_000)).toBe(0.00497)
+    expect(demoEquivalent(1997, 'USDT', 1)).toBe(1997)
+    expect(demoEquivalent(997, 'USDC', 0.9999)).toBe(997.1)
+    expect(demoEquivalent(497, 'BTC', 0)).toBeNull()
+    expect(demoEquivalent(497, 'BTC', undefined)).toBeNull()
+  })
+})
