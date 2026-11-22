@@ -41,6 +41,14 @@ export interface MarketView {
   entryPolicy?: EntryPolicy
   /** Demo: a market the person created in this session ("Criado por você" instead of "Exemplo ilustrativo"). */
   ownedByYou?: boolean
+  /** How a person gets in: open (accept the rules), admin approval, or a Sails invite (private). Demo data only. */
+  entryType?: 'open' | 'approval' | 'invite'
+  /** Demo: a join request is waiting for the admin. */
+  joinPending?: boolean
+  /** Demo: "negociações em 30 dias" (Explore's default "Mais ativas" sort). */
+  activity30d?: number
+  /** Demo: accepted assets as the asset catalog writes them ("BTC · On-chain"). */
+  assets?: readonly string[]
 }
 
 /**

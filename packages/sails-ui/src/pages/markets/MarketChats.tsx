@@ -11,7 +11,7 @@
  */
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router'
-import { AlertTriangle, ArrowLeft, MessageCircle, ShieldAlert } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, MessageCircle, Pin, ShieldAlert } from 'lucide-react'
 import { Tabs, tabPanelProps } from '../../components/ui/tabs'
 import { Input } from '../../components/ui/input'
 import { Button, buttonVariants } from '../../components/ui/button'
@@ -82,7 +82,7 @@ function IntentCard({ intent, onPrivate }: { intent: Intent; onPrivate?: () => v
   )
 }
 
-function Bubble({ m, onPrivate }: { m: Msg; onPrivate?: (m: Msg) => void }) {
+function Bubble({ m, onPrivate, onPin }: { m: Msg; onPrivate?: (m: Msg) => void; onPin?: (m: Msg) => void }) {
   return (
     <li className={cn('flex items-start gap-2', m.own && 'flex-row-reverse')}>
       <IdentityAvatar seed={m.seed} size={28} />
@@ -96,6 +96,11 @@ function Bubble({ m, onPrivate }: { m: Msg; onPrivate?: (m: Msg) => void }) {
       {onPrivate && !m.own && !m.intent && (
         <IconButton label={t('spaces.chat.privateWith', { name: m.author })} size="sm" onClick={() => onPrivate(m)} className="mt-1 shrink-0">
           <MessageCircle aria-hidden="true" />
+        </IconButton>
+      )}
+      {onPin && (
+        <IconButton label={t('spaces.admin.pin')} size="sm" onClick={() => onPin(m)} className="mt-1 shrink-0">
+          <Pin aria-hidden="true" />
         </IconButton>
       )}
     </li>
@@ -162,17 +167,20 @@ function IntentForm({ onPost, onCancel }: { onPost: (i: Intent) => void; onCance
 /** `membersSlot` renders the admin's member list (public keys only) with a way into a private conversation. */
 export interface OpenPrivateRequest { peer: Peer; context?: string; side?: 'BUY' | 'SELL'; offerId?: string; key: number }
 
-export function MarketChats({ membersSlot, openWith, backTo }: {
+export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
   membersSlot?: (openPrivate: (peer: Peer) => void) => ReactNode
   /** Opens (or reopens) a private conversation from outside, e.g. "Conversar" on an offer; `context` is shown on top. */
   openWith?: OpenPrivateRequest | null
   /** Where "Propor negociação" returns to (the market page). */
   backTo?: string
+  /** Admin (demo): pin one group message to the top. */
+  canPin?: boolean
 }) {
   const idBase = useId()
   const [tab, setTab] = useState<Tab>('group')
   const [group, setGroup] = useState<readonly Msg[]>(SEED_GROUP)
   const [posting, setPosting] = useState(false)
+  const [pinned, setPinned] = useState<string | null>(null)
   const [threads, setThreads] = useState<Record<string, { peer: Peer; intent?: Intent; context?: string; side?: 'BUY' | 'SELL'; offerId?: string; msgs: readonly Msg[] }>>({})
   const [open, setOpen] = useState<string | null>(null)
 
@@ -206,8 +214,18 @@ export function MarketChats({ membersSlot, openWith, backTo }: {
       />
       {tab === 'group' ? (
         <div {...tabPanelProps(idBase, 'group')} className="space-y-3 pt-3 outline-none">
+          {pinned && (() => {
+            const p = group.find((x) => x.id === pinned)
+            return p ? (
+              <div className="flex items-start gap-2 rounded-lg bg-brand-elevated px-3 py-2">
+                <Pin aria-hidden="true" className="mt-0.5 size-icon-sm shrink-0 text-brand-text-muted" />
+                <p className="min-w-0 flex-1 text-body-sm text-brand-text"><span className="font-medium">{t('spaces.admin.pinned')}: </span>{p.author}: {p.text ?? (p.intent ? `${t(`spaces.intent.type.${p.intent.type}`)} · ${intentAmount(p.intent)}` : '')}</p>
+                {canPin && <Button type="button" size="sm" variant="ghost" onClick={() => setPinned(null)} className="touch:min-h-11">{t('spaces.admin.unpin')}</Button>}
+              </div>
+            ) : null
+          })()}
           <ul className="space-y-2" aria-label={t('spaces.chat.title')}>
-            {group.map((m) => <Bubble key={m.id} m={m} onPrivate={(x) => openPrivate({ author: x.author, seed: x.seed }, x.intent)} />)}
+            {group.map((m) => <Bubble key={m.id} m={m} onPrivate={(x) => openPrivate({ author: x.author, seed: x.seed }, x.intent)} onPin={canPin ? (x) => { setPinned(x.id); simulatedToast() } : undefined} />)}
           </ul>
           {posting ? <IntentForm onPost={postIntent} onCancel={() => setPosting(false)} /> : (
             <>

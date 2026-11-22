@@ -20,6 +20,8 @@ export interface MarketCardCopy {
   profile: (m: MarketView) => string | null
   /** Second line under the name (participants, relation). */
   meta: (m: MarketView) => string
+  /** Entry type ("Aberta", "Com aprovação", "Por convite"), or null. */
+  entry?: (m: MarketView) => string | null
 }
 
 const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secondary'
@@ -50,6 +52,12 @@ export function MarketCard({ market: m, copy, action, badges, className }: {
           {badges}
           {m.ownedByYou ? <Badge variant="outline" className={TAG}>{copy.ownedByYou}</Badge> : m.illustrative && <Badge variant="outline" className={TAG}>{copy.illustrative}</Badge>}
         </div>
+        {(copy.entry?.(m) || (m.assets && m.assets.length > 0)) && (
+          <ul className="flex flex-wrap gap-1">
+            {copy.entry?.(m) && <li className="rounded-sm bg-brand-elevated px-1.5 text-caption text-brand-text-secondary">{copy.entry(m)}</li>}
+            {m.assets?.map((a) => <li key={a} className="rounded-sm bg-brand-elevated px-1.5 text-caption text-brand-text-secondary">{a}</li>)}
+          </ul>
+        )}
         <p className="tabular-nums text-caption text-brand-text-muted">{copy.meta(m)}</p>
         {action && <div className="mt-auto pt-1">{action}</div>}
       </div>

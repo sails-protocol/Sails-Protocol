@@ -8,7 +8,7 @@
 import { ratingSummaryOf, type RatingSummary } from './ratings'
 import type { NodeView } from './sailsNode'
 import type { MarketView } from './myMarkets'
-import { DEMO_INVITED_FIXTURE, DEMO_MARKET_FIXTURES, DEMO_MEMBER_KEYS, DEMO_MY_MARKETS, DEMO_NODES, type DemoMarketFixture } from '../demo/nodesMarkets'
+import { DEMO_INVITED_FIXTURE, DEMO_JOIN_REQUEST_KEYS, DEMO_MARKET_FIXTURES, DEMO_MEMBER_KEYS, DEMO_MY_MARKETS, DEMO_NODES, type DemoMarketFixture } from '../demo/nodesMarkets'
 import { toMarketView } from './marketContract'
 import { meetsDemoVerifiedCriteria } from './marketSpaces'
 import { parseAppealView, type DisputeAppealView } from './disputeAppeal'
@@ -69,7 +69,10 @@ const NO_MARKETS: readonly MarketView[] = []
 const fixtureView = (f: DemoMarketFixture, extra?: Partial<MarketView>): MarketView => toMarketView(
   f.market,
   DEMO_MY_MARKETS.find((e) => e.marketId === f.market.id),
-  { preset: f.preset, infrastructure: f.infrastructure ?? 'network', illustrative: true, ...extra },
+  {
+    preset: f.preset, infrastructure: f.infrastructure ?? 'network', illustrative: true,
+    entryType: f.market.visibility === 'PRIVATE' ? 'invite' : f.entry ?? 'open', activity30d: f.activity30d, assets: f.assets, ...extra,
+  },
 )
 // Listed demo markets: public ones (discoverable) plus the private ones the demo user belongs to.
 const DEMO_VIEWS: readonly MarketView[] = DEMO_MARKET_FIXTURES.map((f) => fixtureView(f))
@@ -84,8 +87,12 @@ export const isRetainedPreview = (url: string) => retainedPreviews.has(url)
 let created: readonly MarketView[] = []
 let demoSnapshot: readonly MarketView[] = DEMO_VIEWS
 const demoListeners = new Set<() => void>()
+// Demo joins (Regras da comunidade → Aceito e entrar; Solicitar entrada → Pedido enviado → aprovado), in memory.
+const joined = new Set<string>()
+const pending = new Set<string>()
+const withJoins = (m: MarketView): MarketView => (joined.has(m.id) ? { ...m, relation: 'member' } : pending.has(m.id) ? { ...m, joinPending: true } : m)
 const publish = () => {
-  demoSnapshot = [...DEMO_VIEWS, ...(granted ? [DEMO_INVITED] : []), ...created]
+  demoSnapshot = [...DEMO_VIEWS.map(withJoins), ...(granted ? [DEMO_INVITED] : []), ...created]
   demoListeners.forEach((l) => l())
 }
 
@@ -107,6 +114,29 @@ export function subscribeDemoMarkets(listener: () => void): () => void {
 export function setDemoInviteGranted(value: boolean): void {
   if (!import.meta.env.DEV || !isDemoMode()) return
   granted = value
+  publish()
+}
+
+/** Demo only: join an open community after accepting its rules, or send/cancel a request, or the admin approves it. */
+export function demoJoin(id: string, action: 'join' | 'request' | 'cancel' | 'approved'): void {
+  if (!import.meta.env.DEV || !isDemoMode()) return
+  if (action === 'join' || action === 'approved') { joined.add(id); pending.delete(id) }
+  else if (action === 'request') pending.add(id)
+  else pending.delete(id)
+  publish()
+}
+
+// Admin side (the market the demo user administers): fictional requests and removed members, in memory.
+let requests: readonly string[] = DEMO_JOIN_REQUEST_KEYS
+let members: readonly string[] = DEMO_MEMBER_KEYS
+export const demoJoinRequests = () => requests
+export function demoDecideRequest(key: string, approve: boolean): void {
+  requests = requests.filter((k) => k !== key)
+  if (approve) members = [...members, key]
+  publish()
+}
+export function demoRemoveMember(key: string): void {
+  members = members.filter((k) => k !== key)
   publish()
 }
 
@@ -148,7 +178,7 @@ export function demoMarketPage(id: string, snapshot: readonly MarketView[] = dem
     createdAt: fixture.market.createdAt,
     hasOffers: true,
     verified: meetsDemoVerifiedCriteria(fixture.stats),
-    memberKeys: market.relation === 'admin' ? DEMO_MEMBER_KEYS : [],
+    memberKeys: market.relation === 'admin' ? members : [],
   }
 }
 

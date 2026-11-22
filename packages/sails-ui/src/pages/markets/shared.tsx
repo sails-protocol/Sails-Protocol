@@ -100,8 +100,10 @@ export function marketCardCopy(): MarketCardCopy {
       const parts = [m.relation === 'default' ? list.relation.default : list.visibility[m.visibility]]
       if (m.relation !== 'default' && m.relation !== 'none') parts.push(list.relation[m.relation])
       if (m.participants !== undefined) parts.push(t('spaces.participants', { count: m.participants }))
+      if (m.activity30d !== undefined) parts.push(t('spaces.explore.activity', { count: m.activity30d }))
       return parts.join(' · ')
     },
+    entry: (m) => (m.entryType ? t(`spaces.entry.${m.entryType}`) : null),
   }
 }
 

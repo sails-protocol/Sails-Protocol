@@ -8,7 +8,7 @@
  */
 import { useEffect, useId, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link, Navigate, useParams } from 'react-router'
-import { ArrowLeft, ExternalLink, MessageCircle, SearchX, Ticket } from 'lucide-react'
+import { ArrowLeft, ExternalLink, MessageCircle, SearchX, Ticket, UserMinus } from 'lucide-react'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { MARKETS_ROUTES, TRADES_ROUTES, marketPath } from '../components/layout/navMatch'
 import { Badge } from '../components/ui/badge'
@@ -23,7 +23,10 @@ import { Tabs, tabPanelProps } from '../components/ui/tabs'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { FilterChip } from '../components/ui/filter-chip'
 import { Button } from '../components/ui/button'
-import { demoMarketPage, demoMarkets, isDemoMode, subscribeDemoMarkets } from '../lib/demoMarkers'
+import { demoDecideRequest, demoJoin, demoJoinRequests, demoMarketPage, demoMarkets, demoRemoveMember, isDemoMode, subscribeDemoMarkets } from '../lib/demoMarkers'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog'
+import { RadioCard, RadioGroup } from '../components/ui/radio-group'
+import { useAuth } from '../context/AuthContext'
 import { canSeeOffers, kycSummary, offersForMarket } from '../lib/marketSpaces'
 import { fetchOffers } from '../lib/realOffers'
 import { OfferCard } from '../components/marketplace/OfferCard'
@@ -36,11 +39,13 @@ import { formatPrice } from '../lib/currency'
 import type { Offer } from '../types'
 import { formatMonthYear } from '../lib/format'
 import { cn } from '../lib/utils'
-import { adminImageCopy, categoryLabel, DemoVerifiedSeal, kycText, marketListCopy, profileLabel, socialNames, WireNote } from './markets/shared'
+import { adminImageCopy, categoryLabel, DemoVerifiedSeal, kycText, marketListCopy, profileLabel, simulatedToast, socialNames, WireNote } from './markets/shared'
 import { t } from '../i18n'
 
 const SECTION = 'rounded-lg bg-brand-surface p-4'
 const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secondary'
+// The community's house rules (demo), cited when the admin removes someone.
+const RULES = ['spaces.rules.inTrade', 'spaces.rules.respect', 'spaces.rules.noSpam'] as const
 // The viewer's side, as in the Market list: a sell offer is bought.
 const viewerSide = (offerSide: 'BUY' | 'SELL'): 'BUY' | 'SELL' => (offerSide === 'SELL' ? 'BUY' : 'SELL')
 
@@ -95,6 +100,10 @@ export function MarketPage() {
   const [side, setSide] = useState<'all' | 'BUY' | 'SELL'>('all')
   const [asset, setAsset] = useState<string | null>(null)
   const [chatRequest, setChatRequest] = useState<OpenPrivateRequest | null>(null)
+  const { user } = useAuth()
+  const [rulesOpen, setRulesOpen] = useState(false)
+  const [removing, setRemoving] = useState<string | null>(null)
+  const [removeRule, setRemoveRule] = useState<string | null>(null)
   // Demo: the demo backend's offers, a share of them per market (lib/marketSpaces.ts offersForMarket).
   const [demoOffers, setDemoOffers] = useState<Offer[] | null>(null)
   const [offersError, setOffersError] = useState(false)
@@ -136,6 +145,7 @@ export function MarketPage() {
   }
 
   const m = page.market
+  const requests = m.relation === 'admin' ? demoJoinRequests() : []
   const list = marketListCopy()
   const kyc = kycSummary(m.entryPolicy)
   const social = m.entryPolicy?.social ?? []
@@ -172,13 +182,26 @@ export function MarketPage() {
           <div className="flex items-start gap-3 sm:mt-3">
             <MarketIcon market={m} size="lg" />
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] sm:flex-wrap">
+              <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] sm:flex-wrap [&>*]:shrink-0 [&>*]:whitespace-nowrap">
                 {profile && <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{profile}</Badge>}
                 {page.verified && <DemoVerifiedSeal explain />}
                 {m.ownedByYou ? <Badge variant="outline" className={TAG}>{t('spaces.ownedByYou')}</Badge> : m.illustrative && <Badge variant="outline" className={TAG}>{list.illustrative}</Badge>}
               </div>
               {m.description && <p className="mt-1 line-clamp-1 break-words text-body-sm text-brand-text-secondary sm:line-clamp-none">{m.description}</p>}
               <p className="mt-1 tabular-nums text-caption text-brand-text-muted">{m.participants !== undefined ? t('spaces.participants', { count: m.participants }) : ''}{m.relation !== 'none' ? ` · ${list.relation[m.relation]}` : ''}</p>
+              {m.relation === 'none' && m.visibility === 'public' && (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {m.joinPending ? (
+                    <>
+                      <Badge variant="outline" className={TAG}>{t('spaces.join.pending')}</Badge>
+                      <Button type="button" size="sm" variant="ghost" onClick={() => { demoJoin(m.id, 'cancel'); simulatedToast() }} className="touch:min-h-11">{t('spaces.join.cancel')}</Button>
+                      <Button type="button" size="sm" variant="secondary" onClick={() => { demoJoin(m.id, 'approved'); simulatedToast(t('spaces.join.approvedToast')) }} className="touch:min-h-11">{t('spaces.join.simulateApprove')}</Button>
+                    </>
+                  ) : (
+                    <Button type="button" size="sm" variant="secondary" onClick={() => setRulesOpen(true)} className="touch:min-h-11">{m.entryType === 'approval' ? t('spaces.join.request') : t('spaces.join.join')}</Button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -229,7 +252,7 @@ export function MarketPage() {
         </div>
 
         <div {...tabPanelProps(idBase, 'chat')} hidden={tab !== 'chat'} className={cn(SECTION, 'outline-none')}>
-          <MarketChats openWith={chatRequest} backTo={marketPath(m.id)} />
+          <MarketChats openWith={chatRequest} backTo={marketPath(m.id)} canPin={m.relation === 'admin'} />
         </div>
 
         <div {...tabPanelProps(idBase, 'about')} hidden={tab !== 'about'} className="space-y-4 outline-none">
@@ -259,6 +282,20 @@ export function MarketPage() {
             <p className="mt-2 text-caption text-brand-text-secondary">{t('spaces.page.policyNote')}</p>
           </section>
 
+          {m.relation === 'admin' && requests.length > 0 && (
+            <section aria-labelledby="market-requests" className={SECTION}>
+              <h2 id="market-requests" className="text-section-title">{t('spaces.admin.requests', { count: requests.length })}</h2>
+              <ul className="mt-2 divide-y divide-brand-border-subtle">
+                {requests.map((k) => (
+                  <li key={k} className="flex flex-wrap items-center gap-2 py-1.5">
+                    <span className="min-w-0 flex-1"><MonoKey value={k} /></span>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => { demoDecideRequest(k, false); simulatedToast() }} className="touch:min-h-11">{t('spaces.admin.reject')}</Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => { demoDecideRequest(k, true); simulatedToast() }} className="touch:min-h-11">{t('spaces.admin.approve')}</Button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           {m.relation === 'admin' && (
             <section aria-labelledby="market-members" className={SECTION}>
               <h2 id="market-members" className="text-section-title">{t('spaces.page.membersTitle')}</h2>
@@ -277,6 +314,9 @@ export function MarketPage() {
                       >
                         <MessageCircle aria-hidden="true" />
                       </IconButton>
+                      <IconButton label={t('spaces.admin.removeWho', { name: `${k.slice(0, 10)}…` })} size="sm" onClick={() => setRemoving(k)}>
+                        <UserMinus aria-hidden="true" />
+                      </IconButton>
                     </li>
                   ))}
                 </ul>
@@ -285,6 +325,39 @@ export function MarketPage() {
           )}
         </div>
       </div>
+      {/* "Regras da comunidade": one decision, one button. */}
+      <Dialog open={rulesOpen} onOpenChange={setRulesOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader className="pr-10 text-left">
+            <DialogTitle>{t('spaces.join.rulesTitle')}</DialogTitle>
+            <DialogDescription>{m.entryType === 'approval' ? t('spaces.join.rulesLeadApproval') : t('spaces.join.rulesLead')}</DialogDescription>
+          </DialogHeader>
+          <ul className="space-y-1.5 text-body-sm text-brand-text">
+            <li>{presetRules.publishes}</li>
+            <li>{t('spaces.page.kyc')}: {kycText(kyc)}</li>
+            {RULES.map((r) => <li key={r}>{t(r)}</li>)}
+          </ul>
+          <p className="text-caption text-brand-text-secondary">{t('spaces.page.policyNote')}</p>
+          <Button type="button" variant={user ? 'default' : 'secondary'} onClick={() => { setRulesOpen(false); demoJoin(m.id, m.entryType === 'approval' ? 'request' : 'join'); simulatedToast(m.entryType === 'approval' ? t('spaces.join.requestedToast') : undefined) }} className="touch:min-h-11">
+            {m.entryType === 'approval' ? t('spaces.join.acceptRequest') : t('spaces.join.accept')}
+          </Button>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={removing !== null} onOpenChange={(o) => { if (!o) setRemoving(null) }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader className="pr-10 text-left">
+            <DialogTitle>{t('spaces.admin.removeTitle')}</DialogTitle>
+            <DialogDescription>{t('spaces.admin.removeLead')}</DialogDescription>
+          </DialogHeader>
+          <RadioGroup legend={t('spaces.admin.ruleLegend')} listClassName="grid gap-2">
+            {RULES.map((r) => <RadioCard key={r} name="remove-rule" value={r} checked={removeRule === r} onChange={() => setRemoveRule(r)}>{t(r)}</RadioCard>)}
+          </RadioGroup>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="ghost" onClick={() => setRemoving(null)} className="touch:min-h-11">{t('common.cancel')}</Button>
+            <Button type="button" variant="destructive" disabled={!removeRule} onClick={() => { if (removing) demoRemoveMember(removing); setRemoving(null); setRemoveRule(null); simulatedToast() }} className="touch:min-h-11">{t('spaces.admin.remove')}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Page>
   )
 }

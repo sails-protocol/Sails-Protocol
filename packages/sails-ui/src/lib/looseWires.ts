@@ -1,7 +1,7 @@
 import {
   Activity, Bell, CircleUser, Globe, Info, KeyRound, Languages, LifeBuoy, Link2, Lock, MapPin, MessageSquare,
   ServerCog, CalendarDays, Coins, CreditCard, Scale, Star, Users, Wallet, Network, Ticket, QrCode, UserCheck, Fingerprint, PlusCircle, Compass, Palette, EyeOff,
-  Store, ShieldCheck, MessagesSquare, BadgeCheck, ShoppingBag,
+  Store, ShieldCheck, MessagesSquare, BadgeCheck, ShoppingBag, ScrollText, ArrowRightLeft, Pin,
 } from 'lucide-react'
 import { t } from '../i18n'
 
@@ -49,6 +49,11 @@ export const LOOSE_WIRES = {
   marketEntryPolicy: { get label() { return t('looseWires.marketEntryPolicy') }, icon: ShieldCheck, contract: 'Market.entryPolicy { kyc: none|above_threshold|all, thresholdUsd?, providerUrl? (admin link, never fetched by the node), social: X|LINKEDIN|GITHUB[] }, written by sails.markets.create/update. Declarative: the admin or their provider evaluates it; restricts joining and new trades only, never funds, settlement or a trade already in escrow. Sails stores no documents' },
   marketDirectMessage: { get label() { return t('looseWires.marketDirectMessage') }, icon: MessageSquare, contract: 'Private conversation between two market members (pre-trade, to agree terms): member-to-member encrypted channel with a membership check (sails.markets.members), separate from the group chat and from the trade chat; the trade itself always happens in a Sails trade with escrow' },
   marketIntentPost: { get label() { return t('looseWires.marketIntentPost') }, icon: MessageSquare, contract: 'Structured intent post in the market group (type, amount range, payment method, optional expiry), stored with the market group channel and readable by members; never carries payment details (those exist only inside a trade)' },
+  marketJoinRules: { get label() { return t('looseWires.marketJoinRules') }, icon: ScrollText, contract: 'Community rules accepted on join (Market.entryPolicy + house rules text), acceptance recorded with the membership via sails.markets.follow / join; open communities only' },
+  marketJoinRequests: { get label() { return t('looseWires.marketJoinRequests') }, icon: UserCheck, contract: 'Join requests for communities "Com aprovação": request / cancel by the person, list + approve / reject by the admin (sails.markets.members + a requests endpoint); a request never grants access until approved' },
+  marketActivity: { get label() { return t('looseWires.marketActivity') }, icon: Activity, contract: 'Per-market activity for Explore ranking ("Mais ativas": trades in the last 30 days), entry type and accepted assets in MarketSummary (sails.markets.discover sort=activity)' },
+  marketSpaceTransfer: { get label() { return t('looseWires.marketSpaceTransfer') }, icon: ArrowRightLeft, contract: 'Transfer of a market space (and its admin rights) to another identity, signed by the current owner; Satsails service terms pending the CTO; never moves participants funds' },
+  marketModeration: { get label() { return t('looseWires.marketModeration') }, icon: Pin, contract: 'Admin tools: pin one group message; remove a member citing a house rule (sails.markets.removeMember with a reason); removal never touches the identity, global reputation or trades in escrow' },
   marketGroupChat: { get label() { return t('looseWires.marketGroupChat') }, icon: MessagesSquare, contract: 'Market group chat: not in Day 0. Needs a market-scoped message channel with membership checks (sails.markets.members) separate from the per-trade chat, which stays the only real chat' },
   marketVerification: { get label() { return t('looseWires.marketVerification') }, icon: BadgeCheck, contract: 'Market "Verificado" seal: not in Day 0; criteria to be set by the CTO and the protocol (ratings, number and volume of trades are only the demo idea). Until then the real UI never shows the seal (N1)' },
   managedNode: { get label() { return t('looseWires.managedNode') }, icon: ServerCog, contract: 'Managed Sails node (a node run for the customer): not in Day 0, no provisioning, price or availability defined; Satsails service, not protocol' },

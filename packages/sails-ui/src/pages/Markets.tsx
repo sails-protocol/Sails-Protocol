@@ -15,6 +15,7 @@ import { Card } from '../components/ui/card'
 import { Alert } from '../components/ui/alert'
 import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
 import { Button, buttonVariants } from '../components/ui/button'
+import { Badge } from '../components/ui/badge'
 import { FilterChip } from '../components/ui/filter-chip'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { MarketCard } from '../components/markets/MarketCard'
@@ -33,7 +34,7 @@ import { getLocale } from '../lib/locale'
 import type { ImagePickerCopy } from '../components/markets/ImagePicker'
 import type { MarketView } from '../lib/myMarkets'
 import { cn } from '../lib/utils'
-import { categoryLabel, DemoVerifiedSeal, entryText, guarantees, identifiers, JoinMarketPanel, marketCardCopy, marketListCopy, marketsValueLine, PrivateHostingNote, profileLabel, SOCIAL_OPTIONS, WireNote, WirePlanned, useVisibleMarkets } from './markets/shared'
+import { categoryLabel, DemoVerifiedSeal, entryText, guarantees, identifiers, JoinMarketPanel, marketCardCopy, marketListCopy, marketsValueLine, PrivateHostingNote, profileLabel, simulatedToast, SOCIAL_OPTIONS, WireNote, WirePlanned, useVisibleMarkets } from './markets/shared'
 import { MarketIcon, MARKET_ACTION_ICON } from '../components/markets/MarketIcon'
 import { ownMarkets } from '../lib/myMarkets'
 import { useAuth } from '../context/AuthContext'
@@ -233,9 +234,12 @@ function ExploreView() {
   const open = visible.find((m) => m.relation === 'default')
   const communities = visible.filter((m) => m.visibility === 'public' && m.relation !== 'default')
   const [category, setCategory] = useState<CategoryFilter>('all')
+  // "Mais ativas" first (demo: negociações em 30 dias); members as the other order.
+  const [sort, setSort] = useState<'active' | 'members'>('active')
   const [limit, setLimit] = useState(PAGE_SIZE)
   // Shaped like sails.markets.discover({ limit, offset }) so the swap keeps the paging.
-  const page = pageOf(filterByCategory(communities, category), limit)
+  const sorted = [...filterByCategory(communities, category)].sort((a, b) => (sort === 'active' ? (b.activity30d ?? 0) - (a.activity30d ?? 0) : (b.participants ?? 0) - (a.participants ?? 0)))
+  const page = pageOf(sorted, limit)
   const cardCopy = marketCardCopy()
   return (
     <div className="space-y-4">
@@ -261,6 +265,7 @@ function ExploreView() {
         <h2 id="explore-public" className="text-section-title">{t('markets.explore.listLabel')}</h2>
         {communities.length === 0 ? <WirePlanned id="marketDiscovery" description={t('markets.explore.discoveryPlanned')} /> : (
           <>
+            <SegmentedControl label={t('spaces.explore.sortLabel')} value={sort} onChange={setSort} options={[{ value: 'active', label: t('spaces.explore.sortActive') }, { value: 'members', label: t('spaces.explore.sortMembers') }]} />
             <div role="group" aria-label={t('spaces.category.filterLabel')} className="flex flex-wrap gap-2">
               {(['all', ...MARKET_CATEGORIES] as const).map((c) => (
                 <FilterChip key={c} label={t(c === 'all' ? 'spaces.category.all' : `spaces.category.${c}`)} selected={category === c} onToggle={() => { setCategory(c); setLimit(PAGE_SIZE) }} />
@@ -297,8 +302,22 @@ function MineView() {
   const [mode, setMode] = useState<ViewMode>(() => readViewMode(safeLocalStorage(), typeof window !== 'undefined' && window.innerWidth < 640 ? 'list' : 'grid'))
   const choose = (m: ViewMode) => { setMode(m); saveViewMode(safeLocalStorage(), m) }
   const cardCopy = marketCardCopy()
+  // "Seu espaço": markets the person administers or created. Transferir is simulated in the demo (no transfer exists).
+  const [transferring, setTransferring] = useState<MarketView | null>(null)
+  const yours = (m: MarketView) => m.relation === 'admin' || !!m.ownedByYou
+  const transferButton = (m: MarketView) => (
+    <Button type="button" size="sm" variant="ghost" onClick={() => setTransferring(m)} className="relative z-10 touch:min-h-11">{t('spaces.transfer')}<span className="sr-only"> {m.name}</span></Button>
+  )
   return (
     <div className="space-y-4">
+      <ConfirmActionDialog
+        open={transferring !== null}
+        onOpenChange={(o) => { if (!o) setTransferring(null) }}
+        title={t('spaces.transferTitle', { name: transferring?.name ?? '' })}
+        consequence={t('spaces.transferBody')}
+        confirmLabel={t('spaces.transfer')}
+        onConfirm={() => { setTransferring(null); simulatedToast(t('spaces.transferToast')) }}
+      />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-section-title">{t('markets.action.mine')}</h2>
         <SegmentedControl
@@ -312,7 +331,11 @@ function MineView() {
         <ul aria-label={t('markets.action.mine')} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {markets.map((m) => (
             <li key={m.id} className="flex">
-              <MarketCard market={m} copy={cardCopy} className="w-full" action={<OpenLink m={m} />} />
+              <MarketCard
+                market={m} copy={cardCopy} className="w-full"
+                badges={yours(m) ? <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{t('spaces.yourSpace')}</Badge> : undefined}
+                action={<div className="flex flex-wrap gap-2"><OpenLink m={m} />{yours(m) && transferButton(m)}</div>}
+              />
             </li>
           ))}
         </ul>
@@ -323,9 +346,12 @@ function MineView() {
             markets={markets}
             copy={{ ...marketListCopy(), label: t('markets.action.mine') }}
             action={(m) => (
-              <Link to={m.relation === 'default' ? '/' : marketPath(m.id)} className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'touch:min-h-11')}>
-                {t('markets.explore.open')}<span className="sr-only"> {m.name}</span>
-              </Link>
+              <div className="flex flex-wrap justify-end gap-1">
+                {yours(m) && transferButton(m)}
+                <Link to={m.relation === 'default' ? '/' : marketPath(m.id)} className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'touch:min-h-11')}>
+                  {t('markets.explore.open')}<span className="sr-only"> {m.name}</span>
+                </Link>
+              </div>
             )}
           />
         </Card>
