@@ -946,7 +946,7 @@ export function Trade() {
   const feeRate = escrow ? protocolFeeRateLabel(escrow.snapshotProtocolFeeRate, getLocale()) : null
   const protocolFeeRow: SpecRow[] = escrow && feeRate ? [{
     label: t('trade.record.protocolFee'),
-    value: <>{escrow.feePolicyVersionId ? t('trade.record.protocolFeePolicy', { rate: feeRate, version: escrow.feePolicyVersionId }) : feeRate}<FaqLink slug="taxas" className="ml-0.5 align-middle" /></>,
+    value: <>{feeRate}<FaqLink slug="taxas" className="ml-0.5 align-middle" /></>,
   }] : []
   // Base fee · Merchant benefit · effective fee: gated. No backend field proves a benefit yet, so real mode never shows
   // it; the one marked demo trade shows the labels with "—" and the approval note (CTO 38 complement 1).
