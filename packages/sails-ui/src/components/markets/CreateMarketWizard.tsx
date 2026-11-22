@@ -101,7 +101,7 @@ function Choice<T extends string>({ legend, name, options, value, onChange, note
   )
 }
 
-export function CreateMarketWizard({ copy, initial, simple = false, createLabel, privateHostingSlot, brandingSlot, invitesSlot, createAvailable, unavailableNote, participantsAvailable, participantsUnavailableNote, onCreate, primarySolid = true }: {
+export function CreateMarketWizard({ copy, initial, simple = false, createLabel, retainUrl, privateHostingSlot, brandingSlot, invitesSlot, createAvailable, unavailableNote, participantsAvailable, participantsUnavailableNote, onCreate, primarySolid = true }: {
   copy: CreateMarketCopy
   /** Starting values (e.g. the kind of space bought in the demo); everything stays editable. */
   initial?: Partial<MarketDraft>
@@ -111,6 +111,8 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
   simple?: boolean
   /** Final action label (e.g. "Revisar e pagar"); defaults to copy.create. */
   createLabel?: string
+  /** A preview URL the caller still uses after the wizard closes (not revoked on unmount). */
+  retainUrl?: (url: string) => boolean
   /** Logo and colors (planned item until branding exists). */
   brandingSlot?: ReactNode
   /** Participants and invites for a private market (planned item until invites exist). */
@@ -137,7 +139,7 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
   const [advanced, setAdvanced] = useState(() => (initial?.kyc ?? 'none') !== 'none')
   // Local previews only: every object URL this wizard made is revoked when replaced and when it unmounts.
   const urls = useRef(new Set<string>())
-  useEffect(() => () => { urls.current.forEach((u) => URL.revokeObjectURL(u)); urls.current.clear() }, [])
+  useEffect(() => () => { urls.current.forEach((u) => { if (!retainUrl?.(u)) URL.revokeObjectURL(u) }); urls.current.clear() }, [retainUrl])
   const pick = (key: ImageKey) => (file: File | null) => {
     setDraft((d) => {
       const old = d[key]

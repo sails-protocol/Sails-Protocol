@@ -11,7 +11,7 @@
  */
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router'
-import { AlertTriangle, ArrowLeft, MessageCircle, MessagesSquare, ShieldAlert } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, MessageCircle, ShieldAlert } from 'lucide-react'
 import { Tabs, tabPanelProps } from '../../components/ui/tabs'
 import { Input } from '../../components/ui/input'
 import { Button, buttonVariants } from '../../components/ui/button'
@@ -22,12 +22,15 @@ import { SimulatedBadge } from '../../components/ui/SimulatedBadge'
 import { RadioCard, RadioGroup } from '../../components/ui/radio-group'
 import { TRADES_ROUTES } from '../../components/layout/navMatch'
 import { looksOffTrade } from '../../lib/offTradeRisk'
+import { parseUsdWhole } from '../../lib/createMarket'
+import { currencyDisplay } from '../../lib/format'
+import { getLocale } from '../../lib/locale'
 import { cn } from '../../lib/utils'
 import { simulatedToast } from './shared'
 import { t } from '../../i18n'
 
 type IntentType = 'payBill' | 'buyUsdt' | 'buyBtc' | 'sellBtc'
-interface Intent { type: IntentType; amount: string; method: string }
+interface Intent { type: IntentType; min: number; max?: number; method: string }
 interface Msg { id: string; author: string; seed: string; text?: string; intent?: Intent; own?: boolean }
 interface Peer { author: string; seed: string }
 type Tab = 'group' | 'private'
@@ -36,20 +39,44 @@ const INTENT_TYPES: readonly IntentType[] = ['payBill', 'buyUsdt', 'buyBtc', 'se
 // The side of the person who answers: they sell what the poster wants to buy, and buy what the poster sells.
 const ANSWER_SIDE: Record<IntentType, 'BUY' | 'SELL'> = { payBill: 'BUY', buyUsdt: 'SELL', buyBtc: 'SELL', sellBtc: 'BUY' }
 const METHODS = ['Pix', 'TED', 'Boleto'] as const
+const METHOD_CODE: Record<string, string> = { Pix: 'PIX', TED: 'TED', Boleto: 'OTHER' }
+const INTENT_ASSET: Record<IntentType, string> = { payBill: 'USDT_TRC20', buyUsdt: 'USDT_TRC20', buyBtc: 'BTC', sellBtc: 'BTC' }
+
+/**
+ * "Propor negociação": from an offer, that offer's trade start (/offer/:id); otherwise the new-offer flow prefilled from
+ * the intent card (side, asset, amount, method) with a link back to this conversation.
+ */
+function proposeLink(th: { offerId?: string; side?: 'BUY' | 'SELL'; intent?: Intent }, backTo?: string): string {
+  if (th.offerId) return `/offer/${encodeURIComponent(th.offerId)}`
+  const q = new URLSearchParams({ side: th.side ?? (th.intent ? ANSWER_SIDE[th.intent.type] : 'SELL') })
+  if (th.intent) {
+    q.set('asset', INTENT_ASSET[th.intent.type])
+    q.set('method', METHOD_CODE[th.intent.method] ?? 'PIX')
+    const max = th.intent.max ?? th.intent.min
+    if (th.intent.min) q.set('min', String(th.intent.min))
+    if (max) q.set('max', String(max))
+  }
+  if (backTo) q.set('back', backTo)
+  return `${TRADES_ROUTES.newOffer}?${q.toString()}`
+}
 
 // Fictional members (DECISIONS.md "Identidade") and intentions, pt-BR like the other demo fixtures.
 const SEED_GROUP: readonly Msg[] = [
-  { id: 'g1', author: 'Alice', seed: 'demo-member-alice', intent: { type: 'payBill', amount: 'US$ 40–60', method: 'Pix' } },
+  { id: 'g1', author: 'Alice', seed: 'demo-member-alice', intent: { type: 'payBill', min: 40, max: 60, method: 'Pix' } },
   { id: 'g2', author: 'Bob', seed: 'demo-member-bob', text: 'Eu vendo USDT. Me chama no privado que a gente combina.' },
-  { id: 'g3', author: 'Erin', seed: 'demo-member-erin', intent: { type: 'buyBtc', amount: 'US$ 200', method: 'TED' } },
+  { id: 'g3', author: 'Erin', seed: 'demo-member-erin', intent: { type: 'buyBtc', min: 200, method: 'TED' } },
 ]
 const ME = { author: 'Você', seed: 'demo-member-you' }
+
+/** "US$ 50" or "US$ 40–60", in the interface language. */
+const usd = (v: number) => v.toLocaleString(getLocale(), { style: 'currency', currency: 'USD', currencyDisplay: currencyDisplay('USD'), maximumFractionDigits: 0 })
+const intentAmount = (i: Intent) => (i.max && i.max !== i.min ? `${usd(i.min)}–${usd(i.max)}` : usd(i.min))
 
 function IntentCard({ intent, onPrivate }: { intent: Intent; onPrivate?: () => void }) {
   return (
     <div className="mt-1 space-y-1 rounded-md bg-brand-surface px-3 py-2">
       <p className="text-body-sm font-medium text-brand-text">{t(`spaces.intent.type.${intent.type}`)}</p>
-      <p className="text-caption text-brand-text-secondary">{intent.amount} · {intent.method}</p>
+      <p className="tabular-nums text-caption text-brand-text-secondary">{intentAmount(intent)} · {intent.method}</p>
       {onPrivate && <Button type="button" size="sm" variant="secondary" onClick={onPrivate} className="touch:min-h-11"><MessageCircle aria-hidden="true" />{t('spaces.chat.privateShort')}</Button>}
     </div>
   )
@@ -97,50 +124,63 @@ function Composer({ label, onSend, warn = false }: { label: string; onSend: (tex
 function IntentForm({ onPost, onCancel }: { onPost: (i: Intent) => void; onCancel: () => void }) {
   const id = useId()
   const [type, setType] = useState<IntentType>('buyUsdt')
-  const [amount, setAmount] = useState('')
+  const [min, setMin] = useState('')
+  const [max, setMax] = useState('')
+  const minN = parseUsdWhole(min)
+  const maxN = max.trim() ? parseUsdWhole(max) : null
+  const valid = minN !== null && (max.trim() === '' || (maxN !== null && maxN >= minN))
   const [method, setMethod] = useState<string>('Pix')
   return (
-    <form className="space-y-3 rounded-lg bg-brand-elevated p-3" onSubmit={(e) => { e.preventDefault(); if (amount.trim()) onPost({ type, amount: amount.trim(), method }) }}>
+    <form className="space-y-3 rounded-lg bg-brand-elevated p-3" onSubmit={(e) => { e.preventDefault(); if (valid && minN !== null) onPost({ type, min: minN, max: maxN ?? undefined, method }) }}>
       <RadioGroup legend={t('spaces.intent.typeLegend')} listClassName="grid gap-2 sm:grid-cols-2">
         {INTENT_TYPES.map((v) => <RadioCard key={v} name={`${id}-type`} value={v} checked={type === v} onChange={() => setType(v)}>{t(`spaces.intent.type.${v}`)}</RadioCard>)}
       </RadioGroup>
-      <div>
-        <label htmlFor={`${id}-amount`} className="text-sm font-medium text-brand-text">{t('spaces.intent.amount')}</label>
-        <Input id={`${id}-amount`} name="intent-amount" autoComplete="off" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={t('spaces.intent.amountExample')} className="mt-1" />
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label htmlFor={`${id}-min`} className="text-sm font-medium text-brand-text">{t('spaces.intent.amount')}</label>
+          <Input id={`${id}-min`} name="intent-min" inputMode="numeric" autoComplete="off" value={min} onChange={(e) => setMin(e.target.value)} placeholder="50" className="mt-1 tabular-nums" />
+        </div>
+        <div>
+          <label htmlFor={`${id}-max`} className="text-sm font-medium text-brand-text">{t('spaces.intent.amountMax')} <span className="font-normal text-brand-text-secondary">{t('markets.optional')}</span></label>
+          <Input id={`${id}-max`} name="intent-max" inputMode="numeric" autoComplete="off" value={max} onChange={(e) => setMax(e.target.value)} placeholder="100" className="mt-1 tabular-nums" />
+        </div>
       </div>
       <RadioGroup legend={t('spaces.intent.method')} listClassName="flex flex-wrap gap-2">
         {METHODS.map((v) => <RadioCard key={v} name={`${id}-method`} value={v} checked={method === v} onChange={() => setMethod(v)}>{v}</RadioCard>)}
       </RadioGroup>
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button type="button" variant="ghost" onClick={onCancel} className="touch:min-h-11">{t('common.cancel')}</Button>
-        <Button type="submit" variant="secondary" disabled={!amount.trim()} className="touch:min-h-11">{t('spaces.intent.post')}</Button>
+        <Button type="submit" variant="secondary" disabled={!valid} aria-describedby={valid ? undefined : `${id}-hint`} className="touch:min-h-11">{t('spaces.intent.post')}</Button>
       </div>
+      {!valid && <p id={`${id}-hint`} className="text-right text-caption text-brand-text-muted">{t('spaces.intent.amountHint')}</p>}
     </form>
   )
 }
 
 /** `membersSlot` renders the admin's member list (public keys only) with a way into a private conversation. */
-export interface OpenPrivateRequest { peer: Peer; context?: string; side?: 'BUY' | 'SELL'; key: number }
+export interface OpenPrivateRequest { peer: Peer; context?: string; side?: 'BUY' | 'SELL'; offerId?: string; key: number }
 
-export function MarketChats({ membersSlot, openWith }: {
+export function MarketChats({ membersSlot, openWith, backTo }: {
   membersSlot?: (openPrivate: (peer: Peer) => void) => ReactNode
   /** Opens (or reopens) a private conversation from outside, e.g. "Conversar" on an offer; `context` is shown on top. */
   openWith?: OpenPrivateRequest | null
+  /** Where "Propor negociação" returns to (the market page). */
+  backTo?: string
 }) {
   const idBase = useId()
   const [tab, setTab] = useState<Tab>('group')
   const [group, setGroup] = useState<readonly Msg[]>(SEED_GROUP)
   const [posting, setPosting] = useState(false)
-  const [threads, setThreads] = useState<Record<string, { peer: Peer; intent?: Intent; context?: string; side?: 'BUY' | 'SELL'; msgs: readonly Msg[] }>>({})
+  const [threads, setThreads] = useState<Record<string, { peer: Peer; intent?: Intent; context?: string; side?: 'BUY' | 'SELL'; offerId?: string; msgs: readonly Msg[] }>>({})
   const [open, setOpen] = useState<string | null>(null)
 
-  const openPrivate = (peer: Peer, intent?: Intent, context?: string, side?: 'BUY' | 'SELL') => {
-    setThreads((th) => ({ ...th, [peer.seed]: { peer, msgs: th[peer.seed]?.msgs ?? [], intent: intent ?? th[peer.seed]?.intent, context: context ?? th[peer.seed]?.context, side: side ?? th[peer.seed]?.side } }))
+  const openPrivate = (peer: Peer, intent?: Intent, context?: string, side?: 'BUY' | 'SELL', offerId?: string) => {
+    setThreads((th) => ({ ...th, [peer.seed]: { peer, msgs: th[peer.seed]?.msgs ?? [], intent: intent ?? th[peer.seed]?.intent, context: context ?? th[peer.seed]?.context, side: side ?? th[peer.seed]?.side, offerId: offerId ?? th[peer.seed]?.offerId } }))
     setOpen(peer.seed)
     setTab('private')
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (openWith) openPrivate(openWith.peer, undefined, openWith.context, openWith.side) }, [openWith?.key])
+  useEffect(() => { if (openWith) openPrivate(openWith.peer, undefined, openWith.context, openWith.side, openWith.offerId) }, [openWith?.key])
   const sendGroup = (text: string) => { setGroup((g) => [...g, { id: `g${g.length + 1}`, ...ME, text, own: true }]); simulatedToast() }
   const postIntent = (intent: Intent) => { setGroup((g) => [...g, { id: `g${g.length + 1}`, ...ME, intent, own: true }]); setPosting(false); simulatedToast() }
   const sendPrivate = (seed: string, text: string) => {
@@ -152,19 +192,15 @@ export function MarketChats({ membersSlot, openWith }: {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2">
-        <MessagesSquare aria-hidden="true" className="size-icon-sm text-brand-text-muted" />
-        <h2 className="text-section-title">{t('spaces.chat.sectionTitle')}</h2>
-        <SimulatedBadge label={t('spaces.simulated')} />
-      </div>
-      <p className="mt-1 text-caption text-brand-text-secondary">{t('spaces.chat.note')}</p>
+      {/* The page tab already says "Conversas": no second heading, just the honest note. */}
+      <p className="flex flex-wrap items-center gap-2 text-caption text-brand-text-secondary"><SimulatedBadge label={t('spaces.simulated')} />{t('spaces.chat.note')}</p>
       <Tabs
         className="mt-3"
         idBase={idBase}
         label={t('spaces.chat.sectionTitle')}
         value={tab}
         onChange={setTab}
-        items={[{ value: 'group', label: t('spaces.chat.title') }, { value: 'private', label: list.length ? t('spaces.chat.privateTabCount', { count: list.length }) : t('spaces.chat.privateTab') }]}
+        items={[{ value: 'group', label: t('spaces.chat.groupTab') }, { value: 'private', label: list.length ? t('spaces.chat.privateTabCount', { count: list.length }) : t('spaces.chat.privateTab') }]}
       />
       {tab === 'group' ? (
         <div {...tabPanelProps(idBase, 'group')} className="space-y-3 pt-3 outline-none">
@@ -212,7 +248,7 @@ export function MarketChats({ membersSlot, openWith }: {
                 {thread.msgs.map((m) => <Bubble key={m.id} m={m} />)}
               </ul>
               <Composer label={t('spaces.chat.privatePlaceholder')} onSend={(v) => sendPrivate(thread.peer.seed, v)} warn />
-              <Link to={`${TRADES_ROUTES.newOffer}?side=${thread.side ?? (thread.intent ? ANSWER_SIDE[thread.intent.type] : 'SELL')}`} className={cn(buttonVariants({ variant: 'secondary' }), 'touch:min-h-11')}>{t('spaces.chat.createTrade')}</Link>
+              <Link to={proposeLink(thread, backTo)} className={cn(buttonVariants({ variant: 'secondary' }), 'touch:min-h-11')}>{t('spaces.chat.createTrade')}</Link>
             </>
           )}
         </div>

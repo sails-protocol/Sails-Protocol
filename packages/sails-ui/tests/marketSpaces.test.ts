@@ -158,3 +158,17 @@ describe('off-trade warning heuristic (soft, never blocks)', () => {
     }
   })
 })
+
+describe('demo market offers (stand-in for liquidity.discover({ marketId }))', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { offersForMarket } = require('../src/lib/marketSpaces') as typeof import('../src/lib/marketSpaces')
+  const offers = Array.from({ length: 8 }, (_, i) => ({ id: `o${i}` }))
+  it('is deterministic, a subset, and never empty when offers exist', () => {
+    const a = offersForMarket(offers, 'm1')
+    expect(offersForMarket(offers, 'm1')).toEqual(a)
+    expect(a.length).toBeGreaterThan(0)
+    expect(a.every((o) => offers.includes(o))).toBe(true)
+    expect(offersForMarket([], 'm1')).toEqual([])
+    expect(offersForMarket([{ id: 'x' }], 'anything').length).toBe(1)
+  })
+})

@@ -82,20 +82,24 @@ export function PublishOffer() {
   // Step 1
   // Optional starting side from a link (e.g. "Criar negociação a partir desta conversa"); the person can change it.
   const [searchParams] = useSearchParams()
+  // Only an in-app markets path is a valid way back (never an external URL).
+  const backTo = /^\/markets\/[\w%-]+$/.test(searchParams.get('back') ?? '') ? searchParams.get('back')! : null
   const [side, setSide] = useState<TradeSide>(() => (searchParams.get('side') === 'BUY' ? 'BUY' : 'SELL'))
   // Narrower than the UI's own `AssetType` on purpose — same reasoning
   // as `paymentMethod` below: this page submits straight to the real
   // `liquidity.publish()` call, which has no `DEPIX` (see types.ts's own
   // comment). The picker offers only `available` catalog pairs (plus the
   // dev test rail), all enum values; this keeps the rest out of the type too.
-  const [asset, setAsset] = useState<(typeof ASSETS)[number] | 'Todos'>('Todos')
+  // Optional prefill from a market conversation ("Propor negociação"): only known values are taken; all editable.
+  const qAsset = searchParams.get('asset')
+  const [asset, setAsset] = useState<(typeof ASSETS)[number] | 'Todos'>(() => ((ASSETS as readonly string[]).includes(qAsset ?? '') ? (qAsset as (typeof ASSETS)[number]) : 'Todos'))
   const [currency, setCurrency] = useState<FiatCurrency | 'Todas'>('USD')
   const [priceType, setPriceType] = useState<'FIXED' | 'FLOATING'>('FIXED')
   const [price, setPrice] = useState('')
 
   // Step 2
-  const [minAmount, setMinAmount] = useState('')
-  const [maxAmount, setMaxAmount] = useState('')
+  const [minAmount, setMinAmount] = useState(() => (/^\d+$/.test(searchParams.get('min') ?? '') ? searchParams.get('min')! : ''))
+  const [maxAmount, setMaxAmount] = useState(() => (/^\d+$/.test(searchParams.get('max') ?? '') ? searchParams.get('max')! : ''))
   // Narrower than the UI's own `PaymentMethod` type on purpose: this
   // page submits straight to the real `liquidity.publish()` call
   // (@satsails/p2p-trading-sdk's real, backend-matching `PaymentMethod`), which has
@@ -104,7 +108,8 @@ export function PublishOffer() {
   // `PAYMENT_METHODS` (the real list, already what the <select>'s
   // options use below) rather than hand-listing every UI-only value to
   // exclude — stays correct automatically if that list ever grows again.
-  const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>('PIX')
+  const qMethod = searchParams.get('method')
+  const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>(() => ((PAYMENT_METHODS as readonly string[]).includes(qMethod ?? '') ? (qMethod as (typeof PAYMENT_METHODS)[number]) : 'PIX'))
   // Dev demo only: up to MAX_PAYMENT_METHODS methods, stored by the demo backend. The real publish()
   // takes ONE paymentMethod (multi-method contract: issue #735), so real mode keeps the single Select.
   const [demo] = useState(isDemoMode)
@@ -229,8 +234,8 @@ export function PublishOffer() {
     <Page width="form">
       <PageHeader
         back={
-          <Link to={TRADES_ROUTES.offers} className="touch:min-h-11 text-body-sm text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {t('trades.offers.title')}
+          <Link to={backTo ?? TRADES_ROUTES.offers} className="touch:min-h-11 text-body-sm text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {backTo ? t('spaces.chat.backToConversation') : t('trades.offers.title')}
           </Link>
         }
         title={t('trades.offers.publish')}

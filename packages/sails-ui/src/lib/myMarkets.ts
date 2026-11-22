@@ -39,6 +39,8 @@ export interface MarketView {
   remoteIcon?: string
   remoteBanner?: string
   entryPolicy?: EntryPolicy
+  /** Demo: a market the person created in this session ("Criado por você" instead of "Exemplo ilustrativo"). */
+  ownedByYou?: boolean
 }
 
 /**

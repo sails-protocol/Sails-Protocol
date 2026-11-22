@@ -80,21 +80,3 @@ export const DEMO_MY_MARKETS: readonly MyMarketEntry[] = [
 
 /** Fictional members of the market the demo user administers (the admin sees public keys only, GK 2026-11-22). */
 export const DEMO_MEMBER_KEYS: readonly string[] = [key('a7d3'), key('5be90dfe1d'), key('c41d9e73a2'), key('b50ee0e9')]
-
-/** Fictional offers per market (the liquidity.discover({ marketId }) answer is not defined yet). */
-export interface DemoMarketOffer { id: string; marketId: string; side: 'BUY' | 'SELL'; asset: string; priceUsd: number; method: string; advertiser: string }
-export const DEMO_MARKET_OFFERS: readonly DemoMarketOffer[] = [
-  { id: 'mo-1', marketId: 'demo-market-clube', side: 'SELL', asset: 'BTC', priceUsd: 97_800, method: 'Pix', advertiser: 'Alice' },
-  { id: 'mo-2', marketId: 'demo-market-clube', side: 'BUY', asset: 'USDT', priceUsd: 1, method: 'Pix', advertiser: 'Bob' },
-  { id: 'mo-3', marketId: 'demo-market-traders', side: 'SELL', asset: 'BTC', priceUsd: 97_650, method: 'TED', advertiser: 'Bob' },
-  { id: 'mo-4', marketId: 'demo-market-traders', side: 'BUY', asset: 'BTC', priceUsd: 97_200, method: 'Pix', advertiser: 'Alice' },
-  { id: 'mo-5', marketId: 'demo-market-loja', side: 'SELL', asset: 'USDT', priceUsd: 1.01, method: 'Pix', advertiser: 'Loja Exemplo' },
-  { id: 'mo-6', marketId: 'demo-market-boreal', side: 'SELL', asset: 'BTC', priceUsd: 97_900, method: 'TED', advertiser: 'Boreal OTC' },
-  { id: 'mo-7', marketId: 'demo-market-boreal', side: 'BUY', asset: 'USDC', priceUsd: 0.99, method: 'TED', advertiser: 'Boreal OTC' },
-  { id: 'mo-8', marketId: 'demo-market-sul', side: 'SELL', asset: 'BTC', priceUsd: 97_700, method: 'Pix', advertiser: 'Alice' },
-  { id: 'mo-9', marketId: 'demo-market-amigos', side: 'SELL', asset: 'BTC', priceUsd: 97_500, method: 'Pix', advertiser: 'Bob' },
-  { id: 'mo-10', marketId: 'demo-market-abc', side: 'SELL', asset: 'USDT', priceUsd: 1, method: 'TED', advertiser: 'Kestrel Câmbio' },
-  { id: 'mo-11', marketId: 'demo-market-convite', side: 'SELL', asset: 'BTC', priceUsd: 97_400, method: 'Pix', advertiser: 'Alice' },
-  { id: 'mo-12', marketId: 'demo-market-convite', side: 'BUY', asset: 'USDT', priceUsd: 1, method: 'Pix', advertiser: 'Bob' },
-  { id: 'mo-13', marketId: 'demo-market-meu', side: 'SELL', asset: 'BTC', priceUsd: 97_600, method: 'Pix', advertiser: 'Alice' },
-]

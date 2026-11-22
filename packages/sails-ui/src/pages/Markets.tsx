@@ -23,7 +23,7 @@ import { FactList } from '../components/markets/FactList'
 import { CreateMarketWizard, type CreateMarketCopy } from '../components/markets/CreateMarketWizard'
 import { MarketPreview, type MarketPreviewCopy } from '../components/markets/MarketPreview'
 import { marketPreview, parseUsdWhole, type MarketDraft, type MarketPreviewModel } from '../lib/createMarket'
-import { addDemoCreatedMarket, demoMarketPage, isDemoMode } from '../lib/demoMarkers'
+import { addDemoCreatedMarket, demoMarketPage, isDemoMode, isRetainedPreview } from '../lib/demoMarkers'
 import { MARKET_CATEGORIES, filterByCategory, pageOf, readViewMode, saveViewMode, type CategoryFilter, type ViewMode } from '../lib/marketSpaces'
 import { spaceProduct, type SpaceProductId } from '../lib/spaceCatalog'
 import { SpaceCheckout, SpaceTypePicker, spaceName } from './spaces/SpaceCheckout'
@@ -386,6 +386,8 @@ function CreateView() {
     const id = addDemoCreatedMarket({
       name: paying.name, description: paying.description ?? undefined, visibility: paying.visibility, infrastructure: paying.infrastructure,
       preset: paying.preset, category: paying.category, profile: paying.profile, participants: 1,
+      // The person's own local previews (kept alive by retainUrl below), never uploaded.
+      brandImage: paying.iconUrl ?? undefined, bannerImage: paying.bannerUrl ?? undefined,
       entryPolicy: { kyc: paying.entry.kyc, thresholdUsd: paying.entry.thresholdUsd ?? undefined, providerUrl: paying.entry.providerUrl ?? undefined, social: paying.entry.social },
     })
     if (id) setCreated({ id, name: paying.name })
@@ -412,6 +414,7 @@ function CreateView() {
         initial={initial}
         simple={simple}
         createLabel={simple ? t('spaces.create.reviewAndPay') : undefined}
+        retainUrl={isRetainedPreview}
         privateHostingSlot={<PrivateHostingNote own={<p className="text-caption text-brand-text-secondary"><span className="font-medium text-brand-text">{t('spaces.hosting.own')}.</span> {t(simple ? 'spaces.hosting.ownNote' : 'spaces.hosting.ownInWizard')}</p>} />}
         brandingSlot={<WirePlanned id="marketBranding" description={t('markets.create.brandingPlanned')} />}
         invitesSlot={<WirePlanned id="marketInvite" label={t('markets.create.invitesLabel')} description={t('markets.create.invitesPlanned')} />}

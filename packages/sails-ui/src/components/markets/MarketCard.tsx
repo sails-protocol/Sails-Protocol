@@ -13,6 +13,7 @@ import { MarketIcon } from './MarketIcon'
 
 export interface MarketCardCopy {
   illustrative: string
+  ownedByYou: string
   /** Category label, or null when the market has none. */
   category: (m: MarketView) => string | null
   /** Profile badge ("P2P", "Empresa / OTC"), or null. */
@@ -47,7 +48,7 @@ export function MarketCard({ market: m, copy, action, badges, className }: {
         <div className="flex flex-wrap items-center gap-1.5">
           {profile && <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{profile}</Badge>}
           {badges}
-          {m.illustrative && <Badge variant="outline" className={TAG}>{copy.illustrative}</Badge>}
+          {m.ownedByYou ? <Badge variant="outline" className={TAG}>{copy.ownedByYou}</Badge> : m.illustrative && <Badge variant="outline" className={TAG}>{copy.illustrative}</Badge>}
         </div>
         <p className="tabular-nums text-caption text-brand-text-muted">{copy.meta(m)}</p>
         {action && <div className="mt-auto pt-1">{action}</div>}

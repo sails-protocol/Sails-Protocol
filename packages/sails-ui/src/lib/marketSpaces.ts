@@ -78,3 +78,13 @@ export function meetsDemoVerifiedCriteria(s: DemoMarketStats | undefined): boole
 export function canSeeOffers(m: Pick<MarketView, 'visibility' | 'relation'>): boolean {
   return m.visibility === 'public' || m.relation === 'member' || m.relation === 'admin'
 }
+
+/**
+ * Demo only: which of the demo backend's offers a market lists (a stand-in for liquidity.discover({ marketId })).
+ * Deterministic per market and offer, roughly one offer in `share`; never empty when there are offers.
+ */
+export function offersForMarket<T extends { id: string }>(offers: readonly T[], marketId: string, share = 2): T[] {
+  const hash = (s: string) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h }
+  const picked = offers.filter((o) => hash(`${marketId}:${o.id}`) % share === 0)
+  return picked.length > 0 || offers.length === 0 ? picked : [offers[hash(marketId) % offers.length]]
+}

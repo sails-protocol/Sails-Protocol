@@ -92,6 +92,7 @@ export function marketCardCopy(): MarketCardCopy {
   const list = marketListCopy()
   return {
     illustrative: list.illustrative,
+    ownedByYou: t('spaces.ownedByYou'),
     category: categoryLabel,
     profile: profileLabel,
     meta: (m) => {

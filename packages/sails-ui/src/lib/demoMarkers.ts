@@ -8,7 +8,7 @@
 import { ratingSummaryOf, type RatingSummary } from './ratings'
 import type { NodeView } from './sailsNode'
 import type { MarketView } from './myMarkets'
-import { DEMO_INVITED_FIXTURE, DEMO_MARKET_FIXTURES, DEMO_MARKET_OFFERS, DEMO_MEMBER_KEYS, DEMO_MY_MARKETS, DEMO_NODES, type DemoMarketFixture, type DemoMarketOffer } from '../demo/nodesMarkets'
+import { DEMO_INVITED_FIXTURE, DEMO_MARKET_FIXTURES, DEMO_MEMBER_KEYS, DEMO_MY_MARKETS, DEMO_NODES, type DemoMarketFixture } from '../demo/nodesMarkets'
 import { toMarketView } from './marketContract'
 import { meetsDemoVerifiedCriteria } from './marketSpaces'
 import { parseAppealView, type DisputeAppealView } from './disputeAppeal'
@@ -78,6 +78,9 @@ const DEMO_VIEWS: readonly MarketView[] = DEMO_MARKET_FIXTURES.map((f) => fixtur
 export const DEMO_INVITED_MARKET_ID = DEMO_INVITED_FIXTURE.market.id
 const DEMO_INVITED: MarketView = fixtureView(DEMO_INVITED_FIXTURE, { relation: 'member', joinedByInvite: true })
 let granted = false
+// Local previews a created demo market uses: the wizard must not revoke them when it unmounts.
+const retainedPreviews = new Set<string>()
+export const isRetainedPreview = (url: string) => retainedPreviews.has(url)
 let created: readonly MarketView[] = []
 let demoSnapshot: readonly MarketView[] = DEMO_VIEWS
 const demoListeners = new Set<() => void>()
@@ -108,10 +111,11 @@ export function setDemoInviteGranted(value: boolean): void {
 }
 
 /** Demo only: the market "Criar mercado" just created (fictional, admin = the demo user, in memory). Returns its id. */
-export function addDemoCreatedMarket(m: Omit<MarketView, 'id' | 'relation' | 'illustrative'>): string | null {
+export function addDemoCreatedMarket(m: Omit<MarketView, 'id' | 'relation' | 'illustrative' | 'ownedByYou'>): string | null {
   if (!import.meta.env.DEV || !isDemoMode()) return null
   const id = `demo-created-${created.length + 1}`
-  created = [...created, { ...m, id, relation: 'admin', illustrative: true }]
+  created = [...created, { ...m, id, relation: 'admin', ownedByYou: true }]
+  for (const u of [m.brandImage, m.bannerImage]) if (u) retainedPreviews.add(u)
   publish()
   return id
 }
@@ -124,7 +128,8 @@ export function addDemoCreatedMarket(m: Omit<MarketView, 'id' | 'relation' | 'il
 export interface DemoMarketPage {
   market: MarketView
   createdAt: string
-  offers: readonly DemoMarketOffer[]
+  /** Lists offers (picked from the demo backend's, lib/marketSpaces.ts offersForMarket); a just-created market has none. */
+  hasOffers: boolean
   /** Fictional "Verificado" criteria met (lib/marketSpaces.ts); demo only. */
   verified: boolean
   /** Admin view only: members as public keys. */
@@ -135,13 +140,13 @@ export function demoMarketPage(id: string, snapshot: readonly MarketView[] = dem
   const fixture = [...DEMO_MARKET_FIXTURES, DEMO_INVITED_FIXTURE].find((f) => f.market.id === id)
   if (!fixture) {
     const own = snapshot.find((m) => m.id === id && m.id.startsWith('demo-created-'))
-    return own ? { market: own, createdAt: new Date().toISOString(), offers: [], verified: false, memberKeys: [] } : null
+    return own ? { market: own, createdAt: new Date().toISOString(), hasOffers: false, verified: false, memberKeys: [] } : null
   }
   const market = snapshot.find((m) => m.id === id) ?? fixtureView(fixture)
   return {
     market,
     createdAt: fixture.market.createdAt,
-    offers: DEMO_MARKET_OFFERS.filter((o) => o.marketId === id),
+    hasOffers: true,
     verified: meetsDemoVerifiedCriteria(fixture.stats),
     memberKeys: market.relation === 'admin' ? DEMO_MEMBER_KEYS : [],
   }
