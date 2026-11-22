@@ -1,5 +1,6 @@
 import { prisma } from '../../common/database'
 import { NotFoundError, EscrowError, ForbiddenError, ValidationError, SettlementExecutedError } from '../../common/errors'
+import { assertRailOpen } from '../../common/day0-closed-rails'
 import { EscrowType } from '../../common/types/trade'
 import type { AssetType } from '../../common/types'
 import type { CreateEscrowInput } from '@satsails/p2p-schemas'
@@ -300,7 +301,9 @@ export type { CreateEscrowInput }
 // PROVIDERS` check means creation can never drift from the real
 // dispatch-time truth — they are now literally the same lookup.
 function resolveEscrowType(asset: AssetType, explicitType: EscrowType | undefined): EscrowType {
+  assertRailOpen({ asset }) // Despacho 064
   const resolved = resolveEscrowTypeCandidate(asset, explicitType)
+  assertRailOpen({ escrowType: resolved }) // Despacho 064: also an explicit LIGHTNING_HODL for a scope-less asset
   getSettlementProvider(resolved)
   return resolved
 }
