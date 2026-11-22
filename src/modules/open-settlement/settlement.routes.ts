@@ -9,6 +9,7 @@
  * pure HTTP wiring, no new business logic.
  */
 import type { FastifyInstance } from 'fastify'
+import * as bitcoin from 'bitcoinjs-lib'
 import { z } from 'zod'
 import { ESCROW_TYPE_VALUES, ASSET_TYPE_VALUES } from '@satsails/p2p-schemas'
 import { escrowService } from './escrow.service'
@@ -130,9 +131,23 @@ const cancelPendingTransactionSchema = z.object({
 
 // Issue #239 (D-1) - the HTTP shape of a pending round: never another participant's signed PSBT. Only who has
 // signed, and when. The service (and every internal caller) still sees the full row.
-export function toPendingTransactionResponse<T extends { signatures?: Array<{ participantId: string; createdAt: Date }> }>(pending: T) {
-  const { signatures, ...round } = pending
+export function toPendingTransactionResponse<T extends { signatures?: Array<{ participantId: string; createdAt: Date }>; unsignedPsbtBase64?: string }>(pending: T) {
+  const { signatures, ...round } = withoutPartialSignatures(pending)
   return { ...round, signedBy: (signatures ?? []).map((s) => ({ participantId: s.participantId, submittedAt: s.createdAt })) }
+}
+
+// A round's PSBT is returned UNSIGNED, always: a partial signature already stored on a round (for example the
+// arbiter's) never leaves the server in any response.
+export function withoutPartialSignatures<T extends { unsignedPsbtBase64?: string }>(pending: T): T {
+  if (!pending?.unsignedPsbtBase64) return pending
+  try {
+    const psbt = bitcoin.Psbt.fromBase64(pending.unsignedPsbtBase64)
+    if (!psbt.data.inputs.some((i) => (i.partialSig ?? []).length > 0)) return pending
+    for (const input of psbt.data.inputs) delete (input as { partialSig?: unknown }).partialSig
+    return { ...pending, unsignedPsbtBase64: psbt.toBase64() }
+  } catch {
+    return pending // not a Bitcoin PSBT (another rail's bundle): returned as stored
+  }
 }
 
 // Exported — Issue #266 CTO Gate re-gate. Lets a test prove the real
@@ -387,7 +402,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     const { id } = idParam.parse(request.params)
     initiateReleaseSchema.parse(request.body ?? {})
     const pending = await escrowService.initiateRelease(id, undefined, participantId(request))
-    return reply.code(201).send(success(pending))
+    return reply.code(201).send(success(withoutPartialSignatures(pending)))
   })
 
   // Mirror of initiate-release above, for refund.
@@ -397,7 +412,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { id } = idParam.parse(request.params)
     const pending = await escrowService.initiateRefund(id, participantId(request))
-    return reply.code(201).send(success(pending))
+    return reply.code(201).send(success(withoutPartialSignatures(pending)))
   })
 
   // Each required signer (EscrowPendingTransaction.requiredSigners) calls
@@ -412,7 +427,8 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     const { id } = idParam.parse(request.params)
     const body = submitTransactionSignatureSchema.parse(request.body)
     const result = await escrowService.submitTransactionSignature(id, participantId(request), body.signedPsbtBase64, body.pendingTransactionId)
-    return reply.code(200).send(success(result))
+    const safe = 'pendingTransaction' in result && result.pendingTransaction ? { ...result, pendingTransaction: withoutPartialSignatures(result.pendingTransaction) } : result
+    return reply.code(200).send(success(safe))
   })
 
   // Issue #239 - the seller withdraws a cooperative MULTISIG round that is not fully signed. Retired, NOT revoked:

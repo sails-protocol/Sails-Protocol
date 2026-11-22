@@ -14,7 +14,8 @@ export type MarketId = string
 /** The admin's Ed25519 key, the same one used to sign in (the draft's field name may change; opaque here). */
 export type AdminIdentity = string
 
-export type MarketCategory = 'GENERAL' | 'P2P_TRADER' | 'BUSINESS_OTC' | 'REGIONAL'
+/** Topics, not identity (PM 2026-11-22): who runs the market is the profile (P2P / Empresa-OTC). */
+export type MarketCategory = 'GENERAL' | 'REGIONAL' | 'BILL_PAY' | 'COMMERCE'
 export type MarketProfile = 'P2P' | 'EMPRESA_OTC'
 export type MarketContractVisibility = 'PUBLIC' | 'PRIVATE'
 export type SocialLogin = 'X' | 'LINKEDIN' | 'GITHUB'

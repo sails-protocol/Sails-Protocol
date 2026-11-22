@@ -29,6 +29,7 @@ import type { ThemePreference } from '../lib/themePreference'
 import { useLocalePreference, type LocalePreference } from '../lib/locale'
 import { sectionFromSearch } from '../lib/settingsSection'
 import { NetworkRow, NetworkSettingsRows } from '../components/settings/NetworkSettings'
+import { SimulatedSettingRow } from '../components/settings/SimulatedSettings'
 import { MARKETS_ROUTES } from '../components/layout/navMatch'
 import { Badge } from '../components/ui/badge'
 import { MarketIcon } from '../components/markets/MarketIcon'
@@ -72,7 +73,9 @@ const localeOptions = (): ReadonlyArray<{ value: LocalePreference; label: string
 
 function Planned({ id, description }: { id: LooseWireId; description?: string }) {
   const wire = LOOSE_WIRES[id]
-  return <SettingsRow icon={wire.icon} label={wire.label} description={description} plannedLabel={t('common.soon')} />
+  // Demo: a working simulation (or an honest notice for real secrets and money); real mode: "Em breve" (CTO 437).
+  const simulated = isDemoMode() ? <SimulatedSettingRow id={id} description={description} /> : null
+  return simulated ?? <SettingsRow icon={wire.icon} label={wire.label} description={description} plannedLabel={t('common.soon')} />
 }
 
 // Host of the build-time node address; the raw value when it is not a URL, so a misconfigured build shows what it uses.

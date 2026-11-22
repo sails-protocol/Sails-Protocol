@@ -12,7 +12,8 @@ import { Check, X } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
 const BASE = 'inline-flex items-center gap-1.5 rounded-full text-body-sm font-medium transition-colors duration-short'
-const SIZE = 'min-h-8 touch:min-h-11'
+// 36 with a fine pointer (DESIGN_SYSTEM.md: sm controls, fields, chips), 44 on touch.
+const SIZE = 'min-h-9 touch:min-h-11'
 const tone = (selected: boolean) => (selected ? 'bg-brand-checked/12 text-brand-blue-fg' : 'bg-brand-tonal text-brand-text-secondary hover:text-brand-text')
 
 export function FilterChip({ label, selected = false, onToggle, onClear, clearLabel, className }: {

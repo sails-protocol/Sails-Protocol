@@ -39,7 +39,10 @@ import { cn } from '../lib/utils'
 import { Textarea } from '../components/ui/textarea'
 import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
 import { Lock, Banknote, ArrowLeft, ChevronRight, MessageSquare } from 'lucide-react'
-import { formatDateTime, formatUsdExact } from '../lib/format'
+import { formatAmount, formatDateTime, formatUsdExact } from '../lib/format'
+
+/** A crypto quantity in the interface language ("0,01" in pt-BR), never the raw number string. */
+const qty = (v: number | string) => (Number.isFinite(Number(v)) ? formatAmount(Number(v)) : String(v))
 import { detectRiskLocally } from '../lib/socialEngineering'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, DISPUTE_RULING_LABEL, ESCROW_TYPE_LABEL, PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { AssetNetworkLabel } from '../components/ui/AssetIcon'
@@ -940,7 +943,7 @@ export function Trade() {
       { label: t('trade.record.tradeId'), value: trade.id, mono: true, copy: trade.id },
       { label: t('trade.record.openedAt'), value: formatDateTime(trade.createdAt) },
       { label: t('trade.record.asset'), value: ASSET_LABELS[trade.asset] },
-      { label: t('trade.record.quantity'), value: `${trade.amount} ${short}` },
+      { label: t('trade.record.quantity'), value: `${qty(trade.amount)} ${short}` },
       { label: t('trade.record.unitPriceUsd'), value: formatUsdExact(trade.priceUsd) },
       { label: t('trade.record.tradeValueUsd'), value: totalLabel },
       { label: t('trade.record.paymentMethod'), value: methodLabel ?? t('trade.record.notInformed') },
@@ -1079,14 +1082,14 @@ export function Trade() {
       <TradeAmountsStrip
         items={isBuyer ? [
           { label: t('trade.amounts.youPay'), value: totalLabel, sub: totalSub },
-          { label: t('trade.amounts.youReceive'), value: `${trade.amount} ${short}`, sub: <AssetNetworkLabel asset={trade.asset} /> },
+          { label: t('trade.amounts.youReceive'), value: `${qty(trade.amount)} ${short}`, sub: <AssetNetworkLabel asset={trade.asset} /> },
           priceItem,
         ] : isSeller ? [
-          { label: t('trade.amounts.youSell'), value: `${trade.amount} ${short}`, sub: <AssetNetworkLabel asset={trade.asset} /> },
+          { label: t('trade.amounts.youSell'), value: `${qty(trade.amount)} ${short}`, sub: <AssetNetworkLabel asset={trade.asset} /> },
           { label: t('trade.amounts.youReceive'), value: totalLabel, sub: totalSub },
           priceItem,
         ] : [
-          { label: t('trade.amounts.quantity'), value: `${trade.amount} ${short}`, sub: <AssetNetworkLabel asset={trade.asset} /> },
+          { label: t('trade.amounts.quantity'), value: `${qty(trade.amount)} ${short}`, sub: <AssetNetworkLabel asset={trade.asset} /> },
           { label: t('trade.amounts.tradeValue'), value: totalLabel, sub: totalSub },
           priceItem,
         ]}
@@ -1259,7 +1262,7 @@ export function Trade() {
         onOpenChange={setConfirmRelease}
         title={t('trade.confirm.release.title')}
         summary={[
-          { label: t('trade.confirm.release.amount'), value: `${trade.amount} ${short} — ${ASSET_LABELS[trade.asset]}` },
+          { label: t('trade.confirm.release.amount'), value: `${qty(trade.amount)} ${short} — ${ASSET_LABELS[trade.asset]}` },
           { label: t('trade.record.tradeValueUsd'), value: totalLabel },
           { label: t('trade.parties.buyer'), value: buyer.displayName ?? t('trade.confirm.nameMissing') },
           { label: t('trade.confirm.currentState'), value: ESCROW_STATE_LABEL[escrowStatus] },

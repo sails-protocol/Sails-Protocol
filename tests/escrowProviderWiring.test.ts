@@ -115,6 +115,8 @@ jest.mock('../src/modules/open-settlement/multisig.provider', () => ({
     finalizeRefund: (...args: unknown[]) => mockFinalizeRefund(...args),
     buildUnsignedSplit: (...args: unknown[]) => mockBuildUnsignedSplit(...args),
     finalizeSplit: (...args: unknown[]) => mockFinalizeSplit(...args),
+    storedArbiterSignatureState: () => 'absent',
+    signAsArbiterAtExecution: () => 'arbiter-signed-at-execution',
   },
 }))
 
@@ -1377,11 +1379,14 @@ describe('initiateRelease()/initiateRefund() — Phase 2 signature-collection ro
 // ever reaches an escrow via a dispute ruling (VALID_TRANSITIONS), so
 // status is 'DISPUTED' throughout, unlike initiateRelease/initiateRefund's
 // own PAYMENT_PENDING fixtures above.
+const SPLIT_RULING = { id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1', status: 'RESOLVED', ruling: 'SPLIT', authorityBuyerBps: 6000 }
 describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockEscrowFeatureFlag = false
-    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: 'trade-1', arbiterId: 'arbiter-1' })
+    // A split round exists only to execute a recorded SPLIT ruling of the same ratio.
+    mockDisputeFindFirst.mockResolvedValue(SPLIT_RULING)
+    mockLiveDisputeFindUnique.mockResolvedValue(SPLIT_RULING)
     mockEscrowUpdateMany.mockResolvedValue({ count: 1 })
     mockTradeFindUnique.mockResolvedValue({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1' })
     mockParticipantKeyFindMany.mockResolvedValue([
@@ -1419,14 +1424,14 @@ describe('initiateSplit() — Phase 2 signature-collection round setup for SPLIT
         // this path (it wasn't stored anywhere before this pass).
         buyerBps: 6000,
         // ADR-005 / #218 — ruling-generation provenance snapshotted
-        // because this escrow is DISPUTED. mockDisputeFindFirst's own
-        // fixture above only sets {id, tradeId, arbiterId} — the other
-        // generation fields are genuinely undefined on that row, exactly
-        // as a real Dispute predating this ADR would report them.
+        // because this escrow is DISPUTED. SPLIT_RULING sets no appeal
+        // round or authority signature, so those generation fields are
+        // undefined on that row, as a real Dispute predating this ADR
+        // would report them.
         disputeId: 'dispute-1',
         rulingAppealRound: undefined,
         rulingArbiterId: 'arbiter-1',
-        rulingOutcome: undefined,
+        rulingOutcome: 'SPLIT',
         rulingAuthoritySignature: undefined,
         rulingAuthorityIssuedAt: undefined,
       },
@@ -1538,7 +1543,7 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
     // Real MultisigProvider.buildUnsignedSplit() requires only ONE more
     // signer alongside the arbiter's pre-embedded one (see that method's
     // own comment) — mocked here as buyer-1, its real default pairing.
-    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'DISPUTED' })
+    mockEscrowFindUnique.mockResolvedValue({ id: 'escrow-1', tradeId: 'trade-1', type: 'MULTISIG', status: 'DISPUTED', lockedAmount: '0.001' })
     mockPendingTxFindUnique.mockResolvedValue({
       id: 'ptx-3', escrowId: 'escrow-1', kind: 'split', requiredSigners: ['buyer-1'],
       unsignedPsbtBase64: 'unsigned-split-psbt', triggeredBy: 'arbiter-1',
@@ -1554,10 +1559,11 @@ describe('submitTransactionSignature() — collects signatures, finalizes only o
 
     const result = await escrowService.submitTransactionSignature('escrow-1', 'buyer-1', 'buyer-signed')
 
+    // The arbiter's signature is added only here, at execution, after the gates and the claim.
     expect(mockFinalizeSplit).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'escrow-1' }),
       'unsigned-split-psbt',
-      ['buyer-signed']
+      ['buyer-signed', 'arbiter-signed-at-execution']
     )
     expect(mockEscrowUpdateMany).toHaveBeenCalledWith({ where: { id: 'escrow-1', status: 'DISPUTED' }, data: { status: 'SPLIT' } })
     expect(mockEscrowUpdate).toHaveBeenCalledWith({ where: { id: 'escrow-1' }, data: { txReleaseId: 'real-split-txid', releasedAt: expect.any(Date) } })
