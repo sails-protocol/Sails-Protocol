@@ -53,6 +53,11 @@ async function bootstrap() {
     await client.query('BEGIN')
     await upsertRole(client, MIGRATOR, migratorPassword, 'INHERIT')
     await upsertRole(client, RUNTIME, runtimePassword, 'NOINHERIT')
+    // M-1b (GK): the reviewer ROLE that may execute a capacity unblock. NOLOGIN and empty: the cluster administrator grants it to the
+    // independent reviewer's own LOGIN role. The M-1b migration REQUIRES it to exist (it never creates it) and fails closed otherwise.
+    if (!(await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', ['sails_capacity_reviewer'])).rowCount) {
+      await client.query(`CREATE ROLE sails_capacity_reviewer NOLOGIN ${LOCKDOWN}`)
+    }
 
     // The runtime must not be able to SET ROLE to anything (migrator, admin, pg_* roles).
     const memberships = await client.query(

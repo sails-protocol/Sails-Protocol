@@ -164,6 +164,10 @@ jobs:
         run: npm run build -w @sails/core -w @satsails/p2p-schemas -w @satsails/p2p-trading-sdk
       - name: Generate Prisma Client
         run: npm run db:generate
+      - name: Ensure the capacity reviewer role (M-1b migration requires it)
+        env:
+          ADMIN_DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+        run: node scripts/db/ensure-capacity-reviewer-role.js
       - name: Apply database migrations
         run: npm run db:migrate
       - name: PostgreSQL lane, shard ${{ matrix.shard }}/4
