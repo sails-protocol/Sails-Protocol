@@ -166,6 +166,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 
 ## Identidade
 - Logo: direção A, "Vela dupla" (vela laranja, bujarrona azul, linha d'água). Assinatura com o símbolo e o nome "Sails Market" na horizontal. "Conectar wallet" não faz parte da logo (2026-11-20).
+  - Versões em uma cor (Product Owner, 2026-11-22): branca #FFFFFF (`sails-mark-white.svg`, `sails-logo-white.svg`) para fundos escuros, e cinza neutro #8A919E (`sails-mark-gray.svg`, `sails-logo-gray.svg`) para usos discretos nos dois temas. Em `public/brand/` e no Design System (Logos).
 - Avatares próprios, gerados a partir da chave pública, nos estilos Vela, Maré e Grade. Cada pessoa escolhe o estilo em que vê os avatares (2026-11-20).
   - **Escolher o próprio avatar no Perfil** (Product Owner, 2026-11-22): tocar no avatar abre o baralho (Dialog no desktop, Sheet no celular) com Vela / Maré / Grade e 8 variações cada, geradas da própria chave (a variação 1 é o avatar padrão). A escolha vale para o seu avatar em todas as telas que você vê. Por enquanto, aparece só para você, neste aparelho: as contrapartes continuam vendo o avatar gerado da sua chave até o nó Sails guardar o avatar público (`LOOSE_WIRES.publicAvatar`, em breve), e o baralho diz isso. O estilo de Configurações → Aparência continua valendo para os avatares das contrapartes (e para o seu, até você escolher um).
   - Dentro de um diálogo modal, a ação de confirmar é o laranja sólido daquela camada ("Usar este avatar"); a regra de um laranja por tela vale por camada visível.
