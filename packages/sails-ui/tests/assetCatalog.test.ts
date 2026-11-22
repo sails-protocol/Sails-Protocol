@@ -107,3 +107,10 @@ describe('network chip on the asset logo (PO 2026-11-21, item 13)', () => {
     expect(networkChipLogo('USDC', null)).toBeNull()
   })
 })
+
+describe('Market offer fan-out (CTO 28, #734)', () => {
+  it('reads only the catalog backend assets, never legacy rails', () => {
+    const { catalogAssetTypes } = require('../src/lib/assetCatalog')
+    expect(catalogAssetTypes()).toEqual(['BTC', 'LIQUID_BTC', 'USDT_ERC20', 'USDT_TRC20'])
+  })
+})

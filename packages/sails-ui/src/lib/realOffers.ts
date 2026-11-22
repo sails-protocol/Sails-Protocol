@@ -26,6 +26,7 @@ import { sailsClient } from './sailsClient'
 import type { AssetType, Offer, PaymentMethod, TradeSide, User } from '../types'
 import { ASSETS } from '../data/mock'
 import { demoPaymentMethodsOf, demoRatingsOf } from './demoMarkers'
+import { catalogAssetTypes } from './assetCatalog'
 
 // `@satsails/p2p-trading-sdk`'s own `discover()` is typed against the *real* backend
 // AssetType (no `DEPIX` — see types.ts's own comment on why this UI's
@@ -33,7 +34,9 @@ import { demoPaymentMethodsOf, demoRatingsOf } from './demoMarkers'
 // doesn't recognize would either 400 or, worse, silently mismatch —
 // neither is useful, and there provably can be no real DePix offers
 // yet regardless. Short-circuit instead of calling discover() at all.
-const REAL_ASSETS = new Set<string>(ASSETS)
+// Only the official catalog's backend assets (CTO 28, #734): the Market never asks for legacy rails
+// (LN_BTC, USDT_LIGHTNING, STACKS, RSK_BTC...). 'Todos' fans out to these only (8 requests, was 36).
+const REAL_ASSETS = new Set<string>(catalogAssetTypes().filter((a) => (ASSETS as readonly string[]).includes(a)))
 
 // LOOSE_WIRES: offer summary needs maker displayName, totalTrades, disputeCount.
 // LiquidityOfferSummary carries only traderReputation; these optional fields are the
@@ -141,7 +144,7 @@ export async function fetchOffers(asset: AssetType | 'Todos', side: TradeSide | 
   // this fans real network calls out to); a direct single-asset request
   // for DEPIX specifically short-circuits the same way.
   if (asset !== 'Todos' && !isRealAsset(asset)) return { offers: [], hadError: false }
-  const assets: (typeof ASSETS)[number][] = asset === 'Todos' ? [...ASSETS] : [asset]
+  const assets: (typeof ASSETS)[number][] = asset === 'Todos' ? ([...REAL_ASSETS] as (typeof ASSETS)[number][]) : [asset]
   const sides: TradeSide[] = side === 'Todos' ? ['BUY', 'SELL'] : [side]
 
   const results = await Promise.all(

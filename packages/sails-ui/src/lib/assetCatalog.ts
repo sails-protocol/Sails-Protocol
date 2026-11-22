@@ -119,6 +119,11 @@ export const DEV_TEST_PAIR: AssetPair = {
   testOnly: true,
 }
 
+/** Backend asset types the Market reads offers for: only the official catalog's pairs (CTO 28, #734), no legacy rails. */
+export function catalogAssetTypes(): EnumAssetType[] {
+  return [...new Set(ASSET_CATALOG.map((p) => p.assetType).filter((a): a is EnumAssetType => a !== null))]
+}
+
 /** Every option a picker shows, in catalog order (the dev test rail last, inside Bitcoin's group). */
 export function pickerPairs(includeDevTest: boolean): AssetPair[] {
   if (!includeDevTest) return [...ASSET_CATALOG]
