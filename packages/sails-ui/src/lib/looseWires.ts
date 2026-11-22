@@ -1,6 +1,7 @@
 import {
   Activity, Bell, CircleUser, Globe, Info, KeyRound, Languages, LifeBuoy, Link2, Lock, MapPin, MessageSquare,
   ServerCog, CalendarDays, Coins, CreditCard, Scale, Star, Users, Wallet, Network, Ticket, QrCode, UserCheck, Fingerprint, PlusCircle, Compass, Palette, EyeOff,
+  Store, ShieldCheck, MessagesSquare, BadgeCheck, ShoppingBag,
 } from 'lucide-react'
 import { t } from '../i18n'
 
@@ -42,6 +43,14 @@ export const LOOSE_WIRES = {
   marketDiscovery: { get label() { return t('looseWires.marketDiscovery') }, icon: Compass, contract: 'Discovery of public markets on Rede Sails (several public markets allowed, e.g. a company storefront without own infrastructure) + follow/unfollow, read through the SDK; Sails Market ID format by the Principal. Issue #147, ADR-001 §6/§14' },
   marketParticipationPrivacy: { get label() { return t('looseWires.marketParticipationPrivacy') }, icon: EyeOff, contract: 'Who can see which markets a person belongs to (membership visibility to other members, admins, nodes): unspecified until the #147 permission/privacy spec by the Principal; GK validates the limits. Issue #147' },
   marketBranding: { get label() { return t('looseWires.marketBranding') }, icon: Palette, contract: 'Market name, description, logo/colors stored with the Sails Market and read through the SDK (white-label storefront); no field exists today. Issue #147' },
+  // Market Spaces (DECISIONS.md "Mercados (Market Spaces)", Principal contract draft in lib/marketContract.ts; proposal,
+  // the CTO has not ratified the Day 0 cut). Each contract names the future SDK call the screen will read.
+  marketPage: { get label() { return t('looseWires.marketPage') }, icon: Store, contract: 'Market page: sails.markets.get(id) -> Market (MarketSummary + entryPolicy, listed, state); 404 for a private market the caller is not a member of (the UI never confirms it exists); offers via liquidity.discover({ marketId }); participantsCount; admin view: sails.markets.members(id) -> public keys only' },
+  marketEntryPolicy: { get label() { return t('looseWires.marketEntryPolicy') }, icon: ShieldCheck, contract: 'Market.entryPolicy { kyc: none|above_threshold|all, thresholdUsd?, providerUrl? (admin link, never fetched by the node), social: X|LINKEDIN|GITHUB[] }, written by sails.markets.create/update. Declarative: the admin or their provider evaluates it; restricts joining and new trades only, never funds, settlement or a trade already in escrow. Sails stores no documents' },
+  marketGroupChat: { get label() { return t('looseWires.marketGroupChat') }, icon: MessagesSquare, contract: 'Market group chat: not in Day 0. Needs a market-scoped message channel with membership checks (sails.markets.members) separate from the per-trade chat, which stays the only real chat' },
+  marketVerification: { get label() { return t('looseWires.marketVerification') }, icon: BadgeCheck, contract: 'Market "Verificado" seal: not in Day 0; criteria to be set by the CTO and the protocol (ratings, number and volume of trades are only the demo idea). Until then the real UI never shows the seal (N1)' },
+  managedNode: { get label() { return t('looseWires.managedNode') }, icon: ServerCog, contract: 'Managed Sails node (a node run for the customer): not in Day 0, no provisioning, price or availability defined; Satsails service, not protocol' },
+  spacePurchase: { get label() { return t('looseWires.spacePurchase') }, icon: ShoppingBag, contract: 'Satsails commercial service (not protocol, not SDK): one-time purchase of a market space tied to the owner identity (transfer later). No price, payment rail or order API exists; demo only. The protocol stays permissionless: anyone can create markets with the SDKs without buying' },
   // Other screens.
   disputeAppealView: { get label() { return t('looseWires.disputeAppealView') }, icon: Scale, contract: 'C12: read-only GET /v1/settlement/disputes/:id/appeal-view returning DisputeAppealView (lib/disputeAppeal.ts: appealSupported, appealStatus, appealDeadlineAt (null today, gap G1), canCurrentUserAppeal, decisionFinalAt, optional autoProposal), computed on the backend with no rule change, plus an SDK method to read it; until then the trade page shows the contest of the decision as not available and never infers it. PRINCIPAL-C12 §2/§3' },
   readRatings: { get label() { return t('looseWires.readRatings') }, icon: Star, contract: 'Ler avaliações (média, quantidade, comentários) — endpoint + SDK (only reputation.rate() exists)' },
