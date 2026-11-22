@@ -20,7 +20,7 @@ import {
   type TrustedActorId,
 } from './escrow-lifecycle'
 import { randomUUID } from 'crypto'
-import { fetchOutpointSpendStatus } from './multisig.provider'
+import { fetchOutpointSpendStatus, multisigProvider } from './multisig.provider'
 import { verifySignerPartialSignature, RoundSignatureRejected } from './multisig-round-proofs'
 import { SubmissionDefinitelyFailed } from './broadcast-outcome'
 import { retireRound, RoundNotRetirable } from './pending-round-retirement'
@@ -34,7 +34,7 @@ import { feeCollectionRecognitionService } from './fee-collection-recognition.se
 import { identifyFeeOutput, networkFor } from './multisig.provider'
 import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { authorizePendingExecution } from './capability-execution-authorization'
-import { authorizeDisputedPendingExecution } from './economic-disposition-authority'
+import { authorizeDisputedPendingExecution, economicDispositionLockKey } from './economic-disposition-authority'
 import { childLogger } from '../../common/logger'
 
 const log = childLogger('escrow-pending-tx')
@@ -121,10 +121,7 @@ async function initiateSignatureCollectionCore(
   if (escrow.status === 'DISPUTED') {
     const dispute = await assertDisputedDispositionAuthority(trade.id, escrow.status, triggeredBy)
     // A disputed settlement round exists only to execute a recorded ruling of the same kind.
-    const rulingForKind = kind === 'release' ? 'RELEASE' : kind === 'refund' ? 'REFUND' : 'SPLIT'
-    if (!dispute || dispute.status !== 'RESOLVED' || dispute.ruling !== rulingForKind) {
-      throw new AppError(`Escrow ${escrowId} is DISPUTED: a ${kind} round requires its dispute to be RESOLVED with a ${rulingForKind} ruling`, 409, 'DISPUTE_RULING_REQUIRED')
-    }
+    assertRulingAuthorizesRound(escrowId, kind, dispute, extraData)
     if (dispute) {
       disputedRulingProvenance = {
         disputeId: dispute.id,
@@ -197,6 +194,17 @@ async function initiateSignatureCollectionCore(
           throw new EscrowError(
             `Escrow ${escrowId}'s funding evidence became uncertain (reorg or replacement detected) while this request was in flight — refusing to build a pending ${kind} transaction. Refunding, raising a dispute, or waiting for reconfirmation remain available.`
           )
+        }
+      }
+      // GK C-a3: the ruling is re-read under the dispute's lock, in the same transaction that persists the round, so a
+      // ruling reverted or superseded after the check above can never leave a round behind.
+      if (disputedRulingProvenance.disputeId) {
+        const disputeId = disputedRulingProvenance.disputeId as string
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${economicDispositionLockKey(disputeId)})::bigint)`
+        const live = await tx.dispute.findUnique({ where: { id: disputeId } })
+        assertRulingAuthorizesRound(escrowId, kind, live, extraData)
+        if (live!.appealRound !== disputedRulingProvenance.rulingAppealRound || live!.authoritySignature !== disputedRulingProvenance.rulingAuthoritySignature) {
+          throw new AppError(`Escrow ${escrowId}: the ruling changed while the round was being created`, 409, 'DISPUTE_RULING_REQUIRED')
         }
       }
       const newRoundId = randomUUID()
@@ -462,6 +470,16 @@ export async function submitTransactionSignature(escrowId: string, participantId
     const signedList = pending.requiredSigners.map(
       (id: string) => signatures.find((s: { participantId: string; signedPsbtBase64: string }) => s.participantId === id)!.signedPsbtBase64
     )
+    // A ruling round never carries the arbiter's signature: it is produced here, in memory, only after the ADR-005 and
+    // ADR-004 gates and the escrow claim above, and is never persisted, logged or returned.
+    if (escrow.type === 'MULTISIG' && pending.disputeId) {
+      const { buyerPubkey, sellerPubkey, arbiterPubkey } = await loadParticipantPubkeys(escrowId)
+      const arbiterSig = multisigProvider.signAsArbiterAtExecution(
+        { tradeId: escrow.tradeId, lockedAmount: escrow.lockedAmount.toString(), buyerPubkey, sellerPubkey, arbiterPubkey, status: 'DISPUTED', triggeredBy: pending.rulingArbiterId ?? pending.triggeredBy },
+        pending.unsignedPsbtBase64
+      )
+      if (arbiterSig) signedList.push(arbiterSig)
+    }
     result = pending.kind === 'release'
       ? await provider.finalizeRelease(escrow, pending.unsignedPsbtBase64, signedList, pending.id)
       : pending.kind === 'refund'
@@ -666,4 +684,19 @@ export async function cancelPendingSignatureRound(escrowId: string, pendingTrans
     const retirement = await retireRound(tx, { round, funding, reason: 'CANCELLED', retiredBy: actor })
     return { outcome: 'CANCELLED' as const, pendingTransactionId, retirementId: retirement.id, note: RETIRED_NOT_REVOKED }
   })
+}
+
+// A disputed settlement round exists only to execute the current recorded ruling of the same kind (and, for a split, the
+// same ratio the ruling signed).
+function assertRulingAuthorizesRound(
+  escrowId: string,
+  kind: 'release' | 'refund' | 'split',
+  dispute: { status: string; ruling: string | null; authorityBuyerBps?: number | null } | null,
+  extraData?: Record<string, unknown>
+) {
+  const rulingForKind = kind === 'release' ? 'RELEASE' : kind === 'refund' ? 'REFUND' : 'SPLIT'
+  const ratioMatches = kind !== 'split' || (dispute?.authorityBuyerBps ?? null) === ((extraData?.buyerBps as number | undefined) ?? null)
+  if (!dispute || dispute.status !== 'RESOLVED' || dispute.ruling !== rulingForKind || !ratioMatches) {
+    throw new AppError(`Escrow ${escrowId} is DISPUTED: a ${kind} round requires its dispute to be RESOLVED with a matching ${rulingForKind} ruling`, 409, 'DISPUTE_RULING_REQUIRED')
+  }
 }

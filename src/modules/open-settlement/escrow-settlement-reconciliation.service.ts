@@ -349,6 +349,7 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
         buyerPubkey, sellerPubkey, arbiterPubkey,
         txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
         status: escrow.status,
+        triggeredBy: pending.rulingArbiterId ?? pending.triggeredBy,
       }
 
       // Ask chain truth before deciding whether this is merely convergence
@@ -375,7 +376,8 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
             await authorizePendingExecution(pending)
             await claimEscrowTransition(escrow.id, escrow.status, targetStatus)
             claimedBeforeBroadcast = true
-          }
+          },
+          !!pending.disputeId
         )
       } catch (err) {
         if (isLostEscrowClaim(err)) {
@@ -525,11 +527,19 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
     buyerPubkey, sellerPubkey, arbiterPubkey,
     txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
     status: escrow.status,
+    triggeredBy: pending.rulingArbiterId ?? pending.triggeredBy,
   }
 
   let result: Awaited<ReturnType<typeof multisigProvider.reconcilePendingSettlement>>
   try {
-    result = await multisigProvider.reconcilePendingSettlement(input, pending.unsignedPsbtBase64, signedList as string[])
+    // A ruling round is re-signed by the arbiter only when its durable ADR-005 authorization exists: the live path wrote
+    // it before the claim this escrow already holds. Without it, nothing is signed.
+    result = await multisigProvider.reconcilePendingSettlement(input, pending.unsignedPsbtBase64, signedList as string[],
+      pending.disputeId ? async () => {
+        const authorized = await prisma.economicDispositionAuthorization.findUnique({ where: { pendingOperationId: pending.id }, select: { id: true } })
+        if (!authorized) throw new EscrowError(`Ruling round ${pending.id} has no committed disposition authorization; the arbiter does not sign`)
+      } : undefined,
+      !!pending.disputeId)
   } catch (err) {
     // Issue #299 (CTO D3) - no automatic convergence from here: the node rejected the round's transaction (still
     // UNKNOWN - another node may have it) or the round cannot be built. Structured manual review (code, txid, round),

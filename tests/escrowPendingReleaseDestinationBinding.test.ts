@@ -239,6 +239,8 @@ describe('escrow-pending-tx.ts — disputed disposition authority', () => {
 
   it('keeps the current assigned arbiter authorized for initiateRelease once the dispute is RESOLVED with a RELEASE ruling', async () => {
     mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1', status: 'RESOLVED', ruling: 'RELEASE' })
+    // GK C-a3: re-read under the dispute lock inside the round's transaction
+    mockDisputeFindUniqueLive.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1', status: 'RESOLVED', ruling: 'RELEASE' })
 
     const pending: any = await escrowService.initiateRelease(ESCROW_ID, undefined, 'arbiter-1')
 
@@ -275,6 +277,7 @@ describe('escrow-pending-tx.ts — disputed disposition authority', () => {
       id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1', status: 'RESOLVED',
       appealRound: 0, ruling: 'RELEASE', authoritySignature: 'sig-0', authorityIssuedAt: new Date('2026-09-18T00:00:00.000Z'),
     })
+    mockDisputeFindUniqueLive.mockResolvedValue({ id: 'dispute-1', status: 'RESOLVED', appealRound: 0, ruling: 'RELEASE', authoritySignature: 'sig-0' })
 
     await escrowService.initiateRelease(ESCROW_ID, undefined, 'arbiter-1')
 

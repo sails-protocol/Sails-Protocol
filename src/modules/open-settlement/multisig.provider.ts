@@ -1050,7 +1050,6 @@ export class MultisigProvider implements SettlementProvider {
     outputCount: number,
     computeOutputs: (spendableValue: bigint) => Array<{ address: string; value: bigint }>
   ): Promise<{ psbt: bitcoin.Psbt; feeSats: bigint }> {
-    this.assertArbiterMatchesScript(escrow)
     const { p2ms, p2wsh, network } = this.buildScript(parties)
 
     if (!escrow.txLockId) {
@@ -1183,8 +1182,7 @@ export class MultisigProvider implements SettlementProvider {
     const feeCollectionResult: FeeCollectionResult | null = policyAware ? { feeSats: fmax, waived: fmax === 0 } : null
 
     if (escrow.status === 'DISPUTED') {
-      const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow)) // Fase 7.3.1 §B — see resolveArbiterSigningId()'s own comment
-      psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+      // The arbiter's signature is added only at execution, after the commit gates (signAsArbiterAtExecution()); a round never carries it.
       if (!escrow.buyerId) {
         throw new EscrowError(`MULTISIG provider: missing buyerId for disputed release of trade ${escrow.tradeId}`)
       }
@@ -1239,8 +1237,7 @@ export class MultisigProvider implements SettlementProvider {
     const { psbt, feeSats } = await this.buildUnsignedSpend(escrow, parties, 1, (spendableValue) => [{ address: sellerRefundAddress, value: spendableValue }])
 
     if (escrow.status === 'DISPUTED') {
-      const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow)) // Fase 7.3.1 §B — see resolveArbiterSigningId()'s own comment
-      psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+      // See buildUnsignedRelease(): the arbiter signs only at execution.
       if (!escrow.sellerId) {
         throw new EscrowError(`MULTISIG provider: missing sellerId for disputed refund of trade ${escrow.tradeId}`)
       }
@@ -1341,8 +1338,7 @@ export class MultisigProvider implements SettlementProvider {
 
     const feeCollectionResult: FeeCollectionResult | null = policyAware ? { feeSats: collectedFee, waived: feeDecision.waived } : null
 
-    const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow)) // Fase 7.3.1 §B — see resolveArbiterSigningId()'s own comment
-    psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+    // See buildUnsignedRelease(): the arbiter signs only at execution.
     if (!escrow.buyerId) {
       throw new EscrowError(`MULTISIG provider: missing buyerId for disputed split of trade ${escrow.tradeId}`)
     }
@@ -1368,6 +1364,20 @@ export class MultisigProvider implements SettlementProvider {
   // bugs happen, even when they turn out harmless on inspection — here
   // there is only ever one). Never re-derives or re-requests a signature;
   // only recombines what real signers already submitted and persisted.
+  private assertSignaturesVerify(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]) {
+    const network = networkFor(config.multisig.network)
+    const roundTx = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network }).data.globalMap.unsignedTx.toBuffer()
+    const keys = [escrow.buyerPubkey, escrow.sellerPubkey].filter((k): k is string => !!k).map((k) => Buffer.from(k, 'hex'))
+    for (const signed of signedPsbtBase64List) {
+      const copy = bitcoin.Psbt.fromBase64(signed, { network })
+      const sameRound = Buffer.from(copy.data.globalMap.unsignedTx.toBuffer()).equals(Buffer.from(roundTx))
+      const verifies = (k: Buffer) => (copy.data.inputs[0]?.partialSig ?? []).some((p) => Buffer.from(p.pubkey).equals(k)) && copy.validateSignaturesOfInput(0, (pub, msghash, sig) => ecc.verify(msghash, pub, sig), k)
+      if (!sameRound || !keys.some(verifies)) {
+        throw new EscrowError(`MULTISIG provider: a stored signature for trade ${escrow.tradeId}'s round does not verify for a party key`)
+      }
+    }
+  }
+
   private buildFinalizedTransaction(tradeId: string, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): bitcoin.Transaction {
     const network = networkFor(config.multisig.network)
     try {
@@ -1465,23 +1475,30 @@ export class MultisigProvider implements SettlementProvider {
     escrow: MultisigEscrowInput,
     unsignedPsbtBase64: string,
     signedPsbtBase64List: string[],
-    beforeFirstBroadcast?: () => Promise<void>
+    beforeFirstBroadcast?: () => Promise<void>,
+    arbiterAtExecution = false
   ): Promise<
     | { outcome: 'ALREADY_BROADCAST'; txId: string; rawTxHex: string; detail: string }
     | { outcome: 'NEWLY_BROADCAST'; txId: string; rawTxHex: string; detail: string }
     | { outcome: 'ANOMALY'; detail: string }
   > {
-    const tx = this.buildFinalizedTransaction(escrow.tradeId, unsignedPsbtBase64, signedPsbtBase64List)
-    const expectedTxId = tx.getId()
+    // P2WSH: the txid excludes the witness, so it is known from the unsigned transaction alone. A ruling round no longer
+    // carries the arbiter's signature, so it is added only below, after the gates, when a NEW broadcast is needed.
+    const network = networkFor(config.multisig.network)
+    const expectedTxId = bitcoin.Transaction.fromBuffer(bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network }).data.globalMap.unsignedTx.toBuffer()).getId()
+    const buildSigned = () => {
+      const arbiterSig = arbiterAtExecution ? this.signAsArbiterAtExecution(escrow, unsignedPsbtBase64) : null
+      return this.buildFinalizedTransaction(escrow.tradeId, unsignedPsbtBase64, arbiterSig ? [...signedPsbtBase64List, arbiterSig] : signedPsbtBase64List)
+    }
     // Sails Core Implementation Program M9 (Recovery) — additive, same
     // precedent as finalizeSpend()'s own M8.6 change: the recovery path
     // needs the real, exactly-reconstructed transaction bytes to
     // (re)evaluate M6 correspondence, exactly like the happy path
     // already does. Computed once here since `tx` already exists.
-    const rawTxHex = tx.toHex()
-
     const existence = await fetchTransactionExistence(expectedTxId)
     if (existence.exists) {
+      // The network's own bytes; never re-signed to reconstruct them.
+      const rawTxHex = await fetchTransactionHex(expectedTxId)
       return {
         outcome: 'ALREADY_BROADCAST', txId: expectedTxId, rawTxHex,
         detail: `Transaction ${expectedTxId} is already known to the network (confirmed=${existence.confirmed}) — converging local state to this observed truth, no new broadcast.`,
@@ -1509,6 +1526,10 @@ export class MultisigProvider implements SettlementProvider {
       // ALREADY_BROADCAST never reaches this callback, preserving recovery
       // of external truth after later authority changes.
       if (beforeFirstBroadcast) await beforeFirstBroadcast()
+      // After the gates: the beneficiary's signatures are re-verified against the round, then the arbiter signs in memory.
+      this.assertSignaturesVerify(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+      const tx = buildSigned()
+      const rawTxHex = tx.toHex()
 
       // Sails Core Implementation Program M9-R (R6, provider txid
       // integrity) — same discipline as finalizeSpend(): `expectedTxId`
@@ -1522,6 +1543,7 @@ export class MultisigProvider implements SettlementProvider {
           escrowId: escrow.tradeId, expectedTxId, providerReturnedTxId,
         })
       }
+      if (tx.getId() !== expectedTxId) throw new EscrowError(`MULTISIG provider: the rebuilt transaction for trade ${escrow.tradeId} does not match its round`)
       return {
         outcome: 'NEWLY_BROADCAST', txId: expectedTxId, rawTxHex,
         detail: `Funding outpoint ${escrow.txLockId}:${escrow.txLockVout ?? '(no vout)'} was still unspent — broadcast the deterministically-reconstructed transaction for the first time.`,
@@ -1532,6 +1554,29 @@ export class MultisigProvider implements SettlementProvider {
       outcome: 'ANOMALY',
       detail: `Funding outpoint ${escrow.txLockId}:${escrow.txLockVout ?? '(no vout)'} is no longer unspent, but no transaction matching the expected reconstructed txid ${expectedTxId} was found on the network — an unexpected spend. Manual review required; no funds moved by this reconciliation attempt.`,
     }
+  }
+
+  /**
+   * The ONLY place the arbiter key signs a settlement. Callers reach it only after the ADR-005 + ADR-004 commit gates of
+   * a disputed (ruling) round. The signature lives in memory only: it is never persisted, logged or returned. A legacy
+   * round whose PSBT already carries a valid arbiter signature gets none added (returns null).
+   */
+  signAsArbiterAtExecution(escrow: MultisigEscrowInput, unsignedPsbtBase64: string): string | null {
+    const arbiterPubkey = escrow.arbiterPubkey ? Buffer.from(escrow.arbiterPubkey, 'hex') : null
+    if (!arbiterPubkey) throw new EscrowError(`MULTISIG provider: escrow for trade ${escrow.tradeId} has no arbiter commitment`)
+    // The identity executing the ruling must still derive the exact committed key (drift fails closed, before anything else).
+    this.assertArbiterMatchesScript({ ...escrow, status: 'DISPUTED' })
+    const network = networkFor(config.multisig.network)
+    const psbt = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network })
+    const existing = (psbt.data.inputs[0]?.partialSig ?? []).find((p) => Buffer.from(p.pubkey).equals(arbiterPubkey))
+    if (existing) {
+      const ok = psbt.validateSignaturesOfInput(0, (pub, msghash, sig) => ecc.verify(msghash, pub, sig), arbiterPubkey)
+      if (!ok) throw new EscrowError(`MULTISIG provider: the legacy arbiter signature on trade ${escrow.tradeId}'s round does not verify`)
+      return null
+    }
+    const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow))
+    psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+    return psbt.toBase64()
   }
 
   async finalizeRelease(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string; rawTxHex: string }> {
