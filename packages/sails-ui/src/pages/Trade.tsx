@@ -48,6 +48,7 @@ import { ASSET_LABELS, ASSET_SHORT_LABELS, DISPUTE_RULING_LABEL, ESCROW_TYPE_LAB
 import { AssetNetworkLabel } from '../components/ui/AssetIcon'
 import { t } from '../i18n'
 import { AsideResizer, useTradeAsideWidth } from '../components/trade/AsideResizer'
+import { SafetyCenterLink } from '../components/safety/SafetyCenterLink'
 
 // Sails Core Implementation Program M8-R2 (Destination Authority
 // Conformance, 2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md) —
@@ -1153,6 +1154,7 @@ export function Trade() {
                 className="mt-1 w-full"
                 rows={3}
               />
+              <SafetyCenterLink page="incident" className="mt-1 text-sm">{t('shell.safetyCenter.ifSomethingWrong')}</SafetyCenterLink>
               <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                 <Button variant="destructive" onClick={handleOpenDispute} loading={acting} className="min-h-11 text-sm">{t('trade.disputeForm.confirm')}</Button>
                 <Button variant="outline" onClick={cancelDisputeForm} className="min-h-11 text-sm">{t('common.cancel')}</Button>

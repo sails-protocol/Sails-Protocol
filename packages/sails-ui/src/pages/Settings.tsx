@@ -40,6 +40,7 @@ import { BASE_URL } from '../lib/sailsClient'
 import { useNodeConnection } from '../hooks/useNodeConnection'
 import type { NodeConnectionStatus } from '../lib/nodeConnection'
 import { t } from '../i18n'
+import { safetyCenterHref, safetyCenterLanguageNote } from '../components/safety/SafetyCenterLink'
 
 // Option lists are built at render so their labels follow the interface language.
 const avatarStyleOptions = (): ReadonlyArray<{ value: IdentityAvatarStyle; label: string }> => [
@@ -382,6 +383,14 @@ export function Settings() {
           </SettingsGroup>
 
           <SettingsGroup {...panel('ajuda')} title={t('settings.section.help')} icon={HelpCircle}>
+            {/* External, live Safety Center (PO 2026-11-23): first in Ajuda e Sobre, in demo and real mode alike. */}
+            <SettingsRow
+              icon={ShieldCheck}
+              label={t('shell.safetyCenter.label')}
+              description={t('shell.safetyCenter.description') + safetyCenterLanguageNote()}
+              href={safetyCenterHref()}
+              newTabLabel={t('shell.safetyCenter.newTab')}
+            />
             <SettingsRow icon={HelpCircle} label={t('settings.help.tour')} description={t('settings.help.tourDescription')} onClick={replayTour} />
             <SettingsRow
               icon={Award}
