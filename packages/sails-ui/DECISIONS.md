@@ -333,7 +333,7 @@ Origem: áudios do PO (22/11) organizados pela sessão de UI (`ui-mercados-audio
 - **Refinamentos de pesquisa (PM, 2026-11-22)**, aplicados só onde mantêm o fluxo simples:
   - intenção estruturada no chat do grupo ("Publicar intenção": tipo, valor, forma de pagamento) com "Conversar no privado" que leva o cartão para a conversa;
   - na conversa privada, a ação principal é "Propor negociação" (lado preenchido pelo cartão), a faixa "Só o trade com escrow protege o valor" fica fixa e um aviso suave aparece quando a mensagem parece levar o pagamento para fora do trade (`lib/offTradeRisk.ts`, nunca bloqueia); dados de pagamento só existem dentro do trade;
-  - selo de demonstração renomeado para "Comunidade ativa" (mede atividade, não identidade); o selo de perfil (P2P / Empresa-OTC) é separado; o "Verificado" real continua escondido (N1);
+  - selo de demonstração renomeado para "Mercado ativo" (mede atividade, não identidade); o selo de perfil (P2P / Empresa-OTC) é separado; o "Verificado" real continua escondido (N1);
   - a compra diz o que a pessoa tem (o espaço e os direitos de administração) e o que não tem (os fundos dos participantes ficam sempre no escrow de cada trade), "pagamento único, sem renovação", sem níveis que expiram;
   - ainda não feitos nesta etapa, registrados no mapa de ligações: folha "Regras da comunidade" com "Aceito e entrar", pedidos de entrada com aprovação, prévia do link de convite, ordenação "Mais ativas" com entrada e ativos nos cartões, "Meus espaços" com "Transferir" e as ferramentas do administrador (fixar, modo lento, remover citando a regra, denunciar).
 

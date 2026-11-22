@@ -183,6 +183,7 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
   const [posting, setPosting] = useState(false)
   const [pinned, setPinned] = useState<string | null>(null)
   const listRef = useRef<HTMLUListElement>(null)
+  const postButton = useRef<HTMLButtonElement>(null)
   const [threads, setThreads] = useState<Record<string, { peer: Peer; intent?: Intent; context?: string; side?: 'BUY' | 'SELL'; offerId?: string; msgs: readonly Msg[] }>>({})
   const [open, setOpen] = useState<string | null>(null)
 
@@ -199,7 +200,9 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
     setPosting(false)
     simulatedToast()
     // The posted card scrolls into view once rendered.
-    requestAnimationFrame(() => listRef.current?.lastElementChild?.scrollIntoView({ block: 'nearest' }))
+    // After the dialog closes and the list renders: smooth only when the system allows motion.
+    const smooth = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    window.setTimeout(() => listRef.current?.lastElementChild?.scrollIntoView({ block: 'nearest', behavior: smooth ? 'smooth' : 'auto' }), 50)
   }
   const sendPrivate = (seed: string, text: string) => {
     setThreads((th) => ({ ...th, [seed]: { ...th[seed], msgs: [...th[seed].msgs, { id: `p${th[seed].msgs.length + 1}`, ...ME, text, own: true, risky: looksOffTrade(text) }] } }))
@@ -236,9 +239,10 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
             {group.map((m) => <Bubble key={m.id} m={m} onPrivate={(x) => openPrivate({ author: x.author, seed: x.seed }, x.intent)} onPin={canPin ? (x) => { setPinned(x.id); simulatedToast() } : undefined} />)}
           </ul>
           <Composer label={t('spaces.chat.groupPlaceholder')} onSend={sendGroup} />
-          <Button type="button" variant="ghost" size="sm" onClick={() => setPosting(true)} className="touch:min-h-11">{t('spaces.intent.open')}</Button>
+          <Button ref={postButton} type="button" variant="ghost" size="sm" onClick={() => setPosting(true)} className="touch:min-h-11">{t('spaces.intent.open')}</Button>
           <Dialog open={posting} onOpenChange={setPosting}>
-            <DialogContent className="max-w-lg">
+            {/* No Radix trigger: focus goes back to "Publicar intenção" on close. */}
+            <DialogContent className="max-w-lg" onCloseAutoFocus={(e) => { e.preventDefault(); postButton.current?.focus() }}>
               <DialogHeader className="pr-10 text-left"><DialogTitle>{t('spaces.intent.open')}</DialogTitle></DialogHeader>
               <IntentForm onPost={postIntent} onCancel={() => setPosting(false)} />
             </DialogContent>
