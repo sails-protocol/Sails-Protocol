@@ -26,7 +26,8 @@ function Toggle({ id, description }: { id: LooseWireId; description?: string }) 
       icon={wire.icon}
       label={wire.label}
       description={<><SimulatedBadge label={t('spaces.simulated')} className="mr-1.5" />{description}</>}
-      control={<Switch checked={on} aria-label={wire.label} onCheckedChange={(v) => { setOn(v); simulatedToast() }} />}
+      // Transparent 10px top/bottom border clipped from the fill: a 44px touch target with the same 24px track.
+      control={<Switch checked={on} aria-label={wire.label} onCheckedChange={(v) => { setOn(v); simulatedToast() }} className="touch:h-11 touch:border-y-[10px] touch:bg-clip-padding" />}
     />
   )
 }
