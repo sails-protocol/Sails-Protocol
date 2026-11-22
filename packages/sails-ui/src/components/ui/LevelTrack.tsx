@@ -13,6 +13,8 @@ export interface TrackLevel {
   /** Shown under the label: "Você está em …" for the current level, the state ("Em preparação") for the others. */
   note: string
   current?: boolean
+  /** The label is a product name: render it with translate="no" so browser translation keeps it. */
+  noTranslate?: boolean
 }
 
 export function LevelTrack({ levels, label, className }: { levels: readonly TrackLevel[]; label: string; className?: string }) {
@@ -38,7 +40,7 @@ export function LevelTrack({ levels, label, className }: { levels: readonly Trac
             {l.current && <span className="size-2 rounded-full bg-brand-surface" />}
           </span>
           <span className="min-w-0">
-            <span className={cn('block text-sm', l.current ? 'font-semibold text-brand-text' : 'font-medium text-brand-text-secondary')}>{l.label}</span>
+            <span translate={l.noTranslate ? 'no' : undefined} className={cn('block text-sm', l.current ? 'font-semibold text-brand-text' : 'font-medium text-brand-text-secondary')}>{l.label}</span>
             <span className={cn('mt-0.5 flex items-center gap-1 text-caption md:justify-center', l.current ? 'font-medium text-brand-text' : 'text-brand-text-muted')}>
               {!l.current && <Lock aria-hidden="true" className="size-icon-xs shrink-0" />}
               {l.note}

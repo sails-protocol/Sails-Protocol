@@ -32,6 +32,8 @@ import { t, type MessageKey } from '../../i18n'
 const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secondary'
 const LINK = 'inline-flex min-h-8 touch:min-h-11 items-center font-medium text-brand-link underline underline-offset-2 hover:decoration-2'
 // Level names are proposed product names, the same in every language (never translated); "Padrão" is translated.
+// Wherever a level name renders on its own it carries translate="no" so browser translation leaves it alone.
+const noTranslate = (id: string) => (id === 'standard' ? undefined : 'no')
 const LEVELS = [
   { id: 'standard', name: () => t('profile.merchant.level.standard') },
   { id: 'merchant', name: () => 'Merchant' },
@@ -69,7 +71,7 @@ function PerksMatrix() {
           <TableHeader>
             <TableRow>
               <TableHead scope="col">{m('perks.col')}</TableHead>
-              {LEVELS.map((l) => <TableHead key={l.id} scope="col">{l.name()}</TableHead>)}
+              {LEVELS.map((l) => <TableHead key={l.id} scope="col" translate={noTranslate(l.id)}>{l.name()}</TableHead>)}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -87,7 +89,7 @@ function PerksMatrix() {
         {LEVELS.map((l) => (
           <li key={l.id}>
             <Card className="p-4">
-              <h4 className="text-sm font-semibold text-brand-text">{l.name()}</h4>
+              <h4 className="text-sm font-semibold text-brand-text" translate={noTranslate(l.id)}>{l.name()}</h4>
               <ul className="mt-2 divide-y divide-brand-border-subtle text-body-sm">
                 {PERKS.map(([perk, levels]) => (
                   <li key={perk} className="flex items-start justify-between gap-3 py-2">
@@ -176,12 +178,12 @@ export function MerchantProgramSection({ user, className }: { user: User | null;
     return () => clearTimeout(timer)
   }, [hash])
 
-  const INCENTIVES: [string, string][] = [
+  const INCENTIVES: [string, string, levelName?: boolean][] = [
     [t('profile.merchant.incentives.standard'), t('profile.merchant.incentives.standardWhat')],
     [t('profile.merchant.incentives.space'), t('profile.merchant.incentives.spaceWhat')],
-    ['Merchant', t('profile.merchant.incentives.merchantWhat')],
-    ['Merchant Pro', t('profile.merchant.incentives.proWhat')],
-    ['Merchant Elite', t('profile.merchant.incentives.eliteWhat')],
+    ['Merchant', t('profile.merchant.incentives.merchantWhat'), true],
+    ['Merchant Pro', t('profile.merchant.incentives.proWhat'), true],
+    ['Merchant Elite', t('profile.merchant.incentives.eliteWhat'), true],
     [t('profile.merchant.incentives.operator'), t('profile.merchant.incentives.operatorWhat')],
   ]
   // Everyone is "Padrão" today: no level is active.
@@ -189,6 +191,7 @@ export function MerchantProgramSection({ user, className }: { user: User | null;
     id: l.id,
     label: l.name(),
     current: i === 0,
+    noTranslate: l.id !== 'standard',
     note: i === 0 ? m('level.current', { level: l.name() }) : m('level.preparing'),
   }))
   return (
@@ -218,9 +221,9 @@ export function MerchantProgramSection({ user, className }: { user: User | null;
       {/* CTO 38 complement 1: who gets what, as a proposal with no numbers; the protocol (never a node) sets base fee and benefits. */}
       <h3 className="mt-6 text-sm font-semibold text-brand-text">{t('profile.merchant.incentives.title')}</h3>
       <dl className="mt-1 divide-y divide-brand-border-subtle text-body-sm">
-        {INCENTIVES.map(([who, what]) => (
+        {INCENTIVES.map(([who, what, levelName]) => (
           <div key={what} className="py-1.5 sm:grid sm:grid-cols-[14rem_minmax(0,1fr)] sm:gap-3">
-            <dt className="font-medium text-brand-text">{who}</dt>
+            <dt className="font-medium text-brand-text" translate={levelName ? 'no' : undefined}>{who}</dt>
             <dd className="text-brand-text-secondary">{what}</dd>
           </div>
         ))}
