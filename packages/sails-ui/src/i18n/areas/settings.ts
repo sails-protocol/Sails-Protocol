@@ -16,6 +16,7 @@ export default defineArea(
     'settings.systemDefault': 'Padrão do sistema',
 
     'settings.network.description': 'Funciona por trás do Market. Você não precisa escolher um nó para usar o Mercado aberto.',
+    'settings.network.label': 'Rede Sails',
     'settings.network.default': 'Padrão',
     'settings.network.node': 'Nó Sails',
     'settings.network.nodeDescription': 'Definido pelo app',
@@ -96,6 +97,7 @@ export default defineArea(
       'settings.systemDefault': 'System default',
 
       'settings.network.description': 'Works behind the Market. You do not need to choose a node to use the Open market.',
+      'settings.network.label': 'Sails Network',
       'settings.network.default': 'Default',
       'settings.network.node': 'Sails node',
       'settings.network.nodeDescription': 'Set by the app',
@@ -175,6 +177,7 @@ export default defineArea(
       'settings.systemDefault': 'Predeterminado del sistema',
 
       'settings.network.description': 'Funciona detrás del Market. No necesitas elegir un nodo para usar el Mercado abierto.',
+      'settings.network.label': 'Red Sails',
       'settings.network.default': 'Predeterminada',
       'settings.network.node': 'Nodo Sails',
       'settings.network.nodeDescription': 'Definido por la app',
@@ -254,6 +257,7 @@ export default defineArea(
       'settings.systemDefault': 'Par défaut du système',
 
       'settings.network.description': 'Fonctionne en coulisses du Market. Vous n’avez pas besoin de choisir un nœud pour utiliser le Marché ouvert.',
+      'settings.network.label': 'Réseau Sails',
       'settings.network.default': 'Par défaut',
       'settings.network.node': 'Nœud Sails',
       'settings.network.nodeDescription': 'Défini par l’app',
@@ -277,12 +281,12 @@ export default defineArea(
       'settings.network.syncPlanned': 'La circulation des offres, de la découverte et des mises à jour entre les nœuds est encore en cours de spécification.',
 
       'settings.wallet.checking': 'Vérification de la session…',
-      'settings.wallet.connected': 'Wallet connecté',
+      'settings.wallet.connected': 'Portefeuille connecté',
       'settings.wallet.storedHere': 'Enregistrée dans ce navigateur',
       'settings.wallet.localKey': 'Clé locale',
       'settings.wallet.publicKey': 'Clé publique',
       'settings.wallet.disconnect': 'Se déconnecter',
-      'settings.wallet.none': 'Aucun wallet connecté',
+      'settings.wallet.none': 'Aucun portefeuille connecté',
       'settings.wallet.connect': 'Connecter un wallet',
 
       'settings.appearance.theme': 'Thème',
@@ -294,7 +298,7 @@ export default defineArea(
       'settings.appearance.navSide': 'Latéral',
       'settings.appearance.navTop': 'En haut',
       'settings.appearance.avatarStyle': 'Style des avatars',
-      'settings.appearance.avatarHelp': 'Change la façon dont vous voyez les avatars de vos contreparties, et le vôtre tant que vous n’en choisissez pas un dans Profil. Vous seul voyez ce choix.',
+      'settings.appearance.avatarHelp': 'Change la façon dont vous voyez les avatars de vos contreparties, et le vôtre tant que vous n’en choisissez pas un dans Profil. Ce choix n’est visible que par vous.',
       'settings.appearance.avatarVela': 'Voile',
       'settings.appearance.avatarMare': 'Marée',
       'settings.appearance.avatarGrade': 'Grille',
@@ -333,6 +337,7 @@ export default defineArea(
       'settings.systemDefault': 'Systemstandard',
 
       'settings.network.description': 'Arbeitet im Hintergrund des Market. Du musst keinen Knoten wählen, um den Offenen Markt zu nutzen.',
+      'settings.network.label': 'Sails-Netzwerk',
       'settings.network.default': 'Standard',
       'settings.network.node': 'Sails-Knoten',
       'settings.network.nodeDescription': 'Von der App festgelegt',
@@ -373,7 +378,7 @@ export default defineArea(
       'settings.appearance.navSide': 'Seitlich',
       'settings.appearance.navTop': 'Oben',
       'settings.appearance.avatarStyle': 'Avatar-Stil',
-      'settings.appearance.avatarHelp': 'Ändert, wie du die Avatare deiner Gegenparteien siehst, und deinen, solange du im Profil keinen wählst. Nur du siehst diese Wahl.',
+      'settings.appearance.avatarHelp': 'Ändert, wie du die Avatare deiner Gegenparteien und deinen eigenen siehst, solange du im Profil keinen wählst. Nur du siehst diese Wahl.',
       'settings.appearance.avatarVela': 'Segel',
       'settings.appearance.avatarMare': 'Gezeiten',
       'settings.appearance.avatarGrade': 'Raster',

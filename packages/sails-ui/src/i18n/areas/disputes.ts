@@ -288,7 +288,7 @@ export default defineArea(
     },
     fr: {
       'disputes.meta': { one: '{count} de vos trades en litige', other: '{count} de vos trades en litige' },
-      'disputes.signedOutDescription': 'Connectez votre wallet pour voir vos trades en litige.',
+      'disputes.signedOutDescription': 'Connectez votre portefeuille pour voir vos trades en litige.',
       'disputes.errorTitle': 'Impossible de charger vos trades en litige',
       'disputes.loading': 'Chargement des trades en litige',
       'disputes.emptyTitle': 'Aucun de vos trades n’est en litige',
@@ -312,7 +312,7 @@ export default defineArea(
       'disputes.personWithRole': '{name} ({role})',
 
       'disputes.toast.escrowNotLoaded': 'Impossible de charger l’escrow de ce litige. Réessayez.',
-      'disputes.toast.noSigningKey': 'Aucune clé de signature disponible dans cette session. Reconnectez votre wallet.',
+      'disputes.toast.noSigningKey': 'Aucune clé de signature disponible dans cette session. Reconnectez votre portefeuille.',
       'disputes.ruled.release': 'Décision enregistrée : libérer les fonds à l’acheteur',
       'disputes.ruled.refund': 'Décision enregistrée : restituer les fonds au vendeur',
       'disputes.ruled.split': 'Décision enregistrée : partage entre les parties',

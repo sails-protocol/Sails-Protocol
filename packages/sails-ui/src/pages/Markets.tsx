@@ -27,7 +27,7 @@ import { addDemoCreatedMarket, demoMarketPage, isDemoMode, isRetainedPreview } f
 import { MARKET_CATEGORIES, filterByCategory, offersForMarket, pageOf, readViewMode, saveViewMode, type CategoryFilter, type ViewMode } from '../lib/marketSpaces'
 import { spaceProduct, type SpaceProductId } from '../lib/spaceCatalog'
 import { SpaceCheckout, SpaceTypePicker, spaceName } from './spaces/SpaceCheckout'
-import { formatUsd } from '../lib/format'
+import { formatAmount, formatUsd } from '../lib/format'
 import { IMAGE_MAX_BYTES, IMAGE_SPECS, formatPx, type ImageKind } from '../lib/imageCheck'
 import { getLocale } from '../lib/locale'
 import type { ImagePickerCopy } from '../components/markets/ImagePicker'
@@ -132,7 +132,7 @@ function createCopy(): CreateMarketCopy {
         { value: 'above_threshold', label: t('spaces.create.kyc.above'), description: t('spaces.create.kyc.aboveDescription') },
         { value: 'all', label: t('spaces.create.kyc.all'), description: t('spaces.create.kyc.allDescription') },
       ],
-      threshold: t('spaces.create.threshold'), thresholdHelp: t('spaces.create.thresholdHelp'), thresholdError: t('spaces.create.thresholdError'),
+      threshold: t('spaces.create.threshold'), thresholdHelp: t('spaces.create.thresholdHelp', { amount: formatAmount(10000, 0) }), thresholdError: t('spaces.create.thresholdError'),
       provider: t('spaces.create.provider'), providerHelp: t('spaces.create.providerHelp'), providerError: t('spaces.create.providerError'),
       socialLegend: t('spaces.create.socialLegend'), socialHelp: t('spaces.create.socialHelp'), social: SOCIAL_OPTIONS,
       responsibility: t('spaces.create.responsibility'),

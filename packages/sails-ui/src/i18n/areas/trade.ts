@@ -858,8 +858,8 @@ export default defineArea(
     },
     fr: {
       'trade.page.loading': 'Chargement du trade',
-      'trade.page.signedOutTitle': 'Connectez votre wallet',
-      'trade.page.signedOutDescription': 'Connectez votre wallet pour voir ce trade.',
+      'trade.page.signedOutTitle': 'Connectez votre portefeuille',
+      'trade.page.signedOutDescription': 'Connectez votre portefeuille pour voir ce trade.',
       'trade.page.connect': 'Connecter le wallet',
       'trade.page.loadFailed': 'Impossible de charger ce trade',
       'trade.page.loadFailedDescription': 'Vérifiez votre connexion et réessayez.',

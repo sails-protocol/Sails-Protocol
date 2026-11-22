@@ -110,11 +110,11 @@ export default defineArea(
     },
     fr: {
       'auth.login.title': 'Connecter le wallet',
-      'auth.login.description': 'Connectez votre wallet et signez un message pour entrer. Signer pour entrer ne déplace aucun fonds.',
+      'auth.login.description': 'Connectez votre portefeuille et signez un message pour entrer. Signer pour entrer ne déplace aucun fonds.',
       'auth.login.continue': 'Connectez-vous pour continuer.',
       'auth.login.localKey': 'Clé locale',
       'auth.login.localKeySubtitle': 'Pour les tests, stockée dans ce navigateur',
-      'auth.login.noWallet': 'Vous n’avez pas de wallet ? Satsails Wallet : bientôt.',
+      'auth.login.noWallet': 'Vous n’avez pas de portefeuille ? Satsails Wallet : bientôt.',
 
       'auth.local.back': 'Retour aux options',
       'auth.local.info': 'Vous vous connectez en signant un message avec une clé créée dans ce navigateur, sans e-mail ni compte. La clé privée reste ici, chiffrée par votre mot de passe.',
@@ -132,10 +132,10 @@ export default defineArea(
       'auth.local.connecting': 'Connexion…',
       'auth.local.privacyNote': 'La connexion ne demande qu’une signature : elle ne déplace aucun fonds et n’approuve aucun trade. Le nœud Sails reçoit la signature et la clé publique, pas la clé privée.',
       'auth.local.createToProtect': 'Créez un mot de passe pour protéger votre clé',
-      'auth.local.connected': 'Wallet connecté',
+      'auth.local.connected': 'Portefeuille connecté',
       'auth.local.connectFailed': 'Impossible de se connecter. Réessayez.',
 
-      'auth.session.expired': 'Votre session a expiré. Reconnectez votre wallet pour continuer.',
+      'auth.session.expired': 'Votre session a expiré. Reconnectez votre portefeuille pour continuer.',
 
       'auth.errors.wrongPassphrase': 'Mot de passe incorrect. Vérifiez-le et réessayez.',
       'auth.errors.saveKeyFailed': 'Impossible d’enregistrer votre clé dans ce navigateur. Cela arrive en navigation privée ou quand le stockage est plein. Utilisez une fenêtre normale ou libérez de l’espace.',

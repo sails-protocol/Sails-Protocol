@@ -134,9 +134,9 @@ export default defineArea(
       'offer.notFound.description': 'Elle n’existe pas ou n’est plus disponible.',
       'offer.backToMarket': 'Retour au Market',
 
-      'offer.toast.connectWallet': 'Connectez d’abord votre wallet',
-      'offer.toast.ownOffer': 'Vous ne pouvez pas négocier votre propre offre',
-      'offer.ticket.methodNotAvailable': 'Le moyen de paiement de cette offre n’est pas encore disponible pour négocier.',
+      'offer.toast.connectWallet': 'Connectez d’abord votre portefeuille',
+      'offer.toast.ownOffer': 'Vous ne pouvez pas échanger sur votre propre offre',
+      'offer.ticket.methodNotAvailable': 'Le moyen de paiement de cette offre n’est pas encore disponible pour échanger.',
       'offer.toast.outOfLimits': 'Saisissez une quantité dans les limites de l’offre',
       'offer.toast.started': 'Trade lancé',
       'offer.toast.startFailed': 'Impossible de lancer le trade. Réessayez.',

@@ -83,7 +83,7 @@ export function NetworkRow() {
   return (
     <SettingsRow
       icon={Network}
-      label="Rede Sails"
+      label={t('settings.network.label')}
       description={t('settings.network.description')}
       value={<Badge variant="outline" className={TONAL_BADGE}>{t('settings.network.default')}</Badge>}
     />

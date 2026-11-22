@@ -223,7 +223,7 @@ export default defineArea(
       'trades.offers.signedOutDescription': 'Conecta tu wallet para ver y gestionar tus ofertas.',
     },
     fr: {
-      'trades.connectTitle': 'Connectez votre wallet',
+      'trades.connectTitle': 'Connectez votre portefeuille',
       'trades.connect': 'Connecter le wallet',
       'trades.retry': 'Réessayer',
       'trades.back': 'Retour',
@@ -239,7 +239,7 @@ export default defineArea(
       'trades.active.loadFailed': 'Impossible de charger les trades. Réessayez.',
       'trades.active.count': { one: '{count} trade en cours', other: '{count} trades en cours' },
       'trades.active.waiting': { one: '{count} vous attend', other: '{count} vous attendent' },
-      'trades.active.signedOutDescription': 'Connectez votre wallet pour voir vos trades actifs.',
+      'trades.active.signedOutDescription': 'Connectez votre portefeuille pour voir vos trades actifs.',
       'trades.active.errorTitle': 'Impossible de charger vos trades',
       'trades.active.loading': 'Chargement des trades actifs',
       'trades.active.emptyTitle': 'Aucun trade actif',
@@ -248,7 +248,7 @@ export default defineArea(
       'trades.active.noNext': 'Action suivante indisponible',
 
       'trades.history.loadFailed': 'Impossible de charger l’historique. Réessayez.',
-      'trades.history.signedOutDescription': 'Connectez votre wallet pour voir votre historique de trades.',
+      'trades.history.signedOutDescription': 'Connectez votre portefeuille pour voir votre historique de trades.',
       'trades.history.errorTitle': 'Impossible de charger l’historique',
       'trades.history.stat.volume': 'Volume (USD)',
       'trades.history.stat.completed': 'Marqués comme terminés',
@@ -293,7 +293,7 @@ export default defineArea(
       'trades.offers.confirmCancel': 'Annuler cette offre ? Elle n’apparaîtra plus dans le Market et ne pourra pas être réactivée. Pour revenir sur le Market, publiez-en une nouvelle.',
       'trades.offers.yesCancel': 'Annuler l’offre',
       'trades.offers.checkingSession': 'Vérification de la session…',
-      'trades.offers.signedOutDescription': 'Connectez votre wallet pour voir et gérer vos offres.',
+      'trades.offers.signedOutDescription': 'Connectez votre portefeuille pour voir et gérer vos offres.',
     },
     de: {
       'trades.connectTitle': 'Verbinde deine Wallet',
