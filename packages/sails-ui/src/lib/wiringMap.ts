@@ -41,6 +41,7 @@ export const WIRE_META: Readonly<Record<LooseWireId, WireMeta>> = {
   marketParticipationPrivacy: sim('Mercados', 'Configurações → Mercados'),
   marketPage: sim('Mercados', '/markets/:id'),
   marketEntryPolicy: sim('Mercados', 'Criar mercado (Regras de entrada); página do mercado'),
+  marketIntentPost: sim('Mercados', 'Página do mercado → Chat do grupo → Publicar intenção'),
   marketDirectMessage: sim('Mercados', 'Página do mercado → Conversas privadas'),
   communities: sim('Mercados', 'Substituído por marketMembership (id mantido)'),
   marketGroupChat: out('Mercados', 'Página do mercado → Chat do grupo'),
@@ -52,7 +53,7 @@ export const WIRE_META: Readonly<Record<LooseWireId, WireMeta>> = {
   nodeCatalog: sim('Rede e nós', 'Configurações → Rede e nós → Avançado'),
   nodeStateSync: sim('Rede e nós', 'Configurações → Rede e nós → Avançado'),
   managedNode: out('Serviços Satsails', 'Rede e nós; Comprar espaço (onde roda); Criar mercado (privado)', SATSAILS),
-  spacePurchase: out('Serviços Satsails', '/markets/space (checkout simulado)', SATSAILS),
+  spacePurchase: out('Serviços Satsails', 'Criar mercado: escolha do tipo e "Revisar e pagar" (checkout simulado); /markets/space redireciona', SATSAILS),
   // Wallet e chaves: never simulated (real secrets or funds outside the app).
   satsailsWallet: notice('Wallet e chaves', 'Configurações → Wallet; Conectar wallet'),
   walletConnect: notice('Wallet e chaves', 'Configurações → Wallet; Conectar wallet'),

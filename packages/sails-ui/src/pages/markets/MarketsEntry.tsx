@@ -8,12 +8,12 @@
  */
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { ShoppingBag, UsersRound, X } from 'lucide-react'
+import { UsersRound, X } from 'lucide-react'
 import { MarketPortal, type MarketPortalAction, type MarketPortalCopy } from '../../components/markets/MarketPortal'
 import { ActionIcon, MARKET_ACTION_ICON } from '../../components/markets/MarketIcon'
 import { IconButton } from '../../components/ui/icon-button'
 import { buttonVariants } from '../../components/ui/button'
-import { MARKETS_ROUTES, SPACE_SHOP_ROUTE } from '../../components/layout/navMatch'
+import { MARKETS_ROUTES } from '../../components/layout/navMatch'
 import { dismissDiscovery, readDiscoveryDismissedAt, shouldShowDiscovery } from '../../lib/discoveryCard'
 import { ownMarkets } from '../../lib/myMarkets'
 import { cn } from '../../lib/utils'
@@ -26,9 +26,8 @@ function portalActions(mineCount: number, demo: boolean): readonly MarketPortalA
     { id: 'explore', label: t('markets.action.explore'), description: t('markets.action.exploreDescription'), icon: MARKET_ACTION_ICON.explore, to: MARKETS_ROUTES.explore },
     { id: 'mine', label: t('markets.action.mine'), description: t('spaces.portal.mineDescription'), icon: UsersRound, to: MARKETS_ROUTES.mine, meta: t('spaces.portal.mineCount', { count: mineCount }) },
     { id: 'join', label: t('markets.action.join'), description: t('markets.action.joinDescription'), icon: MARKET_ACTION_ICON.invite, to: MARKETS_ROUTES.join },
-    { id: 'create', label: t('markets.action.create'), description: t('markets.action.createDescription'), icon: MARKET_ACTION_ICON.create, to: MARKETS_ROUTES.create },
-    // Demo only: outside the demo the shop is only a planned item, so the portal does not offer it.
-    ...(demo ? [{ id: 'space', label: t('shop.title'), description: t('shop.portalDescription'), icon: ShoppingBag, to: SPACE_SHOP_ROUTE, secondary: true }] : []),
+    // Buying a space is part of creating a market (PO 2026-11-22): one entry, its price learned in the first step (demo).
+    { id: 'create', label: t('markets.action.create'), description: demo ? t('spaces.portal.createDescription') : t('markets.action.createDescription'), icon: MARKET_ACTION_ICON.create, to: MARKETS_ROUTES.create },
   ]
 }
 

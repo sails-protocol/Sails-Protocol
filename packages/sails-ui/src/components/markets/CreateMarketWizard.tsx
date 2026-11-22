@@ -101,12 +101,16 @@ function Choice<T extends string>({ legend, name, options, value, onChange, note
   )
 }
 
-export function CreateMarketWizard({ copy, initial, privateHostingSlot, brandingSlot, invitesSlot, createAvailable, unavailableNote, participantsAvailable, participantsUnavailableNote, onCreate, primarySolid = true }: {
+export function CreateMarketWizard({ copy, initial, simple = false, createLabel, privateHostingSlot, brandingSlot, invitesSlot, createAvailable, unavailableNote, participantsAvailable, participantsUnavailableNote, onCreate, primarySolid = true }: {
   copy: CreateMarketCopy
   /** Starting values (e.g. the kind of space bought in the demo); everything stays editable. */
   initial?: Partial<MarketDraft>
   /** Shown under the visibility choice when the market is private (where it runs; single node in Day 0). */
   privateHostingSlot?: ReactNode
+  /** Fewer steps (lib/createMarket.ts createSteps): the space type already decided the visibility. */
+  simple?: boolean
+  /** Final action label (e.g. "Revisar e pagar"); defaults to copy.create. */
+  createLabel?: string
   /** Logo and colors (planned item until branding exists). */
   brandingSlot?: ReactNode
   /** Participants and invites for a private market (planned item until invites exist). */
@@ -124,7 +128,7 @@ export function CreateMarketWizard({ copy, initial, privateHostingSlot, branding
   const [index, setIndex] = useState(0)
   const [participant, setParticipant] = useState('')
   const headingRef = useRef<HTMLHeadingElement>(null)
-  const steps = createSteps(draft.visibility)
+  const steps = createSteps(draft.visibility, simple)
   const step = steps[Math.min(index, steps.length - 1)]
   const last = index >= steps.length - 1
   const set = <K extends keyof MarketDraft>(key: K, value: MarketDraft[K]) => setDraft((d) => ({ ...d, [key]: value }))
@@ -209,6 +213,12 @@ export function CreateMarketWizard({ copy, initial, privateHostingSlot, branding
             </button>
             <div id={`${id}-advanced`} hidden={!advanced} className="pt-3">
         <div className="space-y-5">
+              {simple && (
+                <>
+                  <Choice legend={copy.steps.infrastructure} legendVisible name={`${id}-infra`} options={copy.infrastructure} value={draft.infrastructure} onChange={(v) => set('infrastructure', v)} note={copy.infrastructureNote} />
+                  {draft.visibility === 'private' && privateHostingSlot}
+                </>
+              )}
               <p className="text-body-sm text-brand-text-secondary">{copy.entry.lead}</p>
               <Choice legend={copy.entry.kycLegend} legendVisible name={`${id}-kyc`} options={copy.entry.kyc} value={draft.kyc} onChange={(v) => set('kyc', v)} />
               {draft.kyc === 'above_threshold' && (
@@ -322,7 +332,7 @@ export function CreateMarketWizard({ copy, initial, privateHostingSlot, branding
     }
   }
 
-  const finalAction = (step === 'review' && draft.visibility !== 'private') || step === 'invites'
+  const finalAction = simple ? last : (step === 'review' && draft.visibility !== 'private') || step === 'invites'
   return (
     <div className="space-y-4">
       <div>
@@ -338,7 +348,7 @@ export function CreateMarketWizard({ copy, initial, privateHostingSlot, branding
         </Button>
         {finalAction ? (
           <Button type="button" variant={primarySolid ? 'default' : 'secondary'} aria-describedby={!createAvailable && unavailableNote ? `${id}-unavailable` : undefined} onClick={() => onCreate?.(draft)} className="touch:min-h-11">
-            {copy.create}
+            {createLabel ?? copy.create}
           </Button>
         ) : (
           <Button type="button" variant="secondary" disabled={last || !canAdvance(step, draft)} onClick={() => setIndex((i) => i + 1)} className="touch:min-h-11">

@@ -62,7 +62,10 @@ export const PARTICIPANTS_MAX = 20
 export const MARKET_NAME_MAX = 60
 
 /** Steps in order. Participants and invites only exist for a private market. */
-export function createSteps(visibility: MarketVisibility | null): CreateStep[] {
+export function createSteps(visibility: MarketVisibility | null, simple = false): CreateStep[] {
+  // Simple (demo, the space type already chosen, PO 2026-11-22): visibility comes from the type; hosting and entry
+  // rules sit under "Opções avançadas" in the participation step; review happens in "Revisar e pagar".
+  if (simple) return visibility === 'private' ? ['identity', 'participation', 'invites'] : ['identity', 'participation']
   const base: CreateStep[] = ['identity', 'visibility', 'participation', 'infrastructure', 'review']
   return visibility === 'private' ? [...base, 'invites'] : base
 }
