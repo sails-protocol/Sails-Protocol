@@ -32,7 +32,7 @@
 import { prisma } from '../../common/database'
 import { AppError } from '../../common/errors'
 import { Prisma, FeePayerModel, FeeEconomicBasis } from '@prisma/client'
-import { feePolicyService, FeePolicyService } from './fee-policy.service'
+import { feePolicyService, FeePolicyService, maxProtocolFeeRate } from './fee-policy.service'
 import { computeMaxProtocolFee } from './fee-reserve-math'
 import { evaluateFeeCollectibility } from './multisig.provider'
 import { FEE_COLLECTION_CAPABLE_RAILS, assertRailCanActivateFeeCollection } from './escrow-providers'
@@ -86,6 +86,10 @@ export class EscrowFeeSnapshotService {
   }
 
   private fieldsFor(policy: { id: string; protocolFeeRate: Prisma.Decimal | string; payerModel: FeePayerModel; economicBasis: FeeEconomicBasis }, railScope: string, lockedAmount: Prisma.Decimal | string): FeeSnapshotFields {
+    // The node's ceiling is a safety restriction only: above it the operation is REFUSED; the rate charged is never altered.
+    if (new Prisma.Decimal(policy.protocolFeeRate).greaterThan(maxProtocolFeeRate())) {
+      throw new AppError(`escrow refused: the committed fee rate is above this node's ceiling`, 409, 'FEE_RATE_ABOVE_CEILING')
+    }
 
     // Missão 11 Fase 5 §10 — defense-in-depth: fee-policy.service.ts's
     // publish() is the real, only application path that can make a policy

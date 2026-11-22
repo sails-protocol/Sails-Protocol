@@ -286,6 +286,27 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     expect(await prisma.escrow.count({ where: { tradeId: trade.id } })).toBe(0)
   })
 
+  // CTO 38 R1: a node's ceiling only restricts. Below the committed rate the escrow is REFUSED; the committed rate is never changed.
+  it('a node ceiling below the committed rate refuses the escrow (409 FEE_RATE_ABOVE_CEILING); at or above it the committed rate is charged unchanged', async () => {
+    requirePostgres('node ceiling')
+    const original = config.settlement.maxProtocolFeeRate
+    try {
+      const policy = await createPublishedPolicy('MULTISIG', { protocolFeeRate: '0.004' })
+      const refused = await createFixtureTrade(`ceil-low-${Date.now()}`, undefined, true, policy.id)
+      config.settlement.maxProtocolFeeRate = '0.003'
+      await expect(escrowService.createEscrow({ tradeId: refused.trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, refused.buyer.id))
+        .rejects.toMatchObject({ statusCode: 409, code: 'FEE_RATE_ABOVE_CEILING' })
+      expect(await prisma.escrow.count({ where: { tradeId: refused.trade.id } })).toBe(0)
+
+      const charged = await createFixtureTrade(`ceil-ok-${Date.now()}`, undefined, true, policy.id)
+      config.settlement.maxProtocolFeeRate = '0.0045' // tighter than the protocol ceiling, still above the committed rate
+      const escrow = await escrowService.createEscrow({ tradeId: charged.trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, charged.buyer.id)
+      expect(escrow.snapshotProtocolFeeRate?.toString()).toBe('0.004') // never lowered to the ceiling
+    } finally {
+      config.settlement.maxProtocolFeeRate = original
+    }
+  })
+
   it('a trade cannot commit to a fee policy that is not in force (a DRAFT, or one RETIRED)', async () => {
     requirePostgres('pair fee policy status')
     const base = { payerModel: 'SELLER_PAYS' as const, economicBasis: 'SELLER_DELIVERED_VALUE' as const, protocolFeeRate: '0.004', requiredConfirmations: 2, createdBy: 'test' }
